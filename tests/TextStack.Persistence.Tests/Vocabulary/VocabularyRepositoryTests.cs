@@ -22,7 +22,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     /// <summary>Any 64-hex value will do: the repository stores and compares the hash, it does not compute it.</summary>
     private static string Hash(string payload) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
 
-    private static VocabularyWord Word(Guid userId, string? translation = null, string? definition = null, string key = "quiver") => new()
+    private static VocabularyWord Word(Guid userId, string? translation = null, string key = "quiver") => new()
     {
         Id = Guid.NewGuid(),
         UserId = userId,
@@ -30,7 +30,6 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         Word = key,
         WordKey = key,
         Translation = translation,
-        Definition = definition,
     };
 
     private static VocabularyExample Example(Guid userId, string sentence, Guid? operationId = null) => new()
@@ -48,26 +47,38 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         return example;
     }
 
-    /// <summary>A correct answer that takes the card from stage 0 to 1.</summary>
-    private static VocabularyReview Review(VocabularyWord word, Guid? operationId = null) => new()
+    /// <summary>A correct answer to the card, recorded at noon.</summary>
+    private static VocabularyReview Review(VocabularyWord card, Guid? operationId = null) => new()
     {
         Id = Guid.NewGuid(),
-        UserId = word.UserId,
-        WordId = word.Id,
+        UserId = card.UserId,
+        WordId = card.Id,
         OperationId = operationId ?? Guid.NewGuid(),
         PayloadSha256 = Hash("correct"),
         ReviewMode = "multiple_choice",
         IsCorrect = true,
         ResponseTimeMs = 900,
-        StageBefore = 0,
-        StageAfter = 1,
         ClientRecordedAt = Noon,
     };
 
-    private static ReviewSchedule DueAt(DateTimeOffset nextReviewAt) => new(1, 1m, 0, nextReviewAt);
+    /// <summary>A schedule that moves the card one stage up and makes it due at <paramref name="due"/>.</summary>
+    private static Func<VocabularyWord, ReviewSchedule> NextStageDueAt(DateTimeOffset due) =>
+        card => new ReviewSchedule(card.Stage + 1, 1m, 0, due);
 
-    private async Task<VocabularyWord> SavedWordAsync(Guid? userId = null, string? translation = null) =>
-        (await _repo.SaveWordAsync(Word(userId ?? await db.NewReaderAsync(), translation), null, Ct)).Word;
+    private static Func<VocabularyWord, ReviewSchedule> NeverCalled =>
+        _ => throw new InvalidOperationException("The schedule must not be computed.");
+
+    private Task<WriteResult<VocabularyReview>> ReviewAsync(VocabularyWord card, DateTimeOffset due, Guid? operationId = null) =>
+        _repo.RecordReviewAsync(card.UserId, Review(card, operationId), NextStageDueAt(due), Ct);
+
+    private Task<WriteResult<VocabularyExample>> AddAsync(VocabularyWord card, string sentence, Guid? operationId = null) =>
+        _repo.AddExampleAsync(card.UserId, OnCard(card, Example(card.UserId, sentence, operationId)), Ct);
+
+    private async Task<VocabularyWord> SavedWordAsync(Guid? userId = null, string? translation = null)
+    {
+        var user = userId ?? await db.NewReaderAsync();
+        return (await _repo.SaveWordAsync(user, Word(user, translation), null, Ct)).Word;
+    }
 
     private async Task<long> CountAsync(string table, Guid userId)
     {
@@ -81,7 +92,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     {
         var user = await db.NewReaderAsync();
 
-        var saved = await _repo.SaveWordAsync(Word(user, "колчан"), Example(user, "A quiver of arrows."), Ct);
+        var saved = await _repo.SaveWordAsync(user, Word(user, "колчан"), Example(user, "A quiver of arrows."), Ct);
 
         Assert.Equal(WordSaveOutcome.Created, saved.Outcome);
         Assert.Equal((0, 0m, 0, (DateTimeOffset?)null, 1L, "колчан"), (saved.Word.Stage, saved.Word.IntervalDays,
@@ -92,43 +103,35 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
 
     // Plan §4.4: one card per word across books; saving it again from a second book only adds the example.
     [Fact]
-    public async Task SaveWordAsync_SameKeyWithAnotherExample_KeepsOneCardItsScheduleAndAddsTheExample()
+    public async Task SaveWordAsync_SameKeyWithAnotherExample_KeepsOneCardItsScheduleAndTranslationAndAddsTheExample()
     {
         var user = await db.NewReaderAsync();
-        var card = (await _repo.SaveWordAsync(Word(user, "колчан"), Example(user, "Sentence A."), Ct)).Word;
-        await _repo.RecordReviewAsync(Review(card), DueAt(Noon.AddDays(1)), Ct);
+        var card = (await _repo.SaveWordAsync(user, Word(user, "колчан"), Example(user, "Sentence A."), Ct)).Word;
+        await ReviewAsync(card, Noon.AddDays(1));
         var reviewed = (await _repo.GetWordAsync(user, card.Id, Ct))!;
 
-        var again = await _repo.SaveWordAsync(Word(user, "колчан"), Example(user, "Sentence B."), Ct);
+        var again = await _repo.SaveWordAsync(user, Word(user, "сагайдак"), Example(user, "Sentence B."), Ct);
 
-        Assert.Equal((WordSaveOutcome.Existing, card.Id), (again.Outcome, again.Word.Id));
-        Assert.Equal((reviewed.Stage, reviewed.IntervalDays, reviewed.ConsecutiveCorrect, reviewed.NextReviewAt, reviewed.LastReviewedAt, reviewed.Revision),
-            (again.Word.Stage, again.Word.IntervalDays, again.Word.ConsecutiveCorrect, again.Word.NextReviewAt, again.Word.LastReviewedAt, again.Word.Revision));
-        Assert.Equal(1, reviewed.Stage);
-        Assert.Equal(WriteOutcome.Created, again.Example!.Outcome);
-        Assert.Equal(["Sentence A.", "Sentence B."], (await _repo.GetWordAsync(user, card.Id, Ct))!.Examples.Select(e => e.Sentence));
+        var read = (await _repo.GetWordAsync(user, card.Id, Ct))!;
+        Assert.Equal((WordSaveOutcome.Existing, card.Id, WriteOutcome.Created), (again.Outcome, again.Word.Id, again.Example!.Outcome));
+        Assert.Equal((reviewed.Stage, reviewed.IntervalDays, reviewed.ConsecutiveCorrect, reviewed.NextReviewAt, reviewed.LastReviewedAt, reviewed.Revision, "колчан"),
+            (read.Stage, read.IntervalDays, read.ConsecutiveCorrect, read.NextReviewAt, read.LastReviewedAt, read.Revision, read.Translation));
+        Assert.Equal(1, read.Stage);
+        Assert.Equal(["Sentence A.", "Sentence B."], read.Examples.Select(e => e.Sentence));
+        Assert.True(read.UpdatedAt > reviewed.UpdatedAt); // the new example is a change the sync feed must show
         Assert.Equal(1L, await CountAsync("vocabulary_words", user));
     }
 
+    // v2-sync-protocol.md: translation and definition are used only when the card is created.
     [Fact]
-    public async Task SaveWordAsync_CardWithoutTranslation_FillsItAndBumpsUpdatedAtNotRevision()
+    public async Task SaveWordAsync_CardWithoutTranslation_LeavesItUnchanged()
     {
         var card = await SavedWordAsync();
 
-        var again = await _repo.SaveWordAsync(Word(card.UserId, "колчан"), null, Ct);
+        var again = await _repo.SaveWordAsync(card.UserId, Word(card.UserId, "колчан"), null, Ct);
 
-        Assert.Equal((WordSaveOutcome.Existing, card.Id, "колчан", 1L), (again.Outcome, again.Word.Id, again.Word.Translation, again.Word.Revision));
-        Assert.True(again.Word.UpdatedAt > card.UpdatedAt);
-    }
-
-    [Fact]
-    public async Task SaveWordAsync_NewDefinitionAndDifferentTranslation_FillsTheDefinitionKeepsTheTranslation()
-    {
-        var card = await SavedWordAsync(translation: "колчан");
-
-        var again = await _repo.SaveWordAsync(Word(card.UserId, "сагайдак", "a case for arrows"), null, Ct);
-
-        Assert.Equal(("колчан", "a case for arrows"), (again.Word.Translation, again.Word.Definition));
+        Assert.Equal((WordSaveOutcome.Existing, card.Id, (string?)null, 1L, card.UpdatedAt),
+            (again.Outcome, again.Word.Id, again.Word.Translation, again.Word.Revision, again.Word.UpdatedAt));
     }
 
     [Fact]
@@ -137,12 +140,69 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         var card = await SavedWordAsync();
         await _repo.DeleteWordAsync(card.UserId, card.Id, Ct);
 
-        var again = await _repo.SaveWordAsync(Word(card.UserId, "колчан"), Example(card.UserId, "Too late."), Ct);
+        var again = await _repo.SaveWordAsync(card.UserId, Word(card.UserId, "колчан"), Example(card.UserId, "Too late."), Ct);
 
         Assert.Equal((WordSaveOutcome.Deleted, card.Id, (string?)null, 2L), (again.Outcome, again.Word.Id, again.Word.Translation, again.Word.Revision));
         Assert.NotNull(again.Word.DeletedAt);
         Assert.Null(again.Example);
         Assert.Equal(0L, await CountAsync("vocabulary_examples", card.UserId));
+    }
+
+    // v2-sync-protocol.md principle 6: the idempotency check runs before the tombstone check.
+    [Fact]
+    public async Task SaveWordAsync_ReplayOfItsExampleAfterTheCardWasDeleted_IsReplayed()
+    {
+        var user = await db.NewReaderAsync();
+        var operation = Guid.NewGuid();
+        var first = await _repo.SaveWordAsync(user, Word(user), Example(user, "Once.", operation), Ct);
+        await _repo.DeleteWordAsync(user, first.Word.Id, Ct);
+
+        var retry = await _repo.SaveWordAsync(user, Word(user), Example(user, "Once.", operation), Ct);
+
+        Assert.Equal((WordSaveOutcome.Deleted, WriteOutcome.Replayed, first.Example!.Row!.Id),
+            (retry.Outcome, retry.Example!.Outcome, retry.Example.Row!.Id));
+    }
+
+    [Fact]
+    public async Task SaveWordAsync_SameSaveRetriedWhileTheFirstIsInFlight_StoresOneCardAndNeverThrows()
+    {
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var user = await db.NewReaderAsync();
+            var id = Guid.NewGuid();
+
+            var saves = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+            {
+                var word = Word(user);
+                word.Id = id;
+                return _repo.SaveWordAsync(user, word, null, Ct);
+            }, Ct)));
+
+            Assert.All(saves, s => Assert.Equal(id, s.Word.Id));
+            Assert.Single(saves, s => s.Outcome == WordSaveOutcome.Created);
+            Assert.Equal(1L, await CountAsync("vocabulary_words", user));
+        }
+    }
+
+    [Fact]
+    public async Task SaveWordAsync_ExampleWithAnotherWordId_LeavesTheCallersExampleUnchanged()
+    {
+        var card = await SavedWordAsync();
+        var example = Example(card.UserId, "A quiver of arrows.");
+        var callersWordId = Guid.NewGuid();
+        example.WordId = callersWordId;
+
+        var saved = await _repo.SaveWordAsync(card.UserId, Word(card.UserId), example, Ct);
+
+        Assert.Equal((card.Id, callersWordId), (saved.Example!.Row!.WordId, example.WordId));
+    }
+
+    [Fact]
+    public async Task SaveWordAsync_WordNamingAnotherUser_Throws()
+    {
+        var user = await db.NewReaderAsync();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => _repo.SaveWordAsync(user, Word(Guid.NewGuid()), null, Ct));
     }
 
     [Fact]
@@ -151,7 +211,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         var user = await db.NewReaderAsync();
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            _repo.SaveWordAsync(Word(user), Example(Guid.NewGuid(), "Whose?"), Ct));
+            _repo.SaveWordAsync(user, Word(user), Example(Guid.NewGuid(), "Whose?"), Ct));
     }
 
     [Fact]
@@ -164,7 +224,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         example.BookId = book.Id;
         example.FileId = other.CurrentFile!.Id;
 
-        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveWordAsync(Word(book.UserId), example, Ct));
+        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveWordAsync(book.UserId, Word(book.UserId), example, Ct));
 
         Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_vocabulary_examples_book_files_user_id_book_id_file_id"),
             (error.SqlState, error.ConstraintName));
@@ -206,6 +266,23 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         Assert.Equal("колчан", result.Current!.Translation);
     }
 
+    // updated_at is the sync feed's watermark: every revisioned write must move it.
+    [Fact]
+    public async Task UpdateDeleteAndRestore_EachMoveTheCardsUpdatedAt()
+    {
+        var card = await SavedWordAsync();
+
+        var updated = (await _repo.UpdateWordAsync(card.UserId, card.Id, "колчан", null, 1, Ct)).Current!;
+        await _repo.DeleteWordAsync(card.UserId, card.Id, Ct);
+        var deleted = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
+        await _repo.RestoreWordAsync(card.UserId, card.Id, Ct);
+        var restored = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
+
+        Assert.True(updated.UpdatedAt > card.UpdatedAt, "update");
+        Assert.True(deleted.UpdatedAt > updated.UpdatedAt, "delete");
+        Assert.True(restored.UpdatedAt > deleted.UpdatedAt, "restore");
+    }
+
     [Fact]
     public async Task DeleteWordAsync_LiveCard_TombstonesItOnceAndBumpsTheRevision()
     {
@@ -235,9 +312,9 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     public async Task GetWordAsync_CardWithADeletedExample_ReturnsLiveExamplesOldestFirst()
     {
         var card = await SavedWordAsync();
-        var first = (await _repo.AddExampleAsync(OnCard(card, Example(card.UserId, "First.")), Ct)).Row!;
-        var deleted = (await _repo.AddExampleAsync(OnCard(card, Example(card.UserId, "Deleted.")), Ct)).Row!;
-        var last = (await _repo.AddExampleAsync(OnCard(card, Example(card.UserId, "Last.")), Ct)).Row!;
+        var first = (await AddAsync(card, "First.")).Row!;
+        var deleted = (await AddAsync(card, "Deleted.")).Row!;
+        var last = (await AddAsync(card, "Last.")).Row!;
         // No repository method deletes an example yet; the column is there for the ETL and sync.
         await using (var conn = await db.DataSource.OpenConnectionAsync(Ct))
             await conn.ExecuteAsync(new CommandDefinition(
@@ -254,7 +331,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         var card = await SavedWordAsync();
         var example = OnCard(card, Example(card.UserId, "A quiver of arrows."));
 
-        var result = await _repo.AddExampleAsync(example, Ct);
+        var result = await _repo.AddExampleAsync(card.UserId, example, Ct);
 
         Assert.Equal((WriteOutcome.Created, example.Id, card.Id, example.PayloadSha256),
             (result.Outcome, result.Row!.Id, result.Row.WordId, result.Row.PayloadSha256));
@@ -268,9 +345,9 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     {
         var card = await SavedWordAsync();
         var operation = Guid.NewGuid();
-        var first = (await _repo.AddExampleAsync(OnCard(card, Example(card.UserId, "Once.", operation)), Ct)).Row!;
+        var first = (await AddAsync(card, "Once.", operation)).Row!;
 
-        var retry = await _repo.AddExampleAsync(OnCard(card, Example(card.UserId, "Once.", operation)), Ct);
+        var retry = await AddAsync(card, "Once.", operation);
 
         Assert.Equal((WriteOutcome.Replayed, first.Id), (retry.Outcome, retry.Row!.Id));
         Assert.Equal(1L, await CountAsync("vocabulary_examples", card.UserId));
@@ -281,9 +358,9 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     {
         var card = await SavedWordAsync();
         var operation = Guid.NewGuid();
-        var first = (await _repo.AddExampleAsync(OnCard(card, Example(card.UserId, "Once.", operation)), Ct)).Row!;
+        var first = (await AddAsync(card, "Once.", operation)).Row!;
 
-        var reused = await _repo.AddExampleAsync(OnCard(card, Example(card.UserId, "Something else.", operation)), Ct);
+        var reused = await AddAsync(card, "Something else.", operation);
 
         Assert.Equal((WriteOutcome.OperationConflict, first.Id, "Once."), (reused.Outcome, reused.Row!.Id, reused.Row.Sentence));
         Assert.Equal(1L, await CountAsync("vocabulary_examples", card.UserId));
@@ -295,7 +372,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         var card = await SavedWordAsync();
         await _repo.DeleteWordAsync(card.UserId, card.Id, Ct);
 
-        var result = await _repo.AddExampleAsync(OnCard(card, Example(card.UserId, "After the delete.")), Ct);
+        var result = await AddAsync(card, "After the delete.");
 
         Assert.Equal((WriteOutcome.Deleted, (VocabularyExample?)null), (result.Outcome, result.Row));
         Assert.Equal(0L, await CountAsync("vocabulary_examples", card.UserId));
@@ -306,20 +383,57 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     {
         var card = await SavedWordAsync();
         var operation = Guid.NewGuid();
-        var first = (await _repo.AddExampleAsync(OnCard(card, Example(card.UserId, "Once.", operation)), Ct)).Row!;
+        var first = (await AddAsync(card, "Once.", operation)).Row!;
         await _repo.DeleteWordAsync(card.UserId, card.Id, Ct);
 
-        var retry = await _repo.AddExampleAsync(OnCard(card, Example(card.UserId, "Once.", operation)), Ct);
+        var retry = await AddAsync(card, "Once.", operation);
 
         Assert.Equal((WriteOutcome.Replayed, first.Id), (retry.Outcome, retry.Row!.Id));
     }
 
     [Fact]
-    public async Task RecordReviewAsync_NewOperation_StoresTheReviewAndAppliesTheScheduleWithoutARevision()
+    public async Task AddExampleAsync_WhileADeleteIsInFlight_WaitsAndAnswersDeleted()
+    {
+        var card = await SavedWordAsync();
+        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var delete = await conn.BeginTransactionAsync(Ct);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE vocabulary_words SET deleted_at = now(), updated_at = now(), revision = revision + 1 WHERE id = @Id",
+            card, delete, cancellationToken: Ct));
+
+        var add = AddAsync(card, "Racing the delete.");
+        // Commit only once the add is blocked on the card: without the card lock it would not wait,
+        // would see the card live, and would store an example on a card deleted a moment later.
+        await using (var observer = await db.DataSource.OpenConnectionAsync(Ct))
+            for (var waited = 0; waited < 5000 && !add.IsCompleted; waited += 10)
+            {
+                if (await observer.ExecuteScalarAsync<bool>(new CommandDefinition(
+                        "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock')",
+                        cancellationToken: Ct)))
+                    break;
+                await Task.Delay(10, Ct);
+            }
+        await delete.CommitAsync(Ct);
+
+        Assert.Equal(WriteOutcome.Deleted, (await add).Outcome);
+        Assert.Equal(0L, await CountAsync("vocabulary_examples", card.UserId));
+    }
+
+    [Fact]
+    public async Task AddExampleAsync_ExampleNamingAnotherUser_Throws()
     {
         var card = await SavedWordAsync();
 
-        var result = await _repo.RecordReviewAsync(Review(card), DueAt(Noon.AddDays(1)), Ct);
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            _repo.AddExampleAsync(Guid.NewGuid(), OnCard(card, Example(card.UserId, "Whose?")), Ct));
+    }
+
+    [Fact]
+    public async Task RecordReviewAsync_NewOperation_StoresTheStagesAndAppliesTheScheduleWithoutARevision()
+    {
+        var card = await SavedWordAsync();
+
+        var result = await ReviewAsync(card, Noon.AddDays(1));
 
         Assert.Equal((WriteOutcome.Created, 0, 1), (result.Outcome, result.Row!.StageBefore, result.Row.StageAfter));
         var read = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
@@ -329,18 +443,18 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task RecordReviewAsync_ReplayedOperation_AppliesTheScheduleOnce()
+    public async Task RecordReviewAsync_ReplayedOperation_AppliesTheScheduleOnceAndNeverComputesItAgain()
     {
         var card = await SavedWordAsync();
         var operation = Guid.NewGuid();
-        var first = await _repo.RecordReviewAsync(Review(card, operation), DueAt(Noon.AddDays(1)), Ct);
+        var first = await ReviewAsync(card, Noon.AddDays(1), operation);
 
-        // The retry recomputed the schedule later; the stored one must not move.
-        var retry = await _repo.RecordReviewAsync(Review(card, operation), DueAt(Noon.AddDays(2)), Ct);
+        var retry = await _repo.RecordReviewAsync(card.UserId, Review(card, operation), NeverCalled, Ct);
 
         Assert.Equal((WriteOutcome.Replayed, first.Row!.Id), (retry.Outcome, retry.Row!.Id));
         Assert.Equal(1L, await CountAsync("vocabulary_reviews", card.UserId));
-        Assert.Equal(Noon.AddDays(1), (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!.NextReviewAt);
+        var read = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
+        Assert.Equal((1, Noon.AddDays(1)), (read.Stage, read.NextReviewAt));
     }
 
     [Fact]
@@ -348,12 +462,12 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     {
         var card = await SavedWordAsync();
         var operation = Guid.NewGuid();
-        await _repo.RecordReviewAsync(Review(card, operation), DueAt(Noon.AddDays(1)), Ct);
+        await ReviewAsync(card, Noon.AddDays(1), operation);
         var wrong = Review(card, operation);
         wrong.IsCorrect = false;
         wrong.PayloadSha256 = Hash("wrong");
 
-        var result = await _repo.RecordReviewAsync(wrong, DueAt(Noon.AddHours(12)), Ct);
+        var result = await _repo.RecordReviewAsync(card.UserId, wrong, NeverCalled, Ct);
 
         Assert.Equal((WriteOutcome.OperationConflict, true), (result.Outcome, result.Row!.IsCorrect));
         Assert.Equal(1L, await CountAsync("vocabulary_reviews", card.UserId));
@@ -366,7 +480,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         var card = await SavedWordAsync();
         await _repo.DeleteWordAsync(card.UserId, card.Id, Ct);
 
-        var result = await _repo.RecordReviewAsync(Review(card), DueAt(Noon.AddDays(1)), Ct);
+        var result = await _repo.RecordReviewAsync(card.UserId, Review(card), NeverCalled, Ct);
 
         Assert.Equal((WriteOutcome.Deleted, (VocabularyReview?)null), (result.Outcome, result.Row));
         Assert.Equal(0L, await CountAsync("vocabulary_reviews", card.UserId));
@@ -379,12 +493,71 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     {
         var card = await SavedWordAsync();
         var operation = Guid.NewGuid();
-        var first = await _repo.RecordReviewAsync(Review(card, operation), DueAt(Noon.AddDays(1)), Ct);
+        var first = await ReviewAsync(card, Noon.AddDays(1), operation);
         await _repo.DeleteWordAsync(card.UserId, card.Id, Ct);
 
-        var retry = await _repo.RecordReviewAsync(Review(card, operation), DueAt(Noon.AddDays(2)), Ct);
+        var retry = await _repo.RecordReviewAsync(card.UserId, Review(card, operation), NeverCalled, Ct);
 
         Assert.Equal((WriteOutcome.Replayed, first.Row!.Id), (retry.Outcome, retry.Row!.Id));
+    }
+
+    [Fact]
+    public async Task RecordReviewAsync_TwoAnswersInFlight_EachSchedulesFromTheOthersResult()
+    {
+        var card = await SavedWordAsync();
+
+        var results = await Task.WhenAll(
+            Task.Run(() => ReviewAsync(card, Noon.AddDays(1)), Ct),
+            Task.Run(() => ReviewAsync(card, Noon.AddDays(1)), Ct));
+
+        Assert.All(results, r => Assert.Equal(WriteOutcome.Created, r.Outcome));
+        Assert.Equal([(0, 1), (1, 2)], results.Select(r => (r.Row!.StageBefore, r.Row.StageAfter)).Order());
+        Assert.Equal(2, (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!.Stage);
+    }
+
+    [Fact]
+    public async Task RecordReviewAsync_SameOperationTwiceInFlight_CreatesOnceAndAppliesTheWinnersSchedule()
+    {
+        var card = await SavedWordAsync();
+        var operation = Guid.NewGuid();
+        var computed = 0;
+        Func<VocabularyWord, ReviewSchedule> DueAt(DateTimeOffset due) => c =>
+        {
+            Interlocked.Increment(ref computed);
+            return new ReviewSchedule(c.Stage + 1, 1m, 0, due);
+        };
+
+        var results = await Task.WhenAll(
+            Task.Run(() => _repo.RecordReviewAsync(card.UserId, Review(card, operation), DueAt(Noon.AddDays(1)), Ct), Ct),
+            Task.Run(() => _repo.RecordReviewAsync(card.UserId, Review(card, operation), DueAt(Noon.AddDays(5)), Ct), Ct));
+
+        Assert.Equal([WriteOutcome.Created, WriteOutcome.Replayed], results.Select(r => r.Outcome).Order());
+        var winnersDue = results[0].Outcome == WriteOutcome.Created ? Noon.AddDays(1) : Noon.AddDays(5);
+        var read = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
+        Assert.Equal((1, winnersDue, 1), (read.Stage, read.NextReviewAt, computed));
+        Assert.Equal(1L, await CountAsync("vocabulary_reviews", card.UserId));
+    }
+
+    [Fact]
+    public async Task RecordReviewAsync_AnswerRecordedEarlierArrivingLater_KeepsTheLatestLastReviewedAt()
+    {
+        var card = await SavedWordAsync();
+        await ReviewAsync(card, Noon.AddDays(1));
+        var offline = Review(card);
+        offline.ClientRecordedAt = Noon.AddDays(-1);
+
+        await _repo.RecordReviewAsync(card.UserId, offline, NextStageDueAt(Noon.AddDays(2)), Ct);
+
+        Assert.Equal(Noon, (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!.LastReviewedAt);
+    }
+
+    [Fact]
+    public async Task RecordReviewAsync_ReviewNamingAnotherUser_Throws()
+    {
+        var card = await SavedWordAsync();
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            _repo.RecordReviewAsync(Guid.NewGuid(), Review(card), NeverCalled, Ct));
     }
 
     [Fact]
@@ -393,8 +566,8 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         var user = await db.NewReaderAsync();
         async Task<VocabularyWord> CardDueAtAsync(string key, DateTimeOffset due)
         {
-            var card = (await _repo.SaveWordAsync(Word(user, key: key), null, Ct)).Word;
-            await _repo.RecordReviewAsync(Review(card), DueAt(due), Ct);
+            var card = (await _repo.SaveWordAsync(user, Word(user, key: key), null, Ct)).Word;
+            await ReviewAsync(card, due);
             return card;
         }
         var later = await CardDueAtAsync("later", Noon.AddHours(-1));
@@ -407,6 +580,12 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         Assert.Equal([earlier.Id], (await _repo.ListDueAsync(user, Noon, 1, Ct)).Select(w => w.Id));
     }
 
+    [Fact]
+    public async Task ListDueAsync_LimitOfZero_Throws()
+    {
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _repo.ListDueAsync(Guid.NewGuid(), Noon, 0, Ct));
+    }
+
     // Owner isolation, one test per method: bob, holding alice's ids, never reads, changes or deletes her rows.
 
     [Fact]
@@ -415,8 +594,8 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         var alices = await SavedWordAsync();
         var bob = await db.NewReaderAsync();
 
-        var first = await _repo.SaveWordAsync(Word(bob, "колчан"), null, Ct);
-        var again = await _repo.SaveWordAsync(Word(bob, "колчан"), null, Ct); // nothing to fill: read back by key
+        var first = await _repo.SaveWordAsync(bob, Word(bob, "колчан"), null, Ct);
+        var again = await _repo.SaveWordAsync(bob, Word(bob, "колчан"), null, Ct); // read back by key
 
         Assert.Equal(WordSaveOutcome.Created, first.Outcome);
         Assert.NotEqual(alices.Id, first.Word.Id);
@@ -467,16 +646,14 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task AddExampleAsync_AlicesCardAsBob_IsRefusedByTheForeignKey()
+    public async Task AddExampleAsync_AlicesCardAsBob_ThrowsAndStoresNothing()
     {
         var alices = await SavedWordAsync();
         var bob = await db.NewReaderAsync();
 
-        var error = await Assert.ThrowsAsync<PostgresException>(() =>
-            _repo.AddExampleAsync(OnCard(alices, Example(bob, "Bob's sentence.")), Ct));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            _repo.AddExampleAsync(bob, OnCard(alices, Example(bob, "Bob's sentence.")), Ct));
 
-        Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_vocabulary_examples_vocabulary_words_user_id_word_id"),
-            (error.SqlState, error.ConstraintName));
         Assert.Empty((await _repo.GetWordAsync(alices.UserId, alices.Id, Ct))!.Examples);
     }
 
@@ -488,7 +665,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         var example = OnCard(bobs, Example(bobs.UserId, "From her book."));
         example.BookId = alicesBook.Id;
 
-        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.AddExampleAsync(example, Ct));
+        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.AddExampleAsync(bobs.UserId, example, Ct));
 
         Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_vocabulary_examples_books_user_id_book_id"),
             (error.SqlState, error.ConstraintName));
@@ -500,29 +677,29 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     {
         var operation = Guid.NewGuid();
         var alices = await SavedWordAsync();
-        await _repo.AddExampleAsync(OnCard(alices, Example(alices.UserId, "Hers.", operation)), Ct);
+        await AddAsync(alices, "Hers.", operation);
         var bobs = await SavedWordAsync();
-        var created = await _repo.AddExampleAsync(OnCard(bobs, Example(bobs.UserId, "His.", operation)), Ct);
+        var created = await AddAsync(bobs, "His.", operation);
 
-        var retry = await _repo.AddExampleAsync(OnCard(bobs, Example(bobs.UserId, "His.", operation)), Ct);
+        var retry = await AddAsync(bobs, "His.", operation);
 
         Assert.Equal(WriteOutcome.Created, created.Outcome);
         Assert.Equal((WriteOutcome.Replayed, created.Row!.Id), (retry.Outcome, retry.Row!.Id));
     }
 
     [Fact]
-    public async Task RecordReviewAsync_AlicesCardAsBob_IsRefusedAndHerScheduleStays()
+    public async Task RecordReviewAsync_AlicesCardAsBob_ThrowsAndHerScheduleStays()
     {
         var alices = await SavedWordAsync();
         var bob = await db.NewReaderAsync();
         var review = Review(alices);
         review.UserId = bob;
 
-        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.RecordReviewAsync(review, DueAt(Noon), Ct));
+        await Assert.ThrowsAsync<ArgumentException>(() => _repo.RecordReviewAsync(bob, review, NeverCalled, Ct));
 
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, error.SqlState);
         var read = (await _repo.GetWordAsync(alices.UserId, alices.Id, Ct))!;
         Assert.Equal((0, alices.UpdatedAt), (read.Stage, read.UpdatedAt));
+        Assert.Equal(0L, await CountAsync("vocabulary_reviews", bob));
     }
 
     [Fact]
@@ -530,11 +707,11 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     {
         var operation = Guid.NewGuid();
         var alices = await SavedWordAsync();
-        await _repo.RecordReviewAsync(Review(alices, operation), DueAt(Noon), Ct);
+        await ReviewAsync(alices, Noon, operation);
         var bobs = await SavedWordAsync();
-        var created = await _repo.RecordReviewAsync(Review(bobs, operation), DueAt(Noon), Ct);
+        var created = await ReviewAsync(bobs, Noon, operation);
 
-        var retry = await _repo.RecordReviewAsync(Review(bobs, operation), DueAt(Noon), Ct);
+        var retry = await _repo.RecordReviewAsync(bobs.UserId, Review(bobs, operation), NeverCalled, Ct);
 
         Assert.Equal(WriteOutcome.Created, created.Outcome);
         Assert.Equal((WriteOutcome.Replayed, created.Row!.Id), (retry.Outcome, retry.Row!.Id));

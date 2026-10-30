@@ -2,7 +2,7 @@ namespace Domain.Vocabulary;
 
 /// <summary>
 /// One answer to a <see cref="VocabularyWord"/> (V2 table <c>vocabulary_reviews</c>), append-only.
-/// The stages are the SRS result the caller computed; the card's schedule moves with it.
+/// The card's schedule moves with it, in the same transaction.
 /// </summary>
 public class VocabularyReview
 {
@@ -19,7 +19,10 @@ public class VocabularyReview
 
     public bool IsCorrect { get; set; }
     public int? ResponseTimeMs { get; set; }
+    /// <summary>Set by the server: the card's stage when the answer was applied; ignored on write.</summary>
     public int StageBefore { get; set; }
+
+    /// <summary>Set by the server: the stage the schedule moved the card to; ignored on write.</summary>
     public int StageAfter { get; set; }
 
     /// <summary>When the client recorded the answer, by its clock.</summary>

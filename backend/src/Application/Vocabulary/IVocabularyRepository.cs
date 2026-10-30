@@ -4,14 +4,15 @@ namespace Application.Vocabulary;
 
 /// <summary>
 /// The V2 vocabulary (tables <c>vocabulary_words</c> + <c>vocabulary_examples</c> +
-/// <c>vocabulary_reviews</c>, one aggregate; ADR-031). Every method is scoped to the user: by
-/// <c>userId</c>, or by the <c>UserId</c> of the row being written. Neither the SRS math nor the
-/// payload hash is here: a review arrives with the schedule the caller computed, an example or review
-/// with its <c>PayloadSha256</c> (v2-sync-protocol.md, "operation_id rules"). A card's
+/// <c>vocabulary_reviews</c>, one aggregate; ADR-031). Every method is scoped to <c>userId</c>
+/// (docs/01-architecture/data-access.md rule 7); an entity naming another user, or a write naming a
+/// card that is not the user's, is an <see cref="ArgumentException"/>. Neither the SRS math nor the
+/// payload hash is here: a review arrives with the function that computes the schedule, an example or
+/// review with its <c>PayloadSha256</c> (v2-sync-protocol.md, "operation_id rules"). A card's
 /// <c>revision</c> moves only on explicit edit, delete and restore; every write the sync feed must
-/// show bumps its <c>updated_at</c>. An example or a review that names another user's card or book is
-/// refused by the schema (a <c>PostgresException</c>), as a broken invariant: cards are never
-/// hard-deleted, so a missing one is a client bug, not a race.
+/// show bumps its <c>updated_at</c>. Input validation (hash format, text lengths, non-blank,
+/// non-negative, provenance pointing at the user's own book and file) is the API's job: a caller bug
+/// surfaces as a <c>PostgresException</c> from the schema (data-access.md rule 8).
 /// </summary>
 public interface IVocabularyRepository
 {
@@ -19,15 +20,15 @@ public interface IVocabularyRepository
     /// Saves the user's word: creates the card (<see cref="WordSaveOutcome.Created"/>), or finds the
     /// one already stored under the same language and <see cref="VocabularyWord.WordKey"/>, whatever
     /// its id (<see cref="WordSaveOutcome.Existing"/>), and adds <paramref name="example"/> to it, in
-    /// one transaction. Saving again never resets the schedule and never overwrites a translation or
-    /// definition already there; it only fills one that is missing (changing one is
+    /// one transaction. Saving again never changes the card: not its schedule, not its translation or
+    /// definition (those are used only when the card is created; changing them is
     /// <see cref="UpdateWordAsync"/>). A deleted card is returned unchanged
-    /// (<see cref="WordSaveOutcome.Deleted"/>) and gets no example: <see cref="RestoreWordAsync"/> it
-    /// first. The example is attached to the stored card, whatever its <c>WordId</c> says, and is
+    /// (<see cref="WordSaveOutcome.Deleted"/>) and takes no example, though a replay of one it took
+    /// before is still answered (<see cref="WriteOutcome.Replayed"/>); <see cref="RestoreWordAsync"/>
+    /// it first. The example is attached to the stored card, whatever its <c>WordId</c> says, and is
     /// idempotent as in <see cref="AddExampleAsync"/>.
     /// </summary>
-    /// <exception cref="ArgumentException">The example names another user.</exception>
-    Task<SavedWord> SaveWordAsync(VocabularyWord word, VocabularyExample? example, CancellationToken ct);
+    Task<SavedWord> SaveWordAsync(Guid userId, VocabularyWord word, VocabularyExample? example, CancellationToken ct);
 
     /// <summary>
     /// The explicit way to change a card's translation and definition (null clears). Guarded like
@@ -52,15 +53,18 @@ public interface IVocabularyRepository
     /// since; one with a different hash is a <see cref="WriteOutcome.OperationConflict"/>. A new
     /// operation on a deleted card is <see cref="WriteOutcome.Deleted"/>. Only a created row changes anything.
     /// </summary>
-    Task<WriteResult<VocabularyExample>> AddExampleAsync(VocabularyExample example, CancellationToken ct);
+    Task<WriteResult<VocabularyExample>> AddExampleAsync(Guid userId, VocabularyExample example, CancellationToken ct);
 
     /// <summary>
-    /// Records an answer and moves the card to <paramref name="newSchedule"/>, in one transaction, once
-    /// per <c>(UserId, OperationId)</c> with the outcomes of <see cref="AddExampleAsync"/>: a replay,
-    /// a conflict or a deleted card changes the schedule not at all.
+    /// Records an answer, once per <c>(UserId, OperationId)</c> with the outcomes of
+    /// <see cref="AddExampleAsync"/>. In one transaction, with the card locked, <paramref name="schedule"/>
+    /// computes the card's next schedule from its current row; the review stores the card's stage
+    /// before and the schedule's stage after, and the card moves to the schedule. Two answers in flight
+    /// on one card therefore apply one after the other. A replay, a conflict or a deleted card never
+    /// calls <paramref name="schedule"/> and changes nothing.
     /// </summary>
     Task<WriteResult<VocabularyReview>> RecordReviewAsync(
-        VocabularyReview review, ReviewSchedule newSchedule, CancellationToken ct);
+        Guid userId, VocabularyReview review, Func<VocabularyWord, ReviewSchedule> schedule, CancellationToken ct);
 
     /// <summary>The user's cards that are not deleted and are due at <paramref name="now"/>, earliest first, at most <paramref name="limit"/>.</summary>
     Task<IReadOnlyList<VocabularyWord>> ListDueAsync(Guid userId, DateTimeOffset now, int limit, CancellationToken ct);
@@ -111,5 +115,5 @@ public sealed record SavedWord(WordSaveOutcome Outcome, VocabularyWord Word, Wri
 /// </summary>
 public sealed record UpdateWordResult(bool Accepted, VocabularyWord? Current);
 
-/// <summary>A card's schedule after an answer, as the SRS engine computed it.</summary>
+/// <summary>A card's schedule after an answer, as the SRS engine computes it.</summary>
 public sealed record ReviewSchedule(int Stage, decimal IntervalDays, int ConsecutiveCorrect, DateTimeOffset NextReviewAt);
