@@ -1,13 +1,14 @@
 # A migrator for a database nobody reads yet kept the API from starting
 
 **Date:** 2026-10-30
-**Status:** Open as this is written — the API is 502 until #1057 deploys. `textstack_v2` still cannot be created on the server either way: `template1` there has a collation version mismatch (#1056).
+**Status:** Resolved — 44 minutes. `textstack_v2` still cannot be created on the server, which is a separate, pre-existing defect (#1056).
 
 ## Impact
 
-`https://textstack.app/api/*` has returned 502 since **14:01 UTC**, when the deploy of `fa136ece`
-(#1050) recreated `api` and `worker` and then refused to start them. It is still 502 at 14:27, when
-this paragraph was written; the end time is the deploy of #1057, and belongs here once it lands. Static pages kept serving — nginx has
+`https://textstack.app/api/*` returned 502 from **14:01 to 14:45 UTC — 44 minutes** — between the
+deploy of `fa136ece` (#1050), which recreated `api` and `worker` and then refused to start them, and
+the deploy of #1057, which started them. Measured by polling `/api/health/ready` from outside: 502
+at 14:45:00, 200 at 14:45:30. Static pages kept serving — nginx has
 the SSG output on disk, so `/en` answered 200 throughout — so what broke was everything that needs
 the API: sign-in, uploads, the reader for uploaded books, vocabulary, TTS, translation, the MCP
 server and the admin panel.
