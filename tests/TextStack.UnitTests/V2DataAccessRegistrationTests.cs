@@ -3,24 +3,22 @@ using Application.Reading;
 using Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace TextStack.Persistence.Tests;
+namespace TextStack.UnitTests;
 
-/// <summary>
-/// V1 must keep serving while V2 is broken or absent (docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md):
-/// without <c>ConnectionStrings:V2</c> nothing V2 is registered, and with it nothing connects until used.
-/// </summary>
+/// <summary>The V2 side of <see cref="DataSource.AddTextStackDataAccess"/> touches nothing until used (data-access.md rule 5).</summary>
 public class V2DataAccessRegistrationTests
 {
     private const string Legacy = "Host=localhost;Database=legacy";
 
     [Fact]
-    public async Task AddTextStackDataAccess_NoV2ConnectionString_RegistersNoV2Services()
+    public async Task AddTextStackDataAccess_NoV2ConnectionString_BuildsButResolvingNamesTheMissingKey()
     {
-        await using var services = new ServiceCollection().AddTextStackDataAccess(Legacy, null).BuildServiceProvider();
+        await using var services = new ServiceCollection()
+            .AddTextStackDataAccess(Legacy, null)
+            .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 
-        Assert.Null(services.GetService<V2DataSource>());
-        Assert.Null(services.GetService<ILibraryRepository>());
-        Assert.Null(services.GetService<IReadingStateRepository>());
+        var error = Assert.Throws<InvalidOperationException>(() => services.GetRequiredService<ILibraryRepository>());
+        Assert.Contains("ConnectionStrings:V2", error.Message);
     }
 
     [Fact]

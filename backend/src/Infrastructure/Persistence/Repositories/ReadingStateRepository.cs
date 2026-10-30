@@ -16,13 +16,12 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
     private const string Columns =
         "file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision";
 
-    private const string Select = $"SELECT {Columns} FROM reading_state WHERE user_id = @userId AND book_id = @bookId";
-
     public async Task<ReadingState?> GetAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
+        const string sql = $"SELECT {Columns} FROM reading_state WHERE user_id = @userId AND book_id = @bookId";
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         return await conn.QuerySingleOrDefaultAsync<ReadingState>(
-            new CommandDefinition(Select, new { userId, bookId }, cancellationToken: ct));
+            new CommandDefinition(sql, new { userId, bookId }, cancellationToken: ct));
     }
 
     public async Task<AdvanceResult> AdvanceAsync(
@@ -70,18 +69,16 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
             state.BookFraction,
             FrontierLocator = offerFrontier ? state.FrontierLocator : state.CurrentLocator,
             FrontierFraction = offerFrontier ? state.FrontierFraction : state.BookFraction,
-            // Npgsql writes timestamptz from offset-0 values only.
-            CompletedAt = state.CompletedAt?.ToUniversalTime(),
-            ClientRecordedAt = state.ClientRecordedAt.ToUniversalTime(),
+            state.CompletedAt,
+            state.ClientRecordedAt,
         };
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        var written = await conn.QuerySingleOrDefaultAsync<ReadingState>(new CommandDefinition(
-            expectedRevision is null ? create : advance, args, cancellationToken: ct));
-        if (written is not null) return new AdvanceResult(true, written);
-
-        var current = await conn.QuerySingleOrDefaultAsync<ReadingState>(
-            new CommandDefinition(Select, new { userId, bookId }, cancellationToken: ct));
-        return new AdvanceResult(false, current);
+        await using (var conn = await dataSource.OpenConnectionAsync(ct))
+        {
+            var written = await conn.QuerySingleOrDefaultAsync<ReadingState>(new CommandDefinition(
+                expectedRevision is null ? create : advance, args, cancellationToken: ct));
+            if (written is not null) return new AdvanceResult(true, written);
+        }
+        return new AdvanceResult(false, await GetAsync(userId, bookId, ct));
     }
 
     public async Task<ReadingState?> ResetAsync(Guid userId, Guid bookId, CancellationToken ct)

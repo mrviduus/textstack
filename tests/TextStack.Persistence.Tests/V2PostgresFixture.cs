@@ -1,4 +1,8 @@
+using System.Security.Cryptography;
+using Dapper;
+using Domain.Library;
 using Infrastructure.Persistence;
+using Infrastructure.Persistence.Repositories;
 using Npgsql;
 using Testcontainers.PostgreSql;
 
@@ -21,6 +25,8 @@ public sealed class V2PostgresFixture : IAsyncLifetime
 
     public V2DataSource DataSource { get; private set; } = null!;
 
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
     public async ValueTask InitializeAsync()
     {
         await _container.StartAsync();
@@ -42,11 +48,30 @@ public sealed class V2PostgresFixture : IAsyncLifetime
     public async Task<Guid> NewReaderAsync()
     {
         var userId = Guid.NewGuid();
-        await using var conn = await DataSource.OpenConnectionAsync(TestContext.Current.CancellationToken);
-        await using var cmd = new NpgsqlCommand(
-            "INSERT INTO users (id, email, created_at) VALUES ($1, $1::text || '@test', now())", conn)
-        { Parameters = { new() { Value = userId } } };
-        await cmd.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        await using var conn = await DataSource.OpenConnectionAsync(Ct);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO users (id, email, created_at) VALUES (@userId, @email, now())",
+            new { userId, email = $"{userId}@test" }, cancellationToken: Ct));
         return userId;
     }
+
+    /// <summary>A fresh user with one imported book, titled "A book" and tagged "fiction"; it carries its current file.</summary>
+    public async Task<Book> NewReaderWithBookAsync()
+    {
+        var userId = await NewReaderAsync();
+        var book = new Book { Id = Guid.NewGuid(), UserId = userId, Title = "A book", Tags = ["fiction"] };
+        return await new LibraryRepository(DataSource).ImportAsync(book, NewFile(userId, book.Id), Ct);
+    }
+
+    /// <summary>A new file version of the given book; its hash is of random bytes unless one is given.</summary>
+    public static BookFile NewFile(Guid userId, Guid bookId, string? sha256 = null, string format = "epub") => new()
+    {
+        Id = Guid.NewGuid(),
+        UserId = userId,
+        BookId = bookId,
+        Sha256 = sha256 ?? Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)),
+        ByteSize = 1024,
+        OriginalName = "book." + format,
+        Format = format,
+    };
 }

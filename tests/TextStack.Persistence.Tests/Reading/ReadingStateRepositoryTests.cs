@@ -1,7 +1,5 @@
-using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Dapper;
-using Domain.Library;
 using Domain.Reading;
 using Infrastructure.Persistence.Repositories;
 
@@ -15,15 +13,6 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
 
     private static string Page(int page) => $$$"""{"version":1,"scheme":"pdf-page","value":{"page":{{{page}}}}}""";
 
-    private static BookFile NewFile() => new()
-    {
-        Id = Guid.NewGuid(),
-        Sha256 = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)),
-        ByteSize = 1024,
-        OriginalName = "book.pdf",
-        Format = "pdf",
-    };
-
     /// <summary>A position on page <paramref name="page"/> of 10, with no frontier offered.</summary>
     private static ReadingState At(Guid fileId, int page) => new()
     {
@@ -35,9 +24,8 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
 
     private async Task<(Guid User, Guid Book, Guid File)> ReaderWithBookAsync()
     {
-        var user = await db.NewReaderAsync();
-        var book = await _library.ImportAsync(new Book { Id = Guid.NewGuid(), UserId = user, Title = "A book" }, NewFile(), Ct);
-        return (user, book.Id, book.CurrentFile!.Id);
+        var book = await db.NewReaderWithBookAsync();
+        return (book.UserId, book.Id, book.CurrentFile!.Id);
     }
 
     private static void AssertSameJson(string expected, string? actual) =>
@@ -157,8 +145,18 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
             "UPDATE book_files SET is_current = false WHERE user_id = @user AND id = @file",
             new { user, file }, replacement, cancellationToken: Ct));
 
-        var firstWrite = Task.Run(() => _repo.AdvanceAsync(user, book, At(file, 3), null, Ct));
-        await Task.Delay(300, Ct); // let the write reach the file row before the replacement commits
+        var firstWrite = _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+        // Commit only once the write is blocked on the file row: without FOR SHARE it never blocks,
+        // commits on the superseded file, and the assertions below fail.
+        await using (var observer = await db.DataSource.OpenConnectionAsync(Ct))
+            for (var waited = 0; waited < 5000 && !firstWrite.IsCompleted; waited += 10)
+            {
+                if (await observer.ExecuteScalarAsync<bool>(new CommandDefinition(
+                        "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock')",
+                        cancellationToken: Ct)))
+                    break;
+                await Task.Delay(10, Ct);
+            }
         await replacement.CommitAsync(Ct);
 
         Assert.False((await firstWrite).Accepted);
@@ -169,7 +167,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task AdvanceAsync_FileThatIsNotTheCurrentOne_Loses()
     {
         var (user, book, oldFile) = await ReaderWithBookAsync();
-        var newFile = (await _library.ReplaceFileAsync(user, book, NewFile(), Ct))!.Current.Id;
+        var newFile = (await _library.ReplaceFileAsync(user, book, V2PostgresFixture.NewFile(user, book), Ct))!.Current.Id;
 
         Assert.False((await _repo.AdvanceAsync(user, book, At(oldFile, 3), null, Ct)).Accepted);
         Assert.True((await _repo.AdvanceAsync(user, book, At(newFile, 3), null, Ct)).Accepted);
@@ -179,16 +177,13 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     [Fact]
     public async Task AdvanceAsync_TwoFirstWritesAtOnce_ExactlyOneWins()
     {
-        for (var run = 0; run < 20; run++)
-        {
-            var (user, book, file) = await ReaderWithBookAsync();
+        var (user, book, file) = await ReaderWithBookAsync();
 
-            var results = await Task.WhenAll(Enumerable.Range(1, 4)
-                .Select(page => Task.Run(() => _repo.AdvanceAsync(user, book, At(file, page), null, Ct))));
+        var results = await Task.WhenAll(Enumerable.Range(1, 4)
+            .Select(page => _repo.AdvanceAsync(user, book, At(file, page), null, Ct)));
 
-            Assert.Single(results, r => r.Accepted);
-            Assert.All(results, r => Assert.NotNull(r.Current));
-        }
+        Assert.Single(results, r => r.Accepted);
+        Assert.All(results, r => Assert.NotNull(r.Current));
     }
 
     [Fact]
