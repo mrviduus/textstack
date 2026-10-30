@@ -1,4 +1,5 @@
 using Application.Annotations;
+using Application.Common;
 using Dapper;
 using Domain.Annotations;
 
@@ -35,7 +36,7 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
         return await conn.QuerySingleOrDefaultAsync<Annotation>(new CommandDefinition(sql, new { userId, id }, cancellationToken: ct));
     }
 
-    public async Task<SaveAnnotationResult> SaveAsync(
+    public async Task<RevisionedWrite<Annotation>> SaveAsync(
         Guid userId, Annotation annotation, long? expectedRevision, CancellationToken ct)
     {
         if (annotation.UserId != userId)
@@ -84,9 +85,9 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
         {
             var written = await conn.QuerySingleOrDefaultAsync<Annotation>(new CommandDefinition(
                 expectedRevision is null ? create : update, args, cancellationToken: ct));
-            if (written is not null) return new SaveAnnotationResult(true, written);
+            if (written is not null) return new RevisionedWrite<Annotation>(true, written);
         }
-        return new SaveAnnotationResult(false, await GetAsync(userId, annotation.Id, ct));
+        return new RevisionedWrite<Annotation>(false, await GetAsync(userId, annotation.Id, ct));
     }
 
     public async Task<bool> DeleteAsync(Guid userId, Guid id, CancellationToken ct)

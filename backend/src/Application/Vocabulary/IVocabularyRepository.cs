@@ -1,3 +1,4 @@
+using Application.Common;
 using Domain.Vocabulary;
 
 namespace Application.Vocabulary;
@@ -37,7 +38,7 @@ public interface IVocabularyRepository
     /// every revisioned write: a stale <paramref name="expectedRevision"/> loses and the result
     /// carries the stored card (null when not the user's). A deleted card takes no update.
     /// </summary>
-    Task<UpdateWordResult> UpdateWordAsync(
+    Task<RevisionedWrite<VocabularyWord>> UpdateWordAsync(
         Guid userId, Guid wordId, string? translation, string? definition, long expectedRevision, CancellationToken ct);
 
     /// <summary>Soft-deletes the card (sets <c>deleted_at</c>, bumps the revision); false when not the user's or already deleted.</summary>
@@ -73,33 +74,6 @@ public interface IVocabularyRepository
     Task<IReadOnlyList<VocabularyWord>> ListDueAsync(Guid userId, DateTimeOffset now, int limit, CancellationToken ct);
 }
 
-/// <summary>What became of a write keyed by an operation id (v2-sync-protocol.md, "operation_id rules").</summary>
-public enum WriteOutcome
-{
-    /// <summary>First time this operation was seen: the row was stored.</summary>
-    Created,
-
-    /// <summary>A retry of a stored operation with the same payload: nothing changed.</summary>
-    Replayed,
-
-    /// <summary>The operation id is taken by a different payload: nothing changed (409 <c>operation_conflict</c>).</summary>
-    OperationConflict,
-
-    /// <summary>A new operation on a deleted card: nothing changed (409 <c>deleted</c>).</summary>
-    Deleted,
-
-    /// <summary>A new operation on a card the user does not have: nothing changed (404 <c>not_found</c>).</summary>
-    NotFound,
-}
-
-/// <summary>
-/// The outcome of an idempotent write and the stored row under its operation id: the new row
-/// (<see cref="WriteOutcome.Created"/>), the one already there (<see cref="WriteOutcome.Replayed"/>,
-/// <see cref="WriteOutcome.OperationConflict"/>), or null (<see cref="WriteOutcome.Deleted"/>,
-/// <see cref="WriteOutcome.NotFound"/>).
-/// </summary>
-public sealed record WriteResult<T>(WriteOutcome Outcome, T? Row);
-
 /// <summary>What <see cref="IVocabularyRepository.SaveWordAsync"/> found under the word's key.</summary>
 public enum WordSaveOutcome
 {
@@ -121,12 +95,6 @@ public enum WordSaveOutcome
 /// and what became of the example (null: none given, or nothing stored under its operation id on a deleted card).
 /// </summary>
 public sealed record SavedWord(WordSaveOutcome Outcome, VocabularyWord? Word, WriteResult<VocabularyExample>? Example);
-
-/// <summary>
-/// <see cref="Accepted"/>: <see cref="Current"/> is the stored card with its new revision.
-/// Otherwise the update lost and <see cref="Current"/> is what is stored instead (null: not the user's).
-/// </summary>
-public sealed record UpdateWordResult(bool Accepted, VocabularyWord? Current);
 
 /// <summary>A card's schedule after an answer, as the SRS engine computes it.</summary>
 public sealed record ReviewSchedule(int Stage, decimal IntervalDays, int ConsecutiveCorrect, DateTimeOffset NextReviewAt);

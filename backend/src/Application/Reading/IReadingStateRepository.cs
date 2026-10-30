@@ -1,3 +1,4 @@
+using Application.Common;
 using Domain.Reading;
 
 namespace Application.Reading;
@@ -20,7 +21,7 @@ public interface IReadingStateRepository
     /// frontier never moves back, and a write for a file that is not the book's current one (first
     /// write) or not the stored one (later writes) loses too.
     /// </summary>
-    Task<AdvanceResult> AdvanceAsync(
+    Task<RevisionedWrite<ReadingState>> AdvanceAsync(
         Guid userId, Guid bookId, ReadingState state, long? expectedRevision, CancellationToken ct);
 
     /// <summary>
@@ -30,9 +31,3 @@ public interface IReadingStateRepository
     /// </summary>
     Task<ReadingState?> ResetAsync(Guid userId, Guid bookId, CancellationToken ct);
 }
-
-/// <summary>
-/// <see cref="Accepted"/>: <see cref="Current"/> is the stored state with its new revision.
-/// Otherwise the write lost and <see cref="Current"/> is what is stored instead (null: nothing).
-/// </summary>
-public sealed record AdvanceResult(bool Accepted, ReadingState? Current);

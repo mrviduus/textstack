@@ -1,3 +1,4 @@
+using Application.Common;
 using Application.Vocabulary;
 using Dapper;
 using Domain.Vocabulary;
@@ -97,7 +98,7 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
         return new SavedWord(outcome, stored, added);
     }
 
-    public async Task<UpdateWordResult> UpdateWordAsync(
+    public async Task<RevisionedWrite<VocabularyWord>> UpdateWordAsync(
         Guid userId, Guid wordId, string? translation, string? definition, long expectedRevision, CancellationToken ct)
     {
         const string sql = $"""
@@ -109,9 +110,9 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
         {
             var written = await conn.QuerySingleOrDefaultAsync<VocabularyWord>(new CommandDefinition(
                 sql, new { userId, wordId, translation, definition, expectedRevision }, cancellationToken: ct));
-            if (written is not null) return new UpdateWordResult(true, written);
+            if (written is not null) return new RevisionedWrite<VocabularyWord>(true, written);
         }
-        return new UpdateWordResult(false, await GetWordAsync(userId, wordId, ct));
+        return new RevisionedWrite<VocabularyWord>(false, await GetWordAsync(userId, wordId, ct));
     }
 
     public async Task<bool> DeleteWordAsync(Guid userId, Guid wordId, CancellationToken ct)

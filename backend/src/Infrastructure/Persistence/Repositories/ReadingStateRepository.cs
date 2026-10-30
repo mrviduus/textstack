@@ -1,3 +1,4 @@
+using Application.Common;
 using Application.Reading;
 using Dapper;
 using Domain.Reading;
@@ -24,7 +25,7 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
             new CommandDefinition(sql, new { userId, bookId }, cancellationToken: ct));
     }
 
-    public async Task<AdvanceResult> AdvanceAsync(
+    public async Task<RevisionedWrite<ReadingState>> AdvanceAsync(
         Guid userId, Guid bookId, ReadingState state, long? expectedRevision, CancellationToken ct)
     {
         // A first write may only start on the book's current file; ON CONFLICT turns "someone wrote
@@ -76,9 +77,9 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
         {
             var written = await conn.QuerySingleOrDefaultAsync<ReadingState>(new CommandDefinition(
                 expectedRevision is null ? create : advance, args, cancellationToken: ct));
-            if (written is not null) return new AdvanceResult(true, written);
+            if (written is not null) return new RevisionedWrite<ReadingState>(true, written);
         }
-        return new AdvanceResult(false, await GetAsync(userId, bookId, ct));
+        return new RevisionedWrite<ReadingState>(false, await GetAsync(userId, bookId, ct));
     }
 
     public async Task<ReadingState?> ResetAsync(Guid userId, Guid bookId, CancellationToken ct)

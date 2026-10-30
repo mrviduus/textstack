@@ -1,3 +1,4 @@
+using Application.Common;
 using Domain.Annotations;
 
 namespace Application.Annotations;
@@ -28,14 +29,8 @@ public interface IAnnotationRepository
     /// <c>PostgresException</c>), as a broken invariant.
     /// </summary>
     /// <exception cref="ArgumentException">The annotation names another user.</exception>
-    Task<SaveAnnotationResult> SaveAsync(Guid userId, Annotation annotation, long? expectedRevision, CancellationToken ct);
+    Task<RevisionedWrite<Annotation>> SaveAsync(Guid userId, Annotation annotation, long? expectedRevision, CancellationToken ct);
 
     /// <summary>Soft-deletes (sets <c>deleted_at</c>, bumps the revision); false when not the user's or already deleted.</summary>
     Task<bool> DeleteAsync(Guid userId, Guid id, CancellationToken ct);
 }
-
-/// <summary>
-/// <see cref="Accepted"/>: <see cref="Current"/> is the stored annotation with its new revision.
-/// Otherwise the write lost and <see cref="Current"/> is what is stored instead (null: nothing).
-/// </summary>
-public sealed record SaveAnnotationResult(bool Accepted, Annotation? Current);

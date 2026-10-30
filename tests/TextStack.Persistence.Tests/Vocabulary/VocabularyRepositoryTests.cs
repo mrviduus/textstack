@@ -1,11 +1,12 @@
-using System.Security.Cryptography;
-using System.Text;
+using Application.Common;
 using Application.Vocabulary;
 using Dapper;
 using Domain.Library;
 using Domain.Vocabulary;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
+using System.Security.Cryptography;
+using System.Text;
 using static TextStack.Persistence.Tests.V2PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Vocabulary;
