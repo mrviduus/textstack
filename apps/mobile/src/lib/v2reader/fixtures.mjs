@@ -74,15 +74,15 @@ epub('tshostile.epub', {
 <link rel="stylesheet" href="${EVIL}/link-stylesheet.css"/><link rel="prefetch" href="${EVIL}/link-prefetch"/>
 <script>${mark('inline-script')}</script><script src="evil.js"></script>
 <style>@import url("${EVIL}/css-import.css"); @font-face { font-family: Ext; src: url("${EVIL}/css-font.woff2") }
-.bg { background: url("${EVIL}/css-background.png") } .ext { font-family: Ext } .loc { background: url("${LOCAL}/foliate-prototype-store.json") }</style>
-<link rel="stylesheet" href="${LOCAL}/foliate-v2/library.json"/>`,
+.bg { background: url("${EVIL}/css-background.png") } .ext { font-family: Ext } .loc { background: url("${LOCAL}/v2reader/store.json") }</style>
+<link rel="stylesheet" href="${LOCAL}/v2reader/library.json"/>`,
     `<h1>Hostile</h1><p class="bg ext">${para}</p>
 <p><img src="missing.png" onerror="${mark('img-onerror')}" alt="x"/></p>
 <p><img src="${EVIL}/img.png" alt="ext"/><img srcset="${EVIL}/img-srcset.png 1x" alt="ext2"/></p>
 <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><image href="${EVIL}/svg-image.png" width="10" height="10"/></svg>
 <p><audio src="${EVIL}/audio.mp3" autoplay="autoplay"></audio><video poster="${EVIL}/video-poster.png" width="10" height="10"></video></p>
 <iframe src="${EVIL}/iframe" width="10" height="10"></iframe><iframe src="${LOCAL}/" width="10" height="10"></iframe>
-<p class="loc"><img src="${LOCAL}/foliate-prototype-store.json" alt="local"/></p><object data="${EVIL}/object" width="10" height="10"></object>
+<p class="loc"><img src="${LOCAL}/v2reader/store.json" alt="local"/></p><object data="${EVIL}/object" width="10" height="10"></object>
 <form action="${EVIL}/form" method="get"><input name="q" value="x"/></form>
 <p><a id="jsurl" href="javascript:${mark('javascript-url')}">javascript: link</a> · <a id="extlink" href="${EVIL}/link-tap">external link</a></p>
 <p>${para}</p>`, ` onload="${mark('body-onload')}"`),

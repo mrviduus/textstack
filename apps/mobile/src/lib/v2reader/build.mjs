@@ -5,6 +5,7 @@
 //   node build.mjs --check   exit 1 if the committed file differs or the page outgrew its budget (CI)
 //   node build.mjs --repro   also write .vendor/v2ReaderPage.repro.html: the page + repro.mjs (test only)
 import { execFileSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
@@ -16,7 +17,7 @@ const FOLIATE_REPO = 'https://github.com/johnfactotum/foliate-js.git'
 const FOLIATE_SHA = '78914aef4466eb960965702401634c2cb348e9b1'   // 2026-05-01
 // Unminified characters of the bundled script, first committed size. Raised only by a deliberate PR
 // (ADR-029 Decision 3); not reader-engine's 64 KB budget.
-const BUDGET = 232847
+const BUDGET = 232848
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'v2ReaderPage.generated.ts')
@@ -64,10 +65,9 @@ const bundle = async (entry) => (await build({
 // policy, so a book's own <script> (no nonce) cannot run, while foliate's iframes still need
 // allow-scripts. default-src 'none' + blob:/data: only: nothing a book references outside its zip is
 // fetched. connect-src file: is the host's retained EPUB, read by our own (nonce) script.
-// ponytail: the nonce is a constant in a public repo, so a book can carry nonce="tsfoliate" and run.
-// The host must swap in a per-load random nonce before any book reaches this page outside the dev
-// route (R2 host / R3 hostile gate).
-const NONCE = 'tsfoliate'
+// The nonce is a placeholder, never a value: a fixed nonce in a public repo is one a book can carry.
+// v2ReaderPageHtml(nonce) fills it per load.
+const NONCE = '__V2_READER_NONCE__'
 const CSP = [`default-src 'none'`, `script-src 'nonce-${NONCE}'`, `style-src blob: 'unsafe-inline'`, `img-src blob: data:`,
   `font-src blob: data:`, `media-src blob: data:`, `frame-src blob:`, `connect-src blob: data: file:`, `form-action 'none'`, `base-uri 'none'`].join('; ')
 const html = (js) => `<!doctype html><html><head><meta charset="utf-8">
@@ -86,7 +86,13 @@ const content = `// AUTO-GENERATED — do not edit.
 
 /* eslint-disable */
 /* prettier-ignore */
-export const V2_READER_PAGE_HTML = ${JSON.stringify(html(js))}
+const PAGE_HTML = ${JSON.stringify(html(js))}
+
+/** The page with \`nonce\` in its CSP and script tag. A fresh random nonce per load, base64 or hex, >= 16 chars. */
+export function v2ReaderPageHtml(nonce: string): string {
+  if (!/^[A-Za-z0-9+/_-]{16,}={0,2}$/.test(nonce)) throw new Error('v2ReaderPageHtml: nonce must be base64 or hex, at least 16 chars')
+  return PAGE_HTML.split(${JSON.stringify(NONCE)}).join(nonce)
+}
 `
 
 if (process.argv.includes('--check')) {
@@ -108,6 +114,6 @@ if (process.argv.includes('--check')) {
 
 if (process.argv.includes('--repro')) {
   const repro = resolve(here, '.vendor/v2ReaderPage.repro.html')
-  writeFileSync(repro, html(await bundle('repro.mjs')))
+  writeFileSync(repro, html(await bundle('repro.mjs')).split(NONCE).join(randomBytes(18).toString('base64')))
   console.log(`wrote ${repro} (test only)`)
 }

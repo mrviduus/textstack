@@ -17,7 +17,7 @@ addEventListener('unhandledrejection', (e) => log('error', String(e.reason?.stac
 
 let view = null
 let fontPx = 18
-let flow = 'scrolled'
+let flow = 'paginated'   // ADR-029 Decision 1
 /** value (cfi) → annotation; re-added when a section's overlayer is recreated (chapter navigation). */
 const annotations = new Map()
 /** This file's identity and its entry. No save until the stored one is restored. */

@@ -13,7 +13,7 @@ and its build only. No route, no WebView host, no UI yet (R2).
 | `*.test.ts` | Unit tests for the two pure modules (mobile vitest). |
 | `patches/*.patch` | Our changes to foliate-js, applied in order on every build. |
 | `build.mjs` | Pinned clone → patches → esbuild IIFE → `v2ReaderPage.generated.ts`. |
-| `v2ReaderPage.generated.ts` | **Generated, committed.** `V2_READER_PAGE_HTML`. Never edit by hand. |
+| `v2ReaderPage.generated.ts` | **Generated, committed.** `v2ReaderPageHtml(nonce)`. Never edit by hand. |
 | `repro.mjs` | Test-only entry: the page + `__fol.reproRenderDuringLoad` (the reproducer behind patch 0001). |
 | `fixtures.mjs` | Writes crafted EPUBs to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated) and `tshostile.epub` (book scripts + every external request kind). Needs `zip`. |
 
@@ -35,7 +35,7 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   the patch it was 1–5 per 6 loads in Chromium, hundreds on Android).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. PDF/MOBI/FB2/CBZ/TTS/search are stubbed out.
-- **Size:** 232,847 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
+- **Size:** 232,848 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
   not apply; this page's own budget is `BUDGET` in `build.mjs` (its first committed size), raised only by a
   deliberate PR.
 - **Licences** stay in the output (`legalComments: 'inline'`): foliate-js MIT © John Factotum; zip.js BSD-3-Clause.
@@ -48,12 +48,13 @@ The section iframes are `sandbox="allow-same-origin allow-scripts"`, so the page
 (ADR-029 Decision 4; changing a directive is a change to that ADR):
 
 ```
-default-src 'none'; script-src 'nonce-tsfoliate'; style-src blob: 'unsafe-inline'; img-src blob: data:;
+default-src 'none'; script-src 'nonce-__V2_READER_NONCE__'; style-src blob: 'unsafe-inline'; img-src blob: data:;
 font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: file:; form-action 'none'; base-uri 'none'
 ```
 
-**Known gap:** the nonce is a constant in a public repo, so a book that writes `<script nonce="tsfoliate">` passes
-it. The host has to swap in a per-load random nonce before this page sees a book outside the dev route.
+The artifact carries only the placeholder `__V2_READER_NONCE__` (a fixed nonce in a public repo is one a book
+can carry); `v2ReaderPageHtml(nonce)` fills the CSP and the script tag and rejects anything but base64/hex of
+16+ chars. The host supplies a fresh random nonce per load.
 
 ## Host ↔ page contract
 
@@ -71,7 +72,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `goTo(target)` | CFI, href or section index. Queued behind the previous navigation. |
 | `section(±1)`, `next()`, `prev()` | Section / page step, queued. |
 | `font(delta)` | Font size ±px, clamped 12–32; returns the new size. |
-| `flow('scrolled' \| 'paginated')` | foliate layout; default `scrolled`. |
+| `flow('paginated' \| 'scrolled')` | foliate layout; default `paginated` (ADR-029 Decision 1). |
 | `showTranslation(cfi, index, text)` | The answer to `word`: draws `text` above that word. |
 
 **Page → host** (`{ type, … }`)
@@ -94,6 +95,6 @@ A stored position or highlight is applied only while the text at its CFI still r
 (`foldText`); otherwise it is reported in `restored` and left out, never drawn elsewhere.
 
 **WebView, dev route only** (prototype host; ADR-029 Decision 4 until the R4 security review):
-`source={{ html: V2_READER_PAGE_HTML, baseUrl: <app documents dir> }}`, `allowFileAccess`,
+`source={{ html: v2ReaderPageHtml(nonce), baseUrl: <app documents dir> }}`, `allowFileAccess`,
 `allowFileAccessFromFileURLs`, `originWhitelist={['*']}`. The `file://` origin lets the page read the retained
 file itself, so no book bytes cross the bridge. Universal file access stays off.
