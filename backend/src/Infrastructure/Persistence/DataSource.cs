@@ -1,8 +1,10 @@
 using System.Data;
 using System.Runtime.CompilerServices;
+using Application.Annotations;
 using Application.Common.Interfaces;
 using Application.Library;
 using Application.Reading;
+using Application.Vocabulary;
 using Dapper;
 using Infrastructure.Persistence.Repositories;
 using Microsoft.Extensions.DependencyInjection;
@@ -68,5 +70,7 @@ public static class DataSource
             .AddSingleton(_ => new V2DataSource(
                 v2ConnectionString ?? throw new InvalidOperationException("ConnectionStrings:V2 is not set")))
             .AddSingleton<ILibraryRepository, LibraryRepository>()
-            .AddSingleton<IReadingStateRepository, ReadingStateRepository>();
+            .AddSingleton<IReadingStateRepository, ReadingStateRepository>()
+            .AddSingleton<IAnnotationRepository, AnnotationRepository>()
+            .AddSingleton<IVocabularyRepository, VocabularyRepository>();
 }

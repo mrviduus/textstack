@@ -1,5 +1,7 @@
+using Application.Annotations;
 using Application.Library;
 using Application.Reading;
+using Application.Vocabulary;
 using Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -31,5 +33,7 @@ public class V2DataAccessRegistrationTests
 
         Assert.NotNull(services.GetService<ILibraryRepository>());
         Assert.NotNull(services.GetService<IReadingStateRepository>());
+        Assert.NotNull(services.GetService<IAnnotationRepository>());
+        Assert.NotNull(services.GetService<IVocabularyRepository>());
     }
 }
