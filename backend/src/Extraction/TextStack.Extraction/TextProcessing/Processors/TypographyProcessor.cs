@@ -60,13 +60,15 @@ public class TypographyProcessor : ITextProcessor
     private static readonly Regex TimeAmPmRegex = new(@"(\d)\s+([ap])\.m\.", RegexOptions.IgnoreCase | RegexOptions.Compiled, RegexTimeout);
     private static readonly Regex NegativeNumberRegex = new(@"([\s>])-(\d)", RegexOptions.Compiled, RegexTimeout);
 
-    // A Unicode noncharacter: never in book text. Masked markup reads "<name\uFDD0>" to the rules,
-    // so they still see tag boundaries (">'s", "</abbr> ") but no attribute values.
+    // A Unicode noncharacter: never in book text. Every masked span reads "<\uFDD0>" to the rules, so
+    // they still see a tag boundary (">\u201C", "</abbr> ") but no attribute values; no rule matches an
+    // opening tag's name, only closing tags, which are never masked.
     private const char Marker = '\uFDD0';
+    private const string Placeholder = "<\uFDD0>";
 
     private static readonly Meter Meter = new(ExtractionTelemetry.MeterName);
 
-    /// <summary>Chapters left untypographed by a fallback; tag "reason" = marker_in_input | mask_failed | restore_failed.</summary>
+    /// <summary>Reason tags: marker_in_input | mask_failed | restore_failed.</summary>
     internal static readonly Counter<long> SkippedCounter = Meter.CreateCounter<long>(
         "textstack.typography.skipped", description: "Chapters returned untypographed by a safety fallback");
 
@@ -114,16 +116,13 @@ public class TypographyProcessor : ITextProcessor
             if (node.OuterStartIndex < from)
                 continue;   // inside a span already masked (script/style content)
 
-            int end;
-            string token;
-            if (node.NodeType == HtmlNodeType.Comment || node.Name is "script" or "style" or "title" or "textarea")
-                (end, token) = (RawEnd(html, node), "<!");
-            else if (node.NodeType == HtmlNodeType.Element && node.HasAttributes)
-                (end, token) = (StartTagEnd(html, node), "<" + node.Name);
-            else
+            var end = node.NodeType == HtmlNodeType.Comment || node.Name is "script" or "style" or "title" or "textarea"
+                ? RawEnd(html, node)
+                : node.NodeType == HtmlNodeType.Element && node.HasAttributes ? StartTagEnd(html, node) : -1;
+            if (end < 0)
                 continue;
 
-            sb.Append(html, from, node.OuterStartIndex - from).Append(token).Append(Marker).Append('>');
+            sb.Append(html, from, node.OuterStartIndex - from).Append(Placeholder);
             markup.Add(html[node.OuterStartIndex..end]);
             from = end;
         }
@@ -156,19 +155,17 @@ public class TypographyProcessor : ITextProcessor
         return gt < 0 ? html.Length : gt + 1;
     }
 
-    /// <summary>Puts the masked markup back; null if a placeholder went missing or lost its '>'.</summary>
+    /// <summary>Puts the masked markup back; null if a placeholder went missing or was damaged.</summary>
     internal static string? Unmask(string html, List<string> markup)
     {
+        var parts = html.Split(Placeholder);
+        if (parts.Length != markup.Count + 1 || parts.Any(p => p.Contains(Marker)))
+            return null;
+
         var sb = new StringBuilder(html.Length);
-        int from = 0, k = 0;
-        for (int at; (at = html.IndexOf(Marker, from)) >= 0; from = at + 2)
-        {
-            var lt = html.LastIndexOf('<', at);
-            if (k == markup.Count || lt < from || at + 1 >= html.Length || html[at + 1] != '>')
-                return null;
-            sb.Append(html, from, lt - from).Append(markup[k++]);
-        }
-        return k == markup.Count ? sb.Append(html, from, html.Length - from).ToString() : null;
+        for (var i = 0; i < markup.Count; i++)
+            sb.Append(parts[i]).Append(markup[i]);
+        return sb.Append(parts[^1]).ToString();
     }
 
     private static string Typogrify(string input)
@@ -278,18 +275,6 @@ public class TypographyProcessor : ITextProcessor
         try
         {
             return regex.Replace(input, replacement);
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            return input;
-        }
-    }
-
-    private static string SafeReplace(Regex regex, string input, MatchEvaluator evaluator)
-    {
-        try
-        {
-            return regex.Replace(input, evaluator);
         }
         catch (RegexMatchTimeoutException)
         {

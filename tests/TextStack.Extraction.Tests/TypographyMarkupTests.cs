@@ -34,14 +34,14 @@ public class TypographyMarkupTests
     }
 
     [Theory]
-    [InlineData("<abbr title=\"Mister\">Mr.</abbr> Darcy")]
-    [InlineData("<img src=\"a.png\" alt=\"Mr. Smith's &quot;hat&quot; . . . 1/2\"><br class=\"x\"/>")]
-    public void Process_AttributeValuesWithProse_AttributesUnchanged(string markup)
+    [InlineData("<abbr title=\"Mister\">Mr.</abbr> Darcy", "title=\"Mister\"")]
+    [InlineData("<img src=\"a.png\" alt=\"Mr. Smith's &quot;hat&quot; . . . 1/2\"><br class=\"x\"/>", "<br class=\"x\"/>")]
+    public void Process_AttributeValuesWithProse_AttributesUnchanged(string markup, string kept)
     {
         var result = _processor.Process(markup, _context);
 
         Assert.StartsWith(markup.Split('>')[0] + ">", result);
-        Assert.Contains(markup.Contains("<br") ? "<br class=\"x\"/>" : "title=\"Mister\"", result);
+        Assert.Contains(kept, result);
     }
 
     [Fact]
@@ -50,17 +50,6 @@ public class TypographyMarkupTests
         var (html, _) = HtmlCleaner.Clean("<body><p class=\"x\">\"Hello,\" she said. It's 10-20...</p></body>");
 
         Assert.Equal("<p class=\"x\">\u201CHello,\u201D she said. It\u2019s 10\u201320\u2060\u200A\u2060\u2026 </p>", html);
-    }
-
-    [Theory]
-    // Quote opened before an inline element, closed after it
-    [InlineData("<p class=\"a\">\"<i class=\"b\">Hello</i>,\" said he.</p>", "<p class=\"a\">\u201C<i class=\"b\">Hello</i>,\u201D said he.</p>")]
-    // Rules that read across tags: nbsp after </abbr>, possessive after </i>
-    [InlineData("<p><abbr class=\"name\">Mr.</abbr> Darcy</p>", "<p><abbr class=\"name\">Mr.</abbr>\u00A0Darcy</p>")]
-    [InlineData("<p><i class=\"t\">Emma</i>'s book</p>", "<p><i class=\"t\">Emma</i>\u2019s book</p>")]
-    public void Process_NestedInlineElements_TypographedAcrossTags(string input, string expected)
-    {
-        Assert.Equal(expected, _processor.Process(input, _context));
     }
 
     [Fact]
@@ -92,30 +81,32 @@ public class TypographyMarkupTests
     }
 
     [Theory]
+    // Quote opened before an inline element, closed after it
+    [InlineData("<p class=\"a\">\"<i class=\"b\">Hello</i>,\" said he.</p>", "<p class=\"a\">\u201C<i class=\"b\">Hello</i>,\u201D said he.</p>")]
+    // Rules that read across tags: nbsp after </abbr>, possessive after </i>
+    [InlineData("<p><abbr class=\"name\">Mr.</abbr> Darcy</p>", "<p><abbr class=\"name\">Mr.</abbr>\u00A0Darcy</p>")]
+    [InlineData("<p><i class=\"t\">Emma</i>'s book</p>", "<p><i class=\"t\">Emma</i>\u2019s book</p>")]
+    // Uppercase tags, a quoted '<' in an attribute, non-Latin prose
     [InlineData("<P CLASS=\"x\">\"Hi\"</P>", "<P CLASS=\"x\">\u201CHi\u201D</P>")]
     [InlineData("<IMG SRC=\"a.png\" ALT=\"it's 1/2\"/>\"Yes\"", "<IMG SRC=\"a.png\" ALT=\"it's 1/2\"/>\u201CYes\u201D")]
     [InlineData("<p title=\"a<b 'c'\">\"q\"</p>", "<p title=\"a<b 'c'\">\u201Cq\u201D</p>")]
     [InlineData("<p data-x='it\"s'>\"k\"</p>", "<p data-x='it\"s'>\u201Ck\u201D</p>")]
     [InlineData("<p>\u201E\u041F\u0440\u0438\u0432\u0456\u0442\", '\u0414\u043E\u0431\u0440\u0435'</p>", "<p>\u201E\u041F\u0440\u0438\u0432\u0456\u0442\u201D, \u2018\u0414\u043E\u0431\u0440\u0435\u2019</p>")]
-    public void Process_UppercaseQuotedAndNonLatin_OnlyTextChanged(string input, string expected)
+    public void Process_MarkupAroundProse_OnlyTextChanged(string input, string expected)
     {
         Assert.Equal(expected, _processor.Process(input, _context));
     }
 
     [Fact]
-    public void Process_MarkerCharInText_ReturnsInputUnchanged()
+    public void Process_MarkerCharInText_ReturnsInputAndRecordsSkip()
     {
-        // Documents the silent opt-out: one U+FDD0 anywhere disables typography for the whole chapter.
+        // One U+FDD0 anywhere disables typography for the whole chapter; the counter is the only trace.
         const string input = "<p class=\"m\">Price \uFDD0 \"x\" 1/2</p>";
+        string? result = null;
 
-        Assert.Equal(input, _processor.Process(input, _context));
-    }
+        var reasons = RecordSkips(() => result = _processor.Process(input, _context));
 
-    [Fact]
-    public void Process_MarkerCharInText_RecordsSkip()
-    {
-        var reasons = RecordSkips(() => _processor.Process("<p class=\"m\">Price \uFDD0 \"x\"</p>", _context));
-
+        Assert.Equal(input, result);
         Assert.Equal(["marker_in_input"], reasons);
     }
 
@@ -131,17 +122,12 @@ public class TypographyMarkupTests
     }
 
     [Theory]
-    [InlineData("<p\uFDD0 x")]   // '>' after the marker eaten by a rule
-    [InlineData("<p\uFDD0")]     // marker at end of string
-    public void Unmask_MarkerWithoutClosingBracket_ReturnsNull(string html)
+    [InlineData("<\uFDD0>x", "<p class=\"a\">x")]   // intact placeholder
+    [InlineData("<\uFDD0 x", null)]                 // '>' eaten by a rule
+    [InlineData("<\uFDD0", null)]                   // marker at end of string
+    public void Unmask_Placeholder_RestoresOrReturnsNull(string html, string? expected)
     {
-        Assert.Null(TypographyProcessor.Unmask(html, ["<p class=\"a\">"]));
-    }
-
-    [Fact]
-    public void Unmask_IntactPlaceholder_Restores()
-    {
-        Assert.Equal("<p class=\"a\">x", TypographyProcessor.Unmask("<p\uFDD0>x", ["<p class=\"a\">"]));
+        Assert.Equal(expected, TypographyProcessor.Unmask(html, ["<p class=\"a\">"]));
     }
 
     [Fact]
