@@ -8,11 +8,13 @@ namespace Infrastructure.Persistence;
 /// connection: nothing at startup depends on V2 being reachable
 /// (docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md). No pgvector: V2 has no vector column.
 /// </summary>
-public sealed class V2DataSource(string connectionString) : IAsyncDisposable
+public sealed class V2DataSource(string connectionString) : IDisposable, IAsyncDisposable
 {
     private readonly NpgsqlDataSource _dataSource = NpgsqlDataSource.Create(connectionString);
 
     public ValueTask<NpgsqlConnection> OpenConnectionAsync(CancellationToken ct) => _dataSource.OpenConnectionAsync(ct);
+
+    public void Dispose() => _dataSource.Dispose();
 
     public ValueTask DisposeAsync() => _dataSource.DisposeAsync();
 }

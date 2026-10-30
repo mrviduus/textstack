@@ -35,6 +35,8 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
             SELECT f.user_id, f.book_id, f.id, CAST(@CurrentLocator AS jsonb), @BookFraction, CAST(@FrontierLocator AS jsonb), @FrontierFraction, @CompletedAt, @ClientRecordedAt, now(), 1
             FROM book_files f
             WHERE f.user_id = @userId AND f.book_id = @bookId AND f.id = @FileId AND f.is_current
+            -- Waits for a replacement in flight, then re-checks is_current: no state lands on a superseded file.
+            FOR SHARE OF f
             ON CONFLICT (user_id, book_id) DO NOTHING
             RETURNING {Columns}
             """;

@@ -109,7 +109,9 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal((replacement.Id, true), (result.Current.Id, result.Current.IsCurrent));
         Assert.Equal((book.CurrentFile!.Id, false), (result.Superseded!.Id, result.Superseded.IsCurrent));
-        Assert.Equal(replacement.Id, (await _repo.GetAsync(user, book.Id, Ct))!.CurrentFile!.Id);
+        var read = (await _repo.GetAsync(user, book.Id, Ct))!;
+        Assert.Equal(replacement.Id, read.CurrentFile!.Id);
+        Assert.True(read.UpdatedAt > book.UpdatedAt);
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
         Assert.Equal(2L, await conn.ExecuteScalarAsync<long>(new CommandDefinition(
             "SELECT count(*) FROM book_files WHERE user_id = @user AND book_id = @Id", new { user, book.Id }, cancellationToken: Ct)));

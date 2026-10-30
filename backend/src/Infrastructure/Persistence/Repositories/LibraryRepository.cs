@@ -90,10 +90,13 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
 
     public async Task<FileReplacement?> ReplaceFileAsync(Guid userId, Guid bookId, BookFile file, CancellationToken ct)
     {
-        // The lock serializes two replacements of one book: without it both would find the same
-        // current row, and the second insert would hit the one-current-file index.
+        // Bumping updated_at also locks the book row, which serializes two replacements of one book:
+        // without it both would find the same current row, and the second insert would hit the
+        // one-current-file index.
         const string lockBook = """
-            SELECT 1 FROM books WHERE user_id = @userId AND id = @bookId AND removed_at IS NULL FOR UPDATE
+            UPDATE books SET updated_at = now()
+            WHERE user_id = @userId AND id = @bookId AND removed_at IS NULL
+            RETURNING 1
             """;
         const string supersede = $"""
             UPDATE book_files SET is_current = false

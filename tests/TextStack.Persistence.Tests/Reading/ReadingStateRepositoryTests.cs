@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
+using Dapper;
 using Domain.Library;
 using Domain.Reading;
 using Infrastructure.Persistence.Repositories;
@@ -142,6 +143,26 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal(0.9m, result.Current!.FrontierFraction);
         AssertSameJson(Page(9), result.Current.FrontierLocator);
+    }
+
+    [Fact]
+    public async Task AdvanceAsync_FirstWriteDuringAReplacement_NeverLandsOnTheSupersededFile()
+    {
+        var (user, book, file) = await ReaderWithBookAsync();
+        // A replacement caught mid-transaction: the file is superseded but not yet committed. Left to
+        // chance the race is too rare to see, so the test holds the window open itself.
+        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var replacement = await conn.BeginTransactionAsync(Ct);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE book_files SET is_current = false WHERE user_id = @user AND id = @file",
+            new { user, file }, replacement, cancellationToken: Ct));
+
+        var firstWrite = Task.Run(() => _repo.AdvanceAsync(user, book, At(file, 3), null, Ct));
+        await Task.Delay(300, Ct); // let the write reach the file row before the replacement commits
+        await replacement.CommitAsync(Ct);
+
+        Assert.False((await firstWrite).Accepted);
+        Assert.Null(await _repo.GetAsync(user, book, Ct));
     }
 
     [Fact]

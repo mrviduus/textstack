@@ -5,7 +5,8 @@ namespace Application.Reading;
 /// <summary>
 /// The V2 reading state (table <c>reading_state</c>, ADR-031): one row per user and book, guarded by
 /// <c>revision</c> so a stale device cannot overwrite a newer one. Every method is scoped to
-/// <c>userId</c> (docs/01-architecture/data-access.md rule 7).
+/// <c>userId</c> (docs/01-architecture/data-access.md rule 7). A removed book still accepts state:
+/// a device reading offline may sync after the removal, and the row goes with the book on hard delete.
 /// </summary>
 public interface IReadingStateRepository
 {
