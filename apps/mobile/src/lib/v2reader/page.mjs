@@ -7,11 +7,11 @@ import { Overlayer } from './.vendor/foliate-js/overlayer.js'
 import { EPUB } from './.vendor/foliate-js/epub.js'
 import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from './.vendor/foliate-js/vendor/zip.js'
 import { tokenizeVocabWords } from '../../../../../packages/shared/src/text/vocabKey'
-import { chapterText, offsetOf, rangeToLocator } from '../../../../../packages/reader-engine/src/text'
-import { sentenceAround } from '../../../../../packages/reader-engine/src/engine'
+import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
 import { mergeOverlay } from './overlays.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
 import { emptyEntry, entryFor, foldText, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { openableHref, sentenceOf } from './tap.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
 const log = (level, msg) => post({ type: 'log', level, msg })
@@ -74,16 +74,6 @@ function decorate(rects, { hl, gloss, el }) {
   if (hl) g.append(Overlayer.highlight(rects, { color: HIGHLIGHT_COLOR }))
   if (gloss) g.append(glossOf(rects, gloss, el))
   return g
-}
-
-/** The tapped word's sentence inside its block, by the reader engine's rule (TR-1, the other readers' too). */
-function sentenceOf(node, start, end) {
-  const block = node.parentElement?.closest('p, li, blockquote, td, h1, h2, h3, h4, h5, h6') ?? node.parentElement
-  const at = offsetOf(block, node, start)
-  // A line break in a book's source is a space on screen, not a sentence end: hard-wrapped XHTML
-  // would otherwise cut every sentence at its source line. One for one, so offsets still hold.
-  const text = chapterText(block).replace(/\s/g, ' ')
-  return sentenceAround(text, 0, text.length, at, at + (end - start)).replace(/ +/g, ' ')
 }
 
 function onTap(doc, index, e) {
@@ -193,10 +183,9 @@ async function open(bytes, name, mine) {
   })
   view.addEventListener('external-link', (e) => {
     e.preventDefault()
-    const { href } = e.detail.a
-    // The host hands openLink to the OS opener: a book must not pick the scheme (javascript:, intent:, file:…).
-    if (/^https?:/i.test(href)) post({ type: 'openLink', href })
-    else log('warn', `link not opened, not http(s): ${href.slice(0, 80)}`)
+    const href = openableHref(e.detail.a)
+    if (href) post({ type: 'openLink', href })
+    else log('warn', `link not opened, not http(s): ${String(e.detail.a.getAttribute('href')).slice(0, 80)}`)
   })
   const epub = await makeEpub(new File([bytes], name, { type: 'application/epub+zip' }))
   if (mine !== openSeq) return false
