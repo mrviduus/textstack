@@ -167,7 +167,7 @@ Dependency rule: `Api → Application → Domain ← Infrastructure` (unchanged)
 3. **Client-generated UUIDs** for offline creation; server never renumbers.
 4. **Soft removal only where the product needs it** (`books.removed_at`, `annotations.deleted_at`, `vocabulary_words.deleted_at`); everything else hard-deletes.
 5. **Idempotency keys** on every client-replayable write: `operation_id` unique per user; `revision` for last-writer protection.
-6. **Locators are envelopes** `{"version":1,"scheme":"epub-cfi"|"pdf-page"|"textstack-position-v1","value":…}`; DB checks the shape, the application validates the content.
+6. **Locators are envelopes** `{"version":1,"scheme":"epub-cfi"|"pdf-page"|"textstack-position-v1"|"textstack-anchor-v1","value":…}`; DB checks the shape, the application validates the content.
 7. **Enums as text** with CHECK; **timestamps `timestamptz`**; `created_at`/`updated_at` set by the repository, no triggers.
 8. **No JSON for things we query by**; JSON only for opaque client payloads (locators, checkpoint sections).
 9. **Account deletion = `users` CASCADE**; provenance FKs are `DEFERRABLE INITIALLY DEFERRED` (validated in [v2-schema-validation.md](v2-schema-validation.md)).
@@ -182,9 +182,9 @@ Dependency rule: `Api → Application → Domain ← Infrastructure` (unchanged)
 | | `oauth_clients`, `oauth_authorization_requests`, `oauth_grants`, `device_authorizations`, `mcp_access_keys` | MCP auth | same | `oauth_authorization_requests.user_id` gets a real FK |
 | Library | `books` | a library entry | `user_books` (96, same id) + catalog pairs (D5, deterministic id) | **add** `origin jsonb` (`{"kind":"upload"}` / `{"kind":"catalog","editionSlug":…}`), `cover_key text`; `checkpoint_saving_enabled` per draft |
 | | `book_files` | an exact file version | `user_book_files` (96, same id, sha256 kept) | **CHECK `format IN ('epub','pdf')`** (draft said epub only; 22+ PDFs exist); `server_storage_key` = relative path on the volume |
-| Reading | `reading_state` | accepted state for one book | `user_books.progress_*` → scheme `textstack-position-v1`; catalog `reading_progresses` **not migrated** (owner exception) | per draft |
+| Reading | `reading_state` | accepted state for one book | `user_books.progress_*` → scheme `textstack-position-v1` (reflow `progress_position_json`) or `pdf-page` (PDF `page:<n>`); catalog `reading_progresses` **not migrated** (owner exception) | per draft |
 | | `reading_sessions` | a reading interval | `reading_sessions` (587) | `book_id` nullable (deleted-book trail kept); unique `(user_id, client_session_id)` |
-| Annotations | `annotations` | a highlight + note, or an unanchored quotation | `highlights` (39): `selected_text`, `note_text`, color; uploads → `file_id` + locator `textstack-anchor-v1` (prefix/exact/suffix); catalog → unanchored | per draft |
+| Annotations | `annotations` | a highlight + note, or an unanchored quotation | `highlights` (39): `selected_text`, `note_text`, color; uploads → `file_id` + locator `textstack-anchor-v1` (prefix/exact/suffix) or `pdf-page` (PDF highlights: page + rects); catalog → unanchored | per draft |
 | Vocabulary | `vocabulary_words` | one card per owner/language/word_key | `vocabulary_words` (1,824): word, translation, definition, SRS stage/interval/next_review | drop `embedding`, cluster/tutor fields (D6) |
 | | `vocabulary_examples` | a source sentence for a card | legacy context sentence + `book_title` snapshot + mapped `book_id` | `operation_id` = generated per migrated row |
 | | `vocabulary_reviews` | one answer | `vocabulary_reviews` (461) | |
@@ -196,7 +196,7 @@ Dependency rule: `Api → Application → Domain ← Infrastructure` (unchanged)
 | **Transitional** | `book_chapters` | server-extracted chapter of a file version (`file_id`, `chapter_key`, title, html, plain_text) | `user_chapters` (2,710) | **Exists only until the V2 reader serves EPUB and PDF on all clients**; feeds the legacy reader, `get_my_chapter` and `shared_chapters` snapshots. Table comment states the sunset. |
 | | `ingestion_jobs` | server extraction job for an uploaded file | `user_ingestion_jobs` | same sunset |
 
-Retired with the legacy DB (no V2 row): 19 catalog/SEO/SSG tables, `sites`, `site_domains`, `user_libraries` (becomes `books` rows), `reading_progresses`, `bookmarks`, `user_book_bookmarks`, `reading_goals`, `user_achievements`, `pending_vocabulary_words`, `word_lookups`, `user_vocabulary_settings`, `word_clusters`, `tutor_session`, `models`, `model_promotions`, `book_quality_jobs`, `collections`, `book_collections` (recommendation Q3: retire; `books.tags text[]` if shelves ever return), `admin_users`, `admin_refresh_tokens`.
+Retired with the legacy DB (no V2 table; full per-table disposition in [ADR-031](adr/ADR-031-v2-schema.md)): the 19 live tables of the catalog section (incl. `sites`, `site_domains`, `book_quality_jobs`), `user_libraries` (its rows become `books` rows), `reading_progresses`, `bookmarks`, `user_book_bookmarks`, `reading_goals`, `user_achievements`, `pending_vocabulary_words`, `word_lookups`, `user_vocabulary_settings`, `word_clusters`, `tutor_session`, `models`, `model_promotions`, `collections`, `book_collections` (recommendation Q3: retire; `books.tags text[]` if shelves ever return — note `user_books.tags` is already live, ADR-031 open item 3), `admin_users`, `admin_refresh_tokens` (both fold into Identity tables).
 
 Deployment of the database itself (recommendation Q1): `textstack_v2` is a second database **in the existing `db` container**, created by a `migrator-v2` compose service; one volume, one backup job, one pool of RAM.
 
@@ -324,7 +324,7 @@ Fixed rules for every slice: English only; one PR, closes its issue; `/pr` write
 |---|---|---|
 | M0.1 | tech-writer | this plan → `docs/01-architecture/v2-plan.md`; `STATUS.md` V2 section; fix stale date |
 | M0.2 | architect | **[ADR-030 Two databases, one cutover](adr/ADR-030-two-databases-one-cutover.md)** (D2, §5) — supersedes the in-place parts of ADR-027 |
-| M0.3 | architect | **ADR-031 V2 schema** (§4; disposition of all 58 tables; D5–D7); `data-model.md` V2 section |
+| M0.3 | architect | **[ADR-031 V2 schema](adr/ADR-031-v2-schema.md)** (§4; disposition of all 58 tables; D5–D7); `data-model.md` V2 section |
 | M0.4 | architect | **ADR-029** (reader, R0) |
 | M0.5 | product-manager | GitHub issues for every slice, labels `v2-db`, `v2-reader`, `v2-cutover` |
 
