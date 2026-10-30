@@ -5,8 +5,45 @@ Column-level truth: [`database/migrations/`](../../database/README.md) — the b
 numbered migration after it ([ADR-026](adr/ADR-026-sql-first-migrations.md)). Audited 2026-10-26 for the
 database cleanup ([#926](https://github.com/mrviduus/textstack/issues/926)).
 
-**Update this page in the same PR as any schema change.** A PR that adds, drops or reshapes a table
-changes its row here.
+**Update this page in the same PR as any schema change, in either database.** A PR that adds, drops
+or reshapes a table changes its row here: the V2 table below for `textstack_v2`, the inventory for the
+legacy database.
+
+## V2 (`textstack_v2`) — see [ADR-031](adr/ADR-031-v2-schema.md)
+
+A second database ([ADR-030](adr/ADR-030-two-databases-one-cutover.md)), not yet created (M1.1).
+24 permanent tables + 2 transitional; column truth will be `database/v2/migrations/0000_baseline.up.sql`.
+What happens to each legacy table (the disposition column) lives in ADR-031, not here. The legacy
+inventory below stays until M6, when this page becomes V2 only.
+
+| Module | Table | A row is | Origin |
+|---|---|---|---|
+| Identity | `users` | an account: reader, guest or staff (`role`) | `users` + `admin_users` |
+| | `user_refresh_tokens` | a session | `user_refresh_tokens` + `admin_refresh_tokens` |
+| | `password_reset_tokens` | a reset code | same |
+| | `oauth_clients` | a registered MCP client | same |
+| | `oauth_authorization_requests` | a pending OAuth authorization | same (+ `user_id` FK) |
+| | `oauth_grants` | an MCP OAuth token pair | same |
+| | `device_authorizations` | a device-flow login attempt | same |
+| | `mcp_access_keys` | a `tsk_…` connect key | same |
+| Library | `books` | a library entry | `user_books` (same id) + catalog `user_libraries` pairs (no file) |
+| | `book_files` | an exact file version | `user_book_files` (same id) |
+| Reading | `reading_state` | the accepted position + frontier for one book | `user_books.progress_*` |
+| | `reading_sessions` | a reading interval | `reading_sessions` |
+| Annotations | `annotations` | a highlight + note, or an unanchored quotation | `highlights` |
+| Vocabulary | `vocabulary_words` | one card per owner/language/word_key | `vocabulary_words` |
+| | `vocabulary_examples` | a source sentence for a card | `vocabulary_words.sentence` / `book_title` |
+| | `vocabulary_reviews` | one answer | `vocabulary_reviews` |
+| Discussion | `shared_chapters` | an explicit chapter snapshot for MCP | new |
+| | `discussion_checkpoints` | one saved stage of a discussion | new |
+| | `book_insight` | an assistant conclusion or chapter review | `book_insight` (one `book_id`) |
+| | `review_question` | a self-check question | `review_question` |
+| Ops | `llm_traces` | one LLM call | same |
+| | `agent_run` | one agent run | same (− `edition_id`) |
+| | `eval_runs` | one eval score | same |
+| | `admin_settings` | one runtime knob | same |
+| Transitional | `book_chapters` | a server-extracted chapter of one file version | `user_chapters` — dropped at M6.4 |
+| | `ingestion_jobs` | an extraction job for one uploaded file | `user_ingestion_jobs` — dropped at M6.4 |
 
 ## Numbers (2026-10-26)
 
