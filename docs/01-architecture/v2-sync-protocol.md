@@ -23,12 +23,12 @@ Decided here:
 
 | # | Decision | Why, in one line |
 |---|---|---|
-| S1 | **Per-item writes from a client outbox**, no batch endpoint | every write is already idempotent by id/revision or `operation_id`; a batch adds a second error model |
+| S1 | **Per-item writes from a client outbox**, no batch endpoint | every write is idempotent by id, revision guard or `operation_id` (reset and restore included, by `expectedRevision`); a batch adds a second error model |
 | S2 | **Pull = per-aggregate change feed** keyed by `(updated_at, id)` with a 30 s overlap | 4 synced aggregates, small per-user data; no change-log table to keep consistent with 24 others |
 | S3 | **The server computes SRS**; the client sends the answer, not the schedule | `SrsEngine` stays the one definition; no C#/TS twin to drift |
 | S4 | **File bytes go up in parts** over the existing parts protocol; not resumable across app kills | Cloudflare caps a request at ~100 MB; resume needs state nobody has asked for yet |
-| S5 | **409 bodies name why a write lost**: `stale_revision`, `reset`, `file_replaced`, `unknown_file`, `deleted`, `operation_conflict`, `duplicate_file`, `id_conflict` | closes M1.2's QA gap: a stale device could not tell a move from a reset from a replacement |
-| S6 | **One schema delta**: `reading_state.reset_revision` | the server cannot tell a reset from a move without it |
+| S5 | **409 bodies name why a write lost**: `stale_revision`, `reset`, `file_replaced`, `unknown_file`, `deleted`, `operation_conflict`, `duplicate_file`, `id_conflict`, `book_removed` | closes M1.2's QA gap: a stale device could not tell a move from a reset from a replacement |
+| S6 | **Two schema deltas** in V2 migration `0001`: `reading_state.reset_revision`, and `ON UPDATE CASCADE` on every composite `(user_id, …)` FK | the server cannot tell a reset from a move without the first; the guest merge cannot move rows without the second ([merge](#guest--account-merge)) |
 | S7 | **Shares, checkpoints, insights and reviews are not pulled**; they are online lists | they are written online (share, MCP) or are history the client does not show offline |
 | S8 | **Tombstones are kept forever** | rows are tiny; purging forces a "cursor too old" protocol nobody needs yet |
 
@@ -44,12 +44,15 @@ Decided here:
    clock.
 3. **`operation_id` per replayable append** (examples, reviews, shares, checkpoints): replay returns
    the original; a different payload under the same id is a conflict.
-4. **Last-writer-wins only where the row has no revision**: `books` metadata (no `revision` column),
-   reading sessions (first write wins).
+4. **Last-writer-wins only where the row has no revision**: `books` metadata (no `revision` column;
+   edited through `PATCH /books/{bookId}`), reading sessions (first write wins).
 5. **Locators are opaque** beyond the ADR-031 envelope: the server checks `version`, `scheme`, `value`,
    the `quote` length and the per-column quote rule; it never parses a CFI.
-6. **Idempotency check first.** Every write resolves "have I seen this id/operation?" before any other
-   rule, so a replay of a write that succeeded before a deletion or replacement still answers 200.
+6. **Idempotency check first — for `operation_id` rows only.** An example, review, share or
+   checkpoint resolves "have I seen this operation?" before any other rule, so a replay of an append
+   that succeeded before a deletion still answers 200. Revisioned rows check the tombstone first: a
+   create replayed onto an annotation deleted since gets `deleted` (M1.3 does this: the create loses
+   with the tombstone as `Current`). A reading-state replay after a replacement gets `file_replaced`.
 7. **Reading needs no account.** Every endpoint here is `/me/v2/*` (guest sessions included, ADR-014);
    the reader never calls one on its path.
 
@@ -105,8 +108,13 @@ One per book (`reading_state`, PK `(user_id, book_id)`), always on one file vers
 | `frontierLocator` | locator | no | sent with `frontierFraction` or not at all |
 | `frontierFraction` | number | no | ≥ `bookFraction`; otherwise the server uses the position as the offered frontier |
 | `completedAt` | time | no | set once; cleared only by a reset |
-| `clientRecordedAt` | time | yes | the client's clock; clamped to server now + 5 min (ADR-019 `MAX_CLIENT_SKEW_MS`) |
+| `clientRecordedAt` | time | yes | the client's clock, already clamped by the client to its now + 5 min (ADR-019 `MAX_CLIENT_SKEW_MS`); the server stores it as sent |
 | `revision`, `updatedAt`, `resetRevision` | | server | see [The revision rule](#the-revision-rule) |
+
+**Locator schemes on V2 writes:** `epub-cfi` and `pdf-page` only. `textstack-position-v1` /
+`textstack-anchor-v1` exist for migrated rows (ADR-031) and are refused (400 `invalid_payload`).
+`pdf-page` values: a position is `{"page":N}` (1-based int); an annotation is the legacy `PdfAnchor`
+`{"page":N,"rects":[{"x":…,"y":…,"w":…,"h":…}],"exact":"…"}` (page-relative, unscaled numbers).
 
 The client may omit the frontier entirely: the server keeps the furthest of every accepted position.
 From R2's local store (`store.mjs` position `{cfi, quote, index, fraction, at}`):
@@ -171,7 +179,7 @@ fraction`, `clientRecordedAt = at`.
 | Field | Type | Req | Rule |
 |---|---|---|---|
 | `operationId` | uuid | yes | client v4, one per answer |
-| `wordId` | uuid | yes | the server's card id (re-keyed after a save, see below) |
+| `wordId` | uuid | yes | the server's card id: after a save returns another card's id, the client rewrites its queued reviews to it |
 | `reviewMode` | string | yes | non-blank, client-owned vocabulary |
 | `isCorrect` | bool | yes | |
 | `responseTimeMs` | int | no | ≥ 0 |
@@ -182,8 +190,15 @@ fraction`, `clientRecordedAt = at`.
 device show the next due date at once, but it needs a TypeScript twin of `SrsEngine` that must stay
 bit-for-bit equal, and two offline devices would each send a schedule computed from a stale card. A
 server-computed schedule keeps one definition and applies answers in arrival order. Offline, the
-client needs no SRS math: an answered card leaves the local queue until the next pull brings the
-server's schedule. Cost accepted: two devices answering the same card offline both advance it.
+client needs no SRS math: a card with an unpushed review in the outbox stays out of the local queue
+whatever a pull says, and returns with the server's schedule once the review is accepted. Cost
+accepted: two devices answering the same card offline both advance it.
+
+- `next_review_at` = **server receive time** + the computed interval, as legacy does today
+  (`VocabularyReviewRecorder`: `now.AddDays(newInterval)` with server `UtcNow`). An answer that sat
+  offline for days is scheduled from when it arrived. Owner question 9.
+- An auto-retire (`SrsEngine.ShouldAutoRetire`) is a delete (ADR-031 decided item 4): it goes through
+  `DeleteWordAsync`, so it bumps `revision` and other devices see a tombstone. See question 1.
 
 ### Shares and checkpoints (online only)
 
@@ -256,19 +271,22 @@ which it does not have. One `ALTER TABLE` in a V2 migration `0001`; no data to b
 **Own write, lost response.** A client that retries an accepted write gets `stale_revision`, because
 its first attempt already bumped the revision. If `current` equals what it sent (`fileId`,
 `currentLocator`, `clientRecordedAt`), it treats the 409 as success and adopts `current.revision`.
-The same applies to annotations (all sent fields) and word edits.
+Locators are compared **structurally** (jsonb does not keep key order), times as instants. The same
+applies to annotations (all sent fields), word edits, resets and restores.
 
 ### The 409 body
 
 One shape for every aggregate, so the client has one parser:
 
 ```json
-{ "code": "…", "message": "…", "revision": 7, "current": { … } | null, "fileId": "…" }
+{ "code": "…", "message": "…", "revision": 7, "current": { … } | null, "fileId": "…", "currentFile": { … } }
 ```
 
 `current` is the stored row of the aggregate the write targeted (the full read shape above); `revision`
-repeats `current.revision` (null when there is no row); `fileId` is the book's current file id, on
-reading-state and file codes only.
+repeats `current.revision` (null when there is no row). Optional members: `fileId` (the book's current
+file id) and `currentFile` (its file version), on reading-state and file codes only; `field` on
+`invalid_payload`; `expectedSha256`/`actualSha256` on `content_mismatch`. 404s and 422s use the same
+shape.
 
 `stale_revision` — another device moved (or the state never existed for this revision). Client: ADR-019
 rule 5 — adopt if it has not restored yet, move if the reader has not moved since, otherwise ask; then
@@ -330,7 +348,7 @@ delete locally (for a word: offer restore).
 
 ## operation_id rules
 
-1. **Per user**, client-generated v4 (MCP tools: see M2.3/M2.4 below), one per replayable append:
+1. **Per user**, client-generated v4, one per replayable append (MCP tools: M2.3/M2.4 decide; recommended a per-call nonce from the host, never derived from the payload):
    example, review, share, checkpoint.
 2. **Retained forever**: the UNIQUE `(user_id, operation_id)` lives on the row itself; there is no
    separate operations table and no expiry.
@@ -338,25 +356,29 @@ delete locally (for a word: offer restore).
    success and does not need to.
 4. **Different payload → 409 `operation_conflict` with the stored row.** That is a client bug (an id
    reused); the client logs it and drops the operation, never retries it with a new payload.
-5. **The idempotency check runs before everything else** (principle 6): a replayed review of a word
-   deleted since still answers 200.
+5. **The idempotency check runs before everything else** (principle 6, operation rows only): a
+   replayed review of a word deleted since still answers 200.
 6. **`payload_sha256`** = lowercase hex SHA-256 of the UTF-8 bytes of the canonical JSON below. The
    **server** computes it from the request; clients never send it. Only the API and the M3 ETL compute
    it, through **one C# function** in Application (`CanonicalPayload.Sha256`), so they cannot disagree.
 
 ### Canonical JSON (ADR-031 decided item 4, made precise)
 
-Serialization: **RFC 8785 (JSON Canonicalization Scheme)** — keys sorted by UTF-16 code units, no
-insignificant whitespace, minimal string escaping, UTF-8. On top of it:
+Serialization: **full RFC 8785 (JSON Canonicalization Scheme)** — keys sorted by UTF-16 code units at
+every depth, no insignificant whitespace, minimal string escaping, ES6 number formatting (`notes` can
+hold objects with fractional pdf rects), UTF-8. `CanonicalPayload` implements all of it and is pinned
+by the RFC's test vectors plus our own. **What is hashed is the normalized value as stored**, not the
+raw request: whatever the endpoint normalizes before the insert (the computed `wordKey`, UTC times),
+the hash sees the normalized form, so a replay compares like with like. On top of it:
 
 | Rule | |
 |---|---|
 | Keys | the camelCase wire names in the table below; nothing else (not `operationId`, not the row id, not `userId`) |
 | Null / absent | an optional field that is null or absent is **omitted**, so both hash equal |
-| Strings | exactly as received: no trim, no case change, no Unicode normalization |
+| Strings | as stored; the endpoint does not trim, case-fold or Unicode-normalize free text, so for those that is as received |
 | UUIDs | lowercase, hyphenated (`8-4-4-4-12`) |
 | Times | UTC, `yyyy-MM-ddTHH:mm:ss.fffZ` (milliseconds, truncated): `…+02:00` and `…Z` for one instant hash equal |
-| Numbers | integers only (as JSON integers); no hashed field is fractional — a future one is sent as a string |
+| Numbers | RFC 8785 / ES6 form (`1`, `0.5`, `1e-7`); top-level fields are integers, nested JSON (`notes`) may be fractional |
 | Booleans | `true` / `false` |
 | Arrays | order kept (checkpoint sections are ordered) |
 
@@ -381,15 +403,19 @@ would match.
 |---|---|---|---|---|
 | `stale_revision` | 409 | reading-state PUT, annotation PUT, word PATCH | `current` = stored row (may be null) | state: ADR-019 adopt/move/ask, then rewrite; annotation/word: own write → success; else re-apply its changed fields onto `current`, retry once, then keep the server's |
 | `reset` | 409 | reading-state PUT | `current` with `resetRevision` | drop local frontier/completion; resend position with new revision |
-| `file_replaced` | 409 | reading-state PUT; file PUT naming a superseded version | `fileId`, `currentFile` | drop queued state writes for the old file; offer fetch/import |
-| `unknown_file` | 409 | reading-state PUT, annotation PUT, example, share, checkpoint | — | push the file version first; keep the write queued |
+| `file_replaced` | 409 | reading-state PUT; file PUT whose `replacesFileId` is not current, or naming a superseded version; parts/content for a non-current file | `fileId`, `currentFile` | drop queued state writes and uploads for the old file; offer fetch/import |
+| `unknown_file` | 409 | every write naming a `fileId` (reading state, annotation, example, share, checkpoint, parts) | — | push the file version first; keep the write queued |
 | `deleted` | 409 | annotation PUT, word save/PATCH, example add, review | `current` = tombstone | drop the edit, delete locally; word: offer restore |
 | `operation_conflict` | 409 | example, review, share, checkpoint | `current` = stored row | log, drop the operation |
-| `duplicate_file` | 409 | book PUT | `current` = the existing book with those bytes | re-key the local entry to `current.id` / its file; drop the import |
+| `duplicate_file` | 409 | book PUT | `current` = the existing book with those bytes | re-key as for a merge map (local entry, local store, outbox: book id and file id); drop the import |
+| `book_removed` | 409 | file PUT (replace/attach), parts, content | `current` = the removed book | restore first (`POST …/restore`) or drop the write |
 | `id_conflict` | 409 | any create | — (no row: it may be another user's) | mint a new id, retry |
 | `share_mismatch` | 422 | checkpoint | — | send the matching share or none |
 | `content_mismatch` | 422 | content complete | `expectedSha256`, `actualSha256`, `byteSize` | re-hash locally; re-upload all parts |
-| `book_not_found` | 404 | anything under a book | — | push the book first (outbox order), or drop if removed locally |
+| `incomplete_upload` | 400 | content complete | — | a part is missing (e.g. dropped by a restart): re-send **all** parts, then complete again |
+| `book_not_found` | 404 | anything under a book, and every write naming a `bookId` (examples, sessions) | — | push the book first (outbox order); if the book is gone locally too, drop |
+| `not_found` | 404 | annotation/word/example/share/checkpoint by id | — | an id the server never had: its create is still queued → keep; else drop |
+| `no_content` | 404 | content GET | — | the server holds no bytes: show "import the file" |
 | `invalid_payload` | 400 | any | `field` | client bug: log, drop |
 | `v2_unavailable` | 503 | any `/me/v2/*` | `Retry-After` | pause sync; reading is unaffected |
 
@@ -403,8 +429,12 @@ There is no server flag; other devices see `currentFile.hasContent`.
 1. **sha256 first.** `GET /me/v2/books/by-sha256/{sha256}` → `FindBySha256Async` (owner-scoped, live
    books, current files). 200 → the book exists: adopt its ids locally, no import. 404 → import.
 2. **Import metadata** `PUT /me/v2/books/{bookId}` with the book and its first file (no bytes). 201;
-   replay of the same ids → 200 (#1065). Another live book already has those bytes as its current file
-   → 409 `duplicate_file` (the race step 1 cannot close).
+   replay → 200 (#1065; replay = the book is the user's **and** the import's `file.id` is any version
+   of it, so a replay after a replacement still answers 200 instead of `id_conflict` → new id →
+   duplicate book). Another live book already has those bytes as its current file → 409
+   `duplicate_file`. The check and the insert run under
+   `pg_advisory_xact_lock(hashtext(user_id::text || sha256))`, so two devices importing the same
+   bytes at once cannot both win (there is no UNIQUE, by design).
 3. **Bytes, only if the reader opted in**: `PUT …/files/{fileId}/parts/{index}` for each part, then
    `POST …/files/{fileId}/content {partCount}`. The server joins the parts, checks SHA-256 and size
    against the file row, moves the result to its storage key, and sets `server_storage_key`. Already
@@ -412,28 +442,52 @@ There is no server flag; other devices see `currentFile.hasContent`.
 4. **Download** `GET …/files/{fileId}/content`: the bytes with HTTP range support (a dropped download
    resumes for free); 404 `no_content` when not stored.
 
-**S4 — parts, not resumable across kills.** The legacy upload already sends big books as parts
-(`ChunkedUploadStore`: client-chosen upload id, `{index:D5}.part` under the user's temp dir, Cloudflare's
-~100 MB request cap, `MaxSingleUploadBytes` = 80 MB). V2 reuses it with **the file id as the upload id**:
-no init call, no DB row, the same quota and stale sweep (1 day). STATUS's "RN cannot slice an opaque
-`file://`" no longer holds for the retained copy: expo-file-system 57's `File.open()` returns a
-`FileHandle` with a settable `offset` and `readBytes(n)`, and `books/<sha256>.epub` lives in the app's
-own documents dir. Mobile sends 8 MB parts (bounded JS memory); web sends `Blob.slice` parts as today.
+**S4 — parts, not resumable across kills.** V2 reuses the legacy **protocol** (`ChunkedUploadStore`:
+client-chosen upload id, `{index:D5}.part`, Cloudflare's ~100 MB request cap, `MaxSingleUploadBytes`
+= 80 MB), with **the file id as the upload id**: no init call, no DB row, stale sweep after 1 day. It
+does **not** reuse the legacy store or quota: those parts live under `Path.GetTempPath()`
+(`ServiceCollectionExtensions.Content.cs`), which every deploy's api restart drops, and the quota reads
+legacy EF tables (`UserBookService.CheckQuotaAsync`), which ADR-030 forbids V2 to depend on. V2 parts
+live under the persistent volume (`Storage:LibraryRoot`/`uploads/`); the V2 quota is computed over V2
+`users` and `book_files` (owner question 2). A completion that finds a part missing answers 400
+`incomplete_upload` and the client re-sends all parts.
+
+The client picks the part size, ≤ `maxPartBytes` from `GET /status`. STATUS's "RN cannot slice an
+opaque `file://`" looks out of date for the retained copy: expo-file-system 57's `File.open()` returns
+a `FileHandle` with a settable `offset` and `readBytes(n)`, and `books/<sha256>.epub` lives in the
+app's own documents dir. **Unverified**: that a `readBytes` `Uint8Array` goes through RN `fetch` as a
+request body intact. Fallback that needs no such path: write each part to a cache file
+(`FileHandle.writeBytes`) and send it with the native `File.upload()` (`httpMethod: 'PUT'`, binary),
+which exists in 57.0.7. R6 proves one of the two on a device before M2.6 ships. Web sends
+`Blob.slice` parts as today.
 
 | Option | For | Against |
 |---|---|---|
 | One request (native `File.upload`, streamed, progress, iOS background) | no JS memory, simplest client | > ~100 MB refused by Cloudflare; a failure restarts the whole book |
-| **Parts, retried per part, restart after a kill** (chosen) | reuses a protocol and a store that exist; a flaky link re-sends one 8 MB part | a kill mid-upload re-sends from part 0 |
+| **Parts, retried per part, restart after a kill** (chosen) | reuses a protocol that exists; a flaky link re-sends one part | a kill mid-upload re-sends from part 0 |
 | Resumable (server lists stored parts, client skips them) | survives kills | one more endpoint and a part-listing contract; no evidence yet that 80 MB uploads die mid-way |
 
 Upgrade path, with no protocol break: `GET …/files/{fileId}/parts` returning stored indices and sizes.
 Add it when an upload failure rate shows up.
 
 **Replacement** (a new version of a book): the same path — `PUT /me/v2/books/{bookId}/files/{fileId}`
-with the new file's metadata → `ReplaceFileAsync` (new row current, old row kept, reading state
-deleted), then bytes for the new file id as above. Attaching the first file to a catalog book (D5, no
-file) is the same call (`Superseded = null`). Replay: the file id is already current → 200; it exists
-but is no longer current → 409 `file_replaced`.
+with the new file's metadata and **`replacesFileId`** (the current file the client saw; null = first
+attach) → `ReplaceFileAsync` (new row current, old row kept, reading state deleted), then bytes for
+the new file id as above. `replacesFileId` ≠ the stored current file → 409 `file_replaced` with
+`currentFile`: two devices replacing offline no longer silently last-writer-win (owner question 10).
+Attaching the first file to a catalog book (D5, no file) is the same call (`Superseded = null`).
+Replay: the file id is already current → 200; it exists but is no longer current → 409
+`file_replaced`.
+
+Bytes attach only to the **current** file: parts and content for a non-current file → 409
+`file_replaced`, for an unknown one → 409 `unknown_file`; `AttachContentAsync` writes
+`WHERE is_current`.
+
+**A removed book** (`removed_at` set; owner question 11):
+
+| Accepts (a device reading offline may sync after the removal) | Refuses with 409 `book_removed` |
+|---|---|
+| reading state, annotations, examples, sessions | replace / attach a file, parts, content |
 
 **Local positions after a replacement.** The device that replaced keys its local store by the new
 sha256 (`store/<sha256>.json`), so it starts the new version with no position and no highlights — the
@@ -455,15 +509,17 @@ their `server_storage_key` is cleared only once the bytes are gone (schema comme
 - Rows ordered by `(updated_at, id)`, keyset-paged; tombstones included (`removedAt`, `deletedAt`).
 - The final page's `cursor` encodes `max(updated_at)`. A pull that **starts** from a stored cursor
   reads from `cursor − 30 s`: a write transaction that took `now()` before a row the previous pull saw,
-  but committed after it, is still delivered. The client merges by id, keeping the higher revision, so
-  re-delivery is harmless. `ponytail:` overlap window; a write transaction longer than 30 s could be
+  but committed after it, is still delivered. A pulled row **always replaces** the client's cached
+  server copy of that row (revision is a write count, not recency: reviews change a schedule without
+  one, state restarts at 1 after a replacement, books have none); the client's unpushed outbox
+  entries overlay the cached copy. Re-delivery is harmless. `ponytail:` overlap window; a write transaction longer than 30 s could be
   missed until its row changes again — a per-user change sequence if that ever happens.
 - `cursor` absent = full pull. Cursors are opaque base64; the client stores one per aggregate.
 - What each feed carries:
 
 | Feed | Rows | Watermark |
 |---|---|---|
-| `library` | books incl. removed, each with `currentFile` | `books.updated_at` (bumped on replace, remove, restore) |
+| `library` | books incl. removed, each with `currentFile` | `books.updated_at` — bumped by **every** library write: import, replace, attach content, remove, restore, checkpoint-saving, metadata edit |
 | `reading` | `reading_state` rows | `reading_state.updated_at` |
 | `annotations` | annotations incl. tombstones | `annotations.updated_at` (bumped on delete) |
 | `vocabulary` | words incl. tombstones, each with its **live** examples | `vocabulary_words.updated_at`, bumped by every example add, review and translation fill (M1.3 does) |
@@ -492,14 +548,35 @@ measurably hurts.
 ## Guest → account merge
 
 Server-side, in one transaction at sign-in (M2.5), as a cross-user system operation with its own name
-(`IAccountMergeRepository.MergeAsync(guestId, accountId, tx)`, data-access.md rule 7). Composite FKs
-`(user_id, …)` have no `ON UPDATE CASCADE`, so "reparent" means insert-under-account, move children,
-delete the guest row — never `UPDATE … SET user_id` on a parent.
+(`IAccountMergeRepository.MergeAsync(guestId, accountId, tx)`, data-access.md rule 7).
+
+**How rows move.** PKs are global (`pk_books(id)`, `pk_book_files(id)`, `pk_vocabulary_words(id)`), the
+ownership FKs are composite, `ON DELETE CASCADE` and mostly not deferrable, and `ON CONFLICT` exists
+only on `INSERT`: "insert under the account, move children, delete the guest row" cannot be built
+(the insert collides on the PK; the delete cascades the children away). And ADR-014 swallows class-23
+errors and skips the **whole** merge, so one constraint violation orphans every guest row.
+Decision (S6): migration `0001` adds **`ON UPDATE CASCADE` to every composite `(user_id, …)` FK**, so
+reparenting is `UPDATE <parent> SET user_id = @account WHERE user_id = @guest` and children follow,
+keeping their client ids (ADR-031 rule 3). Order inside the transaction:
+
+1. Delete guest leaf rows whose `operation_id` / `client_session_id` already exists on the account
+   (the cascade would otherwise collide on `UNIQUE (user_id, …)`), counting them in the merge log.
+2. Matched books and words (below): move their children onto the account's row
+   (`UPDATE … SET user_id, book_id|word_id`), then delete the emptied guest row.
+3. Reparent everything else by `UPDATE … SET user_id` on parents.
+4. On every moved row: `updated_at = now()` (other devices of the account must see it in their
+   feeds); recompute `payload_sha256` through `CanonicalPayload` where a hashed field changed
+   (`bookId`, `fileId`, `wordId`, `sharedChapterId`).
+5. File bytes: `server_storage_key` embeds the user id (plan §4.5), so stored bytes move to the
+   account's key and the column is rewritten — after commit, by the same retried job that deletes
+   superseded bytes, which reads both keys until it is done.
+
+Owner question 12: `ON UPDATE CASCADE` (recommended) vs new ids for merged rows.
 
 | Aggregate | Rule |
 |---|---|
 | Books | Match on **current file sha256, live books only** (the `FindBySha256Async` rule). Match → keep the account's book; the guest book's annotations, sessions, examples, shares, checkpoints, insights move onto it; the guest's file rows move as **non-current** versions of the account's book (provenance for annotations anchored in them), except a guest file with the same sha256 as the account's current file, whose references remap to that file. No match → the book is reparented with its id. |
-| Reading state | Only for matched books (unmatched ones move as is). Winner = higher `revision`, tie → newer `clientRecordedAt`. Frontier = the further of the two (same bytes, so fractions compare); `completedAt` = the earlier non-null. `fileId` = the account's current file. **Revision = max(both) + 1**, `resetRevision` null. Only one side has state → it moves as is. |
+| Reading state | Only for matched books (unmatched ones move as is). Winner = **newer `clientRecordedAt`** (revision counts writes, it is not recency). Frontier = max(both frontiers, winner's position), so `ck_reading_state_frontier_ahead` holds even against a reset side with no frontier. `completedAt` follows the winner; `resetRevision` = the account's (a reset on the account is never lost). `fileId` = the account's current file. **Revision = max(both) + 1**. Only one side has state → it moves as is. |
 | Annotations | Reparented; ids unchanged. |
 | Vocabulary | Match on `(language, wordKey)`. Survivor id = **the account's**. Fields from the live side: both live → the account's card and schedule; account tombstone + guest live → the account's row revived with the guest's fields and schedule; guest tombstone → the account's row as is. Examples and reviews of both move to the survivor. Revision = max + 1. No match → reparented with its id. |
 | Sessions | Reparented; `book_id` remapped for matched books. |
@@ -508,13 +585,16 @@ delete the guest row — never `UPDATE … SET user_id` on a parent.
 
 **`operation_id` and `client_session_id` collisions.** The UNIQUE is per user, so moving guest rows
 can collide only when the same id exists on both sides. Random v4 ids do not collide; the real case is
-one device that pushed the same outbox entry under both identities. Rows move with
-`ON CONFLICT (user_id, operation_id) DO NOTHING`: the account's row stays, the guest's is dropped and
-counted in the merge log (`payload_sha256` differing is logged as an anomaly, not an error).
+one device that pushed the same outbox entry under both identities. Step 1 deletes the guest's copy
+before anything moves: the account's row stays (`payload_sha256` differing is logged as an anomaly,
+not an error).
 
 **What the client sees.** The sign-in response carries
-`merge: { books: { guestId: accountId }, words: { guestId: accountId } }` — only ids that changed.
-The client then: rewrites ids in its outbox and local store by that map; clears every cursor and does a
+`merge: { books: { guestId: accountId }, files: { guestId: accountId }, words: { guestId: accountId } }`
+— only ids that changed. `files` matters: a queued state write still naming the guest's file would
+get `unknown_file`, and "push the file first" would then **replace** the account's current file and
+delete its reading state. The client then: rewrites book, file and word ids in its outbox and local
+store by that map; clears every cursor and does a
 full pull; keeps its outbox. Every revision it cached is now stale (every merged row is max + 1, every
 account row it never saw is new), so its queued edits come back `stale_revision` and follow the table
 above — reading state through ADR-019 (never yank a reader who moved), annotations and words by
@@ -526,8 +606,8 @@ re-applying the local change once. Nothing local is lost.
   shim (plan §5.4). They never return a V2 code or body. A V2 409 exists only under `/me/v2/*`, which no
   old build calls.
 - V2 routes live under **`/me/v2/*`** (temporary prefix, renamed at M5.4), mapped only when
-  **`Features:V2Api`** is on. A V2 client probes `GET /me/v2/status` once per app start: 404 = V2 off
-  (sync stays legacy), 200 = `{ "maxPartBytes": … }`.
+  **`Features:V2Api`** is on. A V2 client with a session (PathGates answers 401 without one) probes
+  `GET /me/v2/status` once per app start: 404 = V2 off (sync stays legacy), 200 = `{ "maxPartBytes": … }`.
 - **V2 readiness gates V2 endpoints only (#1053)**: a V2 database that is behind, unreachable or not
   created answers 503 `v2_unavailable` on `/me/v2/*` and leaves sign-in, the legacy library and the
   catalog serving. Never a startup dependency.
@@ -543,53 +623,69 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 | Slice | Method · path | Request | Responses |
 |---|---|---|---|
 | M2.2 | `GET /status` | — | 200 `{maxPartBytes}` |
-| M2.2 | `GET /library/changes` | `cursor`, `limit` ≤ 500 | 200 feed |
+| M2.2 | `GET /library/changes` (every feed alike) | `cursor`, `limit` (default 200, max 500) | 200 feed |
 | M2.2 | `GET /books/by-sha256/{sha256}` | — | 200 book · 404 |
 | M2.2 | `PUT /books/{bookId}` | book + `file` | 201 · 200 replay · 409 `duplicate_file` / `id_conflict` |
-| M2.2 | `PUT /books/{bookId}/files/{fileId}` | file | 200 `{current, superseded}` · 409 `file_replaced` / `id_conflict` · 404 |
+| M2.2 | `PATCH /books/{bookId}` | `title?`, `author?`, `language?`, `description?`, `genre?`, `publishedYear?`, `tags?` | 200 (LWW, bumps `updated_at`) · 404 |
+| M2.2 | `PUT /books/{bookId}/files/{fileId}` | file + `replacesFileId` | 200 `{current, superseded}` · 409 `file_replaced` / `book_removed` / `id_conflict` · 404 |
 | M2.2 | `DELETE /books/{bookId}` · `POST /books/{bookId}/restore` | — | 204 (idempotent) · 404 |
 | M2.2 | `GET /reading/changes` · `GET /books/{bookId}/reading-state` | — | 200 · 404 |
 | M2.2 | `PUT /books/{bookId}/reading-state` | reading state | 200 state · 409 `stale_revision` / `reset` / `file_replaced` / `unknown_file` · 404 |
-| M2.2 | `POST /books/{bookId}/reading-state/reset` | — | 200 state · 404 |
-| M2.2 | `PUT /reading/sessions/{clientSessionId}` | session | 201 · 200 replay |
+| M2.2 | `POST /books/{bookId}/reading-state/reset` | `{expectedRevision}` | 200 state · 409 `stale_revision` (own write if `current` is the reset) · 404 |
+| M2.2 | `PUT /reading/sessions/{clientSessionId}` | session | 201 · 200 replay · 404 `book_not_found` |
 | M2.2 | `GET /annotations/changes` | — | 200 feed |
-| M2.2 | `PUT /annotations/{id}` | annotation | 201 · 200 · 409 `stale_revision` / `deleted` / `unknown_file` / `id_conflict` · 404 |
+| M2.2 | `PUT /annotations/{id}` | annotation | 201 · 200 · 409 `stale_revision` / `deleted` / `unknown_file` / `id_conflict` · 404 `book_not_found` |
 | M2.2 | `DELETE /annotations/{id}` | — | 200 tombstone (idempotent) · 404 |
 | M2.3 | `GET /vocabulary/changes` · `GET /vocabulary/due?limit=` | — | 200 |
-| M2.3 | `PUT /vocabulary/words` | word (`id`, `language`, `word`, `translation?`, `definition?`) + optional `example` | 201 card · 200 existing card (id may differ) + `example: "added" \| "replayed"` · 409 `deleted` / `operation_conflict` |
+| M2.3 | `PUT /vocabulary/words` | word (`id`, `language`, `word`, `translation?`, `definition?`) + optional `example` | 201 card · 200 existing card (id may differ) + `example: "added" \| "replayed"` · 409 `deleted` / `operation_conflict` / `unknown_file` / `id_conflict` · 404 `book_not_found` |
 | M2.3 | `PATCH /vocabulary/words/{id}` | `expectedRevision`, `translation?`, `definition?` | 200 · 409 `stale_revision` / `deleted` |
-| M2.3 | `DELETE /vocabulary/words/{id}` · `POST /vocabulary/words/{id}/restore` | — | 200 |
-| M2.3 | `POST /vocabulary/words/{id}/examples` | example | 201 · 200 replay · 409 `operation_conflict` / `deleted` |
-| M2.3 | `POST /vocabulary/reviews` | review | 201 `{review, word}` · 200 replay · 409 `operation_conflict` / `deleted` |
-| M2.4 | `POST /books/{bookId}/shares` · `GET /books/{bookId}/shares` · `DELETE /shares/{id}` | share | 201 · 200 replay · 409 `operation_conflict` · 204 |
-| M2.4 | `POST /books/{bookId}/checkpoints` · `GET /books/{bookId}/checkpoints?chapterKey=&cursor=&limit=` · `DELETE /checkpoints/{id}` | checkpoint | 201 · 200 replay · 409 `operation_conflict` · 422 `share_mismatch` · 204 |
+| M2.3 | `DELETE /vocabulary/words/{id}` · `POST /vocabulary/words/{id}/restore` | restore: `{expectedRevision}` | 200 · 409 `stale_revision` · 404 `not_found` |
+| M2.3 | `POST /vocabulary/words/{id}/examples` | example | 201 · 200 replay · 409 `operation_conflict` / `deleted` / `unknown_file` · 404 `not_found` / `book_not_found` |
+| M2.3 | `POST /vocabulary/reviews` | review | 201 `{review, word}` · 200 replay · 409 `operation_conflict` / `deleted` · 404 `not_found` |
+| M2.4 | `POST /books/{bookId}/shares` · `GET /books/{bookId}/shares` · `DELETE /shares/{id}` | share | 201 · 200 replay · 409 `operation_conflict` / `unknown_file` · 404 `book_not_found` / `not_found` · 204 |
+| M2.4 | `POST /books/{bookId}/checkpoints` · `GET /books/{bookId}/checkpoints?chapterKey=&cursor=&limit=` (paged as M1.4's `CheckpointPage`) · `DELETE /checkpoints/{id}` | checkpoint | 201 · 200 replay · 409 `operation_conflict` / `unknown_file` · 422 `share_mismatch` · 404 `book_not_found` / `not_found` · 204 |
 | M2.4 | `PUT /books/{bookId}/checkpoint-saving` | `{enabled}` | 200 |
-| M2.6 | `PUT /books/{bookId}/files/{fileId}/parts/{index}` | bytes, `Content-Length` ≤ `maxPartBytes` | 200 `{index, size}` · 411 · 400 |
-| M2.6 | `POST /books/{bookId}/files/{fileId}/content` | `{partCount}` | 200 file · 422 `content_mismatch` · 400 incomplete |
+| M2.6 | `PUT /books/{bookId}/files/{fileId}/parts/{index}` | bytes, `Content-Length` ≤ `maxPartBytes` | 200 `{index, size}` · 411 · 400 · 409 `file_replaced` / `unknown_file` / `book_removed` |
+| M2.6 | `POST /books/{bookId}/files/{fileId}/content` | `{partCount}` | 200 file · 422 `content_mismatch` · 400 `incomplete_upload` · 409 `file_replaced` / `book_removed` |
 | M2.6 | `GET /books/{bookId}/files/{fileId}/content` | `Range` | 200/206 · 404 `no_content` |
 
-MCP tools have no client outbox. M2.3/M2.4 derive their `operation_id` deterministically —
-`uuid_v5(namespace, tool ‖ bookId ‖ canonical payload)` — so a host that retries a tool call replays
-instead of duplicating; the payload hash then matches by construction.
+MCP tools have no client outbox; how their `operation_id` is formed is M2.3/M2.4's decision. A
+payload-derived id is **not** an option: the schema says a new operation with the same sentence is a
+second example, and sharing again makes a new snapshot (`0000_baseline.up.sql`, comments on
+`vocabulary_examples` and `shared_chapters`). Recommended: a per-call nonce from the host. Owner
+question 13.
+
+**Deferred provenance FKs.** `book_id`/`file_id` on examples, shares, checkpoints and annotations are
+`DEFERRABLE INITIALLY DEFERRED`: a bad id fails at **commit** (23503), which would surface as a 500
+and an outbox that retries forever. Every write naming a `bookId`/`fileId` checks both first and
+answers `book_not_found` / `unknown_file`; no endpoint maps a commit-time 23503.
 
 Plan alignment: #1065 (import replay) lands with `PUT /books/{bookId}` in **M2.2**, not M2.6 — the
 metadata import is M2.2's, only the bytes are M2.6's. #1067 (explicit V2 transaction) is needed by M2.2
-(replace + state) and M2.3 (review = read card for update, compute, write).
+(replace + state) and M2.5 (merge); M2.3 avoids it with a schedule callback (M1.3 delta 4).
 
 ## Changes required
 
 ### In M1.2 code (lands with M2.2)
 
-1. Migration `database/v2/migrations/0001_reading_state_reset_revision` (+ down): `reset_revision bigint
-   NULL`, CHECK `reset_revision <= revision`. `ResetAsync` sets it; `ReadingState.ResetRevision`.
-2. `ImportAsync` replay-safe (#1065): same id, same user, same file sha256 → return the stored book;
-   anything else under that id → `id_conflict`.
+1. Migration `database/v2/migrations/0001` (+ down): `reading_state.reset_revision bigint NULL`, CHECK
+   `reset_revision <= revision`; and every composite `(user_id, …)` FK re-created with
+   `ON UPDATE CASCADE` (merge). `ResetAsync` sets `reset_revision`; `ReadingState.ResetRevision`.
+2. `ImportAsync` replay-safe (#1065, **scope widened**): the book is the user's and the import's
+   `file.id` is any version of it → return the stored book; anything else under that id →
+   `id_conflict`. The sha256 check and the insert run under
+   `pg_advisory_xact_lock(hashtext(user_id::text || sha256))` (`duplicate_file`).
+2a. `ResetAsync(userId, bookId, expectedRevision)`: guarded like a write; stale → lost + current.
+2b. `ReplaceFileAsync(…, replacesFileId)`: the stored current file must equal it (null = no file),
+   else a `FileReplaced` outcome; a removed book → `BookRemoved`.
 3. `ReplaceFileAsync` replay: file id already current → return it (`Replayed`); exists, not current →
    a `FileReplaced` outcome instead of a PK exception.
 4. `ILibraryRepository` gains `GetFileAsync(userId, bookId, fileId)` (classify `file_replaced` vs
-   `unknown_file`), `AttachContentAsync(userId, bookId, fileId, storageKey)`,
-   `SetCheckpointSavingAsync(userId, bookId, enabled)`, `ListChangedAsync(userId, since, afterId, limit)`
-   (removed books included).
+   `unknown_file`), `AttachContentAsync(userId, bookId, fileId, storageKey)` (`WHERE is_current`, book
+   not removed), `SetCheckpointSavingAsync(userId, bookId, enabled)`, `UpdateMetadataAsync` (LWW),
+   `ListChangedAsync(userId, since, afterId, limit)` (removed books included). **Every** library write
+   bumps `books.updated_at` — attach and checkpoint-saving too, or `hasContent` never reaches other
+   devices.
 5. `IReadingStateRepository.ListChangedAsync(userId, since, afterId, limit)`; the replace-time delete
    moves here with the shared transaction (#1067).
 
@@ -625,6 +721,10 @@ with the replay check first; the caller supplies `PayloadSha256`.
    computes `wordKey` before calling `SaveWordAsync`.
 6. **M2.3 — a word id taken by another user** throws `pk_vocabulary_words` (the create's `ON CONFLICT`
    is on the key only): the endpoint maps that 23505 to 409 `id_conflict`.
+7. **M2.3 — `RestoreWordAsync(userId, wordId, expectedRevision)`**, guarded like `UpdateWordAsync`.
+8. **M2.3 — example `bookId`/`fileId`** are checked before `SaveWordAsync`/`AddExampleAsync`
+   (`book_not_found` / `unknown_file`): today a bad one fails at commit with 23503, pinned by M1.3's
+   tests as a broken invariant; the endpoint makes it a client error instead.
 
 ### M1.4 as merged (shares, checkpoints) — what M2.4 adds
 
@@ -634,23 +734,27 @@ bookId, chapterKey?, limit, CheckpointCursor? after)` → `CheckpointPage(Items,
 newest first, unpaged (a book has few); the caller supplies `PayloadSha256`. Insights and review
 questions are online-only and outside this protocol.
 
-1. **M2.4 — `fileId` not a version of the book** is refused by the deferred FK at commit
-   (`PostgresException` 23503) for shares and checkpoints. The endpoint checks it first with
-   `GetFileAsync` and answers 409 `unknown_file`; it never maps a commit-time 23503.
-2. **M2.4 — checkpoint `GET` maps `CheckpointPage`**: `cursor` = base64 of `Next`, `hasMore` =
-   `Next != null`.
-3. **M2.5:** no merge logic in these repositories; the guest merge is one `IAccountMergeRepository`.
+1. **M2.4 — `bookId`/`fileId`** are refused by the deferred FKs at commit (`PostgresException`
+   23503) for shares and checkpoints, pinned by M1.4's tests. The endpoint checks both first
+   (`ILibraryRepository.GetAsync` / `GetFileAsync`) and answers 404 `book_not_found` / 409
+   `unknown_file`; it never maps a commit-time 23503.
+2. **M2.5:** no merge logic in these repositories; the guest merge is one `IAccountMergeRepository`.
 
 ## Unresolved questions
 
 1. Mastered words (legacy auto-retire) → `deleted_at` tombstone, so a reader tap can no longer re-save them. Keep, or separate "retired" from "deleted"?
-2. V2 server bytes quota: same tier quota as legacy uploads?
+2. V2 bytes quota: tier limits computed over V2 `users`/`book_files` (recommended), or none until cutover?
 3. Local-first books on sign-out: device's or account's (#1070)?
 4. Covers in V2: client uploads one, server extracts, or none in M2?
-5. Book metadata edits (title/tags): LWW without revision OK?
+5. Book metadata edits (`PATCH /books`): LWW without revision OK? (recommended: yes)
 6. "Stop syncing this file" (delete server bytes) needed in M2.6?
 7. Merge insight clash: newer wins OK?
 8. Re-anchor old highlights into a replacement file: ever?
+9. `next_review_at` from server receive time (recommended, as legacy) or from `clientRecordedAt`?
+10. Concurrent offline replacements: `replacesFileId` precondition → `file_replaced` (recommended) or LWW?
+11. Removed book: accepts state/annotations/examples/sessions, refuses replace/attach/bytes with `book_removed` (recommended)?
+12. Merge: `ON UPDATE CASCADE` on composite FKs (recommended, keeps client ids) or new ids for merged rows?
+13. Re-share of a chapter: new snapshot (recommended, as the schema says) or replay?
 
 ## Bug Report
 
@@ -682,3 +786,11 @@ questions are online-only and outside this protocol.
 - **`annotations.deleted_at` comment** "how long it is kept is not decided": decided here (forever, S8).
 - **Review schedule computed outside the lock** (M1.3 `RecordReviewAsync`): concurrent answers to one
   card lose an SRS step. Fixed in M2.3 (delta 4 above).
+- **The V2 merge as first written could not be built**: global PKs + non-deferrable `ON DELETE
+  CASCADE` composite FKs + `ON CONFLICT` only on `INSERT`; ADR-014 then skips the whole merge on any
+  class-23 error. Fixed by S6's `ON UPDATE CASCADE` (adversarial review, round 2).
+- **Legacy chunked parts live in `Path.GetTempPath()`** (`ServiceCollectionExtensions.Content.cs`):
+  every deploy restarts the api and drops in-flight parts; the legacy client sees "a part is missing".
+- **`ReplaceFileAsync` has no precondition** (`LibraryRepository.cs`): two offline replacements are
+  silent last-writer-wins. `replacesFileId` above.
+- **`ResetAsync` is unguarded**: a replayed reset after another device advanced resets again.
