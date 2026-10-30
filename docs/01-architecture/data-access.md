@@ -30,7 +30,9 @@ Dependency rule unchanged: Api → Application → Domain ← Infrastructure.
    transaction, cancellationToken: ct))`.
 5. **One `NpgsqlDataSource`, a singleton**, shared with EF Core. Per operation:
    `await using var conn = await dataSource.OpenConnectionAsync(ct)`; it returns to the pool on
-   dispose. Never hold a connection across awaits you don't own.
+   dispose. Never hold a connection across awaits you don't own. V2 repositories use `V2DataSource`
+   instead, the pool to `textstack_v2` (one data source per database, ADR-030 §2), registered only
+   when `ConnectionStrings:V2` is set and never touched at startup.
 6. **Transactions.** A use case that writes EF tables and a ported table together opens the
    transaction on EF and passes the `IDbContextTransaction` to the repository; the repository runs on
    that transaction's connection (`GetDbTransaction()`), never its own. A method whose write must be

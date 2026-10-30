@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
 using Application.Common.Interfaces;
+using Application.Library;
+using Application.Reading;
 using Dapper;
 using Infrastructure.Persistence.Repositories;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,9 +35,22 @@ public static class DataSource
     /// <summary>
     /// The data source as a singleton (DI disposes it, and its pool, on shutdown) and the Dapper
     /// repositories on it. Singletons: a repository holds nothing but the data source.
+    /// <para>The V2 data source and its repositories are registered only when
+    /// <paramref name="v2ConnectionString"/> is set (<c>ConnectionStrings:V2</c>), and are built on
+    /// first use, which opens no connection either: V1 must keep serving while V2 is broken
+    /// (ADR-030 decision 1, amended).</para>
     /// </summary>
-    public static IServiceCollection AddTextStackDataAccess(this IServiceCollection services, string connectionString) =>
+    public static IServiceCollection AddTextStackDataAccess(
+        this IServiceCollection services, string connectionString, string? v2ConnectionString)
+    {
         services
             .AddSingleton(_ => Create(connectionString))
             .AddSingleton<IInsightRepository, InsightRepository>();
+        if (!string.IsNullOrEmpty(v2ConnectionString))
+            services
+                .AddSingleton(_ => new V2DataSource(v2ConnectionString))
+                .AddSingleton<ILibraryRepository, LibraryRepository>()
+                .AddSingleton<IReadingStateRepository, ReadingStateRepository>();
+        return services;
+    }
 }
