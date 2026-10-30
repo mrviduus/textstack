@@ -44,14 +44,16 @@ export function nonceFromUuid(uuid: string): string {
 
 /**
  * Write `name.tmp`, then move it over `name`. expo-file-system's overwriting move deletes the target
- * before renaming, so a kill in between leaves only the complete tmp: `readRecovering` reads it.
+ * before renaming: a kill between the two leaves only the complete tmp, which `readRecovering` reads.
+ * A kill after the tmp write but before that delete leaves the old target beside a complete tmp; the
+ * old target wins and that save is lost, which is acceptable because its caller never saw it succeed.
  */
 export async function writeAtomically(files: V2Files, name: string, text: string): Promise<void> {
   await files.write(`${name}.tmp`, text)
   await files.move(`${name}.tmp`, name)
 }
 
-/** A tmp beside an existing target is a write that never finished, and is ignored. */
+/** The target when it exists (a tmp beside it is ignored, finished or not), else the tmp. */
 export async function readRecovering(files: V2Files, name: string): Promise<string | null> {
   return (await files.read(name)) ?? (await files.read(`${name}.tmp`))
 }
@@ -96,7 +98,7 @@ export function createV2Storage(files: V2Files) {
     },
 
     /** A staged file the page could not open: README "open-failed — must not keep the file". */
-    dropStaged: (staged: string) => files.remove(staged),
+    dropStaged: (staged: string) => serially(async () => files.remove(staged)),
 
     async readStore(key: string) {
       const name = `store/${sha256Key(key)}.json`

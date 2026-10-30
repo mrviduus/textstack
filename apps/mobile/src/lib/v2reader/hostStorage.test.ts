@@ -38,12 +38,12 @@ describe('v2 host storage', () => {
     expect([...data]).toEqual([['library.json', '{}']])
   })
 
-  it('readRecovering_KilledBetweenDeleteAndRename_ReadsTheCompleteTmp', async () => {
+  it('readRecovering_TargetMissing_ReadsTheTmp_TargetPresent_TargetWins', async () => {
     const { files, data } = memoryFiles()
     data.set('store/x.json.tmp', 'new')
     expect(await readRecovering(files, 'store/x.json')).toBe('new')
     data.set('store/x.json', 'old')
-    // A tmp beside its target never finished being written: the target wins.
+    // Even a complete tmp loses to an existing target: a save killed before its move is lost.
     expect(await readRecovering(files, 'store/x.json')).toBe('old')
   })
 

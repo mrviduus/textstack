@@ -13,7 +13,7 @@ and its build only. The dev route hosting it is `app/dev/epub-v2.tsx` → `src/c
 | `overlays.mjs` | What is drawn over a range. foliate keys an overlay by its CFI, so a highlight and a word's translation over the same range are one overlay carrying both. |
 | `library.mjs` | V2 local library (pure): identical bytes → the existing entry, never a duplicate or reset. |
 | `hostStorage.ts` | The host's files under `<documents>/v2/` (R2): staging, retained `books/<sha256>.epub`, `library.json`, `store/<sha256>.json`; tmp-then-move writes, one write chain, lower-cased keys. |
-| `*.test.ts` | Unit tests for the two pure modules (mobile vitest). |
+| `*.test.ts` | Unit tests (mobile vitest) for the pure modules and hostStorage. |
 | `patches/*.patch` | Our changes to foliate-js, applied in order on every build. |
 | `build.mjs` | Pinned clone → patches → esbuild IIFE → `v2ReaderPage.generated.ts`. |
 | `v2ReaderPage.generated.ts` | **Generated, committed.** `v2ReaderPageHtml(nonce)`. Never edit by hand. |

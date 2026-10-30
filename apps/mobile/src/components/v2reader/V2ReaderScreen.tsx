@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import * as DocumentPicker from 'expo-document-picker'
@@ -41,16 +41,23 @@ const v2Storage = () => (storage ??= createV2Storage(deviceFiles()))
 const freshNonce = () => nonceFromUuid(uuid.v4())
 
 /**
- * The file the page is opening: retained (`books/…`) or staged (`staging/…`, then `staged` is set).
+ * The file the page is opening: retained (`books/…`) or staged (`staging/…`).
  * `token` is the name handed to `openUrl`; the page echoes it in `opened`/`open-failed`, so an answer
  * to an earlier open is recognised as stale instead of being paired with this one's file.
  */
-type Opening = { token: string; file: string; name: string; staged: string | null }
+type Opening = { token: string; file: string; name: string }
+const isStaged = (file: string) => file.startsWith('staging/')
 
 let openSeq = 0
 const report = (what: string) => (e: unknown) => console.log(`[v2] ${what} failed: ${e}`)
 
+/** Plan R2 is the Android route: iOS has no allowFileAccessFromFileURLs and refuses the file:// base. */
 export default function V2ReaderScreen() {
+  if (Platform.OS !== 'android') return <Text style={styles.heading}>Android dev route only (R2)</Text>
+  return <V2Reader />
+}
+
+function V2Reader() {
   const webView = useRef<WebView>(null)
   const [nonce, setNonce] = useState(freshNonce)
   const pageHtml = useMemo(() => v2ReaderPageHtml(nonce), [nonce])
@@ -69,6 +76,9 @@ export default function V2ReaderScreen() {
   useEffect(refreshBooks, [refreshBooks])
 
   const open = (target: Omit<Opening, 'token'>) => {
+    // The page answers nothing for an open it has superseded, so a staged file left behind is dropped here.
+    const previous = opening.current
+    if (previous && isStaged(previous.file) && previous.file !== target.file) v2Storage().dropStaged(previous.file).catch(report('drop'))
     const current = { ...target, token: `${++openSeq}:${target.name}` }
     opening.current = current
     setError(null)
@@ -88,10 +98,9 @@ export default function V2ReaderScreen() {
       const result = await DocumentPicker.getDocumentAsync({ type: ['application/epub+zip', 'application/octet-stream'], copyToCacheDirectory: true })
       if (result.canceled) return
       const asset = result.assets[0]
-      v2Storage() // creates the directories before the first move into them
       const staged = `staging/${Date.now()}.epub`
       await new File(asset.uri).move(v2File(staged))
-      open({ file: staged, name: asset.name, staged })
+      open({ file: staged, name: asset.name })
     } catch (e) {
       fail('pick')(e)
     }
@@ -99,18 +108,23 @@ export default function V2ReaderScreen() {
 
   const onOpened = async (current: Opening, m: { book: { sha256: string; size: number }; title: string; author: string }) => {
     const s = v2Storage()
-    call(`window.__fol.restore(${JSON.stringify(await s.readStore(m.book.sha256))})`)
+    // A reload or a new pick can replace this open during any await; then this answer stops there.
+    const superseded = () => opening.current !== current
+    const stored = await s.readStore(m.book.sha256)
+    if (superseded()) return
+    call(`window.__fol.restore(${JSON.stringify(stored)})`)
     setHeading([m.title || current.name, m.author].filter(Boolean).join(' — '))
-    await s.addOpened({ ...m.book, title: m.title, author: m.author, originalName: current.name }, current.staged)
-    // From here on this book is the retained copy: a reloaded page reopens that, not the moved staging file.
+    await s.addOpened({ ...m.book, title: m.title, author: m.author, originalName: current.name }, isStaged(current.file) ? current.file : null)
     const retained = await s.bookName(m.book.sha256)
-    if (opening.current === current) opening.current = { ...current, file: retained, staged: null }
     refreshBooks()
+    // From here on this book is the retained copy: a reloaded page reopens that, not the moved staging file.
+    if (!superseded()) opening.current = { ...current, file: retained }
   }
 
   const onMessage = (event: WebViewMessageEvent) => {
     let m: any
     try { m = JSON.parse(event.nativeEvent.data) } catch { return }
+    if (!m || typeof m !== 'object') return
     switch (m.type) {
       case 'ready':
         ready.current = true
@@ -124,7 +138,7 @@ export default function V2ReaderScreen() {
       case 'open-failed': {
         const current = answered(m.name)
         if (!current) return
-        if (current.staged) v2Storage().dropStaged(current.staged)
+        if (isStaged(current.file)) v2Storage().dropStaged(current.file).catch(report('drop'))
         opening.current = null
         setError(`cannot open ${current.name}: ${m.error}`)
         return
@@ -152,7 +166,7 @@ export default function V2ReaderScreen() {
   }
 
   const openRetained = (b: LibraryBook) =>
-    v2Storage().bookName(b.sha256).then((file) => open({ file, name: b.originalName, staged: null }), fail('open'))
+    v2Storage().bookName(b.sha256).then((file) => open({ file, name: b.originalName }), fail('open'))
 
   // A page that is gone is a new load: a new nonce, and the open starts again from `ready`.
   const reload = () => { ready.current = false; setNonce(freshNonce()) }
@@ -191,7 +205,9 @@ export default function V2ReaderScreen() {
         onRenderProcessGone={reload}
         onContentProcessDidTerminate={reload}
         // The page never navigates. No file: — a top frame on file:///data/… would get the bridge;
-        // the page's own load (loadDataWithBaseURL) does not pass through here on Android.
+        // the page's own load (loadDataWithBaseURL) does not pass through here on Android. Kept at no
+        // extra cost: react-native-webview 13.16 round-trips every shouldOverrideUrlLoading call to JS
+        // (250 ms lock) whether or not this prop is set; the prop only changes the answer.
         onShouldStartLoadWithRequest={({ url }) => /^(about|blob|data):/.test(url)}
       />
     </SafeAreaView>
