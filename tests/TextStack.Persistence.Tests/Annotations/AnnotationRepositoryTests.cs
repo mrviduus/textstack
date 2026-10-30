@@ -169,6 +169,23 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task SaveAsync_EditNamingAnotherOwnBook_LosesAndKeepsTheStoredRow()
+    {
+        var (book, stored) = await SavedHighlightAsync();
+        var other = new Book { Id = Guid.NewGuid(), UserId = book.UserId, Title = "Another book" };
+        await new LibraryRepository(db.DataSource).ImportAsync(other, NewFile(book.UserId, other.Id), Ct);
+        var moved = Edit(stored, "moved");
+        moved.BookId = other.Id;
+        moved.FileId = null;
+        moved.Locator = null;
+
+        var result = await _repo.SaveAsync(book.UserId, moved, 1, Ct);
+
+        Assert.False(result.Accepted);
+        Assert.Equal((1L, book.Id, "a note"), (result.Current!.Revision, result.Current.BookId, result.Current.NoteText));
+    }
+
+    [Fact]
     public async Task SaveAsync_AnnotationNamingAnotherUser_Throws()
     {
         var book = await db.NewReaderWithBookAsync();
@@ -212,7 +229,7 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
 
     // updated_at is the sync feed's watermark: every revisioned write must move it.
     [Fact]
-    public async Task SaveAndDelete_EachMoveUpdatedAt()
+    public async Task SaveAsyncAndDeleteAsync_LiveAnnotation_EachMoveUpdatedAt()
     {
         var (book, stored) = await SavedHighlightAsync();
 

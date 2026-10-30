@@ -52,7 +52,8 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
             ON CONFLICT (id) DO NOTHING
             RETURNING {Columns}
             """;
-        // A tombstone takes no write, so a device that missed the delete cannot revive it.
+        // A tombstone takes no write, so a device that missed the delete cannot revive it. The book is
+        // fixed at the first write: an edit naming another one loses, like one naming a foreign file.
         const string update = $"""
             UPDATE annotations a SET
                 file_id = @FileId,
@@ -62,7 +63,7 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
                 color = @Color,
                 updated_at = now(),
                 revision = a.revision + 1
-            WHERE a.user_id = @UserId AND a.id = @Id AND a.revision = @expectedRevision AND a.deleted_at IS NULL
+            WHERE a.user_id = @UserId AND a.id = @Id AND a.book_id = @BookId AND a.revision = @expectedRevision AND a.deleted_at IS NULL
               AND (@FileId IS NULL OR EXISTS (SELECT FROM book_files f WHERE f.user_id = a.user_id AND f.book_id = a.book_id AND f.id = @FileId))
             RETURNING {Columns}
             """;
