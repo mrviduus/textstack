@@ -18,7 +18,7 @@ const FOLIATE_SHA = '78914aef4466eb960965702401634c2cb348e9b1'   // 2026-05-01
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // reader-engine's 64 KB budget.
-const BUDGET = 236437
+const BUDGET = 236393
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'v2ReaderPage.generated.ts')
@@ -31,8 +31,14 @@ git('fetch', '-q', 'origin', FOLIATE_SHA)
 // a checkout onto a different SHA refuses to overwrite them — which is what a bump used to hit.
 git('checkout', '-q', '--', '.')
 git('checkout', '-q', '--detach', FOLIATE_SHA)
-// Untracked files too: a file left in the tree by hand could otherwise be bundled into the page.
-git('clean', '-fdq')
+// An untracked file could be bundled into the page. Deleting it would silently eat someone's experiment,
+// so the build stops and names it instead (CI clones fresh and never meets one).
+const untracked = execFileSync('git', ['-C', vendor, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' })
+  .split('\n').filter((l) => l.startsWith('?? ')).map((l) => l.slice(3))
+if (untracked.length) {
+  console.error(`[v2-reader] untracked files in ${vendor}:\n  ${untracked.join('\n  ')}\nThey could end up in the page. Delete .vendor/ to rebuild from the pin.`)
+  process.exit(1)
+}
 // Every patch, in order, on every build: one that no longer applies fails here.
 const patches = readdirSync(resolve(here, 'patches')).filter((f) => f.endsWith('.patch')).sort()
 for (const p of patches) git('apply', '--whitespace=nowarn', resolve(here, 'patches', p))

@@ -28,10 +28,18 @@ describe('v2 reader tap', () => {
     ['word ending its node', '<p>First. <em>Second</em> word here. Third.</p>', 'Second', 'Second word here.'],
     ['sentence crossing a span', '<p>Before. One <span>two three</span> four. After.</p>', 'three', 'One two three four.'],
     ['style inside the block', '<p>Before. <style>.x { color: red }</style>Styled word here. After.</p>', 'word', 'Styled word here.'],
+    ['div paragraph with a span', '<div class="para">One <span>two three</span> four.</div>', 'three', 'One two three four.'],
   ])('sentenceOf_%s_OffsetsHoldAndTheWordIsInTheSentence', (_, html, word, sentence) => {
     const got = tap(html, word)
     expect(got).toContain(word)
     expect(got).toBe(sentence)
+  })
+
+  it('sentenceOf_XhtmlSectionWithLowerCaseTags_SpanIsInlineToo', () => {
+    const doc = new DOMParser().parseFromString(
+      '<html xmlns="http://www.w3.org/1999/xhtml"><body><div>One <span>two three</span> four.</div></body></html>', 'application/xhtml+xml')
+    const node = doc.querySelector('span')!.firstChild as Text
+    expect(sentenceOf(node, 4, 9)).toBe('One two three four.')
   })
 
   it.each([

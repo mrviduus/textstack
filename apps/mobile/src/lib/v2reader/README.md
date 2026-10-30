@@ -31,7 +31,8 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
 
 - **foliate-js** `https://github.com/johnfactotum/foliate-js` @ `78914aef4466eb960965702401634c2cb348e9b1`
   (2026-05-01), cloned into the gitignored `.vendor/`. Every build checks out the pin, resets the tree
-  (`git checkout -- .`, `git clean -fd`) and applies `patches/*.patch`; a patch that no longer applies fails the build. A bump is a PR
+  (`git checkout -- .`) and applies `patches/*.patch`; an untracked file in that tree fails the build by name (delete
+  `.vendor/` to rebuild from the pin); a patch that no longer applies fails the build. A bump is a PR
   that re-runs every ADR-029 Decision 6 check. Needs network (CI clones it too).
 - **Patch** `0001-paginator-render-while-loading.patch`: `Paginator.render()` returns while the current view has no
   `body` yet (a resize or attribute change during a section load threw). Offer it upstream; drop it on the bump
@@ -39,7 +40,7 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   the patch it was 1–5 per 6 loads in Chromium, hundreds on Android).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. PDF/MOBI/FB2/CBZ/TTS/search are stubbed out.
-- **Size:** 236,437 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
+- **Size:** 236,393 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
   not apply; this page's own budget is `BUDGET` in `build.mjs`, raised only by a deliberate PR.
 - `BUDGET` is a tripwire by design, not a ceiling: it equals the committed size, so any growth fails `--check`
   until the PR that grows the page says so.
@@ -59,7 +60,7 @@ font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: 
 
 **The hostile-book check** (ADR-029 Decision 6) loads the committed page as `file://` in Chromium with file access
 (the dev route's origin), opens `tshostile.epub` through `__fol.openUrl` and exits 1 if any vector gets through: a
-book script ran (`__pwned` in any frame), a request reached the logging server on `127.0.0.1:9876`, a sibling file of
+book script ran (`__pwned` in any frame), a request reached its logging server (a free local port), a sibling file of
 the EPUB was read, `<base>` took effect, or the section frame left the book. It then removes or widens one directive
 at a time and must catch the vectors that directive stops, so a check that cannot fail fails itself.
 Every vector in `fixtures.mjs` declares how it is observed (`mark`, `request`, `probe:<id>`, `sandbox`); the check
@@ -125,7 +126,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `word` | `index`, `word`, `sentence`, `cfi`, `rect {x, y, w, h}` (host viewport) | translates, then `showTranslation` |
 | `tap` | — | a tap not on a word (chrome toggle) |
 | `highlighted` | `id`, `cfi`, `quote` | — |
-| `openLink` | `href` | an external `http(s)` link; the page never navigates, and any other scheme is dropped with a `warn` log |
+| `openLink` | `href` | an external `http(s)` link; the page never navigates, and any other scheme (`mailto:` and `tel:` too, for now: #1069) is dropped with a `warn` log |
 | `log` | `level`, `msg` | `error`: window errors and a failed open or restore. `warn`: a call that was ignored (a highlight or a restore before the book is ready) and a previous book that would not close. foliate logs its own navigation failures to the console, not here — a position that did not land is reported in `restored` instead. |
 
 A stored position or highlight is applied only while the text at its CFI still reads as its saved quote

@@ -1,11 +1,16 @@
 // What a tap in a book section hands the host: the tapped word's sentence and an external link. DOM
 // only, no foliate, so tap.test.ts runs it in jsdom.
 import { chapterText, offsetOf } from '../../../../../packages/reader-engine/src/text'
-import { sentenceAround } from '../../../../../packages/reader-engine/src/engine'
+import { INLINE, sentenceAround } from '../../../../../packages/reader-engine/src/engine'
 
-/** The tapped word's sentence inside its block, by the reader engine's rule (TR-1, the other readers' too). */
+/**
+ * The tapped word's sentence inside its block — the nearest non-inline ancestor, as the reader engine
+ * places text — by the engine's sentence rule (TR-1, the other readers' too).
+ */
 export function sentenceOf(node, start, end) {
-  const block = node.parentElement?.closest('p, li, blockquote, td, h1, h2, h3, h4, h5, h6') ?? node.parentElement
+  let block = node.parentElement
+  // Upper-cased: a section is XHTML, where tagName keeps the source's lower case.
+  while (block.parentElement && block !== node.ownerDocument.body && INLINE.has(block.tagName.toUpperCase())) block = block.parentElement
   const at = offsetOf(block, node, start)
   // A line break in a book's source is a space on screen, not a sentence end: hard-wrapped XHTML
   // would otherwise cut every sentence at its source line. One for one, so offsets still hold.
@@ -19,7 +24,7 @@ export function sentenceOf(node, start, end) {
  * `.href`: on an SVG <a> that is an SVGAnimatedString.
  */
 export function openableHref(a) {
-  const raw = a.getAttribute('href') ?? a.getAttributeNS('http://www.w3.org/1999/xlink', 'href')
+  const raw = a.getAttribute('href')
   if (raw === null) return null
   try {
     const url = new URL(raw, a.baseURI)

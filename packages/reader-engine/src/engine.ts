@@ -22,7 +22,7 @@ import { findTextOffsets, locatorAt, matchWords, quoteAt, rangesIn, textNodes } 
 const READING_LINE = 0.25
 
 /** Inline elements share their block's box; a text node is placed by its nearest non-inline ancestor. */
-const INLINE = new Set('A ABBR B BDI BDO BR CITE CODE DATA DEL DFN EM FONT I IMG INS KBD MARK Q S SAMP SMALL SPAN STRONG SUB SUP TIME TT U VAR'.split(' '))
+export const INLINE = new Set('A ABBR B BDI BDO BR CITE CODE DATA DEL DFN EM FONT I IMG INS KBD MARK Q S SAMP SMALL SPAN STRONG SUB SUP TIME TT U VAR'.split(' '))
 
 /** ADR-019 rule 6: a webfont that never loads (captive portal) holds an open this long at most. */
 const FONTS_DEADLINE_MS = 4000
