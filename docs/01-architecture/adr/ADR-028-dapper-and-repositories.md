@@ -1,6 +1,6 @@
 # ADR-028 — Dapper + repositories
 
-**Status:** Accepted · **Date:** 2026-10-26 · **Issue:** [#947](https://github.com/mrviduus/textstack/issues/947)
+**Status:** Accepted · **Date:** 2026-10-26 · **Amended 2026-10-30:** SQL stays inline next to its method — stored procedures and `.sql` resource files considered and rejected ([data-access.md](../data-access.md) rule 13) · **Issue:** [#947](https://github.com/mrviduus/textstack/issues/947)
 · **Builds on:** [ADR-026](ADR-026-sql-first-migrations.md) (the schema is plain SQL)
 
 ## Context

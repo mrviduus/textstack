@@ -59,3 +59,14 @@ Dependency rule unchanged: Api → Application → Domain ← Infrastructure.
     scalar parameters, not arrays: convert array elements yourself (as `ReplaceForInsightAsync` does).
 12. **No EF navigation into a ported table.** A join through one becomes a second query through the
     repository.
+13. **SQL stays inline, next to the method that runs it** (decided 2026-10-30; the owner considered
+    stored procedures and `.sql` resource files and rejected both). The golden path is one file read
+    top to bottom: method → its SQL → its parameters → its result. Rules that keep that readable:
+    - each statement is a `const string` named by what it does (`InsertFile`, `AdvanceGuarded`,
+      `UnlinkCheckpoints`), declared at the top of the class or directly above its one method — never
+      built inline in a call;
+    - raw string literals (`"""…"""`), one statement per concern, a `-- why` line above anything
+      non-obvious, no comment that repeats the SQL;
+    - a repository stays under about 250 lines. Longer means the aggregate is cut wrong, not that the
+      SQL should move to a file. No stored procedures, no functions holding behaviour (schema-level
+      functions such as `is_locator` are schema, not behaviour), no `.sql` embedded resources.
