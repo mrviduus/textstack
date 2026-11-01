@@ -119,14 +119,6 @@ export const KNOWN = {
       'Reached through xcode@3.0.1, part of Expo prebuild tooling for iOS. Build-time only — ' +
       'it is never bundled, and it never runs anywhere but a build machine.',
   },
-  'GHSA-86w9-cpqp-85rv': {
-    since: '2026-10-02',
-    module: 'node-forge',
-    needs: '>1.4.0 (none published yet; 1.4.0 is latest)',
-    why:
-      'Only through @expo/cli (the dev server / build CLI), never the app bundle or the web. ' +
-      'No fixed release exists to move to; overriding inside Expo is how a mobile build breaks.',
-  },
   'GHSA-mrhx-c7xc-m3w5': {
     since: '2026-10-24',
     module: 'zod',
