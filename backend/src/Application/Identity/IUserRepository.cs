@@ -6,6 +6,9 @@ namespace Application.Identity;
 /// The V2 accounts (table <c>users</c>, ADR-031): readers, guests (ADR-014) and admins, who are
 /// accounts with the admin role (there is no "inactive admin": an admin that is not active does not
 /// exist). A method that names a user changes only that row (docs/01-architecture/data-access.md rule 7).
+/// <para>Emails are stored as given: the caller normalises them (legacy AuthService trims and
+/// lower-cases). <c>ix_users_email</c> makes lookups and uniqueness case-insensitive, not
+/// whitespace-tolerant.</para>
 /// The guest→account merge is not here: it moves every aggregate (M2.5, plan §6.1).
 /// </summary>
 public interface IUserRepository
@@ -30,14 +33,19 @@ public interface IUserRepository
     /// </summary>
     Task<UserAccount?> CreateAsync(UserAccount account, CancellationToken ct);
 
-    /// <summary>What a provider sign-in refreshes on an existing account. False when there is no such account.</summary>
-    Task<bool> UpdateProfileAsync(Guid userId, string email, string? name, string? picture, CancellationToken ct);
+    /// <summary>
+    /// What a provider sign-in refreshes on an existing account; returns it updated.
+    /// <see cref="AccountUpdateOutcome.NotFound"/> when there is no such account,
+    /// <see cref="AccountUpdateOutcome.EmailTaken"/> when another account holds the email (nothing changed).
+    /// </summary>
+    Task<AccountUpdate> UpdateProfileAsync(Guid userId, string email, string? name, string? picture, CancellationToken ct);
 
     /// <summary>
     /// Turns a guest into an account in place: email, name and password set, <c>promoted_at</c> stamped,
-    /// everything it owns kept. Null when <paramref name="userId"/> is not a guest.
+    /// everything it owns kept. <see cref="AccountUpdateOutcome.NotFound"/> when <paramref name="userId"/>
+    /// is not a guest, <see cref="AccountUpdateOutcome.EmailTaken"/> when another account holds the email.
     /// </summary>
-    Task<UserAccount?> PromoteGuestAsync(Guid userId, string email, string? name, string passwordHash, CancellationToken ct);
+    Task<AccountUpdate> PromoteGuestAsync(Guid userId, string email, string? name, string passwordHash, CancellationToken ct);
 
     /// <summary>Clears the guest flag of an account that already signed in as itself. False when it was not a guest.</summary>
     Task<bool> ClearGuestFlagAsync(Guid userId, CancellationToken ct);
@@ -51,3 +59,18 @@ public interface IUserRepository
     /// </summary>
     Task<bool> DeleteAsync(Guid userId, CancellationToken ct);
 }
+
+/// <summary>What became of an update that sets an account's email.</summary>
+public enum AccountUpdateOutcome
+{
+    Updated,
+
+    /// <summary>No account (or, for a promotion, no guest) under that id: nothing changed.</summary>
+    NotFound,
+
+    /// <summary>Another account holds the email, compared case-insensitively: nothing changed.</summary>
+    EmailTaken,
+}
+
+/// <summary>The account as stored after the update; null unless <see cref="AccountUpdateOutcome.Updated"/>.</summary>
+public sealed record AccountUpdate(AccountUpdateOutcome Outcome, UserAccount? Account);

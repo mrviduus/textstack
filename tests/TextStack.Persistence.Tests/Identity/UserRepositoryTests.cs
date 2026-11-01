@@ -1,3 +1,4 @@
+using Application.Identity;
 using Domain.Identity;
 using Infrastructure.Persistence.Repositories;
 using TextStack.Persistence.Tests.Ops;
@@ -117,10 +118,26 @@ public class UserRepositoryTests(V2PostgresFixture db)
         var account = await CreatedAsync();
         var email = $"{Guid.NewGuid()}@new";
 
-        Assert.True(await _repo.UpdateProfileAsync(account.Id, email, "New", "https://pic", Ct));
+        var result = await _repo.UpdateProfileAsync(account.Id, email, "New", "https://pic", Ct);
 
+        Assert.Equal(AccountUpdateOutcome.Updated, result.Outcome);
         var read = (await _repo.GetAsync(account.Id, Ct))!;
         Assert.Equal((email, "New", "https://pic"), (read.Email, read.Name, read.Picture));
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_NoSuchAccount_IsNotFound() =>
+        Assert.Equal(AccountUpdateOutcome.NotFound, (await _repo.UpdateProfileAsync(Guid.NewGuid(), $"{Guid.NewGuid()}@x", null, null, Ct)).Outcome);
+
+    [Fact]
+    public async Task UpdateProfileAsync_AnotherAccountsEmailInAnotherCase_IsEmailTakenAndChangesNothing()
+    {
+        var (account, other) = (await CreatedAsync(), await CreatedAsync());
+
+        var result = await _repo.UpdateProfileAsync(account.Id, other.Email.ToUpperInvariant(), "New", null, Ct);
+
+        Assert.Equal((AccountUpdateOutcome.EmailTaken, (UserAccount?)null), (result.Outcome, result.Account));
+        Assert.Equal(account.Email, (await _repo.GetAsync(account.Id, Ct))!.Email);
     }
 
     [Fact]
@@ -140,19 +157,28 @@ public class UserRepositoryTests(V2PostgresFixture db)
         var guest = await CreatedAsync(isGuest: true);
         var email = $"{Guid.NewGuid()}@promoted";
 
-        var promoted = (await _repo.PromoteGuestAsync(guest.Id, email, "Ann", "hash", Ct))!;
+        var promoted = (await _repo.PromoteGuestAsync(guest.Id, email, "Ann", "hash", Ct)).Account!;
 
         Assert.Equal((guest.Id, email, "Ann", "hash", false), (promoted.Id, promoted.Email, promoted.Name, promoted.PasswordHash, promoted.IsGuest));
         Assert.NotNull(promoted.PromotedAt);
     }
 
     [Fact]
-    public async Task PromoteGuestAsync_NotAGuest_ReturnsNullAndChangesNothing()
+    public async Task PromoteGuestAsync_NotAGuest_IsNotFoundAndChangesNothing()
     {
         var account = await CreatedAsync();
 
-        Assert.Null(await _repo.PromoteGuestAsync(account.Id, $"{Guid.NewGuid()}@x", "Ann", "hash", Ct));
+        Assert.Equal(AccountUpdateOutcome.NotFound, (await _repo.PromoteGuestAsync(account.Id, $"{Guid.NewGuid()}@x", "Ann", "hash", Ct)).Outcome);
         Assert.Equal(account.Email, (await _repo.GetAsync(account.Id, Ct))!.Email);
+    }
+
+    [Fact]
+    public async Task PromoteGuestAsync_AnotherAccountsEmail_IsEmailTakenAndStaysAGuest()
+    {
+        var (taken, guest) = (await CreatedAsync(), await CreatedAsync(isGuest: true));
+
+        Assert.Equal(AccountUpdateOutcome.EmailTaken, (await _repo.PromoteGuestAsync(guest.Id, taken.Email, "Ann", "hash", Ct)).Outcome);
+        Assert.True((await _repo.GetAsync(guest.Id, Ct))!.IsGuest);
     }
 
     [Fact]

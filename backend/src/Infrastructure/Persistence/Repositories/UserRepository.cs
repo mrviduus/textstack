@@ -1,6 +1,7 @@
 using Application.Identity;
 using Dapper;
 using Domain.Identity;
+using Npgsql;
 
 namespace Infrastructure.Persistence.Repositories;
 
@@ -50,10 +51,13 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
 
     public async Task<UserAccount?> CreateAsync(UserAccount account, CancellationToken ct) => await QuerySingleAsync(InsertAccount, account, ct);
 
-    private const string UpdateProfile = "UPDATE users SET email = @email, name = @name, picture = @picture WHERE id = @userId";
+    private const string UpdateProfile = $"""
+        UPDATE users SET email = @email, name = @name, picture = @picture WHERE id = @userId
+        RETURNING {Columns}
+        """;
 
-    public Task<bool> UpdateProfileAsync(Guid userId, string email, string? name, string? picture, CancellationToken ct) =>
-        ExecuteAsync(UpdateProfile, new { userId, email, name, picture }, ct);
+    public Task<AccountUpdate> UpdateProfileAsync(Guid userId, string email, string? name, string? picture, CancellationToken ct) =>
+        UpdateEmailHolderAsync(UpdateProfile, new { userId, email, name, picture }, ct);
 
     private const string PromoteGuest = $"""
         UPDATE users SET email = @email, name = @name, password_hash = @passwordHash, is_guest = false, promoted_at = now()
@@ -61,8 +65,24 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
         RETURNING {Columns}
         """;
 
-    public async Task<UserAccount?> PromoteGuestAsync(Guid userId, string email, string? name, string passwordHash, CancellationToken ct) =>
-        await QuerySingleAsync(PromoteGuest, new { userId, email, name, passwordHash }, ct);
+    public Task<AccountUpdate> PromoteGuestAsync(Guid userId, string email, string? name, string passwordHash, CancellationToken ct) =>
+        UpdateEmailHolderAsync(PromoteGuest, new { userId, email, name, passwordHash }, ct);
+
+    /// <summary>Runs an UPDATE … RETURNING that sets <c>email</c>: no row is <see cref="AccountUpdateOutcome.NotFound"/>.</summary>
+    private async Task<AccountUpdate> UpdateEmailHolderAsync(string sql, object args, CancellationToken ct)
+    {
+        try
+        {
+            var account = await QuerySingleAsync(sql, args, ct);
+            return new(account is null ? AccountUpdateOutcome.NotFound : AccountUpdateOutcome.Updated, account);
+        }
+        // Another account holds the email: reachable (a provider changed it, a guest registers with
+        // it), so a result, not an exception. UPDATE has no ON CONFLICT to turn it into "no row".
+        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation && e.ConstraintName == "ix_users_email")
+        {
+            return new(AccountUpdateOutcome.EmailTaken, null);
+        }
+    }
 
     private const string ClearGuestFlag = "UPDATE users SET is_guest = false WHERE id = @userId AND is_guest";
 
