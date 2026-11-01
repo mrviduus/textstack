@@ -10,8 +10,7 @@ public interface IEvalRunRepository
 
     /// <summary>
     /// The newest <paramref name="limit"/> scores, newest first; only those of
-    /// <paramref name="feature"/> and of <paramref name="runType"/> when given. One query serves the
-    /// admin list, the scheduled trend, the latest score per feature and the "is a scheduled run due" check.
+    /// <paramref name="feature"/> and of <paramref name="runType"/> when given.
     /// </summary>
     Task<IReadOnlyList<EvalScore>> ListRecentAsync(string? feature, string? runType, int limit, CancellationToken ct);
 }

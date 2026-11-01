@@ -9,17 +9,29 @@ public sealed class EvalRunRepository(V2DataSource dataSource) : IEvalRunReposit
 {
     private const string Columns = "id, feature, model_id, judge_model_id, score, n, breakdown_json, git_sha, run_type, created_at";
 
-    private const string InsertScore = """
+    // One statement for the whole run, so a failure stores none of it.
+    private const string InsertScores = """
         INSERT INTO eval_runs (id, feature, model_id, judge_model_id, score, n, breakdown_json, git_sha, run_type, created_at)
-        VALUES (@Id, @Feature, @ModelId, @JudgeModelId, @Score, @N, CAST(@BreakdownJson AS jsonb), @GitSha, @RunType, now())
+        SELECT e.id, e.feature, e.model_id, e.judge_model_id, e.score, e.n, CAST(e.breakdown_json AS jsonb), e.git_sha, e.run_type, now()
+        FROM unnest(@ids, @features, @modelIds, @judgeModelIds, @scores, @ns, @breakdowns, @gitShas, @runTypes)
+            AS e(id, feature, model_id, judge_model_id, score, n, breakdown_json, git_sha, run_type)
         """;
 
     public async Task AddAsync(IReadOnlyList<EvalScore> scores, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var tx = await conn.BeginTransactionAsync(ct);
-        await conn.ExecuteAsync(new CommandDefinition(InsertScore, scores, tx, cancellationToken: ct));
-        await tx.CommitAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(InsertScores, new
+        {
+            ids = scores.Select(e => e.Id).ToArray(),
+            features = scores.Select(e => e.Feature).ToArray(),
+            modelIds = scores.Select(e => e.ModelId).ToArray(),
+            judgeModelIds = scores.Select(e => e.JudgeModelId).ToArray(),
+            scores = scores.Select(e => e.Score).ToArray(),
+            ns = scores.Select(e => e.N).ToArray(),
+            breakdowns = scores.Select(e => e.BreakdownJson).ToArray(),
+            gitShas = scores.Select(e => e.GitSha).ToArray(),
+            runTypes = scores.Select(e => e.RunType).ToArray(),
+        }, cancellationToken: ct));
     }
 
     // One statement for every filter: the generic plan cannot use the feature index, and the table is small.
