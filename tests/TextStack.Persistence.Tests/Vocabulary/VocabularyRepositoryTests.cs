@@ -72,6 +72,45 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task SaveWordAsync_EntityNamingAnotherUser_IsStoredUnderTheCaller()
+    {
+        var (alice, bob) = (await db.NewReaderAsync(), await db.NewReaderAsync());
+
+        var saved = await _repo.SaveWordAsync(alice, Word(bob), Ct);
+
+        Assert.Equal((WordSaveOutcome.Created, alice), (saved.Outcome, saved.Word!.UserId));
+        Assert.Equal(0L, await db.CountAsync("vocabulary_words", bob));
+    }
+
+    [Fact]
+    public async Task AddExampleAsync_EntityNamingAnotherUser_IsStoredUnderTheCaller()
+    {
+        var card = await SavedWordAsync();
+        var bob = await db.NewReaderAsync();
+        var example = Example(card, "Whose?");
+        example.UserId = bob;
+
+        var result = await _repo.AddExampleAsync(card.UserId, example, Ct);
+
+        Assert.Equal((WriteOutcome.Created, card.UserId), (result.Outcome, result.Row!.UserId));
+        Assert.Equal(0L, await db.CountAsync("vocabulary_examples", bob));
+    }
+
+    [Fact]
+    public async Task RecordReviewAsync_EntityNamingAnotherUser_IsStoredUnderTheCaller()
+    {
+        var card = await SavedWordAsync();
+        var bob = await db.NewReaderAsync();
+        var review = Review(card);
+        review.UserId = bob;
+
+        var result = await _repo.RecordReviewAsync(card.UserId, review, NextStage(), Ct);
+
+        Assert.Equal((WriteOutcome.Created, card.UserId), (result.Outcome, result.Row!.UserId));
+        Assert.Equal(0L, await db.CountAsync("vocabulary_reviews", bob));
+    }
+
+    [Fact]
     public async Task SaveWordAsync_NewWord_CreatesACardOnTheDefaultSchedule()
     {
         var user = await db.NewReaderAsync();
@@ -163,7 +202,6 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         Assert.Equal((WordSaveOutcome.IdConflict, (VocabularyWord?)null), (saved.Outcome, saved.Word));
         Assert.Equal(1L, await db.CountAsync("vocabulary_words", card.UserId));
     }
-
 
     [Fact]
     public async Task UpdateWordAsync_MatchingRevision_ChangesTranslationAndDefinition()
@@ -365,7 +403,6 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         Assert.Equal(0L, await db.CountAsync("vocabulary_examples", book.UserId));
     }
 
-
     [Fact]
     public async Task RecordReviewAsync_NewOperation_StoresTheStagesAndSchedulesFromTheServersClockWithoutARevision()
     {
@@ -486,7 +523,6 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal(Noon, (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!.LastReviewedAt);
     }
-
 
     [Fact]
     public async Task ListDueAsync_MixedCards_ReturnsLiveUnretiredDueCardsEarliestFirstUpToTheLimit()
