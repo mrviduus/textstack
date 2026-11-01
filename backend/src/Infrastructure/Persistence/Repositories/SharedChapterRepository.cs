@@ -57,24 +57,11 @@ public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedCh
 
     public async Task<bool> DeleteAsync(Guid userId, Guid id, CancellationToken ct)
     {
-        // Waits for any append that is linking this share (it holds FOR KEY SHARE) to commit, so
-        // the unlink below sees that checkpoint too.
-        const string lockShare = "SELECT 1 FROM shared_chapters WHERE user_id = @userId AND id = @id FOR UPDATE";
-        // The checkpoints keep their text and lose only the link; without this the share's delete
-        // fails at commit on fk_discussion_checkpoints_shared_chapters_shared_chapter_id.
-        const string unlink = """
-            UPDATE discussion_checkpoints SET shared_chapter_id = NULL
-            WHERE user_id = @userId AND shared_chapter_id = @id
-            """;
-        const string delete = "DELETE FROM shared_chapters WHERE user_id = @userId AND id = @id";
-
-        var args = new { userId, id };
+        // Its checkpoints keep their text and lose only the link: the share FK is ON DELETE SET NULL
+        // (shared_chapter_id). An append in flight holds the share FOR KEY SHARE, so this waits for
+        // it and the cascade sees that checkpoint too.
+        const string sql = "DELETE FROM shared_chapters WHERE user_id = @userId AND id = @id";
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var tx = await conn.BeginTransactionAsync(ct);
-        await conn.ExecuteAsync(new CommandDefinition(lockShare, args, tx, cancellationToken: ct));
-        await conn.ExecuteAsync(new CommandDefinition(unlink, args, tx, cancellationToken: ct));
-        var deleted = await conn.ExecuteAsync(new CommandDefinition(delete, args, tx, cancellationToken: ct)) > 0;
-        await tx.CommitAsync(ct);
-        return deleted;
+        return await conn.ExecuteAsync(new CommandDefinition(sql, new { userId, id }, cancellationToken: ct)) > 0;
     }
 }

@@ -61,6 +61,17 @@ BEGIN
     IF bad IS NOT NULL THEN RAISE EXCEPTION 'tables with user_id but no FK: %', bad; END IF;
 END $$;
 
+-- The guest→account merge reparents by UPDATE … SET user_id (owner decision 12, migration 0001):
+-- every composite (user_id, …) FK must follow that update.
+DO $$
+DECLARE bad text;
+BEGIN
+    SELECT string_agg(conname, ', ') INTO bad FROM pg_constraint
+    WHERE contype = 'f' AND connamespace = 'public'::regnamespace AND array_length(conkey, 1) > 1
+      AND confupdtype <> 'c';
+    IF bad IS NOT NULL THEN RAISE EXCEPTION 'composite FKs without ON UPDATE CASCADE: %', bad; END IF;
+END $$;
+
 -- Rule 9: account delete cascades. An FK that neither cascades/sets null nor is deferred would make
 -- DELETE FROM users fail; a deferrable one must be INITIALLY DEFERRED.
 DO $$

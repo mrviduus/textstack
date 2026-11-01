@@ -212,11 +212,12 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
 
         var reset = (await _repo.ResetAsync(user, book, Ct))!;
 
-        Assert.Equal((2L, 0.8m, (decimal?)null, (string?)null, (DateTimeOffset?)null),
-            (reset.Revision, reset.BookFraction, reset.FrontierFraction, reset.FrontierLocator, reset.CompletedAt));
+        Assert.Equal((2L, 2L, 0.8m, (decimal?)null, (string?)null, (DateTimeOffset?)null),
+            (reset.Revision, reset.ResetRevision, reset.BookFraction, reset.FrontierFraction, reset.FrontierLocator, reset.CompletedAt));
         AssertSameJson(Page(8), reset.CurrentLocator);
+        // The next write moves the revision on; reset_revision keeps naming the reset's.
         var next = await _repo.AdvanceAsync(user, book, At(file, 1), reset.Revision, Ct);
-        Assert.Equal((3L, 0.1m), (next.Current!.Revision, next.Current.FrontierFraction));
+        Assert.Equal((3L, 2L, 0.1m), (next.Current!.Revision, next.Current.ResetRevision, next.Current.FrontierFraction));
     }
 
     [Fact]
@@ -237,7 +238,8 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         var stale = await _repo.AdvanceAsync(user, book, At(file, 9), 1, Ct); // device A, still on revision 1
 
         Assert.False(stale.Accepted);
-        Assert.Equal((2L, (decimal?)null), (stale.Current!.Revision, stale.Current.FrontierFraction));
+        // Revision 1 < reset_revision 2: the loser can be told it lost to a reset, not to a move.
+        Assert.Equal((2L, 2L, (decimal?)null), (stale.Current!.Revision, stale.Current.ResetRevision, stale.Current.FrontierFraction));
     }
 
     // Owner isolation, one test per method: bob, holding alice's ids, never reads, changes or deletes her rows.

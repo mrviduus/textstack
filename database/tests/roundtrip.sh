@@ -13,8 +13,8 @@
 #      and applies the rest
 #   4. an edited applied file fails verify and up; down refuses versions this copy does not contain
 #      (each refusal checked by its message, not only by a non-zero exit)
-#   5. tests/fixtures/: a throwaway migration applied and reverted, so down is exercised where the
-#      baseline is the only real migration
+#   5. tests/fixtures/, where there is one: a throwaway migration applied and reverted, so down is
+#      exercised where the baseline is the only real migration
 #   6. run.sh (migrator-v2's entrypoint), where there is one: it creates its database and migrates
 #      it, a second up is a no-op, and status creates nothing
 #
@@ -110,8 +110,8 @@ for v in $ABOVE_BASELINE; do
     migrate "$DB" down "$prev"
     [ "$(value "$DB" 'SELECT max(version) FROM schema_migrations')" = "$prev" ] || fail "down $prev left newer versions"
     [ "$(dump_cols "$DB")" = "$(dump_upto "$prev")" ] || fail "down $prev left a schema other than version $prev's"
-    # Below 0001, its down file must have put EF Core's ledger back, all of it.
-    if [ "$prev" -lt 1 ]; then
+    # Below 0001 of the legacy database, its down file must have put EF Core's ledger back, all of it.
+    if [ "$prev" -lt 1 ] && [ -f "$ROOT/migrations/0001_drop_ef_migrations_history.down.sql" ]; then
         [ "$(value "$DB" 'SELECT count(*) || max(migration_id) FROM "__EFMigrationsHistory"')" = "147$(sed -n 's/^EF_HEAD=//p' "$ROOT/migrate.sh")" ] \
             || fail "0001 down did not restore the 147 EF history rows"
     fi

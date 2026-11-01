@@ -199,7 +199,7 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
         // Matches the partial index ix_vocabulary_words_user_id_next_review_at (live cards by due time).
         const string sql = $"""
             SELECT {WordColumns} FROM vocabulary_words
-            WHERE user_id = @userId AND deleted_at IS NULL AND next_review_at <= @now
+            WHERE user_id = @userId AND deleted_at IS NULL AND retired_at IS NULL AND next_review_at <= @now
             ORDER BY next_review_at, id
             LIMIT @limit
             """;

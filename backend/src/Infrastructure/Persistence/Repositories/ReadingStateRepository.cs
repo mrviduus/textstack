@@ -15,7 +15,7 @@ namespace Infrastructure.Persistence.Repositories;
 public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingStateRepository
 {
     private const string Columns =
-        "file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision";
+        "file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision, reset_revision";
 
     public async Task<ReadingState?> GetAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
@@ -86,13 +86,16 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
     {
         // An update, not a delete: a deleted row would let the next first write start at revision 1
         // again, and a stale device holding revision 1 would then win and undo the reset.
+        // reset_revision remembers which revision the reset made, so a later stale writer can be
+        // told it lost to a reset and not to a move.
         const string sql = $"""
             UPDATE reading_state SET
                 frontier_locator = NULL,
                 frontier_fraction = NULL,
                 completed_at = NULL,
                 updated_at = now(),
-                revision = revision + 1
+                revision = revision + 1,
+                reset_revision = revision + 1
             WHERE user_id = @userId AND book_id = @bookId
             RETURNING {Columns}
             """;
