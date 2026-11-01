@@ -60,6 +60,32 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task DecideAsync_DeadlineExactlyNow_MarksItExpired()
+    {
+        var login = Login();
+        login.ExpiresAt = new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        await _repo.CreateAsync(login, Ct);
+
+        Assert.Equal(DeviceLogin.Expired, await _repo.DecideAsync(login.UserCode, await db.NewReaderAsync(), login.ExpiresAt, Ct));
+    }
+
+    [Fact]
+    public async Task DecideAsync_StaleAndLivePendingShareACode_DecidesTheLiveOne()
+    {
+        var user = await db.NewReaderAsync();
+        var (stale, live) = (Login(), Login());
+        stale.ExpiresAt = Now.AddMinutes(-5);
+        live.UserCode = stale.UserCode;
+        await _repo.CreateAsync(stale, Ct);
+        await _repo.CreateAsync(live, Ct);
+
+        Assert.Equal(DeviceLogin.Approved, await _repo.DecideAsync(live.UserCode, user, Now, Ct));
+
+        Assert.Equal(DeviceLogin.Approved, (await _repo.GetByDeviceCodeAsync(live.DeviceCodeHash, Ct))!.Status);
+        Assert.Equal(DeviceLogin.Pending, (await _repo.GetByDeviceCodeAsync(stale.DeviceCodeHash, Ct))!.Status);
+    }
+
+    [Fact]
     public async Task DecideAsync_AlreadyDecided_ReturnsNull()
     {
         var login = await CreatedAsync();
@@ -119,6 +145,15 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
         var read = (await _repo.GetByDeviceCodeAsync(login.DeviceCodeHash, Ct))!;
         Assert.Equal(DeviceLogin.Expired, read.Status);
         Assert.NotNull(read.ConsumedAt);
+    }
+
+    [Fact]
+    public async Task RedeemAsync_ApprovedButPastItsDeadline_ReturnsNull()
+    {
+        var (user, login) = (await db.NewReaderAsync(), await CreatedAsync());
+        await _repo.DecideAsync(login.UserCode, user, Now, Ct);
+
+        Assert.Null(await _repo.RedeemAsync(login.Id, login.ExpiresAt, Ct));
     }
 
     [Fact]

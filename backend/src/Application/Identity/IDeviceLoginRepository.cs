@@ -31,7 +31,8 @@ public interface IDeviceLoginRepository
 
     /// <summary>
     /// Redeems an approved login, once: it becomes expired and consumed, so a second redemption cannot
-    /// mint another session. Returns the user it was approved for; null when it was not approved.
+    /// mint another session. Returns the user it was approved for; null when it was not approved, or
+    /// its deadline passed by <paramref name="now"/> (the sweep deletes it only a day later).
     /// </summary>
     Task<Guid?> RedeemAsync(Guid loginId, DateTimeOffset now, CancellationToken ct);
 

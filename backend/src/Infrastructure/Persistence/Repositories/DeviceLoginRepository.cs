@@ -76,7 +76,7 @@ public sealed class DeviceLoginRepository(V2DataSource dataSource) : IDeviceLogi
 
     private const string RedeemApproved = """
         UPDATE device_authorizations SET status = 'expired', consumed_at = @now
-        WHERE id = @loginId AND status = 'approved'
+        WHERE id = @loginId AND status = 'approved' AND expires_at > @now
         RETURNING user_id
         """;
 
