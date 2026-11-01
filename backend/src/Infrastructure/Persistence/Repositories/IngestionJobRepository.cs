@@ -14,7 +14,9 @@ public sealed class IngestionJobRepository(V2DataSource dataSource) : IIngestion
     private const string Columns = "id, user_id, book_id, file_id, status, attempt_count, error, source_format, created_at, started_at, finished_at";
 
     // started_at is stamped by the database, so "stuck" is measured on the database's clock too.
-    private const string Eligible = "(status = 'queued' OR (status = 'processing' AND started_at < now() - @stuckAfter))";
+    private const string Stuck = "status = 'processing' AND started_at < now() - @stuckAfter";
+
+    private const string Eligible = $"(status = 'queued' OR ({Stuck}))";
 
     private const string InsertJob = $"""
         INSERT INTO ingestion_jobs (id, user_id, book_id, file_id, status, attempt_count, created_at)
@@ -109,7 +111,7 @@ public sealed class IngestionJobRepository(V2DataSource dataSource) : IIngestion
         return (await conn.QueryAsync<FileIngestionJob>(new CommandDefinition(FailExhausted, new { maxAttempts, stuckAfter, error }, cancellationToken: ct))).AsList();
     }
 
-    private const string CountStuck = "SELECT count(*) FROM ingestion_jobs WHERE status = 'processing' AND started_at < now() - @stuckAfter";
+    private const string CountStuck = $"SELECT count(*) FROM ingestion_jobs WHERE {Stuck}";
 
     public async Task<int> CountStuckAsync(TimeSpan stuckAfter, CancellationToken ct)
     {
