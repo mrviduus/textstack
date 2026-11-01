@@ -23,9 +23,6 @@ public interface IUserRepository
 
     Task<UserAccount?> GetByAppleSubjectAsync(string appleSubject, CancellationToken ct);
 
-    /// <summary>Whether any account (a guest's included) holds this email, compared case-insensitively.</summary>
-    Task<bool> EmailExistsAsync(string email, CancellationToken ct);
-
     /// <summary>
     /// Creates <paramref name="account"/> (a guest, a reader or an admin, as its fields say) and returns
     /// it as stored. Null when its id, its email or one of its sign-in subjects is already taken: a

@@ -1,4 +1,3 @@
-using Dapper;
 using Npgsql;
 
 namespace Infrastructure.Persistence;
@@ -17,22 +16,4 @@ public sealed class V2DataSource(string connectionString) : IDisposable, IAsyncD
     public void Dispose() => _dataSource.Dispose();
 
     public ValueTask DisposeAsync() => _dataSource.DisposeAsync();
-}
-
-/// <summary>One statement on a connection of its own, for repositories whose methods are one statement each.</summary>
-internal static class V2DataSourceStatements
-{
-    /// <summary>Runs <paramref name="sql"/>; returns the rows it affected.</summary>
-    public static async Task<int> ExecuteAsync(this V2DataSource dataSource, string sql, object args, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(sql, args, cancellationToken: ct));
-    }
-
-    /// <summary>Runs <paramref name="sql"/>; returns its one row, or default when it returned none.</summary>
-    public static async Task<T?> QuerySingleOrDefaultAsync<T>(this V2DataSource dataSource, string sql, object args, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<T>(new CommandDefinition(sql, args, cancellationToken: ct));
-    }
 }

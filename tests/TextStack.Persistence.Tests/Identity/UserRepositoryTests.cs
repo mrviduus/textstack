@@ -106,14 +106,6 @@ public class UserRepositoryTests(V2PostgresFixture db)
         Assert.Equal(account.Id, (await _repo.GetByEmailAsync(account.Email.ToUpperInvariant(), Ct))?.Id);
     }
 
-    [Fact]
-    public async Task EmailExistsAsync_DifferentCase_IsTrue()
-    {
-        var account = await CreatedAsync();
-
-        Assert.True(await _repo.EmailExistsAsync(account.Email.ToUpperInvariant(), Ct));
-        Assert.False(await _repo.EmailExistsAsync($"{Guid.NewGuid()}@test", Ct));
-    }
 
     [Fact]
     public async Task GetByGoogleSubjectAsync_KnownSubject_ReturnsTheAccount()
