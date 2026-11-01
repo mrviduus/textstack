@@ -68,8 +68,9 @@ DECLARE bad text;
 BEGIN
     SELECT string_agg(conname, ', ') INTO bad FROM pg_constraint
     WHERE contype = 'f' AND connamespace = 'public'::regnamespace AND array_length(conkey, 1) > 1
+      AND (SELECT attname FROM pg_attribute WHERE attrelid = conrelid AND attnum = conkey[1]) = 'user_id'
       AND confupdtype <> 'c';
-    IF bad IS NOT NULL THEN RAISE EXCEPTION 'composite FKs without ON UPDATE CASCADE: %', bad; END IF;
+    IF bad IS NOT NULL THEN RAISE EXCEPTION '(user_id, …) FKs without ON UPDATE CASCADE: %', bad; END IF;
 END $$;
 
 -- Rule 9: account delete cascades. An FK that neither cascades/sets null nor is deferred would make

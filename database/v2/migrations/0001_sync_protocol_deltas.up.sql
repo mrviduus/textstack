@@ -10,11 +10,11 @@
 --          "Owner decisions (2026-10-30)" 1, 5, 6, 12; the Discussion fixes M1.4 found (#1047).
 -- Issue: https://github.com/mrviduus/textstack/issues/1086
 -- Compatibility: textstack_v2 holds no data and nothing deployed reads it (M1.x repositories are
---                tested, not resolved). Every column added is nullable or defaulted; the one index
---                replaced keeps its uniqueness; no row can be refused by the new CHECKs because
---                there are none.
+--                tested, not resolved). Every column added is nullable or defaulted; the two indexes
+--                replaced keep their columns' uniqueness as it was; no row can be refused by the new
+--                CHECKs because there are none.
 -- Down:  0001_sync_protocol_deltas.down.sql puts every FK, index and CHECK back as the baseline
---        had them and drops the five columns — with whatever they hold.
+--        had them and drops the four columns — with whatever they hold.
 
 -- ===== Reading: a reset is distinguishable from a move =====
 

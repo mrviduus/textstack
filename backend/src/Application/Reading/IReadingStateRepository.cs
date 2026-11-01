@@ -26,8 +26,9 @@ public interface IReadingStateRepository
 
     /// <summary>
     /// The explicit way back to the start: forgets the frontier and completion, keeps the position,
-    /// and bumps the revision, so every other device's revision is now stale. Returns the new state
-    /// (the caller's next expected revision); null when there was none.
+    /// and bumps the revision, so every other device's revision is now stale; the new revision is
+    /// also recorded as <see cref="ReadingState.ResetRevision"/>, so a stale writer can be told it lost
+    /// to a reset. Returns the new state (the caller's next expected revision); null when there was none.
     /// </summary>
     Task<ReadingState?> ResetAsync(Guid userId, Guid bookId, CancellationToken ct);
 }

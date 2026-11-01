@@ -148,7 +148,7 @@ refuses "$ROOT" "$DB" "versions this copy does not contain (9999" down 0
 
 # A folder whose only migration is the baseline has no down file of its own; a fixture migration
 # gives the runner's down path something to revert, so step 2 is not the only cover for it.
-if [ -d "$ROOT/tests/fixtures" ]; then
+if ls "$ROOT"/tests/fixtures/*.sql > /dev/null 2>&1; then
     echo "== 5. a fixture migration: up, down, up"
     rm -rf "$COPY/fx"; mkdir -p "$COPY/fx/migrations"; cp "$ROOT/migrate.sh" "$COPY/fx/"
     cp "$ROOT"/migrations/*.sql "$ROOT"/tests/fixtures/*.sql "$COPY/fx/migrations/"

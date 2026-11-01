@@ -203,7 +203,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task ResetAsync_ExistingState_ForgetsFrontierAndCompletionKeepsPositionAndBumpsRevision()
+    public async Task ResetAsync_ExistingState_ForgetsFrontierAndCompletionKeepsPositionBumpsRevisionAndRecordsIt()
     {
         var (user, book, file) = await ReaderWithBookAsync();
         var finished = At(file, 8);

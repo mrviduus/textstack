@@ -1,5 +1,5 @@
 -- Undoes 0001_sync_protocol_deltas: every FK, index and CHECK back as the baseline declares
--- them, then the five columns dropped — with whatever they hold.
+-- them, then the four columns dropped — with whatever they hold.
 
 ALTER TABLE public.book_files DROP COLUMN content_removed_at;
 

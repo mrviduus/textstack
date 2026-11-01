@@ -85,9 +85,8 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
     public async Task<ReadingState?> ResetAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
         // An update, not a delete: a deleted row would let the next first write start at revision 1
-        // again, and a stale device holding revision 1 would then win and undo the reset.
-        // reset_revision remembers which revision the reset made, so a later stale writer can be
-        // told it lost to a reset and not to a move.
+        // again, and a stale device holding revision 1 would then win and undo the reset. Both
+        // columns read the old revision, so reset_revision = revision after this.
         const string sql = $"""
             UPDATE reading_state SET
                 frontier_locator = NULL,

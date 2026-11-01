@@ -1,5 +1,6 @@
 using Application.Common;
 using Application.Discussion;
+using Dapper;
 using Domain.Library;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
@@ -121,6 +122,34 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
         Assert.Null(await _repo.GetAsync(book.UserId, share.Id, Ct));
         var kept = Assert.Single((await _checkpoints.ListAsync(book.UserId, book.Id, null, 10, null, Ct)).Items);
         Assert.Equal((checkpoint.Id, (Guid?)null), (kept.Id, kept.SharedChapterId));
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WhileAnAppendLinkingTheShareIsInFlight_WaitsThenDeletesAndUnlinksIt()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var share = NewShare(book);
+        await _repo.ShareAsync(share, Ct);
+        var checkpointId = Guid.NewGuid();
+        // An append caught mid-transaction: the checkpoint is inserted, linked, not yet committed,
+        // and holds the share FOR KEY SHARE as AppendAsync does. The delete must wait on that lock:
+        // otherwise the FK's SET NULL misses this row and the append fails on the FK at commit.
+        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var append = await conn.BeginTransactionAsync(Ct);
+        await conn.ExecuteAsync(new CommandDefinition("""
+            SELECT 1 FROM shared_chapters WHERE id = @shareId FOR KEY SHARE;
+            INSERT INTO discussion_checkpoints (id, user_id, book_id, file_id, chapter_key, shared_chapter_id, topic, reader_thoughts, language, operation_id, payload_sha256)
+            VALUES (@checkpointId, @UserId, @BookId, @FileId, @ChapterKey, @shareId, 't', '["x"]', 'en', gen_random_uuid(), @hash);
+            """, new { shareId = share.Id, checkpointId, share.UserId, share.BookId, share.FileId, share.ChapterKey, hash = PayloadSha256(Guid.NewGuid().ToString()) },
+            append, cancellationToken: Ct));
+
+        var delete = _repo.DeleteAsync(book.UserId, share.Id, Ct);
+        await db.WaitUntilBlockedByAsync(conn, delete);
+        await append.CommitAsync(Ct);
+
+        Assert.True(await delete);
+        var kept = Assert.Single((await _checkpoints.ListAsync(book.UserId, book.Id, null, 10, null, Ct)).Items);
+        Assert.Equal((checkpointId, (Guid?)null), (kept.Id, kept.SharedChapterId));
     }
 
     // Owner isolation, one test per method: bob, holding alice's ids, never reads, changes or deletes her rows.

@@ -710,8 +710,11 @@ metadata import is M2.2's, only the bytes are M2.6's. #1067 (explicit V2 transac
 
 ### In M1.2 code (lands with M2.2)
 
-- **1.** **Done 2026-11-01** (`0001_sync_protocol_deltas`, #1086; `ResetAsync`/`ReadingState.ResetRevision` included,
-   the repository code it replaced deleted). Migration `database/v2/migrations/0001` (+ down): `reading_state.reset_revision bigint NULL`, CHECK
+- **1.** **Done 2026-11-01** (`0001_sync_protocol_deltas`, #1086): the schema below, `ResetAsync` +
+   `ReadingState.ResetRevision`, `VocabularyWord.RetiredAt` read, the share delete as one statement. The
+   CHECK landed as `reset_revision BETWEEN 1 AND revision`. `books.revision` and
+   `book_files.content_removed_at` are columns only until M2.2/M2.6 write them; the merge order the
+   cascade imposes is in ADR-031 "Amended 2026-11-01". Migration `database/v2/migrations/0001` (+ down): `reading_state.reset_revision bigint NULL`, CHECK
    `reset_revision <= revision`; and every composite `(user_id, …)` FK re-created with
    `ON UPDATE CASCADE` (merge). `ResetAsync` sets `reset_revision`; `ReadingState.ResetRevision`.
    Also an index `annotations (user_id, book_id, created_at, id) WHERE deleted_at IS NULL` for

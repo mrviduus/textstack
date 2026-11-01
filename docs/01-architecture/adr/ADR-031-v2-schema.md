@@ -294,11 +294,20 @@ M1.4's findings ([#1047](https://github.com/mrviduus/textstack/issues/1047)) nee
 is never edited (ADR-026); the rows and rules above read with these deltas:
 
 - **Rule 2 gains:** every composite `(user_id, …)` FK is `ON UPDATE CASCADE`. The guest→account
-  merge reparents by `UPDATE … SET user_id` on the aggregate roots (words before books: an example's
-  word FK is immediate, its book FKs deferred); the FK implements no merge rule — collisions and
-  ownership are the merge's own checks (owner decision 12). `tests/invariants.sql` pins it.
+  merge (M2.5, [#1023](https://github.com/mrviduus/textstack/issues/1023)) reparents by
+  `UPDATE … SET user_id` on the aggregate roots, and the key does the rest — with three edges the
+  merge itself owns (`tests/TextStack.Persistence.Tests/Schema/MergeReparentTests.cs` pins each):
+  the order is **words, then books, then book-less `reading_sessions`** (an example's word FK is
+  immediate, its book FKs deferred; a session whose `book_id` is null matches no cascade and stays
+  behind unless moved by hand); a unique key the target already holds aborts the whole statement
+  (23505 on `(user_id, operation_id)` of checkpoints, shares, examples, reviews, on
+  `(user_id, client_session_id)` of sessions, on `(user_id, language, word_key)` of words — a device
+  replaying its outbox after sign-in reuses its `operation_id`s, decision 13), so the merge checks
+  collisions and ownership before it moves anything (owner decision 12). `tests/invariants.sql` pins
+  the cascade on every `(user_id, …)` FK.
 - **`discussion_checkpoints`:** the share FK is `ON DELETE SET NULL (shared_chapter_id)`; a share
-  delete is one statement (M1.4's unlink and its two locks are gone).
+  delete is one statement (M1.4's unlink and its two locks are gone). The baseline's comment above
+  that FK ("Deleting a share first clears shared_chapter_id here") now describes the FK's own action.
 - **`reading_state`:** `reset_revision bigint NULL`, `CHECK (reset_revision BETWEEN 1 AND revision)` —
   the revision a reset produced, so a stale writer learns it lost to a reset, not a move.
 - **`review_question`:** the prompt index is `(user_id, book_insight_id, prompt_hash)` (rule 2).
