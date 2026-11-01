@@ -1,6 +1,5 @@
 using Dapper;
 using Domain.Library;
-using Application.Vocabulary;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
 using static TextStack.Persistence.Tests.V2PostgresFixture;
@@ -105,53 +104,7 @@ public class MergeReparentTests(V2PostgresFixture db)
     {
         var alice = await db.NewReaderAsync();
         var bob = await db.NewReaderAsync();
-        var book = await db.NewBookAsync(alice);
-        var file = book.CurrentFile!;
-        await new ReadingStateRepository(db.DataSource).AdvanceAsync(alice, book.Id,
-            new() { FileId = file.Id, CurrentLocator = TestJson.Page(1), BookFraction = 0.1m, ClientRecordedAt = DateTimeOffset.UtcNow }, null, Ct);
-        await new AnnotationRepository(db.DataSource).SaveAsync(alice,
-            new() { Id = Guid.NewGuid(), UserId = alice, BookId = book.Id, FileId = file.Id, SelectedText = "quoted", Locator = TestJson.Page(1) }, null, Ct);
-        var vocabulary = new VocabularyRepository(db.DataSource);
-        var card = (await vocabulary.SaveWordAsync(alice, new() { Id = Guid.NewGuid(), UserId = alice, Language = "en", Word = "quiver", WordKey = "quiver" }, Ct)).Word!;
-        await vocabulary.AddExampleAsync(alice, new()
-        {
-            Id = Guid.NewGuid(),
-            UserId = alice,
-            WordId = card.Id,
-            BookId = book.Id,
-            FileId = file.Id,
-            Sentence = "A quiver of arrows.",
-            OperationId = Guid.NewGuid(),
-            PayloadSha256 = PayloadSha256("A quiver of arrows."),
-        }, Ct);
-        await vocabulary.RecordReviewAsync(alice, new()
-        {
-            Id = Guid.NewGuid(),
-            UserId = alice,
-            WordId = card.Id,
-            OperationId = Guid.NewGuid(),
-            PayloadSha256 = PayloadSha256("correct"),
-            ReviewMode = "flashcard",
-            IsCorrect = true,
-            ClientRecordedAt = DateTimeOffset.UtcNow,
-        }, c => new ReviewSchedule(c.Stage + 1, 1m, 0), Ct);
-        var share = NewShare(book);
-        await new SharedChapterRepository(db.DataSource).ShareAsync(share, Ct);
-        await new CheckpointRepository(db.DataSource).AppendAsync(NewCheckpoint(book, share), Ct);
-        var insight = await new BookInsightRepository(db.DataSource).SaveReviewAsync(NewInsight(book, "ch-1", reviewJson: "{}"), Ct);
-        await new ReviewQuestionRepository(db.DataSource).ReplaceForInsightAsync(alice, insight.Id,
-            [new() { Id = Guid.NewGuid(), UserId = alice, BookInsightId = insight.Id, Prompt = "Why?", Answer = "Because.", PromptHash = "h1", NextReviewAt = DateTimeOffset.UtcNow }], Ct);
-        // No repository writes these yet (sessions: M2.2; the transitional tables: M1.5).
-        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
-        await conn.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO reading_sessions (id, user_id, book_id, client_session_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent, created_at)
-            VALUES (gen_random_uuid(), @alice, @bookId, gen_random_uuid(), now(), now(), 60, 100, 0, 0.1, now()),
-                   (gen_random_uuid(), @alice, NULL, gen_random_uuid(), now(), now(), 60, 100, 0, 0.1, now());
-            INSERT INTO book_chapters (id, user_id, book_id, file_id, chapter_key, chapter_number, title, html, plain_text, created_at)
-            VALUES (gen_random_uuid(), @alice, @bookId, @fileId, 'ch-1', 1, 'One', '<p>x</p>', 'x', now());
-            INSERT INTO ingestion_jobs (id, user_id, book_id, file_id, status, attempt_count, created_at)
-            VALUES (gen_random_uuid(), @alice, @bookId, @fileId, 'succeeded', 1, now());
-            """, new { alice, bookId = book.Id, fileId = file.Id }, cancellationToken: Ct));
+        var (book, share) = await db.SeedEverythingAsync(alice);
         return (alice, bob, book, share);
     }
 }

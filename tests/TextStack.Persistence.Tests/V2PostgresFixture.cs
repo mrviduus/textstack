@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Application.Vocabulary;
 using Dapper;
 using Domain.Discussion;
 using Domain.Library;
@@ -65,6 +66,63 @@ public sealed class V2PostgresFixture : IAsyncLifetime
     {
         var book = new Book { Id = Guid.NewGuid(), UserId = userId, Title = title, Tags = ["fiction"] };
         return new LibraryRepository(DataSource).ImportAsync(book, NewFile(userId, book.Id, sha256), Ct);
+    }
+
+    /// <summary>
+    /// One row of the user in every table a book or a card reaches (two reading sessions: one of the
+    /// book, one of a deleted book). Returns the book and its share.
+    /// </summary>
+    public async Task<(Book Book, SharedChapter Share)> SeedEverythingAsync(Guid userId)
+    {
+        var book = await NewBookAsync(userId);
+        var file = book.CurrentFile!;
+        await new ReadingStateRepository(DataSource).AdvanceAsync(userId, book.Id,
+            new() { FileId = file.Id, CurrentLocator = TestJson.Page(1), BookFraction = 0.1m, ClientRecordedAt = DateTimeOffset.UtcNow }, null, Ct);
+        await new AnnotationRepository(DataSource).SaveAsync(userId,
+            new() { Id = Guid.NewGuid(), UserId = userId, BookId = book.Id, FileId = file.Id, SelectedText = "quoted", Locator = TestJson.Page(1) }, null, Ct);
+        var vocabulary = new VocabularyRepository(DataSource);
+        var card = (await vocabulary.SaveWordAsync(userId, new() { Id = Guid.NewGuid(), UserId = userId, Language = "en", Word = "quiver", WordKey = "quiver" }, Ct)).Word!;
+        await vocabulary.AddExampleAsync(userId, new()
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            WordId = card.Id,
+            BookId = book.Id,
+            FileId = file.Id,
+            Sentence = "A quiver of arrows.",
+            OperationId = Guid.NewGuid(),
+            PayloadSha256 = PayloadSha256("A quiver of arrows."),
+        }, Ct);
+        await vocabulary.RecordReviewAsync(userId, new()
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            WordId = card.Id,
+            OperationId = Guid.NewGuid(),
+            PayloadSha256 = PayloadSha256("correct"),
+            ReviewMode = "flashcard",
+            IsCorrect = true,
+            ClientRecordedAt = DateTimeOffset.UtcNow,
+        }, c => new ReviewSchedule(c.Stage + 1, 1m, 0), Ct);
+        var share = NewShare(book);
+        await new SharedChapterRepository(DataSource).ShareAsync(share, Ct);
+        await new CheckpointRepository(DataSource).AppendAsync(NewCheckpoint(book, share), Ct);
+        var insight = await new BookInsightRepository(DataSource).SaveReviewAsync(NewInsight(book, "ch-1", reviewJson: "{}"), Ct);
+        await new ReviewQuestionRepository(DataSource).ReplaceForInsightAsync(userId, insight.Id,
+            [new() { Id = Guid.NewGuid(), UserId = userId, BookInsightId = insight.Id, Prompt = "Why?", Answer = "Because.", PromptHash = "h1", NextReviewAt = DateTimeOffset.UtcNow }], Ct);
+        await new BookChapterRepository(DataSource).InsertForFileAsync(userId, book.Id, file.Id,
+            [new() { Id = Guid.NewGuid(), ChapterKey = "ch-1", ChapterNumber = 1, Title = "One", Html = "<p>x</p>", PlainText = "x" }], Ct);
+        // Sessions have no repository yet (M2.2). The job is inserted finished, not enqueued: a queued
+        // one would be claimable by the ingestion tests' ClaimNextAsync, which runs across users.
+        await using var conn = await DataSource.OpenConnectionAsync(Ct);
+        await conn.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO reading_sessions (id, user_id, book_id, client_session_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent, created_at)
+            VALUES (gen_random_uuid(), @userId, @bookId, gen_random_uuid(), now(), now(), 60, 100, 0, 0.1, now()),
+                   (gen_random_uuid(), @userId, NULL, gen_random_uuid(), now(), now(), 60, 100, 0, 0.1, now());
+            INSERT INTO ingestion_jobs (id, user_id, book_id, file_id, status, attempt_count, created_at)
+            VALUES (gen_random_uuid(), @userId, @bookId, @fileId, 'succeeded', 1, now());
+            """, new { userId, bookId = book.Id, fileId = file.Id }, cancellationToken: Ct));
+        return (book, share);
     }
 
     /// <summary>The user's rows in <paramref name="table"/> (a constant, never input), only those of <paramref name="bookId"/> when given.</summary>
