@@ -12,6 +12,7 @@ namespace Infrastructure.Persistence.Repositories;
 public sealed class IngestionJobRepository(V2DataSource dataSource) : IIngestionJobRepository
 {
     private const string Columns = "id, user_id, book_id, file_id, status, attempt_count, error, source_format, created_at, started_at, finished_at";
+
     private const string Eligible = "(status = 'queued' OR (status = 'processing' AND started_at < @stuckBefore))";
 
     private const string InsertJob = $"""

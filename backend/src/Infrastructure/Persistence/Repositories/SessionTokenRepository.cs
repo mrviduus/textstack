@@ -12,6 +12,7 @@ namespace Infrastructure.Persistence.Repositories;
 public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTokenRepository
 {
     private const string SessionColumns = "id, user_id, token_hash, previous_token_hash, expires_at, created_at";
+
     private const string ResetColumns = "id, user_id, token_hash, expires_at, used, created_at";
 
     private const string InsertSession = $"""

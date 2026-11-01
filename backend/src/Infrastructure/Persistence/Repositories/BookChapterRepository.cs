@@ -12,6 +12,7 @@ namespace Infrastructure.Persistence.Repositories;
 public sealed class BookChapterRepository(V2DataSource dataSource) : IBookChapterRepository
 {
     private const string HeadingColumns = "id, chapter_key, chapter_number, title, word_count, source_start_page, source_end_page";
+
     private const string Columns = $"{HeadingColumns}, user_id, book_id, file_id, html, plain_text, created_at";
     private const string ChapterByKey = "user_id = @userId AND file_id = @fileId AND chapter_key = @chapterKey";
 

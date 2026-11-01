@@ -20,15 +20,16 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
         "id, user_id, book_id, file_id, selected_text, note_text, locator, color, created_at, updated_at, deleted_at, revision";
     private const string SelectById = $"SELECT {Columns} FROM annotations WHERE user_id = @userId AND id = @id";
 
+    private const string SelectLiveOfBook = $"""
+        SELECT {Columns} FROM annotations
+        WHERE user_id = @userId AND book_id = @bookId AND deleted_at IS NULL
+        ORDER BY created_at, id
+        """;
+
     public async Task<IReadOnlyList<Annotation>> ListForBookAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
-        const string sql = $"""
-            SELECT {Columns} FROM annotations
-            WHERE user_id = @userId AND book_id = @bookId AND deleted_at IS NULL
-            ORDER BY created_at, id
-            """;
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return (await conn.QueryAsync<Annotation>(new CommandDefinition(sql, new { userId, bookId }, cancellationToken: ct))).AsList();
+        return (await conn.QueryAsync<Annotation>(new CommandDefinition(SelectLiveOfBook, new { userId, bookId }, cancellationToken: ct))).AsList();
     }
 
     public async Task<Annotation?> GetAsync(Guid userId, Guid id, CancellationToken ct)
@@ -37,48 +38,49 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
         return await conn.QuerySingleOrDefaultAsync<Annotation>(new CommandDefinition(SelectById, new { userId, id }, cancellationToken: ct));
     }
 
+    private const string InsertAnnotation = $"""
+        INSERT INTO annotations (id, user_id, book_id, file_id, selected_text, note_text, locator, color, created_at, updated_at, revision)
+        VALUES (@Id, @UserId, @BookId, @FileId, @SelectedText, @NoteText, CAST(@Locator AS jsonb), @Color, now(), now(), 1)
+        ON CONFLICT (id) DO NOTHING
+        RETURNING {Columns}
+        """;
+
+    private const string UpdateGuarded = $"""
+        UPDATE annotations SET
+            file_id = @FileId,
+            selected_text = @SelectedText,
+            note_text = @NoteText,
+            locator = CAST(@Locator AS jsonb),
+            color = @Color,
+            updated_at = now(),
+            revision = revision + 1
+        WHERE user_id = @UserId AND id = @Id AND book_id = @BookId AND revision = @expectedRevision AND deleted_at IS NULL
+        RETURNING {Columns}
+        """;
+
     public async Task<RevisionedWrite<Annotation>> SaveAsync(
         Guid userId, Annotation annotation, long? expectedRevision, CancellationToken ct)
     {
-        if (annotation.UserId != userId)
-            throw new ArgumentException("The annotation must belong to the user writing it.", nameof(annotation));
-        const string create = $"""
-            INSERT INTO annotations (id, user_id, book_id, file_id, selected_text, note_text, locator, color, created_at, updated_at, revision)
-            VALUES (@Id, @UserId, @BookId, @FileId, @SelectedText, @NoteText, CAST(@Locator AS jsonb), @Color, now(), now(), 1)
-            ON CONFLICT (id) DO NOTHING
-            RETURNING {Columns}
-            """;
-        const string update = $"""
-            UPDATE annotations SET
-                file_id = @FileId,
-                selected_text = @SelectedText,
-                note_text = @NoteText,
-                locator = CAST(@Locator AS jsonb),
-                color = @Color,
-                updated_at = now(),
-                revision = revision + 1
-            WHERE user_id = @UserId AND id = @Id AND book_id = @BookId AND revision = @expectedRevision AND deleted_at IS NULL
-            RETURNING {Columns}
-            """;
-
         var args = new DynamicParameters(annotation);
+        args.Add("UserId", userId);
         args.Add("expectedRevision", expectedRevision);
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         var written = await conn.QuerySingleOrDefaultAsync<Annotation>(new CommandDefinition(
-            expectedRevision is null ? create : update, args, cancellationToken: ct));
+            expectedRevision is null ? InsertAnnotation : UpdateGuarded, args, cancellationToken: ct));
         return written is not null
             ? new RevisionedWrite<Annotation>(true, written)
             : new RevisionedWrite<Annotation>(false, await conn.QuerySingleOrDefaultAsync<Annotation>(
                 new CommandDefinition(SelectById, new { userId, id = annotation.Id }, cancellationToken: ct)));
     }
 
+    private const string SoftDelete = """
+        UPDATE annotations SET deleted_at = now(), updated_at = now(), revision = revision + 1
+        WHERE user_id = @userId AND id = @id AND deleted_at IS NULL
+        """;
+
     public async Task<bool> DeleteAsync(Guid userId, Guid id, CancellationToken ct)
     {
-        const string sql = """
-            UPDATE annotations SET deleted_at = now(), updated_at = now(), revision = revision + 1
-            WHERE user_id = @userId AND id = @id AND deleted_at IS NULL
-            """;
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(sql, new { userId, id }, cancellationToken: ct)) > 0;
+        return await conn.ExecuteAsync(new CommandDefinition(SoftDelete, new { userId, id }, cancellationToken: ct)) > 0;
     }
 }

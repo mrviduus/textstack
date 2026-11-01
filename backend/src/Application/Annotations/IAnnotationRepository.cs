@@ -28,8 +28,8 @@ public interface IAnnotationRepository
     /// not the user's, a file of another book, or a locator without a file is refused by the schema (a
     /// <c>PostgresException</c>), as a broken invariant: the endpoint checks them first, since it must
     /// tell <c>unknown_file</c> from <c>file_replaced</c> anyway.
+    /// It is stored under <paramref name="userId"/>, whatever <c>annotation.UserId</c> says.
     /// </summary>
-    /// <exception cref="ArgumentException">The annotation names another user.</exception>
     Task<RevisionedWrite<Annotation>> SaveAsync(Guid userId, Annotation annotation, long? expectedRevision, CancellationToken ct);
 
     /// <summary>Soft-deletes (sets <c>deleted_at</c>, bumps the revision); false when not the user's or already deleted.</summary>

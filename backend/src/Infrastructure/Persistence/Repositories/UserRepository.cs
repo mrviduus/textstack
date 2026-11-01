@@ -15,10 +15,13 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
         "id, email, google_subject, apple_subject, password_hash, name, picture, is_guest, last_active_at, native_language, storage_used_bytes, storage_limit_override_bytes, tier, role, promoted_at, created_at";
 
     private const string SelectById = $"SELECT {Columns} FROM users WHERE id = @userId";
+
     // lower(email) on both sides: the expression ix_users_email indexes.
     private const string SelectByEmail = $"SELECT {Columns} FROM users WHERE lower(email) = lower(@email)";
+
     private const string SelectByGoogleSubject = $"SELECT {Columns} FROM users WHERE google_subject = @googleSubject";
     private const string SelectByAppleSubject = $"SELECT {Columns} FROM users WHERE apple_subject = @appleSubject";
+
     private const string EmailTaken = "SELECT EXISTS (SELECT FROM users WHERE lower(email) = lower(@email))";
 
     public async Task<UserAccount?> GetAsync(Guid userId, CancellationToken ct) => await QuerySingleAsync(SelectById, new { userId }, ct);

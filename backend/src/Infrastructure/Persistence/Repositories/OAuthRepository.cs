@@ -14,6 +14,7 @@ namespace Infrastructure.Persistence.Repositories;
 public sealed class OAuthRepository(V2DataSource dataSource) : IOAuthRepository
 {
     private const string ClientColumns = "id, client_id, client_name, redirect_uris, is_metadata_document, fetched_at, created_at";
+
     private const string RequestColumns =
         "id, client_id, client_name, redirect_uri, state, code_challenge, resource, scope, expires_at, user_id, code_hash, denied_at, consumed_at, created_at";
     private const string GrantColumns =
@@ -91,6 +92,7 @@ public sealed class OAuthRepository(V2DataSource dataSource) : IOAuthRepository
         SELECT id, redirect_uri FROM oauth_grants
         WHERE user_id = @userId AND client_name = @clientName AND revoked_at IS NULL
         """;
+
     private const string RevokeGrants = "UPDATE oauth_grants SET revoked_at = now() WHERE id = ANY(@ids)";
     private const string InsertGrant = """
         INSERT INTO oauth_grants (id, user_id, client_id, client_name, redirect_uri, resource, scope, access_token_hash, access_token_expires_at, refresh_token_hash, refresh_token_expires_at, created_at)

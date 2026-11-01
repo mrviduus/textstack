@@ -177,13 +177,6 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         Assert.Equal((1L, book.Id, "a note"), (result.Current!.Revision, result.Current.BookId, result.Current.NoteText));
     }
 
-    [Fact]
-    public async Task SaveAsync_AnnotationNamingAnotherUser_Throws()
-    {
-        var book = await db.NewReaderWithBookAsync();
-
-        await Assert.ThrowsAsync<ArgumentException>(() => _repo.SaveAsync(Guid.NewGuid(), Highlight(book), null, Ct));
-    }
 
     [Fact]
     public async Task ListForBookAsync_OwnBook_ReturnsLiveAnnotationsOldestFirst()
