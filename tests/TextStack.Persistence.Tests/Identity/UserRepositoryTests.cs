@@ -1,6 +1,8 @@
 using Application.Identity;
+using Dapper;
 using Domain.Identity;
 using Infrastructure.Persistence.Repositories;
+using Npgsql;
 using TextStack.Persistence.Tests.Ops;
 
 namespace TextStack.Persistence.Tests.Identity;
@@ -40,6 +42,10 @@ public class UserRepositoryTests(V2PostgresFixture db)
         foreach (var table in UserTables)
             Assert.True(await db.CountAsync(table, alice) > 0, $"the seed left {table} empty");
 
+        // DeleteAsync is one autocommit statement, and its commit is the deferred-constraint check
+        // ADR-031 rule 9 asks for: there is no transaction of the test's to end with SET CONSTRAINTS
+        // ALL IMMEDIATE without a tx parameter on the port (#1067). A deferred FK the cascade left
+        // dangling would fail here, at that commit.
         Assert.True(await _repo.DeleteAsync(alice, Ct));
 
         foreach (var table in UserTables)
@@ -50,6 +56,23 @@ public class UserRepositoryTests(V2PostgresFixture db)
         Assert.Null(await _repo.GetAsync(alice, Ct));
         // No FK by design: the trace keeps its cost history after the account is gone.
         Assert.Equal(1L, await db.CountAsync("llm_traces", alice));
+    }
+
+    [Fact]
+    public async Task DeleteFromUsers_ConstraintsImmediateBeforeTheDelete_IsRefusedByAProvenanceFk()
+    {
+        // ponytail: provenance FKs to books are NO ACTION; CASCADE in a later migration if a caller ever needs immediate constraints (#1089).
+        // Checked immediately, the books cascade's check on an example runs before the words
+        // cascade has removed that example; deferred to the commit, both cascades have run.
+        var alice = await db.NewReaderAsync();
+        await db.SeedEverythingAsync(alice);
+        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var tx = await conn.BeginTransactionAsync(Ct);
+
+        var error = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(new CommandDefinition(
+            "SET CONSTRAINTS ALL IMMEDIATE; DELETE FROM users WHERE id = @alice", new { alice }, tx, cancellationToken: Ct)));
+
+        Assert.Equal(("23503", "fk_vocabulary_examples_books_user_id_book_id"), (error.SqlState, error.ConstraintName));
     }
 
     [Fact]
