@@ -16,16 +16,20 @@ public sealed class BookChapterRepository(V2DataSource dataSource) : IBookChapte
     private const string Columns = $"{HeadingColumns}, user_id, book_id, file_id, html, plain_text, created_at";
     private const string ChapterByKey = "user_id = @userId AND file_id = @fileId AND chapter_key = @chapterKey";
 
+    // The full (user_id, book_id, file_id) prefix of ix_book_chapters_user_id_book_id_file_id_chapter_number,
+    // so the index gives the order and a neighbour is a LIMIT 1 probe.
+    private const string OfFile = "user_id = @userId AND book_id = @bookId AND file_id = @fileId";
+
     private const string SelectToc = $"""
         SELECT {HeadingColumns} FROM book_chapters
-        WHERE user_id = @userId AND file_id = @fileId
+        WHERE {OfFile}
         ORDER BY chapter_number
         """;
 
-    public async Task<IReadOnlyList<BookChapterHeading>> ListTocAsync(Guid userId, Guid fileId, CancellationToken ct)
+    public async Task<IReadOnlyList<BookChapterHeading>> ListTocAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return (await conn.QueryAsync<BookChapterHeading>(new CommandDefinition(SelectToc, new { userId, fileId }, cancellationToken: ct))).AsList();
+        return (await conn.QueryAsync<BookChapterHeading>(new CommandDefinition(SelectToc, new { userId, bookId, fileId }, cancellationToken: ct))).AsList();
     }
 
     private const string SelectChapter = $"SELECT {Columns} FROM book_chapters WHERE {ChapterByKey}";
@@ -36,26 +40,25 @@ public sealed class BookChapterRepository(V2DataSource dataSource) : IBookChapte
         return await conn.QuerySingleOrDefaultAsync<BookChapter>(new CommandDefinition(SelectChapter, new { userId, fileId, chapterKey }, cancellationToken: ct));
     }
 
-    // The nearest number on each side, not ±1: numbering may have gaps. The owner filter is on the
-    // rows returned; the subquery only finds the chapter's number in that file (file ids are unique).
-    private const string NumberOfKey = "SELECT chapter_number FROM book_chapters WHERE file_id = @fileId AND chapter_key = @chapterKey";
-
+    // The nearest number on each side, not ±1: numbering may have gaps. The subquery keeps user_id
+    // because it leads ak_book_chapters_user_id_file_id_chapter_key.
     private const string SelectNeighbours = $"""
         SELECT {HeadingColumns} FROM book_chapters
-        WHERE user_id = @userId AND file_id = @fileId AND chapter_number < ({NumberOfKey})
+        WHERE {OfFile} AND chapter_number < (SELECT chapter_number FROM book_chapters WHERE {ChapterByKey})
         ORDER BY chapter_number DESC
         LIMIT 1;
         SELECT {HeadingColumns} FROM book_chapters
-        WHERE user_id = @userId AND file_id = @fileId AND chapter_number > ({NumberOfKey})
+        WHERE {OfFile} AND chapter_number > (SELECT chapter_number FROM book_chapters WHERE {ChapterByKey})
         ORDER BY chapter_number
         LIMIT 1;
         """;
 
     public async Task<(BookChapterHeading? Previous, BookChapterHeading? Next)> GetNeighboursAsync(
-        Guid userId, Guid fileId, string chapterKey, CancellationToken ct)
+        Guid userId, Guid bookId, Guid fileId, string chapterKey, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var results = await conn.QueryMultipleAsync(new CommandDefinition(SelectNeighbours, new { userId, fileId, chapterKey }, cancellationToken: ct));
+        await using var results = await conn.QueryMultipleAsync(new CommandDefinition(
+            SelectNeighbours, new { userId, bookId, fileId, chapterKey }, cancellationToken: ct));
         var previous = await results.ReadSingleOrDefaultAsync<BookChapterHeading>();
         return (previous, await results.ReadSingleOrDefaultAsync<BookChapterHeading>());
     }

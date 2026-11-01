@@ -34,7 +34,7 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     {
         var book = await BookWithChaptersAsync();
 
-        var toc = await _repo.ListTocAsync(book.UserId, book.CurrentFile!.Id, Ct);
+        var toc = await _repo.ListTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct);
 
         Assert.Equal(["one", "two", "four"], toc.Select(c => c.ChapterKey));
         Assert.Equal("Title one", toc[0].Title);
@@ -47,7 +47,7 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
         await _repo.InsertForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id,
             [Chapter("ten", 10), Chapter("zero", 0), Chapter("hundred", 100), Chapter("two", 2)], Ct);
 
-        var toc = await _repo.ListTocAsync(book.UserId, book.CurrentFile!.Id, Ct);
+        var toc = await _repo.ListTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct);
 
         Assert.Equal(["zero", "two", "ten", "hundred"], toc.Select(c => c.ChapterKey));
     }
@@ -60,7 +60,7 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
         await Assert.ThrowsAsync<PostgresException>(() =>
             _repo.InsertForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("one", 1), Chapter("one", 2)], Ct));
 
-        Assert.Empty(await _repo.ListTocAsync(book.UserId, book.CurrentFile!.Id, Ct));
+        Assert.Empty(await _repo.ListTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct));
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     {
         var book = await BookWithChaptersAsync();
 
-        Assert.Empty(await _repo.ListTocAsync(await db.NewReaderAsync(), book.CurrentFile!.Id, Ct));
+        Assert.Empty(await _repo.ListTocAsync(await db.NewReaderAsync(), book.Id, book.CurrentFile!.Id, Ct));
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     {
         var book = await BookWithChaptersAsync();
 
-        var (previous, next) = await _repo.GetNeighboursAsync(book.UserId, book.CurrentFile!.Id, "four", Ct);
+        var (previous, next) = await _repo.GetNeighboursAsync(book.UserId, book.Id, book.CurrentFile!.Id, "four", Ct);
 
         Assert.Equal(("two", (string?)null), (previous?.ChapterKey, next?.ChapterKey));
     }
@@ -116,7 +116,7 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     {
         var book = await BookWithChaptersAsync();
 
-        var (previous, next) = await _repo.GetNeighboursAsync(book.UserId, book.CurrentFile!.Id, "one", Ct);
+        var (previous, next) = await _repo.GetNeighboursAsync(book.UserId, book.Id, book.CurrentFile!.Id, "one", Ct);
 
         Assert.Equal(((string?)null, "two"), (previous?.ChapterKey, next?.ChapterKey));
     }
@@ -126,7 +126,7 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     {
         var book = await BookWithChaptersAsync();
 
-        Assert.Equal((null, null), await _repo.GetNeighboursAsync(await db.NewReaderAsync(), book.CurrentFile!.Id, "two", Ct));
+        Assert.Equal((null, null), await _repo.GetNeighboursAsync(await db.NewReaderAsync(), book.Id, book.CurrentFile!.Id, "two", Ct));
     }
 
     [Fact]
