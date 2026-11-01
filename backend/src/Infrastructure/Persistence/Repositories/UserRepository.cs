@@ -25,15 +25,15 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
 
     private const string EmailTaken = "SELECT EXISTS (SELECT FROM users WHERE lower(email) = lower(@email))";
 
-    public async Task<UserAccount?> GetAsync(Guid userId, CancellationToken ct) => await QuerySingleAsync(SelectById, new { userId }, ct);
+    public async Task<UserAccount?> GetAsync(Guid userId, CancellationToken ct) => await dataSource.QuerySingleOrDefaultAsync<UserAccount>(SelectById, new { userId }, ct);
 
-    public async Task<UserAccount?> GetByEmailAsync(string email, CancellationToken ct) => await QuerySingleAsync(SelectByEmail, new { email }, ct);
+    public async Task<UserAccount?> GetByEmailAsync(string email, CancellationToken ct) => await dataSource.QuerySingleOrDefaultAsync<UserAccount>(SelectByEmail, new { email }, ct);
 
     public async Task<UserAccount?> GetByGoogleSubjectAsync(string googleSubject, CancellationToken ct) =>
-        await QuerySingleAsync(SelectByGoogleSubject, new { googleSubject }, ct);
+        await dataSource.QuerySingleOrDefaultAsync<UserAccount>(SelectByGoogleSubject, new { googleSubject }, ct);
 
     public async Task<UserAccount?> GetByAppleSubjectAsync(string appleSubject, CancellationToken ct) =>
-        await QuerySingleAsync(SelectByAppleSubject, new { appleSubject }, ct);
+        await dataSource.QuerySingleOrDefaultAsync<UserAccount>(SelectByAppleSubject, new { appleSubject }, ct);
 
     public async Task<bool> EmailExistsAsync(string email, CancellationToken ct)
     {
@@ -49,7 +49,7 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
         RETURNING {Columns}
         """;
 
-    public async Task<UserAccount?> CreateAsync(UserAccount account, CancellationToken ct) => await QuerySingleAsync(InsertAccount, account, ct);
+    public async Task<UserAccount?> CreateAsync(UserAccount account, CancellationToken ct) => await dataSource.QuerySingleOrDefaultAsync<UserAccount>(InsertAccount, account, ct);
 
     private const string UpdateProfile = $"""
         UPDATE users SET email = @email, name = @name, picture = @picture WHERE id = @userId
@@ -73,7 +73,7 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
     {
         try
         {
-            var account = await QuerySingleAsync(sql, args, ct);
+            var account = await dataSource.QuerySingleOrDefaultAsync<UserAccount>(sql, args, ct);
             return new(account is null ? AccountUpdateOutcome.NotFound : AccountUpdateOutcome.Updated, account);
         }
         // Another account holds the email: reachable (a provider changed it, a guest registers with
@@ -86,27 +86,18 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
 
     private const string ClearGuestFlag = "UPDATE users SET is_guest = false WHERE id = @userId AND is_guest";
 
-    public Task<bool> ClearGuestFlagAsync(Guid userId, CancellationToken ct) => ExecuteAsync(ClearGuestFlag, new { userId }, ct);
+    public async Task<bool> ClearGuestFlagAsync(Guid userId, CancellationToken ct) =>
+        await dataSource.ExecuteAsync(ClearGuestFlag, new { userId }, ct) > 0;
 
     private const string UpdateRole = "UPDATE users SET role = @role WHERE id = @userId";
 
-    public Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct) => ExecuteAsync(UpdateRole, new { userId, role }, ct);
+    public async Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct) =>
+        await dataSource.ExecuteAsync(UpdateRole, new { userId, role }, ct) > 0;
 
     // Every user-owned table cascades from users; the deferred provenance FKs are checked when this
     // statement's own transaction commits.
     private const string DeleteAccount = "DELETE FROM users WHERE id = @userId";
 
-    public Task<bool> DeleteAsync(Guid userId, CancellationToken ct) => ExecuteAsync(DeleteAccount, new { userId }, ct);
-
-    private async Task<UserAccount?> QuerySingleAsync(string sql, object args, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<UserAccount>(new CommandDefinition(sql, args, cancellationToken: ct));
-    }
-
-    private async Task<bool> ExecuteAsync(string sql, object args, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(sql, args, cancellationToken: ct)) > 0;
-    }
+    public async Task<bool> DeleteAsync(Guid userId, CancellationToken ct) =>
+        await dataSource.ExecuteAsync(DeleteAccount, new { userId }, ct) > 0;
 }

@@ -281,7 +281,7 @@ Pure deletions, one PR each, after the shim window: catalog/SEO/SSG backend + cr
 ## 6. Data access (Dapper) — module → repository map
 | Module | Repository ports (Application) | Notes |
 |---|---|---|
-| Identity | `IUserRepository`, `ISessionTokenRepository`, `IOAuthRepository`, `IMcpKeyRepository` | AuthService re-implemented over V2; guest merge rewritten per aggregate (§6.1) |
+| Identity | `IUserRepository`, `ISessionTokenRepository`, `IOAuthRepository`, `IDeviceLoginRepository`, `IMcpKeyRepository` | AuthService re-implemented over V2; guest merge rewritten per aggregate (§6.1). Device logins are their own port, split from `IOAuthRepository` to keep both under data-access.md rule 13's size limit |
 | Library | `ILibraryRepository` (books + files), `IFileStore` (volume) | import/replace/remove/restore |
 | Reading | `IReadingStateRepository`, `IReadingSessionRepository` | `AdvanceAsync(userId, bookId, state, expectedRevision)` |
 | Annotations | `IAnnotationRepository` | |

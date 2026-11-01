@@ -22,7 +22,7 @@ public sealed class EvalRunRepository(V2DataSource dataSource) : IEvalRunReposit
         await tx.CommitAsync(ct);
     }
 
-    // On ix_eval_runs_feature_created_at when a feature is given; the table is small otherwise.
+    // One statement for every filter: the generic plan cannot use the feature index, and the table is small.
     private const string SelectRecent = $"""
         SELECT {Columns} FROM eval_runs
         WHERE (@feature IS NULL OR feature = @feature) AND (@runType IS NULL OR run_type = @runType)
