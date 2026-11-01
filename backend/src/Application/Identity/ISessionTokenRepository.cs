@@ -17,18 +17,20 @@ public interface ISessionTokenRepository
     Task<SessionToken?> GetLiveAsync(string tokenHash, DateTimeOffset now, CancellationToken ct);
 
     /// <summary>
-    /// Spends the user's session <paramref name="oldTokenHash"/> and issues its successor, which records
-    /// the spent hash. Null when the old one is already gone: a concurrent rotation won, nothing changed.
+    /// Spends the user's live session <paramref name="oldTokenHash"/> and issues its successor, which
+    /// records the spent hash. Null when the old one is gone (a concurrent rotation or a password reset
+    /// won) or expired: nothing changed. Serialised with <see cref="ResetPasswordAsync"/> per user.
     /// </summary>
     Task<SessionToken?> RotateAsync(
         Guid userId, string oldTokenHash, string newTokenHash, DateTimeOffset expiresAt, CancellationToken ct);
 
     /// <summary>
     /// Reuse detection (RFC 9700 §4.14.2): <paramref name="tokenHash"/> was already rotated away, so
-    /// the sessions rotated from it, created before <paramref name="createdBefore"/> (the caller's grace
-    /// for a client retrying its own rotation), are revoked. Returns their user; null when none.
+    /// the sessions rotated from it more than <paramref name="grace"/> ago (by the database's clock,
+    /// which stamps them; the grace lets a client retry its own rotation) are revoked. Returns their
+    /// user; null when none.
     /// </summary>
-    Task<Guid?> RevokeSuccessorsOfAsync(string tokenHash, DateTimeOffset createdBefore, CancellationToken ct);
+    Task<Guid?> RevokeSuccessorsOfAsync(string tokenHash, TimeSpan grace, CancellationToken ct);
 
     /// <summary>Signs the session out. False when there is no such session.</summary>
     Task<bool> RevokeAsync(string tokenHash, CancellationToken ct);
@@ -38,7 +40,8 @@ public interface ISessionTokenRepository
 
     /// <summary>
     /// Spends an unused, unexpired reset code and, in the same statement, sets the user's password and
-    /// signs every credential out: sessions deleted, MCP keys and OAuth grants revoked. Returns the
+    /// signs every credential out: sessions deleted (one a rotation commits meanwhile too), MCP keys and
+    /// OAuth grants revoked (an earlier revocation keeps its time). Returns the
     /// user; null when the code is unknown, used or expired (nothing changed).
     /// </summary>
     Task<Guid?> ResetPasswordAsync(string tokenHash, string passwordHash, DateTimeOffset now, CancellationToken ct);

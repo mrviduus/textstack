@@ -1,3 +1,4 @@
+using Dapper;
 using Infrastructure.Persistence.Repositories;
 
 namespace TextStack.Persistence.Tests.Identity;
@@ -61,6 +62,41 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task RotateAsync_ExpiredSession_ReturnsNullAndIssuesNothing()
+    {
+        var user = await db.NewReaderAsync();
+        var old = NewHash();
+        await _repo.IssueAsync(user, old, Now.AddSeconds(-1), Ct);
+
+        Assert.Null(await _repo.RotateAsync(user, old, NewHash(), NextWeek, Ct));
+        Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user));
+    }
+
+    [Fact]
+    public async Task RotateAsync_WhileAResetHoldsTheUser_WaitsForItAndFindsTheSessionGone()
+    {
+        var user = await db.NewReaderAsync();
+        var old = NewHash();
+        await _repo.IssueAsync(user, old, NextWeek, Ct);
+        // A password reset in flight: the user's row locked, its sessions deleted, not yet committed.
+        await using var reset = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var tx = await reset.BeginTransactionAsync(Ct);
+        await reset.ExecuteAsync(new CommandDefinition("""
+            SELECT FROM users WHERE id = @user FOR NO KEY UPDATE;
+            DELETE FROM user_refresh_tokens WHERE user_id = @user;
+            """, new { user }, tx, cancellationToken: Ct));
+
+        var rotation = _repo.RotateAsync(user, old, NewHash(), NextWeek, Ct);
+        await db.WaitUntilBlockedByAsync(reset, rotation);
+        var waited = !rotation.IsCompleted;
+        await tx.CommitAsync(Ct);
+
+        Assert.True(waited);
+        Assert.Null(await rotation);
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
+    }
+
+    [Fact]
     public async Task RevokeSuccessorsOfAsync_ReusedRotatedToken_RevokesItsSuccessor()
     {
         var user = await db.NewReaderAsync();
@@ -69,7 +105,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         await _repo.RotateAsync(user, old, next, NextWeek, Ct);
 
         // The spent token comes back past the grace: two parties hold the chain.
-        Assert.Equal(user, await _repo.RevokeSuccessorsOfAsync(old, Now.AddMinutes(1), Ct));
+        Assert.Equal(user, await _repo.RevokeSuccessorsOfAsync(old, TimeSpan.Zero, Ct));
 
         Assert.Null(await _repo.GetLiveAsync(next, Now, Ct));
     }
@@ -82,7 +118,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         await _repo.IssueAsync(user, old, NextWeek, Ct);
         await _repo.RotateAsync(user, old, next, NextWeek, Ct);
 
-        Assert.Null(await _repo.RevokeSuccessorsOfAsync(old, Now.AddSeconds(-30), Ct));
+        Assert.Null(await _repo.RevokeSuccessorsOfAsync(old, TimeSpan.FromSeconds(30), Ct));
         Assert.NotNull(await _repo.GetLiveAsync(next, Now, Ct));
     }
 
@@ -117,6 +153,45 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
         Assert.Equal(0, await keys.CountLiveAsync(user, Ct));
         Assert.Empty(await oauth.ListLiveAsync(user, Now, Ct));
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_RotationCommitsWhileItWaits_SignsTheSuccessorOutToo()
+    {
+        var user = await db.NewReaderAsync();
+        var code = NewHash();
+        await _repo.CreatePasswordResetAsync(user, code, Now.AddHours(1), Ct);
+        // A rotation in flight: the user's row locked (as RotateAsync does), its successor inserted, not yet committed.
+        await using var rotator = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var tx = await rotator.BeginTransactionAsync(Ct);
+        await rotator.ExecuteAsync(new CommandDefinition("""
+            SELECT FROM users WHERE id = @user FOR NO KEY UPDATE;
+            INSERT INTO user_refresh_tokens (id, user_id, token_hash, expires_at, created_at)
+            VALUES (gen_random_uuid(), @user, @hash, now() + interval '7 days', now());
+            """, new { user, hash = NewHash() }, tx, cancellationToken: Ct));
+
+        var reset = _repo.ResetPasswordAsync(code, "new-hash", Now, Ct);
+        await db.WaitUntilBlockedByAsync(rotator, reset);
+        await tx.CommitAsync(Ct);
+
+        Assert.Equal(user, await reset);
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_KeyRevokedEarlier_KeepsItsFirstRevocationTime()
+    {
+        var user = await db.NewReaderAsync();
+        var keys = new McpKeyRepository(db.DataSource);
+        var key = await keys.CreateAsync(user, "laptop", NewHash(), "tsk_ab", Ct);
+        var first = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        await keys.RevokeAsync(user, key.Id, first, Ct);
+        var code = NewHash();
+        await _repo.CreatePasswordResetAsync(user, code, Now.AddHours(1), Ct);
+
+        await _repo.ResetPasswordAsync(code, "new-hash", Now, Ct);
+
+        Assert.Equal(first, Assert.Single(await keys.ListAsync(user, Ct)).RevokedAt);
     }
 
     [Fact]
@@ -178,12 +253,13 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
     public async Task DeleteExpiredSessionsAsync_Cutoff_DeletesOnlySessionsExpiredBeforeIt()
     {
         var user = await db.NewReaderAsync();
-        var (expired, live) = (NewHash(), NewHash());
         // Far back, so another test's sessions are never on the wrong side of this cutoff.
-        await _repo.IssueAsync(user, expired, new DateTimeOffset(2001, 1, 1, 0, 0, 0, TimeSpan.Zero), Ct);
-        await _repo.IssueAsync(user, live, new DateTimeOffset(2001, 1, 3, 0, 0, 0, TimeSpan.Zero), Ct);
+        var cutoff = new DateTimeOffset(2001, 1, 2, 0, 0, 0, TimeSpan.Zero);
+        await _repo.IssueAsync(user, NewHash(), cutoff.AddDays(-1), Ct);
+        // Expiring at the cutoff instant itself is not "before" it.
+        await _repo.IssueAsync(user, NewHash(), cutoff, Ct);
 
-        Assert.Equal(1, await _repo.DeleteExpiredSessionsAsync(new DateTimeOffset(2001, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct));
+        Assert.Equal(1, await _repo.DeleteExpiredSessionsAsync(cutoff, Ct));
 
         Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user));
     }

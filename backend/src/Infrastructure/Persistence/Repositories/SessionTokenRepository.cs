@@ -35,11 +35,17 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         return await conn.QuerySingleOrDefaultAsync<SessionToken>(new CommandDefinition(SelectLiveSession, new { tokenHash, now }, cancellationToken: ct));
     }
 
-    // Of two rotations of one token, the second waits on the first's delete and then finds no row:
-    // nothing to spend, so no successor.
+    // Rotation and password reset both take the user's row first, so a reset either runs before a
+    // rotation (which then finds its token gone) or after it (and sees the successor to delete):
+    // without it, a successor committed during a reset survived it. NO KEY UPDATE: rows that only
+    // reference the user (their FK checks take KEY SHARE) are not held up.
+    private const string LockUser = "SELECT FROM users WHERE id = @userId FOR NO KEY UPDATE";
+
+    // Of two rotations of one token, the second waits for the first and then finds no row: nothing
+    // to spend, so no successor. An expired token is not spent either.
     private const string RotateSession = $"""
         WITH spent AS (
-            DELETE FROM user_refresh_tokens WHERE user_id = @userId AND token_hash = @oldTokenHash
+            DELETE FROM user_refresh_tokens WHERE user_id = @userId AND token_hash = @oldTokenHash AND expires_at > now()
             RETURNING token_hash)
         INSERT INTO user_refresh_tokens (id, user_id, token_hash, expires_at, created_at, previous_token_hash)
         SELECT gen_random_uuid(), @userId, @newTokenHash, @expiresAt, now(), token_hash FROM spent
@@ -50,20 +56,25 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         Guid userId, string oldTokenHash, string newTokenHash, DateTimeOffset expiresAt, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<SessionToken>(new CommandDefinition(
-            RotateSession, new { userId, oldTokenHash, newTokenHash, expiresAt }, cancellationToken: ct));
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(LockUser, new { userId }, tx, cancellationToken: ct));
+        var successor = await conn.QuerySingleOrDefaultAsync<SessionToken>(new CommandDefinition(
+            RotateSession, new { userId, oldTokenHash, newTokenHash, expiresAt }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+        return successor;
     }
 
+    // created_at is stamped by now(), so the grace is measured on the same clock.
     // ponytail: remembers one generation back (previous_token_hash); an older spent token is refused but not treated as reuse.
     private const string RevokeSuccessors = """
-        DELETE FROM user_refresh_tokens WHERE previous_token_hash = @tokenHash AND created_at < @createdBefore
+        DELETE FROM user_refresh_tokens WHERE previous_token_hash = @tokenHash AND created_at < now() - @grace
         RETURNING user_id
         """;
 
-    public async Task<Guid?> RevokeSuccessorsOfAsync(string tokenHash, DateTimeOffset createdBefore, CancellationToken ct)
+    public async Task<Guid?> RevokeSuccessorsOfAsync(string tokenHash, TimeSpan grace, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return (await conn.QueryAsync<Guid?>(new CommandDefinition(RevokeSuccessors, new { tokenHash, createdBefore }, cancellationToken: ct)))
+        return (await conn.QueryAsync<Guid?>(new CommandDefinition(RevokeSuccessors, new { tokenHash, grace }, cancellationToken: ct)))
             .FirstOrDefault();
     }
 
@@ -87,8 +98,10 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         return await conn.QuerySingleAsync<PasswordReset>(new CommandDefinition(InsertPasswordReset, new { userId, tokenHash, expiresAt }, cancellationToken: ct));
     }
 
+    private const string SelectResetOwner = "SELECT user_id FROM password_reset_tokens WHERE token_hash = @tokenHash";
+
     // One statement, so a new password never coexists with the credentials it was meant to cut off.
-    // Of two redemptions of one code, the second waits on the first's update and then finds it used.
+    // Of two redemptions of one code, the second waits for the first and then finds it used.
     // Keys and grants are revoked, not deleted, as the reader's own revoke does.
     private const string RedeemPasswordReset = """
         WITH spent AS (
@@ -109,8 +122,16 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
     public async Task<Guid?> ResetPasswordAsync(string tokenHash, string passwordHash, DateTimeOffset now, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
-            RedeemPasswordReset, new { tokenHash, passwordHash, now }, cancellationToken: ct));
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var userId = await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(SelectResetOwner, new { tokenHash }, tx, cancellationToken: ct));
+        if (userId is null) return null;
+        // The lock first (as RotateAsync), then the redemption in a statement of its own, whose
+        // snapshot is taken after the wait and so sees any session committed meanwhile.
+        await conn.ExecuteAsync(new CommandDefinition(LockUser, new { userId }, tx, cancellationToken: ct));
+        var reset = await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
+            RedeemPasswordReset, new { tokenHash, passwordHash, now }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+        return reset;
     }
 
     private const string DeleteExpiredSessions = "DELETE FROM user_refresh_tokens WHERE expires_at < @expiredBefore";
