@@ -3,7 +3,7 @@ using Dapper;
 using Domain.Identity;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
-using TextStack.Persistence.Tests.Ops;
+using static TextStack.Persistence.Tests.V2PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Identity;
 
@@ -37,8 +37,8 @@ public class UserRepositoryTests(V2PostgresFixture db)
     {
         var alice = await db.NewReaderAsync();
         var bob = await db.NewReaderAsync();
-        await SeedAllAsync(alice);
-        await SeedAllAsync(bob);
+        await db.SeedEverythingAsync(alice);
+        await db.SeedEverythingAsync(bob);
         foreach (var table in UserTables)
             Assert.True(await db.CountAsync(table, alice) > 0, $"the seed left {table} empty");
 
@@ -65,7 +65,20 @@ public class UserRepositoryTests(V2PostgresFixture db)
         // Checked immediately, the books cascade's check on an example runs before the words
         // cascade has removed that example; deferred to the commit, both cascades have run.
         var alice = await db.NewReaderAsync();
-        await db.SeedEverythingAsync(alice);
+        var book = await db.NewBookAsync(alice);
+        var vocabulary = new VocabularyRepository(db.DataSource);
+        var card = (await vocabulary.SaveWordAsync(alice, new() { Id = Guid.NewGuid(), UserId = alice, Language = "en", Word = "quiver", WordKey = "quiver" }, Ct)).Word!;
+        await vocabulary.AddExampleAsync(alice, new()
+        {
+            Id = Guid.NewGuid(),
+            UserId = alice,
+            WordId = card.Id,
+            BookId = book.Id,
+            FileId = book.CurrentFile!.Id,
+            Sentence = "A quiver of arrows.",
+            OperationId = Guid.NewGuid(),
+            PayloadSha256 = NewHash(),
+        }, Ct);
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
         await using var tx = await conn.BeginTransactionAsync(Ct);
 
@@ -105,7 +118,6 @@ public class UserRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal(account.Id, (await _repo.GetByEmailAsync(account.Email.ToUpperInvariant(), Ct))?.Id);
     }
-
 
     [Fact]
     public async Task GetByGoogleSubjectAsync_KnownSubject_ReturnsTheAccount()
@@ -246,31 +258,5 @@ public class UserRepositoryTests(V2PostgresFixture db)
         await _repo.SetRoleAsync(alice.Id, UserAccount.AdminRole, Ct);
 
         Assert.Equal(UserAccount.ReaderRole, (await _repo.GetAsync(bob.Id, Ct))!.Role);
-    }
-
-    /// <summary>
-    /// The book side from the fixture's seed, plus one row in every identity and ops table that names
-    /// the user: a session, a reset code, an approved OAuth request, a grant, an approved device
-    /// login, a connect key, an agent run, and an LLM trace (the one that must survive).
-    /// </summary>
-    private async Task SeedAllAsync(Guid userId)
-    {
-        await db.SeedEverythingAsync(userId);
-        var hash = Guid.NewGuid().ToString();
-        var sessions = new SessionTokenRepository(db.DataSource);
-        await sessions.IssueAsync(userId, "s" + hash, DateTimeOffset.UtcNow.AddDays(1), Ct);
-        await sessions.CreatePasswordResetAsync(userId, "r" + hash, DateTimeOffset.UtcNow.AddHours(1), Ct);
-        var oauth = new OAuthRepository(db.DataSource);
-        var request = OAuthRepositoryTests.Request();
-        await oauth.CreateRequestAsync(request, Ct);
-        await oauth.ApproveRequestAsync(request.Id, userId, "c" + hash, DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, Ct);
-        await oauth.ConnectAsync(userId, OAuthRepositoryTests.Grant(), Ct);
-        var devices = new DeviceLoginRepository(db.DataSource);
-        var login = DeviceLoginRepositoryTests.Login();
-        await devices.CreateAsync(login, DateTimeOffset.UtcNow, Ct);
-        await devices.DecideAsync(login.UserCode, userId, DateTimeOffset.UtcNow, Ct);
-        await new McpKeyRepository(db.DataSource).CreateAsync(userId, "laptop", "k" + hash, "tsk_ab", Ct);
-        await new V2AgentRunWriter(db.DataSource).WriteAsync(OpsWritersTests.Run(userId), Ct);
-        await new V2LlmTraceWriter(db.DataSource).WriteAsync(OpsWritersTests.Trace(userId), Ct);
     }
 }

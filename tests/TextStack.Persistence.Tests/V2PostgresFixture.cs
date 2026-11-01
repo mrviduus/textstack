@@ -1,12 +1,15 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Application.Vocabulary;
 using Dapper;
 using Domain.Discussion;
+using Domain.Identity;
 using Domain.Library;
 using Infrastructure.Persistence;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
+using TextStack.Ai.Core;
 using Testcontainers.PostgreSql;
 
 [assembly: AssemblyFixture(typeof(TextStack.Persistence.Tests.V2PostgresFixture))]
@@ -69,8 +72,10 @@ public sealed class V2PostgresFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// One row of the user in every table a book or a card reaches (two reading sessions: one of the
-    /// book, one of a deleted book). Returns the book and its share.
+    /// One row of the user in every V2 table that can carry a user (two reading sessions: one of the
+    /// book, one of a deleted book): the library side, and the identity and ops rows that point only at
+    /// <c>users</c> (a session, a reset code, an approved OAuth request, a grant, an approved device
+    /// login, a connect key, an agent run, an LLM trace). Returns the book and its share.
     /// </summary>
     public async Task<(Book Book, SharedChapter Share)> SeedEverythingAsync(Guid userId)
     {
@@ -114,6 +119,22 @@ public sealed class V2PostgresFixture : IAsyncLifetime
             [new() { Id = Guid.NewGuid(), ChapterKey = "ch-1", ChapterNumber = 1, Title = "One", Html = "<p>x</p>", PlainText = "x" }], Ct);
         // Sessions have no repository yet (M2.2). The job is inserted finished, not enqueued: a queued
         // one would be claimable by the ingestion tests' ClaimNextAsync, which runs across users.
+        var now = DateTimeOffset.UtcNow;
+        var sessions = new SessionTokenRepository(DataSource);
+        await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), Ct);
+        await sessions.CreatePasswordResetAsync(userId, NewHash(), now.AddHours(1), Ct);
+        var oauth = new OAuthRepository(DataSource);
+        var request = NewOAuthRequest();
+        await oauth.CreateRequestAsync(request, Ct);
+        await oauth.ApproveRequestAsync(request.Id, userId, NewHash(), now.AddMinutes(5), now, Ct);
+        await oauth.ConnectAsync(userId, NewGrant(), Ct);
+        var devices = new DeviceLoginRepository(DataSource);
+        var login = NewDeviceLogin();
+        await devices.CreateAsync(login, now, Ct);
+        await devices.DecideAsync(login.UserCode, userId, now, Ct);
+        await new McpKeyRepository(DataSource).CreateAsync(userId, "laptop", NewHash(), "tsk_ab", Ct);
+        await new V2AgentRunWriter(DataSource).WriteAsync(NewRun(userId), Ct);
+        await new V2LlmTraceWriter(DataSource).WriteAsync(NewTrace(userId), Ct);
         await using var conn = await DataSource.OpenConnectionAsync(Ct);
         await conn.ExecuteAsync(new CommandDefinition("""
             INSERT INTO reading_sessions (id, user_id, book_id, client_session_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent, created_at)
@@ -187,6 +208,61 @@ public sealed class V2PostgresFixture : IAsyncLifetime
     /// compute it). A unique one: <c>PayloadSha256(Guid.NewGuid().ToString())</c>.
     /// </summary>
     public static string PayloadSha256(string payload) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+
+    /// <summary>A unique token hash.</summary>
+    public static string NewHash() => PayloadSha256(Guid.NewGuid().ToString());
+
+    /// <summary>A pending device login with a unique user code, open for ten minutes.</summary>
+    public static DeviceLogin NewDeviceLogin() => new()
+    {
+        Id = Guid.NewGuid(),
+        DeviceCodeHash = NewHash(),
+        UserCode = Guid.NewGuid().ToString("N")[..16],
+        ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10),
+        IntervalSeconds = 5,
+    };
+
+    /// <summary>The MCP resource the OAuth factories issue for.</summary>
+    public const string OAuthResource = "https://textstack.test/mcp";
+
+    /// <summary>A pending OAuth authorization from claude.ai, open for 30 minutes.</summary>
+    public static OAuthAuthorization NewOAuthRequest() => new()
+    {
+        Id = Guid.NewGuid(),
+        ClientId = "tsc_" + Guid.NewGuid(),
+        ClientName = "Claude",
+        RedirectUri = "https://claude.ai/api/mcp/auth_callback",
+        CodeChallenge = new string('a', 43),
+        Resource = OAuthResource,
+        Scope = "library",
+        ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30),
+    };
+
+    /// <summary>A fresh grant of the app "Claude" redirecting to <paramref name="redirectUri"/>; its access token lives an hour.</summary>
+    public static OAuthTokenGrant NewGrant(string redirectUri = "https://claude.ai/api/mcp/auth_callback") => new()
+    {
+        Id = Guid.NewGuid(),
+        ClientId = "tsc_" + Guid.NewGuid(),
+        ClientName = "Claude",
+        RedirectUri = redirectUri,
+        Resource = OAuthResource,
+        Scope = "library",
+        AccessTokenHash = NewHash(),
+        AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+        RefreshTokenHash = NewHash(),
+        RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(90),
+    };
+
+    /// <summary>A trace of one LLM call made for <paramref name="userId"/>.</summary>
+    public static LlmTrace NewTrace(Guid userId) => new(
+        Guid.NewGuid(), "explain", "gpt-test", "hash", "system", """[{"role":"user","content":"hi"}]""", "hello",
+        null, 10, 5, 0.000123m, 42, userId, null, null, DateTimeOffset.UtcNow);
+
+    /// <summary>A completed one-step agent run for <paramref name="userId"/>, on a catalog edition V2 does not keep.</summary>
+    public static AgentRunRecord NewRun(Guid userId) => new(
+        Guid.NewGuid(), "tutor", userId, Guid.NewGuid(), "explain chapter 1", "completed", "done",
+        [new AgentStep(0, "final", JsonSerializer.SerializeToElement(new { text = "done" }), DateTimeOffset.UtcNow)],
+        new AgentUsage(1, 10, 5, 0.0001m, 42), null, DateTimeOffset.UtcNow, 0.9, 2);
 
     /// <summary>A plain insight on the book (a review when <paramref name="reviewJson"/> is given).</summary>
     public static BookInsight NewInsight(Book book, string? chapterSlug, string text = "text", string? reviewJson = null) => new()

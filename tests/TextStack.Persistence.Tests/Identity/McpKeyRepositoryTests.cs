@@ -1,4 +1,5 @@
 using Infrastructure.Persistence.Repositories;
+using static TextStack.Persistence.Tests.V2PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Identity;
 
@@ -6,9 +7,6 @@ public class McpKeyRepositoryTests(V2PostgresFixture db)
 {
     private readonly McpKeyRepository _repo = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
-
-    private static DateTimeOffset Now => DateTimeOffset.UtcNow;
-    private static string NewHash() => V2PostgresFixture.PayloadSha256(Guid.NewGuid().ToString());
 
     [Fact]
     public async Task CreateAsync_Key_IsTheUsersAndLiveByItsHash()
