@@ -13,12 +13,12 @@ database/v2/
     0000_baseline.up.sql        the whole V2 schema; no down, no seed rows
     0001_sync_protocol_deltas   the sync PDD's and the owner's schema deltas (ADR-031 "Amended 2026-11-01")
   tests/invariants.sql          ADR-031's schema rules, checked against a migrated database
-  tests/roundtrip.sh            -> ../../tests/roundtrip.sh (its steps 1, 2, 4, 6 plus invariants)
+  tests/roundtrip.sh            -> ../../tests/roundtrip.sh (its steps 1, 2, 4, 5 plus invariants)
 ```
 
 The two symlinks keep one copy of each script: the EF Core bootstrap inside `migrate.sh` can only
 fire on a database EF Core built, which `textstack_v2` never is, and each round-trip step skips
-itself where the folder has no files for it (the legacy `0001`'s EF-ledger checks, the fixture step).
+itself where the folder has no files for it (the legacy `0001`'s EF-ledger checks).
 
 Commands, ledger, transactions, checksums, naming and "adding a migration" work exactly as in
 [database/README.md](../README.md), with `database/v2/` in place of `database/`. This file lists only

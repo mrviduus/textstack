@@ -44,8 +44,9 @@ BEGIN
     IF bad IS NOT NULL THEN RAISE EXCEPTION 'transitional tables without the sunset sentence: %', bad; END IF;
 END $$;
 
--- Rule 2: an FK to anything but users starts with user_id (ownership in the key); every table with
--- user_id has an FK, except llm_traces (a trace outlives its user).
+-- Rule 2: an FK to anything but users starts with user_id (ownership in the key) and follows an
+-- UPDATE of it (the guest→account merge reparents by UPDATE … SET user_id; migration 0001); every
+-- table with user_id has an FK, except llm_traces (a trace outlives its user).
 DO $$
 DECLARE bad text;
 BEGIN
@@ -54,23 +55,16 @@ BEGIN
       AND (SELECT attname FROM pg_attribute WHERE attrelid = conrelid AND attnum = conkey[1]) <> 'user_id';
     IF bad IS NOT NULL THEN RAISE EXCEPTION 'FKs not scoped by user_id: %', bad; END IF;
 
+    SELECT string_agg(conname, ', ') INTO bad FROM pg_constraint
+    WHERE contype = 'f' AND connamespace = 'public'::regnamespace AND confrelid <> 'public.users'::regclass
+      AND confupdtype <> 'c';
+    IF bad IS NOT NULL THEN RAISE EXCEPTION '(user_id, …) FKs without ON UPDATE CASCADE: %', bad; END IF;
+
     SELECT string_agg(c.relname, ', ') INTO bad FROM pg_class c
     JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'user_id' AND NOT a.attisdropped
     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND c.relname <> 'llm_traces'
       AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE contype = 'f' AND conrelid = c.oid);
     IF bad IS NOT NULL THEN RAISE EXCEPTION 'tables with user_id but no FK: %', bad; END IF;
-END $$;
-
--- The guest→account merge reparents by UPDATE … SET user_id (owner decision 12, migration 0001):
--- every composite (user_id, …) FK must follow that update.
-DO $$
-DECLARE bad text;
-BEGIN
-    SELECT string_agg(conname, ', ') INTO bad FROM pg_constraint
-    WHERE contype = 'f' AND connamespace = 'public'::regnamespace AND array_length(conkey, 1) > 1
-      AND (SELECT attname FROM pg_attribute WHERE attrelid = conrelid AND attnum = conkey[1]) = 'user_id'
-      AND confupdtype <> 'c';
-    IF bad IS NOT NULL THEN RAISE EXCEPTION '(user_id, …) FKs without ON UPDATE CASCADE: %', bad; END IF;
 END $$;
 
 -- Rule 9: account delete cascades. An FK that neither cascades/sets null nor is deferred would make

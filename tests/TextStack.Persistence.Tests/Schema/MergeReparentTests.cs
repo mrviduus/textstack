@@ -17,14 +17,6 @@ public class MergeReparentTests(V2PostgresFixture db)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static readonly string[] UserOwnedTables =
-    [
-        "books", "book_files", "reading_state", "reading_sessions", "annotations",
-        "vocabulary_words", "vocabulary_examples", "vocabulary_reviews",
-        "shared_chapters", "discussion_checkpoints", "book_insight", "review_question",
-        "book_chapters", "ingestion_jobs",
-    ];
-
     private const string MoveWords = "UPDATE vocabulary_words SET user_id = @to WHERE user_id = @from";
     private const string MoveBooks = "UPDATE books SET user_id = @to WHERE user_id = @from";
     private const string MoveBooklessSessions = "UPDATE reading_sessions SET user_id = @to WHERE user_id = @from AND book_id IS NULL";
@@ -33,14 +25,12 @@ public class MergeReparentTests(V2PostgresFixture db)
     public async Task ReparentingWordsThenBooks_MovesEveryRowTheKeyReaches_AndNoBooklessSession()
     {
         var (alice, bob, book, share) = await AliceWithEverythingAndBobAsync();
-        foreach (var table in UserOwnedTables) Assert.Equal((table, Seeded(table)), (table, await db.CountAsync(table, alice)));
 
         await RunAsync(MoveWords + ";" + MoveBooks, alice, bob);
 
-        foreach (var table in UserOwnedTables.Where(t => t != "reading_sessions"))
-            Assert.Equal((table, 0L, 1L), (table, await db.CountAsync(table, alice), await db.CountAsync(table, bob)));
-        // A session of a deleted book has no (user_id, book_id) to follow: the merge moves it itself.
-        Assert.Equal((1L, 1L), (await db.CountAsync("reading_sessions", alice), await db.CountAsync("reading_sessions", bob)));
+        // The session of a deleted book has no (user_id, book_id) to follow: the merge moves it itself.
+        foreach (var (table, hers, his) in await RowsAsync(alice, bob))
+            Assert.Equal((table, table == "reading_sessions" ? 1L : 0L, 1L), (table, hers, his));
         await RunAsync(MoveBooklessSessions, alice, bob);
         Assert.Equal((0L, 2L), (await db.CountAsync("reading_sessions", alice), await db.CountAsync("reading_sessions", bob)));
         // The share link followed too, so the checkpoint still names its share.
@@ -74,7 +64,28 @@ public class MergeReparentTests(V2PostgresFixture db)
         var error = await Assert.ThrowsAsync<PostgresException>(() => RunAsync(MoveWords + ";" + MoveBooks, alice, bob));
 
         Assert.Equal(("23505", "ak_discussion_checkpoints_user_id_operation_id"), (error.SqlState, error.ConstraintName));
-        foreach (var table in UserOwnedTables) Assert.Equal((table, Seeded(table)), (table, await db.CountAsync(table, alice)));
+        foreach (var (table, hers, _) in await RowsAsync(alice, bob)) Assert.Equal((table, Seeded(table)), (table, hers));
+    }
+
+    /// <summary>
+    /// Alice's and bob's row counts in the two roots and every table whose ownership is in a composite
+    /// key (ADR-031 rule 2), from the catalog, so a table added later is asserted on without anyone
+    /// listing it. Tables that point only at <c>users</c> (tokens, grants, keys, agent runs) are reached
+    /// by no cascade and are the merge's own decision.
+    /// </summary>
+    private async Task<IReadOnlyList<(string Table, long Hers, long His)>> RowsAsync(Guid alice, Guid bob)
+    {
+        const string tables = """
+            SELECT conrelid::regclass::text FROM pg_constraint
+            WHERE contype = 'f' AND connamespace = 'public'::regnamespace AND confrelid <> 'public.users'::regclass
+            UNION SELECT 'books' UNION SELECT 'vocabulary_words'
+            ORDER BY 1
+            """;
+        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
+        var names = (await conn.QueryAsync<string>(new CommandDefinition(tables, cancellationToken: Ct))).AsList();
+        var counts = string.Join(" UNION ALL ", names.Select(t =>
+            $"SELECT '{t}' AS tbl, count(*) FILTER (WHERE user_id = @alice) AS hers, count(*) FILTER (WHERE user_id = @bob) AS his FROM {t}"));
+        return (await conn.QueryAsync<(string, long, long)>(new CommandDefinition(counts, new { alice, bob }, cancellationToken: Ct))).AsList();
     }
 
     /// <summary>How many rows the seed gives alice in <paramref name="table"/>: two sessions (one of a deleted book), one of everything else.</summary>

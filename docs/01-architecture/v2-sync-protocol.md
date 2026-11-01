@@ -710,29 +710,9 @@ metadata import is M2.2's, only the bytes are M2.6's. #1067 (explicit V2 transac
 
 ### In M1.2 code (lands with M2.2)
 
-- **1.** **Done 2026-11-01** (`0001_sync_protocol_deltas`, #1086): the schema below, `ResetAsync` +
-   `ReadingState.ResetRevision`, `VocabularyWord.RetiredAt` read, the share delete as one statement. The
-   CHECK landed as `reset_revision BETWEEN 1 AND revision`. `books.revision` and
-   `book_files.content_removed_at` are columns only until M2.2/M2.6 write them; the merge order the
-   cascade imposes is in ADR-031 "Amended 2026-11-01". Migration `database/v2/migrations/0001` (+ down): `reading_state.reset_revision bigint NULL`, CHECK
-   `reset_revision <= revision`; and every composite `(user_id, …)` FK re-created with
-   `ON UPDATE CASCADE` (merge). `ResetAsync` sets `reset_revision`; `ReadingState.ResetRevision`.
-   Also an index `annotations (user_id, book_id, created_at, id) WHERE deleted_at IS NULL` for
-   `ListForBookAsync`'s order: today's `(user_id, book_id)` covers neither the order nor the tombstone
-   filter.
-   Owner decisions of 2026-10-30 add: `vocabulary_words.retired_at timestamptz NULL` (decision 1; the
-   due index gains `AND retired_at IS NULL`); `books.revision bigint NOT NULL DEFAULT 1` with
-   `ck_books_revision` (decision 5; `UpdateMetadataAsync` guards on it); `book_files.content_removed_at
-   timestamptz NULL` (decision 6: "stop syncing this file" — bytes deleted, the row says so, clients do
-   not re-upload on their own).
-   The same migration also takes three Discussion fixes found in M1.4:
-   - `fk_discussion_checkpoints_shared_chapters_shared_chapter_id` gains
-     `ON DELETE SET NULL (shared_chapter_id)`; `SharedChapterRepository.DeleteAsync` is then one
-     `DELETE`, without the unlink and its two locks.
-   - `ix_review_question_book_insight_id_prompt_hash` is re-keyed `(user_id, book_insight_id,
-     prompt_hash)`, so ownership is in the key (ADR-031 rule 2).
-   - `book_insight` gains `CHECK (review_json IS NULL OR chapter_slug IS NOT NULL)`: a review is
-     always of one chapter (ADR-016), which today only the repository enforces.
+- **1.** **Done 2026-11-01** — migration `0001_sync_protocol_deltas` (#1086); what landed, item by item,
+   is ADR-031 "Amended 2026-11-01". `books.revision` and `book_files.content_removed_at` are columns
+   only until M2.2/M2.6 write them.
 - **2.** `ImportAsync` replay-safe (#1065, **scope widened**): the book is the user's and the import's
    `file.id` is any version of it → return the stored book; anything else under that id →
    `id_conflict`. The sha256 check and the insert run under

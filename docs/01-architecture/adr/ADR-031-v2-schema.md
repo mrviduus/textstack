@@ -303,8 +303,11 @@ is never edited (ADR-026); the rows and rules above read with these deltas:
   (23505 on `(user_id, operation_id)` of checkpoints, shares, examples, reviews, on
   `(user_id, client_session_id)` of sessions, on `(user_id, language, word_key)` of words — a device
   replaying its outbox after sign-in reuses its `operation_id`s, decision 13), so the merge checks
-  collisions and ownership before it moves anything (owner decision 12). `tests/invariants.sql` pins
-  the cascade on every `(user_id, …)` FK.
+  collisions and ownership before it moves anything (owner decision 12); and the tables that point
+  only at `users` (refresh tokens, reset tokens, OAuth requests and grants, device authorizations,
+  MCP keys, `agent_run`) are reached by no cascade — the merge decides each (a guest's session
+  tokens are the signing-in device's, its agent runs move). `tests/invariants.sql` pins the cascade
+  on every `(user_id, …)` FK.
 - **`discussion_checkpoints`:** the share FK is `ON DELETE SET NULL (shared_chapter_id)`; a share
   delete is one statement (M1.4's unlink and its two locks are gone). The baseline's comment above
   that FK ("Deleting a share first clears shared_chapter_id here") now describes the FK's own action.

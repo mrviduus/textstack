@@ -57,9 +57,7 @@ public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedCh
 
     public async Task<bool> DeleteAsync(Guid userId, Guid id, CancellationToken ct)
     {
-        // Its checkpoints keep their text and lose only the link: the share FK is ON DELETE SET NULL
-        // (shared_chapter_id). An append in flight holds the share FOR KEY SHARE, so this waits for
-        // it and the cascade sees that checkpoint too.
+        // The share FK's ON DELETE SET NULL (shared_chapter_id) unlinks its checkpoints; see migration 0001.
         const string sql = "DELETE FROM shared_chapters WHERE user_id = @userId AND id = @id";
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         return await conn.ExecuteAsync(new CommandDefinition(sql, new { userId, id }, cancellationToken: ct)) > 0;
