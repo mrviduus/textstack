@@ -6,16 +6,18 @@ using Npgsql;
 
 namespace TextStack.Persistence.Tests.Transitional;
 
-// The claim is cross-user, so the claim tests first drain the queue of every earlier test's jobs, and
-// count stuck jobs only at times no other test uses. No other class leaves a job queued (the seed's is finished).
+// The claim, the sweep and the count are cross-user: the claim tests first drain every earlier
+// test's eligible jobs, and the count is compared before and after. No other class leaves a job
+// queued or processing (the seed's is finished).
 public class IngestionJobRepositoryTests(V2PostgresFixture db)
 {
     private readonly IngestionJobRepository _repo = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private const int MaxAttempts = 3;
-    // Before every job's start, so a claim takes queued jobs only.
-    private static readonly DateTimeOffset NothingStuck = new(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    private static readonly TimeSpan Stuck = TimeSpan.FromHours(1);
+    // Longer than any job here has been running, so a claim takes queued jobs only.
+    private static readonly TimeSpan NothingStuck = TimeSpan.FromDays(365 * 100);
 
     private async Task<(Book Book, FileIngestionJob Job)> QueuedAsync()
     {
@@ -23,18 +25,27 @@ public class IngestionJobRepositoryTests(V2PostgresFixture db)
         return (book, await _repo.EnqueueAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct));
     }
 
-    private async Task DrainQueueAsync()
+    private async Task DrainAsync(TimeSpan stuckAfter)
     {
-        while (await _repo.ClaimNextAsync(MaxAttempts, NothingStuck, Ct) is not null) { }
+        while (await _repo.ClaimNextAsync(MaxAttempts, stuckAfter, Ct) is not null) { }
     }
 
-    /// <summary>Puts the job in the state a worker that died at <paramref name="startedAt"/> left it.</summary>
-    private async Task StartedAtAsync(FileIngestionJob job, DateTimeOffset startedAt, int attempts)
+    /// <summary>Puts the job in <paramref name="status"/>, as a run started <paramref name="ago"/> by the database's clock left it.</summary>
+    private async Task SetAsync(FileIngestionJob job, TimeSpan ago, int attempts, string status = FileIngestionJob.Processing,
+        string? error = null, string? sourceFormat = null)
     {
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
-        await conn.ExecuteAsync(new CommandDefinition(
-            "UPDATE ingestion_jobs SET status = 'processing', started_at = @startedAt, attempt_count = @attempts WHERE id = @Id",
-            new { job.Id, startedAt, attempts }, cancellationToken: Ct));
+        await conn.ExecuteAsync(new CommandDefinition("""
+            UPDATE ingestion_jobs SET status = @status, started_at = now() - @ago, attempt_count = @attempts, error = @error, source_format = @sourceFormat
+            WHERE id = @Id
+            """, new { job.Id, status, ago, attempts, error, sourceFormat }, cancellationToken: Ct));
+    }
+
+    private async Task<FileIngestionJob> ReadAsync(FileIngestionJob job)
+    {
+        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
+        return await conn.QuerySingleAsync<FileIngestionJob>(new CommandDefinition(
+            "SELECT id, status, attempt_count, error, source_format, started_at, finished_at FROM ingestion_jobs WHERE id = @Id", job, cancellationToken: Ct));
     }
 
     [Fact]
@@ -59,26 +70,41 @@ public class IngestionJobRepositoryTests(V2PostgresFixture db)
     [Fact]
     public async Task CancelActiveAsync_QueuedJob_FailsItAsCancelled()
     {
-        var (book, _) = await QueuedAsync();
+        var (book, job) = await QueuedAsync();
 
         Assert.True(await _repo.CancelActiveAsync(book.UserId, book.Id, Ct));
 
+        var read = await ReadAsync(job);
+        Assert.Equal((FileIngestionJob.Failed, "Cancelled by user"), (read.Status, read.Error));
         Assert.False(await _repo.CancelActiveAsync(book.UserId, book.Id, Ct));
+    }
+
+    [Fact]
+    public async Task CancelActiveAsync_ProcessingJob_FailsItToo()
+    {
+        // As legacy UserBookService.CancelAsync: queued or processing.
+        var (book, job) = await QueuedAsync();
+        await SetAsync(job, TimeSpan.Zero, attempts: 1);
+
+        Assert.True(await _repo.CancelActiveAsync(book.UserId, book.Id, Ct));
+
+        Assert.Equal(FileIngestionJob.Failed, (await ReadAsync(job)).Status);
     }
 
     [Fact]
     public async Task CancelActiveAsync_Bob_LeavesAlicesJobQueued()
     {
-        var (alices, _) = await QueuedAsync();
+        var (alices, job) = await QueuedAsync();
 
         Assert.False(await _repo.CancelActiveAsync(await db.NewReaderAsync(), alices.Id, Ct));
-        Assert.True(await _repo.CancelActiveAsync(alices.UserId, alices.Id, Ct));
+
+        Assert.Equal(FileIngestionJob.Queued, (await ReadAsync(job)).Status);
     }
 
     [Fact]
     public async Task ClaimNextAsync_QueuedJob_StartsItWithOneAttempt()
     {
-        await DrainQueueAsync();
+        await DrainAsync(NothingStuck);
         var (_, job) = await QueuedAsync();
 
         var claimed = (await _repo.ClaimNextAsync(MaxAttempts, NothingStuck, Ct))!;
@@ -88,9 +114,19 @@ public class IngestionJobRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ClaimNextAsync_TwoQueuedJobs_TakesTheOldestFirst()
+    {
+        await DrainAsync(NothingStuck);
+        var (_, older) = await QueuedAsync();
+        await QueuedAsync();
+
+        Assert.Equal(older.Id, (await _repo.ClaimNextAsync(MaxAttempts, NothingStuck, Ct))?.Id);
+    }
+
+    [Fact]
     public async Task ClaimNextAsync_TwoClaimersOneJob_ExactlyOneGetsIt()
     {
-        await DrainQueueAsync();
+        await DrainAsync(NothingStuck);
         var (_, job) = await QueuedAsync();
 
         var claims = await Task.WhenAll(
@@ -102,7 +138,7 @@ public class IngestionJobRepositoryTests(V2PostgresFixture db)
     [Fact]
     public async Task ClaimNextAsync_JobLockedByAnotherClaimer_SkipsItWithoutWaiting()
     {
-        await DrainQueueAsync();
+        await DrainAsync(NothingStuck);
         var (_, job) = await QueuedAsync();
         await using var holder = await db.DataSource.OpenConnectionAsync(Ct);
         await using var tx = await holder.BeginTransactionAsync(Ct);
@@ -118,32 +154,42 @@ public class IngestionJobRepositoryTests(V2PostgresFixture db)
     [Fact]
     public async Task ClaimNextAsync_StuckJob_IsReclaimedWithAnotherAttempt()
     {
-        await DrainQueueAsync();
+        await DrainAsync(Stuck);
         var (_, job) = await QueuedAsync();
-        await StartedAtAsync(job, new DateTimeOffset(2006, 1, 1, 0, 0, 0, TimeSpan.Zero), attempts: 1);
+        await SetAsync(job, Stuck * 2, attempts: 1);
 
-        var claimed = (await _repo.ClaimNextAsync(MaxAttempts, new DateTimeOffset(2006, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct))!;
+        var claimed = (await _repo.ClaimNextAsync(MaxAttempts, Stuck, Ct))!;
 
         Assert.Equal((job.Id, 2), (claimed.Id, claimed.AttemptCount));
     }
 
     [Fact]
+    public async Task ClaimNextAsync_ProcessingJobStartedJustNow_IsNotReclaimed()
+    {
+        await DrainAsync(Stuck);
+        var (_, job) = await QueuedAsync();
+        await SetAsync(job, TimeSpan.Zero, attempts: 1);
+
+        Assert.Null(await _repo.ClaimNextAsync(MaxAttempts, Stuck, Ct));
+    }
+
+    [Fact]
     public async Task ClaimNextAsync_ExhaustedJob_IsLeftForFailExhausted()
     {
-        await DrainQueueAsync();
+        await DrainAsync(Stuck);
         var (_, job) = await QueuedAsync();
-        await StartedAtAsync(job, new DateTimeOffset(2007, 1, 1, 0, 0, 0, TimeSpan.Zero), attempts: MaxAttempts);
+        await SetAsync(job, Stuck * 2, attempts: MaxAttempts);
 
-        Assert.Null(await _repo.ClaimNextAsync(MaxAttempts, new DateTimeOffset(2007, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct));
+        Assert.Null(await _repo.ClaimNextAsync(MaxAttempts, Stuck, Ct));
     }
 
     [Fact]
     public async Task FailExhaustedAsync_ExhaustedStuckJob_FailsItWithTheError()
     {
         var (_, job) = await QueuedAsync();
-        await StartedAtAsync(job, new DateTimeOffset(2008, 1, 1, 0, 0, 0, TimeSpan.Zero), attempts: MaxAttempts);
+        await SetAsync(job, Stuck * 2, attempts: MaxAttempts);
 
-        var failed = await _repo.FailExhaustedAsync(MaxAttempts, new DateTimeOffset(2008, 1, 2, 0, 0, 0, TimeSpan.Zero), "too many attempts", Ct);
+        var failed = await _repo.FailExhaustedAsync(MaxAttempts, Stuck, "too many attempts", Ct);
 
         var row = Assert.Single(failed, j => j.Id == job.Id);
         Assert.Equal((FileIngestionJob.Failed, "too many attempts"), (row.Status, row.Error));
@@ -151,62 +197,105 @@ public class IngestionJobRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task SucceedAsync_ClaimedJob_FinishesItWithTheFormat()
+    public async Task SucceedAsync_ClaimingRun_FinishesItWithTheFormatAndNoError()
     {
-        var (book, job) = await QueuedAsync();
+        var (_, job) = await QueuedAsync();
+        await SetAsync(job, TimeSpan.Zero, attempts: 1, error: "an earlier attempt's");
 
-        Assert.True(await _repo.SucceedAsync(job.Id, "epub", Ct));
+        Assert.True(await _repo.SucceedAsync(job.Id, 1, "epub", Ct));
 
-        Assert.Equal(1L, await CountAsync(book, "status = 'succeeded' AND source_format = 'epub' AND finished_at IS NOT NULL"));
+        var read = await ReadAsync(job);
+        Assert.Equal((FileIngestionJob.Succeeded, "epub", (string?)null), (read.Status, read.SourceFormat, read.Error));
+        Assert.NotNull(read.FinishedAt);
     }
 
     [Fact]
-    public async Task FailAsync_ClaimedJob_FinishesItWithTheError()
+    public async Task SucceedAsync_CancelledSinceTheClaim_ReturnsFalseAndStaysFailed()
     {
         var (book, job) = await QueuedAsync();
+        await SetAsync(job, TimeSpan.Zero, attempts: 1);
+        await _repo.CancelActiveAsync(book.UserId, book.Id, Ct);
 
-        Assert.True(await _repo.FailAsync(job.Id, "corrupt", "pdf", Ct));
+        Assert.False(await _repo.SucceedAsync(job.Id, 1, "epub", Ct));
 
-        Assert.Equal(1L, await CountAsync(book, "status = 'failed' AND error = 'corrupt' AND source_format = 'pdf'"));
+        var read = await ReadAsync(job);
+        Assert.Equal((FileIngestionJob.Failed, "Cancelled by user"), (read.Status, read.Error));
+    }
+
+    [Fact]
+    public async Task FailAsync_ReclaimedByAnotherRun_ReturnsFalseAndLeavesItProcessing()
+    {
+        var (_, job) = await QueuedAsync();
+        await SetAsync(job, TimeSpan.Zero, attempts: 2);
+
+        Assert.False(await _repo.FailAsync(job.Id, 1, "corrupt", null, Ct));
+
+        Assert.Equal(FileIngestionJob.Processing, (await ReadAsync(job)).Status);
+    }
+
+    [Fact]
+    public async Task FailAsync_NoFormatGiven_KeepsTheRecordedOne()
+    {
+        var (_, job) = await QueuedAsync();
+        await SetAsync(job, TimeSpan.Zero, attempts: 1, sourceFormat: "pdf");
+
+        Assert.True(await _repo.FailAsync(job.Id, 1, "corrupt", null, Ct));
+
+        var read = await ReadAsync(job);
+        Assert.Equal((FileIngestionJob.Failed, "corrupt", "pdf"), (read.Status, read.Error, read.SourceFormat));
     }
 
     [Fact]
     public async Task ReturnToQueueAsync_ClaimingRun_RequeuesItAndUncountsTheAttempt()
     {
-        var (book, job) = await QueuedAsync();
-        await StartedAtAsync(job, DateTimeOffset.UtcNow, attempts: 2);
+        var (_, job) = await QueuedAsync();
+        await SetAsync(job, TimeSpan.Zero, attempts: 2);
 
         Assert.True(await _repo.ReturnToQueueAsync(job.Id, 2, Ct));
 
-        Assert.Equal(1L, await CountAsync(book, "status = 'queued' AND attempt_count = 1 AND started_at IS NULL"));
+        var read = await ReadAsync(job);
+        Assert.Equal((FileIngestionJob.Queued, 1, (DateTimeOffset?)null), (read.Status, read.AttemptCount, read.StartedAt));
     }
 
     [Fact]
     public async Task ReturnToQueueAsync_ReclaimedSince_ReturnsFalse()
     {
         var (_, job) = await QueuedAsync();
-        await StartedAtAsync(job, DateTimeOffset.UtcNow, attempts: 2);
+        await SetAsync(job, TimeSpan.Zero, attempts: 2);
 
         Assert.False(await _repo.ReturnToQueueAsync(job.Id, 1, Ct));
     }
 
     [Fact]
-    public async Task CountStuckAsync_ProcessingSinceBeforeTheCutoff_CountsIt()
+    public async Task ReturnToQueueAsync_CancelledSince_ReturnsFalseAndStaysFailed()
     {
-        var cutoff = new DateTimeOffset(2009, 1, 2, 0, 0, 0, TimeSpan.Zero);
-        // Other tests of this class leave older stuck jobs behind: the count is relative.
-        var before = await _repo.CountStuckAsync(cutoff, Ct);
         var (_, job) = await QueuedAsync();
+        await SetAsync(job, TimeSpan.Zero, attempts: 1, status: FileIngestionJob.Failed);
 
-        await StartedAtAsync(job, cutoff.AddDays(-1), attempts: 1);
+        Assert.False(await _repo.ReturnToQueueAsync(job.Id, 1, Ct));
 
-        Assert.Equal(before + 1, await _repo.CountStuckAsync(cutoff, Ct));
+        Assert.Equal(FileIngestionJob.Failed, (await ReadAsync(job)).Status);
     }
 
-    private async Task<long> CountAsync(Book book, string condition)
+    [Fact]
+    public async Task CountStuckAsync_ProcessingLongerThanTheWindow_CountsIt()
     {
-        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
-        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(
-            $"SELECT count(*) FROM ingestion_jobs WHERE user_id = @UserId AND book_id = @Id AND {condition}", book, cancellationToken: Ct));
+        var before = await _repo.CountStuckAsync(Stuck, Ct);
+        var (_, job) = await QueuedAsync();
+
+        await SetAsync(job, Stuck * 2, attempts: 1);
+
+        Assert.Equal(before + 1, await _repo.CountStuckAsync(Stuck, Ct));
+    }
+
+    [Fact]
+    public async Task CountStuckAsync_FinishedJobStartedLongAgo_IsNotCounted()
+    {
+        var before = await _repo.CountStuckAsync(Stuck, Ct);
+        var (_, job) = await QueuedAsync();
+
+        await SetAsync(job, Stuck * 2, attempts: 1, status: FileIngestionJob.Failed);
+
+        Assert.Equal(before, await _repo.CountStuckAsync(Stuck, Ct));
     }
 }

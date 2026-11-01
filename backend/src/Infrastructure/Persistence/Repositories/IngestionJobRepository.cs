@@ -13,7 +13,8 @@ public sealed class IngestionJobRepository(V2DataSource dataSource) : IIngestion
 {
     private const string Columns = "id, user_id, book_id, file_id, status, attempt_count, error, source_format, created_at, started_at, finished_at";
 
-    private const string Eligible = "(status = 'queued' OR (status = 'processing' AND started_at < @stuckBefore))";
+    // started_at is stamped by the database, so "stuck" is measured on the database's clock too.
+    private const string Eligible = "(status = 'queued' OR (status = 'processing' AND started_at < now() - @stuckAfter))";
 
     private const string InsertJob = $"""
         INSERT INTO ingestion_jobs (id, user_id, book_id, file_id, status, attempt_count, created_at)
@@ -50,38 +51,41 @@ public sealed class IngestionJobRepository(V2DataSource dataSource) : IIngestion
         RETURNING {Columns}
         """;
 
-    public async Task<FileIngestionJob?> ClaimNextAsync(int maxAttempts, DateTimeOffset stuckBefore, CancellationToken ct)
+    public async Task<FileIngestionJob?> ClaimNextAsync(int maxAttempts, TimeSpan stuckAfter, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<FileIngestionJob>(new CommandDefinition(ClaimNext, new { maxAttempts, stuckBefore }, cancellationToken: ct));
+        return await conn.QuerySingleOrDefaultAsync<FileIngestionJob>(new CommandDefinition(ClaimNext, new { maxAttempts, stuckAfter }, cancellationToken: ct));
     }
 
-    private const string Succeed = """
+    // The finish, like the give-back, touches only the row as this run claimed it: a job cancelled,
+    // or reclaimed as stuck by another run, since then is no longer this run's to finish.
+    private const string ClaimedByThisRun = "id = @jobId AND status = 'processing' AND attempt_count = @claimedAttempt";
+
+    private const string Succeed = $"""
         UPDATE ingestion_jobs SET status = 'succeeded', error = NULL, source_format = @sourceFormat, finished_at = now()
-        WHERE id = @jobId
+        WHERE {ClaimedByThisRun}
         """;
 
-    public async Task<bool> SucceedAsync(Guid jobId, string? sourceFormat, CancellationToken ct)
+    public async Task<bool> SucceedAsync(Guid jobId, int claimedAttempt, string? sourceFormat, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(Succeed, new { jobId, sourceFormat }, cancellationToken: ct)) > 0;
+        return await conn.ExecuteAsync(new CommandDefinition(Succeed, new { jobId, claimedAttempt, sourceFormat }, cancellationToken: ct)) > 0;
     }
 
-    private const string Fail = """
+    private const string Fail = $"""
         UPDATE ingestion_jobs SET status = 'failed', error = @error, source_format = COALESCE(@sourceFormat, source_format), finished_at = now()
-        WHERE id = @jobId
+        WHERE {ClaimedByThisRun}
         """;
 
-    public async Task<bool> FailAsync(Guid jobId, string error, string? sourceFormat, CancellationToken ct)
+    public async Task<bool> FailAsync(Guid jobId, int claimedAttempt, string error, string? sourceFormat, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(Fail, new { jobId, error, sourceFormat }, cancellationToken: ct)) > 0;
+        return await conn.ExecuteAsync(new CommandDefinition(Fail, new { jobId, claimedAttempt, error, sourceFormat }, cancellationToken: ct)) > 0;
     }
 
-    // Only the row as this run claimed it: a job reclaimed as stuck since then belongs to another run.
-    private const string ReturnToQueue = """
+    private const string ReturnToQueue = $"""
         UPDATE ingestion_jobs SET status = 'queued', attempt_count = @claimedAttempt - 1, started_at = NULL
-        WHERE id = @jobId AND status = 'processing' AND attempt_count = @claimedAttempt
+        WHERE {ClaimedByThisRun}
         """;
 
     public async Task<bool> ReturnToQueueAsync(Guid jobId, int claimedAttempt, CancellationToken ct)
@@ -99,17 +103,17 @@ public sealed class IngestionJobRepository(V2DataSource dataSource) : IIngestion
         """;
 
     public async Task<IReadOnlyList<FileIngestionJob>> FailExhaustedAsync(
-        int maxAttempts, DateTimeOffset stuckBefore, string error, CancellationToken ct)
+        int maxAttempts, TimeSpan stuckAfter, string error, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return (await conn.QueryAsync<FileIngestionJob>(new CommandDefinition(FailExhausted, new { maxAttempts, stuckBefore, error }, cancellationToken: ct))).AsList();
+        return (await conn.QueryAsync<FileIngestionJob>(new CommandDefinition(FailExhausted, new { maxAttempts, stuckAfter, error }, cancellationToken: ct))).AsList();
     }
 
-    private const string CountStuck = "SELECT count(*) FROM ingestion_jobs WHERE status = 'processing' AND started_at < @startedBefore";
+    private const string CountStuck = "SELECT count(*) FROM ingestion_jobs WHERE status = 'processing' AND started_at < now() - @stuckAfter";
 
-    public async Task<int> CountStuckAsync(DateTimeOffset startedBefore, CancellationToken ct)
+    public async Task<int> CountStuckAsync(TimeSpan stuckAfter, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteScalarAsync<int>(new CommandDefinition(CountStuck, new { startedBefore }, cancellationToken: ct));
+        return await conn.ExecuteScalarAsync<int>(new CommandDefinition(CountStuck, new { stuckAfter }, cancellationToken: ct));
     }
 }

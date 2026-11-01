@@ -7,8 +7,8 @@ namespace Application.Transitional;
 /// <para>The server extraction queue for uploaded files (table <c>ingestion_jobs</c>). The reader's
 /// methods take <c>userId</c> (docs/01-architecture/data-access.md rule 7); the worker's
 /// (claim, finish, give back, sweep, count) are cross-user and say so by taking none. A job is
-/// eligible while under <c>maxAttempts</c> and queued, or processing but stuck (started before
-/// <c>stuckBefore</c>: its worker died).</para>
+/// eligible while under <c>maxAttempts</c> and queued, or processing but stuck (started more than
+/// <c>stuckAfter</c> ago by the database's clock, which stamps <c>started_at</c>: its worker died).</para>
 /// </summary>
 public interface IIngestionJobRepository
 {
@@ -22,13 +22,19 @@ public interface IIngestionJobRepository
     /// Claims the oldest eligible job for this worker: it becomes processing, started now, one attempt
     /// more. Concurrent claimers skip each other's row, so a job goes to exactly one. Null when none.
     /// </summary>
-    Task<FileIngestionJob?> ClaimNextAsync(int maxAttempts, DateTimeOffset stuckBefore, CancellationToken ct);
+    Task<FileIngestionJob?> ClaimNextAsync(int maxAttempts, TimeSpan stuckAfter, CancellationToken ct);
 
-    /// <summary>Marks the job succeeded, with what the extractor detected. False when there is no such job.</summary>
-    Task<bool> SucceedAsync(Guid jobId, string? sourceFormat, CancellationToken ct);
+    /// <summary>
+    /// Marks the job succeeded, with what the extractor detected. Only the run that claimed it as
+    /// <paramref name="claimedAttempt"/> can: false when it was cancelled or reclaimed since.
+    /// </summary>
+    Task<bool> SucceedAsync(Guid jobId, int claimedAttempt, string? sourceFormat, CancellationToken ct);
 
-    /// <summary>Marks the job failed with <paramref name="error"/>, and what the extractor detected if it got that far. False when there is no such job.</summary>
-    Task<bool> FailAsync(Guid jobId, string error, string? sourceFormat, CancellationToken ct);
+    /// <summary>
+    /// Marks the job failed with <paramref name="error"/>, and what the extractor detected if it got
+    /// that far (null keeps what was recorded). Same claim rule as <see cref="SucceedAsync"/>.
+    /// </summary>
+    Task<bool> FailAsync(Guid jobId, int claimedAttempt, string error, string? sourceFormat, CancellationToken ct);
 
     /// <summary>
     /// Gives a job back to the queue after a shutdown interrupted it (ADR-022), uncounting the attempt;
@@ -41,8 +47,8 @@ public interface IIngestionJobRepository
     /// <paramref name="maxAttempts"/> (it crashed its worker every time). Returns them, for the books' sake.
     /// </summary>
     Task<IReadOnlyList<FileIngestionJob>> FailExhaustedAsync(
-        int maxAttempts, DateTimeOffset stuckBefore, string error, CancellationToken ct);
+        int maxAttempts, TimeSpan stuckAfter, string error, CancellationToken ct);
 
-    /// <summary>How many jobs are still processing although started before <paramref name="startedBefore"/>: the stuck-jobs metric.</summary>
-    Task<int> CountStuckAsync(DateTimeOffset startedBefore, CancellationToken ct);
+    /// <summary>How many jobs are still processing more than <paramref name="stuckAfter"/> after they started: the stuck-jobs metric.</summary>
+    Task<int> CountStuckAsync(TimeSpan stuckAfter, CancellationToken ct);
 }
