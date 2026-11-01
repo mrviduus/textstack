@@ -6,7 +6,7 @@ namespace Infrastructure.Persistence.Repositories;
 
 /// <summary>
 /// Dapper implementation of <see cref="IReviewQuestionRepository"/> on <c>textstack_v2</c>. A question
-/// is matched across re-saves by <c>ix_review_question_book_insight_id_prompt_hash</c>, and can only
+/// is matched across re-saves by <c>ix_review_question_user_id_book_insight_id_prompt_hash</c>, and can only
 /// belong to an insight of its own user (<c>fk_review_question_book_insight_user_id_book_insight_id</c>).
 /// </summary>
 public sealed class ReviewQuestionRepository(V2DataSource dataSource) : IReviewQuestionRepository
@@ -46,7 +46,7 @@ public sealed class ReviewQuestionRepository(V2DataSource dataSource) : IReviewQ
         const string owned = "SELECT EXISTS (SELECT 1 FROM book_insight WHERE user_id = @userId AND id = @insightId FOR UPDATE)";
         // One statement for the whole set; the deleted rows (hashes no longer given) and the upserted
         // ones are disjoint. A known hash keeps its schedule and counts, only what the review says
-        // changes; the DO UPDATE's WHERE is a second guard against rewriting another user's question.
+        // changes; with user_id in the key, the conflict row is this user's.
         const string replace = """
             WITH gone AS (
                 DELETE FROM review_question
@@ -55,9 +55,8 @@ public sealed class ReviewQuestionRepository(V2DataSource dataSource) : IReviewQ
             SELECT q.id, @userId, @insightId, q.block_index, q.prompt, q.answer, q.prompt_hash, q.stage, q.interval_days, q.consecutive_correct, q.next_review_at, NULL, 0, 0, false, now(), now()
             FROM unnest(@ids, @blockIndexes, @prompts, @answers, @hashes, @stages, @intervalDays, @consecutiveCorrect, @nextReviewAts)
                 AS q(id, block_index, prompt, answer, prompt_hash, stage, interval_days, consecutive_correct, next_review_at)
-            ON CONFLICT (book_insight_id, prompt_hash) DO UPDATE SET
+            ON CONFLICT (user_id, book_insight_id, prompt_hash) DO UPDATE SET
                 prompt = EXCLUDED.prompt, answer = EXCLUDED.answer, block_index = EXCLUDED.block_index, updated_at = now()
-            WHERE review_question.user_id = @userId
             """;
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);

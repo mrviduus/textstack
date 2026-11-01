@@ -176,15 +176,13 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var share = NewShare(book);
         await _shares.ShareAsync(share, Ct);
         var checkpoint = NewCheckpoint(book, share);
-        // A share delete caught mid-transaction, its statements as DeleteAsync runs them. Without the
-        // append's FOR KEY SHARE the insert does not wait, and fails on the checkpoint FK at commit.
+        // A share delete caught mid-transaction, the one statement DeleteAsync runs; its row lock is
+        // what the append's FOR KEY SHARE waits on. Without that FOR KEY SHARE the insert does not
+        // wait, and fails on the checkpoint FK at commit.
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
         await using var delete = await conn.BeginTransactionAsync(Ct);
-        await conn.ExecuteAsync(new CommandDefinition("""
-            SELECT 1 FROM shared_chapters WHERE user_id = @UserId AND id = @Id FOR UPDATE;
-            UPDATE discussion_checkpoints SET shared_chapter_id = NULL WHERE user_id = @UserId AND shared_chapter_id = @Id;
-            DELETE FROM shared_chapters WHERE user_id = @UserId AND id = @Id;
-            """, share, delete, cancellationToken: Ct));
+        await conn.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM shared_chapters WHERE user_id = @UserId AND id = @Id", share, delete, cancellationToken: Ct));
 
         var append = _repo.AppendAsync(checkpoint, Ct);
         await db.WaitUntilBlockedByAsync(conn, append);

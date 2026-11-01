@@ -25,7 +25,7 @@ public sealed class BookInsightRepository(V2DataSource dataSource) : IBookInsigh
         ListAsync("user_id = @userId AND book_id = @bookId", new { userId, bookId }, ct);
 
     public Task<IReadOnlyList<BookInsight>> ListReviewsForBookAsync(Guid userId, Guid bookId, CancellationToken ct) =>
-        ListAsync("user_id = @userId AND book_id = @bookId AND review_json IS NOT NULL AND chapter_slug IS NOT NULL",
+        ListAsync("user_id = @userId AND book_id = @bookId AND review_json IS NOT NULL",
             new { userId, bookId }, ct);
 
     public async Task<IReadOnlyList<BookInsight>> ListByIdsAsync(Guid userId, IReadOnlyCollection<Guid> ids, CancellationToken ct) =>
@@ -49,7 +49,8 @@ public sealed class BookInsightRepository(V2DataSource dataSource) : IBookInsigh
     public async Task<BookInsight> SaveReviewAsync(BookInsight insight, CancellationToken ct)
     {
         // A review without its JSON would silently demote the slot to a plain insight, and a review
-        // is always of one chapter (ADR-016).
+        // is always of one chapter (ADR-016; ck_book_insight_review_chapter is the real guard, this
+        // names the argument).
         ArgumentNullException.ThrowIfNull(insight.ReviewJson);
         if (insight.ChapterSlug is null)
             throw new ArgumentException("A chapter review needs a chapter slug.", nameof(insight));

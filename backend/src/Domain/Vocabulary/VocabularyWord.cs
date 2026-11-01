@@ -36,6 +36,9 @@ public class VocabularyWord
     /// <summary>Set by the server on delete; ignored on write.</summary>
     public DateTimeOffset? DeletedAt { get; set; }
 
+    /// <summary>Set by the server when the card is mastered: out of the review queue, still a card (not a tombstone); ignored on write.</summary>
+    public DateTimeOffset? RetiredAt { get; set; }
+
     /// <summary>Set by the server: 1 on creation, +1 on each edit, delete and restore (not on reviews or examples); ignored on write.</summary>
     public long Revision { get; set; }
 

@@ -23,4 +23,10 @@ public class ReadingState
 
     /// <summary>Set by the server: 1 on the first write, +1 on each accepted one; ignored on write.</summary>
     public long Revision { get; set; }
+
+    /// <summary>
+    /// Set by the server: the revision the last reset produced, null until one. A stale writer whose
+    /// expected revision is below it lost to a reset, not to another device moving on; ignored on write.
+    /// </summary>
+    public long? ResetRevision { get; set; }
 }

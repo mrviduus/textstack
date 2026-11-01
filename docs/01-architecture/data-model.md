@@ -13,7 +13,8 @@ legacy database.
 
 A second database ([ADR-030](adr/ADR-030-two-databases-one-cutover.md)), created and migrated by
 `migrator-v2` ([database/v2/](../../database/v2/README.md)). 24 permanent tables + 2 transitional;
-column truth: [`database/v2/migrations/0000_baseline.up.sql`](../../database/v2/migrations/0000_baseline.up.sql).
+column truth: [`database/v2/migrations/0000_baseline.up.sql`](../../database/v2/migrations/0000_baseline.up.sql)
+plus the migrations after it, read in order (`0001_sync_protocol_deltas`: ADR-031 "Amended 2026-11-01").
 What happens to each legacy table (the disposition column) lives in ADR-031, not here. The legacy
 inventory below stays until M6, when this page becomes V2 only.
 

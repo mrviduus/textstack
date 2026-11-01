@@ -125,15 +125,15 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task DeleteAsync_WhileAnAppendLinkingTheShareIsInFlight_WaitsThenUnlinksItAndDeletes()
+    public async Task DeleteAsync_WhileAnAppendLinkingTheShareIsInFlight_WaitsThenDeletesAndUnlinksIt()
     {
         var book = await db.NewReaderWithBookAsync();
         var share = NewShare(book);
         await _repo.ShareAsync(share, Ct);
         var checkpointId = Guid.NewGuid();
         // An append caught mid-transaction: the checkpoint is inserted, linked, not yet committed,
-        // and holds the share as AppendAsync does. Without the delete's FOR UPDATE, the delete's
-        // unlink misses this row and its commit fails on the checkpoint FK.
+        // and holds the share FOR KEY SHARE as AppendAsync does. The delete must wait on that lock:
+        // otherwise the FK's SET NULL misses this row and the append fails on the FK at commit.
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
         await using var append = await conn.BeginTransactionAsync(Ct);
         await conn.ExecuteAsync(new CommandDefinition("""

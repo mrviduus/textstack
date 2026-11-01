@@ -16,7 +16,7 @@ namespace Infrastructure.Persistence.Repositories;
 public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyRepository
 {
     private const string WordColumns =
-        "id, user_id, language, word, word_key, translation, definition, stage, interval_days, consecutive_correct, next_review_at, last_reviewed_at, created_at, updated_at, deleted_at, revision";
+        "id, user_id, language, word, word_key, translation, definition, stage, interval_days, consecutive_correct, next_review_at, last_reviewed_at, created_at, updated_at, deleted_at, retired_at, revision";
     // The example insert's column list is this one minus deleted_at; the two must agree.
     private const string ExampleColumns =
         "id, user_id, word_id, book_id, file_id, chapter_key, book_title, sentence, contextual_translation, operation_id, payload_sha256, created_at, deleted_at";
@@ -196,10 +196,10 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
     public async Task<IReadOnlyList<VocabularyWord>> ListDueAsync(Guid userId, DateTimeOffset now, int limit, CancellationToken ct)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
-        // Matches the partial index ix_vocabulary_words_user_id_next_review_at (live cards by due time).
+        // Matches the partial index ix_vocabulary_words_user_id_next_review_at (live, unretired cards by due time).
         const string sql = $"""
             SELECT {WordColumns} FROM vocabulary_words
-            WHERE user_id = @userId AND deleted_at IS NULL AND next_review_at <= @now
+            WHERE user_id = @userId AND deleted_at IS NULL AND retired_at IS NULL AND next_review_at <= @now
             ORDER BY next_review_at, id
             LIMIT @limit
             """;

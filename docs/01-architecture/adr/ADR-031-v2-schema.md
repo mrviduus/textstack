@@ -74,7 +74,7 @@ shape minus `site_id` plus the delta shown.
 | Reading | `reading_state` | the accepted state for one book | PK `(user_id, book_id)`; FK `(user_id, book_id, file_id)` → `book_files`; `revision`; frontier pair | draft; legacy `is_read`/`read_at` → `completed_at`; scroll-only legacy progress keeps its chapter (decided item 5) |
 | | `reading_sessions` | a reading interval | FK `user_id` CASCADE; **`UNIQUE (user_id, client_session_id)`** | legacy reshaped: **`book_id` nullable** (deleted-book trail kept, still counted), replaces `edition_id`/`user_book_id`; `duration_seconds`, `words_read`, `start/end_percent` kept |
 | Annotations | `annotations` | a highlight + note, or an unanchored quotation | FK `(user_id, book_id)` CASCADE; `(user_id, book_id, file_id)` deferred; `locator` requires `file_id` | draft |
-| Vocabulary | `vocabulary_words` | one card per owner/language/word_key | `UNIQUE (user_id, language, word_key)` incl. tombstones; due index | draft — i.e. **no `embedding`, cluster, tutor, distractor or zipf columns** (D6), and no `total_reviews`/`correct_reviews` (derived from `vocabulary_reviews`). Case variants merge on `word_key`; `is_retired`/`retired_at` → `deleted_at` (decided item 4) |
+| Vocabulary | `vocabulary_words` | one card per owner/language/word_key | `UNIQUE (user_id, language, word_key)` incl. tombstones; due index | draft — i.e. **no `embedding`, cluster, tutor, distractor or zipf columns** (D6), and no `total_reviews`/`correct_reviews` (derived from `vocabulary_reviews`). Case variants merge on `word_key`; `is_retired`/`retired_at` → `retired_at` (decided item 4, reversed by the owner 2026-10-30; see Amended) |
 | | `vocabulary_examples` | a source sentence for a card | FK `(user_id, word_id)` CASCADE; `UNIQUE (user_id, operation_id)`; `book_title` snapshot | draft; migrated `payload_sha256` per decided item 4 |
 | | `vocabulary_reviews` | one answer | FK `(user_id, word_id)` CASCADE; `UNIQUE (user_id, operation_id)` | draft; migrated `payload_sha256` per decided item 4 |
 | Discussion | `shared_chapters` | an explicit, immutable chapter snapshot for MCP | `UNIQUE (user_id, book_id, id)`, `UNIQUE (user_id, operation_id)` | draft |
@@ -271,7 +271,8 @@ the schema deltas; these are the ETL rules M3 implements and validates.
 4. **Vocabulary case merge.** Legacy cards that collapse onto one `(user_id, language, word_key)`
    merge: the survivor is the card with the higher `total_reviews`, tie → newer `updated_at`; the
    examples and reviews of both attach to it; `word` keeps the survivor's spelling.
-   `is_retired`/`retired_at` → `deleted_at`. `total_reviews`/`correct_reviews` are not stored —
+   `is_retired`/`retired_at` → `retired_at` (was `deleted_at`; reversed by owner decision 1 of the sync
+   PDD, 2026-10-30, carried by migration `0001` — see Amended). `total_reviews`/`correct_reviews` are not stored —
    derived from `vocabulary_reviews`. For migrated rows, `vocabulary_reviews.payload_sha256` and
    `vocabulary_examples.payload_sha256` = lowercase-hex sha256 of the **canonical JSON** of the
    migrated payload: keys sorted, UTF-8, no insignificant whitespace.
@@ -284,6 +285,44 @@ the schema deltas; these are the ETL rules M3 implements and validates.
 7. **`admin_users` → `users` by email.** Match case-insensitively on email to an existing user and
    set `role = 'admin'`; no match → insert a `users` row with the admin's `password_hash`. Legacy
    Editor/Moderator map to `admin` (production has one admin).
+
+## Amended 2026-11-01 — migration `0001` ([#1086](https://github.com/mrviduus/textstack/issues/1086))
+
+The first change after the baseline, `database/v2/migrations/0001_sync_protocol_deltas`: what the
+[sync PDD](../v2-sync-protocol.md) ("Changes required" item 1, "Owner decisions" 1, 5, 6, 12) and
+M1.4's findings ([#1047](https://github.com/mrviduus/textstack/issues/1047)) need. The baseline file
+is never edited (ADR-026); the rows and rules above read with these deltas:
+
+- **Rule 2 gains:** every composite `(user_id, …)` FK is `ON UPDATE CASCADE`. The guest→account
+  merge (M2.5, [#1023](https://github.com/mrviduus/textstack/issues/1023)) reparents by
+  `UPDATE … SET user_id` on the aggregate roots, and the key does the rest — with three edges the
+  merge itself owns (`tests/TextStack.Persistence.Tests/Schema/MergeReparentTests.cs` pins each):
+  the order is **words, then books, then book-less `reading_sessions`** (an example's word FK is
+  immediate, its book FKs deferred; a session whose `book_id` is null matches no cascade and stays
+  behind unless moved by hand); a unique key the target already holds aborts the whole statement
+  (23505 on `(user_id, operation_id)` of checkpoints, shares, examples, reviews, on
+  `(user_id, client_session_id)` of sessions, on `(user_id, language, word_key)` of words — a device
+  replaying its outbox after sign-in reuses its `operation_id`s, decision 13), so the merge checks
+  collisions and ownership before it moves anything (owner decision 12); and the tables that point
+  only at `users` (refresh tokens, reset tokens, OAuth requests and grants, device authorizations,
+  MCP keys, `agent_run`) are reached by no cascade — the merge decides each (a guest's session
+  tokens are the signing-in device's, its agent runs move). `tests/invariants.sql` pins the cascade
+  on every `(user_id, …)` FK.
+- **`discussion_checkpoints`:** the share FK is `ON DELETE SET NULL (shared_chapter_id)`; a share
+  delete is one statement (M1.4's unlink and its two locks are gone). The baseline's comment above
+  that FK ("Deleting a share first clears shared_chapter_id here") now describes the FK's own action.
+- **`reading_state`:** `reset_revision bigint NULL`, `CHECK (reset_revision BETWEEN 1 AND revision)` —
+  the revision a reset produced, so a stale writer learns it lost to a reset, not a move.
+- **`review_question`:** the prompt index is `(user_id, book_insight_id, prompt_hash)` (rule 2).
+- **`book_insight`:** `CHECK (review_json IS NULL OR chapter_slug IS NOT NULL)` (ADR-016).
+- **`annotations`:** index `(user_id, book_id, created_at, id) WHERE deleted_at IS NULL`.
+- **`vocabulary_words`:** `retired_at timestamptz NULL` — a mastered word is retired, not deleted;
+  the due index excludes it. Reverses decided item 4's `→ deleted_at`: `deleted_at` is only an
+  explicit delete (owner decision 1).
+- **`books`:** `revision bigint NOT NULL DEFAULT 1`, `ck_books_revision` — metadata edits are
+  revision-guarded (owner decision 5).
+- **`book_files`:** `content_removed_at timestamptz NULL` — "stop syncing this file": the server's
+  bytes are deleted and no client re-uploads on its own (owner decision 6).
 
 Related: [v2-plan.md](../v2-plan.md) · [ADR-030](ADR-030-two-databases-one-cutover.md) ·
 [ADR-028](ADR-028-dapper-and-repositories.md) · [ADR-026](ADR-026-sql-first-migrations.md) ·

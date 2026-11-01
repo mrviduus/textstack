@@ -511,7 +511,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task ListDueAsync_MixedCards_ReturnsLiveDueCardsEarliestFirstUpToTheLimit()
+    public async Task ListDueAsync_MixedCards_ReturnsLiveUnretiredDueCardsEarliestFirstUpToTheLimit()
     {
         var user = await db.NewReaderAsync();
         // Due times are the server's to set; the test pins them directly.
@@ -528,9 +528,15 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         await CardDueAtAsync("future", Noon.AddHours(1));
         var deleted = await CardDueAtAsync("deleted", Noon.AddHours(-3));
         await _repo.DeleteWordAsync(user, deleted.Id, Ct);
+        // A mastered card is retired, not deleted (owner decision 1); nothing retires one yet (M2.3).
+        var retired = await CardDueAtAsync("retired", Noon.AddHours(-4));
+        await using (var conn = await db.DataSource.OpenConnectionAsync(Ct))
+            await conn.ExecuteAsync(new CommandDefinition(
+                "UPDATE vocabulary_words SET retired_at = now() WHERE id = @Id", new { retired.Id }, cancellationToken: Ct));
 
         Assert.Equal([earlier.Id, later.Id], (await _repo.ListDueAsync(user, Noon, 10, Ct)).Select(w => w.Id));
         Assert.Equal([earlier.Id], (await _repo.ListDueAsync(user, Noon, 1, Ct)).Select(w => w.Id));
+        Assert.NotNull((await _repo.GetWordAsync(user, retired.Id, Ct))!.RetiredAt);
     }
 
     [Fact]
