@@ -3,17 +3,16 @@ using Domain.Identity;
 namespace Application.Identity;
 
 /// <summary>
-/// The V2 device-flow logins (RFC 8628; table <c>device_authorizations</c>). Kept apart from
-/// <see cref="IOAuthRepository"/>: it is the CLI's sign-in, not the MCP OAuth server, and one
-/// repository holding both would pass the size rule 13 sets. A login is found by its device code
-/// (hashed) or its user code; it belongs to a user only once approved.
+/// The V2 device-flow logins (RFC 8628; table <c>device_authorizations</c>): the CLI's sign-in. A
+/// login is found by its device code (hashed) or its user code; it belongs to a user only once approved.
 /// </summary>
 public interface IDeviceLoginRepository
 {
-    Task CreateAsync(DeviceLogin login, CancellationToken ct);
-
-    /// <summary>Whether a pending login alive at <paramref name="now"/> already shows this user code.</summary>
-    Task<bool> PendingUserCodeExistsAsync(string userCode, DateTimeOffset now, CancellationToken ct);
+    /// <summary>
+    /// Stores a pending login. False when a pending login alive at <paramref name="now"/> already shows
+    /// its user code: nothing stored, the caller mints another code.
+    /// </summary>
+    Task<bool> CreateAsync(DeviceLogin login, DateTimeOffset now, CancellationToken ct);
 
     /// <summary>
     /// Decides the pending login showing <paramref name="userCode"/>: approves it for
@@ -32,7 +31,7 @@ public interface IDeviceLoginRepository
     /// <summary>
     /// Redeems an approved login, once: it becomes expired and consumed, so a second redemption cannot
     /// mint another session. Returns the user it was approved for; null when it was not approved, or
-    /// its deadline passed by <paramref name="now"/> (the sweep deletes it only a day later).
+    /// its deadline passed by <paramref name="now"/>.
     /// </summary>
     Task<Guid?> RedeemAsync(Guid loginId, DateTimeOffset now, CancellationToken ct);
 

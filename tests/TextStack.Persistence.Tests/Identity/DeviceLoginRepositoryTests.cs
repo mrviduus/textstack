@@ -24,7 +24,7 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
     private async Task<DeviceLogin> CreatedAsync()
     {
         var login = Login();
-        await _repo.CreateAsync(login, Ct);
+        await _repo.CreateAsync(login, Now, Ct);
         return login;
     }
 
@@ -64,7 +64,7 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
     {
         var login = Login();
         login.ExpiresAt = new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        await _repo.CreateAsync(login, Ct);
+        await _repo.CreateAsync(login, Now, Ct);
 
         Assert.Equal(DeviceLogin.Expired, await _repo.DecideAsync(login.UserCode, await db.NewReaderAsync(), login.ExpiresAt, Ct));
     }
@@ -76,8 +76,8 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
         var (stale, live) = (Login(), Login());
         stale.ExpiresAt = Now.AddMinutes(-5);
         live.UserCode = stale.UserCode;
-        await _repo.CreateAsync(stale, Ct);
-        await _repo.CreateAsync(live, Ct);
+        await _repo.CreateAsync(stale, Now, Ct);
+        await _repo.CreateAsync(live, Now, Ct);
 
         Assert.Equal(DeviceLogin.Approved, await _repo.DecideAsync(live.UserCode, user, Now, Ct));
 
@@ -112,14 +112,36 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task PendingUserCodeExistsAsync_LivePendingCode_IsTrueUntilDecided()
+    public async Task CreateAsync_CodeShownByALivePendingLogin_ReturnsFalseAndStoresNothing()
     {
-        var login = await CreatedAsync();
+        var first = await CreatedAsync();
+        var second = Login();
+        second.UserCode = first.UserCode;
 
-        Assert.True(await _repo.PendingUserCodeExistsAsync(login.UserCode, Now, Ct));
-        Assert.False(await _repo.PendingUserCodeExistsAsync(login.UserCode, Now.AddHours(1), Ct));
-        await _repo.DecideAsync(login.UserCode, null, Now, Ct);
-        Assert.False(await _repo.PendingUserCodeExistsAsync(login.UserCode, Now, Ct));
+        Assert.False(await _repo.CreateAsync(second, Now, Ct));
+
+        Assert.Null(await _repo.GetByDeviceCodeAsync(second.DeviceCodeHash, Ct));
+    }
+
+    [Fact]
+    public async Task CreateAsync_CodeOfAnExpiredLogin_IsFreeAgain()
+    {
+        var first = await CreatedAsync();
+        var second = Login();
+        second.UserCode = first.UserCode;
+
+        Assert.True(await _repo.CreateAsync(second, first.ExpiresAt, Ct));
+    }
+
+    [Fact]
+    public async Task CreateAsync_CodeOfADecidedLogin_IsFreeAgain()
+    {
+        var first = await CreatedAsync();
+        await _repo.DecideAsync(first.UserCode, null, Now, Ct);
+        var second = Login();
+        second.UserCode = first.UserCode;
+
+        Assert.True(await _repo.CreateAsync(second, Now, Ct));
     }
 
     [Fact]
@@ -169,8 +191,8 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
     {
         var (old, fresh) = (Login(), Login());
         old.ExpiresAt = new DateTimeOffset(2005, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        await _repo.CreateAsync(old, Ct);
-        await _repo.CreateAsync(fresh, Ct);
+        await _repo.CreateAsync(old, Now, Ct);
+        await _repo.CreateAsync(fresh, Now, Ct);
 
         Assert.Equal(1, await _repo.DeleteExpiredAsync(new DateTimeOffset(2005, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct));
 

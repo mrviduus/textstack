@@ -14,42 +14,36 @@ public sealed class DeviceLoginRepository(V2DataSource dataSource) : IDeviceLogi
 {
     private const string Columns = "id, device_code_hash, user_code, user_id, status, expires_at, interval_seconds, consumed_at, created_at";
 
-    private const string InsertLogin = """
+    // Code entry looks up only live pending logins, so a code is taken while one of them shows it.
+    // ponytail: two creates racing with one random code can both land (as on legacy); a unique partial index on live pending codes if that ever matters.
+    private const string InsertLoginUnlessCodeTaken = """
         INSERT INTO device_authorizations (id, device_code_hash, user_code, status, expires_at, interval_seconds, created_at)
-        VALUES (@Id, @DeviceCodeHash, @UserCode, @Status, @ExpiresAt, @IntervalSeconds, now())
+        SELECT @Id, @DeviceCodeHash, @UserCode, @Status, @ExpiresAt, @IntervalSeconds, now()
+        WHERE NOT EXISTS (
+            SELECT FROM device_authorizations WHERE user_code = @UserCode AND status = 'pending' AND expires_at > @now)
         """;
 
-    public async Task CreateAsync(DeviceLogin login, CancellationToken ct)
+    public async Task<bool> CreateAsync(DeviceLogin login, DateTimeOffset now, CancellationToken ct)
     {
+        var args = new DynamicParameters(login);
+        args.Add("now", now);
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(new CommandDefinition(InsertLogin, login, cancellationToken: ct));
-    }
-
-    private const string PendingUserCodeTaken = """
-        SELECT EXISTS (SELECT FROM device_authorizations WHERE user_code = @userCode AND status = 'pending' AND expires_at > @now)
-        """;
-
-    public async Task<bool> PendingUserCodeExistsAsync(string userCode, DateTimeOffset now, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteScalarAsync<bool>(new CommandDefinition(PendingUserCodeTaken, new { userCode, now }, cancellationToken: ct));
+        return await conn.ExecuteAsync(new CommandDefinition(InsertLoginUnlessCodeTaken, args, cancellationToken: ct)) > 0;
     }
 
     // A pending login whose deadline passed unnoticed may still show the code; the live one, if any,
     // expires last, so it is the one decided.
     private const string Decide = """
-        WITH target AS (
+        UPDATE device_authorizations SET
+            status = CASE WHEN expires_at <= @now THEN 'expired' WHEN @approvedBy IS NULL THEN 'denied' ELSE 'approved' END,
+            user_id = CASE WHEN expires_at <= @now THEN NULL ELSE @approvedBy END
+        WHERE id = (
             SELECT id FROM device_authorizations
             WHERE user_code = @userCode AND status = 'pending'
             ORDER BY expires_at DESC
             LIMIT 1
             FOR UPDATE)
-        UPDATE device_authorizations d SET
-            status = CASE WHEN d.expires_at <= @now THEN 'expired' WHEN @approvedBy IS NULL THEN 'denied' ELSE 'approved' END,
-            user_id = CASE WHEN d.expires_at <= @now THEN NULL ELSE @approvedBy END
-        FROM target
-        WHERE d.id = target.id
-        RETURNING d.status
+        RETURNING status
         """;
 
     public async Task<string?> DecideAsync(string userCode, Guid? approvedBy, DateTimeOffset now, CancellationToken ct)
@@ -75,7 +69,7 @@ public sealed class DeviceLoginRepository(V2DataSource dataSource) : IDeviceLogi
     }
 
     private const string RedeemApproved = """
-        UPDATE device_authorizations SET status = 'expired', consumed_at = @now
+        UPDATE device_authorizations SET status = 'expired', consumed_at = now()
         WHERE id = @loginId AND status = 'approved' AND expires_at > @now
         RETURNING user_id
         """;

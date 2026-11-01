@@ -267,7 +267,7 @@ public class UserRepositoryTests(V2PostgresFixture db)
         await oauth.ConnectAsync(userId, OAuthRepositoryTests.Grant(), Ct);
         var devices = new DeviceLoginRepository(db.DataSource);
         var login = DeviceLoginRepositoryTests.Login();
-        await devices.CreateAsync(login, Ct);
+        await devices.CreateAsync(login, DateTimeOffset.UtcNow, Ct);
         await devices.DecideAsync(login.UserCode, userId, DateTimeOffset.UtcNow, Ct);
         await new McpKeyRepository(db.DataSource).CreateAsync(userId, "laptop", "k" + hash, "tsk_ab", Ct);
         await new V2AgentRunWriter(db.DataSource).WriteAsync(OpsWritersTests.Run(userId), Ct);
