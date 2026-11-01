@@ -45,7 +45,7 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
     // to spend, so no successor. An expired token is not spent either.
     private const string RotateSession = $"""
         WITH spent AS (
-            DELETE FROM user_refresh_tokens WHERE user_id = @userId AND token_hash = @oldTokenHash AND expires_at > now()
+            DELETE FROM user_refresh_tokens WHERE user_id = @userId AND token_hash = @oldTokenHash AND expires_at > @now
             RETURNING token_hash)
         INSERT INTO user_refresh_tokens (id, user_id, token_hash, expires_at, created_at, previous_token_hash)
         SELECT gen_random_uuid(), @userId, @newTokenHash, @expiresAt, now(), token_hash FROM spent
@@ -53,13 +53,13 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         """;
 
     public async Task<SessionToken?> RotateAsync(
-        Guid userId, string oldTokenHash, string newTokenHash, DateTimeOffset expiresAt, CancellationToken ct)
+        Guid userId, string oldTokenHash, string newTokenHash, DateTimeOffset expiresAt, DateTimeOffset now, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition(LockUser, new { userId }, tx, cancellationToken: ct));
         var successor = await conn.QuerySingleOrDefaultAsync<SessionToken>(new CommandDefinition(
-            RotateSession, new { userId, oldTokenHash, newTokenHash, expiresAt }, tx, cancellationToken: ct));
+            RotateSession, new { userId, oldTokenHash, newTokenHash, expiresAt, now }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
         return successor;
     }
@@ -98,7 +98,12 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         return await conn.QuerySingleAsync<PasswordReset>(new CommandDefinition(InsertPasswordReset, new { userId, tokenHash, expiresAt }, cancellationToken: ct));
     }
 
-    private const string SelectResetOwner = "SELECT user_id FROM password_reset_tokens WHERE token_hash = @tokenHash";
+    // The user lock of LockUser, taken only for a code that can still be redeemed.
+    private const string LockResetOwner = """
+        SELECT id FROM users
+        WHERE id = (SELECT user_id FROM password_reset_tokens WHERE token_hash = @tokenHash AND NOT used AND expires_at > @now)
+        FOR NO KEY UPDATE
+        """;
 
     // One statement, so a new password never coexists with the credentials it was meant to cut off.
     // Of two redemptions of one code, the second waits for the first and then finds it used.
@@ -113,9 +118,9 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         signed_out AS (
             DELETE FROM user_refresh_tokens WHERE user_id IN (SELECT user_id FROM spent)),
         revoked_keys AS (
-            UPDATE mcp_access_keys SET revoked_at = @now WHERE user_id IN (SELECT user_id FROM spent) AND revoked_at IS NULL),
+            UPDATE mcp_access_keys SET revoked_at = now() WHERE user_id IN (SELECT user_id FROM spent) AND revoked_at IS NULL),
         revoked_grants AS (
-            UPDATE oauth_grants SET revoked_at = @now WHERE user_id IN (SELECT user_id FROM spent) AND revoked_at IS NULL)
+            UPDATE oauth_grants SET revoked_at = now() WHERE user_id IN (SELECT user_id FROM spent) AND revoked_at IS NULL)
         SELECT user_id FROM spent
         """;
 
@@ -123,11 +128,10 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
-        var userId = await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(SelectResetOwner, new { tokenHash }, tx, cancellationToken: ct));
-        if (userId is null) return null;
         // The lock first (as RotateAsync), then the redemption in a statement of its own, whose
         // snapshot is taken after the wait and so sees any session committed meanwhile.
-        await conn.ExecuteAsync(new CommandDefinition(LockUser, new { userId }, tx, cancellationToken: ct));
+        if (await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(LockResetOwner, new { tokenHash, now }, tx, cancellationToken: ct)) is null)
+            return null;
         var reset = await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
             RedeemPasswordReset, new { tokenHash, passwordHash, now }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
