@@ -73,18 +73,17 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task RotateAsync_WhileAResetHoldsTheUser_WaitsForItAndFindsTheSessionGone()
+    public async Task RotateAsync_UserRowHeldByAReset_WaitsForTheReset()
     {
         var user = await db.NewReaderAsync();
         var old = NewHash();
         await _repo.IssueAsync(user, old, NextWeek, Ct);
-        // A password reset in flight: the user's row locked, its sessions deleted, not yet committed.
+        // A password reset that has locked the user and not yet reached the sessions: a rotation that
+        // went ahead now would commit a successor the reset's snapshot cannot see.
         await using var reset = await db.DataSource.OpenConnectionAsync(Ct);
         await using var tx = await reset.BeginTransactionAsync(Ct);
-        await reset.ExecuteAsync(new CommandDefinition("""
-            SELECT FROM users WHERE id = @user FOR NO KEY UPDATE;
-            DELETE FROM user_refresh_tokens WHERE user_id = @user;
-            """, new { user }, tx, cancellationToken: Ct));
+        await reset.ExecuteAsync(new CommandDefinition(
+            "SELECT FROM users WHERE id = @user FOR NO KEY UPDATE", new { user }, tx, cancellationToken: Ct));
 
         var rotation = _repo.RotateAsync(user, old, NewHash(), NextWeek, Ct);
         await db.WaitUntilBlockedByAsync(reset, rotation);
@@ -92,8 +91,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         await tx.CommitAsync(Ct);
 
         Assert.True(waited);
-        Assert.Null(await rotation);
-        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
+        Assert.NotNull(await rotation);
     }
 
     [Fact]
