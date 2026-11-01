@@ -36,16 +36,17 @@ public sealed class BookChapterRepository(V2DataSource dataSource) : IBookChapte
         return await conn.QuerySingleOrDefaultAsync<BookChapter>(new CommandDefinition(SelectChapter, new { userId, fileId, chapterKey }, cancellationToken: ct));
     }
 
-    // The nearest number on each side, not ±1: numbering may have gaps.
+    // The nearest number on each side, not ±1: numbering may have gaps. The owner filter is on the
+    // rows returned; the subquery only finds the chapter's number in that file (file ids are unique).
+    private const string NumberOfKey = "SELECT chapter_number FROM book_chapters WHERE file_id = @fileId AND chapter_key = @chapterKey";
+
     private const string SelectNeighbours = $"""
         SELECT {HeadingColumns} FROM book_chapters
-        WHERE user_id = @userId AND file_id = @fileId
-          AND chapter_number < (SELECT chapter_number FROM book_chapters WHERE {ChapterByKey})
+        WHERE user_id = @userId AND file_id = @fileId AND chapter_number < ({NumberOfKey})
         ORDER BY chapter_number DESC
         LIMIT 1;
         SELECT {HeadingColumns} FROM book_chapters
-        WHERE user_id = @userId AND file_id = @fileId
-          AND chapter_number > (SELECT chapter_number FROM book_chapters WHERE {ChapterByKey})
+        WHERE user_id = @userId AND file_id = @fileId AND chapter_number > ({NumberOfKey})
         ORDER BY chapter_number
         LIMIT 1;
         """;
@@ -68,7 +69,7 @@ public sealed class BookChapterRepository(V2DataSource dataSource) : IBookChapte
     }
 
     // One statement for the whole set, so a failure stores none of it.
-    // ponytail: a second extraction of the same file hits ak_book_chapters_user_id_file_id_chapter_key; M2.6's worker decides replace vs reconcile (as ChapterReconciler does on legacy).
+    // ponytail: a second extraction of the same file hits ak_book_chapters_user_id_file_id_chapter_key; the M2.6 worker decides replace vs reconcile, as ChapterReconciler does on legacy (#1091).
     private const string InsertChapters = """
         INSERT INTO book_chapters (id, user_id, book_id, file_id, chapter_key, chapter_number, title, html, plain_text, word_count, source_start_page, source_end_page, created_at)
         SELECT c.id, @userId, @bookId, @fileId, c.chapter_key, c.chapter_number, c.title, c.html, c.plain_text, c.word_count, c.source_start_page, c.source_end_page, now()

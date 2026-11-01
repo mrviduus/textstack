@@ -41,6 +41,18 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ListTocAsync_ZeroBasedSparseNumbersInsertedOutOfOrder_ComeInNumberOrder()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        await _repo.InsertForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id,
+            [Chapter("ten", 10), Chapter("zero", 0), Chapter("hundred", 100), Chapter("two", 2)], Ct);
+
+        var toc = await _repo.ListTocAsync(book.UserId, book.CurrentFile!.Id, Ct);
+
+        Assert.Equal(["zero", "two", "ten", "hundred"], toc.Select(c => c.ChapterKey));
+    }
+
+    [Fact]
     public async Task InsertForFileAsync_DuplicateKey_StoresNone()
     {
         var book = await db.NewReaderWithBookAsync();
