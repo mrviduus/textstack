@@ -122,6 +122,24 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task DenyRequestAsync_Approved_ReturnsFalseAndKeepsTheApproval()
+    {
+        var request = await CreatedRequestAsync();
+        await _repo.ApproveRequestAsync(request.Id, await db.NewReaderAsync(), NewHash(), Now.AddMinutes(5), Now, Ct);
+
+        Assert.False(await _repo.DenyRequestAsync(request.Id, Now, Ct));
+        Assert.Null((await _repo.GetRequestAsync(request.Id, Ct))!.DeniedAt);
+    }
+
+    [Fact]
+    public async Task DenyRequestAsync_PastTheConsentDeadline_ReturnsFalse()
+    {
+        var request = await CreatedRequestAsync();
+
+        Assert.False(await _repo.DenyRequestAsync(request.Id, Now.AddHours(1), Ct));
+    }
+
+    [Fact]
     public async Task BurnCodeAsync_SecondRedemption_ReturnsFalse()
     {
         var request = await CreatedRequestAsync();
@@ -136,15 +154,18 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
     [Fact]
     public async Task DeleteRequestsCreatedBeforeAsync_Cutoff_DeletesOnlyOlderRequests()
     {
-        var (old, fresh) = (await CreatedRequestAsync(), await CreatedRequestAsync());
+        var (old, atCutoff) = (await CreatedRequestAsync(), await CreatedRequestAsync());
         await using (var conn = await db.DataSource.OpenConnectionAsync(Ct))
-            await conn.ExecuteAsync(new CommandDefinition(
-                "UPDATE oauth_authorization_requests SET created_at = '2003-01-01Z' WHERE id = @Id", old, cancellationToken: Ct));
+            await conn.ExecuteAsync(new CommandDefinition("""
+                UPDATE oauth_authorization_requests SET created_at = '2003-01-01Z' WHERE id = @old;
+                UPDATE oauth_authorization_requests SET created_at = '2003-01-02Z' WHERE id = @atCutoff;
+                """, new { old = old.Id, atCutoff = atCutoff.Id }, cancellationToken: Ct));
 
         Assert.Equal(1, await _repo.DeleteRequestsCreatedBeforeAsync(new DateTimeOffset(2003, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct));
 
         Assert.Null(await _repo.GetRequestAsync(old.Id, Ct));
-        Assert.NotNull(await _repo.GetRequestAsync(fresh.Id, Ct));
+        // Created at the cutoff instant itself is not "before" it.
+        Assert.NotNull(await _repo.GetRequestAsync(atCutoff.Id, Ct));
     }
 
     [Fact]
@@ -193,6 +214,24 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task RotateAsync_RevokedGrant_ReturnsFalse()
+    {
+        var (user, grant) = await ConnectedAsync();
+        await _repo.RevokeAsync(user, grant.Id, Now, Ct);
+
+        Assert.False(await _repo.RotateAsync(grant.Id, grant.RefreshTokenHash, NewHash(), Now.AddHours(1), NewHash(), Now.AddDays(90), Now, Ct));
+    }
+
+    [Fact]
+    public async Task GetByRefreshTokenAsync_RevokedGrant_ReturnsNull()
+    {
+        var (user, grant) = await ConnectedAsync();
+        await _repo.RevokeAsync(user, grant.Id, Now, Ct);
+
+        Assert.Null(await _repo.GetByRefreshTokenAsync(grant.RefreshTokenHash, Ct));
+    }
+
+    [Fact]
     public async Task RotateAsync_SpentRefreshToken_ReturnsFalse()
     {
         var (_, grant) = await ConnectedAsync();
@@ -208,6 +247,29 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
         await _repo.RotateAsync(grant.Id, grant.RefreshTokenHash, NewHash(), Now.AddHours(1), NewHash(), Now.AddDays(90), Now, Ct);
 
         Assert.Equal(1, await _repo.RevokeOnRefreshReuseAsync(grant.RefreshTokenHash, Now, Ct));
+
+        Assert.Empty(await _repo.ListLiveAsync(user, Now, Ct));
+    }
+
+    [Fact]
+    public async Task RevokeOnRefreshReuseAsync_GrantAlreadyRevoked_KeepsTheFirstRevocationTime()
+    {
+        var (user, grant) = await ConnectedAsync();
+        await _repo.RotateAsync(grant.Id, grant.RefreshTokenHash, NewHash(), Now.AddHours(1), NewHash(), Now.AddDays(90), Now, Ct);
+        var first = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        await _repo.RevokeAsync(user, grant.Id, first, Ct);
+
+        Assert.Equal(0, await _repo.RevokeOnRefreshReuseAsync(grant.RefreshTokenHash, Now, Ct));
+
+        Assert.Equal(first, await RevokedAtAsync(grant));
+    }
+
+    [Fact]
+    public async Task RevokeByTokenAsync_RefreshToken_RevokesTheGrant()
+    {
+        var (user, grant) = await ConnectedAsync();
+
+        Assert.Equal(1, await _repo.RevokeByTokenAsync(grant.RefreshTokenHash, Now, Ct));
 
         Assert.Empty(await _repo.ListLiveAsync(user, Now, Ct));
     }
@@ -236,6 +298,15 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
         var (_, grant) = await ConnectedAsync();
 
         Assert.Null(await _repo.GetByAccessTokenAsync(grant.AccessTokenHash, "https://elsewhere.test/mcp", Now, Ct));
+    }
+
+    [Fact]
+    public async Task GetByAccessTokenAsync_RevokedGrant_ReturnsNull()
+    {
+        var (user, grant) = await ConnectedAsync();
+        await _repo.RevokeAsync(user, grant.Id, Now, Ct);
+
+        Assert.Null(await _repo.GetByAccessTokenAsync(grant.AccessTokenHash, Resource, Now, Ct));
     }
 
     [Fact]
@@ -285,9 +356,14 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
 
         Assert.True(await _repo.RevokeAsync(user, grant.Id, Now, Ct));
 
+        Assert.Equal(first, await RevokedAtAsync(grant));
+    }
+
+    private async Task<DateTimeOffset> RevokedAtAsync(OAuthTokenGrant grant)
+    {
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
-        Assert.Equal(first, await conn.ExecuteScalarAsync<DateTimeOffset>(new CommandDefinition(
-            "SELECT revoked_at FROM oauth_grants WHERE id = @Id", grant, cancellationToken: Ct)));
+        return await conn.ExecuteScalarAsync<DateTimeOffset>(new CommandDefinition(
+            "SELECT revoked_at FROM oauth_grants WHERE id = @Id", grant, cancellationToken: Ct));
     }
 
     [Fact]
