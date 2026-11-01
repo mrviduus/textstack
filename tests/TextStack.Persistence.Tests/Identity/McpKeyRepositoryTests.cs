@@ -29,7 +29,7 @@ public class McpKeyRepositoryTests(V2PostgresFixture db)
         var hash = NewHash();
         var key = await _repo.CreateAsync(user, "laptop", hash, "tsk_ab", Ct);
 
-        Assert.True(await _repo.RevokeAsync(user, key.Id, Now, Ct));
+        Assert.True(await _repo.RevokeAsync(user, key.Id, Ct));
 
         Assert.Null(await _repo.GetLiveByHashAsync(hash, Ct));
     }
@@ -39,10 +39,10 @@ public class McpKeyRepositoryTests(V2PostgresFixture db)
     {
         var user = await db.NewReaderAsync();
         var key = await _repo.CreateAsync(user, "laptop", NewHash(), "tsk_ab", Ct);
-        var first = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        await _repo.RevokeAsync(user, key.Id, first, Ct);
+        await _repo.RevokeAsync(user, key.Id, Ct);
+        var first = Assert.Single(await _repo.ListAsync(user, Ct)).RevokedAt;
 
-        Assert.True(await _repo.RevokeAsync(user, key.Id, Now, Ct));
+        Assert.True(await _repo.RevokeAsync(user, key.Id, Ct));
 
         Assert.Equal(first, Assert.Single(await _repo.ListAsync(user, Ct)).RevokedAt);
     }
@@ -54,7 +54,7 @@ public class McpKeyRepositoryTests(V2PostgresFixture db)
         var hash = NewHash();
         var key = await _repo.CreateAsync(alice, "laptop", hash, "tsk_ab", Ct);
 
-        Assert.False(await _repo.RevokeAsync(await db.NewReaderAsync(), key.Id, Now, Ct));
+        Assert.False(await _repo.RevokeAsync(await db.NewReaderAsync(), key.Id, Ct));
         Assert.NotNull(await _repo.GetLiveByHashAsync(hash, Ct));
     }
 
@@ -64,7 +64,7 @@ public class McpKeyRepositoryTests(V2PostgresFixture db)
         var user = await db.NewReaderAsync();
         var older = await _repo.CreateAsync(user, "old", NewHash(), "tsk_aa", Ct);
         var newer = await _repo.CreateAsync(user, "new", NewHash(), "tsk_bb", Ct);
-        await _repo.RevokeAsync(user, older.Id, Now, Ct);
+        await _repo.RevokeAsync(user, older.Id, Ct);
 
         Assert.Equal([newer.Id, older.Id], (await _repo.ListAsync(user, Ct)).Select(k => k.Id));
     }
@@ -83,7 +83,7 @@ public class McpKeyRepositoryTests(V2PostgresFixture db)
         var user = await db.NewReaderAsync();
         var revoked = await _repo.CreateAsync(user, "old", NewHash(), "tsk_aa", Ct);
         await _repo.CreateAsync(user, "new", NewHash(), "tsk_bb", Ct);
-        await _repo.RevokeAsync(user, revoked.Id, Now, Ct);
+        await _repo.RevokeAsync(user, revoked.Id, Ct);
 
         Assert.Equal(1, await _repo.CountLiveAsync(user, Ct));
     }
@@ -102,7 +102,7 @@ public class McpKeyRepositoryTests(V2PostgresFixture db)
         var user = await db.NewReaderAsync();
         var key = await _repo.CreateAsync(user, "laptop", NewHash(), "tsk_ab", Ct);
 
-        await _repo.TouchAsync(key.Id, Now, Ct);
+        await _repo.TouchAsync(key.Id, Ct);
 
         Assert.NotNull(Assert.Single(await _repo.ListAsync(user, Ct)).LastUsedAt);
     }

@@ -182,8 +182,8 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         var user = await db.NewReaderAsync();
         var keys = new McpKeyRepository(db.DataSource);
         var key = await keys.CreateAsync(user, "laptop", NewHash(), "tsk_ab", Ct);
-        var first = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        await keys.RevokeAsync(user, key.Id, first, Ct);
+        await keys.RevokeAsync(user, key.Id, Ct);
+        var first = Assert.Single(await keys.ListAsync(user, Ct)).RevokedAt;
         var code = NewHash();
         await _repo.CreatePasswordResetAsync(user, code, Now.AddHours(1), Ct);
 

@@ -19,11 +19,11 @@ public interface IMcpKeyRepository
     Task<McpConnectKey> CreateAsync(Guid userId, string name, string keyHash, string prefix, CancellationToken ct);
 
     /// <summary>Revokes one of the user's keys; an already revoked one keeps its original time. False when not the user's.</summary>
-    Task<bool> RevokeAsync(Guid userId, Guid keyId, DateTimeOffset now, CancellationToken ct);
+    Task<bool> RevokeAsync(Guid userId, Guid keyId, CancellationToken ct);
 
-    /// <summary>The unrevoked key with this hash; null when none. Revocation is in the lookup itself, never cached.</summary>
+    /// <summary>The unrevoked key with this hash; null when none.</summary>
     Task<McpConnectKey?> GetLiveByHashAsync(string keyHash, CancellationToken ct);
 
-    /// <summary>Records that a key was used at <paramref name="now"/>; the caller throttles.</summary>
-    Task TouchAsync(Guid keyId, DateTimeOffset now, CancellationToken ct);
+    /// <summary>Records that a key was used now; the caller throttles.</summary>
+    Task TouchAsync(Guid keyId, CancellationToken ct);
 }

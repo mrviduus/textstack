@@ -38,12 +38,12 @@ public sealed class McpKeyRepository(V2DataSource dataSource) : IMcpKeyRepositor
     }
 
     // COALESCE keeps the first revocation time: the audit answer is "when was it turned off".
-    private const string RevokeKeyOfUser = "UPDATE mcp_access_keys SET revoked_at = COALESCE(revoked_at, @now) WHERE user_id = @userId AND id = @keyId";
+    private const string RevokeKeyOfUser = "UPDATE mcp_access_keys SET revoked_at = COALESCE(revoked_at, now()) WHERE user_id = @userId AND id = @keyId";
 
-    public async Task<bool> RevokeAsync(Guid userId, Guid keyId, DateTimeOffset now, CancellationToken ct)
+    public async Task<bool> RevokeAsync(Guid userId, Guid keyId, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(RevokeKeyOfUser, new { userId, keyId, now }, cancellationToken: ct)) > 0;
+        return await conn.ExecuteAsync(new CommandDefinition(RevokeKeyOfUser, new { userId, keyId }, cancellationToken: ct)) > 0;
     }
 
     private const string SelectLiveByHash = $"SELECT {Columns} FROM mcp_access_keys WHERE key_hash = @keyHash AND revoked_at IS NULL";
@@ -54,11 +54,11 @@ public sealed class McpKeyRepository(V2DataSource dataSource) : IMcpKeyRepositor
         return await conn.QuerySingleOrDefaultAsync<McpConnectKey>(new CommandDefinition(SelectLiveByHash, new { keyHash }, cancellationToken: ct));
     }
 
-    private const string TouchKey = "UPDATE mcp_access_keys SET last_used_at = @now WHERE id = @keyId";
+    private const string TouchKey = "UPDATE mcp_access_keys SET last_used_at = now() WHERE id = @keyId";
 
-    public async Task TouchAsync(Guid keyId, DateTimeOffset now, CancellationToken ct)
+    public async Task TouchAsync(Guid keyId, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(new CommandDefinition(TouchKey, new { keyId, now }, cancellationToken: ct));
+        await conn.ExecuteAsync(new CommandDefinition(TouchKey, new { keyId }, cancellationToken: ct));
     }
 }
