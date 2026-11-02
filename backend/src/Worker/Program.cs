@@ -41,7 +41,7 @@ builder.Services.AddScoped<IAppDbContext>(sp =>
 // File storage
 var storagePath = builder.Configuration["Storage:RootPath"] ?? "/storage";
 builder.Services.AddSingleton<IFileStorageService>(new LocalFileStorageService(storagePath));
-builder.Services.AddSingleton<Application.Library.ILibraryFileStore>(new LibraryFileStore(LibraryFileStore.RootOf(builder.Configuration)));
+builder.Services.AddSingleton<Application.Library.ILibraryFileStore>(new LibraryFileStore(builder.Configuration["Storage:LibraryRoot"] ?? storagePath));
 
 // Extraction
 builder.Services.AddSingleton<ITextExtractor, EpubTextExtractor>();

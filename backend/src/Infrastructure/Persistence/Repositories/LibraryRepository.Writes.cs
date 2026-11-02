@@ -95,10 +95,14 @@ public sealed partial class LibraryRepository
         LEFT JOIN book_files f ON f.user_id = @userId AND f.book_id = @bookId AND f.is_current
         """;
 
+    // The old version's bytes are released with its currency, so the quota is exact at commit: the key
+    // is cleared here and returned for the caller to delete once this commits. The book lock above keeps
+    // an attach out, so the key read in `old` is the one cleared.
     private const string SupersedeCurrentFile = $"""
-        UPDATE book_files SET is_current = false
-        WHERE user_id = @userId AND book_id = @bookId AND is_current
-        RETURNING {FileColumns}
+        UPDATE book_files SET is_current = false, server_storage_key = NULL
+        FROM (SELECT id AS old_id, server_storage_key AS released_key FROM book_files WHERE user_id = @userId AND book_id = @bookId AND is_current) old
+        WHERE id = old.old_id
+        RETURNING {FileColumns}, old.released_key
         """;
 
     private const string TouchBook = "UPDATE books SET updated_at = now() WHERE user_id = @userId AND id = @bookId";
@@ -125,11 +129,13 @@ public sealed partial class LibraryRepository
         // A superseded version of this book, or a view of the current file that is stale.
         if (isThisBooks == true || current?.Id != replacesFileId) return new(FileReplaceOutcome.FileReplaced, current);
 
-        var superseded = await conn.QuerySingleOrDefaultAsync<BookFile>(new CommandDefinition(SupersedeCurrentFile, args, unit.Transaction, cancellationToken: ct));
+        var (superseded, releasedKey) = (await conn.QueryAsync<BookFile, string?, (BookFile?, string?)>(
+            new CommandDefinition(SupersedeCurrentFile, args, unit.Transaction, cancellationToken: ct),
+            (f, key) => (f, key), splitOn: "released_key")).SingleOrDefault();
         var inserted = await conn.QuerySingleAsync<BookFile>(new CommandDefinition(InsertFile, file, unit.Transaction, cancellationToken: ct));
         await conn.ExecuteAsync(new CommandDefinition(TouchBook, args, unit.Transaction, cancellationToken: ct));
         await unit.CommitAsync(ct);
-        return new(FileReplaceOutcome.Replaced, inserted, superseded);
+        return new(FileReplaceOutcome.Replaced, inserted, superseded, ReleasedKey: releasedKey);
     }
 
     // A PUT of the value already stored bumps nothing: no feed churn on every device for a no-op.

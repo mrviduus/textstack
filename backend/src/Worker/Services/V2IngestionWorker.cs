@@ -27,13 +27,14 @@ public sealed class V2IngestionWorker(IConfiguration config, IServiceProvider se
         }
         var ingestion = services.GetRequiredService<V2IngestionService>();
         var (lastSweep, lastOrphanSweep) = (DateTimeOffset.MinValue, DateTimeOffset.MinValue);
+        var delay = TimeSpan.Zero;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                // On their own clocks, before each job: a steady queue must not starve them (superseded
-                // bytes keep counting against the quota until swept). Stamped first, so a failing sweep
-                // waits its interval instead of running on every pass.
+                await Task.Delay(delay, stoppingToken);
+                // On their own clocks, before each job: a steady queue must not starve them. Stamped
+                // first, so a failing sweep waits its interval instead of running on every pass.
                 var now = DateTimeOffset.UtcNow;
                 if (now - lastSweep >= SweepEvery)
                 {
@@ -45,7 +46,7 @@ public sealed class V2IngestionWorker(IConfiguration config, IServiceProvider se
                     lastOrphanSweep = now;
                     await ingestion.SweepOrphansAsync(stoppingToken);
                 }
-                if (!await ingestion.ProcessNextAsync(stoppingToken)) await Task.Delay(PollInterval, stoppingToken);
+                delay = await ingestion.ProcessNextAsync(stoppingToken) ? TimeSpan.Zero : PollInterval;
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -54,14 +55,7 @@ public sealed class V2IngestionWorker(IConfiguration config, IServiceProvider se
             catch (Exception e)
             {
                 logger.LogWarning(e, "V2 ingestion paused: textstack_v2 failed; retrying in {Backoff}", Backoff);
-                try
-                {
-                    await Task.Delay(Backoff, stoppingToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
+                delay = Backoff;
             }
         }
     }

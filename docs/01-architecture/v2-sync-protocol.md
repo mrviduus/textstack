@@ -526,8 +526,11 @@ device learns of the replacement from its next pull (`books.updated_at` bumps on
 `file_replaced` 409, whichever comes first.
 
 **Storage key** (plan §4.5): `library/{userId[..2]}/{userId}/{bookId}/{fileId}.{epub|pdf}` relative to
-`Storage:LibraryRoot`. Old versions' bytes are deleted by a retried job after the replacement commits;
-their `server_storage_key` is cleared only once the bytes are gone (schema comment).
+`Storage:LibraryRoot`. As built (M2.6), an old version's bytes are released with the replacement: its
+`server_storage_key` is cleared in the replacing transaction and the bytes deleted after the commit,
+best-effort (the orphan sweep collects a failed delete), so the quota is exact at commit. The baseline's
+column comment ("cleared only once its file is deleted") says the opposite order and is frozen; the next V2
+migration's `COMMENT ON COLUMN` corrects it.
 
 **As built (M2.6).**
 - `Storage:LibraryRoot` defaults to `Storage:RootPath` (the persistent volume), so the keys `library/…`
@@ -536,27 +539,32 @@ their `server_storage_key` is cleared only once the bytes are gone (schema comme
   `/storage/uploads/*` (`UserStoragePolicy`, nginx). Every key is built from ids and the stored
   `format`, never from client text. Book bytes are served `Cache-Control: private, no-store`.
 - **Quota** = `SUM(byte_size)` of the user's files with `server_storage_key` set, against legacy's tier
-  limits and `storage_limit_override_bytes`. A part checks it cheaply (stored + this user's parts on
-  disk + this part); the complete decides inside `AttachContentAsync`'s transaction, which takes
-  `pg_advisory_xact_lock` on the user id, so concurrent completes cannot together pass the limit. A
-  superseded version counts until the sweep deletes its bytes.
+  limits and `storage_limit_override_bytes`. A part checks it cheaply (stored + this file's size); the
+  complete decides inside `AttachContentAsync`'s transaction, which takes `pg_advisory_xact_lock` on
+  the user id, so concurrent completes cannot together pass the limit. A replacement releases the old
+  version's bytes at once, so they stop counting at its commit.
 - **Order of writes.** Attach: lock, checks, row update, place the bytes, commit (a failed place rolls
   the row back). Stop syncing: clear the row (returning the key it held, under its row lock), then
-  delete those bytes. Cover: stage beside the target, update the row, move into place.
+  delete those bytes. Replace: clear the old version's key with its currency, delete its bytes after
+  the commit. Cover: stage beside the target, update the row, move into place.
 - **Sweeps** (the worker, transitional ingestion host), on their own clocks whatever the queue: about
-  once a minute, superseded bytes then their key, and upload parts untouched for a day (the api never
-  sweeps); once a day, every file under `library/` older than an hour that no `server_storage_key` or
-  `cover_key` names, then empty directories. That one orphan sweep collects whatever lost its row (a
-  commit that failed after the place, a merge's dropped guest copies, a failed delete). A removed book
-  keeps its bytes (removal is a hide). An account delete lists the user's keys, deletes the V2 rows,
-  then those files and the user's directories (`V2IdentityMirror`).
+  once a minute, upload parts untouched for a day (the api never sweeps) and the stuck-jobs gauge; once
+  a day, every file under `library/` older than an hour that no `server_storage_key` or
+  `cover_key` names, then empty directories older than an hour. That one orphan sweep collects
+  whatever lost its row (a commit that failed after the place, a merge's dropped guest copies, a failed
+  delete). A removed book keeps its bytes (removal is a hide). An account delete lists the user's keys,
+  deletes the V2 rows, then the user's directories and any listed key outside them (`V2IdentityMirror`).
+- **Parts.** Not summed against the file's `byteSize`: stray parts of an earlier chunking (another
+  `maxPartBytes`, another device) must not block a new one; the complete checks size and sha256. A
+  complete that finds a part missing re-reads the row: a concurrent complete stored it → 200. Parts go
+  on success, `content_mismatch`, `quota_exceeded` and `file_replaced` (a superseded version is never
+  uploadable again); they stay on `incomplete_upload` and `book_removed` (a restore may follow).
 - **Extraction failures.** A file the extractor cannot read fails its job. Anything that throws (disk,
   database) leaves the job processing: the stuck reclaim retries it, and 3 attempts end it.
 - `ponytail:` a guest→account merge does not move bytes: the account's file rows keep keys under the
   guest's directory (every read goes through the stored key, so they work; an account delete removes
   them by key). Moving them is step 5 of the merge above, deferred until a storage report needs it.
-- A part may not take the file past its `byteSize` (400 `invalid_payload`). The parts route reads the raw body
-  (no JSON binder); the global body cap (500 MB) is above `maxPartBytes`.
+- The parts route reads the raw body (no JSON binder); the global body cap (500 MB) is above `maxPartBytes`.
 
 ## Pull and push
 
@@ -748,9 +756,9 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 | M2.4 | `POST /books/{bookId}/shares` · `GET /books/{bookId}/shares` · `DELETE /shares/{id}` | share | 201 · 200 replay · 409 `operation_conflict` / `unknown_file` · 404 `book_not_found` / `not_found` · 204 |
 | M2.4 | `POST /books/{bookId}/checkpoints` · `GET /books/{bookId}/checkpoints?chapterKey=&cursor=&limit=` (wire: `{items, cursor, hasMore}`, the feeds' `ChangeFeedDto`; `cursor` null on the last page; paged internally by M1.4's `CheckpointPage`) · `DELETE /checkpoints/{id}` | checkpoint | 201 · 200 replay · 400 `invalid_payload` (`sharedChapterId` without `chapterKey`) · 409 `operation_conflict` / `unknown_file` · 422 `share_mismatch` · 404 `book_not_found` / `not_found` · 204 |
 | M2.4 | `PUT /books/{bookId}/checkpoint-saving` | `{enabled}` | 200 |
-| M2.6 | `PUT /books/{bookId}/files/{fileId}/parts/{index}` | bytes, `Content-Length` ≤ `maxPartBytes`, `index` 0–999 | 200 `{index, size}` · 411 `length_required` · 400 `invalid_payload` (index, part over `maxPartBytes`, parts past `byteSize`) · 413 `quota_exceeded` · 409 `file_replaced` / `unknown_file` / `book_removed` · 404 `book_not_found` |
-| M2.6 | `POST /books/{bookId}/files/{fileId}/content` | `{partCount}` (1–1000) | 200 file (also a replay: already stored, no quota check) · 422 `content_mismatch` (parts deleted) · 400 `incomplete_upload` (parts kept) · 413 `quota_exceeded` (parts deleted) · 409 `file_replaced` / `unknown_file` / `book_removed` · 404 `book_not_found`. Success queues the transitional extraction for `epub`/`pdf` |
-| M2.6 | `GET /books/{bookId}/files/{fileId}/content` | `Range` | 200/206 (`Accept-Ranges`, any version still stored; `nosniff` and a sandbox CSP, as `/storage`) · 404 `no_content` (no key, or the bytes missing on disk: logged as drift) · 409 `unknown_file` · 404 `book_not_found` |
+| M2.6 | `PUT /books/{bookId}/files/{fileId}/parts/{index}` | bytes, `Content-Length` ≤ `maxPartBytes`, `index` 0–999 | 200 `{index, size}` · 411 `length_required` · 400 `invalid_payload` (index, part over `maxPartBytes`) · 413 `quota_exceeded` · 409 `file_replaced` / `unknown_file` / `book_removed` · 404 `book_not_found` |
+| M2.6 | `POST /books/{bookId}/files/{fileId}/content` | `{partCount}` (1–1000) | 200 file (also a replay: already stored, no quota check) · 422 `content_mismatch` (parts deleted) · 400 `incomplete_upload` (parts kept) · 413 `quota_exceeded` (parts deleted) · 409 `file_replaced` (parts deleted) / `unknown_file` / `book_removed` (parts kept) · 404 `book_not_found`. Success queues the transitional extraction for `epub`/`pdf` |
+| M2.6 | `GET /books/{bookId}/files/{fileId}/content` | `Range` | 200/206 (`Accept-Ranges`, the current version or a merged-in older one still stored; `Cache-Control: private, no-store`, `nosniff` and a sandbox CSP, as `/storage`) · 404 `no_content` (no key, or the bytes missing on disk: logged as drift) · 409 `unknown_file` · 404 `book_not_found` |
 | M2.6 **Transitional** (dropped at M6.4) | `GET /books/{bookId}/files/{fileId}/chapters` | — | 200 `{items: [{chapterKey, chapterNumber, title, wordCount}], ingestion: "queued"\|"processing"\|"succeeded"\|"failed"\|null}` (items empty while the job runs; `ingestion` from the file's latest job) · 409 `unknown_file` · 404 `book_not_found` |
 | M2.6 **Transitional** (dropped at M6.4) | `GET /books/{bookId}/files/{fileId}/chapters/{chapterKey}` | — | 200 `{chapterKey, chapterNumber, title, html, wordCount, previous, next}` (neighbours in reading order, null at an end) · 400 `invalid_payload` (key) · 404 `not_found` · 409 `unknown_file` · 404 `book_not_found`. Read-only: no chapter editing on V2 (#1091) |
 

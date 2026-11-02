@@ -21,9 +21,6 @@ public interface ILibraryFileStore
     /// </summary>
     Task<long?> SavePartAsync(Guid userId, Guid fileId, int index, Stream body, long maxBytes, CancellationToken ct);
 
-    /// <summary>The user's part bytes on disk, all uploads, and those of <paramref name="fileId"/>, each without part <paramref name="exceptIndex"/> of that file (a re-sent part replaces it).</summary>
-    (long User, long File) PartBytes(Guid userId, Guid fileId, int exceptIndex);
-
     /// <summary>
     /// Joins parts <c>0..partCount-1</c> into a temp file next to <paramref name="key"/>'s place, hashing as it
     /// streams. Null when a part is missing (the parts stay for a retry). The parts are not touched.
@@ -38,14 +35,14 @@ public interface ILibraryFileStore
 
     void DeleteParts(Guid userId, Guid fileId);
 
-    /// <summary>Deletes every upload untouched for <see cref="StaleAfter"/>, all users (the worker's sweep). Never throws.</summary>
+    /// <summary>Deletes every upload untouched for a day, all users (the worker's sweep). Never throws.</summary>
     void SweepStaleParts(DateTimeOffset now);
 
-    /// <summary>The keys of every file under <c>library/</c> last written before <paramref name="cutoff"/>, temp files included: the orphan sweep's candidates.</summary>
-    IReadOnlyList<string> ListLibraryFilesOlderThan(DateTimeOffset cutoff);
+    /// <summary>The keys of every file under <c>library/</c> last written before <paramref name="cutoff"/>, temp files included, read lazily: the orphan sweep's candidates.</summary>
+    IEnumerable<string> EnumerateLibraryFilesOlderThan(DateTimeOffset cutoff);
 
-    /// <summary>Removes empty directories under <c>library/</c> and <c>uploads/</c>. Never throws.</summary>
-    void RemoveEmptyDirectories();
+    /// <summary>Removes empty directories under <c>library/</c> and <c>uploads/</c> last written before <paramref name="olderThan"/>. Never throws.</summary>
+    void RemoveEmptyDirectories(DateTimeOffset olderThan);
 
     /// <summary>The absolute path of <paramref name="key"/>'s bytes; null when they are not on disk.</summary>
     string? Locate(string key);
@@ -53,15 +50,12 @@ public interface ILibraryFileStore
     /// <summary>Writes <paramref name="bytes"/> to a temp file beside <paramref name="key"/>'s place; <see cref="Place"/> or <see cref="Discard"/> it.</summary>
     Task<StagedContent> StageAsync(string key, ReadOnlyMemory<byte> bytes, CancellationToken ct);
 
-    /// <summary>Deletes <paramref name="key"/>'s bytes; nothing there is fine.</summary>
-    void Delete(string key);
+    /// <summary>Deletes <paramref name="key"/>'s bytes. Never throws: false when they could not be deleted (nothing there counts as deleted).</summary>
+    bool TryDelete(string key);
 
     /// <summary>Deletes everything of a deleted account: its library and its parts. Never throws.</summary>
     void DeleteUser(Guid userId);
-
-    /// <summary>How long an upload's parts wait for their complete (legacy's window).</summary>
-    static readonly TimeSpan StaleAfter = TimeSpan.FromDays(1);
 }
 
-/// <summary>Joined parts in a temp file, not yet in place: what they hash to and how long they are.</summary>
-public sealed record StagedContent(string Key, string TempPath, string Sha256, long ByteSize);
+/// <summary>Bytes in a temp file, not yet in place, and how long they are; <see cref="Sha256"/> only for joined parts (a complete checks it).</summary>
+public sealed record StagedContent(string Key, string TempPath, string? Sha256, long ByteSize);

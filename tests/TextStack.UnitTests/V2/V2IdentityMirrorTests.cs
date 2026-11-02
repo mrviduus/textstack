@@ -76,13 +76,13 @@ public class V2IdentityMirrorTests
         _library.Setup(l => l.ListStorageKeysAsync(_account.Id, It.IsAny<CancellationToken>()))
             .Callback(() => order.Add("list")).ReturnsAsync(["library/gu/guest/b/f.epub", "library/ac/account/b/cover.png"]);
         _users.Setup(u => u.DeleteAsync(_account.Id, It.IsAny<CancellationToken>())).Callback(() => order.Add("rows")).ReturnsAsync(true);
-        _files.Setup(f => f.Delete(It.IsAny<string>())).Callback((string key) => order.Add(key));
+        _files.Setup(f => f.TryDelete(It.IsAny<string>())).Callback((string key) => order.Add(key)).Returns(true);
         _files.Setup(f => f.DeleteUser(_account.Id)).Callback(() => order.Add("dirs"));
 
         await Mirror().DeleteAsync(_account.Id);
 
         // A merged account's file under the former guest's directory goes too, at delete time.
-        Assert.Equal(["list", "rows", "library/gu/guest/b/f.epub", "library/ac/account/b/cover.png", "dirs"], order);
+        Assert.Equal(["list", "rows", "dirs", "library/gu/guest/b/f.epub", "library/ac/account/b/cover.png"], order);
     }
 
     [Fact]

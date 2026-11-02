@@ -18,19 +18,18 @@ namespace Worker.Services;
 /// Transitional. Dropped at M6.4 once the V2 reader serves EPUB and PDF on all clients; see ADR-031.
 /// <para>Extracts the chapters of uploaded V2 files into <c>book_chapters</c> (the extraction half of
 /// legacy's <see cref="UserIngestionService"/>; metadata stays the client's, owner decision 5), and
-/// sweeps the bytes the library no longer needs: superseded versions' and day-old upload parts.</para>
+/// sweeps the bytes the library no longer needs: day-old upload parts and orphans.</para>
 /// </summary>
 public sealed class V2IngestionService(
     IIngestionJobRepository jobs, ILibraryRepository library, IBookChapterRepository chapters,
     ILibraryFileStore files, IExtractorRegistry extractors, ILogger<V2IngestionService> logger)
 {
-    public const int MaxAttempts = IngestionService.MaxAttempts;
-    public static readonly TimeSpan StuckAfter = UserIngestionService.StuckJobTimeout;
-    private const int SweepBatch = 50;
-    private const int OrphanBatch = 1000;
+    private const int MaxAttempts = IngestionService.MaxAttempts;
+    private static readonly TimeSpan StuckAfter = UserIngestionService.StuckJobTimeout;
 
-    /// <summary>A file younger than this may be an attach or a cover between its place and its commit: never an orphan yet.</summary>
-    public static readonly TimeSpan OrphanAge = TimeSpan.FromHours(1);
+    // A file younger than this may be an attach or a cover between its place and its commit, and a
+    // directory that young may be about to receive one: neither is an orphan yet.
+    private static readonly TimeSpan OrphanAge = TimeSpan.FromHours(1);
 
     /// <summary>Fails exhausted jobs, then claims and runs the next one; false when the queue is empty.</summary>
     public async Task<bool> ProcessNextAsync(CancellationToken ct)
@@ -129,26 +128,12 @@ public sealed class V2IngestionService(
     }
 
     /// <summary>
-    /// Deletes what the library no longer needs: superseded versions' bytes (the key cleared only once
-    /// they are gone; a failure is retried next pass) and upload parts untouched for a day. Then the
-    /// stuck-jobs gauge. A removed book keeps its bytes: removal is a hide (owner decision 11).
+    /// Deletes upload parts untouched for a day, then sets the stuck-jobs gauge. Superseded bytes go at
+    /// replace time; a removed book keeps its bytes (removal is a hide, owner decision 11).
     /// </summary>
     public async Task SweepAsync(CancellationToken ct)
     {
         files.SweepStaleParts(DateTimeOffset.UtcNow);
-        foreach (var file in await library.ListSupersededWithContentAsync(SweepBatch, ct))
-        {
-            try
-            {
-                files.Delete(file.ServerStorageKey!);
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                logger.LogWarning(e, "Could not delete superseded V2 file {FileId} at {StorageKey}; retried next pass", file.Id, file.ServerStorageKey);
-                continue;
-            }
-            await library.ForgetSupersededContentAsync(file.Id, ct);
-        }
         IngestionMetrics.SetStuckJobs("v2_ingestion", await jobs.CountStuckAsync(StuckAfter, ct));
     }
 
@@ -156,26 +141,15 @@ public sealed class V2IngestionService(
     /// Deletes bytes under <c>library/</c> older than <see cref="OrphanAge"/> that no file or cover names,
     /// then empty directories. One mechanism for every way bytes lose their row: a commit that failed
     /// after the place, a merge's dropped guest copies, a crashed join's temp file, a key cleared whose
-    /// delete failed.
+    /// delete failed. The keys are read first: a file written after that is younger than the cutoff.
     /// </summary>
     public async Task SweepOrphansAsync(CancellationToken ct)
     {
-        var candidates = files.ListLibraryFilesOlderThan(DateTimeOffset.UtcNow - OrphanAge);
-        foreach (var batch in candidates.Chunk(OrphanBatch))
-        {
-            var referenced = await library.ReferencedKeysAsync(batch, ct);
-            foreach (var key in batch.Where(k => !referenced.Contains(k)))
-            {
-                try
-                {
-                    files.Delete(key);
-                }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-                {
-                    logger.LogWarning(e, "Could not delete orphan V2 bytes at {StorageKey}; retried next sweep", key);
-                }
-            }
-        }
-        files.RemoveEmptyDirectories();
+        var referenced = await library.AllStorageKeysAsync(ct);
+        var cutoff = DateTimeOffset.UtcNow - OrphanAge;
+        foreach (var key in files.EnumerateLibraryFilesOlderThan(cutoff))
+            if (!referenced.Contains(key) && !files.TryDelete(key))
+                logger.LogWarning("Could not delete orphan V2 bytes at {StorageKey}; retried next sweep", key);
+        files.RemoveEmptyDirectories(cutoff);
     }
 }

@@ -1,3 +1,4 @@
+using System.Buffers;
 using Application.Entitlements;
 using Application.Identity;
 using Application.Sync;
@@ -24,7 +25,11 @@ public sealed class LibraryContentService(
 
     /// <summary>
     /// One part, at most <paramref name="maxPartBytes"/>, its <paramref name="declaredLength"/> checked
-    /// before a byte is stored. Advisory quota: the stored bytes, every part this user has on disk and this one.
+    /// before a byte is stored. Advisory quota: the stored bytes plus this file's size (the complete decides).
+    /// Parts are not summed against the file's size: stray parts of an earlier chunking must not block a
+    /// new one, and the complete checks size and sha256 anyway. Parts are bounded by MaxParts and swept daily.
+    /// ponytail: a part for a file that already has content is accepted and swept later; refuse it if
+    /// disk use from such retries ever shows up.
     /// </summary>
     public async Task<SyncResult> SavePartAsync(
         Guid userId, Guid bookId, Guid fileId, int index, long declaredLength, Stream body, long maxPartBytes, CancellationToken ct)
@@ -35,12 +40,9 @@ public sealed class LibraryContentService(
         var (missing, book, file) = await TargetAsync(userId, bookId, fileId, ct);
         if ((missing ?? NotUploadable(book!, file!)) is { } refused) return refused;
 
-        var (userParts, fileParts) = files.PartBytes(userId, fileId, index);
-        if (fileParts + declaredLength > file!.ByteSize)
-            return SyncResult.Invalid("part", "The parts are longer than the file's byteSize.");
         var used = await library.StoredBytesAsync(userId, ct);
         var limit = await LimitAsync(userId, ct);
-        if (used + userParts + declaredLength > limit) return QuotaExceeded(used, limit);
+        if (used + file!.ByteSize > limit) return QuotaExceeded(used, limit);
 
         var size = await files.SavePartAsync(userId, fileId, index, body, declaredLength, ct);
         return size is { } stored ? SyncResult.Ok(new UploadedPartDto(index, stored)) : SyncResult.Invalid("part", "The part is empty or longer than its Content-Length.");
@@ -58,35 +60,33 @@ public sealed class LibraryContentService(
 
         var limit = await LimitAsync(userId, ct);
         var staged = await files.AssembleAsync(userId, fileId, r.PartCount.Value, files.FileKey(userId, bookId, fileId, file.Format), ct);
-        if (staged is null) return SyncResult.Fail(SyncCodes.IncompleteUpload);
+        if (staged is null)
+        {
+            // A concurrent complete of the same file may have taken the parts: its outcome is this one's.
+            var now = await library.GetFileAsync(userId, bookId, fileId, ct);
+            return now is { IsCurrent: true, ServerStorageKey: not null } ? SyncResult.Ok(now.ToDto()) : SyncResult.Fail(SyncCodes.IncompleteUpload);
+        }
         try
         {
             if (staged.Sha256 != file.Sha256 || staged.ByteSize != file.ByteSize)
             {
                 files.DeleteParts(userId, fileId);
-                return SyncResult.Fail(SyncCodes.ContentMismatch, current: new ContentMismatchDto(file.Sha256, staged.Sha256, staged.ByteSize));
+                return SyncResult.Fail(SyncCodes.ContentMismatch, current: new ContentMismatchDto(file.Sha256, staged.Sha256!, staged.ByteSize));
             }
             var attach = await library.AttachContentAsync(userId, bookId, fileId, staged.Key, limit, () => files.Place(staged), ct);
-            switch (attach.Outcome)
+            // Stored, refused for good, or a superseded version (never uploadable again): the parts are done.
+            // Removed (a restore may follow) or gone while they were joined: they stay.
+            if (attach.Outcome is not (AttachOutcome.BookRemoved or AttachOutcome.NotFound))
+                files.DeleteParts(userId, fileId);
+            if (attach.Outcome == AttachOutcome.Attached) await EnqueueExtractionAsync(attach.File!, ct);
+            return attach.Outcome switch
             {
-                case AttachOutcome.Attached:
-                    files.DeleteParts(userId, fileId);
-                    await EnqueueExtractionAsync(attach.File!, ct);
-                    return SyncResult.Ok(attach.File!.ToDto());
-                case AttachOutcome.AlreadyStored:
-                    files.DeleteParts(userId, fileId);
-                    return SyncResult.Ok(attach.File!.ToDto());
-                case AttachOutcome.QuotaExceeded:
-                    files.DeleteParts(userId, fileId);
-                    return QuotaExceeded(attach.Used, limit);
-                // Replaced, removed or deleted while the parts were joined.
-                case AttachOutcome.FileReplaced:
-                    return SyncResult.FileReplaced(attach.File);
-                case AttachOutcome.BookRemoved:
-                    return SyncResult.BookRemoved(attach.Book!);
-                default:
-                    return SyncResult.BookNotFound;
-            }
+                AttachOutcome.Attached or AttachOutcome.AlreadyStored => SyncResult.Ok(attach.File!.ToDto()),
+                AttachOutcome.QuotaExceeded => QuotaExceeded(attach.Used, limit),
+                AttachOutcome.FileReplaced => SyncResult.FileReplaced(attach.File),
+                AttachOutcome.BookRemoved => SyncResult.BookRemoved(attach.Book!),
+                _ => SyncResult.BookNotFound,
+            };
         }
         finally
         {
@@ -123,41 +123,58 @@ public sealed class LibraryContentService(
         return SyncResult.Bytes(new StoredBytes(path, ContentTypeOf(file.Format), CacheControl: "private, no-store"));
     }
 
-    /// <summary>"Stop syncing this file": the row says so first, then the bytes it named go; idempotent, any version.</summary>
+    /// <summary>
+    /// "Stop syncing this file": the row says so first, then the bytes it named go (a failed delete leaves
+    /// them to the orphan sweep); idempotent, any version.
+    /// </summary>
     public async Task<SyncResult> RemoveAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
     {
-        if (await library.MissingBookOrFileAsync(userId, bookId, fileId, ct) is { } missing) return missing;
-        if (await library.RemoveContentAsync(userId, bookId, fileId, ct) is { } cleared) files.Delete(cleared);
-        return SyncResult.NoContent;
+        if (await library.RemoveContentAsync(userId, bookId, fileId, ct) is { } cleared)
+        {
+            if (!files.TryDelete(cleared)) logger.LogWarning("Could not delete {StorageKey} of file {FileId}; the orphan sweep will", cleared, fileId);
+            return SyncResult.NoContent;
+        }
+        // Nothing cleared: already stopped or nothing stored (204), or not a version of the user's book.
+        return await library.MissingBookOrFileAsync(userId, bookId, fileId, ct) ?? SyncResult.NoContent;
     }
 
     /// <summary>A client-extracted cover: size and format checked by its first bytes, never parsed (owner decision 4).</summary>
-    public async Task<SyncResult> PutCoverAsync(Guid userId, Guid bookId, string? contentType, Stream body, CancellationToken ct)
+    public async Task<SyncResult> PutCoverAsync(Guid userId, Guid bookId, string? contentType, long? contentLength, Stream body, CancellationToken ct)
     {
-        var bytes = new byte[MaxCoverBytes + 1];
-        var length = 0;
-        int read;
-        while (length < bytes.Length && (read = await body.ReadAsync(bytes.AsMemory(length), ct)) > 0) length += read;
-        if (length is 0 or > MaxCoverBytes) return SyncResult.Invalid("cover", $"A cover is 1 byte to {MaxCoverBytes / 1024 / 1024} MB.");
-        if (CoverExtension(contentType, bytes.AsSpan(0, length)) is not { } extension)
-            return SyncResult.Invalid("cover", "A cover is a JPEG, PNG or WebP image sent with its own Content-Type.");
-
         var book = await library.GetAsync(userId, bookId, ct);
         if (book is null) return SyncResult.BookNotFound;
         if (book.RemovedAt is not null) return SyncResult.BookRemoved(book);
-        // Staged, then the row, then into place: a book deleted meanwhile leaves no cover behind.
-        var staged = await files.StageAsync(files.CoverKey(userId, bookId, extension), bytes.AsMemory(0, length), ct);
+        var tooBig = SyncResult.Invalid("cover", $"A cover is 1 byte to {MaxCoverBytes / 1024 / 1024} MB.");
+        if (contentLength > MaxCoverBytes) return tooBig;
+
+        // One byte over the cap tells an oversized body sent without a Content-Length.
+        var buffer = ArrayPool<byte>.Shared.Rent(MaxCoverBytes + 1);
         try
         {
-            var updated = await library.SetCoverAsync(userId, bookId, staged.Key, ct);
-            if (updated is null) return SyncResult.BookNotFound;
-            files.Place(staged);
-            if (book.CoverKey is { } old && old != staged.Key) files.Delete(old);
-            return SyncResult.Ok(updated.ToDto());
+            var length = await body.ReadAtLeastAsync(buffer.AsMemory(0, MaxCoverBytes + 1), MaxCoverBytes + 1, throwOnEndOfStream: false, ct);
+            if (length is 0 or > MaxCoverBytes) return tooBig;
+            if (CoverExtension(contentType, buffer.AsSpan(0, length)) is not { } extension)
+                return SyncResult.Invalid("cover", "A cover is a JPEG, PNG or WebP image sent with its own Content-Type.");
+
+            // Staged, then the row, then into place: a book deleted meanwhile leaves no cover behind.
+            var staged = await files.StageAsync(files.CoverKey(userId, bookId, extension), buffer.AsMemory(0, length), ct);
+            try
+            {
+                var updated = await library.SetCoverAsync(userId, bookId, staged.Key, ct);
+                if (updated is null) return SyncResult.BookNotFound;
+                files.Place(staged);
+                if (book.CoverKey is { } old && old != staged.Key && !files.TryDelete(old))
+                    logger.LogWarning("Could not delete the replaced cover {StorageKey}; the orphan sweep will", old);
+                return SyncResult.Ok(updated.ToDto());
+            }
+            finally
+            {
+                files.Discard(staged);
+            }
         }
         finally
         {
-            files.Discard(staged);
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 
@@ -173,8 +190,7 @@ public sealed class LibraryContentService(
             logger.LogWarning("V2 book {BookId} of user {UserId} names cover {CoverKey}, which is not a stored cover", bookId, userId, key);
             return SyncResult.NotFound;
         }
-        var contentType = type.ContentType;
-        return SyncResult.Bytes(new StoredBytes(path, contentType, $"\"{book.UpdatedAt.UtcTicks}\"", "private, max-age=31536000"));
+        return SyncResult.Bytes(new StoredBytes(path, type.ContentType, $"\"{book.UpdatedAt.UtcTicks}\"", "private, max-age=31536000"));
     }
 
     private static readonly (string ContentType, string Extension, byte[] Magic)[] CoverTypes =
@@ -207,7 +223,8 @@ public sealed class LibraryContentService(
     {
         var book = await library.GetAsync(userId, bookId, ct);
         if (book is null) return (SyncResult.BookNotFound, null, null);
-        var file = await library.GetFileAsync(userId, bookId, fileId, ct);
+        // Uploads name the current file: the book read already carries it.
+        var file = book.CurrentFile?.Id == fileId ? book.CurrentFile : await library.GetFileAsync(userId, bookId, fileId, ct);
         return file is null ? (SyncResult.UnknownFile, null, null) : (null, book, file);
     }
 

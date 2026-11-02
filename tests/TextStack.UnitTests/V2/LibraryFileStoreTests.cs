@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using Application.Library;
 using Infrastructure.Services;
-using Microsoft.Extensions.Configuration;
 
 namespace TextStack.UnitTests.V2;
 
@@ -90,27 +89,19 @@ public sealed class LibraryFileStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Discard_StagedFile_IsDeletedAndNothingIsPlaced()
+    public async Task StageAsync_PlacedOrDiscarded_TheSecondPlaceReplacesAndADiscardLeavesNothing()
     {
-        await PartAsync(0, [1]);
-        var staged = (await _store.AssembleAsync(User, FileId, 1, Key, Ct))!;
+        var key = _store.CoverKey(User, BookId, "png");
 
-        _store.Discard(staged);
+        await PutAsync(key, [1, 2]);
+        await PutAsync(key, [3]);
+        var discarded = await _store.StageAsync(Key, new byte[] { 1 }, Ct);
+        _store.Discard(discarded);
 
-        Assert.False(File.Exists(staged.TempPath));
+        Assert.Equal([3], await File.ReadAllBytesAsync(_store.Locate(key)!, Ct));
         Assert.Null(_store.Locate(Key));
-    }
-
-    [Fact]
-    public async Task PartBytes_UserAndFile_CountEveryPartButTheOneBeingResent()
-    {
-        var other = Guid.NewGuid();
-        await PartAsync(0, new byte[10]);
-        await PartAsync(1, new byte[20]);
-        await PartAsync(0, new byte[40], other);
-
-        Assert.Equal((60L, 20L), _store.PartBytes(User, FileId, exceptIndex: 0));
-        Assert.Equal((0L, 0L), _store.PartBytes(Guid.NewGuid(), FileId, 0));
+        Assert.False(File.Exists(discarded.TempPath));
+        Assert.Null(discarded.Sha256);
     }
 
     [Fact]
@@ -124,28 +115,27 @@ public sealed class LibraryFileStoreTests : IDisposable
         _store.SweepStaleParts(DateTimeOffset.UtcNow);
 
         Assert.False(Directory.Exists(UploadDir));
-        Assert.Equal((1L, 1L), _store.PartBytes(User, other, -1));
+        Assert.True(Directory.Exists(Path.Combine(_root, "uploads", User.ToString(), other.ToString())));
     }
 
     [Fact]
-    public async Task StageAsync_SameKeyTwice_TheSecondPlaceReplacesTheFirst()
+    public async Task SavePartAsync_IntoAnUploadTheSweepJustRemoved_StillStores()
     {
-        var key = _store.CoverKey(User, BookId, "png");
+        await PartAsync(0, [1]);
+        Directory.SetLastWriteTimeUtc(UploadDir, DateTime.UtcNow.AddDays(-2));
+        _store.SweepStaleParts(DateTimeOffset.UtcNow);
 
-        await PutAsync(key, [1, 2]);
-        await PutAsync(key, [3]);
-
-        Assert.Equal([3], await File.ReadAllBytesAsync(_store.Locate(key)!, Ct));
+        Assert.Equal(1L, await PartAsync(1, [2]));
+        Assert.Single(Directory.EnumerateFiles(UploadDir));
     }
 
     [Fact]
-    public async Task Delete_StoredAndAbsentKey_RemovesTheBytesAndDoesNotThrow()
+    public async Task TryDelete_StoredAndAbsentKey_RemovesTheBytesAndAnswersTrue()
     {
         await PutAsync(Key, [1]);
 
-        _store.Delete(Key);
-        _store.Delete(_store.FileKey(Guid.NewGuid(), BookId, FileId, "pdf"));
-
+        Assert.True(_store.TryDelete(Key));
+        Assert.True(_store.TryDelete(_store.FileKey(Guid.NewGuid(), BookId, FileId, "pdf")));
         Assert.Null(_store.Locate(Key));
     }
 
@@ -165,58 +155,38 @@ public sealed class LibraryFileStoreTests : IDisposable
     }
 
     [Fact]
-    public void RootOf_NoLibraryRoot_IsTheStorageRootSoKeysSitDirectlyOnTheVolume()
-    {
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Storage:RootPath"] = "/data/storage" }).Build();
-
-        Assert.Equal("/data/storage", LibraryFileStore.RootOf(config));
-    }
-
-    [Fact]
-    public async Task StageAsync_Discarded_LeavesNothing()
-    {
-        var staged = await _store.StageAsync(Key, new byte[] { 1 }, Ct);
-
-        _store.Discard(staged);
-
-        Assert.Null(_store.Locate(Key));
-        Assert.Empty(_store.ListLibraryFilesOlderThan(DateTimeOffset.UtcNow.AddMinutes(1)));
-    }
-
-    [Fact]
-    public async Task SavePartAsync_IntoAnUploadTheSweepJustRemoved_StillStores()
-    {
-        await PartAsync(0, [1]);
-        Directory.SetLastWriteTimeUtc(UploadDir, DateTime.UtcNow.AddDays(-2));
-        _store.SweepStaleParts(DateTimeOffset.UtcNow);
-
-        Assert.Equal(1L, await PartAsync(1, [2]));
-        Assert.Equal((1L, 1L), _store.PartBytes(User, FileId, -1));
-    }
-
-    [Fact]
-    public async Task ListLibraryFilesOlderThan_OldAndNewFiles_ListsTheOldKeysOnly()
+    public async Task EnumerateLibraryFilesOlderThan_OldAndNewFiles_ListsTheOldKeysOnly()
     {
         var old = _store.CoverKey(User, BookId, "png");
         await PutAsync(old, [1]);
         await PutAsync(Key, [1]);
         File.SetLastWriteTimeUtc(_store.Locate(old)!, DateTime.UtcNow.AddHours(-2));
 
-        Assert.Equal([old], _store.ListLibraryFilesOlderThan(DateTimeOffset.UtcNow.AddHours(-1)));
+        Assert.Equal([old], _store.EnumerateLibraryFilesOlderThan(DateTimeOffset.UtcNow.AddHours(-1)));
     }
 
     [Fact]
-    public async Task RemoveEmptyDirectories_AfterTheLastFileGoes_RemovesTheChainButNotTheRoots()
+    public async Task RemoveEmptyDirectories_OldEnough_RemovesTheEmptiedChainButNotTheRoots()
     {
         await PutAsync(Key, [1]);
         await PartAsync(0, [1]);
-        _store.Delete(Key);
+        _store.TryDelete(Key);
         _store.DeleteParts(User, FileId);
 
-        _store.RemoveEmptyDirectories();
+        _store.RemoveEmptyDirectories(DateTimeOffset.UtcNow.AddMinutes(1));
 
         Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(_root, "library")));
         Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(_root, "uploads")));
+    }
+
+    [Fact]
+    public async Task RemoveEmptyDirectories_YoungDirectory_Stays()
+    {
+        await PutAsync(Key, [1]);
+        _store.TryDelete(Key);
+
+        _store.RemoveEmptyDirectories(DateTimeOffset.UtcNow.AddHours(-1));
+
+        Assert.True(Directory.Exists(Path.GetDirectoryName(Path.Combine(_root, Key))));
     }
 }

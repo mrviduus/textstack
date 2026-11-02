@@ -24,26 +24,17 @@ public sealed class V2IdentityMirror(
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// The users cascade drops the rows; the account's bytes go after it, best-effort: every key it held,
-    /// listed before the delete (after a merge some sit under the former guest's directory), then its own
-    /// directories. What fails here the worker's orphan sweep collects within a day.
+    /// The users cascade drops the rows; the account's bytes go after it, best-effort: its own directories,
+    /// then any key it held elsewhere (listed before the delete: after a merge some sit under the former
+    /// guest's directory; the rest are already gone, a cheap no-op). What fails here the orphan sweep collects.
     /// </summary>
     public Task DeleteAsync(Guid userId) => MirrorAsync(userId, userId, async ct =>
     {
         var keys = await library.ListStorageKeysAsync(userId, ct);
         await users.DeleteAsync(userId, ct);
-        foreach (var key in keys)
-        {
-            try
-            {
-                files.Delete(key);
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                logger.LogWarning(e, "Could not delete {StorageKey} of deleted user {UserId}; the orphan sweep will", key, userId);
-            }
-        }
         files.DeleteUser(userId);
+        foreach (var key in keys)
+            if (!files.TryDelete(key)) logger.LogWarning("Could not delete {StorageKey} of deleted user {UserId}; the orphan sweep will", key, userId);
     });
 
     /// <summary>A guest registered in place: its V2 row becomes the account. No V2 row: nothing to do.</summary>

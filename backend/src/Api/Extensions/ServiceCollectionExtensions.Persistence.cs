@@ -49,7 +49,7 @@ public static partial class ServiceCollectionExtensions
         // File storage
         var storagePath = configuration["Storage:RootPath"] ?? "/storage";
         services.AddSingleton<IFileStorageService>(new LocalFileStorageService(storagePath));
-        services.AddSingleton<Application.Library.ILibraryFileStore>(new LibraryFileStore(LibraryFileStore.RootOf(configuration)));
+        services.AddSingleton<Application.Library.ILibraryFileStore>(new LibraryFileStore(configuration["Storage:LibraryRoot"] ?? storagePath));
 
         return services;
     }

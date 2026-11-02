@@ -4,7 +4,7 @@ using Domain.Library;
 
 namespace Infrastructure.Persistence.Repositories;
 
-// The bytes the server holds (M2.6): attach under the quota, "stop syncing", the cover, the superseded-bytes sweep.
+// The bytes the server holds (M2.6): attach under the quota, "stop syncing", the cover, the keys account delete and the orphan sweep read.
 public sealed partial class LibraryRepository
 {
     // One user's attaches run one at a time, so N uploads that each fit cannot together pass the limit.
@@ -22,14 +22,13 @@ public sealed partial class LibraryRepository
 
     private const string SumStored = "SELECT COALESCE(sum(byte_size), 0)::bigint FROM book_files WHERE user_id = @userId AND server_storage_key IS NOT NULL";
 
+    // user_id here is defence in depth: the locked reads above already proved the file is the user's.
     private const string SetStorageKey = $"""
         WITH f AS (
             UPDATE book_files SET server_storage_key = @storageKey, content_removed_at = NULL
             WHERE user_id = @userId AND book_id = @bookId AND id = @fileId
             RETURNING {FileColumns}
-        ), b AS (
-            UPDATE books SET updated_at = now() WHERE user_id = @userId AND id = @bookId
-        )
+        ), b AS ({TouchBook})
         SELECT {FileColumns} FROM f
         """;
 
@@ -102,16 +101,16 @@ public sealed partial class LibraryRepository
         return (await conn.QueryAsync<string>(new CommandDefinition(SelectUsersKeys, new { userId }, cancellationToken: ct))).AsList();
     }
 
-    private const string SelectReferencedKeys = """
-        SELECT server_storage_key FROM book_files WHERE server_storage_key = ANY(@keys)
+    private const string SelectAllKeys = """
+        SELECT server_storage_key FROM book_files WHERE server_storage_key IS NOT NULL
         UNION
-        SELECT cover_key FROM books WHERE cover_key = ANY(@keys)
+        SELECT cover_key FROM books WHERE cover_key IS NOT NULL
         """;
 
-    public async Task<IReadOnlySet<string>> ReferencedKeysAsync(IReadOnlyList<string> keys, CancellationToken ct)
+    public async Task<IReadOnlySet<string>> AllStorageKeysAsync(CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return (await conn.QueryAsync<string>(new CommandDefinition(SelectReferencedKeys, new { keys = keys.ToArray() }, cancellationToken: ct))).ToHashSet();
+        return (await conn.QueryAsync<string>(new CommandDefinition(SelectAllKeys, cancellationToken: ct))).ToHashSet();
     }
 
     public async Task<long> StoredBytesAsync(Guid userId, CancellationToken ct)
@@ -131,26 +130,4 @@ public sealed partial class LibraryRepository
 
     public async Task<Book?> SetCoverAsync(Guid userId, Guid bookId, string coverKey, CancellationToken ct) =>
         (await QueryBooksAsync(SetCoverKey, new { userId, bookId, coverKey }, null, ct)).SingleOrDefault();
-
-    private const string SelectSupersededWithContent = $"""
-        SELECT {FileColumns} FROM book_files
-        WHERE NOT is_current AND server_storage_key IS NOT NULL
-        ORDER BY created_at, id
-        LIMIT @limit
-        """;
-
-    public async Task<IReadOnlyList<BookFile>> ListSupersededWithContentAsync(int limit, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return (await conn.QueryAsync<BookFile>(new CommandDefinition(SelectSupersededWithContent, new { limit }, cancellationToken: ct))).AsList();
-    }
-
-    // No feed bump: the library feed carries only current files.
-    private const string ForgetSuperseded = "UPDATE book_files SET server_storage_key = NULL WHERE id = @fileId AND NOT is_current";
-
-    public async Task ForgetSupersededContentAsync(Guid fileId, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(new CommandDefinition(ForgetSuperseded, new { fileId }, cancellationToken: ct));
-    }
 }

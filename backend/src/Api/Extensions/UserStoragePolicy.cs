@@ -23,6 +23,13 @@ public static class UserStoragePolicy
     public const string StoredFileCsp =
         "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'; sandbox";
 
+    /// <summary>The headers of every stored reader file served on this origin: <c>/storage</c> and the V2 bytes routes.</summary>
+    public static void ApplyStoredFileHeaders(IHeaderDictionary headers)
+    {
+        headers.XContentTypeOptions = "nosniff";
+        headers.ContentSecurityPolicy = StoredFileCsp;
+    }
+
     public static bool IsBlocked(PathString path)
     {
         // Cheap exit for every non-storage request. "/storage//users" still starts with /storage.

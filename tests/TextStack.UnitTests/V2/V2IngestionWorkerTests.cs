@@ -46,10 +46,11 @@ public sealed class V2IngestionWorkerTests : IDisposable
 
     public void Dispose() => File.Delete(_bytes);
 
-    private V2IngestionService Service()
+    /// <summary>The service under test; its registry resolves the fake extractor for requests that <paramref name="match"/> (all by default).</summary>
+    private V2IngestionService Service(System.Linq.Expressions.Expression<Func<ExtractionRequest, bool>>? match = null)
     {
         var registry = new Mock<IExtractorRegistry>();
-        registry.Setup(r => r.Resolve(It.IsAny<ExtractionRequest>())).Returns(_extractor.Object);
+        registry.Setup(r => r.Resolve(It.Is(match ?? (_ => true)))).Returns(_extractor.Object);
         return new(_jobs.Object, _library.Object, _chapters.Object, _files.Object, registry.Object, NullLogger<V2IngestionService>.Instance);
     }
 
@@ -77,10 +78,8 @@ public sealed class V2IngestionWorkerTests : IDisposable
     public async Task ProcessAsync_ExtractorPickedByTheStoredFormat_NotTheClientsName()
     {
         Extracts([Unit("One", 0)]);
-        var registry = new Mock<IExtractorRegistry>();
-        registry.Setup(r => r.Resolve(It.Is<ExtractionRequest>(q => q.FileName == $"{FileId}.epub" && !q.Options.ExtractInlineImages))).Returns(_extractor.Object);
 
-        await new V2IngestionService(_jobs.Object, _library.Object, _chapters.Object, _files.Object, registry.Object, NullLogger<V2IngestionService>.Instance).ProcessAsync(_job, Ct);
+        await Service(q => q.FileName == $"{FileId}.epub" && !q.Options.ExtractInlineImages).ProcessAsync(_job, Ct);
 
         _jobs.Verify(j => j.SucceedAsync(_job.Id, 2, "epub", It.IsAny<CancellationToken>()));
     }
@@ -160,44 +159,54 @@ public sealed class V2IngestionWorkerTests : IDisposable
     }
 
     [Fact]
-    public async Task SweepAsync_SupersededStoredFile_DeletesTheBytesThenForgetsTheKey()
+    public async Task ProcessNextAsync_EmptyQueue_FailsExhaustedJobsFirst()
     {
-        var old = new BookFile { Id = Guid.NewGuid(), ServerStorageKey = "library/old.epub" };
-        _library.Setup(l => l.ListSupersededWithContentAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync([old]);
+        // Without this a job that crashed its worker on every attempt stays processing, and its TOC says so for good.
+        _jobs.Setup(j => j.FailExhaustedAsync(3, It.IsAny<TimeSpan>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync([_job]);
 
-        await Service().SweepAsync(Ct);
+        Assert.False(await Service().ProcessNextAsync(Ct));
 
-        _files.Verify(f => f.Delete("library/old.epub"));
-        _library.Verify(l => l.ForgetSupersededContentAsync(old.Id, It.IsAny<CancellationToken>()));
-        _files.Verify(f => f.SweepStaleParts(It.IsAny<DateTimeOffset>()));
+        _jobs.Verify(j => j.FailExhaustedAsync(3, TimeSpan.FromMinutes(2), Application.Ingestion.IngestionService.ExceededAttemptsError, It.IsAny<CancellationToken>()));
     }
 
     [Fact]
-    public async Task SweepAsync_DeleteFails_KeepsTheKeyForTheNextPass()
+    public async Task SweepAsync_Pass_SweepsStalePartsAndSetsTheGauge()
     {
-        var old = new BookFile { Id = Guid.NewGuid(), ServerStorageKey = "library/old.epub" };
-        _library.Setup(l => l.ListSupersededWithContentAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync([old]);
-        _files.Setup(f => f.Delete("library/old.epub")).Throws(new IOException("busy"));
-
         await Service().SweepAsync(Ct);
 
-        _library.Verify(l => l.ForgetSupersededContentAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _files.Verify(f => f.SweepStaleParts(It.IsAny<DateTimeOffset>()));
+        _jobs.Verify(j => j.CountStuckAsync(It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()));
+    }
+
+    private void OrphanCandidates(params string[] keys)
+    {
+        _files.Setup(f => f.EnumerateLibraryFilesOlderThan(It.Is<DateTimeOffset>(t => t < DateTimeOffset.UtcNow - TimeSpan.FromMinutes(59)))).Returns(keys);
+        _library.Setup(l => l.AllStorageKeysAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new HashSet<string> { "library/kept.epub" });
+        _files.Setup(f => f.TryDelete(It.IsAny<string>())).Returns(true);
     }
 
     [Fact]
     public async Task SweepOrphansAsync_OldFiles_DeletesOnlyThoseNoRowNamesThenEmptyDirectories()
     {
-        _files.Setup(f => f.ListLibraryFilesOlderThan(It.Is<DateTimeOffset>(t => t < DateTimeOffset.UtcNow - TimeSpan.FromMinutes(59))))
-            .Returns(["library/kept.epub", "library/orphan.epub", "library/stale.tmp"]);
-        _library.Setup(l => l.ReferencedKeysAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HashSet<string> { "library/kept.epub" });
+        OrphanCandidates("library/kept.epub", "library/orphan.epub", "library/stale.tmp");
 
         await Service().SweepOrphansAsync(Ct);
 
-        _files.Verify(f => f.Delete("library/orphan.epub"));
-        _files.Verify(f => f.Delete("library/stale.tmp"));
-        _files.Verify(f => f.Delete("library/kept.epub"), Times.Never);
-        _files.Verify(f => f.RemoveEmptyDirectories());
+        _files.Verify(f => f.TryDelete("library/orphan.epub"));
+        _files.Verify(f => f.TryDelete("library/stale.tmp"));
+        _files.Verify(f => f.TryDelete("library/kept.epub"), Times.Never);
+        _files.Verify(f => f.RemoveEmptyDirectories(It.Is<DateTimeOffset>(t => t < DateTimeOffset.UtcNow - TimeSpan.FromMinutes(59))));
+    }
+
+    [Fact]
+    public async Task SweepOrphansAsync_ADeleteFails_GoesOnWithTheRest()
+    {
+        OrphanCandidates("library/busy.epub", "library/orphan.epub");
+        _files.Setup(f => f.TryDelete("library/busy.epub")).Returns(false);
+
+        await Service().SweepOrphansAsync(Ct);
+
+        _files.Verify(f => f.TryDelete("library/orphan.epub"));
     }
 
     private static IConfiguration Config(bool flag, string? v2) => new ConfigurationBuilder()
@@ -223,8 +232,8 @@ public sealed class V2IngestionWorkerTests : IDisposable
         // Every pass claims a job: the queue never drains.
         _jobs.Setup(j => j.FailExhaustedAsync(It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
         _jobs.Setup(j => j.ClaimNextAsync(It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>())).ReturnsAsync(_job);
-        _library.Setup(l => l.ListSupersededWithContentAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
-        _files.Setup(f => f.ListLibraryFilesOlderThan(It.IsAny<DateTimeOffset>())).Returns([]);
+        _library.Setup(l => l.AllStorageKeysAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new HashSet<string>());
+        _files.Setup(f => f.EnumerateLibraryFilesOlderThan(It.IsAny<DateTimeOffset>())).Returns([]);
         Extracts([Unit("One", 0)]);
         var sweeps = 0;
         _files.Setup(f => f.SweepStaleParts(It.IsAny<DateTimeOffset>())).Callback(() => sweeps++);
@@ -236,7 +245,7 @@ public sealed class V2IngestionWorkerTests : IDisposable
         await worker.StopAsync(Ct);
 
         Assert.True(sweeps >= 2);
-        _files.Verify(f => f.RemoveEmptyDirectories(), Times.Once);
+        _files.Verify(f => f.RemoveEmptyDirectories(It.IsAny<DateTimeOffset>()), Times.Once);
     }
 
     [Fact]

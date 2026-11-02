@@ -1,4 +1,3 @@
-using Application.Entitlements;
 using Application.Identity;
 using Application.Library;
 using Application.Sync;
@@ -34,20 +33,21 @@ public class LibraryContentServiceTests
 
     public LibraryContentServiceTests()
     {
+        // The book carries the file as its current one, as the library read does.
+        _library.Setup(l => l.GetAsync(User, BookId, It.IsAny<CancellationToken>())).ReturnsAsync(() => new Book { Id = BookId, UserId = User, CurrentFile = _file });
         _library.Setup(l => l.GetFileAsync(User, BookId, FileId, It.IsAny<CancellationToken>())).ReturnsAsync(() => _file);
         _library.Setup(l => l.GetFileAsync(User, BookId, OldFileId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BookFile { Id = OldFileId, UserId = User, BookId = BookId, Sha256 = Sha, ByteSize = 1000, Format = "epub" });
         // A Free account whose override is the test's limit.
         _users.Setup(u => u.GetAsync(User, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new UserAccount { Id = User, Email = "reader@test", Tier = "Free", StorageLimitOverrideBytes = Limit });
-        _files.Setup(f => f.PartBytes(User, FileId, It.IsAny<int>())).Returns((0L, 0L));
         _files.Setup(f => f.FileKey(User, BookId, FileId, "epub")).Returns(Key);
         _files.Setup(f => f.AssembleAsync(User, FileId, 2, Key, It.IsAny<CancellationToken>())).ReturnsAsync(() => _staged);
         _files.Setup(f => f.SavePartAsync(User, FileId, It.IsAny<int>(), It.IsAny<Stream>(), It.IsAny<long>(), It.IsAny<CancellationToken>())).ReturnsAsync(500L);
     }
 
     private LibraryContentService Service => new(_library.Object, _jobs.Object, _users.Object, _files.Object,
-        EntitlementOptions.Empty, NullLogger<LibraryContentService>.Instance);
+        TestEntitlements.Options, NullLogger<LibraryContentService>.Instance);
 
     private Task<SyncResult> PartAsync(int index = 0, long length = 500, Guid? fileId = null) =>
         Service.SavePartAsync(User, BookId, fileId ?? FileId, index, length, Stream.Null, maxPartBytes: 800, Ct);
@@ -101,24 +101,14 @@ public class LibraryContentServiceTests
     }
 
     [Fact]
-    public async Task SavePartAsync_PartsLongerThanTheFile_IsInvalidPayload()
+    public async Task SavePartAsync_StoredBytesPlusTheFilePastTheLimit_IsQuotaExceededWithUsedAndLimit()
     {
-        _files.Setup(f => f.PartBytes(User, FileId, 1)).Returns((600L, 600L));
-
-        Assert.Equal((400, SyncCodes.InvalidPayload), Code(await PartAsync(index: 1)));
-        _files.Verify(f => f.SavePartAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<Stream>(), It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task SavePartAsync_StoredAndInFlightBytesPastTheLimit_IsQuotaExceededWithUsedAndLimit()
-    {
-        StoresBytes(9_000);
-        _files.Setup(f => f.PartBytes(User, FileId, 0)).Returns((600L, 0L));
+        StoresBytes(9_500);
 
         var result = await PartAsync(length: 500);
 
         Assert.Equal((413, SyncCodes.QuotaExceeded), Code(result));
-        Assert.Equal(new StorageQuotaDto(9_000, Limit), V2Fakes.Error(result).Current);
+        Assert.Equal(new StorageQuotaDto(9_500, Limit), V2Fakes.Error(result).Current);
         _files.Verify(f => f.SavePartAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<Stream>(), It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -194,6 +184,18 @@ public class LibraryContentServiceTests
         _files.Verify(f => f.DeleteParts(It.IsAny<Guid>(), It.IsAny<Guid>()), Times.Never);
     }
 
+    [Fact]
+    public async Task CompleteAsync_PartsTakenByAConcurrentCompleteThatStoredThem_Is200()
+    {
+        // The other complete attached and deleted the parts while this one was joining them.
+        _files.Setup(f => f.AssembleAsync(User, FileId, 2, Key, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => { _file.ServerStorageKey = Key; return null; });
+
+        var result = await CompleteAsync();
+
+        Assert.Equal((200, true), (result.Status, ((BookFileDto)result.Body!).HasContent));
+    }
+
     [Theory]
     [InlineData("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 1000)]
     [InlineData(Sha, 999)]
@@ -247,11 +249,21 @@ public class LibraryContentServiceTests
     }
 
     [Fact]
-    public async Task CompleteAsync_ReplacedWhileJoining_IsFileReplacedAndThePartsStay()
+    public async Task CompleteAsync_ReplacedWhileJoining_IsFileReplacedAndThePartsGo()
     {
         Attaches(new ContentAttachment(AttachOutcome.FileReplaced, new BookFile { Id = OldFileId, Sha256 = Sha, Format = "epub" }));
 
         Assert.Equal((409, SyncCodes.FileReplaced), Code(await CompleteAsync()));
+        // A superseded version is never uploadable again.
+        _files.Verify(f => f.DeleteParts(User, FileId));
+    }
+
+    [Fact]
+    public async Task CompleteAsync_RemovedWhileJoining_IsBookRemovedAndThePartsStayForARestore()
+    {
+        Attaches(new ContentAttachment(AttachOutcome.BookRemoved, Book: new Book { Id = BookId, RemovedAt = DateTimeOffset.UtcNow }));
+
+        Assert.Equal((409, SyncCodes.BookRemoved), Code(await CompleteAsync()));
         _files.Verify(f => f.DeleteParts(It.IsAny<Guid>(), It.IsAny<Guid>()), Times.Never);
     }
 
@@ -293,13 +305,13 @@ public class LibraryContentServiceTests
         _file.ServerStorageKey = "library/read-before.epub";
         var order = new List<string>();
         _library.Setup(l => l.RemoveContentAsync(User, BookId, FileId, It.IsAny<CancellationToken>())).Callback(() => order.Add("row")).ReturnsAsync(Key);
-        _files.Setup(f => f.Delete(Key)).Callback(() => order.Add("bytes"));
+        _files.Setup(f => f.TryDelete(Key)).Callback(() => order.Add("bytes")).Returns(true);
 
         var result = await Service.RemoveAsync(User, BookId, FileId, Ct);
 
         Assert.Equal(204, result.Status);
         Assert.Equal(["row", "bytes"], order);
-        _files.Verify(f => f.Delete("library/read-before.epub"), Times.Never);
+        _files.Verify(f => f.TryDelete("library/read-before.epub"), Times.Never);
     }
 
     [Fact]
@@ -308,7 +320,7 @@ public class LibraryContentServiceTests
         var result = await Service.RemoveAsync(User, BookId, FileId, Ct);
 
         Assert.Equal(204, result.Status);
-        _files.Verify(f => f.Delete(It.IsAny<string>()), Times.Never);
+        _files.Verify(f => f.TryDelete(It.IsAny<string>()), Times.Never);
         _library.Verify(l => l.RemoveContentAsync(User, BookId, FileId, It.IsAny<CancellationToken>()));
     }
 
@@ -326,15 +338,17 @@ public class LibraryContentServiceTests
         _library.Setup(l => l.SetCoverAsync(User, BookId, "library/cover.png", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Book { Id = BookId, Title = "A book", CoverKey = "library/cover.png" });
 
-        var result = await Service.PutCoverAsync(User, BookId, "image/png", new MemoryStream(Png), Ct);
+        _files.Setup(f => f.TryDelete("library/cover.jpg")).Returns(true);
+
+        var result = await Service.PutCoverAsync(User, BookId, "image/png", Png.Length, new MemoryStream(Png), Ct);
 
         Assert.Equal((200, true), (result.Status, ((BookDto)result.Body!).HasCover));
         _files.Verify(f => f.StageAsync("library/cover.png", It.Is<ReadOnlyMemory<byte>>(b => b.Length == Png.Length), It.IsAny<CancellationToken>()));
         _files.Verify(f => f.Place(_cover));
-        _files.Verify(f => f.Delete("library/cover.jpg"));
+        _files.Verify(f => f.TryDelete("library/cover.jpg"));
     }
 
-    private readonly StagedContent _cover = new("library/cover.png", "/tmp/cover.tmp", Sha, 10);
+    private readonly StagedContent _cover = new("library/cover.png", "/tmp/cover.tmp", null, 10);
 
     private void StagesCover()
     {
@@ -347,22 +361,46 @@ public class LibraryContentServiceTests
     {
         StagesCover();
 
-        Assert.Equal((404, SyncCodes.BookNotFound), Code(await Service.PutCoverAsync(User, BookId, "image/png", new MemoryStream(Png), Ct)));
+        Assert.Equal((404, SyncCodes.BookNotFound), Code(await Service.PutCoverAsync(User, BookId, "image/png", null, new MemoryStream(Png), Ct)));
         _files.Verify(f => f.Place(It.IsAny<StagedContent>()), Times.Never);
         _files.Verify(f => f.Discard(_cover));
     }
 
     [Fact]
-    public async Task PutCoverAsync_TooBig_IsInvalidPayload() =>
-        Assert.Equal((400, SyncCodes.InvalidPayload),
-            Code(await Service.PutCoverAsync(User, BookId, "image/png", new MemoryStream(new byte[SyncLimits.MaxCoverBytes + 1]), Ct)));
+    public async Task PutCoverAsync_BodyOneByteOverTheCapWithoutALength_IsInvalidPayload()
+    {
+        var body = new byte[SyncLimits.MaxCoverBytes + 1];
+        Png.CopyTo(body, 0);
+
+        Assert.Equal((400, SyncCodes.InvalidPayload), Code(await Service.PutCoverAsync(User, BookId, "image/png", null, new MemoryStream(body), Ct)));
+        _files.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task PutCoverAsync_ExactlyTheCap_IsStored()
+    {
+        var body = new byte[SyncLimits.MaxCoverBytes];
+        Png.CopyTo(body, 0);
+        StagesCover();
+        _library.Setup(l => l.SetCoverAsync(User, BookId, "library/cover.png", It.IsAny<CancellationToken>())).ReturnsAsync(new Book { Id = BookId, Title = "A book" });
+
+        Assert.Equal(200, (await Service.PutCoverAsync(User, BookId, "image/png", body.Length, new MemoryStream(body), Ct)).Status);
+    }
+
+    [Fact]
+    public async Task PutCoverAsync_DeclaredLengthOverTheCap_IsInvalidPayloadWithoutReading()
+    {
+        var body = new Mock<Stream>(MockBehavior.Strict);
+
+        Assert.Equal((400, SyncCodes.InvalidPayload), Code(await Service.PutCoverAsync(User, BookId, "image/png", SyncLimits.MaxCoverBytes + 1, body.Object, Ct)));
+    }
 
     [Fact]
     public async Task PutCoverAsync_RemovedBook_IsBookRemoved()
     {
         RemovedBook();
 
-        Assert.Equal((409, SyncCodes.BookRemoved), Code(await Service.PutCoverAsync(User, BookId, "image/png", new MemoryStream(Png), Ct)));
+        Assert.Equal((409, SyncCodes.BookRemoved), Code(await Service.PutCoverAsync(User, BookId, "image/png", Png.Length, new MemoryStream(Png), Ct)));
         _files.VerifyNoOtherCalls();
     }
 

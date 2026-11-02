@@ -56,6 +56,8 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         Assert.Equal((HttpStatusCode.PartialContent, "bytes"), (range.StatusCode, range.Headers.AcceptRanges.Single()));
         Assert.Equal(bytes[..10], await range.Content.ReadAsByteArrayAsync(Ct));
         Assert.Equal("nosniff", range.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Contains("sandbox", range.Headers.GetValues("Content-Security-Policy").Single());
+        Assert.True(range.Headers.CacheControl is { Private: true, NoStore: true });
     }
 
     [Fact]
@@ -171,6 +173,9 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         Assert.Equal((HttpStatusCode.OK, "image/png"), (get.StatusCode, get.Content.Headers.ContentType!.MediaType));
         Assert.Equal(OnePixelPng, await get.Content.ReadAsByteArrayAsync(Ct));
         Assert.NotNull(get.Headers.ETag);
+        Assert.True(get.Headers.CacheControl!.Private);
+        using var again = await v2.SendRawAsync(v2.Alice, HttpMethod.Get, $"/me/v2/books/{book}/cover", configure: r => r.Headers.IfNoneMatch.Add(get.Headers.ETag!));
+        Assert.Equal(HttpStatusCode.NotModified, again.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, wrong.StatusCode);
     }
 

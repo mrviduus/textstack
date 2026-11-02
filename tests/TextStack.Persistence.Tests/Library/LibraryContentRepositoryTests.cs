@@ -1,10 +1,11 @@
 using Application.Library;
 using Domain.Library;
 using Infrastructure.Persistence.Repositories;
+using static TextStack.Persistence.Tests.V2PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Library;
 
-/// <summary>The stored-bytes half of <see cref="LibraryRepository"/>: attach under the quota, stop syncing, cover, the superseded sweep.</summary>
+/// <summary>The stored-bytes half of <see cref="LibraryRepository"/>: attach under the quota, stop syncing, cover, the keys released and listed.</summary>
 public class LibraryContentRepositoryTests(V2PostgresFixture db)
 {
     private readonly LibraryRepository _repo = new(db.DataSource);
@@ -204,16 +205,19 @@ public class LibraryContentRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task ReferencedKeysAsync_MixOfKeys_AnswersOnlyThoseAFileOrACoverNames()
+    public async Task AllStorageKeysAsync_FilesAndCoversOfEveryUser_AreAllNamedAndAnUnstoredFileIsNot()
     {
         var book = await db.NewReaderWithBookAsync();
         await AttachAsync(book);
         var cover = $"library/{Guid.NewGuid()}/cover.png";
         await _repo.SetCoverAsync(book.UserId, book.Id, cover, Ct);
+        var unstored = await db.NewReaderWithBookAsync();
 
-        var referenced = await _repo.ReferencedKeysAsync([KeyOf(book), cover, "library/orphan.epub"], Ct);
+        var keys = await _repo.AllStorageKeysAsync(Ct);
 
-        Assert.Equal(new[] { cover, KeyOf(book) }.Order(), referenced.Order());
+        Assert.Contains(KeyOf(book), keys);
+        Assert.Contains(cover, keys);
+        Assert.DoesNotContain(KeyOf(unstored), keys);
     }
 
     [Fact]
@@ -249,20 +253,53 @@ public class LibraryContentRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task ListSupersededWithContentAsync_ThenForget_ListsTheStoredOldVersionOnceAndKeepsTheCurrent()
+    public async Task ReplaceFileAsync_StoredCurrentFile_ReleasesItsKeyForTheCallerAndTheQuotaIsExactAtOnce()
     {
         var book = await db.NewReaderWithBookAsync();
         await AttachAsync(book);
+
         var replaced = await db.ReplaceFileAsync(book);
-        await AttachAsync((await _repo.GetAsync(book.UserId, book.Id, Ct))!);
 
-        Assert.Contains(await _repo.ListSupersededWithContentAsync(int.MaxValue, Ct), f => f.Id == book.CurrentFile!.Id);
-        Assert.DoesNotContain(await _repo.ListSupersededWithContentAsync(int.MaxValue, Ct), f => f.Id == replaced.Current!.Id);
+        Assert.Equal((KeyOf(book), (string?)null), (replaced.ReleasedKey, replaced.Superseded!.ServerStorageKey));
+        Assert.Null((await _repo.GetFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct))!.ServerStorageKey);
+        Assert.Equal(0L, await _repo.StoredBytesAsync(book.UserId, Ct));
+    }
 
-        await _repo.ForgetSupersededContentAsync(book.CurrentFile!.Id, Ct);
-        await _repo.ForgetSupersededContentAsync(replaced.Current!.Id, Ct);
+    [Fact]
+    public async Task ReplaceFileAsync_UnstoredCurrentFile_ReleasesNothing() =>
+        Assert.Null((await db.ReplaceFileAsync(await db.NewReaderWithBookAsync())).ReleasedKey);
 
-        Assert.DoesNotContain(await _repo.ListSupersededWithContentAsync(int.MaxValue, Ct), f => f.Id == book.CurrentFile.Id);
-        Assert.NotNull((await _repo.GetFileAsync(book.UserId, book.Id, replaced.Current.Id, Ct))!.ServerStorageKey);
+    // The book row lock in the attach: a replacement holding it commits first, so the attach answers
+    // FileReplaced and never puts bytes on the version it just superseded (QA probe).
+    [Fact]
+    public async Task AttachContentAsync_ReplacementHoldingTheBookRow_WaitsAndIsFileReplaced()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var oldFile = book.CurrentFile!;
+        await using var tx = await db.DataSource.BeginAsync(Ct);
+        Assert.Equal(FileReplaceOutcome.Replaced, (await _repo.ReplaceFileAsync(
+            book.UserId, book.Id, NewFile(book.UserId, book.Id), oldFile.Id, tx.Transaction, Ct)).Outcome);
+
+        var placed = false;
+        var attach = Task.Run(() => AttachAsync(book, place: () => placed = true), Ct);
+        await Task.Delay(500, Ct);
+        Assert.False(attach.IsCompleted, "the attach must wait for the book row");
+        await tx.CommitAsync(Ct);
+
+        Assert.Equal(AttachOutcome.FileReplaced, (await attach).Outcome);
+        Assert.False(placed);
+        Assert.Null((await _repo.GetFileAsync(book.UserId, book.Id, oldFile.Id, Ct))!.ServerStorageKey);
+    }
+
+    // A stop-syncing that saw no key before an attach landed: the key it clears is handed to it, so the
+    // bytes are its to delete, never orphaned (QA probe, reversed by the fix).
+    [Fact]
+    public async Task RemoveContentAsync_AfterAnAttachItDidNotSee_HandsBackTheKeyItCleared()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        Assert.Null((await _repo.GetFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct))!.ServerStorageKey);
+        await AttachAsync(book);
+
+        Assert.Equal(KeyOf(book), await _repo.RemoveContentAsync(book.UserId, book.Id, book.CurrentFile.Id, Ct));
     }
 }

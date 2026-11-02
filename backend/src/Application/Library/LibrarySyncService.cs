@@ -9,7 +9,7 @@ using static Application.Sync.SyncValidation;
 namespace Application.Library;
 
 /// <summary>The /me/v2 library use cases: lookup by bytes, import, metadata edit, file replacement, remove/restore, the library feed.</summary>
-public sealed class LibrarySyncService(ILibraryRepository library, IReadingStateRepository states, IV2UnitOfWork unitOfWork)
+public sealed class LibrarySyncService(ILibraryRepository library, IReadingStateRepository states, IV2UnitOfWork unitOfWork, ILibraryFileStore files)
 {
     public async Task<SyncResult> FindBySha256Async(Guid userId, string sha256, CancellationToken ct)
     {
@@ -89,6 +89,8 @@ public sealed class LibrarySyncService(ILibraryRepository library, IReadingState
     /// <summary>
     /// The replacement and the reading-state delete commit together (#1067): the state's locators
     /// mean nothing in the new version, and a device still on the old file loses by the file guard.
+    /// The old version's bytes go after the commit, best-effort: a failure leaves bytes no row names,
+    /// which the worker's orphan sweep deletes.
     /// </summary>
     public async Task<SyncResult> ReplaceFileAsync(Guid userId, Guid bookId, Guid fileId, ReplaceFileRequest r, CancellationToken ct)
     {
@@ -99,6 +101,7 @@ public sealed class LibrarySyncService(ILibraryRepository library, IReadingState
         if (result.Outcome == FileReplaceOutcome.Replaced && result.Superseded is { } old)
             await states.DeleteForFileAsync(userId, bookId, old.Id, tx.Transaction, ct);
         await tx.CommitAsync(ct);
+        if (result.ReleasedKey is { } released) files.TryDelete(released);
 
         return result.Outcome switch
         {

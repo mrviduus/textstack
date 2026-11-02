@@ -103,17 +103,12 @@ public interface ILibraryRepository
     /// <summary>Points the book at its uploaded cover; the updated book, null when not the user's.</summary>
     Task<Book?> SetCoverAsync(Guid userId, Guid bookId, string coverKey, CancellationToken ct);
 
-    /// <summary>Cross-user, for the byte sweep: superseded versions whose bytes are still stored, at most <paramref name="limit"/>.</summary>
-    Task<IReadOnlyList<BookFile>> ListSupersededWithContentAsync(int limit, CancellationToken ct);
-
-    /// <summary>Cross-user, for the byte sweep: forgets a superseded version's key once its bytes are deleted.</summary>
-    Task ForgetSupersededContentAsync(Guid fileId, CancellationToken ct);
 
     /// <summary>Every key of the user's bytes, files and covers: what an account delete removes from disk (they may sit under another user's directory after a merge).</summary>
     Task<IReadOnlyList<string>> ListStorageKeysAsync(Guid userId, CancellationToken ct);
 
-    /// <summary>Cross-user, for the orphan sweep: which of <paramref name="keys"/> a file or a cover still names.</summary>
-    Task<IReadOnlySet<string>> ReferencedKeysAsync(IReadOnlyList<string> keys, CancellationToken ct);
+    /// <summary>Cross-user, for the orphan sweep: every key a file or a cover names.</summary>
+    Task<IReadOnlySet<string>> AllStorageKeysAsync(CancellationToken ct);
 }
 
 public enum AttachOutcome
@@ -162,7 +157,10 @@ public sealed record ImportResult(ImportOutcome Outcome, Book? Book);
 
 public enum FileReplaceOutcome
 {
-    /// <summary><see cref="FileReplacement.Current"/> is the new file, <see cref="FileReplacement.Superseded"/> the one it replaced (null: there was none).</summary>
+    /// <summary>
+    /// <see cref="FileReplacement.Current"/> is the new file, <see cref="FileReplacement.Superseded"/> the one it replaced (null: there was none).
+    /// The superseded version's key is cleared with it: <see cref="FileReplacement.ReleasedKey"/> names the bytes to delete after the commit.
+    /// </summary>
     Replaced,
 
     /// <summary>The file is already the book's current one: nothing changed.</summary>
@@ -180,4 +178,5 @@ public enum FileReplaceOutcome
     IdConflict,
 }
 
-public sealed record FileReplacement(FileReplaceOutcome Outcome, BookFile? Current = null, BookFile? Superseded = null, Book? Book = null);
+public sealed record FileReplacement(
+    FileReplaceOutcome Outcome, BookFile? Current = null, BookFile? Superseded = null, Book? Book = null, string? ReleasedKey = null);

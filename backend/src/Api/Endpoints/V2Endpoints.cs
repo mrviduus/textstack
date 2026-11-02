@@ -63,7 +63,7 @@ public static class V2Endpoints
         v2.MapDelete("/books/{bookId:guid}/files/{fileId:guid}/content", (HttpContext h, AuthService a, LibraryContentService s, Guid bookId, Guid fileId, CancellationToken ct) =>
             Send(s.RemoveAsync(User(h, a), bookId, fileId, ct)));
         v2.MapPut("/books/{bookId:guid}/cover", (HttpContext h, AuthService a, LibraryContentService s, Guid bookId, CancellationToken ct) =>
-            Send(s.PutCoverAsync(User(h, a), bookId, h.Request.ContentType, h.Request.Body, ct)));
+            Send(s.PutCoverAsync(User(h, a), bookId, h.Request.ContentType, h.Request.ContentLength, h.Request.Body, ct)));
         v2.MapGet("/books/{bookId:guid}/cover", (HttpContext h, AuthService a, LibraryContentService s, Guid bookId, CancellationToken ct) =>
             SendBytes(h, s.GetCoverAsync(User(h, a), bookId, ct)));
         // Transitional (dropped at M6.4): server-extracted chapters, read-only.
@@ -139,8 +139,7 @@ public static class V2Endpoints
         var result = await pending;
         if (result.Body is not StoredBytes bytes) return Write(result);
         // A reader's file never runs as a page on this origin (a clip is HTML), as /storage serves them.
-        http.Response.Headers.XContentTypeOptions = "nosniff";
-        http.Response.Headers.ContentSecurityPolicy = UserStoragePolicy.StoredFileCsp;
+        UserStoragePolicy.ApplyStoredFileHeaders(http.Response.Headers);
         if (bytes.CacheControl is not null) http.Response.Headers.CacheControl = bytes.CacheControl;
         return Results.File(bytes.Path, bytes.ContentType,
             entityTag: bytes.ETag is null ? null : new EntityTagHeaderValue(bytes.ETag), enableRangeProcessing: true);
