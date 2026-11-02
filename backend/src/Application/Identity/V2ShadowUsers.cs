@@ -25,6 +25,8 @@ public enum ShadowOutcome
 /// </summary>
 public sealed class V2ShadowUsers(IUserRepository users, ILogger<V2ShadowUsers> logger)
 {
+    // ponytail: never invalidated, so a legacy account delete or guest merge leaves the V2 row (and
+    // what it owns) behind until M2.5 moves both onto V2; per process, so each api replica writes once.
     private readonly ConcurrentDictionary<Guid, byte> _present = new();
 
     /// <param name="legacyUser">Reads the session user from the legacy database; called only for an id not seen yet.</param>

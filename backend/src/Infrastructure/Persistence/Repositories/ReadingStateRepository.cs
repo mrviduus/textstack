@@ -124,6 +124,7 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
             new CommandDefinition(DeleteStateOfFile, new { userId, bookId, fileId }, tx, cancellationToken: ct)) > 0;
     }
 
+    // ponytail: a page scans the user's states (pk prefix user_id); an (user_id, updated_at, book_id) index if that grows.
     private const string SelectChanged = $"""
         SELECT {Columns} FROM reading_state
         WHERE user_id = @userId AND (updated_at, book_id) > (@since, @afterId)

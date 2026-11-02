@@ -1,16 +1,21 @@
+using System.Text.Json.Serialization;
 using Api.Extensions;
 using Infrastructure.Persistence;
 
 namespace Api.V2;
 
-/// <summary>What <see cref="V2Readiness"/> found: <c>/me/v2/*</c> serves only when <see cref="IsReady"/>.</summary>
-public sealed record V2State(string Status, IReadOnlyList<string>? Pending = null, string? Error = null)
+/// <summary>What <see cref="V2Readiness"/> found: <c>/me/v2/*</c> serves only when <see cref="IsReady"/>. Also <c>/health/ready</c>'s <c>v2</c> component, as is.</summary>
+public sealed record V2State(
+    string Status,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Pending = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Error = null)
 {
     public const string Ready = "ok";
     public const string Behind = "behind";
     public const string Unreachable = "unreachable";
     public const string Unconfigured = "unconfigured";
 
+    [JsonIgnore]
     public bool IsReady => Status == Ready;
 }
 

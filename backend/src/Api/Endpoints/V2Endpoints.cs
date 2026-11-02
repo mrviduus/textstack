@@ -21,6 +21,8 @@ public static class V2Endpoints
     /// <summary>PDD "File sync upload protocol": a part fits one request under Cloudflare's cap.</summary>
     private const long DefaultMaxPartBytes = 80L * 1024 * 1024;
 
+    // ponytail: a body that is not JSON of the request's shape is the framework's bare 400, not an
+    // invalid_payload body; a binding-failure handler for /me/v2 if a client ever needs the field.
     public static void MapV2Endpoints(this WebApplication app)
     {
         if (!app.Configuration.GetValue<bool>("Features:V2Api")) return;

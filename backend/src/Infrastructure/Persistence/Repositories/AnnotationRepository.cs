@@ -38,6 +38,8 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
         return await conn.QuerySingleOrDefaultAsync<Annotation>(new CommandDefinition(SelectById, new { userId, id }, cancellationToken: ct));
     }
 
+    // ponytail: a page scans the user's annotations (ix_annotations_user_id_book_id); an
+    // (user_id, updated_at, id) index if one reader's annotations reach the thousands.
     private const string SelectChanged = $"""
         SELECT {Columns} FROM annotations
         WHERE user_id = @userId AND (updated_at, id) > (@since, @afterId)

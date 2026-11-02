@@ -64,6 +64,8 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
     public async Task<Book?> FindBySha256Async(Guid userId, string sha256, CancellationToken ct) =>
         (await QueryBooksAsync(SelectOldestBySha256, new { userId, sha256 }, null, ct)).SingleOrDefault();
 
+    // ponytail: no (user_id, updated_at, id) index, so a page scans the user's books (ak_books_user_id_id);
+    // fine for a library of tens. An index in a V2 migration when one grows to thousands.
     private const string SelectChanged = FromBooks + """
         WHERE b.user_id = @userId AND (b.updated_at, b.id) > (@since, @afterId)
         ORDER BY b.updated_at, b.id
