@@ -98,15 +98,16 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task ReplaceForFileAsync_AnotherUsersFile_IsRefusedByTheFk()
+    public async Task ReplaceForFileAsync_AnotherUsersFile_IsRefusedByTheFkAndAlicesChaptersStay()
     {
-        var alices = await db.NewReaderWithBookAsync();
+        var alices = await BookWithChaptersAsync();
         var bob = await db.NewReaderAsync();
 
         var error = await Assert.ThrowsAsync<PostgresException>(() =>
             _repo.ReplaceForFileAsync(bob, alices.Id, alices.CurrentFile!.Id, [Chapter("one", 1)], Ct));
 
         Assert.Equal("23503", error.SqlState);
+        Assert.Equal(3, (await _repo.ListTocAsync(alices.UserId, alices.Id, alices.CurrentFile.Id, Ct)).Count);
     }
 
     [Fact]
