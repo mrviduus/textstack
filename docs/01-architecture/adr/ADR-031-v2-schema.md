@@ -93,7 +93,10 @@ shape minus `site_id` plus the delta shown.
 
 Both transitional tables carry this `COMMENT ON TABLE`: *"Transitional. Dropped at M6.4 once the V2
 reader serves EPUB and PDF on all clients; see ADR-031."* They feed the legacy reader,
-`get_my_chapter` and `shared_chapters` snapshots, and nothing new may depend on them.
+`get_my_chapter` and `shared_chapters` snapshots, and nothing new may depend on them. Read-only to
+users ([#1091](https://github.com/mrviduus/textstack/issues/1091), M2.6): a re-extraction replaces a file
+version's chapters whole (V2 annotations anchor by locator, not chapter id), and V2 uploads get no
+chapter editing endpoints.
 
 `book_chapters` needs `book_id` as well as `file_id`: `book_files`' referencable key is
 `(user_id, book_id, id)`.

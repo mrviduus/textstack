@@ -6,19 +6,21 @@ using Application.Discussion;
 using Application.Library;
 using Application.Reading;
 using Application.Sync;
+using Application.Transitional;
 using Application.Vocabulary;
 using Contracts.V2;
+using Microsoft.Net.Http.Headers;
 
 namespace Api.Endpoints;
 
 /// <summary>
-/// The V2 sync API, the M2.2–M2.4 rows of v2-sync-protocol.md "Endpoints": library, reading,
-/// annotations, vocabulary, shares and checkpoints under <c>/me/v2</c> (a temporary prefix, renamed at M5.4). Mapped only with <c>Features:V2Api</c>
+/// The V2 sync API, the M2.2–M2.6 rows of v2-sync-protocol.md "Endpoints": library, reading,
+/// annotations, vocabulary, shares, checkpoints and file bytes under <c>/me/v2</c> (a temporary prefix, renamed at M5.4). Mapped only with <c>Features:V2Api</c>
 /// on, so with it off the stack is exactly as before (404, and old clients never see a V2 body).
 /// Every route sits behind <see cref="V2Gate"/>: V2 readiness (#1053), the legacy account, then the
 /// session user's V2 shadow row — M2.2's bridge to the legacy accounts, removed by M2.5, whose rows
 /// the M3 ETL upserts. A user or guest session is required (PathGates, ADR-014). Handlers write a use
-/// case's <see cref="SyncResult"/> and nothing else.
+/// case's <see cref="SyncResult"/> and nothing else. Bytes routes read the raw body (no JSON binder).
 /// </summary>
 public static class V2Endpoints
 {
@@ -30,7 +32,8 @@ public static class V2Endpoints
         if (!app.Configuration.GetValue<bool>("Features:V2Api")) return;
 
         var v2 = app.MapGroup("/me/v2").WithTags("V2 sync").AddEndpointFilter<V2Gate>();
-        var status = Results.Ok(new V2StatusDto(app.Configuration.GetValue("V2:MaxPartBytes", DefaultMaxPartBytes)));
+        var maxPartBytes = app.Configuration.GetValue("V2:MaxPartBytes", DefaultMaxPartBytes);
+        var status = Results.Ok(new V2StatusDto(maxPartBytes));
         v2.MapGet("/status", () => status);
 
         v2.MapGet("/library/changes", (HttpContext h, AuthService a, LibrarySyncService s, string? cursor, string? limit, CancellationToken ct) =>
@@ -47,6 +50,27 @@ public static class V2Endpoints
             Send(s.RemoveAsync(User(h, a), bookId, ct)));
         v2.MapPost("/books/{bookId:guid}/restore", (HttpContext h, AuthService a, LibrarySyncService s, Guid bookId, CancellationToken ct) =>
             Send(s.RestoreAsync(User(h, a), bookId, ct)));
+
+        // The quota and size checks run on the declared length before a byte is stored.
+        v2.MapPut("/books/{bookId:guid}/files/{fileId:guid}/parts/{index:int}", (HttpContext h, AuthService a, LibraryContentService s, Guid bookId, Guid fileId, int index, CancellationToken ct) =>
+            Send(h.Request.ContentLength is { } length
+                ? s.SavePartAsync(User(h, a), bookId, fileId, index, length, h.Request.Body, maxPartBytes, ct)
+                : Task.FromResult(SyncResult.Fail(SyncCodes.LengthRequired))));
+        v2.MapPost("/books/{bookId:guid}/files/{fileId:guid}/content", (HttpContext h, AuthService a, LibraryContentService s, Guid bookId, Guid fileId, CompleteContentRequest body, CancellationToken ct) =>
+            Send(s.CompleteAsync(User(h, a), bookId, fileId, body, ct)));
+        v2.MapGet("/books/{bookId:guid}/files/{fileId:guid}/content", (HttpContext h, AuthService a, LibraryContentService s, Guid bookId, Guid fileId, CancellationToken ct) =>
+            SendBytes(h, s.ReadAsync(User(h, a), bookId, fileId, ct)));
+        v2.MapDelete("/books/{bookId:guid}/files/{fileId:guid}/content", (HttpContext h, AuthService a, LibraryContentService s, Guid bookId, Guid fileId, CancellationToken ct) =>
+            Send(s.RemoveAsync(User(h, a), bookId, fileId, ct)));
+        v2.MapPut("/books/{bookId:guid}/cover", (HttpContext h, AuthService a, LibraryContentService s, Guid bookId, CancellationToken ct) =>
+            Send(s.PutCoverAsync(User(h, a), bookId, h.Request.ContentType, h.Request.ContentLength, h.Request.Body, ct)));
+        v2.MapGet("/books/{bookId:guid}/cover", (HttpContext h, AuthService a, LibraryContentService s, Guid bookId, CancellationToken ct) =>
+            SendBytes(h, s.GetCoverAsync(User(h, a), bookId, ct)));
+        // Transitional (dropped at M6.4): server-extracted chapters, read-only.
+        v2.MapGet("/books/{bookId:guid}/files/{fileId:guid}/chapters", (HttpContext h, AuthService a, ChapterReadService s, Guid bookId, Guid fileId, CancellationToken ct) =>
+            Send(s.ListAsync(User(h, a), bookId, fileId, ct)));
+        v2.MapGet("/books/{bookId:guid}/files/{fileId:guid}/chapters/{chapterKey}", (HttpContext h, AuthService a, ChapterReadService s, Guid bookId, Guid fileId, string chapterKey, CancellationToken ct) =>
+            Send(s.GetAsync(User(h, a), bookId, fileId, chapterKey, ct)));
 
         v2.MapGet("/reading/changes", (HttpContext h, AuthService a, ReadingSyncService s, string? cursor, string? limit, CancellationToken ct) =>
             Send(s.ChangesAsync(User(h, a), cursor, limit, ct)));
@@ -104,9 +128,20 @@ public static class V2Endpoints
     // PathGates and V2Gate resolved it already; GetUserId answers from the request's memo.
     private static Guid User(HttpContext http, AuthService auth) => http.GetUserId(auth)!.Value;
 
-    private static async Task<IResult> Send(Task<SyncResult> pending)
+    private static async Task<IResult> Send(Task<SyncResult> pending) => Write(await pending);
+
+    private static IResult Write(SyncResult result) =>
+        result.Status == StatusCodes.Status204NoContent ? Results.NoContent() : Results.Json(result.Body, statusCode: result.Status);
+
+    /// <summary>Stored bytes with range support; a failure as JSON.</summary>
+    private static async Task<IResult> SendBytes(HttpContext http, Task<SyncResult> pending)
     {
         var result = await pending;
-        return result.Status == StatusCodes.Status204NoContent ? Results.NoContent() : Results.Json(result.Body, statusCode: result.Status);
+        if (result.Body is not StoredBytes bytes) return Write(result);
+        // A reader's file never runs as a page on this origin (a clip is HTML), as /storage serves them.
+        UserStoragePolicy.ApplyStoredFileHeaders(http.Response.Headers);
+        if (bytes.CacheControl is not null) http.Response.Headers.CacheControl = bytes.CacheControl;
+        return Results.File(bytes.Path, bytes.ContentType,
+            entityTag: bytes.ETag is null ? null : new EntityTagHeaderValue(bytes.ETag), enableRangeProcessing: true);
     }
 }

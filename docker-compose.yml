@@ -215,6 +215,11 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # The transitional V2 extraction loop and the V2 file sweeps (M2.6) run only with the flag on
+      # and this string set; read when the loop starts, never at startup, and a V2 database that is
+      # missing or behind pauses that loop and nothing else (the 2026-10-30 rule).
+      ConnectionStrings__V2: "Host=db;Port=5432;Database=${V2_POSTGRES_DB:-textstack_v2};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Features__V2Api: ${FEATURES_V2API:-false}
       Storage__RootPath: /storage
       # The worker routes bookmeta.agent to OpenAI (Ai:Routes), so it needs the
       # key too — without it OpenAiLlmClient throws on an empty key.

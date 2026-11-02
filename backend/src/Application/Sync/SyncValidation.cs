@@ -67,6 +67,14 @@ public static class SyncValidation
     public static SyncResult? ClientId(Guid? id, string field) =>
         id is null || id == Guid.Empty ? SyncResult.Invalid(field, $"{field} must be a client-minted UUID.") : null;
 
+    /// <summary>
+    /// <paramref name="text"/> cut to <paramref name="max"/> UTF-16 units, the unit the length caps here
+    /// check, without splitting a surrogate pair (half of one has no UTF-8 form). For server-written text
+    /// that must pass the same caps when read back (chapter keys and titles).
+    /// </summary>
+    public static string Truncate(string text, int max) =>
+        text.Length <= max ? text : text[..(char.IsHighSurrogate(text[max - 1]) ? max - 1 : max)];
+
     /// <summary>Present, not blank, and storable (<see cref="Text"/>).</summary>
     public static SyncResult? RequiredText(string? value, string field) =>
         string.IsNullOrWhiteSpace(value) ? SyncResult.Invalid(field, $"{field} is required.") : Text(value, field);

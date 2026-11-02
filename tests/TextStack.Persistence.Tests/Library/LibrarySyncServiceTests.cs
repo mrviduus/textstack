@@ -7,6 +7,7 @@ using Domain.Library;
 using Domain.Reading;
 using Npgsql;
 using Infrastructure.Persistence.Repositories;
+using Infrastructure.Services;
 using static TextStack.Persistence.Tests.TestJson;
 
 namespace TextStack.Persistence.Tests.Library;
@@ -15,7 +16,9 @@ namespace TextStack.Persistence.Tests.Library;
 public class LibrarySyncServiceTests(V2PostgresFixture db)
 {
     private readonly ReadingStateRepository _reading = new(db.DataSource);
-    private readonly LibrarySyncService _service = new(new LibraryRepository(db.DataSource), new ReadingStateRepository(db.DataSource), db.DataSource);
+    // A store on a temp directory: the replacement deletes the old version's bytes from it.
+    private static readonly LibraryFileStore Files = new(Path.Combine(Path.GetTempPath(), "library-sync-" + Guid.NewGuid()));
+    private readonly LibrarySyncService _service = new(new LibraryRepository(db.DataSource), new ReadingStateRepository(db.DataSource), db.DataSource, Files);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static ReplaceFileRequest Replacing(Guid? replacesFileId) =>
@@ -85,11 +88,26 @@ public class LibrarySyncServiceTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ReplaceFileAsync_StoredCurrentFile_DeletesItsBytesAfterTheCommit()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var file = book.CurrentFile!;
+        var key = Files.FileKey(book.UserId, book.Id, file.Id, "epub");
+        var staged = await Files.StageAsync(key, new byte[] { 1 }, Ct);
+        await new LibraryRepository(db.DataSource).AttachContentAsync(book.UserId, book.Id, file.Id, key, long.MaxValue, () => Files.Place(staged), Ct);
+
+        var result = await _service.ReplaceFileAsync(book.UserId, book.Id, Guid.NewGuid(), Replacing(file.Id), Ct);
+
+        Assert.Equal(200, result.Status);
+        Assert.Null(Files.Locate(key));
+    }
+
+    [Fact]
     public async Task ReplaceFileAsync_FailureBeforeCommit_RollsBackTheReplacementAndTheStateDeleteTogether()
     {
         var book = await BookWithStateAsync();
         var library = new LibraryRepository(db.DataSource);
-        var failing = new LibrarySyncService(library, new FailsAfterDelete(_reading), db.DataSource);
+        var failing = new LibrarySyncService(library, new FailsAfterDelete(_reading), db.DataSource, Files);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             failing.ReplaceFileAsync(book.UserId, book.Id, Guid.NewGuid(), Replacing(book.CurrentFile!.Id), Ct));

@@ -27,6 +27,8 @@ public static partial class ServiceCollectionExtensions
             // Scoped: it reads the legacy account through the request's IAppDbContext.
             .AddScoped<V2IdentityMirror>()
             .AddSingleton<LibrarySyncService>()
+            .AddSingleton<LibraryContentService>()
+            .AddSingleton<Application.Transitional.ChapterReadService>()
             .AddSingleton<ReadingSyncService>()
             .AddSingleton<AnnotationSyncService>()
             .AddSingleton<VocabularySyncService>()

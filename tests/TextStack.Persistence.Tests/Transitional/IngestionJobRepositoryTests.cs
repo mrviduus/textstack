@@ -57,6 +57,19 @@ public class IngestionJobRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task GetLatestForFileAsync_TwoJobs_IsTheNewerOneAndNullForAnotherUser()
+    {
+        var (book, _) = await QueuedAsync();
+        var second = await _repo.EnqueueAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct);
+        await DrainAsync(NothingStuck);
+
+        var latest = await _repo.GetLatestForFileAsync(book.UserId, book.Id, book.CurrentFile.Id, Ct);
+
+        Assert.Equal(second.Id, latest!.Id);
+        Assert.Null(await _repo.GetLatestForFileAsync(await db.NewReaderAsync(), book.Id, book.CurrentFile.Id, Ct));
+    }
+
+    [Fact]
     public async Task EnqueueAsync_AnotherUsersFile_IsRefusedByTheFk()
     {
         var (alices, bob) = (await db.NewReaderWithBookAsync(), await db.NewReaderAsync());
