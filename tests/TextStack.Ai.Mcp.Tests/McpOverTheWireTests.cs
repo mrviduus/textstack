@@ -405,7 +405,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.V2Bridge v2) : IAsyncLifeti
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var tools = await client.ListToolsAsync(cancellationToken: Ct);
-        Assert.Equal(Contracts.Mcp.McpManifestCatalog.Tools.Count(t => !t.V2Only), tools.Count);
+        Assert.Equal(Contracts.Mcp.McpManifestCatalog.Served(false).Count, tools.Count);
 
         var chapter = await CallAsync(client, "get_chapter", Args(("slug", "dracula"), ("chapterSlug", "ch-1")));
         Assert.NotEqual(true, chapter.IsError);

@@ -9,9 +9,9 @@ all from the chat. There is no server-side Q&A; the assistant reads the chapter 
 This is the canonical reference. The [package README](https://www.nuget.org/packages/TextStack.Mcp)
 and the [landing page](https://textstack.app/en/mcp) point here.
 
-## The 21 tools
+## The tools
 
-The server exposes 21 tools. The public ones need no auth; the user-scoped ones
+The server exposes 21 tools with `Features:V2Api` off, 24 on (`share_chapter`, `save_checkpoint`, `list_checkpoints`); the manifest and the bridge follow the same flag. The public ones need no auth; the user-scoped ones
 require you to be signed in (see [Authentication](#authentication)).
 
 **Two halves, two identifiers.** The public catalog is made of `Edition`s and is
@@ -46,7 +46,7 @@ uploads.
 | `get_chapter_review` | Start a chapter review in one call: the review method, the chapter text (in parts if long), your highlights and saved words, open threads from earlier chapters. Refuses a chapter you have not reached. | User |
 | `save_chapter_review` | Save the structured review into the chapter's insight; its questions get their own spaced-repetition queue. A refusal lists every problem at once. See [chapter-review.md](chapter-review.md). | User |
 
-All 21 tools are always listed regardless of whether you're signed in — only a
+Every enabled tool is always listed regardless of whether you're signed in — only a
 user-scoped *call* fails with a clean "authentication required" message when no
 token is available.
 
@@ -338,7 +338,7 @@ Before wiring up a client, confirm the tool speaks MCP. This sends
 ```
 
 Expect a response with `serverInfo` naming `textstack` and a `tools/list`
-result containing all 21 tools.
+result containing all 21 tools (24 with `TEXTSTACK_MCP_V2=true`).
 
 ## Troubleshooting
 

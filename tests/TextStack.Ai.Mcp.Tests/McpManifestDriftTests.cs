@@ -31,23 +31,24 @@ public class McpManifestDriftTests
         return new McpToolCatalog(api);
     }
 
-    // The catalog registers a V2-only tool only on V2, by the same predicate.
+    // #1101: the manifest a server serves with Features:V2Api = v2 lists exactly the tools a bridge with
+    // the same V2 switch registers. Lists of names, sorted — not counts.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void ManifestToolNames_MatchRuntimeCatalog(bool v2)
+    public void ServedManifest_SameFlag_ListsExactlyTheRegisteredTools(bool v2)
     {
-        var catalogNames = BuildCatalog(v2).ListTools().Select(t => t.Name).ToHashSet();
-        var manifestNames = McpManifestCatalog.Tools.Where(t => !t.V2Only || v2).Select(t => t.Name).ToHashSet();
+        var registered = BuildCatalog(v2).ListTools().Select(t => t.Name).Order(StringComparer.Ordinal);
+        var served = McpManifestCatalog.Served(v2).Select(t => t.Name).Order(StringComparer.Ordinal);
 
-        Assert.Equal(catalogNames, manifestNames);
+        Assert.Equal(registered, served);
     }
 
     // The one literal: the surface size is a deliberate change (CLAUDE.md "MCP tool count").
     [Fact]
     public void Manifest_AdvertisesTheWholeToolSurface()
     {
-        Assert.Equal((21, 24), (McpManifestCatalog.Tools.Count(t => !t.V2Only), McpManifestCatalog.Tools.Count));
+        Assert.Equal((21, 24), (McpManifestCatalog.Served(false).Count, McpManifestCatalog.Served(true).Count));
     }
 
     private sealed class NoTokenProvider : IMcpTokenProvider

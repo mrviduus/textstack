@@ -58,7 +58,7 @@ public class McpStdioSmokeTests
         Assert.Contains("save_insight", client.ServerInstructions); // stdio sends the same instructions as http
 
         var tools = await client.ListToolsAsync(cancellationToken: ct);
-        Assert.Equal(Contracts.Mcp.McpManifestCatalog.Tools.Count(t => !t.V2Only || v2), tools.Count);
+        Assert.Equal(Contracts.Mcp.McpManifestCatalog.Served(v2).Count, tools.Count);
     }
 
     // The MCP project is a ProjectReference, so its DLL is built into the test
