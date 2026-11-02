@@ -9,7 +9,7 @@ using static Application.Sync.SyncValidation;
 namespace Application.Library;
 
 /// <summary>The /me/v2 library use cases: lookup by bytes, import, metadata edit, file replacement, remove/restore, the library feed.</summary>
-public sealed class LibrarySyncService(ILibraryRepository library, IReadingStateRepository states, IV2UnitOfWork unitOfWork)
+public sealed class LibrarySyncService(ILibraryRepository library, IReadingStateRepository states, IV2UnitOfWork unitOfWork, TimeProvider clock)
 {
     public async Task<SyncResult> FindBySha256Async(Guid userId, string sha256, CancellationToken ct)
     {
@@ -130,7 +130,7 @@ public sealed class LibrarySyncService(ILibraryRepository library, IReadingState
             ? SyncResult.NoContent : SyncResult.BookNotFound();
 
     public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, int? limit, CancellationToken ct) =>
-        ChangeFeed.PageAsync(cursor, limit,
+        ChangeFeed.PageAsync(cursor, limit, clock.GetUtcNow(),
             (since, after, take) => library.ListChangedAsync(userId, since, after, take, ct),
             b => (b.UpdatedAt, b.Id), b => b.ToDto());
 

@@ -21,7 +21,7 @@ public class AnnotationSyncServiceTests
 
     private readonly Mock<ILibraryRepository> _library = new();
     private readonly Mock<IAnnotationRepository> _annotations = new();
-    private AnnotationSyncService Service => new(_library.Object, _annotations.Object);
+    private AnnotationSyncService Service => new(_library.Object, _annotations.Object, TimeProvider.System);
 
     public AnnotationSyncServiceTests()
     {

@@ -26,7 +26,7 @@ public class ReadingSyncServiceTests
     private readonly Mock<ILibraryRepository> _library = new();
     private readonly Mock<IReadingStateRepository> _states = new();
     private readonly Mock<IReadingSessionRepository> _sessions = new();
-    private ReadingSyncService Service => new(_library.Object, _states.Object, _sessions.Object);
+    private ReadingSyncService Service => new(_library.Object, _states.Object, _sessions.Object, TimeProvider.System);
 
     public ReadingSyncServiceTests()
     {

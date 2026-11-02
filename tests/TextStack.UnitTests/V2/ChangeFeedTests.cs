@@ -3,7 +3,10 @@ using Contracts.V2;
 
 namespace TextStack.UnitTests.V2;
 
-/// <summary>The feed cursor of v2-sync-protocol.md "Pull and push": exact inside a pull, rewound by the overlap across pulls.</summary>
+/// <summary>
+/// The feed cursor of v2-sync-protocol.md "Pull and push": exact inside a pull; at its end, rewound by
+/// the overlap only while the last row is younger than it.
+/// </summary>
 public class ChangeFeedTests
 {
     private sealed record Row(DateTimeOffset UpdatedAt, Guid Id);
@@ -17,10 +20,13 @@ public class ChangeFeedTests
     {
         public (DateTimeOffset Since, Guid AfterId) LastRead;
 
+        /// <summary>When the pull runs: by default the rows are seconds old, inside the overlap.</summary>
+        public DateTimeOffset Now = T0.AddSeconds(10);
+
         public Feed() : this(Rows) { }
 
         public Task<SyncResult> PageAsync(string? cursor, int? limit) =>
-            ChangeFeed.PageAsync<Row, Row>(cursor, limit, (since, afterId, take) =>
+            ChangeFeed.PageAsync<Row, Row>(cursor, limit, Now, (since, afterId, take) =>
             {
                 LastRead = (since, afterId);
                 return Task.FromResult<IReadOnlyList<Row>>(rows.Where(r => (r.UpdatedAt, r.Id).CompareTo((since, afterId)) > 0).Take(take).ToList());
@@ -63,6 +69,49 @@ public class ChangeFeedTests
 
         // A write that took now() before the last row seen but committed after it is still delivered.
         Assert.Equal((Rows[^1].UpdatedAt - ChangeFeed.Overlap, Guid.Empty), feed.LastRead);
+    }
+
+    [Fact]
+    public async Task PageAsync_LastPageOlderThanTheOverlap_ResumesExactlyAfterItsLastRow()
+    {
+        var feed = new Feed { Now = Rows[^1].UpdatedAt + ChangeFeed.Overlap + TimeSpan.FromSeconds(1) };
+        var last = Page(await feed.PageAsync(null, 10));
+
+        var poll = Page(await feed.PageAsync(last.Cursor, 10));
+
+        // Nothing can still commit before it, so the next poll re-delivers nothing.
+        Assert.Equal((Rows[^1].UpdatedAt, Rows[^1].Id), feed.LastRead);
+        Assert.Empty(poll.Items);
+    }
+
+    [Fact]
+    public async Task PageAsync_BatchSharingOneUpdatedAtLargerThanTheLimit_IsPulledOnceToTheEnd()
+    {
+        var at = T0;
+        var batch = Enumerable.Range(0, 5).Select(_ => new Row(at, Guid.NewGuid())).OrderBy(r => r.Id).ToArray();
+        var feed = new Feed(batch) { Now = at + ChangeFeed.Overlap + TimeSpan.FromMinutes(1) };
+
+        var seen = new List<Row>();
+        string? cursor = null;
+        for (var i = 0; i < 10; i++)
+        {
+            var page = Page(await feed.PageAsync(cursor, 2));
+            seen.AddRange(page.Items);
+            cursor = page.Cursor;
+            if (!page.HasMore) break;
+        }
+
+        Assert.Equal(batch, seen);
+        Assert.Empty(Page(await feed.PageAsync(cursor, 2)).Items);
+    }
+
+    [Fact]
+    public async Task PageAsync_EmptyCursor_IsAFullPull()
+    {
+        var feed = new Feed();
+
+        Assert.Equal(SyncStatus.Ok, (await feed.PageAsync("", null)).Status);
+        Assert.Equal((DateTimeOffset.UnixEpoch, Guid.Empty), feed.LastRead);
     }
 
     [Fact]

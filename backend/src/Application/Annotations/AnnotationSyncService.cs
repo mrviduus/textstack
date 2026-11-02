@@ -13,7 +13,7 @@ namespace Application.Annotations;
 /// write, because the schema would refuse a bad one only at commit (a deferred FK, a 500 that an
 /// outbox retries forever). A removed book still accepts annotations (owner decision 11).
 /// </summary>
-public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotationRepository annotations)
+public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotationRepository annotations, TimeProvider clock)
 {
     private const string DefaultColor = "yellow";
 
@@ -76,7 +76,7 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
     }
 
     public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, int? limit, CancellationToken ct) =>
-        ChangeFeed.PageAsync(cursor, limit,
+        ChangeFeed.PageAsync(cursor, limit, clock.GetUtcNow(),
             (since, after, take) => annotations.ListChangedAsync(userId, since, after, take, ct),
             a => (a.UpdatedAt, a.Id), a => a.ToDto());
 }

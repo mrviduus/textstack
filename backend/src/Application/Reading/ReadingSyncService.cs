@@ -14,7 +14,7 @@ namespace Application.Reading;
 /// is a row with a higher revision exactly as after a move, so only the library can tell them apart.
 /// A removed book still accepts state and sessions (owner decision 11).
 /// </summary>
-public sealed class ReadingSyncService(ILibraryRepository library, IReadingStateRepository states, IReadingSessionRepository sessions)
+public sealed class ReadingSyncService(ILibraryRepository library, IReadingStateRepository states, IReadingSessionRepository sessions, TimeProvider clock)
 {
     public async Task<SyncResult> GetAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
@@ -103,7 +103,7 @@ public sealed class ReadingSyncService(ILibraryRepository library, IReadingState
     }
 
     public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, int? limit, CancellationToken ct) =>
-        ChangeFeed.PageAsync(cursor, limit,
+        ChangeFeed.PageAsync(cursor, limit, clock.GetUtcNow(),
             (since, after, take) => states.ListChangedAsync(userId, since, after, take, ct),
             s => (s.UpdatedAt, s.BookId), s => s.ToDto());
 }

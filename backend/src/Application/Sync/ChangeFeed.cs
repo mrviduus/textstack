@@ -7,19 +7,23 @@ namespace Application.Sync;
 
 /// <summary>
 /// The pull side of S2 (v2-sync-protocol.md "Pull and push"): one keyset-paged feed per aggregate,
-/// ordered by <c>(updated_at, id)</c>. The cursor is opaque base64 of one of two positions: inside a
-/// pull (<c>hasMore</c>), exactly after the last row sent; at its end, the watermark
-/// <c>max(updated_at)</c>, which the next pull reads from minus <see cref="Overlap"/>, so a write
-/// that took <c>now()</c> earlier but committed later is still delivered. Re-delivery is harmless:
-/// a pulled row replaces the client's copy.
+/// ordered by <c>(updated_at, id)</c>. The cursor is opaque base64 of one of two kinds: a position,
+/// read from exactly after its row; or a watermark, read from minus <see cref="Overlap"/>, so a write
+/// that took <c>now()</c> earlier but committed later is still delivered. Inside a pull
+/// (<c>hasMore</c>) it is always a position. At its end it is a position too when the last row is
+/// older than the overlap (no transaction still in flight can commit an earlier row, by the ceiling
+/// below), else a watermark: the overlap is re-delivered once, not on every poll, and a batch sharing
+/// one <c>updated_at</c> (the ETL's) is not re-pulled whole. Re-delivery is harmless: a pulled row
+/// replaces the client's copy.
 /// </summary>
 public static class ChangeFeed
 {
     public const int DefaultLimit = 200;
     public const int MaxLimit = 500;
 
-    // ponytail: a write transaction longer than this can be missed until its row changes again; a
-    // per-user change sequence if that ever happens (PDD "Pull and push").
+    // ponytail: a write transaction longer than this (or a database clock ahead of the api's by more)
+    // can be missed until its row changes again; a per-user change sequence if that ever happens
+    // (PDD "Pull and push").
     public static readonly TimeSpan Overlap = TimeSpan.FromSeconds(30);
 
     private const char PagePosition = 'p';
@@ -27,14 +31,16 @@ public static class ChangeFeed
 
     /// <summary>
     /// One page: <paramref name="load"/> reads up to its <c>limit</c> rows after <c>(since, afterId)</c>;
-    /// <paramref name="key"/> is a row's <c>(updated_at, id)</c>.
+    /// <paramref name="key"/> is a row's <c>(updated_at, id)</c>. An empty <paramref name="cursor"/> is
+    /// absent (the PDD writes <c>?cursor=&amp;limit=</c>).
     /// </summary>
     public static async Task<SyncResult> PageAsync<TRow, TDto>(
-        string? cursor, int? limit,
+        string? cursor, int? limit, DateTimeOffset now,
         Func<DateTimeOffset, Guid, int, Task<IReadOnlyList<TRow>>> load,
         Func<TRow, (DateTimeOffset UpdatedAt, Guid Id)> key,
         Func<TRow, TDto> toDto)
     {
+        if (cursor == "") cursor = null;
         var take = limit ?? DefaultLimit;
         if (take is < 1 or > MaxLimit)
             return SyncResult.Invalid("limit", $"limit is 1-{MaxLimit}.");
@@ -46,7 +52,7 @@ public static class ChangeFeed
         var page = rows.Take(take).ToList();
         // Nothing new: the caller keeps its position (none yet: still a full pull next time).
         var next = page.Count == 0 ? cursor
-            : hasMore ? Encode(PagePosition, key(page[^1]))
+            : hasMore || key(page[^1]).UpdatedAt < now - Overlap ? Encode(PagePosition, key(page[^1]))
             : Encode(Watermark, (key(page[^1]).UpdatedAt, Guid.Empty));
         return SyncResult.Ok(new ChangeFeedDto<TDto>(page.Select(toDto).ToList(), next, hasMore));
     }

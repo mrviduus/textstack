@@ -11,7 +11,7 @@ namespace TextStack.Persistence.Tests.Library;
 public class LibrarySyncServiceTests(V2PostgresFixture db)
 {
     private readonly ReadingStateRepository _reading = new(db.DataSource);
-    private readonly LibrarySyncService _service = new(new LibraryRepository(db.DataSource), new ReadingStateRepository(db.DataSource), db.DataSource);
+    private readonly LibrarySyncService _service = new(new LibraryRepository(db.DataSource), new ReadingStateRepository(db.DataSource), db.DataSource, TimeProvider.System);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static ReplaceFileRequest Replacing(Guid? replacesFileId) =>
