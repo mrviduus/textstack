@@ -156,8 +156,8 @@ fraction`, `clientRecordedAt = at`.
 | Field | Type | Req | Rule |
 |---|---|---|---|
 | `id` | uuid | yes on save | client v4; **if the key already exists the stored card's id wins** and is returned |
-| `language` | string | yes | |
-| `word` | string | yes | as the reader saw it; `wordKey` is computed by the server (language-aware lowercase), never sent |
+| `language` | string | yes | ≤ 16; stored trimmed and lowercased (BCP 47 tags are case-insensitive: `en` and `EN` are one card; the M3 ETL normalises legacy tags the same way) |
+| `word` | string | yes | ≤ 200, as the reader saw it; `wordKey` = `Trim().ToLowerInvariant()` of `word` (`WordKeys.Of`: invariant, not culture-aware, legacy's rule, so the ETL reproduces legacy keys), computed by the server, never sent; a key with no letter or digit is refused |
 | `translation`, `definition` | string | no | used only when the card is created; changing them is an explicit edit |
 | `stage`, `intervalDays`, `consecutiveCorrect`, `nextReviewAt`, `lastReviewedAt` | | server | the schedule (S3) |
 | `deletedAt` | time | server | tombstone |
@@ -677,9 +677,10 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 | M2.2 | `PUT /annotations/{id}` | annotation | 201 · 200 · 409 `stale_revision` / `deleted` / `unknown_file` / `id_conflict` · 404 `book_not_found` |
 | M2.2 | `DELETE /annotations/{id}` | — | 200 tombstone (idempotent) · 404 |
 | M2.3 | `GET /vocabulary/changes` · `GET /vocabulary/due?limit=` | — | 200 |
-| M2.3 | `PUT /vocabulary/words` | word (`id`, `language`, `word`, `translation?`, `definition?`) + optional `example` | 201 card · 200 existing card (id may differ) + `example: "added" \| "replayed"` · 409 `deleted` / `operation_conflict` / `unknown_file` / `id_conflict` · 404 `book_not_found` |
+| M2.3 | `PUT /vocabulary/words` | word (`id`, `language`, `word`, `translation?`, `definition?`) + optional `example` | 201 card · 200 existing card (id may differ) + `example: "added" \| "replayed"` · 409 `deleted` / `operation_conflict` / `unknown_file` / `id_conflict` · 404 `book_not_found`. Both halves are idempotent and run in turn: an example whose `operationId` conflicts still leaves the card created (409 `operation_conflict`, `current` = the stored example); on a tombstone the example is asked first, so a replay answers 200 with the tombstone and `example: "replayed"` |
+| M2.3 | `GET /vocabulary/words/{id}` | — | 200 card with its live examples (tombstone included) · 404 `not_found`. The read an editor without a local copy (the MCP bridge) needs for `expectedRevision` |
 | M2.3 | `PATCH /vocabulary/words/{id}` | `expectedRevision`, `translation?`, `definition?` | 200 · 409 `stale_revision` / `deleted` |
-| M2.3 | `DELETE /vocabulary/words/{id}` · `POST /vocabulary/words/{id}/restore` | restore: `{expectedRevision}` | 200 · 409 `stale_revision` · 404 `not_found` |
+| M2.3 | `DELETE /vocabulary/words/{id}` · `POST /vocabulary/words/{id}/restore` | restore: `{expectedRevision}` | 200 (a lost restore whose card is live: its own write, 200) · 409 `stale_revision` · 404 `not_found` |
 | M2.3 | `POST /vocabulary/words/{id}/examples` | example | 201 · 200 replay · 409 `operation_conflict` / `deleted` / `unknown_file` · 404 `not_found` / `book_not_found` |
 | M2.3 | `POST /vocabulary/reviews` | review | 201 `{review, word}` · 200 replay · 409 `operation_conflict` / `deleted` · 404 `not_found` |
 | M2.4 | `POST /books/{bookId}/shares` · `GET /books/{bookId}/shares` · `DELETE /shares/{id}` | share | 201 · 200 replay · 409 `operation_conflict` / `unknown_file` · 404 `book_not_found` / `not_found` · 204 |
@@ -693,8 +694,10 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 id; a new, deliberate save mints a new one. Never one per network attempt, never a hash of the payload
 (the schema says a new operation with the same sentence is a second example, and sharing again makes a
 new snapshot — `0000_baseline.up.sql`, comments on `vocabulary_examples` and `shared_chapters`). MCP
-tools have no client outbox, so the write tools take `operationId` from the host as a required
-parameter; a host that retries a tool call passes the same id.
+tools have no client outbox, so the write tools take `operationId` from the host; a host that retries
+a tool call passes the same id. For `add_vocabulary_words` it is optional (existing hosts send none:
+no replay protection then), and each word's id is derived from it and the word's card key, so a
+retry replays in any word order (M2.3).
 
 **Deferred provenance FKs.** `book_id`/`file_id` on examples, shares, checkpoints and annotations are
 `DEFERRABLE INITIALLY DEFERRED`: a bad id fails at **commit** (23503), which would surface as a 500
