@@ -41,6 +41,15 @@ public sealed class StubBackend : IAsyncDisposable
     public const string LiveOAuthToken = "tso_live";
     public const string RejectedOAuthToken = "tso_expired";
 
+    // V2 vocabulary scenarios: a word saved under a key that already has a card, one whose card is a
+    // tombstone, a card id the server never had, and the status the feed answers.
+    public const string ExistingV2Word = "existing";
+    public const string DeletedV2Word = "gone";
+    public const string MissingV2WordId = "00000000-0000-4000-8000-000000000404";
+    public int V2FeedStatus { get; set; } = StatusCodes.Status200OK;
+
+    private static string V2Error(string code, string message) => $$"""{ "code": "{{code}}", "message": "{{message}}", "revision": null, "current": null }""";
+
     private readonly WebApplication _app;
     private readonly Dictionary<string, RecordedRequest> _records = new(StringComparer.Ordinal);
     private readonly object _gate = new();
@@ -195,19 +204,29 @@ public sealed class StubBackend : IAsyncDisposable
         _app.MapGet("/me/v2/vocabulary/changes", async ctx =>
         {
             await RecordAsync("v2_vocabulary_changes", ctx);
+            if (V2FeedStatus != StatusCodes.Status200OK) { await WriteJsonAsync(ctx, V2Error("v2_unavailable", "Sync is paused."), V2FeedStatus); return; }
             await WriteJsonAsync(ctx, V2FeedBody);
         });
         _app.MapPut("/me/v2/vocabulary/words", async ctx =>
         {
             await RecordAsync("v2_save_word", ctx);
-            // A new card under the client's id, as the V2 API creates it.
-            var id = System.Text.Json.JsonDocument.Parse(Last("v2_save_word")!.Body).RootElement.GetProperty("id").GetString();
-            await WriteJsonAsync(ctx, V2Card(id!, revision: 1), StatusCodes.Status201Created);
+            var sent = System.Text.Json.JsonDocument.Parse(Last("v2_save_word")!.Body).RootElement;
+            var task = sent.GetProperty("word").GetString() switch
+            {
+                // A card already under the key: the stored one, with its own id.
+                ExistingV2Word => WriteJsonAsync(ctx, V2Card("55555555-5555-5555-5555-555555555555", revision: 2)),
+                DeletedV2Word => WriteJsonAsync(ctx, V2Error("deleted", "This item was deleted."), StatusCodes.Status409Conflict),
+                // A new card under the client's id, as the V2 API creates it.
+                _ => WriteJsonAsync(ctx, V2Card(sent.GetProperty("id").GetString()!, revision: 1), StatusCodes.Status201Created),
+            };
+            await task;
         });
         _app.MapGet("/me/v2/vocabulary/words/{id}", async ctx =>
         {
             await RecordAsync("v2_get_word", ctx);
-            await WriteJsonAsync(ctx, V2Card((string)ctx.Request.RouteValues["id"]!, revision: 3));
+            var id = (string)ctx.Request.RouteValues["id"]!;
+            if (id == MissingV2WordId) { await WriteJsonAsync(ctx, V2Error("not_found", "The server has no such item."), StatusCodes.Status404NotFound); return; }
+            await WriteJsonAsync(ctx, V2Card(id, revision: 3));
         });
         _app.MapPatch("/me/v2/vocabulary/words/{id}", async ctx =>
         {
@@ -353,8 +372,18 @@ public sealed class StubBackend : IAsyncDisposable
         lock (_gate)
         {
             _records[key] = record;
+            _history.Add((key, record));
             _hits++;
         }
+    }
+
+    private readonly List<(string Key, RecordedRequest Request)> _history = [];
+
+    /// <summary>Every request recorded under <paramref name="key"/>, oldest first.</summary>
+    public IReadOnlyList<RecordedRequest> All(string key)
+    {
+        lock (_gate)
+            return _history.Where(h => h.Key == key).Select(h => h.Request).ToList();
     }
 
     private static async Task WriteJsonAsync(HttpContext ctx, string json, int status = StatusCodes.Status200OK)

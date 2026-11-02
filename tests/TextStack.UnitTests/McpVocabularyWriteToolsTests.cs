@@ -159,7 +159,6 @@ public class McpVocabularyWriteToolsTests
     [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": [{ "word": "a", "language": "en", "translation": "t" }], "bookId": "11111111-1111-1111-1111-111111111111", "editionId": "11111111-1111-1111-1111-111111111111" }""")]
     [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": "a" }""")]
     [InlineData("""{ }""")]
-    [InlineData("""{ "words": [{ "word": "a", "language": "en", "translation": "t" }] }""")] // no operationId (owner decision 13)
     [InlineData("""{ "operationId": "not-a-uuid", "words": [{ "word": "a", "language": "en", "translation": "t" }] }""")]
     public async Task AddVocabularyWords_InvalidArgs_ReturnsToolError_NeverHitsHttp(string args)
     {
@@ -171,19 +170,43 @@ public class McpVocabularyWriteToolsTests
         Assert.Empty(handler.Requests);
     }
 
-    // A host's retry passes the same operationId and words: each word must get the same id again.
+    // Optional: a host that sends none still saves (it just gets no replay protection).
     [Fact]
-    public void WordOperationId_SameCallAndIndex_IsStableAndDistinctPerWordAndCall()
+    public async Task AddVocabularyWords_NoOperationId_StillSaves()
+    {
+        var (catalog, handler) = Build(Srs("a"));
+
+        var result = await catalog.CallAsync("add_vocabulary_words", Args("""{ "words": [{ "word": "a", "language": "en", "translation": "t" }] }"""), CancellationToken.None);
+
+        Assert.NotEqual(true, result.IsError);
+        Assert.Single(handler.Requests);
+    }
+
+    // A host's retry passes the same operationId and words, perhaps reordered: each word gets its id again.
+    [Fact]
+    public void WordOperationId_SameCallAndCardKey_IsStableAndDistinctPerWordAndCall()
     {
         var call = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
-        var first = McpToolCatalog.WordOperationId(call, 0);
+        var first = McpToolCatalog.WordOperationId(call, "en", "Quiver");
 
-        Assert.Equal(first, McpToolCatalog.WordOperationId(call, 0));
-        Assert.NotEqual(first, McpToolCatalog.WordOperationId(call, 1));
-        Assert.NotEqual(first, McpToolCatalog.WordOperationId(Guid.NewGuid(), 0));
+        Assert.Equal(first, McpToolCatalog.WordOperationId(call, " EN", "quiver ")); // the same card key
+        Assert.NotEqual(first, McpToolCatalog.WordOperationId(call, "en", "arrow"));
+        Assert.NotEqual(first, McpToolCatalog.WordOperationId(call, "uk", "quiver"));
+        Assert.NotEqual(first, McpToolCatalog.WordOperationId(Guid.NewGuid(), "en", "quiver"));
         Assert.Equal(4, first.Version);
     }
+
+    [Theory]
+    [InlineData("true", true)]
+    [InlineData(" TRUE ", true)]
+    [InlineData("1", true)]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    [InlineData("false", false)]
+    [InlineData("yes", false)]
+    public void McpBridgeOptionsIsOn_V2VocabularyFlagValue_ParsesAsDocumented(string? value, bool on) =>
+        Assert.Equal(on, McpBridgeOptions.IsOn(value));
 
     [Fact]
     public async Task AddVocabularyWords_MoreThan20_ReturnsToolError_NeverHitsHttp()

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Contracts.V2;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
@@ -604,7 +605,7 @@ public sealed class McpToolCatalog
             "bookTitle": { "type": "string", "maxLength": 300 },
             "operationId": { "type": "string", "format": "uuid" }
           },
-          "required": ["words", "operationId"],
+          "required": ["words"],
           "additionalProperties": false
         }
         """).RootElement;
@@ -630,7 +631,7 @@ public sealed class McpToolCatalog
         Handler = (args, ct) =>
         {
             if (!ArgReader.TryObject(args, out var obj, out var err, "words", "bookId", "editionId", "bookTitle", "operationId")
-                || !ArgReader.TryRequiredGuid(obj, "operationId", out var operationId, out err)
+                || !ArgReader.TryOptionalGuid(obj, "operationId", out var operationId, out err)
                 || !ArgReader.TryOptionalGuid(obj, "bookId", out var bookId, out err)
                 || !ArgReader.TryOptionalGuid(obj, "editionId", out var editionId, out err)
                 || !ArgReader.TryOptionalString(obj, "bookTitle", 300, out var bookTitle, out err)
@@ -641,12 +642,14 @@ public sealed class McpToolCatalog
                 return Task.FromResult(Error(
                     "Pass either 'bookId' (an uploaded book) or 'editionId' (a catalog book), not both."));
 
+            // Without the host's id a retry is not recognised; a fresh one still keeps each word to one save per call.
+            var callId = operationId ?? Guid.NewGuid();
             return InvokeAsync("add_vocabulary_words", ct, async () =>
             {
                 var results = new List<WordResult>(words.Count);
                 for (var i = 0; i < words.Count; i++)
                 {
-                    var result = await api.SaveWordAsync(words[i], WordOperationId(operationId, i), ct);
+                    var result = await api.SaveWordAsync(words[i], WordOperationId(callId, words[i].Language, words[i].Word), ct);
                     // Both refusals are about the user, not the word: every later word would get the same answer.
                     var stop = result.Status is System.Net.HttpStatusCode.TooManyRequests
                         ? new WordResult(words[i].Word, "stopped",
@@ -670,17 +673,16 @@ public sealed class McpToolCatalog
 
     /// <summary>
     /// One id per word of an <c>add_vocabulary_words</c> call (owner decision 13: the host's
-    /// <paramref name="operationId"/> names the call; a retry passes the same id and the same words in
-    /// the same order). The first 16 bytes of SHA-256(operationId ‖ index), stamped as a v4 UUID: the
-    /// same on every retry, different per word and per call.
+    /// <paramref name="operationId"/> names the call, and a retry passes the same one). The first 16
+    /// bytes of SHA-256 of "operationId \n language \n wordKey" (the card key, <see cref="WordKeys"/>),
+    /// stamped as a v4 UUID: the same on every retry whatever the word order, different per word and
+    /// per call. A word repeated in one call gets one id, which is one card anyway.
     /// </summary>
-    internal static Guid WordOperationId(Guid operationId, int index)
+    internal static Guid WordOperationId(Guid operationId, string language, string word)
     {
-        Span<byte> input = stackalloc byte[20];
-        operationId.TryWriteBytes(input, bigEndian: true, out _);
-        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(input[16..], index);
+        var key = System.Text.Encoding.UTF8.GetBytes($"{operationId:D}\n{WordKeys.Language(language)}\n{WordKeys.Of(word)}");
         Span<byte> hash = stackalloc byte[32];
-        System.Security.Cryptography.SHA256.HashData(input, hash);
+        System.Security.Cryptography.SHA256.HashData(key, hash);
         hash[6] = (byte)((hash[6] & 0x0F) | 0x40); // version 4
         hash[8] = (byte)((hash[8] & 0x3F) | 0x80); // RFC 9562 variant
         return new Guid(hash[..16], bigEndian: true);

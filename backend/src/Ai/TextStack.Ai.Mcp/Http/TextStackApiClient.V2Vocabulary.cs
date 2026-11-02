@@ -31,9 +31,11 @@ public sealed partial class TextStackApiClient
             using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
             using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
-            if (response.StatusCode is not HttpStatusCode.OK) return EmptyVocab;
-            var page = await response.Content.ReadFromJsonAsync<V2FeedJson>(JsonOptions, ct);
-            if (page is null) return EmptyVocab;
+            // Never "no words" for a page that did not come: the catalog makes these a clean tool error.
+            if (response.StatusCode is not HttpStatusCode.OK)
+                throw new HttpRequestException($"vocabulary feed answered {(int)response.StatusCode}", null, response.StatusCode);
+            var page = await response.Content.ReadFromJsonAsync<V2FeedJson>(JsonOptions, ct)
+                ?? throw new JsonException("vocabulary feed page was empty");
             cards.AddRange(page.Items);
             cursor = page.HasMore ? page.Cursor : null;
         } while (cursor is not null);
@@ -60,9 +62,12 @@ public sealed partial class TextStackApiClient
     /// </summary>
     private async Task<ApiResult<JsonElement>> SaveV2WordAsync(SaveWordJson word, Guid operationId, CancellationToken ct)
     {
+        // ponytail: the example goes without bookId (and fileId, chapterKey): the bridge holds legacy
+        // UserBook ids, which V2 has no row for until the M3 ETL carries them over (#1094), so every word
+        // would answer book_not_found. bookTitle stays as the snapshot; editionId has no V2 counterpart.
         var example = string.IsNullOrWhiteSpace(word.Sentence)
             ? null
-            : new V2ExampleJson(operationId, word.Sentence, word.UserBookId, word.BookTitle);
+            : new V2ExampleJson(operationId, word.Sentence, null, word.BookTitle);
         using var request = await AuthorizedRequestAsync(HttpMethod.Put, "/me/v2/vocabulary/words", ct);
         request.Content = JsonContent.Create(
             new V2SaveWordJson(operationId, word.Language, word.Word, word.Translation, word.Definition, example), options: JsonOptions);
