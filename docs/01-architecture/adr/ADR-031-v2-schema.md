@@ -205,6 +205,7 @@ and can be read back from it; none is silently lost.
 | `models`, `model_promotions` | D7: configuration (`Ai:Routes`) |
 | `book_quality_jobs` | catalog/PDF quality pipeline, not part of V2 |
 | `user_books.takedown_at`/`takedown_reason`, metadata-enrichment status fields, `total_word_count`, `seo_source`, `suggested_tags*` | decided item 3: catalog/SEO/enrichment machinery, not library data |
+| `user_chapters.content_quality_score` | not in `book_chapters`' column list; PDF quality cleanup is not a V2 feature |
 | `vocabulary_words.total_reviews`/`correct_reviews` | decided item 4: derived from `vocabulary_reviews` |
 | The losing card of a case-variant vocabulary merge (its SRS state) | decided item 4: its examples and reviews move to the survivor |
 | All catalog, SEO and SSG content (#1–#20) | D3: the public catalog is retired within V2 |
@@ -328,6 +329,39 @@ is never edited (ADR-026); the rows and rules above read with these deltas:
   revision-guarded (owner decision 5).
 - **`book_files`:** `content_removed_at timestamptz NULL` — "stop syncing this file": the server's
   bytes are deleted and no client re-uploads on its own (owner decision 6).
+
+## Amended 2026-11-02 — migration `0002` ([#1092](https://github.com/mrviduus/textstack/issues/1092), [#1047](https://github.com/mrviduus/textstack/issues/1047))
+
+`database/v2/migrations/0002_identity_and_indexes`: M2.5's identity bundle (owner decision
+2026-11-02 on #1092) and the indexes M1.5–M2.4 collected on #1047.
+
+- **`users`:** `credentials_reset_at timestamptz NULL`, stamped by the password reset in the statement
+  that spends its code. A credential minted from an access token issued before it (`iat <
+  credentials_reset_at`) is refused — a session re-issue, a device approval, an MCP key — under the
+  user row's `FOR SHARE`, so a reset committing meanwhile is seen; a refresh refuses a sign-in that
+  began before it. `iat` has whole seconds: a token minted in the reset's own second is refused too.
+- **`user_refresh_tokens`:** `kind text NOT NULL`, `ck_user_refresh_tokens_kind` (`reader`, `admin`)
+  replaces the `adm.` hash prefix; `token_hash` stays unique across kinds.
+- **`user_refresh_tokens`:** `family_id uuid NOT NULL` (the sign-in's first session) and
+  `family_started_at timestamptz NOT NULL`, copied by every rotation; `ix_user_refresh_tokens_family_id`.
+  The family revoke is one `DELETE`, the 90-day absolute lifetime reads the row, and the sweep may
+  delete spent sessions at any cutoff (a token replayed after its row is swept is refused, not
+  treated as reuse). `previous_token_hash` stays: reuse detection reads it.
+- **Change feeds:** `(user_id, updated_at, id)` on `books`, `annotations`, `vocabulary_words`;
+  `(user_id, updated_at, book_id)` on `reading_state` (its key).
+- **`vocabulary_words`:** the due index is `(user_id, next_review_at, id)`, `0001`'s predicate kept.
+- **Sweeps:** `ix_password_reset_tokens_expires_at`; `ix_oauth_grants_refresh_token_expires_at` and
+  `ix_oauth_grants_revoked_at` (partial) — the grant sweep's `OR` uses indexes only with both arms.
+- **`device_authorizations`:** `ix_device_authorizations_user_code` is unique among pending logins; a
+  pending login past its deadline holds its code until decided or swept.
+- **`discussion_checkpoints`:** `ix_discussion_checkpoints_user_id_book_id_chapter_key` on
+  `(user_id, book_id, chapter_key, created_at, id)` for the `?chapterKey=` page.
+
+Not changed, decided on #1047: `reading_state` already has `ck_reading_state_frontier_ahead`
+(`frontier_fraction >= book_fraction`) since the baseline; `books.origin` gets no `? 'kind'` CHECK
+yet — every writer sets a kind (`Book.Origin` defaults to `{"kind":"upload"}`), but the column's own
+default is `'{}'`, and the CHECK worth having names the kinds the ETL (M3.2) settles, so it comes with
+M3.1.
 
 Related: [v2-plan.md](../v2-plan.md) · [ADR-030](ADR-030-two-databases-one-cutover.md) ·
 [ADR-028](ADR-028-dapper-and-repositories.md) · [ADR-026](ADR-026-sql-first-migrations.md) ·
