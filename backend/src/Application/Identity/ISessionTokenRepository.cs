@@ -10,8 +10,13 @@ namespace Application.Identity;
 /// </summary>
 public interface ISessionTokenRepository
 {
-    /// <summary>Stores a new session of the user and returns it.</summary>
-    Task<SessionToken> IssueAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, CancellationToken ct);
+    /// <summary>
+    /// Stores a new session of the user and returns it. With <paramref name="verifiedPasswordHash"/> (a
+    /// password sign-in: the hash the password was checked against), only while the user's password
+    /// still is that hash, so a reset committing between the check and this insert wins: null, nothing
+    /// stored (#1092). Null too when the user is gone.
+    /// </summary>
+    Task<SessionToken?> IssueAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, string? verifiedPasswordHash, CancellationToken ct);
 
     /// <summary>The session with this hash that has not expired by <paramref name="now"/>; null when none.</summary>
     Task<SessionToken?> GetLiveAsync(string tokenHash, DateTimeOffset now, CancellationToken ct);
@@ -40,8 +45,10 @@ public interface ISessionTokenRepository
 
     /// <summary>
     /// Spends a reset code unused and unexpired at <paramref name="now"/> and, atomically, sets the
-    /// user's password and signs every credential out: sessions deleted (one a rotation commits
-    /// meanwhile too), MCP keys and OAuth grants revoked (an earlier revocation keeps its time).
+    /// user's password and signs every credential out: sessions deleted (one a rotation or a password
+    /// sign-in commits meanwhile too), MCP keys and OAuth grants revoked (an earlier revocation keeps its
+    /// time), device logins approved and not yet redeemed expired.
+    /// ponytail: access JWTs minted before the reset live out their hour; <c>users.credentials_reset_at</c> vs <c>iat</c> is #1092 (migration 0002).
     /// Returns the user; null when the code is unknown, used or expired (nothing changed).
     /// </summary>
     Task<Guid?> ResetPasswordAsync(string tokenHash, string passwordHash, DateTimeOffset now, CancellationToken ct);

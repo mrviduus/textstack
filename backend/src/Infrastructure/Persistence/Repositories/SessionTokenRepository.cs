@@ -15,16 +15,22 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
 
     private const string ResetColumns = "id, user_id, token_hash, expires_at, used, created_at";
 
+    // FOR SHARE conflicts with a reset's lock on the user (LockResetOwner): a reset holding it makes
+    // this wait, and READ COMMITTED re-checks password_hash on the row the reset committed, so a
+    // changed password inserts nothing. A reset that comes second deletes this session.
     private const string InsertSession = $"""
         INSERT INTO user_refresh_tokens (id, user_id, token_hash, expires_at, created_at)
-        VALUES (gen_random_uuid(), @userId, @tokenHash, @expiresAt, now())
+        SELECT gen_random_uuid(), id, @tokenHash, @expiresAt, now() FROM users
+        WHERE id = @userId AND (@verifiedPasswordHash::text IS NULL OR password_hash = @verifiedPasswordHash)
+        FOR SHARE
         RETURNING {SessionColumns}
         """;
 
-    public async Task<SessionToken> IssueAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, CancellationToken ct)
+    public async Task<SessionToken?> IssueAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, string? verifiedPasswordHash, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleAsync<SessionToken>(new CommandDefinition(InsertSession, new { userId, tokenHash, expiresAt }, cancellationToken: ct));
+        return await conn.QuerySingleOrDefaultAsync<SessionToken>(new CommandDefinition(
+            InsertSession, new { userId, tokenHash, expiresAt, verifiedPasswordHash }, cancellationToken: ct));
     }
 
     private const string SelectLiveSession = $"SELECT {SessionColumns} FROM user_refresh_tokens WHERE token_hash = @tokenHash AND expires_at > @now";
@@ -117,6 +123,8 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
             UPDATE users SET password_hash = @passwordHash WHERE id IN (SELECT user_id FROM spent)),
         signed_out AS (
             DELETE FROM user_refresh_tokens WHERE user_id IN (SELECT user_id FROM spent)),
+        expired_logins AS (
+            UPDATE device_authorizations SET status = 'expired' WHERE user_id IN (SELECT user_id FROM spent) AND status = 'approved'),
         revoked_keys AS (
             UPDATE mcp_access_keys SET revoked_at = now() WHERE user_id IN (SELECT user_id FROM spent) AND revoked_at IS NULL),
         revoked_grants AS (
