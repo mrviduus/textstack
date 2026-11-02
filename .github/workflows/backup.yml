@@ -54,7 +54,7 @@ jobs:
           f=$BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz
           # .tmp until the trailer is seen: the R2 step sends the file only if it exists.
           docker exec textstack_db_prod pg_dump -U textstack_prod $V2_DB | gzip > $f.tmp
-          zcat $f.tmp | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
+          zcat < $f.tmp | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
             || { echo "::error::$V2_DB dump has no dump-complete trailer"; exit 1; }
           mv $f.tmp $f
           echo "V2 database backup: $(basename $f)"

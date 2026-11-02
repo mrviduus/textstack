@@ -167,7 +167,7 @@ backup:
 	if [ -z "$$v2" ]; then echo "No V2 database here: V2 dump skipped."; exit 0; fi; \
 	f=$(BACKUP_DIR)/$$v2-db_$$(date +%Y-%m-%d_%H%M%S).sql.gz; \
 	docker exec $(DB_CONTAINER) pg_dump -U $$POSTGRES_USER $$v2 | gzip > $$f.tmp; \
-	gunzip -c $$f.tmp | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
+	gunzip -c < $$f.tmp | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
 		|| { echo "V2 dump incomplete: $$f.tmp"; exit 1; }; \
 	mv $$f.tmp $$f; echo "V2 backup saved:"; ls -lh $$f
 
