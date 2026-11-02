@@ -128,18 +128,23 @@ reader (M2.7a, owner decision 2026-11-02, #1112). Only `epub-cfi` carries `quote
 | Scheme | Use | `value` |
 |---|---|---|
 | `textstack-position-v1` | reading-state `currentLocator` / `frontierLocator` only | `chapterSlug` (the chapter key: 1–200, non-blank), `chapterFraction` (0..1), optional `anchor` `{prefix, exact, suffix, startOffset, endOffset}` (`exact` 1–64 code points, `prefix`/`suffix` ≤ 32, offsets integers ≥ 0 with `endOffset ≥ startOffset`), optional `charOffset` (integer ≥ 0). A scroll-only position has no `anchor` (ADR-031 decided item 5) |
-| `textstack-anchor-v1` | annotation `locator` only | `chapterKey` (1–200, non-blank), `prefix`, `exact` (1–4000 code points, `selectedText`'s cap: a highlight quotes whatever was selected), `suffix`, `startOffset`, `endOffset`, otherwise the same rules as the position's `anchor`; offsets are int32 |
+| `textstack-anchor-v1` | annotation `locator` only | `chapterKey` (1–200, non-blank), `prefix`, `exact` (≤ 4000 code points, a sanity bound; `selectedText`'s 4000 UTF-16 units binds first), `suffix`, `startOffset`, `endOffset`, otherwise the same rules as the position's `anchor`; offsets are int32 |
 
-The server counts quote and context in code points. The client cuts them in UTF-16 units (the unit
-of the offsets) but never between the halves of a surrogate pair (`buildTextPosition`): a lone
-surrogate has no UTF-8 form and is refused like a NUL.
+The server counts quote and context in code points. The clients cut them in UTF-16 units (the unit
+of the offsets) but never between the halves of a surrogate pair (`notInSurrogatePair`, used by
+`buildTextPosition` and the engine's `quoteAt`): a lone surrogate has no UTF-8 form and is refused
+like a NUL.
 
 A scheme in the other use, or a value breaking a rule, is 400 `invalid_payload`. Each such write is
 accepted only on a file version of the user's whose extracted chapters (`book_chapters`,
 `(user_id, file_id, chapter_key)`) include the one it names — otherwise 409 `chapter_not_found`,
 also for a file that has no chapters (never uploaded, or its extraction not finished). On reading
-state the file's own codes come first: a miss on a file that is not the current one is
-`file_replaced` / `unknown_file`, as any write on it. A catalog book has no file, and a locator
+state the check is part of the write statement (a re-extraction cannot slip between a check and the
+write) and covers what the write stores: the position's chapter always, the frontier's only when that
+frontier is stored (none stored yet, or the offered one is further) — a client echoing back a stored
+frontier whose chapter was renamed is not refused. The file's own codes come first: a loss on a file
+that is not the current one is `file_replaced` / `unknown_file`, as any write on it. Annotations check
+only a locator the write sets: an edit or a replay keeping the stored one is not refused. A catalog book has no file, and a locator
 needs a `fileId` (400 without one), so these schemes never reach a file-less book. **No server or
 client converts a `textstack-*` locator to a CFI, and foliate is never given one**: it is stored and
 returned as sent, and only the transitional reader resolves it, against `book_chapters`.

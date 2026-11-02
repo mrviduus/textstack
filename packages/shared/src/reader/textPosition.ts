@@ -21,7 +21,7 @@
  * So: a reading position is a highlight without a colour.
  */
 
-import { ANCHOR_CONTEXT_LENGTH, findAnchorOffset, type TextAnchor } from './textAnchor'
+import { ANCHOR_CONTEXT_LENGTH, findAnchorOffset, notInSurrogatePair, type TextAnchor } from './textAnchor'
 
 /**
  * The version, on the wire.
@@ -92,8 +92,8 @@ export function buildTextPosition(input: {
   // Every cut lands between code points: half a surrogate pair has no UTF-8 form, and the server
   // refuses a position holding one (400). Offsets stay in UTF-16 units, the unit findAnchorOffset reads.
   const len = chapterText.length
-  const start = notInPair(chapterText, clampInt(input.charOffset, 0, len), -1)
-  const end = notInPair(chapterText, Math.min(len, start + POSITION_QUOTE_LENGTH), -1)
+  const start = notInSurrogatePair(chapterText, clampInt(input.charOffset, 0, len), -1)
+  const end = notInSurrogatePair(chapterText, Math.min(len, start + POSITION_QUOTE_LENGTH), -1)
   const exact = chapterText.slice(start, end)
   // A position at the very end of a chapter has nothing left to quote. The fraction still says
   // where the reader is, so the caller keeps that and loses only the precision.
@@ -103,9 +103,9 @@ export function buildTextPosition(input: {
     v: TEXT_POSITION_VERSION,
     chapterSlug,
     anchor: {
-      prefix: chapterText.slice(notInPair(chapterText, Math.max(0, start - ANCHOR_CONTEXT_LENGTH), 1), start),
+      prefix: chapterText.slice(notInSurrogatePair(chapterText, Math.max(0, start - ANCHOR_CONTEXT_LENGTH), 1), start),
       exact,
-      suffix: chapterText.slice(end, notInPair(chapterText, Math.min(len, end + ANCHOR_CONTEXT_LENGTH), -1)),
+      suffix: chapterText.slice(end, notInSurrogatePair(chapterText, Math.min(len, end + ANCHOR_CONTEXT_LENGTH), -1)),
       startOffset: start,
       endOffset: end,
     },
@@ -209,13 +209,6 @@ function nearestOccurrence(text: string, pos: TextPosition, resolved: number): n
     if (distance < bestDistance) { bestDistance = distance; best = index }
   }
   return best
-}
-
-/** `i`, or the nearest index before (`-1`) or after (`1`) it when `i` falls between the halves of a surrogate pair. */
-function notInPair(text: string, i: number, direction: -1 | 1): number {
-  const splits = i > 0 && i < text.length
-    && /[\uD800-\uDBFF]/.test(text[i - 1]) && /[\uDC00-\uDFFF]/.test(text[i])
-  return splits ? i + direction : i
 }
 
 function clampInt(n: unknown, min: number, max: number): number {

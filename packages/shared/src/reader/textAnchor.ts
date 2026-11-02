@@ -23,6 +23,17 @@
  *  makes existing anchors match less well, so both creators must agree on it. */
 export const ANCHOR_CONTEXT_LENGTH = 30
 
+/**
+ * `i`, or the nearest index before (`-1`) or after (`1`) it when `i` falls between the halves of a
+ * surrogate pair. Every cut of a quote or its context goes through this: half a pair has no UTF-8
+ * form, and the server refuses an anchor holding one.
+ */
+export function notInSurrogatePair(text: string, i: number, direction: -1 | 1): number {
+  const splits = i > 0 && i < text.length
+    && /[\uD800-\uDBFF]/.test(text[i - 1]) && /[\uDC00-\uDFFF]/.test(text[i])
+  return splits ? i + direction : i
+}
+
 /** Below this Dice score a sliding-window match is rejected. Tightened from
  *  0.6 once OCR'd books drifted matches onto a similar-looking word elsewhere. */
 const FUZZY_MIN_SCORE = 0.75
