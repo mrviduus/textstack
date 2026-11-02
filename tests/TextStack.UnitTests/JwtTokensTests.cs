@@ -64,6 +64,40 @@ public class JwtTokensTests
     }
 
     [Fact]
+    public void MintAccessToken_ReaderAndAdmin_CarryIssuedAtAndTheirLifetime()
+    {
+        var before = DateTime.UtcNow.AddSeconds(-1);
+        var reader = new JwtSecurityTokenHandler().ReadJwtToken(Tokens.MintAccessToken(Guid.NewGuid(), "reader@example.test", null, false));
+        var admin = new JwtSecurityTokenHandler().ReadJwtToken(Tokens.MintAdminAccessToken(Guid.NewGuid(), "admin@example.test", AdminRole.Admin, 15));
+
+        foreach (var token in new[] { reader, admin })
+            Assert.InRange(token.IssuedAt, before, DateTime.UtcNow.AddSeconds(1));
+        Assert.InRange(reader.ValidTo - reader.IssuedAt, TimeSpan.FromMinutes(59), TimeSpan.FromMinutes(61));
+        Assert.InRange(admin.ValidTo - admin.IssuedAt, TimeSpan.FromMinutes(14), TimeSpan.FromMinutes(16));
+    }
+
+    [Fact]
+    public void ValidateAdminAccessToken_AdminAudienceWithoutIsAdmin_Null()
+    {
+        var token = TestTokens.Token(Guid.NewGuid(), audience: JwtSettings.AdminAudience);
+
+        Assert.Equal((null, null), Tokens.ValidateAdminAccessToken(token));
+    }
+
+    [Fact]
+    public void ValidateAdminAccessToken_IsAdminOnAReadersAudience_Null()
+    {
+        var id = Guid.NewGuid();
+        var token = new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
+            TestTokens.Issuer, JwtSettings.UserAudience,
+            [new Claim(ClaimTypes.NameIdentifier, id.ToString()), new Claim(ClaimTypes.Role, "Admin"), new Claim("is_admin", "true")],
+            expires: DateTime.UtcNow.AddMinutes(5),
+            signingCredentials: new SigningCredentials(new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(TestTokens.Secret)), SecurityAlgorithms.HmacSha256)));
+
+        Assert.Equal((null, null), Tokens.ValidateAdminAccessToken(token));
+    }
+
+    [Fact]
     public void RefreshTokenDays_GuestOrAccount_ItsOwnWindow()
     {
         Assert.Equal((7, 30), (Tokens.RefreshTokenDays(isGuest: true), Tokens.RefreshTokenDays(isGuest: false)));

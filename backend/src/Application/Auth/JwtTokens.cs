@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -229,14 +230,17 @@ public class JwtTokens(JwtSettings jwt, GoogleSettings? google = null, AppleSett
         }
     }
 
+    // iat: what a credentials-reset stamp is compared with (#1092).
     private string Write(IEnumerable<Claim> claims, string audience, int expiryMinutes)
     {
+        var now = DateTime.UtcNow;
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SecretKey));
         var token = new JwtSecurityToken(
             issuer: jwt.Issuer,
             audience: audience,
-            claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(expiryMinutes),
+            claims: claims.Append(new Claim(JwtRegisteredClaimNames.Iat,
+                EpochTime.GetIntDate(now).ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64)),
+            expires: now.AddMinutes(expiryMinutes),
             signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
