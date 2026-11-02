@@ -118,6 +118,7 @@ public static class DeviceAuthEndpoints
         DeviceApprovalResult.NotFound => Results.BadRequest(new { error = "invalid_user_code" }),
         DeviceApprovalResult.Expired => Results.BadRequest(new { error = "expired_user_code" }),
         DeviceApprovalResult.AlreadyUsed => Results.BadRequest(new { error = "user_code_already_used" }),
+        DeviceApprovalResult.Unauthorized => Results.Unauthorized(),
         _ => Results.BadRequest(new { error = "invalid_user_code" })
     };
 

@@ -46,7 +46,7 @@ public interface ISessionTokenRepository
     Task<SessionRefresh> RefreshAsync(
         string oldTokenHash, string newTokenHash, SessionKind kind, Func<UserAccount, DateTimeOffset> expiresAt, DateTimeOffset now, CancellationToken ct);
 
-    /// <summary>Signs the session out. False when there is no such session of that kind.</summary>
+    /// <summary>Signs the live session out. False when there is no such live session of that kind (a spent one stays: reuse detection reads it).</summary>
     Task<bool> RevokeAsync(string tokenHash, SessionKind kind, CancellationToken ct);
 
     /// <summary>Stores a reset code for the user and returns it.</summary>

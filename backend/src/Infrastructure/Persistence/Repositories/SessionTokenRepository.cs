@@ -13,14 +13,15 @@ namespace Infrastructure.Persistence.Repositories;
 /// then finds nothing to do) or after it (and sees what to sign out): the reset and a rotation take it
 /// <c>FOR NO KEY UPDATE</c>; every sign-in and a device redemption take it <c>FOR SHARE</c>. Rows
 /// that only reference the user (FK checks: <c>KEY SHARE</c>) are not held up.</item>
-/// <item>A sign-in starts a family (<c>family_id</c> = its first session's id, <c>family_started_at</c>);
-/// a rotation copies both, so the absolute lifetime reads the row itself, the family revoke reads the
-/// successor, and the sweep deletes a family only once none of it lives, at any cutoff.</item>
+/// <item>A sign-in starts a family (<c>family_id</c> = its first session's id) and a rotation copies
+/// it. The sweep deletes a family only once none of it lives, at any cutoff, and a sign-out spares a
+/// spent row, so while any member lives the first row is there (the absolute lifetime reads its
+/// <c>created_at</c>) and every replayed token finds its successor (the family revoke).</item>
 /// </list>
 /// </summary>
 public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTokenRepository
 {
-    private const string SessionColumns = "id, user_id, token_hash, previous_token_hash, family_id, family_started_at, expires_at, created_at";
+    private const string SessionColumns = "id, user_id, token_hash, previous_token_hash, expires_at, created_at";
 
     private const string ResetColumns = "id, user_id, token_hash, expires_at, used, created_at";
 
@@ -33,8 +34,8 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
     /// Selected from users, so a user gone is no row rather than an FK error.
     /// </summary>
     internal const string InsertSessionFromUser = """
-        INSERT INTO user_refresh_tokens (id, user_id, token_hash, kind, family_id, family_started_at, expires_at, created_at)
-        SELECT @id, u.id, @tokenHash, @kind, @id, now(), @expiresAt, now() FROM users u
+        INSERT INTO user_refresh_tokens (id, user_id, token_hash, kind, family_id, expires_at, created_at)
+        SELECT @id, u.id, @tokenHash, @kind, @id, @expiresAt, now() FROM users u
         """;
 
     // Every sign-in queues behind a reset: committed before it, the reset deletes it; after it, it is
@@ -72,16 +73,17 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         """;
 
     // Of two rotations of one token, the second waits for the first and then finds a successor:
-    // nothing to spend. Nor is an expired token, or one whose sign-in began before @familyNotBefore.
+    // nothing to spend. Nor is an expired token, or one whose sign-in (its family's first row, by
+    // primary key) began before @familyNotBefore.
     private const string RotateSession = $"""
         WITH spent AS (
             UPDATE user_refresh_tokens SET expires_at = @now
             WHERE user_id = @userId AND token_hash = @oldTokenHash AND expires_at > @now
               AND NOT EXISTS (SELECT FROM user_refresh_tokens WHERE previous_token_hash = @oldTokenHash)
-              AND family_started_at >= @familyNotBefore
-            RETURNING token_hash, kind, family_id, family_started_at)
-        INSERT INTO user_refresh_tokens (id, user_id, token_hash, kind, family_id, family_started_at, expires_at, created_at, previous_token_hash)
-        SELECT gen_random_uuid(), @userId, @newTokenHash, kind, family_id, family_started_at, @expiresAt, now(), token_hash FROM spent
+              AND (SELECT r.created_at FROM user_refresh_tokens r WHERE r.id = user_refresh_tokens.family_id) >= @familyNotBefore
+            RETURNING token_hash, kind, family_id)
+        INSERT INTO user_refresh_tokens (id, user_id, token_hash, kind, family_id, expires_at, created_at, previous_token_hash)
+        SELECT gen_random_uuid(), @userId, @newTokenHash, kind, family_id, @expiresAt, now(), token_hash FROM spent
         RETURNING {SessionColumns}
         """;
 
@@ -126,7 +128,9 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         return session is null ? SessionRefresh.Invalid : new(SessionRefreshOutcome.Rotated, session, user);
     }
 
-    private const string DeleteSession = "DELETE FROM user_refresh_tokens WHERE token_hash = @tokenHash AND kind = @kind";
+    // Live sessions only: a spent row is its family's record (the first row its start, every row a
+    // replay's way to the family) until the sweep takes the family whole.
+    private const string DeleteSession = "DELETE FROM user_refresh_tokens WHERE token_hash = @tokenHash AND kind = @kind AND expires_at > now()";
 
     public async Task<bool> RevokeAsync(string tokenHash, SessionKind kind, CancellationToken ct)
     {

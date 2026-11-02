@@ -71,7 +71,7 @@ public sealed class OAuthRepository(V2DataSource dataSource) : IOAuthRepository
     private const string ApproveRequest = $"""
         UPDATE oauth_authorization_requests SET user_id = @userId, code_hash = @codeHash, expires_at = @codeExpiresAt
         WHERE {Pending}
-          AND EXISTS (SELECT FROM users u WHERE u.id = @userId AND {UserRepository.NotResetSinceToken} FOR SHARE)
+          AND {UserRepository.FreshUserExists}
         RETURNING {RequestColumns}
         """;
 
@@ -116,29 +116,28 @@ public sealed class OAuthRepository(V2DataSource dataSource) : IOAuthRepository
     }
 
     // The owner filter is here; the statement below revokes only the ids this select returned.
-    // ponytail: two first connects of one app at the same instant can both stay live (as on legacy); serialise on the user row, as SessionTokenRepository.LockUser does, if that ever shows up.
+    // ponytail: two first connects of one app at the same instant can both stay live (as on legacy); the user row's FOR SHARE below does not order them, FOR NO KEY UPDATE would, if that ever shows up.
     private const string SelectLiveGrantsOfClient = """
         SELECT id, redirect_uri FROM oauth_grants
         WHERE user_id = @userId AND client_name = @clientName AND revoked_at IS NULL
         """;
 
-    // One statement: the replaced grants are revoked exactly when the new one is stored.
+    // One statement: the replaced grants are revoked exactly when the new one is stored, and only for
+    // a consent the user gave after the last password reset. The approval time is not stored; the
+    // request's creation precedes it, so a consent requested before the reset is refused (the client
+    // asks again). The user's row FOR SHARE: a reset committing meanwhile is seen, one after it
+    // revokes the grant.
     private const string ReplaceGrants = """
-        WITH revoked AS (
-            UPDATE oauth_grants SET revoked_at = now() WHERE id = ANY(@ids))
-        INSERT INTO oauth_grants (id, user_id, client_id, client_name, redirect_uri, resource, scope, access_token_hash, access_token_expires_at, refresh_token_hash, refresh_token_expires_at, created_at)
-        VALUES (@Id, @UserId, @ClientId, @ClientName, @RedirectUri, @Resource, @Scope, @AccessTokenHash, @AccessTokenExpiresAt, @RefreshTokenHash, @RefreshTokenExpiresAt, now())
-        """;
-
-    // The user's row FOR SHARE until the grant is stored: a reset committing meanwhile is seen, one
-    // after it revokes the grant. The approval time is not stored; the request's creation precedes it,
-    // so a consent requested before the last reset is refused (the client asks again).
-    private const string LockConsentingUser = """
-        SELECT EXISTS (
-            SELECT FROM users u JOIN oauth_authorization_requests r ON r.user_id = u.id
-            WHERE u.id = @userId AND r.id = @requestId
+        WITH consenting AS (
+            SELECT u.id FROM users u JOIN oauth_authorization_requests r ON r.user_id = u.id
+            WHERE u.id = @UserId AND r.id = @requestId
               AND (u.credentials_reset_at IS NULL OR u.credentials_reset_at <= r.created_at)
-            FOR SHARE OF u)
+            FOR SHARE OF u),
+        revoked AS (
+            UPDATE oauth_grants SET revoked_at = now() WHERE id = ANY(@ids) AND user_id IN (SELECT id FROM consenting))
+        INSERT INTO oauth_grants (id, user_id, client_id, client_name, redirect_uri, resource, scope, access_token_hash, access_token_expires_at, refresh_token_hash, refresh_token_expires_at, created_at)
+        SELECT @Id, c.id, @ClientId, @ClientName, @RedirectUri, @Resource, @Scope, @AccessTokenHash, @AccessTokenExpiresAt, @RefreshTokenHash, @RefreshTokenExpiresAt, now()
+        FROM consenting c
         """;
 
     public async Task<bool> ConnectAsync(Guid userId, Guid requestId, OAuthTokenGrant grant, CancellationToken ct)
@@ -146,17 +145,13 @@ public sealed class OAuthRepository(V2DataSource dataSource) : IOAuthRepository
         // The host is compared as the consent screen shows it (OAuth.DisplayHost), which SQL cannot reproduce.
         var host = OAuth.DisplayHost(grant.RedirectUri);
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var tx = await conn.BeginTransactionAsync(ct);
-        if (!await conn.ExecuteScalarAsync<bool>(new CommandDefinition(LockConsentingUser, new { userId, requestId }, tx, cancellationToken: ct)))
-            return false;
         var live = await conn.QueryAsync<(Guid Id, string RedirectUri)>(
-            new CommandDefinition(SelectLiveGrantsOfClient, new { userId, grant.ClientName }, tx, cancellationToken: ct));
+            new CommandDefinition(SelectLiveGrantsOfClient, new { userId, grant.ClientName }, cancellationToken: ct));
         var args = new DynamicParameters(grant);
         args.Add("UserId", userId);
+        args.Add("requestId", requestId);
         args.Add("ids", live.Where(g => OAuth.DisplayHost(g.RedirectUri) == host).Select(g => g.Id).ToArray());
-        await conn.ExecuteAsync(new CommandDefinition(ReplaceGrants, args, tx, cancellationToken: ct));
-        await tx.CommitAsync(ct);
-        return true;
+        return await conn.ExecuteAsync(new CommandDefinition(ReplaceGrants, args, cancellationToken: ct)) > 0;
     }
 
     private const string SelectByRefreshToken = $"SELECT {GrantColumns} FROM oauth_grants WHERE refresh_token_hash = @refreshTokenHash AND revoked_at IS NULL";

@@ -38,30 +38,26 @@ public sealed class DeviceLoginRepository(V2DataSource dataSource) : IDeviceLogi
     // The deadline first: a login past it is expired whoever asks. An approval then needs the
     // approver's access token to outlive the last password reset; otherwise the login stays pending
     // and that is the answer. The approver's row FOR SHARE, so a reset committing meanwhile is seen
-    // (and one that comes after finds the approval and expires it). A denial matches no user.
+    // (and one that comes after finds the approval and expires it). A denial matches no user. At most
+    // one pending login shows a code (ix_device_authorizations_user_code).
     private const string Decide = $"""
-        WITH approver AS (
-            SELECT EXISTS (
-                SELECT FROM users u WHERE u.id = @approvedBy AND {UserRepository.NotResetSinceToken}
-                FOR SHARE) AS fresh)
+        WITH approver AS (SELECT {UserRepository.FreshUserExists} AS fresh)
         UPDATE device_authorizations SET
             status = CASE
                 WHEN expires_at <= @now THEN 'expired'
-                WHEN @approvedBy IS NULL THEN 'denied'
+                WHEN @userId IS NULL THEN 'denied'
                 WHEN (SELECT fresh FROM approver) THEN 'approved'
                 ELSE status END,
-            user_id = CASE WHEN expires_at > @now AND (SELECT fresh FROM approver) THEN @approvedBy END
-        WHERE id = (
-            SELECT id FROM device_authorizations
-            WHERE user_code = @userCode AND status = 'pending'
-            FOR UPDATE)
+            user_id = CASE WHEN expires_at > @now AND (SELECT fresh FROM approver) THEN @userId END
+        WHERE user_code = @userCode AND status = 'pending'
         RETURNING status
         """;
 
     public async Task<string?> DecideAsync(string userCode, Guid? approvedBy, DateTimeOffset? tokenIssuedAt, DateTimeOffset now, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<string>(new CommandDefinition(Decide, new { userCode, approvedBy, tokenIssuedAt, now }, cancellationToken: ct));
+        return await conn.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            Decide, new { userCode, userId = approvedBy, tokenIssuedAt, now }, cancellationToken: ct));
     }
 
     private const string SelectByDeviceCode = $"SELECT {Columns} FROM device_authorizations WHERE device_code_hash = @deviceCodeHash";

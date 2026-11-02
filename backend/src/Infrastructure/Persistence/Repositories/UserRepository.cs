@@ -27,6 +27,12 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
     /// </summary>
     internal const string NotResetSinceToken = "(u.credentials_reset_at IS NULL OR u.credentials_reset_at <= @tokenIssuedAt)";
 
+    /// <summary>
+    /// <c>@userId</c> exists and passes <see cref="NotResetSinceToken"/>, its row held <c>FOR SHARE</c>
+    /// (rechecked after a reset's lock): an approval's guard, written into the approving statement.
+    /// </summary>
+    internal const string FreshUserExists = $"EXISTS (SELECT FROM users u WHERE u.id = @userId AND {NotResetSinceToken} FOR SHARE)";
+
     private const string SelectById = $"SELECT {Columns} FROM users WHERE id = @userId";
 
     public async Task<UserAccount?> GetAsync(Guid userId, CancellationToken ct)
