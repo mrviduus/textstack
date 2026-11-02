@@ -22,7 +22,7 @@ namespace TextStack.UnitTests.V2;
 public class V2IdentityMirrorTests
 {
     private static readonly Dictionary<Guid, Guid> None = [];
-    private static readonly AccountMerge Merged = new(AccountMergeOutcome.Merged, None, None, None, 0, 0, 0);
+    private static readonly AccountMerge Merged = new(AccountMergeOutcome.Merged, None, None, None, 0, 0, 0, []);
 
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IAccountMergeRepository> _merges = new();
@@ -124,6 +124,30 @@ public class V2IdentityMirrorTests
         var (level, message, _) = Assert.Single(_log.Entries);
         Assert.Equal(LogLevel.Information, level);
         Assert.Contains("1 books, 0 files, 0 words remapped; 2 guest copies dropped, 1 of them with another payload; 3 review questions unscheduled", message);
+    }
+
+    [Fact]
+    public async Task MergeAsync_Merged_DeletesTheReleasedBytes()
+    {
+        Merge().ReturnsAsync(Merged with { ReleasedKeys = ["library/gu/guest/b/old.epub", "library/gu/guest/b/same.epub"] });
+        _files.Setup(f => f.TryDelete(It.IsAny<string>())).Returns(true);
+
+        await Mirror().MergeAsync(_guest, _account.Id);
+
+        _files.Verify(f => f.TryDelete("library/gu/guest/b/old.epub"));
+        _files.Verify(f => f.TryDelete("library/gu/guest/b/same.epub"));
+    }
+
+    [Theory]
+    [InlineData(AccountMergeOutcome.NoGuest)]
+    [InlineData(AccountMergeOutcome.Refused)]
+    public async Task MergeAsync_NotMerged_DeletesNoBytes(AccountMergeOutcome outcome)
+    {
+        Merge().ReturnsAsync(AccountMerge.Empty(outcome) with { ReleasedKeys = ["library/x.epub"] });
+
+        await Mirror().MergeAsync(_guest, _account.Id);
+
+        _files.Verify(f => f.TryDelete(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]

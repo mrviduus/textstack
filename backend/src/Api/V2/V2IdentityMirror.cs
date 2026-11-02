@@ -70,11 +70,16 @@ public sealed class V2IdentityMirror(
             }
             if (merged.Outcome == AccountMergeOutcome.Refused) Stranded("merge_refused", guestId, accountId);
             if (merged.Outcome == AccountMergeOutcome.Merged)
+            {
+                // Committed: the bytes no row names any more go now, best-effort (the orphan sweep is the backstop).
+                foreach (var key in merged.ReleasedKeys)
+                    if (!files.TryDelete(key)) logger.LogWarning("Could not delete {StorageKey} released by merging {GuestUserId} into {UserId}; the orphan sweep will", key, guestId, accountId);
                 logger.LogInformation(
                     "V2 merge {GuestUserId} → {UserId}: {Books} books, {Files} files, {Words} words remapped; {DroppedDuplicates} guest copies dropped, "
                     + "{HashAnomalies} of them with another payload; {UnscheduledReviewQuestions} review questions unscheduled",
                     guestId, accountId, merged.Books.Count, merged.Files.Count, merged.Words.Count,
                     merged.DroppedDuplicates, merged.HashAnomalies, merged.UnscheduledReviewQuestions);
+            }
         });
         return merged is { Outcome: AccountMergeOutcome.Merged } m && m.Books.Count + m.Files.Count + m.Words.Count > 0
             ? new GuestMergeMap(m.Books, m.Files, m.Words)

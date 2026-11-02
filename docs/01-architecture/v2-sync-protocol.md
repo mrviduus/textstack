@@ -561,9 +561,9 @@ migration's `COMMENT ON COLUMN` corrects it.
   uploadable again); they stay on `incomplete_upload` and `book_removed` (a restore may follow).
 - **Extraction failures.** A file the extractor cannot read fails its job. Anything that throws (disk,
   database) leaves the job processing: the stuck reclaim retries it, and 3 attempts end it.
-- `ponytail:` a guest→account merge does not move bytes: the account's file rows keep keys under the
-  guest's directory (every read goes through the stored key, so they work; an account delete removes
-  them by key). Moving them is step 5 of the merge above, deferred until a storage report needs it.
+- A merge releases the guest's superseded and duplicate bytes (the matched books' files, deleted after the
+  commit, best-effort); the account's own files keep their keys wherever they sit (reads go through the
+  key; an account delete removes them by key).
 - The parts route reads the raw body (no JSON binder); the global body cap (500 MB) is above `maxPartBytes`.
 
 ## Pull and push
