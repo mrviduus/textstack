@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Application.Vocabulary;
+using Domain.Vocabulary;
 
 namespace TextStack.UnitTests.V2;
 
@@ -14,6 +15,9 @@ public class VocabularyPayloadsTests
     private static readonly Guid BookId = Guid.Parse("0b6a1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d");
     private static readonly Guid FileId = Guid.Parse("7c1e2d3f-4a5b-4c6d-9e7f-8a9b0c1d2e3f");
 
+    // The card as stored: the hash takes its key and language, whatever the request spelled.
+    private static readonly VocabularyWord Quiver = new() { Id = WordId, Language = "en", Word = "Quiver", WordKey = "quiver" };
+
     private static string Sha(string canonical) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
 
     // The PDD's own example: the offset is normalised to UTC, milliseconds kept, the null omitted, the UUID lowered.
@@ -23,7 +27,7 @@ public class VocabularyPayloadsTests
         const string canonical =
             """{"clientRecordedAt":"2026-10-30T18:15:03.500Z","isCorrect":true,"reviewMode":"multiple_choice","wordId":"5e1a2b3c-4d5e-4f60-8172-839405a6b7c8"}""";
 
-        var sha = VocabularyPayloads.ReviewSha256(WordId, "multiple_choice", true, null, DateTimeOffset.Parse("2026-10-30T20:15:03.5+02:00"));
+        var sha = VocabularyPayloads.ReviewSha256(new VocabularyReview { WordId = WordId, ReviewMode = "multiple_choice", IsCorrect = true, ClientRecordedAt = DateTimeOffset.Parse("2026-10-30T20:15:03.5+02:00") });
 
         Assert.Equal(Sha(canonical), sha);
         Assert.Equal("eb9e573fcda5712a5ff2bfb3c4099cd783e44de88b5ce945c4f1947ccdd7de61", sha);
@@ -35,7 +39,7 @@ public class VocabularyPayloadsTests
         const string canonical =
             """{"bookId":"0b6a1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d","bookTitle":"Dracula","chapterKey":"ch02.xhtml","contextualTranslation":"колчан","fileId":"7c1e2d3f-4a5b-4c6d-9e7f-8a9b0c1d2e3f","language":"en","sentence":"Her voice began to \"quiver\".","wordKey":"quiver"}""";
 
-        var sha = VocabularyPayloads.ExampleSha256("en", "quiver", "Her voice began to \"quiver\".", "колчан", BookId, FileId, "ch02.xhtml", "Dracula");
+        var sha = VocabularyPayloads.ExampleSha256(Quiver, new VocabularyExample { Sentence = "Her voice began to \"quiver\".", ContextualTranslation = "колчан", BookId = BookId, FileId = FileId, ChapterKey = "ch02.xhtml", BookTitle = "Dracula" });
 
         Assert.Equal(Sha(canonical), sha);
         Assert.Equal("e4ccb4e342b6e563e037b8199886776cb6f82515029d0dbf26feec301d1fa3cc", sha);
@@ -46,7 +50,7 @@ public class VocabularyPayloadsTests
     {
         const string canonical = """{"language":"en","sentence":"It quivered.","wordKey":"quiver"}""";
 
-        var sha = VocabularyPayloads.ExampleSha256("en", "quiver", "It quivered.", null, null, null, null, null);
+        var sha = VocabularyPayloads.ExampleSha256(Quiver, new VocabularyExample { Sentence = "It quivered." });
 
         Assert.Equal(Sha(canonical), sha);
         Assert.Equal("70019b7803182017a3891d768ddb29c163e4ed1c7c67844175531472058434f5", sha);

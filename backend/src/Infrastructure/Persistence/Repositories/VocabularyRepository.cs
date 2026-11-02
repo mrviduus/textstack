@@ -11,16 +11,19 @@ namespace Infrastructure.Persistence.Repositories;
 /// leans on live in the schema (database/v2/migrations/0000_baseline.up.sql, "Vocabulary"): one card
 /// per <c>(user_id, language, word_key)</c>, tombstones included, so a retried save cannot make a
 /// second card; one example or review per <c>(user_id, operation_id)</c>; and composite FKs that keep
-/// every row on its own user's card, book and file.
+/// every row on its own user's card, book and file. Split by concern: this file writes (cards,
+/// examples, reviews); <c>VocabularyRepository.Reads.cs</c> reads one card or a page of them.
 /// </summary>
-public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyRepository
+public sealed partial class VocabularyRepository(V2DataSource dataSource) : IVocabularyRepository
 {
-    // Shared with VocabularyFeedRepository, which reads the same rows a page at a time.
-    internal const string WordColumns =
+    private const string WordColumns =
         "id, user_id, language, word, word_key, translation, definition, stage, interval_days, consecutive_correct, next_review_at, last_reviewed_at, created_at, updated_at, deleted_at, retired_at, revision";
     // The example insert's column list is this one minus deleted_at; the two must agree.
-    internal const string ExampleColumns =
+    private const string ExampleColumns =
         "id, user_id, word_id, book_id, file_id, chapter_key, book_title, sentence, contextual_translation, operation_id, payload_sha256, created_at, deleted_at";
+    // What a read shows of an example: no owner, hash or tombstone (reads return live examples only).
+    private const string ExampleReadColumns =
+        "id, word_id, book_id, file_id, chapter_key, book_title, sentence, contextual_translation, operation_id, created_at";
     private const string ReviewColumns =
         "id, user_id, word_id, operation_id, payload_sha256, review_mode, is_correct, response_time_ms, stage_before, stage_after, client_recorded_at, created_at";
 
@@ -102,22 +105,6 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
     public Task<RevisionedWrite<VocabularyWord>> RestoreWordAsync(Guid userId, Guid wordId, long expectedRevision, CancellationToken ct) =>
         GuardedAsync(RestoreDeletedWordGuarded, new { userId, wordId, expectedRevision }, ct);
 
-    private const string SelectWordWithExamples = SelectWordById + $"""
-        ;
-        SELECT {ExampleColumns} FROM vocabulary_examples
-        WHERE user_id = @userId AND word_id = @wordId AND deleted_at IS NULL
-        ORDER BY created_at, id;
-        """;
-
-    public async Task<VocabularyWord?> GetWordAsync(Guid userId, Guid wordId, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var results = await conn.QueryMultipleAsync(new CommandDefinition(SelectWordWithExamples, new { userId, wordId }, cancellationToken: ct));
-        var word = await results.ReadSingleOrDefaultAsync<VocabularyWord>();
-        if (word is not null) word.Examples = (await results.ReadAsync<VocabularyExample>()).AsList();
-        return word;
-    }
-
     private const string UpsertExample = $"""
         WITH ins AS (
             INSERT INTO vocabulary_examples (id, user_id, word_id, book_id, file_id, chapter_key, book_title, sentence, contextual_translation, operation_id, payload_sha256, created_at)
@@ -169,9 +156,9 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
                 consecutive_correct = @ConsecutiveCorrect,
                 next_review_at = now() + CAST(@IntervalDays AS double precision) * interval '1 day',
                 last_reviewed_at = GREATEST(last_reviewed_at, LEAST(@ClientRecordedAt, now())),
-                retired_at = CASE WHEN @Retire THEN now() ELSE retired_at END,
-                -- Of a schedule change only a retire bumps the revision (PDD S3, owner decision 1).
-                revision = revision + CASE WHEN @Retire THEN 1 ELSE 0 END,
+                -- Retired once, and only a first retire bumps the revision (PDD S3, owner decision 1).
+                retired_at = COALESCE(retired_at, CASE WHEN @Retire THEN now() END),
+                revision = revision + CASE WHEN @Retire AND retired_at IS NULL THEN 1 ELSE 0 END,
                 updated_at = now()
             WHERE user_id = @UserId AND id = @WordId AND EXISTS (SELECT FROM ins WHERE inserted)
         )

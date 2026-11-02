@@ -71,7 +71,6 @@ public static class V2Endpoints
             Send(s.DueAsync(User(h, a), limit, ct)));
         v2.MapPut("/vocabulary/words", (HttpContext h, AuthService a, VocabularySyncService s, SaveVocabularyWordRequest body, CancellationToken ct) =>
             Send(s.SaveWordAsync(User(h, a), body, ct)));
-        // Not in the PDD's table: the read an editor without a local copy (the MCP bridge) needs for expectedRevision.
         v2.MapGet("/vocabulary/words/{id:guid}", (HttpContext h, AuthService a, VocabularySyncService s, Guid id, CancellationToken ct) =>
             Send(s.GetWordAsync(User(h, a), id, ct)));
         v2.MapPatch("/vocabulary/words/{id:guid}", (HttpContext h, AuthService a, VocabularySyncService s, Guid id, PatchVocabularyWordRequest body, CancellationToken ct) =>

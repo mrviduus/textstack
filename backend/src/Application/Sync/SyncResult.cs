@@ -11,6 +11,12 @@ public sealed record SyncResult(int Status, object? Body)
 {
     public static SyncResult Ok(object body) => new(200, body);
     public static SyncResult Created(object body) => new(201, body);
+
+    /// <summary>201 for a write that created the row, 200 for one that found it (a replay, an existing row).</summary>
+    public static SyncResult Written(bool created, object body) => created ? Created(body) : Ok(body);
+
+    /// <summary>The write lost to a tombstone: <paramref name="current"/> is it.</summary>
+    public static SyncResult Deleted(long revision, object current) => Fail(SyncCodes.Deleted, revision, current);
     public static readonly SyncResult NoContent = new(204, null);
 
     public static SyncResult Fail(string code, long? revision = null, object? current = null, Guid? fileId = null, BookFileDto? currentFile = null) =>

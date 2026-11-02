@@ -1,4 +1,4 @@
-using System.Text.Json;
+using System.Text;
 using Application.Common;
 using Application.Library;
 using Application.Sync;
@@ -12,17 +12,17 @@ namespace Application.Vocabulary;
 /// <summary>
 /// The /me/v2 vocabulary use cases (v2-sync-protocol.md "Payloads → Vocabulary", M2.3 rows). The
 /// server owns the key (<see cref="WordKeys"/>) and the schedule (S3: the answer is applied to the
-/// locked card by <see cref="ISrsEngine"/>). An example's book and file are checked before any
-/// write (M1.3 delta 8): the schema would refuse a bad one only at commit, as a 500 an outbox retries
-/// forever. A removed book still accepts examples (owner decision 11).
+/// locked card by <see cref="ISrsEngine"/>). An example's book and file are checked before any write
+/// (<see cref="LibraryProvenance"/>). After a write the response is the card as stored now, with its
+/// live examples.
 /// </summary>
-public sealed class VocabularySyncService(
-    ILibraryRepository library, IVocabularyRepository words, IVocabularyFeedRepository feed, ISrsEngine srs)
+public sealed class VocabularySyncService(ILibraryRepository library, IVocabularyRepository words, ISrsEngine srs)
 {
     public async Task<SyncResult> SaveWordAsync(Guid userId, SaveVocabularyWordRequest r, CancellationToken ct)
     {
         if (Word(r) is { } invalid) return invalid;
-        if (r.Example is { } provenance && await MissingProvenanceAsync(userId, provenance, ct) is { } missing) return missing;
+        if (r.Example is { BookId: { } bookId } provenance
+            && await library.MissingBookOrFileAsync(userId, bookId, provenance.FileId, ct) is { } missing) return missing;
 
         var saved = await words.SaveWordAsync(userId, new VocabularyWord
         {
@@ -34,11 +34,12 @@ public sealed class VocabularySyncService(
             Definition = r.Definition,
         }, ct);
         if (saved.Outcome == WordSaveOutcome.IdConflict) return SyncResult.IdConflict;
+        var created = saved.Outcome == WordSaveOutcome.Created;
+        // Created without an example: the returned row is the whole card (no examples yet).
+        if (created && r.Example is null) return SyncResult.Created(saved.Word!.ToDto());
         // A tombstone wins over the save, except that its example is asked first (principle 6): a
         // replay of a save that landed before the delete answers 200, a new operation 409 deleted.
         if (saved.Outcome == WordSaveOutcome.Deleted && r.Example is null) return await DeletedAsync(userId, saved.Word!.Id, ct);
-        // Created by this write without an example: the returned row is the whole card.
-        if (saved.Outcome == WordSaveOutcome.Created && r.Example is null) return SyncResult.Created(saved.Word!.ToDto());
 
         string? example = null;
         if (r.Example is { } sent)
@@ -48,53 +49,36 @@ public sealed class VocabularySyncService(
                 return await LossAsync(userId, saved.Word!.Id, added.Outcome, added.Row?.ToDto(), ct);
             example = added.Outcome == WriteOutcome.Created ? "added" : "replayed";
         }
-        var card = await WithExamplesAsync(userId, saved.Word!, ct);
-        return saved.Outcome == WordSaveOutcome.Created ? SyncResult.Created(card.ToDto(example)) : SyncResult.Ok(card.ToDto(example));
+        return await RespondAsync(userId, saved.Word!.Id, card => SyncResult.Written(created, card.ToDto(example)), ct);
     }
 
-    public async Task<SyncResult> GetWordAsync(Guid userId, Guid wordId, CancellationToken ct) =>
-        await words.GetWordAsync(userId, wordId, ct) is { } card ? SyncResult.Ok(card.ToDto()) : SyncResult.NotFound;
+    private static SyncResult? Word(SaveVocabularyWordRequest r) =>
+        ClientId(r.Id, "id") ?? RequiredText(r.Language, "language", MaxLanguage) ?? RequiredText(r.Word, "word", MaxWord)
+        // A key of only format or punctuation characters (a zero-width space) names no word.
+        ?? (WordKeys.Of(r.Word!).EnumerateRunes().Any(Rune.IsLetterOrDigit) ? null : SyncResult.Invalid("word", "word has no letter or digit."))
+        ?? Text(r.Translation, "translation", MaxTranslation) ?? Text(r.Definition, "definition", MaxDefinition)
+        ?? (r.Example is null ? null : Example(r.Example, "example."));
+
+    public Task<SyncResult> GetWordAsync(Guid userId, Guid wordId, CancellationToken ct) =>
+        RespondAsync(userId, wordId, card => SyncResult.Ok(card.ToDto()), ct);
 
     public async Task<SyncResult> UpdateWordAsync(Guid userId, Guid wordId, PatchVocabularyWordRequest r, CancellationToken ct)
     {
         if (Required(r.ExpectedRevision, "expectedRevision") is { } missing) return missing;
-        var stored = await words.GetWordAsync(userId, wordId, ct);
+        var stored = await words.GetCardAsync(userId, wordId, ct);
         if (stored is null) return SyncResult.NotFound;
-        if (stored.DeletedAt is not null) return Deleted(stored);
-        if (!TryMerge(stored, r, out var translation, out var definition, out var invalid)) return invalid!;
+        if (stored.DeletedAt is not null) return await DeletedAsync(userId, wordId, ct);
+        if (Merge(r.Translation, stored.Translation, "translation", out var translation, MaxTranslation) is { } badTranslation) return badTranslation;
+        if (Merge(r.Definition, stored.Definition, "definition", out var definition, MaxDefinition) is { } badDefinition) return badDefinition;
 
         var result = await words.UpdateWordAsync(userId, wordId, translation, definition, r.ExpectedRevision!.Value, ct);
-        if (result.Current is not { } card) return SyncResult.NotFound;
-        card.Examples = stored.Examples;
-        if (card.DeletedAt is not null) return Deleted(card);
+        if (result.Current is not { } written) return SyncResult.NotFound;
         // Not accepted but already as sent: a retry of an edit that landed, whose response was lost.
-        return result.Accepted || (card.Translation, card.Definition) == (translation, definition)
-            ? SyncResult.Ok(card.ToDto())
-            : SyncResult.StaleRevision(card.Revision, card.ToDto());
-    }
-
-    // Merge-patch: an absent member keeps the stored value, null clears it.
-    private static bool TryMerge(VocabularyWord stored, PatchVocabularyWordRequest r, out string? translation, out string? definition, out SyncResult? invalid)
-    {
-        definition = null;
-        invalid = Merge(r.Translation, stored.Translation, "translation", MaxTranslation, out translation)
-            ?? Merge(r.Definition, stored.Definition, "definition", MaxDefinition, out definition);
-        return invalid is null;
-    }
-
-    private static SyncResult? Merge(JsonElement sent, string? kept, string field, int max, out string? merged)
-    {
-        merged = kept;
-        try
-        {
-            if (sent.ValueKind != JsonValueKind.Undefined) merged = sent.Deserialize<string?>();
-            return Text(merged, field, max);
-        }
-        // A wrong type, or an escaped lone surrogate a string cannot even be read from.
-        catch (Exception e) when (e is JsonException or InvalidOperationException)
-        {
-            return SyncResult.Invalid(field, $"{field} is a string or null.");
-        }
+        var ownWrite = result.Accepted || (written.Translation, written.Definition) == (translation, definition);
+        return await RespondAsync(userId, wordId, card =>
+            card.DeletedAt is not null ? Deleted(card)
+            : ownWrite ? SyncResult.Ok(card.ToDto())
+            : SyncResult.StaleRevision(card.Revision, card.ToDto()), ct);
     }
 
     /// <summary>Idempotent: deleting a tombstone answers it again.</summary>
@@ -109,26 +93,23 @@ public sealed class VocabularySyncService(
         if (Required(r.ExpectedRevision, "expectedRevision") is { } missing) return missing;
         var result = await words.RestoreWordAsync(userId, wordId, r.ExpectedRevision!.Value, ct);
         if (result.Current is null) return SyncResult.NotFound;
-        var card = await WithExamplesAsync(userId, result.Current, ct);
         // Lost but live: what a restore produces, so a retry whose response was lost (PDD "Own write, lost response").
-        return result.Accepted || card.DeletedAt is null ? SyncResult.Ok(card.ToDto()) : SyncResult.StaleRevision(card.Revision, card.ToDto());
+        return await RespondAsync(userId, wordId, card =>
+            result.Accepted || card.DeletedAt is null ? SyncResult.Ok(card.ToDto()) : SyncResult.StaleRevision(card.Revision, card.ToDto()), ct);
     }
 
     public async Task<SyncResult> AddExampleAsync(Guid userId, Guid wordId, VocabularyExampleRequest r, CancellationToken ct)
     {
         if (Example(r) is { } invalid) return invalid;
         // Read first: the hash names the card by its key, as a save-by-key does (M1.3 delta 5).
-        var card = await words.GetWordAsync(userId, wordId, ct);
+        var card = await words.GetCardAsync(userId, wordId, ct);
         if (card is null) return SyncResult.NotFound;
-        if (await MissingProvenanceAsync(userId, r, ct) is { } missing) return missing;
+        if (r.BookId is { } bookId && await library.MissingBookOrFileAsync(userId, bookId, r.FileId, ct) is { } missing) return missing;
 
         var added = await words.AddExampleAsync(userId, NewExample(card, r), ct);
-        return added.Outcome switch
-        {
-            WriteOutcome.Created => SyncResult.Created(added.Row!.ToDto()),
-            WriteOutcome.Replayed => SyncResult.Ok(added.Row!.ToDto()),
-            _ => await LossAsync(userId, wordId, added.Outcome, added.Row?.ToDto(), ct),
-        };
+        if (added.Outcome is not (WriteOutcome.Created or WriteOutcome.Replayed))
+            return await LossAsync(userId, wordId, added.Outcome, added.Row?.ToDto(), ct);
+        return SyncResult.Written(added.Outcome == WriteOutcome.Created, added.Row!.ToDto());
     }
 
     public async Task<SyncResult> RecordReviewAsync(Guid userId, VocabularyReviewRequest r, CancellationToken ct)
@@ -143,62 +124,61 @@ public sealed class VocabularySyncService(
             IsCorrect = r.IsCorrect!.Value,
             ResponseTimeMs = r.ResponseTimeMs,
             ClientRecordedAt = r.ClientRecordedAt!.Value,
-            PayloadSha256 = VocabularyPayloads.ReviewSha256(r.WordId.Value, r.ReviewMode!, r.IsCorrect.Value, r.ResponseTimeMs, r.ClientRecordedAt.Value),
         };
+        review.PayloadSha256 = VocabularyPayloads.ReviewSha256(review);
         var result = await words.RecordReviewAsync(userId, review, Schedule(review.IsCorrect), ct);
         if (result.Outcome is not (WriteOutcome.Created or WriteOutcome.Replayed))
             return await LossAsync(userId, review.WordId, result.Outcome, result.Row?.ToDto(), ct);
-
-        if (await words.GetWordAsync(userId, review.WordId, ct) is not { } card) return SyncResult.NotFound;
-        var body = new RecordedReviewDto(result.Row!.ToDto(), card.ToDto());
-        return result.Outcome == WriteOutcome.Created ? SyncResult.Created(body) : SyncResult.Ok(body);
+        return await RespondAsync(userId, review.WordId,
+            card => SyncResult.Written(result.Outcome == WriteOutcome.Created, new RecordedReviewDto(result.Row!.ToDto(), card.ToDto())), ct);
     }
+
+    /// <summary>An answer; <paramref name="now"/> is the server's receive time, which a client time may not pass by more than the skew.</summary>
+    private static SyncResult? Review(VocabularyReviewRequest r, DateTimeOffset now) =>
+        ClientId(r.OperationId, "operationId") ?? Required(r.WordId, "wordId") ?? RequiredText(r.ReviewMode, "reviewMode", MaxReviewMode)
+        ?? Required(r.IsCorrect, "isCorrect") ?? Required(r.ClientRecordedAt, "clientRecordedAt")
+        ?? NotFuture(r.ClientRecordedAt, now, "clientRecordedAt")
+        ?? (r.ResponseTimeMs is null or >= 0 ? null : SyncResult.Invalid("responseTimeMs", "responseTimeMs must be zero or more."));
 
     /// <summary>
     /// S3: the next schedule from the card as the repository holds it locked, so two answers in
-    /// flight apply one after the other. A mastered card is retired, once (owner decision 1); a
-    /// retired one is never brought back by an answer.
+    /// flight apply one after the other. Whether a retired card stays retired is the repository's.
     /// </summary>
     private Func<VocabularyWord, ReviewSchedule> Schedule(bool isCorrect) => card =>
     {
         var (stage, interval, consecutive) = srs.Calculate(card.Stage, card.ConsecutiveCorrect, (double)card.IntervalDays, isCorrect);
-        return new ReviewSchedule(stage, (decimal)interval, consecutive, card.RetiredAt is null && srs.ShouldAutoRetire(stage, consecutive, interval));
+        return new ReviewSchedule(stage, (decimal)interval, consecutive, srs.ShouldAutoRetire(stage, consecutive, interval));
     };
 
     public async Task<SyncResult> DueAsync(Guid userId, string? limit, CancellationToken ct)
     {
         if (ChangeFeed.Limit(limit, out var take) is { } invalid) return invalid;
-        var due = await feed.ListDueAsync(userId, take, ct);
+        var due = await words.ListDueAsync(userId, take, ct);
         return SyncResult.Ok(due.Select(w => w.ToDto()).ToList());
     }
 
     public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, string? limit, CancellationToken ct) =>
         ChangeFeed.PageAsync(cursor, limit,
-            (since, after, take) => feed.ListChangedAsync(userId, since, after, take, ct),
+            (since, after, take) => words.ListChangedAsync(userId, since, after, take, ct),
             w => (w.UpdatedAt, w.Id), w => w.ToDto());
 
-    /// <summary>The book is the user's (removed or not) and the file one of its versions, current or not.</summary>
-    private async Task<SyncResult?> MissingProvenanceAsync(Guid userId, VocabularyExampleRequest e, CancellationToken ct)
+    private static VocabularyExample NewExample(VocabularyWord card, VocabularyExampleRequest e)
     {
-        if (e.BookId is not { } bookId) return null;
-        if (!await library.ExistsAsync(userId, bookId, ct)) return SyncResult.BookNotFound;
-        return e.FileId is { } fileId && await library.GetFileAsync(userId, bookId, fileId, ct) is null ? SyncResult.UnknownFile : null;
+        var example = new VocabularyExample
+        {
+            Id = Guid.CreateVersion7(),
+            WordId = card.Id,
+            BookId = e.BookId,
+            FileId = e.FileId,
+            ChapterKey = e.ChapterKey,
+            BookTitle = e.BookTitle,
+            Sentence = e.Sentence!,
+            ContextualTranslation = e.ContextualTranslation,
+            OperationId = e.OperationId!.Value,
+        };
+        example.PayloadSha256 = VocabularyPayloads.ExampleSha256(card, example);
+        return example;
     }
-
-    private static VocabularyExample NewExample(VocabularyWord card, VocabularyExampleRequest e) => new()
-    {
-        Id = Guid.CreateVersion7(),
-        WordId = card.Id,
-        BookId = e.BookId,
-        FileId = e.FileId,
-        ChapterKey = e.ChapterKey,
-        BookTitle = e.BookTitle,
-        Sentence = e.Sentence!,
-        ContextualTranslation = e.ContextualTranslation,
-        OperationId = e.OperationId!.Value,
-        PayloadSha256 = VocabularyPayloads.ExampleSha256(
-            card.Language, card.WordKey, e.Sentence!, e.ContextualTranslation, e.BookId, e.FileId, e.ChapterKey, e.BookTitle),
-    };
 
     /// <summary>An append that neither landed nor replayed: a reused operation id, a tombstone, or no card.</summary>
     private async Task<SyncResult> LossAsync(Guid userId, Guid wordId, WriteOutcome outcome, object? stored, CancellationToken ct) => outcome switch
@@ -208,15 +188,11 @@ public sealed class VocabularySyncService(
         _ => SyncResult.NotFound,
     };
 
-    private async Task<SyncResult> DeletedAsync(Guid userId, Guid wordId, CancellationToken ct) =>
-        await words.GetWordAsync(userId, wordId, ct) is { } tombstone ? Deleted(tombstone) : SyncResult.NotFound;
+    private Task<SyncResult> DeletedAsync(Guid userId, Guid wordId, CancellationToken ct) => RespondAsync(userId, wordId, Deleted, ct);
 
-    private static SyncResult Deleted(VocabularyWord tombstone) => SyncResult.Fail(SyncCodes.Deleted, tombstone.Revision, tombstone.ToDto());
+    private static SyncResult Deleted(VocabularyWord tombstone) => SyncResult.Deleted(tombstone.Revision, tombstone.ToDto());
 
-    // A write returns the card alone; every response carries its live examples.
-    private async Task<VocabularyWord> WithExamplesAsync(Guid userId, VocabularyWord card, CancellationToken ct)
-    {
-        card.Examples = (await words.GetWordAsync(userId, card.Id, ct))?.Examples ?? [];
-        return card;
-    }
+    /// <summary>The card as stored now, with its examples, answered by <paramref name="respond"/>; 404 when it is gone.</summary>
+    private async Task<SyncResult> RespondAsync(Guid userId, Guid wordId, Func<VocabularyWord, SyncResult> respond, CancellationToken ct) =>
+        await words.GetWordAsync(userId, wordId, ct) is { } card ? respond(card) : SyncResult.NotFound;
 }

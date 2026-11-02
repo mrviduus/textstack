@@ -47,6 +47,15 @@ public class AnnotationSyncServiceTests
 
 
     [Fact]
+    public async Task SaveAsync_EmptyId_IsInvalidPayloadAndWritesNothing()
+    {
+        var result = await Service.SaveAsync(User, Guid.Empty, Highlight(), Ct);
+
+        Assert.Equal((400, "id"), (result.Status, V2Fakes.Error(result).Field));
+        _annotations.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task SaveAsync_BookThatIsNotTheUsers_IsBookNotFoundAndWritesNothing()
     {
         var result = await Service.SaveAsync(User, Id, Highlight() with { BookId = Guid.NewGuid() }, Ct);

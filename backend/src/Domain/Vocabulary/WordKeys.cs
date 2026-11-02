@@ -1,10 +1,9 @@
-namespace Contracts.V2;
+namespace Domain.Vocabulary;
 
 /// <summary>
 /// The vocabulary card key (v2-sync-protocol.md "Payloads → Vocabulary"): one card per
-/// <c>(Language(language), Of(word))</c>. The one definition the API, the M3 ETL and the MCP bridge
-/// (which derives its per-word ids from it) all call; in Contracts because the bridge references
-/// nothing else of the server.
+/// <c>(Language(language), Of(word))</c>, <see cref="VocabularyWord.WordKey"/>. The one definition
+/// the V2 API, legacy's word save and the M3 ETL all call.
 /// </summary>
 public static class WordKeys
 {

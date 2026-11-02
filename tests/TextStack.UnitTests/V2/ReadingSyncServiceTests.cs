@@ -193,6 +193,22 @@ public class ReadingSyncServiceTests
     }
 
     [Fact]
+    public async Task SaveSessionAsync_EndedPastTheClockSkew_IsInvalidPayload()
+    {
+        var request = Session(null) with { EndedAt = DateTimeOffset.UtcNow.AddMinutes(6) };
+
+        Assert.Equal("endedAt", V2Fakes.Error(await Service.SaveSessionAsync(User, Guid.NewGuid(), request, Ct)).Field);
+        _sessions.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task SaveSessionAsync_EmptyClientSessionId_IsInvalidPayload()
+    {
+        Assert.Equal("clientSessionId", V2Fakes.Error(await Service.SaveSessionAsync(User, Guid.Empty, Session(null), Ct)).Field);
+        _sessions.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task SaveSessionAsync_BookThatIsNotTheUsers_IsBookNotFoundAndWritesNothing()
     {
         Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(await Service.SaveSessionAsync(User, Guid.NewGuid(), Session(Guid.NewGuid()), Ct)).Code);

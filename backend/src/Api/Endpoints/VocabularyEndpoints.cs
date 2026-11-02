@@ -9,6 +9,7 @@ using Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Application.ReadingTracking;
+using Application.Sync;
 using Application.Vocabulary;
 using TextStack.Vocabulary;
 using TextStack.Vocabulary.Contracts;
@@ -100,7 +101,7 @@ public static partial class VocabularyEndpoints
         if (!TryGetAuth(httpContext, authService, out var userId, out var siteId))
             return Results.Unauthorized();
 
-        if (string.IsNullOrWhiteSpace(request.Word) || request.Word.Length > 200)
+        if (string.IsNullOrWhiteSpace(request.Word) || request.Word.Length > SyncValidation.MaxWord)
             return Results.BadRequest("Word is required (max 200 chars)");
         if (string.IsNullOrWhiteSpace(request.Language) || request.Language.Length > 8)
             return Results.BadRequest("Language is required");
@@ -124,7 +125,7 @@ public static partial class VocabularyEndpoints
         // Server-side, so no client can claim it: a connect key / OAuth token marks an assistant write.
         var source = httpContext.Items.ContainsKey(Middleware.McpKeyAuthMiddleware.UserIdItemKey) ? "mcp" : "tap";
 
-        var word = Contracts.V2.WordKeys.Of(request.Word);
+        var word = Domain.Vocabulary.WordKeys.Of(request.Word);
 
         // Dedup: SRS table first, then pending buffer. A word in either bucket
         // is "already saved" from the user's perspective — don't double-insert.
@@ -284,8 +285,8 @@ public static partial class VocabularyEndpoints
     internal static string? TooLong(
         string? translation, string? definition, string? sentence = null, string? bookTitle = null)
     {
-        return Over(translation, 500, "Translation") ?? Over(definition, 2000, "Definition")
-            ?? Over(sentence, 1000, "Sentence") ?? Over(bookTitle, 500, "BookTitle");
+        return Over(translation, SyncValidation.MaxTranslation, "Translation") ?? Over(definition, SyncValidation.MaxDefinition, "Definition")
+            ?? Over(sentence, SyncValidation.MaxSentence, "Sentence") ?? Over(bookTitle, SyncValidation.MaxBookTitle, "BookTitle");
 
         static string? Over(string? value, int max, string name) =>
             value?.Trim().Length > max ? $"{name} too long (max {max} chars)" : null;

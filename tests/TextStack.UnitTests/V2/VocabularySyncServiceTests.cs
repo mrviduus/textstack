@@ -21,7 +21,7 @@ public class VocabularySyncServiceTests
 
     private readonly Mock<ILibraryRepository> _library = V2Fakes.Library(User, BookId, FileId);
     private readonly Mock<IVocabularyRepository> _words = new();
-    private VocabularySyncService Service => new(_library.Object, _words.Object, Mock.Of<IVocabularyFeedRepository>(), new SrsEngine());
+    private VocabularySyncService Service => new(_library.Object, _words.Object, new SrsEngine());
 
     private static VocabularyWord Card(long revision = 1, DateTimeOffset? deletedAt = null) => new()
     {
@@ -41,10 +41,17 @@ public class VocabularySyncServiceTests
     private static SaveVocabularyWordRequest Save(VocabularyExampleRequest? example = null) =>
         new(Guid.NewGuid(), "en", "  Quiver ", "колчан", null, example);
 
+    /// <summary>The repository holds <paramref name="card"/>: read with or without its examples.</summary>
+    private void Stores(VocabularyWord card)
+    {
+        _words.Setup(w => w.GetWordAsync(User, card.Id, It.IsAny<CancellationToken>())).ReturnsAsync(card);
+        _words.Setup(w => w.GetCardAsync(User, card.Id, It.IsAny<CancellationToken>())).ReturnsAsync(card);
+    }
+
     private void Saves(WordSaveOutcome outcome, VocabularyWord? card)
     {
         _words.Setup(w => w.SaveWordAsync(User, It.IsAny<VocabularyWord>(), It.IsAny<CancellationToken>())).ReturnsAsync(new SavedWord(outcome, card));
-        if (card is not null) _words.Setup(w => w.GetWordAsync(User, card.Id, It.IsAny<CancellationToken>())).ReturnsAsync(card);
+        if (card is not null) Stores(card);
     }
 
     private void AddsExample(WriteOutcome outcome, VocabularyExample? row = null) =>
@@ -216,7 +223,7 @@ public class VocabularySyncServiceTests
     {
         var stored = Card();
         stored.Definition = "a case for arrows";
-        _words.Setup(w => w.GetWordAsync(User, CardId, It.IsAny<CancellationToken>())).ReturnsAsync(stored);
+        Stores(stored);
         Updates(true, Card(revision: 2));
 
         await Service.UpdateWordAsync(User, CardId, Patch(1), Ct);
@@ -227,7 +234,7 @@ public class VocabularySyncServiceTests
     [Fact]
     public async Task UpdateWordAsync_StaleRevision_IsStaleRevisionWithTheStoredCard()
     {
-        _words.Setup(w => w.GetWordAsync(User, CardId, It.IsAny<CancellationToken>())).ReturnsAsync(Card(revision: 3));
+        Stores(Card(revision: 3));
         Updates(false, Card(revision: 3)); // still колчан: another device's edit, not this one
 
         var result = await Service.UpdateWordAsync(User, CardId, Patch(2), Ct);
@@ -240,7 +247,7 @@ public class VocabularySyncServiceTests
     {
         var landed = Card(revision: 2);
         landed.Translation = "сагайдак";
-        _words.Setup(w => w.GetWordAsync(User, CardId, It.IsAny<CancellationToken>())).ReturnsAsync(landed);
+        Stores(landed);
         Updates(false, landed);
 
         var result = await Service.UpdateWordAsync(User, CardId, Patch(1), Ct);
@@ -251,7 +258,7 @@ public class VocabularySyncServiceTests
     [Fact]
     public async Task UpdateWordAsync_DeletedCard_IsDeletedAndWritesNothing()
     {
-        _words.Setup(w => w.GetWordAsync(User, CardId, It.IsAny<CancellationToken>())).ReturnsAsync(Card(2, DateTimeOffset.UtcNow));
+        Stores(Card(2, DateTimeOffset.UtcNow));
 
         var result = await Service.UpdateWordAsync(User, CardId, Patch(2), Ct);
 
@@ -264,6 +271,7 @@ public class VocabularySyncServiceTests
     {
         _words.Setup(w => w.RestoreWordAsync(User, CardId, 1, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RevisionedWrite<VocabularyWord>(false, Card(2, DateTimeOffset.UtcNow)));
+        Stores(Card(2, DateTimeOffset.UtcNow));
 
         var result = await Service.RestoreWordAsync(User, CardId, new RestoreVocabularyWordRequest(1), Ct);
 
@@ -276,6 +284,7 @@ public class VocabularySyncServiceTests
     {
         _words.Setup(w => w.RestoreWordAsync(User, CardId, 2, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RevisionedWrite<VocabularyWord>(false, Card(revision: 3)));
+        Stores(Card(revision: 3));
 
         var result = await Service.RestoreWordAsync(User, CardId, new RestoreVocabularyWordRequest(2), Ct);
 
@@ -285,7 +294,7 @@ public class VocabularySyncServiceTests
     [Fact]
     public async Task UpdateWordAsync_DefinitionWithAnEscapedLoneSurrogate_IsRefusedNamingDefinition()
     {
-        _words.Setup(w => w.GetWordAsync(User, CardId, It.IsAny<CancellationToken>())).ReturnsAsync(Card());
+        Stores(Card());
 
         var result = await Service.UpdateWordAsync(User, CardId, Patch(1, "\"fine\"", "\"\\ud800\""), Ct);
 
@@ -306,7 +315,7 @@ public class VocabularySyncServiceTests
     [Fact]
     public async Task DeleteWordAsync_AlreadyDeleted_AnswersTheTombstoneAgain()
     {
-        _words.Setup(w => w.GetWordAsync(User, CardId, It.IsAny<CancellationToken>())).ReturnsAsync(Card(2, DateTimeOffset.UtcNow));
+        Stores(Card(2, DateTimeOffset.UtcNow));
 
         var result = await Service.DeleteWordAsync(User, CardId, Ct);
 
@@ -323,7 +332,7 @@ public class VocabularySyncServiceTests
         _words.Setup(w => w.RecordReviewAsync(User, It.IsAny<VocabularyReview>(), It.IsAny<Func<VocabularyWord, ReviewSchedule>>(), It.IsAny<CancellationToken>()))
             .Callback((Guid _, VocabularyReview r, Func<VocabularyWord, ReviewSchedule> s, CancellationToken _) => seen.Add((r.PayloadSha256, s)))
             .ReturnsAsync((Guid _, VocabularyReview r, Func<VocabularyWord, ReviewSchedule> _, CancellationToken _) => new WriteResult<VocabularyReview>(outcome, r));
-        _words.Setup(w => w.GetWordAsync(User, CardId, It.IsAny<CancellationToken>())).ReturnsAsync(Card());
+        Stores(Card());
         return seen;
     }
 
@@ -338,17 +347,6 @@ public class VocabularySyncServiceTests
         var mastered = new VocabularyWord { Stage = 4, ConsecutiveCorrect = 2, IntervalDays = 28m };
         Assert.Equal(201, result.Status);
         Assert.Equal(new ReviewSchedule(4, 56m, 3, Retire: true), seen.Single().Schedule(mastered));
-    }
-
-    [Fact]
-    public async Task RecordReviewAsync_AnswerToARetiredCard_DoesNotRetireItAgain()
-    {
-        var seen = RecordsReviews();
-
-        await Service.RecordReviewAsync(User, Answer(), Ct);
-
-        var retired = new VocabularyWord { Stage = 4, ConsecutiveCorrect = 3, IntervalDays = 56m, RetiredAt = DateTimeOffset.UtcNow };
-        Assert.False(seen.Single().Schedule(retired).Retire);
     }
 
     [Fact]
@@ -370,7 +368,7 @@ public class VocabularySyncServiceTests
     public async Task RecordReviewAsync_DeletedCard_IsDeletedWithTheTombstone()
     {
         RecordsReviews(WriteOutcome.Deleted);
-        _words.Setup(w => w.GetWordAsync(User, CardId, It.IsAny<CancellationToken>())).ReturnsAsync(Card(2, DateTimeOffset.UtcNow));
+        Stores(Card(2, DateTimeOffset.UtcNow));
 
         var result = await Service.RecordReviewAsync(User, Answer(), Ct);
 

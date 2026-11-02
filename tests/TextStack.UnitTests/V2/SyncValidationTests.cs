@@ -113,17 +113,6 @@ public class SyncValidationTests
         new(Guid.NewGuid(), sentence, null, bookId, fileId, chapterKey, null);
 
     [Fact]
-    public void Word_BlankWordOrMissingLanguage_IsRefusedNamingIt()
-    {
-        Assert.Equal("word", FieldOf(Word(new(Guid.NewGuid(), "en", " ", null, null, null))));
-        Assert.Equal("language", FieldOf(Word(new(Guid.NewGuid(), null, "quiver", null, null, null))));
-    }
-
-    [Fact]
-    public void Word_ExampleWithANulInItsSentence_IsRefusedUnderExample() =>
-        Assert.Equal("example.sentence", FieldOf(Word(new(Guid.NewGuid(), "en", "quiver", null, null, Sentence(sentence: "a\u0000b")))));
-
-    [Fact]
     public void Example_FileOrChapterKeyWithoutABook_IsRefused()
     {
         Assert.Equal("bookId", FieldOf(Example(Sentence(fileId: Guid.NewGuid()))));
@@ -131,52 +120,19 @@ public class SyncValidationTests
         Assert.Null(Example(Sentence(Guid.NewGuid(), Guid.NewGuid(), "ch1.xhtml")));
     }
 
-    private static readonly DateTimeOffset ServerNow = new(2026, 11, 1, 12, 0, 0, TimeSpan.Zero);
-
-    private static VocabularyReviewRequest Answer(bool? isCorrect = true, int? responseTimeMs = 0, string reviewMode = "multiple_choice",
-        DateTimeOffset? at = null, Guid? operationId = null) =>
-        new(operationId ?? Guid.NewGuid(), Guid.NewGuid(), reviewMode, isCorrect, responseTimeMs, at ?? ServerNow);
-
-    private static SaveVocabularyWordRequest Card(string word = "quiver", string language = "en") => new(Guid.NewGuid(), language, word, null, null, null);
-
-    [Fact]
-    public void Review_NegativeResponseTime_IsRefused() => Assert.Equal("responseTimeMs", FieldOf(Review(Answer(responseTimeMs: -1), ServerNow)));
-
-    [Fact]
-    public void Review_MissingAnswer_IsRefused() => Assert.Equal("isCorrect", FieldOf(Review(Answer(isCorrect: null), ServerNow)));
-
-    [Fact]
-    public void Review_NulInReviewMode_IsRefused() => Assert.Equal("reviewMode", FieldOf(Review(Answer(reviewMode: "multiple\u0000choice"), ServerNow)));
-
-    // ADR-019's skew: a little ahead is a clock, far ahead is a broken one.
-    [Fact]
-    public void Review_ClientTimePastTheSkew_IsRefusedAndWithinItPasses()
-    {
-        Assert.Equal("clientRecordedAt", FieldOf(Review(Answer(at: ServerNow.AddMinutes(5).AddSeconds(1)), ServerNow)));
-        Assert.Null(Review(Answer(at: ServerNow.AddMinutes(5)), ServerNow));
-    }
-
-    [Fact]
-    public void Review_EmptyOperationId_IsRefused() => Assert.Equal("operationId", FieldOf(Review(Answer(operationId: Guid.Empty), ServerNow)));
-
-    [Fact]
-    public void Word_NulInWord_IsRefused() => Assert.Equal("word", FieldOf(Word(Card("qui\u0000ver"))));
-
-    [Fact]
-    public void Word_OnlyAZeroWidthSpace_IsRefusedAsNoWord() => Assert.Equal("word", FieldOf(Word(Card("​"))));
-
-    [Fact]
-    public void Word_EmptyId_IsRefused() => Assert.Equal("id", FieldOf(Word(Card() with { Id = Guid.Empty })));
-
-    [Fact]
-    public void Word_WordAndLanguageAtTheirCaps_PassAndOneMoreIsRefused()
-    {
-        Assert.Null(Word(Card(new string('w', MaxWord), new string('l', MaxLanguage))));
-        Assert.Equal("word", FieldOf(Word(Card(new string('w', MaxWord + 1)))));
-        Assert.Equal("language", FieldOf(Word(Card(language: new string('l', MaxLanguage + 1)))));
-    }
-
     [Fact]
     public void Example_SentenceOverItsCap_IsRefused() =>
         Assert.Equal("sentence", FieldOf(Example(Sentence(sentence: new string('s', MaxSentence + 1)))));
+
+    [Fact]
+    public void ClientId_EmptyUuid_IsRefused() => Assert.Equal("id", FieldOf(ClientId(Guid.Empty, "id")));
+
+    // ADR-019's skew: a little ahead is a clock, far ahead is a broken one.
+    [Fact]
+    public void NotFuture_PastTheSkew_IsRefusedAndAtItPasses()
+    {
+        var now = new DateTimeOffset(2026, 11, 1, 12, 0, 0, TimeSpan.Zero);
+        Assert.Equal("endedAt", FieldOf(NotFuture(now.AddMinutes(5).AddSeconds(1), now, "endedAt")));
+        Assert.Null(NotFuture(now.AddMinutes(5), now, "endedAt"));
+    }
 }

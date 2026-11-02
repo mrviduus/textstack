@@ -17,26 +17,9 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
 
     private static readonly DateTimeOffset Noon = new(2026, 10, 30, 12, 0, 0, TimeSpan.Zero);
 
-    private static VocabularyWord Word(Guid userId, string? translation = null, string key = "quiver") => new()
-    {
-        Id = Guid.NewGuid(),
-        UserId = userId,
-        Language = "en",
-        Word = key,
-        WordKey = key,
-        Translation = translation,
-    };
+    private static VocabularyWord Word(Guid userId, string? translation = null, string key = "quiver") => NewWord(userId, key, translation);
 
-    /// <summary>An example for <paramref name="card"/>; its hash is of the sentence, so the same sentence replays.</summary>
-    private static VocabularyExample Example(VocabularyWord card, string sentence, Guid? operationId = null) => new()
-    {
-        Id = Guid.NewGuid(),
-        UserId = card.UserId,
-        WordId = card.Id,
-        Sentence = sentence,
-        OperationId = operationId ?? Guid.NewGuid(),
-        PayloadSha256 = PayloadSha256(sentence),
-    };
+    private static VocabularyExample Example(VocabularyWord card, string sentence, Guid? operationId = null) => NewExample(card, sentence, operationId);
 
     /// <summary>A correct answer to the card, recorded at noon.</summary>
     private static VocabularyReview Review(VocabularyWord card, Guid? operationId = null) => new()
@@ -54,7 +37,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
 
     /// <summary>A schedule that moves the card one stage up, due <paramref name="intervalDays"/> later.</summary>
     private static Func<VocabularyWord, ReviewSchedule> NextStage(decimal intervalDays = 1m) =>
-        card => new ReviewSchedule(card.Stage + 1, intervalDays, 0);
+        card => new ReviewSchedule(card.Stage + 1, intervalDays, 0, Retire: false);
 
     private static Func<VocabularyWord, ReviewSchedule> NeverCalled =>
         _ => throw new InvalidOperationException("The schedule must not be computed.");
@@ -556,7 +539,8 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
 
         await _repo.RecordReviewAsync(card.UserId, Review(card), c => new ReviewSchedule(c.Stage + 1, 1m, 0, Retire: true), Ct);
         var retired = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
-        await ReviewAsync(card);
+        // Mastered again: still retired once, at the first time, with one revision bump.
+        await _repo.RecordReviewAsync(card.UserId, Review(card), c => new ReviewSchedule(c.Stage + 1, 1m, 0, Retire: true), Ct);
         var reviewedAgain = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
 
         Assert.Equal((2L, retired.UpdatedAt, (DateTimeOffset?)null), (retired.Revision, retired.RetiredAt!.Value, retired.DeletedAt));

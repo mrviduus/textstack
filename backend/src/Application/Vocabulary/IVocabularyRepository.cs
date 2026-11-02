@@ -42,16 +42,23 @@ public interface IVocabularyRepository
     /// <summary>Soft-deletes the card (sets <c>deleted_at</c>, bumps the revision); false when not the user's or already deleted.</summary>
     Task<bool> DeleteWordAsync(Guid userId, Guid wordId, CancellationToken ct);
 
-    /// <summary>
-    /// Brings a deleted card back, schedule and examples intact. Guarded like <see cref="UpdateWordAsync"/>
-    /// (v2-sync-protocol.md, M1.3 delta 7): a stale <paramref name="expectedRevision"/>, or a card that
-    /// is not deleted, loses and the result carries the stored card without its examples (null when
-    /// not the user's).
-    /// </summary>
+    /// <summary>Brings a deleted card back, schedule and examples intact; guarded like <see cref="UpdateWordAsync"/>, and a live card loses too.</summary>
     Task<RevisionedWrite<VocabularyWord>> RestoreWordAsync(Guid userId, Guid wordId, long expectedRevision, CancellationToken ct);
 
     /// <summary>One of the user's cards, deleted or not, with its examples; null when not the user's.</summary>
     Task<VocabularyWord?> GetWordAsync(Guid userId, Guid wordId, CancellationToken ct);
+
+    /// <summary><see cref="GetWordAsync"/> without the examples, for a caller that needs only the card.</summary>
+    Task<VocabularyWord?> GetCardAsync(Guid userId, Guid wordId, CancellationToken ct);
+
+    /// <summary>The user's cards that are neither deleted nor retired and are due by the database clock, earliest first, at most <paramref name="limit"/>, with their examples.</summary>
+    Task<IReadOnlyList<VocabularyWord>> ListDueAsync(Guid userId, int limit, CancellationToken ct);
+
+    /// <summary>
+    /// The user's cards changed after <c>(since, afterId)</c>, tombstones included, ordered by
+    /// <c>(updated_at, id)</c>, with their examples: one page of the vocabulary feed (PDD M1.3 delta 3).
+    /// </summary>
+    Task<IReadOnlyList<VocabularyWord>> ListChangedAsync(Guid userId, DateTimeOffset since, Guid afterId, int limit, CancellationToken ct);
 
     /// <summary>
     /// Adds an example to a card and bumps the card's <c>updated_at</c>, once per
@@ -69,9 +76,8 @@ public interface IVocabularyRepository
     /// computes the next schedule from the card's current row; the review stores the card's stage
     /// before and the schedule's stage after (set on <paramref name="review"/>), and the card moves to
     /// the schedule, due at the server's time plus the interval. Two answers in flight on one card
-    /// therefore apply one after the other. A schedule that retires the card sets <c>retired_at</c> and
-    /// bumps its revision in the same statement (owner decision 1: a retire is not a delete, but other
-    /// devices must see it). <paramref name="schedule"/> must be pure: it may run on a
+    /// therefore apply one after the other. A first retire sets <c>retired_at</c> and bumps the revision
+    /// atomically with the answer (owner decision 1); a retired card stays retired. <paramref name="schedule"/> must be pure: it may run on a
     /// replay or a conflict on a live card, and its result is then discarded. A replay, a conflict, a
     /// deleted or a missing card changes nothing; the last two never call it.
     /// </summary>
@@ -98,8 +104,5 @@ public enum WordSaveOutcome
 /// <summary>The stored card, its examples not loaded; null only for <see cref="WordSaveOutcome.IdConflict"/>.</summary>
 public sealed record SavedWord(WordSaveOutcome Outcome, VocabularyWord? Word);
 
-/// <summary>
-/// A card's schedule after an answer, as the SRS engine computes it; the due time follows from the
-/// interval. <see cref="Retire"/>: the answer mastered the card, so it leaves the review queue.
-/// </summary>
-public sealed record ReviewSchedule(int Stage, decimal IntervalDays, int ConsecutiveCorrect, bool Retire = false);
+/// <summary>A card's schedule after an answer, as the SRS engine computes it; <see cref="Retire"/>: mastered, out of the review queue.</summary>
+public sealed record ReviewSchedule(int Stage, decimal IntervalDays, int ConsecutiveCorrect, bool Retire);

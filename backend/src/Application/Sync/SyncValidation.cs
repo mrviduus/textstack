@@ -18,10 +18,7 @@ public static class SyncValidation
     private const int MaxQuoteCodePoints = 64;
     private const int MaxContextCodePoints = 32;
 
-    // Vocabulary caps, in UTF-16 units as legacy measures them. Legacy's own where it has one
-    // (VocabularyEndpoints: word 200, translation 500, definition 2000, sentence 1000, bookTitle 500);
-    // language 16 (V2's language columns, room for a BCP 47 tag like zh-Hant-TW; legacy capped 8).
-    // Past them a word key overflows its unique index (54000) and the save would 500 forever.
+    // Vocabulary caps (UTF-16 units; legacy's where it had one, which reads them from here; past them the key index 500s).
     public const int MaxLanguage = 16;
     public const int MaxWord = 200;
     public const int MaxTranslation = 500;
@@ -33,7 +30,12 @@ public static class SyncValidation
     public const int MaxReviewMode = 64;
 
     /// <summary>ADR-019's clock skew: a client time further ahead than this is a broken clock, not an answer.</summary>
+    // Checked against the API's clock while the rows are stamped by the database's: fine at 5 minutes.
     public static readonly TimeSpan MaxClockSkew = TimeSpan.FromMinutes(5);
+
+    /// <summary>A client time no further ahead of <paramref name="now"/> than <see cref="MaxClockSkew"/>.</summary>
+    public static SyncResult? NotFuture(DateTimeOffset? at, DateTimeOffset now, string field) =>
+        at > now + MaxClockSkew ? SyncResult.Invalid(field, $"{field} is in the future.") : null;
 
     /// <summary>Lowercase hex only: the client keys its local files by it, so uppercase is refused, never lowered.</summary>
     public static SyncResult? Sha256(string? value, string field = "sha256") =>
@@ -61,14 +63,6 @@ public static class SyncValidation
         RequiredText(m.Title, "title") ?? Tags(m.Tags) ?? Text(m.Author, "author") ?? Text(m.Language, "language")
         ?? Text(m.Description, "description") ?? Text(m.Genre, "genre");
 
-    /// <summary>A card save; its example, when sent, under <c>example.</c>.</summary>
-    public static SyncResult? Word(SaveVocabularyWordRequest r) =>
-        ClientId(r.Id, "id") ?? RequiredText(r.Language, "language", MaxLanguage) ?? RequiredText(r.Word, "word", MaxWord)
-        // A key of only format or punctuation characters (a zero-width space) names no word.
-        ?? (WordKeys.Of(r.Word!).EnumerateRunes().Any(Rune.IsLetterOrDigit) ? null : SyncResult.Invalid("word", "word has no letter or digit."))
-        ?? Text(r.Translation, "translation", MaxTranslation) ?? Text(r.Definition, "definition", MaxDefinition)
-        ?? (r.Example is null ? null : Example(r.Example, "example."));
-
     /// <summary>An example's provenance hangs on its book: a file version or a chapter key without one is refused.</summary>
     public static SyncResult? Example(VocabularyExampleRequest e, string prefix = "") =>
         ClientId(e.OperationId, prefix + "operationId") ?? RequiredText(e.Sentence, prefix + "sentence", MaxSentence)
@@ -77,13 +71,6 @@ public static class SyncValidation
         ?? (e.ChapterKey is null ? null : RequiredText(e.ChapterKey, prefix + "chapterKey", MaxChapterKey))
         ?? (e.BookId is null && (e.FileId is not null || e.ChapterKey is not null)
             ? SyncResult.Invalid(prefix + "bookId", "fileId and chapterKey need bookId.") : null);
-
-    /// <summary>An answer; <paramref name="now"/> is the server's receive time, which a client time may not pass by more than the skew.</summary>
-    public static SyncResult? Review(VocabularyReviewRequest r, DateTimeOffset now) =>
-        ClientId(r.OperationId, "operationId") ?? Required(r.WordId, "wordId") ?? RequiredText(r.ReviewMode, "reviewMode", MaxReviewMode)
-        ?? Required(r.IsCorrect, "isCorrect") ?? Required(r.ClientRecordedAt, "clientRecordedAt")
-        ?? (r.ClientRecordedAt <= now + MaxClockSkew ? null : SyncResult.Invalid("clientRecordedAt", "clientRecordedAt is in the future."))
-        ?? (r.ResponseTimeMs is null or >= 0 ? null : SyncResult.Invalid("responseTimeMs", "responseTimeMs must be zero or more."));
 
     /// <summary>A client-minted id: present and not the empty UUID (the PDD's ids are v4).</summary>
     public static SyncResult? ClientId(Guid? id, string field) =>
@@ -95,11 +82,30 @@ public static class SyncValidation
 
     /// <summary><see cref="RequiredText(string?, string)"/> with a length cap.</summary>
     public static SyncResult? RequiredText(string? value, string field, int max) =>
-        RequiredText(value, field) ?? Text(value, field, max);
+        string.IsNullOrWhiteSpace(value) ? SyncResult.Invalid(field, $"{field} is required.") : Text(value, field, max);
 
     /// <summary><see cref="Text(string?, string)"/> with a length cap, in UTF-16 units.</summary>
     public static SyncResult? Text(string? value, string field, int max) =>
         value?.Length > max ? SyncResult.Invalid(field, $"{field} is at most {max} characters.") : Text(value, field);
+
+    /// <summary>
+    /// One field of a merge-patch: an absent member keeps <paramref name="kept"/>, null clears it, a
+    /// string replaces it (checked by <see cref="Text(string?, string, int)"/>).
+    /// </summary>
+    public static SyncResult? Merge(JsonElement sent, string? kept, string field, out string? merged, int max = int.MaxValue)
+    {
+        merged = kept;
+        try
+        {
+            if (sent.ValueKind != JsonValueKind.Undefined) merged = sent.Deserialize<string?>();
+            return Text(merged, field, max);
+        }
+        // A wrong type, or an escaped lone surrogate a string cannot even be read from.
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
+        {
+            return SyncResult.Invalid(field, $"{field} is a string or null.");
+        }
+    }
 
     public static SyncResult? Tags(string[]? tags) =>
         tags is null || tags.All(t => !string.IsNullOrWhiteSpace(t) && IsStorable(t)) ? null : SyncResult.Invalid("tags", "tags must be non-blank strings.");

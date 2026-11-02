@@ -27,7 +27,7 @@ public class V2DataAccessRegistrationTests
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 
         Type[] v2Ports = [typeof(IV2UnitOfWork), typeof(ILibraryRepository), typeof(IReadingStateRepository), typeof(IReadingSessionRepository),
-            typeof(IAnnotationRepository), typeof(IVocabularyRepository), typeof(IVocabularyFeedRepository),
+            typeof(IAnnotationRepository), typeof(IVocabularyRepository),
             typeof(ISharedChapterRepository), typeof(ICheckpointRepository),
             typeof(IBookInsightRepository), typeof(IReviewQuestionRepository),
             typeof(IUserRepository), typeof(ISessionTokenRepository), typeof(IOAuthRepository), typeof(IDeviceLoginRepository),
@@ -56,7 +56,6 @@ public class V2DataAccessRegistrationTests
         Assert.NotNull(services.GetService<IReadingSessionRepository>());
         Assert.NotNull(services.GetService<IAnnotationRepository>());
         Assert.NotNull(services.GetService<IVocabularyRepository>());
-        Assert.NotNull(services.GetService<IVocabularyFeedRepository>());
         Assert.NotNull(services.GetService<ISharedChapterRepository>());
         Assert.NotNull(services.GetService<ICheckpointRepository>());
         Assert.NotNull(services.GetService<IBookInsightRepository>());
