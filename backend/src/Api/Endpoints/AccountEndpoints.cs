@@ -79,7 +79,7 @@ public static class AccountEndpoints
         await tx.CommitAsync(ct);
 
         // V2 follows the committed legacy delete when Features:V2Api is on; it never fails this request.
-        await mirror.DeleteAsync(id, ct);
+        await mirror.DeleteAsync(id);
 
         // Best-effort disk cleanup post-commit. Removes the whole
         // users/{shard}/{userId} tree (all uploaded book files) + the avatar.

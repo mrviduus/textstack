@@ -84,6 +84,7 @@ public static class AuthEndpoints
     private static async Task<IResult> Register(
         [FromBody] EmailRegisterRequest request,
         AuthService authService,
+        V2IdentityMirror mirror,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -105,6 +106,11 @@ public static class AuthEndpoints
             request.Email, request.Password, request.Name, guest.UserId, ct);
         if (result == null)
             return Results.BadRequest(new { error = "Invalid email or password." });
+
+        // The guest became the account in place: its V2 row follows, best-effort.
+        var user = result.Value.user;
+        if (user.Id == guest.UserId)
+            await mirror.PromoteAsync(user.Id, user.Email, user.Name, user.PasswordHash!);
 
         // Registration promotes the guest IN PLACE inside RegisterWithEmailAsync (no MergeGuestAsync,
         // no cross-user re-parent), so the only way to lose data here is guest.UserId having come back
@@ -433,8 +439,10 @@ public static class AuthEndpoints
 
         if (!guest.UserId.HasValue) return (null, null);
 
-        if (await authService.MergeGuestAsync(guest.UserId.Value, realUserId, route, ct))
-            return (null, MergeMap((await mirror.MergeAsync(guest.UserId.Value, realUserId, ct)).Merge));
+        var legacyMerged = await authService.MergeGuestAsync(guest.UserId.Value, realUserId, route, ct);
+        var mirrored = await mirror.MergeAsync(guest.UserId.Value, realUserId, legacyMerged);
+        if (legacyMerged)
+            return (null, MergeMap(mirrored.Merge));
 
         LogGuestMergeSkipped(httpContext, GuestMergeSkipReason.MergeConflict, route, realUserId);
         return (GuestMergeSkipReason.MergeConflict, null);
