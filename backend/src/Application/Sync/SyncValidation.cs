@@ -208,7 +208,8 @@ public static class SyncValidation
             || !locator.TryGetProperty("value", out var value) || value.ValueKind == JsonValueKind.Null)
             return SyncResult.Invalid(field, "A locator is {\"version\":1,\"scheme\":…,\"value\":…}.");
         var scheme = locator.TryGetProperty("scheme", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
-        if (scheme != "epub-cfi" && locator.TryGetProperty("quote", out _)) return SyncResult.Invalid(field, "Only epub-cfi carries a quote.");
+        // An unknown scheme is refused for its scheme below, not for a quote.
+        if (scheme is "pdf-page" or "textstack-position-v1" or "textstack-anchor-v1" && locator.TryGetProperty("quote", out _)) return SyncResult.Invalid(field, "Only epub-cfi carries a quote.");
         return (scheme, use) switch
         {
             ("epub-cfi", _) => EpubCfi(locator, value, field, use),

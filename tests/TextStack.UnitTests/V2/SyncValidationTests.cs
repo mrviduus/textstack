@@ -202,6 +202,12 @@ public class SyncValidationTests
         Assert.Equal("locator", FieldOf(Transitional("textstack-position-v1", TextPosition, LocatorUse.Position, ""","quote":"x" """)));
 
     [Theory]
+    [InlineData("""{"version":1,"value":"x","quote":"q"}""")]
+    [InlineData("""{"version":1,"scheme":"cfi","value":"x","quote":"q"}""")]
+    public void Locator_UnknownOrMissingSchemeWithAQuote_IsRefusedForItsScheme(string locator) =>
+        Assert.Contains("schemes only", Assert.IsType<V2Error>(Locator(Json(locator), "locator", LocatorUse.Annotation)!.Body).Message);
+
+    [Theory]
     [InlineData(-0.01)]
     [InlineData(1.01)]
     public void Fraction_OutsideZeroToOne_IsRefused(double value) => Assert.Equal("bookFraction", FieldOf(Fraction((decimal)value, "bookFraction")));
