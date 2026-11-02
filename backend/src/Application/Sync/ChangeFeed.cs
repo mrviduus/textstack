@@ -39,9 +39,7 @@ public static class ChangeFeed
         Func<TRow, TDto> toDto,
         DateTimeOffset? now = null)
     {
-        var take = DefaultLimit;
-        if (!string.IsNullOrEmpty(limit) && !int.TryParse(limit, NumberStyles.None, CultureInfo.InvariantCulture, out take) || take is < 1 or > MaxLimit)
-            return SyncResult.Invalid("limit", $"limit is 1-{MaxLimit}.");
+        if (Limit(limit, out var take) is { } invalid) return invalid;
         if (string.IsNullOrEmpty(cursor)) cursor = null;
         if (!TryReadFrom(cursor, out var after))
             return SyncResult.Invalid("cursor", "Not a cursor this server issued.");
@@ -55,6 +53,15 @@ public static class ChangeFeed
         // At the end of a pull: the last row, or pull time minus the overlap if that is earlier.
         (DateTimeOffset UpdatedAt, Guid Id) settled = ((now ?? DateTimeOffset.UtcNow) - Overlap, Guid.Empty);
         return SyncResult.Ok(new ChangeFeedDto<TDto>(page, Encode(hasMore || last.UpdatedAt < settled.UpdatedAt ? last : settled), hasMore));
+    }
+
+    /// <summary>A page size as the query sends it: absent or empty is the default, else 1 to the max; any list shares it.</summary>
+    public static SyncResult? Limit(string? limit, out int take)
+    {
+        take = DefaultLimit;
+        return !string.IsNullOrEmpty(limit) && !int.TryParse(limit, NumberStyles.None, CultureInfo.InvariantCulture, out take) || take is < 1 or > MaxLimit
+            ? SyncResult.Invalid("limit", $"limit is 1-{MaxLimit}.")
+            : null;
     }
 
     private static bool TryReadFrom(string? cursor, out (DateTimeOffset UpdatedAt, Guid Id) after)

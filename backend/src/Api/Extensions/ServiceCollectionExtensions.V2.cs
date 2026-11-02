@@ -3,6 +3,7 @@ using Application.Annotations;
 using Application.Identity;
 using Application.Library;
 using Application.Reading;
+using Application.Vocabulary;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -24,5 +25,6 @@ public static partial class ServiceCollectionExtensions
             .AddSingleton<V2ShadowUsers>()
             .AddSingleton<LibrarySyncService>()
             .AddSingleton<ReadingSyncService>()
-            .AddSingleton<AnnotationSyncService>();
+            .AddSingleton<AnnotationSyncService>()
+            .AddSingleton<VocabularySyncService>();
 }

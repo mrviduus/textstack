@@ -5,13 +5,14 @@ using Application.Auth;
 using Application.Library;
 using Application.Reading;
 using Application.Sync;
+using Application.Vocabulary;
 using Contracts.V2;
 
 namespace Api.Endpoints;
 
 /// <summary>
-/// The V2 sync API, M2.2's rows of v2-sync-protocol.md "Endpoints": library, reading and annotations
-/// under <c>/me/v2</c> (a temporary prefix, renamed at M5.4). Mapped only with <c>Features:V2Api</c>
+/// The V2 sync API, the M2.2 and M2.3 rows of v2-sync-protocol.md "Endpoints": library, reading,
+/// annotations and vocabulary under <c>/me/v2</c> (a temporary prefix, renamed at M5.4). Mapped only with <c>Features:V2Api</c>
 /// on, so with it off the stack is exactly as before (404, and old clients never see a V2 body).
 /// Every route sits behind <see cref="V2Gate"/>: V2 readiness (#1053), the legacy account, then the
 /// session user's V2 shadow row — M2.2's bridge to the legacy accounts, removed by M2.5, whose rows
@@ -63,6 +64,26 @@ public static class V2Endpoints
             Send(s.SaveAsync(User(h, a), id, body, ct)));
         v2.MapDelete("/annotations/{id:guid}", (HttpContext h, AuthService a, AnnotationSyncService s, Guid id, CancellationToken ct) =>
             Send(s.DeleteAsync(User(h, a), id, ct)));
+
+        v2.MapGet("/vocabulary/changes", (HttpContext h, AuthService a, VocabularySyncService s, string? cursor, string? limit, CancellationToken ct) =>
+            Send(s.ChangesAsync(User(h, a), cursor, limit, ct)));
+        v2.MapGet("/vocabulary/due", (HttpContext h, AuthService a, VocabularySyncService s, string? limit, CancellationToken ct) =>
+            Send(s.DueAsync(User(h, a), limit, ct)));
+        v2.MapPut("/vocabulary/words", (HttpContext h, AuthService a, VocabularySyncService s, SaveVocabularyWordRequest body, CancellationToken ct) =>
+            Send(s.SaveWordAsync(User(h, a), body, ct)));
+        // Not in the PDD's table: the read an editor without a local copy (the MCP bridge) needs for expectedRevision.
+        v2.MapGet("/vocabulary/words/{id:guid}", (HttpContext h, AuthService a, VocabularySyncService s, Guid id, CancellationToken ct) =>
+            Send(s.GetWordAsync(User(h, a), id, ct)));
+        v2.MapPatch("/vocabulary/words/{id:guid}", (HttpContext h, AuthService a, VocabularySyncService s, Guid id, PatchVocabularyWordRequest body, CancellationToken ct) =>
+            Send(s.UpdateWordAsync(User(h, a), id, body, ct)));
+        v2.MapDelete("/vocabulary/words/{id:guid}", (HttpContext h, AuthService a, VocabularySyncService s, Guid id, CancellationToken ct) =>
+            Send(s.DeleteWordAsync(User(h, a), id, ct)));
+        v2.MapPost("/vocabulary/words/{id:guid}/restore", (HttpContext h, AuthService a, VocabularySyncService s, Guid id, RestoreVocabularyWordRequest body, CancellationToken ct) =>
+            Send(s.RestoreWordAsync(User(h, a), id, body, ct)));
+        v2.MapPost("/vocabulary/words/{id:guid}/examples", (HttpContext h, AuthService a, VocabularySyncService s, Guid id, VocabularyExampleRequest body, CancellationToken ct) =>
+            Send(s.AddExampleAsync(User(h, a), id, body, ct)));
+        v2.MapPost("/vocabulary/reviews", (HttpContext h, AuthService a, VocabularySyncService s, VocabularyReviewRequest body, CancellationToken ct) =>
+            Send(s.RecordReviewAsync(User(h, a), body, ct)));
     }
 
     // PathGates and V2Gate resolved it already; GetUserId answers from the request's memo.

@@ -44,6 +44,25 @@ public static class SyncValidation
         RequiredText(m.Title, "title") ?? Tags(m.Tags) ?? Text(m.Author, "author") ?? Text(m.Language, "language")
         ?? Text(m.Description, "description") ?? Text(m.Genre, "genre");
 
+    /// <summary>A card save; its example, when sent, under <c>example.</c>.</summary>
+    public static SyncResult? Word(SaveVocabularyWordRequest r) =>
+        Required(r.Id, "id") ?? RequiredText(r.Language, "language") ?? RequiredText(r.Word, "word")
+        ?? Text(r.Translation, "translation") ?? Text(r.Definition, "definition")
+        ?? (r.Example is null ? null : Example(r.Example, "example."));
+
+    /// <summary>An example's provenance hangs on its book: a file version or a chapter key without one is refused.</summary>
+    public static SyncResult? Example(VocabularyExampleRequest e, string prefix = "") =>
+        Required(e.OperationId, prefix + "operationId") ?? RequiredText(e.Sentence, prefix + "sentence")
+        ?? Text(e.ContextualTranslation, prefix + "contextualTranslation") ?? Text(e.BookTitle, prefix + "bookTitle")
+        ?? (e.ChapterKey is null ? null : RequiredText(e.ChapterKey, prefix + "chapterKey"))
+        ?? (e.BookId is null && (e.FileId is not null || e.ChapterKey is not null)
+            ? SyncResult.Invalid(prefix + "bookId", "fileId and chapterKey need bookId.") : null);
+
+    public static SyncResult? Review(VocabularyReviewRequest r) =>
+        Required(r.OperationId, "operationId") ?? Required(r.WordId, "wordId") ?? RequiredText(r.ReviewMode, "reviewMode")
+        ?? Required(r.IsCorrect, "isCorrect") ?? Required(r.ClientRecordedAt, "clientRecordedAt")
+        ?? (r.ResponseTimeMs is null or >= 0 ? null : SyncResult.Invalid("responseTimeMs", "responseTimeMs must be zero or more."));
+
     /// <summary>Present, not blank, and storable (<see cref="Text"/>).</summary>
     public static SyncResult? RequiredText(string? value, string field) =>
         string.IsNullOrWhiteSpace(value) ? SyncResult.Invalid(field, $"{field} is required.") : Text(value, field);

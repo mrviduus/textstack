@@ -108,4 +108,34 @@ public class SyncValidationTests
     [InlineData(-0.01)]
     [InlineData(1.01)]
     public void Fraction_OutsideZeroToOne_IsRefused(double value) => Assert.Equal("bookFraction", FieldOf(Fraction((decimal)value, "bookFraction")));
+
+    private static VocabularyExampleRequest Sentence(Guid? bookId = null, Guid? fileId = null, string? chapterKey = null, string sentence = "It quivered.") =>
+        new(Guid.NewGuid(), sentence, null, bookId, fileId, chapterKey, null);
+
+    [Fact]
+    public void Word_BlankWordOrMissingLanguage_IsRefusedNamingIt()
+    {
+        Assert.Equal("word", FieldOf(Word(new(Guid.NewGuid(), "en", " ", null, null, null))));
+        Assert.Equal("language", FieldOf(Word(new(Guid.NewGuid(), null, "quiver", null, null, null))));
+    }
+
+    [Fact]
+    public void Word_ExampleWithANulInItsSentence_IsRefusedUnderExample() =>
+        Assert.Equal("example.sentence", FieldOf(Word(new(Guid.NewGuid(), "en", "quiver", null, null, Sentence(sentence: "a\u0000b")))));
+
+    [Fact]
+    public void Example_FileOrChapterKeyWithoutABook_IsRefused()
+    {
+        Assert.Equal("bookId", FieldOf(Example(Sentence(fileId: Guid.NewGuid()))));
+        Assert.Equal("bookId", FieldOf(Example(Sentence(chapterKey: "ch1.xhtml"))));
+        Assert.Null(Example(Sentence(Guid.NewGuid(), Guid.NewGuid(), "ch1.xhtml")));
+    }
+
+    [Fact]
+    public void Review_NegativeResponseTime_IsRefused() =>
+        Assert.Equal("responseTimeMs", FieldOf(Review(new(Guid.NewGuid(), Guid.NewGuid(), "multiple_choice", true, -1, DateTimeOffset.UtcNow))));
+
+    [Fact]
+    public void Review_MissingAnswer_IsRefused() =>
+        Assert.Equal("isCorrect", FieldOf(Review(new(Guid.NewGuid(), Guid.NewGuid(), "multiple_choice", null, 0, DateTimeOffset.UtcNow))));
 }
