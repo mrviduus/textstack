@@ -9,6 +9,7 @@ using TextStack.Extraction.Contracts;
 using TextStack.Extraction.Enums;
 using TextStack.Extraction.Registry;
 using static Contracts.V2.SyncLimits;
+using Application.Sync;
 using static TextStack.Extraction.Utilities.TextProcessingUtils;
 
 namespace Worker.Services;
@@ -26,6 +27,10 @@ public sealed class V2IngestionService(
     public const int MaxAttempts = IngestionService.MaxAttempts;
     public static readonly TimeSpan StuckAfter = UserIngestionService.StuckJobTimeout;
     private const int SweepBatch = 50;
+    private const int OrphanBatch = 1000;
+
+    /// <summary>A file younger than this may be an attach or a cover between its place and its commit: never an orphan yet.</summary>
+    public static readonly TimeSpan OrphanAge = TimeSpan.FromHours(1);
 
     /// <summary>Fails exhausted jobs, then claims and runs the next one; false when the queue is empty.</summary>
     public async Task<bool> ProcessNextAsync(CancellationToken ct)
@@ -38,7 +43,12 @@ public sealed class V2IngestionService(
         return true;
     }
 
-    /// <summary>One claimed job: extract, replace the file's chapters, finish. A shutdown gives it back (ADR-022).</summary>
+    /// <summary>
+    /// One claimed job: extract, replace the file's chapters, finish. A bad file fails it (the extractors
+    /// report unreadable input as diagnostics, not exceptions). Anything that throws is the server's
+    /// trouble (disk, database): the job stays processing, so the stuck reclaim retries it and
+    /// <see cref="MaxAttempts"/> ends it. A shutdown gives it back (ADR-022).
+    /// </summary>
     public async Task ProcessAsync(FileIngestionJob job, CancellationToken ct)
     {
         try
@@ -84,8 +94,8 @@ public sealed class V2IngestionService(
         }
         catch (Exception e)
         {
-            logger.LogWarning(e, "V2 ingestion job {JobId} of file {FileId} failed", job.Id, job.FileId);
-            await jobs.FailAsync(job.Id, job.AttemptCount, e.Message, null, CancellationToken.None);
+            logger.LogWarning(e, "V2 ingestion job {JobId} of file {FileId} failed on attempt {Attempt} of {Max}; left processing for the stuck reclaim",
+                job.Id, job.FileId, job.AttemptCount, MaxAttempts);
         }
     }
 
@@ -100,12 +110,12 @@ public sealed class V2IngestionService(
         foreach (var unit in units)
         {
             var index = chapters.Count;
-            var title = Cap(SanitizeText(unit.Title ?? $"Chapter {index + 1}"), MaxChapterTitle);
+            var title = SyncValidation.Truncate(SanitizeText(unit.Title ?? $"Chapter {index + 1}"), MaxChapterTitle);
             chapters.Add(new BookChapter
             {
                 Id = Guid.NewGuid(),
                 // Capped as the read endpoint's key is; the order prefix keeps it unique.
-                ChapterKey = Cap(SlugGenerator.GenerateChapterSlug(title, index), MaxChapterKey),
+                ChapterKey = SyncValidation.Truncate(SlugGenerator.GenerateChapterSlug(title, index), MaxChapterKey),
                 ChapterNumber = index + 1,
                 Title = title,
                 Html = SanitizeText(unit.Html),
@@ -117,10 +127,6 @@ public sealed class V2IngestionService(
         }
         return chapters;
     }
-
-    // Never splits a surrogate pair: half of one has no UTF-8 form.
-    private static string Cap(string text, int max) =>
-        text.Length <= max ? text : text[..(char.IsHighSurrogate(text[max - 1]) ? max - 1 : max)];
 
     /// <summary>
     /// Deletes what the library no longer needs: superseded versions' bytes (the key cleared only once
@@ -144,5 +150,32 @@ public sealed class V2IngestionService(
             await library.ForgetSupersededContentAsync(file.Id, ct);
         }
         IngestionMetrics.SetStuckJobs("v2_ingestion", await jobs.CountStuckAsync(StuckAfter, ct));
+    }
+
+    /// <summary>
+    /// Deletes bytes under <c>library/</c> older than <see cref="OrphanAge"/> that no file or cover names,
+    /// then empty directories. One mechanism for every way bytes lose their row: a commit that failed
+    /// after the place, a merge's dropped guest copies, a crashed join's temp file, a key cleared whose
+    /// delete failed.
+    /// </summary>
+    public async Task SweepOrphansAsync(CancellationToken ct)
+    {
+        var candidates = files.ListLibraryFilesOlderThan(DateTimeOffset.UtcNow - OrphanAge);
+        foreach (var batch in candidates.Chunk(OrphanBatch))
+        {
+            var referenced = await library.ReferencedKeysAsync(batch, ct);
+            foreach (var key in batch.Where(k => !referenced.Contains(k)))
+            {
+                try
+                {
+                    files.Delete(key);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    logger.LogWarning(e, "Could not delete orphan V2 bytes at {StorageKey}; retried next sweep", key);
+                }
+            }
+        }
+        files.RemoveEmptyDirectories();
     }
 }

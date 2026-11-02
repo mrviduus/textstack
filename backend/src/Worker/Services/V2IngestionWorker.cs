@@ -16,6 +16,7 @@ public sealed class V2IngestionWorker(IConfiguration config, IServiceProvider se
     public TimeSpan PollInterval { get; init; } = TimeSpan.FromSeconds(5);
     public TimeSpan Backoff { get; init; } = TimeSpan.FromSeconds(30);
     public TimeSpan SweepEvery { get; init; } = TimeSpan.FromMinutes(1);
+    public TimeSpan OrphanSweepEvery { get; init; } = TimeSpan.FromDays(1);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -25,18 +26,26 @@ public sealed class V2IngestionWorker(IConfiguration config, IServiceProvider se
             return;
         }
         var ingestion = services.GetRequiredService<V2IngestionService>();
-        var lastSweep = DateTimeOffset.MinValue;
+        var (lastSweep, lastOrphanSweep) = (DateTimeOffset.MinValue, DateTimeOffset.MinValue);
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                if (await ingestion.ProcessNextAsync(stoppingToken)) continue;
-                if (DateTimeOffset.UtcNow - lastSweep >= SweepEvery)
+                // On their own clocks, before each job: a steady queue must not starve them (superseded
+                // bytes keep counting against the quota until swept). Stamped first, so a failing sweep
+                // waits its interval instead of running on every pass.
+                var now = DateTimeOffset.UtcNow;
+                if (now - lastSweep >= SweepEvery)
                 {
+                    lastSweep = now;
                     await ingestion.SweepAsync(stoppingToken);
-                    lastSweep = DateTimeOffset.UtcNow;
                 }
-                await Task.Delay(PollInterval, stoppingToken);
+                if (now - lastOrphanSweep >= OrphanSweepEvery)
+                {
+                    lastOrphanSweep = now;
+                    await ingestion.SweepOrphansAsync(stoppingToken);
+                }
+                if (!await ingestion.ProcessNextAsync(stoppingToken)) await Task.Delay(PollInterval, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

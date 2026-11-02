@@ -118,13 +118,16 @@ public sealed class V2IngestionWorkerTests : IDisposable
     }
 
     [Fact]
-    public async Task ProcessAsync_ExtractorThrows_FailsTheJobWithTheMessage()
+    public async Task ProcessAsync_SomethingThrows_LeavesTheJobProcessingForTheStuckReclaim()
     {
-        _extractor.Setup(e => e.ExtractAsync(It.IsAny<ExtractionRequest>(), It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidDataException("corrupt zip"));
+        _chapters.Setup(c => c.ReplaceForFileAsync(User, BookId, FileId, It.IsAny<IReadOnlyList<BookChapter>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new NpgsqlException("connection reset"));
+        Extracts([Unit("One", 0)]);
 
         await Service().ProcessAsync(_job, Ct);
 
-        _jobs.Verify(j => j.FailAsync(_job.Id, 2, "corrupt zip", null, CancellationToken.None));
+        // Not failed, not given back: the claim reclaims it as stuck and counts the attempt, up to MaxAttempts.
+        _jobs.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -181,6 +184,22 @@ public sealed class V2IngestionWorkerTests : IDisposable
         _library.Verify(l => l.ForgetSupersededContentAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Fact]
+    public async Task SweepOrphansAsync_OldFiles_DeletesOnlyThoseNoRowNamesThenEmptyDirectories()
+    {
+        _files.Setup(f => f.ListLibraryFilesOlderThan(It.Is<DateTimeOffset>(t => t < DateTimeOffset.UtcNow - TimeSpan.FromMinutes(59))))
+            .Returns(["library/kept.epub", "library/orphan.epub", "library/stale.tmp"]);
+        _library.Setup(l => l.ReferencedKeysAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HashSet<string> { "library/kept.epub" });
+
+        await Service().SweepOrphansAsync(Ct);
+
+        _files.Verify(f => f.Delete("library/orphan.epub"));
+        _files.Verify(f => f.Delete("library/stale.tmp"));
+        _files.Verify(f => f.Delete("library/kept.epub"), Times.Never);
+        _files.Verify(f => f.RemoveEmptyDirectories());
+    }
+
     private static IConfiguration Config(bool flag, string? v2) => new ConfigurationBuilder()
         .AddInMemoryCollection(new Dictionary<string, string?> { ["Features:V2Api"] = flag.ToString(), ["ConnectionStrings:V2"] = v2 }).Build();
 
@@ -196,6 +215,28 @@ public sealed class V2IngestionWorkerTests : IDisposable
         await worker.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(5), Ct);
 
         Assert.True(worker.ExecuteTask.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_SteadyQueue_StillSweepsOnItsInterval()
+    {
+        // Every pass claims a job: the queue never drains.
+        _jobs.Setup(j => j.FailExhaustedAsync(It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
+        _jobs.Setup(j => j.ClaimNextAsync(It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>())).ReturnsAsync(_job);
+        _library.Setup(l => l.ListSupersededWithContentAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
+        _files.Setup(f => f.ListLibraryFilesOlderThan(It.IsAny<DateTimeOffset>())).Returns([]);
+        Extracts([Unit("One", 0)]);
+        var sweeps = 0;
+        _files.Setup(f => f.SweepStaleParts(It.IsAny<DateTimeOffset>())).Callback(() => sweeps++);
+        var services = new ServiceCollection().AddSingleton(Service()).BuildServiceProvider();
+        using var worker = new V2IngestionWorker(Config(true, "Host=x"), services, NullLogger<V2IngestionWorker>.Instance) { SweepEvery = TimeSpan.FromMilliseconds(20) };
+
+        await worker.StartAsync(Ct);
+        for (var waited = 0; waited < 5000 && sweeps < 2; waited += 10) await Task.Delay(10, Ct);
+        await worker.StopAsync(Ct);
+
+        Assert.True(sweeps >= 2);
+        _files.Verify(f => f.RemoveEmptyDirectories(), Times.Once);
     }
 
     [Fact]
