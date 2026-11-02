@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Contracts.V2;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
@@ -556,7 +555,9 @@ public sealed class McpToolCatalog
 
             return InvokeAsync("list_my_vocabulary", ct, async () =>
             {
-                var page = await api.GetVocabularyAsync(stage, search, limit, offset, ct);
+                var listed = await api.GetVocabularyAsync(stage, search, limit, offset, ct);
+                if (listed.Error is { } refused) return Error($"list_my_vocabulary refused: {refused}");
+                var page = listed.Value!;
                 var items = page.Items.Select(w => new
                 {
                     // What update_vocabulary_word / delete_vocabulary_word take.
@@ -605,7 +606,7 @@ public sealed class McpToolCatalog
             "bookTitle": { "type": "string", "maxLength": 300 },
             "operationId": { "type": "string", "format": "uuid" }
           },
-          "required": ["words"],
+          "required": ["words", "operationId"],
           "additionalProperties": false
         }
         """).RootElement;
@@ -642,14 +643,16 @@ public sealed class McpToolCatalog
                 return Task.FromResult(Error(
                     "Pass either 'bookId' (an uploaded book) or 'editionId' (a catalog book), not both."));
 
-            // Without the host's id a retry is not recognised; a fresh one still keeps each word to one save per call.
-            var callId = operationId ?? Guid.NewGuid();
+            // Owner decision 13: required by the schema; only an upstream without idempotency (legacy) tolerates its absence.
+            if (operationId is null && api.RequiresOperationId)
+                return Task.FromResult(Error("'operationId' is required: a new UUID for this save, the same one when retrying it."));
+
             return InvokeAsync("add_vocabulary_words", ct, async () =>
             {
                 var results = new List<WordResult>(words.Count);
                 for (var i = 0; i < words.Count; i++)
                 {
-                    var result = await api.SaveWordAsync(words[i], WordOperationId(callId, words[i].Language, words[i].Word), ct);
+                    var result = await api.SaveWordAsync(words[i], operationId, ct);
                     // Both refusals are about the user, not the word: every later word would get the same answer.
                     var stop = result.Status is System.Net.HttpStatusCode.TooManyRequests
                         ? new WordResult(words[i].Word, "stopped",
@@ -670,23 +673,6 @@ public sealed class McpToolCatalog
     };
 
     private sealed record WordResult(string Word, string Status, Guid? Id = null, string? Translation = null, string? Message = null);
-
-    /// <summary>
-    /// One id per word of an <c>add_vocabulary_words</c> call (owner decision 13: the host's
-    /// <paramref name="operationId"/> names the call, and a retry passes the same one). The first 16
-    /// bytes of SHA-256 of "operationId \n language \n wordKey" (the card key, <see cref="WordKeys"/>),
-    /// stamped as a v4 UUID: the same on every retry whatever the word order, different per word and
-    /// per call. A word repeated in one call gets one id, which is one card anyway.
-    /// </summary>
-    internal static Guid WordOperationId(Guid operationId, string language, string word)
-    {
-        var key = System.Text.Encoding.UTF8.GetBytes($"{operationId:D}\n{WordKeys.Language(language)}\n{WordKeys.Of(word)}");
-        Span<byte> hash = stackalloc byte[32];
-        System.Security.Cryptography.SHA256.HashData(key, hash);
-        hash[6] = (byte)((hash[6] & 0x0F) | 0x40); // version 4
-        hash[8] = (byte)((hash[8] & 0x3F) | 0x80); // RFC 9562 variant
-        return new Guid(hash[..16], bigEndian: true);
-    }
 
     private static WordResult ToWordResult(string word, ApiResult<JsonElement> result)
     {

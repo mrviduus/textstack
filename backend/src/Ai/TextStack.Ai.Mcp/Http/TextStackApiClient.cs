@@ -50,6 +50,9 @@ public sealed partial class TextStackApiClient
         _v2Vocabulary = options.V2Vocabulary;
     }
 
+    /// <summary>The vocabulary upstream is idempotent by operation id (V2), so a save without one is refused.</summary>
+    public bool RequiresOperationId => _v2Vocabulary;
+
     // ── search_books (AI-047) ───────────────────────────────────────────────────
 
     /// <summary>
@@ -134,12 +137,17 @@ public sealed partial class TextStackApiClient
     /// <summary>
     /// <c>GET /me/vocabulary/words?stage=&amp;search=&amp;limit=&amp;offset=</c>.
     /// Omits any null param (API defaults apply). 401 →
-    /// <see cref="McpUnauthorizedException"/>; other non-success → empty.
+    /// <see cref="McpUnauthorizedException"/>; other non-success → empty (legacy) or the refusal (V2).
     /// </summary>
-    public async Task<VocabularyPageJson> GetVocabularyAsync(
+    public async Task<ApiResult<VocabularyPageJson>> GetVocabularyAsync(
         int? stage, string? search, int? limit, int? offset, CancellationToken ct)
     {
         if (_v2Vocabulary) return await GetV2VocabularyAsync(stage, search, limit, offset, ct);
+        return new(await GetLegacyVocabularyAsync(stage, search, limit, offset, ct), null);
+    }
+
+    private async Task<VocabularyPageJson> GetLegacyVocabularyAsync(int? stage, string? search, int? limit, int? offset, CancellationToken ct)
+    {
         var query = new List<string>();
         if (stage is { } s) query.Add($"stage={s}");
         if (!string.IsNullOrEmpty(search)) query.Add($"search={Uri.EscapeDataString(search)}");
@@ -167,11 +175,11 @@ public sealed partial class TextStackApiClient
 
     /// <summary>
     /// <c>POST /me/vocabulary/words</c> — one word. 200 → <c>SaveWordResponse</c>. <paramref name="operationId"/>
-    /// is the word's own id for this save (legacy has no idempotency key and ignores it).
+    /// is the call's (legacy has no idempotency key and ignores it; V2 needs it, <see cref="RequiresOperationId"/>).
     /// </summary>
-    public async Task<ApiResult<JsonElement>> SaveWordAsync(SaveWordJson word, Guid operationId, CancellationToken ct)
+    public async Task<ApiResult<JsonElement>> SaveWordAsync(SaveWordJson word, Guid? operationId, CancellationToken ct)
     {
-        if (_v2Vocabulary) return await SaveV2WordAsync(word, operationId, ct);
+        if (_v2Vocabulary) return await SaveV2WordAsync(word, operationId!.Value, ct);
         using var request = await AuthorizedRequestAsync(HttpMethod.Post, "/me/vocabulary/words", ct);
         request.Content = JsonContent.Create(word, options: JsonOptions);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);

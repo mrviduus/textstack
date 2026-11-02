@@ -77,13 +77,10 @@ public sealed class McpBridgeOptions
                 Environment.GetEnvironmentVariable("MCP_TRANSPORT"), args),
             PublicBaseUrl = (Environment.GetEnvironmentVariable("TEXTSTACK_PUBLIC_URL") is { Length: > 0 } pub
                 ? pub : "https://textstack.app").TrimEnd('/'),
-            V2Vocabulary = IsOn(Environment.GetEnvironmentVariable("TEXTSTACK_MCP_V2_VOCABULARY")),
+            V2Vocabulary = Environment.GetEnvironmentVariable("TEXTSTACK_MCP_V2_VOCABULARY") is var v2
+                && (bool.TryParse(v2, out var on) && on || v2?.Trim() == "1"),
         };
     }
-
-    /// <summary>A flag variable: <c>true</c> (any case) or <c>1</c>; anything else, or unset, is off.</summary>
-    internal static bool IsOn(string? value) =>
-        value?.Trim() is { } v && (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// http when <c>MCP_TRANSPORT=http</c> (case-insensitive) OR the <c>--http</c>

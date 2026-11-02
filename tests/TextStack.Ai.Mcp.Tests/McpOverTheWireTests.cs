@@ -847,7 +847,7 @@ public class McpOverTheWireTests : IAsyncLifetime
              { "word": "{{StubBackend.DeletedV2Word}}", "language": "en", "translation": "t" }]
             """).RootElement;
 
-        var added = await CallAsync(client, "add_vocabulary_words", Args(("words", words)));
+        var added = await CallAsync(client, "add_vocabulary_words", Args(("words", words), ("operationId", Guid.NewGuid())));
         var update = await CallAsync(client, "update_vocabulary_word", Args(("id", StubBackend.MissingV2WordId), ("translation", "t")));
 
         var lines = Json(added).GetProperty("results");
@@ -870,7 +870,31 @@ public class McpOverTheWireTests : IAsyncLifetime
         var listed = await CallAsync(client, "list_my_vocabulary", Args());
 
         Assert.True(listed.IsError);
-        Assert.Contains("upstream unavailable", TextOf(listed));
+        Assert.Contains("refused: Sync is paused.", TextOf(listed)); // the server's own message
+    }
+
+    [Fact]
+    public async Task AddVocabularyWords_V2OptionWithoutOperationId_IsAToolErrorAndSavesNothing()
+    {
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2Vocabulary: true);
+        await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+        var words = JsonDocument.Parse("""[{ "word": "quiver", "language": "en", "translation": "колчан" }]""").RootElement;
+
+        var added = await CallAsync(client, "add_vocabulary_words", Args(("words", words)));
+
+        Assert.True(added.IsError);
+        Assert.Contains("'operationId' is required", TextOf(added));
+        Assert.Null(harness.Stub.Last("v2_save_word"));
+    }
+
+    [Fact]
+    public async Task ListTools_OverWire_AddVocabularyWordsRequiresOperationId()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var tool = (await client.ListToolsAsync(cancellationToken: Ct)).Single(t => t.Name == "add_vocabulary_words");
+
+        Assert.Contains("operationId", tool.ProtocolTool.InputSchema.GetProperty("required").EnumerateArray().Select(r => r.GetString()));
     }
 
     [Fact]

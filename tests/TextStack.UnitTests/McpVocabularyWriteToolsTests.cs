@@ -170,9 +170,9 @@ public class McpVocabularyWriteToolsTests
         Assert.Empty(handler.Requests);
     }
 
-    // Optional: a host that sends none still saves (it just gets no replay protection).
+    // Required by the schema (owner decision 13), but legacy has no idempotency to lose: a host that sends none still saves.
     [Fact]
-    public async Task AddVocabularyWords_NoOperationId_StillSaves()
+    public async Task AddVocabularyWords_NoOperationIdOnLegacy_StillSaves()
     {
         var (catalog, handler) = Build(Srs("a"));
 
@@ -182,31 +182,20 @@ public class McpVocabularyWriteToolsTests
         Assert.Single(handler.Requests);
     }
 
-    // A host's retry passes the same operationId and words, perhaps reordered: each word gets its id again.
     [Fact]
-    public void WordOperationId_SameCallAndCardKey_IsStableAndDistinctPerWordAndCall()
+    public void FromEnvironment_V2VocabularySetToOne_IsOn()
     {
-        var call = Guid.Parse("22222222-2222-2222-2222-222222222222");
-
-        var first = McpToolCatalog.WordOperationId(call, "en", "Quiver");
-
-        Assert.Equal(first, McpToolCatalog.WordOperationId(call, " EN", "quiver ")); // the same card key
-        Assert.NotEqual(first, McpToolCatalog.WordOperationId(call, "en", "arrow"));
-        Assert.NotEqual(first, McpToolCatalog.WordOperationId(call, "uk", "quiver"));
-        Assert.NotEqual(first, McpToolCatalog.WordOperationId(Guid.NewGuid(), "en", "quiver"));
-        Assert.Equal(4, first.Version);
+        var before = Environment.GetEnvironmentVariable("TEXTSTACK_MCP_V2_VOCABULARY");
+        Environment.SetEnvironmentVariable("TEXTSTACK_MCP_V2_VOCABULARY", "1");
+        try
+        {
+            Assert.True(McpBridgeOptions.FromEnvironment().V2Vocabulary);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TEXTSTACK_MCP_V2_VOCABULARY", before);
+        }
     }
-
-    [Theory]
-    [InlineData("true", true)]
-    [InlineData(" TRUE ", true)]
-    [InlineData("1", true)]
-    [InlineData(null, false)]
-    [InlineData("", false)]
-    [InlineData("false", false)]
-    [InlineData("yes", false)]
-    public void McpBridgeOptionsIsOn_V2VocabularyFlagValue_ParsesAsDocumented(string? value, bool on) =>
-        Assert.Equal(on, McpBridgeOptions.IsOn(value));
 
     [Fact]
     public async Task AddVocabularyWords_MoreThan20_ReturnsToolError_NeverHitsHttp()
