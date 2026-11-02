@@ -55,7 +55,13 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         return await conn.QuerySingleOrDefaultAsync<SessionToken>(new CommandDefinition(InsertSession, new
         {
-            id = Guid.NewGuid(), userId, tokenHash, kind = Kind(kind), expiresAt, verifiedPasswordHash, tokenIssuedAt,
+            id = Guid.NewGuid(),
+            userId,
+            tokenHash,
+            kind = Kind(kind),
+            expiresAt,
+            verifiedPasswordHash,
+            tokenIssuedAt,
         }, cancellationToken: ct));
     }
 
