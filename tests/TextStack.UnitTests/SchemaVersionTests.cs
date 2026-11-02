@@ -12,6 +12,10 @@ public class SchemaVersionTests
     public void Known_EmbeddedFromDatabaseFolder_StartsWithBaseline() =>
         Assert.Equal("0000_baseline", SchemaVersion.Known[0]);
 
+    [Fact]
+    public void V2Known_EmbeddedFromTheV2Folder_IsItsOwnLedger() =>
+        Assert.Equal(["0000_baseline", "0001_sync_protocol_deltas"], SchemaVersion.V2Known.Take(2));
+
     // migrate.sh refuses other names too; this fails the build before an image is made.
     [Fact]
     public void Known_EveryName_IsFourDigitsUnderscoreSnakeCase() =>

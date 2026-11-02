@@ -653,6 +653,8 @@ jobs:
           ACCOUNT_DELETE_PERMIT_LIMIT=50
           DEVICE_CODE_PERMIT_LIMIT=50
           GUEST_DAILY_ENRICHMENT_CAP=3
+          # The V2 sync API, against the textstack_v2 the step below migrates (tests/…/V2).
+          FEATURES_V2API=true
           EOF
 
       - name: Create volume dirs for non-root containers
@@ -680,7 +682,8 @@ jobs:
       # The only place migrator-v2's compose wiring runs at all: it sits behind profile `v2` and no
       # deploy enables it (#1053), so its image tag, entrypoint path and PGDATABASE would otherwise
       # rot unwatched. `compose run` enables the service's own profile. The migrations themselves are
-      # covered by the round trip in the backend job; this is about the service definition.
+      # covered by the round trip in the backend job; this is about the service definition. It runs
+      # after the api started, on purpose: the api must not need it, and its V2 suite needs its output.
       - name: V2 migrator runs through compose
         run: |
           COMPOSE="docker compose -f docker-compose.yml -f .github/docker-compose.ci-db.yml"
@@ -716,6 +719,8 @@ jobs:
         run: dotnet test tests/TextStack.IntegrationTests --filter "FullyQualifiedName!~RateLimitEnforcement"
         env:
           API_URL: http://localhost:8080
+          # The V2 classes fail (not skip) if /me/v2 is not mapped: FEATURES_V2API is on above.
+          V2_API_TESTS: "1"
           # DB-backed tests (DeviceAuth, RefreshTokenHardening, UserBookOriginalFile, …) skip without it.
           TEST_DB_CONNECTION: "Host=localhost;Port=5432;Database=books;Username=app;Password=changeme"
 

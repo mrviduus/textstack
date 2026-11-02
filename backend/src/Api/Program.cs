@@ -45,7 +45,8 @@ builder.Services
     .AddTextStackSearchStack()
     .AddTextStackContentServices(builder.Configuration)
     .AddTextStackHostedServices()
-    .AddTextStackRateLimiting(builder.Configuration);
+    .AddTextStackRateLimiting(builder.Configuration)
+    .AddTextStackV2Api();
 
 // OAuth CIMD fetches go to URLs strangers choose — SSRF-guarded handler (ADR-017).
 builder.Services.AddHttpClient<Api.Services.ClientMetadataFetcher>(http => http.Timeout = TimeSpan.FromSeconds(5))
@@ -221,7 +222,7 @@ app.MapGet("/health", async (AppDbContext db) =>
 
 // Granular readiness probe — per-component status for ops dashboards.
 // db + storage are critical (503 on failure); ollama is soft (degraded, still 200).
-app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFactory, IConfiguration cfg, CancellationToken ct) =>
+app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFactory, IConfiguration cfg, Api.V2.V2Readiness v2, CancellationToken ct) =>
 {
     var started = DateTimeOffset.UtcNow;
     var components = new Dictionary<string, object>();
@@ -283,6 +284,11 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
             components["collation"] = new { status = "unknown", error = ex.GetType().Name };
         }
     }
+
+    // Soft, like collation, and for the reason the 2026-10-30 outage taught: a V2 database that is
+    // behind or down pauses sync (/me/v2 answers 503) and nothing else, so it never changes this
+    // probe's status code (#1053). Read from V2Readiness's cache; with the flag off, V2 is not touched.
+    components["v2"] = cfg.GetValue<bool>("Features:V2Api") ? await v2.GetAsync() : new { status = "off" };
 
     try
     {
@@ -457,6 +463,7 @@ app.MapVocabularyEndpoints();
 app.MapTtsEndpoints();
 app.MapInternalEndpoints();
 app.MapInternalSeoEndpoints();
+app.MapV2Endpoints();
 
 // CLI: import-textstack command
 if (args.Length > 0 && args[0] == "import-textstack")

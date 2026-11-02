@@ -79,12 +79,12 @@ services:
   # if it is missing, then migrates it. `docker compose run --rm migrator-v2 down <version>`
   # (make migrate-v2-down) rolls it back.
   #
-  # Behind a profile, and nothing depends on it. Nothing reads textstack_v2 yet, so a migrator that
-  # cannot reach or create it is a V2 problem, not a reason for the site to be down — and on
-  # 2026-10-30 it was exactly that: `up -d` waited for this service, it exited 1, and api and worker
-  # never started (docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md). `compose run` and
+  # Behind a profile, and nothing depends on it, ever. A migrator that cannot reach or create
+  # textstack_v2 is a V2 problem, not a reason for the site to be down — and on 2026-10-30 it was
+  # exactly that: `up -d` waited for this service, it exited 1, and api and worker never started
+  # (docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md). `compose run` and
   # `compose up migrator-v2` enable the profile themselves, so `make migrate-v2*` is unaffected.
-  # The dependency comes back, as a gate on V2 endpoints only, when V2 holds real data (#1053).
+  # The gate is the api's V2Readiness: a V2 schema that is behind answers 503 on /me/v2/* only (#1053).
   migrator-v2:
     profiles: ["v2"]
     logging: *default-logging
@@ -140,6 +140,12 @@ services:
       # promoting a parked lookup respects it takes `cap` real saves, and 50 is not testable.
       Entitlements__Tiers__Guest__DailyEnrichmentCap: ${GUEST_DAILY_ENRICHMENT_CAP:-50}
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # textstack_v2 (ADR-030), the database migrator-v2 creates. Read only by /me/v2/* and the soft
+      # `v2` component of /health/ready, never at startup, and no depends_on on migrator-v2: a V2
+      # database that is missing or behind pauses sync and nothing else (#1053).
+      ConnectionStrings__V2: "Host=db;Port=5432;Database=${V2_POSTGRES_DB:-textstack_v2};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # The V2 sync API. Off: /me/v2/* is not mapped (404) and the stack is exactly as before it.
+      Features__V2Api: ${FEATURES_V2API:-false}
       Storage__RootPath: /storage
       Jwt__SecretKey: ${JWT_SECRET}
       Jwt__Issuer: ${JWT_ISSUER}
