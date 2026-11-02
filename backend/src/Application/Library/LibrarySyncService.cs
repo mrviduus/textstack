@@ -20,7 +20,8 @@ public sealed class LibrarySyncService(ILibraryRepository library, IReadingState
     public async Task<SyncResult> ImportAsync(Guid userId, Guid bookId, ImportBookRequest r, CancellationToken ct)
     {
         var f = r.File;
-        var invalid = Title(r.Title) ?? Tags(r.Tags) ?? Required(f, "file") ?? Required(f!.Id, "file.id")
+        var invalid = Title(r.Title) ?? Tags(r.Tags) ?? Text(r.Author, "author") ?? Text(r.Language, "language")
+            ?? Text(r.Description, "description") ?? Text(r.Genre, "genre") ?? Required(f, "file") ?? Required(f!.Id, "file.id")
             ?? File("file.", f.Sha256, f.ByteSize, f.OriginalName, f.Format, f.Toc);
         if (invalid is not null) return invalid;
 
@@ -65,19 +66,19 @@ public sealed class LibrarySyncService(ILibraryRepository library, IReadingState
         metadata = null!;
         try
         {
-            static string? Text(JsonElement e, string? kept) => e.ValueKind == JsonValueKind.Undefined ? kept : e.Deserialize<string?>();
-            var title = Text(r.Title, stored.Title);
+            static string? Merged(JsonElement e, string? kept) => e.ValueKind == JsonValueKind.Undefined ? kept : e.Deserialize<string?>();
             var tags = r.Tags.ValueKind == JsonValueKind.Undefined ? stored.Tags : r.Tags.Deserialize<string[]?>() ?? [];
             int? year = r.PublishedYear.ValueKind == JsonValueKind.Undefined ? stored.PublishedYear : r.PublishedYear.Deserialize<int?>();
-            invalid = Title(title) ?? Tags(tags);
-            if (invalid is not null) return false;
-            metadata = new BookMetadata(title!, Text(r.Author, stored.Author), Text(r.Language, stored.Language),
-                Text(r.Description, stored.Description), Text(r.Genre, stored.Genre), year, tags);
-            return true;
+            metadata = new BookMetadata(Merged(r.Title, stored.Title)!, Merged(r.Author, stored.Author), Merged(r.Language, stored.Language),
+                Merged(r.Description, stored.Description), Merged(r.Genre, stored.Genre), year, tags);
+            invalid = Title(metadata.Title) ?? Tags(tags) ?? Text(metadata.Author, "author") ?? Text(metadata.Language, "language")
+                ?? Text(metadata.Description, "description") ?? Text(metadata.Genre, "genre");
+            return invalid is null;
         }
-        catch (JsonException)
+        // A wrong type, or an escaped lone surrogate a string cannot even be read from.
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
         {
-            invalid = SyncResult.Invalid("metadata", "A metadata field has the wrong type.");
+            invalid = SyncResult.Invalid("metadata", "A metadata field has the wrong type or unstorable text.");
             return false;
         }
     }

@@ -20,6 +20,35 @@ public class SyncValidationTests
     [Fact]
     public void Sha256_LowercaseHex_Passes() => Assert.Null(Sha256(Hash));
 
+    [Fact]
+    public void Sha256_TrailingNewline_IsRefused() => Assert.Equal("sha256", FieldOf(Sha256(Hash + "\n")));
+
+    // A Fact, not InlineData: xUnit carries test data as UTF-8, where a lone surrogate becomes U+FFFD.
+    [Fact]
+    public void Text_NulOrUnpairedSurrogate_IsRefused() =>
+        Assert.All(["a\u0000b", "\ud800", "x\udc00y", "\ud83d"], text => Assert.Equal("title", FieldOf(Text(text, "title"))));
+
+    [Fact]
+    public void Text_PairedSurrogates_Pass() => Assert.Null(Text("😀 fine", "title"));
+
+    [Theory]
+    [InlineData("""{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4)","quote":"\ud800"}""")]
+    [InlineData("""{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4)","quote":"a\u0000"}""")]
+    [InlineData("""{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4)","quote":"ok","x\u0000":1}""")]
+    public void Locator_NulOrLoneSurrogateAnywhere_IsRefusedNotThrown(string locator) =>
+        Assert.Equal("currentLocator", FieldOf(Locator(Json(locator), "currentLocator", LocatorUse.Position)));
+
+    [Fact]
+    public void File_TocWithANulDeepInside_IsRefused() =>
+        Assert.Equal("toc", FieldOf(File("", Hash, 10, "book.epub", "epub", Json("""[{"title":"one","children":[{"title":"t\u0000"}]}]"""))));
+
+    [Fact]
+    public void File_OriginalNameWithANul_IsRefused() =>
+        Assert.Equal("originalName", FieldOf(File("", Hash, 10, "book\u0000.epub", "epub", null)));
+
+    [Fact]
+    public void Tags_WithANul_AreRefused() => Assert.Equal("tags", FieldOf(Tags(["ok", "b\u0000d"])));
+
     [Theory]
     [InlineData(0L, "epub", "file.byteSize")]
     [InlineData(10L, "html", "file.format")]

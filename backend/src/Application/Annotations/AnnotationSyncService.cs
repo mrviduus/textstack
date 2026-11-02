@@ -21,7 +21,8 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
     {
         var invalid = Required(r.BookId, "bookId")
             ?? (string.IsNullOrWhiteSpace(r.SelectedText) ? SyncResult.Invalid("selectedText", "selectedText is required.") : null)
-            ?? (r.Color is not null && string.IsNullOrWhiteSpace(r.Color) ? SyncResult.Invalid("color", "color must not be blank.") : null)
+            ?? Text(r.SelectedText, "selectedText") ?? Text(r.NoteText, "noteText")
+            ?? (r.Color is not null && string.IsNullOrWhiteSpace(r.Color) ? SyncResult.Invalid("color", "color must not be blank.") : Text(r.Color, "color"))
             ?? (r.Locator is { } locator
                 ? Required(r.FileId, "fileId") ?? Locator(locator, "locator", LocatorUse.Annotation) : null);
         if (invalid is not null) return invalid;

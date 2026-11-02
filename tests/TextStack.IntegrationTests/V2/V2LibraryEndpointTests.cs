@@ -47,6 +47,18 @@ public class V2LibraryEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
     }
 
     [Fact]
+    public async Task Import_TitleWithANulAndBySha256WithATrailingNewline_AreInvalidPayloadNotServerErrors()
+    {
+        v2.Require();
+
+        var nul = await v2.SendAsync(v2.Alice, HttpMethod.Put, $"/me/v2/books/{Guid.NewGuid()}", new { title = "A\u0000B", file = File(Guid.NewGuid()) });
+        var newline = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"/me/v2/books/by-sha256/{NewSha256()}%0A");
+
+        Assert.Equal((HttpStatusCode.BadRequest, "title"), (nul.Status, nul.Body.GetProperty("field").GetString()));
+        Assert.Equal((HttpStatusCode.BadRequest, "invalid_payload"), (newline.Status, newline.Code));
+    }
+
+    [Fact]
     public async Task BySha256_OwnBytesAndAnotherUsers_Are200And404()
     {
         v2.Require();

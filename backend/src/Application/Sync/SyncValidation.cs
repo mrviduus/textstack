@@ -11,7 +11,8 @@ namespace Application.Sync;
 /// </summary>
 public static class SyncValidation
 {
-    private static readonly Regex Sha256Hex = new("^[0-9a-f]{64}$", RegexOptions.Compiled);
+    // \z, not $: .NET's $ also matches before a trailing newline, which the schema's CHECK then refuses.
+    private static readonly Regex Sha256Hex = new(@"^[0-9a-f]{64}\z", RegexOptions.Compiled);
 
     private const int MaxTocBytes = 256 * 1024;
     private const int MaxQuoteCodePoints = 64;
@@ -26,15 +27,59 @@ public static class SyncValidation
         Sha256(sha256, prefix + "sha256")
         ?? (byteSize > 0 ? null : SyncResult.Invalid(prefix + "byteSize", "byteSize must be positive."))
         ?? (string.IsNullOrWhiteSpace(originalName) ? SyncResult.Invalid(prefix + "originalName", "originalName is required.") : null)
+        ?? Text(originalName, prefix + "originalName")
         ?? (format is "epub" or "pdf" ? null : SyncResult.Invalid(prefix + "format", "format must be epub or pdf."))
+        ?? (toc is null ? null : Json(toc.Value, prefix + "toc"))
         ?? (toc is null || toc.Value.ValueKind == JsonValueKind.Array && Encoding.UTF8.GetByteCount(toc.Value.GetRawText()) <= MaxTocBytes
             ? null : SyncResult.Invalid(prefix + "toc", "toc must be a JSON array of at most 256 KB."));
 
     public static SyncResult? Title(string? title) =>
-        string.IsNullOrWhiteSpace(title) ? SyncResult.Invalid("title", "title is required.") : null;
+        string.IsNullOrWhiteSpace(title) ? SyncResult.Invalid("title", "title is required.") : Text(title, "title");
 
     public static SyncResult? Tags(string[]? tags) =>
-        tags is null || tags.All(t => !string.IsNullOrWhiteSpace(t)) ? null : SyncResult.Invalid("tags", "tags must be non-blank strings.");
+        tags is null || tags.All(t => !string.IsNullOrWhiteSpace(t) && IsStorable(t)) ? null : SyncResult.Invalid("tags", "tags must be non-blank strings.");
+
+    /// <summary>
+    /// Text Postgres can store: no U+0000 (22021 in a text column) and no unpaired surrogate (no UTF-8
+    /// form). Refused as the client's 400, never left to surface as a 500 that jams its outbox.
+    /// </summary>
+    public static SyncResult? Text(string? value, string field) =>
+        value is null || IsStorable(value) ? null : SyncResult.Invalid(field, $"{field} holds a NUL or an unpaired surrogate.");
+
+    /// <summary><see cref="Text"/> for every string and member name inside opaque client JSON (jsonb refuses \u0000 with 22P05).</summary>
+    public static SyncResult? Json(JsonElement value, string field) =>
+        IsStorable(value) ? null : SyncResult.Invalid(field, $"{field} holds a NUL or an unpaired surrogate.");
+
+    private static bool IsStorable(string text)
+    {
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (c == '\0') return false;
+            if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) i++;
+            else if (char.IsSurrogate(c)) return false;
+        }
+        return true;
+    }
+
+    private static bool IsStorable(JsonElement value)
+    {
+        try
+        {
+            return value.ValueKind switch
+            {
+                JsonValueKind.Object => value.EnumerateObject().All(m => IsStorable(m.Name) && IsStorable(m.Value)),
+                JsonValueKind.Array => value.EnumerateArray().All(IsStorable),
+                JsonValueKind.String => IsStorable(value.GetString()!),
+                _ => true,
+            };
+        }
+        // An escaped lone surrogate: JsonElement cannot even read it as a string.
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
 
     public static SyncResult? Fraction(decimal? value, string field) =>
         value is >= 0 and <= 1 ? null : SyncResult.Invalid(field, $"{field} must be between 0 and 1.");
@@ -51,6 +96,7 @@ public static class SyncValidation
     /// </summary>
     public static SyncResult? Locator(JsonElement locator, string field, LocatorUse use)
     {
+        if (Json(locator, field) is { } unstorable) return unstorable;
         if (locator.ValueKind != JsonValueKind.Object
             || !locator.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.Number || version.GetRawText() != "1"
             || !locator.TryGetProperty("value", out var value) || value.ValueKind == JsonValueKind.Null)
