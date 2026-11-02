@@ -10,8 +10,8 @@ namespace Application.Vocabulary;
 /// </summary>
 public interface IVocabularyFeedRepository
 {
-    /// <summary>The user's cards that are neither deleted nor retired and are due at <paramref name="now"/>, earliest first, at most <paramref name="limit"/>.</summary>
-    Task<IReadOnlyList<VocabularyWord>> ListDueAsync(Guid userId, DateTimeOffset now, int limit, CancellationToken ct);
+    /// <summary>The user's cards that are neither deleted nor retired and are due by the database clock, earliest first, at most <paramref name="limit"/>.</summary>
+    Task<IReadOnlyList<VocabularyWord>> ListDueAsync(Guid userId, int limit, CancellationToken ct);
 
     /// <summary>
     /// The user's cards changed after <c>(since, afterId)</c>, tombstones included, ordered by

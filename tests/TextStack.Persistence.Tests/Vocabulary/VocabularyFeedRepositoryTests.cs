@@ -11,7 +11,8 @@ public class VocabularyFeedRepositoryTests(V2PostgresFixture db)
     private readonly VocabularyRepository _words = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static readonly DateTimeOffset Noon = new(2026, 10, 30, 12, 0, 0, TimeSpan.Zero);
+    // ListDueAsync reads the database clock; due times are set hours away from it, so the two clocks may drift.
+    private static DateTimeOffset Now => DateTimeOffset.UtcNow;
 
     private async Task<VocabularyWord> SavedWordAsync(Guid userId, string key)
     {
@@ -43,31 +44,31 @@ public class VocabularyFeedRepositoryTests(V2PostgresFixture db)
     public async Task ListDueAsync_MixedCards_ReturnsLiveUnretiredDueCardsEarliestFirstUpToTheLimit()
     {
         var user = await db.NewReaderAsync();
-        var later = await CardDueAtAsync(user, "later", Noon.AddHours(-1));
-        var earlier = await CardDueAtAsync(user, "earlier", Noon.AddHours(-2));
-        await CardDueAtAsync(user, "future", Noon.AddHours(1));
-        var deleted = await CardDueAtAsync(user, "deleted", Noon.AddHours(-3));
+        var later = await CardDueAtAsync(user, "later", Now.AddHours(-1));
+        var earlier = await CardDueAtAsync(user, "earlier", Now.AddHours(-2));
+        await CardDueAtAsync(user, "future", Now.AddHours(1));
+        var deleted = await CardDueAtAsync(user, "deleted", Now.AddHours(-3));
         await _words.DeleteWordAsync(user, deleted.Id, Ct);
-        var retired = await CardDueAtAsync(user, "retired", Noon.AddHours(-4));
+        var retired = await CardDueAtAsync(user, "retired", Now.AddHours(-4));
         await using (var conn = await db.DataSource.OpenConnectionAsync(Ct))
             await conn.ExecuteAsync(new CommandDefinition(
                 "UPDATE vocabulary_words SET retired_at = now() WHERE id = @Id", new { retired.Id }, cancellationToken: Ct));
 
-        Assert.Equal([earlier.Id, later.Id], (await _feed.ListDueAsync(user, Noon, 10, Ct)).Select(w => w.Id));
-        Assert.Equal([earlier.Id], (await _feed.ListDueAsync(user, Noon, 1, Ct)).Select(w => w.Id));
+        Assert.Equal([earlier.Id, later.Id], (await _feed.ListDueAsync(user, 10, Ct)).Select(w => w.Id));
+        Assert.Equal([earlier.Id], (await _feed.ListDueAsync(user, 1, Ct)).Select(w => w.Id));
     }
 
     [Fact]
     public async Task ListDueAsync_CardsWithExamples_CarriesEachCardsLiveExamplesOldestFirst()
     {
         var user = await db.NewReaderAsync();
-        var first = await CardDueAtAsync(user, "first", Noon.AddHours(-2));
-        var second = await CardDueAtAsync(user, "second", Noon.AddHours(-1));
+        var first = await CardDueAtAsync(user, "first", Now.AddHours(-2));
+        var second = await CardDueAtAsync(user, "second", Now.AddHours(-1));
         var a = await AddAsync(first, "A.");
         var b = await AddAsync(first, "B.");
         var c = await AddAsync(second, "C.");
 
-        var due = await _feed.ListDueAsync(user, DateTimeOffset.UtcNow.AddDays(1), 10, Ct);
+        var due = await _feed.ListDueAsync(user, 10, Ct);
 
         Assert.Equal([[a.Id, b.Id], [c.Id]], due.Select(w => w.Examples.Select(e => e.Id).ToArray()));
     }
@@ -75,7 +76,7 @@ public class VocabularyFeedRepositoryTests(V2PostgresFixture db)
     [Fact]
     public async Task ListDueAsync_LimitOfZero_Throws()
     {
-        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _feed.ListDueAsync(Guid.NewGuid(), Noon, 0, Ct));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _feed.ListDueAsync(Guid.NewGuid(), 0, Ct));
     }
 
     [Fact]
@@ -117,7 +118,7 @@ public class VocabularyFeedRepositoryTests(V2PostgresFixture db)
         await SavedWordAsync(await db.NewReaderAsync(), "hers"); // due at creation
         var bob = await db.NewReaderAsync();
 
-        Assert.Empty(await _feed.ListDueAsync(bob, DateTimeOffset.UtcNow.AddMinutes(1), 10, Ct));
+        Assert.Empty(await _feed.ListDueAsync(bob, 10, Ct));
     }
 
     [Fact]

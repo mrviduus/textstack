@@ -535,6 +535,19 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         Assert.Equal(Noon, (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!.LastReviewedAt);
     }
 
+    [Fact]
+    public async Task RecordReviewAsync_AnswerRecordedInTheFarFuture_StoresTheServersTimeAsLastReviewedAt()
+    {
+        var card = await SavedWordAsync();
+        var future = Review(card);
+        future.ClientRecordedAt = DateTimeOffset.MaxValue.AddDays(-1);
+
+        await _repo.RecordReviewAsync(card.UserId, future, NextStage(), Ct);
+
+        var read = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
+        Assert.Equal(read.UpdatedAt, read.LastReviewedAt); // one statement, one now()
+    }
+
     // Owner decision 1: a mastered word is retired, not deleted, and other devices see it by revision.
     [Fact]
     public async Task RecordReviewAsync_ScheduleThatRetires_SetsRetiredAtAndBumpsTheRevisionOnce()

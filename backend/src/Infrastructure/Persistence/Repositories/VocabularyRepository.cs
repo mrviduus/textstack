@@ -154,7 +154,8 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
     }
 
     // The due time is the server's: its clock plus the interval (ADR-031 rule 7). An answer recorded
-    // offline and synced late does not move last_reviewed_at back.
+    // offline and synced late does not move last_reviewed_at back, and a clock ahead of the server's
+    // cannot move it past now() (a far-future one would pin it forever).
     private const string UpsertReviewAndSchedule = $"""
         WITH ins AS (
             INSERT INTO vocabulary_reviews ({ReviewColumns})
@@ -167,7 +168,7 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
                 interval_days = @IntervalDays,
                 consecutive_correct = @ConsecutiveCorrect,
                 next_review_at = now() + CAST(@IntervalDays AS double precision) * interval '1 day',
-                last_reviewed_at = GREATEST(last_reviewed_at, @ClientRecordedAt),
+                last_reviewed_at = GREATEST(last_reviewed_at, LEAST(@ClientRecordedAt, now())),
                 retired_at = CASE WHEN @Retire THEN now() ELSE retired_at END,
                 -- Of a schedule change only a retire bumps the revision (PDD S3, owner decision 1).
                 revision = revision + CASE WHEN @Retire THEN 1 ELSE 0 END,

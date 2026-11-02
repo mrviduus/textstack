@@ -12,17 +12,18 @@ namespace Infrastructure.Persistence.Repositories;
 public sealed class VocabularyFeedRepository(V2DataSource dataSource) : IVocabularyFeedRepository
 {
     // Matches the partial index ix_vocabulary_words_user_id_next_review_at (live, unretired cards by due time).
+    // now(), not the api's clock: next_review_at is stamped by the database (data-access.md rule 11).
     private const string SelectDueWords = $"""
         SELECT {WordColumns} FROM vocabulary_words
-        WHERE user_id = @userId AND deleted_at IS NULL AND retired_at IS NULL AND next_review_at <= @now
+        WHERE user_id = @userId AND deleted_at IS NULL AND retired_at IS NULL AND next_review_at <= now()
         ORDER BY next_review_at, id
         LIMIT @limit
         """;
 
-    public async Task<IReadOnlyList<VocabularyWord>> ListDueAsync(Guid userId, DateTimeOffset now, int limit, CancellationToken ct)
+    public async Task<IReadOnlyList<VocabularyWord>> ListDueAsync(Guid userId, int limit, CancellationToken ct)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
-        return await WithExamplesAsync(SelectDueWords, new { userId, now, limit }, userId, ct);
+        return await WithExamplesAsync(SelectDueWords, new { userId, limit }, userId, ct);
     }
 
     // ponytail: no (user_id, updated_at, id) index on vocabulary_words, so a page scans the user's
