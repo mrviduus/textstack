@@ -66,18 +66,21 @@ public sealed class OAuthRepository(V2DataSource dataSource) : IOAuthRepository
     // The consent page's "pending": neither decided nor past its deadline.
     private const string Pending = "id = @requestId AND denied_at IS NULL AND user_id IS NULL AND expires_at > @now";
 
+    // The approver's row FOR SHARE, as a device approval: a reset committing meanwhile refuses an
+    // access token from before it, and one that comes after expires the approved request.
     private const string ApproveRequest = $"""
         UPDATE oauth_authorization_requests SET user_id = @userId, code_hash = @codeHash, expires_at = @codeExpiresAt
         WHERE {Pending}
+          AND EXISTS (SELECT FROM users u WHERE u.id = @userId AND {UserRepository.NotResetSinceToken} FOR SHARE)
         RETURNING {RequestColumns}
         """;
 
     public async Task<OAuthAuthorization?> ApproveRequestAsync(
-        Guid requestId, Guid userId, string codeHash, DateTimeOffset codeExpiresAt, DateTimeOffset now, CancellationToken ct)
+        Guid requestId, Guid userId, string codeHash, DateTimeOffset codeExpiresAt, DateTimeOffset tokenIssuedAt, DateTimeOffset now, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         return await conn.QuerySingleOrDefaultAsync<OAuthAuthorization>(new CommandDefinition(
-            ApproveRequest, new { requestId, userId, codeHash, codeExpiresAt, now }, cancellationToken: ct));
+            ApproveRequest, new { requestId, userId, codeHash, codeExpiresAt, tokenIssuedAt, now }, cancellationToken: ct));
     }
 
     private const string DenyRequest = $"UPDATE oauth_authorization_requests SET denied_at = now() WHERE {Pending}";
@@ -127,17 +130,33 @@ public sealed class OAuthRepository(V2DataSource dataSource) : IOAuthRepository
         VALUES (@Id, @UserId, @ClientId, @ClientName, @RedirectUri, @Resource, @Scope, @AccessTokenHash, @AccessTokenExpiresAt, @RefreshTokenHash, @RefreshTokenExpiresAt, now())
         """;
 
-    public async Task ConnectAsync(Guid userId, OAuthTokenGrant grant, CancellationToken ct)
+    // The user's row FOR SHARE until the grant is stored: a reset committing meanwhile is seen, one
+    // after it revokes the grant. The approval time is not stored; the request's creation precedes it,
+    // so a consent requested before the last reset is refused (the client asks again).
+    private const string LockConsentingUser = """
+        SELECT EXISTS (
+            SELECT FROM users u JOIN oauth_authorization_requests r ON r.user_id = u.id
+            WHERE u.id = @userId AND r.id = @requestId
+              AND (u.credentials_reset_at IS NULL OR u.credentials_reset_at <= r.created_at)
+            FOR SHARE OF u)
+        """;
+
+    public async Task<bool> ConnectAsync(Guid userId, Guid requestId, OAuthTokenGrant grant, CancellationToken ct)
     {
         // The host is compared as the consent screen shows it (OAuth.DisplayHost), which SQL cannot reproduce.
         var host = OAuth.DisplayHost(grant.RedirectUri);
         await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        if (!await conn.ExecuteScalarAsync<bool>(new CommandDefinition(LockConsentingUser, new { userId, requestId }, tx, cancellationToken: ct)))
+            return false;
         var live = await conn.QueryAsync<(Guid Id, string RedirectUri)>(
-            new CommandDefinition(SelectLiveGrantsOfClient, new { userId, grant.ClientName }, cancellationToken: ct));
+            new CommandDefinition(SelectLiveGrantsOfClient, new { userId, grant.ClientName }, tx, cancellationToken: ct));
         var args = new DynamicParameters(grant);
         args.Add("UserId", userId);
         args.Add("ids", live.Where(g => OAuth.DisplayHost(g.RedirectUri) == host).Select(g => g.Id).ToArray());
-        await conn.ExecuteAsync(new CommandDefinition(ReplaceGrants, args, cancellationToken: ct));
+        await conn.ExecuteAsync(new CommandDefinition(ReplaceGrants, args, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+        return true;
     }
 
     private const string SelectByRefreshToken = $"SELECT {GrantColumns} FROM oauth_grants WHERE refresh_token_hash = @refreshTokenHash AND revoked_at IS NULL";

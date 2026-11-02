@@ -174,8 +174,9 @@ BEGIN
     END IF;
 END $$;
 
--- A session's kind and family are always known: reader and admin sessions never cross, and a
--- replayed token always finds its family.
+-- A session's kind and family are always known: reader and admin sessions never cross, and every
+-- row names its family (the sweep keeps a family's spent rows while any member lives, so a replayed
+-- token of a live family is found; that is the repository's, pinned by its tests).
 DO $$
 DECLARE bad text;
 BEGIN
@@ -184,8 +185,64 @@ BEGIN
         RAISE EXCEPTION 'ck_user_refresh_tokens_kind is not kind IN (reader, admin)';
     END IF;
 
-    SELECT string_agg(column_name, ', ') INTO bad FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'user_refresh_tokens'
-      AND column_name IN ('kind', 'family_id', 'family_started_at') AND is_nullable = 'YES';
-    IF bad IS NOT NULL THEN RAISE EXCEPTION 'nullable user_refresh_tokens columns: %', bad; END IF;
+    -- Present and NOT NULL: a missing column must fail here too.
+    SELECT string_agg(c, ', ') INTO bad FROM (VALUES ('kind'), ('family_id'), ('family_started_at')) v(c)
+    WHERE NOT EXISTS (SELECT FROM information_schema.columns
+                      WHERE table_schema = 'public' AND table_name = 'user_refresh_tokens'
+                        AND column_name = v.c AND is_nullable = 'NO');
+    IF bad IS NOT NULL THEN RAISE EXCEPTION 'user_refresh_tokens columns missing or nullable: %', bad; END IF;
+END $$;
+
+-- A reset stamps the account; credentials minted from an older access token are refused.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM information_schema.columns
+                   WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'credentials_reset_at'
+                     AND data_type = 'timestamp with time zone' AND is_nullable = 'YES') THEN
+        RAISE EXCEPTION 'users.credentials_reset_at missing or not a nullable timestamptz';
+    END IF;
+END $$;
+
+-- A replayed token's family is one indexed DELETE.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'ix_user_refresh_tokens_family_id'
+                     AND indexdef LIKE '%btree (family_id)') THEN
+        RAISE EXCEPTION 'ix_user_refresh_tokens_family_id is not (family_id)';
+    END IF;
+END $$;
+
+-- The reset-code sweep walks expires_at.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'ix_password_reset_tokens_expires_at'
+                     AND indexdef LIKE '%btree (expires_at)') THEN
+        RAISE EXCEPTION 'ix_password_reset_tokens_expires_at is not (expires_at)';
+    END IF;
+END $$;
+
+-- The grant sweep's OR needs an index on each arm.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'ix_oauth_grants_refresh_token_expires_at'
+                     AND indexdef LIKE '%btree (refresh_token_expires_at)') THEN
+        RAISE EXCEPTION 'ix_oauth_grants_refresh_token_expires_at is not (refresh_token_expires_at)';
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'ix_oauth_grants_revoked_at'
+                     AND indexdef LIKE '%btree (revoked_at) WHERE (revoked_at IS NOT NULL)') THEN
+        RAISE EXCEPTION 'ix_oauth_grants_revoked_at is not (revoked_at) over revoked grants';
+    END IF;
+END $$;
+
+-- One chapter's checkpoints, in page order.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'ix_discussion_checkpoints_user_id_book_id_chapter_key'
+                     AND indexdef LIKE '%btree (user_id, book_id, chapter_key, created_at, id)') THEN
+        RAISE EXCEPTION 'ix_discussion_checkpoints_user_id_book_id_chapter_key is not (user_id, book_id, chapter_key, created_at, id)';
+    END IF;
 END $$;

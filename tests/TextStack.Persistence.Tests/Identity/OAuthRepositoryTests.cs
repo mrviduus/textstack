@@ -21,7 +21,7 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
     {
         var user = await db.NewReaderAsync();
         var grant = NewGrant();
-        await _repo.ConnectAsync(user, grant, Ct);
+        await _repo.ConnectAsync(user, await db.ApprovedOAuthRequestAsync(user), grant, Ct);
         return (user, grant);
     }
 
@@ -45,7 +45,7 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
         var request = await CreatedRequestAsync();
         var code = NewHash();
 
-        var approved = (await _repo.ApproveRequestAsync(request.Id, user, code, DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, Ct))!;
+        var approved = (await _repo.ApproveRequestAsync(request.Id, user, code, DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Ct))!;
 
         Assert.Equal((user, code), (approved.UserId!.Value, approved.CodeHash));
         Assert.Equal(request.Id, (await _repo.GetRequestByCodeAsync(code, Ct))?.Id);
@@ -56,9 +56,9 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
     {
         var (alice, bob) = (await db.NewReaderAsync(), await db.NewReaderAsync());
         var request = await CreatedRequestAsync();
-        await _repo.ApproveRequestAsync(request.Id, alice, NewHash(), DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, Ct);
+        await _repo.ApproveRequestAsync(request.Id, alice, NewHash(), DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Ct);
 
-        Assert.Null(await _repo.ApproveRequestAsync(request.Id, bob, NewHash(), DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, Ct));
+        Assert.Null(await _repo.ApproveRequestAsync(request.Id, bob, NewHash(), DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Ct));
         Assert.Equal(alice, (await _repo.GetRequestAsync(request.Id, Ct))!.UserId);
     }
 
@@ -68,7 +68,7 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
         var request = await CreatedRequestAsync();
         await _repo.DenyRequestAsync(request.Id, DateTimeOffset.UtcNow, Ct);
 
-        Assert.Null(await _repo.ApproveRequestAsync(request.Id, await db.NewReaderAsync(), NewHash(), DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, Ct));
+        Assert.Null(await _repo.ApproveRequestAsync(request.Id, await db.NewReaderAsync(), NewHash(), DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Ct));
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
     {
         var request = await CreatedRequestAsync();
 
-        Assert.Null(await _repo.ApproveRequestAsync(request.Id, await db.NewReaderAsync(), NewHash(), DateTimeOffset.UtcNow.AddHours(2), DateTimeOffset.UtcNow.AddHours(1), Ct));
+        Assert.Null(await _repo.ApproveRequestAsync(request.Id, await db.NewReaderAsync(), NewHash(), DateTimeOffset.UtcNow.AddHours(2), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1), Ct));
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
     public async Task DenyRequestAsync_Approved_ReturnsFalseAndKeepsTheApproval()
     {
         var request = await CreatedRequestAsync();
-        await _repo.ApproveRequestAsync(request.Id, await db.NewReaderAsync(), NewHash(), DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, Ct);
+        await _repo.ApproveRequestAsync(request.Id, await db.NewReaderAsync(), NewHash(), DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Ct);
 
         Assert.False(await _repo.DenyRequestAsync(request.Id, DateTimeOffset.UtcNow, Ct));
         Assert.Null((await _repo.GetRequestAsync(request.Id, Ct))!.DeniedAt);
@@ -112,7 +112,7 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
     public async Task BurnCodeAsync_SecondRedemption_ReturnsFalse()
     {
         var request = await CreatedRequestAsync();
-        await _repo.ApproveRequestAsync(request.Id, await db.NewReaderAsync(), NewHash(), DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, Ct);
+        await _repo.ApproveRequestAsync(request.Id, await db.NewReaderAsync(), NewHash(), DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Ct);
 
         Assert.True(await _repo.BurnCodeAsync(request.Id, Ct));
 
@@ -142,7 +142,7 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
     {
         var (user, first) = await ConnectedAsync();
 
-        await _repo.ConnectAsync(user, NewGrant(), Ct);
+        await _repo.ConnectAsync(user, await db.ApprovedOAuthRequestAsync(user), NewGrant(), Ct);
 
         Assert.DoesNotContain(first.Id, (await _repo.ListLiveAsync(user, DateTimeOffset.UtcNow, Ct)).Select(g => g.Id));
         Assert.Single(await _repo.ListLiveAsync(user, DateTimeOffset.UtcNow, Ct));
@@ -153,7 +153,7 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
     {
         var (user, _) = await ConnectedAsync();
 
-        await _repo.ConnectAsync(user, NewGrant("http://localhost:33418/callback"), Ct);
+        await _repo.ConnectAsync(user, await db.ApprovedOAuthRequestAsync(user), NewGrant("http://localhost:33418/callback"), Ct);
 
         Assert.Equal(2, (await _repo.ListLiveAsync(user, DateTimeOffset.UtcNow, Ct)).Count);
     }
@@ -163,7 +163,8 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
     {
         var (bob, bobs) = await ConnectedAsync();
 
-        await _repo.ConnectAsync(await db.NewReaderAsync(), NewGrant(), Ct);
+        var alice = await db.NewReaderAsync();
+        await _repo.ConnectAsync(alice, await db.ApprovedOAuthRequestAsync(alice), NewGrant(), Ct);
 
         Assert.Equal(bobs.Id, Assert.Single(await _repo.ListLiveAsync(bob, DateTimeOffset.UtcNow, Ct)).Id);
     }
@@ -303,7 +304,7 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
         await _repo.RevokeAsync(user, revoked.Id, Ct);
         var expiring = NewGrant("http://localhost:1/cb");
         expiring.RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(1);
-        await _repo.ConnectAsync(user, expiring, Ct);
+        await _repo.ConnectAsync(user, await db.ApprovedOAuthRequestAsync(user), expiring, Ct);
 
         Assert.Empty(await _repo.ListLiveAsync(user, DateTimeOffset.UtcNow.AddDays(2), Ct));
     }
@@ -352,7 +353,7 @@ public class OAuthRepositoryTests(V2PostgresFixture db)
         await using (var conn = await db.DataSource.OpenConnectionAsync(Ct))
             await conn.ExecuteAsync(new CommandDefinition(
                 "UPDATE oauth_grants SET revoked_at = '2004-01-01Z' WHERE id = @Id", dead, cancellationToken: Ct));
-        await _repo.ConnectAsync(user, NewGrant("http://localhost:2/cb"), Ct);
+        await _repo.ConnectAsync(user, await db.ApprovedOAuthRequestAsync(user), NewGrant("http://localhost:2/cb"), Ct);
 
         Assert.Equal(1, await _repo.DeleteDeadGrantsAsync(new DateTimeOffset(2004, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct));
 

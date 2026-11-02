@@ -15,7 +15,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// that only reference the user (FK checks: <c>KEY SHARE</c>) are not held up.</item>
 /// <item>A sign-in starts a family (<c>family_id</c> = its first session's id, <c>family_started_at</c>);
 /// a rotation copies both, so the absolute lifetime reads the row itself, the family revoke reads the
-/// live successor, and the sweep may delete spent sessions at any cutoff.</item>
+/// successor, and the sweep deletes a family only once none of it lives, at any cutoff.</item>
 /// </list>
 /// </summary>
 public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTokenRepository
@@ -86,9 +86,8 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         """;
 
     // A rotated-away token presented again: the whole family of its successor, unless that successor
-    // is younger than the grace (two tabs refreshing at once). Read from the successor, not the
-    // replayed row: the sweep may have deleted the spent row, never a live successor. created_at is
-    // stamped by now(), so the grace is on the same clock.
+    // is younger than the grace (two tabs refreshing at once). The sweep keeps a live family's spent
+    // rows, so the successor is there. created_at is stamped by now(), so the grace is on the same clock.
     private const string RevokeFamily = """
         DELETE FROM user_refresh_tokens
         WHERE family_id = (
@@ -171,6 +170,9 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
             DELETE FROM user_refresh_tokens WHERE user_id IN (SELECT user_id FROM spent)),
         expired_logins AS (
             UPDATE device_authorizations SET status = 'expired' WHERE user_id IN (SELECT user_id FROM spent) AND status = 'approved'),
+        expired_consents AS (
+            UPDATE oauth_authorization_requests SET expires_at = now()
+            WHERE user_id IN (SELECT user_id FROM spent) AND consumed_at IS NULL AND expires_at > now()),
         revoked_keys AS (
             UPDATE mcp_access_keys SET revoked_at = now() WHERE user_id IN (SELECT user_id FROM spent) AND revoked_at IS NULL),
         revoked_grants AS (
@@ -190,7 +192,12 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         return reset;
     }
 
-    private const string DeleteExpiredSessions = "DELETE FROM user_refresh_tokens WHERE expires_at < @expiredBefore";
+    // A spent row lives as long as its family: a replay of any token of a live family finds it.
+    private const string DeleteExpiredSessions = """
+        DELETE FROM user_refresh_tokens t
+        WHERE t.expires_at < @expiredBefore
+          AND NOT EXISTS (SELECT FROM user_refresh_tokens l WHERE l.family_id = t.family_id AND l.expires_at >= @expiredBefore)
+        """;
 
     public async Task<int> DeleteExpiredSessionsAsync(DateTimeOffset expiredBefore, CancellationToken ct)
     {

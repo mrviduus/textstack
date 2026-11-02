@@ -167,8 +167,8 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         var oauth = new OAuthRepository(DataSource);
         var request = NewOAuthRequest();
         await oauth.CreateRequestAsync(request, Ct);
-        await oauth.ApproveRequestAsync(request.Id, userId, NewHash(), now.AddMinutes(5), now, Ct);
-        await oauth.ConnectAsync(userId, NewGrant(), Ct);
+        await oauth.ApproveRequestAsync(request.Id, userId, NewHash(), now.AddMinutes(5), DateTimeOffset.UtcNow, now, Ct);
+        await oauth.ConnectAsync(userId, request.Id, NewGrant(), Ct);
         var devices = new DeviceLoginRepository(DataSource);
         var login = NewDeviceLogin();
         await devices.CreateAsync(login, Ct);
@@ -185,6 +185,16 @@ public sealed class V2PostgresFixture : IAsyncLifetime
             VALUES (gen_random_uuid(), @userId, @bookId, @fileId, 'succeeded', 1, now());
             """, new { userId, bookId = book.Id, fileId = file.Id }, cancellationToken: Ct));
         return (book, share);
+    }
+
+    /// <summary>An OAuth request the user approved just now (what a grant is connected for); its id.</summary>
+    public async Task<Guid> ApprovedOAuthRequestAsync(Guid userId)
+    {
+        var oauth = new OAuthRepository(DataSource);
+        var request = NewOAuthRequest();
+        await oauth.CreateRequestAsync(request, Ct);
+        await oauth.ApproveRequestAsync(request.Id, userId, NewHash(), DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Ct);
+        return request.Id;
     }
 
     /// <summary>The user's rows in <paramref name="table"/> (a constant, never input), only those of <paramref name="bookId"/> when given.</summary>

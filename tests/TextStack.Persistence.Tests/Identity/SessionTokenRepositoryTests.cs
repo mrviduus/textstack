@@ -12,8 +12,10 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
 
     private static DateTimeOffset NextWeek => DateTimeOffset.UtcNow.AddDays(7);
 
+    // A second back by default: the spent row's expires_at is this clock, IsLiveAsync compares it with
+    // the database's now(), and the two may differ by a few milliseconds.
     private Task<SessionRefresh> RefreshAsync(string old, string next, SessionKind kind = SessionKind.Reader, DateTimeOffset? now = null) =>
-        _repo.RefreshAsync(old, next, kind, _ => NextWeek, now ?? DateTimeOffset.UtcNow, Ct);
+        _repo.RefreshAsync(old, next, kind, _ => NextWeek, now ?? DateTimeOffset.UtcNow.AddSeconds(-1), Ct);
 
     /// <summary>Moves every session of the user <paramref name="interval"/> (SQL, a constant) into the past: past the reuse grace.</summary>
     private Task AgeAsync(Guid user, string interval) =>
@@ -220,23 +222,6 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task RefreshAsync_ReplayedAfterTheSweepDeletedIt_ReusedAndTheFamilyDies()
-    {
-        // #1107: the sweep may delete the spent row at any cutoff; the live successor still names the family.
-        var user = await db.NewReaderAsync();
-        var (first, second) = (NewHash(), NewHash());
-        await _repo.IssueAsync(user, first, NextWeek, null, null, SessionKind.Reader, Ct);
-        var rotatedAt = DateTimeOffset.UtcNow;
-        await RefreshAsync(first, second, now: rotatedAt);
-        await _repo.DeleteExpiredSessionsAsync(rotatedAt.AddSeconds(1), Ct);
-        await AgeAsync(user, "1 minute");
-
-        Assert.Equal(SessionRefreshOutcome.Reused, (await RefreshAsync(first, NewHash())).Outcome);
-
-        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
-    }
-
-    [Fact]
     public async Task RefreshAsync_AdminTokenReplayedAsAReader_InvalidAndItsFamilyLives()
     {
         var admin = await db.NewReaderAsync();
@@ -295,18 +280,34 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task DeleteExpiredSessionsAsync_RotatedAwayRow_RemovedOnceItsCutoffPasses()
+    public async Task DeleteExpiredSessionsAsync_RotatedAwayRowOfALiveFamily_KeptForReuseDetection()
     {
         var user = await db.NewReaderAsync();
         var (old, next) = (NewHash(), NewHash());
         await _repo.IssueAsync(user, old, NextWeek, null, null, SessionKind.Reader, Ct);
-        var rotatedAt = DateTimeOffset.UtcNow;
-        await RefreshAsync(old, next, now: rotatedAt);
+        await RefreshAsync(old, next);
+        // The spent row, into a past no other test uses: the sweep is cross-user.
+        await db.ExecAsync("UPDATE user_refresh_tokens SET expires_at = '1997-01-01Z' WHERE token_hash = @old", new { old });
 
-        await _repo.DeleteExpiredSessionsAsync(rotatedAt.AddSeconds(1), Ct);
+        Assert.Equal(0, await _repo.DeleteExpiredSessionsAsync(new DateTimeOffset(1997, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct));
 
         Assert.True(await IsLiveAsync(next));
-        Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user));
+        Assert.Equal(2L, await db.CountAsync("user_refresh_tokens", user));
+    }
+
+    [Fact]
+    public async Task DeleteExpiredSessionsAsync_FamilyWithNoLiveSession_SweptWhole()
+    {
+        var user = await db.NewReaderAsync();
+        var (first, second, third) = (NewHash(), NewHash(), NewHash());
+        await _repo.IssueAsync(user, first, NextWeek, null, null, SessionKind.Reader, Ct);
+        await RefreshAsync(first, second);
+        await RefreshAsync(second, third);
+        await db.ExecAsync("UPDATE user_refresh_tokens SET expires_at = '1996-01-01Z' WHERE user_id = @user", new { user });
+
+        Assert.Equal(3, await _repo.DeleteExpiredSessionsAsync(new DateTimeOffset(1996, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct));
+
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
     }
 
     [Fact]
@@ -354,7 +355,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         var keys = new McpKeyRepository(db.DataSource);
         await keys.CreateAsync(user, "laptop", NewHash(), "tsk_ab", DateTimeOffset.UtcNow, Ct);
         var oauth = new OAuthRepository(db.DataSource);
-        await oauth.ConnectAsync(user, NewGrant(), Ct);
+        await oauth.ConnectAsync(user, await db.ApprovedOAuthRequestAsync(user), NewGrant(), Ct);
 
         Assert.Equal(user, await _repo.ResetPasswordAsync(code, "new-hash", DateTimeOffset.UtcNow, Ct));
 
@@ -485,7 +486,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         var keys = new McpKeyRepository(db.DataSource);
         await keys.CreateAsync(bob, "laptop", NewHash(), "tsk_ab", DateTimeOffset.UtcNow, Ct);
         var oauth = new OAuthRepository(db.DataSource);
-        await oauth.ConnectAsync(bob, NewGrant(), Ct);
+        await oauth.ConnectAsync(bob, await db.ApprovedOAuthRequestAsync(bob), NewGrant(), Ct);
         var devices = new DeviceLoginRepository(db.DataSource);
         var bobsLogin = NewDeviceLogin();
         await devices.CreateAsync(bobsLogin, Ct);

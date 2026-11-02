@@ -15,11 +15,15 @@
 -- Compatibility: textstack_v2 holds no real data and nothing deployed resolves a V2 repository
 --                (M5.1 does). The three NOT NULL session columns are backfilled from what the rows
 --                already say (the prefix; family = the row itself, started at its created_at — a
---                rotated session's family is not reconstructed, there is none to keep). The unique
---                device index refuses two pending logins showing one code, which the code already
---                refused. Every other change is a nullable column or an index.
+--                rotated session's family is not reconstructed, there is none to keep). 0001's code
+--                refused a code shown by a *live* pending login only, so a pending login past its
+--                deadline may share its code with a newer one: before the unique device index is
+--                built, every pending login but the last to expire of each code is marked expired
+--                (none can be approved any more: its deadline passed). Every other change is a
+--                nullable column or an index.
 -- Down:  0002_identity_and_indexes.down.sql puts every index back as 0001 left it, re-prefixes admin
---        sessions and drops the four columns — with whatever they hold.
+--        sessions and drops the four columns — with whatever they hold. Device logins expired by the
+--        dedupe stay expired.
 
 -- ===== Identity: a password reset stamps the account =====
 
@@ -47,7 +51,8 @@ ALTER TABLE public.user_refresh_tokens
 
 -- A sign-in's first session starts a family (family_id = its id, family_started_at = now()); a
 -- rotation copies both. A replayed token revokes its family in one DELETE, the absolute lifetime
--- reads one column, and the sweep may delete spent rows: nothing walks previous_token_hash back.
+-- reads one column, and the sweep deletes a family whole once none of it lives: nothing walks
+-- previous_token_hash back.
 ALTER TABLE public.user_refresh_tokens
     ADD COLUMN family_id uuid,
     ADD COLUMN family_started_at timestamptz;
@@ -85,6 +90,12 @@ CREATE INDEX ix_oauth_grants_refresh_token_expires_at ON public.oauth_grants (re
 CREATE INDEX ix_oauth_grants_revoked_at ON public.oauth_grants (revoked_at) WHERE revoked_at IS NOT NULL;
 
 -- ===== Identity: a user code shows one pending login =====
+
+-- Of the pending logins showing one code, only the last to expire can still be live.
+UPDATE public.device_authorizations d SET status = 'expired'
+WHERE d.status = 'pending'
+  AND EXISTS (SELECT FROM public.device_authorizations n
+              WHERE n.user_code = d.user_code AND n.status = 'pending' AND (n.expires_at, n.id) > (d.expires_at, d.id));
 
 -- Two device logins created at once with one random code both landed under the insert's NOT
 -- EXISTS; unique, the second insert fails (23505) and the caller mints another code. A pending

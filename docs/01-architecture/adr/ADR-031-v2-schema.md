@@ -339,8 +339,10 @@ is never edited (ADR-026); the rows and rules above read with these deltas:
   that spends its code, with `clock_timestamp()` once the user row is locked (a rotation the reset
   waited for mints its token after the reset's transaction began). A credential minted from an access
   token issued before it (`iat < credentials_reset_at`) is refused — a session re-issue, a device
-  approval (`DeviceApprovalResult.Unauthorized`, the login stays pending), an MCP key — under the user
-  row's `FOR SHARE`, so a reset committing meanwhile is seen. Every sign-in takes that lock, so none
+  approval (`DeviceApprovalResult.Unauthorized`, the login stays pending), an MCP key, an OAuth consent —
+  under the user row's `FOR SHARE`, so a reset committing meanwhile is seen. A grant is connected only
+  for a consent requested after the stamp, and the reset expires approved, unexchanged OAuth requests
+  as it expires approved device logins. Every sign-in takes that lock, so none
   commits beside a reset unseen. `iat` has whole seconds: a token minted in the reset's own second is
   refused too. The stamp is the database's clock and `iat` the api's: one host (compose) keeps them one
   clock; split across hosts, their skew is a window in which a pre-reset token passes.
@@ -348,9 +350,11 @@ is never edited (ADR-026); the rows and rules above read with these deltas:
   replaces the `adm.` hash prefix; `token_hash` stays unique across kinds.
 - **`user_refresh_tokens`:** `family_id uuid NOT NULL` (the sign-in's first session) and
   `family_started_at timestamptz NOT NULL`, copied by every rotation; `ix_user_refresh_tokens_family_id`.
-  The family revoke is one `DELETE`, the 90-day absolute lifetime reads the row, and the sweep may
-  delete spent sessions at any cutoff: a replay finds its family through the live successor
-  (`previous_token_hash`), which a sweep keeps.
+  The family revoke is one `DELETE`, the 90-day absolute lifetime reads the row, and the sweep
+  deletes a family whole once none of it lives (any cutoff): a replayed token of a live family always
+  finds its successor (`previous_token_hash`) and its family. The backfill gives every existing row a
+  family of its own, so before M5 serves V2 sessions its session port must rebuild families from
+  `previous_token_hash` or force a re-login.
 - **Change feeds:** `(user_id, updated_at, id)` on `books`, `annotations`, `vocabulary_words`;
   `(user_id, updated_at, book_id)` on `reading_state` (its key).
 - **`vocabulary_words`:** the due index is `(user_id, next_review_at, id)`, `0001`'s predicate kept.

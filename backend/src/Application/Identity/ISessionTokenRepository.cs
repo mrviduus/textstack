@@ -56,15 +56,18 @@ public interface ISessionTokenRepository
     /// Spends a reset code unused and unexpired at <paramref name="now"/> and, atomically, sets the
     /// user's password and signs every credential out: every session (one a sign-in, a rotation or a
     /// device redemption commits meanwhile too), MCP keys and OAuth grants revoked (an earlier
-    /// revocation keeps its time), device logins approved and not yet redeemed expired. Stamps
+    /// revocation keeps its time), device logins approved and not yet redeemed
+    /// and OAuth consents approved and not yet exchanged expired. Stamps
     /// <see cref="UserAccount.CredentialsResetAt"/>, so access tokens issued before it mint nothing
     /// more. Returns the user; null when the code is unknown, used or expired (nothing changed).
     /// </summary>
     Task<Guid?> ResetPasswordAsync(string tokenHash, string passwordHash, DateTimeOffset now, CancellationToken ct);
 
     /// <summary>
-    /// Deletes sessions that expired before <paramref name="expiredBefore"/>, rotated-away ones included
-    /// (a replay is still caught while its live successor is kept); returns how many.
+    /// Deletes sessions that expired before <paramref name="expiredBefore"/>, rotated-away ones
+    /// included, of families none of whose sessions is live at it: a family lives or goes whole, so a
+    /// replayed token of a live family is always recognised and the cutoff does not bound reuse
+    /// detection. Returns how many.
     /// </summary>
     Task<int> DeleteExpiredSessionsAsync(DateTimeOffset expiredBefore, CancellationToken ct);
 
