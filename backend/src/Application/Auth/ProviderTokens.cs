@@ -40,7 +40,7 @@ public class ProviderTokens(GoogleSettings? google = null, AppleSettings? apple 
 
     /// <summary>
     /// The Apple account an identity token names; null when its audience, issuer or expiry is wrong.
-    /// ponytail: signature not validated — legacy behaviour, owner-deferred 2026-11-02.
+    /// ponytail: verification kept exactly as legacy does it; a review is owner-deferred (2026-11-02).
     /// </summary>
     public virtual ProviderIdentity? VerifyApple(string identityToken)
     {

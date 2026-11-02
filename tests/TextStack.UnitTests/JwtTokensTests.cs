@@ -121,7 +121,7 @@ public class JwtTokensTests
         var apple = new ProviderTokens(apple: new AppleSettings { BundleId = "app.textstack" })
             .VerifyApple(AppleToken(issuer, audience, expiresInMinutes));
 
-        // The signature is not checked (owner-deferred), so the email proves nothing: nothing links by it.
+        // The token email proves nothing on its own (verification as legacy; review owner-deferred): nothing links by it.
         Assert.Equal(accepted ? ("apple-subject", "reader@privaterelay.appleid.com") : default, (apple?.Subject, apple?.Email));
     }
 

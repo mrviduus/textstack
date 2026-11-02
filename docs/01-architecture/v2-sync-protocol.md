@@ -664,7 +664,7 @@ once. Nothing local is lost.
   - A refresh token presented again after it was rotated (past a 30 s grace) revokes every session
     rotated from it; a sign-in older than 90 days must sign in again.
   - Google and Apple never sign in to another account by its email: a taken email is `EmailTaken`.
-    Apple's token signature is not checked yet (owner-deferred 2026-11-02).
+    Apple sign-in is verified as legacy verifies it (a review is owner-deferred, 2026-11-02).
   - Admin and reader refresh tokens are not interchangeable.
 
 ## What old clients see
