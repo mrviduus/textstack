@@ -38,7 +38,8 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     private readonly UserRepository _users = new(db.DataSource);
     private readonly SessionTokenRepository _sessions = new(db.DataSource);
     private readonly DeviceLoginRepository _devices = new(db.DataSource);
-    private readonly LibraryFileStore _files = new(Path.Combine(Path.GetTempPath(), "textstack-v2-auth-" + Guid.NewGuid()));
+    private static readonly string FilesRoot = Path.Combine(Path.GetTempPath(), "textstack-v2-auth-" + Guid.NewGuid());
+    private readonly LibraryFileStore _files = new(FilesRoot);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -322,7 +323,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         // #1092: the reset cannot reach a JWT already handed out; it refuses what that JWT would mint.
         var account = await NewAccountAsync(UserAccount.ReaderRole);
         var signedIn = await Auth.LoginWithEmailAsync(account.Email, Password, Ct);
-        var issuedAt = Auth.ValidateAccessTokenIdentity(signedIn.AccessToken)!.IssuedAt;
+        var issuedAt = Auth.ValidateAccessTokenIdentity(signedIn.AccessToken!)!.IssuedAt;
         var device = await Auth.CreateDeviceAuthorizationAsync(Ct);
         Assert.True(await Auth.ResetPasswordAsync((await Auth.RequestPasswordResetAsync(account.Email, Ct))!, NewPassword, Ct));
 
@@ -470,6 +471,47 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     }
 
     // Admins.
+
+    [Fact]
+    public async Task DeleteAccountAsync_SignedInAccount_DeletesItWithItsRowsAndDirectory()
+    {
+        var (account, _, _) = await SignedInAsync();
+        var cover = _files.CoverKey(account.Id, Guid.NewGuid(), "png");
+        _files.Place(await _files.StageAsync(cover, new byte[] { 1 }, Ct));
+        Assert.True(File.Exists(Path.Combine(FilesRoot, cover)));
+
+        Assert.True(await Auth.DeleteAccountAsync(account.Id, Ct));
+
+        Assert.Null(await _users.GetAsync(account.Id, Ct));
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", account.Id));
+        Assert.False(File.Exists(Path.Combine(FilesRoot, cover)));
+    }
+
+    [Fact]
+    public async Task DeleteAccountAsync_NoSuchAccount_False()
+    {
+        Assert.False(await Auth.DeleteAccountAsync(Guid.NewGuid(), Ct));
+    }
+
+    [Fact]
+    public async Task CreateAdminAsync_NewEmail_AnAdminThatSignsIn()
+    {
+        var email = NewEmail();
+
+        var admin = await Admin.CreateAdminAsync(email, Password, Ct);
+
+        Assert.Equal((AdminRole.Admin, email), (admin!.Role, admin.Email));
+        Assert.NotNull(await Admin.LoginAsync(email, Password, Ct));
+    }
+
+    [Fact]
+    public async Task CreateAdminAsync_TakenEmail_Null()
+    {
+        var reader = await NewAccountAsync(UserAccount.ReaderRole);
+
+        Assert.Null(await Admin.CreateAdminAsync(reader.Email, Password, Ct));
+        Assert.Equal(UserAccount.ReaderRole, (await _users.GetAsync(reader.Id, Ct))!.Role);
+    }
 
     [Fact]
     public async Task AdminLoginAsync_AdminRole_AdminTokenThatIsNoReadersToken()

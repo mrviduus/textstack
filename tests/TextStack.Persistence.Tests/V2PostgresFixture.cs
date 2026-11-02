@@ -24,7 +24,7 @@ namespace TextStack.Persistence.Tests;
 /// maintenance database, then migrates it (ADR-030). Same image as <see cref="PostgresFixture"/>; its
 /// own container, so the V2 schema never meets the legacy one. Needs Docker.
 /// </summary>
-public sealed class V2PostgresFixture : IAsyncLifetime
+public sealed class V2PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
 {
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder()
         .WithImage("pgvector/pgvector:pg16")

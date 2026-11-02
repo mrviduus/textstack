@@ -7,10 +7,10 @@ using static TextStack.Persistence.Tests.V2PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Identity;
 
-public class UserRepositoryTests(V2PostgresFixture db)
+/// <summary>The legacy-shared contract on V2, and the rest of the port, which only V2 implements.</summary>
+public class UserRepositoryTests(V2PostgresFixture db) : UserRepositoryContract(db, new UserRepository(db.DataSource))
 {
     private readonly UserRepository _repo = new(db.DataSource);
-    private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     /// <summary>Every V2 table that can carry a user, books' and identity's alike: the DoD's list.</summary>
     private static readonly string[] UserTables =

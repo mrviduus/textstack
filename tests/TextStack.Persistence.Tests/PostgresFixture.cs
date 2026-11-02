@@ -1,7 +1,9 @@
+using Dapper;
 using Domain;
 using Infrastructure.Persistence;
 using Npgsql;
 using Testcontainers.PostgreSql;
+using TextStack.Persistence.Tests.Identity;
 
 [assembly: AssemblyFixture(typeof(TextStack.Persistence.Tests.PostgresFixture))]
 
@@ -13,7 +15,7 @@ namespace TextStack.Persistence.Tests;
 /// <c>database/migrate.sh up</c> (ADR-026), run inside the container — the image ships psql.
 /// Same image as production and CI (pgvector on pg16). Needs Docker.
 /// </summary>
-public sealed class PostgresFixture : IAsyncLifetime
+public sealed class PostgresFixture : IAsyncLifetime, IIdentityFixture
 {
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder()
         .WithImage("pgvector/pgvector:pg16")
@@ -59,6 +61,36 @@ public sealed class PostgresFixture : IAsyncLifetime
             """) { Parameters = { new() { Value = bookId }, new() { Value = userId } } });
         await batch.ExecuteNonQueryAsync();
         return (userId, bookId);
+    }
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    // No Google subject: the legacy column defaults to '' under a unique index.
+    public async Task<Guid> NewReaderAsync(bool isGuest = false)
+    {
+        var userId = Guid.NewGuid();
+        await ExecAsync("INSERT INTO users (id, email, google_subject, is_guest, created_at) VALUES (@userId, @email, NULL, @isGuest, now())",
+            new { userId, email = $"{userId}@test", isGuest });
+        return userId;
+    }
+
+    public async Task ExecAsync(string sql, object args)
+    {
+        await using var conn = await DataSource.OpenConnectionAsync(Ct);
+        await conn.ExecuteAsync(new CommandDefinition(sql, args, cancellationToken: Ct));
+    }
+
+    public async Task<T> ScalarAsync<T>(string sql, object args)
+    {
+        await using var conn = await DataSource.OpenConnectionAsync(Ct);
+        return (await conn.ExecuteScalarAsync<T>(new CommandDefinition(sql, args, cancellationToken: Ct)))!;
+    }
+
+    public async Task<long> CountAsync(string table, Guid userId, Guid? bookId = null)
+    {
+        await using var conn = await DataSource.OpenConnectionAsync(Ct);
+        var sql = $"SELECT count(*) FROM {table} WHERE user_id = @userId" + (bookId is null ? "" : " AND book_id = @bookId");
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(sql, new { userId, bookId }, cancellationToken: Ct));
     }
 
     /// <summary>A catalog edition the baseline seeds.</summary>
