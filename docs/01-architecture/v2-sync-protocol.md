@@ -628,23 +628,18 @@ queued edits come back `stale_revision` and follow [Conflict codes](#conflict-co
 through ADR-019 (never yank a reader who moved), annotations and words by re-applying the local change
 once. Nothing local is lost.
 
-**As built (M2.5a).** `merge` is on `AuthResponse` / `MobileAuthResponse` of `/auth/login`, `/auth/google`
-and `/auth/apple`, present only when legacy merged the guest, `Features:V2Api` is on, the V2 merge
-committed, and at least one id changed; a file of a matched book that is not its current file keeps its
-id and is not in the map. An insight clash keeps the loser in full as a checkpoint: conclusions = its
-text, reader thoughts = its question, open questions = each review question's prompt with its answer,
-assistant suggestions = its `review_json` as canonical JSON; only the questions' review schedule is not
-carried (the merge counts them). A reading state counts only on its book's current file: a guest state
-on an old version is dropped, an account state on an old version is overwritten by the guest's (revision
-past both); `completedAt` is the winner's as it is. A guest checkpoint whose share was a dropped copy is
-relinked to the account's share of the same `operationId` when that share is on the same book, chapter
-and file version, else unlinked; either way rehashed. Credentials die with the guest (refresh and reset
-tokens, device logins, OAuth requests, **OAuth grants and MCP keys**: one minted under a guest session on
-a shared device must not become the account's); agent runs move. The merge locks both users, every guest
-book and the matched account books first, so a write in flight lands before it or is refused after it
-(401 under `/me/v2`). The mirror runs on its own 10 s budget, not the request's: **V1 sign-in, register
-and account delete wait at most 10 s on V2**; a unique-key, deadlock or serialization failure is retried
-once with a fresh snapshot. An in-place promotion (`/auth/register` with a guest session) is mirrored too.
+**As built (M2.5a).**
+- `merge` is on the `/auth/login`, `/auth/google` and `/auth/apple` response only when legacy merged the
+  guest, `Features:V2Api` is on, the V2 merge committed and some id changed; otherwise the field is absent.
+  A non-current file of a matched book keeps its id and is not in the map.
+- The losing insight of a clash becomes a checkpoint: conclusions = its text, reader thoughts = its
+  question, open questions = each review question's prompt with its answer, assistant suggestions = its
+  `review_json` as canonical JSON, `language` `und`. Only the questions' review schedules are lost.
+- A reading state counts only on its book's current file; `completedAt` is the winner's as it is.
+- The guest's credentials die with it (sessions, reset codes, device logins, OAuth requests and grants,
+  MCP keys: one minted under a guest session on a shared device must not become the account's); agent
+  runs move. An in-place promotion (`/auth/register` with a guest session) is mirrored too.
+- V1 sign-in, register and account delete wait at most 10 s on V2.
 
 **Owner decisions (2026-11-02).**
 - No real users on V2 before M5, so no outbox: V2 is test-only, and the mirror runs after the legacy commit, best-effort.
