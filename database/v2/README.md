@@ -81,18 +81,21 @@ the database `PGDATABASE` points at. The next `make migrate-v2` builds it again.
 `textstack_v2` lives in the same `db` container and data directory (`./data/postgres-prod`) as
 legacy: whatever removes or replaces that directory takes V2 with it, and a cluster rebuilt from the
 legacy dump alone has **no** V2 database, not an empty one. So every dump of legacy has a V2 twin,
-named by the database and taken after legacy's, and none of them may stop a legacy one:
+named by the database (`V2_POSTGRES_DB`) and taken after legacy's by `infra/scripts/pg-dump-checked.sh`,
+and none of them may stop a legacy one. A query that cannot tell whether the database exists is a
+failure, never "absent":
 
 | Where | V2 file | Database absent | V2 dump fails |
 |---|---|---|---|
-| `backup.yml` (nightly) | `textstack_v2-db-<date>.sql.gz`, R2 `/db_v2.sql` | skipped, green | legacy steps all run; job red at the end |
+| `backup.yml` (nightly) | `textstack_v2-db-<date>.sql.gz`, R2 `/db_v2.sql` | skipped, green | legacy steps all run (an R2 upload failure too: V2 goes before `forget`/`check`/size guard, its failure recorded); job red at the end |
 | `deploy.yml` pre-deploy | `textstack_v2-pre-deploy-<date-time>.sql.gz` | skipped | warning; the deploy goes on (it never migrates V2) |
 | `make backup` | `textstack_v2-db_<date_time>.sql.gz` | skipped, exit 0 | exit 1, legacy file already saved |
-| `restore-drill.yml` | restores `/db_v2.sql`, counts every table its ledger's migrations create | "no V2 in this backup"; fails only if the backed-up `.env` has `FEATURES_V2API=true` | red |
+| `restore-drill.yml` | restores `/db_v2.sql`, counts every table its ledger's migrations create | "no V2 in this backup"; fails only if the backed-up `.env` has `FEATURES_V2API` true (any case, quotes allowed). A V2 snapshot more than a day older than legacy's: red with the flag on, a warning off | red, incl. any table that cannot be counted |
 
 Restore: `make restore-v2 FILE=<a V2 dump>` loads it into a V2 database that does not exist yet,
 created by `run.sh create` (ICU, `template0`, no migrations: the dump carries schema and ledger). It
-refuses when the database exists — `make migrate-v2-drop` first. `make restore` stays legacy-only.
+refuses when the database exists — `make migrate-v2-drop` first — and checks `FILE` before creating
+anything. `make restore` stays legacy-only: it refuses a `textstack_v2-*` file and stops on the first SQL error.
 
 Without psql installed:
 
