@@ -347,21 +347,21 @@ is never edited (ADR-026); the rows and rules above read with these deltas:
   refused too. The stamp is the database's clock and `iat` the api's: one host (compose) keeps them one
   clock; split across hosts, their skew is a window in which a pre-reset token passes.
 - **`user_refresh_tokens`:** `kind text NOT NULL`, `ck_user_refresh_tokens_kind` (`reader`, `admin`)
-  replaces the `adm.` hash prefix; `token_hash` stays unique across kinds.
-- **`user_refresh_tokens`:** `family_id uuid NOT NULL` (the sign-in's first session) and
-  `family_started_at timestamptz NOT NULL`, copied by every rotation; `ix_user_refresh_tokens_family_id`.
-  The family revoke is one `DELETE`, the 90-day absolute lifetime reads the row, and the sweep
-  deletes a family whole once none of it lives (any cutoff): a replayed token of a live family always
-  finds its successor (`previous_token_hash`) and its family. The backfill gives every existing row a
-  family of its own, so before M5 serves V2 sessions its session port must rebuild families from
-  `previous_token_hash` or force a re-login.
+  replaces the `adm.` hash prefix; `token_hash` stays unique across kinds. `family_id uuid NOT NULL`
+  (the sign-in's first session's id), copied by every rotation, with
+  `ix_user_refresh_tokens_family_id_expires_at`. The family revoke is one `DELETE`; the 90-day absolute
+  lifetime reads the family's first row (its `created_at`); the sweep deletes a family whole once none
+  of it lives (any cutoff), so a replayed token of a live family always finds its successor and its
+  family, and the first row is there while any member is. `0002` signs every V2 session out; M5's
+  session port starts families fresh.
 - **Change feeds:** `(user_id, updated_at, id)` on `books`, `annotations`, `vocabulary_words`;
   `(user_id, updated_at, book_id)` on `reading_state` (its key).
 - **`vocabulary_words`:** the due index is `(user_id, next_review_at, id)`, `0001`'s predicate kept.
 - **Sweeps:** `ix_password_reset_tokens_expires_at`; `ix_oauth_grants_refresh_token_expires_at` and
   `ix_oauth_grants_revoked_at` (partial) — the grant sweep's `OR` uses indexes only with both arms.
 - **`device_authorizations`:** `ix_device_authorizations_user_code` is unique among pending logins; a
-  pending login past its deadline holds its code until decided or swept.
+  pending login past its deadline holds its code until decided or swept. `0002` expires every pending
+  login first (expired ones could share a code).
 - **`discussion_checkpoints`:** `ix_discussion_checkpoints_user_id_book_id_chapter_key` on
   `(user_id, book_id, chapter_key, created_at, id)` for the `?chapterKey=` page.
 

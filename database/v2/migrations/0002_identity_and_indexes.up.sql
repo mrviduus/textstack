@@ -1,29 +1,27 @@
 -- 0002_identity_and_indexes — M2.5's identity bundle (#1092) and the indexes M1.5–M2.4 asked for (#1047)
 --
--- What:  eight changes, one per section below: users.credentials_reset_at; user_refresh_tokens.kind
---          (replaces the 'adm.' hash prefix); user_refresh_tokens.family_id + family_started_at and
---          their index; four change-feed indexes (books, reading_state, annotations,
+-- What:  seven changes, one per section below: users.credentials_reset_at; user_refresh_tokens.kind
+--          (replaces the 'adm.' hash prefix) and family_id with its index, every existing session
+--          signed out; four change-feed indexes (books, reading_state, annotations,
 --          vocabulary_words); the vocabulary due index re-keyed with id; three sweep indexes
 --          (password_reset_tokens.expires_at, and oauth_grants' refresh_token_expires_at and
---          revoked_at); device user codes unique among pending logins; a chapter-filtered
---          checkpoint index.
+--          revoked_at); device user codes unique among pending logins, every pending login
+--          expired; a chapter-filtered checkpoint index.
 -- Why:   #1092 (owner decision 2026-11-02): a password reset must kill every credential issued
 --          before it, access tokens included; the session family and kind become columns instead of
 --          recursive chain walks and a hash prefix. #1047: every keyset page and sweep walks an index.
 -- Issue: https://github.com/mrviduus/textstack/issues/1092
 --        https://github.com/mrviduus/textstack/issues/1047
 -- Compatibility: textstack_v2 holds no real data and nothing deployed resolves a V2 repository
---                (M5.1 does). The three NOT NULL session columns are backfilled from what the rows
---                already say (the prefix; family = the row itself, started at its created_at — a
---                rotated session's family is not reconstructed, there is none to keep). 0001's code
---                refused a code shown by a *live* pending login only, so a pending login past its
---                deadline may share its code with a newer one: before the unique device index is
---                built, every pending login but the last to expire of each code is marked expired
---                (none can be approved any more: its deadline passed). Every other change is a
---                nullable column or an index.
--- Down:  0002_identity_and_indexes.down.sql puts every index back as 0001 left it, re-prefixes admin
---        sessions and drops the four columns — with whatever they hold. Device logins expired by the
---        dedupe stay expired.
+--                (M5.1 does). Every V2 session is deleted (signed out) rather than backfilled: the
+--                code before 0002 kept no family, and M5's session port starts families fresh.
+--                Every pending device login is expired: 0001's code refused a code shown by a live
+--                pending login only, so pending logins past their deadline may share a code, which
+--                the unique index refuses; a device mid-flow asks for a new code. Every other change
+--                is a nullable column or an index.
+-- Down:  0002_identity_and_indexes.down.sql puts every index back as 0001 left it, signs every
+--        session out again (the code before 0002 would read an admin session as a reader's) and
+--        drops the three columns — with whatever they hold. Expired device logins stay expired.
 
 -- ===== Identity: a password reset stamps the account =====
 
@@ -32,35 +30,21 @@
 -- writes that would turn one into a new session, device approval or MCP key.
 ALTER TABLE public.users ADD COLUMN credentials_reset_at timestamptz;
 
--- ===== Identity: a session says whose it is =====
+-- ===== Identity: a session says whose it is and which sign-in it belongs to =====
 
--- Admin and reader sessions are not interchangeable; until now an admin's hash was stored as
--- 'adm.' || hash. Both hash columns carry the prefix (a rotated admin session remembers its
--- predecessor's), so both lose it. token_hash stays unique across kinds: hashes never collide.
-ALTER TABLE public.user_refresh_tokens ADD COLUMN kind text;
-UPDATE public.user_refresh_tokens SET
-    kind = CASE WHEN token_hash LIKE 'adm.%' THEN 'admin' ELSE 'reader' END,
-    token_hash = CASE WHEN token_hash LIKE 'adm.%' THEN substr(token_hash, 5) ELSE token_hash END,
-    previous_token_hash = CASE WHEN previous_token_hash LIKE 'adm.%' THEN substr(previous_token_hash, 5) ELSE previous_token_hash END;
--- No DEFAULT: every insert names its kind.
+-- Admin and reader sessions are not interchangeable (until now an admin's hash was stored as
+-- 'adm.' || hash); token_hash stays unique across kinds, hashes never collide. A sign-in's first
+-- session starts a family (family_id = its id) and a rotation copies it, so a replayed token revokes
+-- its family in one DELETE and the absolute lifetime reads the family's first row: nothing walks
+-- previous_token_hash back. The sweep deletes a family whole once none of it lives, so that first row
+-- is there while any member is. No DEFAULT: every insert names both.
+DELETE FROM public.user_refresh_tokens;
 ALTER TABLE public.user_refresh_tokens
-    ALTER COLUMN kind SET NOT NULL,
-    ADD CONSTRAINT ck_user_refresh_tokens_kind CHECK (kind IN ('reader', 'admin'));
-
--- ===== Identity: a session knows its sign-in =====
-
--- A sign-in's first session starts a family (family_id = its id, family_started_at = now()); a
--- rotation copies both. A replayed token revokes its family in one DELETE, the absolute lifetime
--- reads one column, and the sweep deletes a family whole once none of it lives: nothing walks
--- previous_token_hash back.
-ALTER TABLE public.user_refresh_tokens
-    ADD COLUMN family_id uuid,
-    ADD COLUMN family_started_at timestamptz;
-UPDATE public.user_refresh_tokens SET family_id = id, family_started_at = created_at;
-ALTER TABLE public.user_refresh_tokens
-    ALTER COLUMN family_id SET NOT NULL,
-    ALTER COLUMN family_started_at SET NOT NULL;
-CREATE INDEX ix_user_refresh_tokens_family_id ON public.user_refresh_tokens (family_id);
+    ADD COLUMN kind text NOT NULL,
+    ADD CONSTRAINT ck_user_refresh_tokens_kind CHECK (kind IN ('reader', 'admin')),
+    ADD COLUMN family_id uuid NOT NULL;
+-- RevokeFamily by the leading column; the sweep's "does any of this family still live" probe by both.
+CREATE INDEX ix_user_refresh_tokens_family_id_expires_at ON public.user_refresh_tokens (family_id, expires_at);
 
 -- ===== Sync: the change feeds =====
 
@@ -91,11 +75,10 @@ CREATE INDEX ix_oauth_grants_revoked_at ON public.oauth_grants (revoked_at) WHER
 
 -- ===== Identity: a user code shows one pending login =====
 
--- Of the pending logins showing one code, only the last to expire can still be live.
-UPDATE public.device_authorizations d SET status = 'expired'
-WHERE d.status = 'pending'
-  AND EXISTS (SELECT FROM public.device_authorizations n
-              WHERE n.user_code = d.user_code AND n.status = 'pending' AND (n.expires_at, n.id) > (d.expires_at, d.id));
+-- A pending login past its deadline may share its code with a newer one (0001 refused only a live
+-- code); the unique index would refuse them. Expiring every pending login is simplest: a device
+-- mid-flow asks for a new code.
+UPDATE public.device_authorizations SET status = 'expired' WHERE status = 'pending';
 
 -- Two device logins created at once with one random code both landed under the insert's NOT
 -- EXISTS; unique, the second insert fails (23505) and the caller mints another code. A pending
