@@ -3,6 +3,7 @@ using Application.Annotations;
 using Application.Common;
 using Application.Library;
 using Application.Sync;
+using Application.Transitional;
 using Contracts.V2;
 using Domain.Annotations;
 using Domain.Library;
@@ -21,7 +22,11 @@ public class AnnotationSyncServiceTests
 
     private readonly Mock<ILibraryRepository> _library = V2Fakes.Library(User, BookId, null, FileId);
     private readonly Mock<IAnnotationRepository> _annotations = new();
-    private AnnotationSyncService Service => new(_library.Object, _annotations.Object);
+    private readonly Mock<IBookChapterRepository> _chapters = new();
+    private AnnotationSyncService Service => new(_library.Object, _annotations.Object, _chapters.Object);
+
+    private static string TextAnchor(string chapterKey) =>
+        $$$"""{"version":1,"scheme":"textstack-anchor-v1","value":{"chapterKey":"{{{chapterKey}}}","prefix":"It was a ","exact":"bright","suffix":" cold day","startOffset":9,"endOffset":15}}""";
 
     private static AnnotationRequest Highlight(string locator = """{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4!/4/2/1:0)","quote":"bright"}""", Guid? fileId = null) =>
         new(2, BookId, fileId ?? FileId, "It was a bright cold day", "a note", JsonSerializer.Deserialize<JsonElement>(locator), null);
@@ -119,6 +124,44 @@ public class AnnotationSyncServiceTests
             .ReturnsAsync(new RevisionedWrite<Annotation>(true, Stored(1)));
 
         Assert.Equal(201, (await Service.SaveAsync(User, Id, Highlight() with { ExpectedRevision = null }, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task SaveAsync_TextAnchorOnAChapterOfTheFile_IsWritten()
+    {
+        _chapters.Setup(c => c.ExistsAsync(User, FileId, "ch-1", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _annotations.Setup(a => a.SaveAsync(User, It.IsAny<Annotation>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RevisionedWrite<Annotation>(true, Stored(1)));
+
+        Assert.Equal(201, (await Service.SaveAsync(User, Id, Highlight(TextAnchor("ch-1")) with { ExpectedRevision = null }, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task SaveAsync_TextAnchorOnAChapterTheFileLacks_IsChapterNotFoundAndWritesNothing()
+    {
+        var result = await Service.SaveAsync(User, Id, Highlight(TextAnchor("no-such")), Ct);
+
+        Assert.Equal((409, SyncCodes.ChapterNotFound), (result.Status, V2Fakes.Error(result).Code));
+        _annotations.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task SaveAsync_TextPositionAsAnAnnotation_IsInvalidPayload()
+    {
+        var result = await Service.SaveAsync(User, Id,
+            Highlight("""{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"ch-1","chapterFraction":0.5}}"""), Ct);
+
+        Assert.Equal((400, "locator"), (result.Status, V2Fakes.Error(result).Field));
+    }
+
+    [Fact]
+    public async Task SaveAsync_EpubCfiLocator_AsksNoChapter()
+    {
+        Loses(Stored());
+
+        await Service.SaveAsync(User, Id, Highlight(), Ct);
+
+        _chapters.VerifyNoOtherCalls();
     }
 
     [Fact]

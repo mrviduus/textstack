@@ -22,6 +22,9 @@ public interface IBookChapterRepository
     Task<(BookChapter? Chapter, BookChapterHeading? Previous, BookChapterHeading? Next)> GetWithNeighboursAsync(
         Guid userId, Guid bookId, Guid fileId, string chapterKey, CancellationToken ct);
 
+    /// <summary>Whether that file version has a chapter under <paramref name="chapterKey"/>: the pre-check of a <c>textstack-*</c> locator.</summary>
+    Task<bool> ExistsAsync(Guid userId, Guid fileId, string chapterKey, CancellationToken ct);
+
     /// <summary>The chapter's plain text, for the assistant and the review; null when no such chapter.</summary>
     Task<string?> GetPlainTextAsync(Guid userId, Guid fileId, string chapterKey, CancellationToken ct);
 

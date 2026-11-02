@@ -40,6 +40,7 @@ public sealed record SyncResult(int Status, object? Body)
     public static readonly SyncResult NotFound = Fail(SyncCodes.NotFound);
     public static readonly SyncResult IdConflict = Fail(SyncCodes.IdConflict);
     public static readonly SyncResult UnknownFile = Fail(SyncCodes.UnknownFile);
+    public static readonly SyncResult ChapterNotFound = Fail(SyncCodes.ChapterNotFound);
     public static readonly SyncResult V2Unavailable = Fail(SyncCodes.V2Unavailable);
 
     public static SyncResult BookRemoved(Book book) => Fail(SyncCodes.BookRemoved, book.Revision, book.ToDto());
@@ -70,6 +71,7 @@ public static class SyncCodes
     public const string Reset = "reset";
     public const string FileReplaced = "file_replaced";
     public const string UnknownFile = "unknown_file";
+    public const string ChapterNotFound = "chapter_not_found";
     public const string Deleted = "deleted";
     public const string OperationConflict = "operation_conflict";
     public const string DuplicateFile = "duplicate_file";
@@ -96,6 +98,7 @@ public static class SyncCodes
         Reset => (409, "The book was restarted on another device."),
         FileReplaced => (409, "This book's file was replaced."),
         UnknownFile => (409, "Push the file version first."),
+        ChapterNotFound => (409, "The file has no such chapter."),
         Deleted => (409, "This item was deleted."),
         OperationConflict => (409, "This operation id was used with a different payload."),
         DuplicateFile => (409, "A book with these bytes is already in the library."),

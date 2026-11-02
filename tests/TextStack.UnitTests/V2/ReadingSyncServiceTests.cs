@@ -3,6 +3,7 @@ using Application.Common;
 using Application.Library;
 using Application.Reading;
 using Application.Sync;
+using Application.Transitional;
 using Contracts.V2;
 using Domain.Library;
 using Domain.Reading;
@@ -26,7 +27,8 @@ public class ReadingSyncServiceTests
     private readonly Mock<ILibraryRepository> _library = V2Fakes.Library(User, BookId, CurrentFile, OldFile);
     private readonly Mock<IReadingStateRepository> _states = new();
     private readonly Mock<IReadingSessionRepository> _sessions = new();
-    private ReadingSyncService Service => new(_library.Object, _states.Object, _sessions.Object);
+    private readonly Mock<IBookChapterRepository> _chapters = new();
+    private ReadingSyncService Service => new(_library.Object, _states.Object, _sessions.Object, _chapters.Object);
 
     private static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
 
@@ -140,11 +142,67 @@ public class ReadingSyncServiceTests
         Assert.Equal((SyncCodes.StaleRevision, (long?)null, (object?)null), (error.Code, error.Revision, error.Current));
     }
 
+    private static JsonElement TextPosition(string chapterSlug) =>
+        Json($$$"""{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"{{{chapterSlug}}}","chapterFraction":0.5}}""");
+
+    private void FileHasChapter(Guid fileId, string chapterKey) =>
+        _chapters.Setup(c => c.ExistsAsync(User, fileId, chapterKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
     [Fact]
-    public async Task WriteAsync_MigratedLocatorScheme_IsInvalidPayloadAndWritesNothing()
+    public async Task WriteAsync_TextPositionOnAChapterOfTheFile_IsWritten()
     {
-        var result = await Service.WriteAsync(User, BookId,
-            Write(CurrentFile, null, Json("""{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"one"}}""")), Ct);
+        FileHasChapter(CurrentFile, "ch-1");
+        _states.Setup(s => s.AdvanceAsync(User, BookId, It.IsAny<ReadingState>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RevisionedWrite<ReadingState>(true, Stored(1)));
+
+        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null, TextPosition("ch-1")), Ct);
+
+        Assert.Equal(200, result.Status);
+    }
+
+    [Fact]
+    public async Task WriteAsync_TextPositionOnAChapterTheFileLacks_IsChapterNotFoundAndWritesNothing()
+    {
+        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null, TextPosition("no-such")), Ct);
+
+        Assert.Equal((409, SyncCodes.ChapterNotFound), (result.Status, V2Fakes.Error(result).Code));
+        _states.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task WriteAsync_TextFrontierOnAChapterTheFileLacks_IsChapterNotFound()
+    {
+        FileHasChapter(CurrentFile, "ch-1");
+        var request = Write(CurrentFile, null, TextPosition("ch-1")) with { FrontierLocator = TextPosition("no-such"), FrontierFraction = 0.6m };
+
+        Assert.Equal(SyncCodes.ChapterNotFound, V2Fakes.Error(await Service.WriteAsync(User, BookId, request, Ct)).Code);
+        _states.VerifyNoOtherCalls();
+    }
+
+    // The superseded version's chapters are not the point: any write on it is file_replaced (PDD "Reading state").
+    [Fact]
+    public async Task WriteAsync_TextPositionMissingOnASupersededVersion_IsFileReplaced()
+    {
+        var result = await Service.WriteAsync(User, BookId, Write(OldFile, 3, TextPosition("no-such")), Ct);
+
+        Assert.Equal((SyncCodes.FileReplaced, CurrentFile), (V2Fakes.Error(result).Code, V2Fakes.Error(result).FileId));
+    }
+
+    [Fact]
+    public async Task WriteAsync_EpubCfiPosition_AsksNoChapter()
+    {
+        Loses(Stored(2));
+
+        await Service.WriteAsync(User, BookId, Write(CurrentFile, 1), Ct);
+
+        _chapters.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task WriteAsync_TextAnchorAsAPosition_IsInvalidPayloadAndWritesNothing()
+    {
+        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null,
+            Json("""{"version":1,"scheme":"textstack-anchor-v1","value":{"chapterKey":"ch-1","prefix":"","exact":"x","suffix":"","startOffset":0,"endOffset":1}}""")), Ct);
 
         Assert.Equal((400, SyncCodes.InvalidPayload, "currentLocator"), (result.Status, V2Fakes.Error(result).Code, V2Fakes.Error(result).Field));
         _states.VerifyNoOtherCalls();

@@ -194,8 +194,11 @@ public static class SyncValidation
     public enum LocatorUse { Position, Annotation }
 
     /// <summary>
-    /// The ADR-031 envelope with the two schemes a V2 writer produces: <c>epub-cfi</c> (the CFI is
-    /// opaque, never parsed) and <c>pdf-page</c>. The <c>textstack-*</c> schemes exist for migrated rows only.
+    /// The ADR-031 envelope. <c>epub-cfi</c> (the CFI is opaque, never parsed) and <c>pdf-page</c> are
+    /// what a V2 reader writes; <c>textstack-position-v1</c> (a position only) and <c>textstack-anchor-v1</c>
+    /// (an annotation only) are the transitional reader's until R8, checked as <c>textPosition.ts</c> and
+    /// <c>textAnchor.ts</c> serialize them, and accepted only on a chapter of the file (<see cref="Transitional.TransitionalLocators"/>).
+    /// Members a value does not name pass, as on <c>epub-cfi</c>: a serialized <c>TextPosition</c> carries its own <c>v</c>.
     /// </summary>
     public static SyncResult? Locator(JsonElement locator, string field, LocatorUse use)
     {
@@ -205,13 +208,21 @@ public static class SyncValidation
             || !locator.TryGetProperty("value", out var value) || value.ValueKind == JsonValueKind.Null)
             return SyncResult.Invalid(field, "A locator is {\"version\":1,\"scheme\":…,\"value\":…}.");
         var scheme = locator.TryGetProperty("scheme", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
-        return scheme switch
+        if (scheme != "epub-cfi" && locator.TryGetProperty("quote", out _)) return SyncResult.Invalid(field, "Only epub-cfi carries a quote.");
+        return (scheme, use) switch
         {
-            "epub-cfi" => EpubCfi(locator, value, field, use),
-            "pdf-page" => locator.TryGetProperty("quote", out _) ? SyncResult.Invalid(field, "Only epub-cfi carries a quote.")
-                : use == LocatorUse.Position ? (IsPage(value) && value.EnumerateObject().Count() == 1 ? null : SyncResult.Invalid(field, "A pdf-page position is {\"page\":N}."))
-                : IsPdfAnchor(value) ? null : SyncResult.Invalid(field, "A pdf-page annotation is {\"page\":N,\"rects\":[{x,y,w,h}],\"exact\":…}."),
-            _ => SyncResult.Invalid(field, "V2 writes take the epub-cfi and pdf-page schemes only."),
+            ("epub-cfi", _) => EpubCfi(locator, value, field, use),
+            ("pdf-page", LocatorUse.Position) => IsPage(value) && value.EnumerateObject().Count() == 1 ? null
+                : SyncResult.Invalid(field, "A pdf-page position is {\"page\":N}."),
+            ("pdf-page", _) => IsPdfAnchor(value) ? null
+                : SyncResult.Invalid(field, "A pdf-page annotation is {\"page\":N,\"rects\":[{x,y,w,h}],\"exact\":…}."),
+            ("textstack-position-v1", LocatorUse.Position) => IsTextPosition(value) ? null
+                : SyncResult.Invalid(field, "A textstack-position-v1 value is {chapterSlug, chapterFraction 0..1, anchor?, charOffset?}."),
+            ("textstack-anchor-v1", LocatorUse.Annotation) => IsChapterKey(value, "chapterKey") && IsTextAnchor(value, int.MaxValue) ? null
+                : SyncResult.Invalid(field, "A textstack-anchor-v1 value is {chapterKey, prefix, exact, suffix, startOffset, endOffset}."),
+            ("textstack-position-v1", _) => SyncResult.Invalid(field, "textstack-position-v1 is a reading position only."),
+            ("textstack-anchor-v1", _) => SyncResult.Invalid(field, "textstack-anchor-v1 is an annotation locator only."),
+            _ => SyncResult.Invalid(field, "V2 writes take the epub-cfi, pdf-page and textstack-* schemes only."),
         };
     }
 
@@ -232,6 +243,32 @@ public static class SyncValidation
 
     private static bool IsText(JsonElement e, int min, int max) =>
         e.ValueKind == JsonValueKind.String && e.GetString()!.EnumerateRunes().Count() is var n && n >= min && n <= max;
+
+    // A scroll-only position has no anchor (ADR-031 decided item 5); a position's quote is textPosition.ts's 64.
+    private static bool IsTextPosition(JsonElement value) =>
+        IsChapterKey(value, "chapterSlug")
+        && value.TryGetProperty("chapterFraction", out var fraction) && fraction.ValueKind == JsonValueKind.Number
+        && fraction.TryGetDecimal(out var f) && f is >= 0 and <= 1
+        && (!value.TryGetProperty("anchor", out var anchor) || IsTextAnchor(anchor, MaxQuoteCodePoints))
+        && (!value.TryGetProperty("charOffset", out _) || IsOffset(value, "charOffset", out _));
+
+    // A highlight quotes whatever the reader selected, so its exact is uncapped, as selectedText is. Offsets are hints.
+    private static bool IsTextAnchor(JsonElement anchor, int maxExact) =>
+        anchor.ValueKind == JsonValueKind.Object
+        && anchor.TryGetProperty("exact", out var exact) && IsText(exact, 1, maxExact)
+        && anchor.TryGetProperty("prefix", out var prefix) && IsText(prefix, 0, MaxContextCodePoints)
+        && anchor.TryGetProperty("suffix", out var suffix) && IsText(suffix, 0, MaxContextCodePoints)
+        && IsOffset(anchor, "startOffset", out var start) && IsOffset(anchor, "endOffset", out var end) && end >= start;
+
+    private static bool IsChapterKey(JsonElement value, string member) =>
+        value.ValueKind == JsonValueKind.Object && value.TryGetProperty(member, out var key) && key.ValueKind == JsonValueKind.String
+        && RequiredText(key.GetString(), member, MaxChapterKey) is null;
+
+    private static bool IsOffset(JsonElement value, string member, out int offset)
+    {
+        offset = -1;
+        return value.TryGetProperty(member, out var n) && n.ValueKind == JsonValueKind.Number && n.TryGetInt32(out offset) && offset >= 0;
+    }
 
     private static bool IsPage(JsonElement value) =>
         value.ValueKind == JsonValueKind.Object && value.TryGetProperty("page", out var page)

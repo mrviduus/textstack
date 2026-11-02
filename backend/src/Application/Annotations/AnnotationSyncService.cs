@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Application.Library;
 using Application.Sync;
+using Application.Transitional;
 using Contracts.V2;
 using Domain.Annotations;
 using static Application.Sync.SyncValidation;
@@ -13,7 +14,7 @@ namespace Application.Annotations;
 /// write, because the schema would refuse a bad one only at commit (a deferred FK, a 500 that an
 /// outbox retries forever). A removed book still accepts annotations (owner decision 11).
 /// </summary>
-public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotationRepository annotations)
+public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotationRepository annotations, IBookChapterRepository chapters)
 {
     private const string DefaultColor = "yellow";
 
@@ -27,6 +28,7 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
         var bookId = r.BookId!.Value;
         // Any version of the book, current or not: a highlight made offline in a superseded one is still valid provenance.
         if (await library.MissingBookOrFileAsync(userId, bookId, r.FileId, ct) is { } missing) return missing;
+        if (await chapters.NameAMissingChapterAsync(userId, r.FileId.GetValueOrDefault(), [r.Locator], ct)) return SyncResult.ChapterNotFound;
 
         var sent = new Annotation
         {
