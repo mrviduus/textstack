@@ -213,13 +213,14 @@ Test naming convention: `{MethodName}_{Scenario}_{ExpectedResult}`
 **Running the integration suite locally**: it trips its own rate limits at production values — a dozen classes seed a book by clipping one, and the GDPR-delete class calls account-delete four times. CI raises the knobs; do the same locally or you will read 429s as failures:
 
 ```bash
+make migrate-v2               # once: the textstack_v2 database the V2 classes (tests/…/V2) need
 CLIP_PERMIT_LIMIT=200 ACCOUNT_DELETE_PERMIT_LIMIT=50 GUEST_SESSION_PERMIT_LIMIT=50 \
-  USER_LOGIN_PERMIT_LIMIT=100 DEVICE_CODE_PERMIT_LIMIT=50 \
+  USER_LOGIN_PERMIT_LIMIT=100 DEVICE_CODE_PERMIT_LIMIT=50 FEATURES_V2API=true \
   docker compose up -d --no-deps --force-recreate api
 # once per database: editions ChapterReviewEndpointTests needs (else it skips); idempotent
 docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"' \
   < tests/TextStack.IntegrationTests/Fixtures/chapter-review-editions.sql
-dotnet test tests/TextStack.IntegrationTests
+V2_API_TESTS=1 dotnet test tests/TextStack.IntegrationTests   # without V2_API_TESTS the V2 classes skip
 # DB-backed tests (DeviceAuth, RefreshTokenHardening, …) skip unless Postgres is reachable: start the
 # stack with `-f docker-compose.yml -f .github/docker-compose.ci-db.yml` and set
 # TEST_DB_CONNECTION="Host=localhost;Port=5432;Database=<db>;Username=<user>;Password=<pw>"

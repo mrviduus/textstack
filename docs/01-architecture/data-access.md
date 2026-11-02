@@ -31,18 +31,19 @@ Dependency rule unchanged: Api → Application → Domain ← Infrastructure.
 5. **One `NpgsqlDataSource`, a singleton**, shared with EF Core. Per operation:
    `await using var conn = await dataSource.OpenConnectionAsync(ct)`; it returns to the pool on
    dispose. Never hold a connection across awaits you don't own. V2 repositories use `V2DataSource`
-   instead, the pool to `textstack_v2` (one data source per database, ADR-030 §2), registered
-   lazily: it is built on first use, so nothing at startup touches `textstack_v2` and V1 keeps serving
-   while V2 is broken or unconfigured (ADR-030 decision 1, amended;
+   instead, the pool to `textstack_v2` (one data source per database, ADR-030 §2). Building it opens
+   nothing, so nothing at startup touches `textstack_v2` and V1 keeps serving while V2 is broken or
+   unconfigured (ADR-030 decision 1, amended;
    [postmortem](../incidents/2026-10-30-migrator-v2-took-down-the-api.md)). Without
-   `ConnectionStrings:V2`, the first use fails naming that key.
+   `ConnectionStrings:V2` every V2 service still resolves; the first open fails naming that key.
 6. **Transactions.** A use case that writes EF tables and a ported table together opens the
    transaction on EF and passes the `IDbContextTransaction` to the repository; the repository runs on
    that transaction's connection (`GetDbTransaction()`), never its own. A method whose write must be
    atomic with EF writes takes a required `IDbContextTransaction tx`; one that may run either way takes
-   `IDbContextTransaction? tx = null`. A V2 method that must compose with another repository's write
-   will take `NpgsqlTransaction? tx = null` over `V2DataSource` (plan §6); the first such use case is
-   M2.2 (#1067).
+   `IDbContextTransaction? tx = null`. On V2 a use case that writes two aggregates atomically begins
+   one (`await using var tx = await unitOfWork.BeginAsync(ct)`, `IV2UnitOfWork`), passes
+   `tx.Transaction` to each method that takes `NpgsqlTransaction? tx` (null: the method runs on its
+   own), and commits. First use: the file replacement and its reading-state delete (#1067).
 7. **Ownership in SQL.** Every user-owned method takes `userId` and puts it in the `WHERE` (and in the
    `ON CONFLICT` key / `INSERT`). Cross-user system operations are separate, clearly named methods.
    Each repository has an isolation test: user B never reads, changes or deletes user A's rows.

@@ -68,7 +68,7 @@ public class AuthenticatedApiFixture : IAsyncLifetime
     }
 
     // "access_token=xxx; path=/; ..." → "access_token=xxx", joined into one Cookie header.
-    private static string CookieHeader(HttpResponseMessage resp) =>
+    internal static string CookieHeader(HttpResponseMessage resp) =>
         resp.Headers.TryGetValues("Set-Cookie", out var cookies)
             ? string.Join("; ", cookies.Select(c => c.Split(';')[0].Trim()).Where(c => c.Length > 0))
             : string.Empty;

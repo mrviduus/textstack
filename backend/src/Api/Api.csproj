@@ -19,6 +19,8 @@
     <!-- The migrations this build was written against: /health/ready compares them with the
          schema_migrations ledger (Extensions/SchemaVersion.cs, ADR-026). -->
     <EmbeddedResource Include="..\..\..\database\migrations\*.up.sql" LogicalName="migrations/%(Filename)%(Extension)" />
+    <!-- The same for textstack_v2: V2Readiness gates /me/v2/* on its ledger (#1044, #1053). -->
+    <EmbeddedResource Include="..\..\..\database\v2\migrations\*.up.sql" LogicalName="v2migrations/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

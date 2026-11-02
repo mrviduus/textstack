@@ -61,7 +61,7 @@ public class RollingSpendTrackerTests
     [Fact]
     public void DayRollover_ResetsSpend()
     {
-        var clock = new FakeClock(Day1);
+        var clock = new SteppedClock { Now = Day1 };
         var t = Build(out _, out _, clock: clock);
 
         t.Record("explain", 2.0m);
@@ -85,7 +85,7 @@ public class RollingSpendTrackerTests
             Trace("explain", 0.05m, Day1),
         };
         var tracing = new TracingOptions(1.0, new Dictionary<string, double> { ["explain"] = 0.1 });
-        var t = Build(out _, out _, clock: new FakeClock(Day1), traces: traces, tracing: tracing);
+        var t = Build(out _, out _, clock: new SteppedClock { Now = Day1 }, traces: traces, tracing: tracing);
 
         // 0.10 traced * (1/0.1) = 1.00 estimated.
         Assert.Equal(1.0m, t.SpentTodayUsd("explain"));
@@ -95,7 +95,7 @@ public class RollingSpendTrackerTests
     public void LazySeed_DefaultRate_NoScale()
     {
         var traces = new List<LlmTrace> { Trace("translate", 0.4m, Day1) };
-        var t = Build(out _, out _, clock: new FakeClock(Day1), traces: traces);
+        var t = Build(out _, out _, clock: new SteppedClock { Now = Day1 }, traces: traces);
         Assert.Equal(0.4m, t.SpentTodayUsd("translate")); // default rate 1.0 → unscaled
     }
 
@@ -104,7 +104,7 @@ public class RollingSpendTrackerTests
     {
         var traces = new List<LlmTrace> { Trace("explain", 0.05m, Day1) };
         var tracing = new TracingOptions(1.0, new Dictionary<string, double> { ["explain"] = 0.1 });
-        var t = Build(out var scopeFactory, out _, clock: new FakeClock(Day1), traces: traces, tracing: tracing);
+        var t = Build(out var scopeFactory, out _, clock: new SteppedClock { Now = Day1 }, traces: traces, tracing: tracing);
 
         Assert.Equal(0.5m, t.SpentTodayUsd("explain")); // 0.05 * 10 (seeded)
         t.Record("explain", 1.0m);
@@ -118,7 +118,7 @@ public class RollingSpendTrackerTests
     public void Alert_FiresOnce_OnCrossing_80Percent()
     {
         var email = new Mock<IEmailService>();
-        var t = Build(out _, out email, budgets: Budget("explain", daily: 10m, BudgetMode.HardStop), clock: new FakeClock(Day1));
+        var t = Build(out _, out email, budgets: Budget("explain", daily: 10m, BudgetMode.HardStop), clock: new SteppedClock { Now = Day1 });
 
         t.Record("explain", 7.0m); // 70% — below threshold, no alert
         t.Record("explain", 1.5m); // crosses to 85% — ONE alert
@@ -132,7 +132,7 @@ public class RollingSpendTrackerTests
     {
         // Edge-trigger + dedup: once over 80%, hammering with 100 more over-budget Records
         // must NOT spam — exactly one email total.
-        var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.HardStop), clock: new FakeClock(Day1));
+        var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.HardStop), clock: new SteppedClock { Now = Day1 });
 
         t.Record("explain", 8.5m); // crosses 80% → the single alert
         for (var i = 0; i < 100; i++)
@@ -150,7 +150,7 @@ public class RollingSpendTrackerTests
     public void Alert_ConcurrentCrossing_ExactlyOneEmail()
     {
         // 200 parallel Records that together cross 80% — dedup must still yield exactly one email.
-        var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.Fallback), clock: new FakeClock(Day1));
+        var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.Fallback), clock: new SteppedClock { Now = Day1 });
         Parallel.For(0, 200, _ => t.Record("explain", 0.1m)); // sums to $20, well over 80%
 
         // The alert email is fire-and-forget — poll (don't Thread.Sleep a fixed 100ms,
@@ -162,7 +162,7 @@ public class RollingSpendTrackerTests
     [Fact]
     public void Alert_DedupsSameDay()
     {
-        var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.Fallback), clock: new FakeClock(Day1));
+        var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.Fallback), clock: new SteppedClock { Now = Day1 });
 
         t.Record("explain", 8.5m); // crosses 80% → alert
         t.Record("explain", 1.0m); // already alerted today → no second alert
@@ -174,7 +174,7 @@ public class RollingSpendTrackerTests
     [Fact]
     public void Alert_Refires_NextDay()
     {
-        var clock = new FakeClock(Day1);
+        var clock = new SteppedClock { Now = Day1 };
         var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.HardStop), clock: clock);
 
         t.Record("explain", 9.0m); // day1 alert
@@ -188,7 +188,7 @@ public class RollingSpendTrackerTests
     [Fact]
     public void Alert_NotFired_WhenBudgetOff()
     {
-        var t = Build(out _, out var email, budgets: BudgetOptions.Empty, clock: new FakeClock(Day1));
+        var t = Build(out _, out var email, budgets: BudgetOptions.Empty, clock: new SteppedClock { Now = Day1 });
         t.Record("explain", 1000m);
         // Give any (wrongly) scheduled alert a chance, then assert none.
         Thread.Sleep(50);
@@ -202,7 +202,7 @@ public class RollingSpendTrackerTests
         // A scope factory whose DbContext throws on access → seed fails → bucket starts at 0.
         var scopeFactory = new ThrowingScopeFactory();
         var t = new RollingSpendTracker(
-            scopeFactory, new FakeClock(Day1), BudgetOptions.Empty,
+            scopeFactory, new SteppedClock { Now = Day1 }, BudgetOptions.Empty,
             new TracingOptions(), NullLogger<RollingSpendTracker>.Instance);
 
         Assert.Equal(0m, t.SpentTodayUsd("explain")); // no throw
@@ -241,7 +241,7 @@ public class RollingSpendTrackerTests
         out RecordingScopeFactory scopeFactory,
         out Mock<IEmailService> email,
         BudgetOptions? budgets = null,
-        FakeClock? clock = null,
+        SteppedClock? clock = null,
         List<LlmTrace>? traces = null,
         TracingOptions? tracing = null)
     {
@@ -253,16 +253,10 @@ public class RollingSpendTrackerTests
 
         return new RollingSpendTracker(
             scopeFactory,
-            clock ?? new FakeClock(Day1),
+            clock ?? new SteppedClock { Now = Day1 },
             budgets ?? BudgetOptions.Empty,
             tracing ?? new TracingOptions(),
             NullLogger<RollingSpendTracker>.Instance);
-    }
-
-    private sealed class FakeClock(DateTimeOffset now) : TimeProvider
-    {
-        public DateTimeOffset Now { get; set; } = now;
-        public override DateTimeOffset GetUtcNow() => Now;
     }
 
     // A scope factory that resolves IAppDbContext (Moq-backed LlmTraces) + IEmailService.

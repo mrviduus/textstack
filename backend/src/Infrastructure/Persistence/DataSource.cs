@@ -1,6 +1,7 @@
 using System.Data;
 using System.Runtime.CompilerServices;
 using Application.Annotations;
+using Application.Common;
 using Application.Common.Interfaces;
 using Application.Discussion;
 using Application.Identity;
@@ -71,10 +72,11 @@ public static class DataSource
         services
             .AddSingleton(_ => Create(connectionString))
             .AddSingleton<IInsightRepository, InsightRepository>()
-            .AddSingleton(_ => new V2DataSource(
-                v2ConnectionString ?? throw new InvalidOperationException("ConnectionStrings:V2 is not set")))
+            .AddSingleton(_ => new V2DataSource(v2ConnectionString))
+            .AddSingleton<IV2UnitOfWork>(sp => sp.GetRequiredService<V2DataSource>())
             .AddSingleton<ILibraryRepository, LibraryRepository>()
             .AddSingleton<IReadingStateRepository, ReadingStateRepository>()
+            .AddSingleton<IReadingSessionRepository, ReadingSessionRepository>()
             .AddSingleton<IAnnotationRepository, AnnotationRepository>()
             .AddSingleton<IVocabularyRepository, VocabularyRepository>()
             .AddSingleton<ISharedChapterRepository, SharedChapterRepository>()

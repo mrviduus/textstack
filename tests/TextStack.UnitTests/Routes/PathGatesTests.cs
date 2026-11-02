@@ -20,8 +20,8 @@ namespace TextStack.UnitTests.Routes;
 /// </summary>
 public class PathGatesTests : IAsyncLifetime
 {
-    private const string Secret = "a-test-signing-key-long-enough-for-hmac-sha256-abcdefgh";
-    private const string Issuer = "textstack.app";
+    private const string Secret = TestTokens.Secret;
+    private const string Issuer = TestTokens.Issuer;
     private const string FakeKeyHeader = "X-Test-Resolved-Key";
 
     private static readonly IPAddress DockerPeer = IPAddress.Parse("172.18.0.5");
@@ -70,17 +70,7 @@ public class PathGatesTests : IAsyncLifetime
             configure?.Invoke(ctx.Request);
         }, TestContext.Current.CancellationToken);
 
-    private static string Token(Guid userId, string secret = Secret)
-    {
-        var token = new JwtSecurityToken(
-            issuer: Issuer,
-            audience: JwtSettings.UserAudience,
-            claims: [new Claim(ClaimTypes.NameIdentifier, userId.ToString())],
-            expires: DateTime.UtcNow.AddMinutes(5),
-            signingCredentials: new SigningCredentials(
-                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret)), SecurityAlgorithms.HmacSha256));
-        return new JwtSecurityTokenHandler().WriteToken(token);
-    }
+    private static string Token(Guid userId, string secret = Secret) => TestTokens.Token(userId, secret: secret);
 
     [Theory]
     [InlineData("/me")]

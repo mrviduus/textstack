@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Application.Library;
 using Application.Vocabulary;
 using Dapper;
 using Domain.Discussion;
@@ -65,11 +66,15 @@ public sealed class V2PostgresFixture : IAsyncLifetime
     public async Task<Book> NewReaderWithBookAsync() => await NewBookAsync(await NewReaderAsync());
 
     /// <summary>Another imported book, tagged "fiction", in the user's library; its file hashes to <paramref name="sha256"/> when given.</summary>
-    public Task<Book> NewBookAsync(Guid userId, string title = "A book", string? sha256 = null)
+    public async Task<Book> NewBookAsync(Guid userId, string title = "A book", string? sha256 = null)
     {
-        var book = new Book { Id = Guid.NewGuid(), UserId = userId, Title = title, Tags = ["fiction"] };
-        return new LibraryRepository(DataSource).ImportAsync(book, NewFile(userId, book.Id, sha256), Ct);
+        var book = new Book { Id = Guid.NewGuid(), Title = title, Tags = ["fiction"] };
+        return (await new LibraryRepository(DataSource).ImportAsync(userId, book, NewFile(userId, book.Id, sha256), Ct)).Book!;
     }
+
+    /// <summary>A new current file for the book, as a client that saw its current one replaces it.</summary>
+    public Task<FileReplacement> ReplaceFileAsync(Book book) =>
+        new LibraryRepository(DataSource).ReplaceFileAsync(book.UserId, book.Id, NewFile(book.UserId, book.Id), book.CurrentFile?.Id, null, Ct);
 
     /// <summary>
     /// One row of the user in every V2 table that can carry a user (two reading sessions: one of the
@@ -117,8 +122,8 @@ public sealed class V2PostgresFixture : IAsyncLifetime
             [new() { Id = Guid.NewGuid(), UserId = userId, BookInsightId = insight.Id, Prompt = "Why?", Answer = "Because.", PromptHash = "h1", NextReviewAt = DateTimeOffset.UtcNow }], Ct);
         await new BookChapterRepository(DataSource).InsertForFileAsync(userId, book.Id, file.Id,
             [new() { Id = Guid.NewGuid(), ChapterKey = "ch-1", ChapterNumber = 1, Title = "One", Html = "<p>x</p>", PlainText = "x" }], Ct);
-        // Sessions have no repository yet (M2.2). The job is inserted finished, not enqueued: a queued
-        // one would be claimable by the ingestion tests' ClaimNextAsync, which runs across users.
+        // The job is inserted finished, not enqueued: a queued one would be claimable by the ingestion
+        // tests' ClaimNextAsync, which runs across users.
         var now = DateTimeOffset.UtcNow;
         var sessions = new SessionTokenRepository(DataSource);
         await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), Ct);

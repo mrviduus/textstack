@@ -154,7 +154,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task AdvanceAsync_FileThatIsNotTheCurrentOne_Loses()
     {
         var (user, book, oldFile) = await ReaderWithBookAsync();
-        var newFile = (await _library.ReplaceFileAsync(user, book, V2PostgresFixture.NewFile(user, book), Ct))!.Current.Id;
+        var newFile = (await _library.ReplaceFileAsync(user, book, V2PostgresFixture.NewFile(user, book), oldFile, null, Ct)).Current!.Id;
 
         Assert.False((await _repo.AdvanceAsync(user, book, At(oldFile, 3), null, Ct)).Accepted);
         Assert.True((await _repo.AdvanceAsync(user, book, At(newFile, 3), null, Ct)).Accepted);
@@ -210,7 +210,10 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         finished.CompletedAt = DateTimeOffset.UtcNow;
         await _repo.AdvanceAsync(user, book, finished, null, Ct);
 
-        var reset = (await _repo.ResetAsync(user, book, Ct))!;
+        var result = await _repo.ResetAsync(user, book, 1, Ct);
+
+        Assert.True(result.Accepted);
+        var reset = result.Current!;
 
         Assert.Equal((2L, 2L, 0.8m, (decimal?)null, (string?)null, (DateTimeOffset?)null),
             (reset.Revision, reset.ResetRevision, reset.BookFraction, reset.FrontierFraction, reset.FrontierLocator, reset.CompletedAt));
@@ -221,11 +224,75 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task ResetAsync_NoState_ReturnsNull()
+    public async Task ResetAsync_NoState_LosesWithNoCurrent()
     {
         var (user, book, _) = await ReaderWithBookAsync();
 
-        Assert.Null(await _repo.ResetAsync(user, book, Ct));
+        var result = await _repo.ResetAsync(user, book, 1, Ct);
+
+        Assert.Equal((false, (ReadingState?)null), (result.Accepted, result.Current));
+    }
+
+    [Fact]
+    public async Task ResetAsync_StaleRevision_LosesAndKeepsTheFrontier()
+    {
+        var (user, book, file) = await ReaderWithBookAsync();
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+        await _repo.AdvanceAsync(user, book, At(file, 6), 1, Ct); // another device moved on
+
+        var replayed = await _repo.ResetAsync(user, book, 1, Ct);
+
+        Assert.False(replayed.Accepted);
+        Assert.Equal((2L, 0.6m, (long?)null), (replayed.Current!.Revision, replayed.Current.FrontierFraction, replayed.Current.ResetRevision));
+    }
+
+    [Fact]
+    public async Task DeleteForFileAsync_StateOfThatFile_DeletesIt()
+    {
+        var (user, book, file) = await ReaderWithBookAsync();
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+
+        Assert.True(await _repo.DeleteForFileAsync(user, book, file, null, Ct));
+        Assert.Null(await _repo.GetAsync(user, book, Ct));
+    }
+
+    [Fact]
+    public async Task DeleteForFileAsync_StateOfAnotherFile_KeepsIt()
+    {
+        var (user, book, file) = await ReaderWithBookAsync();
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+
+        Assert.False(await _repo.DeleteForFileAsync(user, book, Guid.NewGuid(), null, Ct));
+        Assert.NotNull(await _repo.GetAsync(user, book, Ct));
+    }
+
+    [Fact]
+    public async Task DeleteForFileAsync_InACallersTransactionRolledBack_KeepsTheState()
+    {
+        var (user, book, file) = await ReaderWithBookAsync();
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+
+        await using (var tx = await db.DataSource.BeginAsync(Ct))
+            Assert.True(await _repo.DeleteForFileAsync(user, book, file, tx.Transaction, Ct));
+
+        Assert.NotNull(await _repo.GetAsync(user, book, Ct));
+    }
+
+    [Fact]
+    public async Task ListChangedAsync_AfterACursor_ReturnsLaterStatesInUpdateOrder()
+    {
+        var (user, first, firstFile) = await ReaderWithBookAsync();
+        var second = await db.NewBookAsync(user);
+        await _repo.AdvanceAsync(user, first, At(firstFile, 3), null, Ct);
+        var older = (await _repo.AdvanceAsync(user, second.Id, At(second.CurrentFile!.Id, 3), null, Ct)).Current!;
+        await _repo.AdvanceAsync(user, first, At(firstFile, 4), 1, Ct);
+
+        var all = await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct);
+        var after = Assert.Single(await _repo.ListChangedAsync(user, older.UpdatedAt, older.BookId, 10, Ct));
+
+        Assert.Equal([second.Id, first], all.Select(s => s.BookId));
+        Assert.Equal((first, 2L), (after.BookId, after.Revision));
+        Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 1, Ct));
     }
 
     [Fact]
@@ -233,7 +300,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     {
         var (user, book, file) = await ReaderWithBookAsync();
         await _repo.AdvanceAsync(user, book, At(file, 8), null, Ct); // device A reads revision 1
-        await _repo.ResetAsync(user, book, Ct);                       // the reader restarts the book
+        await _repo.ResetAsync(user, book, 1, Ct);                    // the reader restarts the book
 
         var stale = await _repo.AdvanceAsync(user, book, At(file, 9), 1, Ct); // device A, still on revision 1
 
@@ -284,14 +351,37 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task ResetAsync_AlicesBookAsBob_ReturnsNullAndKeepsHerState()
+    public async Task ResetAsync_AlicesBookAsBob_LosesWithNoCurrentAndKeepsHerState()
     {
         var (alice, book, file) = await ReaderWithBookAsync();
         var bob = await db.NewReaderAsync();
         await _repo.AdvanceAsync(alice, book, At(file, 3), null, Ct);
 
-        Assert.Null(await _repo.ResetAsync(bob, book, Ct));
+        var result = await _repo.ResetAsync(bob, book, 1, Ct);
+
+        Assert.Equal((false, (ReadingState?)null), (result.Accepted, result.Current));
         var alices = (await _repo.GetAsync(alice, book, Ct))!;
         Assert.Equal((1L, 0.3m), (alices.Revision, alices.FrontierFraction));
+    }
+
+    [Fact]
+    public async Task DeleteForFileAsync_AlicesStateAsBob_ReturnsFalseAndKeepsIt()
+    {
+        var (alice, book, file) = await ReaderWithBookAsync();
+        var bob = await db.NewReaderAsync();
+        await _repo.AdvanceAsync(alice, book, At(file, 3), null, Ct);
+
+        Assert.False(await _repo.DeleteForFileAsync(bob, book, file, null, Ct));
+        Assert.NotNull(await _repo.GetAsync(alice, book, Ct));
+    }
+
+    [Fact]
+    public async Task ListChangedAsync_OtherUser_SeesNoneOfAlicesStates()
+    {
+        var (alice, book, file) = await ReaderWithBookAsync();
+        var bob = await db.NewReaderAsync();
+        await _repo.AdvanceAsync(alice, book, At(file, 3), null, Ct);
+
+        Assert.Empty(await _repo.ListChangedAsync(bob, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
     }
 }

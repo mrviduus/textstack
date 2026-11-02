@@ -530,8 +530,8 @@ their `server_storage_key` is cleared only once the bytes are gone (schema comme
 `GET /me/v2/{library|reading|annotations|vocabulary}/changes?cursor=&limit=` → `{ items, cursor, hasMore }`.
 
 - Rows ordered by `(updated_at, id)`, keyset-paged; tombstones included (`removedAt`, `deletedAt`).
-- The final page's `cursor` encodes `max(updated_at)`. A pull that **starts** from a stored cursor
-  reads from `cursor − 30 s`: a write transaction that took `now()` before a row the previous pull saw,
+- The cursor is the last row sent `(updated_at, id)`, or — on the final page, when that row is
+  younger — pull time − 30 s; a pull reads from exactly after it: a write transaction that took `now()` before a row the previous pull saw,
   but committed after it, is still delivered. A pulled row **always replaces** the client's cached
   server copy of that row (revision is a write count, not recency: reviews change a schedule without
   one, state restarts at 1 after a replacement, books have none); the client's unpushed outbox
@@ -544,7 +544,7 @@ their `server_storage_key` is cleared only once the bytes are gone (schema comme
 | Feed | Rows | Watermark |
 |---|---|---|
 | `library` | books incl. removed, each with `currentFile` | `books.updated_at` — bumped by **every** library write: import, replace, attach content, remove, restore, checkpoint-saving, metadata edit |
-| `reading` | `reading_state` rows | `reading_state.updated_at` |
+| `reading` | `reading_state` rows; a replacement deletes the row (rule 6) and the feed carries no tombstone for it: a client learns of it from the `library` feed's `currentFile` (and from `file_replaced` on its next write) | `reading_state.updated_at` |
 | `annotations` | annotations incl. tombstones | `annotations.updated_at` (bumped on delete) |
 | `vocabulary` | words incl. tombstones, each with its **live** examples | `vocabulary_words.updated_at`, bumped by every example add and review (M1.3 does; a re-save never changes an existing card) |
 
@@ -667,7 +667,7 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 | M2.2 | `PATCH /books/{bookId}` | `expectedRevision`, `title?`, `author?`, `language?`, `description?`, `genre?`, `publishedYear?`, `tags?` | 200 (revision + 1, bumps `updated_at`) · 409 `stale_revision` · 404 |
 | M2.6 | `PUT /books/{bookId}/cover` · `GET /books/{bookId}/cover` | image bytes (client-extracted; server checks size and format, never parses the EPUB) | 200 · 400 `invalid_payload` · 404 |
 | M2.6 | `DELETE /books/{bookId}/files/{fileId}/content` | — | 204: server bytes deleted, `content_removed_at` set, `hasContent=false`; rows, local copies and reading data untouched; no client uploads bytes for that file again on its own |
-| M2.2 | `PUT /books/{bookId}/files/{fileId}` | file + `replacesFileId` | 200 `{current, superseded}` · 409 `file_replaced` / `book_removed` / `id_conflict` · 404 |
+| M2.2 | `PUT /books/{bookId}/files/{fileId}` | `{replacesFileId, file:{…}}` (the import's file shape; the path's id wins) | 200 `{current, superseded}` · 409 `file_replaced` / `book_removed` / `id_conflict` · 404 |
 | M2.2 | `DELETE /books/{bookId}` · `POST /books/{bookId}/restore` | — | 204 (idempotent) · 404 |
 | M2.2 | `GET /reading/changes` · `GET /books/{bookId}/reading-state` | — | 200 · 404 |
 | M2.2 | `PUT /books/{bookId}/reading-state` | reading state | 200 state · 409 `stale_revision` / `reset` / `file_replaced` / `unknown_file` · 404 |
@@ -722,14 +722,16 @@ metadata import is M2.2's, only the bytes are M2.6's. #1067 (explicit V2 transac
    else a `FileReplaced` outcome; a removed book → `BookRemoved`.
 - **3.** `ReplaceFileAsync` replay: file id already current → return it (`Replayed`); exists, not current →
    a `FileReplaced` outcome instead of a PK exception.
-- **4.** `ILibraryRepository` gains `GetFileAsync(userId, bookId, fileId)` (classify `file_replaced` vs
+- **4.** **Done 2026-11-01** (M2.2), except the two marked: `ILibraryRepository` gains
+   `GetFileAsync(userId, bookId, fileId)` (classify `file_replaced` vs
    `unknown_file`), `AttachContentAsync(userId, bookId, fileId, storageKey)` (`WHERE is_current`, book
-   not removed), `SetCheckpointSavingAsync(userId, bookId, enabled)`, `UpdateMetadataAsync` (revision-guarded, owner decision 5),
+   not removed; **lands with M2.6**), `SetCheckpointSavingAsync(userId, bookId, enabled)` (**lands with
+   M2.4**), `UpdateMetadataAsync` (revision-guarded, owner decision 5),
    `ListChangedAsync(userId, since, afterId, limit)` (removed books included). **Every** library write
    bumps `books.updated_at` — attach and checkpoint-saving too, or `hasContent` never reaches other
    devices.
-- **5.** `IReadingStateRepository.ListChangedAsync(userId, since, afterId, limit)`; the replace-time delete
-   moves here with the shared transaction (#1067).
+- **5.** **Done 2026-11-01** (M2.2) — `IReadingStateRepository.ListChangedAsync(userId, since, afterId, limit)`;
+   the replace-time delete moves here with the shared transaction (#1067).
 
 ### M1.3 as merged (annotations, vocabulary) — what M2.2/M2.3 add
 

@@ -1,4 +1,5 @@
 using Application.Annotations;
+using Application.Common;
 using Application.Common.Interfaces;
 using Application.Discussion;
 using Application.Identity;
@@ -19,20 +20,24 @@ public class V2DataAccessRegistrationTests
     private const string Legacy = "Host=localhost;Database=legacy";
 
     [Fact]
-    public async Task AddTextStackDataAccess_NoV2ConnectionString_BuildsButResolvingNamesTheMissingKey()
+    public async Task AddTextStackDataAccess_NoV2ConnectionString_ResolvesAndTheFirstOpenNamesTheMissingKey()
     {
         await using var services = new ServiceCollection()
             .AddTextStackDataAccess(Legacy, null)
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 
-        Type[] v2Ports = [typeof(ILibraryRepository), typeof(IReadingStateRepository), typeof(IAnnotationRepository), typeof(IVocabularyRepository),
+        Type[] v2Ports = [typeof(IV2UnitOfWork), typeof(ILibraryRepository), typeof(IReadingStateRepository), typeof(IReadingSessionRepository),
+            typeof(IAnnotationRepository), typeof(IVocabularyRepository),
             typeof(ISharedChapterRepository), typeof(ICheckpointRepository),
             typeof(IBookInsightRepository), typeof(IReviewQuestionRepository),
             typeof(IUserRepository), typeof(ISessionTokenRepository), typeof(IOAuthRepository), typeof(IDeviceLoginRepository),
             typeof(IMcpKeyRepository), typeof(V2LlmTraceWriter), typeof(V2AgentRunWriter), typeof(IEvalRunRepository),
             typeof(IAdminSettingsRepository), typeof(IBookChapterRepository), typeof(IIngestionJobRepository)];
         foreach (var port in v2Ports)
-            Assert.Contains("ConnectionStrings:V2", Assert.Throws<InvalidOperationException>(() => services.GetRequiredService(port)).Message);
+            Assert.NotNull(services.GetRequiredService(port));
+        var open = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            services.GetRequiredService<V2DataSource>().OpenConnectionAsync(TestContext.Current.CancellationToken).AsTask());
+        Assert.Contains("ConnectionStrings:V2", open.Message);
         // The legacy insight port of the same name does not need V2.
         Assert.NotNull(services.GetRequiredService<IInsightRepository>());
     }
@@ -46,7 +51,9 @@ public class V2DataAccessRegistrationTests
             .BuildServiceProvider();
 
         Assert.NotNull(services.GetService<ILibraryRepository>());
+        Assert.NotNull(services.GetService<IV2UnitOfWork>());
         Assert.NotNull(services.GetService<IReadingStateRepository>());
+        Assert.NotNull(services.GetService<IReadingSessionRepository>());
         Assert.NotNull(services.GetService<IAnnotationRepository>());
         Assert.NotNull(services.GetService<IVocabularyRepository>());
         Assert.NotNull(services.GetService<ISharedChapterRepository>());

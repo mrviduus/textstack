@@ -1,5 +1,6 @@
 using Application.Common;
 using Domain.Reading;
+using Npgsql;
 
 namespace Application.Reading;
 
@@ -25,10 +26,23 @@ public interface IReadingStateRepository
         Guid userId, Guid bookId, ReadingState state, long? expectedRevision, CancellationToken ct);
 
     /// <summary>
-    /// The explicit way back to the start: forgets the frontier and completion, keeps the position,
-    /// and bumps the revision, so every other device's revision is now stale; the new revision is
-    /// also recorded as <see cref="ReadingState.ResetRevision"/>, so a stale writer can be told it lost
-    /// to a reset. Returns the new state (the caller's next expected revision); null when there was none.
+    /// The explicit way back to the start, guarded like a write (M1.2 delta 2a): forgets the frontier
+    /// and completion, keeps the position, and bumps the revision, so every other device's revision is
+    /// now stale; the new revision is also recorded as <see cref="ReadingState.ResetRevision"/>, so a
+    /// stale writer can be told it lost to a reset. A stale reset loses and carries the stored state
+    /// (null when there is none).
     /// </summary>
-    Task<ReadingState?> ResetAsync(Guid userId, Guid bookId, CancellationToken ct);
+    Task<RevisionedWrite<ReadingState>> ResetAsync(Guid userId, Guid bookId, long expectedRevision, CancellationToken ct);
+
+    /// <summary>
+    /// Deletes the state taken in <paramref name="fileId"/>, whose locators mean nothing in another
+    /// version. Runs in <paramref name="tx"/> when given, else on its own. False when there was none.
+    /// </summary>
+    Task<bool> DeleteForFileAsync(Guid userId, Guid bookId, Guid fileId, NpgsqlTransaction? tx, CancellationToken ct);
+
+    /// <summary>
+    /// The user's states changed after <c>(since, afterBookId)</c>, ordered by <c>(updated_at, book_id)</c>:
+    /// one page of the reading feed.
+    /// </summary>
+    Task<IReadOnlyList<ReadingState>> ListChangedAsync(Guid userId, DateTimeOffset since, Guid afterBookId, int limit, CancellationToken ct);
 }
