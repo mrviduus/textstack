@@ -124,6 +124,25 @@ public sealed class V2ApiFixture : IAsyncLifetime
         return new V2Response(response.StatusCode, text.Length == 0 ? default : JsonSerializer.Deserialize<JsonElement>(text));
     }
 
+    /// <summary>A request with a raw body (bytes routes); <paramref name="configure"/> sets its headers. The caller disposes the answer.</summary>
+    public async Task<HttpResponseMessage> SendRawAsync(V2Session who, HttpMethod method, string path, HttpContent? content = null, Action<HttpRequestMessage>? configure = null)
+    {
+        using var request = Request(method, path, who);
+        request.Content = content;
+        configure?.Invoke(request);
+        return await _client.SendAsync(request, TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>Imports a new book whose one file is exactly <paramref name="bytes"/> (its sha256 and size); returns its ids.</summary>
+    public async Task<(Guid Book, Guid File)> ImportBytesAsync(V2Session who, byte[] bytes, string format = "epub")
+    {
+        var (bookId, fileId) = (Guid.NewGuid(), Guid.NewGuid());
+        var file = new { id = fileId, sha256 = Convert.ToHexStringLower(SHA256.HashData(bytes)), byteSize = bytes.Length, originalName = "book." + format, format };
+        var created = await SendAsync(who, HttpMethod.Put, $"/me/v2/books/{bookId}", new { title = "Bytes", file });
+        Assert.Equal(HttpStatusCode.Created, created.Status);
+        return (bookId, fileId);
+    }
+
     public static string NewSha256() => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Guid.NewGuid().ToString())));
 
     public static object File(Guid id, string? sha256 = null) =>
