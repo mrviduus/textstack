@@ -79,6 +79,7 @@ public static class DataSource
             .AddSingleton<IReadingSessionRepository, ReadingSessionRepository>()
             .AddSingleton<IAnnotationRepository, AnnotationRepository>()
             .AddSingleton<IVocabularyRepository, VocabularyRepository>()
+            .AddSingleton<IVocabularyFeedRepository, VocabularyFeedRepository>()
             .AddSingleton<ISharedChapterRepository, SharedChapterRepository>()
             .AddSingleton<ICheckpointRepository, CheckpointRepository>()
             .AddSingleton<IBookInsightRepository, BookInsightRepository>()

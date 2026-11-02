@@ -247,8 +247,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         var updated = (await _repo.UpdateWordAsync(card.UserId, card.Id, "колчан", null, 1, Ct)).Current!;
         await _repo.DeleteWordAsync(card.UserId, card.Id, Ct);
         var deleted = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
-        await _repo.RestoreWordAsync(card.UserId, card.Id, Ct);
-        var restored = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
+        var restored = (await _repo.RestoreWordAsync(card.UserId, card.Id, deleted.Revision, Ct)).Current!;
 
         Assert.True(updated.UpdatedAt > card.UpdatedAt, "update");
         Assert.True(deleted.UpdatedAt > updated.UpdatedAt, "delete");
@@ -268,16 +267,28 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task RestoreWordAsync_DeletedCard_BringsItBackOnceAndBumpsTheRevision()
+    public async Task RestoreWordAsync_DeletedCardAtItsRevision_BringsItBackOnceAndBumpsTheRevision()
     {
         var card = await SavedWordAsync();
         await _repo.DeleteWordAsync(card.UserId, card.Id, Ct);
 
-        Assert.True(await _repo.RestoreWordAsync(card.UserId, card.Id, Ct));
-        Assert.False(await _repo.RestoreWordAsync(card.UserId, card.Id, Ct));
+        var restored = await _repo.RestoreWordAsync(card.UserId, card.Id, 2, Ct);
+        var again = await _repo.RestoreWordAsync(card.UserId, card.Id, 3, Ct); // live now: nothing to restore
 
-        var read = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
-        Assert.Equal((3L, (DateTimeOffset?)null), (read.Revision, read.DeletedAt));
+        Assert.Equal((true, 3L, (DateTimeOffset?)null), (restored.Accepted, restored.Current!.Revision, restored.Current.DeletedAt));
+        Assert.Equal((false, 3L), (again.Accepted, again.Current!.Revision));
+    }
+
+    [Fact]
+    public async Task RestoreWordAsync_StaleRevision_LosesAndReturnsTheTombstone()
+    {
+        var card = await SavedWordAsync();
+        await _repo.DeleteWordAsync(card.UserId, card.Id, Ct);
+
+        var stale = await _repo.RestoreWordAsync(card.UserId, card.Id, 1, Ct);
+
+        Assert.Equal((false, 2L), (stale.Accepted, stale.Current!.Revision));
+        Assert.NotNull((await _repo.GetWordAsync(card.UserId, card.Id, Ct))!.DeletedAt);
     }
 
     [Fact]
@@ -524,39 +535,19 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         Assert.Equal(Noon, (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!.LastReviewedAt);
     }
 
+    // Owner decision 1: a mastered word is retired, not deleted, and other devices see it by revision.
     [Fact]
-    public async Task ListDueAsync_MixedCards_ReturnsLiveUnretiredDueCardsEarliestFirstUpToTheLimit()
+    public async Task RecordReviewAsync_ScheduleThatRetires_SetsRetiredAtAndBumpsTheRevisionOnce()
     {
-        var user = await db.NewReaderAsync();
-        // Due times are the server's to set; the test pins them directly.
-        async Task<VocabularyWord> CardDueAtAsync(string key, DateTimeOffset due)
-        {
-            var card = await SavedWordAsync(user, key: key);
-            await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
-            await conn.ExecuteAsync(new CommandDefinition(
-                "UPDATE vocabulary_words SET next_review_at = @due WHERE id = @Id", new { card.Id, due }, cancellationToken: Ct));
-            return card;
-        }
-        var later = await CardDueAtAsync("later", Noon.AddHours(-1));
-        var earlier = await CardDueAtAsync("earlier", Noon.AddHours(-2));
-        await CardDueAtAsync("future", Noon.AddHours(1));
-        var deleted = await CardDueAtAsync("deleted", Noon.AddHours(-3));
-        await _repo.DeleteWordAsync(user, deleted.Id, Ct);
-        // A mastered card is retired, not deleted (owner decision 1); nothing retires one yet (M2.3).
-        var retired = await CardDueAtAsync("retired", Noon.AddHours(-4));
-        await using (var conn = await db.DataSource.OpenConnectionAsync(Ct))
-            await conn.ExecuteAsync(new CommandDefinition(
-                "UPDATE vocabulary_words SET retired_at = now() WHERE id = @Id", new { retired.Id }, cancellationToken: Ct));
+        var card = await SavedWordAsync();
 
-        Assert.Equal([earlier.Id, later.Id], (await _repo.ListDueAsync(user, Noon, 10, Ct)).Select(w => w.Id));
-        Assert.Equal([earlier.Id], (await _repo.ListDueAsync(user, Noon, 1, Ct)).Select(w => w.Id));
-        Assert.NotNull((await _repo.GetWordAsync(user, retired.Id, Ct))!.RetiredAt);
-    }
+        await _repo.RecordReviewAsync(card.UserId, Review(card), c => new ReviewSchedule(c.Stage + 1, 1m, 0, Retire: true), Ct);
+        var retired = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
+        await ReviewAsync(card);
+        var reviewedAgain = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
 
-    [Fact]
-    public async Task ListDueAsync_LimitOfZero_Throws()
-    {
-        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _repo.ListDueAsync(Guid.NewGuid(), Noon, 0, Ct));
+        Assert.Equal((2L, retired.UpdatedAt, (DateTimeOffset?)null), (retired.Revision, retired.RetiredAt!.Value, retired.DeletedAt));
+        Assert.Equal((2L, retired.RetiredAt), (reviewedAgain.Revision, reviewedAgain.RetiredAt));
     }
 
     // Owner isolation, one test per method: bob, holding alice's ids, never reads, changes or deletes her rows.
@@ -599,13 +590,15 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task RestoreWordAsync_AlicesDeletedCardAsBob_ReturnsFalseAndKeepsItDeleted()
+    public async Task RestoreWordAsync_AlicesDeletedCardAsBob_LosesWithNoCardAndKeepsItDeleted()
     {
         var alices = await SavedWordAsync();
         var bob = await db.NewReaderAsync();
         await _repo.DeleteWordAsync(alices.UserId, alices.Id, Ct);
 
-        Assert.False(await _repo.RestoreWordAsync(bob, alices.Id, Ct));
+        var result = await _repo.RestoreWordAsync(bob, alices.Id, 2, Ct);
+
+        Assert.Equal((false, (VocabularyWord?)null), (result.Accepted, result.Current));
         Assert.NotNull((await _repo.GetWordAsync(alices.UserId, alices.Id, Ct))!.DeletedAt);
     }
 
@@ -691,14 +684,5 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal(WriteOutcome.Created, created.Outcome);
         Assert.Equal((WriteOutcome.Replayed, created.Row!.Id), (retry.Outcome, retry.Row!.Id));
-    }
-
-    [Fact]
-    public async Task ListDueAsync_AlicesDueCardsAsBob_ReturnsEmpty()
-    {
-        await SavedWordAsync(); // due at creation
-        var bob = await db.NewReaderAsync();
-
-        Assert.Empty(await _repo.ListDueAsync(bob, DateTimeOffset.UtcNow.AddMinutes(1), 10, Ct));
     }
 }

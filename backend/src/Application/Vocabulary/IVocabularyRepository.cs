@@ -42,8 +42,13 @@ public interface IVocabularyRepository
     /// <summary>Soft-deletes the card (sets <c>deleted_at</c>, bumps the revision); false when not the user's or already deleted.</summary>
     Task<bool> DeleteWordAsync(Guid userId, Guid wordId, CancellationToken ct);
 
-    /// <summary>Brings a deleted card back, schedule and examples intact; false when not the user's or not deleted.</summary>
-    Task<bool> RestoreWordAsync(Guid userId, Guid wordId, CancellationToken ct);
+    /// <summary>
+    /// Brings a deleted card back, schedule and examples intact. Guarded like <see cref="UpdateWordAsync"/>
+    /// (v2-sync-protocol.md, M1.3 delta 7): a stale <paramref name="expectedRevision"/>, or a card that
+    /// is not deleted, loses and the result carries the stored card without its examples (null when
+    /// not the user's).
+    /// </summary>
+    Task<RevisionedWrite<VocabularyWord>> RestoreWordAsync(Guid userId, Guid wordId, long expectedRevision, CancellationToken ct);
 
     /// <summary>One of the user's cards, deleted or not, with its examples; null when not the user's.</summary>
     Task<VocabularyWord?> GetWordAsync(Guid userId, Guid wordId, CancellationToken ct);
@@ -64,15 +69,14 @@ public interface IVocabularyRepository
     /// computes the next schedule from the card's current row; the review stores the card's stage
     /// before and the schedule's stage after (set on <paramref name="review"/>), and the card moves to
     /// the schedule, due at the server's time plus the interval. Two answers in flight on one card
-    /// therefore apply one after the other. <paramref name="schedule"/> must be pure: it may run on a
+    /// therefore apply one after the other. A schedule that retires the card sets <c>retired_at</c> and
+    /// bumps its revision in the same statement (owner decision 1: a retire is not a delete, but other
+    /// devices must see it). <paramref name="schedule"/> must be pure: it may run on a
     /// replay or a conflict on a live card, and its result is then discarded. A replay, a conflict, a
     /// deleted or a missing card changes nothing; the last two never call it.
     /// </summary>
     Task<WriteResult<VocabularyReview>> RecordReviewAsync(
         Guid userId, VocabularyReview review, Func<VocabularyWord, ReviewSchedule> schedule, CancellationToken ct);
-
-    /// <summary>The user's cards that are not deleted and are due at <paramref name="now"/>, earliest first, at most <paramref name="limit"/>.</summary>
-    Task<IReadOnlyList<VocabularyWord>> ListDueAsync(Guid userId, DateTimeOffset now, int limit, CancellationToken ct);
 }
 
 /// <summary>What <see cref="IVocabularyRepository.SaveWordAsync"/> found under the word's key.</summary>
@@ -94,5 +98,8 @@ public enum WordSaveOutcome
 /// <summary>The stored card, its examples not loaded; null only for <see cref="WordSaveOutcome.IdConflict"/>.</summary>
 public sealed record SavedWord(WordSaveOutcome Outcome, VocabularyWord? Word);
 
-/// <summary>A card's schedule after an answer, as the SRS engine computes it; the due time follows from the interval.</summary>
-public sealed record ReviewSchedule(int Stage, decimal IntervalDays, int ConsecutiveCorrect);
+/// <summary>
+/// A card's schedule after an answer, as the SRS engine computes it; the due time follows from the
+/// interval. <see cref="Retire"/>: the answer mastered the card, so it leaves the review queue.
+/// </summary>
+public sealed record ReviewSchedule(int Stage, decimal IntervalDays, int ConsecutiveCorrect, bool Retire = false);
