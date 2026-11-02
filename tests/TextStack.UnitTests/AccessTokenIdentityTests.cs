@@ -21,44 +21,19 @@ namespace TextStack.UnitTests;
 /// </summary>
 public class AccessTokenIdentityTests
 {
-    private const string Secret = "a-test-signing-key-long-enough-for-hmac-sha256-abcdefgh";
+    private const string Secret = TestTokens.Secret;
     private const string OtherSecret = "a-DIFFERENT-signing-key-long-enough-for-hmac-sha256-xyz";
-    private const string Issuer = "textstack.app";
+    private const string Issuer = TestTokens.Issuer;
 
     private static AuthService Service() => new(
         db: null!,
         jwtSettings: Options.Create(new JwtSettings { SecretKey = Secret, Issuer = Issuer }),
         googleSettings: Options.Create(new GoogleSettings { ClientId = "unused.apps.googleusercontent.com" }));
 
-    /// <summary>Mints a token the same shape <c>AuthService.GenerateAccessToken</c> does.</summary>
     private static string Token(
-        Guid? userId,
-        bool guestClaim,
-        string? guestClaimValue = "true",
-        string issuer = Issuer,
-        string secret = Secret,
-        int expiresInMinutes = 60,
-        string? audience = JwtSettings.UserAudience,
-        string algorithm = SecurityAlgorithms.HmacSha256)
-    {
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.Email, "reader@example.test"),
-            new(ClaimTypes.Name, "Reader"),
-        };
-        if (userId is { } id) claims.Insert(0, new Claim(ClaimTypes.NameIdentifier, id.ToString()));
-        if (guestClaim) claims.Add(new Claim(AuthService.GuestClaimType, guestClaimValue!));
-
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
-        var token = new JwtSecurityToken(
-            issuer: issuer,
-            audience: audience,
-            claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(expiresInMinutes),
-            signingCredentials: new SigningCredentials(key, algorithm));
-
-        return new JwtSecurityTokenHandler().WriteToken(token);
-    }
+        Guid? userId, bool guestClaim, string? guestClaimValue = "true", string issuer = Issuer, string secret = Secret,
+        int expiresInMinutes = 60, string? audience = JwtSettings.UserAudience, string algorithm = SecurityAlgorithms.HmacSha256) =>
+        TestTokens.Token(userId, guestClaim, guestClaimValue, issuer, secret, expiresInMinutes, audience, algorithm);
 
     [Fact]
     public void ValidateAccessTokenIdentity_GuestToken_ReportsTheUserAndTheGuestFlag()

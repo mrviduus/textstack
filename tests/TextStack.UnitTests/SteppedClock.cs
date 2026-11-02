@@ -1,4 +1,4 @@
-namespace TextStack.UnitTests.V2;
+namespace TextStack.UnitTests;
 
 /// <summary>A clock a test moves by hand.</summary>
 internal sealed class SteppedClock : TimeProvider
