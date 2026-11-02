@@ -33,6 +33,7 @@ public class V2LibraryEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         Assert.False(created.Body.TryGetProperty("origin", out _));
         Assert.Equal((HttpStatusCode.OK, bookId), (replay.Status, replay.Body.GetProperty("id").GetGuid()));
         Assert.Equal((HttpStatusCode.Conflict, "duplicate_file", bookId), (duplicate.Status, duplicate.Code, duplicate.Body.GetProperty("current").GetProperty("id").GetGuid()));
+        Assert.Equal(1L, duplicate.Body.GetProperty("revision").GetInt64());
     }
 
     [Fact]
@@ -125,7 +126,9 @@ public class V2LibraryEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         Assert.Equal(HttpStatusCode.NoContent, (await v2.SendAsync(v2.Alice, HttpMethod.Delete, $"/me/v2/books/{bookId}")).Status);
         var replace = await v2.SendAsync(v2.Alice, HttpMethod.Put, $"/me/v2/books/{bookId}/files/{Guid.NewGuid()}",
             new { replacesFileId = fileId, sha256 = NewSha256(), byteSize = 1, originalName = "v2.epub", format = "epub" });
-        Assert.Equal((HttpStatusCode.Conflict, "book_removed"), (replace.Status, replace.Code));
+        Assert.Equal((HttpStatusCode.Conflict, "book_removed", 1L), (replace.Status, replace.Code, replace.Body.GetProperty("revision").GetInt64()));
+        var patch = await v2.SendAsync(v2.Alice, HttpMethod.Patch, $"/me/v2/books/{bookId}", new { expectedRevision = 1, title = "Renamed while removed" });
+        Assert.Equal((HttpStatusCode.Conflict, "book_removed"), (patch.Status, patch.Code));
         Assert.Equal(HttpStatusCode.NoContent, (await v2.SendAsync(v2.Alice, HttpMethod.Post, $"/me/v2/books/{bookId}/restore")).Status);
         Assert.Equal(HttpStatusCode.NoContent, (await v2.SendAsync(v2.Alice, HttpMethod.Post, $"/me/v2/books/{bookId}/restore")).Status);
     }

@@ -48,7 +48,7 @@ public sealed class ReadingSyncService(ILibraryRepository library, IReadingState
         var current = book.CurrentFile;
         if (fileId != current?.Id)
             return await library.GetFileAsync(userId, bookId, fileId, ct) is null
-                ? SyncResult.Fail(new V2Error(SyncCodes.UnknownFile, "Push the file version before its state.", FileId: current?.Id, CurrentFile: current?.ToDto()))
+                ? SyncResult.Fail(new V2Error(SyncCodes.UnknownFile, "Push the file version before its state."))
                 : SyncResult.Fail(new V2Error(SyncCodes.FileReplaced, "This book's file was replaced.", stored?.Revision, stored?.ToDto(), current?.Id, current?.ToDto()));
         // A first writer had no frontier to lose, so a reset is news only to a writer that read an older revision.
         var code = expectedRevision is not null && stored?.ResetRevision > expectedRevision ? SyncCodes.Reset : SyncCodes.StaleRevision;

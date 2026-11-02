@@ -126,7 +126,7 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
             UPDATE books SET
                 title = @Title, author = @Author, language = @Language, description = @Description, genre = @Genre,
                 published_year = @PublishedYear, tags = @Tags, revision = revision + 1, updated_at = now()
-            WHERE user_id = @userId AND id = @bookId AND revision = @expectedRevision
+            WHERE user_id = @userId AND id = @bookId AND revision = @expectedRevision AND removed_at IS NULL
             RETURNING {BookColumns}
         )
         {BookWithCurrentFile}
@@ -171,12 +171,13 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
         var conn = unit.Connection;
         var removed = await conn.QuerySingleOrDefaultAsync<bool?>(new CommandDefinition(LockBook, args, unit.Transaction, cancellationToken: ct));
         if (removed is null) return new(FileReplaceOutcome.NotFound);
-        if (removed.Value) return new(FileReplaceOutcome.BookRemoved);
         var current = await conn.QuerySingleOrDefaultAsync<BookFile>(new CommandDefinition(SelectCurrentFile, args, unit.Transaction, cancellationToken: ct));
+        // A replay first: the write it repeats landed, so it answers 200 even after the book was removed (M1.2 delta 3).
+        if (current?.Id == file.Id) return new(FileReplaceOutcome.Replayed, current);
+        if (removed.Value) return new(FileReplaceOutcome.BookRemoved);
         var isThisBooks = await conn.QuerySingleOrDefaultAsync<bool?>(new CommandDefinition(SelectFileIsThisBooks, args, unit.Transaction, cancellationToken: ct));
         if (isThisBooks == false) return new(FileReplaceOutcome.IdConflict);
-        if (isThisBooks == true)
-            return current?.Id == file.Id ? new(FileReplaceOutcome.Replayed, current) : new(FileReplaceOutcome.FileReplaced, current);
+        if (isThisBooks == true) return new(FileReplaceOutcome.FileReplaced, current);
         if (current?.Id != replacesFileId) return new(FileReplaceOutcome.FileReplaced, current);
 
         var superseded = await conn.QuerySingleOrDefaultAsync<BookFile>(new CommandDefinition(SupersedeCurrentFile, args, unit.Transaction, cancellationToken: ct));

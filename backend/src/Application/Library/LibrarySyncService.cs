@@ -42,7 +42,7 @@ public sealed class LibrarySyncService(ILibraryRepository library, IReadingState
             ImportOutcome.Created => SyncResult.Created(result.Book!.ToDto()),
             ImportOutcome.Replayed => SyncResult.Ok(result.Book!.ToDto()),
             ImportOutcome.DuplicateFile => SyncResult.Fail(new V2Error(
-                SyncCodes.DuplicateFile, "A book with these bytes is already in the library.", Current: result.Book!.ToDto())),
+                SyncCodes.DuplicateFile, "A book with these bytes is already in the library.", result.Book!.Revision, result.Book.ToDto())),
             _ => SyncResult.Fail(new V2Error(SyncCodes.IdConflict, "Mint a new id and retry.")),
         };
     }
@@ -52,13 +52,23 @@ public sealed class LibrarySyncService(ILibraryRepository library, IReadingState
         if (Required(r.ExpectedRevision, "expectedRevision") is { } missing) return missing;
         var book = await library.GetAsync(userId, bookId, ct);
         if (book is null) return SyncResult.BookNotFound();
+        if (book.RemovedAt is not null) return BookRemoved(book);
         if (!TryMerge(book, r, out var metadata, out var invalid)) return invalid!;
 
         var result = await library.UpdateMetadataAsync(userId, bookId, metadata, r.ExpectedRevision!.Value, ct);
-        return result.Accepted
-            ? SyncResult.Ok(result.Current!.ToDto())
-            : SyncResult.Fail(new V2Error(SyncCodes.StaleRevision, "Another device edited this book.", result.Current!.Revision, result.Current.ToDto()));
+        return result switch
+        {
+            { Accepted: true } => SyncResult.Ok(result.Current!.ToDto()),
+            // The book went between the read and the update (an account delete).
+            { Current: null } => SyncResult.BookNotFound(),
+            // Removed in between: the update's guard refused it.
+            { Current.RemovedAt: not null } => BookRemoved(result.Current),
+            _ => SyncResult.Fail(new V2Error(SyncCodes.StaleRevision, "Another device edited this book.", result.Current.Revision, result.Current.ToDto())),
+        };
     }
+
+    private static SyncResult BookRemoved(Book book) =>
+        SyncResult.Fail(new V2Error(SyncCodes.BookRemoved, "Restore the book first.", book.Revision, book.ToDto()));
 
     // Merge-patch: an absent member keeps the stored value, null clears it (the title cannot be cleared).
     private static bool TryMerge(Book stored, PatchBookRequest r, out BookMetadata metadata, out SyncResult? invalid)
@@ -104,8 +114,7 @@ public sealed class LibrarySyncService(ILibraryRepository library, IReadingState
                 SyncResult.Ok(new FileReplacementDto(result.Current!.ToDto(), result.Superseded?.ToDto())),
             FileReplaceOutcome.FileReplaced => SyncResult.Fail(new V2Error(
                 SyncCodes.FileReplaced, "This book's file was replaced.", FileId: result.Current?.Id, CurrentFile: result.Current?.ToDto())),
-            FileReplaceOutcome.BookRemoved => SyncResult.Fail(new V2Error(
-                SyncCodes.BookRemoved, "Restore the book first.", Current: (await library.GetAsync(userId, bookId, ct))?.ToDto())),
+            FileReplaceOutcome.BookRemoved => await library.GetAsync(userId, bookId, ct) is { } removed ? BookRemoved(removed) : SyncResult.BookNotFound(),
             FileReplaceOutcome.IdConflict => SyncResult.Fail(new V2Error(SyncCodes.IdConflict, "Mint a new id and retry.")),
             _ => SyncResult.BookNotFound(),
         };

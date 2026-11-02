@@ -104,7 +104,9 @@ public class ReadingSyncServiceTests
 
         var result = await Service.WriteAsync(User, BookId, Write(Guid.NewGuid(), null), Ct);
 
-        Assert.Equal((SyncStatus.Conflict, SyncCodes.UnknownFile), (result.Status, Error(result).Code));
+        // The PDD's example body: no file to point at.
+        var error = Error(result);
+        Assert.Equal((SyncStatus.Conflict, SyncCodes.UnknownFile, (Guid?)null, (BookFileDto?)null), (result.Status, error.Code, error.FileId, error.CurrentFile));
     }
 
     [Fact]

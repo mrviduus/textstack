@@ -391,6 +391,32 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ReplaceFileAsync_ReplayOnABookRemovedSince_IsReplayed()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var file = NewFile(book.UserId, book.Id);
+        await _repo.ReplaceFileAsync(book.UserId, book.Id, file, book.CurrentFile!.Id, null, Ct);
+        await _repo.RemoveAsync(book.UserId, book.Id, Ct);
+
+        var replay = await _repo.ReplaceFileAsync(book.UserId, book.Id, file, book.CurrentFile.Id, null, Ct);
+
+        Assert.Equal((FileReplaceOutcome.Replayed, file.Id), (replay.Outcome, replay.Current!.Id));
+    }
+
+    [Fact]
+    public async Task UpdateMetadataAsync_RemovedBook_LosesWithTheRemovedBook()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        await _repo.RemoveAsync(book.UserId, book.Id, Ct);
+
+        var result = await _repo.UpdateMetadataAsync(book.UserId, book.Id, Metadata("Renamed"), 1, Ct);
+
+        Assert.False(result.Accepted);
+        Assert.Equal(("A book", 1L), (result.Current!.Title, result.Current.Revision));
+        Assert.NotNull(result.Current.RemovedAt);
+    }
+
+    [Fact]
     public async Task ReplaceFileAsync_InACallersTransactionRolledBack_ChangesNothing()
     {
         var book = await db.NewReaderWithBookAsync();
