@@ -87,7 +87,9 @@ preserved set: `user_chapters`, 131 MB), so moving it in one event costs minutes
 - Two connection strings, two data sources, two migrators and two ledgers for months (M1–M6).
   `/health/ready` and `health-check.yml` must report both schemas; `backup.yml`, the pre-deploy dump
   in `deploy.yml`, `make backup` and `restore-drill.yml` dump only the legacy database today and must
-  cover `textstack_v2` before it holds anything worth keeping.
+  cover `textstack_v2` before it holds anything worth keeping. *Done 2026-11-02 (#1043): all four dump
+  it, `health-check.yml` asserts its readiness when the flag is on, `make migrate-v2-drop` is the
+  baseline's rollback.*
 - `migrate.sh` connects to `PGDATABASE`; it does not create it. `migrator-v2` needs a `CREATE
   DATABASE` step against the maintenance database (idempotent), decided in M1.1. On the production
   cluster that step cannot succeed at all until `template1`'s collation version is repaired
