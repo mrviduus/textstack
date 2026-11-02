@@ -180,10 +180,7 @@ public sealed partial class TextStackApiClient
     public async Task<ApiResult<JsonElement>> SaveWordAsync(SaveWordJson word, Guid? operationId, CancellationToken ct)
     {
         if (_v2) return await SaveV2WordAsync(word, operationId!.Value, ct);
-        using var request = await AuthorizedRequestAsync(HttpMethod.Post, "/me/vocabulary/words", ct);
-        request.Content = JsonContent.Create(word, options: JsonOptions);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        return await ReadResultAsync(response, ct);
+        return await SendAsync(HttpMethod.Post, "/me/vocabulary/words", word, ct);
     }
 
     /// <summary><c>PATCH /me/vocabulary/words/{id}</c>. A null field is left unchanged.</summary>
@@ -191,16 +188,18 @@ public sealed partial class TextStackApiClient
         Guid id, string? translation, string? definition, CancellationToken ct)
     {
         if (_v2) return await UpdateV2WordAsync(id, translation, definition, ct);
-        using var request = await AuthorizedRequestAsync(HttpMethod.Patch, $"/me/vocabulary/words/{id}", ct);
-        request.Content = JsonContent.Create(new UpdateWordJson(translation, definition), options: JsonOptions);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        return await ReadResultAsync(response, ct);
+        return await SendAsync(HttpMethod.Patch, $"/me/vocabulary/words/{id}", new UpdateWordJson(translation, definition), ct);
     }
 
     /// <summary><c>DELETE /me/vocabulary/words/{id}</c>. 204 → success (V2: 200, the tombstone).</summary>
-    public async Task<ApiResult<JsonElement>> DeleteWordAsync(Guid id, CancellationToken ct)
+    public Task<ApiResult<JsonElement>> DeleteWordAsync(Guid id, CancellationToken ct) =>
+        SendAsync<object>(HttpMethod.Delete, (_v2 ? "/me/v2" : "/me") + $"/vocabulary/words/{id}", null, ct);
+
+    /// <summary>One authorized JSON request (a body when given), answered by <see cref="ReadResultAsync"/>.</summary>
+    private async Task<ApiResult<JsonElement>> SendAsync<T>(HttpMethod method, string url, T? body, CancellationToken ct)
     {
-        using var request = await AuthorizedRequestAsync(HttpMethod.Delete, (_v2 ? "/me/v2" : "/me") + $"/vocabulary/words/{id}", ct);
+        using var request = await AuthorizedRequestAsync(method, url, ct);
+        if (body is not null) request.Content = JsonContent.Create(body, options: JsonOptions);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         return await ReadResultAsync(response, ct);
     }

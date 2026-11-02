@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -34,11 +32,9 @@ public sealed partial class TextStackApiClient
         do
         {
             var url = $"/me/v2/vocabulary/changes?limit={V2FeedPage}" + (cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}");
-            using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
-            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             // Never "no words" for a page that did not come: a refusal is the tool's error, with the server's message.
-            var result = await ReadResultAsync(response, ct);
-            if (result.Error is { } refused) return new(null, refused, result.Status);
+            var result = await SendAsync<object>(HttpMethod.Get, url, null, ct);
+            if (result.Error is { } refused) return new(null, refused, result.Status, result.Code);
             var page = result.Value.Deserialize<ChangeFeedDto<VocabularyWordDto>>(JsonOptions)
                 ?? throw new JsonException("vocabulary feed page was empty");
             cards.AddRange(page.Items);
@@ -74,11 +70,8 @@ public sealed partial class TextStackApiClient
         var example = string.IsNullOrWhiteSpace(word.Sentence)
             ? null
             : new VocabularyExampleRequest(id, word.Sentence, null, null, null, null, word.BookTitle);
-        using var request = await AuthorizedRequestAsync(HttpMethod.Put, "/me/v2/vocabulary/words", ct);
-        request.Content = JsonContent.Create(
-            new SaveVocabularyWordRequest(id, word.Language, word.Word, word.Translation, word.Definition, example), options: JsonOptions);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        var result = await ReadResultAsync(response, ct);
+        var result = await SendAsync(HttpMethod.Put, "/me/v2/vocabulary/words",
+            new SaveVocabularyWordRequest(id, word.Language, word.Word, word.Translation, word.Definition, example), ct);
         if (result.Error is not null) return result;
 
         var card = result.Value.Deserialize<VocabularyWordDto>(JsonOptions)!;
@@ -101,16 +94,10 @@ public sealed partial class TextStackApiClient
     private async Task<ApiResult<JsonElement>> UpdateV2WordAsync(Guid id, string? translation, string? definition, CancellationToken ct)
     {
         var path = $"/me/v2/vocabulary/words/{id}";
-        using var read = await AuthorizedRequestAsync(HttpMethod.Get, path, ct);
-        using var readResponse = await _http.SendAsync(read, HttpCompletionOption.ResponseHeadersRead, ct);
-        var card = await ReadResultAsync(readResponse, ct);
+        var card = await SendAsync<object>(HttpMethod.Get, path, null, ct);
         if (card.Error is not null) return card;
-
-        using var request = await AuthorizedRequestAsync(HttpMethod.Patch, path, ct);
-        request.Content = JsonContent.Create(
-            new V2PatchWordJson(card.Value.Deserialize<VocabularyWordDto>(JsonOptions)!.Revision, translation, definition), options: JsonOptions);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        return await ReadResultAsync(response, ct);
+        return await SendAsync(HttpMethod.Patch, path,
+            new V2PatchWordJson(card.Value.Deserialize<VocabularyWordDto>(JsonOptions)!.Revision, translation, definition), ct);
     }
 }
 
