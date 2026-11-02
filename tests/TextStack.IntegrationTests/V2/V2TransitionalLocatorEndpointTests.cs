@@ -81,15 +81,25 @@ public class V2TransitionalLocatorEndpointTests(V2ApiFixture v2) : IClassFixture
     }
 
     [Fact]
-    public async Task Writes_LegacyLocatorsOnAFileWithNoChapters_AreChapterNotFound()
+    public async Task PutState_LegacyPositionOnAFileWithNoChapters_IsChapterNotFound()
     {
         v2.Require();
         var (book, file, _) = await v2.ImportAsync(v2.Alice); // imported, never uploaded: nothing extracted
 
         var state = await v2.WriteStateAsync(v2.Alice, book, State(file, null, TextPosition("1-one"), 0.1m));
+
+        Assert.Equal((HttpStatusCode.Conflict, "chapter_not_found"), (state.Status, state.Code));
+    }
+
+    [Fact]
+    public async Task PutAnnotation_LegacyAnchorOnAFileWithNoChapters_IsChapterNotFound()
+    {
+        v2.Require();
+        var (book, file, _) = await v2.ImportAsync(v2.Alice); // imported, never uploaded: nothing extracted
+
         var annotation = await PutAnnotationAsync(v2.Alice, Guid.NewGuid(), Highlight(book, file, "1-one"));
 
-        Assert.Equal(("chapter_not_found", "chapter_not_found"), (state.Code, annotation.Code));
+        Assert.Equal((HttpStatusCode.Conflict, "chapter_not_found"), (annotation.Status, annotation.Code));
     }
 
     [Fact]
