@@ -226,7 +226,8 @@ public class DiscussionSyncServiceTests
     [Fact]
     public async Task SetCheckpointSavingAsync_UsersBook_Is200WithTheBookAsStoredNow()
     {
-        _library.Setup(l => l.SetCheckpointSavingAsync(User, BookId, true, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _library.Setup(l => l.SetCheckpointSavingAsync(User, BookId, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Domain.Library.Book { Id = BookId, UserId = User, CheckpointSavingEnabled = true });
 
         var result = await Service.SetCheckpointSavingAsync(User, BookId, new CheckpointSavingRequest(true), Ct);
 

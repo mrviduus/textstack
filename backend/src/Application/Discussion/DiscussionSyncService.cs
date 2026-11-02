@@ -143,8 +143,8 @@ public sealed class DiscussionSyncService(ILibraryRepository library, ISharedCha
     public async Task<SyncResult> SetCheckpointSavingAsync(Guid userId, Guid bookId, CheckpointSavingRequest r, CancellationToken ct)
     {
         if (Required(r.Enabled, "enabled") is { } missing) return missing;
-        if (!await library.SetCheckpointSavingAsync(userId, bookId, r.Enabled!.Value, ct)) return SyncResult.BookNotFound;
-        return await library.GetAsync(userId, bookId, ct) is { } book ? SyncResult.Ok(book.ToDto()) : SyncResult.BookNotFound;
+        return await library.SetCheckpointSavingAsync(userId, bookId, r.Enabled!.Value, ct) is { } book
+            ? SyncResult.Ok(book.ToDto()) : SyncResult.BookNotFound;
     }
 
     /// <summary>201 a new row, 200 a replay, 409 <c>operation_conflict</c> with the stored row, 422 a share of another chapter.</summary>

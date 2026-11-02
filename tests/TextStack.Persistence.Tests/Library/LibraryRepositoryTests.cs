@@ -174,10 +174,11 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
         await _repo.RemoveAsync(book.UserId, book.Id, Ct);
         var removed = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
 
-        Assert.True(await _repo.SetCheckpointSavingAsync(book.UserId, book.Id, true, Ct));
+        var written = (await _repo.SetCheckpointSavingAsync(book.UserId, book.Id, true, Ct))!;
 
         var read = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
-        Assert.Equal((true, 1L), (read.CheckpointSavingEnabled, read.Revision));
+        Assert.Equal((true, 1L, book.CurrentFile!.Id), (read.CheckpointSavingEnabled, read.Revision, written.CurrentFile!.Id));
+        Assert.Equal((true, read.UpdatedAt), (written.CheckpointSavingEnabled, written.UpdatedAt));
         Assert.True(read.UpdatedAt > removed.UpdatedAt);
     }
 
@@ -187,7 +188,7 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
         var book = await db.NewReaderWithBookAsync();
         var other = await db.NewReaderAsync();
 
-        Assert.False(await _repo.SetCheckpointSavingAsync(other, book.Id, true, Ct));
+        Assert.Null(await _repo.SetCheckpointSavingAsync(other, book.Id, true, Ct));
 
         var read = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
         Assert.Equal((false, book.UpdatedAt), (read.CheckpointSavingEnabled, read.UpdatedAt));
