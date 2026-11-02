@@ -157,8 +157,8 @@ fraction`, `clientRecordedAt = at`.
 |---|---|---|---|
 | `id` | uuid | yes on save | client v4; **if the key already exists the stored card's id wins** and is returned |
 | `language` | string | yes | ≤ 16; stored trimmed and lowercased (BCP 47 tags are case-insensitive: `en` and `EN` are one card; the M3 ETL normalises legacy tags the same way) |
-| `word` | string | yes | ≤ 200, as the reader saw it; `wordKey` = `Trim().ToLowerInvariant()` of `word` (`WordKeys.Of`: invariant, not culture-aware, legacy's rule, so the ETL reproduces legacy keys), computed by the server, never sent; a key with no letter or digit is refused |
-| `translation`, `definition` | string | no | used only when the card is created; changing them is an explicit edit |
+| `word` | string | yes | ≤ 200, as the reader saw it. `wordKey`, computed by the server and never sent: `word` with Unicode white space trimmed, then lowercased by the invariant (culture-free) mapping — no case folding (`Straße` and `STRASSE` are two keys), no Unicode normalisation, and a Turkish dotted `İ` stays as it is — legacy's rule, so the ETL reproduces legacy keys. A key with no letter or digit is refused |
+| `translation`, `definition` | string | no | ≤ 500 and ≤ 2000; used only when the card is created; changing them is an explicit edit |
 | `stage`, `intervalDays`, `consecutiveCorrect`, `nextReviewAt`, `lastReviewedAt` | | server | the schedule (S3) |
 | `deletedAt` | time | server | tombstone |
 | `revision` | int64 | server | bumped by explicit edit, delete, restore — **not** by reviews or examples |
@@ -169,12 +169,12 @@ fraction`, `clientRecordedAt = at`.
 | Field | Type | Req | Rule |
 |---|---|---|---|
 | `operationId` | uuid | yes | client v4, one per "save this sentence" |
-| `sentence` | string | yes | non-blank |
-| `contextualTranslation` | string | no | |
+| `sentence` | string | yes | non-blank, ≤ 1000 |
+| `contextualTranslation` | string | no | ≤ 4000 |
 | `bookId` | uuid | no | |
 | `fileId` | uuid | no | needs `bookId` |
-| `chapterKey` | string | no | needs `bookId`; a resource key in the file, never a DB chapter id |
-| `bookTitle` | string | no | snapshot |
+| `chapterKey` | string | no | ≤ 200; needs `bookId`; a resource key in the file, never a DB chapter id |
+| `bookTitle` | string | no | ≤ 500; snapshot |
 | `id`, `createdAt` | | server | |
 
 **Review** (`vocabulary_reviews`, push only)
@@ -183,10 +183,10 @@ fraction`, `clientRecordedAt = at`.
 |---|---|---|---|
 | `operationId` | uuid | yes | client v4, one per answer |
 | `wordId` | uuid | yes | the server's card id: after a save returns another card's id, the client rewrites its queued reviews to it |
-| `reviewMode` | string | yes | non-blank, client-owned vocabulary |
+| `reviewMode` | string | yes | non-blank, ≤ 64, client-owned vocabulary |
 | `isCorrect` | bool | yes | |
 | `responseTimeMs` | int | no | ≥ 0 |
-| `clientRecordedAt` | time | yes | |
+| `clientRecordedAt` | time | yes | at most 5 minutes ahead of the server (ADR-019's skew) |
 | `stageBefore`, `stageAfter` | int | server | the schedule the server applied |
 
 **S3 — the server computes the schedule.** Trade-off: a client-computed schedule lets an offline
@@ -694,10 +694,11 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 id; a new, deliberate save mints a new one. Never one per network attempt, never a hash of the payload
 (the schema says a new operation with the same sentence is a second example, and sharing again makes a
 new snapshot — `0000_baseline.up.sql`, comments on `vocabulary_examples` and `shared_chapters`). MCP
-tools have no client outbox, so the write tools take `operationId` from the host; a host that retries
-a tool call passes the same id. For `add_vocabulary_words` it is optional (existing hosts send none:
-no replay protection then), and each word's id is derived from it and the word's card key, so a
-retry replays in any word order (M2.3).
+tools have no client outbox, so the write tools take `operationId` from the host as a required
+parameter; a host that retries a tool call passes the same id. For `add_vocabulary_words` each
+word's id is derived from it and the word, so a retry replays in any word order (M2.3). Note: while
+the bridge still calls legacy (its V2 flag off) it tolerates a missing `operationId`, since legacy has
+no idempotency to lose; that is a transition allowance, not the contract.
 
 **Deferred provenance FKs.** `book_id`/`file_id` on examples, shares, checkpoints and annotations are
 `DEFERRABLE INITIALLY DEFERRED`: a bad id fails at **commit** (23503), which would surface as a 500
