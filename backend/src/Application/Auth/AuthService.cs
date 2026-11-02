@@ -13,6 +13,7 @@ public partial class AuthService
 {
     private readonly IAppDbContext _db;
     private readonly JwtTokens _tokens;
+    private readonly ProviderTokens _providers;
     private readonly TimeProvider _clock;
     private readonly ILogger<AuthService>? _logger;
     private readonly IFileStorageService? _storage;
@@ -27,7 +28,8 @@ public partial class AuthService
         IFileStorageService? storage = null)
     {
         _db = db;
-        _tokens = new JwtTokens(jwtSettings.Value, googleSettings.Value, appleSettings?.Value);
+        _tokens = new JwtTokens(jwtSettings.Value);
+        _providers = new ProviderTokens(googleSettings.Value, appleSettings?.Value);
         _clock = clock ?? TimeProvider.System;
         _logger = logger;
         _storage = storage;
@@ -61,7 +63,7 @@ public partial class AuthService
         string googleIdToken,
         CancellationToken ct)
     {
-        var google = await _tokens.VerifyGoogleAsync(googleIdToken);
+        var google = await _providers.VerifyGoogleAsync(googleIdToken);
         if (google == null) return null;
 
         var user = await GetOrCreateUserAsync(google, ct);
@@ -77,7 +79,7 @@ public partial class AuthService
         string? email,
         CancellationToken ct)
     {
-        var apple = _tokens.VerifyApple(identityToken);
+        var apple = _providers.VerifyApple(identityToken);
         if (apple == null) return null;
 
         var resolvedEmail = email ?? apple.Email;
@@ -94,8 +96,8 @@ public partial class AuthService
         var user = new User
         {
             Id = Guid.NewGuid(),
-            Email = $"guest-{Guid.NewGuid():N}@guest.local",
-            Name = "Guest",
+            Email = Emails.NewGuest(),
+            Name = Emails.GuestName,
             IsGuest = true,
             LastActiveAt = DateTimeOffset.UtcNow,
             CreatedAt = DateTimeOffset.UtcNow
@@ -556,7 +558,7 @@ public partial class AuthService
         string refreshToken,
         CancellationToken ct)
     {
-        var hash = HashToken(refreshToken);
+        var hash = DeviceCodes.HashToken(refreshToken);
         var now = DateTimeOffset.UtcNow;
         var token = await _db.UserRefreshTokens
             .Include(x => x.User)
@@ -612,7 +614,7 @@ public partial class AuthService
 
     public async Task<bool> LogoutAsync(string refreshToken, CancellationToken ct)
     {
-        var hash = HashToken(refreshToken);
+        var hash = DeviceCodes.HashToken(refreshToken);
         var token = await _db.UserRefreshTokens
             .FirstOrDefaultAsync(x => x.TokenHash == hash, ct);
 
@@ -632,12 +634,12 @@ public partial class AuthService
     public async Task<(User user, string accessToken, string refreshToken)?> RegisterWithEmailAsync(
         string email, string password, string? name, Guid? guestUserId, CancellationToken ct)
     {
-        email = email.Trim().ToLowerInvariant();
+        email = Emails.Normalize(email);
 
         if (!System.Net.Mail.MailAddress.TryCreate(email, out _))
             return null;
 
-        if (password.Length < 8 || password.Length > 128)
+        if (!PasswordHashing.IsAcceptable(password))
             return null;
 
         var exists = await _db.Users.AnyAsync(x => x.Email == email, ct);
@@ -653,7 +655,7 @@ public partial class AuthService
             {
                 guest.Email = email;
                 guest.Name = name?.Trim();
-                guest.PasswordHash = BCrypt.Net.BCrypt.HashPassword(password);
+                guest.PasswordHash = PasswordHashing.Hash(password);
                 guest.IsGuest = false;
                 guest.PromotedAt = _clock.GetUtcNow();
                 user = guest;
@@ -665,7 +667,7 @@ public partial class AuthService
                     Id = Guid.NewGuid(),
                     Email = email,
                     Name = name?.Trim(),
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
+                    PasswordHash = PasswordHashing.Hash(password),
                     CreatedAt = DateTimeOffset.UtcNow
                 };
                 _db.Users.Add(user);
@@ -678,7 +680,7 @@ public partial class AuthService
                 Id = Guid.NewGuid(),
                 Email = email,
                 Name = name?.Trim(),
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
+                PasswordHash = PasswordHashing.Hash(password),
                 CreatedAt = DateTimeOffset.UtcNow
             };
             _db.Users.Add(user);
@@ -697,7 +699,7 @@ public partial class AuthService
     public async Task<(User user, string accessToken, string refreshToken)?> LoginWithEmailAsync(
         string email, string password, CancellationToken ct)
     {
-        email = email.Trim().ToLowerInvariant();
+        email = Emails.Normalize(email);
 
         var user = await _db.Users.FirstOrDefaultAsync(x => x.Email == email, ct);
         if (user == null || user.PasswordHash == null)
@@ -713,25 +715,25 @@ public partial class AuthService
 
     public async Task<bool> EmailExistsAsync(string email, CancellationToken ct)
     {
-        return await _db.Users.AnyAsync(x => x.Email == email.Trim().ToLowerInvariant(), ct);
+        var normalized = Emails.Normalize(email);
+        return await _db.Users.AnyAsync(x => x.Email == normalized, ct);
     }
 
     public async Task<string?> RequestPasswordResetAsync(string email, CancellationToken ct)
     {
-        email = email.Trim().ToLowerInvariant();
+        email = Emails.Normalize(email);
         var user = await _db.Users.FirstOrDefaultAsync(x => x.Email == email && x.PasswordHash != null, ct);
         if (user == null)
             return null; // Don't reveal if email exists
 
-        var rawToken = DeviceCodes.GenerateSecureToken();
-        var tokenHash = HashToken(rawToken);
+        var (rawToken, tokenHash) = JwtTokens.NewOpaqueToken();
 
         var resetToken = new PasswordResetToken
         {
             Id = Guid.NewGuid(),
             UserId = user.Id,
             TokenHash = tokenHash,
-            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            ExpiresAt = DateTimeOffset.UtcNow.Add(PasswordHashing.ResetCodeLifetime),
             CreatedAt = DateTimeOffset.UtcNow,
             Used = false
         };
@@ -744,10 +746,10 @@ public partial class AuthService
 
     public async Task<bool> ResetPasswordAsync(string token, string newPassword, CancellationToken ct)
     {
-        if (newPassword.Length < 8 || newPassword.Length > 128)
+        if (!PasswordHashing.IsAcceptable(newPassword))
             return false;
 
-        var tokenHash = HashToken(token);
+        var tokenHash = DeviceCodes.HashToken(token);
         var resetToken = await _db.PasswordResetTokens
             .Include(x => x.User)
             .FirstOrDefaultAsync(x => x.TokenHash == tokenHash && !x.Used && x.ExpiresAt > DateTimeOffset.UtcNow, ct);
@@ -756,7 +758,7 @@ public partial class AuthService
             return false;
 
         resetToken.Used = true;
-        resetToken.User.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+        resetToken.User.PasswordHash = PasswordHashing.Hash(newPassword);
 
         // Invalidate all refresh tokens for this user
         var refreshTokens = await _db.UserRefreshTokens
@@ -927,7 +929,7 @@ public partial class AuthService
 
     private async Task<string> GenerateUniqueUserCodeAsync(DateTimeOffset now, CancellationToken ct)
     {
-        for (var attempt = 0; attempt < 8; attempt++)
+        for (var attempt = 0; attempt < DeviceCodes.UserCodeAttempts; attempt++)
         {
             var candidate = DeviceCodes.GenerateUserCode();
             // Collision only matters among still-live pending rows (the approve lookup).
@@ -940,8 +942,6 @@ public partial class AuthService
         }
         throw new InvalidOperationException("Could not generate a unique device user_code.");
     }
-
-    private static string HashToken(string token) => DeviceCodes.HashToken(token);
 
     public Guid? ValidateAccessToken(string accessToken) => ValidateAccessTokenIdentity(accessToken).UserId;
 
@@ -1001,12 +1001,12 @@ public partial class AuthService
         var ttlDays = _tokens.RefreshTokenDays(isGuest);
 
         // Only the hash is stored; the raw token leaves this method once, to the client.
-        var raw = DeviceCodes.GenerateSecureToken();
+        var (raw, hash) = JwtTokens.NewOpaqueToken();
         var token = new UserRefreshToken
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            TokenHash = HashToken(raw),
+            TokenHash = hash,
             PreviousTokenHash = previousTokenHash,
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(ttlDays),
             CreatedAt = DateTimeOffset.UtcNow
@@ -1032,7 +1032,7 @@ public partial class AuthService
             return user;
         }
 
-        var resolvedEmail = email ?? $"{appleSubject}@privaterelay.appleid.com";
+        var resolvedEmail = email ?? Emails.AppleRelay(appleSubject);
 
         user = new User
         {

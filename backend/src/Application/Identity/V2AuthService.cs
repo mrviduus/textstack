@@ -17,6 +17,7 @@ public sealed class V2AuthService(
     IDeviceLoginRepository devices,
     IAccountMergeRepository merges,
     JwtTokens tokens,
+    ProviderTokens providers,
     TimeProvider clock,
     ILogger<V2AuthService> logger) : IAuthService
 {
@@ -31,7 +32,7 @@ public sealed class V2AuthService(
 
     public async Task<AuthResult> LoginWithGoogleAsync(string googleIdToken, CancellationToken ct)
     {
-        var google = await tokens.VerifyGoogleAsync(googleIdToken);
+        var google = await providers.VerifyGoogleAsync(googleIdToken);
         if (google?.Email is null) return AuthResult.Failed(AuthStatus.InvalidToken);
 
         var user = await users.GetByGoogleSubjectAsync(google.Subject, ct);
@@ -49,14 +50,14 @@ public sealed class V2AuthService(
 
     public async Task<AuthResult> LoginWithAppleAsync(string identityToken, string? fullName, string? email, CancellationToken ct)
     {
-        var apple = tokens.VerifyApple(identityToken);
+        var apple = providers.VerifyApple(identityToken);
         if (apple is null) return AuthResult.Failed(AuthStatus.InvalidToken);
 
         var user = await users.GetByAppleSubjectAsync(apple.Subject, ct);
         if (user is { Role: UserAccount.AdminRole }) return AuthResult.Failed(AuthStatus.InvalidToken);
         if (user is null)
             user = await CreateAsync(
-                new UserAccount { Id = Guid.NewGuid(), Email = email ?? apple.Email ?? $"{apple.Subject}@privaterelay.appleid.com", Name = fullName, AppleSubject = apple.Subject },
+                new UserAccount { Id = Guid.NewGuid(), Email = email ?? apple.Email ?? Emails.AppleRelay(apple.Subject), Name = fullName, AppleSubject = apple.Subject },
                 () => users.GetByAppleSubjectAsync(apple.Subject, ct), ct);
         else if (fullName != null && user.Name != fullName)
             user = (await users.UpdateProfileAsync(user.Id, user.Email, fullName, user.Picture, ct)).Account ?? user;
@@ -78,8 +79,8 @@ public sealed class V2AuthService(
         var guest = await users.CreateAsync(new UserAccount
         {
             Id = Guid.NewGuid(),
-            Email = $"guest-{Guid.NewGuid():N}@guest.local",
-            Name = "Guest",
+            Email = Emails.NewGuest(),
+            Name = Emails.GuestName,
             IsGuest = true,
             LastActiveAt = clock.GetUtcNow(),
         }, ct) ?? throw new InvalidOperationException("A new guest's id or email collided.");
@@ -141,13 +142,13 @@ public sealed class V2AuthService(
 
     public async Task<AuthResult> RegisterWithEmailAsync(string email, string password, string? name, Guid? guestUserId, CancellationToken ct)
     {
-        email = Normalize(email);
-        if (!System.Net.Mail.MailAddress.TryCreate(email, out _) || password.Length is < 8 or > 128)
+        email = Emails.Normalize(email);
+        if (!System.Net.Mail.MailAddress.TryCreate(email, out _) || !PasswordHashing.IsAcceptable(password))
             return AuthResult.Failed(AuthStatus.InvalidInput);
         if (await users.GetByEmailAsync(email, ct) is not null)
             return AuthResult.Failed(AuthStatus.EmailTaken);
 
-        var passwordHash = BCrypt.Net.BCrypt.HashPassword(password);
+        var passwordHash = PasswordHashing.Hash(password);
         name = name?.Trim();
         UserAccount? user = null;
         if (guestUserId is { } guestId)
@@ -164,7 +165,7 @@ public sealed class V2AuthService(
 
     public async Task<AuthResult> LoginWithEmailAsync(string email, string password, CancellationToken ct)
     {
-        var user = await users.GetByEmailAsync(Normalize(email), ct);
+        var user = await users.GetByEmailAsync(Emails.Normalize(email), ct);
         if (user?.PasswordHash is not { } verified || !PasswordHashing.Matches(password, verified))
             return AuthResult.Failed(AuthStatus.InvalidCredentials);
         // A reset that commits after the check: no session (#1092), the old password is wrong now.
@@ -172,14 +173,14 @@ public sealed class V2AuthService(
     }
 
     public async Task<bool> EmailExistsAsync(string email, CancellationToken ct) =>
-        await users.GetByEmailAsync(Normalize(email), ct) is not null;
+        await users.GetByEmailAsync(Emails.Normalize(email), ct) is not null;
 
     public async Task<string?> RequestPasswordResetAsync(string email, CancellationToken ct)
     {
-        var user = await users.GetByEmailAsync(Normalize(email), ct);
+        var user = await users.GetByEmailAsync(Emails.Normalize(email), ct);
         if (user?.PasswordHash is null) return null; // don't reveal whether the email exists
         var (raw, hash) = JwtTokens.NewOpaqueToken();
-        await sessions.CreatePasswordResetAsync(user.Id, hash, clock.GetUtcNow().AddHours(1), ct);
+        await sessions.CreatePasswordResetAsync(user.Id, hash, clock.GetUtcNow().Add(PasswordHashing.ResetCodeLifetime), ct);
         return raw;
     }
 
@@ -190,16 +191,16 @@ public sealed class V2AuthService(
     /// </summary>
     public async Task<bool> ResetPasswordAsync(string token, string newPassword, CancellationToken ct)
     {
-        if (newPassword.Length is < 8 or > 128) return false;
+        if (!PasswordHashing.IsAcceptable(newPassword)) return false;
         return await sessions.ResetPasswordAsync(
-            DeviceCodes.HashToken(token), BCrypt.Net.BCrypt.HashPassword(newPassword), clock.GetUtcNow(), ct) is not null;
+            DeviceCodes.HashToken(token), PasswordHashing.Hash(newPassword), clock.GetUtcNow(), ct) is not null;
     }
 
     public async Task<DeviceCodeResult> CreateDeviceAuthorizationAsync(CancellationToken ct)
     {
         var deviceCode = DeviceCodes.GenerateSecureToken();
         var now = clock.GetUtcNow();
-        for (var attempt = 0; attempt < 8; attempt++)
+        for (var attempt = 0; attempt < DeviceCodes.UserCodeAttempts; attempt++)
         {
             var login = new DeviceLogin
             {
@@ -282,5 +283,4 @@ public sealed class V2AuthService(
 
     private string MintAccessToken(UserAccount user) => tokens.MintAccessToken(user.Id, user.Email, user.Name, user.IsGuest);
 
-    private static string Normalize(string email) => email.Trim().ToLowerInvariant();
 }

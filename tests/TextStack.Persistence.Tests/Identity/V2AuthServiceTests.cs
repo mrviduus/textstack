@@ -19,7 +19,13 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     private const int GuestDays = 7;
 
     private readonly Clock _clock = new();
-    private readonly FakeProviders _tokens = new();
+    private readonly FakeProviders _providers = new();
+    private readonly JwtTokens _tokens = new(new JwtSettings
+    {
+        SecretKey = "a-test-signing-key-long-enough-for-hmac-sha256-abcdefgh",
+        RefreshTokenExpiryDays = AccountDays,
+        GuestRefreshTokenExpiryDays = GuestDays,
+    });
     private readonly UserRepository _users = new(db.DataSource);
     private readonly SessionTokenRepository _sessions = new(db.DataSource);
     private readonly DeviceLoginRepository _devices = new(db.DataSource);
@@ -30,7 +36,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
 
     private V2AuthService AuthWith(IUserRepository? users = null, ISessionTokenRepository? sessions = null, IAccountMergeRepository? merges = null) =>
         new(users ?? _users, sessions ?? _sessions, _devices, merges ?? new AccountMergeRepository(db.DataSource),
-            _tokens, _clock, NullLogger<V2AuthService>.Instance);
+            _tokens, _providers, _clock, NullLogger<V2AuthService>.Instance);
 
     private V2AdminAuthService Admin => new(_users, _sessions, new AdminSettingsRepository(db.DataSource), _tokens, _clock);
 
@@ -343,14 +349,14 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     public async Task LoginWithGoogleAsync_SameSubjectTwice_OneAccountWithTheLatestProfile()
     {
         var subject = Guid.NewGuid().ToString();
-        _tokens.Google["first"] = new(subject, NewEmail(), "Ann", null);
-        _tokens.Google["second"] = new(subject, NewEmail(), "Ann B", null);
+        _providers.Google["first"] = new(subject, NewEmail(), "Ann", null);
+        _providers.Google["second"] = new(subject, NewEmail(), "Ann B", null);
 
         var first = await Auth.LoginWithGoogleAsync("first", Ct);
         var second = await Auth.LoginWithGoogleAsync("second", Ct);
 
         Assert.Equal(first.User!.Id, second.User?.Id);
-        Assert.Equal((_tokens.Google["second"].Email, "Ann B"), (second.User!.Email, second.User.Name));
+        Assert.Equal((_providers.Google["second"].Email, "Ann B"), (second.User!.Email, second.User.Name));
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithGoogleAsync("forged", Ct)).Status);
     }
 
@@ -360,7 +366,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         // Never linked by email: whoever registered (or Apple-created) the email first would own the
         // owner's Google sign-ins.
         var (registered, email) = await RegisterAsync();
-        _tokens.Google["token"] = new(Guid.NewGuid().ToString(), email, "Ann", null);
+        _providers.Google["token"] = new(Guid.NewGuid().ToString(), email, "Ann", null);
 
         Assert.Equal(AuthStatus.EmailTaken, (await Auth.LoginWithGoogleAsync("token", Ct)).Status);
         Assert.Null((await _users.GetAsync(registered.User!.Id, Ct))!.GoogleSubject);
@@ -370,7 +376,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     public async Task LoginWithAppleAsync_TokenEmailOfAnotherAccount_IsEmailTaken()
     {
         var (_, email) = await RegisterAsync();
-        _tokens.Apple["token"] = new(Guid.NewGuid().ToString(), email, null, null);
+        _providers.Apple["token"] = new(Guid.NewGuid().ToString(), email, null, null);
 
         Assert.Equal(AuthStatus.EmailTaken, (await Auth.LoginWithAppleAsync("token", null, null, Ct)).Status);
     }
@@ -378,7 +384,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     [Fact]
     public async Task LoginWithGoogleAsync_TokenWithoutAnEmail_InvalidToken()
     {
-        _tokens.Google["token"] = new(Guid.NewGuid().ToString(), null, "Ann", null);
+        _providers.Google["token"] = new(Guid.NewGuid().ToString(), null, "Ann", null);
 
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithGoogleAsync("token", Ct)).Status);
     }
@@ -387,7 +393,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     public async Task LoginWithGoogleAsync_NewSubject_StoresItOnTheNewAccount()
     {
         var subject = Guid.NewGuid().ToString();
-        _tokens.Google["token"] = new(subject, NewEmail(), "Ann", null);
+        _providers.Google["token"] = new(subject, NewEmail(), "Ann", null);
 
         var signedIn = await Auth.LoginWithGoogleAsync("token", Ct);
 
@@ -398,7 +404,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     public async Task LoginWithAppleAsync_SameSubject_OneAccount_AndItsEmailLinksNothing()
     {
         var subject = Guid.NewGuid().ToString();
-        _tokens.Apple["token"] = new(subject, null, null, null);
+        _providers.Apple["token"] = new(subject, null, null, null);
 
         var first = await Auth.LoginWithAppleAsync("token", "Ann", null, Ct);
         var second = await Auth.LoginWithAppleAsync("token", "Ann B", null, Ct);
@@ -407,7 +413,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.Equal((first.User.Id, "Ann B"), (second.User!.Id, second.User.Name));
         // A client-supplied email of another account never signs that account in.
         var (_, email) = await RegisterAsync();
-        _tokens.Apple["other"] = new(Guid.NewGuid().ToString(), email, null, null);
+        _providers.Apple["other"] = new(Guid.NewGuid().ToString(), email, null, null);
         Assert.Equal(AuthStatus.EmailTaken, (await Auth.LoginWithAppleAsync("other", null, email, Ct)).Status);
     }
 
@@ -487,8 +493,8 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         var (registered, _) = await AdminAccountAsync();
         var (google, apple) = (Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
         await db.ExecAsync("UPDATE users SET google_subject = @google, apple_subject = @apple WHERE id = @user", new { google, apple, user = registered.User!.Id });
-        _tokens.Google["g"] = new(google, registered.User.Email, "Admin", null);
-        _tokens.Apple["a"] = new(apple, null, null, null);
+        _providers.Google["g"] = new(google, registered.User.Email, "Admin", null);
+        _providers.Apple["a"] = new(apple, null, null, null);
 
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithGoogleAsync("g", Ct)).Status);
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithAppleAsync("a", null, null, Ct)).Status);
@@ -629,12 +635,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     }
 
     /// <summary>Google and Apple, stood in for: a token is whatever identity the test filed under it.</summary>
-    private sealed class FakeProviders() : JwtTokens(new JwtSettings
-    {
-        SecretKey = "a-test-signing-key-long-enough-for-hmac-sha256-abcdefgh",
-        RefreshTokenExpiryDays = AccountDays,
-        GuestRefreshTokenExpiryDays = GuestDays,
-    })
+    private sealed class FakeProviders : ProviderTokens
     {
         public Dictionary<string, ProviderIdentity> Google { get; } = [];
         public Dictionary<string, ProviderIdentity> Apple { get; } = [];

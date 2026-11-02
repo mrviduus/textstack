@@ -96,7 +96,7 @@ public class AdminAuthService : IAdminAuthService
         {
             Id = Guid.NewGuid(),
             Email = email,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
+            PasswordHash = PasswordHashing.Hash(password),
             Role = role,
             IsActive = true,
             CreatedAt = DateTimeOffset.UtcNow,
@@ -139,12 +139,12 @@ public class AdminAuthService : IAdminAuthService
     {
         var expiryDays = await _settingsService.GetRefreshTokenExpiryDaysAsync(ct);
         // Only the hash is stored; the raw token leaves this method once, to the client.
-        var raw = DeviceCodes.GenerateSecureToken();
+        var (raw, hash) = JwtTokens.NewOpaqueToken();
         var token = new AdminRefreshToken
         {
             Id = Guid.NewGuid(),
             AdminUserId = adminUserId,
-            TokenHash = DeviceCodes.HashToken(raw),
+            TokenHash = hash,
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(expiryDays),
             CreatedAt = DateTimeOffset.UtcNow
         };

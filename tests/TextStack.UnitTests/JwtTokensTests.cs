@@ -114,7 +114,7 @@ public class JwtTokensTests
     [Fact]
     public void VerifyApple_ApplesTokenForThisApp_SubjectAndAnUnverifiedEmail()
     {
-        var tokens = new JwtTokens(Settings(), apple: new AppleSettings { BundleId = "app.textstack" });
+        var tokens = new ProviderTokens(apple: new AppleSettings { BundleId = "app.textstack" });
 
         var apple = tokens.VerifyApple(AppleToken("https://appleid.apple.com", "app.textstack"))!;
 
@@ -129,7 +129,7 @@ public class JwtTokensTests
     [Fact]
     public async Task VerifyGoogleAsync_NoGoogleSettings_Null()
     {
-        Assert.Null(await Tokens.VerifyGoogleAsync("anything"));
+        Assert.Null(await new ProviderTokens().VerifyGoogleAsync("anything"));
     }
 
     private static string AppleToken(string issuer, string audience, int expiresInMinutes = 5) => new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
