@@ -27,15 +27,18 @@ public sealed class VocabularySyncService(
         var saved = await words.SaveWordAsync(userId, new VocabularyWord
         {
             Id = r.Id!.Value,
-            Language = r.Language!,
+            Language = WordKeys.Language(r.Language!),
             Word = r.Word!,
             WordKey = WordKeys.Of(r.Word!),
             Translation = r.Translation,
             Definition = r.Definition,
         }, ct);
         if (saved.Outcome == WordSaveOutcome.IdConflict) return SyncResult.IdConflict;
-        // The tombstone wins over the save and its example: restoring is the reader's call.
-        if (saved.Outcome == WordSaveOutcome.Deleted) return await DeletedAsync(userId, saved.Word!.Id, ct);
+        // A tombstone wins over the save, except that its example is asked first (principle 6): a
+        // replay of a save that landed before the delete answers 200, a new operation 409 deleted.
+        if (saved.Outcome == WordSaveOutcome.Deleted && r.Example is null) return await DeletedAsync(userId, saved.Word!.Id, ct);
+        // Created by this write without an example: the returned row is the whole card.
+        if (saved.Outcome == WordSaveOutcome.Created && r.Example is null) return SyncResult.Created(saved.Word!.ToDto());
 
         string? example = null;
         if (r.Example is { } sent)
@@ -73,19 +76,24 @@ public sealed class VocabularySyncService(
     // Merge-patch: an absent member keeps the stored value, null clears it.
     private static bool TryMerge(VocabularyWord stored, PatchVocabularyWordRequest r, out string? translation, out string? definition, out SyncResult? invalid)
     {
-        (translation, definition) = (null, null);
+        definition = null;
+        invalid = Merge(r.Translation, stored.Translation, "translation", MaxTranslation, out translation)
+            ?? Merge(r.Definition, stored.Definition, "definition", MaxDefinition, out definition);
+        return invalid is null;
+    }
+
+    private static SyncResult? Merge(JsonElement sent, string? kept, string field, int max, out string? merged)
+    {
+        merged = kept;
         try
         {
-            static string? Merged(JsonElement e, string? kept) => e.ValueKind == JsonValueKind.Undefined ? kept : e.Deserialize<string?>();
-            (translation, definition) = (Merged(r.Translation, stored.Translation), Merged(r.Definition, stored.Definition));
-            invalid = Text(translation, "translation") ?? Text(definition, "definition");
-            return invalid is null;
+            if (sent.ValueKind != JsonValueKind.Undefined) merged = sent.Deserialize<string?>();
+            return Text(merged, field, max);
         }
         // A wrong type, or an escaped lone surrogate a string cannot even be read from.
         catch (Exception e) when (e is JsonException or InvalidOperationException)
         {
-            invalid = SyncResult.Invalid("translation", "translation and definition are strings or null.");
-            return false;
+            return SyncResult.Invalid(field, $"{field} is a string or null.");
         }
     }
 
@@ -102,8 +110,8 @@ public sealed class VocabularySyncService(
         var result = await words.RestoreWordAsync(userId, wordId, r.ExpectedRevision!.Value, ct);
         if (result.Current is null) return SyncResult.NotFound;
         var card = await WithExamplesAsync(userId, result.Current, ct);
-        // A live card here may be this client's own restore whose response was lost: the client tells (PDD "own write").
-        return result.Accepted ? SyncResult.Ok(card.ToDto()) : SyncResult.StaleRevision(card.Revision, card.ToDto());
+        // Lost but live: what a restore produces, so a retry whose response was lost (PDD "Own write, lost response").
+        return result.Accepted || card.DeletedAt is null ? SyncResult.Ok(card.ToDto()) : SyncResult.StaleRevision(card.Revision, card.ToDto());
     }
 
     public async Task<SyncResult> AddExampleAsync(Guid userId, Guid wordId, VocabularyExampleRequest r, CancellationToken ct)
@@ -125,7 +133,7 @@ public sealed class VocabularySyncService(
 
     public async Task<SyncResult> RecordReviewAsync(Guid userId, VocabularyReviewRequest r, CancellationToken ct)
     {
-        if (Review(r) is { } invalid) return invalid;
+        if (Review(r, DateTimeOffset.UtcNow) is { } invalid) return invalid;
         var review = new VocabularyReview
         {
             Id = Guid.CreateVersion7(),
@@ -135,8 +143,7 @@ public sealed class VocabularySyncService(
             IsCorrect = r.IsCorrect!.Value,
             ResponseTimeMs = r.ResponseTimeMs,
             ClientRecordedAt = r.ClientRecordedAt!.Value,
-            PayloadSha256 = CanonicalPayload.Sha256(new ReviewPayload(
-                r.WordId.Value, r.ReviewMode!, r.IsCorrect.Value, r.ResponseTimeMs, r.ClientRecordedAt.Value)),
+            PayloadSha256 = VocabularyPayloads.ReviewSha256(r.WordId.Value, r.ReviewMode!, r.IsCorrect.Value, r.ResponseTimeMs, r.ClientRecordedAt.Value),
         };
         var result = await words.RecordReviewAsync(userId, review, Schedule(review.IsCorrect), ct);
         if (result.Outcome is not (WriteOutcome.Created or WriteOutcome.Replayed))
@@ -161,7 +168,7 @@ public sealed class VocabularySyncService(
     public async Task<SyncResult> DueAsync(Guid userId, string? limit, CancellationToken ct)
     {
         if (ChangeFeed.Limit(limit, out var take) is { } invalid) return invalid;
-        var due = await feed.ListDueAsync(userId, DateTimeOffset.UtcNow, take, ct);
+        var due = await feed.ListDueAsync(userId, take, ct);
         return SyncResult.Ok(due.Select(w => w.ToDto()).ToList());
     }
 
@@ -189,15 +196,9 @@ public sealed class VocabularySyncService(
         Sentence = e.Sentence!,
         ContextualTranslation = e.ContextualTranslation,
         OperationId = e.OperationId!.Value,
-        PayloadSha256 = CanonicalPayload.Sha256(new ExamplePayload(
-            card.Language, card.WordKey, e.Sentence!, e.ContextualTranslation, e.BookId, e.FileId, e.ChapterKey, e.BookTitle)),
+        PayloadSha256 = VocabularyPayloads.ExampleSha256(
+            card.Language, card.WordKey, e.Sentence!, e.ContextualTranslation, e.BookId, e.FileId, e.ChapterKey, e.BookTitle),
     };
-
-    // The "Canonical JSON" table's rows: exactly these fields, by these names, are hashed.
-    private sealed record ExamplePayload(
-        string Language, string WordKey, string Sentence, string? ContextualTranslation, Guid? BookId, Guid? FileId, string? ChapterKey, string? BookTitle);
-
-    private sealed record ReviewPayload(Guid WordId, string ReviewMode, bool IsCorrect, int? ResponseTimeMs, DateTimeOffset ClientRecordedAt);
 
     /// <summary>An append that neither landed nor replayed: a reused operation id, a tombstone, or no card.</summary>
     private async Task<SyncResult> LossAsync(Guid userId, Guid wordId, WriteOutcome outcome, object? stored, CancellationToken ct) => outcome switch

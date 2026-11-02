@@ -1,4 +1,4 @@
-using Application.Vocabulary;
+using Contracts.V2;
 
 namespace TextStack.UnitTests.V2;
 

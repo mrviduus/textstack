@@ -62,6 +62,8 @@ public class VocabularySyncServiceTests
 
         Assert.Equal((201, (string?)null), (result.Status, CardOf(result).Example));
         _words.Verify(w => w.SaveWordAsync(User, It.Is<VocabularyWord>(c => c.WordKey == "quiver" && c.Word == "  Quiver "), It.IsAny<CancellationToken>()));
+        // A card created without an example has none to load.
+        _words.Verify(w => w.GetWordAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -75,16 +77,48 @@ public class VocabularySyncServiceTests
     }
 
     [Fact]
-    public async Task SaveWordAsync_DeletedCard_IsDeletedWithTheTombstoneAndAddsNoExample()
+    public async Task SaveWordAsync_DeletedCardWithoutAnExample_IsDeletedWithTheTombstone()
     {
         Saves(WordSaveOutcome.Deleted, Card(revision: 2, deletedAt: DateTimeOffset.UtcNow));
 
-        var result = await Service.SaveWordAsync(User, Save(Sentence()), Ct);
+        var result = await Service.SaveWordAsync(User, Save(), Ct);
 
         var error = V2Fakes.Error(result);
         Assert.Equal((409, SyncCodes.Deleted, 2L), (result.Status, error.Code, error.Revision));
         Assert.IsType<VocabularyWordDto>(error.Current);
-        _words.Verify(w => w.AddExampleAsync(It.IsAny<Guid>(), It.IsAny<VocabularyExample>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // Principle 6: the example's operation is asked before the tombstone answers.
+    [Fact]
+    public async Task SaveWordAsync_DeletedCardWithAReplayedExample_Is200WithTheTombstone()
+    {
+        Saves(WordSaveOutcome.Deleted, Card(revision: 2, deletedAt: DateTimeOffset.UtcNow));
+        AddsExample(WriteOutcome.Replayed);
+
+        var result = await Service.SaveWordAsync(User, Save(Sentence()), Ct);
+
+        Assert.Equal((200, "replayed", true), (result.Status, CardOf(result).Example, CardOf(result).DeletedAt is not null));
+    }
+
+    [Fact]
+    public async Task SaveWordAsync_DeletedCardWithANewExample_IsDeleted()
+    {
+        Saves(WordSaveOutcome.Deleted, Card(revision: 2, deletedAt: DateTimeOffset.UtcNow));
+        AddsExample(WriteOutcome.Deleted);
+
+        var result = await Service.SaveWordAsync(User, Save(Sentence()), Ct);
+
+        Assert.Equal((409, SyncCodes.Deleted), (result.Status, V2Fakes.Error(result).Code));
+    }
+
+    [Fact]
+    public async Task SaveWordAsync_LanguageInCapitals_IsStoredLowercase()
+    {
+        Saves(WordSaveOutcome.Created, Card());
+
+        await Service.SaveWordAsync(User, Save() with { Language = " EN " }, Ct);
+
+        _words.Verify(w => w.SaveWordAsync(User, It.Is<VocabularyWord>(c => c.Language == "en"), It.IsAny<CancellationToken>()));
     }
 
     [Fact]
@@ -234,6 +268,28 @@ public class VocabularySyncServiceTests
         var result = await Service.RestoreWordAsync(User, CardId, new RestoreVocabularyWordRequest(1), Ct);
 
         Assert.Equal((409, SyncCodes.StaleRevision, 2L), (result.Status, V2Fakes.Error(result).Code, V2Fakes.Error(result).Revision));
+    }
+
+    // A retried restore whose first response was lost: the card is live, as the restore left it.
+    [Fact]
+    public async Task RestoreWordAsync_LostToALiveCard_Is200AsItsOwnWrite()
+    {
+        _words.Setup(w => w.RestoreWordAsync(User, CardId, 2, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RevisionedWrite<VocabularyWord>(false, Card(revision: 3)));
+
+        var result = await Service.RestoreWordAsync(User, CardId, new RestoreVocabularyWordRequest(2), Ct);
+
+        Assert.Equal((200, 3L), (result.Status, CardOf(result).Revision));
+    }
+
+    [Fact]
+    public async Task UpdateWordAsync_DefinitionWithAnEscapedLoneSurrogate_IsRefusedNamingDefinition()
+    {
+        _words.Setup(w => w.GetWordAsync(User, CardId, It.IsAny<CancellationToken>())).ReturnsAsync(Card());
+
+        var result = await Service.UpdateWordAsync(User, CardId, Patch(1, "\"fine\"", "\"\\ud800\""), Ct);
+
+        Assert.Equal((400, "definition"), (result.Status, V2Fakes.Error(result).Field));
     }
 
     [Fact]

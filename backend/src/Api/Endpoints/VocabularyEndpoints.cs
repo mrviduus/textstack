@@ -124,7 +124,7 @@ public static partial class VocabularyEndpoints
         // Server-side, so no client can claim it: a connect key / OAuth token marks an assistant write.
         var source = httpContext.Items.ContainsKey(Middleware.McpKeyAuthMiddleware.UserIdItemKey) ? "mcp" : "tap";
 
-        var word = request.Word.Trim().ToLowerInvariant();
+        var word = Contracts.V2.WordKeys.Of(request.Word);
 
         // Dedup: SRS table first, then pending buffer. A word in either bucket
         // is "already saved" from the user's perspective — don't double-insert.

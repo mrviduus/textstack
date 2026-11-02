@@ -18,6 +18,23 @@ public static class SyncValidation
     private const int MaxQuoteCodePoints = 64;
     private const int MaxContextCodePoints = 32;
 
+    // Vocabulary caps, in UTF-16 units as legacy measures them. Legacy's own where it has one
+    // (VocabularyEndpoints: word 200, translation 500, definition 2000, sentence 1000, bookTitle 500);
+    // language 16 (V2's language columns, room for a BCP 47 tag like zh-Hant-TW; legacy capped 8).
+    // Past them a word key overflows its unique index (54000) and the save would 500 forever.
+    public const int MaxLanguage = 16;
+    public const int MaxWord = 200;
+    public const int MaxTranslation = 500;
+    public const int MaxDefinition = 2000;
+    public const int MaxSentence = 1000;
+    public const int MaxContextualTranslation = 4000;
+    public const int MaxBookTitle = 500;
+    public const int MaxChapterKey = 200;
+    public const int MaxReviewMode = 64;
+
+    /// <summary>ADR-019's clock skew: a client time further ahead than this is a broken clock, not an answer.</summary>
+    public static readonly TimeSpan MaxClockSkew = TimeSpan.FromMinutes(5);
+
     /// <summary>Lowercase hex only: the client keys its local files by it, so uppercase is refused, never lowered.</summary>
     public static SyncResult? Sha256(string? value, string field = "sha256") =>
         value is not null && Sha256Hex.IsMatch(value) ? null : SyncResult.Invalid(field, "sha256 must be 64 lowercase hex digits.");
@@ -46,26 +63,43 @@ public static class SyncValidation
 
     /// <summary>A card save; its example, when sent, under <c>example.</c>.</summary>
     public static SyncResult? Word(SaveVocabularyWordRequest r) =>
-        Required(r.Id, "id") ?? RequiredText(r.Language, "language") ?? RequiredText(r.Word, "word")
-        ?? Text(r.Translation, "translation") ?? Text(r.Definition, "definition")
+        ClientId(r.Id, "id") ?? RequiredText(r.Language, "language", MaxLanguage) ?? RequiredText(r.Word, "word", MaxWord)
+        // A key of only format or punctuation characters (a zero-width space) names no word.
+        ?? (WordKeys.Of(r.Word!).EnumerateRunes().Any(Rune.IsLetterOrDigit) ? null : SyncResult.Invalid("word", "word has no letter or digit."))
+        ?? Text(r.Translation, "translation", MaxTranslation) ?? Text(r.Definition, "definition", MaxDefinition)
         ?? (r.Example is null ? null : Example(r.Example, "example."));
 
     /// <summary>An example's provenance hangs on its book: a file version or a chapter key without one is refused.</summary>
     public static SyncResult? Example(VocabularyExampleRequest e, string prefix = "") =>
-        Required(e.OperationId, prefix + "operationId") ?? RequiredText(e.Sentence, prefix + "sentence")
-        ?? Text(e.ContextualTranslation, prefix + "contextualTranslation") ?? Text(e.BookTitle, prefix + "bookTitle")
-        ?? (e.ChapterKey is null ? null : RequiredText(e.ChapterKey, prefix + "chapterKey"))
+        ClientId(e.OperationId, prefix + "operationId") ?? RequiredText(e.Sentence, prefix + "sentence", MaxSentence)
+        ?? Text(e.ContextualTranslation, prefix + "contextualTranslation", MaxContextualTranslation)
+        ?? Text(e.BookTitle, prefix + "bookTitle", MaxBookTitle)
+        ?? (e.ChapterKey is null ? null : RequiredText(e.ChapterKey, prefix + "chapterKey", MaxChapterKey))
         ?? (e.BookId is null && (e.FileId is not null || e.ChapterKey is not null)
             ? SyncResult.Invalid(prefix + "bookId", "fileId and chapterKey need bookId.") : null);
 
-    public static SyncResult? Review(VocabularyReviewRequest r) =>
-        Required(r.OperationId, "operationId") ?? Required(r.WordId, "wordId") ?? RequiredText(r.ReviewMode, "reviewMode")
+    /// <summary>An answer; <paramref name="now"/> is the server's receive time, which a client time may not pass by more than the skew.</summary>
+    public static SyncResult? Review(VocabularyReviewRequest r, DateTimeOffset now) =>
+        ClientId(r.OperationId, "operationId") ?? Required(r.WordId, "wordId") ?? RequiredText(r.ReviewMode, "reviewMode", MaxReviewMode)
         ?? Required(r.IsCorrect, "isCorrect") ?? Required(r.ClientRecordedAt, "clientRecordedAt")
+        ?? (r.ClientRecordedAt <= now + MaxClockSkew ? null : SyncResult.Invalid("clientRecordedAt", "clientRecordedAt is in the future."))
         ?? (r.ResponseTimeMs is null or >= 0 ? null : SyncResult.Invalid("responseTimeMs", "responseTimeMs must be zero or more."));
+
+    /// <summary>A client-minted id: present and not the empty UUID (the PDD's ids are v4).</summary>
+    public static SyncResult? ClientId(Guid? id, string field) =>
+        id is null || id == Guid.Empty ? SyncResult.Invalid(field, $"{field} must be a client-minted UUID.") : null;
 
     /// <summary>Present, not blank, and storable (<see cref="Text"/>).</summary>
     public static SyncResult? RequiredText(string? value, string field) =>
         string.IsNullOrWhiteSpace(value) ? SyncResult.Invalid(field, $"{field} is required.") : Text(value, field);
+
+    /// <summary><see cref="RequiredText(string?, string)"/> with a length cap.</summary>
+    public static SyncResult? RequiredText(string? value, string field, int max) =>
+        RequiredText(value, field) ?? Text(value, field, max);
+
+    /// <summary><see cref="Text(string?, string)"/> with a length cap, in UTF-16 units.</summary>
+    public static SyncResult? Text(string? value, string field, int max) =>
+        value?.Length > max ? SyncResult.Invalid(field, $"{field} is at most {max} characters.") : Text(value, field);
 
     public static SyncResult? Tags(string[]? tags) =>
         tags is null || tags.All(t => !string.IsNullOrWhiteSpace(t) && IsStorable(t)) ? null : SyncResult.Invalid("tags", "tags must be non-blank strings.");

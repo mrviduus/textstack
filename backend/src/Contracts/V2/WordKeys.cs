@@ -1,9 +1,10 @@
-namespace Application.Vocabulary;
+namespace Contracts.V2;
 
 /// <summary>
-/// The server's <c>wordKey</c> (v2-sync-protocol.md "Payloads → Vocabulary"): the one function the API
-/// and the M3 ETL compute it with. A card is keyed by <c>(language, wordKey)</c>, so "Run" and "run"
-/// in one language are one card and the same spelling in two languages is two.
+/// The vocabulary card key (v2-sync-protocol.md "Payloads → Vocabulary"): one card per
+/// <c>(Language(language), Of(word))</c>. The one definition the API, the M3 ETL and the MCP bridge
+/// (which derives its per-word ids from it) all call; in Contracts because the bridge references
+/// nothing else of the server.
 /// </summary>
 public static class WordKeys
 {
@@ -16,4 +17,10 @@ public static class WordKeys
     /// in legacy) and no Unicode normalization.
     /// </summary>
     public static string Of(string word) => word.Trim().ToLowerInvariant();
+
+    /// <summary>
+    /// A language tag as stored: trimmed and lowercased, because BCP 47 tags are case-insensitive and
+    /// "en" and "EN" must not be two cards. Legacy stored the tag as sent; the ETL normalises it the same way.
+    /// </summary>
+    public static string Language(string language) => language.Trim().ToLowerInvariant();
 }
