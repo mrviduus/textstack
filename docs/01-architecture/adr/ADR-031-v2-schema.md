@@ -113,13 +113,10 @@ Allowed in `reading_state.current_locator` / `frontier_locator` and `annotations
 | `textstack-anchor-v1` | legacy `TextAnchor` `{chapterKey, prefix, exact, suffix, startOffset, endOffset}` — `chapterKey` is the chapter slug (legacy `chapterId` replaced; ids change on re-ingest) (`textAnchor.ts`) | ETL from reflow `highlights.anchor_json` on uploads; the transitional reader, until R8 (M2.7a) |
 
 The two `textstack-*` schemes exist only for migrated rows and the transitional reader; no V2
-writer produces them. V2 writes accept them from the transitional reader (M2.7a, owner decision
-2026-11-02, #1112) only on a file version whose `book_chapters` include the chapter the locator
-names; no server or client converts one to a CFI, and foliate is never given one (the rules:
-[v2-sync-protocol.md](../v2-sync-protocol.md) "Transitional locators"). **Removal:** that write
-path goes when the V2 reader is ready on every client **and** the old-client window (plan §5.4: 60
-days, closed only after the last 14 are silent) has closed — R8
-([#1040](https://github.com/mrviduus/textstack/issues/1040)), which also drops `book_chapters`.
+writer produces them. They are accepted on V2 writes from the transitional reader until R8
+([#1040](https://github.com/mrviduus/textstack/issues/1040)) (M2.7a, owner decision 2026-11-02,
+#1112); the rules and the removal condition: [v2-sync-protocol.md](../v2-sync-protocol.md)
+"Transitional locators".
 
 `quote` on `epub-cfi` (added 2026-10-30) resolves ADR-029's contradiction 1: its position model
 verifies a 64-character quote at the CFI, which the envelope as first written could not store.
