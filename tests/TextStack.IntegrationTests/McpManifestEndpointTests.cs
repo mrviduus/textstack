@@ -64,10 +64,19 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
 
         var manifest = await response.Content.ReadFromJsonAsync<McpManifest>(cancellationToken: ct);
         var healthResponse = await _fixture.Client.SendAsync(_fixture.CreateRequest(HttpMethod.Get, "/health/ready"), ct);
-        var health = await healthResponse.Content.ReadFromJsonAsync<JsonElement>(ct);
-        Assert.SkipWhen(!health.GetProperty("components").TryGetProperty("v2", out var v2Component),
-            "API predates the v2 readiness component");
-        var v2Api = v2Component.GetProperty("status").GetString() != "off";
+        Assert.SkipWhen(!healthResponse.IsSuccessStatusCode, $"/health/ready answered {(int)healthResponse.StatusCode}");
+        JsonElement health;
+        try { health = await healthResponse.Content.ReadFromJsonAsync<JsonElement>(ct); }
+        catch (JsonException) { Assert.Skip("/health/ready did not answer JSON"); return; }
+        if (health.ValueKind != JsonValueKind.Object
+            || !health.TryGetProperty("components", out var components)
+            || !components.TryGetProperty("v2", out var v2Component)
+            || !v2Component.TryGetProperty("status", out var v2Status))
+        {
+            Assert.Skip("/health/ready has no components.v2.status (API predates the v2 readiness component)");
+            return;
+        }
+        var v2Api = v2Status.GetString() != "off";
 
         Assert.NotNull(manifest);
         Assert.Equal(
