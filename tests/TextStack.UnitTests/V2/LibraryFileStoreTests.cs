@@ -27,6 +27,9 @@ public sealed class LibraryFileStoreTests : IDisposable
     private Task<long?> PartAsync(int index, byte[] bytes, Guid? fileId = null, long maxBytes = 1024) =>
         _store.SavePartAsync(User, fileId ?? FileId, index, new MemoryStream(bytes), maxBytes, Ct);
 
+    /// <summary>Stores <paramref name="bytes"/> under <paramref name="key"/>, as a cover put does: staged, then placed.</summary>
+    private async Task PutAsync(string key, byte[] bytes) => _store.Place(await _store.StageAsync(key, bytes, Ct));
+
     private string UploadDir => Path.Combine(_root, "uploads", User.ToString(), FileId.ToString());
 
     [Fact]
@@ -125,12 +128,12 @@ public sealed class LibraryFileStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task WriteAsync_SameKeyTwice_TheSecondReplacesTheFirst()
+    public async Task StageAsync_SameKeyTwice_TheSecondPlaceReplacesTheFirst()
     {
         var key = _store.CoverKey(User, BookId, "png");
 
-        await _store.WriteAsync(key, new byte[] { 1, 2 }, Ct);
-        await _store.WriteAsync(key, new byte[] { 3 }, Ct);
+        await PutAsync(key, [1, 2]);
+        await PutAsync(key, [3]);
 
         Assert.Equal([3], await File.ReadAllBytesAsync(_store.Locate(key)!, Ct));
     }
@@ -138,7 +141,7 @@ public sealed class LibraryFileStoreTests : IDisposable
     [Fact]
     public async Task Delete_StoredAndAbsentKey_RemovesTheBytesAndDoesNotThrow()
     {
-        await _store.WriteAsync(Key, new byte[] { 1 }, Ct);
+        await PutAsync(Key, [1]);
 
         _store.Delete(Key);
         _store.Delete(_store.FileKey(Guid.NewGuid(), BookId, FileId, "pdf"));
@@ -150,8 +153,8 @@ public sealed class LibraryFileStoreTests : IDisposable
     public async Task DeleteUser_LibraryAndParts_AreGoneAnotherUsersStay()
     {
         var otherKey = _store.FileKey(Guid.NewGuid(), BookId, FileId, "epub");
-        await _store.WriteAsync(Key, new byte[] { 1 }, Ct);
-        await _store.WriteAsync(otherKey, new byte[] { 1 }, Ct);
+        await PutAsync(Key, [1]);
+        await PutAsync(otherKey, [1]);
         await PartAsync(0, [1]);
 
         _store.DeleteUser(User);
@@ -162,11 +165,58 @@ public sealed class LibraryFileStoreTests : IDisposable
     }
 
     [Fact]
-    public void RootOf_NoLibraryRoot_IsLibraryUnderTheStorageRoot()
+    public void RootOf_NoLibraryRoot_IsTheStorageRootSoKeysSitDirectlyOnTheVolume()
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Storage:RootPath"] = "/data/storage" }).Build();
 
-        Assert.Equal(Path.Combine("/data/storage", "library"), LibraryFileStore.RootOf(config));
+        Assert.Equal("/data/storage", LibraryFileStore.RootOf(config));
+    }
+
+    [Fact]
+    public async Task StageAsync_Discarded_LeavesNothing()
+    {
+        var staged = await _store.StageAsync(Key, new byte[] { 1 }, Ct);
+
+        _store.Discard(staged);
+
+        Assert.Null(_store.Locate(Key));
+        Assert.Empty(_store.ListLibraryFilesOlderThan(DateTimeOffset.UtcNow.AddMinutes(1)));
+    }
+
+    [Fact]
+    public async Task SavePartAsync_IntoAnUploadTheSweepJustRemoved_StillStores()
+    {
+        await PartAsync(0, [1]);
+        Directory.SetLastWriteTimeUtc(UploadDir, DateTime.UtcNow.AddDays(-2));
+        _store.SweepStaleParts(DateTimeOffset.UtcNow);
+
+        Assert.Equal(1L, await PartAsync(1, [2]));
+        Assert.Equal((1L, 1L), _store.PartBytes(User, FileId, -1));
+    }
+
+    [Fact]
+    public async Task ListLibraryFilesOlderThan_OldAndNewFiles_ListsTheOldKeysOnly()
+    {
+        var old = _store.CoverKey(User, BookId, "png");
+        await PutAsync(old, [1]);
+        await PutAsync(Key, [1]);
+        File.SetLastWriteTimeUtc(_store.Locate(old)!, DateTime.UtcNow.AddHours(-2));
+
+        Assert.Equal([old], _store.ListLibraryFilesOlderThan(DateTimeOffset.UtcNow.AddHours(-1)));
+    }
+
+    [Fact]
+    public async Task RemoveEmptyDirectories_AfterTheLastFileGoes_RemovesTheChainButNotTheRoots()
+    {
+        await PutAsync(Key, [1]);
+        await PartAsync(0, [1]);
+        _store.Delete(Key);
+        _store.DeleteParts(User, FileId);
+
+        _store.RemoveEmptyDirectories();
+
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(_root, "library")));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(_root, "uploads")));
     }
 }

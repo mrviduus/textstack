@@ -13,12 +13,13 @@ namespace Infrastructure.Services;
 public sealed class LibraryFileStore(string root) : ILibraryFileStore
 {
     /// <summary>
-    /// <c>Storage:LibraryRoot</c>, by default <c>{Storage:RootPath}/library</c>: on the persistent volume,
-    /// so parts and books survive a restart. Under the public <c>/storage</c> root, which therefore
-    /// refuses <c>/storage/library</c> (<c>UserStoragePolicy</c>, nginx).
+    /// <c>Storage:LibraryRoot</c>, by default <c>Storage:RootPath</c> (the persistent volume), so the keys
+    /// <c>library/…</c> and the parts <c>uploads/…</c> sit directly on it (plan §4.5) and survive a restart.
+    /// The public <c>/storage</c> root therefore refuses <c>/storage/library</c> and <c>/storage/uploads</c>
+    /// (<c>UserStoragePolicy</c>, nginx).
     /// </summary>
     public static string RootOf(IConfiguration config) =>
-        config["Storage:LibraryRoot"] ?? Path.Combine(config["Storage:RootPath"] ?? "/storage", "library");
+        config["Storage:LibraryRoot"] ?? config["Storage:RootPath"] ?? "/storage";
 
     private const int BufferBytes = 81920;
 
@@ -32,21 +33,38 @@ public sealed class LibraryFileStore(string root) : ILibraryFileStore
 
     private string FullPath(string key) => Path.Combine(root, key);
 
+    private string LibraryDir => Path.Combine(root, "library");
+
     private string UploadsDir => Path.Combine(root, "uploads");
 
     private string UploadDir(Guid userId, Guid fileId) => Path.Combine(UploadsDir, userId.ToString(), fileId.ToString());
 
     private static string PartPath(string dir, int index) => Path.Combine(dir, $"{index:D5}.part");
 
+    // The sweeps remove old and empty directories while a request may be writing into one: create it
+    // again and retry once, so a write never fails for a directory a sweep just took.
+    private static FileStream CreateFile(string path)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        try
+        {
+            return File.Create(path);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            return File.Create(path);
+        }
+    }
+
     public async Task<long?> SavePartAsync(Guid userId, Guid fileId, int index, Stream body, long maxBytes, CancellationToken ct)
     {
         var dir = UploadDir(userId, fileId);
-        Directory.CreateDirectory(dir);
         var temp = Path.Combine(dir, $"{index:D5}.{Guid.NewGuid():N}.tmp");
         try
         {
             long written = 0;
-            await using (var file = File.Create(temp))
+            await using (var file = CreateFile(temp))
             {
                 var buffer = new byte[BufferBytes];
                 int read;
@@ -97,15 +115,12 @@ public sealed class LibraryFileStore(string root) : ILibraryFileStore
         // Before writing hundreds of MB that a missing last part would waste.
         if (!Enumerable.Range(0, partCount).All(i => File.Exists(PartPath(dir, i)))) return null;
 
-        var target = FullPath(key);
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        // Next to the target, so placing it is a rename on the same volume.
-        var temp = $"{target}.{Guid.NewGuid():N}.tmp";
+        var temp = TempBeside(key);
         try
         {
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             long size = 0;
-            await using (var output = File.Create(temp))
+            await using (var output = CreateFile(temp))
             {
                 var buffer = new byte[BufferBytes];
                 for (var i = 0; i < partCount; i++)
@@ -135,6 +150,25 @@ public sealed class LibraryFileStore(string root) : ILibraryFileStore
         }
     }
 
+    // Next to the target, so placing it is a rename on the same volume.
+    private string TempBeside(string key) => $"{FullPath(key)}.{Guid.NewGuid():N}.tmp";
+
+    public async Task<StagedContent> StageAsync(string key, ReadOnlyMemory<byte> bytes, CancellationToken ct)
+    {
+        var temp = TempBeside(key);
+        try
+        {
+            await using (var file = CreateFile(temp))
+                await file.WriteAsync(bytes, ct);
+            return new StagedContent(key, temp, Convert.ToHexStringLower(SHA256.HashData(bytes.Span)), bytes.Length);
+        }
+        catch
+        {
+            TryDelete(temp);
+            throw;
+        }
+    }
+
     public void Place(StagedContent staged) => File.Move(staged.TempPath, FullPath(staged.Key), overwrite: true);
 
     public void Discard(StagedContent staged) => TryDelete(staged.TempPath);
@@ -153,23 +187,33 @@ public sealed class LibraryFileStore(string root) : ILibraryFileStore
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
-    public string? Locate(string key) => File.Exists(FullPath(key)) ? FullPath(key) : null;
-
-    public async Task WriteAsync(string key, ReadOnlyMemory<byte> bytes, CancellationToken ct)
+    public IReadOnlyList<string> ListLibraryFilesOlderThan(DateTimeOffset cutoff)
     {
-        var target = FullPath(key);
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        var temp = $"{target}.{Guid.NewGuid():N}.tmp";
-        try
+        if (!Directory.Exists(LibraryDir)) return [];
+        return Directory.EnumerateFiles(LibraryDir, "*", SearchOption.AllDirectories)
+            .Where(path => File.GetLastWriteTimeUtc(path) < cutoff.UtcDateTime)
+            .Select(path => Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'))
+            .ToList();
+    }
+
+    public void RemoveEmptyDirectories()
+    {
+        foreach (var top in (string[])[LibraryDir, UploadsDir])
         {
-            await File.WriteAllBytesAsync(temp, bytes, ct);
-            File.Move(temp, target, overwrite: true);
-        }
-        finally
-        {
-            TryDelete(temp);
+            if (!Directory.Exists(top)) continue;
+            // Deepest first, so a parent emptied by its children goes in the same pass.
+            foreach (var dir in Directory.EnumerateDirectories(top, "*", SearchOption.AllDirectories).OrderByDescending(d => d.Length).ToList())
+            {
+                try
+                {
+                    if (!Directory.EnumerateFileSystemEntries(dir).Any()) Directory.Delete(dir);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            }
         }
     }
+
+    public string? Locate(string key) => File.Exists(FullPath(key)) ? FullPath(key) : null;
 
     public void Delete(string key)
     {

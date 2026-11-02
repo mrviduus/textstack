@@ -38,14 +38,20 @@ public interface ILibraryFileStore
 
     void DeleteParts(Guid userId, Guid fileId);
 
-    /// <summary>Deletes every upload untouched for <see cref="StaleAfter"/>, all users. Never throws.</summary>
+    /// <summary>Deletes every upload untouched for <see cref="StaleAfter"/>, all users (the worker's sweep). Never throws.</summary>
     void SweepStaleParts(DateTimeOffset now);
+
+    /// <summary>The keys of every file under <c>library/</c> last written before <paramref name="cutoff"/>, temp files included: the orphan sweep's candidates.</summary>
+    IReadOnlyList<string> ListLibraryFilesOlderThan(DateTimeOffset cutoff);
+
+    /// <summary>Removes empty directories under <c>library/</c> and <c>uploads/</c>. Never throws.</summary>
+    void RemoveEmptyDirectories();
 
     /// <summary>The absolute path of <paramref name="key"/>'s bytes; null when they are not on disk.</summary>
     string? Locate(string key);
 
-    /// <summary>Writes <paramref name="bytes"/> under <paramref name="key"/>, replacing what is there (temp file, then move).</summary>
-    Task WriteAsync(string key, ReadOnlyMemory<byte> bytes, CancellationToken ct);
+    /// <summary>Writes <paramref name="bytes"/> to a temp file beside <paramref name="key"/>'s place; <see cref="Place"/> or <see cref="Discard"/> it.</summary>
+    Task<StagedContent> StageAsync(string key, ReadOnlyMemory<byte> bytes, CancellationToken ct);
 
     /// <summary>Deletes <paramref name="key"/>'s bytes; nothing there is fine.</summary>
     void Delete(string key);

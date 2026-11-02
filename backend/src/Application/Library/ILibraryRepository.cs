@@ -80,20 +80,22 @@ public interface ILibraryRepository
     /// Records that the server holds the bytes of the book's current file under <paramref name="storageKey"/>
     /// (PDD delta 4), if they fit: the user's stored bytes plus this file's stay within <paramref name="limitBytes"/>.
     /// Attaches of one user are serialized, so concurrent uploads cannot together pass the limit.
-    /// <paramref name="placeBytes"/> runs inside that transaction, only when the attach is accepted and
-    /// before it commits: a refused or lost attach leaves no bytes behind. Clears <c>content_removed_at</c>
-    /// (a deliberate re-upload after "stop syncing" is allowed).
+    /// Inside one transaction: lock, checks, the row update (uncommitted), then <paramref name="placeBytes"/>,
+    /// then commit. A refused or lost attach places nothing; a failed place rolls the row back; a commit
+    /// that fails after the place leaves bytes no row names, which the worker's orphan sweep deletes.
+    /// Clears <c>content_removed_at</c> (a deliberate re-upload after "stop syncing" is allowed).
     /// </summary>
     Task<ContentAttachment> AttachContentAsync(
         Guid userId, Guid bookId, Guid fileId, string storageKey, long limitBytes, Action placeBytes, CancellationToken ct);
 
     /// <summary>
     /// "Stop syncing this file" (owner decision 6): the key cleared, <c>content_removed_at</c> stamped
-    /// once, <c>updated_at</c> bumped; any version, current or not. False when nothing changed (already
-    /// removed, or not a version of the user's book). The caller deletes the bytes first (the schema:
-    /// a key is cleared only once its file is gone).
+    /// once, <c>updated_at</c> bumped; any version, current or not. Returns the key it cleared, whose bytes
+    /// the caller then deletes; null when there was none (nothing stored, or not a version of the user's book).
+    /// Clearing first means an attach committing meanwhile cannot have its new key cleared with its bytes
+    /// left behind; a failed delete leaves bytes the orphan sweep collects.
     /// </summary>
-    Task<bool> RemoveContentAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct);
+    Task<string?> RemoveContentAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct);
 
     /// <summary>The bytes the server holds for the user: the quota's "used" (owner decision 2).</summary>
     Task<long> StoredBytesAsync(Guid userId, CancellationToken ct);
@@ -106,6 +108,12 @@ public interface ILibraryRepository
 
     /// <summary>Cross-user, for the byte sweep: forgets a superseded version's key once its bytes are deleted.</summary>
     Task ForgetSupersededContentAsync(Guid fileId, CancellationToken ct);
+
+    /// <summary>Every key of the user's bytes, files and covers: what an account delete removes from disk (they may sit under another user's directory after a merge).</summary>
+    Task<IReadOnlyList<string>> ListStorageKeysAsync(Guid userId, CancellationToken ct);
+
+    /// <summary>Cross-user, for the orphan sweep: which of <paramref name="keys"/> a file or a cover still names.</summary>
+    Task<IReadOnlySet<string>> ReferencedKeysAsync(IReadOnlyList<string> keys, CancellationToken ct);
 }
 
 public enum AttachOutcome

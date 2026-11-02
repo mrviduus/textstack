@@ -35,7 +35,6 @@ public sealed class LibraryContentService(
         var (missing, book, file) = await TargetAsync(userId, bookId, fileId, ct);
         if ((missing ?? NotUploadable(book!, file!)) is { } refused) return refused;
 
-        files.SweepStaleParts(DateTimeOffset.UtcNow);
         var (userParts, fileParts) = files.PartBytes(userId, fileId, index);
         if (fileParts + declaredLength > file!.ByteSize)
             return SyncResult.Invalid("part", "The parts are longer than the file's byteSize.");
@@ -120,16 +119,15 @@ public sealed class LibraryContentService(
             logger.LogWarning("V2 file {FileId} of user {UserId} has storage key {StorageKey} but no bytes on disk", fileId, userId, key);
             return SyncResult.Fail(SyncCodes.NoContent);
         }
-        return SyncResult.Bytes(new StoredBytes(path, ContentTypeOf(file.Format)));
+        // A reader's book: no shared cache may keep it (the owner check lives in the API only).
+        return SyncResult.Bytes(new StoredBytes(path, ContentTypeOf(file.Format), CacheControl: "private, no-store"));
     }
 
-    /// <summary>"Stop syncing this file": the server's bytes go, the row says so; idempotent, any version.</summary>
+    /// <summary>"Stop syncing this file": the row says so first, then the bytes it named go; idempotent, any version.</summary>
     public async Task<SyncResult> RemoveAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
     {
-        var file = await library.GetFileAsync(userId, bookId, fileId, ct);
-        if (file is null) return (await library.MissingBookOrFileAsync(userId, bookId, fileId, ct))!;
-        if (file.ServerStorageKey is { } key) files.Delete(key);
-        await library.RemoveContentAsync(userId, bookId, fileId, ct);
+        if (await library.MissingBookOrFileAsync(userId, bookId, fileId, ct) is { } missing) return missing;
+        if (await library.RemoveContentAsync(userId, bookId, fileId, ct) is { } cleared) files.Delete(cleared);
         return SyncResult.NoContent;
     }
 
@@ -147,12 +145,20 @@ public sealed class LibraryContentService(
         var book = await library.GetAsync(userId, bookId, ct);
         if (book is null) return SyncResult.BookNotFound;
         if (book.RemovedAt is not null) return SyncResult.BookRemoved(book);
-        var key = files.CoverKey(userId, bookId, extension);
-        await files.WriteAsync(key, bytes.AsMemory(0, length), ct);
-        var updated = await library.SetCoverAsync(userId, bookId, key, ct);
-        if (updated is null) return SyncResult.BookNotFound;
-        if (book.CoverKey is { } old && old != key) files.Delete(old);
-        return SyncResult.Ok(updated.ToDto());
+        // Staged, then the row, then into place: a book deleted meanwhile leaves no cover behind.
+        var staged = await files.StageAsync(files.CoverKey(userId, bookId, extension), bytes.AsMemory(0, length), ct);
+        try
+        {
+            var updated = await library.SetCoverAsync(userId, bookId, staged.Key, ct);
+            if (updated is null) return SyncResult.BookNotFound;
+            files.Place(staged);
+            if (book.CoverKey is { } old && old != staged.Key) files.Delete(old);
+            return SyncResult.Ok(updated.ToDto());
+        }
+        finally
+        {
+            files.Discard(staged);
+        }
     }
 
     /// <summary>The cover, cached long: the URL stays, so a client that saw the book change asks with <c>?v={updatedAt}</c>; the ETag answers the rest.</summary>
@@ -160,8 +166,14 @@ public sealed class LibraryContentService(
     {
         var book = await library.GetAsync(userId, bookId, ct);
         if (book is null) return SyncResult.BookNotFound;
-        if (book.CoverKey is not { } key || files.Locate(key) is not { } path) return SyncResult.NotFound;
-        var contentType = CoverTypes.First(t => key.EndsWith("." + t.Extension, StringComparison.Ordinal)).ContentType;
+        if (book.CoverKey is not { } key) return SyncResult.NotFound;
+        var type = CoverTypes.FirstOrDefault(t => key.EndsWith("." + t.Extension, StringComparison.Ordinal));
+        if (type.ContentType is null || files.Locate(key) is not { } path)
+        {
+            logger.LogWarning("V2 book {BookId} of user {UserId} names cover {CoverKey}, which is not a stored cover", bookId, userId, key);
+            return SyncResult.NotFound;
+        }
+        var contentType = type.ContentType;
         return SyncResult.Bytes(new StoredBytes(path, contentType, $"\"{book.UpdatedAt.UtcTicks}\"", "private, max-age=31536000"));
     }
 

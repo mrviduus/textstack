@@ -19,14 +19,30 @@ namespace Api.V2;
 /// </summary>
 public sealed class V2IdentityMirror(
     IConfiguration config, V2Readiness readiness, V2ShadowUsers shadows, IUserRepository users,
-    IAccountMergeRepository merges, IAppDbContext legacy, ILibraryFileStore files, ILogger<V2IdentityMirror> logger)
+    IAccountMergeRepository merges, IAppDbContext legacy, ILibraryRepository library, ILibraryFileStore files, ILogger<V2IdentityMirror> logger)
 {
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>The users cascade drops the rows; the account's bytes go after it, best-effort (keys embed the user id).</summary>
+    /// <summary>
+    /// The users cascade drops the rows; the account's bytes go after it, best-effort: every key it held,
+    /// listed before the delete (after a merge some sit under the former guest's directory), then its own
+    /// directories. What fails here the worker's orphan sweep collects within a day.
+    /// </summary>
     public Task DeleteAsync(Guid userId) => MirrorAsync(userId, userId, async ct =>
     {
+        var keys = await library.ListStorageKeysAsync(userId, ct);
         await users.DeleteAsync(userId, ct);
+        foreach (var key in keys)
+        {
+            try
+            {
+                files.Delete(key);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                logger.LogWarning(e, "Could not delete {StorageKey} of deleted user {UserId}; the orphan sweep will", key, userId);
+            }
+        }
         files.DeleteUser(userId);
     });
 

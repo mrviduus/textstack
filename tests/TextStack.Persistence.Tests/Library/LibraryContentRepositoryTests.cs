@@ -122,13 +122,13 @@ public class LibraryContentRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task RemoveContentAsync_StoredFile_ClearsTheKeyStampsItAndBumpsTheBook()
+    public async Task RemoveContentAsync_StoredFile_ReturnsTheClearedKeyStampsTheRowAndBumpsTheBook()
     {
         var book = await db.NewReaderWithBookAsync();
         await AttachAsync(book);
         var before = (await _repo.GetAsync(book.UserId, book.Id, Ct))!.UpdatedAt;
 
-        Assert.True(await _repo.RemoveContentAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct));
+        Assert.Equal(KeyOf(book), await _repo.RemoveContentAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct));
 
         var read = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
         Assert.Equal((string?)null, read.CurrentFile!.ServerStorageKey);
@@ -137,13 +137,14 @@ public class LibraryContentRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task RemoveContentAsync_Again_ChangesNothing()
+    public async Task RemoveContentAsync_NothingStoredThenAgain_StampsOnceAndReturnsNoKey()
     {
         var book = await db.NewReaderWithBookAsync();
-        await _repo.RemoveContentAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct);
+        Assert.Null(await _repo.RemoveContentAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct));
         var first = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
+        Assert.NotNull(first.CurrentFile!.ContentRemovedAt);
 
-        Assert.False(await _repo.RemoveContentAsync(book.UserId, book.Id, book.CurrentFile.Id, Ct));
+        Assert.Null(await _repo.RemoveContentAsync(book.UserId, book.Id, book.CurrentFile.Id, Ct));
 
         var second = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
         Assert.Equal((first.UpdatedAt, first.CurrentFile!.ContentRemovedAt), (second.UpdatedAt, second.CurrentFile!.ContentRemovedAt));
@@ -155,9 +156,64 @@ public class LibraryContentRepositoryTests(V2PostgresFixture db)
         var alices = await db.NewReaderWithBookAsync();
         await AttachAsync(alices);
 
-        Assert.False(await _repo.RemoveContentAsync(await db.NewReaderAsync(), alices.Id, alices.CurrentFile!.Id, Ct));
+        Assert.Null(await _repo.RemoveContentAsync(await db.NewReaderAsync(), alices.Id, alices.CurrentFile!.Id, Ct));
 
         Assert.NotNull((await _repo.GetFileAsync(alices.UserId, alices.Id, alices.CurrentFile.Id, Ct))!.ServerStorageKey);
+    }
+
+    [Fact]
+    public async Task RemoveContentAsync_WhileAnAttachHoldsTheRow_ClearsAndReturnsTheKeyThatAttachCommitted()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        using var placing = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var attach = Task.Run(() => AttachAsync(book, place: () => { placing.Set(); release.Wait(); }), Ct);
+        placing.Wait(Ct);
+
+        var remove = Task.Run(() => _repo.RemoveContentAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct), Ct);
+        await Task.Delay(200, Ct);
+        release.Set();
+        await attach;
+
+        Assert.Equal(KeyOf(book), await remove);
+        Assert.Null((await _repo.GetFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct))!.ServerStorageKey);
+    }
+
+    [Fact]
+    public async Task AttachContentAsync_PlaceRunsAfterTheRowUpdate_InsideTheTransaction()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        string? seenFromOutside = "unread";
+
+        await AttachAsync(book, place: () => seenFromOutside = db.ScalarAsync<string?>(
+            "SELECT server_storage_key FROM book_files WHERE id = @id", new { id = book.CurrentFile!.Id }).GetAwaiter().GetResult());
+
+        // Updated but not committed when the bytes were placed: another connection still read null.
+        Assert.Null(seenFromOutside);
+    }
+
+    [Fact]
+    public async Task ListStorageKeysAsync_FilesAndCover_ListsOnlyTheUsersKeys()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        await AttachAsync(book);
+        await _repo.SetCoverAsync(book.UserId, book.Id, "library/c/cover.png", Ct);
+        await AttachAsync(await db.NewReaderWithBookAsync());
+
+        Assert.Equal(new[] { KeyOf(book), "library/c/cover.png" }.Order(), (await _repo.ListStorageKeysAsync(book.UserId, Ct)).Order());
+    }
+
+    [Fact]
+    public async Task ReferencedKeysAsync_MixOfKeys_AnswersOnlyThoseAFileOrACoverNames()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        await AttachAsync(book);
+        var cover = $"library/{Guid.NewGuid()}/cover.png";
+        await _repo.SetCoverAsync(book.UserId, book.Id, cover, Ct);
+
+        var referenced = await _repo.ReferencedKeysAsync([KeyOf(book), cover, "library/orphan.epub"], Ct);
+
+        Assert.Equal(new[] { cover, KeyOf(book) }.Order(), referenced.Order());
     }
 
     [Fact]

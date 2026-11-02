@@ -27,13 +27,17 @@ public class V2IdentityMirrorTests
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IAccountMergeRepository> _merges = new();
     private readonly Mock<ILibraryFileStore> _files = new();
+    private readonly Mock<ILibraryRepository> _library = new();
     private readonly CapturingLogger<V2IdentityMirror> _log = new();
     private readonly User _account = new() { Id = Guid.NewGuid(), Email = "reader@textstack.test" };
     private readonly Guid _guest = Guid.NewGuid();
     private int _checks;
 
-    public V2IdentityMirrorTests() =>
+    public V2IdentityMirrorTests()
+    {
         _users.Setup(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>())).ReturnsAsync(new UserAccount());
+        _library.Setup(l => l.ListStorageKeysAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
+    }
 
     private V2IdentityMirror Mirror(bool flag = true, bool ready = true, TimeSpan? timeout = null)
     {
@@ -42,7 +46,7 @@ public class V2IdentityMirrorTests
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Features:V2Api"] = flag.ToString() }).Build();
         var readiness = V2ReadinessTests.Readiness(_ => { _checks++; return Task.FromResult(ready ? new List<string>() : ["0002_next"]); });
         var shadows = new V2ShadowUsers(_users.Object, new MemoryCache(new MemoryCacheOptions()), NullLogger<V2ShadowUsers>.Instance);
-        return new(config, readiness, shadows, _users.Object, _merges.Object, legacy.Object, _files.Object, _log) { Timeout = timeout ?? TimeSpan.FromSeconds(10) };
+        return new(config, readiness, shadows, _users.Object, _merges.Object, legacy.Object, _library.Object, _files.Object, _log) { Timeout = timeout ?? TimeSpan.FromSeconds(10) };
     }
 
     private Moq.Language.Flow.ISetup<IAccountMergeRepository, Task<AccountMerge>> Merge() =>
@@ -66,11 +70,19 @@ public class V2IdentityMirrorTests
     }
 
     [Fact]
-    public async Task DeleteAsync_RowsDeleted_DeletesTheAccountsBytesToo()
+    public async Task DeleteAsync_RowsDeleted_DeletesEveryKeyListedBeforeThenTheAccountsDirectories()
     {
+        var order = new List<string>();
+        _library.Setup(l => l.ListStorageKeysAsync(_account.Id, It.IsAny<CancellationToken>()))
+            .Callback(() => order.Add("list")).ReturnsAsync(["library/gu/guest/b/f.epub", "library/ac/account/b/cover.png"]);
+        _users.Setup(u => u.DeleteAsync(_account.Id, It.IsAny<CancellationToken>())).Callback(() => order.Add("rows")).ReturnsAsync(true);
+        _files.Setup(f => f.Delete(It.IsAny<string>())).Callback((string key) => order.Add(key));
+        _files.Setup(f => f.DeleteUser(_account.Id)).Callback(() => order.Add("dirs"));
+
         await Mirror().DeleteAsync(_account.Id);
 
-        _files.Verify(f => f.DeleteUser(_account.Id), Times.Once);
+        // A merged account's file under the former guest's directory goes too, at delete time.
+        Assert.Equal(["list", "rows", "library/gu/guest/b/f.epub", "library/ac/account/b/cover.png", "dirs"], order);
     }
 
     [Fact]

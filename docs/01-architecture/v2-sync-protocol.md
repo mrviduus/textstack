@@ -530,23 +530,31 @@ device learns of the replacement from its next pull (`books.updated_at` bumps on
 their `server_storage_key` is cleared only once the bytes are gone (schema comment).
 
 **As built (M2.6).**
-- `Storage:LibraryRoot` defaults to `{Storage:RootPath}/library` (the persistent volume, so keys read
-  `…/library/library/{u[..2]}/…`); parts live under its `uploads/{userId}/{fileId}/{index:D5}.part`
-  and survive an api restart. It sits under the public `/storage` root, which therefore 404s
-  `/storage/library/*` (`UserStoragePolicy`, nginx). Every key is built from ids and the stored
-  `format`, never from client text.
+- `Storage:LibraryRoot` defaults to `Storage:RootPath` (the persistent volume), so the keys `library/…`
+  and the parts `uploads/{userId}/{fileId}/{index:D5}.part` sit directly on it and survive an api
+  restart. That is the public `/storage` root, which therefore 404s `/storage/library/*` and
+  `/storage/uploads/*` (`UserStoragePolicy`, nginx). Every key is built from ids and the stored
+  `format`, never from client text. Book bytes are served `Cache-Control: private, no-store`.
 - **Quota** = `SUM(byte_size)` of the user's files with `server_storage_key` set, against legacy's tier
   limits and `storage_limit_override_bytes`. A part checks it cheaply (stored + this user's parts on
   disk + this part); the complete decides inside `AttachContentAsync`'s transaction, which takes
   `pg_advisory_xact_lock` on the user id, so concurrent completes cannot together pass the limit. A
   superseded version counts until the sweep deletes its bytes.
-- The sweep runs in the worker (transitional ingestion host), about once a minute: superseded bytes,
-  then their key; upload parts untouched for a day (also on the user's next part). A removed book
-  keeps its bytes (removal is a hide). An account delete removes the user's library and parts after
-  the V2 rows (`V2IdentityMirror`).
+- **Order of writes.** Attach: lock, checks, row update, place the bytes, commit (a failed place rolls
+  the row back). Stop syncing: clear the row (returning the key it held, under its row lock), then
+  delete those bytes. Cover: stage beside the target, update the row, move into place.
+- **Sweeps** (the worker, transitional ingestion host), on their own clocks whatever the queue: about
+  once a minute, superseded bytes then their key, and upload parts untouched for a day (the api never
+  sweeps); once a day, every file under `library/` older than an hour that no `server_storage_key` or
+  `cover_key` names, then empty directories. That one orphan sweep collects whatever lost its row (a
+  commit that failed after the place, a merge's dropped guest copies, a failed delete). A removed book
+  keeps its bytes (removal is a hide). An account delete lists the user's keys, deletes the V2 rows,
+  then those files and the user's directories (`V2IdentityMirror`).
+- **Extraction failures.** A file the extractor cannot read fails its job. Anything that throws (disk,
+  database) leaves the job processing: the stuck reclaim retries it, and 3 attempts end it.
 - `ponytail:` a guest→account merge does not move bytes: the account's file rows keep keys under the
-  guest's directory (every read goes through the stored key, so they work). Moving them is step 5 of
-  the merge above, deferred until a merged account's delete or storage report needs it.
+  guest's directory (every read goes through the stored key, so they work; an account delete removes
+  them by key). Moving them is step 5 of the merge above, deferred until a storage report needs it.
 - A part may not take the file past its `byteSize` (400 `invalid_payload`). The parts route reads the raw body
   (no JSON binder); the global body cap (500 MB) is above `maxPartBytes`.
 

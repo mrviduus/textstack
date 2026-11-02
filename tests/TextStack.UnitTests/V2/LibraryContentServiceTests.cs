@@ -128,6 +128,8 @@ public class LibraryContentServiceTests
         var result = await PartAsync(index: 3, length: 500);
 
         Assert.Equal((200, new UploadedPartDto(3, 500)), (result.Status, result.Body));
+        // The worker sweeps stale parts; a request never deletes another upload's directory.
+        _files.Verify(f => f.SweepStaleParts(It.IsAny<DateTimeOffset>()), Times.Never);
         _files.Verify(f => f.SavePartAsync(User, FileId, 3, Stream.Null, 500, It.IsAny<CancellationToken>()));
     }
 
@@ -277,7 +279,7 @@ public class LibraryContentServiceTests
 
         var result = await Service.ReadAsync(User, BookId, FileId, Ct);
 
-        Assert.Equal(new StoredBytes("/volume/key", contentType), result.Body);
+        Assert.Equal(new StoredBytes("/volume/key", contentType, CacheControl: "private, no-store"), result.Body);
     }
 
     [Fact]
@@ -285,17 +287,19 @@ public class LibraryContentServiceTests
         Assert.Equal((409, SyncCodes.UnknownFile), Code(await Service.ReadAsync(User, BookId, Guid.NewGuid(), Ct)));
 
     [Fact]
-    public async Task RemoveAsync_Stored_DeletesTheBytesThenClearsTheRow()
+    public async Task RemoveAsync_Stored_ClearsTheRowThenDeletesTheKeyItCleared()
     {
-        _file.ServerStorageKey = Key;
+        // The key the row held when it was cleared, not the one read earlier: an attach may have landed between.
+        _file.ServerStorageKey = "library/read-before.epub";
         var order = new List<string>();
+        _library.Setup(l => l.RemoveContentAsync(User, BookId, FileId, It.IsAny<CancellationToken>())).Callback(() => order.Add("row")).ReturnsAsync(Key);
         _files.Setup(f => f.Delete(Key)).Callback(() => order.Add("bytes"));
-        _library.Setup(l => l.RemoveContentAsync(User, BookId, FileId, It.IsAny<CancellationToken>())).Callback(() => order.Add("row")).ReturnsAsync(true);
 
         var result = await Service.RemoveAsync(User, BookId, FileId, Ct);
 
         Assert.Equal(204, result.Status);
-        Assert.Equal(["bytes", "row"], order);
+        Assert.Equal(["row", "bytes"], order);
+        _files.Verify(f => f.Delete("library/read-before.epub"), Times.Never);
     }
 
     [Fact]
@@ -318,15 +322,34 @@ public class LibraryContentServiceTests
     public async Task PutCoverAsync_Png_StoresItSetsTheKeyAndDeletesAnOldCoverOfAnotherType()
     {
         _library.Setup(l => l.GetAsync(User, BookId, It.IsAny<CancellationToken>())).ReturnsAsync(new Book { Id = BookId, CoverKey = "library/cover.jpg" });
-        _files.Setup(f => f.CoverKey(User, BookId, "png")).Returns("library/cover.png");
+        StagesCover();
         _library.Setup(l => l.SetCoverAsync(User, BookId, "library/cover.png", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Book { Id = BookId, Title = "A book", CoverKey = "library/cover.png" });
 
         var result = await Service.PutCoverAsync(User, BookId, "image/png", new MemoryStream(Png), Ct);
 
         Assert.Equal((200, true), (result.Status, ((BookDto)result.Body!).HasCover));
-        _files.Verify(f => f.WriteAsync("library/cover.png", It.Is<ReadOnlyMemory<byte>>(b => b.Length == Png.Length), It.IsAny<CancellationToken>()));
+        _files.Verify(f => f.StageAsync("library/cover.png", It.Is<ReadOnlyMemory<byte>>(b => b.Length == Png.Length), It.IsAny<CancellationToken>()));
+        _files.Verify(f => f.Place(_cover));
         _files.Verify(f => f.Delete("library/cover.jpg"));
+    }
+
+    private readonly StagedContent _cover = new("library/cover.png", "/tmp/cover.tmp", Sha, 10);
+
+    private void StagesCover()
+    {
+        _files.Setup(f => f.CoverKey(User, BookId, "png")).Returns("library/cover.png");
+        _files.Setup(f => f.StageAsync("library/cover.png", It.IsAny<ReadOnlyMemory<byte>>(), It.IsAny<CancellationToken>())).ReturnsAsync(_cover);
+    }
+
+    [Fact]
+    public async Task PutCoverAsync_BookGoneBeforeTheRowUpdate_IsBookNotFoundAndNothingIsPlaced()
+    {
+        StagesCover();
+
+        Assert.Equal((404, SyncCodes.BookNotFound), Code(await Service.PutCoverAsync(User, BookId, "image/png", new MemoryStream(Png), Ct)));
+        _files.Verify(f => f.Place(It.IsAny<StagedContent>()), Times.Never);
+        _files.Verify(f => f.Discard(_cover));
     }
 
     [Fact]
@@ -357,6 +380,15 @@ public class LibraryContentServiceTests
     [Fact]
     public async Task GetCoverAsync_NoCover_IsNotFound() =>
         Assert.Equal((404, SyncCodes.NotFound), Code(await Service.GetCoverAsync(User, BookId, Ct)));
+
+    [Fact]
+    public async Task GetCoverAsync_KeyWithAnUnknownExtension_IsNotFoundNotAServerError()
+    {
+        _library.Setup(l => l.GetAsync(User, BookId, It.IsAny<CancellationToken>())).ReturnsAsync(new Book { Id = BookId, CoverKey = "library/cover.gif" });
+        _files.Setup(f => f.Locate("library/cover.gif")).Returns("/volume/cover.gif");
+
+        Assert.Equal((404, SyncCodes.NotFound), Code(await Service.GetCoverAsync(User, BookId, Ct)));
+    }
 
     [Fact]
     public async Task GetCoverAsync_Stored_IsTheBytesWithAnETagOfTheBooksUpdatedAt()

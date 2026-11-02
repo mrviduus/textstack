@@ -60,25 +60,59 @@ public sealed partial class LibraryRepository
         if (!file.IsCurrent) return new(AttachOutcome.FileReplaced, current);
         if (used + file.ByteSize > limitBytes) return new(AttachOutcome.QuotaExceeded, Used: used);
 
-        placeBytes();
         var attached = await conn.QuerySingleAsync<BookFile>(new CommandDefinition(SetStorageKey, args, tx.Transaction, cancellationToken: ct));
+        placeBytes();
         await tx.CommitAsync(ct);
         return new(AttachOutcome.Attached, attached);
     }
 
-    // Stamped once: a second "stop syncing" changes nothing and moves no feed.
+    // Stamped once: a second "stop syncing" changes nothing and moves no feed. The row lock in `old`
+    // waits for an attach in flight and then reads its key, so the key returned is the one cleared.
     private const string ClearContent = """
-        WITH f AS (
-            UPDATE book_files SET server_storage_key = NULL, content_removed_at = COALESCE(content_removed_at, now())
+        WITH old AS (
+            SELECT id, server_storage_key FROM book_files
             WHERE user_id = @userId AND book_id = @bookId AND id = @fileId
-              AND (server_storage_key IS NOT NULL OR content_removed_at IS NULL)
-            RETURNING book_id
+            FOR UPDATE
+        ), f AS (
+            UPDATE book_files b SET server_storage_key = NULL, content_removed_at = COALESCE(b.content_removed_at, now())
+            FROM old
+            WHERE b.id = old.id AND (old.server_storage_key IS NOT NULL OR b.content_removed_at IS NULL)
+            RETURNING b.book_id, old.server_storage_key
+        ), touched AS (
+            UPDATE books SET updated_at = now() WHERE user_id = @userId AND id IN (SELECT book_id FROM f)
         )
-        UPDATE books SET updated_at = now() WHERE user_id = @userId AND id IN (SELECT book_id FROM f)
+        SELECT server_storage_key FROM f
         """;
 
-    public Task<bool> RemoveContentAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct) =>
-        ChangesOneAsync(ClearContent, new { userId, bookId, fileId }, ct);
+    public async Task<string?> RemoveContentAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return await conn.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(ClearContent, new { userId, bookId, fileId }, cancellationToken: ct));
+    }
+
+    private const string SelectUsersKeys = """
+        SELECT server_storage_key FROM book_files WHERE user_id = @userId AND server_storage_key IS NOT NULL
+        UNION ALL
+        SELECT cover_key FROM books WHERE user_id = @userId AND cover_key IS NOT NULL
+        """;
+
+    public async Task<IReadOnlyList<string>> ListStorageKeysAsync(Guid userId, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return (await conn.QueryAsync<string>(new CommandDefinition(SelectUsersKeys, new { userId }, cancellationToken: ct))).AsList();
+    }
+
+    private const string SelectReferencedKeys = """
+        SELECT server_storage_key FROM book_files WHERE server_storage_key = ANY(@keys)
+        UNION
+        SELECT cover_key FROM books WHERE cover_key = ANY(@keys)
+        """;
+
+    public async Task<IReadOnlySet<string>> ReferencedKeysAsync(IReadOnlyList<string> keys, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return (await conn.QueryAsync<string>(new CommandDefinition(SelectReferencedKeys, new { keys = keys.ToArray() }, cancellationToken: ct))).ToHashSet();
+    }
 
     public async Task<long> StoredBytesAsync(Guid userId, CancellationToken ct)
     {
