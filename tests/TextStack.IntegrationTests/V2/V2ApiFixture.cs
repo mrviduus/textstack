@@ -179,14 +179,20 @@ public sealed class V2ApiFixture : IAsyncLifetime
         clientRecordedAt = DateTimeOffset.UtcNow,
     };
 
-    /// <summary>
-    /// Imports an EPUB with one chapter per title, uploads its bytes and waits for the transitional extraction (the
-    /// worker must run against this api's storage root and V2 database); returns its ids and its chapter keys in order.
-    /// </summary>
+    /// <summary>Imports an EPUB with one chapter per title and has it extracted (<see cref="UploadAndExtractAsync"/>); its ids and chapter keys.</summary>
     public async Task<(Guid Book, Guid File, IReadOnlyList<string> Keys)> ImportWithChaptersAsync(V2Session who, params string[] titles)
     {
         var bytes = Epub(titles);
         var (book, file) = await ImportBytesAsync(who, bytes);
+        return (book, file, await UploadAndExtractAsync(who, book, file, bytes));
+    }
+
+    /// <summary>
+    /// Uploads a file's bytes and waits for the transitional extraction (the worker must run against this api's
+    /// storage root and V2 database); returns the file's chapter keys in order.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> UploadAndExtractAsync(V2Session who, Guid book, Guid file, byte[] bytes)
+    {
         var chapters = $"/me/v2/books/{book}/files/{file}/chapters";
         using var part = await SendRawAsync(who, HttpMethod.Put, $"/me/v2/books/{book}/files/{file}/parts/0", new ByteArrayContent(bytes));
         Assert.Equal(HttpStatusCode.OK, part.StatusCode);
@@ -199,11 +205,11 @@ public sealed class V2ApiFixture : IAsyncLifetime
             toc = await SendAsync(who, HttpMethod.Get, chapters);
         }
         Assert.Equal("succeeded", toc.Body.GetProperty("ingestion").GetString());
-        return (book, file, toc.Body.GetProperty("items").EnumerateArray().Select(c => c.GetProperty("chapterKey").GetString()!).ToList());
+        return toc.Body.GetProperty("items").EnumerateArray().Select(c => c.GetProperty("chapterKey").GetString()!).ToList();
     }
 
     /// <summary>A valid EPUB 3 with one chapter per title, its bytes unique to this call.</summary>
-    private static byte[] Epub(params string[] titles)
+    public static byte[] Epub(params string[] titles)
     {
         using var buffer = new MemoryStream();
         using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))

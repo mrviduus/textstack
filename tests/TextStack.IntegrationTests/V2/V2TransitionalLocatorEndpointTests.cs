@@ -137,6 +137,34 @@ public class V2TransitionalLocatorEndpointTests(V2ApiFixture v2) : IClassFixture
         Assert.Equal((HttpStatusCode.OK, 3L, "textstack-position-v1"), (old3.Status, old3.Body.GetProperty("revision").GetInt64(), Scheme(old3, "currentLocator")));
     }
 
+    // PDD "Guest → account merge" step 5: the merge moves the locator unchecked; the account's file has no chapters
+    // until its bytes are uploaded, and the same bytes extract to the same keys.
+    [Fact]
+    public async Task PutState_MergedLegacyPositionBeforeTheAccountsFileHasChapters_IsChapterNotFoundThen200()
+    {
+        v2.Require();
+        var (email, password) = ($"v2-m27a-{Guid.NewGuid():N}@textstack.test", "correct-horse-battery");
+        var (account, _) = await v2.SignInAsync("/auth/register", new { email, password, name = "Merge" });
+        var epub = V2ApiFixture.Epub("One", "Two");
+        var (accountBook, accountFile) = await v2.ImportBytesAsync(account, epub); // the same bytes, never uploaded
+        var guest = await v2.NewGuestAsync();
+        var (guestBook, guestFile) = await v2.ImportBytesAsync(guest, epub);
+        var keys = await v2.UploadAndExtractAsync(guest, guestBook, guestFile, epub);
+        await v2.WriteStateAsync(guest, guestBook, State(guestFile, null, TextPosition(keys[1]), 0.6m));
+
+        var (signedIn, _) = await v2.SignInAsync("/auth/login", new { email, password }, guest);
+        var merged = await v2.SendAsync(signedIn, HttpMethod.Get, $"/me/v2/books/{accountBook}/reading-state");
+        var revision = merged.Body.GetProperty("revision").GetInt64();
+        var before = await v2.WriteStateAsync(signedIn, accountBook, State(accountFile, revision, TextPosition(keys[1]), 0.7m));
+        var accountKeys = await v2.UploadAndExtractAsync(signedIn, accountBook, accountFile, epub);
+        var after = await v2.WriteStateAsync(signedIn, accountBook, State(accountFile, revision, TextPosition(keys[1]), 0.7m));
+
+        Assert.Equal(keys[1], merged.Body.GetProperty("currentLocator").GetProperty("value").GetProperty("chapterSlug").GetString());
+        Assert.Equal((HttpStatusCode.Conflict, "chapter_not_found"), (before.Status, before.Code));
+        Assert.Equal(keys, accountKeys);
+        Assert.Equal(HttpStatusCode.OK, after.Status);
+    }
+
     private static string? Scheme(V2Response response, string locator) =>
         response.Body.GetProperty(locator).GetProperty("scheme").GetString();
 }
