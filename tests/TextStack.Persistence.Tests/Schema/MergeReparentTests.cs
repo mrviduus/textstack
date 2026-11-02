@@ -66,29 +66,15 @@ public class MergeReparentTests(V2PostgresFixture db)
         foreach (var (table, hers, _) in await RowsAsync(alice, bob)) Assert.Equal((table, Seeded(table)), (table, hers));
     }
 
-    /// <summary>
-    /// Alice's and bob's row counts in the two roots and every table whose ownership is in a composite
-    /// key (ADR-031 rule 2), from the catalog, so a table added later is asserted on without anyone
-    /// listing it. Tables that point only at <c>users</c> (tokens, grants, keys, agent runs) are reached
-    /// by no cascade and are the merge's own decision.
-    /// </summary>
+    /// <summary>Alice's and bob's row counts in every table the roots' cascade reaches (<see cref="V2PostgresFixture.UserTablesAsync"/>).</summary>
     private async Task<IReadOnlyList<(string Table, long Hers, long His)>> RowsAsync(Guid alice, Guid bob)
     {
-        const string tables = """
-            SELECT conrelid::regclass::text FROM pg_constraint
-            WHERE contype = 'f' AND connamespace = 'public'::regnamespace AND confrelid <> 'public.users'::regclass
-            UNION SELECT 'books' UNION SELECT 'vocabulary_words'
-            ORDER BY 1
-            """;
+        var names = await db.UserTablesAsync(reachedByCascade: true);
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
-        var names = (await conn.QueryAsync<string>(new CommandDefinition(tables, cancellationToken: Ct))).AsList();
         var counts = string.Join(" UNION ALL ", names.Select(t =>
             $"SELECT '{t}' AS tbl, count(*) FILTER (WHERE user_id = @alice) AS hers, count(*) FILTER (WHERE user_id = @bob) AS his FROM {t}"));
         return (await conn.QueryAsync<(string, long, long)>(new CommandDefinition(counts, new { alice, bob }, cancellationToken: Ct))).AsList();
     }
-
-    /// <summary>How many rows the seed gives alice in <paramref name="table"/>: two sessions (one of a deleted book), one of everything else.</summary>
-    private static long Seeded(string table) => table == "reading_sessions" ? 2 : 1;
 
     /// <summary>Runs <paramref name="sql"/> as one transaction, with the deferred FKs checked at its end.</summary>
     private async Task RunAsync(string sql, Guid from, Guid to)

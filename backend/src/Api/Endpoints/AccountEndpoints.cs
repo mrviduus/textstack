@@ -1,4 +1,5 @@
 using Api.Extensions;
+using Api.V2;
 using Application.Auth;
 using Application.Common.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -45,6 +46,7 @@ public static class AccountEndpoints
         AuthService authService,
         IAppDbContext db,
         IFileStorageService storage,
+        V2IdentityMirror mirror,
         ILogger<Program> logger,
         CancellationToken ct)
     {
@@ -75,6 +77,9 @@ public static class AccountEndpoints
         await db.SaveChangesAsync(ct);
 
         await tx.CommitAsync(ct);
+
+        // V2 follows the committed legacy delete when Features:V2Api is on; it never fails this request.
+        await mirror.DeleteAsync(id);
 
         // Best-effort disk cleanup post-commit. Removes the whole
         // users/{shard}/{userId} tree (all uploaded book files) + the avatar.

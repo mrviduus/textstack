@@ -88,6 +88,7 @@ public static class DataSource
             .AddSingleton<IOAuthRepository, OAuthRepository>()
             .AddSingleton<IDeviceLoginRepository, DeviceLoginRepository>()
             .AddSingleton<IMcpKeyRepository, McpKeyRepository>()
+            .AddSingleton<IAccountMergeRepository, AccountMergeRepository>()
             // Concrete, not as the Core writer interfaces: those stay bound to the EF writers until the cutover.
             .AddSingleton<V2LlmTraceWriter>()
             .AddSingleton<V2AgentRunWriter>()
