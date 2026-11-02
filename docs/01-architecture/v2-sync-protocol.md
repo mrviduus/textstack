@@ -634,7 +634,17 @@ committed, and at least one id changed; a file of a matched book that is not its
 id and is not in the map. An insight clash keeps the loser in full as a checkpoint: conclusions = its
 text, reader thoughts = its question, open questions = each review question's prompt with its answer,
 assistant suggestions = its `review_json` as canonical JSON; only the questions' review schedule is not
-carried (the merge counts them). A guest state left on an old file version loses to the account's.
+carried (the merge counts them). A reading state counts only on its book's current file: a guest state
+on an old version is dropped, an account state on an old version is overwritten by the guest's (revision
+past both); `completedAt` is the winner's as it is. A guest checkpoint whose share was a dropped copy is
+relinked to the account's share of the same `operationId` when that share is on the same book, chapter
+and file version, else unlinked; either way rehashed. Credentials die with the guest (refresh and reset
+tokens, device logins, OAuth requests, **OAuth grants and MCP keys**: one minted under a guest session on
+a shared device must not become the account's); agent runs move. The merge locks both users, every guest
+book and the matched account books first, so a write in flight lands before it or is refused after it
+(401 under `/me/v2`). The mirror runs on its own 10 s budget, not the request's: **V1 sign-in, register
+and account delete wait at most 10 s on V2**; a unique-key, deadlock or serialization failure is retried
+once with a fresh snapshot. An in-place promotion (`/auth/register` with a guest session) is mirrored too.
 
 **Owner decisions (2026-11-02).**
 - No real users on V2 before M5, so no outbox: V2 is test-only, and the mirror runs after the legacy commit, best-effort.

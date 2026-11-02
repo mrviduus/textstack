@@ -244,7 +244,9 @@ public sealed partial class AccountMergeRepository
     private const string MoveBooklessSessions = "UPDATE reading_sessions SET user_id = @accountId WHERE user_id = @guestId AND book_id IS NULL";
 
     // 6. The cascade does not touch updated_at, and the account's other devices pull by it. Bumps the
-    // account's own rows of a matched book too: extra feed entries, nothing wrong.
+    // account's own rows of a matched book too: extra feed entries, nothing wrong. ponytail: now() is
+    // the transaction's start, so an account write committed during a merge longer than the feeds'
+    // 30 s overlap can pass these rows in a cursor; stamp clock_timestamp() if merges ever run that long.
     private const string BumpFeeds = """
         UPDATE reading_state SET updated_at = now() WHERE user_id = @accountId AND book_id = ANY(@bookIds);
         UPDATE annotations SET updated_at = now() WHERE user_id = @accountId AND book_id = ANY(@bookIds)

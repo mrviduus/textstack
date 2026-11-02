@@ -308,8 +308,10 @@ is never edited (ADR-026); the rows and rules above read with these deltas:
   replaying its outbox after sign-in reuses its `operation_id`s, decision 13), so the merge checks
   collisions and ownership before it moves anything (owner decision 12); and the tables that point
   only at `users` (refresh tokens, reset tokens, OAuth requests and grants, device authorizations,
-  MCP keys, `agent_run`) are reached by no cascade — the merge decides each (a guest's session
-  tokens are the signing-in device's, its agent runs move). `tests/invariants.sql` pins the cascade
+  MCP keys, `agent_run`) are reached by no cascade — the merge decides each: refresh and reset
+  tokens, OAuth requests, device authorizations, OAuth grants and MCP keys die with the guest (a
+  credential minted under a guest session on a shared device must not become the account's), agent
+  runs move. `tests/invariants.sql` pins the cascade
   on every `(user_id, …)` FK.
 - **`discussion_checkpoints`:** the share FK is `ON DELETE SET NULL (shared_chapter_id)`; a share
   delete is one statement (M1.4's unlink and its two locks are gone). The baseline's comment above
