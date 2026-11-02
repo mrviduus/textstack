@@ -42,6 +42,25 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task IssueAsync_NoPasswordChecked_DoesNotWaitForAnUpdateOfTheUser()
+    {
+        // A provider, guest or refresh issue must not queue behind the user row (a reset, a profile write).
+        var user = await db.NewReaderAsync();
+        await using var holder = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var tx = await holder.BeginTransactionAsync(Ct);
+        await holder.ExecuteAsync(new CommandDefinition(
+            "SELECT FROM users WHERE id = @user FOR NO KEY UPDATE", new { user }, tx, cancellationToken: Ct));
+
+        var issue = _repo.IssueAsync(user, NewHash(), NextWeek, null, Ct);
+        await db.WaitUntilBlockedByAsync(holder, issue);
+        var blocked = !issue.IsCompleted;
+        await tx.CommitAsync(Ct);
+
+        Assert.False(blocked);
+        Assert.NotNull(await issue);
+    }
+
+    [Fact]
     public async Task IssueAsync_NoSuchUser_ReturnsNull()
     {
         Assert.Null(await _repo.IssueAsync(Guid.NewGuid(), NewHash(), NextWeek, null, Ct));

@@ -15,13 +15,21 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
 
     private const string ResetColumns = "id, user_id, token_hash, expires_at, used, created_at";
 
-    // FOR SHARE conflicts with a reset's lock on the user (LockResetOwner): a reset holding it makes
-    // this wait, and READ COMMITTED re-checks password_hash on the row the reset committed, so a
-    // changed password inserts nothing. A reset that comes second deletes this session.
+    // Selected from users, so a user gone is no row rather than an FK error. Its FK check takes only
+    // KEY SHARE: it does not queue behind updates of the user row.
     private const string InsertSession = $"""
         INSERT INTO user_refresh_tokens (id, user_id, token_hash, expires_at, created_at)
+        SELECT gen_random_uuid(), id, @tokenHash, @expiresAt, now() FROM users WHERE id = @userId
+        RETURNING {SessionColumns}
+        """;
+
+    // A password sign-in: FOR SHARE conflicts with a reset's lock on the user (LockResetOwner), so a
+    // reset holding it makes this wait, and READ COMMITTED re-checks password_hash on the row the
+    // reset committed: a changed password inserts nothing. A reset that comes second deletes this session.
+    private const string InsertSessionIfPasswordUnchanged = $"""
+        INSERT INTO user_refresh_tokens (id, user_id, token_hash, expires_at, created_at)
         SELECT gen_random_uuid(), id, @tokenHash, @expiresAt, now() FROM users
-        WHERE id = @userId AND (@verifiedPasswordHash::text IS NULL OR password_hash = @verifiedPasswordHash)
+        WHERE id = @userId AND password_hash = @verifiedPasswordHash
         FOR SHARE
         RETURNING {SessionColumns}
         """;
@@ -30,7 +38,8 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         return await conn.QuerySingleOrDefaultAsync<SessionToken>(new CommandDefinition(
-            InsertSession, new { userId, tokenHash, expiresAt, verifiedPasswordHash }, cancellationToken: ct));
+            verifiedPasswordHash is null ? InsertSession : InsertSessionIfPasswordUnchanged,
+            new { userId, tokenHash, expiresAt, verifiedPasswordHash }, cancellationToken: ct));
     }
 
     private const string SelectLiveSession = $"SELECT {SessionColumns} FROM user_refresh_tokens WHERE token_hash = @tokenHash AND expires_at > @now";
