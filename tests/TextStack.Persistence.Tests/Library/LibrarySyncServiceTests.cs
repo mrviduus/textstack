@@ -2,6 +2,7 @@ using Application.Common;
 using Application.Library;
 using Application.Reading;
 using Application.Sync;
+using Application.Transitional;
 using Contracts.V2;
 using Domain.Library;
 using Domain.Reading;
@@ -28,7 +29,7 @@ public class LibrarySyncServiceTests(V2PostgresFixture db)
     {
         var book = await db.NewReaderWithBookAsync();
         await _reading.AdvanceAsync(book.UserId, book.Id,
-            new() { FileId = book.CurrentFile!.Id, CurrentLocator = Page(3), BookFraction = 0.3m, ClientRecordedAt = DateTimeOffset.UtcNow }, null, Ct);
+            new() { FileId = book.CurrentFile!.Id, CurrentLocator = Page(3), BookFraction = 0.3m, ClientRecordedAt = DateTimeOffset.UtcNow }, null, default, Ct);
         return book;
     }
 
@@ -71,8 +72,8 @@ public class LibrarySyncServiceTests(V2PostgresFixture db)
     {
         public Task<ReadingState?> GetAsync(Guid userId, Guid bookId, CancellationToken ct) => real.GetAsync(userId, bookId, ct);
 
-        public Task<RevisionedWrite<ReadingState>> AdvanceAsync(Guid userId, Guid bookId, ReadingState state, long? expectedRevision, CancellationToken ct) =>
-            real.AdvanceAsync(userId, bookId, state, expectedRevision, ct);
+        public Task<RevisionedWrite<ReadingState>> AdvanceAsync(Guid userId, Guid bookId, ReadingState state, long? expectedRevision, TransitionalChapterKeys chapters, CancellationToken ct) =>
+            real.AdvanceAsync(userId, bookId, state, expectedRevision, chapters, ct);
 
         public Task<RevisionedWrite<ReadingState>> ResetAsync(Guid userId, Guid bookId, long expectedRevision, CancellationToken ct) =>
             real.ResetAsync(userId, bookId, expectedRevision, ct);

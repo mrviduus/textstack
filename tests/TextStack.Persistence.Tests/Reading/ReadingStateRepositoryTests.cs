@@ -1,3 +1,4 @@
+using Application.Transitional;
 using Dapper;
 using Domain.Reading;
 using Infrastructure.Persistence.Repositories;
@@ -26,12 +27,78 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         return (book.UserId, book.Id, book.CurrentFile!.Id);
     }
 
+    // Transitional (M2.7a): the chapter guard of a textstack-* write, in the statement itself.
+    private async Task<(Guid User, Guid Book, Guid File)> ReaderWithChapterAsync(string key = "ch-1")
+    {
+        var (user, book, file) = await ReaderWithBookAsync();
+        await new BookChapterRepository(db.DataSource).ReplaceForFileAsync(user, book, file,
+            [new() { Id = Guid.NewGuid(), ChapterKey = key, ChapterNumber = 1, Title = key, Html = "<p/>", PlainText = "", WordCount = 0 }], Ct);
+        return (user, book, file);
+    }
+
+    private static readonly TransitionalChapterKeys OnChapter = new("ch-1", "ch-1");
+
+    private static ReadingState WithFrontier(Guid fileId, int page, int frontierPage) =>
+        new() { FileId = fileId, CurrentLocator = Page(page), BookFraction = page / 10m, FrontierLocator = Page(frontierPage), FrontierFraction = frontierPage / 10m, ClientRecordedAt = DateTimeOffset.UtcNow };
+
+    [Fact]
+    public async Task AdvanceAsync_FirstWriteOnAChapterTheFileLacks_LosesAndOnItsChapterWins()
+    {
+        var (user, book, file) = await ReaderWithChapterAsync();
+
+        Assert.False((await _repo.AdvanceAsync(user, book, At(file, 3), null, new("gone", "gone"), Ct)).Accepted);
+        Assert.True((await _repo.AdvanceAsync(user, book, At(file, 3), null, OnChapter, Ct)).Accepted);
+    }
+
+    [Fact]
+    public async Task AdvanceAsync_AfterAReExtractionDroppedTheChapter_Loses()
+    {
+        var (user, book, file) = await ReaderWithChapterAsync();
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, OnChapter, Ct);
+        await new BookChapterRepository(db.DataSource).ReplaceForFileAsync(user, book, file,
+            [new() { Id = Guid.NewGuid(), ChapterKey = "renamed", ChapterNumber = 1, Title = "t", Html = "<p/>", PlainText = "", WordCount = 0 }], Ct);
+
+        var result = await _repo.AdvanceAsync(user, book, At(file, 4), 1, OnChapter, Ct);
+
+        Assert.Equal((false, 1L), (result.Accepted, result.Current!.Revision));
+    }
+
+    // A client may echo the stored frontier back: once its chapter is gone, that must not refuse the write.
+    [Fact]
+    public async Task AdvanceAsync_FrontierBehindTheStoredOneOnAMissingChapter_IsIgnored()
+    {
+        var (user, book, file) = await ReaderWithChapterAsync();
+        await _repo.AdvanceAsync(user, book, At(file, 6), null, OnChapter, Ct);
+
+        var result = await _repo.AdvanceAsync(user, book, WithFrontier(file, 3, 5), 1, new("ch-1", "gone"), Ct);
+
+        Assert.Equal((true, 0.6m), (result.Accepted, result.Current!.FrontierFraction));
+    }
+
+    [Fact]
+    public async Task AdvanceAsync_FrontierAheadOnAMissingChapter_Loses()
+    {
+        var (user, book, file) = await ReaderWithChapterAsync();
+        await _repo.AdvanceAsync(user, book, At(file, 6), null, OnChapter, Ct);
+
+        Assert.False((await _repo.AdvanceAsync(user, book, WithFrontier(file, 3, 8), 1, new("ch-1", "gone"), Ct)).Accepted);
+    }
+
+    [Fact]
+    public async Task AdvanceAsync_KeyOnlyAnotherUsersFileHas_Loses()
+    {
+        await ReaderWithChapterAsync("bobs");
+        var (user, book, file) = await ReaderWithChapterAsync();
+
+        Assert.False((await _repo.AdvanceAsync(user, book, At(file, 3), null, new("bobs", "bobs"), Ct)).Accepted);
+    }
+
     [Fact]
     public async Task AdvanceAsync_FirstWrite_CreatesTheRowAtRevisionOne()
     {
         var (user, book, file) = await ReaderWithBookAsync();
 
-        var result = await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+        var result = await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
 
         Assert.True(result.Accepted);
         var stored = (await _repo.GetAsync(user, book, Ct))!;
@@ -44,9 +111,9 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task AdvanceAsync_FirstWriteWhenARowExists_LosesAndReturnsTheRow()
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
 
-        var result = await _repo.AdvanceAsync(user, book, At(file, 5), null, Ct);
+        var result = await _repo.AdvanceAsync(user, book, At(file, 5), null, default, Ct);
 
         Assert.False(result.Accepted);
         Assert.Equal((1L, 0.3m), (result.Current!.Revision, result.Current.BookFraction));
@@ -56,9 +123,9 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task AdvanceAsync_MatchingRevision_WinsAndIncrementsTheRevision()
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
 
-        var result = await _repo.AdvanceAsync(user, book, At(file, 5), 1, Ct);
+        var result = await _repo.AdvanceAsync(user, book, At(file, 5), 1, default, Ct);
 
         Assert.True(result.Accepted);
         Assert.Equal((2L, 0.5m), (result.Current!.Revision, result.Current.BookFraction));
@@ -69,10 +136,10 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task AdvanceAsync_StaleRevision_LosesAndReturnsTheWinnersStateIntact()
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
-        await _repo.AdvanceAsync(user, book, At(file, 6), 1, Ct);
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
+        await _repo.AdvanceAsync(user, book, At(file, 6), 1, default, Ct);
 
-        var result = await _repo.AdvanceAsync(user, book, At(file, 4), 1, Ct);
+        var result = await _repo.AdvanceAsync(user, book, At(file, 4), 1, default, Ct);
 
         Assert.False(result.Accepted);
         Assert.Equal((2L, 0.6m), (result.Current!.Revision, result.Current.BookFraction));
@@ -84,11 +151,11 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task AdvanceAsync_TwoWritersWithTheSameRevision_ExactlyOneWins()
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
 
         var results = await Task.WhenAll(
-            _repo.AdvanceAsync(user, book, At(file, 4), 1, Ct),
-            _repo.AdvanceAsync(user, book, At(file, 5), 1, Ct));
+            _repo.AdvanceAsync(user, book, At(file, 4), 1, default, Ct),
+            _repo.AdvanceAsync(user, book, At(file, 5), 1, default, Ct));
 
         var winner = Assert.Single(results, r => r.Accepted);
         var loser = Assert.Single(results, r => !r.Accepted);
@@ -101,12 +168,12 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task AdvanceAsync_MovingBack_KeepsTheFrontierLocatorAndFraction()
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 8), null, Ct);
+        await _repo.AdvanceAsync(user, book, At(file, 8), null, default, Ct);
 
         var back = At(file, 2);
         back.FrontierLocator = Page(5); // a device that knew less: still behind the stored frontier
         back.FrontierFraction = 0.5m;
-        var result = await _repo.AdvanceAsync(user, book, back, 1, Ct);
+        var result = await _repo.AdvanceAsync(user, book, back, 1, default, Ct);
 
         Assert.True(result.Accepted);
         Assert.Equal((0.2m, 0.8m), (result.Current!.BookFraction, result.Current.FrontierFraction));
@@ -117,12 +184,12 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task AdvanceAsync_FrontierAheadOfStored_MovesItForward()
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
 
         var state = At(file, 2);
         state.FrontierLocator = Page(9);
         state.FrontierFraction = 0.9m;
-        var result = await _repo.AdvanceAsync(user, book, state, 1, Ct);
+        var result = await _repo.AdvanceAsync(user, book, state, 1, default, Ct);
 
         Assert.Equal(0.9m, result.Current!.FrontierFraction);
         AssertSameJson(Page(9), result.Current.FrontierLocator);
@@ -140,7 +207,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
             "UPDATE book_files SET is_current = false WHERE user_id = @user AND id = @file",
             new { user, file }, replacement, cancellationToken: Ct));
 
-        var firstWrite = _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+        var firstWrite = _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
         // Commit only once the write is blocked on the file row: without FOR SHARE it never blocks,
         // commits on the superseded file, and the assertions below fail.
         await db.WaitUntilBlockedByAsync(conn, firstWrite);
@@ -156,9 +223,9 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         var (user, book, oldFile) = await ReaderWithBookAsync();
         var newFile = (await _library.ReplaceFileAsync(user, book, V2PostgresFixture.NewFile(user, book), oldFile, null, Ct)).Current!.Id;
 
-        Assert.False((await _repo.AdvanceAsync(user, book, At(oldFile, 3), null, Ct)).Accepted);
-        Assert.True((await _repo.AdvanceAsync(user, book, At(newFile, 3), null, Ct)).Accepted);
-        Assert.False((await _repo.AdvanceAsync(user, book, At(oldFile, 4), 1, Ct)).Accepted);
+        Assert.False((await _repo.AdvanceAsync(user, book, At(oldFile, 3), null, default, Ct)).Accepted);
+        Assert.True((await _repo.AdvanceAsync(user, book, At(newFile, 3), null, default, Ct)).Accepted);
+        Assert.False((await _repo.AdvanceAsync(user, book, At(oldFile, 4), 1, default, Ct)).Accepted);
     }
 
     [Fact]
@@ -167,7 +234,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         var (user, book, file) = await ReaderWithBookAsync();
 
         var results = await Task.WhenAll(Enumerable.Range(1, 4)
-            .Select(page => _repo.AdvanceAsync(user, book, At(file, page), null, Ct)));
+            .Select(page => _repo.AdvanceAsync(user, book, At(file, page), null, default, Ct)));
 
         Assert.Single(results, r => r.Accepted);
         Assert.All(results, r => Assert.NotNull(r.Current));
@@ -181,7 +248,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         state.ClientRecordedAt = new DateTimeOffset(2026, 10, 30, 12, 0, 0, TimeSpan.FromHours(2));
         state.CompletedAt = state.ClientRecordedAt;
 
-        var result = await _repo.AdvanceAsync(user, book, state, null, Ct);
+        var result = await _repo.AdvanceAsync(user, book, state, null, default, Ct);
 
         Assert.True(result.Accepted);
         Assert.Equal(new DateTimeOffset(2026, 10, 30, 10, 0, 0, TimeSpan.Zero), result.Current!.ClientRecordedAt);
@@ -195,7 +262,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         var state = At(file, 3);
         state.FrontierFraction = 0.5m;
 
-        var result = await _repo.AdvanceAsync(user, book, state, null, Ct);
+        var result = await _repo.AdvanceAsync(user, book, state, null, default, Ct);
 
         Assert.True(result.Accepted);
         Assert.Equal(0.3m, result.Current!.FrontierFraction);
@@ -208,7 +275,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         var (user, book, file) = await ReaderWithBookAsync();
         var finished = At(file, 8);
         finished.CompletedAt = DateTimeOffset.UtcNow;
-        await _repo.AdvanceAsync(user, book, finished, null, Ct);
+        await _repo.AdvanceAsync(user, book, finished, null, default, Ct);
 
         var result = await _repo.ResetAsync(user, book, 1, Ct);
 
@@ -219,7 +286,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
             (reset.Revision, reset.ResetRevision, reset.BookFraction, reset.FrontierFraction, reset.FrontierLocator, reset.CompletedAt));
         AssertSameJson(Page(8), reset.CurrentLocator);
         // The next write moves the revision on; reset_revision keeps naming the reset's.
-        var next = await _repo.AdvanceAsync(user, book, At(file, 1), reset.Revision, Ct);
+        var next = await _repo.AdvanceAsync(user, book, At(file, 1), reset.Revision, default, Ct);
         Assert.Equal((3L, 2L, 0.1m), (next.Current!.Revision, next.Current.ResetRevision, next.Current.FrontierFraction));
     }
 
@@ -237,8 +304,8 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task ResetAsync_StaleRevision_LosesAndKeepsTheFrontier()
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
-        await _repo.AdvanceAsync(user, book, At(file, 6), 1, Ct); // another device moved on
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
+        await _repo.AdvanceAsync(user, book, At(file, 6), 1, default, Ct); // another device moved on
 
         var replayed = await _repo.ResetAsync(user, book, 1, Ct);
 
@@ -250,7 +317,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task DeleteForFileAsync_StateOfThatFile_DeletesIt()
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
 
         Assert.True(await _repo.DeleteForFileAsync(user, book, file, null, Ct));
         Assert.Null(await _repo.GetAsync(user, book, Ct));
@@ -260,7 +327,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task DeleteForFileAsync_StateOfAnotherFile_KeepsIt()
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
 
         Assert.False(await _repo.DeleteForFileAsync(user, book, Guid.NewGuid(), null, Ct));
         Assert.NotNull(await _repo.GetAsync(user, book, Ct));
@@ -270,7 +337,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task DeleteForFileAsync_InACallersTransactionRolledBack_KeepsTheState()
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
 
         await using (var tx = await db.DataSource.BeginAsync(Ct))
             Assert.True(await _repo.DeleteForFileAsync(user, book, file, tx.Transaction, Ct));
@@ -283,9 +350,9 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     {
         var (user, first, firstFile) = await ReaderWithBookAsync();
         var second = await db.NewBookAsync(user);
-        await _repo.AdvanceAsync(user, first, At(firstFile, 3), null, Ct);
-        var older = (await _repo.AdvanceAsync(user, second.Id, At(second.CurrentFile!.Id, 3), null, Ct)).Current!;
-        await _repo.AdvanceAsync(user, first, At(firstFile, 4), 1, Ct);
+        await _repo.AdvanceAsync(user, first, At(firstFile, 3), null, default, Ct);
+        var older = (await _repo.AdvanceAsync(user, second.Id, At(second.CurrentFile!.Id, 3), null, default, Ct)).Current!;
+        await _repo.AdvanceAsync(user, first, At(firstFile, 4), 1, default, Ct);
 
         var all = await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct);
         var after = Assert.Single(await _repo.ListChangedAsync(user, older.UpdatedAt, older.BookId, 10, Ct));
@@ -299,10 +366,10 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task AdvanceAsync_AfterReset_StaleDeviceWithOldRevision_Loses()
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 8), null, Ct); // device A reads revision 1
+        await _repo.AdvanceAsync(user, book, At(file, 8), null, default, Ct); // device A reads revision 1
         await _repo.ResetAsync(user, book, 1, Ct);                    // the reader restarts the book
 
-        var stale = await _repo.AdvanceAsync(user, book, At(file, 9), 1, Ct); // device A, still on revision 1
+        var stale = await _repo.AdvanceAsync(user, book, At(file, 9), 1, default, Ct); // device A, still on revision 1
 
         Assert.False(stale.Accepted);
         // Revision 1 < reset_revision 2: the loser can be told it lost to a reset, not to a move.
@@ -316,7 +383,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     {
         var (alice, book, file) = await ReaderWithBookAsync();
         var bob = await db.NewReaderAsync();
-        await _repo.AdvanceAsync(alice, book, At(file, 3), null, Ct);
+        await _repo.AdvanceAsync(alice, book, At(file, 3), null, default, Ct);
 
         Assert.Null(await _repo.GetAsync(bob, book, Ct));
     }
@@ -328,9 +395,9 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     {
         var (alice, book, file) = await ReaderWithBookAsync();
         var bob = await db.NewReaderAsync();
-        await _repo.AdvanceAsync(alice, book, At(file, 3), null, Ct);
+        await _repo.AdvanceAsync(alice, book, At(file, 3), null, default, Ct);
 
-        var result = await _repo.AdvanceAsync(bob, book, At(file, 9), expectedRevision, Ct);
+        var result = await _repo.AdvanceAsync(bob, book, At(file, 9), expectedRevision, default, Ct);
 
         Assert.Equal((false, (ReadingState?)null), (result.Accepted, result.Current));
         var alices = (await _repo.GetAsync(alice, book, Ct))!;
@@ -343,7 +410,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         var (alice, book, file) = await ReaderWithBookAsync();
         var bob = await db.NewReaderAsync();
 
-        var result = await _repo.AdvanceAsync(bob, book, At(file, 9), null, Ct);
+        var result = await _repo.AdvanceAsync(bob, book, At(file, 9), null, default, Ct);
 
         Assert.Equal((false, (ReadingState?)null), (result.Accepted, result.Current));
         Assert.Null(await _repo.GetAsync(alice, book, Ct));
@@ -355,7 +422,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     {
         var (alice, book, file) = await ReaderWithBookAsync();
         var bob = await db.NewReaderAsync();
-        await _repo.AdvanceAsync(alice, book, At(file, 3), null, Ct);
+        await _repo.AdvanceAsync(alice, book, At(file, 3), null, default, Ct);
 
         var result = await _repo.ResetAsync(bob, book, 1, Ct);
 
@@ -369,7 +436,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     {
         var (alice, book, file) = await ReaderWithBookAsync();
         var bob = await db.NewReaderAsync();
-        await _repo.AdvanceAsync(alice, book, At(file, 3), null, Ct);
+        await _repo.AdvanceAsync(alice, book, At(file, 3), null, default, Ct);
 
         Assert.False(await _repo.DeleteForFileAsync(bob, book, file, null, Ct));
         Assert.NotNull(await _repo.GetAsync(alice, book, Ct));
@@ -380,7 +447,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     {
         var (alice, book, file) = await ReaderWithBookAsync();
         var bob = await db.NewReaderAsync();
-        await _repo.AdvanceAsync(alice, book, At(file, 3), null, Ct);
+        await _repo.AdvanceAsync(alice, book, At(file, 3), null, default, Ct);
 
         Assert.Empty(await _repo.ListChangedAsync(bob, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
     }

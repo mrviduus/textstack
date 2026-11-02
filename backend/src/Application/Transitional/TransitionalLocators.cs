@@ -1,33 +1,39 @@
 using System.Text.Json;
+using Domain.Reading;
 
 namespace Application.Transitional;
 
 /// <summary>
+/// The chapters a reading-state write's <c>textstack-*</c> locators name, each null for another scheme:
+/// its position's, and its offered frontier's (<see cref="ReadingState.Furthest"/> of the frontier and the position).
+/// </summary>
+public readonly record struct TransitionalChapterKeys(string? Current, string? Frontier);
+
+/// <summary>
 /// Transitional. Dropped with <c>book_chapters</c> at R8 (#1040, M6.4); see ADR-031 "Locator schemes".
-/// <para>The chapter pre-check of the legacy reader's <c>textstack-*</c> locators (owner decision
-/// 2026-11-02, #1112): accepted only on a file version whose extracted chapters include the one the
-/// locator names. Never converted to anything: the locator is stored as sent.</para>
+/// <para>The legacy reader's <c>textstack-*</c> locators (owner decision 2026-11-02, #1112) are accepted
+/// only on a file version whose extracted chapters include the one they name. Never converted to
+/// anything: the locator is stored as sent.</para>
 /// </summary>
 public static class TransitionalLocators
 {
-    /// <summary>
-    /// Whether any of <paramref name="locators"/>, already valid (<see cref="Sync.SyncValidation.Locator"/>),
-    /// is a <c>textstack-*</c> one whose chapter <paramref name="fileId"/> does not have. Other schemes ask nothing;
-    /// a key named twice (a position and its frontier, usually) is asked once.
-    /// </summary>
-    public static async Task<bool> NameAMissingChapterAsync(
-        this IBookChapterRepository chapters, Guid userId, Guid fileId, IEnumerable<JsonElement?> locators, CancellationToken ct)
+    public static TransitionalChapterKeys ChapterKeysOf(ReadingState write)
     {
-        foreach (var key in locators.Select(l => l is { } locator ? ChapterKeyOf(locator) : null).OfType<string>().Distinct())
-            if (!await chapters.ExistsAsync(userId, fileId, key, ct))
-                return true;
-        return false;
+        var (frontier, _) = ReadingState.Furthest((write.FrontierLocator, write.FrontierFraction), (write.CurrentLocator, write.BookFraction));
+        return new(ChapterKeyOf(write.CurrentLocator), ChapterKeyOf(frontier));
     }
 
-    private static string? ChapterKeyOf(JsonElement locator) => locator.GetProperty("scheme").GetString() switch
+    /// <summary>The chapter a valid locator (<see cref="Sync.SyncValidation.Locator"/>) names; null for a scheme other than <c>textstack-*</c>.</summary>
+    public static string? ChapterKeyOf(string? locator)
     {
-        "textstack-position-v1" => locator.GetProperty("value").GetProperty("chapterSlug").GetString(),
-        "textstack-anchor-v1" => locator.GetProperty("value").GetProperty("chapterKey").GetString(),
-        _ => null,
-    };
+        if (locator is null) return null;
+        using var json = JsonDocument.Parse(locator);
+        var root = json.RootElement;
+        return root.GetProperty("scheme").GetString() switch
+        {
+            "textstack-position-v1" => root.GetProperty("value").GetProperty("chapterSlug").GetString(),
+            "textstack-anchor-v1" => root.GetProperty("value").GetProperty("chapterKey").GetString(),
+            _ => null,
+        };
+    }
 }

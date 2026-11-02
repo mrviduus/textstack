@@ -477,9 +477,9 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         var (guest, account, theirs, ours) = await SameBytesAsync();
         var states = new ReadingStateRepository(db.DataSource);
         var now = DateTimeOffset.UtcNow.AddMinutes(-10);
-        await states.AdvanceAsync(guest, theirs.Id, State(theirs.CurrentFile!.Id, 0.3m, guestAt), null, Ct);
-        await states.AdvanceAsync(account, ours.Id, State(ours.CurrentFile!.Id, 0.8m, now), null, Ct);
-        var back = await states.AdvanceAsync(account, ours.Id, State(ours.CurrentFile.Id, accountBack, now.AddMinutes(1)), 1, Ct);
+        await states.AdvanceAsync(guest, theirs.Id, State(theirs.CurrentFile!.Id, 0.3m, guestAt), null, default, Ct);
+        await states.AdvanceAsync(account, ours.Id, State(ours.CurrentFile!.Id, 0.8m, now), null, default, Ct);
+        var back = await states.AdvanceAsync(account, ours.Id, State(ours.CurrentFile.Id, accountBack, now.AddMinutes(1)), 1, default, Ct);
         if (resetAccount) await states.ResetAsync(account, ours.Id, back.Current!.Revision, Ct);
         return (guest, account, ours.Id);
     }
@@ -536,7 +536,7 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
     public async Task MergeAsync_ReadingStateOnlyGuest_MovesAsItIsOntoTheAccountFile()
     {
         var (guest, account, theirs, ours) = await SameBytesAsync();
-        await new ReadingStateRepository(db.DataSource).AdvanceAsync(guest, theirs.Id, State(theirs.CurrentFile!.Id, 0.4m, DateTimeOffset.UtcNow), null, Ct);
+        await new ReadingStateRepository(db.DataSource).AdvanceAsync(guest, theirs.Id, State(theirs.CurrentFile!.Id, 0.4m, DateTimeOffset.UtcNow), null, default, Ct);
 
         await MergeAsync(guest, account);
 
@@ -568,12 +568,12 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         var (guest, account) = await PairAsync();
         var ours = await db.NewBookAsync(account);
         var states = new ReadingStateRepository(db.DataSource);
-        await states.AdvanceAsync(account, ours.Id, State(ours.CurrentFile!.Id, 0.9m, DateTimeOffset.UtcNow), null, Ct);
+        await states.AdvanceAsync(account, ours.Id, State(ours.CurrentFile!.Id, 0.9m, DateTimeOffset.UtcNow), null, default, Ct);
         await db.ExecAsync("UPDATE reading_state SET revision = 4 WHERE user_id = @account", new { account });
         // A replacement by the use case would delete the state; here it stays on the old version.
         var current = (await db.ReplaceFileAsync(ours)).Current!;
         var theirs = await db.NewBookAsync(guest, sha256: current.Sha256);
-        await states.AdvanceAsync(guest, theirs.Id, State(theirs.CurrentFile!.Id, 0.2m, DateTimeOffset.UtcNow.AddHours(-1)), null, Ct);
+        await states.AdvanceAsync(guest, theirs.Id, State(theirs.CurrentFile!.Id, 0.2m, DateTimeOffset.UtcNow.AddHours(-1)), null, default, Ct);
 
         await MergeAsync(guest, account);
 

@@ -41,8 +41,9 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
         };
         // Only a locator this write sets is checked: an edit or a replay that keeps the stored one still lands
         // after a re-extraction renamed its chapter.
-        if (await chapters.NameAMissingChapterAsync(userId, r.FileId.GetValueOrDefault(), [r.Locator], ct)
-            && !SameAnchor(await annotations.GetAsync(userId, id, ct), sent))
+        if (TransitionalLocators.ChapterKeyOf(sent.Locator) is { } chapterKey
+            && !await chapters.ExistsAsync(userId, r.FileId!.Value, chapterKey, ct)
+            && !(await annotations.GetAsync(userId, id, ct) is { } kept && SameAnchor(kept, sent)))
             return SyncResult.ChapterNotFound;
         var result = await annotations.SaveAsync(userId, sent, r.ExpectedRevision, ct);
         if (result.Accepted) return SyncResult.Written(r.ExpectedRevision is null, result.Current!.ToDto());
@@ -58,14 +59,14 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
         };
     }
 
-    // jsonb keeps neither key order nor spacing, so locators compare as JSON values.
     private static bool SameContent(Annotation stored, Annotation sent) =>
         (stored.BookId, stored.SelectedText, stored.NoteText, stored.Color)
             == (sent.BookId, sent.SelectedText, sent.NoteText, sent.Color)
         && SameAnchor(stored, sent);
 
-    private static bool SameAnchor(Annotation? stored, Annotation sent) =>
-        stored?.FileId == sent.FileId && JsonNode.DeepEquals(Parse(stored?.Locator), Parse(sent.Locator));
+    // jsonb keeps neither key order nor spacing, so locators compare as JSON values.
+    private static bool SameAnchor(Annotation stored, Annotation sent) =>
+        stored.FileId == sent.FileId && JsonNode.DeepEquals(Parse(stored.Locator), Parse(sent.Locator));
 
     private static JsonNode? Parse(string? json) => json is null ? null : JsonNode.Parse(json);
 

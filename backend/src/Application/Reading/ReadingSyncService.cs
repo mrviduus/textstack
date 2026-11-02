@@ -3,7 +3,6 @@ using Application.Library;
 using Application.Sync;
 using Application.Transitional;
 using Contracts.V2;
-using Domain.Library;
 using Domain.Reading;
 using static Application.Sync.SyncValidation;
 
@@ -32,10 +31,6 @@ public sealed class ReadingSyncService(
     public async Task<SyncResult> WriteAsync(Guid userId, Guid bookId, ReadingStateRequest request, CancellationToken ct)
     {
         if (Validate(request) is { } invalid) return invalid;
-        // A missing chapter of a file that is not the current one answers the file's code, as any write on it would.
-        if (await chapters.NameAMissingChapterAsync(userId, request.FileId!.Value, [request.CurrentLocator, request.FrontierLocator], ct))
-            return await NotOnCurrentFileAsync(userId, await library.GetAsync(userId, bookId, ct), request.FileId.Value,
-                await states.GetAsync(userId, bookId, ct), ct) ?? SyncResult.ChapterNotFound;
         var state = new ReadingState
         {
             FileId = request.FileId!.Value,
@@ -46,30 +41,40 @@ public sealed class ReadingSyncService(
             CompletedAt = request.CompletedAt,
             ClientRecordedAt = request.ClientRecordedAt!.Value,
         };
-        var result = await states.AdvanceAsync(userId, bookId, state, request.ExpectedRevision, ct);
-        return result.Accepted ? SyncResult.Ok(result.Current!.ToDto()) : await ClassifyLossAsync(userId, bookId, state.FileId, request.ExpectedRevision, result.Current, ct);
+        var keys = TransitionalLocators.ChapterKeysOf(state);
+        var result = await states.AdvanceAsync(userId, bookId, state, request.ExpectedRevision, keys, ct);
+        return result.Accepted ? SyncResult.Ok(result.Current!.ToDto()) : await ClassifyLossAsync(userId, bookId, state, keys, request.ExpectedRevision, result.Current, ct);
     }
 
     private async Task<SyncResult> ClassifyLossAsync(
-        Guid userId, Guid bookId, Guid fileId, long? expectedRevision, ReadingState? stored, CancellationToken ct)
+        Guid userId, Guid bookId, ReadingState sent, TransitionalChapterKeys keys, long? expectedRevision, ReadingState? stored, CancellationToken ct)
     {
         var book = await library.GetAsync(userId, bookId, ct);
-        if (await NotOnCurrentFileAsync(userId, book, fileId, stored, ct) is { } notCurrent) return notCurrent;
-        var current = book!.CurrentFile;
+        if (book is null) return SyncResult.BookNotFound;
+        var current = book.CurrentFile;
+        if (sent.FileId != current?.Id)
+            return await library.GetFileAsync(userId, bookId, sent.FileId, ct) is null
+                ? SyncResult.UnknownFile
+                : SyncResult.FileReplaced(current, stored?.Revision, stored?.ToDto());
+        if (await NamesAMissingChapterAsync(userId, sent, keys, stored, ct)) return SyncResult.ChapterNotFound;
         // A first writer had no frontier to lose, so a reset is news only to a writer that read an older revision.
         return expectedRevision is not null && stored?.ResetRevision > expectedRevision
             ? SyncResult.Fail(SyncCodes.Reset, stored!.Revision, stored.ToDto(), current?.Id, current?.ToDto())
             : SyncResult.StaleRevision(stored?.Revision, stored?.ToDto(), current);
     }
 
-    /// <summary><c>book_not_found</c>, <c>unknown_file</c> or <c>file_replaced</c> unless <paramref name="fileId"/> is the book's current file.</summary>
-    private async Task<SyncResult?> NotOnCurrentFileAsync(Guid userId, Book? book, Guid fileId, ReadingState? stored, CancellationToken ct)
+    /// <summary>
+    /// The write SQL's chapter guard asked again, to name the loss: the position's chapter, and the offered
+    /// frontier's when the write would have stored it (no stored frontier, or the offered one is further).
+    /// </summary>
+    private async Task<bool> NamesAMissingChapterAsync(Guid userId, ReadingState sent, TransitionalChapterKeys keys, ReadingState? stored, CancellationToken ct)
     {
-        if (book is null) return SyncResult.BookNotFound;
-        if (fileId == book.CurrentFile?.Id) return null;
-        return await library.GetFileAsync(userId, book.Id, fileId, ct) is null
-            ? SyncResult.UnknownFile
-            : SyncResult.FileReplaced(book.CurrentFile, stored?.Revision, stored?.ToDto());
+        var (_, offered) = ReadingState.Furthest((sent.FrontierLocator, sent.FrontierFraction), (sent.CurrentLocator, sent.BookFraction));
+        var frontierStored = stored?.FrontierFraction is not { } kept || offered > kept;
+        foreach (var key in new[] { keys.Current, frontierStored ? keys.Frontier : null }.OfType<string>().Distinct())
+            if (!await chapters.ExistsAsync(userId, sent.FileId, key, ct))
+                return true;
+        return false;
     }
 
     private static SyncResult? Validate(ReadingStateRequest r) =>
