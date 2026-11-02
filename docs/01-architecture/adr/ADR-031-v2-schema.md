@@ -336,17 +336,21 @@ is never edited (ADR-026); the rows and rules above read with these deltas:
 2026-11-02 on #1092) and the indexes M1.5–M2.4 collected on #1047.
 
 - **`users`:** `credentials_reset_at timestamptz NULL`, stamped by the password reset in the statement
-  that spends its code. A credential minted from an access token issued before it (`iat <
-  credentials_reset_at`) is refused — a session re-issue, a device approval, an MCP key — under the
-  user row's `FOR SHARE`, so a reset committing meanwhile is seen; a refresh refuses a sign-in that
-  began before it. `iat` has whole seconds: a token minted in the reset's own second is refused too.
+  that spends its code, with `clock_timestamp()` once the user row is locked (a rotation the reset
+  waited for mints its token after the reset's transaction began). A credential minted from an access
+  token issued before it (`iat < credentials_reset_at`) is refused — a session re-issue, a device
+  approval (`DeviceApprovalResult.Unauthorized`, the login stays pending), an MCP key — under the user
+  row's `FOR SHARE`, so a reset committing meanwhile is seen. Every sign-in takes that lock, so none
+  commits beside a reset unseen. `iat` has whole seconds: a token minted in the reset's own second is
+  refused too. The stamp is the database's clock and `iat` the api's: one host (compose) keeps them one
+  clock; split across hosts, their skew is a window in which a pre-reset token passes.
 - **`user_refresh_tokens`:** `kind text NOT NULL`, `ck_user_refresh_tokens_kind` (`reader`, `admin`)
   replaces the `adm.` hash prefix; `token_hash` stays unique across kinds.
 - **`user_refresh_tokens`:** `family_id uuid NOT NULL` (the sign-in's first session) and
   `family_started_at timestamptz NOT NULL`, copied by every rotation; `ix_user_refresh_tokens_family_id`.
   The family revoke is one `DELETE`, the 90-day absolute lifetime reads the row, and the sweep may
-  delete spent sessions at any cutoff (a token replayed after its row is swept is refused, not
-  treated as reuse). `previous_token_hash` stays: reuse detection reads it.
+  delete spent sessions at any cutoff: a replay finds its family through the live successor
+  (`previous_token_hash`), which a sweep keeps.
 - **Change feeds:** `(user_id, updated_at, id)` on `books`, `annotations`, `vocabulary_words`;
   `(user_id, updated_at, book_id)` on `reading_state` (its key).
 - **`vocabulary_words`:** the due index is `(user_id, next_review_at, id)`, `0001`'s predicate kept.
