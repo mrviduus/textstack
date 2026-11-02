@@ -75,7 +75,64 @@ public interface ILibraryRepository
 
     /// <summary>Un-hides a removed book; false when not the user's or not removed.</summary>
     Task<bool> RestoreAsync(Guid userId, Guid bookId, CancellationToken ct);
+
+    /// <summary>
+    /// Records that the server holds the bytes of the book's current file under <paramref name="storageKey"/>
+    /// (PDD delta 4), if they fit: the user's stored bytes plus this file's stay within <paramref name="limitBytes"/>.
+    /// Attaches of one user are serialized, so concurrent uploads cannot together pass the limit.
+    /// Inside one transaction: lock, checks, the row update (uncommitted), then <paramref name="placeBytes"/>,
+    /// then commit. A refused or lost attach places nothing; a failed place rolls the row back; a commit
+    /// that fails after the place leaves bytes no row names, which the worker's orphan sweep deletes.
+    /// Clears <c>content_removed_at</c> (a deliberate re-upload after "stop syncing" is allowed).
+    /// </summary>
+    Task<ContentAttachment> AttachContentAsync(
+        Guid userId, Guid bookId, Guid fileId, string storageKey, long limitBytes, Action placeBytes, CancellationToken ct);
+
+    /// <summary>
+    /// "Stop syncing this file" (owner decision 6): the key cleared, <c>content_removed_at</c> stamped
+    /// once, <c>updated_at</c> bumped; any version, current or not. Returns the key it cleared, whose bytes
+    /// the caller then deletes; null when there was none (nothing stored, or not a version of the user's book).
+    /// Clearing first means an attach committing meanwhile cannot have its new key cleared with its bytes
+    /// left behind; a failed delete leaves bytes the orphan sweep collects.
+    /// </summary>
+    Task<string?> RemoveContentAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct);
+
+    /// <summary>The bytes the server holds for the user: the quota's "used" (owner decision 2).</summary>
+    Task<long> StoredBytesAsync(Guid userId, CancellationToken ct);
+
+    /// <summary>Points the book at its uploaded cover; the updated book, null when not the user's.</summary>
+    Task<Book?> SetCoverAsync(Guid userId, Guid bookId, string coverKey, CancellationToken ct);
+
+
+    /// <summary>Every key of the user's bytes, files and covers: what an account delete removes from disk (they may sit under another user's directory after a merge).</summary>
+    Task<IReadOnlyList<string>> ListStorageKeysAsync(Guid userId, CancellationToken ct);
+
+    /// <summary>Cross-user, for the orphan sweep: every key a file or a cover names.</summary>
+    Task<IReadOnlySet<string>> AllStorageKeysAsync(CancellationToken ct);
 }
+
+public enum AttachOutcome
+{
+    /// <summary><see cref="ContentAttachment.File"/> now has content.</summary>
+    Attached,
+
+    /// <summary>The current file already has content: nothing changed (a replay).</summary>
+    AlreadyStored,
+
+    /// <summary>The file is a superseded version: <see cref="ContentAttachment.File"/> is the current one (null: none).</summary>
+    FileReplaced,
+
+    /// <summary><see cref="ContentAttachment.Book"/> is the removed book.</summary>
+    BookRemoved,
+
+    /// <summary>The bytes do not fit: <see cref="ContentAttachment.Used"/> is what the user already stores.</summary>
+    QuotaExceeded,
+
+    /// <summary>No such book, or the file is not a version of it.</summary>
+    NotFound,
+}
+
+public sealed record ContentAttachment(AttachOutcome Outcome, BookFile? File = null, Book? Book = null, long Used = 0);
 
 /// <summary>The fields a client edits (<c>PATCH /books/{bookId}</c>); written whole.</summary>
 public sealed record BookMetadata(
@@ -100,7 +157,10 @@ public sealed record ImportResult(ImportOutcome Outcome, Book? Book);
 
 public enum FileReplaceOutcome
 {
-    /// <summary><see cref="FileReplacement.Current"/> is the new file, <see cref="FileReplacement.Superseded"/> the one it replaced (null: there was none).</summary>
+    /// <summary>
+    /// <see cref="FileReplacement.Current"/> is the new file, <see cref="FileReplacement.Superseded"/> the one it replaced (null: there was none).
+    /// The superseded version's key is cleared with it: <see cref="FileReplacement.ReleasedKey"/> names the bytes to delete after the commit.
+    /// </summary>
     Replaced,
 
     /// <summary>The file is already the book's current one: nothing changed.</summary>
@@ -118,4 +178,5 @@ public enum FileReplaceOutcome
     IdConflict,
 }
 
-public sealed record FileReplacement(FileReplaceOutcome Outcome, BookFile? Current = null, BookFile? Superseded = null, Book? Book = null);
+public sealed record FileReplacement(
+    FileReplaceOutcome Outcome, BookFile? Current = null, BookFile? Superseded = null, Book? Book = null, string? ReleasedKey = null);

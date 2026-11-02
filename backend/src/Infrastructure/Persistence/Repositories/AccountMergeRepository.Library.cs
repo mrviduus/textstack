@@ -137,6 +137,14 @@ public sealed partial class AccountMergeRepository
         UPDATE shared_chapters t SET user_id = @accountId, book_id = m.account_book, file_id = m.account_file {RepointTail}
         """;
 
+    // The matched guest books' files all stop being anyone's stored current file: the same-bytes one is
+    // deleted below, the others become superseded versions. Their bytes are released as a replacement
+    // releases them, for the caller to delete after the commit.
+    private const string SelectReleasedKeys = """
+        SELECT server_storage_key FROM book_files
+        WHERE user_id = @guestId AND book_id = ANY(@guestBooks) AND server_storage_key IS NOT NULL
+        """;
+
     // Its chapters and jobs go with it; the account's file has its own.
     private const string DeleteSameBytesFiles = "DELETE FROM book_files WHERE user_id = @guestId AND id = ANY(@guestFiles)";
 
@@ -144,7 +152,7 @@ public sealed partial class AccountMergeRepository
     // provenance for what is anchored in them; the cascade carries it. is_current is set, not assumed:
     // the account's book has its own current file.
     private const string MoveOtherVersions = """
-        UPDATE book_files f SET user_id = @accountId, book_id = m.account_book, is_current = false
+        UPDATE book_files f SET user_id = @accountId, book_id = m.account_book, is_current = false, server_storage_key = NULL
         FROM unnest(@guestBooks, @accountBooks) AS m(guest_book, account_book)
         WHERE f.user_id = @guestId AND f.book_id = m.guest_book
         """;

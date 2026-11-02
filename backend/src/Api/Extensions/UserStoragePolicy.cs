@@ -23,6 +23,13 @@ public static class UserStoragePolicy
     public const string StoredFileCsp =
         "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'; sandbox";
 
+    /// <summary>The headers of every stored reader file served on this origin: <c>/storage</c> and the V2 bytes routes.</summary>
+    public static void ApplyStoredFileHeaders(IHeaderDictionary headers)
+    {
+        headers.XContentTypeOptions = "nosniff";
+        headers.ContentSecurityPolicy = StoredFileCsp;
+    }
+
     public static bool IsBlocked(PathString path)
     {
         // Cheap exit for every non-storage request. "/storage//users" still starts with /storage.
@@ -30,9 +37,13 @@ public static class UserStoragePolicy
             return false;
 
         var segments = (path.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length < 2
-            || !segments[0].Equals("storage", StringComparison.OrdinalIgnoreCase)
-            || !segments[1].Equals("users", StringComparison.OrdinalIgnoreCase))
+        if (segments.Length < 2 || !segments[0].Equals("storage", StringComparison.OrdinalIgnoreCase))
+            return false;
+        // The V2 library (Storage:LibraryRoot defaults to this root): books and covers under library/,
+        // upload parts under uploads/, all owner-only through /me/v2. Nothing under either is public.
+        if (segments[1].Equals("library", StringComparison.OrdinalIgnoreCase) || segments[1].Equals("uploads", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (!segments[1].Equals("users", StringComparison.OrdinalIgnoreCase))
             return false;
 
         // users/{shard}/{userId}/books/{bookId}/cover.<ext> — nothing else under users/.

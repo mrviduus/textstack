@@ -30,6 +30,19 @@ public sealed class IngestionJobRepository(V2DataSource dataSource) : IIngestion
         return await conn.QuerySingleAsync<FileIngestionJob>(new CommandDefinition(InsertJob, new { userId, bookId, fileId }, cancellationToken: ct));
     }
 
+    private const string SelectLatestForFile = $"""
+        SELECT {Columns} FROM ingestion_jobs
+        WHERE user_id = @userId AND book_id = @bookId AND file_id = @fileId
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """;
+
+    public async Task<FileIngestionJob?> GetLatestForFileAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return await conn.QuerySingleOrDefaultAsync<FileIngestionJob>(new CommandDefinition(SelectLatestForFile, new { userId, bookId, fileId }, cancellationToken: ct));
+    }
+
     private const string CancelActive = """
         UPDATE ingestion_jobs SET status = 'failed', error = 'Cancelled by user', finished_at = now()
         WHERE user_id = @userId AND book_id = @bookId AND status IN ('queued', 'processing')

@@ -15,6 +15,9 @@ public interface IIngestionJobRepository
     /// <summary>Queues a job for one file version of the user's book; returns it as stored.</summary>
     Task<FileIngestionJob> EnqueueAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct);
 
+    /// <summary>The newest job of one file version of the user's book; null when it never had one.</summary>
+    Task<FileIngestionJob?> GetLatestForFileAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct);
+
     /// <summary>Fails the user's active (queued or processing) job of the book as cancelled. False when there is none.</summary>
     Task<bool> CancelActiveAsync(Guid userId, Guid bookId, CancellationToken ct);
 

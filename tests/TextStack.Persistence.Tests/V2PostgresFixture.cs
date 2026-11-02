@@ -156,7 +156,7 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         var insight = await new BookInsightRepository(DataSource).SaveReviewAsync(NewInsight(book, "ch-1", reviewJson: "{}"), Ct);
         await new ReviewQuestionRepository(DataSource).ReplaceForInsightAsync(userId, insight.Id,
             [new() { Id = Guid.NewGuid(), UserId = userId, BookInsightId = insight.Id, Prompt = "Why?", Answer = "Because.", PromptHash = "h1", NextReviewAt = DateTimeOffset.UtcNow }], Ct);
-        await new BookChapterRepository(DataSource).InsertForFileAsync(userId, book.Id, file.Id,
+        await new BookChapterRepository(DataSource).ReplaceForFileAsync(userId, book.Id, file.Id,
             [new() { Id = Guid.NewGuid(), ChapterKey = "ch-1", ChapterNumber = 1, Title = "One", Html = "<p>x</p>", PlainText = "x" }], Ct);
         // The job is inserted finished, not enqueued: a queued one would be claimable by the ingestion
         // tests' ClaimNextAsync, which runs across users.

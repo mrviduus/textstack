@@ -24,4 +24,8 @@ public static class SyncLimits
     public const int MaxTopic = 500;
     public const int MaxSectionItems = 50;
     public const int MaxSectionsBytes = 32 * 1024;
+
+    // File bytes ("File sync upload protocol"); the part size itself is V2:MaxPartBytes, served by /status.
+    public const int MaxParts = 1000;
+    public const int MaxCoverBytes = 2 * 1024 * 1024;
 }

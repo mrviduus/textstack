@@ -183,6 +183,25 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task MergeAsync_MatchedGuestBookWithStoredBytes_ReleasesTheSupersededAndDuplicateKeys()
+    {
+        var (guest, account) = await PairAsync();
+        var theirs = await db.NewBookAsync(guest);
+        var oldVersion = theirs.CurrentFile!.Id;
+        var current = (await db.ReplaceFileAsync(theirs)).Current!;
+        // Bytes on both guest versions (an old one as a pre-M2.6 row could hold), and an unmatched book's that must stay.
+        var kept = await db.NewBookAsync(guest);
+        await db.ExecAsync("UPDATE book_files SET server_storage_key = 'k-' || id WHERE user_id = @guest", new { guest });
+        await db.NewBookAsync(account, sha256: current.Sha256);
+
+        var merged = await MergeAsync(guest, account);
+
+        Assert.Equal(new[] { $"k-{oldVersion}", $"k-{current.Id}" }.Order(), merged.ReleasedKeys.Order());
+        Assert.Null(await ScalarAsync<string?>("SELECT server_storage_key FROM book_files WHERE id = @oldVersion", new { oldVersion }));
+        Assert.Equal($"k-{kept.CurrentFile!.Id}", await ScalarAsync<string>("SELECT server_storage_key FROM book_files WHERE id = @id", new { id = kept.CurrentFile.Id }));
+    }
+
+    [Fact]
     public async Task MergeAsync_SameBytesLiveBooks_AccountBookKeptGuestChildrenOnItOldVersionsNonCurrent()
     {
         var (guest, account) = await PairAsync();

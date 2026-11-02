@@ -199,11 +199,7 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/storage",
     // Readers' uploads are served from here too (reachable as /api/storage/…). Same rule as nginx
     // /storage/: a stored file never runs as a page — no scripts, unique origin.
-    OnPrepareResponse = ctx =>
-    {
-        ctx.Context.Response.Headers.XContentTypeOptions = "nosniff";
-        ctx.Context.Response.Headers.ContentSecurityPolicy = Api.Extensions.UserStoragePolicy.StoredFileCsp;
-    }
+    OnPrepareResponse = ctx => Api.Extensions.UserStoragePolicy.ApplyStoredFileHeaders(ctx.Context.Response.Headers)
 });
 
 // Health check before site resolution (for infra probes)
