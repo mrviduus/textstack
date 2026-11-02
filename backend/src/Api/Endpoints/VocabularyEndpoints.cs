@@ -101,7 +101,7 @@ public static partial class VocabularyEndpoints
         if (!TryGetAuth(httpContext, authService, out var userId, out var siteId))
             return Results.Unauthorized();
 
-        if (string.IsNullOrWhiteSpace(request.Word) || request.Word.Length > SyncValidation.MaxWord)
+        if (string.IsNullOrWhiteSpace(request.Word) || request.Word.Length > Contracts.V2.SyncLimits.MaxWord)
             return Results.BadRequest("Word is required (max 200 chars)");
         if (string.IsNullOrWhiteSpace(request.Language) || request.Language.Length > 8)
             return Results.BadRequest("Language is required");
@@ -285,8 +285,8 @@ public static partial class VocabularyEndpoints
     internal static string? TooLong(
         string? translation, string? definition, string? sentence = null, string? bookTitle = null)
     {
-        return Over(translation, SyncValidation.MaxTranslation, "Translation") ?? Over(definition, SyncValidation.MaxDefinition, "Definition")
-            ?? Over(sentence, SyncValidation.MaxSentence, "Sentence") ?? Over(bookTitle, SyncValidation.MaxBookTitle, "BookTitle");
+        return Over(translation, Contracts.V2.SyncLimits.MaxTranslation, "Translation") ?? Over(definition, Contracts.V2.SyncLimits.MaxDefinition, "Definition")
+            ?? Over(sentence, Contracts.V2.SyncLimits.MaxSentence, "Sentence") ?? Over(bookTitle, Contracts.V2.SyncLimits.MaxBookTitle, "BookTitle");
 
         static string? Over(string? value, int max, string name) =>
             value?.Trim().Length > max ? $"{name} too long (max {max} chars)" : null;

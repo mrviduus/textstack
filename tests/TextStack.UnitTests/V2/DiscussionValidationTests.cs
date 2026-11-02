@@ -6,7 +6,7 @@ using Application.Sync;
 using Contracts.V2;
 using Domain.Discussion;
 using Moq;
-using static Application.Discussion.DiscussionSyncService;
+using static Contracts.V2.SyncLimits;
 
 namespace TextStack.UnitTests.V2;
 
@@ -54,7 +54,7 @@ public class DiscussionValidationTests
     {
         var notes = "[\"" + Text(MaxNotesBytes - 4) + "\"]";
 
-        Assert.Null(await Share(Text(SyncValidation.MaxChapterKey), Text(MaxChapterTitle), Text(MaxChapterTextBytes), notes, Text(SyncValidation.MaxLanguage)));
+        Assert.Null(await Share(Text(SyncLimits.MaxChapterKey), Text(MaxChapterTitle), Text(MaxChapterTextBytes), notes, Text(SyncLimits.MaxLanguage)));
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public class DiscussionValidationTests
     public async Task ShareAsync_BlankOrLongChapterKey_IsRefused()
     {
         Assert.Equal("chapterKey", await Share(chapterKey: " "));
-        Assert.Equal("chapterKey", await Share(chapterKey: Text(SyncValidation.MaxChapterKey + 1)));
+        Assert.Equal("chapterKey", await Share(chapterKey: Text(SyncLimits.MaxChapterKey + 1)));
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public class DiscussionValidationTests
     public async Task ShareAsync_NotesOneByteOverTheirCap_IsRefused() => Assert.Equal("notes", await Share(notes: "[\"" + Text(MaxNotesBytes - 3) + "\"]"));
 
     [Fact]
-    public async Task ShareAsync_LongLanguage_IsRefused() => Assert.Equal("language", await Share(language: Text(SyncValidation.MaxLanguage + 1)));
+    public async Task ShareAsync_LongLanguage_IsRefused() => Assert.Equal("language", await Share(language: Text(SyncLimits.MaxLanguage + 1)));
 
     [Fact]
     public async Task SaveCheckpointAsync_OneSectionWithAnItem_PassesValidation() => Assert.Null(await Save());
@@ -142,7 +142,7 @@ public class DiscussionValidationTests
     public async Task SaveCheckpointAsync_MissingOrLongLanguage_IsRefused()
     {
         Assert.Equal("language", await Save(language: null));
-        Assert.Equal("language", await Save(language: Text(SyncValidation.MaxLanguage + 1)));
+        Assert.Equal("language", await Save(language: Text(SyncLimits.MaxLanguage + 1)));
     }
 
     [Fact]

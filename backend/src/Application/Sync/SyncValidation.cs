@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Contracts.V2;
+using static Contracts.V2.SyncLimits;
 
 namespace Application.Sync;
 
@@ -17,17 +18,6 @@ public static class SyncValidation
     private const int MaxTocBytes = 256 * 1024;
     private const int MaxQuoteCodePoints = 64;
     private const int MaxContextCodePoints = 32;
-
-    // Vocabulary caps (UTF-16 units; legacy's where it had one, which reads them from here; past them the key index 500s).
-    public const int MaxLanguage = 16;
-    public const int MaxWord = 200;
-    public const int MaxTranslation = 500;
-    public const int MaxDefinition = 2000;
-    public const int MaxSentence = 1000;
-    public const int MaxContextualTranslation = 4000;
-    public const int MaxBookTitle = 500;
-    public const int MaxChapterKey = 200;
-    public const int MaxReviewMode = 64;
 
     /// <summary>ADR-019's clock skew: a client time further ahead than this is a broken clock, not an answer.</summary>
     // Checked against the API's clock while the rows are stamped by the database's: fine at 5 minutes.

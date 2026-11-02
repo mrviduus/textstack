@@ -7,6 +7,7 @@ using Domain.Vocabulary;
 using Moq;
 using TextStack.Vocabulary;
 using static Application.Sync.SyncValidation;
+using static Contracts.V2.SyncLimits;
 
 namespace TextStack.UnitTests.V2;
 

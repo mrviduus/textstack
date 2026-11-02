@@ -6,6 +6,7 @@ using Contracts.V2;
 using Domain.Vocabulary;
 using TextStack.Vocabulary;
 using static Application.Sync.SyncValidation;
+using static Contracts.V2.SyncLimits;
 
 namespace Application.Vocabulary;
 

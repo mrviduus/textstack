@@ -2,6 +2,7 @@ using System.Text.Json;
 using Application.Sync;
 using Contracts.V2;
 using static Application.Sync.SyncValidation;
+using static Contracts.V2.SyncLimits;
 
 namespace TextStack.UnitTests.V2;
 

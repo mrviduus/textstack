@@ -6,6 +6,7 @@ using Application.Sync;
 using Contracts.V2;
 using Domain.Discussion;
 using static Application.Sync.SyncValidation;
+using static Contracts.V2.SyncLimits;
 
 namespace Application.Discussion;
 
@@ -18,13 +19,6 @@ namespace Application.Discussion;
 /// </summary>
 public sealed class DiscussionSyncService(ILibraryRepository library, ISharedChapterRepository shares, ICheckpointRepository checkpoints)
 {
-    public const int MaxChapterTitle = 500;
-    public const int MaxChapterTextBytes = 200 * 1024;
-    public const int MaxNotesBytes = 64 * 1024;
-    public const int MaxTopic = 500;
-    public const int MaxSectionItems = 50;
-    public const int MaxSectionsBytes = 32 * 1024;
-
     public async Task<SyncResult> ShareAsync(Guid userId, Guid bookId, ShareChapterRequest r, CancellationToken ct)
     {
         if (Share(r) is { } invalid) return invalid;
