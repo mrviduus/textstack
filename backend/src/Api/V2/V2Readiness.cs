@@ -27,12 +27,36 @@ public sealed record V2State(
 /// concurrent callers share one check. Without <c>ConnectionStrings:V2</c> it answers
 /// <see cref="V2State.Unconfigured"/> without touching <see cref="V2DataSource"/>.
 /// </summary>
-public sealed class V2Readiness(IConfiguration config, IServiceProvider services, TimeProvider clock, ILogger<V2Readiness> logger)
+public sealed class V2Readiness
 {
     public static readonly TimeSpan Ttl = TimeSpan.FromSeconds(30);
 
-    // A cap on one check, whatever the connection string's own timeouts say: the probe must not hang.
-    private static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(5);
+    // ponytail: the cache answers for up to Ttl after V2 changes: measured, a `down 0` gives 500s for
+    // up to 30 s before the 503, and an `up` 503s for up to 30 s more. Upgrade: drop the cache when a
+    // /me/v2 handler sees a V2 PostgresException.
+
+    /// <summary>A cap on one check, whatever the connection string's own timeouts say: the probe must not hang.</summary>
+    public static readonly TimeSpan DefaultCheckTimeout = TimeSpan.FromSeconds(5);
+
+    private readonly TimeProvider _clock;
+    private readonly ILogger<V2Readiness> _logger;
+    private readonly bool _configured;
+    private readonly Func<CancellationToken, Task<List<string>>> _readPending;
+    private readonly TimeSpan _checkTimeout;
+
+    public V2Readiness(IConfiguration config, IServiceProvider services, TimeProvider clock, ILogger<V2Readiness> logger)
+        : this(clock, logger, !string.IsNullOrWhiteSpace(config.GetConnectionString("V2")), async ct =>
+        {
+            await using var conn = await services.GetRequiredService<V2DataSource>().OpenConnectionAsync(ct);
+            return await SchemaVersion.V2PendingAsync(conn, ct);
+        }, DefaultCheckTimeout)
+    {
+    }
+
+    /// <param name="readPending">The V2 ledger's pending migrations; it must honour its token.</param>
+    internal V2Readiness(TimeProvider clock, ILogger<V2Readiness> logger, bool configured,
+        Func<CancellationToken, Task<List<string>>> readPending, TimeSpan checkTimeout) =>
+        (_clock, _logger, _configured, _readPending, _checkTimeout) = (clock, logger, configured, readPending, checkTimeout);
 
     private sealed record Cached(Lazy<Task<V2State>> Check, DateTimeOffset At);
 
@@ -40,7 +64,7 @@ public sealed class V2Readiness(IConfiguration config, IServiceProvider services
 
     public Task<V2State> GetAsync()
     {
-        var now = clock.GetUtcNow();
+        var now = _clock.GetUtcNow();
         var cached = Volatile.Read(ref _cached);
         if (cached is not null && now - cached.At < Ttl) return cached.Check.Value;
         var fresh = new Cached(new Lazy<Task<V2State>>(CheckAsync), now);
@@ -51,21 +75,19 @@ public sealed class V2Readiness(IConfiguration config, IServiceProvider services
 
     private async Task<V2State> CheckAsync()
     {
-        if (string.IsNullOrWhiteSpace(config.GetConnectionString("V2")))
-            return new V2State(V2State.Unconfigured);
+        if (!_configured) return new V2State(V2State.Unconfigured);
         try
         {
-            using var timeout = new CancellationTokenSource(CheckTimeout);
-            await using var conn = await services.GetRequiredService<V2DataSource>().OpenConnectionAsync(timeout.Token);
-            var pending = await SchemaVersion.V2PendingAsync(conn, timeout.Token);
+            using var timeout = new CancellationTokenSource(_checkTimeout);
+            var pending = await _readPending(timeout.Token);
             if (pending.Count == 0) return new V2State(V2State.Ready);
-            logger.LogWarning("textstack_v2 is behind this build: {PendingCount} pending, newest {NewestPending}; /me/v2 answers 503",
+            _logger.LogWarning("textstack_v2 is behind this build: {PendingCount} pending, newest {NewestPending}; /me/v2 answers 503",
                 pending.Count, pending[^1]);
             return new V2State(V2State.Behind, pending);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "textstack_v2 is unreachable; /me/v2 answers 503");
+            _logger.LogWarning(ex, "textstack_v2 is unreachable; /me/v2 answers 503");
             return new V2State(V2State.Unreachable, Error: ex.GetType().Name);
         }
     }
