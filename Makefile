@@ -171,8 +171,11 @@ restore:
 		echo "Usage: make restore FILE=$(BACKUP_DIR)/db_YYYY-MM-DD_HHMMSS.sql.gz"; \
 		exit 1; \
 	fi
+	@# A V2 dump is often the newest file in backup-list; loaded here it would put V2 tables into legacy.
+	@. ./.env && case "$(notdir $(FILE))" in $${V2_POSTGRES_DB:-textstack_v2}-*) \
+		echo "$(FILE) is a V2 dump: make restore-v2 FILE=$(FILE)"; exit 1;; esac
 	@echo "Restoring from $(FILE)..."
-	@. ./.env && gunzip -c $(FILE) | docker exec -i $(DB_CONTAINER) psql -U $$POSTGRES_USER $$POSTGRES_DB
+	@. ./.env && gunzip -c $(FILE) | docker exec -i $(DB_CONTAINER) psql -v ON_ERROR_STOP=1 -U $$POSTGRES_USER $$POSTGRES_DB
 	@echo "Done."
 
 # A V2 dump (textstack_v2-db_*.sql.gz, textstack_v2-db-*, textstack_v2-pre-deploy-*) into a V2
