@@ -3,6 +3,7 @@ using Application.Identity;
 using Domain.Identity;
 using Infrastructure.Persistence.Repositories;
 using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 using static TextStack.Persistence.Tests.V2PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Identity;
@@ -23,8 +24,11 @@ public class V2AuthServiceTests(V2PostgresFixture db)
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private V2AuthService Auth => new(_users, _sessions, _devices, new AccountMergeRepository(db.DataSource),
-        _tokens, _clock, NullLogger<V2AuthService>.Instance);
+    private V2AuthService Auth => AuthWith();
+
+    private V2AuthService AuthWith(IUserRepository? users = null, ISessionTokenRepository? sessions = null, IAccountMergeRepository? merges = null) =>
+        new(users ?? _users, sessions ?? _sessions, _devices, merges ?? new AccountMergeRepository(db.DataSource),
+            _tokens, _clock, NullLogger<V2AuthService>.Instance);
 
     private V2AdminAuthService Admin => new(_users, _sessions, new AdminSettingsRepository(db.DataSource), _tokens, _clock);
 
@@ -126,6 +130,47 @@ public class V2AuthServiceTests(V2PostgresFixture db)
 
         Assert.Equal(AccountMergeOutcome.Refused, (await Auth.MergeGuestAsync(alice.Id, bob.Id, "/auth/login", Ct))?.Outcome);
         Assert.Equal(alice.Id, await OwnerAsync(hers.Id));
+    }
+
+    [Theory]
+    [InlineData("23505", null, true, 2)]
+    [InlineData("40P01", null, true, 2)]
+    [InlineData("23505", "23505", false, 2)]
+    [InlineData("40P01", "40P01", false, 2)]
+    [InlineData("23503", null, false, 1)]
+    public async Task MergeGuestAsync_ConflictThenOutcome_RetriedOnceElseNull(string first, string? second, bool merges, int calls)
+    {
+        var merge = new ScriptedMerge(first, second);
+
+        var merged = await AuthWith(merges: merge).MergeGuestAsync(Guid.NewGuid(), Guid.NewGuid(), "/auth/login", Ct);
+
+        Assert.Equal(merges, merged is { Outcome: AccountMergeOutcome.Merged });
+        Assert.Equal(merges, merged is not null);
+        Assert.Equal(calls, merge.Calls);
+    }
+
+    [Fact]
+    public async Task LoginWithEmailAsync_ResetBetweenCheckAndIssue_InvalidCredentialsAndNoSession()
+    {
+        var (registered, email) = await RegisterAsync();
+        var code = (await Auth.RequestPasswordResetAsync(email, Ct))!;
+        var users = new HookedUsers(_users) { AfterGetByEmail = async () => Assert.True(await Auth.ResetPasswordAsync(code, "a brand new password", Ct)) };
+
+        var login = await AuthWith(users: users).LoginWithEmailAsync(email, Password, Ct);
+
+        Assert.Equal(AuthStatus.InvalidCredentials, login.Status);
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", registered.User!.Id));
+    }
+
+    [Fact]
+    public async Task RefreshTokenAsync_RotationLost_NeverOkWithAnUnstoredToken()
+    {
+        var signedIn = (await RegisterAsync()).Result;
+
+        var refreshed = await AuthWith(sessions: new LosingRotation(_sessions)).RefreshTokenAsync(signedIn.RefreshToken!, Ct);
+
+        Assert.Equal(AuthStatus.InvalidToken, refreshed.Status);
+        Assert.Null(refreshed.RefreshToken);
     }
 
     [Fact]
@@ -274,8 +319,8 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     public async Task LoginWithGoogleAsync_SameSubjectTwice_OneAccountWithTheLatestProfile()
     {
         var subject = Guid.NewGuid().ToString();
-        _tokens.Google["first"] = new(subject, NewEmail(), "Ann", null, EmailVerified: true);
-        _tokens.Google["second"] = new(subject, NewEmail(), "Ann B", null, EmailVerified: true);
+        _tokens.Google["first"] = new(subject, NewEmail(), "Ann", null);
+        _tokens.Google["second"] = new(subject, NewEmail(), "Ann B", null);
 
         var first = await Auth.LoginWithGoogleAsync("first", Ct);
         var second = await Auth.LoginWithGoogleAsync("second", Ct);
@@ -286,28 +331,50 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task LoginWithGoogleAsync_VerifiedEmailOfAnAccount_SignsThatAccountIn()
+    public async Task LoginWithGoogleAsync_VerifiedEmailOfAnotherAccount_IsEmailTaken()
     {
+        // Never linked by email: whoever registered (or Apple-created) the email first would own the
+        // owner's Google sign-ins.
         var (registered, email) = await RegisterAsync();
-        _tokens.Google["token"] = new(Guid.NewGuid().ToString(), email, "Ann", null, EmailVerified: true);
+        _tokens.Google["token"] = new(Guid.NewGuid().ToString(), email, "Ann", null);
 
-        Assert.Equal(registered.User!.Id, (await Auth.LoginWithGoogleAsync("token", Ct)).User?.Id);
+        Assert.Equal(AuthStatus.EmailTaken, (await Auth.LoginWithGoogleAsync("token", Ct)).Status);
+        Assert.Null((await _users.GetAsync(registered.User!.Id, Ct))!.GoogleSubject);
     }
 
     [Fact]
-    public async Task LoginWithGoogleAsync_UnverifiedEmailOfAnAccount_EmailTaken()
+    public async Task LoginWithAppleAsync_TokenEmailOfAnotherAccount_IsEmailTaken()
     {
         var (_, email) = await RegisterAsync();
-        _tokens.Google["token"] = new(Guid.NewGuid().ToString(), email, "Ann", null, EmailVerified: false);
+        _tokens.Apple["token"] = new(Guid.NewGuid().ToString(), email, null, null);
 
-        Assert.Equal(AuthStatus.EmailTaken, (await Auth.LoginWithGoogleAsync("token", Ct)).Status);
+        Assert.Equal(AuthStatus.EmailTaken, (await Auth.LoginWithAppleAsync("token", null, null, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_TokenWithoutAnEmail_InvalidToken()
+    {
+        _tokens.Google["token"] = new(Guid.NewGuid().ToString(), null, "Ann", null);
+
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithGoogleAsync("token", Ct)).Status);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_NewSubject_StoresItOnTheNewAccount()
+    {
+        var subject = Guid.NewGuid().ToString();
+        _tokens.Google["token"] = new(subject, NewEmail(), "Ann", null);
+
+        var signedIn = await Auth.LoginWithGoogleAsync("token", Ct);
+
+        Assert.Equal(signedIn.User!.Id, (await _users.GetByGoogleSubjectAsync(subject, Ct))?.Id);
     }
 
     [Fact]
     public async Task LoginWithAppleAsync_SameSubject_OneAccount_AndItsEmailLinksNothing()
     {
         var subject = Guid.NewGuid().ToString();
-        _tokens.Apple["token"] = new(subject, null, null, null, EmailVerified: false);
+        _tokens.Apple["token"] = new(subject, null, null, null);
 
         var first = await Auth.LoginWithAppleAsync("token", "Ann", null, Ct);
         var second = await Auth.LoginWithAppleAsync("token", "Ann B", null, Ct);
@@ -316,7 +383,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.Equal((first.User.Id, "Ann B"), (second.User!.Id, second.User.Name));
         // A client-supplied email of another account never signs that account in.
         var (_, email) = await RegisterAsync();
-        _tokens.Apple["other"] = new(Guid.NewGuid().ToString(), email, null, null, EmailVerified: false);
+        _tokens.Apple["other"] = new(Guid.NewGuid().ToString(), email, null, null);
         Assert.Equal(AuthStatus.EmailTaken, (await Auth.LoginWithAppleAsync("other", null, email, Ct)).Status);
     }
 
@@ -359,6 +426,62 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     }
 
     private Task<Guid> OwnerAsync(Guid bookId) => db.ScalarAsync<Guid>("SELECT user_id FROM books WHERE id = @bookId", new { bookId });
+
+    /// <summary>A merge that throws the given SQLSTATEs on its first and second call (null: it merges).</summary>
+    private sealed class ScriptedMerge(string first, string? second) : IAccountMergeRepository
+    {
+        public int Calls { get; private set; }
+
+        public Task<AccountMerge> MergeAsync(Guid guestId, Guid accountId, NpgsqlTransaction? tx, CancellationToken ct)
+        {
+            var sqlState = Calls++ == 0 ? first : second;
+            return sqlState is null
+                ? Task.FromResult(AccountMerge.Empty(AccountMergeOutcome.Merged))
+                : throw new PostgresException("scripted", "ERROR", "ERROR", sqlState);
+        }
+    }
+
+    /// <summary>The real users, with a hook that runs once right after the first email lookup.</summary>
+    private sealed class HookedUsers(IUserRepository inner) : IUserRepository
+    {
+        public Func<Task>? AfterGetByEmail { get; set; }
+
+        public async Task<UserAccount?> GetByEmailAsync(string email, CancellationToken ct)
+        {
+            var found = await inner.GetByEmailAsync(email, ct);
+            if (AfterGetByEmail is { } hook)
+            {
+                AfterGetByEmail = null;
+                await hook();
+            }
+            return found;
+        }
+
+        public Task<UserAccount?> GetAsync(Guid userId, CancellationToken ct) => inner.GetAsync(userId, ct);
+        public Task<UserAccount?> GetByGoogleSubjectAsync(string subject, CancellationToken ct) => inner.GetByGoogleSubjectAsync(subject, ct);
+        public Task<UserAccount?> GetByAppleSubjectAsync(string subject, CancellationToken ct) => inner.GetByAppleSubjectAsync(subject, ct);
+        public Task<UserAccount?> CreateAsync(UserAccount account, CancellationToken ct) => inner.CreateAsync(account, ct);
+        public Task<AccountUpdate> UpdateProfileAsync(Guid userId, string email, string? name, string? picture, CancellationToken ct) => inner.UpdateProfileAsync(userId, email, name, picture, ct);
+        public Task<AccountUpdate> PromoteGuestAsync(Guid userId, string email, string? name, string passwordHash, CancellationToken ct) => inner.PromoteGuestAsync(userId, email, name, passwordHash, ct);
+        public Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct) => inner.SetRoleAsync(userId, role, ct);
+        public Task<bool> DeleteAsync(Guid userId, CancellationToken ct) => inner.DeleteAsync(userId, ct);
+    }
+
+    /// <summary>The real sessions, except that every rotation loses to a concurrent one.</summary>
+    private sealed class LosingRotation(ISessionTokenRepository inner) : ISessionTokenRepository
+    {
+        public Task<SessionToken?> RotateAsync(Guid userId, string oldTokenHash, string newTokenHash, DateTimeOffset expiresAt, DateTimeOffset now, CancellationToken ct) =>
+            Task.FromResult<SessionToken?>(null);
+
+        public Task<SessionToken?> IssueAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, string? verifiedPasswordHash, CancellationToken ct) => inner.IssueAsync(userId, tokenHash, expiresAt, verifiedPasswordHash, ct);
+        public Task<SessionToken?> GetLiveAsync(string tokenHash, DateTimeOffset now, CancellationToken ct) => inner.GetLiveAsync(tokenHash, now, ct);
+        public Task<Guid?> RevokeSuccessorsOfAsync(string tokenHash, TimeSpan grace, CancellationToken ct) => inner.RevokeSuccessorsOfAsync(tokenHash, grace, ct);
+        public Task<bool> RevokeAsync(string tokenHash, CancellationToken ct) => inner.RevokeAsync(tokenHash, ct);
+        public Task<PasswordReset> CreatePasswordResetAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, CancellationToken ct) => inner.CreatePasswordResetAsync(userId, tokenHash, expiresAt, ct);
+        public Task<Guid?> ResetPasswordAsync(string tokenHash, string passwordHash, DateTimeOffset now, CancellationToken ct) => inner.ResetPasswordAsync(tokenHash, passwordHash, now, ct);
+        public Task<int> DeleteExpiredSessionsAsync(DateTimeOffset expiredBefore, CancellationToken ct) => inner.DeleteExpiredSessionsAsync(expiredBefore, ct);
+        public Task<int> DeleteExpiredPasswordResetsAsync(DateTimeOffset expiredBefore, CancellationToken ct) => inner.DeleteExpiredPasswordResetsAsync(expiredBefore, ct);
+    }
 
     private sealed class Clock : TimeProvider
     {

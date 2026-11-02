@@ -10,11 +10,6 @@ namespace Application.Auth;
 /// </summary>
 public partial class AuthService : IAuthService
 {
-    private static readonly IReadOnlyDictionary<Guid, Guid> NoIds = new Dictionary<Guid, Guid>();
-
-    /// <summary>A legacy merge keeps every id, so it maps none, and it does not tell a no-op from a move.</summary>
-    private static readonly AccountMerge LegacyMerged = new(AccountMergeOutcome.Merged, NoIds, NoIds, NoIds, 0, 0, 0);
-
     async Task<AuthResult> IAuthService.TestLoginAsync(string email, CancellationToken ct) =>
         Result(await TestLoginAsync(email, ct), AuthStatus.Ok);
 
@@ -33,8 +28,9 @@ public partial class AuthService : IAuthService
         return AuthResult.Ok(user, _tokens.MintAccessToken(user.Id, user.Email, user.Name, user.IsGuest), refreshToken);
     }
 
+    // A legacy merge keeps every id, so it maps none, and it does not tell a no-op from a move.
     async Task<AccountMerge?> IAuthService.MergeGuestAsync(Guid guestUserId, Guid realUserId, string method, CancellationToken ct) =>
-        await MergeGuestAsync(guestUserId, realUserId, method, ct) ? LegacyMerged : null;
+        await MergeGuestAsync(guestUserId, realUserId, method, ct) ? AccountMerge.Empty(AccountMergeOutcome.Merged) : null;
 
     async Task<AuthResult> IAuthService.RefreshTokenAsync(string refreshToken, CancellationToken ct)
     {
@@ -48,10 +44,11 @@ public partial class AuthService : IAuthService
     async Task<AuthResult> IAuthService.RegisterWithEmailAsync(
         string email, string password, string? name, Guid? guestUserId, CancellationToken ct)
     {
-        // The endpoint asks first (409); register's own null folds both answers into one.
-        if (await EmailExistsAsync(email, ct))
+        // Register's own null folds both answers into one: asked after, so a lost race is EmailTaken too.
+        var registered = await RegisterWithEmailAsync(email, password, name, guestUserId, ct);
+        if (registered is null && await EmailExistsAsync(email, ct))
             return AuthResult.Failed(AuthStatus.EmailTaken);
-        return Result(await RegisterWithEmailAsync(email, password, name, guestUserId, ct), AuthStatus.InvalidInput);
+        return Result(registered, AuthStatus.InvalidInput);
     }
 
     async Task<AuthResult> IAuthService.LoginWithEmailAsync(string email, string password, CancellationToken ct) =>

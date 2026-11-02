@@ -8,7 +8,7 @@ using Microsoft.IdentityModel.Tokens;
 namespace Application.Auth;
 
 /// <summary>A sign-in a provider vouched for: Google's verified id token, or Apple's identity token.</summary>
-public sealed record ProviderIdentity(string Subject, string? Email, string? Name, string? Picture, bool EmailVerified);
+public sealed record ProviderIdentity(string Subject, string? Email, string? Name, string? Picture);
 
 /// <summary>
 /// The token code every sign-in shares, legacy and V2 alike (<see cref="IAuthService"/>,
@@ -132,7 +132,7 @@ public class JwtTokens(JwtSettings jwt, GoogleSettings? google = null, AppleSett
             {
                 Audience = audiences
             });
-            return new ProviderIdentity(payload.Subject, payload.Email, payload.Name, payload.Picture, payload.EmailVerified);
+            return new ProviderIdentity(payload.Subject, payload.Email, payload.Name, payload.Picture);
         }
         catch (InvalidJwtException)
         {
@@ -161,7 +161,7 @@ public class JwtTokens(JwtSettings jwt, GoogleSettings? google = null, AppleSett
                 return null;
 
             var email = token.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
-            return token.Subject is null ? null : new ProviderIdentity(token.Subject, email, null, null, EmailVerified: false);
+            return token.Subject is null ? null : new ProviderIdentity(token.Subject, email, null, null);
         }
         catch
         {

@@ -13,7 +13,10 @@ public interface IAuthService
     /// <summary>Signs in (creating if new) the account with this email, no password: test environments only.</summary>
     Task<AuthResult> TestLoginAsync(string email, CancellationToken ct);
 
-    /// <summary><see cref="AuthStatus.InvalidToken"/> when Google does not vouch for the token; <see cref="AuthStatus.EmailTaken"/> when V2 cannot link it to the account holding its email.</summary>
+    /// <summary>
+    /// <see cref="AuthStatus.InvalidToken"/> when Google does not vouch for the token (or names no email);
+    /// <see cref="AuthStatus.EmailTaken"/> when another account holds its email: never linked by email.
+    /// </summary>
     Task<AuthResult> LoginWithGoogleAsync(string googleIdToken, CancellationToken ct);
 
     /// <summary><see cref="AuthStatus.InvalidToken"/> when the token is not Apple's; <see cref="AuthStatus.EmailTaken"/> as for Google.</summary>
@@ -26,9 +29,11 @@ public interface IAuthService
     Task<AuthResult> IssueSessionAsync(UserAccount user, CancellationToken ct);
 
     /// <summary>
-    /// Moves the guest's data to the signed-in account. Null when the merge was abandoned on a conflict
-    /// and nothing moved (the response says <c>merge_conflict</c>; sign-in continues). Otherwise what
-    /// moved: V2 maps the ids it replaced; legacy keeps every id and reports none.
+    /// Moves the guest's data to the signed-in account. Null only when the merge was abandoned on a
+    /// conflict and nothing moved (the response says <c>merge_conflict</c>; sign-in continues). Otherwise
+    /// what happened: V2 maps the ids it replaced, and its <see cref="AccountMergeOutcome.NoGuest"/> and
+    /// <see cref="AccountMergeOutcome.Refused"/> are no-ops, as legacy's <c>true</c> is; legacy keeps
+    /// every id and reports <see cref="AccountMergeOutcome.Merged"/> with none.
     /// </summary>
     Task<AccountMerge?> MergeGuestAsync(Guid guestUserId, Guid realUserId, string method, CancellationToken ct);
 

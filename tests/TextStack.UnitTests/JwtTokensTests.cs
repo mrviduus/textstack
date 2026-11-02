@@ -84,7 +84,7 @@ public class JwtTokensTests
         var apple = tokens.VerifyApple(AppleToken("https://appleid.apple.com", "app.textstack"))!;
 
         // The signature is not checked, so the email proves nothing: V2 never links by it.
-        Assert.Equal(("apple-subject", "reader@privaterelay.appleid.com", false), (apple.Subject, apple.Email, apple.EmailVerified));
+        Assert.Equal(("apple-subject", "reader@privaterelay.appleid.com"), (apple.Subject, apple.Email));
         Assert.Null(tokens.VerifyApple(AppleToken("https://evil.example", "app.textstack")));
         Assert.Null(tokens.VerifyApple(AppleToken("https://appleid.apple.com", "another.app")));
         Assert.Null(tokens.VerifyApple("not a jwt"));
