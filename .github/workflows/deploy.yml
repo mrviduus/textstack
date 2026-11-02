@@ -275,7 +275,8 @@ jobs:
         run: |
           set -o pipefail
           exists=$(docker exec textstack_db_prod psql -XtA -U textstack_prod -d postgres \
-            -c "SELECT 1 FROM pg_database WHERE datname = 'textstack_v2'")
+            -c "SELECT 1 FROM pg_database WHERE datname = 'textstack_v2'") \
+            || { echo "::error::cannot ask the server whether V2 exists"; exit 1; }  # a failed query is not "absent"
           [ -n "$exists" ] || { echo "No textstack_v2 database on this server: V2 dump skipped"; exit 0; }
           f=~/backups/textstack/textstack_v2-pre-deploy-$(date +%F-%H%M).sql.gz
           docker exec textstack_db_prod pg_dump -U textstack_prod textstack_v2 | gzip > $f.tmp

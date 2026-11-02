@@ -49,7 +49,8 @@ jobs:
         run: |
           set -o pipefail
           exists=$(docker exec textstack_db_prod psql -XtA -U textstack_prod -d postgres \
-            -c "SELECT 1 FROM pg_database WHERE datname = '$V2_DB'")
+            -c "SELECT 1 FROM pg_database WHERE datname = '$V2_DB'") \
+            || { echo "::error::cannot ask the server whether V2 exists"; exit 1; }  # a failed query is not "absent"
           [ -n "$exists" ] || { echo "No $V2_DB database on this server: V2 dump skipped"; exit 0; }
           f=$BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz
           # .tmp until the trailer is seen: the R2 step sends the file only if it exists.
