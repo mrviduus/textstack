@@ -38,6 +38,9 @@ public interface IAnnotationRepository
     /// </summary>
     Task<RevisionedWrite<Annotation>> SaveAsync(Guid userId, Annotation annotation, long? expectedRevision, CancellationToken ct);
 
-    /// <summary>Soft-deletes (sets <c>deleted_at</c>, bumps the revision); false when not the user's or already deleted.</summary>
-    Task<bool> DeleteAsync(Guid userId, Guid id, CancellationToken ct);
+    /// <summary>
+    /// Soft-deletes (sets <c>deleted_at</c>, bumps the revision) and returns the tombstone; one deleted
+    /// before is returned as it is. Null when not the user's.
+    /// </summary>
+    Task<Annotation?> DeleteAsync(Guid userId, Guid id, CancellationToken ct);
 }

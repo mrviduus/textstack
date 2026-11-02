@@ -22,19 +22,31 @@ public static class SyncValidation
     public static SyncResult? Sha256(string? value, string field = "sha256") =>
         value is not null && Sha256Hex.IsMatch(value) ? null : SyncResult.Invalid(field, "sha256 must be 64 lowercase hex digits.");
 
-    /// <summary>A file version from a client; <c>html</c> is server-only (clips).</summary>
-    public static SyncResult? File(string prefix, string? sha256, long? byteSize, string? originalName, string? format, JsonElement? toc) =>
-        Sha256(sha256, prefix + "sha256")
-        ?? (byteSize > 0 ? null : SyncResult.Invalid(prefix + "byteSize", "byteSize must be positive."))
-        ?? (string.IsNullOrWhiteSpace(originalName) ? SyncResult.Invalid(prefix + "originalName", "originalName is required.") : null)
-        ?? Text(originalName, prefix + "originalName")
-        ?? (format is "epub" or "pdf" ? null : SyncResult.Invalid(prefix + "format", "format must be epub or pdf."))
-        ?? (toc is null ? null : Json(toc.Value, prefix + "toc"))
-        ?? (toc is null || toc.Value.ValueKind == JsonValueKind.Array && Encoding.UTF8.GetByteCount(toc.Value.GetRawText()) <= MaxTocBytes
-            ? null : SyncResult.Invalid(prefix + "toc", "toc must be a JSON array of at most 256 KB."));
+    /// <summary>A file version from a client under <paramref name="prefix"/> (<c>file.</c>); <c>html</c> is server-only (clips).</summary>
+    public static SyncResult? File(string prefix, BookFileRequest? file) =>
+        Required(file, prefix.TrimEnd('.'))
+        ?? Sha256(file!.Sha256, prefix + "sha256")
+        ?? (file.ByteSize > 0 ? null : SyncResult.Invalid(prefix + "byteSize", "byteSize must be positive."))
+        ?? RequiredText(file.OriginalName, prefix + "originalName")
+        ?? (file.Format is "epub" or "pdf" ? null : SyncResult.Invalid(prefix + "format", "format must be epub or pdf."))
+        ?? (file.Toc is null ? null : Toc(file.Toc, prefix + "toc"));
 
-    public static SyncResult? Title(string? title) =>
-        string.IsNullOrWhiteSpace(title) ? SyncResult.Invalid("title", "title is required.") : Text(title, "title");
+    // The size first, on the raw text that is also what gets stored; only then the walk.
+    private static SyncResult? Toc(string raw, string field)
+    {
+        if (Encoding.UTF8.GetByteCount(raw) > MaxTocBytes) return SyncResult.Invalid(field, "toc must be a JSON array of at most 256 KB.");
+        using var toc = JsonDocument.Parse(raw);
+        return toc.RootElement.ValueKind == JsonValueKind.Array ? Json(toc.RootElement, field) : SyncResult.Invalid(field, "toc must be a JSON array of at most 256 KB.");
+    }
+
+    /// <summary>The fields a client edits, as one value: an import's and a merged PATCH's alike.</summary>
+    public static SyncResult? Metadata(Application.Library.BookMetadata m) =>
+        RequiredText(m.Title, "title") ?? Tags(m.Tags) ?? Text(m.Author, "author") ?? Text(m.Language, "language")
+        ?? Text(m.Description, "description") ?? Text(m.Genre, "genre");
+
+    /// <summary>Present, not blank, and storable (<see cref="Text"/>).</summary>
+    public static SyncResult? RequiredText(string? value, string field) =>
+        string.IsNullOrWhiteSpace(value) ? SyncResult.Invalid(field, $"{field} is required.") : Text(value, field);
 
     public static SyncResult? Tags(string[]? tags) =>
         tags is null || tags.All(t => !string.IsNullOrWhiteSpace(t) && IsStorable(t)) ? null : SyncResult.Invalid("tags", "tags must be non-blank strings.");

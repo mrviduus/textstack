@@ -87,7 +87,7 @@ if (!app.Environment.IsEnvironment("Test"))
     // pending list until the migrator catches up.
     try
     {
-        var pending = await SchemaVersion.PendingAsync(db);
+        var pending = await SchemaVersion.PendingAsync(db.Database.GetDbConnection(), SchemaVersion.Known);
         if (pending.Count > 0)
             app.Logger.LogCritical(
                 "Database schema is behind this build: {PendingCount} pending migration(s), newest {NewestPending}. " +
@@ -248,7 +248,7 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
     {
         try
         {
-            var pending = await SchemaVersion.PendingAsync(db, ct);
+            var pending = await SchemaVersion.PendingAsync(db.Database.GetDbConnection(), SchemaVersion.Known, ct);
             if (pending.Count == 0)
                 components["schema"] = new { status = "ok" };
             else

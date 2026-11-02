@@ -45,7 +45,10 @@ public static class ClaimsPrincipalExtensions
     /// A connect key (<c>tsk_…</c>) was already resolved by <c>McpKeyAuthMiddleware</c> and left on
     /// <see cref="HttpContext.Items"/> — checked first because such a bearer is not a JWT and
     /// <see cref="AuthService.ValidateAccessToken"/> would only reject it. Everything else is a JWT,
-    /// validated here as it always was.
+    /// validated here as it always was, once per request: the answer is memoized on
+    /// <see cref="HttpContext.Items"/>, so PathGates, a filter and a handler asking in turn validate the
+    /// token once. Not under the connect key's own key: <c>VocabularyEndpoints</c> reads its presence
+    /// as "this came over MCP".
     /// </para>
     /// </summary>
     public static Guid? GetUserId(this HttpContext httpContext, AuthService authService)
@@ -53,8 +56,14 @@ public static class ClaimsPrincipalExtensions
         if (httpContext.Items.TryGetValue(Middleware.McpKeyAuthMiddleware.UserIdItemKey, out var fromKey)
             && fromKey is Guid keyUserId)
             return keyUserId;
+        if (httpContext.Items.TryGetValue(JwtUserIdItemKey, out var memo))
+            return (Guid?)memo;
 
         var token = httpContext.GetAccessToken();
-        return token == null ? null : authService.ValidateAccessToken(token);
+        var userId = token == null ? null : authService.ValidateAccessToken(token);
+        httpContext.Items[JwtUserIdItemKey] = userId;
+        return userId;
     }
+
+    private const string JwtUserIdItemKey = "jwt_user_id";
 }

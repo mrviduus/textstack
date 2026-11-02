@@ -204,15 +204,23 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task DeleteAsync_LiveAnnotation_SetsDeletedAtAndBumpsTheRevisionOnce()
+    public async Task DeleteAsync_LiveAnnotationTwice_ReturnsTheTombstoneBothTimesAndBumpsTheRevisionOnce()
     {
         var (book, stored) = await SavedHighlightAsync();
 
-        Assert.True(await _repo.DeleteAsync(book.UserId, stored.Id, Ct));
-        Assert.False(await _repo.DeleteAsync(book.UserId, stored.Id, Ct));
+        var first = (await _repo.DeleteAsync(book.UserId, stored.Id, Ct))!;
+        var again = (await _repo.DeleteAsync(book.UserId, stored.Id, Ct))!;
 
-        var read = (await _repo.GetAsync(book.UserId, stored.Id, Ct))!;
-        Assert.Equal((2L, true), (read.Revision, read.DeletedAt is not null));
+        Assert.Equal((2L, true), (first.Revision, first.DeletedAt is not null));
+        Assert.Equal((2L, first.DeletedAt), (again.Revision, again.DeletedAt));
+    }
+
+    [Fact]
+    public async Task DeleteAsync_IdTheUserNeverHad_ReturnsNull()
+    {
+        var book = await db.NewReaderWithBookAsync();
+
+        Assert.Null(await _repo.DeleteAsync(book.UserId, Guid.NewGuid(), Ct));
     }
 
     // updated_at is the sync feed's watermark: every revisioned write must move it.
@@ -334,12 +342,12 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task DeleteAsync_AlicesAnnotationAsBob_ReturnsFalseAndKeepsItLive()
+    public async Task DeleteAsync_AlicesAnnotationAsBob_ReturnsNullAndKeepsItLive()
     {
         var (alices, stored) = await SavedHighlightAsync();
         var bob = await db.NewReaderAsync();
 
-        Assert.False(await _repo.DeleteAsync(bob, stored.Id, Ct));
+        Assert.Null(await _repo.DeleteAsync(bob, stored.Id, Ct));
         Assert.Equal(stored.Id, Assert.Single(await _repo.ListForBookAsync(alices.UserId, alices.Id, Ct)).Id);
     }
 

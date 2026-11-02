@@ -25,6 +25,16 @@ public class ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddlewa
 
     private async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
+        // A V2 client has one error parser: an unbindable body is its invalid_payload too.
+        if (exception is BadHttpRequestException bad && context.Request.Path.StartsWithSegments("/me/v2"))
+        {
+            context.Response.StatusCode = bad.StatusCode;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(JsonSerializer.Serialize(
+                new Contracts.V2.V2Error(Application.Sync.SyncCodes.InvalidPayload, bad.Message), JsonOptions));
+            return;
+        }
+
         var (statusCode, response) = exception switch
         {
             NotFoundException ex => (StatusCodes.Status404NotFound,

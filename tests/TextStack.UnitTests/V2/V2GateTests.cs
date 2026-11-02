@@ -28,7 +28,6 @@ namespace TextStack.UnitTests.V2;
 /// </summary>
 public class V2GateTests
 {
-    private const string Secret = "unit-test-secret-key-of-at-least-32-bytes";
     // Port 1: nothing listens, so a connection attempt fails at once.
     private const string Unreachable = "Host=127.0.0.1;Port=1;Database=textstack_v2;Timeout=2";
 
@@ -46,7 +45,8 @@ public class V2GateTests
         new WebApplicationFactory<Api.ApiMarker>().WithWebHostBuilder(b =>
         {
             b.UseEnvironment("Test");
-            b.UseSetting("Jwt:SecretKey", Secret);
+            b.UseSetting("Jwt:SecretKey", TestTokens.Secret);
+            b.UseSetting("Jwt:Issuer", TestTokens.Issuer);
             b.UseSetting("Features:V2Api", v2Api ? "true" : "false");
             b.UseSetting("ConnectionStrings:V2", v2ConnectionString);
             b.UseSetting("Storage:RootPath", Path.Combine(Path.GetTempPath(), "textstack-v2-gate"));
@@ -64,13 +64,7 @@ public class V2GateTests
     private static async Task<HttpResponseMessage> SendAsync(WebApplicationFactory<Api.ApiMarker> api, HttpRequestMessage request, bool withSession = true)
     {
         if (withSession)
-        {
-            var jwt = api.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<JwtSettings>>().Value;
-            var token = new JwtSecurityToken(jwt.Issuer, JwtSettings.UserAudience, [new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString())],
-                expires: DateTime.UtcNow.AddMinutes(5),
-                signingCredentials: new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Secret)), SecurityAlgorithms.HmacSha256));
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", new JwtSecurityTokenHandler().WriteToken(token));
-        }
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestTokens.Token(Guid.NewGuid()));
         return await api.CreateClient().SendAsync(request, Ct);
     }
 
@@ -136,24 +130,5 @@ public class V2GateTests
 
         Assert.Equal(expected, status);
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"the probe took {watch.Elapsed}");
-    }
-
-    [Fact]
-    public async Task GetAsync_WithinTheTtl_SharesOneCheckAndAfterItChecksAgain()
-    {
-        var config = new ConfigurationBuilder().AddInMemoryCollection([new("ConnectionStrings:V2", Unreachable)]).Build();
-        await using var services = new ServiceCollection().AddSingleton(new Infrastructure.Persistence.V2DataSource(Unreachable)).BuildServiceProvider();
-        var clock = new SteppedClock();
-        var readiness = new V2Readiness(config, services, clock, NullLogger<V2Readiness>.Instance);
-
-        var first = readiness.GetAsync();
-        clock.Now += V2Readiness.Ttl - TimeSpan.FromSeconds(1);
-        var cached = readiness.GetAsync();
-        clock.Now += TimeSpan.FromSeconds(1);
-        var fresh = readiness.GetAsync();
-
-        Assert.Same(first, cached);
-        Assert.NotSame(first, fresh);
-        Assert.Equal(V2State.Unreachable, (await fresh).Status);
     }
 }

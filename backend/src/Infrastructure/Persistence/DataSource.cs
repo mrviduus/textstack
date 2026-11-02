@@ -72,8 +72,7 @@ public static class DataSource
         services
             .AddSingleton(_ => Create(connectionString))
             .AddSingleton<IInsightRepository, InsightRepository>()
-            .AddSingleton(_ => new V2DataSource(
-                v2ConnectionString ?? throw new InvalidOperationException("ConnectionStrings:V2 is not set")))
+            .AddSingleton(_ => new V2DataSource(v2ConnectionString))
             .AddSingleton<IV2UnitOfWork>(sp => sp.GetRequiredService<V2DataSource>())
             .AddSingleton<ILibraryRepository, LibraryRepository>()
             .AddSingleton<IReadingStateRepository, ReadingStateRepository>()

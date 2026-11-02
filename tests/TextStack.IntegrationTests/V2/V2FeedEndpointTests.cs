@@ -53,8 +53,8 @@ public class V2FeedEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixture>
         var guest = await v2.NewGuestAsync();
         var first = await v2.ImportAsync(guest);
         var second = await v2.ImportAsync(guest);
-        await v2.SendAsync(guest, HttpMethod.Put, $"/me/v2/books/{first.Book}/reading-state", State(first.File, null));
-        await v2.SendAsync(guest, HttpMethod.Put, $"/me/v2/books/{second.Book}/reading-state", State(second.File, null));
+        await v2.WriteStateAsync(guest, first.Book, State(first.File, null));
+        await v2.WriteStateAsync(guest, second.Book, State(second.File, null));
 
         var (rows, cursor) = await PullAsync(guest, "reading");
 

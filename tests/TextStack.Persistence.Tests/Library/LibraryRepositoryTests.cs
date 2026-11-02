@@ -168,6 +168,16 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ExistsAsync_RemovedBookAndAnUnknownId_AreTrueAndFalse()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        await _repo.RemoveAsync(book.UserId, book.Id, Ct);
+
+        Assert.True(await _repo.ExistsAsync(book.UserId, book.Id, Ct));
+        Assert.False(await _repo.ExistsAsync(book.UserId, Guid.NewGuid(), Ct));
+    }
+
+    [Fact]
     public async Task GetFileAsync_SupersededVersion_ReturnsIt()
     {
         var book = await db.NewReaderWithBookAsync();
@@ -386,7 +396,7 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
 
         var result = await _repo.ReplaceFileAsync(book.UserId, book.Id, NewFile(book.UserId, book.Id), book.CurrentFile!.Id, null, Ct);
 
-        Assert.Equal(FileReplaceOutcome.BookRemoved, result.Outcome);
+        Assert.Equal((FileReplaceOutcome.BookRemoved, book.Id), (result.Outcome, result.Book!.Id));
         Assert.Equal(book.CurrentFile.Id, (await _repo.GetAsync(book.UserId, book.Id, Ct))!.CurrentFile!.Id);
     }
 
@@ -476,6 +486,15 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
         var bob = await db.NewReaderAsync();
 
         Assert.Null(await _repo.GetAsync(bob, alices.Id, Ct));
+    }
+
+    [Fact]
+    public async Task ExistsAsync_AlicesBookAsBob_IsFalse()
+    {
+        var alices = await db.NewReaderWithBookAsync();
+        var bob = await db.NewReaderAsync();
+
+        Assert.False(await _repo.ExistsAsync(bob, alices.Id, Ct));
     }
 
     [Fact]

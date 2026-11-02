@@ -20,7 +20,7 @@ public class V2DataAccessRegistrationTests
     private const string Legacy = "Host=localhost;Database=legacy";
 
     [Fact]
-    public async Task AddTextStackDataAccess_NoV2ConnectionString_BuildsButResolvingNamesTheMissingKey()
+    public async Task AddTextStackDataAccess_NoV2ConnectionString_ResolvesAndTheFirstOpenNamesTheMissingKey()
     {
         await using var services = new ServiceCollection()
             .AddTextStackDataAccess(Legacy, null)
@@ -34,7 +34,10 @@ public class V2DataAccessRegistrationTests
             typeof(IMcpKeyRepository), typeof(V2LlmTraceWriter), typeof(V2AgentRunWriter), typeof(IEvalRunRepository),
             typeof(IAdminSettingsRepository), typeof(IBookChapterRepository), typeof(IIngestionJobRepository)];
         foreach (var port in v2Ports)
-            Assert.Contains("ConnectionStrings:V2", Assert.Throws<InvalidOperationException>(() => services.GetRequiredService(port)).Message);
+            Assert.NotNull(services.GetRequiredService(port));
+        var open = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            services.GetRequiredService<V2DataSource>().OpenConnectionAsync(TestContext.Current.CancellationToken).AsTask());
+        Assert.Contains("ConnectionStrings:V2", open.Message);
         // The legacy insight port of the same name does not need V2.
         Assert.NotNull(services.GetRequiredService<IInsightRepository>());
     }

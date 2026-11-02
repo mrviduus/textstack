@@ -60,6 +60,16 @@ public class V2LibraryEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
     }
 
     [Fact]
+    public async Task Import_BodyThatDoesNotBind_IsInvalidPayloadNotABare400()
+    {
+        v2.Require();
+
+        var response = await v2.SendAsync(v2.Alice, HttpMethod.Put, $"/me/v2/books/{Guid.NewGuid()}", new { title = 5 });
+
+        Assert.Equal((HttpStatusCode.BadRequest, "invalid_payload"), (response.Status, response.Code));
+    }
+
+    [Fact]
     public async Task BySha256_OwnBytesAndAnotherUsers_Are200And404()
     {
         v2.Require();
@@ -104,7 +114,7 @@ public class V2LibraryEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         v2.Require();
         var (bookId, fileId, _) = await v2.ImportAsync(v2.Alice);
         var newFile = Guid.NewGuid();
-        var replacement = (Guid? replaces) => new { replacesFileId = replaces, sha256 = NewSha256(), byteSize = 2048, originalName = "v2.epub", format = "epub" };
+        var replacement = (Guid? replaces) => Replacement(replaces);
 
         var wrong = await v2.SendAsync(v2.Alice, HttpMethod.Put, $"/me/v2/books/{bookId}/files/{newFile}", replacement(Guid.NewGuid()));
         var right = await v2.SendAsync(v2.Alice, HttpMethod.Put, $"/me/v2/books/{bookId}/files/{newFile}", replacement(fileId));
@@ -125,7 +135,7 @@ public class V2LibraryEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         Assert.Equal(HttpStatusCode.NoContent, (await v2.SendAsync(v2.Alice, HttpMethod.Delete, $"/me/v2/books/{bookId}")).Status);
         Assert.Equal(HttpStatusCode.NoContent, (await v2.SendAsync(v2.Alice, HttpMethod.Delete, $"/me/v2/books/{bookId}")).Status);
         var replace = await v2.SendAsync(v2.Alice, HttpMethod.Put, $"/me/v2/books/{bookId}/files/{Guid.NewGuid()}",
-            new { replacesFileId = fileId, sha256 = NewSha256(), byteSize = 1, originalName = "v2.epub", format = "epub" });
+            Replacement(fileId, byteSize: 1));
         Assert.Equal((HttpStatusCode.Conflict, "book_removed", 1L), (replace.Status, replace.Code, replace.Body.GetProperty("revision").GetInt64()));
         var patch = await v2.SendAsync(v2.Alice, HttpMethod.Patch, $"/me/v2/books/{bookId}", new { expectedRevision = 1, title = "Renamed while removed" });
         Assert.Equal((HttpStatusCode.Conflict, "book_removed"), (patch.Status, patch.Code));

@@ -19,15 +19,9 @@ public class AnnotationSyncServiceTests
     private static readonly Guid Id = Guid.NewGuid();
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly Mock<ILibraryRepository> _library = new();
+    private readonly Mock<ILibraryRepository> _library = V2Fakes.Library(User, BookId, null, FileId);
     private readonly Mock<IAnnotationRepository> _annotations = new();
-    private AnnotationSyncService Service => new(_library.Object, _annotations.Object, TimeProvider.System);
-
-    public AnnotationSyncServiceTests()
-    {
-        _library.Setup(l => l.GetAsync(User, BookId, It.IsAny<CancellationToken>())).ReturnsAsync(new Book { Id = BookId, UserId = User });
-        _library.Setup(l => l.GetFileAsync(User, BookId, FileId, It.IsAny<CancellationToken>())).ReturnsAsync(new BookFile { Id = FileId, BookId = BookId });
-    }
+    private AnnotationSyncService Service => new(_library.Object, _annotations.Object);
 
     private static AnnotationRequest Highlight(string locator = """{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4!/4/2/1:0)","quote":"bright"}""", Guid? fileId = null) =>
         new(2, BookId, fileId ?? FileId, "It was a bright cold day", "a note", JsonSerializer.Deserialize<JsonElement>(locator), null);
@@ -51,14 +45,13 @@ public class AnnotationSyncServiceTests
         _annotations.Setup(a => a.SaveAsync(User, It.IsAny<Annotation>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RevisionedWrite<Annotation>(false, stored));
 
-    private static V2Error Error(SyncResult result) => Assert.IsType<V2Error>(result.Body);
 
     [Fact]
     public async Task SaveAsync_BookThatIsNotTheUsers_IsBookNotFoundAndWritesNothing()
     {
         var result = await Service.SaveAsync(User, Id, Highlight() with { BookId = Guid.NewGuid() }, Ct);
 
-        Assert.Equal((SyncStatus.NotFound, SyncCodes.BookNotFound), (result.Status, Error(result).Code));
+        Assert.Equal((404, SyncCodes.BookNotFound), (result.Status, V2Fakes.Error(result).Code));
         _annotations.VerifyNoOtherCalls();
     }
 
@@ -67,7 +60,7 @@ public class AnnotationSyncServiceTests
     {
         var result = await Service.SaveAsync(User, Id, Highlight(fileId: Guid.NewGuid()), Ct);
 
-        Assert.Equal((SyncStatus.Conflict, SyncCodes.UnknownFile), (result.Status, Error(result).Code));
+        Assert.Equal((409, SyncCodes.UnknownFile), (result.Status, V2Fakes.Error(result).Code));
         _annotations.VerifyNoOtherCalls();
     }
 
@@ -76,7 +69,7 @@ public class AnnotationSyncServiceTests
     {
         Loses(Stored(4, DateTimeOffset.UtcNow));
 
-        var error = Error(await Service.SaveAsync(User, Id, Highlight(), Ct));
+        var error = V2Fakes.Error(await Service.SaveAsync(User, Id, Highlight(), Ct));
 
         Assert.Equal((SyncCodes.Deleted, (long?)4), (error.Code, error.Revision));
         Assert.NotNull(Assert.IsType<AnnotationDto>(error.Current).DeletedAt);
@@ -87,7 +80,7 @@ public class AnnotationSyncServiceTests
     {
         Loses(null);
 
-        Assert.Equal(SyncCodes.IdConflict, Error(await Service.SaveAsync(User, Id, Highlight(), Ct)).Code);
+        Assert.Equal(SyncCodes.IdConflict, V2Fakes.Error(await Service.SaveAsync(User, Id, Highlight(), Ct)).Code);
     }
 
     [Fact]
@@ -97,7 +90,7 @@ public class AnnotationSyncServiceTests
 
         var result = await Service.SaveAsync(User, Id, Highlight(), Ct);
 
-        Assert.Equal((SyncStatus.Ok, 3L), (result.Status, Assert.IsType<AnnotationDto>(result.Body).Revision));
+        Assert.Equal((200, 3L), (result.Status, Assert.IsType<AnnotationDto>(result.Body).Revision));
     }
 
     [Fact]
@@ -105,7 +98,7 @@ public class AnnotationSyncServiceTests
     {
         Loses(Stored(note: "another device's note"));
 
-        var error = Error(await Service.SaveAsync(User, Id, Highlight(), Ct));
+        var error = V2Fakes.Error(await Service.SaveAsync(User, Id, Highlight(), Ct));
 
         Assert.Equal((SyncCodes.StaleRevision, (long?)3), (error.Code, error.Revision));
     }
@@ -116,13 +109,13 @@ public class AnnotationSyncServiceTests
         _annotations.Setup(a => a.SaveAsync(User, It.IsAny<Annotation>(), null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RevisionedWrite<Annotation>(true, Stored(1)));
 
-        Assert.Equal(SyncStatus.Created, (await Service.SaveAsync(User, Id, Highlight() with { ExpectedRevision = null }, Ct)).Status);
+        Assert.Equal(201, (await Service.SaveAsync(User, Id, Highlight() with { ExpectedRevision = null }, Ct)).Status);
     }
 
     [Fact]
     public async Task SaveAsync_LocatorWithoutAFile_IsInvalidPayload()
     {
-        var error = Error(await Service.SaveAsync(User, Id, Highlight() with { FileId = null }, Ct));
+        var error = V2Fakes.Error(await Service.SaveAsync(User, Id, Highlight() with { FileId = null }, Ct));
 
         Assert.Equal((SyncCodes.InvalidPayload, "fileId"), (error.Code, error.Field));
     }
@@ -130,12 +123,12 @@ public class AnnotationSyncServiceTests
     [Fact]
     public async Task DeleteAsync_AlreadyATombstone_IsOkWithIt()
     {
-        _annotations.Setup(a => a.GetAsync(User, Id, It.IsAny<CancellationToken>())).ReturnsAsync(Stored(4, DateTimeOffset.UtcNow));
+        _annotations.Setup(a => a.DeleteAsync(User, Id, It.IsAny<CancellationToken>())).ReturnsAsync(Stored(4, DateTimeOffset.UtcNow));
 
-        Assert.Equal(SyncStatus.Ok, (await Service.DeleteAsync(User, Id, Ct)).Status);
+        Assert.Equal(200, (await Service.DeleteAsync(User, Id, Ct)).Status);
     }
 
     [Fact]
     public async Task DeleteAsync_IdTheServerNeverHad_IsNotFound() =>
-        Assert.Equal(SyncCodes.NotFound, Error(await Service.DeleteAsync(User, Id, Ct)).Code);
+        Assert.Equal(SyncCodes.NotFound, V2Fakes.Error(await Service.DeleteAsync(User, Id, Ct)).Code);
 }

@@ -25,11 +25,13 @@ public sealed record V2Response(HttpStatusCode Status, JsonElement Body)
 /// </summary>
 public sealed class V2ApiFixture : IAsyncLifetime
 {
-    private readonly HttpClient _client = new(new HttpClientHandler { UseCookies = false })
+    private static HttpClient NewClient() => new(new HttpClientHandler { UseCookies = false })
     {
         BaseAddress = new Uri(Environment.GetEnvironmentVariable("API_URL") ?? "http://localhost:8080"),
         Timeout = TimeSpan.FromSeconds(30),
     };
+
+    private readonly HttpClient _client = NewClient();
 
     private bool _enabled;
     private string? _failure;
@@ -41,17 +43,7 @@ public sealed class V2ApiFixture : IAsyncLifetime
     {
         _enabled = Environment.GetEnvironmentVariable("V2_API_TESTS") == "1";
         if (!_enabled) return;
-        try
-        {
-            (Alice, Bob) = await Users.Value;
-            var status = await SendAsync(Alice, HttpMethod.Get, "/me/v2/status");
-            if (status.Status != HttpStatusCode.OK)
-                _failure = $"V2_API_TESTS=1 but GET /me/v2/status answered {(int)status.Status}: run `make migrate-v2` and recreate the api with Features__V2Api=true";
-        }
-        catch (Exception e) when (e is HttpRequestException or InvalidOperationException)
-        {
-            _failure = $"V2 fixture setup failed: {e.Message}";
-        }
+        (Alice, Bob, _failure) = await Setup.Value;
     }
 
     /// <summary>Skips without <c>V2_API_TESTS=1</c>; fails when it is set and V2 is not there.</summary>
@@ -61,12 +53,26 @@ public sealed class V2ApiFixture : IAsyncLifetime
         if (_failure is not null) Assert.Fail(_failure);
     }
 
-    // One login per user per run, shared by every class: concurrent first test-logins of one email
-    // race on ix_users_email in the legacy database and answer 500.
-    private static readonly Lazy<Task<(V2Session, V2Session)>> Users = new(async () =>
+    // One login per user and one probe per run, shared by every class: concurrent first test-logins
+    // of one email race on ix_users_email in the legacy database and answer 500.
+    private static readonly Lazy<Task<(V2Session, V2Session, string?)>> Setup = new(async () =>
     {
-        using var client = new HttpClient(new HttpClientHandler { UseCookies = false }) { BaseAddress = new Uri(Environment.GetEnvironmentVariable("API_URL") ?? "http://localhost:8080") };
-        return (await LoginAsync(client, "v2-alice@textstack.app"), await LoginAsync(client, "v2-bob@textstack.app"));
+        using var client = NewClient();
+        try
+        {
+            var alice = await LoginAsync(client, "v2-alice@textstack.app");
+            var bob = await LoginAsync(client, "v2-bob@textstack.app");
+            using var probe = new HttpRequestMessage(HttpMethod.Get, "/me/v2/status");
+            probe.Headers.Host = LiveApiFixture.TestHost;
+            probe.Headers.Add("Cookie", alice.Cookie);
+            using var status = await client.SendAsync(probe);
+            return (alice, bob, status.StatusCode == HttpStatusCode.OK ? null
+                : $"V2_API_TESTS=1 but GET /me/v2/status answered {(int)status.StatusCode}: run `make migrate-v2` and recreate the api with Features__V2Api=true");
+        }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException)
+        {
+            return (null!, null!, $"V2 fixture setup failed: {e.Message}");
+        }
     });
 
     private static async Task<V2Session> LoginAsync(HttpClient client, string email)
@@ -91,11 +97,8 @@ public sealed class V2ApiFixture : IAsyncLifetime
         return new V2Session(Cookie(response));
     }
 
-    // "access_token=xxx; path=/; ..." → "access_token=xxx", joined into one Cookie header.
     private static string Cookie(HttpResponseMessage response) =>
-        response.Headers.TryGetValues("Set-Cookie", out var cookies)
-            ? string.Join("; ", cookies.Select(c => c.Split(';')[0].Trim()).Where(c => c.Length > 0))
-            : throw new InvalidOperationException("no session cookie");
+        AuthenticatedApiFixture.CookieHeader(response) is { Length: > 0 } cookie ? cookie : throw new InvalidOperationException("no session cookie");
 
     public async Task<V2Response> SendAsync(V2Session who, HttpMethod method, string path, object? body = null)
     {
@@ -121,6 +124,13 @@ public sealed class V2ApiFixture : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, created.Status);
         return (bookId, fileId, sha256);
     }
+
+    /// <summary>A replacement's body: a new file version, and the current one the client saw.</summary>
+    public static object Replacement(Guid? replacesFileId, long byteSize = 2048) =>
+        new { replacesFileId, file = new { sha256 = NewSha256(), byteSize, originalName = "v2.epub", format = "epub" } };
+
+    public Task<V2Response> WriteStateAsync(V2Session who, Guid bookId, object state) =>
+        SendAsync(who, HttpMethod.Put, $"/me/v2/books/{bookId}/reading-state", state);
 
     /// <summary>An epub-cfi position with the quote the PDD requires.</summary>
     public static object Position(int step) =>

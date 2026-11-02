@@ -13,7 +13,7 @@ public interface IReadingSessionRepository
     /// Stores <paramref name="session"/> under <paramref name="userId"/> unless its
     /// <c>ClientSessionId</c> is already the user's: first write wins, so a replay — whatever its
     /// payload — is <see cref="WriteOutcome.Replayed"/> with the stored row. A <c>BookId</c> that is
-    /// not the user's is refused by the schema (a <c>PostgresException</c>): the caller checks it first.
+    /// not the user's throws (a <c>PostgresException</c>); callers check it first.
     /// </summary>
     Task<WriteResult<ReadingSession>> SaveAsync(Guid userId, ReadingSession session, CancellationToken ct);
 }

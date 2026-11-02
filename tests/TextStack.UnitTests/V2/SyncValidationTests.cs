@@ -12,6 +12,12 @@ public class SyncValidationTests
 
     private static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
 
+    private static BookFileRequest Book(long byteSize = 10, string format = "epub", string name = "book.epub", string? toc = null) =>
+        new(Guid.NewGuid(), Hash, byteSize, name, format, null, toc);
+
+    [Fact]
+    public void File_Missing_IsRefusedNamingIt() => Assert.Equal("file", FieldOf(File("file.", null)));
+
     private static string? FieldOf(SyncResult? result) => result is null ? null : Assert.IsType<V2Error>(result.Body).Field;
 
     [Fact]
@@ -40,11 +46,11 @@ public class SyncValidationTests
 
     [Fact]
     public void File_TocWithANulDeepInside_IsRefused() =>
-        Assert.Equal("toc", FieldOf(File("", Hash, 10, "book.epub", "epub", Json("""[{"title":"one","children":[{"title":"t\u0000"}]}]"""))));
+        Assert.Equal("file.toc", FieldOf(File("file.", Book(toc: """[{"title":"one","children":[{"title":"t\u0000"}]}]"""))));
 
     [Fact]
     public void File_OriginalNameWithANul_IsRefused() =>
-        Assert.Equal("originalName", FieldOf(File("", Hash, 10, "book\u0000.epub", "epub", null)));
+        Assert.Equal("originalName", FieldOf(File("", Book(name: "book\u0000.epub"))));
 
     [Fact]
     public void Tags_WithANul_AreRefused() => Assert.Equal("tags", FieldOf(Tags(["ok", "b\u0000d"])));
@@ -54,11 +60,11 @@ public class SyncValidationTests
     [InlineData(10L, "html", "file.format")]
     [InlineData(10L, "mobi", "file.format")]
     public void File_ZeroBytesOrAServerOnlyFormat_IsRefused(long byteSize, string format, string field) =>
-        Assert.Equal(field, FieldOf(File("file.", Hash, byteSize, "book.epub", format, null)));
+        Assert.Equal(field, FieldOf(File("file.", Book(byteSize: byteSize, format: format))));
 
     [Fact]
     public void File_TocThatIsNotAnArray_IsRefused() =>
-        Assert.Equal("toc", FieldOf(File("", Hash, 10, "book.epub", "epub", Json("""{"chapters":[]}"""))));
+        Assert.Equal("toc", FieldOf(File("", Book(toc: """{"chapters":[]}"""))));
 
     [Theory]
     [InlineData("""{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"one"}}""")]

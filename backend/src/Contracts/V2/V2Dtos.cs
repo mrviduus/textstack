@@ -31,12 +31,12 @@ public sealed record BookDto(
     DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? RemovedAt, BookFileDto? CurrentFile);
 
 public sealed record BookFileDto(
-    Guid Id, string Sha256, long ByteSize, string OriginalName, string Format, int? PageCount, JsonElement? Toc,
+    Guid Id, string Sha256, long ByteSize, string OriginalName, string Format, int? PageCount, [property: JsonConverter(typeof(RawJsonConverter))] string? Toc,
     bool IsCurrent, bool HasContent, DateTimeOffset CreatedAt);
 
-/// <summary>A file version as a client sends it: on import (with <see cref="Id"/>) and on replace (id in the path).</summary>
+/// <summary>A file version as a client sends it: on import (with <see cref="Id"/>) and on replace (the path's id wins).</summary>
 public sealed record BookFileRequest(
-    Guid? Id, string? Sha256, long? ByteSize, string? OriginalName, string? Format, int? PageCount, JsonElement? Toc);
+    Guid? Id, string? Sha256, long? ByteSize, string? OriginalName, string? Format, int? PageCount, [property: JsonConverter(typeof(RawJsonConverter))] string? Toc);
 
 public sealed record ImportBookRequest(
     string? Title, string? Author, string? Language, string? Description, string? Genre, int? PublishedYear,
@@ -50,8 +50,8 @@ public sealed record PatchBookRequest(
     long? ExpectedRevision, JsonElement Title, JsonElement Author, JsonElement Language, JsonElement Description,
     JsonElement Genre, JsonElement PublishedYear, JsonElement Tags);
 
-public sealed record ReplaceFileRequest(
-    Guid? ReplacesFileId, string? Sha256, long? ByteSize, string? OriginalName, string? Format, int? PageCount, JsonElement? Toc);
+/// <summary><c>{replacesFileId, file:{…}}</c>: the import's file shape, and the current file the client saw (null: none).</summary>
+public sealed record ReplaceFileRequest(Guid? ReplacesFileId, BookFileRequest? File);
 
 public sealed record FileReplacementDto(BookFileDto Current, BookFileDto? Superseded);
 
@@ -60,7 +60,7 @@ public sealed record ReadingStateRequest(
     JsonElement? FrontierLocator, decimal? FrontierFraction, DateTimeOffset? CompletedAt, DateTimeOffset? ClientRecordedAt);
 
 public sealed record ReadingStateDto(
-    Guid BookId, Guid FileId, JsonElement CurrentLocator, decimal BookFraction, JsonElement? FrontierLocator,
+    Guid BookId, Guid FileId, [property: JsonConverter(typeof(RawJsonConverter))] string CurrentLocator, decimal BookFraction, [property: JsonConverter(typeof(RawJsonConverter))] string? FrontierLocator,
     decimal? FrontierFraction, DateTimeOffset? CompletedAt, DateTimeOffset ClientRecordedAt, DateTimeOffset UpdatedAt,
     long Revision, long? ResetRevision);
 
@@ -78,5 +78,5 @@ public sealed record AnnotationRequest(
     long? ExpectedRevision, Guid? BookId, Guid? FileId, string? SelectedText, string? NoteText, JsonElement? Locator, string? Color);
 
 public sealed record AnnotationDto(
-    Guid Id, Guid BookId, Guid? FileId, string SelectedText, string? NoteText, JsonElement? Locator, string Color,
+    Guid Id, Guid BookId, Guid? FileId, string SelectedText, string? NoteText, [property: JsonConverter(typeof(RawJsonConverter))] string? Locator, string Color,
     DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? DeletedAt, long Revision);

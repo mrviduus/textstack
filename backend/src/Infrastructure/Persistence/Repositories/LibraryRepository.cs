@@ -46,6 +46,14 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
     public async Task<Book?> GetAsync(Guid userId, Guid bookId, CancellationToken ct) =>
         (await QueryBooksAsync(SelectBook, new { userId, bookId }, null, ct)).SingleOrDefault();
 
+    private const string BookExists = "SELECT EXISTS (SELECT FROM books WHERE user_id = @userId AND id = @bookId)";
+
+    public async Task<bool> ExistsAsync(Guid userId, Guid bookId, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return await conn.ExecuteScalarAsync<bool>(new CommandDefinition(BookExists, new { userId, bookId }, cancellationToken: ct));
+    }
+
     private const string SelectFile = $"SELECT {FileColumns} FROM book_files WHERE user_id = @userId AND book_id = @bookId AND id = @fileId";
 
     public async Task<BookFile?> GetFileAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
@@ -64,8 +72,6 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
     public async Task<Book?> FindBySha256Async(Guid userId, string sha256, CancellationToken ct) =>
         (await QueryBooksAsync(SelectOldestBySha256, new { userId, sha256 }, null, ct)).SingleOrDefault();
 
-    // ponytail: no (user_id, updated_at, id) index, so a page scans the user's books (ak_books_user_id_id);
-    // fine for a library of tens. An index in a V2 migration when one grows to thousands.
     private const string SelectChanged = FromBooks + """
         WHERE b.user_id = @userId AND (b.updated_at, b.id) > (@since, @afterId)
         ORDER BY b.updated_at, b.id
@@ -139,18 +145,29 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
     {
         var args = new DynamicParameters(metadata);
         args.AddDynamicParams(new { userId, bookId, expectedRevision });
-        var written = (await QueryBooksAsync(UpdateMetadataGuarded, args, null, ct)).SingleOrDefault();
-        return written is not null ? new(true, written) : new(false, await GetAsync(userId, bookId, ct));
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        var written = (await QueryBooksAsync(conn, UpdateMetadataGuarded, args, null, ct)).SingleOrDefault();
+        // A second statement, not a UNION in the first: read in the update's snapshot, a loss to a
+        // concurrent writer would show the row as it was before the winner.
+        return written is not null ? new(true, written)
+            : new(false, (await QueryBooksAsync(conn, SelectBook, new { userId, bookId }, null, ct)).SingleOrDefault());
     }
 
     // The row lock serializes two replacements of one book: without it both would find the same
     // current file, and the second insert would hit the one-current-file index.
-    private const string LockBook = "SELECT removed_at IS NOT NULL FROM books WHERE user_id = @userId AND id = @bookId FOR UPDATE";
+    private const string LockBook = $"SELECT {BookColumns} FROM books WHERE user_id = @userId AND id = @bookId FOR UPDATE";
 
-    private const string SelectCurrentFile = $"SELECT {FileColumns} FROM book_files WHERE user_id = @userId AND book_id = @bookId AND is_current";
-
-    // Null: the id is free. True: a version of this book. False: another book's, perhaps another user's.
-    private const string SelectFileIsThisBooks = "SELECT (user_id, book_id) = (@userId, @bookId) FROM book_files WHERE id = @fileId";
+    // Its own statement after the lock, so its snapshot sees the replacement the lock waited for (a
+    // join in the locking SELECT would read the current file as it was before). file_is_this_books:
+    // null, the id is free; true, a version of this book; false, another book's, perhaps another user's.
+    // It comes first: Dapper maps an all-null split to null only after the first.
+    private const string SelectCurrentFileAndIdHolder = """
+        SELECT (SELECT (user_id, book_id) = (@userId, @bookId) FROM book_files WHERE id = @fileId) AS file_is_this_books,
+               f.id, f.user_id, f.book_id, f.sha256, f.byte_size, f.original_name, f.format, f.page_count, f.toc,
+               f.server_storage_key, f.is_current, f.created_at
+        FROM (SELECT 1) AS one
+        LEFT JOIN book_files f ON f.user_id = @userId AND f.book_id = @bookId AND f.is_current
+        """;
 
     private const string SupersedeCurrentFile = $"""
         UPDATE book_files SET is_current = false
@@ -161,7 +178,7 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
     private const string TouchBook = "UPDATE books SET updated_at = now() WHERE user_id = @userId AND id = @bookId";
 
     public async Task<FileReplacement> ReplaceFileAsync(
-        Guid userId, Guid bookId, BookFile file, Guid? replacesFileId, NpgsqlTransaction? tx = null, CancellationToken ct = default)
+        Guid userId, Guid bookId, BookFile file, Guid? replacesFileId, NpgsqlTransaction? tx, CancellationToken ct)
     {
         if (file.BookId != bookId)
             throw new ArgumentException("The file must belong to the book being replaced.", nameof(file));
@@ -169,16 +186,18 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
         var args = new { userId, bookId, fileId = file.Id };
         await using var unit = await dataSource.JoinOrBeginAsync(tx, ct);
         var conn = unit.Connection;
-        var removed = await conn.QuerySingleOrDefaultAsync<bool?>(new CommandDefinition(LockBook, args, unit.Transaction, cancellationToken: ct));
-        if (removed is null) return new(FileReplaceOutcome.NotFound);
-        var current = await conn.QuerySingleOrDefaultAsync<BookFile>(new CommandDefinition(SelectCurrentFile, args, unit.Transaction, cancellationToken: ct));
+        var book = await conn.QuerySingleOrDefaultAsync<Book>(new CommandDefinition(LockBook, args, unit.Transaction, cancellationToken: ct));
+        if (book is null) return new(FileReplaceOutcome.NotFound);
+        var (isThisBooks, current) = (await conn.QueryAsync<bool?, BookFile, (bool?, BookFile?)>(
+            new CommandDefinition(SelectCurrentFileAndIdHolder, args, unit.Transaction, cancellationToken: ct),
+            (holder, f) => (holder, f), splitOn: "id")).Single();
+        book.CurrentFile = current;
         // A replay first: the write it repeats landed, so it answers 200 even after the book was removed (M1.2 delta 3).
         if (current?.Id == file.Id) return new(FileReplaceOutcome.Replayed, current);
-        if (removed.Value) return new(FileReplaceOutcome.BookRemoved);
-        var isThisBooks = await conn.QuerySingleOrDefaultAsync<bool?>(new CommandDefinition(SelectFileIsThisBooks, args, unit.Transaction, cancellationToken: ct));
+        if (book.RemovedAt is not null) return new(FileReplaceOutcome.BookRemoved, Book: book);
         if (isThisBooks == false) return new(FileReplaceOutcome.IdConflict);
-        if (isThisBooks == true) return new(FileReplaceOutcome.FileReplaced, current);
-        if (current?.Id != replacesFileId) return new(FileReplaceOutcome.FileReplaced, current);
+        // A superseded version of this book, or a view of the current file that is stale.
+        if (isThisBooks == true || current?.Id != replacesFileId) return new(FileReplaceOutcome.FileReplaced, current);
 
         var superseded = await conn.QuerySingleOrDefaultAsync<BookFile>(new CommandDefinition(SupersedeCurrentFile, args, unit.Transaction, cancellationToken: ct));
         var inserted = await conn.QuerySingleAsync<BookFile>(new CommandDefinition(InsertFile, file, unit.Transaction, cancellationToken: ct));
@@ -192,28 +211,31 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
         WHERE user_id = @userId AND id = @bookId AND removed_at IS NULL
         """;
 
-    public async Task<bool> RemoveAsync(Guid userId, Guid bookId, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(MarkRemoved, new { userId, bookId }, cancellationToken: ct)) > 0;
-    }
+    public Task<bool> RemoveAsync(Guid userId, Guid bookId, CancellationToken ct) => ChangesOneAsync(MarkRemoved, new { userId, bookId }, ct);
 
     private const string ClearRemoved = """
         UPDATE books SET removed_at = NULL, updated_at = now()
         WHERE user_id = @userId AND id = @bookId AND removed_at IS NOT NULL
         """;
 
-    public async Task<bool> RestoreAsync(Guid userId, Guid bookId, CancellationToken ct)
+    public Task<bool> RestoreAsync(Guid userId, Guid bookId, CancellationToken ct) => ChangesOneAsync(ClearRemoved, new { userId, bookId }, ct);
+
+    private async Task<bool> ChangesOneAsync(string update, object args, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(ClearRemoved, new { userId, bookId }, cancellationToken: ct)) > 0;
+        return await conn.ExecuteAsync(new CommandDefinition(update, args, cancellationToken: ct)) > 0;
+    }
+
+    private async Task<IReadOnlyList<Book>> QueryBooksAsync(string select, object args, NpgsqlTransaction? tx, CancellationToken ct)
+    {
+        await using var lease = await dataSource.JoinOrOpenAsync(tx, ct);
+        return await QueryBooksAsync(lease.Connection, select, args, tx, ct);
     }
 
     /// <summary>Books with their current file: <paramref name="select"/> is one of the <see cref="BookWithCurrentFile"/> statements.</summary>
-    private async Task<IReadOnlyList<Book>> QueryBooksAsync(string select, object args, NpgsqlTransaction? tx, CancellationToken ct)
+    private static async Task<IReadOnlyList<Book>> QueryBooksAsync(NpgsqlConnection conn, string select, object args, NpgsqlTransaction? tx, CancellationToken ct)
     {
-        await using var owned = tx is null ? await dataSource.OpenConnectionAsync(ct) : null;
-        var books = await (owned ?? tx!.Connection!).QueryAsync<Book, BookFile, Book>(
+        var books = await conn.QueryAsync<Book, BookFile, Book>(
             new CommandDefinition(select, args, tx, cancellationToken: ct),
             (book, file) =>
             {

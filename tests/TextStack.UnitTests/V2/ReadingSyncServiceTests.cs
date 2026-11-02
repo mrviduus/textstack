@@ -23,21 +23,10 @@ public class ReadingSyncServiceTests
     private static readonly Guid OldFile = Guid.NewGuid();
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly Mock<ILibraryRepository> _library = new();
+    private readonly Mock<ILibraryRepository> _library = V2Fakes.Library(User, BookId, CurrentFile, OldFile);
     private readonly Mock<IReadingStateRepository> _states = new();
     private readonly Mock<IReadingSessionRepository> _sessions = new();
-    private ReadingSyncService Service => new(_library.Object, _states.Object, _sessions.Object, TimeProvider.System);
-
-    public ReadingSyncServiceTests()
-    {
-        _library.Setup(l => l.GetAsync(User, BookId, It.IsAny<CancellationToken>())).ReturnsAsync(new Book
-        {
-            Id = BookId,
-            UserId = User,
-            CurrentFile = new BookFile { Id = CurrentFile, BookId = BookId, Sha256 = new string('a', 64), Format = "epub", IsCurrent = true },
-        });
-        _library.Setup(l => l.GetFileAsync(User, BookId, OldFile, It.IsAny<CancellationToken>())).ReturnsAsync(new BookFile { Id = OldFile, BookId = BookId });
-    }
+    private ReadingSyncService Service => new(_library.Object, _states.Object, _sessions.Object);
 
     private static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
 
@@ -60,7 +49,6 @@ public class ReadingSyncServiceTests
         _states.Setup(s => s.AdvanceAsync(User, BookId, It.IsAny<ReadingState>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RevisionedWrite<ReadingState>(false, stored));
 
-    private static V2Error Error(SyncResult result) => Assert.IsType<V2Error>(result.Body);
 
     [Fact]
     public async Task WriteAsync_Accepted_IsOkWithTheStoredState()
@@ -70,7 +58,7 @@ public class ReadingSyncServiceTests
 
         var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null), Ct);
 
-        Assert.Equal((SyncStatus.Ok, 1L), (result.Status, Assert.IsType<ReadingStateDto>(result.Body).Revision));
+        Assert.Equal((200, 1L), (result.Status, Assert.IsType<ReadingStateDto>(result.Body).Revision));
     }
 
     [Fact]
@@ -82,7 +70,7 @@ public class ReadingSyncServiceTests
 
         var result = await Service.WriteAsync(User, otherBook, Write(CurrentFile, null), Ct);
 
-        Assert.Equal((SyncStatus.NotFound, SyncCodes.BookNotFound), (result.Status, Error(result).Code));
+        Assert.Equal((404, SyncCodes.BookNotFound), (result.Status, V2Fakes.Error(result).Code));
     }
 
     [Fact]
@@ -92,8 +80,8 @@ public class ReadingSyncServiceTests
 
         var result = await Service.WriteAsync(User, BookId, Write(OldFile, 3), Ct);
 
-        var error = Error(result);
-        Assert.Equal((SyncStatus.Conflict, SyncCodes.FileReplaced, CurrentFile, CurrentFile), (result.Status, error.Code, error.FileId, error.CurrentFile!.Id));
+        var error = V2Fakes.Error(result);
+        Assert.Equal((409, SyncCodes.FileReplaced, CurrentFile, CurrentFile), (result.Status, error.Code, error.FileId, error.CurrentFile!.Id));
         Assert.Null(error.Current);
     }
 
@@ -105,8 +93,8 @@ public class ReadingSyncServiceTests
         var result = await Service.WriteAsync(User, BookId, Write(Guid.NewGuid(), null), Ct);
 
         // The PDD's example body: no file to point at.
-        var error = Error(result);
-        Assert.Equal((SyncStatus.Conflict, SyncCodes.UnknownFile, (Guid?)null, (BookFileDto?)null), (result.Status, error.Code, error.FileId, error.CurrentFile));
+        var error = V2Fakes.Error(result);
+        Assert.Equal((409, SyncCodes.UnknownFile, (Guid?)null, (BookFileDto?)null), (result.Status, error.Code, error.FileId, error.CurrentFile));
     }
 
     [Fact]
@@ -116,7 +104,7 @@ public class ReadingSyncServiceTests
 
         var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, 2), Ct);
 
-        var error = Error(result);
+        var error = V2Fakes.Error(result);
         Assert.Equal((SyncCodes.Reset, (long?)4, CurrentFile), (error.Code, error.Revision, error.FileId));
         Assert.Equal(3L, Assert.IsType<ReadingStateDto>(error.Current).ResetRevision);
     }
@@ -128,7 +116,7 @@ public class ReadingSyncServiceTests
 
         var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, 3), Ct);
 
-        Assert.Equal((SyncCodes.StaleRevision, (long?)5), (Error(result).Code, Error(result).Revision));
+        Assert.Equal((SyncCodes.StaleRevision, (long?)5), (V2Fakes.Error(result).Code, V2Fakes.Error(result).Revision));
     }
 
     [Fact]
@@ -138,7 +126,7 @@ public class ReadingSyncServiceTests
 
         var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null), Ct);
 
-        Assert.Equal(SyncCodes.StaleRevision, Error(result).Code);
+        Assert.Equal(SyncCodes.StaleRevision, V2Fakes.Error(result).Code);
     }
 
     [Fact]
@@ -148,7 +136,7 @@ public class ReadingSyncServiceTests
 
         var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, 7), Ct);
 
-        var error = Error(result);
+        var error = V2Fakes.Error(result);
         Assert.Equal((SyncCodes.StaleRevision, (long?)null, (object?)null), (error.Code, error.Revision, error.Current));
     }
 
@@ -158,7 +146,7 @@ public class ReadingSyncServiceTests
         var result = await Service.WriteAsync(User, BookId,
             Write(CurrentFile, null, Json("""{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"one"}}""")), Ct);
 
-        Assert.Equal((SyncStatus.BadRequest, SyncCodes.InvalidPayload, "currentLocator"), (result.Status, Error(result).Code, Error(result).Field));
+        Assert.Equal((400, SyncCodes.InvalidPayload, "currentLocator"), (result.Status, V2Fakes.Error(result).Code, V2Fakes.Error(result).Field));
         _states.VerifyNoOtherCalls();
     }
 
@@ -167,7 +155,7 @@ public class ReadingSyncServiceTests
     {
         var request = Write(CurrentFile, null) with { FrontierLocator = Position };
 
-        Assert.Equal("frontierLocator", Error(await Service.WriteAsync(User, BookId, request, Ct)).Field);
+        Assert.Equal("frontierLocator", V2Fakes.Error(await Service.WriteAsync(User, BookId, request, Ct)).Field);
     }
 
     [Fact]
@@ -177,7 +165,7 @@ public class ReadingSyncServiceTests
 
         var result = await Service.ResetAsync(User, BookId, new ResetReadingStateRequest(1), Ct);
 
-        Assert.Equal((SyncCodes.StaleRevision, (long?)2), (Error(result).Code, Error(result).Revision));
+        Assert.Equal((SyncCodes.StaleRevision, (long?)2), (V2Fakes.Error(result).Code, V2Fakes.Error(result).Revision));
     }
 
     [Fact]
@@ -185,12 +173,12 @@ public class ReadingSyncServiceTests
     {
         _states.Setup(s => s.ResetAsync(User, BookId, 1, It.IsAny<CancellationToken>())).ReturnsAsync(new RevisionedWrite<ReadingState>(false, null));
 
-        Assert.Equal(SyncCodes.NotFound, Error(await Service.ResetAsync(User, BookId, new ResetReadingStateRequest(1), Ct)).Code);
+        Assert.Equal(SyncCodes.NotFound, V2Fakes.Error(await Service.ResetAsync(User, BookId, new ResetReadingStateRequest(1), Ct)).Code);
     }
 
     [Fact]
     public async Task GetAsync_BookThatIsNotTheUsers_IsBookNotFound() =>
-        Assert.Equal(SyncCodes.BookNotFound, Error(await Service.GetAsync(User, Guid.NewGuid(), Ct)).Code);
+        Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(await Service.GetAsync(User, Guid.NewGuid(), Ct)).Code);
 
     private static ReadingSessionRequest Session(Guid? bookId) =>
         new(bookId, DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow, 300, 120, 0.1m, 0.2m);
@@ -200,21 +188,21 @@ public class ReadingSyncServiceTests
     {
         var request = Session(null) with { EndedAt = DateTimeOffset.UtcNow.AddHours(-1) };
 
-        Assert.Equal("endedAt", Error(await Service.SaveSessionAsync(User, Guid.NewGuid(), request, Ct)).Field);
+        Assert.Equal("endedAt", V2Fakes.Error(await Service.SaveSessionAsync(User, Guid.NewGuid(), request, Ct)).Field);
         _sessions.VerifyNoOtherCalls();
     }
 
     [Fact]
     public async Task SaveSessionAsync_BookThatIsNotTheUsers_IsBookNotFoundAndWritesNothing()
     {
-        Assert.Equal(SyncCodes.BookNotFound, Error(await Service.SaveSessionAsync(User, Guid.NewGuid(), Session(Guid.NewGuid()), Ct)).Code);
+        Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(await Service.SaveSessionAsync(User, Guid.NewGuid(), Session(Guid.NewGuid()), Ct)).Code);
         _sessions.VerifyNoOtherCalls();
     }
 
     [Theory]
-    [InlineData(WriteOutcome.Created, SyncStatus.Created)]
-    [InlineData(WriteOutcome.Replayed, SyncStatus.Ok)]
-    public async Task SaveSessionAsync_Stored_IsCreatedFirstAndOkOnReplay(WriteOutcome outcome, SyncStatus status)
+    [InlineData(WriteOutcome.Created, 201)]
+    [InlineData(WriteOutcome.Replayed, 200)]
+    public async Task SaveSessionAsync_Stored_IsCreatedFirstAndOkOnReplay(WriteOutcome outcome, int status)
     {
         _sessions.Setup(s => s.SaveAsync(User, It.IsAny<ReadingSession>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new WriteResult<ReadingSession>(outcome, new ReadingSession { BookId = BookId }));

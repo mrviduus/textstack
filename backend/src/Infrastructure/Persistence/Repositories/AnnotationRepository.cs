@@ -38,8 +38,6 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
         return await conn.QuerySingleOrDefaultAsync<Annotation>(new CommandDefinition(SelectById, new { userId, id }, cancellationToken: ct));
     }
 
-    // ponytail: a page scans the user's annotations (ix_annotations_user_id_book_id); an
-    // (user_id, updated_at, id) index if one reader's annotations reach the thousands.
     private const string SelectChanged = $"""
         SELECT {Columns} FROM annotations
         WHERE user_id = @userId AND (updated_at, id) > (@since, @afterId)
@@ -88,14 +86,18 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
                 new CommandDefinition(SelectById, new { userId, id = annotation.Id }, cancellationToken: ct)));
     }
 
-    private const string SoftDelete = """
+    private const string SoftDelete = $"""
         UPDATE annotations SET deleted_at = now(), updated_at = now(), revision = revision + 1
         WHERE user_id = @userId AND id = @id AND deleted_at IS NULL
+        RETURNING {Columns}
         """;
 
-    public async Task<bool> DeleteAsync(Guid userId, Guid id, CancellationToken ct)
+    public async Task<Annotation?> DeleteAsync(Guid userId, Guid id, CancellationToken ct)
     {
+        var args = new { userId, id };
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(SoftDelete, new { userId, id }, cancellationToken: ct)) > 0;
+        // Already a tombstone: the re-read is its own statement, so it sees a delete that won concurrently.
+        return await conn.QuerySingleOrDefaultAsync<Annotation>(new CommandDefinition(SoftDelete, args, cancellationToken: ct))
+            ?? await conn.QuerySingleOrDefaultAsync<Annotation>(new CommandDefinition(SelectById, args, cancellationToken: ct));
     }
 }

@@ -14,8 +14,9 @@ public interface IV2UnitOfWork
 
 /// <summary>
 /// An open transaction and the pooled connection it runs on. A wrapper because disposing an
-/// <see cref="NpgsqlTransaction"/> does not return its connection to the pool, and after a commit
-/// its <see cref="NpgsqlTransaction.Connection"/> is null: this keeps both and disposes both.
+/// <see cref="NpgsqlTransaction"/> does not return its connection to the pool (it would leak), and
+/// after a commit its <see cref="NpgsqlTransaction.Connection"/> is null: this keeps both and
+/// disposes both.
 /// Disposed without <see cref="CommitAsync"/>, everything rolls back. A <see cref="Join"/>ed one
 /// belongs to the caller: commit and dispose are left to them.
 /// </summary>

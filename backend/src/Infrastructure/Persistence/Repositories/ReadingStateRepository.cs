@@ -103,13 +103,12 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
 
     public async Task<RevisionedWrite<ReadingState>> ResetAsync(Guid userId, Guid bookId, long expectedRevision, CancellationToken ct)
     {
-        await using (var conn = await dataSource.OpenConnectionAsync(ct))
-        {
-            var reset = await conn.QuerySingleOrDefaultAsync<ReadingState>(
-                new CommandDefinition(ResetFrontier, new { userId, bookId, expectedRevision }, cancellationToken: ct));
-            if (reset is not null) return new RevisionedWrite<ReadingState>(true, reset);
-        }
-        return new RevisionedWrite<ReadingState>(false, await GetAsync(userId, bookId, ct));
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        var reset = await conn.QuerySingleOrDefaultAsync<ReadingState>(
+            new CommandDefinition(ResetFrontier, new { userId, bookId, expectedRevision }, cancellationToken: ct));
+        // The re-read is its own statement: in the reset's snapshot a loss to a concurrent writer would show the row before the winner.
+        return reset is not null ? new(true, reset)
+            : new(false, await conn.QuerySingleOrDefaultAsync<ReadingState>(new CommandDefinition(SelectState, new { userId, bookId }, cancellationToken: ct)));
     }
 
     // The state's locators and fractions mean something only in the version they were taken in.
@@ -117,14 +116,13 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
     // old file, and AdvanceAsync's file_id guard makes that write lose.
     private const string DeleteStateOfFile = "DELETE FROM reading_state WHERE user_id = @userId AND book_id = @bookId AND file_id = @fileId";
 
-    public async Task<bool> DeleteForFileAsync(Guid userId, Guid bookId, Guid fileId, NpgsqlTransaction? tx = null, CancellationToken ct = default)
+    public async Task<bool> DeleteForFileAsync(Guid userId, Guid bookId, Guid fileId, NpgsqlTransaction? tx, CancellationToken ct)
     {
-        await using var owned = tx is null ? await dataSource.OpenConnectionAsync(ct) : null;
-        return await (owned ?? tx!.Connection!).ExecuteAsync(
+        await using var lease = await dataSource.JoinOrOpenAsync(tx, ct);
+        return await lease.Connection.ExecuteAsync(
             new CommandDefinition(DeleteStateOfFile, new { userId, bookId, fileId }, tx, cancellationToken: ct)) > 0;
     }
 
-    // ponytail: a page scans the user's states (pk prefix user_id); an (user_id, updated_at, book_id) index if that grows.
     private const string SelectChanged = $"""
         SELECT {Columns} FROM reading_state
         WHERE user_id = @userId AND (updated_at, book_id) > (@since, @afterId)

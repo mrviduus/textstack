@@ -27,23 +27,17 @@ namespace Api.Middleware;
 /// </summary>
 public static class PathGates
 {
-    internal const string UserIdKey = "PathGates.UserId";
-
-    /// <summary>The <c>/me</c> request's user, as the gate resolved it (no second token validation).</summary>
-    public static Guid UserOf(HttpContext ctx) => (Guid)ctx.Items[UserIdKey]!;
-
     public static IApplicationBuilder UsePathGates(this IApplicationBuilder app)
     {
         app.UseWhen(
             ctx => ctx.Request.Path.StartsWithSegments("/me") && !HttpMethods.IsOptions(ctx.Request.Method),
             branch => branch.Use(async (ctx, next) =>
             {
-                if (ctx.GetUserId(ctx.RequestServices.GetRequiredService<AuthService>()) is not { } userId)
+                if (ctx.GetUserId(ctx.RequestServices.GetRequiredService<AuthService>()) is null)
                 {
                     ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     return;
                 }
-                ctx.Items[UserIdKey] = userId;
                 await next(ctx);
             }));
 

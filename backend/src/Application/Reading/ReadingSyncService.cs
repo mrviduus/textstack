@@ -14,14 +14,17 @@ namespace Application.Reading;
 /// is a row with a higher revision exactly as after a move, so only the library can tell them apart.
 /// A removed book still accepts state and sessions (owner decision 11).
 /// </summary>
-public sealed class ReadingSyncService(ILibraryRepository library, IReadingStateRepository states, IReadingSessionRepository sessions, TimeProvider clock)
+public sealed class ReadingSyncService(ILibraryRepository library, IReadingStateRepository states, IReadingSessionRepository sessions)
 {
     public async Task<SyncResult> GetAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
         var state = await states.GetAsync(userId, bookId, ct);
-        if (state is not null) return SyncResult.Ok(state.ToDto());
-        return await library.GetAsync(userId, bookId, ct) is null ? SyncResult.BookNotFound() : SyncResult.NotFound();
+        return state is not null ? SyncResult.Ok(state.ToDto()) : await MissingAsync(userId, bookId, ct);
     }
+
+    /// <summary>No state: 404, naming the book when it is the book that is missing.</summary>
+    private async Task<SyncResult> MissingAsync(Guid userId, Guid bookId, CancellationToken ct) =>
+        await library.ExistsAsync(userId, bookId, ct) ? SyncResult.NotFound : SyncResult.BookNotFound;
 
     public async Task<SyncResult> WriteAsync(Guid userId, Guid bookId, ReadingStateRequest request, CancellationToken ct)
     {
@@ -44,16 +47,16 @@ public sealed class ReadingSyncService(ILibraryRepository library, IReadingState
         Guid userId, Guid bookId, Guid fileId, long? expectedRevision, ReadingState? stored, CancellationToken ct)
     {
         var book = await library.GetAsync(userId, bookId, ct);
-        if (book is null) return SyncResult.BookNotFound();
+        if (book is null) return SyncResult.BookNotFound;
         var current = book.CurrentFile;
         if (fileId != current?.Id)
             return await library.GetFileAsync(userId, bookId, fileId, ct) is null
-                ? SyncResult.Fail(new V2Error(SyncCodes.UnknownFile, "Push the file version before its state."))
-                : SyncResult.Fail(new V2Error(SyncCodes.FileReplaced, "This book's file was replaced.", stored?.Revision, stored?.ToDto(), current?.Id, current?.ToDto()));
+                ? SyncResult.UnknownFile
+                : SyncResult.FileReplaced(current, stored?.Revision, stored?.ToDto());
         // A first writer had no frontier to lose, so a reset is news only to a writer that read an older revision.
-        var code = expectedRevision is not null && stored?.ResetRevision > expectedRevision ? SyncCodes.Reset : SyncCodes.StaleRevision;
-        var message = code == SyncCodes.Reset ? "The book was restarted on another device." : "Another device saved a newer position.";
-        return SyncResult.Fail(new V2Error(code, message, stored?.Revision, stored?.ToDto(), current?.Id, current?.ToDto()));
+        return expectedRevision is not null && stored?.ResetRevision > expectedRevision
+            ? SyncResult.Fail(SyncCodes.Reset, stored!.Revision, stored.ToDto(), current?.Id, current?.ToDto())
+            : SyncResult.StaleRevision(stored?.Revision, stored?.ToDto(), current);
     }
 
     private static SyncResult? Validate(ReadingStateRequest r) =>
@@ -71,9 +74,7 @@ public sealed class ReadingSyncService(ILibraryRepository library, IReadingState
         if (Required(request.ExpectedRevision, "expectedRevision") is { } invalid) return invalid;
         var result = await states.ResetAsync(userId, bookId, request.ExpectedRevision!.Value, ct);
         if (result.Accepted) return SyncResult.Ok(result.Current!.ToDto());
-        if (result.Current is { } stored)
-            return SyncResult.Fail(new V2Error(SyncCodes.StaleRevision, "Another device saved a newer position.", stored.Revision, stored.ToDto()));
-        return await library.GetAsync(userId, bookId, ct) is null ? SyncResult.BookNotFound() : SyncResult.NotFound();
+        return result.Current is { } stored ? SyncResult.StaleRevision(stored.Revision, stored.ToDto()) : await MissingAsync(userId, bookId, ct);
     }
 
     public async Task<SyncResult> SaveSessionAsync(Guid userId, Guid clientSessionId, ReadingSessionRequest r, CancellationToken ct)
@@ -85,7 +86,7 @@ public sealed class ReadingSyncService(ILibraryRepository library, IReadingState
             ?? Fraction(r.StartPercent, "startPercent") ?? Fraction(r.EndPercent, "endPercent");
         if (invalid is not null) return invalid;
         // The FK refuses another user's book too, but as an exception; this makes it the client's 404.
-        if (r.BookId is { } bookId && await library.GetAsync(userId, bookId, ct) is null) return SyncResult.BookNotFound();
+        if (r.BookId is { } bookId && !await library.ExistsAsync(userId, bookId, ct)) return SyncResult.BookNotFound;
 
         var saved = await sessions.SaveAsync(userId, new ReadingSession
         {
@@ -103,7 +104,7 @@ public sealed class ReadingSyncService(ILibraryRepository library, IReadingState
     }
 
     public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, string? limit, CancellationToken ct) =>
-        ChangeFeed.PageAsync(cursor, limit, clock.GetUtcNow(),
+        ChangeFeed.PageAsync(cursor, limit,
             (since, after, take) => states.ListChangedAsync(userId, since, after, take, ct),
             s => (s.UpdatedAt, s.BookId), s => s.ToDto());
 }

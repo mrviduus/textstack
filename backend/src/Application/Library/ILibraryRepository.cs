@@ -18,6 +18,9 @@ public interface ILibraryRepository
     /// <summary>One of the user's books, removed or not, with its current file; null when not the user's.</summary>
     Task<Book?> GetAsync(Guid userId, Guid bookId, CancellationToken ct);
 
+    /// <summary>Whether the book is the user's, removed or not.</summary>
+    Task<bool> ExistsAsync(Guid userId, Guid bookId, CancellationToken ct);
+
     /// <summary>A version of the user's book, current or superseded; null when it is not one of this book's.</summary>
     Task<BookFile?> GetFileAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct);
 
@@ -52,11 +55,11 @@ public interface ILibraryRepository
     /// <summary>
     /// Makes <paramref name="file"/> the book's current version if the caller saw the current one:
     /// <paramref name="replacesFileId"/> is the stored current file, or null for a book with none
-    /// (M1.2 delta 2b). The old version stays as a non-current row. Composes with the reading-state
-    /// delete through <paramref name="tx"/> (#1067); without one it runs in its own.
+    /// (M1.2 delta 2b). The old version stays as a non-current row. Runs in <paramref name="tx"/> when
+    /// given (it then neither commits nor rolls back), else in a transaction of its own.
     /// </summary>
     Task<FileReplacement> ReplaceFileAsync(
-        Guid userId, Guid bookId, BookFile file, Guid? replacesFileId, NpgsqlTransaction? tx = null, CancellationToken ct = default);
+        Guid userId, Guid bookId, BookFile file, Guid? replacesFileId, NpgsqlTransaction? tx, CancellationToken ct);
 
     /// <summary>Hides the book (sets <c>removed_at</c>); false when not the user's or already removed.</summary>
     Task<bool> RemoveAsync(Guid userId, Guid bookId, CancellationToken ct);
@@ -97,11 +100,13 @@ public enum FileReplaceOutcome
     /// <summary>The caller's view is stale (its <c>replacesFileId</c> is not current, or the file is a superseded version): <see cref="FileReplacement.Current"/> is the book's current file.</summary>
     FileReplaced,
 
+    /// <summary><see cref="FileReplacement.Book"/> is the removed book.</summary>
     BookRemoved,
+
     NotFound,
 
     /// <summary>The file id belongs to another book (perhaps another user's).</summary>
     IdConflict,
 }
 
-public sealed record FileReplacement(FileReplaceOutcome Outcome, BookFile? Current = null, BookFile? Superseded = null);
+public sealed record FileReplacement(FileReplaceOutcome Outcome, BookFile? Current = null, BookFile? Superseded = null, Book? Book = null);
