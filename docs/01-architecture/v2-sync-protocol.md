@@ -128,7 +128,7 @@ reader (M2.7a, owner decision 2026-11-02, #1112). Only `epub-cfi` carries `quote
 | Scheme | Use | `value` |
 |---|---|---|
 | `textstack-position-v1` | reading-state `currentLocator` / `frontierLocator` only | `chapterSlug` (the chapter key: 1–200, non-blank), `chapterFraction` (0..1), optional `anchor` `{prefix, exact, suffix, startOffset, endOffset}` (`exact` 1–64 code points, `prefix`/`suffix` ≤ 32, offsets integers ≥ 0 with `endOffset ≥ startOffset`), optional `charOffset` (integer ≥ 0). A scroll-only position has no `anchor` (ADR-031 decided item 5) |
-| `textstack-anchor-v1` | annotation `locator` only | `chapterKey` (1–200, non-blank), `prefix`, `exact` (≥ 1 code point; a highlight quotes whatever was selected), `suffix`, `startOffset`, `endOffset`, the same rules as the position's `anchor` |
+| `textstack-anchor-v1` | annotation `locator` only | `chapterKey` (1–200, non-blank), `prefix`, `exact` (1–4000 code points, `selectedText`'s cap: a highlight quotes whatever was selected), `suffix`, `startOffset`, `endOffset`, otherwise the same rules as the position's `anchor`; offsets are int32 |
 
 The server counts quote and context in code points. The client cuts them in UTF-16 units (the unit
 of the offsets) but never between the halves of a surrogate pair (`buildTextPosition`): a lone
@@ -148,8 +148,10 @@ returned as sent, and only the transitional reader resolves it, against `book_ch
 wins, whichever scheme it carries. The frontier is kept by fraction (`ReadingState.Furthest`), so a
 `textstack-*` position and an `epub-cfi` position of one book are ordered by `bookFraction` like any
 two. A reader that cannot resolve the stored scheme resumes from `bookFraction` (ADR-031
-"Consequences"), and its next write replaces the locator by the ordinary revisioned write. A
-`textstack-*` locator on a superseded file is refused by the file guard like any other. An
+"Consequences"), and its next write replaces the locator by the ordinary revisioned write. A merged
+locator naming a chapter the account's file does not have yet resumes from `bookFraction`; the next
+write naming it is refused until the file's chapters exist ([Guest → account merge](#guest--account-merge)
+step 5). A `textstack-*` locator on a superseded file is refused by the file guard like any other. An
 annotation is anchored in one scheme for life: the V2 reader lists a `textstack-anchor-v1`
 annotation as a quotation (its `selectedText`), the rule ADR-031 applies to catalog highlights.
 
@@ -181,7 +183,7 @@ fraction`, `clientRecordedAt = at`.
 | `expectedRevision` | int64 \| null | yes (may be null) | null = create |
 | `bookId` | uuid | yes | |
 | `fileId` | uuid | if `locator` | **any** version of this book, current or not: a highlight made offline in a superseded version is still valid provenance |
-| `selectedText` | string | yes | non-blank; the full selection (the page's `quote`) |
+| `selectedText` | string | yes | non-blank, ≤ 4000 (`SyncLimits.MaxSelectedText`; legacy had no cap); the full selection (the page's `quote`) |
 | `noteText` | string | no | |
 | `locator` | locator | no | `epub-cfi`: `value` = CFI, optional `quote` (≤64 code points), optional `prefix`/`suffix` (≤32 code points each; the page's 30-char context) as sibling keys — opaque to the server |
 | `color` | string | yes | default `yellow`; not enumerated server-side |
@@ -682,6 +684,10 @@ keeping their client ids (ADR-031 rule 3). Order inside the transaction:
    delete removes the account's bytes by key. The merge releases the guest's superseded and duplicate
    bytes (the matched books' files): their keys are cleared in the merge and the bytes deleted after the
    commit, best-effort; the orphan sweep collects a failed delete.
+   `textstack-*` locators move with their rows without a `book_chapters` check (M2.7a): when the
+   account holds the same bytes but never uploaded them, its file has no chapters yet, so a merged
+   locator names a key that file lacks. Same bytes extract to the same keys (slug of title + index),
+   so it resolves once the account uploads the bytes — which the transitional reader needs anyway.
 
 | Aggregate | Rule |
 |---|---|

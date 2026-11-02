@@ -20,7 +20,7 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
 
     public async Task<SyncResult> SaveAsync(Guid userId, Guid id, AnnotationRequest r, CancellationToken ct)
     {
-        var invalid = ClientId(id, "id") ?? Required(r.BookId, "bookId") ?? RequiredText(r.SelectedText, "selectedText") ?? Text(r.NoteText, "noteText")
+        var invalid = ClientId(id, "id") ?? Required(r.BookId, "bookId") ?? RequiredText(r.SelectedText, "selectedText", SyncLimits.MaxSelectedText) ?? Text(r.NoteText, "noteText")
             ?? (r.Color is null ? null : RequiredText(r.Color, "color"))
             ?? (r.Locator is { } locator
                 ? Required(r.FileId, "fileId") ?? Locator(locator, "locator", LocatorUse.Annotation) : null);

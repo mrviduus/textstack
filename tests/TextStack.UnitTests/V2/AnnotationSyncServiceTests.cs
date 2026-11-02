@@ -182,6 +182,23 @@ public class AnnotationSyncServiceTests
         _annotations.Verify(a => a.SaveAsync(It.IsAny<Guid>(), It.IsAny<Annotation>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    // The file first: unknown_file keeps the write queued, chapter_not_found would drop it.
+    [Fact]
+    public async Task SaveAsync_TextAnchorOnAnUnknownFile_IsUnknownFile()
+    {
+        var result = await Service.SaveAsync(User, Id, Highlight(TextAnchor("no-such"), Guid.NewGuid()), Ct);
+
+        Assert.Equal(SyncCodes.UnknownFile, V2Fakes.Error(result).Code);
+    }
+
+    [Fact]
+    public async Task SaveAsync_SelectedTextOverItsCap_IsInvalidPayload()
+    {
+        var result = await Service.SaveAsync(User, Id, Highlight() with { SelectedText = new string('s', SyncLimits.MaxSelectedText + 1) }, Ct);
+
+        Assert.Equal((400, "selectedText"), (result.Status, V2Fakes.Error(result).Field));
+    }
+
     [Fact]
     public async Task SaveAsync_TextPositionAsAnAnnotation_IsInvalidPayload()
     {

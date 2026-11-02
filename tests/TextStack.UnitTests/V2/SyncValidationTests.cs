@@ -161,7 +161,7 @@ public class SyncValidationTests
 
         Assert.Null(TextPositionWith(With(TextPosition, "anchor", quote(64))));
         Assert.Equal("locator", FieldOf(TextPositionWith(With(TextPosition, "anchor", quote(65)))));
-        Assert.Null(TextAnchorWith(With(TextAnchor, "exact", $"\"{new string('q', 500)}\"")));
+        Assert.Null(TextAnchorWith(With(TextAnchor, "exact", $"\"{new string('q', 65)}\"")));
     }
 
     [Fact]
@@ -187,6 +187,25 @@ public class SyncValidationTests
     {
         Assert.Null(TextAnchorWith(With(TextAnchor, "suffix", $"\"{new string('s', 32)}\"")));
         Assert.Equal("locator", FieldOf(TextAnchorWith(With(TextAnchor, "prefix", $"\"{new string('p', 33)}\""))));
+    }
+
+    [Fact]
+    public void Locator_TextAnchorSuffixOver32CodePoints_IsRefused() =>
+        Assert.Equal("locator", FieldOf(TextAnchorWith(With(TextAnchor, "suffix", $"\"{new string('s', 33)}\""))));
+
+    // An int32 offset: 2^31 does not fit and is refused, never clamped.
+    [Fact]
+    public void Locator_TextAnchorOffsetOf2To31_IsRefused()
+    {
+        Assert.Null(TextAnchorWith(With(TextAnchor, "endOffset", int.MaxValue.ToString())));
+        Assert.Equal("locator", FieldOf(TextAnchorWith(With(TextAnchor, "endOffset", "2147483648"))));
+    }
+
+    [Fact]
+    public void Locator_TextAnchorExactOverTheSelectedTextCap_IsRefused()
+    {
+        Assert.Null(TextAnchorWith(With(TextAnchor, "exact", $"\"{new string('q', MaxSelectedText)}\"")));
+        Assert.Equal("locator", FieldOf(TextAnchorWith(With(TextAnchor, "exact", $"\"{new string('q', MaxSelectedText + 1)}\""))));
     }
 
     [Fact]

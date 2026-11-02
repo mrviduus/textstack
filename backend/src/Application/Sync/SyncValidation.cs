@@ -219,7 +219,7 @@ public static class SyncValidation
                 : SyncResult.Invalid(field, "A pdf-page annotation is {\"page\":N,\"rects\":[{x,y,w,h}],\"exact\":…}."),
             ("textstack-position-v1", LocatorUse.Position) => IsTextPosition(value) ? null
                 : SyncResult.Invalid(field, "A textstack-position-v1 value is {chapterSlug, chapterFraction 0..1, anchor?, charOffset?}."),
-            ("textstack-anchor-v1", LocatorUse.Annotation) => IsChapterKey(value, "chapterKey") && IsTextAnchor(value, int.MaxValue) ? null
+            ("textstack-anchor-v1", LocatorUse.Annotation) => IsChapterKey(value, "chapterKey") && IsTextAnchor(value, MaxSelectedText) ? null
                 : SyncResult.Invalid(field, "A textstack-anchor-v1 value is {chapterKey, prefix, exact, suffix, startOffset, endOffset}."),
             ("textstack-position-v1", _) => SyncResult.Invalid(field, "textstack-position-v1 is a reading position only."),
             ("textstack-anchor-v1", _) => SyncResult.Invalid(field, "textstack-anchor-v1 is an annotation locator only."),
@@ -253,7 +253,7 @@ public static class SyncValidation
         && (!value.TryGetProperty("anchor", out var anchor) || IsTextAnchor(anchor, MaxQuoteCodePoints))
         && (!value.TryGetProperty("charOffset", out _) || IsOffset(value, "charOffset", out _));
 
-    // A highlight quotes whatever the reader selected, so its exact is uncapped, as selectedText is. Offsets are hints.
+    // A highlight quotes whatever the reader selected: its exact has selectedText's cap. Offsets are hints.
     private static bool IsTextAnchor(JsonElement anchor, int maxExact) =>
         anchor.ValueKind == JsonValueKind.Object
         && anchor.TryGetProperty("exact", out var exact) && IsText(exact, 1, maxExact)

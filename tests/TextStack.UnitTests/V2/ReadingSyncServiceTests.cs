@@ -194,6 +194,14 @@ public class ReadingSyncServiceTests
     }
 
     [Fact]
+    public async Task WriteAsync_TextPositionOnAFileThatIsNoVersionOfTheBook_IsUnknownFile() =>
+        Assert.Equal(SyncCodes.UnknownFile, V2Fakes.Error(await Service.WriteAsync(User, BookId, Write(Guid.NewGuid(), null, TextPosition("ch-1")), Ct)).Code);
+
+    [Fact]
+    public async Task WriteAsync_TextPositionOnABookThatIsNotTheUsers_IsBookNotFound() =>
+        Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(await Service.WriteAsync(User, Guid.NewGuid(), Write(CurrentFile, null, TextPosition("ch-1")), Ct)).Code);
+
+    [Fact]
     public async Task WriteAsync_PositionAndFrontierInOneChapter_AskTheChapterOnce()
     {
         FileHasChapter(CurrentFile, "ch-1");
