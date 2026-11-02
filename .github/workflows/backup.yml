@@ -123,6 +123,17 @@ jobs:
           # a night adds only what changed; restic compresses it itself.
           zcat "$BACKUP_DIR/db-$BACKUP_DATE.sql.gz" \
             | restic backup --host textstack-prod --tag nightly --stdin --stdin-filename db.sql
+          # V2 before forget/check and the size guard, so it is pruned, integrity-checked and counted
+          # against 9 GB like the rest. Its failure is recorded, not fatal here: legacy's forget/check
+          # still run, and the last step turns the job red. Its own stdin path: restore-drill.yml reads
+          # "no /db_v2.sql snapshot" as "no V2 in this backup".
+          v2="$BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz"
+          if [ -f "$v2" ]; then
+            zcat "$v2" | restic backup --host textstack-prod --tag nightly --stdin --stdin-filename db_v2.sql \
+              || { echo "::error::V2 upload to R2 failed"; echo "V2_R2_FAILED=1" >> "$GITHUB_ENV"; }
+          else
+            echo "No V2 dump tonight: nothing V2 sent to R2"
+          fi
           restic forget --host textstack-prod --keep-daily 7 --keep-monthly 3 --prune
           restic check
           size=$(repo_size)
@@ -130,14 +141,6 @@ jobs:
           if [ "$size" -gt "$LIMIT" ]; then
             echo "::error::R2 backup repo is $((size / 1024 / 1024)) MB (> 9 GB)"
             exit 1
-          fi
-          # V2 last, after every legacy write and check, so its failure costs legacy nothing. Its own
-          # stdin path: restore-drill.yml reads "no /db_v2.sql snapshot" as "no V2 in this backup".
-          v2="$BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz"
-          if [ -f "$v2" ]; then
-            zcat "$v2" | restic backup --host textstack-prod --tag nightly --stdin --stdin-filename db_v2.sql
-          else
-            echo "No V2 dump tonight: nothing V2 sent to R2"
           fi
 
       # No nightly SSG rebuild since #992: the SSG tree is frozen (search sent 6 clicks in 90 days).
@@ -156,10 +159,10 @@ jobs:
           done
           exit $bad
 
-      # The V2 dump above is continue-on-error so every legacy step runs; this makes its failure the
-      # job's red (and email) anyway.
-      - name: V2 dump failed
-        if: always() && steps.v2.outcome == 'failure'
+      # The V2 dump above is continue-on-error and its R2 upload only records a failure, so every
+      # legacy step runs; this makes either failure the job's red (and email) anyway.
+      - name: V2 backup failed
+        if: always() && (steps.v2.outcome == 'failure' || env.V2_R2_FAILED == '1')
         run: |
-          echo "::error::The $V2_DB dump failed (step 'Backup V2 database'). Legacy backup unaffected."
+          echo "::error::The $V2_DB dump or its R2 upload failed (see 'Backup V2 database' / 'Off-site backup'). Legacy backup unaffected."
           exit 1
