@@ -31,6 +31,9 @@ public sealed record AccountMerge(
 {
     private static readonly IReadOnlyDictionary<Guid, Guid> None = new Dictionary<Guid, Guid>();
 
-    public static readonly AccountMerge NoGuest = new(AccountMergeOutcome.NoGuest, None, None, None, 0, 0, 0);
-    public static readonly AccountMerge Refused = new(AccountMergeOutcome.Refused, None, None, None, 0, 0, 0);
+    public static readonly AccountMerge NoGuest = Empty(AccountMergeOutcome.NoGuest);
+    public static readonly AccountMerge Refused = Empty(AccountMergeOutcome.Refused);
+
+    /// <summary>The outcome with no id remapped and nothing dropped.</summary>
+    public static AccountMerge Empty(AccountMergeOutcome outcome) => new(outcome, None, None, None, 0, 0, 0);
 }

@@ -10,12 +10,18 @@ public class AdminSettingsService
     private readonly IAppDbContext _db;
     private readonly IMemoryCache _cache;
 
-    private const string AccessTokenExpiryKey = "session.accessTokenExpiryMinutes";
-    private const string RefreshTokenExpiryKey = "session.refreshTokenExpiryDays";
+    internal const string AccessTokenExpiryKey = "session.accessTokenExpiryMinutes";
+    internal const string RefreshTokenExpiryKey = "session.refreshTokenExpiryDays";
     private const int DefaultAccessTokenExpiryMinutes = 15;
     // Admin sessions: shorter than user (30d) — elevated privileges, tighter blast radius on stolen cookies.
     private const int DefaultRefreshTokenExpiryDays = 7;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+
+    /// <summary>The stored admin access-token lifetime (<see cref="AccessTokenExpiryKey"/>), else the default; legacy and V2 read it alike.</summary>
+    public static int ParseMinutes(string? value) => int.TryParse(value, out var minutes) ? minutes : DefaultAccessTokenExpiryMinutes;
+
+    /// <summary>The stored admin refresh-token lifetime (<see cref="RefreshTokenExpiryKey"/>), else the default.</summary>
+    public static int ParseDays(string? value) => int.TryParse(value, out var days) ? days : DefaultRefreshTokenExpiryDays;
 
     public AdminSettingsService(IAppDbContext db, IMemoryCache cache)
     {
@@ -30,7 +36,7 @@ public class AdminSettingsService
             return cachedValue;
 
         var setting = await _db.AdminSettings.FirstOrDefaultAsync(s => s.Key == AccessTokenExpiryKey, ct);
-        var value = setting != null && int.TryParse(setting.Value, out var parsed) ? parsed : DefaultAccessTokenExpiryMinutes;
+        var value = ParseMinutes(setting?.Value);
 
         _cache.Set(cacheKey, value, CacheDuration);
         return value;
@@ -43,7 +49,7 @@ public class AdminSettingsService
             return cachedValue;
 
         var setting = await _db.AdminSettings.FirstOrDefaultAsync(s => s.Key == RefreshTokenExpiryKey, ct);
-        var value = setting != null && int.TryParse(setting.Value, out var parsed) ? parsed : DefaultRefreshTokenExpiryDays;
+        var value = ParseDays(setting?.Value);
 
         _cache.Set(cacheKey, value, CacheDuration);
         return value;

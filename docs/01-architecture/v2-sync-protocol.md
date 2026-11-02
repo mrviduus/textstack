@@ -657,6 +657,15 @@ once. Nothing local is lost.
 - **Quota**: V2 bytes count against the same tier limits, computed over V2 `users` / `book_files`
   (never through legacy EF, ADR-030). A file is counted once: while legacy still holds the bytes it is
   legacy's; at cutover the ETL moves the key and the count moves with it. No double counting.
+- **As built (M2.5b, `V2AuthService`, unwired until M5.1).** What a client sees:
+  - Sign-out revokes that session.
+  - A password reset signs everything out: every session, MCP keys, OAuth grants, and device logins
+    approved but not yet redeemed. Access tokens already issued still work for up to 60 minutes.
+  - A refresh token presented again after it was rotated (past a 30 s grace) revokes every session
+    rotated from it; a sign-in older than 90 days must sign in again.
+  - Google and Apple never sign in to another account by its email: a taken email is `EmailTaken`.
+    Apple sign-in is verified as legacy verifies it (a review is owner-deferred, 2026-11-02).
+  - Admin and reader refresh tokens are not interchangeable.
 
 ## What old clients see
 

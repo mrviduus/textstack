@@ -162,7 +162,7 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         // tests' ClaimNextAsync, which runs across users.
         var now = DateTimeOffset.UtcNow;
         var sessions = new SessionTokenRepository(DataSource);
-        await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), Ct);
+        await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), null, Application.Identity.SessionKind.Reader, Ct);
         await sessions.CreatePasswordResetAsync(userId, NewHash(), now.AddHours(1), Ct);
         var oauth = new OAuthRepository(DataSource);
         var request = NewOAuthRequest();

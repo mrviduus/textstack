@@ -8,7 +8,9 @@ using System.Text;
 using System.Text.Json;
 using Api.Sites;
 using Api.V2;
+using Application.AdminAuth;
 using Application.Auth;
+using Application.Identity;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -73,6 +75,19 @@ public class V2GateTests
         using var response = await api.CreateClient().GetAsync("/health/ready", Ct);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
         return (response.StatusCode, body.GetProperty("components").GetProperty("v2"));
+    }
+
+    [Fact]
+    public void ApiContainer_V2On_ResolvesOnlyTheLegacyAuthServices()
+    {
+        // M2.5b: the V2 auth services exist, and nothing at runtime resolves them until M5.1's Database:Mode.
+        using var api = Api(v2Api: true, Unreachable);
+        using var scope = api.Services.CreateScope();
+
+        foreach (var type in new[] { typeof(IAuthService), typeof(IAdminAuthService), typeof(V2AuthService), typeof(V2AdminAuthService), typeof(JwtTokens), typeof(ProviderTokens) })
+            Assert.Null(scope.ServiceProvider.GetService(type));
+        Assert.IsType<AuthService>(scope.ServiceProvider.GetRequiredService<AuthService>());
+        Assert.IsType<AdminAuthService>(scope.ServiceProvider.GetRequiredService<AdminAuthService>());
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using Application.Identity;
 using Dapper;
 using Infrastructure.Persistence.Repositories;
 using static TextStack.Persistence.Tests.V2PostgresFixture;
@@ -11,72 +12,217 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
 
     private static DateTimeOffset NextWeek => DateTimeOffset.UtcNow.AddDays(7);
 
+    private Task<SessionRefresh> RefreshAsync(string old, string next, SessionKind kind = SessionKind.Reader, DateTimeOffset? now = null) =>
+        _repo.RefreshAsync(old, next, kind, _ => NextWeek, now ?? DateTimeOffset.UtcNow, Ct);
+
+    /// <summary>Moves every session of the user <paramref name="interval"/> (SQL, a constant) into the past: past the reuse grace.</summary>
+    private Task AgeAsync(Guid user, string interval) =>
+        db.ExecAsync($"UPDATE user_refresh_tokens SET created_at = now() - interval '{interval}' WHERE user_id = @user", new { user });
+
+    private Task<bool> IsLiveAsync(string hash) =>
+        db.ScalarAsync<bool>("SELECT EXISTS (SELECT FROM user_refresh_tokens WHERE token_hash = @hash AND expires_at > now())", new { hash });
+
     [Fact]
     public async Task IssueAsync_NewSession_IsTheUsersAndLiveUntilItExpires()
     {
         var user = await db.NewReaderAsync();
         var hash = NewHash();
 
-        var issued = await _repo.IssueAsync(user, hash, NextWeek, Ct);
+        var issued = (await _repo.IssueAsync(user, hash, NextWeek, null, SessionKind.Reader, Ct))!;
 
         Assert.Equal((user, hash, (string?)null), (issued.UserId, issued.TokenHash, issued.PreviousTokenHash));
-        Assert.Equal(issued.Id, (await _repo.GetLiveAsync(hash, DateTimeOffset.UtcNow, Ct))?.Id);
-        Assert.Null(await _repo.GetLiveAsync(hash, NextWeek.AddDays(1), Ct));
+        Assert.True(await IsLiveAsync(hash));
+        Assert.Equal(SessionRefreshOutcome.Invalid, (await RefreshAsync(hash, NewHash(), now: NextWeek.AddDays(1))).Outcome);
     }
 
     [Fact]
-    public async Task RotateAsync_LiveSession_ReplacesItWithASuccessorThatRemembersIt()
+    public async Task IssueAsync_VerifiedHashIsStillThePassword_Issues()
+    {
+        var user = await ReaderWithPasswordAsync("old-hash");
+
+        Assert.NotNull(await _repo.IssueAsync(user, NewHash(), NextWeek, "old-hash", SessionKind.Reader, Ct));
+    }
+
+    [Fact]
+    public async Task IssueAsync_PasswordChangedSinceVerify_ReturnsNullAndStoresNothing()
+    {
+        var user = await ReaderWithPasswordAsync("new-hash");
+
+        Assert.Null(await _repo.IssueAsync(user, NewHash(), NextWeek, "old-hash", SessionKind.Reader, Ct));
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
+    }
+
+    [Fact]
+    public async Task IssueAsync_NoPasswordChecked_DoesNotWaitForAnUpdateOfTheUser()
+    {
+        // A provider, guest or refresh issue must not queue behind the user row (a reset, a profile write).
+        var user = await db.NewReaderAsync();
+        await using var holder = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var tx = await holder.BeginTransactionAsync(Ct);
+        await holder.ExecuteAsync(new CommandDefinition(
+            "SELECT FROM users WHERE id = @user FOR NO KEY UPDATE", new { user }, tx, cancellationToken: Ct));
+
+        var issue = _repo.IssueAsync(user, NewHash(), NextWeek, null, SessionKind.Reader, Ct);
+        await db.WaitUntilBlockedByAsync(holder, issue);
+        var blocked = !issue.IsCompleted;
+        await tx.CommitAsync(Ct);
+
+        Assert.False(blocked);
+        Assert.NotNull(await issue);
+    }
+
+    [Fact]
+    public async Task IssueAsync_NoSuchUser_ReturnsNull()
+    {
+        Assert.Null(await _repo.IssueAsync(Guid.NewGuid(), NewHash(), NextWeek, null, SessionKind.Reader, Ct));
+    }
+
+    [Fact]
+    public async Task IssueAsync_ResetCommitsWhileTheLoginWaits_IssuesNothing()
+    {
+        // #1092: the login checked "old-hash"; a reset has locked the user (as ResetPasswordAsync does)
+        // and set a new password, not yet committed.
+        var user = await ReaderWithPasswordAsync("old-hash");
+        await using var reset = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var tx = await reset.BeginTransactionAsync(Ct);
+        await reset.ExecuteAsync(new CommandDefinition("""
+            SELECT FROM users WHERE id = @user FOR NO KEY UPDATE;
+            UPDATE users SET password_hash = 'new-hash' WHERE id = @user;
+            """, new { user }, tx, cancellationToken: Ct));
+
+        var login = _repo.IssueAsync(user, NewHash(), NextWeek, "old-hash", SessionKind.Reader, Ct);
+        await db.WaitUntilBlockedByAsync(reset, login);
+        var waited = !login.IsCompleted;
+        await tx.CommitAsync(Ct);
+
+        Assert.True(waited);
+        Assert.Null(await login);
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
+    }
+
+    [Fact]
+    public async Task RefreshAsync_LiveSession_RotatedToASuccessorThatRemembersIt()
     {
         var user = await db.NewReaderAsync();
         var (old, next) = (NewHash(), NewHash());
-        await _repo.IssueAsync(user, old, NextWeek, Ct);
+        await _repo.IssueAsync(user, old, NextWeek, null, SessionKind.Reader, Ct);
 
-        var successor = (await _repo.RotateAsync(user, old, next, NextWeek, DateTimeOffset.UtcNow, Ct))!;
+        var refreshed = await RefreshAsync(old, next);
 
-        Assert.Equal((user, next, old), (successor.UserId, successor.TokenHash, successor.PreviousTokenHash));
-        Assert.Null(await _repo.GetLiveAsync(old, DateTimeOffset.UtcNow, Ct));
+        Assert.Equal(SessionRefreshOutcome.Rotated, refreshed.Outcome);
+        Assert.Equal((user, next, old), (refreshed.Session!.UserId, refreshed.Session.TokenHash, refreshed.Session.PreviousTokenHash));
+        Assert.Equal(user, refreshed.User?.Id);
+        Assert.False(await IsLiveAsync(old));
     }
 
     [Fact]
-    public async Task RotateAsync_AlreadyRotated_ReturnsNullAndIssuesNothing()
+    public async Task RefreshAsync_LifetimeOfItsUser_IsTheSuccessorsExpiry()
+    {
+        var guest = await db.NewReaderAsync(isGuest: true);
+        var (old, next) = (NewHash(), NewHash());
+        await _repo.IssueAsync(guest, old, NextWeek, null, SessionKind.Reader, Ct);
+        var expiresAt = DateTimeOffset.UtcNow.AddDays(3);
+
+        var refreshed = await _repo.RefreshAsync(old, next, SessionKind.Reader, u => u.IsGuest ? expiresAt : NextWeek, DateTimeOffset.UtcNow, Ct);
+
+        Assert.Equal(expiresAt, refreshed.Session!.ExpiresAt, TimeSpan.FromMilliseconds(1));
+    }
+
+    [Fact]
+    public async Task RefreshAsync_RotatedAwayWithinTheGrace_InvalidAndTheSuccessorLives()
+    {
+        var user = await db.NewReaderAsync();
+        var (old, next) = (NewHash(), NewHash());
+        await _repo.IssueAsync(user, old, NextWeek, null, SessionKind.Reader, Ct);
+        await RefreshAsync(old, next);
+
+        // Two tabs refreshing at once: the second is refused, nobody is signed out.
+        Assert.Equal(SessionRefreshOutcome.Invalid, (await RefreshAsync(old, NewHash())).Outcome);
+        Assert.True(await IsLiveAsync(next));
+        Assert.Equal(1L, await LiveAsync(user));
+    }
+
+    [Fact]
+    public async Task RefreshAsync_GrandparentReplayedAfterTheGrace_ReusedAndEveryGenerationRevoked()
+    {
+        var user = await db.NewReaderAsync();
+        var (first, second, third) = (NewHash(), NewHash(), NewHash());
+        await _repo.IssueAsync(user, first, NextWeek, null, SessionKind.Reader, Ct);
+        await RefreshAsync(first, second);
+        await RefreshAsync(second, third);
+        await AgeAsync(user, "1 minute");
+
+        var replayed = await RefreshAsync(first, NewHash());
+
+        Assert.Equal((SessionRefreshOutcome.Reused, user), (replayed.Outcome, replayed.RevokedUserId));
+        Assert.Equal(0L, await LiveAsync(user));
+        Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user)); // the replayed row itself, dead
+    }
+
+    [Fact]
+    public async Task RefreshAsync_ChainBeganPastTheAbsoluteLifetime_InvalidAndKeepsTheSession()
+    {
+        var user = await db.NewReaderAsync();
+        var (first, second, third) = (NewHash(), NewHash(), NewHash());
+        await _repo.IssueAsync(user, first, NextWeek, null, SessionKind.Reader, Ct);
+        await RefreshAsync(first, second);
+        await RefreshAsync(second, third);
+        // Only the chain's first session is old: the cap reads it, two generations back.
+        await db.ExecAsync("UPDATE user_refresh_tokens SET created_at = now() - interval '91 days' WHERE token_hash = @first", new { first });
+
+        Assert.Equal(SessionRefreshOutcome.Invalid, (await RefreshAsync(third, NewHash())).Outcome);
+        Assert.True(await IsLiveAsync(third));
+    }
+
+    [Fact]
+    public async Task RefreshAsync_ExpiredSession_InvalidAndIssuesNothing()
     {
         var user = await db.NewReaderAsync();
         var old = NewHash();
-        await _repo.IssueAsync(user, old, NextWeek, Ct);
-        await _repo.RotateAsync(user, old, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct);
+        await _repo.IssueAsync(user, old, DateTimeOffset.UtcNow.AddSeconds(-1), null, SessionKind.Reader, Ct);
 
-        Assert.Null(await _repo.RotateAsync(user, old, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct));
+        Assert.Equal(SessionRefreshOutcome.Invalid, (await RefreshAsync(old, NewHash())).Outcome);
         Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user));
     }
 
     [Fact]
-    public async Task RotateAsync_AnotherUsersSession_ReturnsNullAndKeepsIt()
+    public async Task RefreshAsync_OtherKindOrAdminSessionOfANonAdmin_Invalid()
     {
-        var (alice, bob) = (await db.NewReaderAsync(), await db.NewReaderAsync());
-        var hers = NewHash();
-        await _repo.IssueAsync(alice, hers, NextWeek, Ct);
+        var (reader, admin) = (await db.NewReaderAsync(), await db.NewReaderAsync());
+        await db.ExecAsync("UPDATE users SET role = 'admin' WHERE id = @admin", new { admin });
+        var (readerToken, adminToken, demoted) = (NewHash(), NewHash(), NewHash());
+        await _repo.IssueAsync(admin, readerToken, NextWeek, null, SessionKind.Reader, Ct);
+        await _repo.IssueAsync(admin, adminToken, NextWeek, null, SessionKind.Admin, Ct);
+        await _repo.IssueAsync(reader, demoted, NextWeek, null, SessionKind.Admin, Ct);
 
-        Assert.Null(await _repo.RotateAsync(bob, hers, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct));
-        Assert.NotNull(await _repo.GetLiveAsync(hers, DateTimeOffset.UtcNow, Ct));
+        Assert.Equal(SessionRefreshOutcome.Invalid, (await RefreshAsync(readerToken, NewHash(), SessionKind.Admin)).Outcome);
+        Assert.Equal(SessionRefreshOutcome.Invalid, (await RefreshAsync(adminToken, NewHash(), SessionKind.Reader)).Outcome);
+        Assert.Equal(SessionRefreshOutcome.Invalid, (await RefreshAsync(demoted, NewHash(), SessionKind.Admin)).Outcome);
+        Assert.False(await _repo.RevokeAsync(adminToken, SessionKind.Reader, Ct));
+        Assert.Equal(SessionRefreshOutcome.Rotated, (await RefreshAsync(adminToken, NewHash(), SessionKind.Admin)).Outcome);
     }
 
     [Fact]
-    public async Task RotateAsync_ExpiredSession_ReturnsNullAndIssuesNothing()
+    public async Task DeleteExpiredSessionsAsync_RotatedAwayRow_RemovedOnceItsCutoffPasses()
     {
         var user = await db.NewReaderAsync();
-        var old = NewHash();
-        await _repo.IssueAsync(user, old, DateTimeOffset.UtcNow.AddSeconds(-1), Ct);
+        var (old, next) = (NewHash(), NewHash());
+        await _repo.IssueAsync(user, old, NextWeek, null, SessionKind.Reader, Ct);
+        var rotatedAt = DateTimeOffset.UtcNow;
+        await RefreshAsync(old, next, now: rotatedAt);
 
-        Assert.Null(await _repo.RotateAsync(user, old, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct));
+        await _repo.DeleteExpiredSessionsAsync(rotatedAt.AddSeconds(1), Ct);
+
+        Assert.True(await IsLiveAsync(next));
         Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user));
     }
 
     [Fact]
-    public async Task RotateAsync_UserRowHeldByAReset_WaitsForTheReset()
+    public async Task RefreshAsync_UserRowHeldByAReset_WaitsForTheReset()
     {
         var user = await db.NewReaderAsync();
         var old = NewHash();
-        await _repo.IssueAsync(user, old, NextWeek, Ct);
+        await _repo.IssueAsync(user, old, NextWeek, null, SessionKind.Reader, Ct);
         // A password reset that has locked the user and not yet reached the sessions: a rotation that
         // went ahead now would commit a successor the reset's snapshot cannot see.
         await using var reset = await db.DataSource.OpenConnectionAsync(Ct);
@@ -84,39 +230,13 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         await reset.ExecuteAsync(new CommandDefinition(
             "SELECT FROM users WHERE id = @user FOR NO KEY UPDATE", new { user }, tx, cancellationToken: Ct));
 
-        var rotation = _repo.RotateAsync(user, old, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct);
+        var rotation = RefreshAsync(old, NewHash());
         await db.WaitUntilBlockedByAsync(reset, rotation);
         var waited = !rotation.IsCompleted;
         await tx.CommitAsync(Ct);
 
         Assert.True(waited);
-        Assert.NotNull(await rotation);
-    }
-
-    [Fact]
-    public async Task RevokeSuccessorsOfAsync_ReusedRotatedToken_RevokesItsSuccessor()
-    {
-        var user = await db.NewReaderAsync();
-        var (old, next) = (NewHash(), NewHash());
-        await _repo.IssueAsync(user, old, NextWeek, Ct);
-        await _repo.RotateAsync(user, old, next, NextWeek, DateTimeOffset.UtcNow, Ct);
-
-        // The spent token comes back past the grace: two parties hold the chain.
-        Assert.Equal(user, await _repo.RevokeSuccessorsOfAsync(old, TimeSpan.Zero, Ct));
-
-        Assert.Null(await _repo.GetLiveAsync(next, DateTimeOffset.UtcNow, Ct));
-    }
-
-    [Fact]
-    public async Task RevokeSuccessorsOfAsync_SuccessorWithinTheGrace_KeepsIt()
-    {
-        var user = await db.NewReaderAsync();
-        var (old, next) = (NewHash(), NewHash());
-        await _repo.IssueAsync(user, old, NextWeek, Ct);
-        await _repo.RotateAsync(user, old, next, NextWeek, DateTimeOffset.UtcNow, Ct);
-
-        Assert.Null(await _repo.RevokeSuccessorsOfAsync(old, TimeSpan.FromSeconds(30), Ct));
-        Assert.NotNull(await _repo.GetLiveAsync(next, DateTimeOffset.UtcNow, Ct));
+        Assert.Equal(SessionRefreshOutcome.Rotated, (await rotation).Outcome);
     }
 
     [Fact]
@@ -124,12 +244,12 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
     {
         var user = await db.NewReaderAsync();
         var hash = NewHash();
-        await _repo.IssueAsync(user, hash, NextWeek, Ct);
+        await _repo.IssueAsync(user, hash, NextWeek, null, SessionKind.Reader, Ct);
 
-        Assert.True(await _repo.RevokeAsync(hash, Ct));
+        Assert.True(await _repo.RevokeAsync(hash, SessionKind.Reader, Ct));
 
-        Assert.Null(await _repo.GetLiveAsync(hash, DateTimeOffset.UtcNow, Ct));
-        Assert.False(await _repo.RevokeAsync(hash, Ct));
+        Assert.False(await IsLiveAsync(hash));
+        Assert.False(await _repo.RevokeAsync(hash, SessionKind.Reader, Ct));
     }
 
     [Fact]
@@ -137,7 +257,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
     {
         var user = await db.NewReaderAsync();
         var code = NewHash();
-        await _repo.IssueAsync(user, NewHash(), NextWeek, Ct);
+        await _repo.IssueAsync(user, NewHash(), NextWeek, null, SessionKind.Reader, Ct);
         await _repo.CreatePasswordResetAsync(user, code, DateTimeOffset.UtcNow.AddHours(1), Ct);
         var keys = new McpKeyRepository(db.DataSource);
         await keys.CreateAsync(user, "laptop", NewHash(), "tsk_ab", Ct);
@@ -150,6 +270,23 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
         Assert.Equal(0, await keys.CountLiveAsync(user, Ct));
         Assert.Empty(await oauth.ListLiveAsync(user, DateTimeOffset.UtcNow, Ct));
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_ApprovedDeviceLogin_CannotBeRedeemedAfter()
+    {
+        var user = await db.NewReaderAsync();
+        var devices = new DeviceLoginRepository(db.DataSource);
+        var login = NewDeviceLogin();
+        await devices.CreateAsync(login, DateTimeOffset.UtcNow, Ct);
+        await devices.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow, Ct);
+        var code = NewHash();
+        await _repo.CreatePasswordResetAsync(user, code, DateTimeOffset.UtcNow.AddHours(1), Ct);
+
+        await _repo.ResetPasswordAsync(code, "new-hash", DateTimeOffset.UtcNow, Ct);
+
+        Assert.False(await devices.RedeemAsync(login.Id, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct));
+        Assert.Equal("expired", (await devices.GetByDeviceCodeAsync(login.DeviceCodeHash, Ct))!.Status);
     }
 
     [Fact]
@@ -198,7 +335,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         var code = NewHash();
         await _repo.CreatePasswordResetAsync(user, code, DateTimeOffset.UtcNow.AddHours(1), Ct);
         await _repo.ResetPasswordAsync(code, "first", DateTimeOffset.UtcNow, Ct);
-        await _repo.IssueAsync(user, NewHash(), NextWeek, Ct);
+        await _repo.IssueAsync(user, NewHash(), NextWeek, null, SessionKind.Reader, Ct);
 
         Assert.Null(await _repo.ResetPasswordAsync(code, "second", DateTimeOffset.UtcNow, Ct));
 
@@ -222,11 +359,15 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         var (alice, bob) = (await db.NewReaderAsync(), await db.NewReaderAsync());
         var code = NewHash();
         await _repo.CreatePasswordResetAsync(alice, code, DateTimeOffset.UtcNow.AddHours(1), Ct);
-        await _repo.IssueAsync(bob, NewHash(), NextWeek, Ct);
+        await _repo.IssueAsync(bob, NewHash(), NextWeek, null, SessionKind.Reader, Ct);
         var keys = new McpKeyRepository(db.DataSource);
         await keys.CreateAsync(bob, "laptop", NewHash(), "tsk_ab", Ct);
         var oauth = new OAuthRepository(db.DataSource);
         await oauth.ConnectAsync(bob, NewGrant(), Ct);
+        var devices = new DeviceLoginRepository(db.DataSource);
+        var bobsLogin = NewDeviceLogin();
+        await devices.CreateAsync(bobsLogin, DateTimeOffset.UtcNow, Ct);
+        await devices.DecideAsync(bobsLogin.UserCode, bob, DateTimeOffset.UtcNow, Ct);
 
         await _repo.ResetPasswordAsync(code, "new-hash", DateTimeOffset.UtcNow, Ct);
 
@@ -234,6 +375,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", bob));
         Assert.Equal(1, await keys.CountLiveAsync(bob, Ct));
         Assert.Single(await oauth.ListLiveAsync(bob, DateTimeOffset.UtcNow, Ct));
+        Assert.True(await devices.RedeemAsync(bobsLogin.Id, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct));
     }
 
     [Fact]
@@ -252,9 +394,9 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         var user = await db.NewReaderAsync();
         // Far back, so another test's sessions are never on the wrong side of this cutoff.
         var cutoff = new DateTimeOffset(2001, 1, 2, 0, 0, 0, TimeSpan.Zero);
-        await _repo.IssueAsync(user, NewHash(), cutoff.AddDays(-1), Ct);
+        await _repo.IssueAsync(user, NewHash(), cutoff.AddDays(-1), null, SessionKind.Reader, Ct);
         // Expiring at the cutoff instant itself is not "before" it.
-        await _repo.IssueAsync(user, NewHash(), cutoff, Ct);
+        await _repo.IssueAsync(user, NewHash(), cutoff, null, SessionKind.Reader, Ct);
 
         Assert.Equal(1, await _repo.DeleteExpiredSessionsAsync(cutoff, Ct));
 
@@ -272,4 +414,14 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal(1L, await db.CountAsync("password_reset_tokens", user));
     }
+
+    private async Task<Guid> ReaderWithPasswordAsync(string passwordHash)
+    {
+        var user = await db.NewReaderAsync();
+        await db.ExecAsync("UPDATE users SET password_hash = @passwordHash WHERE id = @user", new { passwordHash, user });
+        return user;
+    }
+
+    private Task<long> LiveAsync(Guid user) =>
+        db.ScalarAsync<long>("SELECT count(*) FROM user_refresh_tokens WHERE user_id = @user AND expires_at > now()", new { user });
 }

@@ -10,6 +10,15 @@ namespace Application.Auth;
 /// </summary>
 public static class DeviceCodes
 {
+    /// <summary>RFC 8628 expires_in of a device login: ten minutes.</summary>
+    public const int ExpiresInSeconds = 600;
+
+    /// <summary>RFC 8628 polling interval.</summary>
+    public const int IntervalSeconds = 5;
+
+    /// <summary>How many random user codes a new device login tries before giving up (a clash among live ones).</summary>
+    public const int UserCodeAttempts = 8;
+
     // Crockford base32 minus ambiguous chars (no I, O, 0, 1).
     public const string UserCodeAlphabet = "ABCDEFGHJKMNPQRSTVWXYZ23456789";
 
