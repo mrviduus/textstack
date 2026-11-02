@@ -22,15 +22,12 @@ public sealed class ChapterReadService(ILibraryRepository library, IBookChapterR
         return SyncResult.Ok(new FileChaptersDto(toc.Select(ToDto).ToList(), job?.Status));
     }
 
-    /// <summary>One chapter with its neighbours in reading order.</summary>
+    /// <summary>One chapter with its neighbours in reading order; the book and file are checked only when it is not found, to pick the code.</summary>
     public async Task<SyncResult> GetAsync(Guid userId, Guid bookId, Guid fileId, string chapterKey, CancellationToken ct)
     {
         if (RequiredText(chapterKey, "chapterKey", SyncLimits.MaxChapterKey) is { } invalid) return invalid;
-        if (await library.MissingBookOrFileAsync(userId, bookId, fileId, ct) is { } missing) return missing;
-        // The file is the book's (checked above), so the key names a chapter of this book.
-        var chapter = await chapters.GetAsync(userId, fileId, chapterKey, ct);
-        if (chapter is null) return SyncResult.NotFound;
-        var (previous, next) = await chapters.GetNeighboursAsync(userId, bookId, fileId, chapterKey, ct);
+        var (chapter, previous, next) = await chapters.GetWithNeighboursAsync(userId, bookId, fileId, chapterKey, ct);
+        if (chapter is null) return await library.MissingBookOrFileAsync(userId, bookId, fileId, ct) ?? SyncResult.NotFound;
         return SyncResult.Ok(new ChapterDto(
             chapter.ChapterKey, chapter.ChapterNumber, chapter.Title, chapter.Html, chapter.WordCount,
             previous is null ? null : ToDto(previous), next is null ? null : ToDto(next)));

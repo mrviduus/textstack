@@ -119,49 +119,41 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task GetAsync_Key_ReturnsTheWholeChapter()
+    public async Task GetWithNeighboursAsync_Key_ReturnsTheWholeChapterAndSkipsTheGap()
     {
         var book = await BookWithChaptersAsync();
 
-        var chapter = (await _repo.GetAsync(book.UserId, book.CurrentFile!.Id, "two", Ct))!;
+        var (chapter, previous, next) = await _repo.GetWithNeighboursAsync(book.UserId, book.Id, book.CurrentFile!.Id, "four", Ct);
 
-        Assert.Equal((2, "<p>two</p>", "text of two", book.Id), (chapter.ChapterNumber, chapter.Html, chapter.PlainText, chapter.BookId));
-    }
-
-    [Fact]
-    public async Task GetAsync_Bob_ReturnsNull()
-    {
-        var book = await BookWithChaptersAsync();
-
-        Assert.Null(await _repo.GetAsync(await db.NewReaderAsync(), book.CurrentFile!.Id, "two", Ct));
-    }
-
-    [Fact]
-    public async Task GetNeighboursAsync_GapInTheNumbering_SkipsIt()
-    {
-        var book = await BookWithChaptersAsync();
-
-        var (previous, next) = await _repo.GetNeighboursAsync(book.UserId, book.Id, book.CurrentFile!.Id, "four", Ct);
-
+        Assert.Equal((4, "<p>four</p>", "text of four", book.Id), (chapter!.ChapterNumber, chapter.Html, chapter.PlainText, chapter.BookId));
         Assert.Equal(("two", (string?)null), (previous?.ChapterKey, next?.ChapterKey));
     }
 
     [Fact]
-    public async Task GetNeighboursAsync_FirstChapter_HasOnlyANext()
+    public async Task GetWithNeighboursAsync_FirstChapter_HasOnlyANext()
     {
         var book = await BookWithChaptersAsync();
 
-        var (previous, next) = await _repo.GetNeighboursAsync(book.UserId, book.Id, book.CurrentFile!.Id, "one", Ct);
+        var (_, previous, next) = await _repo.GetWithNeighboursAsync(book.UserId, book.Id, book.CurrentFile!.Id, "one", Ct);
 
         Assert.Equal(((string?)null, "two"), (previous?.ChapterKey, next?.ChapterKey));
     }
 
     [Fact]
-    public async Task GetNeighboursAsync_Bob_FindsNeither()
+    public async Task GetWithNeighboursAsync_Bob_FindsNothing()
     {
         var book = await BookWithChaptersAsync();
 
-        Assert.Equal((null, null), await _repo.GetNeighboursAsync(await db.NewReaderAsync(), book.Id, book.CurrentFile!.Id, "two", Ct));
+        Assert.Equal((null, null, null), await _repo.GetWithNeighboursAsync(await db.NewReaderAsync(), book.Id, book.CurrentFile!.Id, "two", Ct));
+    }
+
+    [Fact]
+    public async Task GetWithNeighboursAsync_FileOfAnotherBook_FindsNothing()
+    {
+        var book = await BookWithChaptersAsync();
+        var other = await db.NewBookAsync(book.UserId);
+
+        Assert.Equal((null, null, null), await _repo.GetWithNeighboursAsync(book.UserId, other.Id, book.CurrentFile!.Id, "two", Ct));
     }
 
     [Fact]

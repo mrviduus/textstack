@@ -55,15 +55,19 @@ public class ChapterReadServiceTests
         Assert.Equal(SyncCodes.NotFound, V2Fakes.Error(await Service.GetAsync(User, BookId, FileId, "ch-9", Ct)).Code);
 
     [Fact]
-    public async Task GetAsync_Chapter_CarriesItsNeighbours()
+    public async Task GetAsync_Chapter_CarriesItsNeighboursWithoutAProvenanceRead()
     {
-        _chapters.Setup(c => c.GetAsync(User, FileId, "2-two", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new BookChapter { ChapterKey = "2-two", ChapterNumber = 2, Title = "Two", Html = "<p>2</p>" });
-        _chapters.Setup(c => c.GetNeighboursAsync(User, BookId, FileId, "2-two", It.IsAny<CancellationToken>()))
-            .ReturnsAsync((new BookChapterHeading { ChapterKey = "1-one", ChapterNumber = 1, Title = "One" }, null));
+        _chapters.Setup(c => c.GetWithNeighboursAsync(User, BookId, FileId, "2-two", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new BookChapter { ChapterKey = "2-two", ChapterNumber = 2, Title = "Two", Html = "<p>2</p>" },
+                new BookChapterHeading { ChapterKey = "1-one", ChapterNumber = 1, Title = "One" }, null));
 
         var chapter = Assert.IsType<ChapterDto>((await Service.GetAsync(User, BookId, FileId, "2-two", Ct)).Body);
 
         Assert.Equal(("<p>2</p>", "1-one", (ChapterHeadingDto?)null), (chapter.Html, chapter.Previous!.ChapterKey, chapter.Next));
+        _library.VerifyNoOtherCalls();
     }
+
+    [Fact]
+    public async Task GetAsync_FileNotAVersion_IsUnknownFile() =>
+        Assert.Equal(SyncCodes.UnknownFile, V2Fakes.Error(await Service.GetAsync(User, BookId, Guid.NewGuid(), "ch-1", Ct)).Code);
 }

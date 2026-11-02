@@ -34,15 +34,10 @@ public sealed class BookChapterRepository(V2DataSource dataSource) : IBookChapte
 
     private const string SelectChapter = $"SELECT {Columns} FROM book_chapters WHERE {ChapterByKey}";
 
-    public async Task<BookChapter?> GetAsync(Guid userId, Guid fileId, string chapterKey, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<BookChapter>(new CommandDefinition(SelectChapter, new { userId, fileId, chapterKey }, cancellationToken: ct));
-    }
-
-    // The nearest number on each side, not ±1: numbering may have gaps. The subquery keeps user_id
-    // because it leads ak_book_chapters_user_id_file_id_chapter_key.
-    private const string SelectNeighbours = $"""
+    // The chapter, then the nearest number on each side, not ±1: numbering may have gaps. The subquery
+    // keeps user_id because it leads ak_book_chapters_user_id_file_id_chapter_key.
+    private const string SelectChapterAndNeighbours = $"""
+        {SelectChapter} AND book_id = @bookId;
         SELECT {HeadingColumns} FROM book_chapters
         WHERE {OfFile} AND chapter_number < (SELECT chapter_number FROM book_chapters WHERE {ChapterByKey})
         ORDER BY chapter_number DESC
@@ -53,14 +48,16 @@ public sealed class BookChapterRepository(V2DataSource dataSource) : IBookChapte
         LIMIT 1;
         """;
 
-    public async Task<(BookChapterHeading? Previous, BookChapterHeading? Next)> GetNeighboursAsync(
+    public async Task<(BookChapter? Chapter, BookChapterHeading? Previous, BookChapterHeading? Next)> GetWithNeighboursAsync(
         Guid userId, Guid bookId, Guid fileId, string chapterKey, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var results = await conn.QueryMultipleAsync(new CommandDefinition(
-            SelectNeighbours, new { userId, bookId, fileId, chapterKey }, cancellationToken: ct));
+            SelectChapterAndNeighbours, new { userId, bookId, fileId, chapterKey }, cancellationToken: ct));
+        var chapter = await results.ReadSingleOrDefaultAsync<BookChapter>();
         var previous = await results.ReadSingleOrDefaultAsync<BookChapterHeading>();
-        return (previous, await results.ReadSingleOrDefaultAsync<BookChapterHeading>());
+        var next = await results.ReadSingleOrDefaultAsync<BookChapterHeading>();
+        return chapter is null ? (null, null, null) : (chapter, previous, next);
     }
 
     private const string SelectPlainText = $"SELECT plain_text FROM book_chapters WHERE {ChapterByKey}";
