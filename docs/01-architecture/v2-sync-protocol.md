@@ -530,10 +530,8 @@ their `server_storage_key` is cleared only once the bytes are gone (schema comme
 `GET /me/v2/{library|reading|annotations|vocabulary}/changes?cursor=&limit=` → `{ items, cursor, hasMore }`.
 
 - Rows ordered by `(updated_at, id)`, keyset-paged; tombstones included (`removedAt`, `deletedAt`).
-- Inside a pull (`hasMore`) the cursor is the exact `(updated_at, id)` after the last row sent; the
-  final page's cursor is that position too when the last row is older than 30 s at pull time (no
-  transaction still in flight can commit an earlier row), else the watermark `max(updated_at)`,
-  which a pull that **starts** from it reads from `cursor − 30 s`: a write transaction that took `now()` before a row the previous pull saw,
+- The cursor is the last row sent `(updated_at, id)`, or — on the final page, when that row is
+  younger — pull time − 30 s; a pull reads from exactly after it: a write transaction that took `now()` before a row the previous pull saw,
   but committed after it, is still delivered. A pulled row **always replaces** the client's cached
   server copy of that row (revision is a write count, not recency: reviews change a schedule without
   one, state restarts at 1 after a replacement, books have none); the client's unpushed outbox
@@ -669,7 +667,7 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 | M2.2 | `PATCH /books/{bookId}` | `expectedRevision`, `title?`, `author?`, `language?`, `description?`, `genre?`, `publishedYear?`, `tags?` | 200 (revision + 1, bumps `updated_at`) · 409 `stale_revision` · 404 |
 | M2.6 | `PUT /books/{bookId}/cover` · `GET /books/{bookId}/cover` | image bytes (client-extracted; server checks size and format, never parses the EPUB) | 200 · 400 `invalid_payload` · 404 |
 | M2.6 | `DELETE /books/{bookId}/files/{fileId}/content` | — | 204: server bytes deleted, `content_removed_at` set, `hasContent=false`; rows, local copies and reading data untouched; no client uploads bytes for that file again on its own |
-| M2.2 | `PUT /books/{bookId}/files/{fileId}` | file + `replacesFileId` | 200 `{current, superseded}` · 409 `file_replaced` / `book_removed` / `id_conflict` · 404 |
+| M2.2 | `PUT /books/{bookId}/files/{fileId}` | `{replacesFileId, file:{…}}` (the import's file shape; the path's id wins) | 200 `{current, superseded}` · 409 `file_replaced` / `book_removed` / `id_conflict` · 404 |
 | M2.2 | `DELETE /books/{bookId}` · `POST /books/{bookId}/restore` | — | 204 (idempotent) · 404 |
 | M2.2 | `GET /reading/changes` · `GET /books/{bookId}/reading-state` | — | 200 · 404 |
 | M2.2 | `PUT /books/{bookId}/reading-state` | reading state | 200 state · 409 `stale_revision` / `reset` / `file_replaced` / `unknown_file` · 404 |
