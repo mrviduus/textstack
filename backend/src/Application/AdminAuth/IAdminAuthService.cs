@@ -5,10 +5,9 @@ namespace Application.AdminAuth;
 /// <summary>
 /// The admin panel's sign-in, as <c>AdminAuthEndpoints</c> and <c>AdminAuthMiddleware</c> use it: legacy
 /// <see cref="AdminAuthService"/> (table <c>admin_users</c>) and <see cref="Identity.V2AdminAuthService"/>
-/// (an account with <c>role = 'admin'</c>) behind one contract, picked at M5.1. Admin access tokens carry
-/// their own audience, so they are never a reader's. Refresh and logout accept only refresh tokens this
-/// service issued: legacy's are rows of <c>admin_refresh_tokens</c>; V2's start with
-/// <see cref="Auth.JwtTokens.AdminRefreshTokenPrefix"/>, and the reader service refuses them.
+/// (an account with <c>role = 'admin'</c>) behind one contract, picked at M5.1. Admin and reader tokens
+/// are not interchangeable: an admin access token is never a reader's, and refresh and logout here
+/// accept only refresh tokens this service issued, which the reader service refuses.
 /// </summary>
 public interface IAdminAuthService
 {

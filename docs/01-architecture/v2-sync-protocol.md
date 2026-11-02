@@ -657,22 +657,15 @@ once. Nothing local is lost.
 - **Quota**: V2 bytes count against the same tier limits, computed over V2 `users` / `book_files`
   (never through legacy EF, ADR-030). A file is counted once: while legacy still holds the bytes it is
   legacy's; at cutover the ETL moves the key and the count moves with it. No double counting.
-- **As built (M2.5b, `V2AuthService`, unwired until M5.1).**
-  - Server-side sign-out = revoke that refresh session.
-  - A password reset signs every credential out (sessions, MCP keys, OAuth grants) and expires device
-    logins approved but not yet redeemed, in one statement. A password login that checked the old hash
-    gets no session once the reset commits; a device redemption stores its session in the redeeming
-    statement, so a reset cannot fall between them.
-  - Refresh tokens form families: rotation expires the spent row and keeps the chain, a replayed token
-    revokes every generation below it (its own successor within 30 s excepted), and a chain older than
-    90 days is not rotated.
-  - Google and Apple never link to an account by email: a taken email is `EmailTaken`. Apple identity
-    tokens are read as legacy reads them (signature not validated; owner-deferred 2026-11-02).
-  - An admin is `role = 'admin'`; admin-panel refresh tokens start with `adm.` until a session `kind`
-    column (`0002`), and neither service accepts the other's. Reader sign-in without a password (test
-    login, Google, Apple, guest promotion) refuses admin accounts.
-  - Access tokens carry `iat`; tokens minted before a reset live out their hour until
-    `users.credentials_reset_at` vs `iat` lands (#1092, migration `0002`).
+- **As built (M2.5b, `V2AuthService`, unwired until M5.1).** What a client sees:
+  - Sign-out revokes that session.
+  - A password reset signs everything out: every session, MCP keys, OAuth grants, and device logins
+    approved but not yet redeemed. Access tokens already issued still work for up to 60 minutes.
+  - A refresh token presented again after it was rotated (past a 30 s grace) revokes every session
+    rotated from it; a sign-in older than 90 days must sign in again.
+  - Google and Apple never sign in to another account by its email: a taken email is `EmailTaken`.
+    Apple's token signature is not checked yet (owner-deferred 2026-11-02).
+  - Admin and reader refresh tokens are not interchangeable.
 
 ## What old clients see
 
