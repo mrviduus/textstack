@@ -39,7 +39,11 @@ public sealed class V2AuthService(
             // Never linked by email: a taken email leaves only a concurrent sign-in of the same subject.
             user = await users.CreateAsync(new UserAccount
             {
-                Id = Guid.NewGuid(), Email = google.Email, Name = google.Name, Picture = google.Picture, GoogleSubject = google.Subject,
+                Id = Guid.NewGuid(),
+                Email = google.Email,
+                Name = google.Name,
+                Picture = google.Picture,
+                GoogleSubject = google.Subject,
             }, ct) ?? await users.GetByGoogleSubjectAsync(google.Subject, ct);
         else if (user.Email != google.Email || user.Name != google.Name || user.Picture != google.Picture)
             // Another account holds the new email: sign in as the account is.
@@ -58,7 +62,10 @@ public sealed class V2AuthService(
             // Never linked by email, as Google.
             user = await users.CreateAsync(new UserAccount
             {
-                Id = Guid.NewGuid(), Email = email ?? apple.Email ?? Emails.AppleRelay(apple.Subject), Name = fullName, AppleSubject = apple.Subject,
+                Id = Guid.NewGuid(),
+                Email = email ?? apple.Email ?? Emails.AppleRelay(apple.Subject),
+                Name = fullName,
+                AppleSubject = apple.Subject,
             }, ct) ?? await users.GetByAppleSubjectAsync(apple.Subject, ct);
         else if (fullName != null && user.Name != fullName)
             user = (await users.UpdateProfileAsync(user.Id, user.Email, fullName, user.Picture, ct)).Account ?? user;
