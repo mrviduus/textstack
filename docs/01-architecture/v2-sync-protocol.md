@@ -130,6 +130,10 @@ reader (M2.7a, owner decision 2026-11-02, #1112). Only `epub-cfi` carries `quote
 | `textstack-position-v1` | reading-state `currentLocator` / `frontierLocator` only | `chapterSlug` (the chapter key: 1–200, non-blank), `chapterFraction` (0..1), optional `anchor` `{prefix, exact, suffix, startOffset, endOffset}` (`exact` 1–64 code points, `prefix`/`suffix` ≤ 32, offsets integers ≥ 0 with `endOffset ≥ startOffset`), optional `charOffset` (integer ≥ 0). A scroll-only position has no `anchor` (ADR-031 decided item 5) |
 | `textstack-anchor-v1` | annotation `locator` only | `chapterKey` (1–200, non-blank), `prefix`, `exact` (≥ 1 code point; a highlight quotes whatever was selected), `suffix`, `startOffset`, `endOffset`, the same rules as the position's `anchor` |
 
+The server counts quote and context in code points. The client cuts them in UTF-16 units (the unit
+of the offsets) but never between the halves of a surrogate pair (`buildTextPosition`): a lone
+surrogate has no UTF-8 form and is refused like a NUL.
+
 A scheme in the other use, or a value breaking a rule, is 400 `invalid_payload`. Each such write is
 accepted only on a file version of the user's whose extracted chapters (`book_chapters`,
 `(user_id, file_id, chapter_key)`) include the one it names — otherwise 409 `chapter_not_found`,
