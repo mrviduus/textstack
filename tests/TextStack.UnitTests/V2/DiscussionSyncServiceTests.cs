@@ -195,9 +195,10 @@ public class DiscussionSyncServiceTests
     [InlineData("not-a-cursor", null, "cursor")]
     [InlineData(null, "0", "limit")]
     [InlineData(null, "501", "limit")]
-    public async Task ListCheckpointsAsync_BadQuery_IsInvalidPayloadNamingIt(string? cursor, string? limit, string field)
+    [InlineData(null, null, "chapterKey", "ch\0")]
+    public async Task ListCheckpointsAsync_BadQuery_IsInvalidPayloadNamingIt(string? cursor, string? limit, string field, string? chapterKey = null)
     {
-        var result = await Service.ListCheckpointsAsync(User, BookId, null, cursor, limit, Ct);
+        var result = await Service.ListCheckpointsAsync(User, BookId, chapterKey, cursor, limit, Ct);
 
         Assert.Equal((SyncCodes.InvalidPayload, field), (V2Fakes.Error(result).Code, V2Fakes.Error(result).Field));
     }

@@ -42,10 +42,10 @@ public class DiscussionValidationTests
 
     private Task<string?> Save(
         string?[]? readerThoughts = null, string?[]? conclusions = null, string? topic = "The letter",
-        string? language = "en", string? chapterKey = null, Guid? operationId = null, bool sectionsNull = false) =>
+        string? language = "en", string? chapterKey = null, Guid? operationId = null, bool sectionsNull = false, Guid? sharedChapterId = null) =>
         FieldOf(_service.SaveCheckpointAsync(User, BookId, new CheckpointRequest(
             operationId ?? Guid.NewGuid(), topic, sectionsNull ? null : readerThoughts ?? ["A thought."], [], conclusions ?? [], [],
-            language, chapterKey, null, null), Ct));
+            language, chapterKey, null, sharedChapterId), Ct));
 
     private static string Text(int length) => new('x', length);
 
@@ -115,7 +115,8 @@ public class DiscussionValidationTests
     [InlineData(" ")]
     [InlineData(null)]
     [InlineData("a\0b")]
-    public async Task SaveCheckpointAsync_BlankNullOrUnstorableItem_IsRefused(string? item) => Assert.Equal("conclusions", await Save(conclusions: [item]));
+    public async Task SaveCheckpointAsync_BlankNullOrUnstorableItem_IsRefusedNamingThatItem(string? item) =>
+        Assert.Equal("conclusions[1]", await Save(conclusions: ["ok", item]));
 
     [Fact]
     public async Task SaveCheckpointAsync_SectionsTogetherOverTheirBytes_IsRefused() =>
@@ -141,6 +142,10 @@ public class DiscussionValidationTests
 
     [Fact]
     public async Task SaveCheckpointAsync_BlankChapterKey_IsRefused() => Assert.Equal("chapterKey", await Save(chapterKey: " "));
+
+    [Fact]
+    public async Task SaveCheckpointAsync_SharedChapterIdWithoutChapterKey_IsRefusedNamingChapterKey() =>
+        Assert.Equal("chapterKey", await Save(sharedChapterId: Guid.NewGuid()));
 
     [Fact]
     public async Task SaveCheckpointAsync_NoOperationId_IsRefused() => Assert.Equal("operationId", await Save(operationId: Guid.Empty));

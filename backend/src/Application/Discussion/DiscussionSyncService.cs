@@ -107,19 +107,22 @@ public sealed class DiscussionSyncService(ILibraryRepository library, ISharedCha
             ?? (sections.Sum(s => s.Items!.Sum(i => Encoding.UTF8.GetByteCount(i!))) > MaxSectionsBytes
                 ? SyncResult.Invalid("readerThoughts", $"The four sections together are at most {MaxSectionsBytes / 1024} KB.") : null)
             ?? RequiredText(r.Language, "language", MaxLanguage)
-            ?? (r.ChapterKey is null ? null : RequiredText(r.ChapterKey, "chapterKey", MaxChapterKey));
+            ?? (r.ChapterKey is null ? null : RequiredText(r.ChapterKey, "chapterKey", MaxChapterKey))
+            // A share is always of one chapter, so naming one without the chapter could never match.
+            ?? (r.SharedChapterId is not null && r.ChapterKey is null ? SyncResult.Invalid("chapterKey", "chapterKey is required with sharedChapterId.") : null);
     }
 
     // Ordered, and each item a non-blank line: an empty one would count toward "not all empty" while saying nothing.
     private static SyncResult? Section(string field, string?[]? items) =>
         Required(items, field)
         ?? (items!.Length > MaxSectionItems ? SyncResult.Invalid(field, $"{field} has at most {MaxSectionItems} items.") : null)
-        ?? items.Select(i => RequiredText(i, field)).FirstOrDefault(e => e is not null);
+        ?? items.Select((item, i) => RequiredText(item, $"{field}[{i}]")).FirstOrDefault(e => e is not null);
 
     /// <summary>Oldest first, in pages of <c>(created_at, id)</c>; <c>cursor</c> is null on the last page.</summary>
     public async Task<SyncResult> ListCheckpointsAsync(Guid userId, Guid bookId, string? chapterKey, string? cursor, string? limit, CancellationToken ct)
     {
         if (ChangeFeed.Limit(limit, out var take) is { } badLimit) return badLimit;
+        if (Text(chapterKey, "chapterKey", MaxChapterKey) is { } badChapterKey) return badChapterKey;
         CheckpointCursor? after = null;
         if (!string.IsNullOrEmpty(cursor))
         {
