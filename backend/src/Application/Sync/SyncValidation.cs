@@ -114,7 +114,7 @@ public static class SyncValidation
     private static readonly JsonDocumentOptions NoDuplicateMembers = new() { AllowDuplicateProperties = false };
 
     /// <summary>
-    /// A required JSON array of storable text, at most <paramref name="maxBytes"/> as sent. A repeated
+    /// A required JSON array of storable text and finite numbers, at most <paramref name="maxBytes"/> as sent. A repeated
     /// member name is refused: jsonb keeps only the last, so the stored value would hash unlike the request.
     /// </summary>
     public static SyncResult? JsonArray(JsonElement? value, string field, int maxBytes)
@@ -123,6 +123,8 @@ public static class SyncValidation
         var raw = array.GetRawText();
         if (Encoding.UTF8.GetByteCount(raw) > maxBytes) return SyncResult.Invalid(field, $"{field} is at most {maxBytes / 1024} KB.");
         if (Json(array, field) is { } unstorable) return unstorable;
+        // The canonical hash writes numbers as finite doubles (RFC 8785); 1e400 has none.
+        if (!IsFinite(array)) return SyncResult.Invalid(field, $"{field} holds a number out of range.");
         try
         {
             using var _ = JsonDocument.Parse(raw, NoDuplicateMembers);
@@ -133,6 +135,14 @@ public static class SyncValidation
             return SyncResult.Invalid(field, $"{field} repeats a member name.");
         }
     }
+
+    private static bool IsFinite(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Object => value.EnumerateObject().All(m => IsFinite(m.Value)),
+        JsonValueKind.Array => value.EnumerateArray().All(IsFinite),
+        JsonValueKind.Number => value.TryGetDouble(out var number) && double.IsFinite(number),
+        _ => true,
+    };
 
     public static SyncResult? Tags(string[]? tags) =>
         tags is null || tags.All(t => !string.IsNullOrWhiteSpace(t) && IsStorable(t)) ? null : SyncResult.Invalid("tags", "tags must be non-blank strings.");

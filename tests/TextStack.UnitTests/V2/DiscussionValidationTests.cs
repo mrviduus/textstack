@@ -83,11 +83,13 @@ public class DiscussionValidationTests
     [InlineData("""{"text":"night"}""")]
     [InlineData("""[{"a":1,"a":2}]""")]
     [InlineData("""["\u0000"]""")]
-    public async Task ShareAsync_NotesMissingNotAnArrayRepeatingAMemberOrUnstorable_AreRefused(string? notes) =>
+    [InlineData("[1e400]")]
+    [InlineData("""[{"rect":{"x":-1e400}}]""")]
+    public async Task ShareAsync_NotesMissingNotAnArrayRepeatingAMemberUnstorableOrNonFinite_AreRefused(string? notes) =>
         Assert.Equal("notes", await Share(notes: notes));
 
     [Fact]
-    public async Task ShareAsync_NotesOverTheirBytes_IsRefused() => Assert.Equal("notes", await Share(notes: "[\"" + Text(MaxNotesBytes) + "\"]"));
+    public async Task ShareAsync_NotesOneByteOverTheirCap_IsRefused() => Assert.Equal("notes", await Share(notes: "[\"" + Text(MaxNotesBytes - 3) + "\"]"));
 
     [Fact]
     public async Task ShareAsync_LongLanguage_IsRefused() => Assert.Equal("language", await Share(language: Text(SyncValidation.MaxLanguage + 1)));
