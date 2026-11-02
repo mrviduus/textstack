@@ -1043,7 +1043,7 @@ public class McpOverTheWireTests : IAsyncLifetime
         AssertOk(first);
         Assert.Equal(($"/me/v2/books/{StubBackend.UserBookId}/checkpoints?limit=20&chapterKey=ch02.xhtml", true),
             (harness.Stub.All("v2_list_checkpoints")[0].PathAndQuery, Json(first).GetProperty("hasMore").GetBoolean()));
-        var entry = Json(first).GetProperty("checkpoints")[0];
+        var entry = Json(first).GetProperty("items")[0];
         Assert.Equal((StubBackend.CheckpointId, "ch02.xhtml", "Earlier thought"),
             (entry.GetProperty("id").GetString(), entry.GetProperty("chapterKey").GetString(), entry.GetProperty("readerThoughts")[0].GetString()));
         Assert.Equal((false, JsonValueKind.Null), (Json(last).GetProperty("hasMore").GetBoolean(), Json(last).GetProperty("cursor").ValueKind));
@@ -1060,7 +1060,7 @@ public class McpOverTheWireTests : IAsyncLifetime
         var listed = await CallAsync(client, "list_checkpoints", Args(("bookId", other)));
 
         Assert.True(listed.IsError);
-        Assert.Contains($"no uploaded book with id '{other}'", TextOf(listed));
+        Assert.Contains($"no uploaded book found with id '{other}'", TextOf(listed));
     }
 
     [Fact]

@@ -9,7 +9,7 @@ namespace TextStack.Ai.Mcp.Tools;
 /// and consistent: object shape, <c>additionalProperties:false</c>, required
 /// strings/guids, and bounded optional ints.
 ///
-/// An optional GUID or string sent as JSON <c>null</c> reads as absent: hosts send nulls for what they leave out. (An optional int does not: AI-047 pins a null <c>limit</c> as refused.)
+/// An optional argument sent as JSON <c>null</c> reads as absent: hosts send nulls for what they leave out.
 ///
 /// Every method returns false (with a model-facing <paramref name="error"/>) on
 /// violation; on success the out value is set. Validators never throw.
@@ -98,7 +98,7 @@ internal static class ArgReader
     {
         value = null;
         error = "";
-        if (!obj.TryGetProperty(name, out var el))
+        if (!obj.TryGetProperty(name, out var el) || el.ValueKind == JsonValueKind.Null)
             return true;
 
         if (el.ValueKind != JsonValueKind.Number || !el.TryGetInt32(out var i))
@@ -163,6 +163,63 @@ internal static class ArgReader
         }
 
         value = s;
+        return true;
+    }
+
+    /// <summary>Optional JSON array of anything (opaque to the bridge). Absent or null → null (true).</summary>
+    public static bool TryOptionalArray(JsonElement obj, string name, out JsonElement? value, out string error)
+    {
+        value = null;
+        error = "";
+        if (!obj.TryGetProperty(name, out var el) || el.ValueKind == JsonValueKind.Null)
+            return true;
+
+        if (el.ValueKind != JsonValueKind.Array)
+        {
+            error = $"'{name}' must be an array.";
+            return false;
+        }
+
+        value = el;
+        return true;
+    }
+
+    /// <summary>
+    /// Optional array of at most <paramref name="maxItems"/> non-blank strings (the schema's
+    /// <c>maxItems</c> and <c>items.minLength</c>), order kept. Absent or null → empty (true).
+    /// </summary>
+    public static bool TryOptionalStringArray(
+        JsonElement obj, string name, int maxItems, out string[] value, out string error)
+    {
+        value = [];
+        error = "";
+        if (!obj.TryGetProperty(name, out var el) || el.ValueKind == JsonValueKind.Null)
+            return true;
+
+        if (el.ValueKind != JsonValueKind.Array || el.GetArrayLength() > maxItems)
+        {
+            error = $"'{name}' must be an array of at most {maxItems} strings.";
+            return false;
+        }
+
+        var items = new string[el.GetArrayLength()];
+        var i = 0;
+        foreach (var item in el.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+            {
+                error = $"'{name}' must be an array of at most {maxItems} strings.";
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(items[i] = item.GetString()!))
+            {
+                error = $"'{name}[{i}]' must not be blank.";
+                return false;
+            }
+            i++;
+        }
+
+        value = items;
         return true;
     }
 }
