@@ -65,9 +65,6 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     private async Task<UserAccount> NewAccountAsync(string role) =>
         (await _users.CreateAsync(new UserAccount { Id = Guid.NewGuid(), Email = NewEmail(), PasswordHash = PasswordHash, Role = role }, Ct))!;
 
-    /// <summary>Moves every session of the user <paramref name="interval"/> (SQL, a constant) into the past.</summary>
-    private Task AgeSessionsAsync(Guid user, string interval) =>
-        db.ExecAsync($"UPDATE user_refresh_tokens SET created_at = now() - interval '{interval}', family_started_at = now() - interval '{interval}' WHERE user_id = @user", new { user });
 
     // Registration and email login: the real path.
 
@@ -241,7 +238,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         var (user, refresh, _) = await SignedInAsync();
         var child = (await Auth.RefreshTokenAsync(refresh, Ct)).RefreshToken!;
         var grandchild = (await Auth.RefreshTokenAsync(child, Ct)).RefreshToken!;
-        await AgeSessionsAsync(user.Id, "1 minute");
+        await db.AgeSessionsAsync(user.Id, "1 minute");
 
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(refresh, Ct)).Status);
 
@@ -252,7 +249,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     public async Task RefreshTokenAsync_SignInPastItsAbsoluteLifetime_InvalidToken()
     {
         var (user, refresh, _) = await SignedInAsync();
-        await AgeSessionsAsync(user.Id, "91 days");
+        await db.AgeSessionsAsync(user.Id, "91 days");
 
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(refresh, Ct)).Status);
     }

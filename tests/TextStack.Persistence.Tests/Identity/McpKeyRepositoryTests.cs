@@ -1,4 +1,3 @@
-using Dapper;
 using Infrastructure.Persistence.Repositories;
 using static TextStack.Persistence.Tests.V2PostgresFixture;
 
@@ -27,20 +26,12 @@ public class McpKeyRepositoryTests(V2PostgresFixture db)
         // #1092: an access token minted before the reset asks for a key; the reset holds the user and
         // has stamped it, not yet committed.
         var user = await db.NewReaderAsync();
-        await using var reset = await db.DataSource.OpenConnectionAsync(Ct);
-        await using var tx = await reset.BeginTransactionAsync(Ct);
-        await reset.ExecuteAsync(new CommandDefinition("""
-            SELECT FROM users WHERE id = @user FOR NO KEY UPDATE;
-            UPDATE users SET credentials_reset_at = now() WHERE id = @user;
-            """, new { user }, tx, cancellationToken: Ct));
 
-        var create = _repo.CreateAsync(user, "laptop", NewHash(), "tsk_ab", DateTimeOffset.UtcNow.AddMinutes(-1), Ct);
-        await db.WaitUntilBlockedByAsync(reset, create);
-        var waited = !create.IsCompleted;
-        await tx.CommitAsync(Ct);
+        var (waited, key) = await db.WhileUserHeldAsync(user, "UPDATE users SET credentials_reset_at = now() WHERE id = @user;",
+            () => _repo.CreateAsync(user, "laptop", NewHash(), "tsk_ab", DateTimeOffset.UtcNow.AddMinutes(-1), Ct));
 
         Assert.True(waited);
-        Assert.Null(await create);
+        Assert.Null(key);
         Assert.Equal(0L, await db.CountAsync("mcp_access_keys", user));
     }
 

@@ -62,7 +62,7 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
     public async Task DecideAsync_ApproverResetAfterTheToken_ReturnsPendingAndDecidesNothing()
     {
         var (user, login) = (await db.NewReaderAsync(), await CreatedAsync());
-        await db.ExecAsync("UPDATE users SET credentials_reset_at = now() WHERE id = @user", new { user });
+        await db.ResetCredentialsAtAsync(user, DateTimeOffset.UtcNow);
 
         Assert.Equal(DeviceLogin.Pending, await _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow, Ct));
         Assert.Null((await _repo.GetByDeviceCodeAsync(login.DeviceCodeHash, Ct))!.UserId);
@@ -73,7 +73,7 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
     public async Task DecideAsync_PastTheDeadlineAndApproverReset_MarksItExpired()
     {
         var (user, login) = (await db.NewReaderAsync(), await CreatedAsync());
-        await db.ExecAsync("UPDATE users SET credentials_reset_at = now() WHERE id = @user", new { user });
+        await db.ResetCredentialsAtAsync(user, DateTimeOffset.UtcNow);
 
         Assert.Equal(DeviceLogin.Expired, await _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow.AddMinutes(-1), login.ExpiresAt, Ct));
     }
@@ -84,20 +84,12 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
         // #1092: an access token minted before the reset approves while the reset, holding the user
         // (as ResetPasswordAsync does), has stamped it and not yet committed.
         var (user, login) = (await db.NewReaderAsync(), await CreatedAsync());
-        await using var reset = await db.DataSource.OpenConnectionAsync(Ct);
-        await using var tx = await reset.BeginTransactionAsync(Ct);
-        await reset.ExecuteAsync(new CommandDefinition("""
-            SELECT FROM users WHERE id = @user FOR NO KEY UPDATE;
-            UPDATE users SET credentials_reset_at = now() WHERE id = @user;
-            """, new { user }, tx, cancellationToken: Ct));
 
-        var approval = _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow, Ct);
-        await db.WaitUntilBlockedByAsync(reset, approval);
-        var waited = !approval.IsCompleted;
-        await tx.CommitAsync(Ct);
+        var (waited, approval) = await db.WhileUserHeldAsync(user, "UPDATE users SET credentials_reset_at = now() WHERE id = @user;",
+            () => _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow, Ct));
 
         Assert.True(waited);
-        Assert.Equal(DeviceLogin.Pending, await approval);
+        Assert.Equal(DeviceLogin.Pending, approval);
         Assert.Equal(DeviceLogin.Pending, (await _repo.GetByDeviceCodeAsync(login.DeviceCodeHash, Ct))!.Status);
     }
 
@@ -209,24 +201,32 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
         // QA probe P2: a reset between the redemption and the session insert used to leave a session.
         // A reset in flight: the user locked (as ResetPasswordAsync does), the approval expired and the
         // sessions deleted, not yet committed.
-        var (user, login) = (await db.NewReaderAsync(), await CreatedAsync());
-        await _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Ct);
-        await using var reset = await db.DataSource.OpenConnectionAsync(Ct);
-        await using var tx = await reset.BeginTransactionAsync(Ct);
-        await reset.ExecuteAsync(new CommandDefinition("""
-            SELECT FROM users WHERE id = @user FOR NO KEY UPDATE;
+        var user = await db.NewReaderAsync();
+        var login = await db.ApprovedDeviceLoginAsync(user);
+
+        var (waited, redeemed) = await db.WhileUserHeldAsync(user, """
             UPDATE device_authorizations SET status = 'expired' WHERE user_id = @user AND status = 'approved';
             DELETE FROM user_refresh_tokens WHERE user_id = @user;
-            """, new { user }, tx, cancellationToken: Ct));
-
-        var redeem = _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct);
-        await db.WaitUntilBlockedByAsync(reset, redeem);
-        var waited = !redeem.IsCompleted;
-        await tx.CommitAsync(Ct);
+            """, () => _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct));
 
         Assert.True(waited);
-        Assert.False(await redeem);
+        Assert.False(redeemed);
         Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
+    }
+
+    [Fact]
+    public async Task RedeemAsync_UserRowHeldByAResetNotYetAtItsWrites_Waits()
+    {
+        // LockApprover's FOR SHARE: the reset has only locked the user (LockResetOwner) so far; nothing
+        // else in the redemption would wait for it.
+        var user = await db.NewReaderAsync();
+        var login = await db.ApprovedDeviceLoginAsync(user);
+
+        var (waited, redeemed) = await db.WhileUserHeldAsync(user, null,
+            () => _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct));
+
+        Assert.True(waited);
+        Assert.True(redeemed);
     }
 
     [Fact]
