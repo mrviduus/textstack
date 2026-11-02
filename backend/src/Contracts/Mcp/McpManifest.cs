@@ -49,7 +49,13 @@ public static class McpManifestCatalog
     /// <summary>The one copy of a tool's description, read by the runtime catalog too.</summary>
     public static string Describe(string name) => Tools.First(t => t.Name == name).Description;
 
-    /// <summary>Every tool; the public manifest advertises those not <see cref="McpToolDescriptor.V2Only"/>.</summary>
+    /// <summary>
+    /// The tools a server with <c>Features:V2Api</c> = <paramref name="v2Api"/> serves in its manifest:
+    /// the <see cref="McpToolDescriptor.V2Only"/> ones only when the V2 API they call is mapped (#1101).
+    /// </summary>
+    public static IReadOnlyList<McpToolDescriptor> Served(bool v2Api) => Tools.Where(t => v2Api || !t.V2Only).ToList();
+
+    /// <summary>Every tool; the manifest advertises them per <see cref="Served"/>.</summary>
     public static IReadOnlyList<McpToolDescriptor> Tools { get; } =
     [
         new("search_books",

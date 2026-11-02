@@ -37,7 +37,7 @@ public static class McpManifestEndpoints
             Endpoint: $"{baseUrl}/mcp",
             Auth: new McpManifestAuth(Type: "oauth2", HowTo: docsUrl), // ADR-017: authorization code + PKCE; device flow still serves stdio
             Documentation: docsUrl,
-            Tools: McpManifestCatalog.Tools.Where(t => !t.V2Only).ToList());
+            Tools: McpManifestCatalog.Served(config.GetValue<bool>("Features:V2Api"))); // the flag that maps /me/v2
 
         // Public, cacheable discovery document.
         httpContext.Response.Headers.CacheControl = "public, max-age=3600";
