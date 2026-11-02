@@ -786,7 +786,7 @@ public class McpOverTheWireTests : IAsyncLifetime
         var words = JsonDocument.Parse("""[{ "word": "crepuscular", "language": "en", "translation": "сутінковий" }]""").RootElement;
 
         var added = await CallAsync(client, "add_vocabulary_words",
-            Args(("words", words), ("bookId", StubBackend.UserBookId)));
+            Args(("words", words), ("bookId", StubBackend.UserBookId), ("operationId", Guid.NewGuid())));
         AssertOk(added);
         var line = Json(added).GetProperty("results")[0];
         Assert.Equal("srs", line.GetProperty("status").GetString());
@@ -802,5 +802,59 @@ public class McpOverTheWireTests : IAsyncLifetime
         var deleted = await CallAsync(client, "delete_vocabulary_word", Args(("id", id)));
         AssertOk(deleted);
         Assert.True(Json(deleted).GetProperty("deleted").GetBoolean());
+        // With the option off (the default) nothing reaches the V2 API.
+        Assert.Null(_harness.Stub.Last("v2_save_word"));
+    }
+
+    // ── the same four tools with McpBridgeOptions.V2Vocabulary on ────────────────
+
+    [Fact]
+    public async Task VocabularyTools_V2Option_AddRetriedSendsTheSameIdsToTheV2Save()
+    {
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2Vocabulary: true);
+        await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+        var words = JsonDocument.Parse(
+            """[{ "word": "crepuscular", "language": "en", "translation": "сутінковий", "sentence": "The crepuscular light." }]""").RootElement;
+        var args = Args(("words", words), ("bookId", StubBackend.UserBookId), ("operationId", Guid.NewGuid()));
+
+        var added = await CallAsync(client, "add_vocabulary_words", args);
+        var first = harness.Stub.Last("v2_save_word")!;
+        var retried = await CallAsync(client, "add_vocabulary_words", args);
+
+        AssertOk(added);
+        AssertOk(retried);
+        Assert.Equal(("PUT", "/me/v2/vocabulary/words"), (first.Method, first.PathAndQuery));
+        Assert.Equal(first.Body, harness.Stub.Last("v2_save_word")!.Body);
+        var sent = JsonDocument.Parse(first.Body).RootElement;
+        var example = sent.GetProperty("example");
+        Assert.Equal(sent.GetProperty("id").GetString(), example.GetProperty("operationId").GetString());
+        Assert.Equal((StubBackend.UserBookId, "The crepuscular light."), (example.GetProperty("bookId").GetString(), example.GetProperty("sentence").GetString()));
+        var line = Json(added).GetProperty("results")[0];
+        Assert.Equal(("srs", sent.GetProperty("id").GetString()), (line.GetProperty("status").GetString(), line.GetProperty("id").GetString()));
+        Assert.Null(harness.Stub.Last("add_vocabulary_words"));
+    }
+
+    [Fact]
+    public async Task VocabularyTools_V2Option_ListReadsTheFeedAndEditsCarryTheRevisionJustRead()
+    {
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2Vocabulary: true);
+        await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+        const string id = "55555555-5555-5555-5555-555555555555";
+
+        var listed = await CallAsync(client, "list_my_vocabulary", Args());
+        var updated = await CallAsync(client, "update_vocabulary_word", Args(("id", id), ("translation", "сутінки")));
+        var deleted = await CallAsync(client, "delete_vocabulary_word", Args(("id", id)));
+
+        var root = Json(listed);
+        Assert.Equal(1, root.GetProperty("total").GetInt32()); // the tombstone is not listed
+        Assert.Equal(("Crepuscular", "Dracula"), (root.GetProperty("items")[0].GetProperty("word").GetString(), root.GetProperty("items")[0].GetProperty("bookTitle").GetString()));
+        Assert.Equal("/me/v2/vocabulary/changes?limit=500", harness.Stub.Last("v2_vocabulary_changes")!.PathAndQuery);
+        AssertOk(updated);
+        Assert.Equal($"/me/v2/vocabulary/words/{id}", harness.Stub.Last("v2_get_word")!.PathAndQuery);
+        var patch = JsonDocument.Parse(harness.Stub.Last("v2_patch_word")!.Body).RootElement;
+        Assert.Equal((3L, "сутінки", false), (patch.GetProperty("expectedRevision").GetInt64(), patch.GetProperty("translation").GetString(), patch.TryGetProperty("definition", out _)));
+        AssertOk(deleted);
+        Assert.Equal(("DELETE", $"/me/v2/vocabulary/words/{id}"), (harness.Stub.Last("v2_delete_word")!.Method, harness.Stub.Last("v2_delete_word")!.PathAndQuery));
+        Assert.Null(harness.Stub.Last("list_my_vocabulary"));
     }
 }

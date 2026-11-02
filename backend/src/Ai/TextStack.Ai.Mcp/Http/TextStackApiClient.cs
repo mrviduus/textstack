@@ -28,11 +28,12 @@ namespace TextStack.Ai.Mcp.Http;
 /// <see cref="OperationCanceledException"/>, <see cref="JsonException"/>) — the
 /// catalog's shared wrapper maps these to a clean <c>IsError</c> tool result.
 /// </summary>
-public sealed class TextStackApiClient
+public sealed partial class TextStackApiClient
 {
     private readonly HttpClient _http;
     private readonly string _siteHost;
     private readonly IMcpTokenProvider _tokenProvider;
+    private readonly bool _v2Vocabulary;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -46,6 +47,7 @@ public sealed class TextStackApiClient
         _http = http;
         _siteHost = options.SiteHost;
         _tokenProvider = tokenProvider;
+        _v2Vocabulary = options.V2Vocabulary;
     }
 
     // ── search_books (AI-047) ───────────────────────────────────────────────────
@@ -137,6 +139,7 @@ public sealed class TextStackApiClient
     public async Task<VocabularyPageJson> GetVocabularyAsync(
         int? stage, string? search, int? limit, int? offset, CancellationToken ct)
     {
+        if (_v2Vocabulary) return await GetV2VocabularyAsync(stage, search, limit, offset, ct);
         var query = new List<string>();
         if (stage is { } s) query.Add($"stage={s}");
         if (!string.IsNullOrEmpty(search)) query.Add($"search={Uri.EscapeDataString(search)}");
@@ -162,9 +165,13 @@ public sealed class TextStackApiClient
     // ── vocabulary writes (Bearer) ───────────────────────────────────────────────
     // A refusal keeps the server's reason (and status: a 429 stops a batch, a 404 names a bad id).
 
-    /// <summary><c>POST /me/vocabulary/words</c> — one word. 200 → <c>SaveWordResponse</c>.</summary>
-    public async Task<ApiResult<JsonElement>> SaveWordAsync(SaveWordJson word, CancellationToken ct)
+    /// <summary>
+    /// <c>POST /me/vocabulary/words</c> — one word. 200 → <c>SaveWordResponse</c>. <paramref name="operationId"/>
+    /// is the word's own id for this save (legacy has no idempotency key and ignores it).
+    /// </summary>
+    public async Task<ApiResult<JsonElement>> SaveWordAsync(SaveWordJson word, Guid operationId, CancellationToken ct)
     {
+        if (_v2Vocabulary) return await SaveV2WordAsync(word, operationId, ct);
         using var request = await AuthorizedRequestAsync(HttpMethod.Post, "/me/vocabulary/words", ct);
         request.Content = JsonContent.Create(word, options: JsonOptions);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
@@ -175,16 +182,17 @@ public sealed class TextStackApiClient
     public async Task<ApiResult<JsonElement>> UpdateWordAsync(
         Guid id, string? translation, string? definition, CancellationToken ct)
     {
+        if (_v2Vocabulary) return await UpdateV2WordAsync(id, translation, definition, ct);
         using var request = await AuthorizedRequestAsync(HttpMethod.Patch, $"/me/vocabulary/words/{id}", ct);
         request.Content = JsonContent.Create(new UpdateWordJson(translation, definition), options: JsonOptions);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         return await ReadResultAsync(response, ct);
     }
 
-    /// <summary><c>DELETE /me/vocabulary/words/{id}</c>. 204 → success.</summary>
+    /// <summary><c>DELETE /me/vocabulary/words/{id}</c>. 204 → success (V2: 200, the tombstone).</summary>
     public async Task<ApiResult<JsonElement>> DeleteWordAsync(Guid id, CancellationToken ct)
     {
-        using var request = await AuthorizedRequestAsync(HttpMethod.Delete, $"/me/vocabulary/words/{id}", ct);
+        using var request = await AuthorizedRequestAsync(HttpMethod.Delete, (_v2Vocabulary ? "/me/v2" : "/me") + $"/vocabulary/words/{id}", ct);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         return await ReadResultAsync(response, ct);
     }
@@ -453,7 +461,7 @@ public sealed class TextStackApiClient
         return await ReadResultAsync(response, ct);
     }
 
-    // 200 → the body; 204 → success with no body; 401 → McpUnauthorizedException; a structured
+    // 200/201 → the body; 204 → success with no body; 401 → McpUnauthorizedException; a structured
     // refusal → its message (or ProblemDetails `detail`, or a bare `error` code, or a JSON string body)
     // plus one "path: message" line per field error; anything else → a bare status line.
     private static async Task<ApiResult<JsonElement>> ReadResultAsync(HttpResponseMessage response, CancellationToken ct)
@@ -461,7 +469,7 @@ public sealed class TextStackApiClient
         if (response.StatusCode is HttpStatusCode.Unauthorized)
             throw new McpUnauthorizedException();
 
-        if (response.StatusCode is HttpStatusCode.OK)
+        if (response.StatusCode is HttpStatusCode.OK or HttpStatusCode.Created)
             return new(await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct), null, response.StatusCode);
 
         if (response.StatusCode is HttpStatusCode.NoContent)

@@ -49,6 +49,13 @@ public sealed class McpBridgeOptions
     /// </summary>
     public string PublicBaseUrl { get; init; } = "https://textstack.app";
 
+    /// <summary>
+    /// The four vocabulary tools call the V2 sync API (<c>/me/v2/vocabulary/*</c>) instead of legacy
+    /// <c>/me/vocabulary/*</c>. Off by default, so the bridge behaves exactly as before until the V2
+    /// API is on for the account (M2.5). Env: <c>TEXTSTACK_MCP_V2_VOCABULARY</c> (<c>true</c>/<c>1</c>).
+    /// </summary>
+    public bool V2Vocabulary { get; init; }
+
     public static McpBridgeOptions FromEnvironment(string[]? args = null)
     {
         var apiUrl = Environment.GetEnvironmentVariable("TEXTSTACK_API_URL");
@@ -70,6 +77,8 @@ public sealed class McpBridgeOptions
                 Environment.GetEnvironmentVariable("MCP_TRANSPORT"), args),
             PublicBaseUrl = (Environment.GetEnvironmentVariable("TEXTSTACK_PUBLIC_URL") is { Length: > 0 } pub
                 ? pub : "https://textstack.app").TrimEnd('/'),
+            V2Vocabulary = Environment.GetEnvironmentVariable("TEXTSTACK_MCP_V2_VOCABULARY")?.Trim() is { } v2
+                && (v2 == "1" || v2.Equals("true", StringComparison.OrdinalIgnoreCase)),
         };
     }
 

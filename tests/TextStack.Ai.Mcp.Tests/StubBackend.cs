@@ -191,6 +191,35 @@ public sealed class StubBackend : IAsyncDisposable
             ctx.Response.StatusCode = HasBearer(ctx) ? StatusCodes.Status204NoContent : StatusCodes.Status401Unauthorized;
         });
 
+        // The V2 vocabulary routes (McpBridgeOptions.V2Vocabulary): the feed, save by key, read, edit, delete.
+        _app.MapGet("/me/v2/vocabulary/changes", async ctx =>
+        {
+            await RecordAsync("v2_vocabulary_changes", ctx);
+            await WriteJsonAsync(ctx, V2FeedBody);
+        });
+        _app.MapPut("/me/v2/vocabulary/words", async ctx =>
+        {
+            await RecordAsync("v2_save_word", ctx);
+            // A new card under the client's id, as the V2 API creates it.
+            var id = System.Text.Json.JsonDocument.Parse(Last("v2_save_word")!.Body).RootElement.GetProperty("id").GetString();
+            await WriteJsonAsync(ctx, V2Card(id!, revision: 1), StatusCodes.Status201Created);
+        });
+        _app.MapGet("/me/v2/vocabulary/words/{id}", async ctx =>
+        {
+            await RecordAsync("v2_get_word", ctx);
+            await WriteJsonAsync(ctx, V2Card((string)ctx.Request.RouteValues["id"]!, revision: 3));
+        });
+        _app.MapPatch("/me/v2/vocabulary/words/{id}", async ctx =>
+        {
+            await RecordAsync("v2_patch_word", ctx);
+            await WriteJsonAsync(ctx, V2Card((string)ctx.Request.RouteValues["id"]!, revision: 4));
+        });
+        _app.MapDelete("/me/v2/vocabulary/words/{id}", async ctx =>
+        {
+            await RecordAsync("v2_delete_word", ctx);
+            await WriteJsonAsync(ctx, V2Card((string)ctx.Request.RouteValues["id"]!, revision: 4, deletedAt: "\"2026-11-01T10:00:00.000Z\""));
+        });
+
         // POST /me/highlights → 401 if no bearer, else 201 HighlightDto.
         _app.MapPost("/me/highlights", async ctx =>
         {
@@ -514,6 +543,23 @@ public sealed class StubBackend : IAsyncDisposable
         """
         { "outcome": "srs", "word": { "id": "55555555-5555-5555-5555-555555555555", "word": "crepuscular", "translation": "сутінковий" } }
         """;
+
+    /// <summary>A V2 word card (Contracts.V2.VocabularyWordDto) with one example from Dracula.</summary>
+    private static string V2Card(string id, long revision, string deletedAt = "null", string word = "Crepuscular") =>
+        $$"""
+        {
+          "id": "{{id}}", "language": "en", "word": "{{word}}", "translation": "сутінковий", "definition": null,
+          "stage": 1, "intervalDays": 1, "consecutiveCorrect": 0, "nextReviewAt": "2026-11-02T10:00:00.000Z", "lastReviewedAt": null,
+          "createdAt": "2026-11-01T09:00:00.000Z", "updatedAt": "2026-11-01T10:00:00.000Z", "deletedAt": {{deletedAt}}, "retiredAt": null,
+          "revision": {{revision}},
+          "examples": [{ "id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", "operationId": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+                         "sentence": "The crepuscular light.", "bookId": null, "bookTitle": "Dracula", "createdAt": "2026-11-01T09:00:00.000Z" }]
+        }
+        """;
+
+    // One live card and one tombstone: a list must show the first only.
+    private static readonly string V2FeedBody =
+        $$"""{ "items": [{{V2Card("55555555-5555-5555-5555-555555555555", 3)}}, {{V2Card("66666666-6666-6666-6666-666666666666", 2, "\"2026-11-01T11:00:00.000Z\"", "Gone")}}], "cursor": "c1", "hasMore": false }""";
 
     private const string VocabularyBody =
         """

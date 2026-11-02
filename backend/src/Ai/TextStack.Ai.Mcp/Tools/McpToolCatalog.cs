@@ -601,9 +601,10 @@ public sealed class McpToolCatalog
             },
             "bookId": { "type": "string", "format": "uuid" },
             "editionId": { "type": "string", "format": "uuid" },
-            "bookTitle": { "type": "string", "maxLength": 300 }
+            "bookTitle": { "type": "string", "maxLength": 300 },
+            "operationId": { "type": "string", "format": "uuid" }
           },
-          "required": ["words"],
+          "required": ["words", "operationId"],
           "additionalProperties": false
         }
         """).RootElement;
@@ -628,7 +629,8 @@ public sealed class McpToolCatalog
         InputSchema = AddVocabularyWordsSchema,
         Handler = (args, ct) =>
         {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "words", "bookId", "editionId", "bookTitle")
+            if (!ArgReader.TryObject(args, out var obj, out var err, "words", "bookId", "editionId", "bookTitle", "operationId")
+                || !ArgReader.TryRequiredGuid(obj, "operationId", out var operationId, out err)
                 || !ArgReader.TryOptionalGuid(obj, "bookId", out var bookId, out err)
                 || !ArgReader.TryOptionalGuid(obj, "editionId", out var editionId, out err)
                 || !ArgReader.TryOptionalString(obj, "bookTitle", 300, out var bookTitle, out err)
@@ -644,7 +646,7 @@ public sealed class McpToolCatalog
                 var results = new List<WordResult>(words.Count);
                 for (var i = 0; i < words.Count; i++)
                 {
-                    var result = await api.SaveWordAsync(words[i], ct);
+                    var result = await api.SaveWordAsync(words[i], WordOperationId(operationId, i), ct);
                     // Both refusals are about the user, not the word: every later word would get the same answer.
                     var stop = result.Status is System.Net.HttpStatusCode.TooManyRequests
                         ? new WordResult(words[i].Word, "stopped",
@@ -665,6 +667,24 @@ public sealed class McpToolCatalog
     };
 
     private sealed record WordResult(string Word, string Status, Guid? Id = null, string? Translation = null, string? Message = null);
+
+    /// <summary>
+    /// One id per word of an <c>add_vocabulary_words</c> call (owner decision 13: the host's
+    /// <paramref name="operationId"/> names the call; a retry passes the same id and the same words in
+    /// the same order). The first 16 bytes of SHA-256(operationId ‖ index), stamped as a v4 UUID: the
+    /// same on every retry, different per word and per call.
+    /// </summary>
+    internal static Guid WordOperationId(Guid operationId, int index)
+    {
+        Span<byte> input = stackalloc byte[20];
+        operationId.TryWriteBytes(input, bigEndian: true, out _);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(input[16..], index);
+        Span<byte> hash = stackalloc byte[32];
+        System.Security.Cryptography.SHA256.HashData(input, hash);
+        hash[6] = (byte)((hash[6] & 0x0F) | 0x40); // version 4
+        hash[8] = (byte)((hash[8] & 0x3F) | 0x80); // RFC 9562 variant
+        return new Guid(hash[..16], bigEndian: true);
+    }
 
     private static WordResult ToWordResult(string word, ApiResult<JsonElement> result)
     {
