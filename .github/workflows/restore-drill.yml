@@ -145,7 +145,7 @@ jobs:
           restic dump --path /db_v2.sql latest /db_v2.sql | psql -X -q -v ON_ERROR_STOP=1 >/dev/null
           secs=$(( $(date +%s) - start ))
           n=0
-          for v in $(psql -XAt -c "SELECT version FROM schema_migrations ORDER BY version"); do
+          for v in $(psql -XAt -c "SELECT lpad(version::text, 4, '0') || '_' || name FROM schema_migrations ORDER BY version"); do
             for t in $(grep -o 'CREATE TABLE public\.[a-z0-9_]*' "database/v2/migrations/$v.up.sql" | cut -d. -f2); do
               echo "$t: $(psql -XAt -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM public.$t")"
               n=$((n + 1))
