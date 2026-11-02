@@ -24,7 +24,7 @@ namespace TextStack.Ai.Mcp.Tools;
 /// issue the HTTP call. All tools are ALWAYS listed (stable discovery) regardless
 /// of token presence — only the call fails-clean.
 /// </summary>
-public sealed class McpToolCatalog
+public sealed partial class McpToolCatalog
 {
     private readonly IReadOnlyDictionary<string, McpToolDescriptor> _byName;
     private readonly ILogger<McpToolCatalog> _logger;
@@ -32,8 +32,8 @@ public sealed class McpToolCatalog
     public McpToolCatalog(TextStackApiClient api, ILogger<McpToolCatalog>? logger = null)
     {
         _logger = logger ?? NullLogger<McpToolCatalog>.Instance;
-        var tools = new[]
-        {
+        McpToolDescriptor[] tools =
+        [
             BuildSearchBooks(api),
             BuildGetBook(api),
             BuildGetChapter(api),
@@ -55,7 +55,9 @@ public sealed class McpToolCatalog
             BuildSetBookProgress(api),
             BuildGetChapterReview(api),
             BuildSaveChapterReview(api),
-        };
+        ];
+        // V2-only: shares and checkpoints have no legacy endpoint to fall back to.
+        if (api.UsesV2) tools = [.. tools, BuildShareChapter(api), BuildSaveCheckpoint(api), BuildListCheckpoints(api)];
         _byName = tools.ToDictionary(t => t.Name, StringComparer.Ordinal);
     }
 
@@ -644,7 +646,7 @@ public sealed class McpToolCatalog
                     "Pass either 'bookId' (an uploaded book) or 'editionId' (a catalog book), not both."));
 
             // Owner decision 13: required by the schema; only an upstream without idempotency (legacy) tolerates its absence.
-            if (operationId is null && api.RequiresOperationId)
+            if (operationId is null && api.UsesV2)
                 return Task.FromResult(Error("'operationId' is required: a new UUID for this save, the same one when retrying it."));
 
             return InvokeAsync("add_vocabulary_words", ct, async () =>

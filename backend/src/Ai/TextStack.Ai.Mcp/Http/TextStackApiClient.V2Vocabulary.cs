@@ -8,7 +8,7 @@ using Contracts.V2;
 namespace TextStack.Ai.Mcp.Http;
 
 /// <summary>
-/// The vocabulary tools on the V2 sync API (<see cref="McpBridgeOptions.V2Vocabulary"/>), answered in
+/// The vocabulary tools on the V2 sync API (<see cref="McpBridgeOptions.V2"/>), answered in
 /// the legacy shapes the tool catalog already maps, so the tools read the same either way.
 /// </summary>
 public sealed partial class TextStackApiClient

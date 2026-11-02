@@ -200,7 +200,7 @@ public sealed class StubBackend : IAsyncDisposable
             ctx.Response.StatusCode = HasBearer(ctx) ? StatusCodes.Status204NoContent : StatusCodes.Status401Unauthorized;
         });
 
-        // The V2 vocabulary routes (McpBridgeOptions.V2Vocabulary): the feed, save by key, read, edit, delete.
+        // The V2 vocabulary routes (McpBridgeOptions.V2): the feed, save by key, read, edit, delete.
         _app.MapGet("/me/v2/vocabulary/changes", async ctx =>
         {
             await RecordAsync("v2_vocabulary_changes", ctx);
@@ -237,6 +237,30 @@ public sealed class StubBackend : IAsyncDisposable
         {
             await RecordAsync("v2_delete_word", ctx);
             await WriteJsonAsync(ctx, V2Card((string)ctx.Request.RouteValues["id"]!, revision: 4, deletedAt: "\"2026-11-01T10:00:00.000Z\""));
+        });
+
+        // The V2 discussion routes: one append per operation id (the same body replays 200, another
+        // 409), an unknown book 404, a share the checkpoint cannot name 422; a list in two pages.
+        _app.MapPost("/me/v2/books/{bookId}/shares", async ctx =>
+        {
+            await RecordAsync("v2_share", ctx);
+            await AppendAsync(ctx, Last("v2_share")!.Body, SharedChapterId);
+        });
+        _app.MapPost("/me/v2/books/{bookId}/checkpoints", async ctx =>
+        {
+            await RecordAsync("v2_checkpoint", ctx);
+            var body = Last("v2_checkpoint")!.Body;
+            if (System.Text.Json.JsonDocument.Parse(body).RootElement.TryGetProperty("sharedChapterId", out var share) && share.GetString() == MismatchedShareId)
+            { await WriteJsonAsync(ctx, V2Error("share_mismatch", "The share is of another chapter or file version."), StatusCodes.Status422UnprocessableEntity); return; }
+            await AppendAsync(ctx, body, CheckpointId);
+        });
+        _app.MapGet("/me/v2/books/{bookId}/checkpoints", async ctx =>
+        {
+            await RecordAsync("v2_list_checkpoints", ctx);
+            if ((string)ctx.Request.RouteValues["bookId"]! != UserBookId) { await WriteJsonAsync(ctx, V2Error("book_not_found", "Push the book first."), StatusCodes.Status404NotFound); return; }
+            var firstPage = !ctx.Request.Query.ContainsKey("cursor");
+            var cursor = firstPage ? "\"page-2\"" : "null";
+            await WriteJsonAsync(ctx, $$"""{ "items": [{{V2Checkpoint(firstPage ? "Earlier thought" : "Later thought")}}], "cursor": {{cursor}}, "hasMore": {{(firstPage ? "true" : "false")}} }""");
         });
 
         // POST /me/highlights → 401 if no bearer, else 201 HighlightDto.
@@ -385,6 +409,35 @@ public sealed class StubBackend : IAsyncDisposable
         lock (_gate)
             return _history.Where(h => h.Key == key).Select(h => h.Request).ToList();
     }
+
+    // V2 discussion scenarios: the ids the stub answers with, and a share id it refuses as another chapter's.
+    public const string SharedChapterId = "5ba7ed00-0000-4000-8000-000000000001";
+    public const string CheckpointId = "c4ec4000-0000-4000-8000-000000000001";
+    public const string MismatchedShareId = "5ba7ed00-0000-4000-8000-000000000422";
+
+    private readonly Dictionary<string, string> _operations = new(StringComparer.Ordinal);
+
+    /// <summary>The V2 operation_id rules over <paramref name="body"/>: new 201, the same again 200, another under its id 409.</summary>
+    private async Task AppendAsync(HttpContext ctx, string body, string id)
+    {
+        if ((string)ctx.Request.RouteValues["bookId"]! != UserBookId)
+        { await WriteJsonAsync(ctx, V2Error("book_not_found", "Push the book first."), StatusCodes.Status404NotFound); return; }
+        var operationId = System.Text.Json.JsonDocument.Parse(body).RootElement.GetProperty("operationId").GetString()!;
+        string? first;
+        lock (_gate)
+            if (!_operations.TryGetValue(operationId, out first)) _operations[operationId] = body;
+        var row = $$"""{ "id": "{{id}}", "operationId": "{{operationId}}", "chapterKey": "ch02.xhtml", "createdAt": "2026-11-01T10:00:00.000Z" }""";
+        if (first is null) await WriteJsonAsync(ctx, row, StatusCodes.Status201Created);
+        else if (first == body) await WriteJsonAsync(ctx, row);
+        else await WriteJsonAsync(ctx, V2Error("operation_conflict", "This operation id was used with a different payload."), StatusCodes.Status409Conflict);
+    }
+
+    private static string V2Checkpoint(string thought) =>
+        $$"""
+        { "id": "{{CheckpointId}}", "bookId": "{{UserBookId}}", "chapterKey": "ch02.xhtml", "fileId": null, "sharedChapterId": null,
+          "topic": "The letter", "readerThoughts": ["{{thought}}"], "assistantSuggestions": [], "conclusions": [], "openQuestions": [],
+          "language": "en", "createdAt": "2026-11-01T10:00:00.000Z" }
+        """;
 
     private static async Task WriteJsonAsync(HttpContext ctx, string json, int status = StatusCodes.Status200OK)
     {

@@ -16,7 +16,7 @@ namespace TextStack.Ai.Mcp.Tests;
 /// </summary>
 public class McpManifestDriftTests
 {
-    private static McpToolCatalog BuildCatalog()
+    private static McpToolCatalog BuildCatalog(bool v2 = false)
     {
         // The catalog only invokes the api/token provider when a tool is CALLED;
         // listing/constructing it does not — so any stub client is fine.
@@ -24,6 +24,7 @@ public class McpManifestDriftTests
         {
             ApiBaseUrl = "http://localhost",
             SiteHost = "textstack.app",
+            V2 = v2,
         };
         var http = new HttpClient { BaseAddress = new Uri(options.ApiBaseUrl) };
         var api = new TextStackApiClient(http, options, new NoTokenProvider());
@@ -39,10 +40,21 @@ public class McpManifestDriftTests
         Assert.Equal(catalogNames, manifestNames);
     }
 
+    // The discussion tools are served only by a V2 bridge, and described in Contracts like every other.
+    [Fact]
+    public void ManifestToolNamesWithTheV2Tools_MatchTheRuntimeCatalogOnV2()
+    {
+        var catalogNames = BuildCatalog(v2: true).ListTools().Select(t => t.Name).ToHashSet();
+        var manifestNames = McpManifestCatalog.Tools.Concat(McpManifestCatalog.V2Tools).Select(t => t.Name).ToHashSet();
+
+        Assert.Equal(catalogNames, manifestNames);
+    }
+
     [Fact]
     public void Manifest_AdvertisesTheWholeToolSurface()
     {
         Assert.Equal(21, McpManifestCatalog.Tools.Count);
+        Assert.Equal(24, McpManifestCatalog.Tools.Count + McpManifestCatalog.V2Tools.Count);
     }
 
     private sealed class NoTokenProvider : IMcpTokenProvider

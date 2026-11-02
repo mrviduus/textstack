@@ -19,8 +19,11 @@ namespace TextStack.Ai.Mcp.Tests;
 /// </summary>
 public class McpStdioSmokeTests
 {
-    [Fact]
-    public async Task Stdio_SubprocessServer_InitializeAndListToolsReturnsWholeSurface()
+    // TEXTSTACK_MCP_V2 adds the three discussion tools; set either way, so the parent's value cannot leak in.
+    [Theory]
+    [InlineData("false", 21)]
+    [InlineData("true", 24)]
+    public async Task Stdio_SubprocessServer_InitializeAndListToolsReturnsWholeSurface(string v2, int toolCount)
     {
         var ct = TestContext.Current.CancellationToken;
 
@@ -45,6 +48,7 @@ public class McpStdioSmokeTests
                 ["TEXTSTACK_API_URL"] = "http://127.0.0.1:1",
                 // Force stdio (the default, but explicit for clarity).
                 ["MCP_TRANSPORT"] = "stdio",
+                ["TEXTSTACK_MCP_V2"] = v2,
             },
         });
 
@@ -54,7 +58,7 @@ public class McpStdioSmokeTests
         Assert.Contains("save_insight", client.ServerInstructions); // stdio sends the same instructions as http
 
         var tools = await client.ListToolsAsync(cancellationToken: ct);
-        Assert.Equal(21, tools.Count);
+        Assert.Equal(toolCount, tools.Count);
     }
 
     // The MCP project is a ProjectReference, so its DLL is built into the test

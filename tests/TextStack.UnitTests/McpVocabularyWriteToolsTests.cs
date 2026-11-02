@@ -183,17 +183,17 @@ public class McpVocabularyWriteToolsTests
     }
 
     [Fact]
-    public void FromEnvironment_V2VocabularySetToOne_IsOn()
+    public void FromEnvironment_V2SetToOne_IsOn()
     {
-        var before = Environment.GetEnvironmentVariable("TEXTSTACK_MCP_V2_VOCABULARY");
-        Environment.SetEnvironmentVariable("TEXTSTACK_MCP_V2_VOCABULARY", "1");
+        var before = Environment.GetEnvironmentVariable("TEXTSTACK_MCP_V2");
+        Environment.SetEnvironmentVariable("TEXTSTACK_MCP_V2", "1");
         try
         {
-            Assert.True(McpBridgeOptions.FromEnvironment().V2Vocabulary);
+            Assert.True(McpBridgeOptions.FromEnvironment().V2);
         }
         finally
         {
-            Environment.SetEnvironmentVariable("TEXTSTACK_MCP_V2_VOCABULARY", before);
+            Environment.SetEnvironmentVariable("TEXTSTACK_MCP_V2", before);
         }
     }
 

@@ -33,7 +33,7 @@ public sealed partial class TextStackApiClient
     private readonly HttpClient _http;
     private readonly string _siteHost;
     private readonly IMcpTokenProvider _tokenProvider;
-    private readonly bool _v2Vocabulary;
+    private readonly bool _v2;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -47,11 +47,14 @@ public sealed partial class TextStackApiClient
         _http = http;
         _siteHost = options.SiteHost;
         _tokenProvider = tokenProvider;
-        _v2Vocabulary = options.V2Vocabulary;
+        _v2 = options.V2;
     }
 
-    /// <summary>The vocabulary upstream is idempotent by operation id (V2), so a save without one is refused.</summary>
-    public bool RequiresOperationId => _v2Vocabulary;
+    /// <summary>
+    /// <see cref="McpBridgeOptions.V2"/>: the vocabulary upstream is idempotent by operation id, so a
+    /// save without one is refused, and the discussion tools exist.
+    /// </summary>
+    public bool UsesV2 => _v2;
 
     // ── search_books (AI-047) ───────────────────────────────────────────────────
 
@@ -142,7 +145,7 @@ public sealed partial class TextStackApiClient
     public async Task<ApiResult<VocabularyPageJson>> GetVocabularyAsync(
         int? stage, string? search, int? limit, int? offset, CancellationToken ct)
     {
-        if (_v2Vocabulary) return await GetV2VocabularyAsync(stage, search, limit, offset, ct);
+        if (_v2) return await GetV2VocabularyAsync(stage, search, limit, offset, ct);
         return new(await GetLegacyVocabularyAsync(stage, search, limit, offset, ct), null);
     }
 
@@ -175,11 +178,11 @@ public sealed partial class TextStackApiClient
 
     /// <summary>
     /// <c>POST /me/vocabulary/words</c> — one word. 200 → <c>SaveWordResponse</c>. <paramref name="operationId"/>
-    /// is the call's (legacy has no idempotency key and ignores it; V2 needs it, <see cref="RequiresOperationId"/>).
+    /// is the call's (legacy has no idempotency key and ignores it; V2 needs it, <see cref="UsesV2"/>).
     /// </summary>
     public async Task<ApiResult<JsonElement>> SaveWordAsync(SaveWordJson word, Guid? operationId, CancellationToken ct)
     {
-        if (_v2Vocabulary) return await SaveV2WordAsync(word, operationId!.Value, ct);
+        if (_v2) return await SaveV2WordAsync(word, operationId!.Value, ct);
         using var request = await AuthorizedRequestAsync(HttpMethod.Post, "/me/vocabulary/words", ct);
         request.Content = JsonContent.Create(word, options: JsonOptions);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
@@ -190,7 +193,7 @@ public sealed partial class TextStackApiClient
     public async Task<ApiResult<JsonElement>> UpdateWordAsync(
         Guid id, string? translation, string? definition, CancellationToken ct)
     {
-        if (_v2Vocabulary) return await UpdateV2WordAsync(id, translation, definition, ct);
+        if (_v2) return await UpdateV2WordAsync(id, translation, definition, ct);
         using var request = await AuthorizedRequestAsync(HttpMethod.Patch, $"/me/vocabulary/words/{id}", ct);
         request.Content = JsonContent.Create(new UpdateWordJson(translation, definition), options: JsonOptions);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
@@ -200,7 +203,7 @@ public sealed partial class TextStackApiClient
     /// <summary><c>DELETE /me/vocabulary/words/{id}</c>. 204 → success (V2: 200, the tombstone).</summary>
     public async Task<ApiResult<JsonElement>> DeleteWordAsync(Guid id, CancellationToken ct)
     {
-        using var request = await AuthorizedRequestAsync(HttpMethod.Delete, (_v2Vocabulary ? "/me/v2" : "/me") + $"/vocabulary/words/{id}", ct);
+        using var request = await AuthorizedRequestAsync(HttpMethod.Delete, (_v2 ? "/me/v2" : "/me") + $"/vocabulary/words/{id}", ct);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         return await ReadResultAsync(response, ct);
     }
