@@ -138,12 +138,6 @@ public class V2GateTests
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"the probe took {watch.Elapsed}");
     }
 
-    private sealed class SteppedClock : TimeProvider
-    {
-        public DateTimeOffset Now = DateTimeOffset.UtcNow;
-        public override DateTimeOffset GetUtcNow() => Now;
-    }
-
     [Fact]
     public async Task GetAsync_WithinTheTtl_SharesOneCheckAndAfterItChecksAgain()
     {

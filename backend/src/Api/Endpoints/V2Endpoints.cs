@@ -1,3 +1,4 @@
+using Api.Middleware;
 using Api.V2;
 using Application.Annotations;
 using Application.Library;
@@ -72,7 +73,7 @@ public static class V2Endpoints
     /// </summary>
     private static Task<IResult> Run<TService>(HttpContext http, Func<TService, Guid, CancellationToken, Task<SyncResult>> call)
         where TService : notnull =>
-        Send(call(http.RequestServices.GetRequiredService<TService>(), V2Gate.UserOf(http), http.RequestAborted));
+        Send(call(http.RequestServices.GetRequiredService<TService>(), PathGates.UserOf(http), http.RequestAborted));
 
     private static async Task<IResult> Send(Task<SyncResult> pending)
     {
