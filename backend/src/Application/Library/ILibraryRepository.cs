@@ -75,7 +75,61 @@ public interface ILibraryRepository
 
     /// <summary>Un-hides a removed book; false when not the user's or not removed.</summary>
     Task<bool> RestoreAsync(Guid userId, Guid bookId, CancellationToken ct);
+
+    /// <summary>
+    /// Records that the server holds the bytes of the book's current file under <paramref name="storageKey"/>
+    /// (PDD delta 4), if they fit: the user's stored bytes plus this file's stay within <paramref name="limitBytes"/>.
+    /// Attaches of one user are serialized, so concurrent uploads cannot together pass the limit.
+    /// <paramref name="placeBytes"/> runs inside that transaction, only when the attach is accepted and
+    /// before it commits: a refused or lost attach leaves no bytes behind. Clears <c>content_removed_at</c>
+    /// (a deliberate re-upload after "stop syncing" is allowed).
+    /// </summary>
+    Task<ContentAttachment> AttachContentAsync(
+        Guid userId, Guid bookId, Guid fileId, string storageKey, long limitBytes, Action placeBytes, CancellationToken ct);
+
+    /// <summary>
+    /// "Stop syncing this file" (owner decision 6): the key cleared, <c>content_removed_at</c> stamped
+    /// once, <c>updated_at</c> bumped; any version, current or not. False when nothing changed (already
+    /// removed, or not a version of the user's book). The caller deletes the bytes first (the schema:
+    /// a key is cleared only once its file is gone).
+    /// </summary>
+    Task<bool> RemoveContentAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct);
+
+    /// <summary>The bytes the server holds for the user: the quota's "used" (owner decision 2).</summary>
+    Task<long> StoredBytesAsync(Guid userId, CancellationToken ct);
+
+    /// <summary>Points the book at its uploaded cover; the updated book, null when not the user's.</summary>
+    Task<Book?> SetCoverAsync(Guid userId, Guid bookId, string coverKey, CancellationToken ct);
+
+    /// <summary>Cross-user, for the byte sweep: superseded versions whose bytes are still stored, at most <paramref name="limit"/>.</summary>
+    Task<IReadOnlyList<BookFile>> ListSupersededWithContentAsync(int limit, CancellationToken ct);
+
+    /// <summary>Cross-user, for the byte sweep: forgets a superseded version's key once its bytes are deleted.</summary>
+    Task ForgetSupersededContentAsync(Guid fileId, CancellationToken ct);
 }
+
+public enum AttachOutcome
+{
+    /// <summary><see cref="ContentAttachment.File"/> now has content.</summary>
+    Attached,
+
+    /// <summary>The current file already has content: nothing changed (a replay).</summary>
+    AlreadyStored,
+
+    /// <summary>The file is a superseded version: <see cref="ContentAttachment.File"/> is the current one (null: none).</summary>
+    FileReplaced,
+
+    /// <summary><see cref="ContentAttachment.Book"/> is the removed book.</summary>
+    BookRemoved,
+
+    /// <summary>The bytes do not fit: <see cref="ContentAttachment.Used"/> is what the user already stores.</summary>
+    QuotaExceeded,
+
+    /// <summary>No such book, or the file is not a version of it.</summary>
+    NotFound,
+}
+
+public sealed record ContentAttachment(AttachOutcome Outcome, BookFile? File = null, Book? Book = null, long Used = 0);
 
 /// <summary>The fields a client edits (<c>PATCH /books/{bookId}</c>); written whole.</summary>
 public sealed record BookMetadata(

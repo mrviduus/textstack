@@ -30,9 +30,13 @@ public static class UserStoragePolicy
             return false;
 
         var segments = (path.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length < 2
-            || !segments[0].Equals("storage", StringComparison.OrdinalIgnoreCase)
-            || !segments[1].Equals("users", StringComparison.OrdinalIgnoreCase))
+        if (segments.Length < 2 || !segments[0].Equals("storage", StringComparison.OrdinalIgnoreCase))
+            return false;
+        // The V2 library root (Storage:LibraryRoot's default): books, covers and parts, all owner-only
+        // through /me/v2. Nothing under it is public.
+        if (segments[1].Equals("library", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (!segments[1].Equals("users", StringComparison.OrdinalIgnoreCase))
             return false;
 
         // users/{shard}/{userId}/books/{bookId}/cover.<ext> — nothing else under users/.

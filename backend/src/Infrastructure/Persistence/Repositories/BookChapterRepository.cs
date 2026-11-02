@@ -71,8 +71,8 @@ public sealed class BookChapterRepository(V2DataSource dataSource) : IBookChapte
         return await conn.QuerySingleOrDefaultAsync<string>(new CommandDefinition(SelectPlainText, new { userId, fileId, chapterKey }, cancellationToken: ct));
     }
 
-    // One statement for the whole set, so a failure stores none of it.
-    // ponytail: a second extraction of the same file hits ak_book_chapters_user_id_file_id_chapter_key; the M2.6 worker decides replace vs reconcile, as ChapterReconciler does on legacy (#1091).
+    private const string DeleteFileChapters = $"DELETE FROM book_chapters WHERE {OfFile}";
+
     private const string InsertChapters = """
         INSERT INTO book_chapters (id, user_id, book_id, file_id, chapter_key, chapter_number, title, html, plain_text, word_count, source_start_page, source_end_page, created_at)
         SELECT c.id, @userId, @bookId, @fileId, c.chapter_key, c.chapter_number, c.title, c.html, c.plain_text, c.word_count, c.source_start_page, c.source_end_page, now()
@@ -80,10 +80,11 @@ public sealed class BookChapterRepository(V2DataSource dataSource) : IBookChapte
             AS c(id, chapter_key, chapter_number, title, html, plain_text, word_count, source_start_page, source_end_page)
         """;
 
-    public async Task InsertForFileAsync(Guid userId, Guid bookId, Guid fileId, IReadOnlyList<BookChapter> chapters, CancellationToken ct)
+    public async Task ReplaceForFileAsync(Guid userId, Guid bookId, Guid fileId, IReadOnlyList<BookChapter> chapters, CancellationToken ct)
     {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(new CommandDefinition(InsertChapters, new
+        await using var tx = await dataSource.BeginAsync(ct);
+        await tx.Connection.ExecuteAsync(new CommandDefinition(DeleteFileChapters, new { userId, bookId, fileId }, tx.Transaction, cancellationToken: ct));
+        await tx.Connection.ExecuteAsync(new CommandDefinition(InsertChapters, new
         {
             userId,
             bookId,
@@ -97,6 +98,7 @@ public sealed class BookChapterRepository(V2DataSource dataSource) : IBookChapte
             wordCounts = chapters.Select(c => c.WordCount).ToArray(),
             startPages = chapters.Select(c => c.SourceStartPage).ToArray(),
             endPages = chapters.Select(c => c.SourceEndPage).ToArray(),
-        }, cancellationToken: ct));
+        }, tx.Transaction, cancellationToken: ct));
+        await tx.CommitAsync(ct);
     }
 }

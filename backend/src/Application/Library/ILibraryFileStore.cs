@@ -1,0 +1,61 @@
+namespace Application.Library;
+
+/// <summary>
+/// The bytes of V2 library files and covers on the persistent volume (plan §4.5, <c>Storage:LibraryRoot</c>),
+/// and the upload parts on their way there (PDD "File sync upload protocol"). Not legacy's
+/// <c>IFileStorageService</c>/<c>ChunkedUploadStore</c>: those are a temp dir and legacy's quota (ADR-030).
+/// Keys are relative to the root and built only from ids and a server-side format, never from client
+/// text, so no key can leave the root. A file id is its upload's id: no init call, no row.
+/// </summary>
+public interface ILibraryFileStore
+{
+    /// <summary><c>library/{u[..2]}/{u}/{bookId}/{fileId}.{format}</c>; <paramref name="format"/> is the stored <c>book_files.format</c>.</summary>
+    string FileKey(Guid userId, Guid bookId, Guid fileId, string format);
+
+    /// <summary><c>library/{u[..2]}/{u}/{bookId}/cover.{extension}</c>.</summary>
+    string CoverKey(Guid userId, Guid bookId, string extension);
+
+    /// <summary>
+    /// Stores one part, replacing an earlier attempt at the same index. Reads at most <paramref name="maxBytes"/>;
+    /// null (nothing kept) when the body was empty or longer. Nothing partial is kept on an abort either.
+    /// </summary>
+    Task<long?> SavePartAsync(Guid userId, Guid fileId, int index, Stream body, long maxBytes, CancellationToken ct);
+
+    /// <summary>The user's part bytes on disk, all uploads, and those of <paramref name="fileId"/>, each without part <paramref name="exceptIndex"/> of that file (a re-sent part replaces it).</summary>
+    (long User, long File) PartBytes(Guid userId, Guid fileId, int exceptIndex);
+
+    /// <summary>
+    /// Joins parts <c>0..partCount-1</c> into a temp file next to <paramref name="key"/>'s place, hashing as it
+    /// streams. Null when a part is missing (the parts stay for a retry). The parts are not touched.
+    /// </summary>
+    Task<StagedContent?> AssembleAsync(Guid userId, Guid fileId, int partCount, string key, CancellationToken ct);
+
+    /// <summary>Moves the staged file to its key (an atomic rename on the same volume).</summary>
+    void Place(StagedContent staged);
+
+    /// <summary>Deletes the staged temp file if it is still there. Never throws.</summary>
+    void Discard(StagedContent staged);
+
+    void DeleteParts(Guid userId, Guid fileId);
+
+    /// <summary>Deletes every upload untouched for <see cref="StaleAfter"/>, all users. Never throws.</summary>
+    void SweepStaleParts(DateTimeOffset now);
+
+    /// <summary>The absolute path of <paramref name="key"/>'s bytes; null when they are not on disk.</summary>
+    string? Locate(string key);
+
+    /// <summary>Writes <paramref name="bytes"/> under <paramref name="key"/>, replacing what is there (temp file, then move).</summary>
+    Task WriteAsync(string key, ReadOnlyMemory<byte> bytes, CancellationToken ct);
+
+    /// <summary>Deletes <paramref name="key"/>'s bytes; nothing there is fine.</summary>
+    void Delete(string key);
+
+    /// <summary>Deletes everything of a deleted account: its library and its parts. Never throws.</summary>
+    void DeleteUser(Guid userId);
+
+    /// <summary>How long an upload's parts wait for their complete (legacy's window).</summary>
+    static readonly TimeSpan StaleAfter = TimeSpan.FromDays(1);
+}
+
+/// <summary>Joined parts in a temp file, not yet in place: what they hash to and how long they are.</summary>
+public sealed record StagedContent(string Key, string TempPath, string Sha256, long ByteSize);

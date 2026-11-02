@@ -2,6 +2,7 @@ using Application.Auth;
 using Application.Common;
 using Application.Common.Interfaces;
 using Application.Identity;
+using Application.Library;
 using Domain.Identity;
 
 namespace Api.V2;
@@ -18,11 +19,16 @@ namespace Api.V2;
 /// </summary>
 public sealed class V2IdentityMirror(
     IConfiguration config, V2Readiness readiness, V2ShadowUsers shadows, IUserRepository users,
-    IAccountMergeRepository merges, IAppDbContext legacy, ILogger<V2IdentityMirror> logger)
+    IAccountMergeRepository merges, IAppDbContext legacy, ILibraryFileStore files, ILogger<V2IdentityMirror> logger)
 {
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(10);
 
-    public Task DeleteAsync(Guid userId) => MirrorAsync(userId, userId, ct => users.DeleteAsync(userId, ct));
+    /// <summary>The users cascade drops the rows; the account's bytes go after it, best-effort (keys embed the user id).</summary>
+    public Task DeleteAsync(Guid userId) => MirrorAsync(userId, userId, async ct =>
+    {
+        await users.DeleteAsync(userId, ct);
+        files.DeleteUser(userId);
+    });
 
     /// <summary>A guest registered in place: its V2 row becomes the account. No V2 row: nothing to do.</summary>
     public Task PromoteAsync(Guid userId, string email, string? name, string passwordHash) => MirrorAsync(userId, userId, async ct =>

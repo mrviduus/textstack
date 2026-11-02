@@ -25,12 +25,12 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     private async Task<Book> BookWithChaptersAsync()
     {
         var book = await db.NewReaderWithBookAsync();
-        await _repo.InsertForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("four", 4), Chapter("one", 1), Chapter("two", 2)], Ct);
+        await _repo.ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("four", 4), Chapter("one", 1), Chapter("two", 2)], Ct);
         return book;
     }
 
     [Fact]
-    public async Task InsertForFileAsync_Chapters_ListTocInReadingOrder()
+    public async Task ReplaceForFileAsync_Chapters_ListTocInReadingOrder()
     {
         var book = await BookWithChaptersAsync();
 
@@ -41,10 +41,44 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ReplaceForFileAsync_SecondExtraction_ReplacesTheFirstsChapters()
+    {
+        var book = await BookWithChaptersAsync();
+
+        await _repo.ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("one", 1), Chapter("five", 2)], Ct);
+
+        var toc = await _repo.ListTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct);
+        Assert.Equal(["one", "five"], toc.Select(c => c.ChapterKey));
+    }
+
+    [Fact]
+    public async Task ReplaceForFileAsync_AnotherVersionsChapters_AreKept()
+    {
+        var book = await BookWithChaptersAsync();
+        var replaced = await db.ReplaceFileAsync(book);
+
+        await _repo.ReplaceForFileAsync(book.UserId, book.Id, replaced.Current!.Id, [Chapter("new", 1)], Ct);
+
+        Assert.Equal(3, (await _repo.ListTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct)).Count);
+        Assert.Single(await _repo.ListTocAsync(book.UserId, book.Id, replaced.Current.Id, Ct));
+    }
+
+    [Fact]
+    public async Task ReplaceForFileAsync_FailedReplacement_KeepsTheOldChapters()
+    {
+        var book = await BookWithChaptersAsync();
+
+        await Assert.ThrowsAsync<PostgresException>(() =>
+            _repo.ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("dup", 1), Chapter("dup", 2)], Ct));
+
+        Assert.Equal(3, (await _repo.ListTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct)).Count);
+    }
+
+    [Fact]
     public async Task ListTocAsync_ZeroBasedSparseNumbersInsertedOutOfOrder_ComeInNumberOrder()
     {
         var book = await db.NewReaderWithBookAsync();
-        await _repo.InsertForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id,
+        await _repo.ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id,
             [Chapter("ten", 10), Chapter("zero", 0), Chapter("hundred", 100), Chapter("two", 2)], Ct);
 
         var toc = await _repo.ListTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct);
@@ -53,24 +87,24 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task InsertForFileAsync_DuplicateKey_StoresNone()
+    public async Task ReplaceForFileAsync_DuplicateKey_StoresNone()
     {
         var book = await db.NewReaderWithBookAsync();
 
         await Assert.ThrowsAsync<PostgresException>(() =>
-            _repo.InsertForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("one", 1), Chapter("one", 2)], Ct));
+            _repo.ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("one", 1), Chapter("one", 2)], Ct));
 
         Assert.Empty(await _repo.ListTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct));
     }
 
     [Fact]
-    public async Task InsertForFileAsync_AnotherUsersFile_IsRefusedByTheFk()
+    public async Task ReplaceForFileAsync_AnotherUsersFile_IsRefusedByTheFk()
     {
         var alices = await db.NewReaderWithBookAsync();
         var bob = await db.NewReaderAsync();
 
         var error = await Assert.ThrowsAsync<PostgresException>(() =>
-            _repo.InsertForFileAsync(bob, alices.Id, alices.CurrentFile!.Id, [Chapter("one", 1)], Ct));
+            _repo.ReplaceForFileAsync(bob, alices.Id, alices.CurrentFile!.Id, [Chapter("one", 1)], Ct));
 
         Assert.Equal("23503", error.SqlState);
     }

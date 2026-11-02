@@ -28,8 +28,10 @@ public interface IBookChapterRepository
     Task<string?> GetPlainTextAsync(Guid userId, Guid fileId, string chapterKey, CancellationToken ct);
 
     /// <summary>
-    /// Stores the chapters extracted from one file version of the user's book, all or none. The file
-    /// must be the book's and the user's (the FK refuses it otherwise, as a broken invariant).
+    /// Replaces the chapters of one file version of the user's book with <paramref name="chapters"/>, all
+    /// or none (#1091: replace-all, not reconcile). On V2 a chapter belongs to a file version, and
+    /// annotations anchor by locator, not by chapter id, so a re-extraction has nothing to keep. The
+    /// file must be the book's and the user's (the FK refuses it otherwise, as a broken invariant).
     /// </summary>
-    Task InsertForFileAsync(Guid userId, Guid bookId, Guid fileId, IReadOnlyList<BookChapter> chapters, CancellationToken ct);
+    Task ReplaceForFileAsync(Guid userId, Guid bookId, Guid fileId, IReadOnlyList<BookChapter> chapters, CancellationToken ct);
 }
