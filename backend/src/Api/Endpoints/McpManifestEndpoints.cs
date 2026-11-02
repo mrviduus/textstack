@@ -18,18 +18,27 @@ public static class McpManifestEndpoints
 {
     public static void MapMcpManifestEndpoints(this WebApplication app)
     {
-        app.MapGet("/mcp/manifest", GetManifest)
+        // Built once, like the routes: Features:V2Api (the flag that maps /me/v2) is read at startup,
+        // so the V2 tools are advertised exactly when the Api can serve them (#1101).
+        var manifest = BuildManifest(app.Configuration);
+
+        app.MapGet("/mcp/manifest", (HttpContext httpContext) =>
+            {
+                // Public, cacheable; short, as the tool list changes with a deploy-time flag.
+                httpContext.Response.Headers.CacheControl = "public, max-age=300";
+                return Results.Ok(manifest);
+            })
             .WithName("McpManifest")
             .WithTags("Mcp")
             .AllowAnonymous();
     }
 
-    private static IResult GetManifest(HttpContext httpContext, IConfiguration config)
+    private static McpManifest BuildManifest(IConfiguration config)
     {
         var baseUrl = (config["App:BaseUrl"] ?? "https://textstack.app").TrimEnd('/');
         var docsUrl = $"{baseUrl}/en/mcp";
 
-        var manifest = new McpManifest(
+        return new McpManifest(
             Name: "textstack",
             Version: "1.0.0",
             Description: "Query your TextStack reading library from any MCP client.",
@@ -37,11 +46,6 @@ public static class McpManifestEndpoints
             Endpoint: $"{baseUrl}/mcp",
             Auth: new McpManifestAuth(Type: "oauth2", HowTo: docsUrl), // ADR-017: authorization code + PKCE; device flow still serves stdio
             Documentation: docsUrl,
-            Tools: McpManifestCatalog.Served(config.GetValue<bool>("Features:V2Api"))); // the flag that maps /me/v2
-
-        // Public, cacheable discovery document.
-        httpContext.Response.Headers.CacheControl = "public, max-age=3600";
-
-        return Results.Ok(manifest);
+            Tools: McpManifestCatalog.Served(config.GetValue<bool>("Features:V2Api")));
     }
 }
