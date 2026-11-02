@@ -267,6 +267,24 @@ jobs:
           # Keep only the 2 newest pre-deploy backups
           cd ~/backups/textstack && ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
 
+      # The V2 database's rollback point (ADR-030, #1043), after legacy's. A deploy never migrates V2
+      # (that is `make migrate-v2`), and nothing legacy may wait on V2 (the 2026-10-30 postmortem):
+      # a missing database is skipped and a failed dump is a warning, never a stopped deploy.
+      - name: Pre-deploy backup (V2)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          exists=$(docker exec textstack_db_prod psql -XtA -U textstack_prod -d postgres \
+            -c "SELECT 1 FROM pg_database WHERE datname = 'textstack_v2'")
+          [ -n "$exists" ] || { echo "No textstack_v2 database on this server: V2 dump skipped"; exit 0; }
+          f=~/backups/textstack/textstack_v2-pre-deploy-$(date +%F-%H%M).sql.gz
+          docker exec textstack_db_prod pg_dump -U textstack_prod textstack_v2 | gzip > $f.tmp
+          zcat $f.tmp | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
+            || { echo "::warning::V2 pre-deploy dump is incomplete; deploying without a V2 rollback point"; exit 1; }
+          mv $f.tmp $f
+          echo "V2 backup created: $(basename $f)"
+          cd ~/backups/textstack && ls -1t textstack_v2-pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
+
       # Vite reads apps/web/.env* and inlines VITE_* values into public JS. Nothing
       # here needs those files — the four VITE_ variables the code reads come from
       # apps/web/production.env (the fallback build below exports them, and the
