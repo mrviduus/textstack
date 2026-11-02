@@ -24,7 +24,7 @@ public sealed record McpManifestAuth(string Type, string HowTo);
 
 /// <summary>
 /// One tool: name + human description (mirrors the runtime catalog). <see cref="V2Only"/>: registered
-/// only by a bridge on the V2 sync API, so not advertised; never on the wire.
+/// only by a bridge on the V2 sync API; advertised only when <c>Features:V2Api</c> is on (<see cref="McpManifestCatalog.Served"/>).
 /// </summary>
 public sealed record McpToolDescriptor(string Name, string Description, [property: JsonIgnore] bool V2Only = false);
 
@@ -182,7 +182,7 @@ public static class McpManifestCatalog
             + "REPLACES the chapter's review. If the save is refused, the error lists every problem — "
             + "fix all of them and save again."),
 
-        // V2-only: registered by a bridge on the V2 sync API (TEXTSTACK_MCP_V2); not advertised.
+        // V2-only: registered by a bridge on the V2 sync API (TEXTSTACK_MCP_V2); advertised only when Features:V2Api is on (Served).
         new("share_chapter",
             "Snapshot one chapter of a book the user UPLOADED for this discussion (WRITE on their own account — "
             + "requires authentication). Pass the bookId, the chapterKey, the chapter text as the reader shared it, and "
