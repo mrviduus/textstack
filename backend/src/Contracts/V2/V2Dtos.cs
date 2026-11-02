@@ -80,3 +80,40 @@ public sealed record AnnotationRequest(
 public sealed record AnnotationDto(
     Guid Id, Guid BookId, Guid? FileId, string SelectedText, string? NoteText, [property: JsonConverter(typeof(RawJsonConverter))] string? Locator, string Color,
     DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? DeletedAt, long Revision);
+
+/// <summary>A card save; <see cref="Example"/>, when sent, is added to whichever card the key resolves to.</summary>
+public sealed record SaveVocabularyWordRequest(
+    Guid? Id, string? Language, string? Word, string? Translation, string? Definition, VocabularyExampleRequest? Example);
+
+public sealed record VocabularyExampleRequest(
+    Guid? OperationId, string? Sentence, string? ContextualTranslation, Guid? BookId, Guid? FileId, string? ChapterKey, string? BookTitle);
+
+/// <summary>A card edit with merge-patch semantics, as <see cref="PatchBookRequest"/>: absent keeps, null clears.</summary>
+public sealed record PatchVocabularyWordRequest(long? ExpectedRevision, JsonElement Translation, JsonElement Definition);
+
+public sealed record RestoreVocabularyWordRequest(long? ExpectedRevision);
+
+public sealed record VocabularyReviewRequest(
+    Guid? OperationId, Guid? WordId, string? ReviewMode, bool? IsCorrect, int? ResponseTimeMs, DateTimeOffset? ClientRecordedAt);
+
+/// <summary>
+/// The word card ("Payloads → Vocabulary"); <c>wordKey</c> is the server's and is not sent.
+/// <see cref="Example"/> is on a save only: whether its example was <c>added</c> or <c>replayed</c>.
+/// </summary>
+public sealed record VocabularyWordDto(
+    Guid Id, string Language, string Word, string? Translation, string? Definition,
+    int Stage, decimal IntervalDays, int ConsecutiveCorrect, DateTimeOffset NextReviewAt, DateTimeOffset? LastReviewedAt,
+    DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? DeletedAt, DateTimeOffset? RetiredAt, long Revision,
+    IReadOnlyList<VocabularyExampleDto> Examples,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Example = null);
+
+public sealed record VocabularyExampleDto(
+    Guid Id, Guid OperationId, string Sentence, string? ContextualTranslation, Guid? BookId, Guid? FileId, string? ChapterKey,
+    string? BookTitle, DateTimeOffset CreatedAt);
+
+public sealed record VocabularyReviewDto(
+    Guid Id, Guid OperationId, Guid WordId, string ReviewMode, bool IsCorrect, int? ResponseTimeMs,
+    int StageBefore, int StageAfter, DateTimeOffset ClientRecordedAt, DateTimeOffset CreatedAt);
+
+/// <summary>An answer and the card with the schedule the server applied to it (S3).</summary>
+public sealed record RecordedReviewDto(VocabularyReviewDto Review, VocabularyWordDto Word);

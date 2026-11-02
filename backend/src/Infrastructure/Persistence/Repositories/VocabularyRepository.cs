@@ -11,15 +11,19 @@ namespace Infrastructure.Persistence.Repositories;
 /// leans on live in the schema (database/v2/migrations/0000_baseline.up.sql, "Vocabulary"): one card
 /// per <c>(user_id, language, word_key)</c>, tombstones included, so a retried save cannot make a
 /// second card; one example or review per <c>(user_id, operation_id)</c>; and composite FKs that keep
-/// every row on its own user's card, book and file.
+/// every row on its own user's card, book and file. Split by concern: this file writes (cards,
+/// examples, reviews); <c>VocabularyRepository.Reads.cs</c> reads one card or a page of them.
 /// </summary>
-public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyRepository
+public sealed partial class VocabularyRepository(V2DataSource dataSource) : IVocabularyRepository
 {
     private const string WordColumns =
         "id, user_id, language, word, word_key, translation, definition, stage, interval_days, consecutive_correct, next_review_at, last_reviewed_at, created_at, updated_at, deleted_at, retired_at, revision";
     // The example insert's column list is this one minus deleted_at; the two must agree.
     private const string ExampleColumns =
         "id, user_id, word_id, book_id, file_id, chapter_key, book_title, sentence, contextual_translation, operation_id, payload_sha256, created_at, deleted_at";
+    // What a read shows of an example: no owner, hash or tombstone (reads return live examples only).
+    private const string ExampleReadColumns =
+        "id, word_id, book_id, file_id, chapter_key, book_title, sentence, contextual_translation, operation_id, created_at";
     private const string ReviewColumns =
         "id, user_id, word_id, operation_id, payload_sha256, review_mode, is_correct, response_time_ms, stage_before, stage_after, client_recorded_at, created_at";
 
@@ -66,16 +70,19 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
         RETURNING {WordColumns}
         """;
 
-    public async Task<RevisionedWrite<VocabularyWord>> UpdateWordAsync(
-        Guid userId, Guid wordId, string? translation, string? definition, long expectedRevision, CancellationToken ct)
+    public Task<RevisionedWrite<VocabularyWord>> UpdateWordAsync(
+        Guid userId, Guid wordId, string? translation, string? definition, long expectedRevision, CancellationToken ct) =>
+        GuardedAsync(UpdateWordGuarded, new { userId, wordId, translation, definition, expectedRevision }, ct);
+
+    /// <summary>A revision-guarded write returning the card; on a loss, the card as stored (null when not the user's).</summary>
+    private async Task<RevisionedWrite<VocabularyWord>> GuardedAsync(string guardedWrite, object args, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        var written = await conn.QuerySingleOrDefaultAsync<VocabularyWord>(new CommandDefinition(
-            UpdateWordGuarded, new { userId, wordId, translation, definition, expectedRevision }, cancellationToken: ct));
+        var written = await conn.QuerySingleOrDefaultAsync<VocabularyWord>(new CommandDefinition(guardedWrite, args, cancellationToken: ct));
         return written is not null
             ? new RevisionedWrite<VocabularyWord>(true, written)
             : new RevisionedWrite<VocabularyWord>(false, await conn.QuerySingleOrDefaultAsync<VocabularyWord>(
-                new CommandDefinition(SelectWordById, new { userId, wordId }, cancellationToken: ct)));
+                new CommandDefinition(SelectWordById, args, cancellationToken: ct)));
     }
 
     private const string SoftDeleteWord = """
@@ -89,32 +96,14 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
         return await conn.ExecuteAsync(new CommandDefinition(SoftDeleteWord, new { userId, wordId }, cancellationToken: ct)) > 0;
     }
 
-    private const string RestoreDeletedWord = """
+    private const string RestoreDeletedWordGuarded = $"""
         UPDATE vocabulary_words SET deleted_at = NULL, updated_at = now(), revision = revision + 1
-        WHERE user_id = @userId AND id = @wordId AND deleted_at IS NOT NULL
+        WHERE user_id = @userId AND id = @wordId AND revision = @expectedRevision AND deleted_at IS NOT NULL
+        RETURNING {WordColumns}
         """;
 
-    public async Task<bool> RestoreWordAsync(Guid userId, Guid wordId, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(RestoreDeletedWord, new { userId, wordId }, cancellationToken: ct)) > 0;
-    }
-
-    private const string SelectWordWithExamples = SelectWordById + $"""
-        ;
-        SELECT {ExampleColumns} FROM vocabulary_examples
-        WHERE user_id = @userId AND word_id = @wordId AND deleted_at IS NULL
-        ORDER BY created_at, id;
-        """;
-
-    public async Task<VocabularyWord?> GetWordAsync(Guid userId, Guid wordId, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var results = await conn.QueryMultipleAsync(new CommandDefinition(SelectWordWithExamples, new { userId, wordId }, cancellationToken: ct));
-        var word = await results.ReadSingleOrDefaultAsync<VocabularyWord>();
-        if (word is not null) word.Examples = (await results.ReadAsync<VocabularyExample>()).AsList();
-        return word;
-    }
+    public Task<RevisionedWrite<VocabularyWord>> RestoreWordAsync(Guid userId, Guid wordId, long expectedRevision, CancellationToken ct) =>
+        GuardedAsync(RestoreDeletedWordGuarded, new { userId, wordId, expectedRevision }, ct);
 
     private const string UpsertExample = $"""
         WITH ins AS (
@@ -152,7 +141,8 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
     }
 
     // The due time is the server's: its clock plus the interval (ADR-031 rule 7). An answer recorded
-    // offline and synced late does not move last_reviewed_at back.
+    // offline and synced late does not move last_reviewed_at back, and a clock ahead of the server's
+    // cannot move it past now() (a far-future one would pin it forever).
     private const string UpsertReviewAndSchedule = $"""
         WITH ins AS (
             INSERT INTO vocabulary_reviews ({ReviewColumns})
@@ -165,7 +155,10 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
                 interval_days = @IntervalDays,
                 consecutive_correct = @ConsecutiveCorrect,
                 next_review_at = now() + CAST(@IntervalDays AS double precision) * interval '1 day',
-                last_reviewed_at = GREATEST(last_reviewed_at, @ClientRecordedAt),
+                last_reviewed_at = GREATEST(last_reviewed_at, LEAST(@ClientRecordedAt, now())),
+                -- Retired once, and only a first retire bumps the revision (PDD S3, owner decision 1).
+                retired_at = COALESCE(retired_at, CASE WHEN @Retire THEN now() END),
+                revision = revision + CASE WHEN @Retire AND retired_at IS NULL THEN 1 ELSE 0 END,
                 updated_at = now()
             WHERE user_id = @UserId AND id = @WordId AND EXISTS (SELECT FROM ins WHERE inserted)
         )
@@ -201,21 +194,6 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
         }
         await tx.CommitAsync(ct);
         return result;
-    }
-
-    // Matches the partial index ix_vocabulary_words_user_id_next_review_at (live, unretired cards by due time).
-    private const string SelectDueWords = $"""
-        SELECT {WordColumns} FROM vocabulary_words
-        WHERE user_id = @userId AND deleted_at IS NULL AND retired_at IS NULL AND next_review_at <= @now
-        ORDER BY next_review_at, id
-        LIMIT @limit
-        """;
-
-    public async Task<IReadOnlyList<VocabularyWord>> ListDueAsync(Guid userId, DateTimeOffset now, int limit, CancellationToken ct)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return (await conn.QueryAsync<VocabularyWord>(new CommandDefinition(SelectDueWords, new { userId, now, limit }, cancellationToken: ct))).AsList();
     }
 
     /// <summary>

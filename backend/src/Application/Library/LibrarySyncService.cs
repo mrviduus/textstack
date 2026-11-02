@@ -20,7 +20,7 @@ public sealed class LibrarySyncService(ILibraryRepository library, IReadingState
     public async Task<SyncResult> ImportAsync(Guid userId, Guid bookId, ImportBookRequest r, CancellationToken ct)
     {
         var metadata = new BookMetadata(r.Title!, r.Author, r.Language, r.Description, r.Genre, r.PublishedYear, r.Tags ?? []);
-        var invalid = Metadata(metadata) ?? File("file.", r.File) ?? Required(r.File!.Id, "file.id");
+        var invalid = ClientId(bookId, "bookId") ?? Metadata(metadata) ?? File("file.", r.File) ?? ClientId(r.File!.Id, "file.id");
         if (invalid is not null) return invalid;
 
         var book = new Book

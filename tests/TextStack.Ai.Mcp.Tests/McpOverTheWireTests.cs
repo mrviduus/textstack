@@ -786,7 +786,7 @@ public class McpOverTheWireTests : IAsyncLifetime
         var words = JsonDocument.Parse("""[{ "word": "crepuscular", "language": "en", "translation": "сутінковий" }]""").RootElement;
 
         var added = await CallAsync(client, "add_vocabulary_words",
-            Args(("words", words), ("bookId", StubBackend.UserBookId)));
+            Args(("words", words), ("bookId", StubBackend.UserBookId), ("operationId", Guid.NewGuid())));
         AssertOk(added);
         var line = Json(added).GetProperty("results")[0];
         Assert.Equal("srs", line.GetProperty("status").GetString());
@@ -802,5 +802,122 @@ public class McpOverTheWireTests : IAsyncLifetime
         var deleted = await CallAsync(client, "delete_vocabulary_word", Args(("id", id)));
         AssertOk(deleted);
         Assert.True(Json(deleted).GetProperty("deleted").GetBoolean());
+        // With the option off (the default) nothing reaches the V2 API.
+        Assert.Null(_harness.Stub.Last("v2_save_word"));
+    }
+
+    // ── the same four tools with McpBridgeOptions.V2Vocabulary on ────────────────
+
+    [Fact]
+    public async Task VocabularyTools_V2Option_ReorderedRetrySendsEachWordItsIdAgainWithoutTheLegacyBookId()
+    {
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2Vocabulary: true);
+        await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+        const string crepuscular = """{ "word": "crepuscular", "language": "en", "translation": "сутінковий", "sentence": "The crepuscular light." }""";
+        const string quiver = """{ "word": "quiver", "language": "en", "translation": "колчан" }""";
+        var operationId = Guid.NewGuid();
+        Dictionary<string, object?> ArgsOf(string words) =>
+            Args(("words", JsonDocument.Parse(words).RootElement), ("bookId", StubBackend.UserBookId), ("bookTitle", "Dracula"), ("operationId", operationId));
+
+        var added = await CallAsync(client, "add_vocabulary_words", ArgsOf($"[{crepuscular},{quiver}]"));
+        var retried = await CallAsync(client, "add_vocabulary_words", ArgsOf($"[{quiver},{crepuscular}]"));
+
+        AssertOk(added);
+        AssertOk(retried);
+        var saves = harness.Stub.All("v2_save_word").Select(r => JsonDocument.Parse(r.Body).RootElement).ToList();
+        Assert.All(harness.Stub.All("v2_save_word"), r => Assert.Equal(("PUT", "/me/v2/vocabulary/words"), (r.Method, r.PathAndQuery)));
+        string IdOf(JsonElement save) => save.GetProperty("id").GetString()!;
+        Assert.Equal((IdOf(saves[0]), IdOf(saves[1])), (IdOf(saves[3]), IdOf(saves[2])));
+        Assert.NotEqual(IdOf(saves[0]), IdOf(saves[1]));
+        var example = saves[0].GetProperty("example");
+        Assert.Equal(IdOf(saves[0]), example.GetProperty("operationId").GetString());
+        Assert.Equal(("The crepuscular light.", "Dracula", false), (example.GetProperty("sentence").GetString(), example.GetProperty("bookTitle").GetString(), example.TryGetProperty("bookId", out _)));
+        var line = Json(added).GetProperty("results")[0];
+        Assert.Equal(("srs", IdOf(saves[0])), (line.GetProperty("status").GetString(), line.GetProperty("id").GetString()));
+        Assert.Null(harness.Stub.Last("add_vocabulary_words"));
+    }
+
+    [Fact]
+    public async Task VocabularyTools_V2Option_ExistingDeletedAndMissingCards_MapToAlreadySavedRefusedAndNoSuchWord()
+    {
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2Vocabulary: true);
+        await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+        var words = JsonDocument.Parse($$"""
+            [{ "word": "{{StubBackend.ExistingV2Word}}", "language": "en", "translation": "t" },
+             { "word": "{{StubBackend.DeletedV2Word}}", "language": "en", "translation": "t" }]
+            """).RootElement;
+
+        var added = await CallAsync(client, "add_vocabulary_words", Args(("words", words), ("operationId", Guid.NewGuid())));
+        var update = await CallAsync(client, "update_vocabulary_word", Args(("id", StubBackend.MissingV2WordId), ("translation", "t")));
+
+        var lines = Json(added).GetProperty("results");
+        Assert.Equal(("already_saved", "55555555-5555-5555-5555-555555555555"), (lines[0].GetProperty("status").GetString(), lines[0].GetProperty("id").GetString()));
+        Assert.Equal(("refused", "This item was deleted."), (lines[1].GetProperty("status").GetString(), lines[1].GetProperty("message").GetString()));
+        Assert.True(update.IsError);
+        Assert.Contains("no such word", TextOf(update));
+        Assert.Null(harness.Stub.Last("v2_patch_word"));
+    }
+
+    [Theory]
+    [InlineData(503)]
+    [InlineData(404)]
+    public async Task ListMyVocabulary_V2FeedNotAnswering_IsAToolErrorNotAnEmptyList(int status)
+    {
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2Vocabulary: true);
+        harness.Stub.V2FeedStatus = status;
+        await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var listed = await CallAsync(client, "list_my_vocabulary", Args());
+
+        Assert.True(listed.IsError);
+        Assert.Contains("refused: Sync is paused.", TextOf(listed)); // the server's own message
+    }
+
+    [Fact]
+    public async Task AddVocabularyWords_V2OptionWithoutOperationId_IsAToolErrorAndSavesNothing()
+    {
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2Vocabulary: true);
+        await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+        var words = JsonDocument.Parse("""[{ "word": "quiver", "language": "en", "translation": "колчан" }]""").RootElement;
+
+        var added = await CallAsync(client, "add_vocabulary_words", Args(("words", words)));
+
+        Assert.True(added.IsError);
+        Assert.Contains("'operationId' is required", TextOf(added));
+        Assert.Null(harness.Stub.Last("v2_save_word"));
+    }
+
+    [Fact]
+    public async Task ListTools_OverWire_AddVocabularyWordsRequiresOperationId()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var tool = (await client.ListToolsAsync(cancellationToken: Ct)).Single(t => t.Name == "add_vocabulary_words");
+
+        Assert.Contains("operationId", tool.ProtocolTool.InputSchema.GetProperty("required").EnumerateArray().Select(r => r.GetString()));
+    }
+
+    [Fact]
+    public async Task VocabularyTools_V2Option_ListReadsTheFeedAndEditsCarryTheRevisionJustRead()
+    {
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2Vocabulary: true);
+        await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+        const string id = "55555555-5555-5555-5555-555555555555";
+
+        var listed = await CallAsync(client, "list_my_vocabulary", Args());
+        var updated = await CallAsync(client, "update_vocabulary_word", Args(("id", id), ("translation", "сутінки")));
+        var deleted = await CallAsync(client, "delete_vocabulary_word", Args(("id", id)));
+
+        var root = Json(listed);
+        Assert.Equal(1, root.GetProperty("total").GetInt32()); // the tombstone is not listed
+        Assert.Equal(("Crepuscular", "Dracula"), (root.GetProperty("items")[0].GetProperty("word").GetString(), root.GetProperty("items")[0].GetProperty("bookTitle").GetString()));
+        Assert.Equal("/me/v2/vocabulary/changes?limit=500", harness.Stub.Last("v2_vocabulary_changes")!.PathAndQuery);
+        AssertOk(updated);
+        Assert.Equal($"/me/v2/vocabulary/words/{id}", harness.Stub.Last("v2_get_word")!.PathAndQuery);
+        var patch = JsonDocument.Parse(harness.Stub.Last("v2_patch_word")!.Body).RootElement;
+        Assert.Equal((3L, "сутінки", false), (patch.GetProperty("expectedRevision").GetInt64(), patch.GetProperty("translation").GetString(), patch.TryGetProperty("definition", out _)));
+        AssertOk(deleted);
+        Assert.Equal(("DELETE", $"/me/v2/vocabulary/words/{id}"), (harness.Stub.Last("v2_delete_word")!.Method, harness.Stub.Last("v2_delete_word")!.PathAndQuery));
+        Assert.Null(harness.Stub.Last("list_my_vocabulary"));
     }
 }

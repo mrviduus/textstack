@@ -108,4 +108,31 @@ public class SyncValidationTests
     [InlineData(-0.01)]
     [InlineData(1.01)]
     public void Fraction_OutsideZeroToOne_IsRefused(double value) => Assert.Equal("bookFraction", FieldOf(Fraction((decimal)value, "bookFraction")));
+
+    private static VocabularyExampleRequest Sentence(Guid? bookId = null, Guid? fileId = null, string? chapterKey = null, string sentence = "It quivered.") =>
+        new(Guid.NewGuid(), sentence, null, bookId, fileId, chapterKey, null);
+
+    [Fact]
+    public void Example_FileOrChapterKeyWithoutABook_IsRefused()
+    {
+        Assert.Equal("bookId", FieldOf(Example(Sentence(fileId: Guid.NewGuid()))));
+        Assert.Equal("bookId", FieldOf(Example(Sentence(chapterKey: "ch1.xhtml"))));
+        Assert.Null(Example(Sentence(Guid.NewGuid(), Guid.NewGuid(), "ch1.xhtml")));
+    }
+
+    [Fact]
+    public void Example_SentenceOverItsCap_IsRefused() =>
+        Assert.Equal("sentence", FieldOf(Example(Sentence(sentence: new string('s', MaxSentence + 1)))));
+
+    [Fact]
+    public void ClientId_EmptyUuid_IsRefused() => Assert.Equal("id", FieldOf(ClientId(Guid.Empty, "id")));
+
+    // ADR-019's skew: a little ahead is a clock, far ahead is a broken one.
+    [Fact]
+    public void NotFuture_PastTheSkew_IsRefusedAndAtItPasses()
+    {
+        var now = new DateTimeOffset(2026, 11, 1, 12, 0, 0, TimeSpan.Zero);
+        Assert.Equal("endedAt", FieldOf(NotFuture(now.AddMinutes(5).AddSeconds(1), now, "endedAt")));
+        Assert.Null(NotFuture(now.AddMinutes(5), now, "endedAt"));
+    }
 }

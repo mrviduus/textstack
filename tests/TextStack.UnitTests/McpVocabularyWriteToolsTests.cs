@@ -63,7 +63,7 @@ public class McpVocabularyWriteToolsTests
             Json("""{ "outcome": "pending", "pendingId": "22222222-2222-2222-2222-222222222222", "reason": "daily_cap" }"""),
             Json("""{ "outcome": "lookup", "lookupId": "33333333-3333-3333-3333-333333333333", "reason": "rare_word" }"""));
 
-        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "words": {{Words(4)}}, "bookId": "{{WordId}}", "bookTitle": "B" }"""), CancellationToken.None);
+        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": {{Words(4)}}, "bookId": "{{WordId}}", "bookTitle": "B" }"""), CancellationToken.None);
 
         Assert.NotEqual(true, result.IsError);
         var lines = Results(result);
@@ -92,7 +92,7 @@ public class McpVocabularyWriteToolsTests
             Json("\"Word is required (max 200 chars)\"", HttpStatusCode.BadRequest),
             Srs("w2"));
 
-        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "words": {{Words(3)}} }"""), CancellationToken.None);
+        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": {{Words(3)}} }"""), CancellationToken.None);
 
         var lines = Results(result);
         Assert.Equal(3, handler.Requests.Count);
@@ -106,7 +106,7 @@ public class McpVocabularyWriteToolsTests
     {
         var (catalog, handler) = Build(Json("""{ "error": "native_language_required" }""", HttpStatusCode.BadRequest));
 
-        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "words": {{Words(3)}} }"""), CancellationToken.None);
+        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": {{Words(3)}} }"""), CancellationToken.None);
 
         // A user-level refusal stops the batch: the same answer 20 times tells the model nothing.
         Assert.Single(handler.Requests);
@@ -122,7 +122,7 @@ public class McpVocabularyWriteToolsTests
         var (catalog, handler) = Build(Srs("ephemeral"));
 
         var result = await catalog.CallAsync("add_vocabulary_words",
-            Args("""{ "words": [{ "word": "ephemeral", "language": "en", "definition": "lasting a very short time" }] }"""),
+            Args("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": [{ "word": "ephemeral", "language": "en", "definition": "lasting a very short time" }] }"""),
             CancellationToken.None);
 
         Assert.Equal("srs", Results(result)[0].GetProperty("status").GetString());
@@ -139,7 +139,7 @@ public class McpVocabularyWriteToolsTests
             Json("""{ "detail": "Vocabulary limit reached (5000 words)" }""", HttpStatusCode.TooManyRequests),
             Srs("w2"));
 
-        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "words": {{Words(4)}} }"""), CancellationToken.None);
+        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": {{Words(4)}} }"""), CancellationToken.None);
 
         Assert.Equal(2, handler.Requests.Count);
         var lines = Results(result);
@@ -151,14 +151,15 @@ public class McpVocabularyWriteToolsTests
     }
 
     [Theory]
-    [InlineData("""{ "words": [] }""")]
-    [InlineData("""{ "words": [{ "word": "a", "language": "en" }] }""")] // neither translation nor definition
-    [InlineData("""{ "words": [{ "word": "a", "language": "en", "translation": "" }] }""")]
-    [InlineData("""{ "words": [{ "word": "a", "language": "e", "translation": "t" }] }""")] // language too short
-    [InlineData("""{ "words": [{ "word": "a", "language": "en", "translation": "t", "extra": 1 }] }""")]
-    [InlineData("""{ "words": [{ "word": "a", "language": "en", "translation": "t" }], "bookId": "11111111-1111-1111-1111-111111111111", "editionId": "11111111-1111-1111-1111-111111111111" }""")]
-    [InlineData("""{ "words": "a" }""")]
+    [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": [] }""")]
+    [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": [{ "word": "a", "language": "en" }] }""")] // neither translation nor definition
+    [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": [{ "word": "a", "language": "en", "translation": "" }] }""")]
+    [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": [{ "word": "a", "language": "e", "translation": "t" }] }""")] // language too short
+    [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": [{ "word": "a", "language": "en", "translation": "t", "extra": 1 }] }""")]
+    [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": [{ "word": "a", "language": "en", "translation": "t" }], "bookId": "11111111-1111-1111-1111-111111111111", "editionId": "11111111-1111-1111-1111-111111111111" }""")]
+    [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": "a" }""")]
     [InlineData("""{ }""")]
+    [InlineData("""{ "operationId": "not-a-uuid", "words": [{ "word": "a", "language": "en", "translation": "t" }] }""")]
     public async Task AddVocabularyWords_InvalidArgs_ReturnsToolError_NeverHitsHttp(string args)
     {
         var (catalog, handler) = Build(Srs("x"));
@@ -169,12 +170,39 @@ public class McpVocabularyWriteToolsTests
         Assert.Empty(handler.Requests);
     }
 
+    // Required by the schema (owner decision 13), but legacy has no idempotency to lose: a host that sends none still saves.
+    [Fact]
+    public async Task AddVocabularyWords_NoOperationIdOnLegacy_StillSaves()
+    {
+        var (catalog, handler) = Build(Srs("a"));
+
+        var result = await catalog.CallAsync("add_vocabulary_words", Args("""{ "words": [{ "word": "a", "language": "en", "translation": "t" }] }"""), CancellationToken.None);
+
+        Assert.NotEqual(true, result.IsError);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public void FromEnvironment_V2VocabularySetToOne_IsOn()
+    {
+        var before = Environment.GetEnvironmentVariable("TEXTSTACK_MCP_V2_VOCABULARY");
+        Environment.SetEnvironmentVariable("TEXTSTACK_MCP_V2_VOCABULARY", "1");
+        try
+        {
+            Assert.True(McpBridgeOptions.FromEnvironment().V2Vocabulary);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TEXTSTACK_MCP_V2_VOCABULARY", before);
+        }
+    }
+
     [Fact]
     public async Task AddVocabularyWords_MoreThan20_ReturnsToolError_NeverHitsHttp()
     {
         var (catalog, handler) = Build(Srs("x"));
 
-        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "words": {{Words(21)}} }"""), CancellationToken.None);
+        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": {{Words(21)}} }"""), CancellationToken.None);
 
         Assert.True(result.IsError);
         Assert.Contains("between 1 and 20", TextOf(result));

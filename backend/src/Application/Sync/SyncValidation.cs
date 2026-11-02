@@ -18,6 +18,25 @@ public static class SyncValidation
     private const int MaxQuoteCodePoints = 64;
     private const int MaxContextCodePoints = 32;
 
+    // Vocabulary caps (UTF-16 units; legacy's where it had one, which reads them from here; past them the key index 500s).
+    public const int MaxLanguage = 16;
+    public const int MaxWord = 200;
+    public const int MaxTranslation = 500;
+    public const int MaxDefinition = 2000;
+    public const int MaxSentence = 1000;
+    public const int MaxContextualTranslation = 4000;
+    public const int MaxBookTitle = 500;
+    public const int MaxChapterKey = 200;
+    public const int MaxReviewMode = 64;
+
+    /// <summary>ADR-019's clock skew: a client time further ahead than this is a broken clock, not an answer.</summary>
+    // Checked against the API's clock while the rows are stamped by the database's: fine at 5 minutes.
+    public static readonly TimeSpan MaxClockSkew = TimeSpan.FromMinutes(5);
+
+    /// <summary>A client time no further ahead of <paramref name="now"/> than <see cref="MaxClockSkew"/>.</summary>
+    public static SyncResult? NotFuture(DateTimeOffset? at, DateTimeOffset now, string field) =>
+        at > now + MaxClockSkew ? SyncResult.Invalid(field, $"{field} is in the future.") : null;
+
     /// <summary>Lowercase hex only: the client keys its local files by it, so uppercase is refused, never lowered.</summary>
     public static SyncResult? Sha256(string? value, string field = "sha256") =>
         value is not null && Sha256Hex.IsMatch(value) ? null : SyncResult.Invalid(field, "sha256 must be 64 lowercase hex digits.");
@@ -44,9 +63,49 @@ public static class SyncValidation
         RequiredText(m.Title, "title") ?? Tags(m.Tags) ?? Text(m.Author, "author") ?? Text(m.Language, "language")
         ?? Text(m.Description, "description") ?? Text(m.Genre, "genre");
 
+    /// <summary>An example's provenance hangs on its book: a file version or a chapter key without one is refused.</summary>
+    public static SyncResult? Example(VocabularyExampleRequest e, string prefix = "") =>
+        ClientId(e.OperationId, prefix + "operationId") ?? RequiredText(e.Sentence, prefix + "sentence", MaxSentence)
+        ?? Text(e.ContextualTranslation, prefix + "contextualTranslation", MaxContextualTranslation)
+        ?? Text(e.BookTitle, prefix + "bookTitle", MaxBookTitle)
+        ?? (e.ChapterKey is null ? null : RequiredText(e.ChapterKey, prefix + "chapterKey", MaxChapterKey))
+        ?? (e.BookId is null && (e.FileId is not null || e.ChapterKey is not null)
+            ? SyncResult.Invalid(prefix + "bookId", "fileId and chapterKey need bookId.") : null);
+
+    /// <summary>A client-minted id: present and not the empty UUID (the PDD's ids are v4).</summary>
+    public static SyncResult? ClientId(Guid? id, string field) =>
+        id is null || id == Guid.Empty ? SyncResult.Invalid(field, $"{field} must be a client-minted UUID.") : null;
+
     /// <summary>Present, not blank, and storable (<see cref="Text"/>).</summary>
     public static SyncResult? RequiredText(string? value, string field) =>
         string.IsNullOrWhiteSpace(value) ? SyncResult.Invalid(field, $"{field} is required.") : Text(value, field);
+
+    /// <summary><see cref="RequiredText(string?, string)"/> with a length cap.</summary>
+    public static SyncResult? RequiredText(string? value, string field, int max) =>
+        string.IsNullOrWhiteSpace(value) ? SyncResult.Invalid(field, $"{field} is required.") : Text(value, field, max);
+
+    /// <summary><see cref="Text(string?, string)"/> with a length cap, in UTF-16 units.</summary>
+    public static SyncResult? Text(string? value, string field, int max) =>
+        value?.Length > max ? SyncResult.Invalid(field, $"{field} is at most {max} characters.") : Text(value, field);
+
+    /// <summary>
+    /// One field of a merge-patch: an absent member keeps <paramref name="kept"/>, null clears it, a
+    /// string replaces it (checked by <see cref="Text(string?, string, int)"/>).
+    /// </summary>
+    public static SyncResult? Merge(JsonElement sent, string? kept, string field, out string? merged, int max = int.MaxValue)
+    {
+        merged = kept;
+        try
+        {
+            if (sent.ValueKind != JsonValueKind.Undefined) merged = sent.Deserialize<string?>();
+            return Text(merged, field, max);
+        }
+        // A wrong type, or an escaped lone surrogate a string cannot even be read from.
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
+        {
+            return SyncResult.Invalid(field, $"{field} is a string or null.");
+        }
+    }
 
     public static SyncResult? Tags(string[]? tags) =>
         tags is null || tags.All(t => !string.IsNullOrWhiteSpace(t) && IsStorable(t)) ? null : SyncResult.Invalid("tags", "tags must be non-blank strings.");

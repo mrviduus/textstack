@@ -555,7 +555,9 @@ public sealed class McpToolCatalog
 
             return InvokeAsync("list_my_vocabulary", ct, async () =>
             {
-                var page = await api.GetVocabularyAsync(stage, search, limit, offset, ct);
+                var listed = await api.GetVocabularyAsync(stage, search, limit, offset, ct);
+                if (listed.Error is { } refused) return Error($"list_my_vocabulary refused: {refused}");
+                var page = listed.Value!;
                 var items = page.Items.Select(w => new
                 {
                     // What update_vocabulary_word / delete_vocabulary_word take.
@@ -601,9 +603,10 @@ public sealed class McpToolCatalog
             },
             "bookId": { "type": "string", "format": "uuid" },
             "editionId": { "type": "string", "format": "uuid" },
-            "bookTitle": { "type": "string", "maxLength": 300 }
+            "bookTitle": { "type": "string", "maxLength": 300 },
+            "operationId": { "type": "string", "format": "uuid" }
           },
-          "required": ["words"],
+          "required": ["words", "operationId"],
           "additionalProperties": false
         }
         """).RootElement;
@@ -628,7 +631,8 @@ public sealed class McpToolCatalog
         InputSchema = AddVocabularyWordsSchema,
         Handler = (args, ct) =>
         {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "words", "bookId", "editionId", "bookTitle")
+            if (!ArgReader.TryObject(args, out var obj, out var err, "words", "bookId", "editionId", "bookTitle", "operationId")
+                || !ArgReader.TryOptionalGuid(obj, "operationId", out var operationId, out err)
                 || !ArgReader.TryOptionalGuid(obj, "bookId", out var bookId, out err)
                 || !ArgReader.TryOptionalGuid(obj, "editionId", out var editionId, out err)
                 || !ArgReader.TryOptionalString(obj, "bookTitle", 300, out var bookTitle, out err)
@@ -639,12 +643,16 @@ public sealed class McpToolCatalog
                 return Task.FromResult(Error(
                     "Pass either 'bookId' (an uploaded book) or 'editionId' (a catalog book), not both."));
 
+            // Owner decision 13: required by the schema; only an upstream without idempotency (legacy) tolerates its absence.
+            if (operationId is null && api.RequiresOperationId)
+                return Task.FromResult(Error("'operationId' is required: a new UUID for this save, the same one when retrying it."));
+
             return InvokeAsync("add_vocabulary_words", ct, async () =>
             {
                 var results = new List<WordResult>(words.Count);
                 for (var i = 0; i < words.Count; i++)
                 {
-                    var result = await api.SaveWordAsync(words[i], ct);
+                    var result = await api.SaveWordAsync(words[i], operationId, ct);
                     // Both refusals are about the user, not the word: every later word would get the same answer.
                     var stop = result.Status is System.Net.HttpStatusCode.TooManyRequests
                         ? new WordResult(words[i].Word, "stopped",

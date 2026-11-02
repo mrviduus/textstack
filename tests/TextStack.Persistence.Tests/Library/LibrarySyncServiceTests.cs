@@ -30,6 +30,18 @@ public class LibrarySyncServiceTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ImportAsync_EmptyBookOrFileId_IsInvalidPayload()
+    {
+        var file = new BookFileRequest(Guid.Empty, V2PostgresFixture.PayloadSha256("x"), 1024, "book.epub", "epub", null, null);
+        var request = new ImportBookRequest("A book", null, null, null, null, null, null, file);
+
+        var emptyBook = await _service.ImportAsync(Guid.NewGuid(), Guid.Empty, request with { File = file with { Id = Guid.NewGuid() } }, Ct);
+        var emptyFile = await _service.ImportAsync(Guid.NewGuid(), Guid.NewGuid(), request, Ct);
+
+        Assert.Equal(("bookId", "file.id"), (((V2Error)emptyBook.Body!).Field, ((V2Error)emptyFile.Body!).Field));
+    }
+
+    [Fact]
     public async Task ReplaceFileAsync_BookWithReadingState_DeletesTheStateWithTheReplacement()
     {
         var book = await BookWithStateAsync();

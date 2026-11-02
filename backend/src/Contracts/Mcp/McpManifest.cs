@@ -78,7 +78,9 @@ public static class McpManifestCatalog
             + "Each word needs its language, plus a translation in the user's NATIVE language when that differs from the "
             + "word's language, or else a short plain definition (1-2 sentences) when it is the same language or unknown. "
             + "Include the sentence it appeared in. Pass bookId (an uploaded book) or editionId (a catalog "
-            + "book) from get_my_reading, never both. Returns one line per word saying what happened to it; a word that "
+            + "book) from get_my_reading, never both. Pass operationId: a new UUID for each save the user agreed to, and "
+            + "the same one when retrying that call, so a retry never saves twice. "
+            + "Returns one line per word saying what happened to it; a word that "
             + "is already saved is not changed — use update_vocabulary_word for that instead of adding it again."),
         new("update_vocabulary_word",
             "Change the translation and/or definition of a word already in the user's vocabulary (WRITE on their own "

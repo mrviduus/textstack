@@ -7,6 +7,7 @@ using Dapper;
 using Domain.Discussion;
 using Domain.Identity;
 using Domain.Library;
+using Domain.Vocabulary;
 using Infrastructure.Persistence;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
@@ -113,7 +114,7 @@ public sealed class V2PostgresFixture : IAsyncLifetime
             ReviewMode = "flashcard",
             IsCorrect = true,
             ClientRecordedAt = DateTimeOffset.UtcNow,
-        }, c => new ReviewSchedule(c.Stage + 1, 1m, 0), Ct);
+        }, c => new ReviewSchedule(c.Stage + 1, 1m, 0, Retire: false), Ct);
         var share = NewShare(book);
         await new SharedChapterRepository(DataSource).ShareAsync(share, Ct);
         await new CheckpointRepository(DataSource).AppendAsync(NewCheckpoint(book, share), Ct);
@@ -216,6 +217,28 @@ public sealed class V2PostgresFixture : IAsyncLifetime
 
     /// <summary>A unique token hash.</summary>
     public static string NewHash() => PayloadSha256(Guid.NewGuid().ToString());
+
+    /// <summary>A card for <paramref name="userId"/>: English, its key the word itself.</summary>
+    public static VocabularyWord NewWord(Guid userId, string key = "quiver", string? translation = null) => new()
+    {
+        Id = Guid.NewGuid(),
+        UserId = userId,
+        Language = "en",
+        Word = key,
+        WordKey = key,
+        Translation = translation,
+    };
+
+    /// <summary>An example for <paramref name="card"/>; its hash is of the sentence, so the same sentence replays.</summary>
+    public static VocabularyExample NewExample(VocabularyWord card, string sentence, Guid? operationId = null) => new()
+    {
+        Id = Guid.NewGuid(),
+        UserId = card.UserId,
+        WordId = card.Id,
+        Sentence = sentence,
+        OperationId = operationId ?? Guid.NewGuid(),
+        PayloadSha256 = PayloadSha256(sentence),
+    };
 
     /// <summary>A pending device login with a unique user code, open for ten minutes.</summary>
     public static DeviceLogin NewDeviceLogin() => new()

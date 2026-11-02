@@ -19,15 +19,14 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
 
     public async Task<SyncResult> SaveAsync(Guid userId, Guid id, AnnotationRequest r, CancellationToken ct)
     {
-        var invalid = Required(r.BookId, "bookId") ?? RequiredText(r.SelectedText, "selectedText") ?? Text(r.NoteText, "noteText")
+        var invalid = ClientId(id, "id") ?? Required(r.BookId, "bookId") ?? RequiredText(r.SelectedText, "selectedText") ?? Text(r.NoteText, "noteText")
             ?? (r.Color is null ? null : RequiredText(r.Color, "color"))
             ?? (r.Locator is { } locator
                 ? Required(r.FileId, "fileId") ?? Locator(locator, "locator", LocatorUse.Annotation) : null);
         if (invalid is not null) return invalid;
         var bookId = r.BookId!.Value;
-        if (!await library.ExistsAsync(userId, bookId, ct)) return SyncResult.BookNotFound;
         // Any version of the book, current or not: a highlight made offline in a superseded one is still valid provenance.
-        if (r.FileId is { } fileId && await library.GetFileAsync(userId, bookId, fileId, ct) is null) return SyncResult.UnknownFile;
+        if (await library.MissingBookOrFileAsync(userId, bookId, r.FileId, ct) is { } missing) return missing;
 
         var sent = new Annotation
         {
@@ -40,14 +39,13 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
             Color = r.Color ?? DefaultColor,
         };
         var result = await annotations.SaveAsync(userId, sent, r.ExpectedRevision, ct);
-        if (result.Accepted)
-            return r.ExpectedRevision is null ? SyncResult.Created(result.Current!.ToDto()) : SyncResult.Ok(result.Current!.ToDto());
+        if (result.Accepted) return SyncResult.Written(r.ExpectedRevision is null, result.Current!.ToDto());
 
         return result.Current switch
         {
             // Not the user's: a client id that collides with someone else's row.
             null => SyncResult.IdConflict,
-            { DeletedAt: not null } tombstone => SyncResult.Fail(SyncCodes.Deleted, tombstone.Revision, tombstone.ToDto()),
+            { DeletedAt: not null } tombstone => SyncResult.Deleted(tombstone.Revision, tombstone.ToDto()),
             // A retry of a write that landed, whose response was lost.
             { } stored when SameContent(stored, sent) => SyncResult.Ok(stored.ToDto()),
             { } stored => SyncResult.StaleRevision(stored.Revision, stored.ToDto()),

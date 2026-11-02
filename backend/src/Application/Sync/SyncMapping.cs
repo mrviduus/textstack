@@ -2,6 +2,7 @@ using Contracts.V2;
 using Domain.Annotations;
 using Domain.Library;
 using Domain.Reading;
+using Domain.Vocabulary;
 
 namespace Application.Sync;
 
@@ -25,4 +26,14 @@ public static class SyncMapping
 
     public static AnnotationDto ToDto(this Annotation a) => new(
         a.Id, a.BookId, a.FileId, a.SelectedText, a.NoteText, a.Locator, a.Color, a.CreatedAt, a.UpdatedAt, a.DeletedAt, a.Revision);
+
+    public static VocabularyWordDto ToDto(this VocabularyWord w, string? example = null) => new(
+        w.Id, w.Language, w.Word, w.Translation, w.Definition, w.Stage, w.IntervalDays, w.ConsecutiveCorrect, w.NextReviewAt,
+        w.LastReviewedAt, w.CreatedAt, w.UpdatedAt, w.DeletedAt, w.RetiredAt, w.Revision, w.Examples.Select(e => e.ToDto()).ToList(), example);
+
+    public static VocabularyExampleDto ToDto(this VocabularyExample e) => new(
+        e.Id, e.OperationId, e.Sentence, e.ContextualTranslation, e.BookId, e.FileId, e.ChapterKey, e.BookTitle, e.CreatedAt);
+
+    public static VocabularyReviewDto ToDto(this VocabularyReview r) => new(
+        r.Id, r.OperationId, r.WordId, r.ReviewMode, r.IsCorrect, r.ResponseTimeMs, r.StageBefore, r.StageAfter, r.ClientRecordedAt, r.CreatedAt);
 }

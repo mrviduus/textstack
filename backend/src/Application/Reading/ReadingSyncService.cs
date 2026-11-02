@@ -79,14 +79,15 @@ public sealed class ReadingSyncService(ILibraryRepository library, IReadingState
 
     public async Task<SyncResult> SaveSessionAsync(Guid userId, Guid clientSessionId, ReadingSessionRequest r, CancellationToken ct)
     {
-        var invalid = Required(r.StartedAt, "startedAt") ?? Required(r.EndedAt, "endedAt")
+        var invalid = ClientId(clientSessionId, "clientSessionId") ?? Required(r.StartedAt, "startedAt") ?? Required(r.EndedAt, "endedAt")
             ?? (r.EndedAt < r.StartedAt ? SyncResult.Invalid("endedAt", "endedAt is before startedAt.") : null)
+            ?? NotFuture(r.EndedAt, DateTimeOffset.UtcNow, "endedAt")
             ?? (r.DurationSeconds >= 0 ? null : SyncResult.Invalid("durationSeconds", "durationSeconds must be zero or more."))
             ?? (r.WordsRead >= 0 ? null : SyncResult.Invalid("wordsRead", "wordsRead must be zero or more."))
             ?? Fraction(r.StartPercent, "startPercent") ?? Fraction(r.EndPercent, "endPercent");
         if (invalid is not null) return invalid;
         // The FK refuses another user's book too, but as an exception; this makes it the client's 404.
-        if (r.BookId is { } bookId && !await library.ExistsAsync(userId, bookId, ct)) return SyncResult.BookNotFound;
+        if (r.BookId is { } bookId && await library.MissingBookOrFileAsync(userId, bookId, null, ct) is { } missing) return missing;
 
         var saved = await sessions.SaveAsync(userId, new ReadingSession
         {
@@ -99,8 +100,7 @@ public sealed class ReadingSyncService(ILibraryRepository library, IReadingState
             StartPercent = r.StartPercent!.Value,
             EndPercent = r.EndPercent!.Value,
         }, ct);
-        var dto = saved.Row!.ToDto();
-        return saved.Outcome == WriteOutcome.Created ? SyncResult.Created(dto) : SyncResult.Ok(dto);
+        return SyncResult.Written(saved.Outcome == WriteOutcome.Created, saved.Row!.ToDto());
     }
 
     public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, string? limit, CancellationToken ct) =>
