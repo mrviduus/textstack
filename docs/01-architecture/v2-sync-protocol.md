@@ -608,7 +608,7 @@ keeping their client ids (ADR-031 rule 3). Order inside the transaction:
 | Annotations | Reparented; ids unchanged. |
 | Vocabulary | Match on `(language, wordKey)`. Survivor id = **the account's**. Fields from the live side: both live → the account's card and schedule; account tombstone + guest live → the account's row revived with the guest's fields and schedule; guest tombstone → the account's row as is. Examples and reviews of both move to the survivor. Revision = max + 1. No match → reparented with its id. |
 | Sessions | Reparented; `book_id` remapped for matched books. |
-| Insights | Reparented; a `(book, chapter)` clash **loses nothing** (owner decision 7): the newer `updated_at` becomes the current `book_insight`, the other is kept as a `discussion_checkpoints` row (topic = its question or "merged insight", conclusions = its text, `language` as stored). Checkpoints merge as separate rows. |
+| Insights | Reparented; a `(book, chapter)` clash **loses nothing** (owner decision 7): the newer `updated_at` becomes the current `book_insight`, the other is kept as a `discussion_checkpoints` row (topic = its question or "merged insight", in full as built below, `language` `und`). Checkpoints merge as separate rows. |
 | Shares, checkpoints | Reparented; `book_id` remapped. Same-chapter rule still holds (shares move with their checkpoints). |
 
 **`operation_id` and `client_session_id` collisions.** The UNIQUE is per user, so moving guest rows
@@ -627,6 +627,19 @@ cached is now stale (every merged row is max + 1, every account row it never saw
 queued edits come back `stale_revision` and follow [Conflict codes](#conflict-codes): reading state
 through ADR-019 (never yank a reader who moved), annotations and words by re-applying the local change
 once. Nothing local is lost.
+
+**As built (M2.5a).** `merge` is on `AuthResponse` / `MobileAuthResponse` of `/auth/login`, `/auth/google`
+and `/auth/apple`, present only when legacy merged the guest, `Features:V2Api` is on, the V2 merge
+committed, and at least one id changed; a file of a matched book that is not its current file keeps its
+id and is not in the map. An insight clash keeps the loser in full as a checkpoint: conclusions = its
+text, reader thoughts = its question, open questions = each review question's prompt with its answer,
+assistant suggestions = its `review_json` as canonical JSON; only the questions' review schedule is not
+carried (the merge counts them). A guest state left on an old file version loses to the account's.
+
+**Owner decisions (2026-11-02).**
+- No real users on V2 before M5, so no outbox: V2 is test-only, and the mirror runs after the legacy commit, best-effort.
+- A failed mirror loses the guest's V2 rows that have no legacy twin (the ETL cannot recreate them); it is logged at Error, never fails sign-in.
+- The losing insight is preserved in full as a checkpoint (above); `book_insight` has no language, so the checkpoint's is unknown → `und`.
 
 ## Sign-out, account deletion, quota (owner decisions 2, 3)
 

@@ -41,6 +41,9 @@ with a written sunset; **Q3** retire collections; **Q5** keep guest sessions (AD
    sections, `book_insight.review_json`, `books.origin`).
 9. **Account deletion = `DELETE FROM users` cascading.** Provenance FKs are
    `DEFERRABLE INITIALLY DEFERRED`; tests end with `SET CONSTRAINTS ALL IMMEDIATE`.
+   (#1089, 2026-11-02) The provenance FKs stay `DEFERRABLE INITIALLY DEFERRED`, and the account delete is
+   never run under immediate constraints: a test that composes deletes runs `SET CONSTRAINTS ALL
+   IMMEDIATE` after all deletes, before commit.
 10. **`database/v2/migrations/0000_baseline.up.sql` reads top to bottom**, grouped by module, each
     table preceded by a 1–3 line comment. `data-model.md` mirrors it. No `site_id` anywhere (ADR-007).
 11. **Text sorts by ICU, not by the host's glibc** (added 2026-10-30). The database is created from
