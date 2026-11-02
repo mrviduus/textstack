@@ -61,6 +61,8 @@ Dependency rule unchanged: Api → Application → Domain ← Infrastructure.
     One clock per column: what the database stamps (`created_at`, `started_at`, `revoked_at`,
     `denied_at`, `consumed_at`, `last_used_at`, …) is written `now()` and compared with
     `now() - @interval`; a deadline the application wrote (`expires_at`) is compared with the caller's `@now`.
+    Exception: a stamp that must post-date a lock wait is `clock_timestamp()` (`users.credentials_reset_at`:
+    `now()` is the transaction start, before the wait, and a credential minted during the wait would pass).
 12. **No EF navigation into a ported table.** A join through one becomes a second query through the
     repository.
 13. **SQL stays inline, next to the method that runs it** (decided 2026-10-30; the owner considered

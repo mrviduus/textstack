@@ -25,8 +25,12 @@ public interface IAuthService
     /// <summary>A new guest (ADR-014: a real session) and its tokens.</summary>
     Task<AuthResult> CreateGuestSessionAsync(CancellationToken ct);
 
-    /// <summary>A fresh token pair for an existing user, a guest keeping the guest refresh window.</summary>
-    Task<AuthResult> IssueSessionAsync(UserAccount user, CancellationToken ct);
+    /// <summary>
+    /// A fresh token pair for the user an access token names, a guest keeping the guest refresh window.
+    /// <paramref name="accessTokenIssuedAt"/> is that token's <c>iat</c>: V2 refuses
+    /// (<see cref="AuthStatus.InvalidToken"/>) when the password was reset after it; legacy has no stamp.
+    /// </summary>
+    Task<AuthResult> IssueSessionAsync(UserAccount user, DateTimeOffset accessTokenIssuedAt, CancellationToken ct);
 
     /// <summary>
     /// Moves the guest's data to the signed-in account. Null only when the merge was abandoned on a
@@ -67,7 +71,13 @@ public interface IAuthService
     /// <summary>RFC 8628 §3.2: a pending device login.</summary>
     Task<DeviceCodeResult> CreateDeviceAuthorizationAsync(CancellationToken ct);
 
-    Task<DeviceApprovalResult> ApproveDeviceAsync(string userCode, Guid userId, CancellationToken ct);
+    /// <summary>
+    /// Approves the pending login showing <paramref name="userCode"/> for the user an access token
+    /// names (<paramref name="accessTokenIssuedAt"/>: its <c>iat</c>). V2 answers
+    /// <see cref="DeviceApprovalResult.Unauthorized"/> (the endpoint's 401) when the password was reset
+    /// after it, and the login stays pending; legacy has no stamp and never returns it.
+    /// </summary>
+    Task<DeviceApprovalResult> ApproveDeviceAsync(string userCode, Guid userId, DateTimeOffset accessTokenIssuedAt, CancellationToken ct);
 
     Task<DeviceApprovalResult> DenyDeviceAsync(string userCode, CancellationToken ct);
 
