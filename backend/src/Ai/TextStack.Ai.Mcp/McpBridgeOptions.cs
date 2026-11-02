@@ -50,10 +50,8 @@ public sealed class McpBridgeOptions
     public string PublicBaseUrl { get; init; } = "https://textstack.app";
 
     /// <summary>
-    /// The bridge calls the V2 sync API: the four vocabulary tools go to <c>/me/v2/vocabulary/*</c>
-    /// instead of legacy <c>/me/vocabulary/*</c>, and the three discussion tools, which have no legacy
-    /// counterpart, are registered (21 tools off, 24 on). Off by default, so the bridge behaves exactly
-    /// as before until the V2 API is on for the account (M2.5). Env: <c>TEXTSTACK_MCP_V2</c> (<c>true</c>/<c>1</c>).
+    /// Use the V2 sync API (<c>/me/v2</c>). Env: <c>TEXTSTACK_MCP_V2</c> (<c>true</c>/<c>1</c>); off by default.
+    /// The bookIds it takes are V2 ids: a legacy UserBook id answers book_not_found until the M3 ETL carries them over (#1098).
     /// </summary>
     public bool V2 { get; init; }
 

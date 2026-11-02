@@ -405,7 +405,7 @@ public class McpOverTheWireTests : IAsyncLifetime
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var tools = await client.ListToolsAsync(cancellationToken: Ct);
-        Assert.Equal(21, tools.Count);
+        Assert.Equal(Contracts.Mcp.McpManifestCatalog.Tools.Count(t => !t.V2Only), tools.Count);
 
         var chapter = await CallAsync(client, "get_chapter", Args(("slug", "dracula"), ("chapterSlug", "ch-1")));
         Assert.NotEqual(true, chapter.IsError);
@@ -953,7 +953,7 @@ public class McpOverTheWireTests : IAsyncLifetime
 
         var tools = await client.ListToolsAsync(cancellationToken: Ct);
 
-        Assert.Equal(24, tools.Count);
+        Assert.Equal(Contracts.Mcp.McpManifestCatalog.Tools.Count, tools.Count);
         foreach (var write in new[] { "share_chapter", "save_checkpoint" })
             Assert.Contains("operationId", tools.Single(t => t.Name == write).ProtocolTool.InputSchema.GetProperty("required").EnumerateArray().Select(r => r.GetString()));
         Assert.True(tools.Single(t => t.Name == "list_checkpoints").ProtocolTool.Annotations!.ReadOnlyHint);

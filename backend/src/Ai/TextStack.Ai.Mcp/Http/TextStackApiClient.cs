@@ -50,10 +50,7 @@ public sealed partial class TextStackApiClient
         _v2 = options.V2;
     }
 
-    /// <summary>
-    /// <see cref="McpBridgeOptions.V2"/>: the vocabulary upstream is idempotent by operation id, so a
-    /// save without one is refused, and the discussion tools exist.
-    /// </summary>
+    /// <summary>Use the V2 sync API (<c>/me/v2</c>), <see cref="McpBridgeOptions.V2"/>.</summary>
     public bool UsesV2 => _v2;
 
     // ── search_books (AI-047) ───────────────────────────────────────────────────

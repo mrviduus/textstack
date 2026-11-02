@@ -87,7 +87,7 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(manifest);
-        Assert.Equal(21, manifest.Tools.Count);
+        Assert.Equal(McpManifestCatalog.Tools.Count(t => !t.V2Only), manifest.Tools.Count);
 
         var names = manifest.Tools.Select(t => t.Name).ToHashSet();
         Assert.Equal(ExpectedToolNames.ToHashSet(), names);

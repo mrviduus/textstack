@@ -32,8 +32,8 @@ public sealed partial class McpToolCatalog
     public McpToolCatalog(TextStackApiClient api, ILogger<McpToolCatalog>? logger = null)
     {
         _logger = logger ?? NullLogger<McpToolCatalog>.Instance;
-        McpToolDescriptor[] tools =
-        [
+        var tools = new[]
+        {
             BuildSearchBooks(api),
             BuildGetBook(api),
             BuildGetChapter(api),
@@ -55,10 +55,13 @@ public sealed partial class McpToolCatalog
             BuildSetBookProgress(api),
             BuildGetChapterReview(api),
             BuildSaveChapterReview(api),
-        ];
-        // V2-only: shares and checkpoints have no legacy endpoint to fall back to.
-        if (api.UsesV2) tools = [.. tools, BuildShareChapter(api), BuildSaveCheckpoint(api), BuildListCheckpoints(api)];
-        _byName = tools.ToDictionary(t => t.Name, StringComparer.Ordinal);
+            BuildShareChapter(api),
+            BuildSaveCheckpoint(api),
+            BuildListCheckpoints(api),
+        };
+        // V2-only tools have no legacy endpoint to fall back to.
+        var v2Only = global::Contracts.Mcp.McpManifestCatalog.Tools.Where(t => t.V2Only).Select(t => t.Name).ToHashSet();
+        _byName = tools.Where(t => api.UsesV2 || !v2Only.Contains(t.Name)).ToDictionary(t => t.Name, StringComparer.Ordinal);
     }
 
     public List<Tool> ListTools() =>

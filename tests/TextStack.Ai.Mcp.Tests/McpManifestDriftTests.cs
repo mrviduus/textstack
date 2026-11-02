@@ -31,30 +31,23 @@ public class McpManifestDriftTests
         return new McpToolCatalog(api);
     }
 
-    [Fact]
-    public void ManifestToolNames_MatchRuntimeCatalog()
+    // The catalog registers a V2-only tool only on V2, by the same predicate.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ManifestToolNames_MatchRuntimeCatalog(bool v2)
     {
-        var catalogNames = BuildCatalog().ListTools().Select(t => t.Name).ToHashSet();
-        var manifestNames = McpManifestCatalog.Tools.Select(t => t.Name).ToHashSet();
+        var catalogNames = BuildCatalog(v2).ListTools().Select(t => t.Name).ToHashSet();
+        var manifestNames = McpManifestCatalog.Tools.Where(t => !t.V2Only || v2).Select(t => t.Name).ToHashSet();
 
         Assert.Equal(catalogNames, manifestNames);
     }
 
-    // The discussion tools are served only by a V2 bridge, and described in Contracts like every other.
-    [Fact]
-    public void ManifestToolNamesWithTheV2Tools_MatchTheRuntimeCatalogOnV2()
-    {
-        var catalogNames = BuildCatalog(v2: true).ListTools().Select(t => t.Name).ToHashSet();
-        var manifestNames = McpManifestCatalog.Tools.Concat(McpManifestCatalog.V2Tools).Select(t => t.Name).ToHashSet();
-
-        Assert.Equal(catalogNames, manifestNames);
-    }
-
+    // The one literal: the surface size is a deliberate change (CLAUDE.md "MCP tool count").
     [Fact]
     public void Manifest_AdvertisesTheWholeToolSurface()
     {
-        Assert.Equal(21, McpManifestCatalog.Tools.Count);
-        Assert.Equal(24, McpManifestCatalog.Tools.Count + McpManifestCatalog.V2Tools.Count);
+        Assert.Equal((21, 24), (McpManifestCatalog.Tools.Count(t => !t.V2Only), McpManifestCatalog.Tools.Count));
     }
 
     private sealed class NoTokenProvider : IMcpTokenProvider
