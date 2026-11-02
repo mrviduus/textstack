@@ -159,32 +159,73 @@ public class JwtTokens(JwtSettings jwt, GoogleSettings? google = null, AppleSett
         }
     }
 
+    public const string AppleIssuer = "https://appleid.apple.com";
+
+    private static readonly HttpClient AppleHttp = new() { Timeout = TimeSpan.FromSeconds(10) };
+    private static readonly TimeSpan AppleKeysTtl = TimeSpan.FromHours(24);
+    private static (JsonWebKeySet Keys, DateTimeOffset FetchedAt)? _appleKeys;
+
     /// <summary>
-    /// The Apple account an identity token names; null when its audience, issuer or expiry is wrong.
-    /// ponytail: the signature is not checked (as legacy has never checked it); Apple's JWKS validation before anything trusts Apple's email.
+    /// The Apple account an identity token names: null unless it is signed (RS256) by one of Apple's
+    /// keys, issued by Apple, unexpired, and (when <c>Apple:BundleId</c> is set) for this app.
     /// </summary>
-    public virtual ProviderIdentity? VerifyApple(string identityToken)
+    public virtual async Task<ProviderIdentity?> VerifyAppleAsync(string identityToken)
     {
+        var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+        string? kid;
+        try { kid = handler.ReadJwtToken(identityToken).Header.Kid; }
+        catch (ArgumentException) { return null; }
+        if (kid is null) return null; // unsigned, or not Apple's
+
+        var keys = await GetAppleKeysAsync(refresh: false);
+        if (keys is null || keys.Keys.All(k => k.Kid != kid))
+            keys = await GetAppleKeysAsync(refresh: true); // Apple rotated its keys: one refetch
+        if (keys is null || keys.Keys.All(k => k.Kid != kid)) return null;
+
         try
         {
-            var token = new JwtSecurityTokenHandler().ReadJwtToken(identityToken);
-
-            var audience = apple?.BundleId;
-            if (audience != null && token.Audiences.All(a => a != audience))
-                return null;
-
-            if (token.Issuer != "https://appleid.apple.com")
-                return null;
-
-            if (token.ValidTo < DateTime.UtcNow)
-                return null;
-
+            handler.ValidateToken(identityToken, new TokenValidationParameters
+            {
+                IssuerSigningKeys = keys.GetSigningKeys(),
+                ValidateIssuerSigningKey = true,
+                RequireSignedTokens = true,
+                ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+                ValidIssuer = AppleIssuer,
+                ValidateAudience = apple?.BundleId is not null,
+                ValidAudience = apple?.BundleId,
+                ValidateLifetime = true,
+                RequireExpirationTime = true,
+                ClockSkew = TimeSpan.Zero,
+            }, out var validated);
+            var token = (JwtSecurityToken)validated;
             var email = token.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
             return token.Subject is null ? null : new ProviderIdentity(token.Subject, email, null, null);
         }
-        catch
+        catch (Exception e) when (e is SecurityTokenException or ArgumentException)
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Apple's signing keys (<c>https://appleid.apple.com/auth/keys</c>), cached for a day across
+    /// instances; <paramref name="refresh"/> fetches them now. Null when they cannot be fetched and none
+    /// are cached: Apple sign-in fails closed.
+    /// </summary>
+    protected virtual async Task<JsonWebKeySet?> GetAppleKeysAsync(bool refresh)
+    {
+        var cached = _appleKeys;
+        if (!refresh && cached is { } fresh && DateTimeOffset.UtcNow - fresh.FetchedAt < AppleKeysTtl)
+            return fresh.Keys;
+        try
+        {
+            var keys = new JsonWebKeySet(await AppleHttp.GetStringAsync($"{AppleIssuer}/auth/keys"));
+            _appleKeys = (keys, DateTimeOffset.UtcNow);
+            return keys;
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or ArgumentException)
+        {
+            return cached?.Keys;
         }
     }
 

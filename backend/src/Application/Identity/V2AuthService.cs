@@ -50,7 +50,7 @@ public sealed class V2AuthService(
 
     public async Task<AuthResult> LoginWithAppleAsync(string identityToken, string? fullName, string? email, CancellationToken ct)
     {
-        var apple = tokens.VerifyApple(identityToken);
+        var apple = await tokens.VerifyAppleAsync(identityToken);
         if (apple is null) return AuthResult.Failed(AuthStatus.InvalidToken);
 
         var user = await users.GetByAppleSubjectAsync(apple.Subject, ct);

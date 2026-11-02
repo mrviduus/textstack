@@ -76,6 +76,11 @@ if (app.Environment.IsProduction() && Application.Auth.JwtSettings.IsWeakSecret(
         "Jwt:SecretKey is shorter than {MinBytes} bytes; rotate JWT_SECRET to a longer random value",
         Application.Auth.JwtSettings.MinSecretKeyBytes);
 
+// Without it any app's Apple identity token signs in here (the signature is still Apple's). Logged,
+// not fatal: a missing value must not break every sign-in overnight.
+if (app.Environment.IsProduction() && string.IsNullOrWhiteSpace(builder.Configuration["Apple:BundleId"]))
+    app.Logger.LogCritical("Apple:BundleId is not set; Apple sign-in accepts tokens issued for any app. Set Apple__BundleId");
+
 // Skip migrations in Test environment (uses InMemory DB)
 if (!app.Environment.IsEnvironment("Test"))
 {

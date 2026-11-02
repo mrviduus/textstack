@@ -597,6 +597,6 @@ public class V2AuthServiceTests(V2PostgresFixture db)
 
         public override Task<ProviderIdentity?> VerifyGoogleAsync(string idToken) => Task.FromResult(Google.GetValueOrDefault(idToken));
 
-        public override ProviderIdentity? VerifyApple(string identityToken) => Apple.GetValueOrDefault(identityToken);
+        public override Task<ProviderIdentity?> VerifyAppleAsync(string identityToken) => Task.FromResult(Apple.GetValueOrDefault(identityToken));
     }
 }
