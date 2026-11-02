@@ -32,7 +32,7 @@ public static class V2Endpoints
         var maxPartBytes = app.Configuration.GetValue("V2:MaxPartBytes", DefaultMaxPartBytes);
         v2.MapGet("/status", () => Results.Ok(new V2StatusDto(maxPartBytes)));
 
-        v2.MapGet("/library/changes", (HttpContext h, string? cursor, int? limit) =>
+        v2.MapGet("/library/changes", (HttpContext h, string? cursor, string? limit) =>
             Run<LibrarySyncService>(h, (s, user, ct) => s.ChangesAsync(user, cursor, limit, ct)));
         v2.MapGet("/books/by-sha256/{sha256}", (HttpContext h, string sha256) =>
             Run<LibrarySyncService>(h, (s, user, ct) => s.FindBySha256Async(user, sha256, ct)));
@@ -47,7 +47,7 @@ public static class V2Endpoints
         v2.MapPost("/books/{bookId:guid}/restore", (HttpContext h, Guid bookId) =>
             Run<LibrarySyncService>(h, (s, user, ct) => s.RestoreAsync(user, bookId, ct)));
 
-        v2.MapGet("/reading/changes", (HttpContext h, string? cursor, int? limit) =>
+        v2.MapGet("/reading/changes", (HttpContext h, string? cursor, string? limit) =>
             Run<ReadingSyncService>(h, (s, user, ct) => s.ChangesAsync(user, cursor, limit, ct)));
         v2.MapGet("/books/{bookId:guid}/reading-state", (HttpContext h, Guid bookId) =>
             Run<ReadingSyncService>(h, (s, user, ct) => s.GetAsync(user, bookId, ct)));
@@ -58,7 +58,7 @@ public static class V2Endpoints
         v2.MapPut("/reading/sessions/{clientSessionId:guid}", (HttpContext h, Guid clientSessionId, ReadingSessionRequest body) =>
             Run<ReadingSyncService>(h, (s, user, ct) => s.SaveSessionAsync(user, clientSessionId, body, ct)));
 
-        v2.MapGet("/annotations/changes", (HttpContext h, string? cursor, int? limit) =>
+        v2.MapGet("/annotations/changes", (HttpContext h, string? cursor, string? limit) =>
             Run<AnnotationSyncService>(h, (s, user, ct) => s.ChangesAsync(user, cursor, limit, ct)));
         v2.MapPut("/annotations/{id:guid}", (HttpContext h, Guid id, AnnotationRequest body) =>
             Run<AnnotationSyncService>(h, (s, user, ct) => s.SaveAsync(user, id, body, ct)));

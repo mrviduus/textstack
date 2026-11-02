@@ -129,7 +129,7 @@ public sealed class LibrarySyncService(ILibraryRepository library, IReadingState
         await library.RestoreAsync(userId, bookId, ct) || await library.GetAsync(userId, bookId, ct) is not null
             ? SyncResult.NoContent : SyncResult.BookNotFound();
 
-    public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, int? limit, CancellationToken ct) =>
+    public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, string? limit, CancellationToken ct) =>
         ChangeFeed.PageAsync(cursor, limit, clock.GetUtcNow(),
             (since, after, take) => library.ListChangedAsync(userId, since, after, take, ct),
             b => (b.UpdatedAt, b.Id), b => b.ToDto());

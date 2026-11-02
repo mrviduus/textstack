@@ -102,7 +102,7 @@ public sealed class ReadingSyncService(ILibraryRepository library, IReadingState
         return saved.Outcome == WriteOutcome.Created ? SyncResult.Created(dto) : SyncResult.Ok(dto);
     }
 
-    public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, int? limit, CancellationToken ct) =>
+    public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, string? limit, CancellationToken ct) =>
         ChangeFeed.PageAsync(cursor, limit, clock.GetUtcNow(),
             (since, after, take) => states.ListChangedAsync(userId, since, after, take, ct),
             s => (s.UpdatedAt, s.BookId), s => s.ToDto());

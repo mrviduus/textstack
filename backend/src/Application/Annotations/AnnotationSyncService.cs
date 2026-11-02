@@ -75,7 +75,7 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
             : SyncResult.NotFound();
     }
 
-    public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, int? limit, CancellationToken ct) =>
+    public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, string? limit, CancellationToken ct) =>
         ChangeFeed.PageAsync(cursor, limit, clock.GetUtcNow(),
             (since, after, take) => annotations.ListChangedAsync(userId, since, after, take, ct),
             a => (a.UpdatedAt, a.Id), a => a.ToDto());

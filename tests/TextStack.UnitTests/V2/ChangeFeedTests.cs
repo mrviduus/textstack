@@ -25,7 +25,9 @@ public class ChangeFeedTests
 
         public Feed() : this(Rows) { }
 
-        public Task<SyncResult> PageAsync(string? cursor, int? limit) =>
+        public Task<SyncResult> PageAsync(string? cursor, int? limit) => PageAsync(cursor, limit?.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        public Task<SyncResult> PageAsync(string? cursor, string? limit) =>
             ChangeFeed.PageAsync<Row, Row>(cursor, limit, Now, (since, afterId, take) =>
             {
                 LastRead = (since, afterId);
@@ -110,7 +112,7 @@ public class ChangeFeedTests
     {
         var feed = new Feed();
 
-        Assert.Equal(SyncStatus.Ok, (await feed.PageAsync("", null)).Status);
+        Assert.Equal(SyncStatus.Ok, (await feed.PageAsync("", "")).Status);
         Assert.Equal((DateTimeOffset.UnixEpoch, Guid.Empty), feed.LastRead);
     }
 
@@ -129,11 +131,13 @@ public class ChangeFeedTests
     [InlineData("not a cursor")]
     [InlineData("eDox")] // base64 of "x:1"
     public async Task PageAsync_ForeignCursor_IsInvalidPayload(string cursor) =>
-        Assert.Equal("cursor", Assert.IsType<V2Error>((await new Feed().PageAsync(cursor, null)).Body).Field);
+        Assert.Equal("cursor", Assert.IsType<V2Error>((await new Feed().PageAsync(cursor, (string?)null)).Body).Field);
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(501)]
-    public async Task PageAsync_LimitOutsideOneTo500_IsInvalidPayload(int limit) =>
+    [InlineData("0")]
+    [InlineData("501")]
+    [InlineData("-1")]
+    [InlineData("ten")]
+    public async Task PageAsync_LimitOutsideOneTo500_IsInvalidPayload(string limit) =>
         Assert.Equal("limit", Assert.IsType<V2Error>((await new Feed().PageAsync(null, limit)).Body).Field);
 }

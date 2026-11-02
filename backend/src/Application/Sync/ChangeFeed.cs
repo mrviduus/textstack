@@ -31,18 +31,19 @@ public static class ChangeFeed
 
     /// <summary>
     /// One page: <paramref name="load"/> reads up to its <c>limit</c> rows after <c>(since, afterId)</c>;
-    /// <paramref name="key"/> is a row's <c>(updated_at, id)</c>. An empty <paramref name="cursor"/> is
-    /// absent (the PDD writes <c>?cursor=&amp;limit=</c>).
+    /// <paramref name="key"/> is a row's <c>(updated_at, id)</c>. Both query values arrive as text: an
+    /// empty one is absent (the PDD writes <c>?cursor=&amp;limit=</c>), which an <c>int?</c> parameter
+    /// would refuse at binding with a bare 400.
     /// </summary>
     public static async Task<SyncResult> PageAsync<TRow, TDto>(
-        string? cursor, int? limit, DateTimeOffset now,
+        string? cursor, string? limit, DateTimeOffset now,
         Func<DateTimeOffset, Guid, int, Task<IReadOnlyList<TRow>>> load,
         Func<TRow, (DateTimeOffset UpdatedAt, Guid Id)> key,
         Func<TRow, TDto> toDto)
     {
         if (cursor == "") cursor = null;
-        var take = limit ?? DefaultLimit;
-        if (take is < 1 or > MaxLimit)
+        var take = DefaultLimit;
+        if (!string.IsNullOrEmpty(limit) && !int.TryParse(limit, NumberStyles.None, CultureInfo.InvariantCulture, out take) || take is < 1 or > MaxLimit)
             return SyncResult.Invalid("limit", $"limit is 1-{MaxLimit}.");
         if (!TryReadFrom(cursor, out var since, out var afterId))
             return SyncResult.Invalid("cursor", "Not a cursor this server issued.");
