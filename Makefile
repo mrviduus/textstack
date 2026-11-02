@@ -158,8 +158,10 @@ V2_EXISTS = docker exec $(DB_CONTAINER) psql -XtA -U $$POSTGRES_USER -d postgres
 
 backup:
 	@mkdir -p $(BACKUP_DIR)
-	@. ./.env && docker exec $(DB_CONTAINER) pg_dump -U $$POSTGRES_USER $$POSTGRES_DB | gzip > $(BACKUP_DIR)/db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
-	@echo "Backup saved:"
+	@# The same checked dump as backup.yml: pipefail + trailer, so a failed pg_dump never leaves an
+	@# empty .gz behind a "Backup saved" line.
+	@. ./.env && POSTGRES_USER=$$POSTGRES_USER DB_CONTAINER=$(DB_CONTAINER) \
+		bash infra/scripts/pg-dump-checked.sh $$POSTGRES_DB $(BACKUP_DIR)/db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
 	@ls -lh $(BACKUP_DIR)/db_*.sql.gz | tail -1
 	@# V2 after legacy, so nothing legacy waits on it; a database migrator-v2 has not created yet
 	@# (profile `v2`) is skipped, not an error.
