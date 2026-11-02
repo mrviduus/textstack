@@ -36,6 +36,16 @@ public sealed partial class AccountMergeRepository
 
     private static Task<List<BookMatch>> MatchBooksAsync(Run run) => run.QueryAsync<BookMatch>(MatchBooks);
 
+    // A replacement of the account's book must not change its current file under the merge.
+    // ponytail: locked after the match, so a replacement that commits in between is missed (the
+    // merge then repoints onto a now non-current file, still valid); lock before matching if it shows.
+    private const string LockAccountBooks = "SELECT id FROM books WHERE user_id = @accountId AND id = ANY(@accountBooks) ORDER BY id FOR UPDATE";
+
+    private static async Task LockAccountBooksAsync(Run run, List<BookMatch> books)
+    {
+        if (books.Count > 0) await run.ExecuteAsync(LockAccountBooks, Pairs(books));
+    }
+
     private static object Pairs(List<BookMatch> books) => new
     {
         guestBooks = books.Select(b => b.GuestBook).ToArray(),
@@ -65,11 +75,15 @@ public sealed partial class AccountMergeRepository
     // Locked: a device of the account must not advance a state this merge is about to overwrite.
     private const string LockStates = $"SELECT {StateColumns} FROM reading_state WHERE user_id = @userId AND book_id = ANY(@bookIds) FOR UPDATE";
 
-    // The guest's locators are valid on the account's file only when taken in the guest's current file:
-    // the two hold the same bytes.
-    private const string UpsertAccountState = """
+    // A state's locators mean something only in the file they were taken in, and the two current files
+    // hold the same bytes: the guest's state counts only on its current file, the account's likewise.
+    // One statement for every matched book.
+    private const string UpsertAccountStates = """
         INSERT INTO reading_state (user_id, book_id, file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision, reset_revision)
-        VALUES (@accountId, @BookId, @FileId, CAST(@CurrentLocator AS jsonb), @BookFraction, CAST(@FrontierLocator AS jsonb), @FrontierFraction, @CompletedAt, @ClientRecordedAt, now(), @Revision, @ResetRevision)
+        SELECT @accountId, m.book_id, m.file_id, CAST(m.current_locator AS jsonb), m.book_fraction, CAST(m.frontier_locator AS jsonb),
+               m.frontier_fraction, m.completed_at, m.client_recorded_at, now(), m.revision, m.reset_revision
+        FROM unnest(@bookIds, @fileIds, @currentLocators, @bookFractions, @frontierLocators, @frontierFractions, @completedAts, @clientRecordedAts, @revisions, @resetRevisions)
+            AS m(book_id, file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, revision, reset_revision)
         ON CONFLICT (user_id, book_id) DO UPDATE SET
             file_id = EXCLUDED.file_id, current_locator = EXCLUDED.current_locator, book_fraction = EXCLUDED.book_fraction,
             frontier_locator = EXCLUDED.frontier_locator, frontier_fraction = EXCLUDED.frontier_fraction,
@@ -77,11 +91,15 @@ public sealed partial class AccountMergeRepository
             updated_at = now(), revision = EXCLUDED.revision, reset_revision = EXCLUDED.reset_revision
         """;
 
-    // Merged or not (a state left on an old version loses: its locators mean nothing in the account's
-    // file), the guest's row must go before its files move, or the cascade lands it on the account's key.
+    // Merged or not (a state left on an old version loses), the guest's row must go before its files
+    // move, or the cascade lands it on the account's key.
     private const string DeleteGuestStates = "DELETE FROM reading_state WHERE user_id = @guestId AND book_id = ANY(@guestBooks)";
 
-    /// <summary>Step 3a: the guest's state of a matched book lands on the account's book, merged with the account's when it has one.</summary>
+    /// <summary>
+    /// Step 3a: the guest's state of a matched book lands on the account's book, merged with the
+    /// account's when that one is on its current file. An account state on an old version is
+    /// overwritten by the guest's; with no guest state, the account's stays as it is.
+    /// </summary>
     private static async Task MergeReadingStatesAsync(Run run, List<BookMatch> books)
     {
         if (books.Count == 0) return;
@@ -89,20 +107,49 @@ public sealed partial class AccountMergeRepository
             .ToDictionary(s => s.BookId);
         var account = (await run.QueryAsync<ReadingState>(LockStates, new { userId = run.AccountId, bookIds = books.Select(b => b.AccountBook).ToArray() }))
             .ToDictionary(s => s.BookId);
+        var merged = new List<ReadingState>();
         foreach (var book in books)
         {
             if (!guest.TryGetValue(book.GuestBook, out var theirs) || theirs.FileId != book.GuestFile) continue;
-            var merged = account.TryGetValue(book.AccountBook, out var ours) ? MergeStates(theirs, ours) : theirs;
-            (merged.BookId, merged.FileId) = (book.AccountBook, book.AccountFile);
-            await run.ExecuteAsync(UpsertAccountState, merged);
+            var state = account.GetValueOrDefault(book.AccountBook) switch
+            {
+                null => theirs,
+                { } ours when ours.FileId == book.AccountFile => MergeStates(theirs, ours),
+                // A stale device of the account holds this row's revision: the overwrite passes it.
+                { } stale => Overwrite(theirs, Math.Max(theirs.Revision, stale.Revision) + 1),
+            };
+            (state.BookId, state.FileId) = (book.AccountBook, book.AccountFile);
+            merged.Add(state);
         }
+        if (merged.Count > 0)
+            await run.ExecuteAsync(UpsertAccountStates, new
+            {
+                bookIds = merged.Select(s => s.BookId).ToArray(),
+                fileIds = merged.Select(s => s.FileId).ToArray(),
+                currentLocators = merged.Select(s => s.CurrentLocator).ToArray(),
+                bookFractions = merged.Select(s => s.BookFraction).ToArray(),
+                frontierLocators = merged.Select(s => s.FrontierLocator).ToArray(),
+                frontierFractions = merged.Select(s => s.FrontierFraction).ToArray(),
+                // Arrays skip Dapper's UTC handler, and Npgsql writes timestamptz only from offset 0.
+                completedAts = merged.Select(s => s.CompletedAt?.ToUniversalTime()).ToArray(),
+                clientRecordedAts = merged.Select(s => s.ClientRecordedAt.ToUniversalTime()).ToArray(),
+                revisions = merged.Select(s => s.Revision).ToArray(),
+                resetRevisions = merged.Select(s => s.ResetRevision).ToArray(),
+            });
         await run.ExecuteAsync(DeleteGuestStates, Pairs(books));
+    }
+
+    private static ReadingState Overwrite(ReadingState theirs, long revision)
+    {
+        theirs.Revision = revision;
+        return theirs;
     }
 
     /// <summary>
     /// The PDD's reading-state rule: the newer <c>clientRecordedAt</c> wins (a tie: the account's);
     /// the frontier is the furthest of both frontiers and the winner's position, so it never trails
-    /// it; completion follows the winner; the account's reset is kept; the revision passes both.
+    /// it; <c>completed_at</c> is the winner's as it is (null too: no COALESCE); the account's reset
+    /// is kept; the revision passes both.
     /// </summary>
     private static ReadingState MergeStates(ReadingState guest, ReadingState account)
     {
@@ -147,10 +194,11 @@ public sealed partial class AccountMergeRepository
     // Its chapters and jobs go with it; the account's file has its own.
     private const string DeleteSameBytesFiles = "DELETE FROM book_files WHERE user_id = @guestId AND id = ANY(@guestFiles)";
 
-    // 3c. The guest book's other versions (already non-current: the deleted one was current) become
-    // versions of the account's book, provenance for what is anchored in them; the cascade carries it.
+    // 3c. The guest book's other versions become non-current versions of the account's book,
+    // provenance for what is anchored in them; the cascade carries it. is_current is set, not assumed:
+    // the account's book has its own current file.
     private const string MoveOtherVersions = """
-        UPDATE book_files f SET user_id = @accountId, book_id = m.account_book
+        UPDATE book_files f SET user_id = @accountId, book_id = m.account_book, is_current = false
         FROM unnest(@guestBooks, @accountBooks) AS m(guest_book, account_book)
         WHERE f.user_id = @guestId AND f.book_id = m.guest_book
         """;

@@ -40,10 +40,12 @@ public sealed partial class AccountMergeRepository
         """;
 
     // The loser's id is the checkpoint's id and operation id: deterministic, so nothing can add it twice.
-    private const string InsertLoserCheckpoint = """
+    private const string InsertLoserCheckpoints = """
         INSERT INTO discussion_checkpoints (id, user_id, book_id, chapter_key, topic, reader_thoughts, assistant_suggestions, conclusions, open_questions, language, operation_id, payload_sha256, created_at)
-        VALUES (@Id, @accountId, @BookId, @ChapterKey, @Topic, CAST(@ReaderThoughts AS jsonb), CAST(@AssistantSuggestions AS jsonb),
-                CAST(@Conclusions AS jsonb), CAST(@OpenQuestions AS jsonb), @Language, @OperationId, @PayloadSha256, @CreatedAt)
+        SELECT m.id, @accountId, m.book_id, m.chapter_key, m.topic, CAST(m.reader_thoughts AS jsonb), CAST(m.assistant_suggestions AS jsonb),
+               CAST(m.conclusions AS jsonb), CAST(m.open_questions AS jsonb), m.language, m.id, m.payload_sha256, m.created_at
+        FROM unnest(@ids, @bookIds, @chapterKeys, @topics, @readerThoughts, @assistantSuggestions, @conclusions, @openQuestions, @languages, @hashes, @createdAts)
+            AS m(id, book_id, chapter_key, topic, reader_thoughts, assistant_suggestions, conclusions, open_questions, language, payload_sha256, created_at)
         """;
 
     // After its checkpoint holds its text: its review questions go with it (cascade).
@@ -64,8 +66,23 @@ public sealed partial class AccountMergeRepository
         var losers = await run.QueryAsync<InsightLoser>(SelectInsightLosers, pairs);
         var ids = new { ids = losers.Select(l => l.Id).ToArray() };
         var questions = losers.Count == 0 ? [] : await run.QueryAsync<(Guid InsightId, string Prompt, string Answer)>(SelectQuestionsOfLosers, ids);
-        foreach (var loser in losers)
-            await run.ExecuteAsync(InsertLoserCheckpoint, LoserCheckpoint(loser, questions.Where(q => q.InsightId == loser.Id)));
+        var kept = losers.Select(l => LoserCheckpoint(l, questions.Where(q => q.InsightId == l.Id))).ToList();
+        if (kept.Count > 0)
+            await run.ExecuteAsync(InsertLoserCheckpoints, new
+            {
+                ids = kept.Select(c => c.Id).ToArray(),
+                bookIds = kept.Select(c => c.BookId).ToArray(),
+                chapterKeys = kept.Select(c => c.ChapterKey).ToArray(),
+                topics = kept.Select(c => c.Topic).ToArray(),
+                readerThoughts = kept.Select(c => c.ReaderThoughts).ToArray(),
+                assistantSuggestions = kept.Select(c => c.AssistantSuggestions).ToArray(),
+                conclusions = kept.Select(c => c.Conclusions).ToArray(),
+                openQuestions = kept.Select(c => c.OpenQuestions).ToArray(),
+                languages = kept.Select(c => c.Language).ToArray(),
+                hashes = kept.Select(c => c.PayloadSha256).ToArray(),
+                // Arrays skip Dapper's UTC handler, and Npgsql writes timestamptz only from offset 0.
+                createdAts = kept.Select(c => c.CreatedAt.ToUniversalTime()).ToArray(),
+            });
         await run.ExecuteAsync(DeleteLosers, ids);
         await run.ExecuteAsync(MoveInsightsToAccountBooks, pairs);
         return questions.Count;
@@ -106,6 +123,24 @@ public sealed partial class AccountMergeRepository
             PayloadSha256 = DiscussionPayloads.CheckpointSha256(loser.BookId, request),
             CreatedAt = loser.UpdatedAt,
         };
+    }
+
+    // The same share under both identities: the checkpoint now names the account's, when that share is
+    // on the checkpoint's (merged) book, chapter and file version, as the share FK and the same-chapter
+    // rule require. Otherwise it stays unlinked, its text intact.
+    private const string RelinkToAccountShares = """
+        UPDATE discussion_checkpoints c SET shared_chapter_id = s.id
+        FROM unnest(@checkpoints, @shares) AS m(checkpoint, share)
+        JOIN shared_chapters s ON s.user_id = @accountId AND s.id = m.share
+        WHERE c.user_id = @accountId AND c.id = m.checkpoint
+          AND s.book_id = c.book_id AND s.chapter_key = c.chapter_key AND s.file_id IS NOT DISTINCT FROM c.file_id
+        """;
+
+    private static async Task RelinkToAccountSharesAsync(Run run, List<(Guid Checkpoint, Guid AccountShare)> unlinked)
+    {
+        if (unlinked.Count == 0) return;
+        await run.ExecuteAsync(RelinkToAccountShares,
+            new { checkpoints = unlinked.Select(u => u.Checkpoint).ToArray(), shares = unlinked.Select(u => u.AccountShare).ToArray() });
     }
 
     private const string SelectSharesToRehash = """

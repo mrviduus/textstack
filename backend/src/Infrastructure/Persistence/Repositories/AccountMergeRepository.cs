@@ -12,8 +12,9 @@ namespace Infrastructure.Persistence.Repositories;
 /// move by <c>UPDATE … SET user_id</c> on the roots and the <c>ON UPDATE CASCADE</c> of every
 /// composite FK carries their children (ADR-031, amended 2026-11-01); the three edges that cascade
 /// cannot handle are this class's: words before books, book-less sessions by hand, and every unique
-/// key the account already holds, checked before anything moves (owner decision 12). Every statement
-/// names the guest or the account.
+/// key the account already holds, checked before anything moves (owner decision 12). Both users,
+/// every guest book and the matched account books are locked first, so no write of either user's
+/// devices lands between the reads and the moves. Every statement names the guest or the account.
 /// <para>One class in four files, one per aggregate (Identity here, Vocabulary, Library, Discussion):
 /// the merge is one transaction across all of them, so its order reads in one method, at the price of
 /// bending data-access.md rule 13's ~250 lines per repository.</para>
@@ -24,6 +25,12 @@ public sealed partial class AccountMergeRepository(V2DataSource dataSource) : IA
     // neither user gains a root row (book, word, session, token) until the merge commits, and a
     // second merge of the guest waits here. Id order: two merges of crossed users cannot deadlock.
     private const string LockUsers = "SELECT id, is_guest FROM users WHERE id IN (@guestId, @accountId) ORDER BY id FOR UPDATE";
+
+    // The users lock freezes only root inserts: a book's children (annotations, shares, checkpoints,
+    // insights, examples) key-share the book row. Locking every guest book waits for a child or a
+    // file replacement in flight to commit, so the match and the moves below see it, and holds off
+    // the next one until the merge is done.
+    private const string LockGuestBooks = "SELECT id FROM books WHERE user_id = @guestId ORDER BY id FOR UPDATE";
 
     public async Task<AccountMerge> MergeAsync(Guid guestId, Guid accountId, NpgsqlTransaction? tx, CancellationToken ct)
     {
@@ -36,11 +43,13 @@ public sealed partial class AccountMergeRepository(V2DataSource dataSource) : IA
         if (!users.Exists(u => u.Id == guestId)) return AccountMerge.NoGuest;
         if (!users.Exists(u => u.Id == guestId && u.IsGuest) || !users.Exists(u => u.Id == accountId && !u.IsGuest))
             return AccountMerge.Refused;
+        await run.ExecuteAsync(LockGuestBooks);
 
         // 1. Guest copies of what the account already holds.
-        var (dropped, anomalies, unlinkedCheckpoints) = await DropGuestCopiesAsync(run);
+        var (dropped, anomalies, unlinked) = await DropGuestCopiesAsync(run);
         // Read before anything moves: which books match, and which of their appends change hash.
         var books = await MatchBooksAsync(run);
+        await LockAccountBooksAsync(run, books);
         var appends = await AppendsOnMatchedBooksAsync(run, books);
         // 2. Words, first: an example's word FK is immediate, its book FKs deferred.
         var (words, reviews) = await MergeWordsAsync(run);
@@ -50,13 +59,14 @@ public sealed partial class AccountMergeRepository(V2DataSource dataSource) : IA
         var unscheduledQuestions = await MergeInsightsAsync(run, books);
         // 4–6. Unmatched books with their ids, book-less sessions, feed timestamps.
         await MoveBooksAsync(run, books);
+        await RelinkToAccountSharesAsync(run, unlinked);
         // 7. Hashes whose hashed ids changed.
         await RehashExamplesAsync(run, appends.Examples);
         await RehashReviewsAsync(run, reviews);
         await RehashSharesAsync(run, appends.Shares);
-        await RehashCheckpointsAsync(run, [.. appends.Checkpoints, .. unlinkedCheckpoints]);
+        await RehashCheckpointsAsync(run, [.. appends.Checkpoints, .. unlinked.Select(u => u.Checkpoint)]);
         // 8–9. What no cascade reaches, then the guest itself.
-        await run.ExecuteAsync(MoveAccountLevelRows);
+        await run.ExecuteAsync(MoveAgentRuns);
         await run.ExecuteAsync(FoldGuestIntoAccount);
         await run.ExecuteAsync(DeleteGuest);
         await unit.CommitAsync(ct);
@@ -65,9 +75,10 @@ public sealed partial class AccountMergeRepository(V2DataSource dataSource) : IA
             words, dropped, anomalies, unscheduledQuestions);
     }
 
-    // Checkpoints whose share step 1 drops: the FK's SET NULL unlinks them, and the share id is hashed.
+    // Checkpoints whose share step 1 drops, with the account's share of the same operation: the FK's
+    // SET NULL unlinks them now, RelinkToAccountShares points them at that share once all has moved.
     private const string SelectCheckpointsOfDroppedShares = """
-        SELECT c.id FROM discussion_checkpoints c
+        SELECT c.id, a.id FROM discussion_checkpoints c
         JOIN shared_chapters g ON g.user_id = c.user_id AND g.book_id = c.book_id AND g.id = c.shared_chapter_id
         JOIN shared_chapters a ON a.user_id = @accountId AND a.operation_id = g.operation_id
         WHERE c.user_id = @guestId
@@ -103,9 +114,9 @@ public sealed partial class AccountMergeRepository(V2DataSource dataSource) : IA
         RETURNING false
         """;
 
-    private static async Task<(int Dropped, int Anomalies, List<Guid> UnlinkedCheckpoints)> DropGuestCopiesAsync(Run run)
+    private static async Task<(int Dropped, int Anomalies, List<(Guid Checkpoint, Guid AccountShare)> Unlinked)> DropGuestCopiesAsync(Run run)
     {
-        var unlinked = await run.QueryAsync<Guid>(SelectCheckpointsOfDroppedShares);
+        var unlinked = await run.QueryAsync<(Guid Checkpoint, Guid AccountShare)>(SelectCheckpointsOfDroppedShares);
         var (dropped, anomalies) = (0, 0);
         foreach (var drop in (string[])[DropCheckpointCopies, DropShareCopies, DropExampleCopies, DropReviewCopies, DropSessionCopies])
         {
@@ -115,14 +126,12 @@ public sealed partial class AccountMergeRepository(V2DataSource dataSource) : IA
         return (dropped, anomalies, unlinked);
     }
 
-    // No cascade reaches these (they point only at users). Runs, OAuth grants and connect keys move:
-    // the signer-in proved the account. Sessions, reset codes, device logins and OAuth requests die
-    // with the guest row (DeleteGuest); llm_traces have no FK and keep the guest's id (ADR-031).
-    private const string MoveAccountLevelRows = """
-        UPDATE agent_run SET user_id = @accountId WHERE user_id = @guestId;
-        UPDATE oauth_grants SET user_id = @accountId WHERE user_id = @guestId;
-        UPDATE mcp_access_keys SET user_id = @accountId WHERE user_id = @guestId
-        """;
+    // No cascade reaches the tables that point only at users. Agent runs move. Every credential dies
+    // with the guest row (DeleteGuest), as legacy cascades them: sessions, reset codes, device logins,
+    // OAuth requests, and OAuth grants and connect keys too, because one minted under a guest session
+    // on a shared device would otherwise become a lasting credential to the account that signs in
+    // there. llm_traces have no FK and keep the guest's id (ADR-031).
+    private const string MoveAgentRuns = "UPDATE agent_run SET user_id = @accountId WHERE user_id = @guestId";
 
     // The guest's native language only when the account has none (legacy MergeGuestAsync's rule);
     // tier, role and limits are the account's grants. ponytail: storage_used_bytes is not added: no V2
