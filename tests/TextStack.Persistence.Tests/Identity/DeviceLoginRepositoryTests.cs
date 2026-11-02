@@ -150,12 +150,50 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
         var (user, login) = (await db.NewReaderAsync(), await CreatedAsync());
         await _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow, Ct);
 
-        Assert.Equal(user, await _repo.RedeemAsync(login.Id, DateTimeOffset.UtcNow, Ct));
+        Assert.Equal(user, await _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct));
 
-        Assert.Null(await _repo.RedeemAsync(login.Id, DateTimeOffset.UtcNow, Ct));
+        Assert.Null(await _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct));
         var read = (await _repo.GetByDeviceCodeAsync(login.DeviceCodeHash, Ct))!;
         Assert.Equal(DeviceLogin.Expired, read.Status);
         Assert.NotNull(read.ConsumedAt);
+    }
+
+    [Fact]
+    public async Task RedeemAsync_Approved_StoresTheSessionWithTheRedemption()
+    {
+        var (user, login) = (await db.NewReaderAsync(), await CreatedAsync());
+        await _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow, Ct);
+        var hash = NewHash();
+
+        await _repo.RedeemAsync(login.Id, hash, DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct);
+
+        Assert.Equal(user, (await new SessionTokenRepository(db.DataSource).GetLiveAsync(hash, DateTimeOffset.UtcNow, Ct))?.UserId);
+    }
+
+    [Fact]
+    public async Task RedeemAsync_ResetHoldsTheUser_WaitsAndThenRedeemsNothing()
+    {
+        // QA probe P2: a reset between the redemption and the session insert used to leave a session.
+        // A reset in flight: the user locked (as ResetPasswordAsync does), the approval expired and the
+        // sessions deleted, not yet committed.
+        var (user, login) = (await db.NewReaderAsync(), await CreatedAsync());
+        await _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow, Ct);
+        await using var reset = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var tx = await reset.BeginTransactionAsync(Ct);
+        await reset.ExecuteAsync(new CommandDefinition("""
+            SELECT FROM users WHERE id = @user FOR NO KEY UPDATE;
+            UPDATE device_authorizations SET status = 'expired' WHERE user_id = @user AND status = 'approved';
+            DELETE FROM user_refresh_tokens WHERE user_id = @user;
+            """, new { user }, tx, cancellationToken: Ct));
+
+        var redeem = _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct);
+        await db.WaitUntilBlockedByAsync(reset, redeem);
+        var waited = !redeem.IsCompleted;
+        await tx.CommitAsync(Ct);
+
+        Assert.True(waited);
+        Assert.Null(await redeem);
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
     }
 
     [Fact]
@@ -164,7 +202,7 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
         var (user, login) = (await db.NewReaderAsync(), await CreatedAsync());
         await _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow, Ct);
 
-        Assert.Null(await _repo.RedeemAsync(login.Id, login.ExpiresAt, Ct));
+        Assert.Null(await _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), login.ExpiresAt, Ct));
     }
 
     [Fact]
@@ -172,7 +210,7 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
     {
         var login = await CreatedAsync();
 
-        Assert.Null(await _repo.RedeemAsync(login.Id, DateTimeOffset.UtcNow, Ct));
+        Assert.Null(await _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct));
     }
 
     [Fact]

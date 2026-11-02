@@ -278,7 +278,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
 
         await _repo.ResetPasswordAsync(code, "new-hash", DateTimeOffset.UtcNow, Ct);
 
-        Assert.Null(await devices.RedeemAsync(login.Id, DateTimeOffset.UtcNow, Ct));
+        Assert.Null(await devices.RedeemAsync(login.Id, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct));
         Assert.Equal("expired", (await devices.GetByDeviceCodeAsync(login.DeviceCodeHash, Ct))!.Status);
     }
 
@@ -364,11 +364,11 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
 
         await _repo.ResetPasswordAsync(code, "new-hash", DateTimeOffset.UtcNow, Ct);
 
-        Assert.Equal(bob, await devices.RedeemAsync(bobsLogin.Id, DateTimeOffset.UtcNow, Ct));
         Assert.Null((await new UserRepository(db.DataSource).GetAsync(bob, Ct))!.PasswordHash);
         Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", bob));
         Assert.Equal(1, await keys.CountLiveAsync(bob, Ct));
         Assert.Single(await oauth.ListLiveAsync(bob, DateTimeOffset.UtcNow, Ct));
+        Assert.Equal(bob, await devices.RedeemAsync(bobsLogin.Id, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct));
     }
 
     [Fact]

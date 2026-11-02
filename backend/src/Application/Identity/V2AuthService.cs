@@ -249,11 +249,15 @@ public sealed class V2AuthService(
                 return AuthResult.Failed(AuthStatus.DevicePending);
             case DeviceLogin.Denied:
                 return AuthResult.Failed(AuthStatus.DeviceDenied);
-            case DeviceLogin.Approved:
-                // Single use: of two polls one redeems. A reset since the approval expired it.
-                var userId = await devices.RedeemAsync(login.Id, now, ct);
-                var user = userId is null ? null : await users.GetAsync(userId.Value, ct);
-                return user is null ? expired : await IssueAsync(user, null, ct, AuthStatus.DeviceExpired);
+            case DeviceLogin.Approved when login.UserId is { } approver:
+                // Single use: of two polls one redeems, and the session is stored with the redemption,
+                // so a reset can never fall between them. A reset since the approval expired it.
+                var user = await users.GetAsync(approver, ct);
+                if (user is null) return expired;
+                var (raw, hash) = JwtTokens.NewOpaqueToken();
+                return await devices.RedeemAsync(login.Id, hash, RefreshExpiresAt(user, now), now, ct) is null
+                    ? expired
+                    : AuthResult.Ok(user, MintAccessToken(user), raw);
             default:
                 return expired;
         }

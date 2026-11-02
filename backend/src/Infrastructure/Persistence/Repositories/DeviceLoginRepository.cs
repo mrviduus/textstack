@@ -68,16 +68,34 @@ public sealed class DeviceLoginRepository(V2DataSource dataSource) : IDeviceLogi
         return await conn.ExecuteAsync(new CommandDefinition(ExpirePending, new { loginId }, cancellationToken: ct)) > 0;
     }
 
+    // The approver's row first, FOR SHARE: it conflicts with a password reset's lock on the user
+    // (SessionTokenRepository), so a reset either commits first (and has expired the approval) or
+    // waits for this commit (and then sees the session to delete).
+    private const string LockApprover = """
+        SELECT FROM users
+        WHERE id = (SELECT user_id FROM device_authorizations WHERE id = @loginId AND status = 'approved')
+        FOR SHARE
+        """;
+
     private const string RedeemApproved = """
-        UPDATE device_authorizations SET status = 'expired', consumed_at = now()
-        WHERE id = @loginId AND status = 'approved' AND expires_at > @now
+        WITH redeemed AS (
+            UPDATE device_authorizations SET status = 'expired', consumed_at = now()
+            WHERE id = @loginId AND status = 'approved' AND expires_at > @now
+            RETURNING user_id)
+        INSERT INTO user_refresh_tokens (id, user_id, token_hash, expires_at, created_at)
+        SELECT gen_random_uuid(), user_id, @tokenHash, @sessionExpiresAt, now() FROM redeemed
         RETURNING user_id
         """;
 
-    public async Task<Guid?> RedeemAsync(Guid loginId, DateTimeOffset now, CancellationToken ct)
+    public async Task<Guid?> RedeemAsync(Guid loginId, string tokenHash, DateTimeOffset sessionExpiresAt, DateTimeOffset now, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(RedeemApproved, new { loginId, now }, cancellationToken: ct));
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(LockApprover, new { loginId }, tx, cancellationToken: ct));
+        var userId = await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
+            RedeemApproved, new { loginId, tokenHash, sessionExpiresAt, now }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+        return userId;
     }
 
     private const string DeleteExpired = "DELETE FROM device_authorizations WHERE expires_at < @expiredBefore";

@@ -29,11 +29,13 @@ public interface IDeviceLoginRepository
     Task<bool> ExpireAsync(Guid loginId, CancellationToken ct);
 
     /// <summary>
-    /// Redeems an approved login, once: it becomes expired and consumed, so a second redemption cannot
-    /// mint another session. Returns the user it was approved for; null when it was not approved, or
-    /// its deadline passed by <paramref name="now"/>.
+    /// Redeems an approved login, once, and stores the session it mints (<paramref name="tokenHash"/>,
+    /// live until <paramref name="sessionExpiresAt"/>) in the same statement: the login becomes expired
+    /// and consumed, so a second redemption cannot mint another. Returns the user it was approved for;
+    /// null (nothing stored) when it was not approved, or its deadline passed by <paramref name="now"/>.
+    /// A password reset of that user either expires the approval first or deletes the session after.
     /// </summary>
-    Task<Guid?> RedeemAsync(Guid loginId, DateTimeOffset now, CancellationToken ct);
+    Task<Guid?> RedeemAsync(Guid loginId, string tokenHash, DateTimeOffset sessionExpiresAt, DateTimeOffset now, CancellationToken ct);
 
     /// <summary>Deletes logins that expired before <paramref name="expiredBefore"/>; returns how many.</summary>
     Task<int> DeleteExpiredAsync(DateTimeOffset expiredBefore, CancellationToken ct);
