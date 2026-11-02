@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Contracts.Mcp;
 
 namespace TextStack.IntegrationTests;
@@ -14,31 +15,6 @@ namespace TextStack.IntegrationTests;
 public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
 {
     private readonly LiveApiFixture _fixture;
-
-    private static readonly string[] ExpectedToolNames =
-    [
-        "search_books",
-        "get_book",
-        "get_chapter",
-        "search_my_library",
-        "get_my_book",
-        "get_my_chapter",
-        "list_my_highlights",
-        "list_my_vocabulary",
-        "add_vocabulary_words",
-        "update_vocabulary_word",
-        "delete_vocabulary_word",
-        "save_highlight",
-        "save_my_highlight",
-        "list_my_book_highlights",
-        "save_insight",
-        "get_my_insights",
-        "get_my_reading",
-        "get_book_progress",
-        "set_book_progress",
-        "get_chapter_review",
-        "save_chapter_review",
-    ];
 
     public McpManifestEndpointTests(LiveApiFixture fixture)
     {
@@ -75,22 +51,38 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
         Assert.Equal("oauth2", manifest.Auth.Type);
     }
 
+    // #1101: the manifest follows the server's Features:V2Api. The flag is read from /health/ready
+    // (components.v2 is "off" exactly when it is off), not from the manifest under test.
     [Fact]
-    public async Task GetManifest_ListsTheExpectedTools()
+    public async Task GetManifest_ServerV2Flag_ListsExactlyTheToolsServedUnderIt()
     {
+        var ct = TestContext.Current.CancellationToken;
         var request = _fixture.CreateRequest(HttpMethod.Get, "/mcp/manifest");
-        var response = await _fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
+        var response = await _fixture.Client.SendAsync(request, ct);
 
         Assert.SkipWhen(IntegrationSkip.Unavailable(response), "endpoint unavailable (404/500)");
 
-        var manifest = await response.Content.ReadFromJsonAsync<McpManifest>(
-            cancellationToken: TestContext.Current.CancellationToken);
+        var manifest = await response.Content.ReadFromJsonAsync<McpManifest>(cancellationToken: ct);
+        var healthResponse = await _fixture.Client.SendAsync(_fixture.CreateRequest(HttpMethod.Get, "/health/ready"), ct);
+        Assert.SkipWhen(!healthResponse.IsSuccessStatusCode, $"/health/ready answered {(int)healthResponse.StatusCode}");
+        JsonElement health;
+        try { health = await healthResponse.Content.ReadFromJsonAsync<JsonElement>(ct); }
+        catch (JsonException) { Assert.Skip("/health/ready did not answer JSON"); return; }
+        if (health.ValueKind != JsonValueKind.Object
+            || !health.TryGetProperty("components", out var components)
+            || !components.TryGetProperty("v2", out var v2Component)
+            || !v2Component.TryGetProperty("status", out var v2Status))
+        {
+            Assert.Skip("/health/ready has no components.v2.status (API predates the v2 readiness component)");
+            return;
+        }
+        var v2Api = v2Status.GetString() != "off";
 
         Assert.NotNull(manifest);
-        Assert.Equal(McpManifestCatalog.Tools.Count(t => !t.V2Only), manifest.Tools.Count);
-
-        var names = manifest.Tools.Select(t => t.Name).ToHashSet();
-        Assert.Equal(ExpectedToolNames.ToHashSet(), names);
+        Assert.Equal(
+            McpManifestCatalog.Served(v2Api).Select(t => t.Name).Order(StringComparer.Ordinal),
+            manifest.Tools.Select(t => t.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(v2Api ? 24 : 21, manifest.Tools.Count); // the size guard (CLAUDE.md "MCP tool count")
         Assert.All(manifest.Tools, t => Assert.False(string.IsNullOrWhiteSpace(t.Description)));
     }
 }

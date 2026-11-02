@@ -306,6 +306,9 @@ services:
       MCP_TRANSPORT: http
       TEXTSTACK_API_URL: http://api:8080
       TEXTSTACK_SITE_HOST: textstack.app
+      # The bridge's V2 switch follows the Api's flag: the manifest serves the V2 tools exactly when
+      # the Api maps /me/v2, and the bridge must register exactly what the manifest serves (#1101).
+      TEXTSTACK_MCP_V2: ${FEATURES_V2API:-false}
       ASPNETCORE_URLS: http://+:8090
       # Same environment as api/worker, so a local Development .env keeps this one out of Sentry too.
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}

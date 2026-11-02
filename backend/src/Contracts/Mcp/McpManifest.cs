@@ -24,7 +24,7 @@ public sealed record McpManifestAuth(string Type, string HowTo);
 
 /// <summary>
 /// One tool: name + human description (mirrors the runtime catalog). <see cref="V2Only"/>: registered
-/// only by a bridge on the V2 sync API, so not advertised; never on the wire.
+/// only by a bridge on the V2 sync API; advertised only when <c>Features:V2Api</c> is on (<see cref="McpManifestCatalog.Served"/>).
 /// </summary>
 public sealed record McpToolDescriptor(string Name, string Description, [property: JsonIgnore] bool V2Only = false);
 
@@ -49,7 +49,13 @@ public static class McpManifestCatalog
     /// <summary>The one copy of a tool's description, read by the runtime catalog too.</summary>
     public static string Describe(string name) => Tools.First(t => t.Name == name).Description;
 
-    /// <summary>Every tool; the public manifest advertises those not <see cref="McpToolDescriptor.V2Only"/>.</summary>
+    /// <summary>
+    /// The tools a server with <c>Features:V2Api</c> = <paramref name="v2Api"/> serves in its manifest:
+    /// the <see cref="McpToolDescriptor.V2Only"/> ones only when the V2 API they call is mapped (#1101).
+    /// </summary>
+    public static IReadOnlyList<McpToolDescriptor> Served(bool v2Api) => Tools.Where(t => v2Api || !t.V2Only).ToList();
+
+    /// <summary>Every tool; the manifest advertises them per <see cref="Served"/>.</summary>
     public static IReadOnlyList<McpToolDescriptor> Tools { get; } =
     [
         new("search_books",
@@ -176,7 +182,7 @@ public static class McpManifestCatalog
             + "REPLACES the chapter's review. If the save is refused, the error lists every problem — "
             + "fix all of them and save again."),
 
-        // V2-only: registered by a bridge on the V2 sync API (TEXTSTACK_MCP_V2); not advertised.
+        // V2-only: registered by a bridge on the V2 sync API (TEXTSTACK_MCP_V2); advertised only when Features:V2Api is on (Served).
         new("share_chapter",
             "Snapshot one chapter of a book the user UPLOADED for this discussion (WRITE on their own account — "
             + "requires authentication). Pass the bookId, the chapterKey, the chapter text as the reader shared it, and "
