@@ -34,7 +34,8 @@ public sealed class ReadingSyncService(
         if (Validate(request) is { } invalid) return invalid;
         // A missing chapter of a file that is not the current one answers the file's code, as any write on it would.
         if (await chapters.NameAMissingChapterAsync(userId, request.FileId!.Value, [request.CurrentLocator, request.FrontierLocator], ct))
-            return await NotOnCurrentFileAsync(userId, await library.GetAsync(userId, bookId, ct), request.FileId.Value, null, ct) ?? SyncResult.ChapterNotFound;
+            return await NotOnCurrentFileAsync(userId, await library.GetAsync(userId, bookId, ct), request.FileId.Value,
+                await states.GetAsync(userId, bookId, ct), ct) ?? SyncResult.ChapterNotFound;
         var state = new ReadingState
         {
             FileId = request.FileId!.Value,

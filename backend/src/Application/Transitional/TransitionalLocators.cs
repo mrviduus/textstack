@@ -12,13 +12,14 @@ public static class TransitionalLocators
 {
     /// <summary>
     /// Whether any of <paramref name="locators"/>, already valid (<see cref="Sync.SyncValidation.Locator"/>),
-    /// is a <c>textstack-*</c> one whose chapter <paramref name="fileId"/> does not have. Other schemes ask nothing.
+    /// is a <c>textstack-*</c> one whose chapter <paramref name="fileId"/> does not have. Other schemes ask nothing;
+    /// a key named twice (a position and its frontier, usually) is asked once.
     /// </summary>
     public static async Task<bool> NameAMissingChapterAsync(
         this IBookChapterRepository chapters, Guid userId, Guid fileId, IEnumerable<JsonElement?> locators, CancellationToken ct)
     {
-        foreach (var locator in locators)
-            if (locator is { } l && ChapterKeyOf(l) is { } key && !await chapters.ExistsAsync(userId, fileId, key, ct))
+        foreach (var key in locators.Select(l => l is { } locator ? ChapterKeyOf(locator) : null).OfType<string>().Distinct())
+            if (!await chapters.ExistsAsync(userId, fileId, key, ct))
                 return true;
         return false;
     }
