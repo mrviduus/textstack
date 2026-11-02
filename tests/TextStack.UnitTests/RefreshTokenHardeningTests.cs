@@ -24,6 +24,7 @@ public class RefreshTokenHardeningTests
     private readonly List<UserRefreshToken> _refreshTokens = [];
     private readonly List<AdminUser> _admins = [];
     private readonly List<AdminRefreshToken> _adminRefreshTokens = [];
+    private readonly List<DeviceAuthorization> _devices = [];
     private readonly AuthService _auth;
     private readonly AdminAuthService _adminAuth;
 
@@ -35,6 +36,7 @@ public class RefreshTokenHardeningTests
         db.Setup(x => x.AdminUsers).Returns(() => FakeSet(_admins).Object);
         db.Setup(x => x.AdminRefreshTokens).Returns(() => FakeSet(_adminRefreshTokens).Object);
         db.Setup(x => x.AdminSettings).Returns(() => FakeSet(new List<AdminSettings>()).Object);
+        db.Setup(x => x.DeviceAuthorizations).Returns(() => FakeSet(_devices).Object);
         db.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var jwt = Options.Create(new JwtSettings { SecretKey = Secret });
@@ -158,6 +160,49 @@ public class RefreshTokenHardeningTests
         Assert.Null(await _auth.RefreshTokenAsync(first, CancellationToken.None));
 
         Assert.NotNull(await _auth.RefreshTokenAsync(second, CancellationToken.None));
+    }
+
+    // IAuthService over legacy: the adapter's mappings, through the same fake sets.
+
+    [Fact]
+    public async Task IAuthServiceRefreshTokenAsync_ReplayAfterGrace_TokenReused()
+    {
+        var (_, first, _) = await SignInAsync();
+        await _auth.RefreshTokenAsync(first, CancellationToken.None);
+        LinkUsers();
+        _refreshTokens[0].CreatedAt -= JwtTokens.RefreshReuseGrace + TimeSpan.FromSeconds(1);
+
+        Assert.Equal(AuthStatus.TokenReused, (await ((IAuthService)_auth).RefreshTokenAsync(first, CancellationToken.None)).Status);
+        Assert.Equal(AuthStatus.InvalidToken, (await ((IAuthService)_auth).RefreshTokenAsync(first, CancellationToken.None)).Status);
+    }
+
+    [Fact]
+    public async Task IAuthServiceCreateGuestSessionAsync_Guest_MappedAsAGuest()
+    {
+        var guest = await ((IAuthService)_auth).CreateGuestSessionAsync(CancellationToken.None);
+
+        Assert.True(guest.Succeeded);
+        Assert.True(guest.User.IsGuest);
+        Assert.Equal((guest.User.Id, true), _auth.ValidateAccessTokenIdentity(guest.AccessToken));
+    }
+
+    [Fact]
+    public async Task IAuthServiceRedeemDeviceCodeAsync_Denied_DeviceDenied()
+    {
+        var device = await _auth.CreateDeviceAuthorizationAsync(CancellationToken.None);
+        await _auth.DenyDeviceAsync(device.UserCode, CancellationToken.None);
+
+        Assert.Equal(AuthStatus.DeviceDenied, (await ((IAuthService)_auth).RedeemDeviceCodeAsync(device.DeviceCode, CancellationToken.None)).Status);
+        Assert.Equal(AuthStatus.DeviceExpired, (await ((IAuthService)_auth).RedeemDeviceCodeAsync("unknown", CancellationToken.None)).Status);
+    }
+
+    [Fact]
+    public async Task IAuthServiceRegisterWithEmailAsync_EmailTakenOrBadPassword_ItsOwnStatus()
+    {
+        await SignInAsync();
+
+        Assert.Equal(AuthStatus.EmailTaken, (await ((IAuthService)_auth).RegisterWithEmailAsync("reader@test.dev", "password123", null, null, CancellationToken.None)).Status);
+        Assert.Equal(AuthStatus.InvalidInput, (await ((IAuthService)_auth).RegisterWithEmailAsync("new@test.dev", "short", null, null, CancellationToken.None)).Status);
     }
 
     [Fact]

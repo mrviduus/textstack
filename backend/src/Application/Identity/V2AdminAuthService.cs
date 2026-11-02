@@ -65,14 +65,11 @@ public sealed class V2AdminAuthService(
     public (Guid? adminId, AdminRole? role) ValidateAccessToken(string accessToken) => tokens.ValidateAdminAccessToken(accessToken);
 
     // ponytail: read on every call (legacy caches 5 min); admin sign-ins are rare.
-    public Task<int> GetAccessTokenExpiryMinutesAsync(CancellationToken ct = default) =>
-        SettingAsync(AdminSettingsService.AccessTokenExpiryKey, AdminSettingsService.DefaultAccessTokenExpiryMinutes, ct);
+    public async Task<int> GetAccessTokenExpiryMinutesAsync(CancellationToken ct = default) =>
+        AdminSettingsService.ParseMinutes(await settings.GetAsync(AdminSettingsService.AccessTokenExpiryKey, ct));
 
-    public Task<int> GetRefreshTokenExpiryDaysAsync(CancellationToken ct = default) =>
-        SettingAsync(AdminSettingsService.RefreshTokenExpiryKey, AdminSettingsService.DefaultRefreshTokenExpiryDays, ct);
-
-    private async Task<int> SettingAsync(string key, int fallback, CancellationToken ct) =>
-        int.TryParse(await settings.GetAsync(key, ct), out var value) ? value : fallback;
+    public async Task<int> GetRefreshTokenExpiryDaysAsync(CancellationToken ct = default) =>
+        AdminSettingsService.ParseDays(await settings.GetAsync(AdminSettingsService.RefreshTokenExpiryKey, ct));
 
     private async Task<DateTimeOffset> RefreshExpiresAtAsync(CancellationToken ct) =>
         clock.GetUtcNow().AddDays(await GetRefreshTokenExpiryDaysAsync(ct));

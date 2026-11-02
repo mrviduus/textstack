@@ -801,22 +801,19 @@ public partial class AuthService
 
         var userCode = await GenerateUniqueUserCodeAsync(now, ct);
 
-        const int expiresInSeconds = DeviceCodes.ExpiresInSeconds;
-        const int intervalSeconds = DeviceCodes.IntervalSeconds;
-
         _db.DeviceAuthorizations.Add(new DeviceAuthorization
         {
             Id = Guid.NewGuid(),
             DeviceCodeHash = deviceCodeHash,
             UserCode = userCode,
             Status = DeviceAuthorizationStatus.Pending,
-            ExpiresAt = now.AddSeconds(expiresInSeconds),
-            IntervalSeconds = intervalSeconds,
+            ExpiresAt = now.AddSeconds(DeviceCodes.ExpiresInSeconds),
+            IntervalSeconds = DeviceCodes.IntervalSeconds,
             CreatedAt = now
         });
         await _db.SaveChangesAsync(ct);
 
-        return new DeviceCodeResult(deviceCode, userCode, expiresInSeconds, intervalSeconds);
+        return new DeviceCodeResult(deviceCode, userCode, DeviceCodes.ExpiresInSeconds, DeviceCodes.IntervalSeconds);
     }
 
     /// <summary>Approve a pending device authorization, binding it to the user.</summary>

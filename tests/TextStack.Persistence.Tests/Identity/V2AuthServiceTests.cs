@@ -15,6 +15,8 @@ namespace TextStack.Persistence.Tests.Identity;
 public class V2AuthServiceTests(V2PostgresFixture db)
 {
     private const string Password = "correct horse battery";
+    private const int AccountDays = 30;
+    private const int GuestDays = 7;
 
     private readonly Clock _clock = new();
     private readonly FakeProviders _tokens = new();
@@ -513,6 +515,45 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task RefreshTokenAsync_GuestAndAccount_EachKeepsItsOwnWindow()
+    {
+        var guest = await Auth.CreateGuestSessionAsync(Ct);
+        var account = (await RegisterAsync()).Result;
+
+        var (guestNext, accountNext) = (await Auth.RefreshTokenAsync(guest.RefreshToken!, Ct), await Auth.RefreshTokenAsync(account.RefreshToken!, Ct));
+
+        Assert.Equal(_clock.Now.AddDays(GuestDays), await ExpiresAtAsync(guestNext.RefreshToken!), TimeSpan.FromSeconds(1));
+        Assert.Equal(_clock.Now.AddDays(AccountDays), await ExpiresAtAsync(accountNext.RefreshToken!), TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task AdminLoginAsync_DefaultSettings_FifteenMinuteTokenAndSevenDaySession()
+    {
+        var (_, email) = await AdminAccountAsync();
+
+        var admin = (await Admin.LoginAsync(email, Password, Ct))!;
+
+        var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().ReadJwtToken(admin.AccessToken);
+        Assert.InRange(token.ValidTo - DateTime.UtcNow, TimeSpan.FromMinutes(14), TimeSpan.FromMinutes(15));
+        Assert.Equal(_clock.Now.AddDays(7), await ExpiresAtAsync(admin.RefreshToken), TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task AdminLoginAsync_ResetBetweenCheckAndIssue_Null()
+    {
+        var (registered, email) = await AdminAccountAsync();
+        var code = (await Auth.RequestPasswordResetAsync(email, Ct))!;
+        var users = new HookedUsers(_users) { AfterGetByEmail = async () => Assert.True(await Auth.ResetPasswordAsync(code, "a brand new password", Ct)) };
+        var admin = new V2AdminAuthService(users, _sessions, new AdminSettingsRepository(db.DataSource), _tokens, _clock);
+
+        Assert.Null(await admin.LoginAsync(email, Password, Ct));
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", registered.User!.Id));
+    }
+
+    private Task<DateTimeOffset> ExpiresAtAsync(string refreshToken) =>
+        db.ScalarAsync<DateTimeOffset>("SELECT expires_at FROM user_refresh_tokens WHERE token_hash = @hash", new { hash = DeviceCodes.HashToken(refreshToken) });
+
+    [Fact]
     public async Task AdminLoginAsync_ReaderOrWrongPassword_Null()
     {
         var (reader, email) = await RegisterAsync();
@@ -590,7 +631,12 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     }
 
     /// <summary>Google and Apple, stood in for: a token is whatever identity the test filed under it.</summary>
-    private sealed class FakeProviders() : JwtTokens(new JwtSettings { SecretKey = "a-test-signing-key-long-enough-for-hmac-sha256-abcdefgh" })
+    private sealed class FakeProviders() : JwtTokens(new JwtSettings
+    {
+        SecretKey = "a-test-signing-key-long-enough-for-hmac-sha256-abcdefgh",
+        RefreshTokenExpiryDays = AccountDays,
+        GuestRefreshTokenExpiryDays = GuestDays,
+    })
     {
         public Dictionary<string, ProviderIdentity> Google { get; } = [];
         public Dictionary<string, ProviderIdentity> Apple { get; } = [];
