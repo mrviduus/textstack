@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Application.Auth;
 
 public record GoogleLoginRequest(string IdToken);
@@ -16,14 +18,17 @@ public record MobileRefreshRequest(string RefreshToken);
 /// disappear without a word.
 /// </param>
 /// <param name="Merge">
-/// The guest's V2 ids that the merge replaced (v2-sync-protocol.md "Guest → account merge"). Null
-/// unless V2 merged the guest and some id changed; additive, so clients that ignore it are unaffected.
+/// The guest's V2 ids that the merge replaced (v2-sync-protocol.md "Guest → account merge"). Absent
+/// unless V2 merged the guest and some id changed (never <c>null</c> on the wire, so old clients see no new field).
 /// </param>
-public record AuthResponse(UserDto User, string? GuestMergeSkipped = null, GuestMergeMap? Merge = null);
+public record AuthResponse(
+    UserDto User, string? GuestMergeSkipped = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] GuestMergeMap? Merge = null);
 
 /// <inheritdoc cref="AuthResponse"/>
 public record MobileAuthResponse(
-    UserDto User, string AccessToken, string RefreshToken, string? GuestMergeSkipped = null, GuestMergeMap? Merge = null);
+    UserDto User, string AccessToken, string RefreshToken, string? GuestMergeSkipped = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] GuestMergeMap? Merge = null);
 
 /// <summary>Guest id → account id, per kind: only ids that changed.</summary>
 public record GuestMergeMap(IReadOnlyDictionary<Guid, Guid> Books, IReadOnlyDictionary<Guid, Guid> Files, IReadOnlyDictionary<Guid, Guid> Words);
