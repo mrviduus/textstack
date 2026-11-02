@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -43,7 +44,7 @@ public static class SyncValidation
     // The size first, on the raw text that is also what gets stored; only then the walk.
     private static SyncResult? Toc(string raw, string field)
     {
-        if (Encoding.UTF8.GetByteCount(raw) > MaxTocBytes) return SyncResult.Invalid(field, "toc must be a JSON array of at most 256 KB.");
+        if (Utf8Cap(Encoding.UTF8.GetByteCount(raw), field, MaxTocBytes) is { } tooBig) return tooBig;
         using var toc = JsonDocument.Parse(raw);
         return toc.RootElement.ValueKind == JsonValueKind.Array ? Json(toc.RootElement, field) : SyncResult.Invalid(field, "toc must be a JSON array of at most 256 KB.");
     }
@@ -99,7 +100,10 @@ public static class SyncValidation
 
     /// <summary><see cref="RequiredText(string?, string)"/> capped in UTF-8 bytes: the bodies the PDD bounds in KB.</summary>
     public static SyncResult? RequiredUtf8(string? value, string field, int maxBytes) =>
-        RequiredText(value, field) ?? (Encoding.UTF8.GetByteCount(value!) > maxBytes ? SyncResult.Invalid(field, $"{field} is at most {maxBytes / 1024} KB.") : null);
+        RequiredText(value, field) ?? Utf8Cap(Encoding.UTF8.GetByteCount(value!), field, maxBytes);
+
+    private static SyncResult? Utf8Cap(int bytes, string field, int maxBytes) =>
+        bytes > maxBytes ? SyncResult.Invalid(field, $"{field} is at most {maxBytes / 1024} KB.") : null;
 
     private static readonly JsonDocumentOptions NoDuplicateMembers = new() { AllowDuplicateProperties = false };
 
@@ -110,29 +114,18 @@ public static class SyncValidation
     public static SyncResult? JsonArray(JsonElement? value, string field, int maxBytes)
     {
         if (value is not { ValueKind: JsonValueKind.Array } array) return SyncResult.Invalid(field, $"{field} must be a JSON array.");
-        var raw = array.GetRawText();
-        if (Encoding.UTF8.GetByteCount(raw) > maxBytes) return SyncResult.Invalid(field, $"{field} is at most {maxBytes / 1024} KB.");
-        if (Json(array, field) is { } unstorable) return unstorable;
-        // The canonical hash writes numbers as finite doubles (RFC 8785); 1e400 has none.
-        if (!IsFinite(array)) return SyncResult.Invalid(field, $"{field} holds a number out of range.");
+        var raw = JsonMarshal.GetRawUtf8Value(array);
+        if (Utf8Cap(raw.Length, field, maxBytes) is { } tooBig) return tooBig;
         try
         {
-            using var _ = JsonDocument.Parse(raw, NoDuplicateMembers);
-            return null;
+            using var _ = JsonDocument.Parse(raw.ToArray(), NoDuplicateMembers);
         }
         catch (JsonException)
         {
             return SyncResult.Invalid(field, $"{field} repeats a member name.");
         }
+        return Json(array, field);
     }
-
-    private static bool IsFinite(JsonElement value) => value.ValueKind switch
-    {
-        JsonValueKind.Object => value.EnumerateObject().All(m => IsFinite(m.Value)),
-        JsonValueKind.Array => value.EnumerateArray().All(IsFinite),
-        JsonValueKind.Number => value.TryGetDouble(out var number) && double.IsFinite(number),
-        _ => true,
-    };
 
     public static SyncResult? Tags(string[]? tags) =>
         tags is null || tags.All(t => !string.IsNullOrWhiteSpace(t) && IsStorable(t)) ? null : SyncResult.Invalid("tags", "tags must be non-blank strings.");
@@ -144,9 +137,12 @@ public static class SyncValidation
     public static SyncResult? Text(string? value, string field) =>
         value is null || IsStorable(value) ? null : SyncResult.Invalid(field, $"{field} holds a NUL or an unpaired surrogate.");
 
-    /// <summary><see cref="Text"/> for every string and member name inside opaque client JSON (jsonb refuses \u0000 with 22P05).</summary>
+    /// <summary>
+    /// <see cref="Text"/> for every string and member name inside opaque client JSON (jsonb refuses \u0000
+    /// with 22P05), and every number finite (the canonical hash writes doubles, RFC 8785; 1e400 has none).
+    /// </summary>
     public static SyncResult? Json(JsonElement value, string field) =>
-        IsStorable(value) ? null : SyncResult.Invalid(field, $"{field} holds a NUL or an unpaired surrogate.");
+        IsStorable(value) ? null : SyncResult.Invalid(field, $"{field} holds a NUL, an unpaired surrogate or an out-of-range number.");
 
     private static bool IsStorable(string text)
     {
@@ -169,6 +165,7 @@ public static class SyncValidation
                 JsonValueKind.Object => value.EnumerateObject().All(m => IsStorable(m.Name) && IsStorable(m.Value)),
                 JsonValueKind.Array => value.EnumerateArray().All(IsStorable),
                 JsonValueKind.String => IsStorable(value.GetString()!),
+                JsonValueKind.Number => value.TryGetDouble(out var number) && double.IsFinite(number),
                 _ => true,
             };
         }
