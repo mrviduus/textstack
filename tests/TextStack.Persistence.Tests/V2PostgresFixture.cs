@@ -162,7 +162,7 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         // tests' ClaimNextAsync, which runs across users.
         var now = DateTimeOffset.UtcNow;
         var sessions = new SessionTokenRepository(DataSource);
-        await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), null, Application.Identity.SessionKind.Reader, Ct);
+        await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), null, null, Application.Identity.SessionKind.Reader, Ct);
         await sessions.CreatePasswordResetAsync(userId, NewHash(), now.AddHours(1), Ct);
         var oauth = new OAuthRepository(DataSource);
         var request = NewOAuthRequest();
@@ -171,9 +171,9 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         await oauth.ConnectAsync(userId, NewGrant(), Ct);
         var devices = new DeviceLoginRepository(DataSource);
         var login = NewDeviceLogin();
-        await devices.CreateAsync(login, now, Ct);
-        await devices.DecideAsync(login.UserCode, userId, now, Ct);
-        await new McpKeyRepository(DataSource).CreateAsync(userId, "laptop", NewHash(), "tsk_ab", Ct);
+        await devices.CreateAsync(login, Ct);
+        await devices.DecideAsync(login.UserCode, userId, now, now, Ct);
+        await new McpKeyRepository(DataSource).CreateAsync(userId, "laptop", NewHash(), "tsk_ab", DateTimeOffset.UtcNow, Ct);
         await new V2AgentRunWriter(DataSource).WriteAsync(NewRun(userId), Ct);
         await new V2LlmTraceWriter(DataSource).WriteAsync(NewTrace(userId), Ct);
         await using var conn = await DataSource.OpenConnectionAsync(Ct);

@@ -1,55 +1,61 @@
+using Application.Common;
 using Application.Identity;
 using Dapper;
 using Domain.Identity;
+using Npgsql;
 
 namespace Infrastructure.Persistence.Repositories;
 
 /// <summary>
 /// Dapper implementation of <see cref="IDeviceLoginRepository"/> on <c>textstack_v2</c>. Every
 /// transition is one UPDATE guarded by the status it leaves, so of two racing callers one matches.
-/// A user code is unique only among pending logins (<c>ix_device_authorizations_user_code</c> is
-/// partial and not unique): old decided logins may show it again.
+/// A user code shows at most one pending login (<c>ix_device_authorizations_user_code</c>, unique
+/// and partial): decided logins may show it again.
 /// </summary>
 public sealed class DeviceLoginRepository(V2DataSource dataSource) : IDeviceLoginRepository
 {
     private const string Columns = "id, device_code_hash, user_code, user_id, status, expires_at, interval_seconds, consumed_at, created_at";
 
-    // Code entry looks up only live pending logins, so a code is taken while one of them shows it.
-    // ponytail: two creates racing with one random code can both land (as on legacy); a unique partial index on live pending codes if that ever matters.
-    private const string InsertLoginUnlessCodeTaken = """
+    private const string InsertLogin = """
         INSERT INTO device_authorizations (id, device_code_hash, user_code, status, expires_at, interval_seconds, created_at)
-        SELECT @Id, @DeviceCodeHash, @UserCode, @Status, @ExpiresAt, @IntervalSeconds, now()
-        WHERE NOT EXISTS (
-            SELECT FROM device_authorizations WHERE user_code = @UserCode AND status = 'pending' AND expires_at > @now)
+        VALUES (@Id, @DeviceCodeHash, @UserCode, @Status, @ExpiresAt, @IntervalSeconds, now())
         """;
 
-    public async Task<bool> CreateAsync(DeviceLogin login, DateTimeOffset now, CancellationToken ct)
+    public async Task<bool> CreateAsync(DeviceLogin login, CancellationToken ct)
     {
-        var args = new DynamicParameters(login);
-        args.Add("now", now);
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(InsertLoginUnlessCodeTaken, args, cancellationToken: ct)) > 0;
+        try
+        {
+            await using var conn = await dataSource.OpenConnectionAsync(ct);
+            return await conn.ExecuteAsync(new CommandDefinition(InsertLogin, login, cancellationToken: ct)) > 0;
+        }
+        // A pending login shows the code: the caller mints another. Reachable (a random code), so a result.
+        catch (PostgresException e) when (e.IsUniqueViolation() && e.ConstraintName == "ix_device_authorizations_user_code")
+        {
+            return false;
+        }
     }
 
-    // A pending login whose deadline passed unnoticed may still show the code; the live one, if any,
-    // expires last, so it is the one decided.
-    private const string Decide = """
+    // An approval runs only while the approver's access token outlives the last password reset; the
+    // approver's row FOR SHARE, so a reset committing meanwhile is seen (and one that comes after
+    // finds the approval and expires it). Not taken for a denial.
+    private const string Decide = $"""
         UPDATE device_authorizations SET
             status = CASE WHEN expires_at <= @now THEN 'expired' WHEN @approvedBy IS NULL THEN 'denied' ELSE 'approved' END,
             user_id = CASE WHEN expires_at <= @now THEN NULL ELSE @approvedBy END
         WHERE id = (
             SELECT id FROM device_authorizations
             WHERE user_code = @userCode AND status = 'pending'
-            ORDER BY expires_at DESC
-            LIMIT 1
             FOR UPDATE)
+          AND (@approvedBy IS NULL OR EXISTS (
+            SELECT FROM users u WHERE u.id = @approvedBy AND {UserRepository.NotResetSinceToken}
+            FOR SHARE))
         RETURNING status
         """;
 
-    public async Task<string?> DecideAsync(string userCode, Guid? approvedBy, DateTimeOffset now, CancellationToken ct)
+    public async Task<string?> DecideAsync(string userCode, Guid? approvedBy, DateTimeOffset tokenIssuedAt, DateTimeOffset now, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<string>(new CommandDefinition(Decide, new { userCode, approvedBy, now }, cancellationToken: ct));
+        return await conn.QuerySingleOrDefaultAsync<string>(new CommandDefinition(Decide, new { userCode, approvedBy, tokenIssuedAt, now }, cancellationToken: ct));
     }
 
     private const string SelectByDeviceCode = $"SELECT {Columns} FROM device_authorizations WHERE device_code_hash = @deviceCodeHash";
@@ -81,7 +87,7 @@ public sealed class DeviceLoginRepository(V2DataSource dataSource) : IDeviceLogi
         await using var tx = await conn.BeginTransactionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition(LockApprover, new { loginId }, tx, cancellationToken: ct));
         var redeemed = await conn.ExecuteAsync(new CommandDefinition(
-            RedeemApproved, new { loginId, tokenHash, expiresAt = sessionExpiresAt, now }, tx, cancellationToken: ct)) > 0;
+            RedeemApproved, new { loginId, tokenHash, kind = SessionTokenRepository.Kind(SessionKind.Reader), expiresAt = sessionExpiresAt, now }, tx, cancellationToken: ct)) > 0;
         await tx.CommitAsync(ct);
         return redeemed;
     }

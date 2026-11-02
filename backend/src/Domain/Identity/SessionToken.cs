@@ -12,6 +12,13 @@ public class SessionToken
     public Guid UserId { get; set; }
     public string TokenHash { get; set; } = "";
     public string? PreviousTokenHash { get; set; }
+
+    /// <summary>The sign-in this session was rotated from: the id of its first session.</summary>
+    public Guid FamilyId { get; set; }
+
+    /// <summary>When that sign-in happened; the absolute lifetime counts from here.</summary>
+    public DateTimeOffset FamilyStartedAt { get; set; }
+
     public DateTimeOffset ExpiresAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 }
