@@ -111,19 +111,24 @@ public class JwtTokensTests
         Assert.NotEqual(raw, JwtTokens.NewOpaqueToken().Raw);
     }
 
-    [Fact]
-    public void VerifyApple_ApplesTokenForThisApp_SubjectAndAnUnverifiedEmail()
+    [Theory]
+    [InlineData(ProviderTokens.AppleIssuer, "app.textstack", 5, true)]
+    [InlineData("https://evil.example", "app.textstack", 5, false)]
+    [InlineData(ProviderTokens.AppleIssuer, "another.app", 5, false)]
+    [InlineData(ProviderTokens.AppleIssuer, "app.textstack", -1, false)]
+    public void VerifyApple_IssuerAudienceExpiry_IdentityOnlyForApplesUnexpiredTokenForThisApp(string issuer, string audience, int expiresInMinutes, bool accepted)
     {
-        var tokens = new ProviderTokens(apple: new AppleSettings { BundleId = "app.textstack" });
-
-        var apple = tokens.VerifyApple(AppleToken("https://appleid.apple.com", "app.textstack"))!;
+        var apple = new ProviderTokens(apple: new AppleSettings { BundleId = "app.textstack" })
+            .VerifyApple(AppleToken(issuer, audience, expiresInMinutes));
 
         // The signature is not checked (owner-deferred), so the email proves nothing: nothing links by it.
-        Assert.Equal(("apple-subject", "reader@privaterelay.appleid.com"), (apple.Subject, apple.Email));
-        Assert.Null(tokens.VerifyApple(AppleToken("https://evil.example", "app.textstack")));
-        Assert.Null(tokens.VerifyApple(AppleToken("https://appleid.apple.com", "another.app")));
-        Assert.Null(tokens.VerifyApple(AppleToken("https://appleid.apple.com", "app.textstack", expiresInMinutes: -1)));
-        Assert.Null(tokens.VerifyApple("not a jwt"));
+        Assert.Equal(accepted ? ("apple-subject", "reader@privaterelay.appleid.com") : default, (apple?.Subject, apple?.Email));
+    }
+
+    [Fact]
+    public void VerifyApple_NotAJwt_Null()
+    {
+        Assert.Null(new ProviderTokens().VerifyApple("not a jwt"));
     }
 
     [Fact]

@@ -84,7 +84,7 @@ public class V2GateTests
         using var api = Api(v2Api: true, Unreachable);
         using var scope = api.Services.CreateScope();
 
-        foreach (var type in new[] { typeof(IAuthService), typeof(IAdminAuthService), typeof(V2AuthService), typeof(V2AdminAuthService), typeof(JwtTokens) })
+        foreach (var type in new[] { typeof(IAuthService), typeof(IAdminAuthService), typeof(V2AuthService), typeof(V2AdminAuthService), typeof(JwtTokens), typeof(ProviderTokens) })
             Assert.Null(scope.ServiceProvider.GetService(type));
         Assert.IsType<AuthService>(scope.ServiceProvider.GetRequiredService<AuthService>());
         Assert.IsType<AdminAuthService>(scope.ServiceProvider.GetRequiredService<AdminAuthService>());
