@@ -137,3 +137,55 @@ BEGIN
         RAISE EXCEPTION 'ix_users_email is not a unique index on lower(email)';
     END IF;
 END $$;
+
+-- Migration 0002: each change feed pages by (updated_at, key) within a user, and an index walks it
+-- in that order.
+DO $$
+DECLARE bad text;
+BEGIN
+    SELECT string_agg(f.ix, ', ') INTO bad FROM (VALUES
+        ('ix_books_user_id_updated_at_id', '(user_id, updated_at, id)'),
+        ('ix_reading_state_user_id_updated_at_book_id', '(user_id, updated_at, book_id)'),
+        ('ix_annotations_user_id_updated_at_id', '(user_id, updated_at, id)'),
+        ('ix_vocabulary_words_user_id_updated_at_id', '(user_id, updated_at, id)')
+    ) f(ix, cols)
+    WHERE NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = f.ix
+                        AND indexdef LIKE '%btree ' || f.cols AND indexdef NOT LIKE '%WHERE%');
+    IF bad IS NOT NULL THEN RAISE EXCEPTION 'change-feed indexes missing or not (user_id, updated_at, key): %', bad; END IF;
+END $$;
+
+-- The due queue: the page order (next_review_at, id), live and unretired cards only.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes
+                   WHERE schemaname = 'public' AND indexname = 'ix_vocabulary_words_user_id_next_review_at'
+                     AND indexdef LIKE '%(user_id, next_review_at, id) WHERE ((deleted_at IS NULL) AND (retired_at IS NULL))') THEN
+        RAISE EXCEPTION 'ix_vocabulary_words_user_id_next_review_at is not (user_id, next_review_at, id) over live, unretired cards';
+    END IF;
+END $$;
+
+-- A user code shows at most one pending login.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes
+                   WHERE schemaname = 'public' AND indexname = 'ix_device_authorizations_user_code'
+                     AND indexdef LIKE 'CREATE UNIQUE INDEX%(user_code) WHERE ((status)::text = ''pending''::text)') THEN
+        RAISE EXCEPTION 'ix_device_authorizations_user_code is not unique over pending logins';
+    END IF;
+END $$;
+
+-- A session's kind and family are always known: reader and admin sessions never cross, and a
+-- replayed token always finds its family.
+DO $$
+DECLARE bad text;
+BEGIN
+    IF pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'ck_user_refresh_tokens_kind'))
+       IS DISTINCT FROM 'CHECK ((kind = ANY (ARRAY[''reader''::text, ''admin''::text])))' THEN
+        RAISE EXCEPTION 'ck_user_refresh_tokens_kind is not kind IN (reader, admin)';
+    END IF;
+
+    SELECT string_agg(column_name, ', ') INTO bad FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'user_refresh_tokens'
+      AND column_name IN ('kind', 'family_id', 'family_started_at') AND is_nullable = 'YES';
+    IF bad IS NOT NULL THEN RAISE EXCEPTION 'nullable user_refresh_tokens columns: %', bad; END IF;
+END $$;
