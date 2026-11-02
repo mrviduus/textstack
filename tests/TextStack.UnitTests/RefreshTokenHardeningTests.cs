@@ -165,15 +165,15 @@ public class RefreshTokenHardeningTests
     // IAuthService over legacy: the adapter's mappings, through the same fake sets.
 
     [Fact]
-    public async Task IAuthServiceRefreshTokenAsync_ReplayAfterGrace_TokenReused()
+    public async Task IAuthServiceRefreshTokenAsync_ReplayAfterGrace_InvalidTokenAndSuccessorRevoked()
     {
         var (_, first, _) = await SignInAsync();
-        await _auth.RefreshTokenAsync(first, CancellationToken.None);
+        var second = (await _auth.RefreshTokenAsync(first, CancellationToken.None))!.Value.refreshToken;
         LinkUsers();
         _refreshTokens[0].CreatedAt -= Application.Identity.ISessionTokenRepository.RefreshReuseGrace + TimeSpan.FromSeconds(1);
 
-        Assert.Equal(AuthStatus.TokenReused, (await ((IAuthService)_auth).RefreshTokenAsync(first, CancellationToken.None)).Status);
         Assert.Equal(AuthStatus.InvalidToken, (await ((IAuthService)_auth).RefreshTokenAsync(first, CancellationToken.None)).Status);
+        Assert.Equal(AuthStatus.InvalidToken, (await ((IAuthService)_auth).RefreshTokenAsync(second, CancellationToken.None)).Status);
     }
 
     [Fact]
@@ -187,13 +187,20 @@ public class RefreshTokenHardeningTests
     }
 
     [Fact]
-    public async Task IAuthServiceRedeemDeviceCodeAsync_Denied_DeviceDenied()
+    public async Task IAuthServiceRedeemDeviceCodeAsync_DeniedUnknownApproved_StatusAndTheMappedUser()
     {
-        var device = await _auth.CreateDeviceAuthorizationAsync(CancellationToken.None);
-        await _auth.DenyDeviceAsync(device.UserCode, CancellationToken.None);
+        var (user, _, _) = await SignInAsync();
+        var denied = await _auth.CreateDeviceAuthorizationAsync(CancellationToken.None);
+        await _auth.DenyDeviceAsync(denied.UserCode, CancellationToken.None);
+        var approved = await _auth.CreateDeviceAuthorizationAsync(CancellationToken.None);
+        await _auth.ApproveDeviceAsync(approved.UserCode, user.Id, CancellationToken.None);
+        foreach (var d in _devices.Where(d => d.UserId == user.Id)) d.User = user;
+        var auth = (IAuthService)_auth;
 
-        Assert.Equal(AuthStatus.DeviceDenied, (await ((IAuthService)_auth).RedeemDeviceCodeAsync(device.DeviceCode, CancellationToken.None)).Status);
-        Assert.Equal(AuthStatus.DeviceExpired, (await ((IAuthService)_auth).RedeemDeviceCodeAsync("unknown", CancellationToken.None)).Status);
+        Assert.Equal(DeviceRedeemStatus.AccessDenied, (await auth.RedeemDeviceCodeAsync(denied.DeviceCode, CancellationToken.None)).Status);
+        Assert.Equal(DeviceRedeemStatus.ExpiredToken, (await auth.RedeemDeviceCodeAsync("unknown", CancellationToken.None)).Status);
+        var redeemed = await auth.RedeemDeviceCodeAsync(approved.DeviceCode, CancellationToken.None);
+        Assert.Equal((DeviceRedeemStatus.Approved, user.Id, false), (redeemed.Status, redeemed.User?.Id, redeemed.User?.IsGuest));
     }
 
     [Fact]

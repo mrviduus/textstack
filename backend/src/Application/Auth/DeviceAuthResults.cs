@@ -1,5 +1,3 @@
-using Domain.Entities;
-
 namespace Application.Auth;
 
 /// <summary>Result of <see cref="AuthService.CreateDeviceAuthorizationAsync"/>.</summary>
@@ -29,18 +27,19 @@ public enum DeviceRedeemStatus
 
 /// <summary>
 /// Discriminated result the device token endpoint maps to RFC 8628 errors.
-/// On <see cref="DeviceRedeemStatus.Approved"/> the token fields are populated.
+/// On <see cref="DeviceRedeemStatus.Approved"/> the user and token fields are set: legacy's EF
+/// <c>User</c>, or a <c>UserAccount</c> through <see cref="IAuthService"/>.
 /// </summary>
-public sealed record DeviceRedeemResult(
+public sealed record DeviceRedeemResult<TUser>(
     DeviceRedeemStatus Status,
-    User? User = null,
+    TUser? User = null,
     string? AccessToken = null,
-    string? RefreshToken = null)
+    string? RefreshToken = null) where TUser : class
 {
-    public static DeviceRedeemResult Success(User user, string accessToken, string refreshToken) =>
+    public static DeviceRedeemResult<TUser> Success(TUser user, string accessToken, string refreshToken) =>
         new(DeviceRedeemStatus.Approved, user, accessToken, refreshToken);
 
-    public static DeviceRedeemResult AuthorizationPending() => new(DeviceRedeemStatus.AuthorizationPending);
-    public static DeviceRedeemResult ExpiredToken() => new(DeviceRedeemStatus.ExpiredToken);
-    public static DeviceRedeemResult AccessDenied() => new(DeviceRedeemStatus.AccessDenied);
+    public static DeviceRedeemResult<TUser> AuthorizationPending() => new(DeviceRedeemStatus.AuthorizationPending);
+    public static DeviceRedeemResult<TUser> ExpiredToken() => new(DeviceRedeemStatus.ExpiredToken);
+    public static DeviceRedeemResult<TUser> AccessDenied() => new(DeviceRedeemStatus.AccessDenied);
 }

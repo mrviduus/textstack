@@ -38,9 +38,8 @@ public interface IAuthService
     Task<AccountMerge?> MergeGuestAsync(Guid guestUserId, Guid realUserId, string method, CancellationToken ct);
 
     /// <summary>
-    /// Rotates the refresh token. <see cref="AuthStatus.InvalidToken"/> when it is unknown, expired or
-    /// lost a concurrent rotation; <see cref="AuthStatus.TokenReused"/> when it was rotated away already,
-    /// which also signs its successor out.
+    /// Rotates the refresh token; <see cref="AuthStatus.InvalidToken"/> otherwise (unknown, expired, lost a
+    /// concurrent rotation, or rotated away already, which also signs the sessions rotated from it out).
     /// </summary>
     Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct);
 
@@ -58,7 +57,6 @@ public interface IAuthService
     /// <summary><see cref="AuthStatus.InvalidCredentials"/> for an unknown email, no password, or the wrong one (one answer: no enumeration).</summary>
     Task<AuthResult> LoginWithEmailAsync(string email, string password, CancellationToken ct);
 
-    Task<bool> EmailExistsAsync(string email, CancellationToken ct);
 
     /// <summary>The raw reset code to email; null when no password account has this email (the caller says nothing either way).</summary>
     Task<string?> RequestPasswordResetAsync(string email, CancellationToken ct);
@@ -73,15 +71,8 @@ public interface IAuthService
 
     Task<DeviceApprovalResult> DenyDeviceAsync(string userCode, CancellationToken ct);
 
-    /// <summary>
-    /// RFC 8628 §3.4: the device's poll. Tokens once approved (single use), else
-    /// <see cref="AuthStatus.DevicePending"/>, <see cref="AuthStatus.DeviceDenied"/> or
-    /// <see cref="AuthStatus.DeviceExpired"/> (also for an unknown or spent code: no enumeration).
-    /// </summary>
-    Task<AuthResult> RedeemDeviceCodeAsync(string deviceCode, CancellationToken ct);
-
-    /// <summary>The user a reader's access token belongs to; null when it does not validate.</summary>
-    Guid? ValidateAccessToken(string accessToken);
+    /// <summary>RFC 8628 §3.4: the device's poll. Tokens once approved (single use); an unknown or spent code is expired (no enumeration).</summary>
+    Task<DeviceRedeemResult<UserAccount>> RedeemDeviceCodeAsync(string deviceCode, CancellationToken ct);
 
     /// <inheritdoc cref="JwtTokens.ValidateAccessToken"/>
     (Guid? UserId, bool IsGuest) ValidateAccessTokenIdentity(string accessToken);
@@ -95,10 +86,6 @@ public enum AuthStatus
     InvalidInput,
     EmailTaken,
     InvalidToken,
-    TokenReused,
-    DevicePending,
-    DeviceDenied,
-    DeviceExpired,
 }
 
 /// <summary>A sign-in's outcome; the user and both tokens are set exactly when <see cref="Succeeded"/>.</summary>

@@ -17,4 +17,10 @@
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
+
+  <!-- The unit tests' clock and token secret, shared rather than copied. -->
+  <ItemGroup>
+    <Compile Include="..\TextStack.UnitTests\SteppedClock.cs" Link="Shared\SteppedClock.cs" />
+    <Compile Include="..\TextStack.UnitTests\TestTokens.cs" Link="Shared\TestTokens.cs" />
+  </ItemGroup>
 </Project>

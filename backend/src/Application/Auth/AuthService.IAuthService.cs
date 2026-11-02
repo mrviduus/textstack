@@ -11,7 +11,7 @@ namespace Application.Auth;
 public partial class AuthService : IAuthService
 {
     async Task<AuthResult> IAuthService.TestLoginAsync(string email, CancellationToken ct) =>
-        Result(await TestLoginAsync(email, ct), AuthStatus.Ok);
+        Ok(await TestLoginAsync(email, ct));
 
     async Task<AuthResult> IAuthService.LoginWithGoogleAsync(string googleIdToken, CancellationToken ct) =>
         Result(await LoginWithGoogleAsync(googleIdToken, ct), AuthStatus.InvalidToken);
@@ -20,7 +20,7 @@ public partial class AuthService : IAuthService
         Result(await LoginWithAppleAsync(identityToken, fullName, email, ct), AuthStatus.InvalidToken);
 
     async Task<AuthResult> IAuthService.CreateGuestSessionAsync(CancellationToken ct) =>
-        Result(await CreateGuestSessionAsync(ct), AuthStatus.Ok);
+        Ok(await CreateGuestSessionAsync(ct));
 
     async Task<AuthResult> IAuthService.IssueSessionAsync(UserAccount user, CancellationToken ct)
     {
@@ -32,11 +32,8 @@ public partial class AuthService : IAuthService
     async Task<AccountMerge?> IAuthService.MergeGuestAsync(Guid guestUserId, Guid realUserId, string method, CancellationToken ct) =>
         await MergeGuestAsync(guestUserId, realUserId, method, ct) ? AccountMerge.Empty(AccountMergeOutcome.Merged) : null;
 
-    async Task<AuthResult> IAuthService.RefreshTokenAsync(string refreshToken, CancellationToken ct)
-    {
-        var (session, reused) = await RotateRefreshTokenAsync(refreshToken, ct);
-        return Result(session, reused ? AuthStatus.TokenReused : AuthStatus.InvalidToken);
-    }
+    async Task<AuthResult> IAuthService.RefreshTokenAsync(string refreshToken, CancellationToken ct) =>
+        Result(await RefreshTokenAsync(refreshToken, ct), AuthStatus.InvalidToken);
 
     async Task<UserAccount?> IAuthService.GetUserByIdAsync(Guid userId, CancellationToken ct) =>
         await GetUserByIdAsync(userId, ct) is { } user ? ToAccount(user) : null;
@@ -44,7 +41,7 @@ public partial class AuthService : IAuthService
     async Task<AuthResult> IAuthService.RegisterWithEmailAsync(
         string email, string password, string? name, Guid? guestUserId, CancellationToken ct)
     {
-        // Register's own null folds both answers into one: asked after, so a lost race is EmailTaken too.
+        // Register's own null folds both answers into one; asked after, so a lost race is EmailTaken too.
         var registered = await RegisterWithEmailAsync(email, password, name, guestUserId, ct);
         if (registered is null && await EmailExistsAsync(email, ct))
             return AuthResult.Failed(AuthStatus.EmailTaken);
@@ -54,22 +51,17 @@ public partial class AuthService : IAuthService
     async Task<AuthResult> IAuthService.LoginWithEmailAsync(string email, string password, CancellationToken ct) =>
         Result(await LoginWithEmailAsync(email, password, ct), AuthStatus.InvalidCredentials);
 
-    async Task<AuthResult> IAuthService.RedeemDeviceCodeAsync(string deviceCode, CancellationToken ct)
+    async Task<DeviceRedeemResult<UserAccount>> IAuthService.RedeemDeviceCodeAsync(string deviceCode, CancellationToken ct)
     {
         var redeemed = await RedeemDeviceCodeAsync(deviceCode, ct);
-        return redeemed.Status switch
-        {
-            DeviceRedeemStatus.Approved => AuthResult.Ok(ToAccount(redeemed.User!), redeemed.AccessToken!, redeemed.RefreshToken!),
-            DeviceRedeemStatus.AuthorizationPending => AuthResult.Failed(AuthStatus.DevicePending),
-            DeviceRedeemStatus.AccessDenied => AuthResult.Failed(AuthStatus.DeviceDenied),
-            _ => AuthResult.Failed(AuthStatus.DeviceExpired),
-        };
+        return new(redeemed.Status, redeemed.User is null ? null : ToAccount(redeemed.User), redeemed.AccessToken, redeemed.RefreshToken);
     }
 
+    private static AuthResult Ok((User user, string accessToken, string refreshToken) session) =>
+        AuthResult.Ok(ToAccount(session.user), session.accessToken, session.refreshToken);
+
     private static AuthResult Result((User user, string accessToken, string refreshToken)? session, AuthStatus failure) =>
-        session is { } s
-            ? AuthResult.Ok(ToAccount(s.user), s.accessToken, s.refreshToken)
-            : AuthResult.Failed(failure);
+        session is { } s ? Ok(s) : AuthResult.Failed(failure);
 
     /// <summary>The legacy user as a V2 account; legacy readers are never admins (admins are their own table).</summary>
     public static UserAccount ToAccount(User user) => new()

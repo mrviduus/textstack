@@ -551,11 +551,6 @@ public partial class AuthService
 
     public async Task<(User user, string accessToken, string refreshToken)?> RefreshTokenAsync(
         string refreshToken,
-        CancellationToken ct) => (await RotateRefreshTokenAsync(refreshToken, ct)).Session;
-
-    /// <returns>The new session; null with <c>Reused</c> when the token was rotated away already (its successor revoked).</returns>
-    private async Task<((User user, string accessToken, string refreshToken)? Session, bool Reused)> RotateRefreshTokenAsync(
-        string refreshToken,
         CancellationToken ct)
     {
         var hash = DeviceCodes.HashToken(refreshToken);
@@ -565,7 +560,10 @@ public partial class AuthService
             .FirstOrDefaultAsync(x => x.TokenHash == hash && x.ExpiresAt > now, ct);
 
         if (token == null)
-            return (null, await RevokeSuccessorOnReuseAsync(hash, now, ct));
+        {
+            await RevokeSuccessorOnReuseAsync(hash, now, ct);
+            return null;
+        }
 
         // Rotate refresh token — catch race condition if token already consumed by concurrent request
         try
@@ -575,11 +573,11 @@ public partial class AuthService
             var newRefreshToken = await CreateRefreshTokenAsync(
                 token.UserId, ct, isGuest: token.User.IsGuest, previousTokenHash: hash);
             var accessToken = GenerateAccessToken(token.User);
-            return ((token.User, accessToken, newRefreshToken), false);
+            return (token.User, accessToken, newRefreshToken);
         }
         catch (DbUpdateConcurrencyException)
         {
-            return (null, false);
+            return null;
         }
     }
 
@@ -589,14 +587,14 @@ public partial class AuthService
     /// rotated into is revoked too and both must sign in again.
     /// ponytail: remembers one generation back, like OAuthGrant; an older token is refused but not treated as reuse.
     /// </summary>
-    private async Task<bool> RevokeSuccessorOnReuseAsync(string hash, DateTimeOffset now, CancellationToken ct)
+    private async Task RevokeSuccessorOnReuseAsync(string hash, DateTimeOffset now, CancellationToken ct)
     {
         var cutoff = now - Identity.ISessionTokenRepository.RefreshReuseGrace;
         var successors = await _db.UserRefreshTokens
             .Where(x => x.PreviousTokenHash == hash && x.CreatedAt < cutoff)
             .ToListAsync(ct);
         if (successors.Count == 0)
-            return false;
+            return;
 
         _db.UserRefreshTokens.RemoveRange(successors);
         try
@@ -609,7 +607,6 @@ public partial class AuthService
         }
         _logger?.LogWarning("Rotated refresh token presented again; revoked its successor for user {UserId}",
             successors[0].UserId);
-        return true;
     }
 
     public async Task<bool> LogoutAsync(string refreshToken, CancellationToken ct)
@@ -881,10 +878,10 @@ public partial class AuthService
     /// RFC 8628 §3.4/§3.5 — the CLI polls with its device_code. Returns either a
     /// freshly-minted token pair (single-use) or one of the RFC error states.
     /// </summary>
-    public async Task<DeviceRedeemResult> RedeemDeviceCodeAsync(string deviceCode, CancellationToken ct)
+    public async Task<DeviceRedeemResult<User>> RedeemDeviceCodeAsync(string deviceCode, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(deviceCode))
-            return DeviceRedeemResult.ExpiredToken(); // unknown == don't distinguish
+            return DeviceRedeemResult<User>.ExpiredToken(); // unknown == don't distinguish
 
         var hash = DeviceCodes.HashToken(deviceCode);
         var row = await _db.DeviceAuthorizations
@@ -893,7 +890,7 @@ public partial class AuthService
 
         // Unknown device_code → expired_token (avoid enumeration; don't reveal "not found").
         if (row == null)
-            return DeviceRedeemResult.ExpiredToken();
+            return DeviceRedeemResult<User>.ExpiredToken();
 
         var now = _clock.GetUtcNow();
 
@@ -902,28 +899,28 @@ public partial class AuthService
         {
             row.Status = DeviceAuthorizationStatus.Expired;
             await _db.SaveChangesAsync(ct);
-            return DeviceRedeemResult.ExpiredToken();
+            return DeviceRedeemResult<User>.ExpiredToken();
         }
 
         switch (row.Status)
         {
             case DeviceAuthorizationStatus.Pending:
-                return DeviceRedeemResult.AuthorizationPending();
+                return DeviceRedeemResult<User>.AuthorizationPending();
             case DeviceAuthorizationStatus.Denied:
-                return DeviceRedeemResult.AccessDenied();
+                return DeviceRedeemResult<User>.AccessDenied();
             case DeviceAuthorizationStatus.Expired:
-                return DeviceRedeemResult.ExpiredToken();
+                return DeviceRedeemResult<User>.ExpiredToken();
             case DeviceAuthorizationStatus.Approved when row.User != null:
                 // Single-use: flip status off pending so a second redeem can't re-mint.
                 row.Status = DeviceAuthorizationStatus.Expired;
                 row.ConsumedAt = now;
                 var accessToken = GenerateAccessToken(row.User);
                 var refreshToken = await CreateRefreshTokenAsync(row.User.Id, ct);
-                return DeviceRedeemResult.Success(row.User, accessToken, refreshToken);
+                return DeviceRedeemResult<User>.Success(row.User, accessToken, refreshToken);
             default:
                 // Approved-but-already-consumed (UserId set, status flipped) or any
                 // other terminal state → treat as expired (don't re-issue).
-                return DeviceRedeemResult.ExpiredToken();
+                return DeviceRedeemResult<User>.ExpiredToken();
         }
     }
 
