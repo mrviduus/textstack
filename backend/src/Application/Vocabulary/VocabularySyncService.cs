@@ -110,7 +110,7 @@ public sealed class VocabularySyncService(ILibraryRepository library, IVocabular
         var added = await words.AddExampleAsync(userId, NewExample(card, r), ct);
         if (added.Outcome is not (WriteOutcome.Created or WriteOutcome.Replayed))
             return await LossAsync(userId, wordId, added.Outcome, added.Row?.ToDto(), ct);
-        return SyncResult.Written(added.Outcome == WriteOutcome.Created, added.Row!.ToDto());
+        return SyncResult.Written(added.Outcome, added.Row!.ToDto());
     }
 
     public async Task<SyncResult> RecordReviewAsync(Guid userId, VocabularyReviewRequest r, CancellationToken ct)
@@ -131,7 +131,7 @@ public sealed class VocabularySyncService(ILibraryRepository library, IVocabular
         if (result.Outcome is not (WriteOutcome.Created or WriteOutcome.Replayed))
             return await LossAsync(userId, review.WordId, result.Outcome, result.Row?.ToDto(), ct);
         return await RespondAsync(userId, review.WordId,
-            card => SyncResult.Written(result.Outcome == WriteOutcome.Created, new RecordedReviewDto(result.Row!.ToDto(), card.ToDto())), ct);
+            card => SyncResult.Written(result.Outcome, new RecordedReviewDto(result.Row!.ToDto(), card.ToDto())), ct);
     }
 
     /// <summary>An answer; <paramref name="now"/> is the server's receive time, which a client time may not pass by more than the skew.</summary>
@@ -184,7 +184,7 @@ public sealed class VocabularySyncService(ILibraryRepository library, IVocabular
     /// <summary>An append that neither landed nor replayed: a reused operation id, a tombstone, or no card.</summary>
     private async Task<SyncResult> LossAsync(Guid userId, Guid wordId, WriteOutcome outcome, object? stored, CancellationToken ct) => outcome switch
     {
-        WriteOutcome.OperationConflict => SyncResult.Fail(SyncCodes.OperationConflict, current: stored),
+        WriteOutcome.OperationConflict => SyncResult.Written(outcome, stored),
         WriteOutcome.Deleted => await DeletedAsync(userId, wordId, ct),
         _ => SyncResult.NotFound,
     };

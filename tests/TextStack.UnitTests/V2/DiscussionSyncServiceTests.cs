@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Application.Common;
 using Application.Discussion;
 using Application.Library;
@@ -18,37 +17,21 @@ public class DiscussionSyncServiceTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private readonly Mock<ILibraryRepository> _library = V2Fakes.Library(User, BookId, FileId);
-    private readonly Mock<ISharedChapterRepository> _shares = new();
-    private readonly Mock<ICheckpointRepository> _checkpoints = new();
+    private Mock<ISharedChapterRepository> _shares = V2Fakes.Shares();
+    private Mock<ICheckpointRepository> _checkpoints = V2Fakes.Checkpoints();
     private DiscussionSyncService Service => new(_library.Object, _shares.Object, _checkpoints.Object);
-
-    private static JsonElement Notes(string json = """[{ "text": "night" }]""") => JsonDocument.Parse(json).RootElement;
-
-    private static ShareChapterRequest Share(Guid? fileId = null, Guid? operationId = null) =>
-        new(operationId ?? Guid.NewGuid(), fileId, "ch02.xhtml", "Chapter II", "It was the night.", Notes(), "en");
-
-    private static CheckpointRequest Checkpoint(Guid? sharedChapterId = null) =>
-        new(Guid.NewGuid(), "The letter", ["It reads like a confession."], [], [], ["Who wrote it?"], "en", "ch02.xhtml", null, sharedChapterId);
-
-    private void SharesWith(WriteOutcome outcome, SharedChapter? stored = null) =>
-        _shares.Setup(s => s.ShareAsync(It.IsAny<SharedChapter>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((SharedChapter sent, CancellationToken _) => new WriteResult<SharedChapter>(outcome, outcome == WriteOutcome.ShareMismatch ? null : stored ?? sent));
-
-    private void AppendsWith(WriteOutcome outcome, DiscussionCheckpoint? stored = null) =>
-        _checkpoints.Setup(c => c.AppendAsync(It.IsAny<DiscussionCheckpoint>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((DiscussionCheckpoint sent, CancellationToken _) => new WriteResult<DiscussionCheckpoint>(outcome, outcome == WriteOutcome.ShareMismatch ? null : stored ?? sent));
 
     [Fact]
     public async Task ShareAsync_NewShare_Is201StoredAsSentUnderTheUserWithTheHashOfThatRow()
     {
-        SharesWith(WriteOutcome.Created);
+        var share = V2Fakes.NewShare(FileId);
 
-        var result = await Service.ShareAsync(User, BookId, Share(FileId), Ct);
+        var result = await Service.ShareAsync(User, BookId, share, Ct);
 
         Assert.Equal(201, result.Status);
         _shares.Verify(s => s.ShareAsync(It.Is<SharedChapter>(c =>
             c.UserId == User && c.BookId == BookId && c.FileId == FileId && c.NotesSnapshot == """[{ "text": "night" }]"""
-            && c.PayloadSha256 == DiscussionPayloads.ShareSha256(c)), It.IsAny<CancellationToken>()));
+            && c.PayloadSha256 == DiscussionPayloads.ShareSha256(BookId, share)), It.IsAny<CancellationToken>()));
         Assert.Equal("ch02.xhtml", Assert.IsType<SharedChapterDto>(result.Body).ChapterKey);
     }
 
@@ -56,9 +39,9 @@ public class DiscussionSyncServiceTests
     public async Task ShareAsync_Replay_Is200WithTheStoredShare()
     {
         var stored = new SharedChapter { Id = Guid.NewGuid(), ChapterKey = "ch02.xhtml", NotesSnapshot = "[]" };
-        SharesWith(WriteOutcome.Replayed, stored);
+        _shares = V2Fakes.Shares(WriteOutcome.Replayed, stored);
 
-        var result = await Service.ShareAsync(User, BookId, Share(), Ct);
+        var result = await Service.ShareAsync(User, BookId, V2Fakes.NewShare(), Ct);
 
         Assert.Equal((200, stored.Id), (result.Status, Assert.IsType<SharedChapterDto>(result.Body).Id));
     }
@@ -67,9 +50,9 @@ public class DiscussionSyncServiceTests
     public async Task ShareAsync_OperationIdOfAnotherPayload_Is409OperationConflictWithTheStoredShare()
     {
         var stored = new SharedChapter { Id = Guid.NewGuid(), ChapterKey = "ch01.xhtml", NotesSnapshot = "[]" };
-        SharesWith(WriteOutcome.OperationConflict, stored);
+        _shares = V2Fakes.Shares(WriteOutcome.OperationConflict, stored);
 
-        var result = await Service.ShareAsync(User, BookId, Share(), Ct);
+        var result = await Service.ShareAsync(User, BookId, V2Fakes.NewShare(), Ct);
 
         var error = V2Fakes.Error(result);
         Assert.Equal((409, SyncCodes.OperationConflict, stored.Id), (result.Status, error.Code, Assert.IsType<SharedChapterDto>(error.Current).Id));
@@ -78,19 +61,19 @@ public class DiscussionSyncServiceTests
     [Fact]
     public async Task ShareAsync_FileThatIsNotAVersionOfTheBook_Is409UnknownFileAndWritesNothing()
     {
-        var result = await Service.ShareAsync(User, BookId, Share(Guid.NewGuid()), Ct);
+        var result = await Service.ShareAsync(User, BookId, V2Fakes.NewShare(Guid.NewGuid()), Ct);
 
         Assert.Equal((409, SyncCodes.UnknownFile), (result.Status, V2Fakes.Error(result).Code));
-        _shares.VerifyNoOtherCalls();
+        _shares.Verify(s => s.ShareAsync(It.IsAny<SharedChapter>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
     public async Task ShareAsync_BookNotTheUsers_Is404BookNotFound()
     {
-        var result = await Service.ShareAsync(Guid.NewGuid(), BookId, Share(), Ct);
+        var result = await Service.ShareAsync(Guid.NewGuid(), BookId, V2Fakes.NewShare(), Ct);
 
         Assert.Equal((404, SyncCodes.BookNotFound), (result.Status, V2Fakes.Error(result).Code));
-        _shares.VerifyNoOtherCalls();
+        _shares.Verify(s => s.ShareAsync(It.IsAny<SharedChapter>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -99,7 +82,19 @@ public class DiscussionSyncServiceTests
         var result = await Service.ListSharesAsync(Guid.NewGuid(), BookId, Ct);
 
         Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(result).Code);
-        _shares.VerifyNoOtherCalls();
+    }
+
+    // A list with rows proves the book: the second round trip is only for an empty one.
+    [Fact]
+    public async Task ListSharesAsync_SharesFound_ListsThemWithoutAskingForTheBook()
+    {
+        _shares.Setup(s => s.ListForBookAsync(User, BookId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new SharedChapter { Id = Guid.NewGuid(), ChapterKey = "ch02.xhtml", NotesSnapshot = "[]" }]);
+
+        var result = await Service.ListSharesAsync(User, BookId, Ct);
+
+        Assert.Single(Assert.IsType<List<SharedChapterDto>>(result.Body));
+        _library.Verify(l => l.ExistsAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Theory]
@@ -116,22 +111,22 @@ public class DiscussionSyncServiceTests
     [Fact]
     public async Task SaveCheckpointAsync_NewCheckpoint_Is201WithTheSectionsAsJsonArraysAndTheHashOfThatRow()
     {
-        AppendsWith(WriteOutcome.Created);
+        var checkpoint = V2Fakes.NewCheckpoint();
 
-        var result = await Service.SaveCheckpointAsync(User, BookId, Checkpoint(), Ct);
+        var result = await Service.SaveCheckpointAsync(User, BookId, checkpoint, Ct);
 
         Assert.Equal(201, result.Status);
         _checkpoints.Verify(c => c.AppendAsync(It.Is<DiscussionCheckpoint>(k =>
             k.UserId == User && k.ReaderThoughts == """["It reads like a confession."]""" && k.Conclusions == "[]"
-            && k.PayloadSha256 == DiscussionPayloads.CheckpointSha256(k)), It.IsAny<CancellationToken>()));
+            && k.PayloadSha256 == DiscussionPayloads.CheckpointSha256(BookId, checkpoint)), It.IsAny<CancellationToken>()));
     }
 
     [Fact]
     public async Task SaveCheckpointAsync_ShareOfAnotherChapter_Is422ShareMismatch()
     {
-        AppendsWith(WriteOutcome.ShareMismatch);
+        _checkpoints = V2Fakes.Checkpoints(WriteOutcome.ShareMismatch);
 
-        var result = await Service.SaveCheckpointAsync(User, BookId, Checkpoint(Guid.NewGuid()), Ct);
+        var result = await Service.SaveCheckpointAsync(User, BookId, V2Fakes.NewCheckpoint(Guid.NewGuid()), Ct);
 
         Assert.Equal((422, SyncCodes.ShareMismatch), (result.Status, V2Fakes.Error(result).Code));
     }
@@ -140,9 +135,9 @@ public class DiscussionSyncServiceTests
     public async Task SaveCheckpointAsync_OperationIdOfAnotherPayload_Is409WithTheStoredCheckpoint()
     {
         var stored = new DiscussionCheckpoint { Id = Guid.NewGuid(), Topic = "Earlier" };
-        AppendsWith(WriteOutcome.OperationConflict, stored);
+        _checkpoints = V2Fakes.Checkpoints(WriteOutcome.OperationConflict, stored);
 
-        var result = await Service.SaveCheckpointAsync(User, BookId, Checkpoint(), Ct);
+        var result = await Service.SaveCheckpointAsync(User, BookId, V2Fakes.NewCheckpoint(), Ct);
 
         var error = V2Fakes.Error(result);
         Assert.Equal((409, SyncCodes.OperationConflict, "Earlier"), (result.Status, error.Code, Assert.IsType<CheckpointDto>(error.Current).Topic));
@@ -151,18 +146,18 @@ public class DiscussionSyncServiceTests
     [Fact]
     public async Task SaveCheckpointAsync_Replay_Is200()
     {
-        AppendsWith(WriteOutcome.Replayed);
+        _checkpoints = V2Fakes.Checkpoints(WriteOutcome.Replayed);
 
-        Assert.Equal(200, (await Service.SaveCheckpointAsync(User, BookId, Checkpoint(), Ct)).Status);
+        Assert.Equal(200, (await Service.SaveCheckpointAsync(User, BookId, V2Fakes.NewCheckpoint(), Ct)).Status);
     }
 
     [Fact]
     public async Task SaveCheckpointAsync_BookNotTheUsers_Is404AndWritesNothing()
     {
-        var result = await Service.SaveCheckpointAsync(Guid.NewGuid(), BookId, Checkpoint(), Ct);
+        var result = await Service.SaveCheckpointAsync(Guid.NewGuid(), BookId, V2Fakes.NewCheckpoint(), Ct);
 
         Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(result).Code);
-        _checkpoints.VerifyNoOtherCalls();
+        _checkpoints.Verify(c => c.AppendAsync(It.IsAny<DiscussionCheckpoint>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -179,6 +174,7 @@ public class DiscussionSyncServiceTests
 
         Assert.True(first.HasMore);
         Assert.Equal(new CheckpointCursor(last.CreatedAt, last.Id), seen);
+        _library.Verify(l => l.ExistsAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -209,7 +205,6 @@ public class DiscussionSyncServiceTests
         var result = await Service.ListCheckpointsAsync(Guid.NewGuid(), BookId, null, null, null, Ct);
 
         Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(result).Code);
-        _checkpoints.VerifyNoOtherCalls();
     }
 
     [Theory]

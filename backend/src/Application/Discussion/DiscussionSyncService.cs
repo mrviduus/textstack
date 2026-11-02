@@ -24,7 +24,7 @@ public sealed class DiscussionSyncService(ILibraryRepository library, ISharedCha
         if (Share(r) is { } invalid) return invalid;
         if (await library.MissingBookOrFileAsync(userId, bookId, r.FileId, ct) is { } missing) return missing;
 
-        var share = new SharedChapter
+        var written = await shares.ShareAsync(new SharedChapter
         {
             Id = Guid.CreateVersion7(),
             UserId = userId,
@@ -36,10 +36,9 @@ public sealed class DiscussionSyncService(ILibraryRepository library, ISharedCha
             NotesSnapshot = r.Notes!.Value.GetRawText(),
             Language = r.Language,
             OperationId = r.OperationId!.Value,
-        };
-        share.PayloadSha256 = DiscussionPayloads.ShareSha256(share);
-        var written = await shares.ShareAsync(share, ct);
-        return Written(written.Outcome, written.Row?.ToDto());
+            PayloadSha256 = DiscussionPayloads.ShareSha256(bookId, r),
+        }, ct);
+        return SyncResult.Written(written.Outcome, written.Row?.ToDto());
     }
 
     private static SyncResult? Share(ShareChapterRequest r) =>
@@ -50,8 +49,9 @@ public sealed class DiscussionSyncService(ILibraryRepository library, ISharedCha
     /// <summary>Newest first, unpaged: a book has few (M1.4 as merged).</summary>
     public async Task<SyncResult> ListSharesAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
-        if (!await library.ExistsAsync(userId, bookId, ct)) return SyncResult.BookNotFound;
         var listed = await shares.ListForBookAsync(userId, bookId, ct);
+        // Only an empty list needs the book asked: "none yet" or "not the user's".
+        if (listed.Count == 0 && !await library.ExistsAsync(userId, bookId, ct)) return SyncResult.BookNotFound;
         return SyncResult.Ok(listed.Select(s => s.ToDto()).ToList());
     }
 
@@ -67,7 +67,7 @@ public sealed class DiscussionSyncService(ILibraryRepository library, ISharedCha
         if (Checkpoint(r) is { } invalid) return invalid;
         if (await library.MissingBookOrFileAsync(userId, bookId, r.FileId, ct) is { } missing) return missing;
 
-        var checkpoint = new DiscussionCheckpoint
+        var written = await checkpoints.AppendAsync(new DiscussionCheckpoint
         {
             Id = Guid.CreateVersion7(),
             UserId = userId,
@@ -82,25 +82,28 @@ public sealed class DiscussionSyncService(ILibraryRepository library, ISharedCha
             OpenQuestions = JsonSerializer.Serialize(r.OpenQuestions),
             Language = r.Language!,
             OperationId = r.OperationId!.Value,
-        };
-        checkpoint.PayloadSha256 = DiscussionPayloads.CheckpointSha256(checkpoint);
-        var written = await checkpoints.AppendAsync(checkpoint, ct);
-        return Written(written.Outcome, written.Row?.ToDto());
+            PayloadSha256 = DiscussionPayloads.CheckpointSha256(bookId, r),
+        }, ct);
+        return written.Outcome == WriteOutcome.ShareMismatch
+            ? SyncResult.Fail(SyncCodes.ShareMismatch)
+            : SyncResult.Written(written.Outcome, written.Row?.ToDto());
     }
 
     private static SyncResult? Checkpoint(CheckpointRequest r)
     {
-        var sections = new (string Field, string?[]? Items)[]
-        {
+        if ((ClientId(r.OperationId, "operationId") ?? RequiredText(r.Topic, "topic", MaxTopic)) is { } invalid) return invalid;
+        var (items, bytes) = (0, 0);
+        foreach (var (field, section) in (ReadOnlySpan<(string, string?[]?)>)[
             ("readerThoughts", r.ReaderThoughts), ("assistantSuggestions", r.AssistantSuggestions),
-            ("conclusions", r.Conclusions), ("openQuestions", r.OpenQuestions),
-        };
-        return ClientId(r.OperationId, "operationId") ?? RequiredText(r.Topic, "topic", MaxTopic)
-            ?? sections.Select(s => Section(s.Field, s.Items)).FirstOrDefault(e => e is not null)
-            ?? (sections.All(s => s.Items!.Length == 0) ? SyncResult.Invalid("readerThoughts", "At least one section must have an item.") : null)
-            ?? (sections.Sum(s => s.Items!.Sum(i => Encoding.UTF8.GetByteCount(i!))) > MaxSectionsBytes
-                ? SyncResult.Invalid("readerThoughts", $"The four sections together are at most {MaxSectionsBytes / 1024} KB.") : null)
-            ?? RequiredText(r.Language, "language", MaxLanguage)
+            ("conclusions", r.Conclusions), ("openQuestions", r.OpenQuestions)])
+        {
+            if (Section(field, section) is { } badSection) return badSection;
+            items += section!.Length;
+            bytes += section.Sum(i => Encoding.UTF8.GetByteCount(i!));
+        }
+        if (items == 0) return SyncResult.Invalid("readerThoughts", "At least one section must have an item.");
+        if (bytes > MaxSectionsBytes) return SyncResult.Invalid("readerThoughts", $"The four sections together are at most {MaxSectionsBytes / 1024} KB.");
+        return RequiredText(r.Language, "language", MaxLanguage)
             ?? (r.ChapterKey is null ? null : RequiredText(r.ChapterKey, "chapterKey", MaxChapterKey))
             // A share is always of one chapter, so naming one without the chapter could never match.
             ?? (r.SharedChapterId is not null && r.ChapterKey is null ? SyncResult.Invalid("chapterKey", "chapterKey is required with sharedChapterId.") : null);
@@ -116,17 +119,14 @@ public sealed class DiscussionSyncService(ILibraryRepository library, ISharedCha
     public async Task<SyncResult> ListCheckpointsAsync(Guid userId, Guid bookId, string? chapterKey, string? cursor, string? limit, CancellationToken ct)
     {
         if (ChangeFeed.Limit(limit, out var take) is { } badLimit) return badLimit;
+        if (ChangeFeed.Cursor(cursor, out var after) is { } badCursor) return badCursor;
         if (Text(chapterKey, "chapterKey", MaxChapterKey) is { } badChapterKey) return badChapterKey;
-        CheckpointCursor? after = null;
-        if (!string.IsNullOrEmpty(cursor))
-        {
-            if (!ChangeFeed.TryReadFrom(cursor, out var at)) return SyncResult.Invalid("cursor", "Not a cursor this server issued.");
-            after = new CheckpointCursor(at.UpdatedAt, at.Id);
-        }
-        if (!await library.ExistsAsync(userId, bookId, ct)) return SyncResult.BookNotFound;
 
-        var page = await checkpoints.ListAsync(userId, bookId, string.IsNullOrEmpty(chapterKey) ? null : chapterKey, take, after, ct);
-        var next = page.Next is { } n ? ChangeFeed.Encode((n.CreatedAt, n.Id)) : null;
+        var page = await checkpoints.ListAsync(userId, bookId, string.IsNullOrEmpty(chapterKey) ? null : chapterKey, take,
+            after is { } at ? new CheckpointCursor(at.At, at.Id) : null, ct);
+        // Only an empty page needs the book asked: "none (left)" or "not the user's".
+        if (page.Items.Count == 0 && !await library.ExistsAsync(userId, bookId, ct)) return SyncResult.BookNotFound;
+        var next = page.Next is { } n ? ChangeFeed.CursorOf((n.CreatedAt, n.Id)) : null;
         return SyncResult.Ok(new ChangeFeedDto<CheckpointDto>(page.Items.Select(c => c.ToDto()).ToList(), next, next is not null));
     }
 
@@ -140,14 +140,4 @@ public sealed class DiscussionSyncService(ILibraryRepository library, ISharedCha
         return await library.SetCheckpointSavingAsync(userId, bookId, r.Enabled!.Value, ct) is { } book
             ? SyncResult.Ok(book.ToDto()) : SyncResult.BookNotFound;
     }
-
-    /// <summary>201 a new row, 200 a replay, 409 <c>operation_conflict</c> with the stored row, 422 a share of another chapter.</summary>
-    private static SyncResult Written(WriteOutcome outcome, object? stored) => outcome switch
-    {
-        WriteOutcome.Created => SyncResult.Created(stored!),
-        WriteOutcome.Replayed => SyncResult.Ok(stored!),
-        WriteOutcome.OperationConflict => SyncResult.Fail(SyncCodes.OperationConflict, current: stored),
-        WriteOutcome.ShareMismatch => SyncResult.Fail(SyncCodes.ShareMismatch),
-        _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Shares and checkpoints have no parent to lose."),
-    };
 }

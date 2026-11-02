@@ -35,24 +35,24 @@ public static class ChangeFeed
     public static async Task<SyncResult> PageAsync<TRow, TDto>(
         string? cursor, string? limit,
         Func<DateTimeOffset, Guid, int, Task<IReadOnlyList<TRow>>> load,
-        Func<TRow, (DateTimeOffset UpdatedAt, Guid Id)> key,
+        Func<TRow, (DateTimeOffset At, Guid Id)> key,
         Func<TRow, TDto> toDto,
         DateTimeOffset? now = null)
     {
         if (Limit(limit, out var take) is { } invalid) return invalid;
+        if (Cursor(cursor, out var after) is { } badCursor) return badCursor;
         if (string.IsNullOrEmpty(cursor)) cursor = null;
-        if (!TryReadFrom(cursor, out var after))
-            return SyncResult.Invalid("cursor", "Not a cursor this server issued.");
 
-        var rows = await load(after.UpdatedAt, after.Id, take + 1);
+        var (since, afterId) = after ?? (DateTimeOffset.UnixEpoch, Guid.Empty);
+        var rows = await load(since, afterId, take + 1);
         var hasMore = rows.Count > take;
         var page = rows.Take(take).Select(toDto).ToList();
         if (page.Count == 0) return SyncResult.Ok(new ChangeFeedDto<TDto>(page, cursor, false)); // nothing new: the caller keeps its position
 
         var last = key(rows[page.Count - 1]);
         // At the end of a pull: the last row, or pull time minus the overlap if that is earlier.
-        (DateTimeOffset UpdatedAt, Guid Id) settled = ((now ?? DateTimeOffset.UtcNow) - Overlap, Guid.Empty);
-        return SyncResult.Ok(new ChangeFeedDto<TDto>(page, Encode(hasMore || last.UpdatedAt < settled.UpdatedAt ? last : settled), hasMore));
+        (DateTimeOffset At, Guid Id) settled = ((now ?? DateTimeOffset.UtcNow) - Overlap, Guid.Empty);
+        return SyncResult.Ok(new ChangeFeedDto<TDto>(page, CursorOf(hasMore || last.At < settled.At ? last : settled), hasMore));
     }
 
     /// <summary>A page size as the query sends it: absent or empty is the default, else 1 to the max; any list shares it.</summary>
@@ -64,11 +64,26 @@ public static class ChangeFeed
             : null;
     }
 
-    /// <summary>A cursor this server issued; null reads as the start. Shared with the checkpoint pages, which key on <c>(created_at, id)</c>.</summary>
-    internal static bool TryReadFrom(string? cursor, out (DateTimeOffset UpdatedAt, Guid Id) after)
+    /// <summary>
+    /// A cursor as the query sends it: absent or empty is <paramref name="after"/> null (the start), else
+    /// the position a cursor this server issued names. Any keyset list shares it (checkpoints: <c>(created_at, id)</c>).
+    /// </summary>
+    public static SyncResult? Cursor(string? cursor, out (DateTimeOffset At, Guid Id)? after)
     {
-        after = (DateTimeOffset.UnixEpoch, Guid.Empty);
-        if (cursor is null) return true;
+        after = null;
+        if (string.IsNullOrEmpty(cursor)) return null;
+        if (!TryReadFrom(cursor, out var at)) return SyncResult.Invalid("cursor", "Not a cursor this server issued.");
+        after = at;
+        return null;
+    }
+
+    /// <summary>The cursor that resumes after <paramref name="position"/>.</summary>
+    public static string CursorOf((DateTimeOffset At, Guid Id) position) =>
+        Base64Url.EncodeToString(Encoding.UTF8.GetBytes($"{position.At.UtcTicks.ToString(CultureInfo.InvariantCulture)}:{position.Id:N}"));
+
+    private static bool TryReadFrom(string cursor, out (DateTimeOffset At, Guid Id) after)
+    {
+        after = default;
         try
         {
             var parts = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(cursor)).Split(':');
@@ -82,6 +97,4 @@ public static class ChangeFeed
         }
     }
 
-    internal static string Encode((DateTimeOffset UpdatedAt, Guid Id) at) =>
-        Base64Url.EncodeToString(Encoding.UTF8.GetBytes($"{at.UpdatedAt.UtcTicks.ToString(CultureInfo.InvariantCulture)}:{at.Id:N}"));
 }

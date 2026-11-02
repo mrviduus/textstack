@@ -100,7 +100,7 @@ public sealed class ReadingSyncService(ILibraryRepository library, IReadingState
             StartPercent = r.StartPercent!.Value,
             EndPercent = r.EndPercent!.Value,
         }, ct);
-        return SyncResult.Written(saved.Outcome == WriteOutcome.Created, saved.Row!.ToDto());
+        return SyncResult.Written(saved.Outcome, saved.Row!.ToDto());
     }
 
     public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, string? limit, CancellationToken ct) =>

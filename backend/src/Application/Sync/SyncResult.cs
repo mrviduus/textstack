@@ -1,3 +1,4 @@
+using Application.Common;
 using Contracts.V2;
 using Domain.Library;
 
@@ -14,6 +15,15 @@ public sealed record SyncResult(int Status, object? Body)
 
     /// <summary>201 for a write that created the row, 200 for one that found it (a replay, an existing row).</summary>
     public static SyncResult Written(bool created, object body) => created ? Created(body) : Ok(body);
+
+    /// <summary>An append by operation id: 201 created, 200 a replay, 409 <c>operation_conflict</c> with the stored row as <c>current</c>.</summary>
+    public static SyncResult Written(WriteOutcome outcome, object? body) => outcome switch
+    {
+        WriteOutcome.Created => Created(body!),
+        WriteOutcome.Replayed => Ok(body!),
+        WriteOutcome.OperationConflict => Fail(SyncCodes.OperationConflict, current: body),
+        _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "The caller maps this outcome itself."),
+    };
 
     /// <summary>The write lost to a tombstone: <paramref name="current"/> is it.</summary>
     public static SyncResult Deleted(long revision, object current) => Fail(SyncCodes.Deleted, revision, current);

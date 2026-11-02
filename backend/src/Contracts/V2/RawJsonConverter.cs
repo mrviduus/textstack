@@ -15,5 +15,5 @@ public sealed class RawJsonConverter : JsonConverter<string>
         return value.RootElement.GetRawText();
     }
 
-    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options) => writer.WriteRawValue(value);
+    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options) => writer.WriteRawValue(value, skipInputValidation: true); // jsonb text: valid by construction
 }
