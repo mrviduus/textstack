@@ -117,7 +117,7 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
     // old file, and AdvanceAsync's file_id guard makes that write lose.
     private const string DeleteStateOfFile = "DELETE FROM reading_state WHERE user_id = @userId AND book_id = @bookId AND file_id = @fileId";
 
-    public async Task<bool> DeleteForFileAsync(Guid userId, Guid bookId, Guid fileId, NpgsqlTransaction? tx, CancellationToken ct)
+    public async Task<bool> DeleteForFileAsync(Guid userId, Guid bookId, Guid fileId, NpgsqlTransaction? tx = null, CancellationToken ct = default)
     {
         await using var owned = tx is null ? await dataSource.OpenConnectionAsync(ct) : null;
         return await (owned ?? tx!.Connection!).ExecuteAsync(

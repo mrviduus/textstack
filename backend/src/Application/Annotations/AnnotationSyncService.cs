@@ -66,11 +66,11 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
 
     private static JsonNode? Parse(string? json) => json is null ? null : JsonNode.Parse(json);
 
-    /// <summary>Idempotent: deleting a tombstone answers it again.</summary>
+    /// <summary>Idempotent: deleting a tombstone answers it again. After the delete, a row of the user is a tombstone (none comes back to life).</summary>
     public async Task<SyncResult> DeleteAsync(Guid userId, Guid id, CancellationToken ct)
     {
         await annotations.DeleteAsync(userId, id, ct);
-        return await annotations.GetAsync(userId, id, ct) is { DeletedAt: not null } tombstone
+        return await annotations.GetAsync(userId, id, ct) is { } tombstone
             ? SyncResult.Ok(tombstone.ToDto())
             : SyncResult.NotFound();
     }

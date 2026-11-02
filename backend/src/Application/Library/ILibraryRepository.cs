@@ -56,7 +56,7 @@ public interface ILibraryRepository
     /// delete through <paramref name="tx"/> (#1067); without one it runs in its own.
     /// </summary>
     Task<FileReplacement> ReplaceFileAsync(
-        Guid userId, Guid bookId, BookFile file, Guid? replacesFileId, NpgsqlTransaction? tx, CancellationToken ct);
+        Guid userId, Guid bookId, BookFile file, Guid? replacesFileId, NpgsqlTransaction? tx = null, CancellationToken ct = default);
 
     /// <summary>Hides the book (sets <c>removed_at</c>); false when not the user's or already removed.</summary>
     Task<bool> RemoveAsync(Guid userId, Guid bookId, CancellationToken ct);

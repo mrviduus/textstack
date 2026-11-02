@@ -39,7 +39,7 @@ public interface IReadingStateRepository
     /// version: the replacement use case runs it in the replacement's transaction (#1067). False when
     /// there was none.
     /// </summary>
-    Task<bool> DeleteForFileAsync(Guid userId, Guid bookId, Guid fileId, NpgsqlTransaction? tx, CancellationToken ct);
+    Task<bool> DeleteForFileAsync(Guid userId, Guid bookId, Guid fileId, NpgsqlTransaction? tx = null, CancellationToken ct = default);
 
     /// <summary>
     /// The user's states changed after <c>(since, afterBookId)</c>, ordered by <c>(updated_at, book_id)</c>:

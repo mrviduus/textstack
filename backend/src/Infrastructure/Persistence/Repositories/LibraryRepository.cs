@@ -161,7 +161,7 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
     private const string TouchBook = "UPDATE books SET updated_at = now() WHERE user_id = @userId AND id = @bookId";
 
     public async Task<FileReplacement> ReplaceFileAsync(
-        Guid userId, Guid bookId, BookFile file, Guid? replacesFileId, NpgsqlTransaction? tx, CancellationToken ct)
+        Guid userId, Guid bookId, BookFile file, Guid? replacesFileId, NpgsqlTransaction? tx = null, CancellationToken ct = default)
     {
         if (file.BookId != bookId)
             throw new ArgumentException("The file must belong to the book being replaced.", nameof(file));

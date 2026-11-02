@@ -1,7 +1,11 @@
+using Application.Common;
 using Application.Library;
+using Application.Reading;
 using Application.Sync;
 using Contracts.V2;
 using Domain.Library;
+using Domain.Reading;
+using Npgsql;
 using Infrastructure.Persistence.Repositories;
 using static TextStack.Persistence.Tests.TestJson;
 
@@ -44,6 +48,42 @@ public class LibrarySyncServiceTests(V2PostgresFixture db)
         var result = await _service.ReplaceFileAsync(book.UserId, book.Id, Guid.NewGuid(), Replacing(Guid.NewGuid()), Ct);
 
         Assert.Equal((SyncStatus.Conflict, SyncCodes.FileReplaced), (result.Status, ((V2Error)result.Body!).Code));
+        Assert.NotNull(await _reading.GetAsync(book.UserId, book.Id, Ct));
+    }
+
+    /// <summary>The real reading-state repository, except that its delete fails right after it ran: a step after the replacement that throws.</summary>
+    private sealed class FailsAfterDelete(IReadingStateRepository real) : IReadingStateRepository
+    {
+        public Task<ReadingState?> GetAsync(Guid userId, Guid bookId, CancellationToken ct) => real.GetAsync(userId, bookId, ct);
+
+        public Task<RevisionedWrite<ReadingState>> AdvanceAsync(Guid userId, Guid bookId, ReadingState state, long? expectedRevision, CancellationToken ct) =>
+            real.AdvanceAsync(userId, bookId, state, expectedRevision, ct);
+
+        public Task<RevisionedWrite<ReadingState>> ResetAsync(Guid userId, Guid bookId, long expectedRevision, CancellationToken ct) =>
+            real.ResetAsync(userId, bookId, expectedRevision, ct);
+
+        public async Task<bool> DeleteForFileAsync(Guid userId, Guid bookId, Guid fileId, NpgsqlTransaction? tx = null, CancellationToken ct = default)
+        {
+            await real.DeleteForFileAsync(userId, bookId, fileId, tx, ct);
+            throw new InvalidOperationException("the step after the delete failed");
+        }
+
+        public Task<IReadOnlyList<ReadingState>> ListChangedAsync(Guid userId, DateTimeOffset since, Guid afterBookId, int limit, CancellationToken ct) =>
+            real.ListChangedAsync(userId, since, afterBookId, limit, ct);
+    }
+
+    [Fact]
+    public async Task ReplaceFileAsync_FailureBeforeCommit_RollsBackTheReplacementAndTheStateDeleteTogether()
+    {
+        var book = await BookWithStateAsync();
+        var library = new LibraryRepository(db.DataSource);
+        var failing = new LibrarySyncService(library, new FailsAfterDelete(_reading), db.DataSource, TimeProvider.System);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            failing.ReplaceFileAsync(book.UserId, book.Id, Guid.NewGuid(), Replacing(book.CurrentFile!.Id), Ct));
+
+        // Either write on a connection of its own would have committed by now.
+        Assert.Equal(book.CurrentFile.Id, (await library.GetAsync(book.UserId, book.Id, Ct))!.CurrentFile!.Id);
         Assert.NotNull(await _reading.GetAsync(book.UserId, book.Id, Ct));
     }
 }
