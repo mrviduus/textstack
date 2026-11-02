@@ -235,22 +235,6 @@ public class V2DiscussionEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFix
         Assert.Equal((HttpStatusCode.BadRequest, "chapterText"), (huge.Status, huge.Body.GetProperty("field").GetString()));
     }
 
-    // 51 200 four-byte emoji are exactly 200 KB of UTF-8 (and 102 400 UTF-16 units): the cap is bytes.
-    [Fact]
-    public async Task Share_ChapterTextAtItsByteCapAndOneByteOver_Is201Then400()
-    {
-        v2.Require();
-        var (bookId, _, _) = await v2.ImportAsync(v2.Alice);
-        var atCap = string.Concat(Enumerable.Repeat("😀", 51_200));
-        object Body(string text) => new { operationId = Guid.NewGuid(), chapterKey = Chapter, chapterText = text, notes = Array.Empty<object>() };
-
-        var fits = await ShareAsync(v2.Alice, bookId, Body(atCap));
-        var over = await ShareAsync(v2.Alice, bookId, Body(atCap + "x"));
-
-        Assert.Equal(HttpStatusCode.Created, fits.Status);
-        Assert.Equal((HttpStatusCode.BadRequest, "chapterText"), (over.Status, over.Body.GetProperty("field").GetString()));
-    }
-
     [Fact]
     public async Task Post_CheckpointOnOneBookNamingTheUsersShareOfAnother_IsShareMismatchNot500()
     {

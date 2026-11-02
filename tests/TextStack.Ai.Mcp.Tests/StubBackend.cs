@@ -259,7 +259,7 @@ public sealed class StubBackend : IAsyncDisposable
             await RecordAsync("v2_list_checkpoints", ctx);
             // What a server with Features:V2Api off answers for every /me/v2 route: a 404, no body.
             if ((string)ctx.Request.RouteValues["bookId"]! == V2OffBookId) { ctx.Response.StatusCode = StatusCodes.Status404NotFound; return; }
-            if ((string)ctx.Request.RouteValues["bookId"]! != UserBookId) { await WriteJsonAsync(ctx, V2Error("book_not_found", "Push the book first."), StatusCodes.Status404NotFound); return; }
+            if ((string)ctx.Request.RouteValues["bookId"]! != UserBookId) { await BookNotFoundAsync(ctx); return; }
             var firstPage = !ctx.Request.Query.ContainsKey("cursor");
             var cursor = firstPage ? "\"page-2\"" : "null";
             await WriteJsonAsync(ctx, $$"""{ "items": [{{V2Checkpoint(firstPage ? "Earlier thought" : "Later thought")}}], "cursor": {{cursor}}, "hasMore": {{(firstPage ? "true" : "false")}} }""");
@@ -423,8 +423,7 @@ public sealed class StubBackend : IAsyncDisposable
     /// <summary>The V2 operation_id rules over <paramref name="body"/>: new 201, the same again 200, another under its id 409.</summary>
     private async Task AppendAsync(HttpContext ctx, string body, string id)
     {
-        if ((string)ctx.Request.RouteValues["bookId"]! != UserBookId)
-        { await WriteJsonAsync(ctx, V2Error("book_not_found", "Push the book first."), StatusCodes.Status404NotFound); return; }
+        if ((string)ctx.Request.RouteValues["bookId"]! != UserBookId) { await BookNotFoundAsync(ctx); return; }
         var operationId = System.Text.Json.JsonDocument.Parse(body).RootElement.GetProperty("operationId").GetString()!;
         string? first;
         lock (_gate)
@@ -434,6 +433,9 @@ public sealed class StubBackend : IAsyncDisposable
         else if (first == body) await WriteJsonAsync(ctx, row);
         else await WriteJsonAsync(ctx, V2Error("operation_conflict", "This operation id was used with a different payload."), StatusCodes.Status409Conflict);
     }
+
+    private static Task BookNotFoundAsync(HttpContext ctx) =>
+        WriteJsonAsync(ctx, V2Error("book_not_found", "Push the book first."), StatusCodes.Status404NotFound);
 
     private static string V2Checkpoint(string thought) =>
         $$"""
