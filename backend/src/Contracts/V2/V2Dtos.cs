@@ -117,3 +117,26 @@ public sealed record VocabularyReviewDto(
 
 /// <summary>An answer and the card with the schedule the server applied to it (S3).</summary>
 public sealed record RecordedReviewDto(VocabularyReviewDto Review, VocabularyWordDto Word);
+
+/// <summary>A chapter snapshot shared with an assistant ("Payloads → Shares and checkpoints"); <see cref="Notes"/> is a JSON array, may be empty.</summary>
+public sealed record ShareChapterRequest(
+    Guid? OperationId, Guid? FileId, string? ChapterKey, string? ChapterTitle, string? ChapterText, JsonElement? Notes, string? Language);
+
+public sealed record SharedChapterDto(
+    Guid Id, Guid OperationId, Guid BookId, Guid? FileId, string ChapterKey, string? ChapterTitle, string ChapterText,
+    [property: JsonConverter(typeof(RawJsonConverter))] string Notes, string? Language, DateTimeOffset CreatedAt);
+
+/// <summary>One saved stage of a discussion: the four sections may be empty, not all four.</summary>
+public sealed record CheckpointRequest(
+    Guid? OperationId, string? Topic, string?[]? ReaderThoughts, string?[]? AssistantSuggestions, string?[]? Conclusions,
+    string?[]? OpenQuestions, string? Language, string? ChapterKey, Guid? FileId, Guid? SharedChapterId);
+
+public sealed record CheckpointDto(
+    Guid Id, Guid OperationId, Guid BookId, Guid? FileId, string? ChapterKey, Guid? SharedChapterId, string Topic,
+    [property: JsonConverter(typeof(RawJsonConverter))] string ReaderThoughts,
+    [property: JsonConverter(typeof(RawJsonConverter))] string AssistantSuggestions,
+    [property: JsonConverter(typeof(RawJsonConverter))] string Conclusions,
+    [property: JsonConverter(typeof(RawJsonConverter))] string OpenQuestions,
+    string Language, DateTimeOffset CreatedAt);
+
+public sealed record CheckpointSavingRequest(bool? Enabled);

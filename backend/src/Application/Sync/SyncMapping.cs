@@ -1,5 +1,6 @@
 using Contracts.V2;
 using Domain.Annotations;
+using Domain.Discussion;
 using Domain.Library;
 using Domain.Reading;
 using Domain.Vocabulary;
@@ -36,4 +37,11 @@ public static class SyncMapping
 
     public static VocabularyReviewDto ToDto(this VocabularyReview r) => new(
         r.Id, r.OperationId, r.WordId, r.ReviewMode, r.IsCorrect, r.ResponseTimeMs, r.StageBefore, r.StageAfter, r.ClientRecordedAt, r.CreatedAt);
+
+    public static SharedChapterDto ToDto(this SharedChapter s) => new(
+        s.Id, s.OperationId, s.BookId, s.FileId, s.ChapterKey, s.ChapterTitle, s.ChapterText, s.NotesSnapshot, s.Language, s.CreatedAt);
+
+    public static CheckpointDto ToDto(this DiscussionCheckpoint c) => new(
+        c.Id, c.OperationId, c.BookId, c.FileId, c.ChapterKey, c.SharedChapterId, c.Topic,
+        c.ReaderThoughts, c.AssistantSuggestions, c.Conclusions, c.OpenQuestions, c.Language, c.CreatedAt);
 }

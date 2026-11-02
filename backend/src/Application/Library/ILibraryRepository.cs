@@ -61,6 +61,9 @@ public interface ILibraryRepository
     Task<FileReplacement> ReplaceFileAsync(
         Guid userId, Guid bookId, BookFile file, Guid? replacesFileId, NpgsqlTransaction? tx, CancellationToken ct);
 
+    /// <summary>The per-book checkpoint opt-in; a removed book keeps it too. False when not the user's.</summary>
+    Task<bool> SetCheckpointSavingAsync(Guid userId, Guid bookId, bool enabled, CancellationToken ct);
+
     /// <summary>Hides the book (sets <c>removed_at</c>); false when not the user's or already removed.</summary>
     Task<bool> RemoveAsync(Guid userId, Guid bookId, CancellationToken ct);
 

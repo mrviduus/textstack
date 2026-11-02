@@ -107,6 +107,33 @@ public static class SyncValidation
         }
     }
 
+    /// <summary><see cref="RequiredText(string?, string)"/> capped in UTF-8 bytes: the bodies the PDD bounds in KB.</summary>
+    public static SyncResult? RequiredUtf8(string? value, string field, int maxBytes) =>
+        RequiredText(value, field) ?? (Encoding.UTF8.GetByteCount(value!) > maxBytes ? SyncResult.Invalid(field, $"{field} is at most {maxBytes / 1024} KB.") : null);
+
+    private static readonly JsonDocumentOptions NoDuplicateMembers = new() { AllowDuplicateProperties = false };
+
+    /// <summary>
+    /// A required JSON array of storable text, at most <paramref name="maxBytes"/> as sent. A repeated
+    /// member name is refused: jsonb keeps only the last, so the stored value would hash unlike the request.
+    /// </summary>
+    public static SyncResult? JsonArray(JsonElement? value, string field, int maxBytes)
+    {
+        if (value is not { ValueKind: JsonValueKind.Array } array) return SyncResult.Invalid(field, $"{field} must be a JSON array.");
+        var raw = array.GetRawText();
+        if (Encoding.UTF8.GetByteCount(raw) > maxBytes) return SyncResult.Invalid(field, $"{field} is at most {maxBytes / 1024} KB.");
+        if (Json(array, field) is { } unstorable) return unstorable;
+        try
+        {
+            using var _ = JsonDocument.Parse(raw, NoDuplicateMembers);
+            return null;
+        }
+        catch (JsonException)
+        {
+            return SyncResult.Invalid(field, $"{field} repeats a member name.");
+        }
+    }
+
     public static SyncResult? Tags(string[]? tags) =>
         tags is null || tags.All(t => !string.IsNullOrWhiteSpace(t) && IsStorable(t)) ? null : SyncResult.Invalid("tags", "tags must be non-blank strings.");
 

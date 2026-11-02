@@ -64,7 +64,8 @@ public static class ChangeFeed
             : null;
     }
 
-    private static bool TryReadFrom(string? cursor, out (DateTimeOffset UpdatedAt, Guid Id) after)
+    /// <summary>A cursor this server issued; null reads as the start. Shared with the checkpoint pages, which key on <c>(created_at, id)</c>.</summary>
+    internal static bool TryReadFrom(string? cursor, out (DateTimeOffset UpdatedAt, Guid Id) after)
     {
         after = (DateTimeOffset.UnixEpoch, Guid.Empty);
         if (cursor is null) return true;
@@ -81,6 +82,6 @@ public static class ChangeFeed
         }
     }
 
-    private static string Encode((DateTimeOffset UpdatedAt, Guid Id) at) =>
+    internal static string Encode((DateTimeOffset UpdatedAt, Guid Id) at) =>
         Base64Url.EncodeToString(Encoding.UTF8.GetBytes($"{at.UpdatedAt.UtcTicks.ToString(CultureInfo.InvariantCulture)}:{at.Id:N}"));
 }

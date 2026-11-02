@@ -2,6 +2,7 @@ using Api.Extensions;
 using Api.V2;
 using Application.Annotations;
 using Application.Auth;
+using Application.Discussion;
 using Application.Library;
 using Application.Reading;
 using Application.Sync;
@@ -11,8 +12,8 @@ using Contracts.V2;
 namespace Api.Endpoints;
 
 /// <summary>
-/// The V2 sync API, the M2.2 and M2.3 rows of v2-sync-protocol.md "Endpoints": library, reading,
-/// annotations and vocabulary under <c>/me/v2</c> (a temporary prefix, renamed at M5.4). Mapped only with <c>Features:V2Api</c>
+/// The V2 sync API, the M2.2–M2.4 rows of v2-sync-protocol.md "Endpoints": library, reading,
+/// annotations, vocabulary, shares and checkpoints under <c>/me/v2</c> (a temporary prefix, renamed at M5.4). Mapped only with <c>Features:V2Api</c>
 /// on, so with it off the stack is exactly as before (404, and old clients never see a V2 body).
 /// Every route sits behind <see cref="V2Gate"/>: V2 readiness (#1053), the legacy account, then the
 /// session user's V2 shadow row — M2.2's bridge to the legacy accounts, removed by M2.5, whose rows
@@ -83,6 +84,21 @@ public static class V2Endpoints
             Send(s.AddExampleAsync(User(h, a), id, body, ct)));
         v2.MapPost("/vocabulary/reviews", (HttpContext h, AuthService a, VocabularySyncService s, VocabularyReviewRequest body, CancellationToken ct) =>
             Send(s.RecordReviewAsync(User(h, a), body, ct)));
+
+        v2.MapPost("/books/{bookId:guid}/shares", (HttpContext h, AuthService a, DiscussionSyncService s, Guid bookId, ShareChapterRequest body, CancellationToken ct) =>
+            Send(s.ShareAsync(User(h, a), bookId, body, ct)));
+        v2.MapGet("/books/{bookId:guid}/shares", (HttpContext h, AuthService a, DiscussionSyncService s, Guid bookId, CancellationToken ct) =>
+            Send(s.ListSharesAsync(User(h, a), bookId, ct)));
+        v2.MapDelete("/shares/{id:guid}", (HttpContext h, AuthService a, DiscussionSyncService s, Guid id, CancellationToken ct) =>
+            Send(s.DeleteShareAsync(User(h, a), id, ct)));
+        v2.MapPost("/books/{bookId:guid}/checkpoints", (HttpContext h, AuthService a, DiscussionSyncService s, Guid bookId, CheckpointRequest body, CancellationToken ct) =>
+            Send(s.SaveCheckpointAsync(User(h, a), bookId, body, ct)));
+        v2.MapGet("/books/{bookId:guid}/checkpoints", (HttpContext h, AuthService a, DiscussionSyncService s, Guid bookId, string? chapterKey, string? cursor, string? limit, CancellationToken ct) =>
+            Send(s.ListCheckpointsAsync(User(h, a), bookId, chapterKey, cursor, limit, ct)));
+        v2.MapDelete("/checkpoints/{id:guid}", (HttpContext h, AuthService a, DiscussionSyncService s, Guid id, CancellationToken ct) =>
+            Send(s.DeleteCheckpointAsync(User(h, a), id, ct)));
+        v2.MapPut("/books/{bookId:guid}/checkpoint-saving", (HttpContext h, AuthService a, DiscussionSyncService s, Guid bookId, CheckpointSavingRequest body, CancellationToken ct) =>
+            Send(s.SetCheckpointSavingAsync(User(h, a), bookId, body, ct)));
     }
 
     // PathGates and V2Gate resolved it already; GetUserId answers from the request's memo.

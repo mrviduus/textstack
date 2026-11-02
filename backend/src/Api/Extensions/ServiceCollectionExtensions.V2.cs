@@ -1,5 +1,6 @@
 using Api.V2;
 using Application.Annotations;
+using Application.Discussion;
 using Application.Identity;
 using Application.Library;
 using Application.Reading;
@@ -26,5 +27,6 @@ public static partial class ServiceCollectionExtensions
             .AddSingleton<LibrarySyncService>()
             .AddSingleton<ReadingSyncService>()
             .AddSingleton<AnnotationSyncService>()
-            .AddSingleton<VocabularySyncService>();
+            .AddSingleton<VocabularySyncService>()
+            .AddSingleton<DiscussionSyncService>();
 }

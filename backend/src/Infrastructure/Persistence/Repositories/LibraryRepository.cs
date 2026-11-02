@@ -206,6 +206,14 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
         return new(FileReplaceOutcome.Replaced, inserted, superseded);
     }
 
+    private const string SetCheckpointSaving = """
+        UPDATE books SET checkpoint_saving_enabled = @enabled, updated_at = now()
+        WHERE user_id = @userId AND id = @bookId
+        """;
+
+    public Task<bool> SetCheckpointSavingAsync(Guid userId, Guid bookId, bool enabled, CancellationToken ct) =>
+        ChangesOneAsync(SetCheckpointSaving, new { userId, bookId, enabled }, ct);
+
     private const string MarkRemoved = """
         UPDATE books SET removed_at = now(), updated_at = now()
         WHERE user_id = @userId AND id = @bookId AND removed_at IS NULL
