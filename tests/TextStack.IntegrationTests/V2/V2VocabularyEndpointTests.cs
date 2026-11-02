@@ -90,6 +90,46 @@ public class V2VocabularyEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFix
         Assert.Equal((HttpStatusCode.OK, 2L), (again.Status, Revision(again)));
         Assert.Equal((HttpStatusCode.Conflict, "stale_revision", 2L), (stale.Status, stale.Code, stale.Body.GetProperty("revision").GetInt64()));
         Assert.Equal((HttpStatusCode.OK, JsonValueKind.Null, 3L), (restored.Status, restored.Body.GetProperty("deletedAt").ValueKind, Revision(restored)));
+        // The restore retried after its response was lost: the card is live, as it left it.
+        var retried = await v2.SendAsync(v2.Alice, HttpMethod.Post, $"{Words}/{id}/restore", new { expectedRevision = 2 });
+        Assert.Equal((HttpStatusCode.OK, 3L), (retried.Status, Revision(retried)));
+    }
+
+    // Principle 6: the example's operation answers before the tombstone does.
+    [Fact]
+    public async Task Put_ReplayOfASaveWithAnExampleAfterTheDelete_Is200ReplayedOnTheTombstone()
+    {
+        v2.Require();
+        var save = Word(NewWord(), Example(Guid.NewGuid()));
+        var id = Id(await SaveAsync(v2.Alice, save));
+        await v2.SendAsync(v2.Alice, HttpMethod.Delete, $"{Words}/{id}");
+
+        var replay = await SaveAsync(v2.Alice, save);
+
+        Assert.Equal((HttpStatusCode.OK, "replayed", JsonValueKind.String),
+            (replay.Status, replay.Body.GetProperty("example").GetString(), replay.Body.GetProperty("deletedAt").ValueKind));
+    }
+
+    [Fact]
+    public async Task Put_WordOverItsCapAndReviewFromTheFuture_AreInvalidPayloadNot500()
+    {
+        v2.Require();
+        var id = Id(await SaveAsync(v2.Alice, Word(NewWord())));
+
+        var tooLong = await SaveAsync(v2.Alice, Word(new string('w', 10_000)));
+        var language = await SaveAsync(v2.Alice, new { id = Guid.NewGuid(), language = new string('l', 17), word = NewWord() });
+        var future = await ReviewAsync(v2.Alice, new
+        {
+            operationId = Guid.NewGuid(),
+            wordId = id,
+            reviewMode = "multiple_choice",
+            isCorrect = true,
+            clientRecordedAt = new DateTimeOffset(9999, 12, 31, 0, 0, 0, TimeSpan.Zero),
+        });
+
+        Assert.Equal((HttpStatusCode.BadRequest, "invalid_payload", "word"), (tooLong.Status, tooLong.Code, tooLong.Body.GetProperty("field").GetString()));
+        Assert.Equal((HttpStatusCode.BadRequest, "language"), (language.Status, language.Body.GetProperty("field").GetString()));
+        Assert.Equal((HttpStatusCode.BadRequest, "clientRecordedAt"), (future.Status, future.Body.GetProperty("field").GetString()));
     }
 
     [Fact]
