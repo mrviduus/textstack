@@ -1,0 +1,286 @@
+using Application.Auth;
+using Application.Common;
+using Domain.Identity;
+using Microsoft.Extensions.Logging;
+
+namespace Application.Identity;
+
+/// <summary>
+/// <see cref="IAuthService"/> on <c>textstack_v2</c> (M2.5b), over the identity ports and the shared
+/// <see cref="JwtTokens"/>. Registered nowhere: M5.1's <c>Database:Mode</c> picks it, and until then
+/// only tests build it. Admins sign in through <see cref="V2AdminAuthService"/>.
+/// </summary>
+public sealed class V2AuthService(
+    IUserRepository users,
+    ISessionTokenRepository sessions,
+    IDeviceLoginRepository devices,
+    IAccountMergeRepository merges,
+    JwtTokens tokens,
+    TimeProvider clock,
+    ILogger<V2AuthService> logger) : IAuthService
+{
+    public async Task<AuthResult> TestLoginAsync(string email, CancellationToken ct)
+    {
+        var user = await users.GetByEmailAsync(email, ct)
+            ?? await users.CreateAsync(new UserAccount { Id = Guid.NewGuid(), Email = email, Name = email.Split('@')[0] }, ct)
+            ?? await users.GetByEmailAsync(email, ct); // a concurrent sign-in made it
+        return user is null ? AuthResult.Failed(AuthStatus.EmailTaken) : await IssueAsync(user, null, ct);
+    }
+
+    public async Task<AuthResult> LoginWithGoogleAsync(string googleIdToken, CancellationToken ct)
+    {
+        var google = await tokens.VerifyGoogleAsync(googleIdToken);
+        if (google?.Email is null) return AuthResult.Failed(AuthStatus.InvalidToken);
+
+        var user = await users.GetByGoogleSubjectAsync(google.Subject, ct);
+        if (user is null)
+            user = await CreateOrLinkAsync(
+                new UserAccount { Id = Guid.NewGuid(), Email = google.Email, Name = google.Name, Picture = google.Picture, GoogleSubject = google.Subject },
+                google, () => users.GetByGoogleSubjectAsync(google.Subject, ct), ct);
+        else if (user.Email != google.Email || user.Name != google.Name || user.Picture != google.Picture)
+            // Another account holds the new email: sign in as the account is.
+            user = (await users.UpdateProfileAsync(user.Id, google.Email, google.Name, google.Picture, ct)).Account ?? user;
+
+        return user is null ? AuthResult.Failed(AuthStatus.EmailTaken) : await IssueAsync(user, null, ct);
+    }
+
+    public async Task<AuthResult> LoginWithAppleAsync(string identityToken, string? fullName, string? email, CancellationToken ct)
+    {
+        var apple = tokens.VerifyApple(identityToken);
+        if (apple is null) return AuthResult.Failed(AuthStatus.InvalidToken);
+
+        var user = await users.GetByAppleSubjectAsync(apple.Subject, ct);
+        if (user is null)
+            user = await CreateOrLinkAsync(
+                new UserAccount { Id = Guid.NewGuid(), Email = email ?? apple.Email ?? $"{apple.Subject}@privaterelay.appleid.com", Name = fullName, AppleSubject = apple.Subject },
+                apple, () => users.GetByAppleSubjectAsync(apple.Subject, ct), ct);
+        else if (fullName != null && user.Name != fullName)
+            user = (await users.UpdateProfileAsync(user.Id, user.Email, fullName, user.Picture, ct)).Account ?? user;
+
+        return user is null ? AuthResult.Failed(AuthStatus.EmailTaken) : await IssueAsync(user, null, ct);
+    }
+
+    /// <summary>
+    /// The new provider account. When something unique is taken: the account a concurrent sign-in
+    /// made, else the account holding the email, signed in only when the provider verified that email.
+    /// ponytail: the linked account's subject is not stored (no port sets it), so it links by email on every sign-in; an <c>IUserRepository.LinkSubjectAsync</c> if the email ever changes under it.
+    /// </summary>
+    private async Task<UserAccount?> CreateOrLinkAsync(
+        UserAccount account, ProviderIdentity identity, Func<Task<UserAccount?>> bySubject, CancellationToken ct) =>
+        await users.CreateAsync(account, ct)
+        ?? await bySubject()
+        ?? (identity.EmailVerified ? await users.GetByEmailAsync(account.Email, ct) : null);
+
+    public async Task<AuthResult> CreateGuestSessionAsync(CancellationToken ct)
+    {
+        var guest = await users.CreateAsync(new UserAccount
+        {
+            Id = Guid.NewGuid(),
+            Email = $"guest-{Guid.NewGuid():N}@guest.local",
+            Name = "Guest",
+            IsGuest = true,
+            LastActiveAt = clock.GetUtcNow(),
+        }, ct) ?? throw new InvalidOperationException("A new guest's id or email collided.");
+        return await IssueAsync(guest, null, ct);
+    }
+
+    public Task<AuthResult> IssueSessionAsync(UserAccount user, CancellationToken ct) => IssueAsync(user, null, ct);
+
+    public async Task<AccountMerge?> MergeGuestAsync(Guid guestUserId, Guid realUserId, string method, CancellationToken ct)
+    {
+        try
+        {
+            AccountMerge merged;
+            try
+            {
+                merged = await merges.MergeAsync(guestUserId, realUserId, null, ct);
+            }
+            // A device of the account wrote the same unique key meanwhile, or two transactions
+            // crossed: a fresh snapshot settles both, once.
+            catch (Exception e) when (e.IsUniqueViolation() || e.IsTransientConflict())
+            {
+                merged = await merges.MergeAsync(guestUserId, realUserId, null, ct);
+            }
+            if (merged.Outcome == AccountMergeOutcome.Merged)
+                logger.LogInformation("guest_merged {TargetUserId} {GuestUserId} {Method}", realUserId, guestUserId, method);
+            return merged;
+        }
+        // ADR-014, as legacy: a constraint the merge does not know must not lock the reader out on every
+        // retry. The merge rolled back, the guest keeps its rows; sign-in continues and says so.
+        catch (Exception e) when (e.IsIntegrityViolation())
+        {
+            logger.LogError(e, "Guest merge hit a constraint violation and was skipped; sign-in continued. "
+                + "Guest {GuestUserId} data is orphaned on the guest row. Real user {RealUserId}", guestUserId, realUserId);
+            return null;
+        }
+    }
+
+    public async Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct)
+    {
+        var hash = DeviceCodes.HashToken(refreshToken);
+        var now = clock.GetUtcNow();
+        var session = await sessions.GetLiveAsync(hash, now, ct);
+        if (session is null)
+        {
+            var victim = await sessions.RevokeSuccessorsOfAsync(hash, JwtTokens.RefreshReuseGrace, ct);
+            if (victim is null) return AuthResult.Failed(AuthStatus.InvalidToken);
+            logger.LogWarning("Rotated refresh token presented again; revoked its successor for user {UserId}", victim);
+            return AuthResult.Failed(AuthStatus.TokenReused);
+        }
+
+        var user = await users.GetAsync(session.UserId, ct);
+        if (user is null) return AuthResult.Failed(AuthStatus.InvalidToken);
+        var (raw, newHash) = JwtTokens.NewOpaqueToken();
+        return await sessions.RotateAsync(user.Id, hash, newHash, RefreshExpiresAt(user, now), now, ct) is null
+            ? AuthResult.Failed(AuthStatus.InvalidToken) // a concurrent rotation or a reset won
+            : AuthResult.Ok(user, MintAccessToken(user), raw);
+    }
+
+    public Task<bool> LogoutAsync(string refreshToken, CancellationToken ct) =>
+        sessions.RevokeAsync(DeviceCodes.HashToken(refreshToken), ct);
+
+    public Task<UserAccount?> GetUserByIdAsync(Guid userId, CancellationToken ct) => users.GetAsync(userId, ct);
+
+    public async Task<AuthResult> RegisterWithEmailAsync(string email, string password, string? name, Guid? guestUserId, CancellationToken ct)
+    {
+        email = Normalize(email);
+        if (!System.Net.Mail.MailAddress.TryCreate(email, out _) || password.Length is < 8 or > 128)
+            return AuthResult.Failed(AuthStatus.InvalidInput);
+        if (await users.GetByEmailAsync(email, ct) is not null)
+            return AuthResult.Failed(AuthStatus.EmailTaken);
+
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(password);
+        name = name?.Trim();
+        UserAccount? user = null;
+        if (guestUserId is { } guestId)
+        {
+            // In place: the guest keeps its id and everything it owns. Not a guest → a new account.
+            var promoted = await users.PromoteGuestAsync(guestId, email, name, passwordHash, ct);
+            if (promoted.Outcome == AccountUpdateOutcome.EmailTaken) return AuthResult.Failed(AuthStatus.EmailTaken);
+            user = promoted.Account;
+            if (user is not null) logger.LogInformation("guest_promoted {UserId}", user.Id);
+        }
+        user ??= await users.CreateAsync(new UserAccount { Id = Guid.NewGuid(), Email = email, Name = name, PasswordHash = passwordHash }, ct);
+        return user is null ? AuthResult.Failed(AuthStatus.EmailTaken) : await IssueAsync(user, passwordHash, ct);
+    }
+
+    public async Task<AuthResult> LoginWithEmailAsync(string email, string password, CancellationToken ct)
+    {
+        var user = await users.GetByEmailAsync(Normalize(email), ct);
+        if (user?.PasswordHash is not { } verified || !PasswordHashing.Matches(password, verified))
+            return AuthResult.Failed(AuthStatus.InvalidCredentials);
+        // A reset that commits after the check: no session (#1092), the old password is wrong now.
+        return await IssueAsync(user, verified, ct);
+    }
+
+    public async Task<bool> EmailExistsAsync(string email, CancellationToken ct) =>
+        await users.GetByEmailAsync(Normalize(email), ct) is not null;
+
+    public async Task<string?> RequestPasswordResetAsync(string email, CancellationToken ct)
+    {
+        var user = await users.GetByEmailAsync(Normalize(email), ct);
+        if (user?.PasswordHash is null) return null; // don't reveal whether the email exists
+        var (raw, hash) = JwtTokens.NewOpaqueToken();
+        await sessions.CreatePasswordResetAsync(user.Id, hash, clock.GetUtcNow().AddHours(1), ct);
+        return raw;
+    }
+
+    /// <summary>
+    /// The new password, every session, MCP key and OAuth grant signed out and approved device logins
+    /// expired, in one statement (<see cref="ISessionTokenRepository.ResetPasswordAsync"/>).
+    /// ponytail: an access JWT minted before the reset lives out its hour; <c>credentials_reset_at</c> vs its <c>iat</c> is #1092 (migration 0002).
+    /// </summary>
+    public async Task<bool> ResetPasswordAsync(string token, string newPassword, CancellationToken ct)
+    {
+        if (newPassword.Length is < 8 or > 128) return false;
+        return await sessions.ResetPasswordAsync(
+            DeviceCodes.HashToken(token), BCrypt.Net.BCrypt.HashPassword(newPassword), clock.GetUtcNow(), ct) is not null;
+    }
+
+    public async Task<DeviceCodeResult> CreateDeviceAuthorizationAsync(CancellationToken ct)
+    {
+        var deviceCode = DeviceCodes.GenerateSecureToken();
+        var now = clock.GetUtcNow();
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var login = new DeviceLogin
+            {
+                Id = Guid.NewGuid(),
+                DeviceCodeHash = DeviceCodes.HashToken(deviceCode),
+                UserCode = DeviceCodes.GenerateUserCode(),
+                ExpiresAt = now.AddSeconds(DeviceCodes.ExpiresInSeconds),
+                IntervalSeconds = DeviceCodes.IntervalSeconds,
+            };
+            if (await devices.CreateAsync(login, now, ct))
+                return new DeviceCodeResult(deviceCode, login.UserCode, DeviceCodes.ExpiresInSeconds, DeviceCodes.IntervalSeconds);
+        }
+        throw new InvalidOperationException("Could not generate a unique device user_code.");
+    }
+
+    public Task<DeviceApprovalResult> ApproveDeviceAsync(string userCode, Guid userId, CancellationToken ct) => DecideAsync(userCode, userId, ct);
+
+    public Task<DeviceApprovalResult> DenyDeviceAsync(string userCode, CancellationToken ct) => DecideAsync(userCode, null, ct);
+
+    private async Task<DeviceApprovalResult> DecideAsync(string userCode, Guid? approvedBy, CancellationToken ct)
+    {
+        var normalized = DeviceCodes.NormalizeUserCode(userCode);
+        if (normalized.Length == 0) return DeviceApprovalResult.NotFound;
+        return await devices.DecideAsync(normalized, approvedBy, clock.GetUtcNow(), ct) switch
+        {
+            null => DeviceApprovalResult.NotFound,
+            DeviceLogin.Expired => DeviceApprovalResult.Expired,
+            _ => DeviceApprovalResult.Ok,
+        };
+    }
+
+    public async Task<AuthResult> RedeemDeviceCodeAsync(string deviceCode, CancellationToken ct)
+    {
+        // Unknown, spent and expired codes answer alike: no enumeration.
+        var expired = AuthResult.Failed(AuthStatus.DeviceExpired);
+        if (string.IsNullOrEmpty(deviceCode)) return expired;
+
+        var login = await devices.GetByDeviceCodeAsync(DeviceCodes.HashToken(deviceCode), ct);
+        var now = clock.GetUtcNow();
+        switch (login?.Status)
+        {
+            case DeviceLogin.Pending when login.ExpiresAt <= now:
+                await devices.ExpireAsync(login.Id, ct);
+                return expired;
+            case DeviceLogin.Pending:
+                return AuthResult.Failed(AuthStatus.DevicePending);
+            case DeviceLogin.Denied:
+                return AuthResult.Failed(AuthStatus.DeviceDenied);
+            case DeviceLogin.Approved:
+                // Single use: of two polls one redeems. A reset since the approval expired it.
+                var userId = await devices.RedeemAsync(login.Id, now, ct);
+                var user = userId is null ? null : await users.GetAsync(userId.Value, ct);
+                return user is null ? expired : await IssueAsync(user, null, ct, refused: AuthStatus.DeviceExpired);
+            default:
+                return expired;
+        }
+    }
+
+    public Guid? ValidateAccessToken(string accessToken) => tokens.ValidateAccessToken(accessToken).UserId;
+
+    public (Guid? UserId, bool IsGuest) ValidateAccessTokenIdentity(string accessToken) => tokens.ValidateAccessToken(accessToken);
+
+    /// <summary>
+    /// A new session and access token for <paramref name="user"/>. <paramref name="refused"/> when no
+    /// session was stored: the account is gone, or (with <paramref name="verifiedPasswordHash"/>) its
+    /// password changed since it was checked.
+    /// </summary>
+    private async Task<AuthResult> IssueAsync(
+        UserAccount user, string? verifiedPasswordHash, CancellationToken ct, AuthStatus refused = AuthStatus.InvalidCredentials)
+    {
+        var (raw, hash) = JwtTokens.NewOpaqueToken();
+        return await sessions.IssueAsync(user.Id, hash, RefreshExpiresAt(user, clock.GetUtcNow()), verifiedPasswordHash, ct) is null
+            ? AuthResult.Failed(refused)
+            : AuthResult.Ok(user, MintAccessToken(user), raw);
+    }
+
+    private DateTimeOffset RefreshExpiresAt(UserAccount user, DateTimeOffset now) => now.AddDays(tokens.RefreshTokenDays(user.IsGuest));
+
+    private string MintAccessToken(UserAccount user) => tokens.MintAccessToken(user.Id, user.Email, user.Name, user.IsGuest);
+
+    private static string Normalize(string email) => email.Trim().ToLowerInvariant();
+}

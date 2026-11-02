@@ -105,8 +105,8 @@ public class JwtTokens(JwtSettings jwt, GoogleSettings? google = null, AppleSett
         }
     }
 
-    /// <summary>A new refresh token: the raw value goes to the client once, only the hash is stored.</summary>
-    public static (string Raw, string Hash) NewRefreshToken()
+    /// <summary>A new opaque secret (a refresh token, a reset code): the raw value goes to the client once, only the hash is stored.</summary>
+    public static (string Raw, string Hash) NewOpaqueToken()
     {
         var raw = DeviceCodes.GenerateSecureToken();
         return (raw, DeviceCodes.HashToken(raw));

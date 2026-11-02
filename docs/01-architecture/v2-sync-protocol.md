@@ -657,6 +657,11 @@ once. Nothing local is lost.
 - **Quota**: V2 bytes count against the same tier limits, computed over V2 `users` / `book_files`
   (never through legacy EF, ADR-030). A file is counted once: while legacy still holds the bytes it is
   legacy's; at cutover the ETL moves the key and the count moves with it. No double counting.
+- **As built (M2.5b, `V2AuthService`, unwired until M5.1).** Server-side sign-out = revoke that refresh
+  session. A password reset signs every credential out (sessions, MCP keys, OAuth grants) and expires
+  device logins approved but not yet redeemed, in one statement; a password login that checked the old
+  hash gets no session once the reset commits. Access JWTs minted before a reset live out their hour:
+  `users.credentials_reset_at` vs `iat` is #1092 (migration `0002`).
 
 ## What old clients see
 
