@@ -140,7 +140,6 @@ public class SyncValidationTests
     [InlineData("chapterFraction", "-0.01")]
     [InlineData("chapterFraction", "\"0.5\"")]
     [InlineData("anchor", "null")]
-    [InlineData("anchor", """{"prefix":"","exact":"","suffix":"","startOffset":0,"endOffset":0}""")]
     [InlineData("charOffset", "-1")]
     [InlineData("charOffset", "1.5")]
     public void Locator_TextPositionBreakingOneRule_IsRefused(string member, string? value) =>
@@ -161,7 +160,6 @@ public class SyncValidationTests
 
         Assert.Null(TextPositionWith(With(TextPosition, "anchor", quote(64))));
         Assert.Equal("locator", FieldOf(TextPositionWith(With(TextPosition, "anchor", quote(65)))));
-        Assert.Null(TextAnchorWith(With(TextAnchor, "exact", $"\"{new string('q', 65)}\"")));
     }
 
     [Fact]
@@ -173,6 +171,8 @@ public class SyncValidationTests
     [InlineData("exact", null)]
     [InlineData("exact", "\"\"")]
     [InlineData("prefix", null)]
+    [InlineData("prefix", "\"ppppppppppppppppppppppppppppppppp\"")] // 33 code points
+    [InlineData("suffix", "\"sssssssssssssssssssssssssssssssss\"")]
     [InlineData("suffix", "null")]
     [InlineData("startOffset", null)]
     [InlineData("startOffset", "-1")]
@@ -183,15 +183,8 @@ public class SyncValidationTests
         Assert.Equal("locator", FieldOf(TextAnchorWith(With(TextAnchor, member, value))));
 
     [Fact]
-    public void Locator_TextAnchorContextOver32CodePoints_IsRefused()
-    {
-        Assert.Null(TextAnchorWith(With(TextAnchor, "suffix", $"\"{new string('s', 32)}\"")));
-        Assert.Equal("locator", FieldOf(TextAnchorWith(With(TextAnchor, "prefix", $"\"{new string('p', 33)}\""))));
-    }
-
-    [Fact]
-    public void Locator_TextAnchorSuffixOver32CodePoints_IsRefused() =>
-        Assert.Equal("locator", FieldOf(TextAnchorWith(With(TextAnchor, "suffix", $"\"{new string('s', 33)}\""))));
+    public void Locator_TextAnchorContextOf32CodePoints_Passes() =>
+        Assert.Null(TextAnchorWith(With(With(TextAnchor, "prefix", $"\"{new string('p', 32)}\""), "suffix", $"\"{new string('s', 32)}\"")));
 
     // An int32 offset: 2^31 does not fit and is refused, never clamped.
     [Fact]

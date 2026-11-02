@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using static TextStack.IntegrationTests.V2.V2ApiFixture;
 
 namespace TextStack.IntegrationTests.V2;
 
@@ -26,9 +27,6 @@ public class V2TransitionalLocatorEndpointTests(V2ApiFixture v2) : IClassFixture
         },
     };
 
-    private static object State(Guid fileId, long? expectedRevision, object locator, decimal bookFraction) =>
-        new { expectedRevision, fileId, currentLocator = locator, bookFraction, clientRecordedAt = DateTimeOffset.UtcNow };
-
     private static object Anchor(string chapterKey) => new
     {
         version = 1,
@@ -38,8 +36,6 @@ public class V2TransitionalLocatorEndpointTests(V2ApiFixture v2) : IClassFixture
 
     private static object Highlight(Guid bookId, Guid fileId, string chapterKey) =>
         new { expectedRevision = (long?)null, bookId, fileId, selectedText = "enough words", locator = Anchor(chapterKey) };
-
-    private Task<V2Response> PutAnnotationAsync(V2Session who, Guid id, object body) => v2.SendAsync(who, HttpMethod.Put, $"/me/v2/annotations/{id}", body);
 
     // jsonb keeps neither key order nor spacing: what comes back is the same JSON value, not the same bytes.
     private static void AssertSameJson(object sent, JsonElement stored) =>
@@ -52,9 +48,9 @@ public class V2TransitionalLocatorEndpointTests(V2ApiFixture v2) : IClassFixture
         var (book, file, keys) = await v2.ImportWithChaptersAsync(v2.Alice, "One", "Two");
         var position = TextPosition(keys[1]);
 
-        var saved = await v2.WriteStateAsync(v2.Alice, book, State(file, null, position, 0.6m));
+        var saved = await v2.WriteStateAsync(v2.Alice, book, State(file, null, locator: position, bookFraction: 0.6m));
         var restored = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"/me/v2/books/{book}/reading-state");
-        var unknown = await v2.WriteStateAsync(v2.Alice, book, State(file, 1, TextPosition("no-such-chapter"), 0.7m));
+        var unknown = await v2.WriteStateAsync(v2.Alice, book, State(file, 1, locator: TextPosition("no-such-chapter"), bookFraction: 0.7m));
 
         Assert.Equal((HttpStatusCode.OK, 1L), (saved.Status, saved.Body.GetProperty("revision").GetInt64()));
         AssertSameJson(position, restored.Body.GetProperty("currentLocator"));
@@ -70,9 +66,9 @@ public class V2TransitionalLocatorEndpointTests(V2ApiFixture v2) : IClassFixture
         var (book, file, keys) = await v2.ImportWithChaptersAsync(guest, "One", "Two");
         var id = Guid.NewGuid();
 
-        var created = await PutAnnotationAsync(guest, id, Highlight(book, file, keys[1]));
+        var created = await v2.PutAnnotationAsync(guest, id, Highlight(book, file, keys[1]));
         var feed = await v2.SendAsync(guest, HttpMethod.Get, "/me/v2/annotations/changes");
-        var unknown = await PutAnnotationAsync(guest, Guid.NewGuid(), Highlight(book, file, "no-such-chapter"));
+        var unknown = await v2.PutAnnotationAsync(guest, Guid.NewGuid(), Highlight(book, file, "no-such-chapter"));
 
         Assert.Equal(HttpStatusCode.Created, created.Status);
         var item = feed.Body.GetProperty("items").EnumerateArray().Single(a => a.GetProperty("id").GetGuid() == id);
@@ -86,7 +82,7 @@ public class V2TransitionalLocatorEndpointTests(V2ApiFixture v2) : IClassFixture
         v2.Require();
         var (book, file, _) = await v2.ImportAsync(v2.Alice); // imported, never uploaded: nothing extracted
 
-        var state = await v2.WriteStateAsync(v2.Alice, book, State(file, null, TextPosition("1-one"), 0.1m));
+        var state = await v2.WriteStateAsync(v2.Alice, book, State(file, null, locator: TextPosition("1-one"), bookFraction: 0.1m));
 
         Assert.Equal((HttpStatusCode.Conflict, "chapter_not_found"), (state.Status, state.Code));
     }
@@ -97,7 +93,7 @@ public class V2TransitionalLocatorEndpointTests(V2ApiFixture v2) : IClassFixture
         v2.Require();
         var (book, file, _) = await v2.ImportAsync(v2.Alice); // imported, never uploaded: nothing extracted
 
-        var annotation = await PutAnnotationAsync(v2.Alice, Guid.NewGuid(), Highlight(book, file, "1-one"));
+        var annotation = await v2.PutAnnotationAsync(v2.Alice, Guid.NewGuid(), Highlight(book, file, "1-one"));
 
         Assert.Equal((HttpStatusCode.Conflict, "chapter_not_found"), (annotation.Status, annotation.Code));
     }
@@ -109,8 +105,8 @@ public class V2TransitionalLocatorEndpointTests(V2ApiFixture v2) : IClassFixture
         var (alicesBook, alicesFile, alicesKeys) = await v2.ImportWithChaptersAsync(v2.Alice, "Alpha");
         var (_, _, bobsKeys) = await v2.ImportWithChaptersAsync(v2.Bob, "Bravo");
 
-        var bobsKeyOnAlicesFile = await v2.WriteStateAsync(v2.Alice, alicesBook, State(alicesFile, null, TextPosition(bobsKeys[0]), 0.1m));
-        var bobOnAlicesBook = await v2.WriteStateAsync(v2.Bob, alicesBook, State(alicesFile, null, TextPosition(alicesKeys[0]), 0.1m));
+        var bobsKeyOnAlicesFile = await v2.WriteStateAsync(v2.Alice, alicesBook, State(alicesFile, null, locator: TextPosition(bobsKeys[0]), bookFraction: 0.1m));
+        var bobOnAlicesBook = await v2.WriteStateAsync(v2.Bob, alicesBook, State(alicesFile, null, locator: TextPosition(alicesKeys[0]), bookFraction: 0.1m));
 
         Assert.Equal((HttpStatusCode.Conflict, "chapter_not_found"), (bobsKeyOnAlicesFile.Status, bobsKeyOnAlicesFile.Code));
         Assert.Equal((HttpStatusCode.NotFound, "book_not_found"), (bobOnAlicesBook.Status, bobOnAlicesBook.Code));
@@ -123,12 +119,12 @@ public class V2TransitionalLocatorEndpointTests(V2ApiFixture v2) : IClassFixture
         v2.Require();
         var (book, file, keys) = await v2.ImportWithChaptersAsync(v2.Alice, "One", "Two");
         var oldReader = TextPosition(keys[1]);
-        var newReader = V2ApiFixture.Position(1); // epub-cfi
+        var newReader = Position(1); // epub-cfi
 
-        var old1 = await v2.WriteStateAsync(v2.Alice, book, State(file, null, oldReader, 0.6m));
-        var new2 = await v2.WriteStateAsync(v2.Alice, book, State(file, 1, newReader, 0.3m));
-        var staleOld = await v2.WriteStateAsync(v2.Alice, book, State(file, 1, oldReader, 0.65m));
-        var old3 = await v2.WriteStateAsync(v2.Alice, book, State(file, 2, oldReader, 0.2m));
+        var old1 = await v2.WriteStateAsync(v2.Alice, book, State(file, null, locator: oldReader, bookFraction: 0.6m));
+        var new2 = await v2.WriteStateAsync(v2.Alice, book, State(file, 1, locator: newReader, bookFraction: 0.3m));
+        var staleOld = await v2.WriteStateAsync(v2.Alice, book, State(file, 1, locator: oldReader, bookFraction: 0.65m));
+        var old3 = await v2.WriteStateAsync(v2.Alice, book, State(file, 2, locator: oldReader, bookFraction: 0.2m));
 
         Assert.Equal(HttpStatusCode.OK, old1.Status);
         Assert.Equal((HttpStatusCode.OK, 2L, "epub-cfi"), (new2.Status, new2.Body.GetProperty("revision").GetInt64(), Scheme(new2, "currentLocator")));
@@ -145,19 +141,19 @@ public class V2TransitionalLocatorEndpointTests(V2ApiFixture v2) : IClassFixture
         v2.Require();
         var (email, password) = ($"v2-m27a-{Guid.NewGuid():N}@textstack.test", "correct-horse-battery");
         var (account, _) = await v2.SignInAsync("/auth/register", new { email, password, name = "Merge" });
-        var epub = V2ApiFixture.Epub("One", "Two");
+        var epub = Epub("One", "Two");
         var (accountBook, accountFile) = await v2.ImportBytesAsync(account, epub); // the same bytes, never uploaded
         var guest = await v2.NewGuestAsync();
         var (guestBook, guestFile) = await v2.ImportBytesAsync(guest, epub);
         var keys = await v2.UploadAndExtractAsync(guest, guestBook, guestFile, epub);
-        await v2.WriteStateAsync(guest, guestBook, State(guestFile, null, TextPosition(keys[1]), 0.6m));
+        await v2.WriteStateAsync(guest, guestBook, State(guestFile, null, locator: TextPosition(keys[1]), bookFraction: 0.6m));
 
         var (signedIn, _) = await v2.SignInAsync("/auth/login", new { email, password }, guest);
         var merged = await v2.SendAsync(signedIn, HttpMethod.Get, $"/me/v2/books/{accountBook}/reading-state");
         var revision = merged.Body.GetProperty("revision").GetInt64();
-        var before = await v2.WriteStateAsync(signedIn, accountBook, State(accountFile, revision, TextPosition(keys[1]), 0.7m));
+        var before = await v2.WriteStateAsync(signedIn, accountBook, State(accountFile, revision, locator: TextPosition(keys[1]), bookFraction: 0.7m));
         var accountKeys = await v2.UploadAndExtractAsync(signedIn, accountBook, accountFile, epub);
-        var after = await v2.WriteStateAsync(signedIn, accountBook, State(accountFile, revision, TextPosition(keys[1]), 0.7m));
+        var after = await v2.WriteStateAsync(signedIn, accountBook, State(accountFile, revision, locator: TextPosition(keys[1]), bookFraction: 0.7m));
 
         Assert.Equal(keys[1], merged.Body.GetProperty("currentLocator").GetProperty("value").GetProperty("chapterSlug").GetString());
         Assert.Equal((HttpStatusCode.Conflict, "chapter_not_found"), (before.Status, before.Code));

@@ -170,14 +170,29 @@ public sealed class V2ApiFixture : IAsyncLifetime
     public static object Position(int step) =>
         new { version = 1, scheme = "epub-cfi", value = $"epubcfi(/6/{2 * step}!/4/2/1:0)", quote = $"Chapter {step} begins" };
 
-    public static object State(Guid fileId, long? expectedRevision, int step = 1) => new
+    /// <summary>A reading-state write: <see cref="Position"/>(<paramref name="step"/>) at step/10 unless a locator and fraction are given.</summary>
+    public static object State(Guid fileId, long? expectedRevision, int step = 1, object? locator = null, decimal? bookFraction = null) => new
     {
         expectedRevision,
         fileId,
-        currentLocator = Position(step),
-        bookFraction = step / 10m,
+        currentLocator = locator ?? Position(step),
+        bookFraction = bookFraction ?? step / 10m,
         clientRecordedAt = DateTimeOffset.UtcNow,
     };
+
+    public Task<V2Response> PutAnnotationAsync(V2Session who, Guid id, object body) => SendAsync(who, HttpMethod.Put, $"/me/v2/annotations/{id}", body);
+
+    /// <summary>Sends <paramref name="bytes"/> as two parts and completes; the complete's answer.</summary>
+    public async Task<V2Response> UploadAsync(V2Session who, Guid book, Guid file, byte[] bytes)
+    {
+        var half = bytes.Length / 2;
+        foreach (var (index, part) in new[] { (0, bytes[..half]), (1, bytes[half..]) })
+        {
+            using var put = await SendRawAsync(who, HttpMethod.Put, $"/me/v2/books/{book}/files/{file}/parts/{index}", new ByteArrayContent(part));
+            Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        }
+        return await SendAsync(who, HttpMethod.Post, $"/me/v2/books/{book}/files/{file}/content", new { partCount = 2 });
+    }
 
     /// <summary>Imports an EPUB with one chapter per title and has it extracted (<see cref="UploadAndExtractAsync"/>); its ids and chapter keys.</summary>
     public async Task<(Guid Book, Guid File, IReadOnlyList<string> Keys)> ImportWithChaptersAsync(V2Session who, params string[] titles)
@@ -194,9 +209,7 @@ public sealed class V2ApiFixture : IAsyncLifetime
     public async Task<IReadOnlyList<string>> UploadAndExtractAsync(V2Session who, Guid book, Guid file, byte[] bytes)
     {
         var chapters = $"/me/v2/books/{book}/files/{file}/chapters";
-        using var part = await SendRawAsync(who, HttpMethod.Put, $"/me/v2/books/{book}/files/{file}/parts/0", new ByteArrayContent(bytes));
-        Assert.Equal(HttpStatusCode.OK, part.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await SendAsync(who, HttpMethod.Post, $"/me/v2/books/{book}/files/{file}/content", new { partCount = 1 })).Status);
+        Assert.Equal(HttpStatusCode.OK, (await UploadAsync(who, book, file, bytes)).Status);
 
         var toc = await SendAsync(who, HttpMethod.Get, chapters);
         for (var waited = 0; waited < 60_000 && toc.Body.GetProperty("ingestion").GetString() is "queued" or "processing"; waited += 500)

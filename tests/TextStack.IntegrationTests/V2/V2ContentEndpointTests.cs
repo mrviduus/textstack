@@ -30,15 +30,6 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
     private Task<V2Response> CompleteAsync(V2Session who, Guid book, Guid file, int partCount) =>
         v2.SendAsync(who, HttpMethod.Post, $"{Files(book, file)}/content", new { partCount });
 
-    /// <summary>Sends <paramref name="bytes"/> as two parts and completes.</summary>
-    private async Task<V2Response> UploadAsync(V2Session who, Guid book, Guid file, byte[] bytes)
-    {
-        var half = bytes.Length / 2;
-        Assert.Equal(HttpStatusCode.OK, await PartAsync(who, book, file, 0, bytes[..half]));
-        Assert.Equal(HttpStatusCode.OK, await PartAsync(who, book, file, 1, bytes[half..]));
-        return await CompleteAsync(who, book, file, 2);
-    }
-
     [Fact]
     public async Task Upload_TwoPartsThenComplete_HasContentAndARangeIs206()
     {
@@ -46,7 +37,7 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         var bytes = RandomBytes(1000);
         var (book, file) = await v2.ImportBytesAsync(v2.Alice, bytes);
 
-        var completed = await UploadAsync(v2.Alice, book, file, bytes);
+        var completed = await v2.UploadAsync(v2.Alice, book, file, bytes);
         var replay = await CompleteAsync(v2.Alice, book, file, 2);
         using var range = await v2.SendRawAsync(v2.Alice, HttpMethod.Get, $"{Files(book, file)}/content", configure: r => r.Headers.Range = new RangeHeaderValue(0, 9));
 
@@ -66,7 +57,7 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         var guest = await v2.NewGuestAsync();
         var bytes = RandomBytes(64);
         var (book, file) = await v2.ImportBytesAsync(guest, bytes);
-        await UploadAsync(guest, book, file, bytes);
+        await v2.UploadAsync(guest, book, file, bytes);
 
         var feed = await v2.SendAsync(guest, HttpMethod.Get, "/me/v2/library/changes");
 
@@ -80,7 +71,7 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         v2.Require();
         var (book, file) = await v2.ImportBytesAsync(v2.Alice, RandomBytes(100));
 
-        var mismatch = await UploadAsync(v2.Alice, book, file, RandomBytes(100));
+        var mismatch = await v2.UploadAsync(v2.Alice, book, file, RandomBytes(100));
         var again = await CompleteAsync(v2.Alice, book, file, 2);
 
         Assert.Equal((HttpStatusCode.UnprocessableEntity, "content_mismatch"), (mismatch.Status, mismatch.Code));
@@ -135,12 +126,12 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         v2.Require();
         var bytes = RandomBytes(100);
         var (book, file) = await v2.ImportBytesAsync(v2.Alice, bytes);
-        await UploadAsync(v2.Alice, book, file, bytes);
+        await v2.UploadAsync(v2.Alice, book, file, bytes);
 
         var removed = await v2.SendAsync(v2.Alice, HttpMethod.Delete, $"{Files(book, file)}/content");
         var again = await v2.SendAsync(v2.Alice, HttpMethod.Delete, $"{Files(book, file)}/content");
         var read = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"{Files(book, file)}/content");
-        var reupload = await UploadAsync(v2.Alice, book, file, bytes);
+        var reupload = await v2.UploadAsync(v2.Alice, book, file, bytes);
 
         Assert.Equal((HttpStatusCode.NoContent, HttpStatusCode.NoContent), (removed.Status, again.Status));
         Assert.Equal((HttpStatusCode.NotFound, "no_content"), (read.Status, read.Code));
@@ -184,7 +175,7 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         v2.Require();
         var bytes = RandomBytes(100);
         var (book, file) = await v2.ImportBytesAsync(v2.Alice, bytes);
-        await UploadAsync(v2.Alice, book, file, bytes);
+        await v2.UploadAsync(v2.Alice, book, file, bytes);
         using var _ = await PutCoverAsync(v2.Alice, book, OnePixelPng, "image/png");
 
         using var part = await v2.SendRawAsync(v2.Bob, HttpMethod.Put, $"{Files(book, file)}/parts/0", new ByteArrayContent(bytes));
