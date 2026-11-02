@@ -12,6 +12,7 @@ database/v2/
   migrations/
     0000_baseline.up.sql        the whole V2 schema; no down, no seed rows
     0001_sync_protocol_deltas   the sync PDD's and the owner's schema deltas (ADR-031 "Amended 2026-11-01")
+    0002_identity_and_indexes   the reset stamp, session kind + family, and #1047's indexes (ADR-031 "Amended 2026-11-02")
   tests/invariants.sql          ADR-031's schema rules, checked against a migrated database
   tests/roundtrip.sh            -> ../../tests/roundtrip.sh (its steps 1, 2, 4, 5 plus invariants)
 ```

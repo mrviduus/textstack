@@ -22,28 +22,31 @@ public interface ISessionTokenRepository
     const int RefreshAbsoluteDays = 90;
 
     /// <summary>
-    /// Stores a new session of the user and returns it; null when the user is gone. With
-    /// <paramref name="verifiedPasswordHash"/> (a password sign-in: the hash the password was checked
-    /// against), only while the password still is that hash: a reset committing between the check and
-    /// this insert wins.
+    /// Stores a new session of the user, starting a family, and returns it; null when the user is gone.
+    /// With <paramref name="verifiedPasswordHash"/> (a password sign-in: the hash the password was
+    /// checked against), only while the password still is that hash; with
+    /// <paramref name="tokenIssuedAt"/> (a sign-in from an access token: its <c>iat</c>), only if the
+    /// password was not reset after it; both when both are given. Every sign-in serializes with a reset:
+    /// one committing meanwhile wins.
     /// </summary>
-    Task<SessionToken?> IssueAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, string? verifiedPasswordHash, SessionKind kind, CancellationToken ct);
+    Task<SessionToken?> IssueAsync(
+        Guid userId, string tokenHash, DateTimeOffset expiresAt, string? verifiedPasswordHash, DateTimeOffset? tokenIssuedAt, SessionKind kind, CancellationToken ct);
 
     /// <summary>
     /// Spends the live session <paramref name="oldTokenHash"/> and issues its successor
     /// <paramref name="newTokenHash"/>, live until <paramref name="expiresAt"/> of its user, in one
     /// transaction. <see cref="SessionRefreshOutcome.Rotated"/> with the session and its user;
     /// <see cref="SessionRefreshOutcome.Reused"/> when the token was rotated away already (past
-    /// <see cref="RefreshReuseGrace"/>), which revokes every session rotated from it;
+    /// <see cref="RefreshReuseGrace"/>), which revokes its whole sign-in;
     /// <see cref="SessionRefreshOutcome.Invalid"/> otherwise: unknown, expired, another kind, an admin
-    /// session of a non-admin, a concurrent rotation or reset won, or the sign-in is past
-    /// <see cref="RefreshAbsoluteDays"/>. A successor never survives a <see cref="ResetPasswordAsync"/>
-    /// that runs at the same time.
+    /// session of a non-admin, a concurrent rotation or reset won, the sign-in is past
+    /// <see cref="RefreshAbsoluteDays"/>. A successor never survives a
+    /// <see cref="ResetPasswordAsync"/> that runs at the same time.
     /// </summary>
     Task<SessionRefresh> RefreshAsync(
         string oldTokenHash, string newTokenHash, SessionKind kind, Func<UserAccount, DateTimeOffset> expiresAt, DateTimeOffset now, CancellationToken ct);
 
-    /// <summary>Signs the session out. False when there is no such session of that kind.</summary>
+    /// <summary>Signs the live session out. False when there is no such live session of that kind (a spent one stays: reuse detection reads it).</summary>
     Task<bool> RevokeAsync(string tokenHash, SessionKind kind, CancellationToken ct);
 
     /// <summary>Stores a reset code for the user and returns it.</summary>
@@ -53,12 +56,19 @@ public interface ISessionTokenRepository
     /// Spends a reset code unused and unexpired at <paramref name="now"/> and, atomically, sets the
     /// user's password and signs every credential out: every session (one a sign-in, a rotation or a
     /// device redemption commits meanwhile too), MCP keys and OAuth grants revoked (an earlier
-    /// revocation keeps its time), device logins approved and not yet redeemed expired. Returns the
-    /// user; null when the code is unknown, used or expired (nothing changed).
+    /// revocation keeps its time), device logins approved and not yet redeemed
+    /// and OAuth consents approved and not yet exchanged expired. Stamps
+    /// <see cref="UserAccount.CredentialsResetAt"/>, so access tokens issued before it mint nothing
+    /// more. Returns the user; null when the code is unknown, used or expired (nothing changed).
     /// </summary>
     Task<Guid?> ResetPasswordAsync(string tokenHash, string passwordHash, DateTimeOffset now, CancellationToken ct);
 
-    /// <summary>Deletes sessions that expired before <paramref name="expiredBefore"/>, rotated-away ones included; returns how many.</summary>
+    /// <summary>
+    /// Deletes sessions that expired before <paramref name="expiredBefore"/>, rotated-away ones
+    /// included, of families none of whose sessions is live at it: a family lives or goes whole, so a
+    /// replayed token of a live family is always recognised and the cutoff does not bound reuse
+    /// detection. Returns how many.
+    /// </summary>
     Task<int> DeleteExpiredSessionsAsync(DateTimeOffset expiredBefore, CancellationToken ct);
 
     /// <summary>Deletes reset codes that expired before <paramref name="expiredBefore"/>; returns how many.</summary>

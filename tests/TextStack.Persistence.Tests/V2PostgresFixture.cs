@@ -162,18 +162,11 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         // tests' ClaimNextAsync, which runs across users.
         var now = DateTimeOffset.UtcNow;
         var sessions = new SessionTokenRepository(DataSource);
-        await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), null, Application.Identity.SessionKind.Reader, Ct);
+        await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), null, null, Application.Identity.SessionKind.Reader, Ct);
         await sessions.CreatePasswordResetAsync(userId, NewHash(), now.AddHours(1), Ct);
-        var oauth = new OAuthRepository(DataSource);
-        var request = NewOAuthRequest();
-        await oauth.CreateRequestAsync(request, Ct);
-        await oauth.ApproveRequestAsync(request.Id, userId, NewHash(), now.AddMinutes(5), now, Ct);
-        await oauth.ConnectAsync(userId, NewGrant(), Ct);
-        var devices = new DeviceLoginRepository(DataSource);
-        var login = NewDeviceLogin();
-        await devices.CreateAsync(login, now, Ct);
-        await devices.DecideAsync(login.UserCode, userId, now, Ct);
-        await new McpKeyRepository(DataSource).CreateAsync(userId, "laptop", NewHash(), "tsk_ab", Ct);
+        await new OAuthRepository(DataSource).ConnectAsync(userId, await ApprovedOAuthRequestAsync(userId), NewGrant(), Ct);
+        await ApprovedDeviceLoginAsync(userId);
+        await new McpKeyRepository(DataSource).CreateAsync(userId, "laptop", NewHash(), "tsk_ab", DateTimeOffset.UtcNow, Ct);
         await new V2AgentRunWriter(DataSource).WriteAsync(NewRun(userId), Ct);
         await new V2LlmTraceWriter(DataSource).WriteAsync(NewTrace(userId), Ct);
         await using var conn = await DataSource.OpenConnectionAsync(Ct);
@@ -185,6 +178,16 @@ public sealed class V2PostgresFixture : IAsyncLifetime
             VALUES (gen_random_uuid(), @userId, @bookId, @fileId, 'succeeded', 1, now());
             """, new { userId, bookId = book.Id, fileId = file.Id }, cancellationToken: Ct));
         return (book, share);
+    }
+
+    /// <summary>An OAuth request the user approved just now (what a grant is connected for); its id.</summary>
+    public async Task<Guid> ApprovedOAuthRequestAsync(Guid userId)
+    {
+        var oauth = new OAuthRepository(DataSource);
+        var request = NewOAuthRequest();
+        await oauth.CreateRequestAsync(request, Ct);
+        await oauth.ApproveRequestAsync(request.Id, userId, NewHash(), DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Ct);
+        return request.Id;
     }
 
     /// <summary>The user's rows in <paramref name="table"/> (a constant, never input), only those of <paramref name="bookId"/> when given.</summary>
@@ -344,6 +347,53 @@ public sealed class V2PostgresFixture : IAsyncLifetime
     /// <paramref name="pending"/> finished, or 5 s passed: how a race test knows the other side is
     /// parked before it lets go. Keyed on the holder, so another test's lock wait cannot end it early.
     /// </summary>
+    /// <summary>
+    /// A transaction that holds <paramref name="user"/>'s row <c>FOR NO KEY UPDATE</c> (as a reset or a
+    /// rotation does) and runs <paramref name="alsoSql"/> (<c>@user</c>; a test's own SQL) while
+    /// <paramref name="pending"/> starts; once that blocks on the holder, <paramref name="beforeCommit"/>
+    /// runs, then the holder commits. Whether it waited, and its result.
+    /// </summary>
+    public async Task<(bool Waited, T Result)> WhileUserHeldAsync<T>(
+        Guid user, string? alsoSql, Func<Task<T>> pending, Func<Task>? beforeCommit = null)
+    {
+        await using var holder = await DataSource.OpenConnectionAsync(Ct);
+        await using var tx = await holder.BeginTransactionAsync(Ct);
+        await holder.ExecuteAsync(new CommandDefinition(
+            "SELECT FROM users WHERE id = @user FOR NO KEY UPDATE;" + alsoSql, new { user }, tx, cancellationToken: Ct));
+        var task = pending();
+        await WaitUntilBlockedByAsync(holder, task);
+        var waited = !task.IsCompleted;
+        if (beforeCommit is not null) await beforeCommit();
+        await tx.CommitAsync(Ct);
+        return (waited, await task);
+    }
+
+    /// <summary>Moves every session of the user <paramref name="interval"/> (SQL, a constant) into the past: past the reuse grace, or the absolute lifetime.</summary>
+    public Task AgeSessionsAsync(Guid user, string interval) =>
+        ExecAsync($"UPDATE user_refresh_tokens SET created_at = now() - interval '{interval}' WHERE user_id = @user", new { user });
+
+    /// <summary>Stamps the user's password reset at <paramref name="at"/>, as a reset would.</summary>
+    public Task ResetCredentialsAtAsync(Guid user, DateTimeOffset at) =>
+        ExecAsync("UPDATE users SET credentials_reset_at = @at WHERE id = @user", new { at, user });
+
+    /// <summary>A new account with the admin role.</summary>
+    public async Task<Guid> NewAdminAsync()
+    {
+        var admin = await NewReaderAsync();
+        await ExecAsync("UPDATE users SET role = 'admin' WHERE id = @admin", new { admin });
+        return admin;
+    }
+
+    /// <summary>A device login the user approved just now.</summary>
+    public async Task<DeviceLogin> ApprovedDeviceLoginAsync(Guid userId)
+    {
+        var devices = new DeviceLoginRepository(DataSource);
+        var login = NewDeviceLogin();
+        await devices.CreateAsync(login, Ct);
+        await devices.DecideAsync(login.UserCode, userId, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Ct);
+        return login;
+    }
+
     public async Task WaitUntilBlockedByAsync(NpgsqlConnection holder, Task pending)
     {
         await using var observer = await DataSource.OpenConnectionAsync(Ct);

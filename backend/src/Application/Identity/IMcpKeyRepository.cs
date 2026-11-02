@@ -15,8 +15,12 @@ public interface IMcpKeyRepository
     /// <summary>How many of the user's keys are not revoked: the cap is the caller's.</summary>
     Task<int> CountLiveAsync(Guid userId, CancellationToken ct);
 
-    /// <summary>Stores a new key of the user and returns it.</summary>
-    Task<McpConnectKey> CreateAsync(Guid userId, string name, string keyHash, string prefix, CancellationToken ct);
+    /// <summary>
+    /// Stores a new key of the user and returns it; null (nothing stored) when the user is gone or its
+    /// password was reset after <paramref name="tokenIssuedAt"/>, the <c>iat</c> of the access token
+    /// asking (a reset committing meanwhile included).
+    /// </summary>
+    Task<McpConnectKey?> CreateAsync(Guid userId, string name, string keyHash, string prefix, DateTimeOffset tokenIssuedAt, CancellationToken ct);
 
     /// <summary>Revokes one of the user's keys; an already revoked one keeps its original time. False when not the user's.</summary>
     Task<bool> RevokeAsync(Guid userId, Guid keyId, CancellationToken ct);

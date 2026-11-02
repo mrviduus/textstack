@@ -57,7 +57,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     private async Task<(UserAccount User, string Refresh, string Email)> SignedInAsync()
     {
         var account = await NewAccountAsync(UserAccount.ReaderRole);
-        var session = await Auth.IssueSessionAsync(account, Ct);
+        var session = await Auth.IssueSessionAsync(account, DateTimeOffset.UtcNow, Ct);
         return (account, session.RefreshToken!, account.Email);
     }
 
@@ -65,9 +65,6 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     private async Task<UserAccount> NewAccountAsync(string role) =>
         (await _users.CreateAsync(new UserAccount { Id = Guid.NewGuid(), Email = NewEmail(), PasswordHash = PasswordHash, Role = role }, Ct))!;
 
-    /// <summary>Moves every session of the user <paramref name="interval"/> (SQL, a constant) into the past.</summary>
-    private Task AgeSessionsAsync(Guid user, string interval) =>
-        db.ExecAsync($"UPDATE user_refresh_tokens SET created_at = now() - interval '{interval}' WHERE user_id = @user", new { user });
 
     // Registration and email login: the real path.
 
@@ -241,7 +238,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         var (user, refresh, _) = await SignedInAsync();
         var child = (await Auth.RefreshTokenAsync(refresh, Ct)).RefreshToken!;
         var grandchild = (await Auth.RefreshTokenAsync(child, Ct)).RefreshToken!;
-        await AgeSessionsAsync(user.Id, "1 minute");
+        await db.AgeSessionsAsync(user.Id, "1 minute");
 
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(refresh, Ct)).Status);
 
@@ -252,7 +249,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     public async Task RefreshTokenAsync_SignInPastItsAbsoluteLifetime_InvalidToken()
     {
         var (user, refresh, _) = await SignedInAsync();
-        await AgeSessionsAsync(user.Id, "91 days");
+        await db.AgeSessionsAsync(user.Id, "91 days");
 
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(refresh, Ct)).Status);
     }
@@ -300,7 +297,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     {
         var (user, refresh, email) = await SignedInAsync();
         var device = await Auth.CreateDeviceAuthorizationAsync(Ct);
-        await Auth.ApproveDeviceAsync(device.UserCode, user.Id, Ct);
+        await Auth.ApproveDeviceAsync(device.UserCode, user.Id, DateTimeOffset.UtcNow, Ct);
         var code = (await Auth.RequestPasswordResetAsync(email, Ct))!;
 
         Assert.True(await Auth.ResetPasswordAsync(code, NewPassword, Ct));
@@ -310,6 +307,22 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.True((await Auth.LoginWithEmailAsync(email, NewPassword, Ct)).Succeeded);
         Assert.Equal(DeviceRedeemStatus.ExpiredToken, (await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct)).Status);
         Assert.False(await Auth.ResetPasswordAsync(code, "yet another password", Ct));
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_AccessTokenFromBefore_MintsNoSessionAndApprovesNoDevice()
+    {
+        // #1092: the reset cannot reach a JWT already handed out; it refuses what that JWT would mint.
+        var account = await NewAccountAsync(UserAccount.ReaderRole);
+        var signedIn = await Auth.LoginWithEmailAsync(account.Email, Password, Ct);
+        var issuedAt = new DateTimeOffset(new JwtSecurityToken(signedIn.AccessToken).IssuedAt, TimeSpan.Zero);
+        var device = await Auth.CreateDeviceAuthorizationAsync(Ct);
+        Assert.True(await Auth.ResetPasswordAsync((await Auth.RequestPasswordResetAsync(account.Email, Ct))!, NewPassword, Ct));
+
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.IssueSessionAsync(account, issuedAt, Ct)).Status);
+        Assert.Equal(DeviceApprovalResult.Unauthorized, await Auth.ApproveDeviceAsync(device.UserCode, account.Id, issuedAt, Ct));
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", account.Id));
+        Assert.Equal(DeviceRedeemStatus.AuthorizationPending, (await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct)).Status);
     }
 
     [Fact]
@@ -340,7 +353,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         var device = await Auth.CreateDeviceAuthorizationAsync(Ct);
         Assert.Equal(DeviceRedeemStatus.AuthorizationPending, (await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct)).Status);
 
-        Assert.Equal(DeviceApprovalResult.Ok, await Auth.ApproveDeviceAsync(device.UserCode.ToLowerInvariant().Replace("-", ""), bob.Id, Ct));
+        Assert.Equal(DeviceApprovalResult.Ok, await Auth.ApproveDeviceAsync(device.UserCode.ToLowerInvariant().Replace("-", ""), bob.Id, DateTimeOffset.UtcNow, Ct));
 
         var redeemed = await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct);
         Assert.Equal(bob.Id, redeemed.User?.Id);
@@ -366,14 +379,14 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         _clock.Now += TimeSpan.FromSeconds(DeviceCodes.ExpiresInSeconds + 1);
 
         Assert.Equal(DeviceRedeemStatus.ExpiredToken, (await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct)).Status);
-        Assert.Equal(DeviceApprovalResult.Expired, await Auth.ApproveDeviceAsync(device.UserCode, user.Id, Ct));
+        Assert.Equal(DeviceApprovalResult.Expired, await Auth.ApproveDeviceAsync(device.UserCode, user.Id, DateTimeOffset.UtcNow, Ct));
     }
 
     [Fact]
     public async Task RedeemDeviceCodeAsync_UnknownCode_Expired()
     {
         Assert.Equal(DeviceRedeemStatus.ExpiredToken, (await Auth.RedeemDeviceCodeAsync("no such code", Ct)).Status);
-        Assert.Equal(DeviceApprovalResult.NotFound, await Auth.ApproveDeviceAsync("ZZZZ-ZZZZ", Guid.NewGuid(), Ct));
+        Assert.Equal(DeviceApprovalResult.NotFound, await Auth.ApproveDeviceAsync("ZZZZ-ZZZZ", Guid.NewGuid(), DateTimeOffset.UtcNow, Ct));
     }
 
     // Google, Apple, test login.
@@ -521,7 +534,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     {
         var admin = await NewAccountAsync(UserAccount.AdminRole);
         var device = await Auth.CreateDeviceAuthorizationAsync(Ct);
-        await Auth.ApproveDeviceAsync(device.UserCode, admin.Id, Ct);
+        await Auth.ApproveDeviceAsync(device.UserCode, admin.Id, DateTimeOffset.UtcNow, Ct);
 
         var redeemed = await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct);
 
@@ -542,15 +555,15 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.TestLoginAsync(admin.Email, Ct)).Status);
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithGoogleAsync("g", Ct)).Status);
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithAppleAsync("a", null, null, Ct)).Status);
-        Assert.Equal(AuthStatus.InvalidToken, (await Auth.IssueSessionAsync(admin, Ct)).Status);
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.IssueSessionAsync(admin, DateTimeOffset.UtcNow, Ct)).Status);
         Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", admin.Id));
     }
 
     private Task<Guid> OwnerAsync(Guid bookId) => db.ScalarAsync<Guid>("SELECT user_id FROM books WHERE id = @bookId", new { bookId });
 
-    // The stored hash of a session, whichever kind it is.
+    // When a session of either kind expires.
     private Task<DateTimeOffset> ExpiresAtAsync(string refreshToken) =>
-        db.ScalarAsync<DateTimeOffset>("SELECT expires_at FROM user_refresh_tokens WHERE token_hash IN (@hash, 'adm.' || @hash)", new { hash = DeviceCodes.HashToken(refreshToken) });
+        db.ScalarAsync<DateTimeOffset>("SELECT expires_at FROM user_refresh_tokens WHERE token_hash = @hash", new { hash = DeviceCodes.HashToken(refreshToken) });
 
     /// <summary>A merge that throws the given SQLSTATEs on its first and second call (null: it merges).</summary>
     private sealed class ScriptedMerge(string first, string? second) : IAccountMergeRepository
@@ -599,7 +612,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
             string oldTokenHash, string newTokenHash, SessionKind kind, Func<UserAccount, DateTimeOffset> expiresAt, DateTimeOffset now, CancellationToken ct) =>
             Task.FromResult(SessionRefresh.Invalid);
 
-        public Task<SessionToken?> IssueAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, string? verifiedPasswordHash, SessionKind kind, CancellationToken ct) => inner.IssueAsync(userId, tokenHash, expiresAt, verifiedPasswordHash, kind, ct);
+        public Task<SessionToken?> IssueAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, string? verifiedPasswordHash, DateTimeOffset? tokenIssuedAt, SessionKind kind, CancellationToken ct) => inner.IssueAsync(userId, tokenHash, expiresAt, verifiedPasswordHash, tokenIssuedAt, kind, ct);
         public Task<bool> RevokeAsync(string tokenHash, SessionKind kind, CancellationToken ct) => inner.RevokeAsync(tokenHash, kind, ct);
         public Task<PasswordReset> CreatePasswordResetAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, CancellationToken ct) => inner.CreatePasswordResetAsync(userId, tokenHash, expiresAt, ct);
         public Task<Guid?> ResetPasswordAsync(string tokenHash, string passwordHash, DateTimeOffset now, CancellationToken ct) => inner.ResetPasswordAsync(tokenHash, passwordHash, now, ct);
