@@ -390,7 +390,7 @@ the hash sees the normalized form, so a replay compares like with like. On top o
 | Strings | as stored; the endpoint does not trim, case-fold or Unicode-normalize free text, so for those that is as received |
 | UUIDs | lowercase, hyphenated (`8-4-4-4-12`) |
 | Times | UTC, `yyyy-MM-ddTHH:mm:ss.fffZ` (milliseconds, truncated): `…+02:00` and `…Z` for one instant hash equal |
-| Numbers | RFC 8785 / ES6 form (`1`, `0.5`, `1e-7`); top-level fields are integers, nested JSON (`notes`) may be fractional; a number inside opaque JSON hashes as the IEEE double it parses to, so `9007199254740993` and `9007199254740992`, or `0.1` and `0.10000000000000000001`, are the same operation (by design: the ETL hashes alike); a non-finite one (`1e400`) is refused as `invalid_payload` |
+| Numbers | RFC 8785 / ES6 form (`1`, `0.5`, `1e-7`); top-level fields are integers, nested JSON (`notes`) may be fractional; numbers inside opaque JSON compare as IEEE-754 doubles; a non-finite one is `invalid_payload` |
 | Booleans | `true` / `false` |
 | Arrays | order kept (checkpoint sections are ordered) |
 
@@ -400,6 +400,8 @@ the hash sees the normalized form, so a replay compares like with like. On top o
 | Review | `wordId`, `reviewMode`, `isCorrect`, `responseTimeMs`, `clientRecordedAt` (not the stages: the server computes them) |
 | Share | `bookId`, `fileId`, `chapterKey`, `chapterTitle`, `chapterText`, `notes`, `language` |
 | Checkpoint | `bookId`, `fileId`, `chapterKey`, `sharedChapterId`, `topic`, `readerThoughts`, `assistantSuggestions`, `conclusions`, `openQuestions`, `language` |
+
+Shares and checkpoints hash the write as the request gives it (the same bytes the row stores). The hash is kept for good: deleting a share sets its checkpoints' `sharedChapterId` to null but leaves their `payload_sha256`, so a retry still naming the deleted share replays. The ETL hashes a migrated row as migrated.
 
 An example hashes its card's key because a save-by-key request hashes before it knows which card
 the key resolves to (the endpoint saves the word, then adds the example to the card it got back,
@@ -684,7 +686,7 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 | M2.3 | `POST /vocabulary/words/{id}/examples` | example | 201 · 200 replay · 409 `operation_conflict` / `deleted` / `unknown_file` · 404 `not_found` / `book_not_found` |
 | M2.3 | `POST /vocabulary/reviews` | review | 201 `{review, word}` · 200 replay · 409 `operation_conflict` / `deleted` · 404 `not_found` |
 | M2.4 | `POST /books/{bookId}/shares` · `GET /books/{bookId}/shares` · `DELETE /shares/{id}` | share | 201 · 200 replay · 409 `operation_conflict` / `unknown_file` · 404 `book_not_found` / `not_found` · 204 |
-| M2.4 | `POST /books/{bookId}/checkpoints` · `GET /books/{bookId}/checkpoints?chapterKey=&cursor=&limit=` (paged as M1.4's `CheckpointPage`) · `DELETE /checkpoints/{id}` | checkpoint | 201 · 200 replay · 409 `operation_conflict` / `unknown_file` · 422 `share_mismatch` · 404 `book_not_found` / `not_found` · 204 |
+| M2.4 | `POST /books/{bookId}/checkpoints` · `GET /books/{bookId}/checkpoints?chapterKey=&cursor=&limit=` (wire: `{items, cursor, hasMore}`, the feeds' `ChangeFeedDto`; `cursor` null on the last page; paged internally by M1.4's `CheckpointPage`) · `DELETE /checkpoints/{id}` | checkpoint | 201 · 200 replay · 400 `invalid_payload` (`sharedChapterId` without `chapterKey`) · 409 `operation_conflict` / `unknown_file` · 422 `share_mismatch` · 404 `book_not_found` / `not_found` · 204 |
 | M2.4 | `PUT /books/{bookId}/checkpoint-saving` | `{enabled}` | 200 |
 | M2.6 | `PUT /books/{bookId}/files/{fileId}/parts/{index}` | bytes, `Content-Length` ≤ `maxPartBytes` | 200 `{index, size}` · 411 · 400 `invalid_payload` (part over `maxPartBytes`) · 409 `file_replaced` / `unknown_file` / `book_removed` |
 | M2.6 | `POST /books/{bookId}/files/{fileId}/content` | `{partCount}` | 200 file · 422 `content_mismatch` · 400 `incomplete_upload` · 409 `file_replaced` / `unknown_file` / `book_removed` |
