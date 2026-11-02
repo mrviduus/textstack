@@ -589,7 +589,7 @@ public partial class AuthService
     /// </summary>
     private async Task<bool> RevokeSuccessorOnReuseAsync(string hash, DateTimeOffset now, CancellationToken ct)
     {
-        var cutoff = now - JwtTokens.RefreshReuseGrace;
+        var cutoff = now - Identity.ISessionTokenRepository.RefreshReuseGrace;
         var successors = await _db.UserRefreshTokens
             .Where(x => x.PreviousTokenHash == hash && x.CreatedAt < cutoff)
             .ToListAsync(ct);

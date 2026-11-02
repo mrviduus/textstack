@@ -134,25 +134,14 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task ExpireAsync_Pending_MarksItExpiredOnce()
-    {
-        var login = await CreatedAsync();
-
-        Assert.True(await _repo.ExpireAsync(login.Id, Ct));
-
-        Assert.Equal(DeviceLogin.Expired, (await _repo.GetByDeviceCodeAsync(login.DeviceCodeHash, Ct))!.Status);
-        Assert.False(await _repo.ExpireAsync(login.Id, Ct));
-    }
-
-    [Fact]
-    public async Task RedeemAsync_Approved_ReturnsTheUserOnlyOnce()
+    public async Task RedeemAsync_Approved_RedeemsOnlyOnce()
     {
         var (user, login) = (await db.NewReaderAsync(), await CreatedAsync());
         await _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow, Ct);
 
-        Assert.Equal(user, await _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct));
+        Assert.True(await _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct));
 
-        Assert.Null(await _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct));
+        Assert.False(await _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct));
         var read = (await _repo.GetByDeviceCodeAsync(login.DeviceCodeHash, Ct))!;
         Assert.Equal(DeviceLogin.Expired, read.Status);
         Assert.NotNull(read.ConsumedAt);
@@ -167,7 +156,7 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
 
         await _repo.RedeemAsync(login.Id, hash, DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct);
 
-        Assert.Equal(user, (await new SessionTokenRepository(db.DataSource).GetLiveAsync(hash, DateTimeOffset.UtcNow, Ct))?.UserId);
+        Assert.Equal(user, await db.ScalarAsync<Guid>("SELECT user_id FROM user_refresh_tokens WHERE token_hash = @hash AND expires_at > now()", new { hash }));
     }
 
     [Fact]
@@ -192,25 +181,25 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
         await tx.CommitAsync(Ct);
 
         Assert.True(waited);
-        Assert.Null(await redeem);
+        Assert.False(await redeem);
         Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
     }
 
     [Fact]
-    public async Task RedeemAsync_ApprovedButPastItsDeadline_ReturnsNull()
+    public async Task RedeemAsync_ApprovedButPastItsDeadline_False()
     {
         var (user, login) = (await db.NewReaderAsync(), await CreatedAsync());
         await _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow, Ct);
 
-        Assert.Null(await _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), login.ExpiresAt, Ct));
+        Assert.False(await _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), login.ExpiresAt, Ct));
     }
 
     [Fact]
-    public async Task RedeemAsync_Pending_ReturnsNull()
+    public async Task RedeemAsync_Pending_False()
     {
         var login = await CreatedAsync();
 
-        Assert.Null(await _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct));
+        Assert.False(await _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct));
     }
 
     [Fact]

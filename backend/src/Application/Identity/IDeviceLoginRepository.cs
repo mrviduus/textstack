@@ -25,17 +25,14 @@ public interface IDeviceLoginRepository
     /// <summary>The login polled with this device code; null when none.</summary>
     Task<DeviceLogin?> GetByDeviceCodeAsync(string deviceCodeHash, CancellationToken ct);
 
-    /// <summary>Marks a pending login expired (its deadline passed while the device polled). False when it was not pending.</summary>
-    Task<bool> ExpireAsync(Guid loginId, CancellationToken ct);
-
     /// <summary>
-    /// Redeems an approved login, once, and stores the session it mints (<paramref name="tokenHash"/>,
-    /// live until <paramref name="sessionExpiresAt"/>) in the same statement: the login becomes expired
-    /// and consumed, so a second redemption cannot mint another. Returns the user it was approved for;
-    /// null (nothing stored) when it was not approved, or its deadline passed by <paramref name="now"/>.
-    /// A password reset of that user either expires the approval first or deletes the session after.
+    /// Redeems an approved login, once, and stores the reader session it mints for its approver
+    /// (<paramref name="tokenHash"/>, live until <paramref name="sessionExpiresAt"/>) together: the login
+    /// becomes expired and consumed, so a second redemption cannot mint another. False (nothing stored)
+    /// when it was not approved, or its deadline passed by <paramref name="now"/>. A password reset of
+    /// the approver never leaves the session behind.
     /// </summary>
-    Task<Guid?> RedeemAsync(Guid loginId, string tokenHash, DateTimeOffset sessionExpiresAt, DateTimeOffset now, CancellationToken ct);
+    Task<bool> RedeemAsync(Guid loginId, string tokenHash, DateTimeOffset sessionExpiresAt, DateTimeOffset now, CancellationToken ct);
 
     /// <summary>Deletes logins that expired before <paramref name="expiredBefore"/>; returns how many.</summary>
     Task<int> DeleteExpiredAsync(DateTimeOffset expiredBefore, CancellationToken ct);

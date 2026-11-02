@@ -141,7 +141,7 @@ public class RefreshTokenHardeningTests
         var (_, first, _) = await SignInAsync();
         var second = (await _auth.RefreshTokenAsync(first, CancellationToken.None))!.Value.refreshToken;
         LinkUsers();
-        _refreshTokens[0].CreatedAt -= JwtTokens.RefreshReuseGrace + TimeSpan.FromSeconds(1);
+        _refreshTokens[0].CreatedAt -= Application.Identity.ISessionTokenRepository.RefreshReuseGrace + TimeSpan.FromSeconds(1);
 
         Assert.Null(await _auth.RefreshTokenAsync(first, CancellationToken.None));
 
@@ -170,7 +170,7 @@ public class RefreshTokenHardeningTests
         var (_, first, _) = await SignInAsync();
         await _auth.RefreshTokenAsync(first, CancellationToken.None);
         LinkUsers();
-        _refreshTokens[0].CreatedAt -= JwtTokens.RefreshReuseGrace + TimeSpan.FromSeconds(1);
+        _refreshTokens[0].CreatedAt -= Application.Identity.ISessionTokenRepository.RefreshReuseGrace + TimeSpan.FromSeconds(1);
 
         Assert.Equal(AuthStatus.TokenReused, (await ((IAuthService)_auth).RefreshTokenAsync(first, CancellationToken.None)).Status);
         Assert.Equal(AuthStatus.InvalidToken, (await ((IAuthService)_auth).RefreshTokenAsync(first, CancellationToken.None)).Status);

@@ -307,7 +307,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         _clock.Now += TimeSpan.FromSeconds(DeviceCodes.ExpiresInSeconds + 1);
 
         Assert.Equal(AuthStatus.DeviceExpired, (await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct)).Status);
-        Assert.Equal(DeviceApprovalResult.NotFound, await Auth.ApproveDeviceAsync(device.UserCode, user.Id, Ct));
+        Assert.Equal(DeviceApprovalResult.Expired, await Auth.ApproveDeviceAsync(device.UserCode, user.Id, Ct));
     }
 
     [Fact]
@@ -455,7 +455,6 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         var (_, email) = await AdminAccountAsync();
         var admin = (await Admin.LoginAsync(email, Password, Ct))!;
 
-        Assert.StartsWith(JwtTokens.AdminRefreshTokenPrefix, admin.RefreshToken);
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(admin.RefreshToken, Ct)).Status);
         Assert.False(await Auth.LogoutAsync(admin.RefreshToken, Ct));
         Assert.True(await Admin.LogoutAsync(admin.RefreshToken, Ct));
@@ -551,7 +550,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     }
 
     private Task<DateTimeOffset> ExpiresAtAsync(string refreshToken) =>
-        db.ScalarAsync<DateTimeOffset>("SELECT expires_at FROM user_refresh_tokens WHERE token_hash = @hash", new { hash = DeviceCodes.HashToken(refreshToken) });
+        db.ScalarAsync<DateTimeOffset>("SELECT expires_at FROM user_refresh_tokens WHERE token_hash IN (@hash, 'adm.' || @hash)", new { hash = DeviceCodes.HashToken(refreshToken) });
 
     [Fact]
     public async Task AdminLoginAsync_ReaderOrWrongPassword_Null()
@@ -610,13 +609,12 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     /// <summary>The real sessions, except that every rotation loses to a concurrent one.</summary>
     private sealed class LosingRotation(ISessionTokenRepository inner) : ISessionTokenRepository
     {
-        public Task<SessionToken?> RotateAsync(Guid userId, string oldTokenHash, string newTokenHash, DateTimeOffset expiresAt, DateTimeOffset now, DateTimeOffset familyNotBefore, CancellationToken ct) =>
-            Task.FromResult<SessionToken?>(null);
+        public Task<SessionRefresh> RefreshAsync(
+            string oldTokenHash, string newTokenHash, SessionKind kind, Func<UserAccount, DateTimeOffset> expiresAt, DateTimeOffset now, CancellationToken ct) =>
+            Task.FromResult(SessionRefresh.Invalid);
 
-        public Task<SessionToken?> IssueAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, string? verifiedPasswordHash, CancellationToken ct) => inner.IssueAsync(userId, tokenHash, expiresAt, verifiedPasswordHash, ct);
-        public Task<SessionToken?> GetLiveAsync(string tokenHash, DateTimeOffset now, CancellationToken ct) => inner.GetLiveAsync(tokenHash, now, ct);
-        public Task<Guid?> RevokeFamilyAsync(string tokenHash, TimeSpan grace, CancellationToken ct) => inner.RevokeFamilyAsync(tokenHash, grace, ct);
-        public Task<bool> RevokeAsync(string tokenHash, CancellationToken ct) => inner.RevokeAsync(tokenHash, ct);
+        public Task<SessionToken?> IssueAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, string? verifiedPasswordHash, SessionKind kind, CancellationToken ct) => inner.IssueAsync(userId, tokenHash, expiresAt, verifiedPasswordHash, kind, ct);
+        public Task<bool> RevokeAsync(string tokenHash, SessionKind kind, CancellationToken ct) => inner.RevokeAsync(tokenHash, kind, ct);
         public Task<PasswordReset> CreatePasswordResetAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, CancellationToken ct) => inner.CreatePasswordResetAsync(userId, tokenHash, expiresAt, ct);
         public Task<Guid?> ResetPasswordAsync(string tokenHash, string passwordHash, DateTimeOffset now, CancellationToken ct) => inner.ResetPasswordAsync(tokenHash, passwordHash, now, ct);
         public Task<int> DeleteExpiredSessionsAsync(DateTimeOffset expiredBefore, CancellationToken ct) => inner.DeleteExpiredSessionsAsync(expiredBefore, ct);

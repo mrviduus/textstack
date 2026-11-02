@@ -13,7 +13,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// </summary>
 public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
 {
-    private const string Columns =
+    internal const string Columns =
         "id, email, google_subject, apple_subject, password_hash, name, picture, is_guest, last_active_at, native_language, storage_used_bytes, storage_limit_override_bytes, tier, role, promoted_at, created_at";
 
     private const string SelectById = $"SELECT {Columns} FROM users WHERE id = @userId";

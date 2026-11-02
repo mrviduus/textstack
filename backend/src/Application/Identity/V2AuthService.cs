@@ -9,8 +9,7 @@ namespace Application.Identity;
 /// <see cref="IAuthService"/> on <c>textstack_v2</c> (M2.5b), over the identity ports and the shared
 /// <see cref="JwtTokens"/>. Registered nowhere: M5.1's <c>Database:Mode</c> picks it, and until then
 /// only tests build it. Admins sign in through <see cref="V2AdminAuthService"/>: here an admin account
-/// signs in only with its password (a reader session, never an admin one), and an admin-panel refresh
-/// token neither refreshes nor signs out.
+/// signs in only with its password, to a reader session (<see cref="SessionKind.Reader"/>).
 /// </summary>
 public sealed class V2AuthService(
     IUserRepository users,
@@ -121,28 +120,22 @@ public sealed class V2AuthService(
 
     public async Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct)
     {
-        if (JwtTokens.IsAdminRefreshToken(refreshToken)) return AuthResult.Failed(AuthStatus.InvalidToken);
-        var hash = DeviceCodes.HashToken(refreshToken);
+        var (raw, hash) = JwtTokens.NewOpaqueToken();
         var now = clock.GetUtcNow();
-        var session = await sessions.GetLiveAsync(hash, now, ct);
-        if (session is null)
+        var refreshed = await sessions.RefreshAsync(
+            DeviceCodes.HashToken(refreshToken), hash, SessionKind.Reader, user => RefreshExpiresAt(user, now), now, ct);
+        if (refreshed.Outcome == SessionRefreshOutcome.Reused)
         {
-            var victim = await sessions.RevokeFamilyAsync(hash, JwtTokens.RefreshReuseGrace, ct);
-            if (victim is null) return AuthResult.Failed(AuthStatus.InvalidToken);
-            logger.LogWarning("Rotated refresh token presented again; revoked its successor for user {UserId}", victim);
+            logger.LogWarning("Rotated refresh token presented again; revoked its family for user {UserId}", refreshed.RevokedUserId);
             return AuthResult.Failed(AuthStatus.TokenReused);
         }
-
-        var user = await users.GetAsync(session.UserId, ct);
-        if (user is null) return AuthResult.Failed(AuthStatus.InvalidToken);
-        var (raw, newHash) = JwtTokens.NewOpaqueToken();
-        return await sessions.RotateAsync(user.Id, hash, newHash, RefreshExpiresAt(user, now), now, now.AddDays(-JwtTokens.RefreshAbsoluteDays), ct) is null
-            ? AuthResult.Failed(AuthStatus.InvalidToken) // a concurrent rotation or a reset won, or the sign-in is past its absolute lifetime
-            : AuthResult.Ok(user, MintAccessToken(user), raw);
+        return refreshed is { Outcome: SessionRefreshOutcome.Rotated, User: { } user }
+            ? AuthResult.Ok(user, MintAccessToken(user), raw)
+            : AuthResult.Failed(AuthStatus.InvalidToken);
     }
 
-    public async Task<bool> LogoutAsync(string refreshToken, CancellationToken ct) =>
-        !JwtTokens.IsAdminRefreshToken(refreshToken) && await sessions.RevokeAsync(DeviceCodes.HashToken(refreshToken), ct);
+    public Task<bool> LogoutAsync(string refreshToken, CancellationToken ct) =>
+        sessions.RevokeAsync(DeviceCodes.HashToken(refreshToken), SessionKind.Reader, ct);
 
     public Task<UserAccount?> GetUserByIdAsync(Guid userId, CancellationToken ct) => users.GetAsync(userId, ct);
 
@@ -248,8 +241,7 @@ public sealed class V2AuthService(
         var now = clock.GetUtcNow();
         switch (login?.Status)
         {
-            case DeviceLogin.Pending when login.ExpiresAt <= now:
-                await devices.ExpireAsync(login.Id, ct);
+            case DeviceLogin.Pending when login.ExpiresAt <= now: // every read treats it as expired; nothing to write
                 return expired;
             case DeviceLogin.Pending:
                 return AuthResult.Failed(AuthStatus.DevicePending);
@@ -261,9 +253,9 @@ public sealed class V2AuthService(
                 var user = await users.GetAsync(approver, ct);
                 if (user is null) return expired;
                 var (raw, hash) = JwtTokens.NewOpaqueToken();
-                return await devices.RedeemAsync(login.Id, hash, RefreshExpiresAt(user, now), now, ct) is null
-                    ? expired
-                    : AuthResult.Ok(user, MintAccessToken(user), raw);
+                return await devices.RedeemAsync(login.Id, hash, RefreshExpiresAt(user, now), now, ct)
+                    ? AuthResult.Ok(user, MintAccessToken(user), raw)
+                    : expired;
             default:
                 return expired;
         }
@@ -281,7 +273,7 @@ public sealed class V2AuthService(
     private async Task<AuthResult> IssueAsync(UserAccount user, string? verifiedPasswordHash, CancellationToken ct, AuthStatus refused)
     {
         var (raw, hash) = JwtTokens.NewOpaqueToken();
-        return await sessions.IssueAsync(user.Id, hash, RefreshExpiresAt(user, clock.GetUtcNow()), verifiedPasswordHash, ct) is null
+        return await sessions.IssueAsync(user.Id, hash, RefreshExpiresAt(user, clock.GetUtcNow()), verifiedPasswordHash, SessionKind.Reader, ct) is null
             ? AuthResult.Failed(refused)
             : AuthResult.Ok(user, MintAccessToken(user), raw);
     }

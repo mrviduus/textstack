@@ -26,13 +26,6 @@ public class JwtTokens(JwtSettings jwt, GoogleSettings? google = null, AppleSett
     /// </summary>
     public const string GuestClaimType = "is_guest";
 
-    /// <summary>
-    /// A rotated-away refresh token presented again this long after its rotation is treated as a stolen
-    /// copy and its successor is revoked. Inside the window it is assumed to be two tabs refreshing at
-    /// once and is only refused.
-    /// </summary>
-    public static readonly TimeSpan RefreshReuseGrace = TimeSpan.FromSeconds(30);
-
     /// <summary>A reader's (or guest's) access token.</summary>
     public string MintAccessToken(Guid userId, string email, string? name, bool isGuest)
     {
@@ -106,31 +99,12 @@ public class JwtTokens(JwtSettings jwt, GoogleSettings? google = null, AppleSett
         }
     }
 
-    /// <summary>
-    /// Starts every V2 admin-panel refresh token, so an admin session is told from a reader session of
-    /// the same account by the token alone (the stored hash covers the prefix, so it cannot be added).
-    /// ponytail: a <c>kind</c> column on <c>user_refresh_tokens</c> in migration 0002 (#1092's bundle) replaces it.
-    /// </summary>
-    public const string AdminRefreshTokenPrefix = "adm.";
-
-    /// <summary>
-    /// A new opaque secret (a refresh token, a reset code), <paramref name="prefix"/> first: the raw
-    /// value goes to the client once, only the hash of all of it is stored.
-    /// </summary>
-    public static (string Raw, string Hash) NewOpaqueToken(string prefix = "")
+    /// <summary>A new opaque secret (a refresh token, a reset code): the raw value goes to the client once, only its hash is stored.</summary>
+    public static (string Raw, string Hash) NewOpaqueToken()
     {
-        var raw = prefix + DeviceCodes.GenerateSecureToken();
+        var raw = DeviceCodes.GenerateSecureToken();
         return (raw, DeviceCodes.HashToken(raw));
     }
-
-    /// <summary>Whether <paramref name="refreshToken"/> is an admin-panel session's (<see cref="AdminRefreshTokenPrefix"/>).</summary>
-    public static bool IsAdminRefreshToken(string refreshToken) => refreshToken.StartsWith(AdminRefreshTokenPrefix, StringComparison.Ordinal);
-
-    /// <summary>
-    /// The absolute lifetime of a V2 sign-in: past this many days since a chain's first session,
-    /// rotation is refused and the reader signs in again.
-    /// </summary>
-    public const int RefreshAbsoluteDays = 90;
 
     /// <summary>How long a refresh token lives: guests get their own (shorter or equal) window.</summary>
     public int RefreshTokenDays(bool isGuest) =>
