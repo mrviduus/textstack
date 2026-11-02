@@ -67,23 +67,7 @@ public sealed class DiscussionSyncService(ILibraryRepository library, ISharedCha
         if (Checkpoint(r) is { } invalid) return invalid;
         if (await library.MissingBookOrFileAsync(userId, bookId, r.FileId, ct) is { } missing) return missing;
 
-        var written = await checkpoints.AppendAsync(new DiscussionCheckpoint
-        {
-            Id = Guid.CreateVersion7(),
-            UserId = userId,
-            BookId = bookId,
-            FileId = r.FileId,
-            ChapterKey = r.ChapterKey,
-            SharedChapterId = r.SharedChapterId,
-            Topic = r.Topic!,
-            ReaderThoughts = JsonSerializer.Serialize(r.ReaderThoughts),
-            AssistantSuggestions = JsonSerializer.Serialize(r.AssistantSuggestions),
-            Conclusions = JsonSerializer.Serialize(r.Conclusions),
-            OpenQuestions = JsonSerializer.Serialize(r.OpenQuestions),
-            Language = r.Language!,
-            OperationId = r.OperationId!.Value,
-            PayloadSha256 = DiscussionPayloads.CheckpointSha256(bookId, r),
-        }, ct);
+        var written = await checkpoints.AppendAsync(DiscussionPayloads.Checkpoint(Guid.CreateVersion7(), userId, bookId, r), ct);
         return written.Outcome == WriteOutcome.ShareMismatch
             ? SyncResult.Fail(SyncCodes.ShareMismatch)
             : SyncResult.Written(written.Outcome, written.Row?.ToDto());

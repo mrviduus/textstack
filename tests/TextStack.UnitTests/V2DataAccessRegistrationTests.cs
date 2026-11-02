@@ -31,7 +31,7 @@ public class V2DataAccessRegistrationTests
             typeof(ISharedChapterRepository), typeof(ICheckpointRepository),
             typeof(IBookInsightRepository), typeof(IReviewQuestionRepository),
             typeof(IUserRepository), typeof(ISessionTokenRepository), typeof(IOAuthRepository), typeof(IDeviceLoginRepository),
-            typeof(IMcpKeyRepository), typeof(V2LlmTraceWriter), typeof(V2AgentRunWriter), typeof(IEvalRunRepository),
+            typeof(IMcpKeyRepository), typeof(IAccountMergeRepository), typeof(V2LlmTraceWriter), typeof(V2AgentRunWriter), typeof(IEvalRunRepository),
             typeof(IAdminSettingsRepository), typeof(IBookChapterRepository), typeof(IIngestionJobRepository)];
         foreach (var port in v2Ports)
             Assert.NotNull(services.GetRequiredService(port));
@@ -65,6 +65,7 @@ public class V2DataAccessRegistrationTests
         Assert.NotNull(services.GetService<IOAuthRepository>());
         Assert.NotNull(services.GetService<IDeviceLoginRepository>());
         Assert.NotNull(services.GetService<IMcpKeyRepository>());
+        Assert.NotNull(services.GetService<IAccountMergeRepository>());
         Assert.NotNull(services.GetService<V2LlmTraceWriter>());
         Assert.NotNull(services.GetService<V2AgentRunWriter>());
         Assert.NotNull(services.GetService<IEvalRunRepository>());

@@ -1,6 +1,7 @@
 using System.Globalization;
 using Api.Extensions;
 using Application.Auth;
+using Application.Common;
 using Application.Common.Interfaces;
 using Application.Identity;
 using Application.Sync;
@@ -20,7 +21,8 @@ namespace Api.V2;
 /// account → 503.</item>
 /// </list>
 /// A V2 error under a handler drops the readiness cache, so the next request sees an outage at once
-/// rather than after its TTL; a users FK violation drops the shadow entry too (the row is gone).
+/// rather than after its TTL; a users FK violation is 401 instead and drops the shadow entry (the row
+/// is gone: a guest merged or an account deleted mid-request).
 /// </summary>
 public sealed class V2Gate(V2Readiness readiness, V2ShadowUsers shadows, IAppDbContext legacy, AuthService auth) : IEndpointFilter
 {
@@ -38,11 +40,17 @@ public sealed class V2Gate(V2Readiness readiness, V2ShadowUsers shadows, IAppDbC
         {
             return await next(context);
         }
-        catch (PostgresException e)
+        // A write in flight when its user vanished (a guest merged into an account, an account deleted):
+        // the users FK refuses it, and the session's user no longer exists. The legacy check above
+        // answers every later request; this is the one that raced it.
+        catch (PostgresException e) when (e.IsForeignKeyViolation() && e.ConstraintName?.EndsWith("_users_user_id", StringComparison.Ordinal) == true)
         {
-            readiness.Invalidate();
-            if (e.SqlState == PostgresErrorCodes.ForeignKeyViolation && e.ConstraintName?.EndsWith("_users_user_id", StringComparison.Ordinal) == true)
-                shadows.Forget(userId);
+            shadows.Forget(userId);
+            return Results.Unauthorized();
+        }
+        catch (NpgsqlException e)
+        {
+            readiness.Observe(e);
             throw;
         }
     }

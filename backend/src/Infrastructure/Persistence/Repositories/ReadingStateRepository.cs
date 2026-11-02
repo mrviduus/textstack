@@ -15,7 +15,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// </summary>
 public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingStateRepository
 {
-    private const string Columns =
+    internal const string Columns =
         "book_id, file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision, reset_revision";
 
     private const string SelectState = $"SELECT {Columns} FROM reading_state WHERE user_id = @userId AND book_id = @bookId";
@@ -60,9 +60,8 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
     public async Task<RevisionedWrite<ReadingState>> AdvanceAsync(
         Guid userId, Guid bookId, ReadingState state, long? expectedRevision, CancellationToken ct)
     {
-        // The offered frontier is the further of the client's frontier and its position: a client
-        // that sends none, half of one, or one behind its position, never leaves the frontier trailing.
-        var offerFrontier = state.FrontierLocator is not null && state.FrontierFraction >= state.BookFraction;
+        var (frontierLocator, frontierFraction) = ReadingState.Furthest(
+            (state.FrontierLocator, state.FrontierFraction), (state.CurrentLocator, state.BookFraction));
         var args = new
         {
             userId,
@@ -71,8 +70,8 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
             state.FileId,
             state.CurrentLocator,
             state.BookFraction,
-            FrontierLocator = offerFrontier ? state.FrontierLocator : state.CurrentLocator,
-            FrontierFraction = offerFrontier ? state.FrontierFraction : state.BookFraction,
+            FrontierLocator = frontierLocator,
+            FrontierFraction = frontierFraction,
             state.CompletedAt,
             state.ClientRecordedAt,
         };

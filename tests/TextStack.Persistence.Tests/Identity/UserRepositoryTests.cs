@@ -220,27 +220,6 @@ public class UserRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task ClearGuestFlagAsync_Guest_ClearsItAndNotTwice()
-    {
-        var guest = await CreatedAsync(isGuest: true);
-
-        Assert.True(await _repo.ClearGuestFlagAsync(guest.Id, Ct));
-
-        Assert.False((await _repo.GetAsync(guest.Id, Ct))!.IsGuest);
-        Assert.False(await _repo.ClearGuestFlagAsync(guest.Id, Ct));
-    }
-
-    [Fact]
-    public async Task ClearGuestFlagAsync_Alice_LeavesBobAGuest()
-    {
-        var (alice, bob) = (await CreatedAsync(isGuest: true), await CreatedAsync(isGuest: true));
-
-        await _repo.ClearGuestFlagAsync(alice.Id, Ct);
-
-        Assert.True((await _repo.GetAsync(bob.Id, Ct))!.IsGuest);
-    }
-
-    [Fact]
     public async Task SetRoleAsync_Admin_IsReadBackOnTheAccount()
     {
         var account = await CreatedAsync();

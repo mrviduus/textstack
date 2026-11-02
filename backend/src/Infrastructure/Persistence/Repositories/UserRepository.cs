@@ -97,14 +97,6 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
         }
     }
 
-    private const string ClearGuestFlag = "UPDATE users SET is_guest = false WHERE id = @userId AND is_guest";
-
-    public async Task<bool> ClearGuestFlagAsync(Guid userId, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(ClearGuestFlag, new { userId }, cancellationToken: ct)) > 0;
-    }
-
     private const string UpdateRole = "UPDATE users SET role = @role WHERE id = @userId";
 
     public async Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct)

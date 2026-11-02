@@ -9,7 +9,7 @@ namespace Application.Identity;
 /// <para>Emails are stored as given: the caller normalises them (legacy AuthService trims and
 /// lower-cases). <c>ix_users_email</c> makes lookups and uniqueness case-insensitive, not
 /// whitespace-tolerant.</para>
-/// The guest→account merge is not here: it moves every aggregate (M2.5, plan §6.1).
+/// The guest→account merge is not here: it moves every aggregate (<see cref="IAccountMergeRepository"/>).
 /// </summary>
 public interface IUserRepository
 {
@@ -43,9 +43,6 @@ public interface IUserRepository
     /// is not a guest, <see cref="AccountUpdateOutcome.EmailTaken"/> when another account holds the email.
     /// </summary>
     Task<AccountUpdate> PromoteGuestAsync(Guid userId, string email, string? name, string passwordHash, CancellationToken ct);
-
-    /// <summary>Clears the guest flag of an account that already signed in as itself. False when it was not a guest.</summary>
-    Task<bool> ClearGuestFlagAsync(Guid userId, CancellationToken ct);
 
     /// <summary>Sets <see cref="UserAccount.Role"/> (a value outside the CHECK is a caller bug). False when there is no such account.</summary>
     Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct);

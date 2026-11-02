@@ -41,6 +41,9 @@ with a written sunset; **Q3** retire collections; **Q5** keep guest sessions (AD
    sections, `book_insight.review_json`, `books.origin`).
 9. **Account deletion = `DELETE FROM users` cascading.** Provenance FKs are
    `DEFERRABLE INITIALLY DEFERRED`; tests end with `SET CONSTRAINTS ALL IMMEDIATE`.
+   (#1089, 2026-11-02) The provenance FKs stay `DEFERRABLE INITIALLY DEFERRED`, and the account delete is
+   never run under immediate constraints: a test that composes deletes runs `SET CONSTRAINTS ALL
+   IMMEDIATE` after all deletes, before commit.
 10. **`database/v2/migrations/0000_baseline.up.sql` reads top to bottom**, grouped by module, each
     table preceded by a 1–3 line comment. `data-model.md` mirrors it. No `site_id` anywhere (ADR-007).
 11. **Text sorts by ICU, not by the host's glibc** (added 2026-10-30). The database is created from
@@ -305,8 +308,10 @@ is never edited (ADR-026); the rows and rules above read with these deltas:
   replaying its outbox after sign-in reuses its `operation_id`s, decision 13), so the merge checks
   collisions and ownership before it moves anything (owner decision 12); and the tables that point
   only at `users` (refresh tokens, reset tokens, OAuth requests and grants, device authorizations,
-  MCP keys, `agent_run`) are reached by no cascade — the merge decides each (a guest's session
-  tokens are the signing-in device's, its agent runs move). `tests/invariants.sql` pins the cascade
+  MCP keys, `agent_run`) are reached by no cascade — the merge decides each: refresh and reset
+  tokens, OAuth requests, device authorizations, OAuth grants and MCP keys die with the guest (a
+  credential minted under a guest session on a shared device must not become the account's), agent
+  runs move. `tests/invariants.sql` pins the cascade
   on every `(user_id, …)` FK.
 - **`discussion_checkpoints`:** the share FK is `ON DELETE SET NULL (shared_chapter_id)`; a share
   delete is one statement (M1.4's unlink and its two locks are gone). The baseline's comment above

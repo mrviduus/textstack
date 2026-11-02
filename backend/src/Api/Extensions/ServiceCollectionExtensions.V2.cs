@@ -13,7 +13,7 @@ namespace Api.Extensions;
 public static partial class ServiceCollectionExtensions
 {
     /// <summary>
-    /// The /me/v2 use cases, their readiness gate and the shadow-user bridge. Registered whatever
+    /// The /me/v2 use cases, their readiness gate, the shadow-user bridge and the identity mirror. Registered whatever
     /// <c>Features:V2Api</c> says; nothing here touches <c>textstack_v2</c> until a V2 route or
     /// <c>/health/ready</c> asks (data-access.md rule 5).
     /// </summary>
@@ -24,6 +24,8 @@ public static partial class ServiceCollectionExtensions
             .Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = true)
             .AddSingleton<V2Readiness>()
             .AddSingleton<V2ShadowUsers>()
+            // Scoped: it reads the legacy account through the request's IAppDbContext.
+            .AddScoped<V2IdentityMirror>()
             .AddSingleton<LibrarySyncService>()
             .AddSingleton<ReadingSyncService>()
             .AddSingleton<AnnotationSyncService>()

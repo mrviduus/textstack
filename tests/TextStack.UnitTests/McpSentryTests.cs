@@ -9,6 +9,8 @@ using TextStack.Ai.Mcp.Http;
 using TextStack.Ai.Mcp.Tools;
 using TextStack.Observability;
 
+using TextStack.UnitTests.Fakes;
+
 namespace TextStack.UnitTests;
 
 /// <summary>
@@ -266,20 +268,11 @@ public class McpSentryTests
             => throw ex;
     }
 
-    private sealed class CapturingLogger : ILogger<McpToolCatalog>
-    {
-        public List<(LogLevel Level, string Message, Exception? Exception)> Entries { get; } = [];
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => true;
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
-            => Entries.Add((logLevel, formatter(state, exception), exception));
-    }
-
-    private static (McpToolCatalog Catalog, CapturingLogger Logger) CatalogThatThrows(Exception ex)
+    private static (McpToolCatalog Catalog, CapturingLogger<McpToolCatalog> Logger) CatalogThatThrows(Exception ex)
     {
         var http = new HttpClient(new ThrowingHandler(ex)) { BaseAddress = new Uri("https://api.example/") };
         var options = new McpBridgeOptions { ApiBaseUrl = "https://api.example", SiteHost = "textstack.test", McpToken = "tok" };
-        var logger = new CapturingLogger();
+        var logger = new CapturingLogger<McpToolCatalog>();
         return (new McpToolCatalog(new TextStackApiClient(http, options, new StaticEnvTokenProvider(options)), logger), logger);
     }
 

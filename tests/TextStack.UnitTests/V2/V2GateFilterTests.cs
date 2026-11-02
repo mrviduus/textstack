@@ -108,16 +108,19 @@ public class V2GateFilterTests
     }
 
     [Fact]
-    public async Task InvokeAsync_UsersForeignKeyViolation_EnsuresTheShadowRowAgainNextTime()
+    public async Task InvokeAsync_UsersForeignKeyViolation_UnauthorizedAndTheShadowRowEnsuredAgainNextTime()
     {
         var user = LegacyUser();
         V2RowsAreCreated();
         await GateAsync(user.Id);
+        var checks = _checks;
 
-        await Assert.ThrowsAsync<PostgresException>(() => GateAsync(user.Id, endpointThrows: new PostgresException(
-            "violates foreign key", "ERROR", "ERROR", PostgresErrorCodes.ForeignKeyViolation, constraintName: "fk_books_users_user_id")));
+        // The user's V2 row vanished mid-request (a guest merged into an account): not a 500.
+        var (result, _) = await GateAsync(user.Id, endpointThrows: new PostgresException(
+            "violates foreign key", "ERROR", "ERROR", PostgresErrorCodes.ForeignKeyViolation, constraintName: "fk_books_users_user_id"));
         await GateAsync(user.Id);
 
+        Assert.Equal((401, checks), (StatusOf(result), _checks));
         _v2Users.Verify(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 }
