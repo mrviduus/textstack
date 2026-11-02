@@ -638,9 +638,11 @@ keeping their client ids (ADR-031 rule 3). Order inside the transaction:
 4. On every moved row: `updated_at = now()` (other devices of the account must see it in their
    feeds); recompute `payload_sha256` through `CanonicalPayload` where a hashed field changed
    (`bookId`, `fileId`, `wordId`, `sharedChapterId`).
-5. File bytes: `server_storage_key` embeds the user id (plan §4.5), so stored bytes move to the
-   account's key and the column is rewritten — after commit, by the same retried job that deletes
-   superseded bytes, which reads both keys until it is done.
+5. File bytes do not move (as built, M2.6): `server_storage_key` embeds the user id (plan §4.5), and a
+   moved row keeps its key wherever it sits — every read and delete goes through the key, and an account
+   delete removes the account's bytes by key. The merge releases the guest's superseded and duplicate
+   bytes (the matched books' files): their keys are cleared in the merge and the bytes deleted after the
+   commit, best-effort; the orphan sweep collects a failed delete.
 
 | Aggregate | Rule |
 |---|---|
