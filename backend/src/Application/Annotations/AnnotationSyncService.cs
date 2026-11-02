@@ -28,7 +28,6 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
         var bookId = r.BookId!.Value;
         // Any version of the book, current or not: a highlight made offline in a superseded one is still valid provenance.
         if (await library.MissingBookOrFileAsync(userId, bookId, r.FileId, ct) is { } missing) return missing;
-        if (await chapters.NameAMissingChapterAsync(userId, r.FileId.GetValueOrDefault(), [r.Locator], ct)) return SyncResult.ChapterNotFound;
 
         var sent = new Annotation
         {
@@ -40,6 +39,11 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
             Locator = r.Locator?.GetRawText(),
             Color = r.Color ?? DefaultColor,
         };
+        // Only a locator this write sets is checked: an edit or a replay that keeps the stored one still lands
+        // after a re-extraction renamed its chapter.
+        if (await chapters.NameAMissingChapterAsync(userId, r.FileId.GetValueOrDefault(), [r.Locator], ct)
+            && !SameAnchor(await annotations.GetAsync(userId, id, ct), sent))
+            return SyncResult.ChapterNotFound;
         var result = await annotations.SaveAsync(userId, sent, r.ExpectedRevision, ct);
         if (result.Accepted) return SyncResult.Written(r.ExpectedRevision is null, result.Current!.ToDto());
 
@@ -56,9 +60,12 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
 
     // jsonb keeps neither key order nor spacing, so locators compare as JSON values.
     private static bool SameContent(Annotation stored, Annotation sent) =>
-        (stored.BookId, stored.FileId, stored.SelectedText, stored.NoteText, stored.Color)
-            == (sent.BookId, sent.FileId, sent.SelectedText, sent.NoteText, sent.Color)
-        && JsonNode.DeepEquals(Parse(stored.Locator), Parse(sent.Locator));
+        (stored.BookId, stored.SelectedText, stored.NoteText, stored.Color)
+            == (sent.BookId, sent.SelectedText, sent.NoteText, sent.Color)
+        && SameAnchor(stored, sent);
+
+    private static bool SameAnchor(Annotation? stored, Annotation sent) =>
+        stored?.FileId == sent.FileId && JsonNode.DeepEquals(Parse(stored?.Locator), Parse(sent.Locator));
 
     private static JsonNode? Parse(string? json) => json is null ? null : JsonNode.Parse(json);
 
