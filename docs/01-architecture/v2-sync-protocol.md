@@ -546,7 +546,7 @@ their `server_storage_key` is cleared only once the bytes are gone (schema comme
 | Feed | Rows | Watermark |
 |---|---|---|
 | `library` | books incl. removed, each with `currentFile` | `books.updated_at` — bumped by **every** library write: import, replace, attach content, remove, restore, checkpoint-saving, metadata edit |
-| `reading` | `reading_state` rows | `reading_state.updated_at` |
+| `reading` | `reading_state` rows; a replacement deletes the row (rule 6) and the feed carries no tombstone for it: a client learns of it from the `library` feed's `currentFile` (and from `file_replaced` on its next write) | `reading_state.updated_at` |
 | `annotations` | annotations incl. tombstones | `annotations.updated_at` (bumped on delete) |
 | `vocabulary` | words incl. tombstones, each with its **live** examples | `vocabulary_words.updated_at`, bumped by every example add and review (M1.3 does; a re-save never changes an existing card) |
 
@@ -724,14 +724,16 @@ metadata import is M2.2's, only the bytes are M2.6's. #1067 (explicit V2 transac
    else a `FileReplaced` outcome; a removed book → `BookRemoved`.
 - **3.** `ReplaceFileAsync` replay: file id already current → return it (`Replayed`); exists, not current →
    a `FileReplaced` outcome instead of a PK exception.
-- **4.** `ILibraryRepository` gains `GetFileAsync(userId, bookId, fileId)` (classify `file_replaced` vs
+- **4.** **Done 2026-11-01** (M2.2), except the two marked: `ILibraryRepository` gains
+   `GetFileAsync(userId, bookId, fileId)` (classify `file_replaced` vs
    `unknown_file`), `AttachContentAsync(userId, bookId, fileId, storageKey)` (`WHERE is_current`, book
-   not removed), `SetCheckpointSavingAsync(userId, bookId, enabled)`, `UpdateMetadataAsync` (revision-guarded, owner decision 5),
+   not removed; **lands with M2.6**), `SetCheckpointSavingAsync(userId, bookId, enabled)` (**lands with
+   M2.4**), `UpdateMetadataAsync` (revision-guarded, owner decision 5),
    `ListChangedAsync(userId, since, afterId, limit)` (removed books included). **Every** library write
    bumps `books.updated_at` — attach and checkpoint-saving too, or `hasContent` never reaches other
    devices.
-- **5.** `IReadingStateRepository.ListChangedAsync(userId, since, afterId, limit)`; the replace-time delete
-   moves here with the shared transaction (#1067).
+- **5.** **Done 2026-11-01** (M2.2) — `IReadingStateRepository.ListChangedAsync(userId, since, afterId, limit)`;
+   the replace-time delete moves here with the shared transaction (#1067).
 
 ### M1.3 as merged (annotations, vocabulary) — what M2.2/M2.3 add
 
