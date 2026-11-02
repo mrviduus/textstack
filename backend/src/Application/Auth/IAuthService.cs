@@ -19,7 +19,7 @@ public interface IAuthService
     /// </summary>
     Task<AuthResult> LoginWithGoogleAsync(string googleIdToken, CancellationToken ct);
 
-    /// <summary><see cref="AuthStatus.InvalidToken"/> when the token is not signed by Apple (or not for this app); <see cref="AuthStatus.EmailTaken"/> as for Google.</summary>
+    /// <summary><see cref="AuthStatus.InvalidToken"/> when the token is not Apple's; <see cref="AuthStatus.EmailTaken"/> as for Google.</summary>
     Task<AuthResult> LoginWithAppleAsync(string identityToken, string? fullName, string? email, CancellationToken ct);
 
     /// <summary>A new guest (ADR-014: a real session) and its tokens.</summary>

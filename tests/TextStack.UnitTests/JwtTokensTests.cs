@@ -1,10 +1,9 @@
-using Microsoft.IdentityModel.Tokens;
-using System.Security.Cryptography;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Application.Auth;
 using Domain.Enums;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 
 namespace TextStack.UnitTests;
 
@@ -113,81 +112,18 @@ public class JwtTokensTests
     }
 
     [Fact]
-    public async Task VerifyAppleAsync_SignedByApplesKeyForThisApp_SubjectAndEmail()
+    public void VerifyApple_ApplesTokenForThisApp_SubjectAndAnUnverifiedEmail()
     {
-        var apple = await AppleTokens().VerifyAppleAsync(AppleToken(AppleKey));
+        var tokens = new JwtTokens(Settings(), apple: new AppleSettings { BundleId = "app.textstack" });
 
-        Assert.Equal(("apple-subject", "reader@privaterelay.appleid.com"), (apple!.Subject, apple.Email));
-    }
+        var apple = tokens.VerifyApple(AppleToken("https://appleid.apple.com", "app.textstack"))!;
 
-    [Fact]
-    public async Task VerifyAppleAsync_SignedByAnotherKeyWithApplesKid_Null()
-    {
-        Assert.Null(await AppleTokens().VerifyAppleAsync(AppleToken(new RsaSecurityKey(RSA.Create(2048)) { KeyId = AppleKey.KeyId })));
-    }
-
-    [Fact]
-    public async Task VerifyAppleAsync_UnsignedOrAlgNone_Null()
-    {
-        var tokens = AppleTokens();
-        var unsigned = new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
-            JwtTokens.AppleIssuer, "app.textstack", [new Claim("sub", "apple-subject")], expires: DateTime.UtcNow.AddMinutes(5)));
-
-        var noneWithApplesKid = new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
-            new JwtHeader { ["kid"] = AppleKey.KeyId },
-            new JwtPayload(JwtTokens.AppleIssuer, "app.textstack", [new Claim("sub", "apple-subject")], null, DateTime.UtcNow.AddMinutes(5))));
-
-        Assert.Null(await tokens.VerifyAppleAsync(noneWithApplesKid));
-        Assert.Null(await tokens.VerifyAppleAsync(unsigned));
-        Assert.Null(await tokens.VerifyAppleAsync(unsigned + "forged-signature"));
-        Assert.Null(await tokens.VerifyAppleAsync("not a jwt"));
-        Assert.Equal(1, tokens.Fetches); // only for the token that names a kid
-    }
-
-    [Theory]
-    [InlineData("https://evil.example", "app.textstack", 5)]
-    [InlineData(JwtTokens.AppleIssuer, "another.app", 5)]
-    [InlineData(JwtTokens.AppleIssuer, "app.textstack", -1)]
-    public async Task VerifyAppleAsync_WrongIssuerAudienceOrExpired_Null(string issuer, string audience, int expiresInMinutes)
-    {
-        Assert.Null(await AppleTokens().VerifyAppleAsync(AppleToken(AppleKey, issuer, audience, expiresInMinutes)));
-    }
-
-    [Fact]
-    public async Task VerifyAppleAsync_NoBundleIdConfigured_AnyAudienceAccepted()
-    {
-        Assert.NotNull(await AppleTokens(bundleId: null).VerifyAppleAsync(AppleToken(AppleKey, audience: "another.app")));
-    }
-
-    [Fact]
-    public async Task VerifyAppleAsync_UnknownKid_OneRefreshThenNull()
-    {
-        var tokens = AppleTokens();
-
-        Assert.Null(await tokens.VerifyAppleAsync(AppleToken(new RsaSecurityKey(RSA.Create(2048)) { KeyId = "rotated" })));
-
-        Assert.Equal(1, tokens.Refreshes);
-    }
-
-    private static readonly RsaSecurityKey AppleKey = new(RSA.Create(2048)) { KeyId = "apple-kid" };
-
-    private static FakeAppleKeys AppleTokens(string? bundleId = "app.textstack") =>
-        new(bundleId is null ? null : new AppleSettings { BundleId = bundleId });
-
-    /// <summary>Apple's key set, stood in for by <see cref="AppleKey"/>; counts fetches and refreshes.</summary>
-    private sealed class FakeAppleKeys(AppleSettings? apple) : JwtTokens(Settings(), apple: apple)
-    {
-        public int Fetches { get; private set; }
-        public int Refreshes { get; private set; }
-
-        protected override Task<JsonWebKeySet?> GetAppleKeysAsync(bool refresh)
-        {
-            Fetches++;
-            if (refresh) Refreshes++;
-            var keys = new JsonWebKeySet();
-            keys.Keys.Add(JsonWebKeyConverter.ConvertFromRSASecurityKey(new RsaSecurityKey(AppleKey.Rsa.ExportParameters(false)) { KeyId = AppleKey.KeyId }));
-            return Task.FromResult<JsonWebKeySet?>(keys);
-        }
+        // The signature is not checked (owner-deferred), so the email proves nothing: nothing links by it.
+        Assert.Equal(("apple-subject", "reader@privaterelay.appleid.com"), (apple.Subject, apple.Email));
+        Assert.Null(tokens.VerifyApple(AppleToken("https://evil.example", "app.textstack")));
+        Assert.Null(tokens.VerifyApple(AppleToken("https://appleid.apple.com", "another.app")));
+        Assert.Null(tokens.VerifyApple(AppleToken("https://appleid.apple.com", "app.textstack", expiresInMinutes: -1)));
+        Assert.Null(tokens.VerifyApple("not a jwt"));
     }
 
     [Fact]
@@ -196,12 +132,9 @@ public class JwtTokensTests
         Assert.Null(await Tokens.VerifyGoogleAsync("anything"));
     }
 
-    private static string AppleToken(
-        RsaSecurityKey key, string issuer = JwtTokens.AppleIssuer, string audience = "app.textstack", int expiresInMinutes = 5) =>
-        new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
-            issuer: issuer, audience: audience,
-            claims: [new Claim("sub", "apple-subject"), new Claim("email", "reader@privaterelay.appleid.com")],
-            notBefore: DateTime.UtcNow.AddMinutes(-10),
-            expires: DateTime.UtcNow.AddMinutes(expiresInMinutes),
-            signingCredentials: new SigningCredentials(key, SecurityAlgorithms.RsaSha256)));
+    private static string AppleToken(string issuer, string audience, int expiresInMinutes = 5) => new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
+        issuer: issuer, audience: audience,
+        claims: [new Claim("sub", "apple-subject"), new Claim("email", "reader@privaterelay.appleid.com")],
+        notBefore: DateTime.UtcNow.AddMinutes(-10),
+        expires: DateTime.UtcNow.AddMinutes(expiresInMinutes)));
 }

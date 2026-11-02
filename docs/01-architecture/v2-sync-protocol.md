@@ -666,8 +666,8 @@ once. Nothing local is lost.
   - Refresh tokens form families: rotation expires the spent row and keeps the chain, a replayed token
     revokes every generation below it (its own successor within 30 s excepted), and a chain older than
     90 days is not rotated.
-  - Google and Apple never link to an account by email: a taken email is `EmailTaken`. Apple tokens are
-    checked against Apple's signing keys (legacy too).
+  - Google and Apple never link to an account by email: a taken email is `EmailTaken`. Apple identity
+    tokens are read as legacy reads them (signature not validated; owner-deferred 2026-11-02).
   - An admin is `role = 'admin'`; admin-panel refresh tokens start with `adm.` until a session `kind`
     column (`0002`), and neither service accepts the other's. Reader sign-in without a password (test
     login, Google, Apple, guest promotion) refuses admin accounts.

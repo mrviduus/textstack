@@ -77,7 +77,7 @@ public partial class AuthService
         string? email,
         CancellationToken ct)
     {
-        var apple = await _tokens.VerifyAppleAsync(identityToken);
+        var apple = _tokens.VerifyApple(identityToken);
         if (apple == null) return null;
 
         var resolvedEmail = email ?? apple.Email;
