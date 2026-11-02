@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Contracts.Mcp;
 
 /// <summary>
@@ -20,8 +22,11 @@ public sealed record McpManifest(
 /// <summary>How a client obtains credentials for the MCP endpoint.</summary>
 public sealed record McpManifestAuth(string Type, string HowTo);
 
-/// <summary>One advertised tool: name + human description (mirrors the runtime catalog).</summary>
-public sealed record McpToolDescriptor(string Name, string Description);
+/// <summary>
+/// One tool: name + human description (mirrors the runtime catalog). <see cref="V2Only"/>: registered
+/// only by a bridge on the V2 sync API, so not advertised; never on the wire.
+/// </summary>
+public sealed record McpToolDescriptor(string Name, string Description, [property: JsonIgnore] bool V2Only = false);
 
 /// <summary>
 /// The advertised tool surface and the ONE copy of each tool's description: the
@@ -44,6 +49,7 @@ public static class McpManifestCatalog
     /// <summary>The one copy of a tool's description, read by the runtime catalog too.</summary>
     public static string Describe(string name) => Tools.First(t => t.Name == name).Description;
 
+    /// <summary>Every tool; the public manifest advertises those not <see cref="McpToolDescriptor.V2Only"/>.</summary>
     public static IReadOnlyList<McpToolDescriptor> Tools { get; } =
     [
         new("search_books",
@@ -169,5 +175,31 @@ public static class McpManifestCatalog
             + "ids) and one question with its answer; plus applications and threads. Saving again "
             + "REPLACES the chapter's review. If the save is refused, the error lists every problem — "
             + "fix all of them and save again."),
+
+        // V2-only: registered by a bridge on the V2 sync API (TEXTSTACK_MCP_V2); not advertised.
+        new("share_chapter",
+            "Snapshot one chapter of a book the user UPLOADED for this discussion (WRITE on their own account — "
+            + "requires authentication). Pass the bookId, the chapterKey, the chapter text as the reader shared it, and "
+            + "optionally its title, the reader's notes on it (a JSON array) and its language. A snapshot never changes; "
+            + "sharing again makes a new one. Pass operationId: a new UUID for each share, the same one when retrying that "
+            + "call, so a retry returns the first snapshot instead of saving twice. Returns the share's id, which "
+            + "save_checkpoint takes as sharedChapterId.", V2Only: true),
+        new("save_checkpoint",
+            "Save one checkpoint of a discussion about a book the user UPLOADED (WRITE on their own account — requires "
+            + "authentication). Save when a topic yields a conclusion, a changed interpretation or an open question, and "
+            + "only when the reader opted in or asked. Pass bookId, the topic, the language the discussion is held in, and "
+            + "the sections that apply: readerThoughts (what the READER thought, attributed accurately), "
+            + "assistantSuggestions (yours, kept apart from theirs), conclusions, openQuestions; leave out empty ones, at "
+            + "least one is needed. Optionally chapterKey, and sharedChapterId from share_chapter (a share of that same "
+            + "chapter; sharedChapterId needs chapterKey). Checkpoints are append-only: a new one never overwrites an earlier one. Pass operationId: a new "
+            + "UUID for each save, the same one when retrying it, so a retry replays instead of saving twice. Saving never "
+            + "advances reading progress. Only a successful result means it was saved; on an error, tell the reader it "
+            + "was not.", V2Only: true),
+        new("list_checkpoints",
+            "Read the checkpoints saved about one book the user UPLOADED, oldest first (requires authentication; only "
+            + "the user's own). Pass bookId, optionally chapterKey to keep to one chapter, and limit. Each entry of items carries "
+            + "its id, its provenance (chapterKey, fileId, sharedChapterId), its sections and when it was saved. When "
+            + "hasMore is true, call again with the cursor returned; never claim the whole history was read from one "
+            + "page. These are the reader's PAST thoughts: keep them apart from what is said now.", V2Only: true),
     ];
 }

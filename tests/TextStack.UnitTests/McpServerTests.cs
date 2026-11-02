@@ -223,7 +223,6 @@ public class McpServerTests
     [InlineData("""{"query":"ok","limit":-5}""")]   // negative limit
     [InlineData("""{"query":"ok","limit":5.5}""")]  // non-integer number
     [InlineData("""{"query":"ok","limit":99999999999}""")] // overflows Int32
-    [InlineData("""{"query":"ok","limit":null}""")] // limit null literal
     public async Task CallSearchBooks_MoreInvalidArgs_ReturnsToolError_NeverHitsHttp(string args)
     {
         var (catalog, handler) = BuildCatalog(Json("""{"total":0,"items":[]}"""));
@@ -232,6 +231,18 @@ public class McpServerTests
 
         Assert.True(result.IsError);
         Assert.Null(handler.LastRequest); // validation gate must short-circuit before HTTP
+    }
+
+    // Hosts send null for an optional argument they leave out: the call goes as if limit were absent.
+    [Fact]
+    public async Task CallSearchBooks_LimitNull_ReadsAsAbsent()
+    {
+        var (catalog, handler) = BuildCatalog(Json("""{"total":0,"items":[]}"""));
+
+        var result = await catalog.CallAsync("search_books", Args("""{"query":"hi","limit":null}"""), CancellationToken.None);
+
+        Assert.NotEqual(true, result.IsError);
+        Assert.Equal("/search?q=hi", handler.LastRequest!.RequestUri!.PathAndQuery);
     }
 
     [Fact]

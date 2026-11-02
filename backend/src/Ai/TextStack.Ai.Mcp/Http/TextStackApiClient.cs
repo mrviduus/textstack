@@ -33,7 +33,7 @@ public sealed partial class TextStackApiClient
     private readonly HttpClient _http;
     private readonly string _siteHost;
     private readonly IMcpTokenProvider _tokenProvider;
-    private readonly bool _v2Vocabulary;
+    private readonly bool _v2;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -47,11 +47,11 @@ public sealed partial class TextStackApiClient
         _http = http;
         _siteHost = options.SiteHost;
         _tokenProvider = tokenProvider;
-        _v2Vocabulary = options.V2Vocabulary;
+        _v2 = options.V2;
     }
 
-    /// <summary>The vocabulary upstream is idempotent by operation id (V2), so a save without one is refused.</summary>
-    public bool RequiresOperationId => _v2Vocabulary;
+    /// <summary>Use the V2 sync API (<c>/me/v2</c>), <see cref="McpBridgeOptions.V2"/>.</summary>
+    public bool UsesV2 => _v2;
 
     // ── search_books (AI-047) ───────────────────────────────────────────────────
 
@@ -142,7 +142,7 @@ public sealed partial class TextStackApiClient
     public async Task<ApiResult<VocabularyPageJson>> GetVocabularyAsync(
         int? stage, string? search, int? limit, int? offset, CancellationToken ct)
     {
-        if (_v2Vocabulary) return await GetV2VocabularyAsync(stage, search, limit, offset, ct);
+        if (_v2) return await GetV2VocabularyAsync(stage, search, limit, offset, ct);
         return new(await GetLegacyVocabularyAsync(stage, search, limit, offset, ct), null);
     }
 
@@ -175,32 +175,31 @@ public sealed partial class TextStackApiClient
 
     /// <summary>
     /// <c>POST /me/vocabulary/words</c> — one word. 200 → <c>SaveWordResponse</c>. <paramref name="operationId"/>
-    /// is the call's (legacy has no idempotency key and ignores it; V2 needs it, <see cref="RequiresOperationId"/>).
+    /// is the call's (legacy has no idempotency key and ignores it; V2 needs it, <see cref="UsesV2"/>).
     /// </summary>
     public async Task<ApiResult<JsonElement>> SaveWordAsync(SaveWordJson word, Guid? operationId, CancellationToken ct)
     {
-        if (_v2Vocabulary) return await SaveV2WordAsync(word, operationId!.Value, ct);
-        using var request = await AuthorizedRequestAsync(HttpMethod.Post, "/me/vocabulary/words", ct);
-        request.Content = JsonContent.Create(word, options: JsonOptions);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        return await ReadResultAsync(response, ct);
+        if (_v2) return await SaveV2WordAsync(word, operationId!.Value, ct);
+        return await SendAsync(HttpMethod.Post, "/me/vocabulary/words", word, ct);
     }
 
     /// <summary><c>PATCH /me/vocabulary/words/{id}</c>. A null field is left unchanged.</summary>
     public async Task<ApiResult<JsonElement>> UpdateWordAsync(
         Guid id, string? translation, string? definition, CancellationToken ct)
     {
-        if (_v2Vocabulary) return await UpdateV2WordAsync(id, translation, definition, ct);
-        using var request = await AuthorizedRequestAsync(HttpMethod.Patch, $"/me/vocabulary/words/{id}", ct);
-        request.Content = JsonContent.Create(new UpdateWordJson(translation, definition), options: JsonOptions);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        return await ReadResultAsync(response, ct);
+        if (_v2) return await UpdateV2WordAsync(id, translation, definition, ct);
+        return await SendAsync(HttpMethod.Patch, $"/me/vocabulary/words/{id}", new UpdateWordJson(translation, definition), ct);
     }
 
     /// <summary><c>DELETE /me/vocabulary/words/{id}</c>. 204 → success (V2: 200, the tombstone).</summary>
-    public async Task<ApiResult<JsonElement>> DeleteWordAsync(Guid id, CancellationToken ct)
+    public Task<ApiResult<JsonElement>> DeleteWordAsync(Guid id, CancellationToken ct) =>
+        SendAsync<object>(HttpMethod.Delete, (_v2 ? "/me/v2" : "/me") + $"/vocabulary/words/{id}", null, ct);
+
+    /// <summary>One authorized JSON request (a body when given), answered by <see cref="ReadResultAsync"/>.</summary>
+    private async Task<ApiResult<JsonElement>> SendAsync<T>(HttpMethod method, string url, T? body, CancellationToken ct)
     {
-        using var request = await AuthorizedRequestAsync(HttpMethod.Delete, (_v2Vocabulary ? "/me/v2" : "/me") + $"/vocabulary/words/{id}", ct);
+        using var request = await AuthorizedRequestAsync(method, url, ct);
+        if (body is not null) request.Content = JsonContent.Create(body, options: JsonOptions);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         return await ReadResultAsync(response, ct);
     }
@@ -495,7 +494,7 @@ public sealed partial class TextStackApiClient
                      && (err.Message ?? err.Detail ?? err.Error) is { Length: > 0 } message)
             {
                 var lines = (err.Errors ?? []).Select(e => $"{e.Path}: {e.Message}");
-                return new(default, string.Join("\n", lines.Prepend(message)), response.StatusCode);
+                return new(default, string.Join("\n", lines.Prepend(message)), response.StatusCode, err.Code);
             }
         }
         catch (JsonException)
@@ -892,7 +891,8 @@ public sealed record SaveInsightJson(
     string? Question);
 
 /// <summary>A call that either produced a value or a message worth showing the model.</summary>
-public sealed record ApiResult<T>(T? Value, string? Error, HttpStatusCode? Status = null);
+/// <summary><see cref="Code"/> is a V2 refusal's machine code (<c>book_not_found</c>, …), null for every other upstream.</summary>
+public sealed record ApiResult<T>(T? Value, string? Error, HttpStatusCode? Status = null, string? Code = null);
 
 // PUT /me/chapter-review request → SaveChapterReviewRequest.
 public sealed record SaveChapterReviewJson(
@@ -902,7 +902,7 @@ public sealed record SaveChapterReviewJson(
     JsonElement Review);
 
 // Every non-2xx from the chapter-review routes → ReviewErrorDto.
-public sealed record ReviewErrorJson(string? Error, string? Message, List<ReviewFieldErrorJson>? Errors, string? Detail = null);
+public sealed record ReviewErrorJson(string? Error, string? Message, List<ReviewFieldErrorJson>? Errors, string? Detail = null, string? Code = null);
 
 public sealed record ReviewFieldErrorJson(string Path, string Code, string Message);
 

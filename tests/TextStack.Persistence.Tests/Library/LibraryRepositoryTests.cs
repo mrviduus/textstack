@@ -168,6 +168,56 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task SetCheckpointSavingAsync_OwnRemovedBook_FlipsItAndBumpsUpdatedAtNotRevision()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        await _repo.RemoveAsync(book.UserId, book.Id, Ct);
+        var removed = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
+
+        var written = (await _repo.SetCheckpointSavingAsync(book.UserId, book.Id, true, Ct))!;
+
+        var read = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
+        Assert.Equal((true, 1L, book.CurrentFile!.Id), (read.CheckpointSavingEnabled, read.Revision, written.CurrentFile!.Id));
+        Assert.Equal((true, read.UpdatedAt), (written.CheckpointSavingEnabled, written.UpdatedAt));
+        Assert.True(read.UpdatedAt > removed.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task SetCheckpointSavingAsync_TheValueAlreadyStored_LeavesUpdatedAt()
+    {
+        var book = await db.NewReaderWithBookAsync();
+
+        var written = (await _repo.SetCheckpointSavingAsync(book.UserId, book.Id, false, Ct))!;
+
+        Assert.Equal((false, book.UpdatedAt), (written.CheckpointSavingEnabled, written.UpdatedAt));
+    }
+
+    [Fact]
+    public async Task FileIsVersionAsync_SupersededVersionAnotherBooksFileAndAnotherUser_AreTrueFalseFalse()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var superseded = book.CurrentFile!.Id;
+        await db.ReplaceFileAsync(book);
+        var other = await db.NewBookAsync(book.UserId, "Another book");
+
+        Assert.True(await _repo.FileIsVersionAsync(book.UserId, book.Id, superseded, Ct));
+        Assert.False(await _repo.FileIsVersionAsync(book.UserId, book.Id, other.CurrentFile!.Id, Ct));
+        Assert.False(await _repo.FileIsVersionAsync(await db.NewReaderAsync(), book.Id, superseded, Ct));
+    }
+
+    [Fact]
+    public async Task SetCheckpointSavingAsync_AnotherUsersBook_IsNullAndChangesNothing()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var other = await db.NewReaderAsync();
+
+        Assert.Null(await _repo.SetCheckpointSavingAsync(other, book.Id, true, Ct));
+
+        var read = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
+        Assert.Equal((false, book.UpdatedAt), (read.CheckpointSavingEnabled, read.UpdatedAt));
+    }
+
+    [Fact]
     public async Task ExistsAsync_RemovedBookAndAnUnknownId_AreTrueAndFalse()
     {
         var book = await db.NewReaderWithBookAsync();

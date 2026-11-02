@@ -24,7 +24,7 @@ namespace TextStack.Ai.Mcp.Tools;
 /// issue the HTTP call. All tools are ALWAYS listed (stable discovery) regardless
 /// of token presence — only the call fails-clean.
 /// </summary>
-public sealed class McpToolCatalog
+public sealed partial class McpToolCatalog
 {
     private readonly IReadOnlyDictionary<string, McpToolDescriptor> _byName;
     private readonly ILogger<McpToolCatalog> _logger;
@@ -55,8 +55,13 @@ public sealed class McpToolCatalog
             BuildSetBookProgress(api),
             BuildGetChapterReview(api),
             BuildSaveChapterReview(api),
+            BuildShareChapter(api),
+            BuildSaveCheckpoint(api),
+            BuildListCheckpoints(api),
         };
-        _byName = tools.ToDictionary(t => t.Name, StringComparer.Ordinal);
+        // V2-only tools have no legacy endpoint to fall back to.
+        var v2Only = global::Contracts.Mcp.McpManifestCatalog.Tools.Where(t => t.V2Only).Select(t => t.Name).ToHashSet();
+        _byName = tools.Where(t => api.UsesV2 || !v2Only.Contains(t.Name)).ToDictionary(t => t.Name, StringComparer.Ordinal);
     }
 
     public List<Tool> ListTools() =>
@@ -556,7 +561,7 @@ public sealed class McpToolCatalog
             return InvokeAsync("list_my_vocabulary", ct, async () =>
             {
                 var listed = await api.GetVocabularyAsync(stage, search, limit, offset, ct);
-                if (listed.Error is { } refused) return Error($"list_my_vocabulary refused: {refused}");
+                if (Refused("list_my_vocabulary", listed) is { } refused) return refused;
                 var page = listed.Value!;
                 var items = page.Items.Select(w => new
                 {
@@ -644,7 +649,7 @@ public sealed class McpToolCatalog
                     "Pass either 'bookId' (an uploaded book) or 'editionId' (a catalog book), not both."));
 
             // Owner decision 13: required by the schema; only an upstream without idempotency (legacy) tolerates its absence.
-            if (operationId is null && api.RequiresOperationId)
+            if (operationId is null && api.UsesV2)
                 return Task.FromResult(Error("'operationId' is required: a new UUID for this save, the same one when retrying it."));
 
             return InvokeAsync("add_vocabulary_words", ct, async () =>
@@ -793,8 +798,7 @@ public sealed class McpToolCatalog
                 var result = await api.UpdateWordAsync(id, translation, definition, ct);
                 if (result.Status is System.Net.HttpStatusCode.NotFound)
                     return Error("update_vocabulary_word: no such word; get ids from list_my_vocabulary");
-                if (result.Error is { } e)
-                    return Error($"update_vocabulary_word refused: {e}");
+                if (Refused("update_vocabulary_word", result) is { } refused) return refused;
 
                 var w = result.Value;
                 return Text(JsonSerializer.Serialize(new
@@ -841,9 +845,7 @@ public sealed class McpToolCatalog
                 var result = await api.DeleteWordAsync(id, ct);
                 if (result.Status is System.Net.HttpStatusCode.NotFound)
                     return Error("delete_vocabulary_word: no such word; get ids from list_my_vocabulary");
-                return result.Error is { } e
-                    ? Error($"delete_vocabulary_word refused: {e}")
-                    : Text(JsonSerializer.Serialize(new { id, deleted = true }));
+                return Refused("delete_vocabulary_word", result) ?? Text(JsonSerializer.Serialize(new { id, deleted = true }));
             });
         },
     };
@@ -1669,4 +1671,14 @@ public sealed class McpToolCatalog
         IsError = true,
         Content = [new TextContentBlock { Text = message }],
     };
+
+    /// <summary>
+    /// Null on success. A V2 <c>book_not_found</c> names <paramref name="bookId"/>; any other refusal
+    /// relays the server's message (a bare 404, the V2 API off, reads "upstream answered 404").
+    /// </summary>
+    // ponytail: a legacy UserBook id answers book_not_found here until the M3 ETL (McpBridgeOptions.V2); #1098.
+    private static CallToolResult? Refused<T>(string tool, ApiResult<T> result, Guid? bookId = null) =>
+        result.Error is not { } message ? null
+        : result.Code == "book_not_found" && bookId is { } id ? Error($"{tool}: no uploaded book found with id '{id}'")
+        : Error($"{tool} refused: {message}");
 }

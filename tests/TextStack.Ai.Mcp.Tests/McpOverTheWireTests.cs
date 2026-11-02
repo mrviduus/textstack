@@ -17,7 +17,7 @@ namespace TextStack.Ai.Mcp.Tests;
 /// only the bridge under test → zero ITool in this assembly. The AI-047..050 unit tests use fake HttpMessageHandlers and
 /// never exercise the SDK wire — this suite closes that gap.
 /// </summary>
-public class McpOverTheWireTests : IAsyncLifetime
+public class McpOverTheWireTests(McpOverTheWireTests.V2Bridge v2) : IAsyncLifetime, IClassFixture<McpOverTheWireTests.V2Bridge>
 {
     private McpServerHarness _harness = null!;
 
@@ -405,7 +405,7 @@ public class McpOverTheWireTests : IAsyncLifetime
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var tools = await client.ListToolsAsync(cancellationToken: Ct);
-        Assert.Equal(21, tools.Count);
+        Assert.Equal(Contracts.Mcp.McpManifestCatalog.Tools.Count(t => !t.V2Only), tools.Count);
 
         var chapter = await CallAsync(client, "get_chapter", Args(("slug", "dracula"), ("chapterSlug", "ch-1")));
         Assert.NotEqual(true, chapter.IsError);
@@ -806,12 +806,12 @@ public class McpOverTheWireTests : IAsyncLifetime
         Assert.Null(_harness.Stub.Last("v2_save_word"));
     }
 
-    // ── the same four tools with McpBridgeOptions.V2Vocabulary on ────────────────
+    // ── the same four tools with McpBridgeOptions.V2 on ────────────────
 
     [Fact]
     public async Task VocabularyTools_V2Option_ReorderedRetrySendsEachWordItsIdAgainWithoutTheLegacyBookId()
     {
-        await using var harness = await McpServerHarness.StartAsync(Ct, v2Vocabulary: true);
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2: true);
         await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
         const string crepuscular = """{ "word": "crepuscular", "language": "en", "translation": "сутінковий", "sentence": "The crepuscular light." }""";
         const string quiver = """{ "word": "quiver", "language": "en", "translation": "колчан" }""";
@@ -840,7 +840,7 @@ public class McpOverTheWireTests : IAsyncLifetime
     [Fact]
     public async Task VocabularyTools_V2Option_ExistingDeletedAndMissingCards_MapToAlreadySavedRefusedAndNoSuchWord()
     {
-        await using var harness = await McpServerHarness.StartAsync(Ct, v2Vocabulary: true);
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2: true);
         await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
         var words = JsonDocument.Parse($$"""
             [{ "word": "{{StubBackend.ExistingV2Word}}", "language": "en", "translation": "t" },
@@ -863,7 +863,7 @@ public class McpOverTheWireTests : IAsyncLifetime
     [InlineData(404)]
     public async Task ListMyVocabulary_V2FeedNotAnswering_IsAToolErrorNotAnEmptyList(int status)
     {
-        await using var harness = await McpServerHarness.StartAsync(Ct, v2Vocabulary: true);
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2: true);
         harness.Stub.V2FeedStatus = status;
         await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
@@ -876,7 +876,7 @@ public class McpOverTheWireTests : IAsyncLifetime
     [Fact]
     public async Task AddVocabularyWords_V2OptionWithoutOperationId_IsAToolErrorAndSavesNothing()
     {
-        await using var harness = await McpServerHarness.StartAsync(Ct, v2Vocabulary: true);
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2: true);
         await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
         var words = JsonDocument.Parse("""[{ "word": "quiver", "language": "en", "translation": "колчан" }]""").RootElement;
 
@@ -900,7 +900,7 @@ public class McpOverTheWireTests : IAsyncLifetime
     [Fact]
     public async Task VocabularyTools_V2Option_ListReadsTheFeedAndEditsCarryTheRevisionJustRead()
     {
-        await using var harness = await McpServerHarness.StartAsync(Ct, v2Vocabulary: true);
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2: true);
         await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
         const string id = "55555555-5555-5555-5555-555555555555";
 
@@ -919,5 +919,209 @@ public class McpOverTheWireTests : IAsyncLifetime
         AssertOk(deleted);
         Assert.Equal(("DELETE", $"/me/v2/vocabulary/words/{id}"), (harness.Stub.Last("v2_delete_word")!.Method, harness.Stub.Last("v2_delete_word")!.PathAndQuery));
         Assert.Null(harness.Stub.Last("list_my_vocabulary"));
+    }
+
+    // ── the discussion tools: V2 only (McpBridgeOptions.V2) ──────────────────────
+    // One V2 bridge for all of them (the class fixture): each test keys what it sent by its own
+    // operationId or bookId, since the stub's history is shared.
+
+    /// <summary>One bridge on the V2 sync API, shared by the discussion tests.</summary>
+    public sealed class V2Bridge : IAsyncLifetime
+    {
+        public McpServerHarness Harness { get; private set; } = null!;
+
+        public async ValueTask InitializeAsync() => Harness = await McpServerHarness.StartAsync(TestContext.Current.CancellationToken, v2: true);
+
+        public async ValueTask DisposeAsync() => await Harness.DisposeAsync();
+    }
+
+    private Task<McpClient> ConnectV2Async() => v2.Harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+    /// <summary>The bodies the stub got under <paramref name="key"/> carrying <paramref name="operationId"/>, in order.</summary>
+    private List<JsonElement> Sent(string key, Guid operationId) =>
+        v2.Harness.Stub.All(key).Select(r => JsonDocument.Parse(r.Body).RootElement)
+            .Where(b => b.GetProperty("operationId").GetString() == operationId.ToString()).ToList();
+
+    /// <summary>Whether anything reached the stub for <paramref name="bookId"/>.</summary>
+    private bool AnythingSentFor(Guid bookId) =>
+        new[] { "v2_share", "v2_checkpoint", "v2_list_checkpoints" }.SelectMany(v2.Harness.Stub.All).Any(r => r.PathAndQuery.Contains(bookId.ToString()));
+
+    private static Dictionary<string, object?> Checkpoint(Guid operationId, string thought = "It reads like a confession.", string? sharedChapterId = null, object? bookId = null)
+    {
+        var args = Args(("bookId", bookId ?? StubBackend.UserBookId), ("topic", "The letter"), ("language", "en"), ("chapterKey", "ch02.xhtml"),
+            ("readerThoughts", new[] { thought, "Second" }), ("openQuestions", new[] { "Who wrote it?" }), ("operationId", operationId));
+        if (sharedChapterId is not null) args["sharedChapterId"] = sharedChapterId;
+        return args;
+    }
+
+    [Fact]
+    public async Task DiscussionTools_OptionOff_AreNotListedAndCallingOneReachesNothing()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var names = (await client.ListToolsAsync(cancellationToken: Ct)).Select(t => t.Name).ToList();
+        var called = await CallAsync(client, "save_checkpoint", Checkpoint(Guid.NewGuid()));
+
+        Assert.DoesNotContain("save_checkpoint", names);
+        Assert.True(called.IsError);
+        Assert.Contains("Unknown tool", TextOf(called));
+        Assert.Null(_harness.Stub.Last("v2_checkpoint"));
+    }
+
+    [Fact]
+    public async Task ListTools_V2Option_ListsEveryToolAndTheDiscussionWritesRequireOperationId()
+    {
+        await using var client = await ConnectV2Async();
+
+        var tools = await client.ListToolsAsync(cancellationToken: Ct);
+
+        Assert.Equal(Contracts.Mcp.McpManifestCatalog.Tools.Count, tools.Count);
+        foreach (var write in new[] { "share_chapter", "save_checkpoint" })
+            Assert.Contains("operationId", tools.Single(t => t.Name == write).ProtocolTool.InputSchema.GetProperty("required").EnumerateArray().Select(r => r.GetString()));
+        Assert.True(tools.Single(t => t.Name == "list_checkpoints").ProtocolTool.Annotations!.ReadOnlyHint);
+    }
+
+    [Fact]
+    public async Task ShareChapter_V2Option_RetryReplaysAndAChangedPayloadUnderItsIdIsOperationConflict()
+    {
+        await using var client = await ConnectV2Async();
+        var operationId = Guid.NewGuid();
+        Dictionary<string, object?> Share(string text) =>
+            Args(("bookId", StubBackend.UserBookId), ("chapterKey", "ch02.xhtml"), ("chapterText", text), ("operationId", operationId));
+
+        var shared = await CallAsync(client, "share_chapter", Share("It was the night."));
+        var retried = await CallAsync(client, "share_chapter", Share("It was the night."));
+        var changed = await CallAsync(client, "share_chapter", Share("Another text."));
+
+        AssertOk(shared);
+        AssertOk(retried);
+        Assert.Equal((StubBackend.SharedChapterId, true), (Json(shared).GetProperty("id").GetString(), Json(shared).GetProperty("saved").GetBoolean()));
+        Assert.Equal(StubBackend.SharedChapterId, Json(retried).GetProperty("id").GetString());
+        Assert.True(changed.IsError);
+        Assert.Contains("share_chapter refused: This operation id was used with a different payload.", TextOf(changed));
+        var sent = Sent("v2_share", operationId)[0];
+        Assert.Equal((0, false), (sent.GetProperty("notes").GetArrayLength(), sent.TryGetProperty("fileId", out _)));
+    }
+
+    [Fact]
+    public async Task ShareChapter_V2OptionOverItsBytesOrWithoutOperationId_IsAToolErrorAndSendsNothing()
+    {
+        await using var client = await ConnectV2Async();
+        var bookId = Guid.NewGuid();
+        // Within the schema's characters, over the server's UTF-8 bytes.
+        var cyrillic = new string('ж', Contracts.V2.SyncLimits.MaxChapterTextBytes / 2 + 1);
+
+        var tooBig = await CallAsync(client, "share_chapter", Args(("bookId", bookId), ("chapterKey", "ch02.xhtml"), ("chapterText", cyrillic), ("operationId", Guid.NewGuid())));
+        var noOperation = await CallAsync(client, "share_chapter", Args(("bookId", bookId), ("chapterKey", "ch02.xhtml"), ("chapterText", "It was the night.")));
+
+        Assert.Contains("'chapterText' must be at most 200 KB as UTF-8.", TextOf(tooBig));
+        Assert.Contains("'operationId' is required", TextOf(noOperation));
+        Assert.False(AnythingSentFor(bookId));
+    }
+
+    [Fact]
+    public async Task SaveCheckpoint_V2Option_SendsTheSectionsInOrderAndARetryReplaysAndAChangeConflicts()
+    {
+        await using var client = await ConnectV2Async();
+        var operationId = Guid.NewGuid();
+
+        var saved = await CallAsync(client, "save_checkpoint", Checkpoint(operationId));
+        var retried = await CallAsync(client, "save_checkpoint", Checkpoint(operationId));
+        var changed = await CallAsync(client, "save_checkpoint", Checkpoint(operationId, "A changed thought."));
+
+        AssertOk(saved);
+        AssertOk(retried);
+        Assert.Equal((StubBackend.CheckpointId, true), (Json(retried).GetProperty("id").GetString(), Json(retried).GetProperty("saved").GetBoolean()));
+        Assert.True(changed.IsError);
+        Assert.Contains("operation id was used with a different payload", TextOf(changed));
+        var sent = Sent("v2_checkpoint", operationId)[0];
+        Assert.Equal(["It reads like a confession.", "Second"], sent.GetProperty("readerThoughts").EnumerateArray().Select(t => t.GetString()));
+        Assert.Equal((0, 0), (sent.GetProperty("assistantSuggestions").GetArrayLength(), sent.GetProperty("conclusions").GetArrayLength()));
+    }
+
+    [Fact]
+    public async Task SaveCheckpoint_V2OptionWithAShareOfAnotherChapter_IsAToolErrorThatSaysWhy()
+    {
+        await using var client = await ConnectV2Async();
+
+        var saved = await CallAsync(client, "save_checkpoint", Checkpoint(Guid.NewGuid(), sharedChapterId: StubBackend.MismatchedShareId));
+
+        Assert.True(saved.IsError);
+        Assert.Contains("save_checkpoint refused: The share is of another chapter or file version.", TextOf(saved));
+    }
+
+    [Fact]
+    public async Task SaveCheckpoint_V2OptionWithoutOperationIdOrWithABlankItem_IsAToolErrorAndSendsNothing()
+    {
+        await using var client = await ConnectV2Async();
+        var bookId = Guid.NewGuid();
+        var noOperation = Checkpoint(Guid.NewGuid(), bookId: bookId);
+        noOperation.Remove("operationId");
+        var blankItem = Checkpoint(Guid.NewGuid(), bookId: bookId);
+        blankItem["conclusions"] = new[] { "ok", "" };
+
+        var missing = await CallAsync(client, "save_checkpoint", noOperation);
+        var blank = await CallAsync(client, "save_checkpoint", blankItem);
+
+        Assert.Contains("'operationId' is required", TextOf(missing));
+        Assert.Equal((true, "'conclusions[1]' must not be blank."), (blank.IsError, TextOf(blank)));
+        Assert.False(AnythingSentFor(bookId));
+    }
+
+    // Hosts send null for an optional argument they leave out.
+    [Fact]
+    public async Task SaveCheckpoint_V2OptionWithNullOptionalArgs_ReadsThemAsAbsentAndSaves()
+    {
+        await using var client = await ConnectV2Async();
+        var operationId = Guid.NewGuid();
+        var args = Checkpoint(operationId);
+        (args["sharedChapterId"], args["conclusions"], args["assistantSuggestions"]) = (null, null, null);
+
+        var saved = await CallAsync(client, "save_checkpoint", args);
+
+        AssertOk(saved);
+        Assert.Equal("2026-11-01T10:00:00.000Z", Json(saved).GetProperty("createdAt").GetString());
+        var sent = Sent("v2_checkpoint", operationId)[0];
+        Assert.Equal((0, false), (sent.GetProperty("conclusions").GetArrayLength(), sent.TryGetProperty("sharedChapterId", out _)));
+    }
+
+    [Fact]
+    public async Task ListCheckpoints_V2Option_PassesTheServersPageThroughAndItsCursorReadsTheLast()
+    {
+        await using var client = await ConnectV2Async();
+
+        var first = await CallAsync(client, "list_checkpoints", Args(("bookId", StubBackend.UserBookId), ("chapterKey", "ch02.xhtml")));
+        var firstAsked = v2.Harness.Stub.Last("v2_list_checkpoints")!.PathAndQuery;
+        var last = await CallAsync(client, "list_checkpoints", Args(("bookId", StubBackend.UserBookId), ("cursor", Json(first).GetProperty("cursor").GetString())));
+
+        AssertOk(first);
+        Assert.Equal(($"/me/v2/books/{StubBackend.UserBookId}/checkpoints?limit=20&chapterKey=ch02.xhtml", true), (firstAsked, Json(first).GetProperty("hasMore").GetBoolean()));
+        var entry = Json(first).GetProperty("items")[0];
+        Assert.Equal((StubBackend.CheckpointId, "ch02.xhtml", "Earlier thought"),
+            (entry.GetProperty("id").GetString(), entry.GetProperty("chapterKey").GetString(), entry.GetProperty("readerThoughts")[0].GetString()));
+        Assert.Equal((false, JsonValueKind.Null), (Json(last).GetProperty("hasMore").GetBoolean(), Json(last).GetProperty("cursor").ValueKind));
+    }
+
+    [Fact]
+    public async Task ListCheckpoints_V2OptionOnABookNotTheUsers_IsAToolErrorNamingTheBook()
+    {
+        await using var client = await ConnectV2Async();
+        var other = Guid.NewGuid();
+
+        var listed = await CallAsync(client, "list_checkpoints", Args(("bookId", other)));
+
+        Assert.True(listed.IsError);
+        Assert.Contains($"no uploaded book found with id '{other}'", TextOf(listed));
+    }
+
+    [Fact]
+    public async Task ListCheckpoints_V2OptionOnAServerWithV2Off_RelaysTheBare404NotABookClaim()
+    {
+        await using var client = await ConnectV2Async();
+
+        var listed = await CallAsync(client, "list_checkpoints", Args(("bookId", StubBackend.V2OffBookId)));
+
+        Assert.True(listed.IsError);
+        Assert.Equal("list_checkpoints refused: upstream answered 404", TextOf(listed));
     }
 }
