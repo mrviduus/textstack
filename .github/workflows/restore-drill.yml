@@ -133,8 +133,11 @@ jobs:
           PGDATABASE: textstack_v2
         run: |
           set -euo pipefail
+          # As the Api's binder reads it: True/true, quoted or not.
+          flag=off
+          grep -qiE '^FEATURES_V2API="?true"?[[:space:]]*$' "$RESTORE/backup/env" && flag=on
           if ! restic snapshots --path /db_v2.sql --json | grep -q '"id"'; then
-            if grep -q '^FEATURES_V2API=true' "$RESTORE/backup/env"; then
+            if [ "$flag" = on ]; then
               echo "::error::FEATURES_V2API=true in the backed-up .env, but no V2 dump in R2"; exit 1
             fi
             echo "no V2 in this backup (FEATURES_V2API off)"
