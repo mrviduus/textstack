@@ -52,16 +52,51 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         await _container.DisposeAsync();
     }
 
-    /// <summary>A fresh V2 user; its email is unique, as <c>ix_users_email</c> requires.</summary>
-    public async Task<Guid> NewReaderAsync()
+    /// <summary>A fresh V2 user (a guest when <paramref name="isGuest"/>); its email is unique, as <c>ix_users_email</c> requires.</summary>
+    public async Task<Guid> NewReaderAsync(bool isGuest = false)
     {
         var userId = Guid.NewGuid();
-        await using var conn = await DataSource.OpenConnectionAsync(Ct);
-        await conn.ExecuteAsync(new CommandDefinition(
-            "INSERT INTO users (id, email, created_at) VALUES (@userId, @email, now())",
-            new { userId, email = $"{userId}@test" }, cancellationToken: Ct));
+        await ExecAsync("INSERT INTO users (id, email, is_guest, created_at) VALUES (@userId, @email, @isGuest, now())",
+            new { userId, email = $"{userId}@test", isGuest });
         return userId;
     }
+
+    /// <summary>Runs <paramref name="sql"/> (a test's own setup, never input) in its own autocommit.</summary>
+    public async Task ExecAsync(string sql, object args)
+    {
+        await using var conn = await DataSource.OpenConnectionAsync(Ct);
+        await conn.ExecuteAsync(new CommandDefinition(sql, args, cancellationToken: Ct));
+    }
+
+    public async Task<T> ScalarAsync<T>(string sql, object args)
+    {
+        await using var conn = await DataSource.OpenConnectionAsync(Ct);
+        return (await conn.ExecuteScalarAsync<T>(new CommandDefinition(sql, args, cancellationToken: Ct)))!;
+    }
+
+    private const string UserTables = "SELECT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'user_id' ORDER BY 1";
+
+    // The two roots and every table whose ownership is in a composite key (ADR-031 rule 2): what a
+    // reparenting of the roots carries. Tables that point only at users are reached by no cascade.
+    private const string CascadedTables = """
+        SELECT conrelid::regclass::text FROM pg_constraint
+        WHERE contype = 'f' AND connamespace = 'public'::regnamespace AND confrelid <> 'public.users'::regclass
+        UNION SELECT 'books' UNION SELECT 'vocabulary_words'
+        ORDER BY 1
+        """;
+
+    /// <summary>
+    /// The tables that hold a user's rows, from the catalog, so a table added later is asserted on
+    /// without anyone listing it: every one with a <c>user_id</c>, or only those the roots' cascade reaches.
+    /// </summary>
+    public async Task<List<string>> UserTablesAsync(bool reachedByCascade = false)
+    {
+        await using var conn = await DataSource.OpenConnectionAsync(Ct);
+        return (await conn.QueryAsync<string>(new CommandDefinition(reachedByCascade ? CascadedTables : UserTables, cancellationToken: Ct))).AsList();
+    }
+
+    /// <summary>How many rows <see cref="SeedEverythingAsync"/> gives its user in <paramref name="table"/>: two sessions (one of a deleted book), one of everything else.</summary>
+    public static long Seeded(string table) => table == "reading_sessions" ? 2 : 1;
 
     /// <summary>A fresh user with one imported book, titled "A book" and tagged "fiction"; it carries its current file.</summary>
     public async Task<Book> NewReaderWithBookAsync() => await NewBookAsync(await NewReaderAsync());
