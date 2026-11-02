@@ -143,6 +143,18 @@ jobs:
             echo "no V2 in this backup (FEATURES_V2API off)"
             echo "V2_RESULT=no V2 in this backup" >> "$GITHUB_ENV"; exit 0
           fi
+          # A nightly V2 dump failing for weeks still leaves an old /db_v2.sql as "latest". Older than the
+          # legacy dump by more than a day: an alarm with the flag on, a warning with it off.
+          newest() { restic snapshots --path "$1" --json | grep -o '"time":"[^"]*"' | cut -d'"' -f4 | sort | tail -n 1; }
+          legacy_t=$(newest /db.sql); v2_t=$(newest /db_v2.sql)
+          if [ -n "$legacy_t" ]; then
+            lag=$(( $(date -d "$legacy_t" +%s) - $(date -d "$v2_t" +%s) ))
+            if [ "$lag" -gt 86400 ]; then
+              msg="V2 snapshot ($v2_t) is $((lag / 3600))h older than the legacy one ($legacy_t)"
+              [ "$flag" = on ] && { echo "::error::$msg"; exit 1; }
+              echo "::warning::$msg; FEATURES_V2API off"
+            fi
+          fi
           start=$(date +%s)
           sh database/v2/run.sh create
           restic dump --path /db_v2.sql latest /db_v2.sql | psql -X -q -v ON_ERROR_STOP=1 >/dev/null
