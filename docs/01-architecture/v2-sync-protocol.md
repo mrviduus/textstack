@@ -390,7 +390,7 @@ the hash sees the normalized form, so a replay compares like with like. On top o
 | Strings | as stored; the endpoint does not trim, case-fold or Unicode-normalize free text, so for those that is as received |
 | UUIDs | lowercase, hyphenated (`8-4-4-4-12`) |
 | Times | UTC, `yyyy-MM-ddTHH:mm:ss.fffZ` (milliseconds, truncated): `…+02:00` and `…Z` for one instant hash equal |
-| Numbers | RFC 8785 / ES6 form (`1`, `0.5`, `1e-7`); top-level fields are integers, nested JSON (`notes`) may be fractional |
+| Numbers | RFC 8785 / ES6 form (`1`, `0.5`, `1e-7`); top-level fields are integers, nested JSON (`notes`) may be fractional; a number inside opaque JSON hashes as the IEEE double it parses to, so `9007199254740993` and `9007199254740992`, or `0.1` and `0.10000000000000000001`, are the same operation (by design: the ETL hashes alike); a non-finite one (`1e400`) is refused as `invalid_payload` |
 | Booleans | `true` / `false` |
 | Arrays | order kept (checkpoint sections are ordered) |
 

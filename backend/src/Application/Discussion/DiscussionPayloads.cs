@@ -7,7 +7,10 @@ namespace Application.Discussion;
 /// <summary>
 /// The <c>payload_sha256</c> of a share and of a checkpoint: the "Canonical JSON" table's Share and
 /// Checkpoint rows, exactly these fields under these names, through <see cref="CanonicalPayload.Sha256"/>.
-/// Built from the row as stored (its JSON columns as text), so the M3 ETL hashes a migrated row alike.
+/// Built from the row as written (its JSON columns as text), so the M3 ETL can hash a migrated row the
+/// same way. The stored hash is of that first write: when a share is deleted its checkpoints' shared_chapter_id
+/// becomes null but their payload_sha256 stays, so a retry still naming the deleted share replays. The ETL
+/// hashes migrated rows as migrated.
 /// </summary>
 public static class DiscussionPayloads
 {
