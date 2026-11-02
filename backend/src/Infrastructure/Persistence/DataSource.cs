@@ -3,8 +3,11 @@ using System.Runtime.CompilerServices;
 using Application.Annotations;
 using Application.Common.Interfaces;
 using Application.Discussion;
+using Application.Identity;
 using Application.Library;
+using Application.Ops;
 using Application.Reading;
+using Application.Transitional;
 using Application.Vocabulary;
 using Dapper;
 using Infrastructure.Persistence.Repositories;
@@ -77,5 +80,17 @@ public static class DataSource
             .AddSingleton<ISharedChapterRepository, SharedChapterRepository>()
             .AddSingleton<ICheckpointRepository, CheckpointRepository>()
             .AddSingleton<IBookInsightRepository, BookInsightRepository>()
-            .AddSingleton<IReviewQuestionRepository, ReviewQuestionRepository>();
+            .AddSingleton<IReviewQuestionRepository, ReviewQuestionRepository>()
+            .AddSingleton<IUserRepository, UserRepository>()
+            .AddSingleton<ISessionTokenRepository, SessionTokenRepository>()
+            .AddSingleton<IOAuthRepository, OAuthRepository>()
+            .AddSingleton<IDeviceLoginRepository, DeviceLoginRepository>()
+            .AddSingleton<IMcpKeyRepository, McpKeyRepository>()
+            // Concrete, not as the Core writer interfaces: those stay bound to the EF writers until the cutover.
+            .AddSingleton<V2LlmTraceWriter>()
+            .AddSingleton<V2AgentRunWriter>()
+            .AddSingleton<IEvalRunRepository, EvalRunRepository>()
+            .AddSingleton<IAdminSettingsRepository, AdminSettingsRepository>()
+            .AddSingleton<IBookChapterRepository, BookChapterRepository>()
+            .AddSingleton<IIngestionJobRepository, IngestionJobRepository>();
 }

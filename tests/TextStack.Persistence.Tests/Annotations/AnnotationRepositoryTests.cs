@@ -132,7 +132,6 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         Assert.Null(await _repo.GetAsync(book.UserId, highlight.Id, Ct));
     }
 
-
     [Fact]
     public async Task SaveAsync_FirstWriteOnAFileOfAnotherOwnBook_IsRefusedByTheDeferredForeignKey()
     {
@@ -178,11 +177,17 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task SaveAsync_AnnotationNamingAnotherUser_Throws()
+    public async Task SaveAsync_EntityNamingAnotherUser_IsStoredUnderTheCaller()
     {
         var book = await db.NewReaderWithBookAsync();
+        var bob = await db.NewReaderAsync();
+        var annotation = Highlight(book);
+        annotation.UserId = bob;
 
-        await Assert.ThrowsAsync<ArgumentException>(() => _repo.SaveAsync(Guid.NewGuid(), Highlight(book), null, Ct));
+        var result = await _repo.SaveAsync(book.UserId, annotation, null, Ct);
+
+        Assert.Equal(book.UserId, result.Current!.UserId);
+        Assert.Equal(0L, await db.CountAsync("annotations", bob));
     }
 
     [Fact]

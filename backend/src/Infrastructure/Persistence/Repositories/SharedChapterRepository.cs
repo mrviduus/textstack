@@ -16,19 +16,20 @@ public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedCh
     private const string Columns =
         "id, user_id, book_id, file_id, chapter_key, chapter_title, chapter_text, notes_snapshot, language, operation_id, payload_sha256, created_at";
 
+    // The no-op DO UPDATE returns the stored row when the operation id is taken; xmax = 0 only
+    // on a row this statement inserted.
+    private const string UpsertShare = $"""
+        INSERT INTO shared_chapters (id, user_id, book_id, file_id, chapter_key, chapter_title, chapter_text, notes_snapshot, language, operation_id, payload_sha256, created_at)
+        VALUES (@Id, @UserId, @BookId, @FileId, @ChapterKey, @ChapterTitle, @ChapterText, CAST(@NotesSnapshot AS jsonb), @Language, @OperationId, @PayloadSha256, now())
+        ON CONFLICT (user_id, operation_id) DO UPDATE SET operation_id = EXCLUDED.operation_id
+        RETURNING {Columns}, xmax = 0 AS inserted
+        """;
+
     public async Task<WriteResult<SharedChapter>> ShareAsync(SharedChapter share, CancellationToken ct)
     {
-        // The no-op DO UPDATE returns the stored row when the operation id is taken; xmax = 0 only
-        // on a row this statement inserted.
-        const string upsert = $"""
-            INSERT INTO shared_chapters (id, user_id, book_id, file_id, chapter_key, chapter_title, chapter_text, notes_snapshot, language, operation_id, payload_sha256, created_at)
-            VALUES (@Id, @UserId, @BookId, @FileId, @ChapterKey, @ChapterTitle, @ChapterText, CAST(@NotesSnapshot AS jsonb), @Language, @OperationId, @PayloadSha256, now())
-            ON CONFLICT (user_id, operation_id) DO UPDATE SET operation_id = EXCLUDED.operation_id
-            RETURNING {Columns}, xmax = 0 AS inserted
-            """;
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         var (stored, inserted) = (await conn.QueryAsync<SharedChapter, bool, (SharedChapter, bool)>(
-            new CommandDefinition(upsert, share, cancellationToken: ct), (row, isNew) => (row, isNew), splitOn: "inserted")).Single();
+            new CommandDefinition(UpsertShare, share, cancellationToken: ct), (row, isNew) => (row, isNew), splitOn: "inserted")).Single();
         return new(
             inserted ? WriteOutcome.Created
             : stored.PayloadSha256 == share.PayloadSha256 ? WriteOutcome.Replayed
@@ -36,30 +37,33 @@ public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedCh
             stored);
     }
 
+    private const string SelectShare = $"SELECT {Columns} FROM shared_chapters WHERE user_id = @userId AND id = @id";
+
     public async Task<SharedChapter?> GetAsync(Guid userId, Guid id, CancellationToken ct)
     {
-        const string sql = $"SELECT {Columns} FROM shared_chapters WHERE user_id = @userId AND id = @id";
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<SharedChapter>(new CommandDefinition(sql, new { userId, id }, cancellationToken: ct));
+        return await conn.QuerySingleOrDefaultAsync<SharedChapter>(new CommandDefinition(SelectShare, new { userId, id }, cancellationToken: ct));
     }
+
+    private const string SelectSharesOfBook = $"""
+        SELECT {Columns} FROM shared_chapters
+        WHERE user_id = @userId AND book_id = @bookId
+        ORDER BY created_at DESC, id DESC
+        """;
 
     public async Task<IReadOnlyList<SharedChapter>> ListForBookAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
-        const string sql = $"""
-            SELECT {Columns} FROM shared_chapters
-            WHERE user_id = @userId AND book_id = @bookId
-            ORDER BY created_at DESC, id DESC
-            """;
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        var rows = await conn.QueryAsync<SharedChapter>(new CommandDefinition(sql, new { userId, bookId }, cancellationToken: ct));
+        var rows = await conn.QueryAsync<SharedChapter>(new CommandDefinition(SelectSharesOfBook, new { userId, bookId }, cancellationToken: ct));
         return rows.AsList();
     }
 
+    // The share FK's ON DELETE SET NULL (shared_chapter_id) unlinks its checkpoints; see migration 0001.
+    private const string DeleteShare = "DELETE FROM shared_chapters WHERE user_id = @userId AND id = @id";
+
     public async Task<bool> DeleteAsync(Guid userId, Guid id, CancellationToken ct)
     {
-        // The share FK's ON DELETE SET NULL (shared_chapter_id) unlinks its checkpoints; see migration 0001.
-        const string sql = "DELETE FROM shared_chapters WHERE user_id = @userId AND id = @id";
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(sql, new { userId, id }, cancellationToken: ct)) > 0;
+        return await conn.ExecuteAsync(new CommandDefinition(DeleteShare, new { userId, id }, cancellationToken: ct)) > 0;
     }
 }

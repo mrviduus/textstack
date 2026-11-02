@@ -1,10 +1,14 @@
 using Application.Annotations;
 using Application.Common.Interfaces;
 using Application.Discussion;
+using Application.Identity;
 using Application.Library;
+using Application.Ops;
 using Application.Reading;
+using Application.Transitional;
 using Application.Vocabulary;
 using Infrastructure.Persistence;
+using Infrastructure.Persistence.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace TextStack.UnitTests;
@@ -21,9 +25,12 @@ public class V2DataAccessRegistrationTests
             .AddTextStackDataAccess(Legacy, null)
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 
-        Type[] v2Ports = [typeof(ILibraryRepository), typeof(IAnnotationRepository), typeof(IVocabularyRepository),
+        Type[] v2Ports = [typeof(ILibraryRepository), typeof(IReadingStateRepository), typeof(IAnnotationRepository), typeof(IVocabularyRepository),
             typeof(ISharedChapterRepository), typeof(ICheckpointRepository),
-            typeof(IBookInsightRepository), typeof(IReviewQuestionRepository)];
+            typeof(IBookInsightRepository), typeof(IReviewQuestionRepository),
+            typeof(IUserRepository), typeof(ISessionTokenRepository), typeof(IOAuthRepository), typeof(IDeviceLoginRepository),
+            typeof(IMcpKeyRepository), typeof(V2LlmTraceWriter), typeof(V2AgentRunWriter), typeof(IEvalRunRepository),
+            typeof(IAdminSettingsRepository), typeof(IBookChapterRepository), typeof(IIngestionJobRepository)];
         foreach (var port in v2Ports)
             Assert.Contains("ConnectionStrings:V2", Assert.Throws<InvalidOperationException>(() => services.GetRequiredService(port)).Message);
         // The legacy insight port of the same name does not need V2.
@@ -46,5 +53,16 @@ public class V2DataAccessRegistrationTests
         Assert.NotNull(services.GetService<ICheckpointRepository>());
         Assert.NotNull(services.GetService<IBookInsightRepository>());
         Assert.NotNull(services.GetService<IReviewQuestionRepository>());
+        Assert.NotNull(services.GetService<IUserRepository>());
+        Assert.NotNull(services.GetService<ISessionTokenRepository>());
+        Assert.NotNull(services.GetService<IOAuthRepository>());
+        Assert.NotNull(services.GetService<IDeviceLoginRepository>());
+        Assert.NotNull(services.GetService<IMcpKeyRepository>());
+        Assert.NotNull(services.GetService<V2LlmTraceWriter>());
+        Assert.NotNull(services.GetService<V2AgentRunWriter>());
+        Assert.NotNull(services.GetService<IEvalRunRepository>());
+        Assert.NotNull(services.GetService<IAdminSettingsRepository>());
+        Assert.NotNull(services.GetService<IBookChapterRepository>());
+        Assert.NotNull(services.GetService<IIngestionJobRepository>());
     }
 }

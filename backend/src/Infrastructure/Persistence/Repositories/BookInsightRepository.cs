@@ -21,30 +21,44 @@ public sealed class BookInsightRepository(V2DataSource dataSource) : IBookInsigh
         ON CONFLICT (user_id, book_id, chapter_slug)
         """;
 
+    private const string SelectForBook = $"SELECT {Columns} FROM book_insight WHERE user_id = @userId AND book_id = @bookId";
+
     public Task<IReadOnlyList<BookInsight>> ListForBookAsync(Guid userId, Guid bookId, CancellationToken ct) =>
-        ListAsync("user_id = @userId AND book_id = @bookId", new { userId, bookId }, ct);
+        ListAsync(SelectForBook, new { userId, bookId }, ct);
+
+    private const string SelectReviewsForBook =
+        $"SELECT {Columns} FROM book_insight WHERE user_id = @userId AND book_id = @bookId AND review_json IS NOT NULL";
 
     public Task<IReadOnlyList<BookInsight>> ListReviewsForBookAsync(Guid userId, Guid bookId, CancellationToken ct) =>
-        ListAsync("user_id = @userId AND book_id = @bookId AND review_json IS NOT NULL",
-            new { userId, bookId }, ct);
+        ListAsync(SelectReviewsForBook, new { userId, bookId }, ct);
+
+    private const string SelectByIds = $"SELECT {Columns} FROM book_insight WHERE user_id = @userId AND id = ANY(@ids)";
 
     public async Task<IReadOnlyList<BookInsight>> ListByIdsAsync(Guid userId, IReadOnlyCollection<Guid> ids, CancellationToken ct) =>
-        ids.Count == 0 ? [] : await ListAsync("user_id = @userId AND id = ANY(@ids)", new { userId, ids = ids.ToArray() }, ct);
+        ids.Count == 0 ? [] : await ListAsync(SelectByIds, new { userId, ids = ids.ToArray() }, ct);
+
+    private const string UpsertInsight = $"""
+        {InsertIntoSlot}
+        DO UPDATE SET text = EXCLUDED.text, question = EXCLUDED.question, updated_at = now()
+        WHERE book_insight.review_json IS NULL
+        RETURNING {Columns}
+        """;
 
     public async Task<BookInsight?> SaveAsync(BookInsight insight, CancellationToken ct)
     {
         // Through here a review would land in a slot that only SaveReviewAsync may then write.
         if (insight.ReviewJson is not null)
             throw new ArgumentException("A chapter review is saved with SaveReviewAsync.", nameof(insight));
-        const string sql = $"""
-            {InsertIntoSlot}
-            DO UPDATE SET text = EXCLUDED.text, question = EXCLUDED.question, updated_at = now()
-            WHERE book_insight.review_json IS NULL
-            RETURNING {Columns}
-            """;
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<BookInsight>(new CommandDefinition(sql, insight, cancellationToken: ct));
+        return await conn.QuerySingleOrDefaultAsync<BookInsight>(new CommandDefinition(UpsertInsight, insight, cancellationToken: ct));
     }
+
+    private const string UpsertReview = $"""
+        {InsertIntoSlot}
+        DO UPDATE SET review_json = EXCLUDED.review_json, text = EXCLUDED.text,
+                      question = EXCLUDED.question, updated_at = now()
+        RETURNING {Columns}
+        """;
 
     public async Task<BookInsight> SaveReviewAsync(BookInsight insight, CancellationToken ct)
     {
@@ -54,29 +68,21 @@ public sealed class BookInsightRepository(V2DataSource dataSource) : IBookInsigh
         ArgumentNullException.ThrowIfNull(insight.ReviewJson);
         if (insight.ChapterSlug is null)
             throw new ArgumentException("A chapter review needs a chapter slug.", nameof(insight));
-        const string sql = $"""
-            {InsertIntoSlot}
-            DO UPDATE SET review_json = EXCLUDED.review_json, text = EXCLUDED.text,
-                          question = EXCLUDED.question, updated_at = now()
-            RETURNING {Columns}
-            """;
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleAsync<BookInsight>(new CommandDefinition(sql, insight, cancellationToken: ct));
+        return await conn.QuerySingleAsync<BookInsight>(new CommandDefinition(UpsertReview, insight, cancellationToken: ct));
     }
+
+    private const string DeleteInsight = "DELETE FROM book_insight WHERE user_id = @userId AND id = @id";
 
     public async Task<bool> DeleteAsync(Guid userId, Guid id, CancellationToken ct)
     {
-        const string sql = "DELETE FROM book_insight WHERE user_id = @userId AND id = @id";
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(sql, new { userId, id }, cancellationToken: ct)) > 0;
+        return await conn.ExecuteAsync(new CommandDefinition(DeleteInsight, new { userId, id }, cancellationToken: ct)) > 0;
     }
 
-    /// <summary>Insights matching <paramref name="where"/>, which must filter on <c>user_id</c>.</summary>
-    private async Task<IReadOnlyList<BookInsight>> ListAsync(string where, object args, CancellationToken ct)
+    private async Task<IReadOnlyList<BookInsight>> ListAsync(string select, object args, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        var rows = await conn.QueryAsync<BookInsight>(new CommandDefinition(
-            $"SELECT {Columns} FROM book_insight WHERE {where}", args, cancellationToken: ct));
-        return rows.AsList();
+        return (await conn.QueryAsync<BookInsight>(new CommandDefinition(select, args, cancellationToken: ct))).AsList();
     }
 }

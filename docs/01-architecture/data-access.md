@@ -57,6 +57,9 @@ Dependency rule unchanged: Api → Application → Domain ← Infrastructure.
     fails. One is registered (`DataSource.ConfigureDapper`): `DateTimeOffset` parameters are written
     as UTC, because Npgsql throws on a non-zero offset and client times arrive with one. It covers
     scalar parameters, not arrays: convert array elements yourself (as `ReplaceForInsightAsync` does).
+    One clock per column: what the database stamps (`created_at`, `started_at`, `revoked_at`,
+    `denied_at`, `consumed_at`, `last_used_at`, …) is written `now()` and compared with
+    `now() - @interval`; a deadline the application wrote (`expires_at`) is compared with the caller's `@now`.
 12. **No EF navigation into a ported table.** A join through one becomes a second query through the
     repository.
 13. **SQL stays inline, next to the method that runs it** (decided 2026-10-30; the owner considered

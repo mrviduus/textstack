@@ -17,46 +17,48 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
     private const string Columns =
         "file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision, reset_revision";
 
+    private const string SelectState = $"SELECT {Columns} FROM reading_state WHERE user_id = @userId AND book_id = @bookId";
+
     public async Task<ReadingState?> GetAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
-        const string sql = $"SELECT {Columns} FROM reading_state WHERE user_id = @userId AND book_id = @bookId";
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         return await conn.QuerySingleOrDefaultAsync<ReadingState>(
-            new CommandDefinition(sql, new { userId, bookId }, cancellationToken: ct));
+            new CommandDefinition(SelectState, new { userId, bookId }, cancellationToken: ct));
     }
+
+    // A first write may only start on the book's current file; ON CONFLICT turns "someone wrote
+    // first" into no row returned. Selecting the file by user also makes another user's ids a loss.
+    private const string InsertFirstState = $"""
+        INSERT INTO reading_state (user_id, book_id, file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision)
+        SELECT f.user_id, f.book_id, f.id, CAST(@CurrentLocator AS jsonb), @BookFraction, CAST(@FrontierLocator AS jsonb), @FrontierFraction, @CompletedAt, @ClientRecordedAt, now(), 1
+        FROM book_files f
+        WHERE f.user_id = @userId AND f.book_id = @bookId AND f.id = @FileId AND f.is_current
+        -- Waits for a replacement in flight, then re-checks is_current: no state lands on a superseded file.
+        FOR SHARE OF f
+        ON CONFLICT (user_id, book_id) DO NOTHING
+        RETURNING {Columns}
+        """;
+
+    // The frontier moves only forward, locator with fraction. A row with no frontier yet takes
+    // the offered one. Completion, like the frontier, is undone only by a reset.
+    private const string AdvanceGuarded = $"""
+        UPDATE reading_state SET
+            current_locator = CAST(@CurrentLocator AS jsonb),
+            book_fraction = @BookFraction,
+            frontier_locator = CASE WHEN frontier_fraction IS NULL OR @FrontierFraction > frontier_fraction
+                                    THEN CAST(@FrontierLocator AS jsonb) ELSE frontier_locator END,
+            frontier_fraction = GREATEST(frontier_fraction, @FrontierFraction),
+            completed_at = COALESCE(completed_at, @CompletedAt),
+            client_recorded_at = @ClientRecordedAt,
+            updated_at = now(),
+            revision = revision + 1
+        WHERE user_id = @userId AND book_id = @bookId AND file_id = @FileId AND revision = @expectedRevision
+        RETURNING {Columns}
+        """;
 
     public async Task<RevisionedWrite<ReadingState>> AdvanceAsync(
         Guid userId, Guid bookId, ReadingState state, long? expectedRevision, CancellationToken ct)
     {
-        // A first write may only start on the book's current file; ON CONFLICT turns "someone wrote
-        // first" into no row returned. Selecting the file by user also makes another user's ids a loss.
-        const string create = $"""
-            INSERT INTO reading_state (user_id, book_id, file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision)
-            SELECT f.user_id, f.book_id, f.id, CAST(@CurrentLocator AS jsonb), @BookFraction, CAST(@FrontierLocator AS jsonb), @FrontierFraction, @CompletedAt, @ClientRecordedAt, now(), 1
-            FROM book_files f
-            WHERE f.user_id = @userId AND f.book_id = @bookId AND f.id = @FileId AND f.is_current
-            -- Waits for a replacement in flight, then re-checks is_current: no state lands on a superseded file.
-            FOR SHARE OF f
-            ON CONFLICT (user_id, book_id) DO NOTHING
-            RETURNING {Columns}
-            """;
-        // The frontier moves only forward, locator with fraction. A row with no frontier yet takes
-        // the offered one. Completion, like the frontier, is undone only by a reset.
-        const string advance = $"""
-            UPDATE reading_state SET
-                current_locator = CAST(@CurrentLocator AS jsonb),
-                book_fraction = @BookFraction,
-                frontier_locator = CASE WHEN frontier_fraction IS NULL OR @FrontierFraction > frontier_fraction
-                                        THEN CAST(@FrontierLocator AS jsonb) ELSE frontier_locator END,
-                frontier_fraction = GREATEST(frontier_fraction, @FrontierFraction),
-                completed_at = COALESCE(completed_at, @CompletedAt),
-                client_recorded_at = @ClientRecordedAt,
-                updated_at = now(),
-                revision = revision + 1
-            WHERE user_id = @userId AND book_id = @bookId AND file_id = @FileId AND revision = @expectedRevision
-            RETURNING {Columns}
-            """;
-
         // The offered frontier is the further of the client's frontier and its position: a client
         // that sends none, half of one, or one behind its position, never leaves the frontier trailing.
         var offerFrontier = state.FrontierLocator is not null && state.FrontierFraction >= state.BookFraction;
@@ -76,30 +78,31 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
         await using (var conn = await dataSource.OpenConnectionAsync(ct))
         {
             var written = await conn.QuerySingleOrDefaultAsync<ReadingState>(new CommandDefinition(
-                expectedRevision is null ? create : advance, args, cancellationToken: ct));
+                expectedRevision is null ? InsertFirstState : AdvanceGuarded, args, cancellationToken: ct));
             if (written is not null) return new RevisionedWrite<ReadingState>(true, written);
         }
         return new RevisionedWrite<ReadingState>(false, await GetAsync(userId, bookId, ct));
     }
 
+    // An update, not a delete: a deleted row would let the next first write start at revision 1
+    // again, and a stale device holding revision 1 would then win and undo the reset. Both
+    // columns read the old revision, so reset_revision = revision after this.
+    private const string ResetFrontier = $"""
+        UPDATE reading_state SET
+            frontier_locator = NULL,
+            frontier_fraction = NULL,
+            completed_at = NULL,
+            updated_at = now(),
+            revision = revision + 1,
+            reset_revision = revision + 1
+        WHERE user_id = @userId AND book_id = @bookId
+        RETURNING {Columns}
+        """;
+
     public async Task<ReadingState?> ResetAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
-        // An update, not a delete: a deleted row would let the next first write start at revision 1
-        // again, and a stale device holding revision 1 would then win and undo the reset. Both
-        // columns read the old revision, so reset_revision = revision after this.
-        const string sql = $"""
-            UPDATE reading_state SET
-                frontier_locator = NULL,
-                frontier_fraction = NULL,
-                completed_at = NULL,
-                updated_at = now(),
-                revision = revision + 1,
-                reset_revision = revision + 1
-            WHERE user_id = @userId AND book_id = @bookId
-            RETURNING {Columns}
-            """;
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         return await conn.QuerySingleOrDefaultAsync<ReadingState>(
-            new CommandDefinition(sql, new { userId, bookId }, cancellationToken: ct));
+            new CommandDefinition(ResetFrontier, new { userId, bookId }, cancellationToken: ct));
     }
 }
