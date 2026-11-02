@@ -81,8 +81,13 @@ public class DiscussionPayloadsTests
     {
         var row = new SharedChapter
         {
-            BookId = BookId, FileId = FileId, ChapterKey = "ch02.xhtml", ChapterTitle = "Chapter II", ChapterText = "It was the night.\nДракула",
-            NotesSnapshot = """[{"rect": {"x": 1.0, "y": 0.5}, "text": "night"}]""", Language = "en",
+            BookId = BookId,
+            FileId = FileId,
+            ChapterKey = "ch02.xhtml",
+            ChapterTitle = "Chapter II",
+            ChapterText = "It was the night.\nДракула",
+            NotesSnapshot = """[{"rect": {"x": 1.0, "y": 0.5}, "text": "night"}]""",
+            Language = "en",
         };
 
         Assert.Equal("49f9aa7177436f00193a7009f4782177342e825a35a057b1d7123ba6b7482059", DiscussionPayloads.ShareSha256(row));

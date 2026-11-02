@@ -34,8 +34,7 @@ public class V2IdentityMirrorEndpointTests(V2ApiFixture v2) : IClassFixture<V2Ap
         var (account, _) = await v2.SignInAsync("/auth/register", new { email, password, name = "Merge" });
         var (accountBook, accountFile, sha256) = await v2.ImportAsync(account);
         var guest = await v2.NewGuestAsync();
-        var (guestBook, guestFile) = (Guid.NewGuid(), Guid.NewGuid());
-        Assert.Equal(HttpStatusCode.Created, (await v2.SendAsync(guest, HttpMethod.Put, $"/me/v2/books/{guestBook}", new { title = "Same bytes", file = File(guestFile, sha256) })).Status);
+        var (guestBook, guestFile, _) = await v2.ImportAsync(guest, sha256);
         var unmatched = (await v2.ImportAsync(guest)).Book;
         var word = (await v2.SendAsync(guest, HttpMethod.Put, "/me/v2/vocabulary/words", new { id = Guid.NewGuid(), language = "en", word = "quiver" + Guid.NewGuid().ToString("N")[..8] }))
             .Body.GetProperty("id").GetGuid();
@@ -72,8 +71,7 @@ public class V2IdentityMirrorEndpointTests(V2ApiFixture v2) : IClassFixture<V2Ap
         var key = "quiver" + Guid.NewGuid().ToString("N")[..8];
         var accountWord = (await v2.SendAsync(account, HttpMethod.Put, "/me/v2/vocabulary/words", new { id = Guid.NewGuid(), language = "en", word = key })).Body.GetProperty("id").GetGuid();
         var guest = await v2.NewGuestAsync();
-        var (guestBook, guestFile) = (Guid.NewGuid(), Guid.NewGuid());
-        Assert.Equal(HttpStatusCode.Created, (await v2.SendAsync(guest, HttpMethod.Put, $"/me/v2/books/{guestBook}", new { title = "Same", file = File(guestFile, sha256) })).Status);
+        var (guestBook, guestFile, _) = await v2.ImportAsync(guest, sha256);
         var guestWord = (await v2.SendAsync(guest, HttpMethod.Put, "/me/v2/vocabulary/words", new { id = Guid.NewGuid(), language = "en", word = key })).Body.GetProperty("id").GetGuid();
         var review = new { operationId = Guid.NewGuid(), wordId = guestWord, reviewMode = "flashcard", isCorrect = true, responseTimeMs = 1200, clientRecordedAt = DateTimeOffset.UtcNow.AddMinutes(-1) };
         var example = new { operationId = Guid.NewGuid(), sentence = "A quiver of arrows.", bookId = guestBook, fileId = guestFile, chapterKey = "ch-1" };

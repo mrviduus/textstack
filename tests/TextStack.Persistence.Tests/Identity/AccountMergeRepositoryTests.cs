@@ -242,8 +242,14 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         await vocabulary.AddExampleAsync(userId, NewExample(card, "A quiver of arrows."), Ct);
         await vocabulary.RecordReviewAsync(userId, new()
         {
-            Id = Guid.NewGuid(), UserId = userId, WordId = card.Id, OperationId = Guid.NewGuid(), PayloadSha256 = NewHash(),
-            ReviewMode = "flashcard", IsCorrect = true, ClientRecordedAt = DateTimeOffset.UtcNow,
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            WordId = card.Id,
+            OperationId = Guid.NewGuid(),
+            PayloadSha256 = NewHash(),
+            ReviewMode = "flashcard",
+            IsCorrect = true,
+            ClientRecordedAt = DateTimeOffset.UtcNow,
         }, c => new Application.Vocabulary.ReviewSchedule(c.Stage + 1, 1m, 0, Retire: false), Ct);
         return card;
     }

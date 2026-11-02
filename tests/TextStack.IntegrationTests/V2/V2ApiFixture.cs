@@ -62,9 +62,7 @@ public sealed class V2ApiFixture : IAsyncLifetime
         {
             var alice = await LoginAsync(client, "v2-alice@textstack.app");
             var bob = await LoginAsync(client, "v2-bob@textstack.app");
-            using var probe = new HttpRequestMessage(HttpMethod.Get, "/me/v2/status");
-            probe.Headers.Host = LiveApiFixture.TestHost;
-            probe.Headers.Add("Cookie", alice.Cookie);
+            using var probe = Request(HttpMethod.Get, "/me/v2/status", alice);
             using var status = await client.SendAsync(probe);
             return (alice, bob, status.StatusCode == HttpStatusCode.OK ? null
                 : $"V2_API_TESTS=1 but GET /me/v2/status answered {(int)status.StatusCode}: run `make migrate-v2` and recreate the api with Features__V2Api=true");
@@ -77,8 +75,7 @@ public sealed class V2ApiFixture : IAsyncLifetime
 
     private static async Task<V2Session> LoginAsync(HttpClient client, string email)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/auth/test-login") { Content = JsonContent.Create(new { email }) };
-        request.Headers.Host = LiveApiFixture.TestHost;
+        using var request = Request(HttpMethod.Post, "/auth/test-login", body: new { email });
         using var response = await client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException($"test-login answered {(int)response.StatusCode} (ENABLE_TEST_AUTH=true?)");
@@ -88,8 +85,7 @@ public sealed class V2ApiFixture : IAsyncLifetime
     /// <summary>A fresh guest: an empty library, so a feed holds exactly what the test wrote.</summary>
     public async Task<V2Session> NewGuestAsync()
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/auth/guest");
-        request.Headers.Host = LiveApiFixture.TestHost;
+        using var request = Request(HttpMethod.Post, "/auth/guest");
         using var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
         Assert.SkipWhen(response.StatusCode == HttpStatusCode.TooManyRequests,
             "guest-session rate limit hit: raise GUEST_SESSION_PERMIT_LIMIT on the api (CLAUDE.md)");
@@ -100,9 +96,7 @@ public sealed class V2ApiFixture : IAsyncLifetime
     /// <summary>A web sign-in (<paramref name="path"/> under /auth), carrying <paramref name="guest"/>'s session when given: the new session and the answer.</summary>
     public async Task<(V2Session Session, V2Response Response)> SignInAsync(string path, object body, V2Session? guest = null)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
-        request.Headers.Host = LiveApiFixture.TestHost;
-        if (guest is not null) request.Headers.Add("Cookie", guest.Cookie);
+        using var request = Request(HttpMethod.Post, path, guest, body);
         using var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
         Assert.SkipWhen(response.StatusCode == HttpStatusCode.TooManyRequests, $"{path} rate limit hit: raise USER_LOGIN_PERMIT_LIMIT on the api (CLAUDE.md)");
         response.EnsureSuccessStatusCode();
@@ -110,15 +104,21 @@ public sealed class V2ApiFixture : IAsyncLifetime
         return (new V2Session(Cookie(response)), new V2Response(response.StatusCode, JsonSerializer.Deserialize<JsonElement>(text)));
     }
 
+    /// <summary>A request to the test host, with <paramref name="who"/>'s session and a JSON body when given.</summary>
+    private static HttpRequestMessage Request(HttpMethod method, string path, V2Session? who = null, object? body = null)
+    {
+        var request = new HttpRequestMessage(method, path) { Content = body is null ? null : JsonContent.Create(body) };
+        request.Headers.Host = LiveApiFixture.TestHost;
+        if (who is not null) request.Headers.Add("Cookie", who.Cookie);
+        return request;
+    }
+
     private static string Cookie(HttpResponseMessage response) =>
         AuthenticatedApiFixture.CookieHeader(response) is { Length: > 0 } cookie ? cookie : throw new InvalidOperationException("no session cookie");
 
     public async Task<V2Response> SendAsync(V2Session who, HttpMethod method, string path, object? body = null)
     {
-        using var request = new HttpRequestMessage(method, path);
-        request.Headers.Host = LiveApiFixture.TestHost;
-        request.Headers.Add("Cookie", who.Cookie);
-        if (body is not null) request.Content = JsonContent.Create(body);
+        using var request = Request(method, path, who, body);
         using var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
         var text = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         return new V2Response(response.StatusCode, text.Length == 0 ? default : JsonSerializer.Deserialize<JsonElement>(text));
@@ -129,10 +129,11 @@ public sealed class V2ApiFixture : IAsyncLifetime
     public static object File(Guid id, string? sha256 = null) =>
         new { id, sha256 = sha256 ?? NewSha256(), byteSize = 1024, originalName = "book.epub", format = "epub" };
 
-    /// <summary>Imports a new book with one file; returns its ids.</summary>
-    public async Task<(Guid Book, Guid File, string Sha256)> ImportAsync(V2Session who)
+    /// <summary>Imports a new book with one file, its bytes <paramref name="sha256"/> when given; returns its ids.</summary>
+    public async Task<(Guid Book, Guid File, string Sha256)> ImportAsync(V2Session who, string? sha256 = null)
     {
-        var (bookId, fileId, sha256) = (Guid.NewGuid(), Guid.NewGuid(), NewSha256());
+        var (bookId, fileId) = (Guid.NewGuid(), Guid.NewGuid());
+        sha256 ??= NewSha256();
         var created = await SendAsync(who, HttpMethod.Put, $"/me/v2/books/{bookId}", new { title = "A V2 book", file = File(fileId, sha256) });
         Assert.Equal(HttpStatusCode.Created, created.Status);
         return (bookId, fileId, sha256);
