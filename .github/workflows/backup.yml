@@ -8,6 +8,8 @@ on:
 env:
   PROJECT_DIR: /home/vasyl/projects/onlinelib/textstack
   BACKUP_DIR: /home/vasyl/backups/textstack
+  # The V2 database (ADR-030): same container, its own dump, files prefixed by its name.
+  V2_DB: textstack_v2
   # Opt JS actions into Node 24 ahead of June 2026 forced cutover.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
@@ -38,6 +40,25 @@ jobs:
             || { echo "::error::db-$BACKUP_DATE.sql.gz has no dump-complete trailer"; exit 1; }
           echo "Database backup: db-$BACKUP_DATE.sql.gz"
 
+      # V2 next to legacy (#1043). Skipped, green, while the database does not exist: migrator-v2 is
+      # behind a profile, so a fresh server has none. continue-on-error: a failure here must not stop
+      # one legacy step below; the last step turns it red. Means nothing for the site.
+      - name: Backup V2 database
+        id: v2
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          exists=$(docker exec textstack_db_prod psql -XtA -U textstack_prod -d postgres \
+            -c "SELECT 1 FROM pg_database WHERE datname = '$V2_DB'")
+          [ -n "$exists" ] || { echo "No $V2_DB database on this server: V2 dump skipped"; exit 0; }
+          f=$BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz
+          # .tmp until the trailer is seen: the R2 step sends the file only if it exists.
+          docker exec textstack_db_prod pg_dump -U textstack_prod $V2_DB | gzip > $f.tmp
+          zcat $f.tmp | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
+            || { echo "::error::$V2_DB dump has no dump-complete trailer"; exit 1; }
+          mv $f.tmp $f
+          echo "V2 database backup: $(basename $f)"
+
       - name: Backup storage
         run: |
           # GNU tar exits 1 when a file changed while being read (readers upload while we
@@ -51,6 +72,9 @@ jobs:
           ls -1t db-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
           ls -1t storage-*.tar.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
           ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
+          ls -1t $V2_DB-db-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
+          ls -1t $V2_DB-pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
+          rm -fv $V2_DB-*.tmp
 
       - name: Verify archive integrity
         run: |
@@ -114,6 +138,14 @@ jobs:
             echo "::error::R2 backup repo is $((size / 1024 / 1024)) MB (> 9 GB)"
             exit 1
           fi
+          # V2 last, after every legacy write and check, so its failure costs legacy nothing. Its own
+          # stdin path: restore-drill.yml reads "no /db_v2.sql snapshot" as "no V2 in this backup".
+          v2="$BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz"
+          if [ -f "$v2" ]; then
+            zcat "$v2" | restic backup --host textstack-prod --tag nightly --stdin --stdin-filename db_v2.sql
+          else
+            echo "No V2 dump tonight: nothing V2 sent to R2"
+          fi
 
       # No nightly SSG rebuild since #992: the SSG tree is frozen (search sent 6 clicks in 90 days).
       # Rebuild by hand when the catalog changes: admin panel or `make rebuild-ssg`.
@@ -130,3 +162,11 @@ jobs:
             [ "$pct" -lt 85 ] || { echo "::error::$mnt is ${pct}% full"; bad=1; }
           done
           exit $bad
+
+      # The V2 dump above is continue-on-error so every legacy step runs; this makes its failure the
+      # job's red (and email) anyway.
+      - name: V2 dump failed
+        if: always() && steps.v2.outcome == 'failure'
+        run: |
+          echo "::error::The $V2_DB dump failed (step 'Backup V2 database'). Legacy backup unaffected."
+          exit 1

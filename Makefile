@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status migrate migrate-down migrate-status migrate-v2 migrate-v2-down migrate-v2-status migrator-guard backup restore backup-list backup-verify rebuild-ssg clean-ssg featured featured-show nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
+.PHONY: up down restart logs status migrate migrate-down migrate-status migrate-v2 migrate-v2-down migrate-v2-status migrator-guard backup restore restore-v2 backup-list backup-verify rebuild-ssg clean-ssg featured featured-show nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
 
 # ============================================================
 # Docker Services
@@ -144,12 +144,26 @@ nginx-setup-mac:
 # ============================================================
 
 BACKUP_DIR := $(HOME)/backups/textstack
+# Overridable only so the targets can be run against a throwaway Postgres.
+DB_CONTAINER ?= textstack_db_prod
+# Prints the V2 database's name (ADR-030) when it exists in DB_CONTAINER, nothing when it does not.
+V2_EXISTS = docker exec $(DB_CONTAINER) psql -XtA -U $$POSTGRES_USER -d postgres \
+	-c "SELECT datname FROM pg_database WHERE datname = '$${V2_POSTGRES_DB:-textstack_v2}'"
 
 backup:
 	@mkdir -p $(BACKUP_DIR)
-	@. ./.env && docker exec textstack_db_prod pg_dump -U $$POSTGRES_USER $$POSTGRES_DB | gzip > $(BACKUP_DIR)/db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
+	@. ./.env && docker exec $(DB_CONTAINER) pg_dump -U $$POSTGRES_USER $$POSTGRES_DB | gzip > $(BACKUP_DIR)/db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
 	@echo "Backup saved:"
 	@ls -lh $(BACKUP_DIR)/db_*.sql.gz | tail -1
+	@# V2 after legacy, so nothing legacy waits on it. A database migrator-v2 has not created yet
+	@# (profile `v2`) is skipped, not an error. Written to .tmp and renamed only once complete.
+	@. ./.env && v2=$$($(V2_EXISTS)) || exit 1; \
+	if [ -z "$$v2" ]; then echo "No V2 database here: V2 dump skipped."; exit 0; fi; \
+	f=$(BACKUP_DIR)/$$v2-db_$$(date +%Y-%m-%d_%H%M%S).sql.gz; \
+	docker exec $(DB_CONTAINER) pg_dump -U $$POSTGRES_USER $$v2 | gzip > $$f.tmp; \
+	gunzip -c $$f.tmp | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
+		|| { echo "V2 dump incomplete: $$f.tmp"; exit 1; }; \
+	mv $$f.tmp $$f; echo "V2 backup saved:"; ls -lh $$f
 
 restore:
 	@if [ -z "$(FILE)" ]; then \
@@ -157,7 +171,18 @@ restore:
 		exit 1; \
 	fi
 	@echo "Restoring from $(FILE)..."
-	@. ./.env && gunzip -c $(FILE) | docker exec -i textstack_db_prod psql -U $$POSTGRES_USER $$POSTGRES_DB
+	@. ./.env && gunzip -c $(FILE) | docker exec -i $(DB_CONTAINER) psql -U $$POSTGRES_USER $$POSTGRES_DB
+	@echo "Done."
+
+# A V2 dump (textstack_v2-db_*.sql.gz, textstack_v2-db-*, textstack_v2-pre-deploy-*) into a V2
+# database that does not exist: a dump loaded over tables already there would half-apply. Drop it
+# first (migrate-v2-drop). Created by run.sh, as migrator-v2 creates it: ICU, from template0.
+restore-v2:
+	@test -n "$(FILE)" || { echo "Usage: make restore-v2 FILE=$(BACKUP_DIR)/textstack_v2-db_YYYY-MM-DD_HHMMSS.sql.gz"; exit 1; }
+	@. ./.env && v2=$$($(V2_EXISTS)) || exit 1; \
+	[ -z "$$v2" ] || { echo "$$v2 exists. Restore only into an absent one: make migrate-v2-drop CONFIRM=$$v2 first."; exit 1; }
+	$(MIGRATOR_V2) create
+	@. ./.env && gunzip -c $(FILE) | docker exec -i $(DB_CONTAINER) psql -X -q -v ON_ERROR_STOP=1 -U $$POSTGRES_USER -d $${V2_POSTGRES_DB:-textstack_v2}
 	@echo "Done."
 
 backup-list:
