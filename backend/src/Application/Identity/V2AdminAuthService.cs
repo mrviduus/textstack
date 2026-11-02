@@ -42,7 +42,7 @@ public sealed class V2AdminAuthService(
         if (admin is not { Role: UserAccount.AdminRole })
             return null;
         var (raw, newHash) = JwtTokens.NewOpaqueToken();
-        return await sessions.RotateAsync(admin.Id, hash, newHash, await RefreshExpiresAtAsync(ct), now, ct) is null
+        return await sessions.RotateAsync(admin.Id, hash, newHash, await RefreshExpiresAtAsync(ct), now, now.AddDays(-JwtTokens.RefreshAbsoluteDays), ct) is null
             ? null
             : await ResultAsync(admin, raw, ct);
     }

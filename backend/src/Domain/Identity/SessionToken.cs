@@ -2,8 +2,9 @@ namespace Domain.Identity;
 
 /// <summary>
 /// A signed-in session of a reader or an admin (V2 table <c>user_refresh_tokens</c>): the hash of its
-/// refresh token, never the token. Rotation deletes the row and creates its successor, which keeps
-/// the spent hash in <see cref="PreviousTokenHash"/>, so a spent token presented again is recognised.
+/// refresh token, never the token. Rotation expires the row and creates its successor, which keeps
+/// the spent hash in <see cref="PreviousTokenHash"/>, so a spent token presented again is recognised
+/// and its whole family revoked.
 /// </summary>
 public class SessionToken
 {

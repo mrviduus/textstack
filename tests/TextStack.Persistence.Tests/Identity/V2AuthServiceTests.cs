@@ -202,6 +202,28 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task RefreshTokenAsync_GrandparentReplayedAfterTheGrace_TheWholeFamilyDies()
+    {
+        var signedIn = (await RegisterAsync()).Result;
+        var child = (await Auth.RefreshTokenAsync(signedIn.RefreshToken!, Ct)).RefreshToken!;
+        var grandchild = (await Auth.RefreshTokenAsync(child, Ct)).RefreshToken!;
+        await db.ExecAsync("UPDATE user_refresh_tokens SET created_at = now() - interval '1 minute' WHERE user_id = @user", new { user = signedIn.User!.Id });
+
+        Assert.Equal(AuthStatus.TokenReused, (await Auth.RefreshTokenAsync(signedIn.RefreshToken!, Ct)).Status);
+
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(grandchild, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task RefreshTokenAsync_SignInPastItsAbsoluteLifetime_InvalidToken()
+    {
+        var signedIn = (await RegisterAsync()).Result;
+        await db.ExecAsync("UPDATE user_refresh_tokens SET created_at = now() - interval '91 days' WHERE user_id = @user", new { user = signedIn.User!.Id });
+
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(signedIn.RefreshToken!, Ct)).Status);
+    }
+
+    [Fact]
     public async Task LogoutAsync_Session_RevokedAndOnlyThatOne()
     {
         var (first, email) = await RegisterAsync();
@@ -470,12 +492,12 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     /// <summary>The real sessions, except that every rotation loses to a concurrent one.</summary>
     private sealed class LosingRotation(ISessionTokenRepository inner) : ISessionTokenRepository
     {
-        public Task<SessionToken?> RotateAsync(Guid userId, string oldTokenHash, string newTokenHash, DateTimeOffset expiresAt, DateTimeOffset now, CancellationToken ct) =>
+        public Task<SessionToken?> RotateAsync(Guid userId, string oldTokenHash, string newTokenHash, DateTimeOffset expiresAt, DateTimeOffset now, DateTimeOffset familyNotBefore, CancellationToken ct) =>
             Task.FromResult<SessionToken?>(null);
 
         public Task<SessionToken?> IssueAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, string? verifiedPasswordHash, CancellationToken ct) => inner.IssueAsync(userId, tokenHash, expiresAt, verifiedPasswordHash, ct);
         public Task<SessionToken?> GetLiveAsync(string tokenHash, DateTimeOffset now, CancellationToken ct) => inner.GetLiveAsync(tokenHash, now, ct);
-        public Task<Guid?> RevokeSuccessorsOfAsync(string tokenHash, TimeSpan grace, CancellationToken ct) => inner.RevokeSuccessorsOfAsync(tokenHash, grace, ct);
+        public Task<Guid?> RevokeFamilyAsync(string tokenHash, TimeSpan grace, CancellationToken ct) => inner.RevokeFamilyAsync(tokenHash, grace, ct);
         public Task<bool> RevokeAsync(string tokenHash, CancellationToken ct) => inner.RevokeAsync(tokenHash, ct);
         public Task<PasswordReset> CreatePasswordResetAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, CancellationToken ct) => inner.CreatePasswordResetAsync(userId, tokenHash, expiresAt, ct);
         public Task<Guid?> ResetPasswordAsync(string tokenHash, string passwordHash, DateTimeOffset now, CancellationToken ct) => inner.ResetPasswordAsync(tokenHash, passwordHash, now, ct);

@@ -112,6 +112,12 @@ public class JwtTokens(JwtSettings jwt, GoogleSettings? google = null, AppleSett
         return (raw, DeviceCodes.HashToken(raw));
     }
 
+    /// <summary>
+    /// The absolute lifetime of a V2 sign-in: past this many days since a chain's first session,
+    /// rotation is refused and the reader signs in again.
+    /// </summary>
+    public const int RefreshAbsoluteDays = 90;
+
     /// <summary>How long a refresh token lives: guests get their own (shorter or equal) window.</summary>
     public int RefreshTokenDays(bool isGuest) =>
         isGuest ? jwt.GuestRefreshTokenExpiryDays : jwt.RefreshTokenExpiryDays;

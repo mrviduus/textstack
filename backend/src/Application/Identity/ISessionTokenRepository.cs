@@ -23,19 +23,22 @@ public interface ISessionTokenRepository
 
     /// <summary>
     /// Spends the user's session <paramref name="oldTokenHash"/>, live at <paramref name="now"/>, and
-    /// issues its successor, which records the spent hash. Null when the old one is gone (a concurrent
-    /// rotation or a password reset won) or expired: nothing changed. A successor never survives a
+    /// issues its successor, which records the spent hash; the spent row stays, expired, so the chain
+    /// can be walked. Null (nothing changed) when the old one is gone, expired or already rotated (a
+    /// concurrent rotation or a password reset won), or when its chain's first session is older than
+    /// <paramref name="familyNotBefore"/> (the absolute lifetime). A successor never survives a
     /// <see cref="ResetPasswordAsync"/> that runs at the same time.
     /// </summary>
     Task<SessionToken?> RotateAsync(
-        Guid userId, string oldTokenHash, string newTokenHash, DateTimeOffset expiresAt, DateTimeOffset now, CancellationToken ct);
+        Guid userId, string oldTokenHash, string newTokenHash, DateTimeOffset expiresAt, DateTimeOffset now, DateTimeOffset familyNotBefore, CancellationToken ct);
 
     /// <summary>
     /// Reuse detection (RFC 9700 §4.14.2): <paramref name="tokenHash"/> was already rotated away, so
-    /// the sessions rotated from it more than <paramref name="grace"/> ago (the grace lets a client
-    /// retry its own rotation) are revoked. Returns their user; null when none.
+    /// every session rotated from it, any generations down, is revoked: unless its own successor is
+    /// younger than <paramref name="grace"/> (a client retrying its own rotation). Returns their user;
+    /// null when none.
     /// </summary>
-    Task<Guid?> RevokeSuccessorsOfAsync(string tokenHash, TimeSpan grace, CancellationToken ct);
+    Task<Guid?> RevokeFamilyAsync(string tokenHash, TimeSpan grace, CancellationToken ct);
 
     /// <summary>Signs the session out. False when there is no such session.</summary>
     Task<bool> RevokeAsync(string tokenHash, CancellationToken ct);
@@ -53,7 +56,11 @@ public interface ISessionTokenRepository
     /// </summary>
     Task<Guid?> ResetPasswordAsync(string tokenHash, string passwordHash, DateTimeOffset now, CancellationToken ct);
 
-    /// <summary>Deletes sessions that expired before <paramref name="expiredBefore"/>; returns how many.</summary>
+    /// <summary>
+    /// Deletes sessions that expired before <paramref name="expiredBefore"/>, rotated-away ones
+    /// included; returns how many. A cutoff more recent than the absolute lifetime ago shortens the
+    /// chains reuse detection and the cap can walk.
+    /// </summary>
     Task<int> DeleteExpiredSessionsAsync(DateTimeOffset expiredBefore, CancellationToken ct);
 
     /// <summary>Deletes reset codes that expired before <paramref name="expiredBefore"/>; returns how many.</summary>

@@ -11,6 +11,9 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
 
     private static DateTimeOffset NextWeek => DateTimeOffset.UtcNow.AddDays(7);
 
+    /// <summary>A family cutoff no test's chain is older than.</summary>
+    private static DateTimeOffset LongAgo => DateTimeOffset.UtcNow.AddDays(-90);
+
     [Fact]
     public async Task IssueAsync_NewSession_IsTheUsersAndLiveUntilItExpires()
     {
@@ -96,7 +99,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         var (old, next) = (NewHash(), NewHash());
         await _repo.IssueAsync(user, old, NextWeek, null, Ct);
 
-        var successor = (await _repo.RotateAsync(user, old, next, NextWeek, DateTimeOffset.UtcNow, Ct))!;
+        var successor = (await _repo.RotateAsync(user, old, next, NextWeek, DateTimeOffset.UtcNow, LongAgo, Ct))!;
 
         Assert.Equal((user, next, old), (successor.UserId, successor.TokenHash, successor.PreviousTokenHash));
         Assert.Null(await _repo.GetLiveAsync(old, DateTimeOffset.UtcNow, Ct));
@@ -108,9 +111,54 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         var user = await db.NewReaderAsync();
         var old = NewHash();
         await _repo.IssueAsync(user, old, NextWeek, null, Ct);
-        await _repo.RotateAsync(user, old, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct);
+        await _repo.RotateAsync(user, old, NewHash(), NextWeek, DateTimeOffset.UtcNow, LongAgo, Ct);
 
-        Assert.Null(await _repo.RotateAsync(user, old, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct));
+        Assert.Null(await _repo.RotateAsync(user, old, NewHash(), NextWeek, DateTimeOffset.UtcNow, LongAgo, Ct));
+        Assert.Equal(1L, await LiveAsync(user));
+    }
+
+    [Fact]
+    public async Task RotateAsync_ChainBeganBeforeTheCutoff_ReturnsNullAndKeepsTheSession()
+    {
+        var user = await db.NewReaderAsync();
+        var old = NewHash();
+        await _repo.IssueAsync(user, old, NextWeek, null, Ct);
+        await _repo.RotateAsync(user, old, NewHash(), NextWeek, DateTimeOffset.UtcNow, LongAgo, Ct);
+        var next = NewHash();
+        await _repo.RotateAsync(user, (await LiveHashAsync(user)), next, NextWeek, DateTimeOffset.UtcNow, LongAgo, Ct);
+
+        // The chain's first session, two generations back, is what the cutoff reads.
+        Assert.Null(await _repo.RotateAsync(user, next, NewHash(), NextWeek, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(1), Ct));
+        Assert.NotNull(await _repo.GetLiveAsync(next, DateTimeOffset.UtcNow, Ct));
+    }
+
+    [Fact]
+    public async Task RevokeFamilyAsync_GrandparentReplayed_RevokesEveryGenerationBelowIt()
+    {
+        var user = await db.NewReaderAsync();
+        var (first, second, third) = (NewHash(), NewHash(), NewHash());
+        await _repo.IssueAsync(user, first, NextWeek, null, Ct);
+        await _repo.RotateAsync(user, first, second, NextWeek, DateTimeOffset.UtcNow, LongAgo, Ct);
+        await _repo.RotateAsync(user, second, third, NextWeek, DateTimeOffset.UtcNow, LongAgo, Ct);
+
+        Assert.Equal(user, await _repo.RevokeFamilyAsync(first, TimeSpan.Zero, Ct));
+
+        Assert.Null(await _repo.GetLiveAsync(third, DateTimeOffset.UtcNow, Ct));
+        Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user)); // the replayed row itself, dead
+    }
+
+    [Fact]
+    public async Task DeleteExpiredSessionsAsync_RotatedAwayRow_RemovedOnceItsCutoffPasses()
+    {
+        var user = await db.NewReaderAsync();
+        var (old, next) = (NewHash(), NewHash());
+        await _repo.IssueAsync(user, old, NextWeek, null, Ct);
+        var rotatedAt = DateTimeOffset.UtcNow;
+        await _repo.RotateAsync(user, old, next, NextWeek, rotatedAt, LongAgo, Ct);
+
+        await _repo.DeleteExpiredSessionsAsync(rotatedAt.AddSeconds(1), Ct);
+
+        Assert.Equal(next, await LiveHashAsync(user));
         Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user));
     }
 
@@ -121,7 +169,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         var hers = NewHash();
         await _repo.IssueAsync(alice, hers, NextWeek, null, Ct);
 
-        Assert.Null(await _repo.RotateAsync(bob, hers, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct));
+        Assert.Null(await _repo.RotateAsync(bob, hers, NewHash(), NextWeek, DateTimeOffset.UtcNow, LongAgo, Ct));
         Assert.NotNull(await _repo.GetLiveAsync(hers, DateTimeOffset.UtcNow, Ct));
     }
 
@@ -132,7 +180,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         var old = NewHash();
         await _repo.IssueAsync(user, old, DateTimeOffset.UtcNow.AddSeconds(-1), null, Ct);
 
-        Assert.Null(await _repo.RotateAsync(user, old, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct));
+        Assert.Null(await _repo.RotateAsync(user, old, NewHash(), NextWeek, DateTimeOffset.UtcNow, LongAgo, Ct));
         Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user));
     }
 
@@ -149,7 +197,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         await reset.ExecuteAsync(new CommandDefinition(
             "SELECT FROM users WHERE id = @user FOR NO KEY UPDATE", new { user }, tx, cancellationToken: Ct));
 
-        var rotation = _repo.RotateAsync(user, old, NewHash(), NextWeek, DateTimeOffset.UtcNow, Ct);
+        var rotation = _repo.RotateAsync(user, old, NewHash(), NextWeek, DateTimeOffset.UtcNow, LongAgo, Ct);
         await db.WaitUntilBlockedByAsync(reset, rotation);
         var waited = !rotation.IsCompleted;
         await tx.CommitAsync(Ct);
@@ -159,28 +207,28 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task RevokeSuccessorsOfAsync_ReusedRotatedToken_RevokesItsSuccessor()
+    public async Task RevokeFamilyAsync_ReusedRotatedToken_RevokesItsSuccessor()
     {
         var user = await db.NewReaderAsync();
         var (old, next) = (NewHash(), NewHash());
         await _repo.IssueAsync(user, old, NextWeek, null, Ct);
-        await _repo.RotateAsync(user, old, next, NextWeek, DateTimeOffset.UtcNow, Ct);
+        await _repo.RotateAsync(user, old, next, NextWeek, DateTimeOffset.UtcNow, LongAgo, Ct);
 
         // The spent token comes back past the grace: two parties hold the chain.
-        Assert.Equal(user, await _repo.RevokeSuccessorsOfAsync(old, TimeSpan.Zero, Ct));
+        Assert.Equal(user, await _repo.RevokeFamilyAsync(old, TimeSpan.Zero, Ct));
 
         Assert.Null(await _repo.GetLiveAsync(next, DateTimeOffset.UtcNow, Ct));
     }
 
     [Fact]
-    public async Task RevokeSuccessorsOfAsync_SuccessorWithinTheGrace_KeepsIt()
+    public async Task RevokeFamilyAsync_SuccessorWithinTheGrace_KeepsIt()
     {
         var user = await db.NewReaderAsync();
         var (old, next) = (NewHash(), NewHash());
         await _repo.IssueAsync(user, old, NextWeek, null, Ct);
-        await _repo.RotateAsync(user, old, next, NextWeek, DateTimeOffset.UtcNow, Ct);
+        await _repo.RotateAsync(user, old, next, NextWeek, DateTimeOffset.UtcNow, LongAgo, Ct);
 
-        Assert.Null(await _repo.RevokeSuccessorsOfAsync(old, TimeSpan.FromSeconds(30), Ct));
+        Assert.Null(await _repo.RevokeFamilyAsync(old, TimeSpan.FromSeconds(30), Ct));
         Assert.NotNull(await _repo.GetLiveAsync(next, DateTimeOffset.UtcNow, Ct));
     }
 
@@ -366,4 +414,10 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         await db.ExecAsync("UPDATE users SET password_hash = @passwordHash WHERE id = @user", new { passwordHash, user });
         return user;
     }
+
+    private Task<long> LiveAsync(Guid user) =>
+        db.ScalarAsync<long>("SELECT count(*) FROM user_refresh_tokens WHERE user_id = @user AND expires_at > now()", new { user });
+
+    private Task<string> LiveHashAsync(Guid user) =>
+        db.ScalarAsync<string>("SELECT token_hash FROM user_refresh_tokens WHERE user_id = @user AND expires_at > now()", new { user });
 }

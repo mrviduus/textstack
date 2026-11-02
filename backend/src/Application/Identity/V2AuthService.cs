@@ -121,7 +121,7 @@ public sealed class V2AuthService(
         var session = await sessions.GetLiveAsync(hash, now, ct);
         if (session is null)
         {
-            var victim = await sessions.RevokeSuccessorsOfAsync(hash, JwtTokens.RefreshReuseGrace, ct);
+            var victim = await sessions.RevokeFamilyAsync(hash, JwtTokens.RefreshReuseGrace, ct);
             if (victim is null) return AuthResult.Failed(AuthStatus.InvalidToken);
             logger.LogWarning("Rotated refresh token presented again; revoked its successor for user {UserId}", victim);
             return AuthResult.Failed(AuthStatus.TokenReused);
@@ -130,8 +130,8 @@ public sealed class V2AuthService(
         var user = await users.GetAsync(session.UserId, ct);
         if (user is null) return AuthResult.Failed(AuthStatus.InvalidToken);
         var (raw, newHash) = JwtTokens.NewOpaqueToken();
-        return await sessions.RotateAsync(user.Id, hash, newHash, RefreshExpiresAt(user, now), now, ct) is null
-            ? AuthResult.Failed(AuthStatus.InvalidToken) // a concurrent rotation or a reset won
+        return await sessions.RotateAsync(user.Id, hash, newHash, RefreshExpiresAt(user, now), now, now.AddDays(-JwtTokens.RefreshAbsoluteDays), ct) is null
+            ? AuthResult.Failed(AuthStatus.InvalidToken) // a concurrent rotation or a reset won, or the sign-in is past its absolute lifetime
             : AuthResult.Ok(user, MintAccessToken(user), raw);
     }
 

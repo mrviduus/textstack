@@ -56,11 +56,23 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
     // reference the user (their FK checks take KEY SHARE) are not held up.
     private const string LockUser = "SELECT FROM users WHERE id = @userId FOR NO KEY UPDATE";
 
-    // Of two rotations of one token, the second waits for the first and then finds no row: nothing
-    // to spend, so no successor. An expired token is not spent either.
+    // The spent row stays, dead (expired at @now), so the previous_token_hash chain can be walked
+    // back to its first session (the absolute cap) and forward from a replayed token (RevokeFamily).
+    // Of two rotations of one token, the second waits for the first and then finds a successor:
+    // nothing to spend. An expired token, or one whose chain began before @familyNotBefore, is not spent.
     private const string RotateSession = $"""
-        WITH spent AS (
-            DELETE FROM user_refresh_tokens WHERE user_id = @userId AND token_hash = @oldTokenHash AND expires_at > @now
+        WITH RECURSIVE chain AS (
+            SELECT token_hash, previous_token_hash, created_at FROM user_refresh_tokens
+            WHERE user_id = @userId AND token_hash = @oldTokenHash
+            UNION
+            SELECT p.token_hash, p.previous_token_hash, p.created_at FROM user_refresh_tokens p
+            JOIN chain c ON p.token_hash = c.previous_token_hash
+            WHERE p.user_id = @userId),
+        spent AS (
+            UPDATE user_refresh_tokens SET expires_at = @now
+            WHERE user_id = @userId AND token_hash = @oldTokenHash AND expires_at > @now
+              AND NOT EXISTS (SELECT FROM user_refresh_tokens WHERE previous_token_hash = @oldTokenHash)
+              AND (SELECT min(created_at) FROM chain) >= @familyNotBefore
             RETURNING token_hash)
         INSERT INTO user_refresh_tokens (id, user_id, token_hash, expires_at, created_at, previous_token_hash)
         SELECT gen_random_uuid(), @userId, @newTokenHash, @expiresAt, now(), token_hash FROM spent
@@ -68,28 +80,34 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         """;
 
     public async Task<SessionToken?> RotateAsync(
-        Guid userId, string oldTokenHash, string newTokenHash, DateTimeOffset expiresAt, DateTimeOffset now, CancellationToken ct)
+        Guid userId, string oldTokenHash, string newTokenHash, DateTimeOffset expiresAt, DateTimeOffset now, DateTimeOffset familyNotBefore, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition(LockUser, new { userId }, tx, cancellationToken: ct));
         var successor = await conn.QuerySingleOrDefaultAsync<SessionToken>(new CommandDefinition(
-            RotateSession, new { userId, oldTokenHash, newTokenHash, expiresAt, now }, tx, cancellationToken: ct));
+            RotateSession, new { userId, oldTokenHash, newTokenHash, expiresAt, now, familyNotBefore }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
         return successor;
     }
 
-    // created_at is stamped by now(), so the grace is measured on the same clock.
-    // ponytail: remembers one generation back (previous_token_hash); an older spent token is refused but not treated as reuse.
-    private const string RevokeSuccessors = """
-        DELETE FROM user_refresh_tokens WHERE previous_token_hash = @tokenHash AND created_at < now() - @grace
+    // Everything rotated from the token, however many generations down (the live tail included),
+    // unless its own successor is younger than the grace. created_at is stamped by now(), so the
+    // grace is measured on the same clock.
+    private const string RevokeFamily = """
+        WITH RECURSIVE family AS (
+            SELECT id, token_hash FROM user_refresh_tokens WHERE previous_token_hash = @tokenHash
+            UNION
+            SELECT t.id, t.token_hash FROM user_refresh_tokens t JOIN family f ON t.previous_token_hash = f.token_hash)
+        DELETE FROM user_refresh_tokens WHERE id IN (SELECT id FROM family)
+          AND NOT EXISTS (SELECT FROM user_refresh_tokens WHERE previous_token_hash = @tokenHash AND created_at >= now() - @grace)
         RETURNING user_id
         """;
 
-    public async Task<Guid?> RevokeSuccessorsOfAsync(string tokenHash, TimeSpan grace, CancellationToken ct)
+    public async Task<Guid?> RevokeFamilyAsync(string tokenHash, TimeSpan grace, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return (await conn.QueryAsync<Guid?>(new CommandDefinition(RevokeSuccessors, new { tokenHash, grace }, cancellationToken: ct)))
+        return (await conn.QueryAsync<Guid?>(new CommandDefinition(RevokeFamily, new { tokenHash, grace }, cancellationToken: ct)))
             .FirstOrDefault();
     }
 
