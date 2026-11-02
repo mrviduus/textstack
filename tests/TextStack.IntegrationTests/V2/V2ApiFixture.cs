@@ -97,6 +97,19 @@ public sealed class V2ApiFixture : IAsyncLifetime
         return new V2Session(Cookie(response));
     }
 
+    /// <summary>A web sign-in (<paramref name="path"/> under /auth), carrying <paramref name="guest"/>'s session when given: the new session and the answer.</summary>
+    public async Task<(V2Session Session, V2Response Response)> SignInAsync(string path, object body, V2Session? guest = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
+        request.Headers.Host = LiveApiFixture.TestHost;
+        if (guest is not null) request.Headers.Add("Cookie", guest.Cookie);
+        using var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
+        Assert.SkipWhen(response.StatusCode == HttpStatusCode.TooManyRequests, $"{path} rate limit hit: raise USER_LOGIN_PERMIT_LIMIT on the api (CLAUDE.md)");
+        response.EnsureSuccessStatusCode();
+        var text = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        return (new V2Session(Cookie(response)), new V2Response(response.StatusCode, JsonSerializer.Deserialize<JsonElement>(text)));
+    }
+
     private static string Cookie(HttpResponseMessage response) =>
         AuthenticatedApiFixture.CookieHeader(response) is { Length: > 0 } cookie ? cookie : throw new InvalidOperationException("no session cookie");
 
