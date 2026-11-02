@@ -161,15 +161,10 @@ backup:
 	@. ./.env && docker exec $(DB_CONTAINER) pg_dump -U $$POSTGRES_USER $$POSTGRES_DB | gzip > $(BACKUP_DIR)/db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
 	@echo "Backup saved:"
 	@ls -lh $(BACKUP_DIR)/db_*.sql.gz | tail -1
-	@# V2 after legacy, so nothing legacy waits on it. A database migrator-v2 has not created yet
-	@# (profile `v2`) is skipped, not an error. Written to .tmp and renamed only once complete.
-	@. ./.env && v2=$$($(V2_EXISTS)) || exit 1; \
-	if [ -z "$$v2" ]; then echo "No V2 database here: V2 dump skipped."; exit 0; fi; \
-	f=$(BACKUP_DIR)/$$v2-db_$$(date +%Y-%m-%d_%H%M%S).sql.gz; \
-	docker exec $(DB_CONTAINER) pg_dump -U $$POSTGRES_USER $$v2 | gzip > $$f.tmp; \
-	gunzip -c < $$f.tmp | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
-		|| { echo "V2 dump incomplete: $$f.tmp"; exit 1; }; \
-	mv $$f.tmp $$f; echo "V2 backup saved:"; ls -lh $$f
+	@# V2 after legacy, so nothing legacy waits on it; a database migrator-v2 has not created yet
+	@# (profile `v2`) is skipped, not an error.
+	@. ./.env && v2=$${V2_POSTGRES_DB:-textstack_v2} && POSTGRES_USER=$$POSTGRES_USER DB_CONTAINER=$(DB_CONTAINER) \
+		bash infra/scripts/pg-dump-checked.sh $$v2 $(BACKUP_DIR)/$$v2-db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
 
 restore:
 	@if [ -z "$(FILE)" ]; then \

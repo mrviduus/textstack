@@ -273,18 +273,11 @@ jobs:
       - name: Pre-deploy backup (V2)
         continue-on-error: true
         run: |
-          set -o pipefail
-          exists=$(docker exec textstack_db_prod psql -XtA -U textstack_prod -d postgres \
-            -c "SELECT 1 FROM pg_database WHERE datname = 'textstack_v2'") \
-            || { echo "::error::cannot ask the server whether V2 exists"; exit 1; }  # a failed query is not "absent"
-          [ -n "$exists" ] || { echo "No textstack_v2 database on this server: V2 dump skipped"; exit 0; }
-          f=~/backups/textstack/textstack_v2-pre-deploy-$(date +%F-%H%M).sql.gz
-          docker exec textstack_db_prod pg_dump -U textstack_prod textstack_v2 | gzip > $f.tmp
-          zcat < $f.tmp | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
-            || { echo "::warning::V2 pre-deploy dump is incomplete; deploying without a V2 rollback point"; exit 1; }
-          mv $f.tmp $f
-          echo "V2 backup created: $(basename $f)"
-          cd ~/backups/textstack && ls -1t textstack_v2-pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
+          v2=$(sed -n 's/^V2_POSTGRES_DB=//p' $PROJECT_DIR/.env | tr -d "\"' ")
+          v2=${v2:-textstack_v2}
+          POSTGRES_USER=textstack_prod bash $PROJECT_DIR/infra/scripts/pg-dump-checked.sh \
+            $v2 ~/backups/textstack/$v2-pre-deploy-$(date +%F-%H%M).sql.gz
+          cd ~/backups/textstack && ls -1t $v2-pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
 
       # Vite reads apps/web/.env* and inlines VITE_* values into public JS. Nothing
       # here needs those files — the four VITE_ variables the code reads come from

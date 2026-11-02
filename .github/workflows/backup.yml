@@ -8,8 +8,6 @@ on:
 env:
   PROJECT_DIR: /home/vasyl/projects/onlinelib/textstack
   BACKUP_DIR: /home/vasyl/backups/textstack
-  # The V2 database (ADR-030): same container, its own dump, files prefixed by its name.
-  V2_DB: textstack_v2
   # Opt JS actions into Node 24 ahead of June 2026 forced cutover.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
@@ -24,7 +22,11 @@ jobs:
 
     steps:
       - name: Set backup date
-        run: echo "BACKUP_DATE=$(date +%F)" >> $GITHUB_ENV
+        run: |
+          echo "BACKUP_DATE=$(date +%F)" >> $GITHUB_ENV
+          # The V2 database (ADR-030): same container, its own dump, files prefixed by its name.
+          v2=$(sed -n 's/^V2_POSTGRES_DB=//p' $PROJECT_DIR/.env | tr -d "\"' ")
+          echo "V2_DB=${v2:-textstack_v2}" >> $GITHUB_ENV
 
       - name: Create backup directory
         run: mkdir -p $BACKUP_DIR
@@ -43,22 +45,13 @@ jobs:
       # V2 next to legacy (#1043). Skipped, green, while the database does not exist: migrator-v2 is
       # behind a profile, so a fresh server has none. continue-on-error: a failure here must not stop
       # one legacy step below; the last step turns it red. Means nothing for the site.
+      # The script writes the file only once complete: the R2 step sends it only if it exists.
       - name: Backup V2 database
         id: v2
         continue-on-error: true
         run: |
-          set -o pipefail
-          exists=$(docker exec textstack_db_prod psql -XtA -U textstack_prod -d postgres \
-            -c "SELECT 1 FROM pg_database WHERE datname = '$V2_DB'") \
-            || { echo "::error::cannot ask the server whether V2 exists"; exit 1; }  # a failed query is not "absent"
-          [ -n "$exists" ] || { echo "No $V2_DB database on this server: V2 dump skipped"; exit 0; }
-          f=$BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz
-          # .tmp until the trailer is seen: the R2 step sends the file only if it exists.
-          docker exec textstack_db_prod pg_dump -U textstack_prod $V2_DB | gzip > $f.tmp
-          zcat < $f.tmp | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
-            || { echo "::error::$V2_DB dump has no dump-complete trailer"; exit 1; }
-          mv $f.tmp $f
-          echo "V2 database backup: $(basename $f)"
+          POSTGRES_USER=textstack_prod bash $PROJECT_DIR/infra/scripts/pg-dump-checked.sh \
+            $V2_DB $BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz
 
       - name: Backup storage
         run: |
@@ -75,7 +68,6 @@ jobs:
           ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
           ls -1t $V2_DB-db-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
           ls -1t $V2_DB-pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
-          rm -fv $V2_DB-*.tmp
 
       - name: Verify archive integrity
         run: |
