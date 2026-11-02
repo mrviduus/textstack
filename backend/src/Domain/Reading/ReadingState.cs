@@ -8,6 +8,9 @@ namespace Domain.Reading;
 /// </summary>
 public class ReadingState
 {
+    /// <summary>Set by the server from the row's key; ignored on write.</summary>
+    public Guid BookId { get; set; }
+
     public Guid FileId { get; set; }
     public string CurrentLocator { get; set; } = "";
     public decimal BookFraction { get; set; }

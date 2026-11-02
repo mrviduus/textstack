@@ -1,4 +1,5 @@
 using Application.Annotations;
+using Application.Common;
 using Application.Common.Interfaces;
 using Application.Discussion;
 using Application.Identity;
@@ -25,7 +26,8 @@ public class V2DataAccessRegistrationTests
             .AddTextStackDataAccess(Legacy, null)
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 
-        Type[] v2Ports = [typeof(ILibraryRepository), typeof(IReadingStateRepository), typeof(IAnnotationRepository), typeof(IVocabularyRepository),
+        Type[] v2Ports = [typeof(IV2UnitOfWork), typeof(ILibraryRepository), typeof(IReadingStateRepository), typeof(IReadingSessionRepository),
+            typeof(IAnnotationRepository), typeof(IVocabularyRepository),
             typeof(ISharedChapterRepository), typeof(ICheckpointRepository),
             typeof(IBookInsightRepository), typeof(IReviewQuestionRepository),
             typeof(IUserRepository), typeof(ISessionTokenRepository), typeof(IOAuthRepository), typeof(IDeviceLoginRepository),
@@ -46,7 +48,9 @@ public class V2DataAccessRegistrationTests
             .BuildServiceProvider();
 
         Assert.NotNull(services.GetService<ILibraryRepository>());
+        Assert.NotNull(services.GetService<IV2UnitOfWork>());
         Assert.NotNull(services.GetService<IReadingStateRepository>());
+        Assert.NotNull(services.GetService<IReadingSessionRepository>());
         Assert.NotNull(services.GetService<IAnnotationRepository>());
         Assert.NotNull(services.GetService<IVocabularyRepository>());
         Assert.NotNull(services.GetService<ISharedChapterRepository>());

@@ -83,8 +83,8 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
     {
         var book = await db.NewReaderWithBookAsync();
         var otherId = Guid.NewGuid();
-        var other = await new LibraryRepository(db.DataSource).ImportAsync(
-            new Book { Id = otherId, UserId = book.UserId, Title = "Other" }, NewFile(book.UserId, otherId), Ct);
+        var other = (await new LibraryRepository(db.DataSource).ImportAsync(
+            book.UserId, new Book { Id = otherId, Title = "Other" }, NewFile(book.UserId, otherId), Ct)).Book!;
         var share = NewShare(book);
         share.FileId = other.CurrentFile!.Id;
 

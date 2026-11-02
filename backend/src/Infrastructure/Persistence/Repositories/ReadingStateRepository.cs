@@ -2,6 +2,7 @@ using Application.Common;
 using Application.Reading;
 using Dapper;
 using Domain.Reading;
+using Npgsql;
 
 namespace Infrastructure.Persistence.Repositories;
 
@@ -15,7 +16,7 @@ namespace Infrastructure.Persistence.Repositories;
 public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingStateRepository
 {
     private const string Columns =
-        "file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision, reset_revision";
+        "book_id, file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision, reset_revision";
 
     private const string SelectState = $"SELECT {Columns} FROM reading_state WHERE user_id = @userId AND book_id = @bookId";
 
@@ -86,7 +87,8 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
 
     // An update, not a delete: a deleted row would let the next first write start at revision 1
     // again, and a stale device holding revision 1 would then win and undo the reset. Both
-    // columns read the old revision, so reset_revision = revision after this.
+    // columns read the old revision, so reset_revision = revision after this. Guarded like a
+    // write (M1.2 delta 2a): a replayed reset after another device moved on must not reset again.
     private const string ResetFrontier = $"""
         UPDATE reading_state SET
             frontier_locator = NULL,
@@ -95,14 +97,44 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
             updated_at = now(),
             revision = revision + 1,
             reset_revision = revision + 1
-        WHERE user_id = @userId AND book_id = @bookId
+        WHERE user_id = @userId AND book_id = @bookId AND revision = @expectedRevision
         RETURNING {Columns}
         """;
 
-    public async Task<ReadingState?> ResetAsync(Guid userId, Guid bookId, CancellationToken ct)
+    public async Task<RevisionedWrite<ReadingState>> ResetAsync(Guid userId, Guid bookId, long expectedRevision, CancellationToken ct)
+    {
+        await using (var conn = await dataSource.OpenConnectionAsync(ct))
+        {
+            var reset = await conn.QuerySingleOrDefaultAsync<ReadingState>(
+                new CommandDefinition(ResetFrontier, new { userId, bookId, expectedRevision }, cancellationToken: ct));
+            if (reset is not null) return new RevisionedWrite<ReadingState>(true, reset);
+        }
+        return new RevisionedWrite<ReadingState>(false, await GetAsync(userId, bookId, ct));
+    }
+
+    // The state's locators and fractions mean something only in the version they were taken in.
+    // A delete is safe here, unlike in a reset: a device still holding the old revision names the
+    // old file, and AdvanceAsync's file_id guard makes that write lose.
+    private const string DeleteStateOfFile = "DELETE FROM reading_state WHERE user_id = @userId AND book_id = @bookId AND file_id = @fileId";
+
+    public async Task<bool> DeleteForFileAsync(Guid userId, Guid bookId, Guid fileId, NpgsqlTransaction? tx, CancellationToken ct)
+    {
+        await using var owned = tx is null ? await dataSource.OpenConnectionAsync(ct) : null;
+        return await (owned ?? tx!.Connection!).ExecuteAsync(
+            new CommandDefinition(DeleteStateOfFile, new { userId, bookId, fileId }, tx, cancellationToken: ct)) > 0;
+    }
+
+    private const string SelectChanged = $"""
+        SELECT {Columns} FROM reading_state
+        WHERE user_id = @userId AND (updated_at, book_id) > (@since, @afterId)
+        ORDER BY updated_at, book_id
+        LIMIT @limit
+        """;
+
+    public async Task<IReadOnlyList<ReadingState>> ListChangedAsync(Guid userId, DateTimeOffset since, Guid afterBookId, int limit, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<ReadingState>(
-            new CommandDefinition(ResetFrontier, new { userId, bookId }, cancellationToken: ct));
+        return (await conn.QueryAsync<ReadingState>(new CommandDefinition(
+            SelectChanged, new { userId, since, afterId = afterBookId, limit }, cancellationToken: ct))).AsList();
     }
 }

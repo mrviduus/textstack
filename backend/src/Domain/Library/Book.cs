@@ -24,6 +24,10 @@ public class Book
     public string Origin { get; set; } = """{"kind":"upload"}""";
 
     public bool CheckpointSavingEnabled { get; set; }
+
+    /// <summary>Set by the server: 1 at import, +1 on each accepted metadata edit (owner decision 5); ignored on write.</summary>
+    public long Revision { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public DateTimeOffset? RemovedAt { get; set; }

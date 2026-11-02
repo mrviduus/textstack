@@ -40,9 +40,13 @@ Dependency rule unchanged: Api → Application → Domain ← Infrastructure.
    transaction on EF and passes the `IDbContextTransaction` to the repository; the repository runs on
    that transaction's connection (`GetDbTransaction()`), never its own. A method whose write must be
    atomic with EF writes takes a required `IDbContextTransaction tx`; one that may run either way takes
-   `IDbContextTransaction? tx = null`. A V2 method that must compose with another repository's write
-   will take `NpgsqlTransaction? tx = null` over `V2DataSource` (plan §6); the first such use case is
-   M2.2 (#1067).
+   `IDbContextTransaction? tx = null`. On V2 a use case that writes two aggregates atomically opens
+   `await using var tx = await unitOfWork.BeginAsync(ct)` (`IV2UnitOfWork`, implemented by
+   `V2DataSource`; a `V2Transaction` owns the connection and the `NpgsqlTransaction`, since disposing
+   the latter alone would leak the former), passes `tx.Transaction` to each method that takes
+   `NpgsqlTransaction? tx = null`, and commits; such a method runs on `tx.Connection` when given one,
+   else on its own connection (and its own transaction if it needs one). The first use case is the
+   file replacement plus its reading-state delete (`LibrarySyncService.ReplaceFileAsync`, #1067).
 7. **Ownership in SQL.** Every user-owned method takes `userId` and puts it in the `WHERE` (and in the
    `ON CONFLICT` key / `INSERT`). Cross-user system operations are separate, clearly named methods.
    Each repository has an isolation test: user B never reads, changes or deletes user A's rows.

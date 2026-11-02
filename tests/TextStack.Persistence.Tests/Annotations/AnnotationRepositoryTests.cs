@@ -229,6 +229,22 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         Assert.True(deleted.UpdatedAt > edited.UpdatedAt, "delete");
     }
 
+    [Fact]
+    public async Task ListChangedAsync_LiveAndDeleted_ReturnsBothInUpdateOrder()
+    {
+        var (book, deleted) = await SavedHighlightAsync();
+        var live = (await _repo.SaveAsync(book.UserId, Highlight(book), null, Ct)).Current!;
+        await _repo.DeleteAsync(book.UserId, deleted.Id, Ct); // now the later of the two
+
+        var all = await _repo.ListChangedAsync(book.UserId, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct);
+        var after = await _repo.ListChangedAsync(book.UserId, live.UpdatedAt, live.Id, 10, Ct);
+
+        Assert.Equal([live.Id, deleted.Id], all.Select(a => a.Id));
+        Assert.NotNull(all[1].DeletedAt);
+        Assert.Equal(deleted.Id, Assert.Single(after).Id);
+        Assert.Single(await _repo.ListChangedAsync(book.UserId, DateTimeOffset.UnixEpoch, Guid.Empty, 1, Ct));
+    }
+
     // Owner isolation, one test per method: bob, holding alice's ids, never reads, changes or deletes her rows.
 
     [Fact]
@@ -325,5 +341,14 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
 
         Assert.False(await _repo.DeleteAsync(bob, stored.Id, Ct));
         Assert.Equal(stored.Id, Assert.Single(await _repo.ListForBookAsync(alices.UserId, alices.Id, Ct)).Id);
+    }
+
+    [Fact]
+    public async Task ListChangedAsync_OtherUser_SeesNoneOfAlicesAnnotations()
+    {
+        await SavedHighlightAsync();
+        var bob = await db.NewReaderAsync();
+
+        Assert.Empty(await _repo.ListChangedAsync(bob, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
     }
 }

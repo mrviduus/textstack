@@ -19,6 +19,12 @@ public interface IAnnotationRepository
     Task<Annotation?> GetAsync(Guid userId, Guid id, CancellationToken ct);
 
     /// <summary>
+    /// The user's annotations changed after <c>(since, afterId)</c>, tombstones included, ordered by
+    /// <c>(updated_at, id)</c>: one page of the annotations feed.
+    /// </summary>
+    Task<IReadOnlyList<Annotation>> ListChangedAsync(Guid userId, DateTimeOffset since, Guid afterId, int limit, CancellationToken ct);
+
+    /// <summary>
     /// Writes <paramref name="annotation"/> if the caller saw the latest one: <paramref name="expectedRevision"/>
     /// is null for a first write (into one of the user's books), else the revision the caller last read.
     /// A stale write is not an error, it loses: the result carries the stored annotation (null when

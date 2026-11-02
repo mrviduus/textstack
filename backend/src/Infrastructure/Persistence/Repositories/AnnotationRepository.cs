@@ -38,6 +38,19 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
         return await conn.QuerySingleOrDefaultAsync<Annotation>(new CommandDefinition(SelectById, new { userId, id }, cancellationToken: ct));
     }
 
+    private const string SelectChanged = $"""
+        SELECT {Columns} FROM annotations
+        WHERE user_id = @userId AND (updated_at, id) > (@since, @afterId)
+        ORDER BY updated_at, id
+        LIMIT @limit
+        """;
+
+    public async Task<IReadOnlyList<Annotation>> ListChangedAsync(Guid userId, DateTimeOffset since, Guid afterId, int limit, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return (await conn.QueryAsync<Annotation>(new CommandDefinition(SelectChanged, new { userId, since, afterId, limit }, cancellationToken: ct))).AsList();
+    }
+
     private const string InsertAnnotation = $"""
         INSERT INTO annotations (id, user_id, book_id, file_id, selected_text, note_text, locator, color, created_at, updated_at, revision)
         VALUES (@Id, @UserId, @BookId, @FileId, @SelectedText, @NoteText, CAST(@Locator AS jsonb), @Color, now(), now(), 1)

@@ -144,9 +144,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var share = NewShare(book);
         await _shares.ShareAsync(share, Ct);
         var checkpoint = NewCheckpoint(book, share);
-        var replaced = await new LibraryRepository(db.DataSource)
-            .ReplaceFileAsync(book.UserId, book.Id, NewFile(book.UserId, book.Id), Ct);
-        checkpoint.FileId = replaced!.Current.Id;
+        checkpoint.FileId = (await db.ReplaceFileAsync(book)).Current!.Id;
 
         var result = await _repo.AppendAsync(checkpoint, Ct);
 
