@@ -14,27 +14,24 @@ using TextStack.UnitTests.Fakes;
 
 namespace TextStack.UnitTests.V2;
 
-/// <summary>"Legacy unaffected with V2 down", at the seam that owns it: the mirror never throws into the legacy sign-in, register or delete.</summary>
+/// <summary>
+/// "Legacy unaffected with V2 down", at the seam that owns it: the mirror never throws into the legacy
+/// sign-in, register or delete; what it leaves behind is visible as an Error log.
+/// </summary>
 public class V2IdentityMirrorTests
 {
-    private static CancellationToken Ct => TestContext.Current.CancellationToken;
-
-    private static readonly IReadOnlyDictionary<Guid, Guid> None = new Dictionary<Guid, Guid>();
+    private static readonly Dictionary<Guid, Guid> None = [];
     private static readonly AccountMerge Merged = new(AccountMergeOutcome.Merged, None, None, None, 0, 0, 0);
 
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IAccountMergeRepository> _merges = new();
-    private readonly CapturingLogger _log = new();
+    private readonly CapturingLogger<V2IdentityMirror> _log = new();
     private readonly User _account = new() { Id = Guid.NewGuid(), Email = "reader@textstack.test" };
     private readonly Guid _guest = Guid.NewGuid();
-    private readonly V2ShadowUsers _shadows;
     private int _checks;
 
-    public V2IdentityMirrorTests()
-    {
-        _shadows = new V2ShadowUsers(_users.Object, new MemoryCache(new MemoryCacheOptions()), NullLogger<V2ShadowUsers>.Instance);
+    public V2IdentityMirrorTests() =>
         _users.Setup(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>())).ReturnsAsync(new UserAccount());
-    }
 
     private V2IdentityMirror Mirror(bool flag = true, bool ready = true, TimeSpan? timeout = null)
     {
@@ -42,98 +39,105 @@ public class V2IdentityMirrorTests
         legacy.Setup(d => d.Users).Returns(() => new FakeDbSet<User>([_account]));
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Features:V2Api"] = flag.ToString() }).Build();
         var readiness = V2ReadinessTests.Readiness(_ => { _checks++; return Task.FromResult(ready ? new List<string>() : ["0002_next"]); });
-        return new(config, readiness, _shadows, _users.Object, _merges.Object, legacy.Object, _log) { Timeout = timeout ?? TimeSpan.FromSeconds(10) };
+        var shadows = new V2ShadowUsers(_users.Object, new MemoryCache(new MemoryCacheOptions()), NullLogger<V2ShadowUsers>.Instance);
+        return new(config, readiness, shadows, _users.Object, _merges.Object, legacy.Object, _log) { Timeout = timeout ?? TimeSpan.FromSeconds(10) };
     }
 
-    private void MergeReturns(AccountMerge merge) =>
-        _merges.Setup(m => m.MergeAsync(_guest, _account.Id, null, It.IsAny<CancellationToken>())).ReturnsAsync(merge);
+    private Moq.Language.Flow.ISetup<IAccountMergeRepository, Task<AccountMerge>> Merge() =>
+        _merges.Setup(m => m.MergeAsync(_guest, _account.Id, null, It.IsAny<CancellationToken>()));
 
     private static PostgresException Unique() => new("duplicate key", "ERROR", "ERROR", PostgresErrorCodes.UniqueViolation);
 
+    private (LogLevel Level, string Message, Exception? Exception) SingleError() => Assert.Single(_log.Entries, e => e.Level == LogLevel.Error);
+
     [Fact]
-    public async Task MergeAsync_V2Throws_FailedAndLoggedAtErrorWithBothIds()
+    public async Task MergeAsync_V2Throws_NullAndAnErrorLogNamingBothIds()
     {
-        _merges.Setup(m => m.MergeAsync(_guest, _account.Id, null, It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("bug"));
+        Merge().ThrowsAsync(new InvalidOperationException("bug"));
 
-        var result = await Mirror().MergeAsync(_guest, _account.Id, legacyMerged: true);
+        Assert.Null(await Mirror().MergeAsync(_guest, _account.Id));
 
-        Assert.Equal((V2MirrorStatus.Failed, nameof(InvalidOperationException), null), (result.Status, result.Reason, result.Merge));
-        var (level, message) = Assert.Single(_log.Entries);
-        Assert.Equal(LogLevel.Error, level);
+        var (_, message, exception) = Assert.Single(_log.Entries);
+        Assert.IsType<InvalidOperationException>(exception);
         Assert.Contains(_guest.ToString(), message);
         Assert.Contains(_account.Id.ToString(), message);
     }
 
     [Fact]
-    public async Task DeleteAsync_V2Throws_FailedAndLoggedAtError()
+    public async Task DeleteAsync_V2Throws_AnErrorLogNotAnException()
     {
         _users.Setup(u => u.DeleteAsync(_account.Id, It.IsAny<CancellationToken>())).ThrowsAsync(new TimeoutException());
 
-        var result = await Mirror().DeleteAsync(_account.Id);
+        await Mirror().DeleteAsync(_account.Id);
 
-        Assert.Equal(V2MirrorStatus.Failed, result.Status);
-        Assert.Equal(LogLevel.Error, Assert.Single(_log.Entries).Level);
+        Assert.IsType<TimeoutException>(SingleError().Exception);
     }
 
     [Theory]
-    [InlineData(false, true, "flag_off")]
-    [InlineData(true, false, "v2_not_ready")]
-    public async Task Mirror_FlagOffOrNotReady_SkippedQuietlyWithoutTouchingV2(bool flag, bool ready, string reason)
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task Mirror_FlagOffOrNotReady_QuietWithoutTouchingV2(bool flag, bool ready)
     {
         var mirror = Mirror(flag, ready);
 
-        var merged = await mirror.MergeAsync(_guest, _account.Id, legacyMerged: true);
-        var deleted = await mirror.DeleteAsync(_account.Id);
-        var promoted = await mirror.PromoteAsync(_account.Id, _account.Email, null, "hash");
+        Assert.Null(await mirror.MergeAsync(_guest, _account.Id));
+        await mirror.DeleteAsync(_account.Id);
+        await mirror.PromoteAsync(_account.Id, _account.Email, null, "hash");
 
-        Assert.Equal((reason, reason, reason), (merged.Reason, deleted.Reason, promoted.Reason));
         Assert.Empty(_log.Entries);
         _merges.VerifyNoOtherCalls();
         _users.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public async Task MergeAsync_LegacyDidNotMerge_NoV2Call()
+    public async Task MergeAsync_Merged_EnsuresTheAccountRowThenMergesAndLogsTheCounts()
     {
-        var result = await Mirror().MergeAsync(_guest, _account.Id, legacyMerged: false);
+        var books = new Dictionary<Guid, Guid> { [Guid.NewGuid()] = Guid.NewGuid() };
+        Merge().ReturnsAsync(Merged with { Books = books, DroppedDuplicates = 2, HashAnomalies = 1, UnscheduledReviewQuestions = 3 });
 
-        Assert.Equal((V2MirrorStatus.Skipped, "legacy_not_merged"), (result.Status, result.Reason));
-        _merges.VerifyNoOtherCalls();
-        _users.VerifyNoOtherCalls();
-    }
+        var map = await Mirror().MergeAsync(_guest, _account.Id);
 
-    [Fact]
-    public async Task MergeAsync_Ready_EnsuresTheAccountRowClearsItsGuestFlagThenMerges()
-    {
-        MergeReturns(Merged);
-
-        var result = await Mirror().MergeAsync(_guest, _account.Id, legacyMerged: true);
-
-        Assert.Equal((V2MirrorStatus.Mirrored, Merged), (result.Status, result.Merge));
+        Assert.Same(books, map!.Books);
         _users.Verify(u => u.CreateAsync(It.Is<UserAccount>(a => a.Id == _account.Id && !a.IsGuest), It.IsAny<CancellationToken>()));
-        _users.Verify(u => u.ClearGuestFlagAsync(_account.Id, It.IsAny<CancellationToken>()));
+        var (level, message, _) = Assert.Single(_log.Entries);
+        Assert.Equal(LogLevel.Information, level);
+        Assert.Contains("1 books, 0 files, 0 words remapped; 2 guest copies dropped, 1 of them with another payload; 3 review questions unscheduled", message);
     }
 
     [Fact]
-    public async Task MergeAsync_Refused_SkippedNotMirroredAndLoggedAtError()
+    public async Task MergeAsync_MergedWithNoIdChanged_NoMap()
     {
-        MergeReturns(AccountMerge.Refused);
+        Merge().ReturnsAsync(Merged);
 
-        var result = await Mirror().MergeAsync(_guest, _account.Id, legacyMerged: true);
-
-        Assert.Equal((V2MirrorStatus.Skipped, "merge_refused"), (result.Status, result.Reason));
-        Assert.Equal(LogLevel.Error, Assert.Single(_log.Entries).Level);
+        Assert.Null(await Mirror().MergeAsync(_guest, _account.Id));
     }
 
     [Fact]
-    public async Task MergeAsync_AccountEmailHeldByAnotherV2Account_SkippedAndLoggedAtError()
+    public async Task MergeAsync_NoGuest_NoMapAndQuiet()
+    {
+        Merge().ReturnsAsync(AccountMerge.NoGuest);
+
+        Assert.Null(await Mirror().MergeAsync(_guest, _account.Id));
+        Assert.Empty(_log.Entries);
+    }
+
+    [Fact]
+    public async Task MergeAsync_Refused_NoMapAndAnErrorLog()
+    {
+        Merge().ReturnsAsync(AccountMerge.Refused);
+
+        Assert.Null(await Mirror().MergeAsync(_guest, _account.Id));
+        Assert.Contains("merge_refused", SingleError().Message);
+    }
+
+    [Fact]
+    public async Task MergeAsync_AccountEmailHeldByAnotherV2Account_NoMergeAndAnErrorLog()
     {
         _users.Setup(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>())).ReturnsAsync((UserAccount?)null);
 
-        var result = await Mirror().MergeAsync(_guest, _account.Id, legacyMerged: true);
+        Assert.Null(await Mirror().MergeAsync(_guest, _account.Id));
 
-        Assert.Equal((V2MirrorStatus.Skipped, "account_email_taken"), (result.Status, result.Reason));
-        Assert.Contains(_guest.ToString(), Assert.Single(_log.Entries, e => e.Level == LogLevel.Error).Message);
+        Assert.Contains("account_email_taken", SingleError().Message);
         _merges.VerifyNoOtherCalls();
     }
 
@@ -143,92 +147,74 @@ public class V2IdentityMirrorTests
         _merges.SetupSequence(m => m.MergeAsync(_guest, _account.Id, null, It.IsAny<CancellationToken>()))
             .ThrowsAsync(Unique()).ReturnsAsync(Merged);
 
-        var result = await Mirror().MergeAsync(_guest, _account.Id, legacyMerged: true);
+        await Mirror().MergeAsync(_guest, _account.Id);
 
-        Assert.Equal(V2MirrorStatus.Mirrored, result.Status);
-        Assert.Empty(_log.Entries);
+        Assert.Equal(LogLevel.Information, Assert.Single(_log.Entries).Level);
     }
 
     [Fact]
-    public async Task MergeAsync_UniqueViolationTwice_Failed()
+    public async Task MergeAsync_DeadlockTwice_RetriedOnceThenAnErrorLog()
     {
+        var deadlock = new PostgresException("deadlock", "ERROR", "ERROR", PostgresErrorCodes.DeadlockDetected);
         _merges.SetupSequence(m => m.MergeAsync(_guest, _account.Id, null, It.IsAny<CancellationToken>()))
-            .ThrowsAsync(Unique()).ThrowsAsync(Unique());
+            .ThrowsAsync(deadlock).ThrowsAsync(deadlock);
 
-        var result = await Mirror().MergeAsync(_guest, _account.Id, legacyMerged: true);
+        await Mirror().MergeAsync(_guest, _account.Id);
 
-        Assert.Equal((V2MirrorStatus.Failed, nameof(PostgresException)), (result.Status, result.Reason));
+        Assert.Same(deadlock, SingleError().Exception);
         _merges.Verify(m => m.MergeAsync(_guest, _account.Id, null, It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     [Fact]
-    public async Task MergeAsync_ConnectionFails_ReadinessCheckedAgainNextTime()
+    public async Task DeleteAsync_UniqueViolation_NotRetried()
     {
-        _merges.Setup(m => m.MergeAsync(_guest, _account.Id, null, It.IsAny<CancellationToken>())).ThrowsAsync(new NpgsqlException("connection refused"));
-        var mirror = Mirror();
+        _users.Setup(u => u.DeleteAsync(_account.Id, It.IsAny<CancellationToken>())).ThrowsAsync(Unique());
 
-        await mirror.MergeAsync(_guest, _account.Id, legacyMerged: true);
-        await mirror.DeleteAsync(_account.Id);
+        await Mirror().DeleteAsync(_account.Id);
 
-        Assert.Equal(2, _checks);
-    }
-
-    [Fact]
-    public async Task MergeAsync_V2HoldsALock_FailedAtTheTimeoutNotAtTheRequests()
-    {
-        // A merge waiting on a lock until its token gives up, as Npgsql does.
-        _merges.Setup(m => m.MergeAsync(_guest, _account.Id, null, It.IsAny<CancellationToken>()))
-            .Returns<Guid, Guid, NpgsqlTransaction?, CancellationToken>(async (_, _, _, ct) => { await Task.Delay(Timeout.Infinite, ct); return Merged; });
-        var clock = Stopwatch.StartNew();
-
-        var result = await Mirror(timeout: TimeSpan.FromMilliseconds(200)).MergeAsync(_guest, _account.Id, legacyMerged: true);
-
-        Assert.Equal(V2MirrorStatus.Failed, result.Status);
-        Assert.InRange(clock.Elapsed, TimeSpan.Zero, TimeSpan.FromSeconds(5));
-        Assert.Equal(LogLevel.Error, Assert.Single(_log.Entries).Level);
-    }
-
-    [Fact]
-    public async Task DeleteAsync_Mirrored_ForgetsTheShadowSoTheNextRequestMakesItAgain()
-    {
-        await _shadows.EnsureAsync(LegacyOf(_account), _account.Id, Ct);
-
-        Assert.Equal(V2MirrorStatus.Mirrored, (await Mirror().DeleteAsync(_account.Id)).Status);
-        await _shadows.EnsureAsync(LegacyOf(_account), _account.Id, Ct);
-
-        _users.Verify(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
-    }
-
-    private static IAppDbContext LegacyOf(User user)
-    {
-        var legacy = new Mock<IAppDbContext>();
-        legacy.Setup(d => d.Users).Returns(() => new FakeDbSet<User>([user]));
-        return legacy.Object;
+        _users.Verify(u => u.DeleteAsync(_account.Id, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Theory]
-    [InlineData(AccountUpdateOutcome.Updated, V2MirrorStatus.Mirrored, 0)]
-    [InlineData(AccountUpdateOutcome.NotFound, V2MirrorStatus.Skipped, 0)]
-    [InlineData(AccountUpdateOutcome.EmailTaken, V2MirrorStatus.Skipped, 1)]
-    public async Task PromoteAsync_GuestRegisteredInPlace_V2RowPromoted(AccountUpdateOutcome outcome, V2MirrorStatus status, int errors)
+    [InlineData(true, 2)]
+    [InlineData(false, 1)]
+    public async Task Mirror_ConnectionFailsOrUniqueViolation_ReadinessCheckedAgainOnlyAfterTheConnection(bool connection, int checks)
+    {
+        _users.Setup(u => u.DeleteAsync(_account.Id, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(connection ? new NpgsqlException("connection refused") : Unique());
+        var mirror = Mirror();
+
+        await mirror.DeleteAsync(_account.Id);
+        await mirror.DeleteAsync(_account.Id);
+
+        Assert.Equal(checks, _checks);
+    }
+
+    [Fact]
+    public async Task MergeAsync_V2HoldsALock_GivesUpAtTheTimeoutWithAnErrorLog()
+    {
+        // A merge waiting on a lock until its token gives up, as Npgsql does.
+        Merge().Returns<Guid, Guid, NpgsqlTransaction?, CancellationToken>(async (_, _, _, ct) => { await Task.Delay(Timeout.Infinite, ct); return Merged; });
+        var clock = Stopwatch.StartNew();
+
+        Assert.Null(await Mirror(timeout: TimeSpan.FromMilliseconds(200)).MergeAsync(_guest, _account.Id));
+
+        Assert.InRange(clock.Elapsed, TimeSpan.Zero, TimeSpan.FromSeconds(5));
+        Assert.IsAssignableFrom<OperationCanceledException>(SingleError().Exception);
+    }
+
+    [Theory]
+    [InlineData(AccountUpdateOutcome.Updated, 0)]
+    [InlineData(AccountUpdateOutcome.NotFound, 0)]
+    [InlineData(AccountUpdateOutcome.EmailTaken, 1)]
+    public async Task PromoteAsync_GuestRegisteredInPlace_V2RowPromotedAndAnEmailClashLogged(AccountUpdateOutcome outcome, int errors)
     {
         _users.Setup(u => u.PromoteGuestAsync(_account.Id, _account.Email, "Reader", "hash", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AccountUpdate(outcome, null));
 
-        var result = await Mirror().PromoteAsync(_account.Id, _account.Email, "Reader", "hash");
+        await Mirror().PromoteAsync(_account.Id, _account.Email, "Reader", "hash");
 
-        Assert.Equal((status, errors), (result.Status, _log.Entries.Count(e => e.Level == LogLevel.Error)));
-    }
-
-    private sealed class CapturingLogger : ILogger<V2IdentityMirror>
-    {
-        public List<(LogLevel Level, string Message)> Entries { get; } = [];
-
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-            Entries.Add((logLevel, formatter(state, exception)));
+        Assert.Equal(errors, _log.Entries.Count(e => e.Level == LogLevel.Error));
+        _users.Verify(u => u.PromoteGuestAsync(_account.Id, _account.Email, "Reader", "hash", It.IsAny<CancellationToken>()));
     }
 }

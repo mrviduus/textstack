@@ -4,7 +4,6 @@ using Api.Mapping;
 using Api.V2;
 using Application.Auth;
 using Domain.Entities;
-using Domain.Identity;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Api.Endpoints;
@@ -439,19 +438,12 @@ public static class AuthEndpoints
 
         if (!guest.UserId.HasValue) return (null, null);
 
-        var legacyMerged = await authService.MergeGuestAsync(guest.UserId.Value, realUserId, route, ct);
-        var mirrored = await mirror.MergeAsync(guest.UserId.Value, realUserId, legacyMerged);
-        if (legacyMerged)
-            return (null, MergeMap(mirrored.Merge));
+        if (await authService.MergeGuestAsync(guest.UserId.Value, realUserId, route, ct))
+            return (null, await mirror.MergeAsync(guest.UserId.Value, realUserId));
 
         LogGuestMergeSkipped(httpContext, GuestMergeSkipReason.MergeConflict, route, realUserId);
         return (GuestMergeSkipReason.MergeConflict, null);
     }
-
-    private static GuestMergeMap? MergeMap(AccountMerge? merge) =>
-        merge is { Outcome: AccountMergeOutcome.Merged } m && (m.Books.Count + m.Files.Count + m.Words.Count) > 0
-            ? new GuestMergeMap(m.Books, m.Files, m.Words)
-            : null;
 
     /// <summary>
     /// One structured Warning per dropped guest session, shaped so the rate can be counted in

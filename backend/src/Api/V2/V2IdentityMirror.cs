@@ -1,24 +1,20 @@
+using Application.Auth;
+using Application.Common;
 using Application.Common.Interfaces;
 using Application.Identity;
 using Domain.Identity;
-using Npgsql;
 
 namespace Api.V2;
 
-public enum V2MirrorStatus { Mirrored, Skipped, Failed }
-
-/// <summary>What the mirror did: <see cref="Reason"/> says why it skipped (a code) or failed (the exception type); <see cref="Merge"/> is the merge's result.</summary>
-public sealed record V2MirrorResult(V2MirrorStatus Status, string? Reason = null, AccountMerge? Merge = null);
-
 /// <summary>
 /// The legacy account delete, guest merge and guest promotion, repeated on <c>textstack_v2</c> after
-/// the legacy commit (M2.5a). Legacy stays the system of record and decides the outcome: with
-/// <c>Features:V2Api</c> off nothing is called, a V2 that is not ready (<see cref="V2Readiness"/>'s
-/// cached answer) is skipped, and a V2 failure is logged at Error and returned, never thrown. It runs
-/// on its own <see cref="Timeout"/>, not the request's token: a client gone after the legacy commit
-/// must not roll it back, and legacy waits on V2 at most that long. There is no outbox: a failed
-/// mirror loses the guest's V2-only rows, and the M3 ETL pre-flight sweeps V2 users with no legacy
-/// row (#1094).
+/// the legacy commit (M2.5a); the caller runs it only when legacy did the same. Legacy stays the system
+/// of record: with <c>Features:V2Api</c> off nothing is called, a V2 that is not ready
+/// (<see cref="V2Readiness"/>'s cached answer) is skipped, and a V2 failure, or a skip that leaves V2
+/// rows behind, is logged at Error with both ids, never thrown. It runs on its own
+/// <see cref="Timeout"/>, not the request's token: a client gone after the legacy commit must not roll
+/// it back, and legacy waits on V2 at most that long. There is no outbox: a failed mirror loses the
+/// guest's V2-only rows, and the M3 ETL pre-flight sweeps V2 users with no legacy row (#1094).
 /// </summary>
 public sealed class V2IdentityMirror(
     IConfiguration config, V2Readiness readiness, V2ShadowUsers shadows, IUserRepository users,
@@ -26,82 +22,69 @@ public sealed class V2IdentityMirror(
 {
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(10);
 
-    public Task<V2MirrorResult> DeleteAsync(Guid userId) => MirrorAsync(userId, userId, async ct =>
+    public Task DeleteAsync(Guid userId) => MirrorAsync(userId, userId, ct => users.DeleteAsync(userId, ct));
+
+    /// <summary>A guest registered in place: its V2 row becomes the account. No V2 row: nothing to do.</summary>
+    public Task PromoteAsync(Guid userId, string email, string? name, string passwordHash) => MirrorAsync(userId, userId, async ct =>
     {
-        await users.DeleteAsync(userId, ct);
-        shadows.Forget(userId);
-        return new V2MirrorResult(V2MirrorStatus.Mirrored);
+        if ((await users.PromoteGuestAsync(userId, email, name, passwordHash, ct)).Outcome == AccountUpdateOutcome.EmailTaken)
+            Stranded("email_taken", userId, userId);
     });
 
     /// <summary>
-    /// Only after legacy merged the guest (<paramref name="legacyMerged"/>): the account's V2 row is
-    /// made if it has none, then the guest's rows move to it.
+    /// The guest's V2 rows move to the account (its V2 row made first if it has none). Returns the ids
+    /// the client must rewrite: null unless the merge ran and some id changed.
     /// </summary>
-    public Task<V2MirrorResult> MergeAsync(Guid guestId, Guid accountId, bool legacyMerged)
+    public async Task<GuestMergeMap?> MergeAsync(Guid guestId, Guid accountId)
     {
-        if (!legacyMerged) return Task.FromResult(new V2MirrorResult(V2MirrorStatus.Skipped, "legacy_not_merged"));
-        return MirrorAsync(guestId, accountId, async ct =>
+        AccountMerge? merged = null;
+        await MirrorAsync(guestId, accountId, async ct =>
         {
-            if (!await shadows.EnsureAsync(legacy, accountId, ct)) return Stranded("account_email_taken", guestId, accountId);
-            // Legacy just signed this account in, so it is no guest. Its V2 row may still say so when
-            // PromoteAsync failed for it, and the merge refuses a guest as the target: the fallback.
-            await users.ClearGuestFlagAsync(accountId, ct);
-            var merged = await merges.MergeAsync(guestId, accountId, null, ct);
-            shadows.Forget(guestId);
-            if (merged.Outcome == AccountMergeOutcome.Refused) return Stranded("merge_refused", guestId, accountId) with { Merge = merged };
-            if (merged.HashAnomalies > 0)
-                logger.LogWarning("V2 merge {GuestUserId} → {UserId}: {HashAnomalies} guest copies of the account's operations carried another payload",
-                    guestId, accountId, merged.HashAnomalies);
-            return new V2MirrorResult(V2MirrorStatus.Mirrored, Merge: merged);
+            if (!await shadows.EnsureAsync(legacy, accountId, ct))
+            {
+                Stranded("account_email_taken", guestId, accountId);
+                return;
+            }
+            try
+            {
+                merged = await merges.MergeAsync(guestId, accountId, null, ct);
+            }
+            // A device of the account wrote the same unique key while the merge ran, or two
+            // transactions crossed: a fresh snapshot settles both, once.
+            catch (Exception e) when (e.IsUniqueViolation() || e.IsTransientConflict())
+            {
+                merged = await merges.MergeAsync(guestId, accountId, null, ct);
+            }
+            if (merged.Outcome == AccountMergeOutcome.Refused) Stranded("merge_refused", guestId, accountId);
+            if (merged.Outcome == AccountMergeOutcome.Merged)
+                logger.LogInformation(
+                    "V2 merge {GuestUserId} → {UserId}: {Books} books, {Files} files, {Words} words remapped; {DroppedDuplicates} guest copies dropped, "
+                    + "{HashAnomalies} of them with another payload; {UnscheduledReviewQuestions} review questions unscheduled",
+                    guestId, accountId, merged.Books.Count, merged.Files.Count, merged.Words.Count,
+                    merged.DroppedDuplicates, merged.HashAnomalies, merged.UnscheduledReviewQuestions);
         });
+        return merged is { Outcome: AccountMergeOutcome.Merged } m && m.Books.Count + m.Files.Count + m.Words.Count > 0
+            ? new GuestMergeMap(m.Books, m.Files, m.Words)
+            : null;
     }
 
-    /// <summary>A guest registered in place (legacy promoted it): its V2 row becomes the account. No V2 row: nothing to do.</summary>
-    public Task<V2MirrorResult> PromoteAsync(Guid userId, string email, string? name, string passwordHash) => MirrorAsync(userId, userId, async ct =>
-    {
-        var promoted = await users.PromoteGuestAsync(userId, email, name, passwordHash, ct);
-        return promoted.Outcome switch
-        {
-            AccountUpdateOutcome.Updated => new V2MirrorResult(V2MirrorStatus.Mirrored),
-            AccountUpdateOutcome.EmailTaken => Stranded("email_taken", userId, userId),
-            _ => new V2MirrorResult(V2MirrorStatus.Skipped, "no_v2_guest"),
-        };
-    });
-
-    /// <summary>A skip that leaves V2 rows behind: as loud as a failure.</summary>
-    private V2MirrorResult Stranded(string reason, Guid subjectId, Guid userId)
-    {
+    private void Stranded(string reason, Guid subjectId, Guid userId) =>
         logger.LogError("V2 identity mirror skipped ({Reason}) for {SubjectUserId} → {UserId}: V2 rows are left behind until the ETL sweep (#1094)",
             reason, subjectId, userId);
-        return new V2MirrorResult(V2MirrorStatus.Skipped, reason);
-    }
 
-    private async Task<V2MirrorResult> MirrorAsync(Guid subjectId, Guid userId, Func<CancellationToken, Task<V2MirrorResult>> mirror)
+    private async Task MirrorAsync(Guid subjectId, Guid userId, Func<CancellationToken, Task> mirror)
     {
-        if (!config.GetValue<bool>("Features:V2Api")) return new V2MirrorResult(V2MirrorStatus.Skipped, "flag_off");
+        if (!config.GetValue<bool>("Features:V2Api")) return;
         using var timeout = new CancellationTokenSource(Timeout);
         try
         {
-            if (!(await readiness.GetAsync()).IsReady) return new V2MirrorResult(V2MirrorStatus.Skipped, "v2_not_ready");
-            try
-            {
-                return await mirror(timeout.Token);
-            }
-            // A fresh snapshot settles these: a device of the account wrote the same unique key while
-            // the merge ran (the plan's "retry once"), or two transactions crossed.
-            catch (PostgresException e) when (e.SqlState is PostgresErrorCodes.UniqueViolation or PostgresErrorCodes.DeadlockDetected
-                                                  or PostgresErrorCodes.SerializationFailure)
-            {
-                return await mirror(timeout.Token);
-            }
+            if ((await readiness.GetAsync()).IsReady) await mirror(timeout.Token);
         }
         catch (Exception e)
         {
-            // Not a Postgres answer: the connection itself failed, so the next V2 request re-checks readiness.
-            if (e is NpgsqlException and not PostgresException) readiness.Invalidate();
+            readiness.Observe(e);
             logger.LogError(e, "V2 identity mirror failed for {SubjectUserId} → {UserId}; legacy is done, V2 keeps the rows until the ETL sweep (#1094)",
                 subjectId, userId);
-            return new V2MirrorResult(V2MirrorStatus.Failed, e.GetType().Name);
         }
     }
 }

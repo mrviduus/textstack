@@ -1,6 +1,7 @@
 using System.Globalization;
 using Api.Extensions;
 using Application.Auth;
+using Application.Common;
 using Application.Common.Interfaces;
 using Application.Identity;
 using Application.Sync;
@@ -39,17 +40,17 @@ public sealed class V2Gate(V2Readiness readiness, V2ShadowUsers shadows, IAppDbC
         {
             return await next(context);
         }
-        // The user's V2 row is gone (merged into an account, deleted) between the check and the write:
-        // the session's user no longer exists, so 401, as for a missing legacy account.
-        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.ForeignKeyViolation
-                                          && e.ConstraintName?.EndsWith("_users_user_id", StringComparison.Ordinal) == true)
+        // A write in flight when its user vanished (a guest merged into an account, an account deleted):
+        // the users FK refuses it, and the session's user no longer exists. The legacy check above
+        // answers every later request; this is the one that raced it.
+        catch (PostgresException e) when (e.IsForeignKeyViolation() && e.ConstraintName?.EndsWith("_users_user_id", StringComparison.Ordinal) == true)
         {
             shadows.Forget(userId);
             return Results.Unauthorized();
         }
-        catch (PostgresException)
+        catch (NpgsqlException e)
         {
-            readiness.Invalidate();
+            readiness.Observe(e);
             throw;
         }
     }

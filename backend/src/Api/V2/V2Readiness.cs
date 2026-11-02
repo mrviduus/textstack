@@ -1,6 +1,8 @@
 using System.Text.Json.Serialization;
 using Api.Extensions;
+using Application.Common;
 using Infrastructure.Persistence;
+using Npgsql;
 
 namespace Api.V2;
 
@@ -62,6 +64,16 @@ public sealed class V2Readiness(
 
     /// <summary>The next caller checks again: a request just saw V2 fail, or V2 just came back.</summary>
     public void Invalidate() => Volatile.Write(ref _cached, null);
+
+    /// <summary>
+    /// A V2 call failed with <paramref name="error"/>: anything from the database or its connection
+    /// that is not an answer about the data (a constraint, a deadlock, a serialization failure) may be
+    /// an outage, so the next caller checks again.
+    /// </summary>
+    public void Observe(Exception error)
+    {
+        if (error is NpgsqlException && !error.IsIntegrityViolation() && !error.IsTransientConflict()) Invalidate();
+    }
 
     private async Task<V2State> CheckAsync()
     {

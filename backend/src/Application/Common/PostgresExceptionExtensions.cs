@@ -29,6 +29,13 @@ public static class PostgresExceptionExtensions
     public static bool IsIntegrityViolation(this Exception ex) =>
         SqlState(ex)?.StartsWith("23", StringComparison.Ordinal) == true;
 
+    /// <summary>
+    /// SQLSTATE 40P01 or 40001: a deadlock or a serialization failure. Not deterministic: the same
+    /// work on a fresh snapshot may succeed.
+    /// </summary>
+    public static bool IsTransientConflict(this Exception ex) =>
+        SqlState(ex) is PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure;
+
     private static string? SqlState(Exception ex) =>
         (ex as PostgresException ?? ex.InnerException as PostgresException)?.SqlState;
 }

@@ -44,9 +44,6 @@ public interface IUserRepository
     /// </summary>
     Task<AccountUpdate> PromoteGuestAsync(Guid userId, string email, string? name, string passwordHash, CancellationToken ct);
 
-    /// <summary>Clears the guest flag of an account that already signed in as itself. False when it was not a guest.</summary>
-    Task<bool> ClearGuestFlagAsync(Guid userId, CancellationToken ct);
-
     /// <summary>Sets <see cref="UserAccount.Role"/> (a value outside the CHECK is a caller bug). False when there is no such account.</summary>
     Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct);
 
