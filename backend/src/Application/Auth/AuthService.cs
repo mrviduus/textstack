@@ -1,26 +1,18 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
 using Application.Collections;
 using Application.Common;
 using Application.Common.Interfaces;
 using Application.ReadingTracking;
 using Domain.Entities;
-using Google.Apis.Auth;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Tokens;
 
 namespace Application.Auth;
 
-public class AuthService
+public partial class AuthService
 {
     private readonly IAppDbContext _db;
-    private readonly JwtSettings _jwtSettings;
-    private readonly GoogleSettings _googleSettings;
-    private readonly AppleSettings? _appleSettings;
+    private readonly JwtTokens _tokens;
     private readonly TimeProvider _clock;
     private readonly ILogger<AuthService>? _logger;
     private readonly IFileStorageService? _storage;
@@ -35,9 +27,7 @@ public class AuthService
         IFileStorageService? storage = null)
     {
         _db = db;
-        _jwtSettings = jwtSettings.Value;
-        _googleSettings = googleSettings.Value;
-        _appleSettings = appleSettings?.Value;
+        _tokens = new JwtTokens(jwtSettings.Value, googleSettings.Value, appleSettings?.Value);
         _clock = clock ?? TimeProvider.System;
         _logger = logger;
         _storage = storage;
@@ -71,26 +61,10 @@ public class AuthService
         string googleIdToken,
         CancellationToken ct)
     {
-        GoogleJsonWebSignature.Payload payload;
-        try
-        {
-            var audiences = new List<string> { _googleSettings.ClientId };
-            if (!string.IsNullOrWhiteSpace(_googleSettings.LegacyClientIds))
-            {
-                audiences.AddRange(_googleSettings.LegacyClientIds.Split(
-                    ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-            }
-            payload = await GoogleJsonWebSignature.ValidateAsync(googleIdToken, new GoogleJsonWebSignature.ValidationSettings
-            {
-                Audience = audiences
-            });
-        }
-        catch (InvalidJwtException)
-        {
-            return null;
-        }
+        var google = await _tokens.VerifyGoogleAsync(googleIdToken);
+        if (google == null) return null;
 
-        var user = await GetOrCreateUserAsync(payload, ct);
+        var user = await GetOrCreateUserAsync(google, ct);
         var accessToken = GenerateAccessToken(user);
         var refreshToken = await CreateRefreshTokenAsync(user.Id, ct);
 
@@ -103,11 +77,11 @@ public class AuthService
         string? email,
         CancellationToken ct)
     {
-        var (appleSubject, appleEmail) = ValidateAppleToken(identityToken);
-        if (appleSubject == null) return null;
+        var apple = _tokens.VerifyApple(identityToken);
+        if (apple == null) return null;
 
-        var resolvedEmail = email ?? appleEmail;
-        var user = await GetOrCreateAppleUserAsync(appleSubject, resolvedEmail, fullName, ct);
+        var resolvedEmail = email ?? apple.Email;
+        var user = await GetOrCreateAppleUserAsync(apple.Subject, resolvedEmail, fullName, ct);
 
         var accessToken = GenerateAccessToken(user);
         var refreshToken = await CreateRefreshTokenAsync(user.Id, ct);
@@ -573,14 +547,12 @@ public class AuthService
         typeof(T).GetProperty("UserId")!.SetValue(row, id);
     }
 
-    /// <summary>
-    /// A rotated-away token presented again this long after its rotation is treated as a stolen
-    /// copy and its successor is revoked. Inside the window it is assumed to be two tabs refreshing
-    /// at once and is only refused, as before.
-    /// </summary>
-    public static readonly TimeSpan RefreshReuseGrace = TimeSpan.FromSeconds(30);
-
     public async Task<(User user, string accessToken, string refreshToken)?> RefreshTokenAsync(
+        string refreshToken,
+        CancellationToken ct) => (await RotateRefreshTokenAsync(refreshToken, ct)).Session;
+
+    /// <returns>The new session; null with <c>Reused</c> when the token was rotated away already (its successor revoked).</returns>
+    private async Task<((User user, string accessToken, string refreshToken)? Session, bool Reused)> RotateRefreshTokenAsync(
         string refreshToken,
         CancellationToken ct)
     {
@@ -591,10 +563,7 @@ public class AuthService
             .FirstOrDefaultAsync(x => x.TokenHash == hash && x.ExpiresAt > now, ct);
 
         if (token == null)
-        {
-            await RevokeSuccessorOnReuseAsync(hash, now, ct);
-            return null;
-        }
+            return (null, await RevokeSuccessorOnReuseAsync(hash, now, ct));
 
         // Rotate refresh token — catch race condition if token already consumed by concurrent request
         try
@@ -604,11 +573,11 @@ public class AuthService
             var newRefreshToken = await CreateRefreshTokenAsync(
                 token.UserId, ct, isGuest: token.User.IsGuest, previousTokenHash: hash);
             var accessToken = GenerateAccessToken(token.User);
-            return (token.User, accessToken, newRefreshToken);
+            return ((token.User, accessToken, newRefreshToken), false);
         }
         catch (DbUpdateConcurrencyException)
         {
-            return null;
+            return (null, false);
         }
     }
 
@@ -618,14 +587,14 @@ public class AuthService
     /// rotated into is revoked too and both must sign in again.
     /// ponytail: remembers one generation back, like OAuthGrant; an older token is refused but not treated as reuse.
     /// </summary>
-    private async Task RevokeSuccessorOnReuseAsync(string hash, DateTimeOffset now, CancellationToken ct)
+    private async Task<bool> RevokeSuccessorOnReuseAsync(string hash, DateTimeOffset now, CancellationToken ct)
     {
-        var cutoff = now - RefreshReuseGrace;
+        var cutoff = now - JwtTokens.RefreshReuseGrace;
         var successors = await _db.UserRefreshTokens
             .Where(x => x.PreviousTokenHash == hash && x.CreatedAt < cutoff)
             .ToListAsync(ct);
         if (successors.Count == 0)
-            return;
+            return false;
 
         _db.UserRefreshTokens.RemoveRange(successors);
         try
@@ -638,6 +607,7 @@ public class AuthService
         }
         _logger?.LogWarning("Rotated refresh token presented again; revoked its successor for user {UserId}",
             successors[0].UserId);
+        return true;
     }
 
     public async Task<bool> LogoutAsync(string refreshToken, CancellationToken ct)
@@ -831,8 +801,8 @@ public class AuthService
 
         var userCode = await GenerateUniqueUserCodeAsync(now, ct);
 
-        const int expiresInSeconds = 600; // 10 min
-        const int intervalSeconds = 5;
+        const int expiresInSeconds = DeviceCodes.ExpiresInSeconds;
+        const int intervalSeconds = DeviceCodes.IntervalSeconds;
 
         _db.DeviceAuthorizations.Add(new DeviceAuthorization
         {
@@ -976,20 +946,13 @@ public class AuthService
 
     private static string HashToken(string token) => DeviceCodes.HashToken(token);
 
-    /// <summary>
-    /// Marks an access token as a guest's. Minted in <c>BuildClaims</c>, read by
-    /// <c>ValidateAccessTokenIdentity</c> — one definition so the two cannot drift, which is the
-    /// failure that left the guest-activity middleware inert.
-    /// </summary>
-    public const string GuestClaimType = "is_guest";
-
     public Guid? ValidateAccessToken(string accessToken) => ValidateAccessTokenIdentity(accessToken).UserId;
 
     /// <summary>
     /// The user this token belongs to, AND whether it is a guest's.
     ///
     /// <para>The <c>is_guest</c> claim has been minted into every guest's access token since guest
-    /// sessions shipped (see <see cref="BuildClaims"/>), and until now nothing could read it: this
+    /// sessions shipped (see <see cref="JwtTokens.MintAccessToken"/>), and until now nothing could read it: this
     /// API registers no ASP.NET authentication middleware at all — every endpoint resolves identity
     /// by hand through <c>GetUserId</c> — so <c>HttpContext.User</c> is permanently empty. Anything
     /// reaching for the claim through <c>context.User</c> silently saw nothing, which is exactly how
@@ -998,28 +961,9 @@ public class AuthService
     /// <para>Returns <c>(null, false)</c> for a token that does not validate, so a caller cannot
     /// mistake an expired token for an account.</para>
     /// </summary>
-    public (Guid? UserId, bool IsGuest) ValidateAccessTokenIdentity(string accessToken)
-    {
-        var tokenHandler = new JwtSecurityTokenHandler();
+    public (Guid? UserId, bool IsGuest) ValidateAccessTokenIdentity(string accessToken) => _tokens.ValidateAccessToken(accessToken);
 
-        try
-        {
-            var principal = tokenHandler.ValidateToken(
-                accessToken, _jwtSettings.ValidationParameters(JwtSettings.UserAudience), out _);
-
-            var userIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (userIdClaim == null) return (null, false);
-
-            var isGuest = principal.FindFirst(GuestClaimType)?.Value == "true";
-            return (Guid.Parse(userIdClaim), isGuest);
-        }
-        catch
-        {
-            return (null, false);
-        }
-    }
-
-    private async Task<User> GetOrCreateUserAsync(GoogleJsonWebSignature.Payload payload, CancellationToken ct)
+    private async Task<User> GetOrCreateUserAsync(ProviderIdentity payload, CancellationToken ct)
     {
         var user = await _db.Users.FirstOrDefaultAsync(x => x.GoogleSubject == payload.Subject, ct);
 
@@ -1028,7 +972,7 @@ public class AuthService
             // Update name/email/picture if changed
             if (user.Email != payload.Email || user.Name != payload.Name || user.Picture != payload.Picture)
             {
-                user.Email = payload.Email;
+                user.Email = payload.Email!;
                 user.Name = payload.Name;
                 user.Picture = payload.Picture;
                 await _db.SaveChangesAsync(ct);
@@ -1039,7 +983,7 @@ public class AuthService
         user = new User
         {
             Id = Guid.NewGuid(),
-            Email = payload.Email,
+            Email = payload.Email!,
             Name = payload.Name,
             Picture = payload.Picture,
             GoogleSubject = payload.Subject,
@@ -1051,38 +995,13 @@ public class AuthService
         return user;
     }
 
-    private string GenerateAccessToken(User user)
-    {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.SecretKey));
-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new(ClaimTypes.Email, user.Email),
-            new(ClaimTypes.Name, user.Name ?? user.Email)
-        };
-        if (user.IsGuest)
-            claims.Add(new Claim(GuestClaimType, "true"));
-
-        var token = new JwtSecurityToken(
-            issuer: _jwtSettings.Issuer,
-            audience: JwtSettings.UserAudience,
-            claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenExpiryMinutes),
-            signingCredentials: credentials
-        );
-
-        return new JwtSecurityTokenHandler().WriteToken(token);
-    }
+    private string GenerateAccessToken(User user) => _tokens.MintAccessToken(user.Id, user.Email, user.Name, user.IsGuest);
 
     private async Task<string> CreateRefreshTokenAsync(
         Guid userId, CancellationToken ct, bool isGuest = false, string? previousTokenHash = null)
     {
         // Guest sessions get a shorter refresh window — reduces DB bloat from abandoned accounts.
-        var ttlDays = isGuest
-            ? _jwtSettings.GuestRefreshTokenExpiryDays
-            : _jwtSettings.RefreshTokenExpiryDays;
+        var ttlDays = _tokens.RefreshTokenDays(isGuest);
 
         // Only the hash is stored; the raw token leaves this method once, to the client.
         var raw = DeviceCodes.GenerateSecureToken();
@@ -1099,34 +1018,6 @@ public class AuthService
         _db.UserRefreshTokens.Add(token);
         await _db.SaveChangesAsync(ct);
         return raw;
-    }
-
-    private (string? subject, string? email) ValidateAppleToken(string identityToken)
-    {
-        try
-        {
-            var handler = new JwtSecurityTokenHandler();
-            var jwt = handler.ReadJwtToken(identityToken);
-
-            var audience = _appleSettings?.BundleId;
-            if (audience != null && jwt.Audiences.All(a => a != audience))
-                return (null, null);
-
-            if (jwt.Issuer != "https://appleid.apple.com")
-                return (null, null);
-
-            if (jwt.ValidTo < DateTime.UtcNow)
-                return (null, null);
-
-            var subject = jwt.Subject;
-            var email = jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
-
-            return (subject, email);
-        }
-        catch
-        {
-            return (null, null);
-        }
     }
 
     private async Task<User> GetOrCreateAppleUserAsync(

@@ -1,7 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
 using Application.AdminSettings;
 using Application.Auth;
 using Application.Common.Interfaces;
@@ -9,20 +5,19 @@ using Domain.Entities;
 using Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Tokens;
 
 namespace Application.AdminAuth;
 
-public class AdminAuthService
+public class AdminAuthService : IAdminAuthService
 {
     private readonly IAppDbContext _db;
-    private readonly JwtSettings _jwtSettings;
+    private readonly JwtTokens _tokens;
     private readonly AdminSettingsService _settingsService;
 
     public AdminAuthService(IAppDbContext db, IOptions<JwtSettings> jwtSettings, AdminSettingsService settingsService)
     {
         _db = db;
-        _jwtSettings = jwtSettings.Value;
+        _tokens = new JwtTokens(jwtSettings.Value);
         _settingsService = settingsService;
     }
 
@@ -85,37 +80,7 @@ public class AdminAuthService
         return await _db.AdminUsers.FirstOrDefaultAsync(x => x.Id == adminId && x.IsActive, ct);
     }
 
-    public (Guid? adminId, AdminRole? role) ValidateAccessToken(string accessToken)
-    {
-        var tokenHandler = new JwtSecurityTokenHandler();
-
-        try
-        {
-            var principal = tokenHandler.ValidateToken(
-                accessToken, _jwtSettings.ValidationParameters(JwtSettings.AdminAudience), out _);
-
-            var adminIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var roleClaim = principal.FindFirst(ClaimTypes.Role)?.Value;
-            var isAdminClaim = principal.FindFirst("is_admin")?.Value;
-
-            // Verify this is an admin token
-            if (isAdminClaim != "true")
-                return (null, null);
-
-            if (adminIdClaim == null || !Guid.TryParse(adminIdClaim, out var adminId))
-                return (null, null);
-
-            AdminRole? role = null;
-            if (roleClaim != null && Enum.TryParse<AdminRole>(roleClaim, out var parsedRole))
-                role = parsedRole;
-
-            return (adminId, role);
-        }
-        catch
-        {
-            return (null, null);
-        }
-    }
+    public (Guid? adminId, AdminRole? role) ValidateAccessToken(string accessToken) => _tokens.ValidateAdminAccessToken(accessToken);
 
     public async Task<AdminUser> CreateAdminUserAsync(
         string email,
@@ -143,6 +108,20 @@ public class AdminAuthService
         return user;
     }
 
+    async Task<AdminAuthResult?> IAdminAuthService.LoginAsync(string email, string password, CancellationToken ct) =>
+        Result(await LoginAsync(email, password, ct));
+
+    async Task<AdminAuthResult?> IAdminAuthService.RefreshTokenAsync(string refreshToken, CancellationToken ct) =>
+        Result(await RefreshTokenAsync(refreshToken, ct));
+
+    async Task<AdminUserDto?> IAdminAuthService.GetAdminByIdAsync(Guid adminId, CancellationToken ct) =>
+        await GetAdminByIdAsync(adminId, ct) is { } admin ? ToDto(admin) : null;
+
+    private static AdminAuthResult? Result((AdminUser user, string accessToken, string refreshToken)? session) =>
+        session is { } s ? new AdminAuthResult(ToDto(s.user), s.accessToken, s.refreshToken) : null;
+
+    private static AdminUserDto ToDto(AdminUser user) => new(user.Id, user.Email, user.Role, user.CreatedAt);
+
     public async Task<int> GetAccessTokenExpiryMinutesAsync(CancellationToken ct = default)
     {
         return await _settingsService.GetAccessTokenExpiryMinutesAsync(ct);
@@ -153,30 +132,8 @@ public class AdminAuthService
         return await _settingsService.GetRefreshTokenExpiryDaysAsync(ct);
     }
 
-    private async Task<string> GenerateAccessTokenAsync(AdminUser user, CancellationToken ct)
-    {
-        var expiryMinutes = await _settingsService.GetAccessTokenExpiryMinutesAsync(ct);
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.SecretKey));
-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-        var claims = new[]
-        {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Email, user.Email),
-            new Claim(ClaimTypes.Role, user.Role.ToString()),
-            new Claim("is_admin", "true")
-        };
-
-        var token = new JwtSecurityToken(
-            issuer: _jwtSettings.Issuer,
-            audience: JwtSettings.AdminAudience,
-            claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(expiryMinutes),
-            signingCredentials: credentials
-        );
-
-        return new JwtSecurityTokenHandler().WriteToken(token);
-    }
+    private async Task<string> GenerateAccessTokenAsync(AdminUser user, CancellationToken ct) =>
+        _tokens.MintAdminAccessToken(user.Id, user.Email, user.Role, await _settingsService.GetAccessTokenExpiryMinutesAsync(ct));
 
     private async Task<string> CreateRefreshTokenAsync(Guid adminUserId, CancellationToken ct)
     {

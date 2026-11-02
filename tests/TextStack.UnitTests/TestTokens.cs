@@ -28,7 +28,7 @@ internal static class TestTokens
             new(ClaimTypes.Name, "Reader"),
         };
         if (userId is { } id) claims.Insert(0, new Claim(ClaimTypes.NameIdentifier, id.ToString()));
-        if (guestClaim) claims.Add(new Claim(AuthService.GuestClaimType, guestClaimValue!));
+        if (guestClaim) claims.Add(new Claim(JwtTokens.GuestClaimType, guestClaimValue!));
 
         var token = new JwtSecurityToken(
             issuer: issuer,
