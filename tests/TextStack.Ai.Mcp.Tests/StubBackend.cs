@@ -257,6 +257,8 @@ public sealed class StubBackend : IAsyncDisposable
         _app.MapGet("/me/v2/books/{bookId}/checkpoints", async ctx =>
         {
             await RecordAsync("v2_list_checkpoints", ctx);
+            // What a server with Features:V2Api off answers for every /me/v2 route: a 404, no body.
+            if ((string)ctx.Request.RouteValues["bookId"]! == V2OffBookId) { ctx.Response.StatusCode = StatusCodes.Status404NotFound; return; }
             if ((string)ctx.Request.RouteValues["bookId"]! != UserBookId) { await WriteJsonAsync(ctx, V2Error("book_not_found", "Push the book first."), StatusCodes.Status404NotFound); return; }
             var firstPage = !ctx.Request.Query.ContainsKey("cursor");
             var cursor = firstPage ? "\"page-2\"" : "null";
@@ -414,6 +416,7 @@ public sealed class StubBackend : IAsyncDisposable
     public const string SharedChapterId = "5ba7ed00-0000-4000-8000-000000000001";
     public const string CheckpointId = "c4ec4000-0000-4000-8000-000000000001";
     public const string MismatchedShareId = "5ba7ed00-0000-4000-8000-000000000422";
+    public const string V2OffBookId = "0ff00000-0000-4000-8000-000000000404";
 
     private readonly Dictionary<string, string> _operations = new(StringComparer.Ordinal);
 

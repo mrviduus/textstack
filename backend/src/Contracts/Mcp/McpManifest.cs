@@ -192,7 +192,7 @@ public static class McpManifestCatalog
             + "the sections that apply: readerThoughts (what the READER thought, attributed accurately), "
             + "assistantSuggestions (yours, kept apart from theirs), conclusions, openQuestions; leave out empty ones, at "
             + "least one is needed. Optionally chapterKey, and sharedChapterId from share_chapter (a share of that same "
-            + "chapter). Checkpoints are append-only: a new one never overwrites an earlier one. Pass operationId: a new "
+            + "chapter; sharedChapterId needs chapterKey). Checkpoints are append-only: a new one never overwrites an earlier one. Pass operationId: a new "
             + "UUID for each save, the same one when retrying it, so a retry replays instead of saving twice. Saving never "
             + "advances reading progress. Only a successful result means it was saved; on an error, tell the reader it "
             + "was not."),

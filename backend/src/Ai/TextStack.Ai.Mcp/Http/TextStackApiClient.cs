@@ -498,7 +498,7 @@ public sealed partial class TextStackApiClient
                      && (err.Message ?? err.Detail ?? err.Error) is { Length: > 0 } message)
             {
                 var lines = (err.Errors ?? []).Select(e => $"{e.Path}: {e.Message}");
-                return new(default, string.Join("\n", lines.Prepend(message)), response.StatusCode);
+                return new(default, string.Join("\n", lines.Prepend(message)), response.StatusCode, err.Code);
             }
         }
         catch (JsonException)
@@ -895,7 +895,8 @@ public sealed record SaveInsightJson(
     string? Question);
 
 /// <summary>A call that either produced a value or a message worth showing the model.</summary>
-public sealed record ApiResult<T>(T? Value, string? Error, HttpStatusCode? Status = null);
+/// <summary><see cref="Code"/> is a V2 refusal's machine code (<c>book_not_found</c>, …), null for every other upstream.</summary>
+public sealed record ApiResult<T>(T? Value, string? Error, HttpStatusCode? Status = null, string? Code = null);
 
 // PUT /me/chapter-review request → SaveChapterReviewRequest.
 public sealed record SaveChapterReviewJson(
@@ -905,7 +906,7 @@ public sealed record SaveChapterReviewJson(
     JsonElement Review);
 
 // Every non-2xx from the chapter-review routes → ReviewErrorDto.
-public sealed record ReviewErrorJson(string? Error, string? Message, List<ReviewFieldErrorJson>? Errors, string? Detail = null);
+public sealed record ReviewErrorJson(string? Error, string? Message, List<ReviewFieldErrorJson>? Errors, string? Detail = null, string? Code = null);
 
 public sealed record ReviewFieldErrorJson(string Path, string Code, string Message);
 

@@ -9,6 +9,8 @@ namespace TextStack.Ai.Mcp.Tools;
 /// and consistent: object shape, <c>additionalProperties:false</c>, required
 /// strings/guids, and bounded optional ints.
 ///
+/// An optional GUID or string sent as JSON <c>null</c> reads as absent: hosts send nulls for what they leave out. (An optional int does not: AI-047 pins a null <c>limit</c> as refused.)
+///
 /// Every method returns false (with a model-facing <paramref name="error"/>) on
 /// violation; on success the out value is set. Validators never throw.
 /// </summary>
@@ -125,7 +127,7 @@ internal static class ArgReader
     {
         value = null;
         error = "";
-        if (!obj.TryGetProperty(name, out var el))
+        if (!obj.TryGetProperty(name, out var el) || el.ValueKind == JsonValueKind.Null)
             return true;
 
         if (el.ValueKind != JsonValueKind.String || !Guid.TryParse(el.GetString(), out var g))
@@ -144,7 +146,7 @@ internal static class ArgReader
     {
         value = null;
         error = "";
-        if (!obj.TryGetProperty(name, out var el))
+        if (!obj.TryGetProperty(name, out var el) || el.ValueKind == JsonValueKind.Null)
             return true;
 
         if (el.ValueKind != JsonValueKind.String)

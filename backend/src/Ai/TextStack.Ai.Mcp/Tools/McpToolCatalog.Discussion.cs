@@ -1,4 +1,3 @@
-using System.Net;
 using System.Text.Json;
 using Contracts.V2;
 using ModelContextProtocol.Protocol;
@@ -12,6 +11,10 @@ namespace TextStack.Ai.Mcp.Tools;
 /// <c>operationId</c> from the host (owner decision 13), so a retried call replays. The caps mirror the
 /// server's (<c>DiscussionSyncService</c>, which this project cannot reference); the server re-checks.
 /// </summary>
+// ponytail: the tools send no fileId (the bridge does not know file versions), so an MCP checkpoint
+// cannot name a share the app made with one (422 share_mismatch); there is no delete_checkpoint tool
+// (REST only); and bookIds are V2 ids, so a legacy UserBook id answers book_not_found until the M3 ETL
+// carries them over. All three: #1098.
 public sealed partial class McpToolCatalog
 {
     private const int MaxChapterTextChars = 200 * 1024;
@@ -70,7 +73,7 @@ public sealed partial class McpToolCatalog
                     chapterKey = share.GetProperty("chapterKey"),
                     createdAt = share.GetProperty("createdAt"),
                     saved = true,
-                }));
+                }, UnescapedJson));
             });
         },
     };
@@ -126,7 +129,7 @@ public sealed partial class McpToolCatalog
                     operationId, topic, readerThoughts, assistantSuggestions, conclusions, openQuestions,
                     language, chapterKey, null, sharedChapterId), ct);
                 if (Refused("save_checkpoint", bookId, saved) is { } refused) return refused;
-                return Text(JsonSerializer.Serialize(new { id = saved.Value.GetProperty("id"), createdAt = saved.Value.GetProperty("createdAt"), saved = true }));
+                return Text(JsonSerializer.Serialize(new { id = saved.Value.GetProperty("id"), createdAt = saved.Value.GetProperty("createdAt"), saved = true }, UnescapedJson));
             });
         },
     };
@@ -177,17 +180,20 @@ public sealed partial class McpToolCatalog
         },
     };
 
-    /// <summary>A 404 names the book (it is not in the user's V2 library); any other refusal relays the server's message.</summary>
+    /// <summary>
+    /// <c>book_not_found</c> names the book; any other refusal relays the server's message (a bare 404
+    /// is a server with the V2 API off: "upstream answered 404", as the vocabulary half says it).
+    /// </summary>
     private static CallToolResult? Refused(string tool, Guid bookId, ApiResult<JsonElement> result) =>
         result.Error is not { } message ? null
-        : result.Status == HttpStatusCode.NotFound ? Error($"{tool}: no uploaded book with id '{bookId}' in the user's library")
+        : result.Code == "book_not_found" ? Error($"{tool}: no uploaded book with id '{bookId}' in the user's library")
         : Error($"{tool} refused: {message}");
 
     private static bool TryOptionalArray(JsonElement obj, string name, out JsonElement? value, out string error)
     {
         value = null;
         error = "";
-        if (!obj.TryGetProperty(name, out var el)) return true;
+        if (!obj.TryGetProperty(name, out var el) || el.ValueKind == JsonValueKind.Null) return true;
         if (el.ValueKind != JsonValueKind.Array)
         {
             error = $"'{name}' must be an array.";
@@ -197,19 +203,26 @@ public sealed partial class McpToolCatalog
         return true;
     }
 
-    /// <summary>A checkpoint section: absent is empty; else an array of at most 50 strings, order kept.</summary>
+    /// <summary>A checkpoint section: absent or null is empty; else at most 50 non-blank strings (the schema's minLength), order kept.</summary>
     private static bool TryOptionalStrings(JsonElement obj, string name, out string[] value, out string error)
     {
         value = [];
         error = "";
-        if (!obj.TryGetProperty(name, out var el)) return true;
+        if (!obj.TryGetProperty(name, out var el) || el.ValueKind == JsonValueKind.Null) return true;
         if (el.ValueKind != JsonValueKind.Array || el.GetArrayLength() > MaxSectionItems
             || el.EnumerateArray().Any(i => i.ValueKind != JsonValueKind.String))
         {
             error = $"'{name}' must be an array of at most {MaxSectionItems} strings.";
             return false;
         }
-        value = el.EnumerateArray().Select(i => i.GetString()!).ToArray();
+        var items = el.EnumerateArray().Select(i => i.GetString()!).ToArray();
+        var blank = Array.FindIndex(items, string.IsNullOrWhiteSpace);
+        if (blank >= 0)
+        {
+            error = $"'{name}[{blank}]' must not be blank.";
+            return false;
+        }
+        value = items;
         return true;
     }
 }

@@ -1062,4 +1062,61 @@ public class McpOverTheWireTests : IAsyncLifetime
         Assert.True(listed.IsError);
         Assert.Contains($"no uploaded book with id '{other}'", TextOf(listed));
     }
+
+    [Fact]
+    public async Task ListCheckpoints_V2OptionOnAServerWithV2Off_RelaysTheBare404NotABookClaim()
+    {
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2: true);
+        await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var listed = await CallAsync(client, "list_checkpoints", Args(("bookId", StubBackend.V2OffBookId)));
+
+        Assert.True(listed.IsError);
+        Assert.Equal("list_checkpoints refused: upstream answered 404", TextOf(listed));
+    }
+
+    [Fact]
+    public async Task ShareChapter_V2OptionWithoutOperationId_IsAToolErrorAndSendsNothing()
+    {
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2: true);
+        await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var shared = await CallAsync(client, "share_chapter", Args(("bookId", StubBackend.UserBookId), ("chapterKey", "ch02.xhtml"), ("chapterText", "It was the night.")));
+
+        Assert.True(shared.IsError);
+        Assert.Contains("'operationId' is required", TextOf(shared));
+        Assert.Null(harness.Stub.Last("v2_share"));
+    }
+
+    [Fact]
+    public async Task SaveCheckpoint_V2OptionWithABlankItem_IsAToolErrorNamingItAndSendsNothing()
+    {
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2: true);
+        await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+        var args = Checkpoint(Guid.NewGuid());
+        args["conclusions"] = new[] { "ok", "" };
+
+        var saved = await CallAsync(client, "save_checkpoint", args);
+
+        Assert.True(saved.IsError);
+        Assert.Equal("'conclusions[1]' must not be blank.", TextOf(saved));
+        Assert.Null(harness.Stub.Last("v2_checkpoint"));
+    }
+
+    // Hosts send null for an optional argument they leave out.
+    [Fact]
+    public async Task SaveCheckpoint_V2OptionWithNullOptionalArgs_ReadsThemAsAbsentAndSaves()
+    {
+        await using var harness = await McpServerHarness.StartAsync(Ct, v2: true);
+        await using var client = await harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+        var args = Checkpoint(Guid.NewGuid());
+        (args["sharedChapterId"], args["conclusions"], args["assistantSuggestions"]) = (null, null, null);
+
+        var saved = await CallAsync(client, "save_checkpoint", args);
+
+        AssertOk(saved);
+        Assert.Equal("2026-11-01T10:00:00.000Z", Json(saved).GetProperty("createdAt").GetString());
+        var sent = JsonDocument.Parse(harness.Stub.Last("v2_checkpoint")!.Body).RootElement;
+        Assert.Equal((0, false), (sent.GetProperty("conclusions").GetArrayLength(), sent.TryGetProperty("sharedChapterId", out _)));
+    }
 }
