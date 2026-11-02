@@ -25,7 +25,10 @@ internal static class V2Fakes
             CurrentFile = currentFile is { } id ? new BookFile { Id = id, BookId = bookId, Sha256 = new string('a', 64), Format = "epub", IsCurrent = true } : null,
         });
         foreach (var version in versions.Append(currentFile ?? Guid.Empty).Where(v => v != Guid.Empty))
+        {
             library.Setup(l => l.GetFileAsync(user, bookId, version, It.IsAny<CancellationToken>())).ReturnsAsync(new BookFile { Id = version, BookId = bookId });
+            library.Setup(l => l.FileIsVersionAsync(user, bookId, version, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        }
         return library;
     }
 

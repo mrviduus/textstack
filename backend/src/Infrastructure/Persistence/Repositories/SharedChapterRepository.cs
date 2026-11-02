@@ -15,6 +15,9 @@ public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedCh
 {
     private const string Columns =
         "id, user_id, book_id, file_id, chapter_key, chapter_title, chapter_text, notes_snapshot, language, operation_id, payload_sha256, created_at";
+    // What a list answers: the owner is the caller and the hash is the write path's.
+    private const string ListColumns =
+        "id, book_id, file_id, chapter_key, chapter_title, chapter_text, notes_snapshot, language, operation_id, created_at";
 
     // The no-op DO UPDATE returns the stored row when the operation id is taken; xmax = 0 only
     // on a row this statement inserted.
@@ -46,7 +49,7 @@ public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedCh
     }
 
     private const string SelectSharesOfBook = $"""
-        SELECT {Columns} FROM shared_chapters
+        SELECT {ListColumns} FROM shared_chapters
         WHERE user_id = @userId AND book_id = @bookId
         ORDER BY created_at DESC, id DESC
         """;

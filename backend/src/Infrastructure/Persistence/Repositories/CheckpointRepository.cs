@@ -15,6 +15,9 @@ public sealed class CheckpointRepository(V2DataSource dataSource) : ICheckpointR
 {
     private const string Columns =
         "id, user_id, book_id, file_id, chapter_key, shared_chapter_id, topic, reader_thoughts, assistant_suggestions, conclusions, open_questions, language, operation_id, payload_sha256, created_at";
+    // What a page answers: the owner is the caller and the hash is the write path's.
+    private const string ListColumns =
+        "id, book_id, file_id, chapter_key, shared_chapter_id, topic, reader_thoughts, assistant_suggestions, conclusions, open_questions, language, operation_id, created_at";
 
     // Inserts only when the named share (if any) matches. The no-op DO UPDATE returns the stored
     // row when the operation id is taken; xmax = 0 only on a row this statement inserted.
@@ -54,7 +57,7 @@ public sealed class CheckpointRepository(V2DataSource dataSource) : ICheckpointR
     // Keyset on the (user_id, book_id, created_at, id) index; one row past the page says whether
     // another page exists. The CAST types a null cursor, which Dapper sends untyped.
     private const string SelectPage = $"""
-        SELECT {Columns} FROM discussion_checkpoints
+        SELECT {ListColumns} FROM discussion_checkpoints
         WHERE user_id = @userId AND book_id = @bookId
           AND (@chapterKey IS NULL OR chapter_key = @chapterKey)
           AND (CAST(@afterCreatedAt AS timestamptz) IS NULL OR (created_at, id) > (@afterCreatedAt, @afterId))

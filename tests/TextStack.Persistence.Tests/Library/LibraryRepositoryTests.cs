@@ -183,7 +183,30 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task SetCheckpointSavingAsync_AnotherUsersBook_IsFalseAndChangesNothing()
+    public async Task SetCheckpointSavingAsync_TheValueAlreadyStored_LeavesUpdatedAt()
+    {
+        var book = await db.NewReaderWithBookAsync();
+
+        var written = (await _repo.SetCheckpointSavingAsync(book.UserId, book.Id, false, Ct))!;
+
+        Assert.Equal((false, book.UpdatedAt), (written.CheckpointSavingEnabled, written.UpdatedAt));
+    }
+
+    [Fact]
+    public async Task FileIsVersionAsync_SupersededVersionAnotherBooksFileAndAnotherUser_AreTrueFalseFalse()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var superseded = book.CurrentFile!.Id;
+        await db.ReplaceFileAsync(book);
+        var other = await db.NewBookAsync(book.UserId, "Another book");
+
+        Assert.True(await _repo.FileIsVersionAsync(book.UserId, book.Id, superseded, Ct));
+        Assert.False(await _repo.FileIsVersionAsync(book.UserId, book.Id, other.CurrentFile!.Id, Ct));
+        Assert.False(await _repo.FileIsVersionAsync(await db.NewReaderAsync(), book.Id, superseded, Ct));
+    }
+
+    [Fact]
+    public async Task SetCheckpointSavingAsync_AnotherUsersBook_IsNullAndChangesNothing()
     {
         var book = await db.NewReaderWithBookAsync();
         var other = await db.NewReaderAsync();

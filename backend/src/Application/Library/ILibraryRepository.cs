@@ -21,6 +21,9 @@ public interface ILibraryRepository
     /// <summary>Whether the book is the user's, removed or not.</summary>
     Task<bool> ExistsAsync(Guid userId, Guid bookId, CancellationToken ct);
 
+    /// <summary>Whether <paramref name="fileId"/> is a version of the user's book, current or superseded (no toc read).</summary>
+    Task<bool> FileIsVersionAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct);
+
     /// <summary>A version of the user's book, current or superseded; null when it is not one of this book's.</summary>
     Task<BookFile?> GetFileAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct);
 
@@ -61,7 +64,10 @@ public interface ILibraryRepository
     Task<FileReplacement> ReplaceFileAsync(
         Guid userId, Guid bookId, BookFile file, Guid? replacesFileId, NpgsqlTransaction? tx, CancellationToken ct);
 
-    /// <summary>The per-book checkpoint opt-in; a removed book keeps it too. The book as this write left it; null when not the user's.</summary>
+    /// <summary>
+    /// The per-book checkpoint opt-in; a removed book keeps it too. <c>updated_at</c> moves only when the
+    /// value changes. The updated book; null when not the user's.
+    /// </summary>
     Task<Book?> SetCheckpointSavingAsync(Guid userId, Guid bookId, bool enabled, CancellationToken ct);
 
     /// <summary>Hides the book (sets <c>removed_at</c>); false when not the user's or already removed.</summary>

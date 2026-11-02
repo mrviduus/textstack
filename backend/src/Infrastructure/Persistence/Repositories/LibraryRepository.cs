@@ -34,6 +34,12 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
 
         """;
 
+    // The same over a CTE b that RETURNING {BookColumns} from a write: the row this write produced.
+    private const string FromWrittenBook = BookWithCurrentFile + """
+        FROM b
+        LEFT JOIN book_files f ON f.user_id = b.user_id AND f.book_id = b.id AND f.is_current
+        """;
+
     private const string SelectLiveBooks = FromBooks + """
         WHERE b.user_id = @userId AND b.removed_at IS NULL
         ORDER BY b.created_at DESC
@@ -52,6 +58,14 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         return await conn.ExecuteScalarAsync<bool>(new CommandDefinition(BookExists, new { userId, bookId }, cancellationToken: ct));
+    }
+
+    private const string FileIsVersion = "SELECT EXISTS (SELECT FROM book_files WHERE user_id = @userId AND book_id = @bookId AND id = @fileId)";
+
+    public async Task<bool> FileIsVersionAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return await conn.ExecuteScalarAsync<bool>(new CommandDefinition(FileIsVersion, new { userId, bookId, fileId }, cancellationToken: ct));
     }
 
     private const string SelectFile = $"SELECT {FileColumns} FROM book_files WHERE user_id = @userId AND book_id = @bookId AND id = @fileId";
@@ -135,9 +149,7 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
             WHERE user_id = @userId AND id = @bookId AND revision = @expectedRevision AND removed_at IS NULL
             RETURNING {BookColumns}
         )
-        {BookWithCurrentFile}
-        FROM b
-        LEFT JOIN book_files f ON f.user_id = b.user_id AND f.book_id = b.id AND f.is_current
+        {FromWrittenBook}
         """;
 
     public async Task<RevisionedWrite<Book>> UpdateMetadataAsync(
@@ -206,15 +218,16 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
         return new(FileReplaceOutcome.Replaced, inserted, superseded);
     }
 
+    // A PUT of the value already stored bumps nothing: no feed churn on every device for a no-op.
     private const string SetCheckpointSaving = $"""
         WITH b AS (
-            UPDATE books SET checkpoint_saving_enabled = @enabled, updated_at = now()
+            UPDATE books SET
+                updated_at = CASE WHEN checkpoint_saving_enabled IS DISTINCT FROM @enabled THEN now() ELSE updated_at END,
+                checkpoint_saving_enabled = @enabled
             WHERE user_id = @userId AND id = @bookId
             RETURNING {BookColumns}
         )
-        {BookWithCurrentFile}
-        FROM b
-        LEFT JOIN book_files f ON f.user_id = b.user_id AND f.book_id = b.id AND f.is_current
+        {FromWrittenBook}
         """;
 
     public async Task<Book?> SetCheckpointSavingAsync(Guid userId, Guid bookId, bool enabled, CancellationToken ct) =>
