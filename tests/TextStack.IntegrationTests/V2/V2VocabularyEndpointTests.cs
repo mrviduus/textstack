@@ -36,7 +36,7 @@ public class V2VocabularyEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFix
         var created = await SaveAsync(v2.Alice, Word(word));
         await ReviewAsync(v2.Alice, Answer(Id(created)));
 
-        var again = await SaveAsync(v2.Alice, Word(" " + word.ToUpperInvariant()) );
+        var again = await SaveAsync(v2.Alice, Word(" " + word.ToUpperInvariant()));
 
         Assert.Equal(HttpStatusCode.Created, created.Status);
         Assert.Equal((HttpStatusCode.OK, Id(created), 1, word), (again.Status, Id(again), again.Body.GetProperty("stage").GetInt32(), again.Body.GetProperty("word").GetString()));
