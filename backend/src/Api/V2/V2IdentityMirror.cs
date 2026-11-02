@@ -18,24 +18,13 @@ namespace Api.V2;
 /// guest's V2-only rows, and the M3 ETL pre-flight sweeps V2 users with no legacy row (#1094).
 /// </summary>
 public sealed class V2IdentityMirror(
-    IConfiguration config, V2Readiness readiness, V2ShadowUsers shadows, IUserRepository users,
-    IAccountMergeRepository merges, IAppDbContext legacy, ILibraryRepository library, ILibraryFileStore files, ILogger<V2IdentityMirror> logger)
+    IConfiguration config, V2Readiness readiness, V2ShadowUsers shadows, IUserRepository users, V2AccountDeletion deletion,
+    IAccountMergeRepository merges, IAppDbContext legacy, ILibraryFileStore files, ILogger<V2IdentityMirror> logger)
 {
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>
-    /// The users cascade drops the rows; the account's bytes go after it, best-effort: its own directories,
-    /// then any key it held elsewhere (listed before the delete: after a merge some sit under the former
-    /// guest's directory; the rest are already gone, a cheap no-op). What fails here the orphan sweep collects.
-    /// </summary>
-    public Task DeleteAsync(Guid userId) => MirrorAsync(userId, userId, async ct =>
-    {
-        var keys = await library.ListStorageKeysAsync(userId, ct);
-        await users.DeleteAsync(userId, ct);
-        files.DeleteUser(userId);
-        foreach (var key in keys)
-            if (!files.TryDelete(key)) logger.LogWarning("Could not delete {StorageKey} of deleted user {UserId}; the orphan sweep will", key, userId);
-    });
+    /// <summary>The account's V2 rows and bytes (<see cref="V2AccountDeletion"/>).</summary>
+    public Task DeleteAsync(Guid userId) => MirrorAsync(userId, userId, ct => deletion.DeleteAsync(userId, ct));
 
     /// <summary>A guest registered in place: its V2 row becomes the account. No V2 row: nothing to do.</summary>
     public Task PromoteAsync(Guid userId, string email, string? name, string passwordHash) => MirrorAsync(userId, userId, async ct =>

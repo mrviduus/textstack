@@ -52,6 +52,15 @@ public sealed class V2AdminAuthService(
     public async Task<AdminUserDto?> GetAdminByIdAsync(Guid adminId, CancellationToken ct) =>
         await users.GetAsync(adminId, ct) is { Role: UserAccount.AdminRole } admin ? ToDto(admin) : null;
 
+    public async Task<AdminUserDto?> CreateAdminAsync(string email, string password, CancellationToken ct) =>
+        await users.CreateAsync(new UserAccount
+        {
+            Id = Guid.NewGuid(),
+            Email = email,
+            PasswordHash = PasswordHashing.Hash(password),
+            Role = UserAccount.AdminRole,
+        }, ct) is { } admin ? ToDto(admin) : null;
+
     public (Guid? adminId, AdminRole? role) ValidateAccessToken(string accessToken) => tokens.ValidateAdminAccessToken(accessToken);
 
     public async Task<int> GetAccessTokenExpiryMinutesAsync(CancellationToken ct = default) => (await SessionSettingsAsync(ct)).Minutes;

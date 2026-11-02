@@ -1,5 +1,6 @@
 using Application.Auth;
 using Domain.Entities;
+using Domain.Identity;
 
 namespace Api.Mapping;
 
@@ -8,5 +9,8 @@ namespace Api.Mapping;
 public static class AuthMappings
 {
     public static UserDto ToDto(this User user) =>
+        new(user.Id, user.Email, user.Name, user.Picture, user.IsGuest, user.CreatedAt, user.NativeLanguage);
+
+    public static UserDto ToDto(this UserAccount user) =>
         new(user.Id, user.Email, user.Name, user.Picture, user.IsGuest, user.CreatedAt, user.NativeLanguage);
 }

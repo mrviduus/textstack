@@ -1,15 +1,30 @@
 using Application.Common.Interfaces;
+using Application.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Worker.Services;
 
+/// <summary>
+/// Reaps legacy guests idle for <see cref="ExpiryThreshold"/> that hold nothing, and with
+/// <c>Features:V2Api</c> on, each one's V2 account and bytes after its legacy delete commits.
+/// </summary>
+/// <remarks>
+/// ponytail: no V2-side guest sweep here. Until M5.1 a V2 <c>users.last_active_at</c> is written only by
+/// the identity mirror, so every shadow guest on V2 looks idle and a sweep there would reap live guests'
+/// rows. M5.1, which moves the activity stamp to V2, adds it (<c>ix_users_guest_cleanup</c> is there).
+/// </remarks>
 public class GuestCleanupWorker(
     IServiceScopeFactory scopeFactory,
+    IConfiguration config,
     ILogger<GuestCleanupWorker> logger) : BackgroundService
 {
+    /// <summary>How long one guest's V2 delete may take: the reaper never waits on V2 longer.</summary>
+    public TimeSpan V2Budget { get; init; } = TimeSpan.FromSeconds(10);
+
     // Run cleanup every 2h: short enough to reclaim abandoned guest slots quickly,
     // long enough to avoid hammering the DB on a weak server.
     private static readonly TimeSpan Interval = TimeSpan.FromHours(2);
@@ -104,11 +119,32 @@ public class GuestCleanupWorker(
                 await db.SaveChangesAsync(ct);
 
                 logger.LogInformation("Deleted expired guest {GuestId}", guest.Id);
+                await DeleteOnV2Async(scope.ServiceProvider, guest.Id);
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Failed to delete guest {GuestId}", guest.Id);
             }
+        }
+    }
+
+    /// <summary>
+    /// The guest's V2 account, rows and bytes (<see cref="V2AccountDeletion"/>), after its legacy delete
+    /// committed: the identity mirror's account delete, for the reaper. Best-effort on its own
+    /// <see cref="V2Budget"/>; a failure is an Error log with the id, never thrown, and the M3 ETL
+    /// pre-flight sweeps V2 users with no legacy row (#1094).
+    /// </summary>
+    public async Task DeleteOnV2Async(IServiceProvider services, Guid guestId)
+    {
+        if (!config.GetValue<bool>("Features:V2Api") || string.IsNullOrWhiteSpace(config.GetConnectionString("V2"))) return;
+        using var budget = new CancellationTokenSource(V2Budget);
+        try
+        {
+            await services.GetRequiredService<V2AccountDeletion>().DeleteAsync(guestId, budget.Token);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "V2 delete of expired guest {GuestId} failed; legacy is done, V2 keeps its rows until the ETL sweep (#1094)", guestId);
         }
     }
 }

@@ -68,6 +68,12 @@ public interface IAuthService
     /// <summary>Sets the password and signs every credential out. False for a bad password or an unknown, used or expired code.</summary>
     Task<bool> ResetPasswordAsync(string token, string newPassword, CancellationToken ct);
 
+    /// <summary>
+    /// Deletes the account and everything it owns, rows first, then its stored files (best-effort: a
+    /// file left behind is recoverable, a row is a compliance failure). False when there was no such account.
+    /// </summary>
+    Task<bool> DeleteAccountAsync(Guid userId, CancellationToken ct);
+
     /// <summary>RFC 8628 §3.2: a pending device login.</summary>
     Task<DeviceCodeResult> CreateDeviceAuthorizationAsync(CancellationToken ct);
 
@@ -85,7 +91,7 @@ public interface IAuthService
     Task<DeviceRedeemResult<UserAccount>> RedeemDeviceCodeAsync(string deviceCode, CancellationToken ct);
 
     /// <inheritdoc cref="JwtTokens.ValidateAccessToken"/>
-    (Guid? UserId, bool IsGuest) ValidateAccessTokenIdentity(string accessToken);
+    AccessTokenIdentity? ValidateAccessTokenIdentity(string accessToken);
 }
 
 /// <summary>What a sign-in came to: <see cref="Ok"/>, or why not.</summary>

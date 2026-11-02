@@ -4,6 +4,7 @@ using Application.Identity;
 using Domain.Enums;
 using Domain.Identity;
 using Infrastructure.Persistence.Repositories;
+using Infrastructure.Services;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
@@ -37,19 +38,25 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     private readonly UserRepository _users = new(db.DataSource);
     private readonly SessionTokenRepository _sessions = new(db.DataSource);
     private readonly DeviceLoginRepository _devices = new(db.DataSource);
+    private readonly LibraryFileStore _files = new(Path.Combine(Path.GetTempPath(), "textstack-v2-auth-" + Guid.NewGuid()));
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private V2AuthService Auth => AuthWith();
 
     private V2AuthService AuthWith(IUserRepository? users = null, ISessionTokenRepository? sessions = null, IAccountMergeRepository? merges = null) =>
-        new(users ?? _users, sessions ?? _sessions, _devices, merges ?? new AccountMergeRepository(db.DataSource),
+        new(users ?? _users, sessions ?? _sessions, _devices, merges ?? new AccountMergeRepository(db.DataSource), Deletion,
             _tokens, _providers, _clock, NullLogger<V2AuthService>.Instance);
+
+    private V2AccountDeletion Deletion => new(_users, new LibraryRepository(db.DataSource), _files, NullLogger<V2AccountDeletion>.Instance);
 
     private V2AdminAuthService Admin => AdminWith();
 
     private V2AdminAuthService AdminWith(IUserRepository? users = null) =>
         new(users ?? _users, _sessions, new AdminSettingsRepository(db.DataSource), new MemoryCache(new MemoryCacheOptions()), _tokens, _clock);
+
+    private (Guid UserId, bool IsGuest) Identity(string accessToken) =>
+        Auth.ValidateAccessTokenIdentity(accessToken) is { } identity ? (identity.UserId, identity.IsGuest) : default;
 
     private static string NewEmail() => $"{Guid.NewGuid():N}@example.test";
 
@@ -77,7 +84,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
 
         Assert.True(registered.Succeeded);
         Assert.Equal((email, false), (registered.User.Email, registered.User.IsGuest));
-        Assert.Equal((registered.User.Id, false), Auth.ValidateAccessTokenIdentity(registered.AccessToken));
+        Assert.Equal((registered.User.Id, false), Identity(registered.AccessToken));
         Assert.Equal(registered.User.Id, (await Auth.LoginWithEmailAsync("  " + email.ToUpperInvariant(), Password, Ct)).User?.Id);
     }
 
@@ -166,7 +173,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.True(guest.Succeeded);
         Assert.True((await _users.GetAsync(guest.User.Id, Ct))!.IsGuest);
         Assert.Matches("^guest-[0-9a-f]{32}@guest.local$", guest.User.Email);
-        Assert.Equal((guest.User.Id, true), Auth.ValidateAccessTokenIdentity(guest.AccessToken));
+        Assert.Equal((guest.User.Id, true), Identity(guest.AccessToken));
         Assert.True((await Auth.RefreshTokenAsync(guest.RefreshToken, Ct)).Succeeded);
     }
 
@@ -315,7 +322,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         // #1092: the reset cannot reach a JWT already handed out; it refuses what that JWT would mint.
         var account = await NewAccountAsync(UserAccount.ReaderRole);
         var signedIn = await Auth.LoginWithEmailAsync(account.Email, Password, Ct);
-        var issuedAt = new DateTimeOffset(new JwtSecurityToken(signedIn.AccessToken).IssuedAt, TimeSpan.Zero);
+        var issuedAt = Auth.ValidateAccessTokenIdentity(signedIn.AccessToken)!.IssuedAt;
         var device = await Auth.CreateDeviceAuthorizationAsync(Ct);
         Assert.True(await Auth.ResetPasswordAsync((await Auth.RequestPasswordResetAsync(account.Email, Ct))!, NewPassword, Ct));
 
@@ -357,7 +364,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
 
         var redeemed = await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct);
         Assert.Equal(bob.Id, redeemed.User?.Id);
-        Assert.NotEqual(alice.Id, Auth.ValidateAccessTokenIdentity(redeemed.AccessToken!).UserId);
+        Assert.NotEqual(alice.Id, Auth.ValidateAccessTokenIdentity(redeemed.AccessToken!)?.UserId);
         Assert.Equal(DeviceRedeemStatus.ExpiredToken, (await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct)).Status);
     }
 
@@ -474,7 +481,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
 
         Assert.Equal((admin.Id, AdminRole.Admin), (signedIn.Admin.Id, signedIn.Admin.Role));
         Assert.Equal((admin.Id, AdminRole.Admin), Admin.ValidateAccessToken(signedIn.AccessToken));
-        Assert.Null(Auth.ValidateAccessTokenIdentity(signedIn.AccessToken).UserId);
+        Assert.Null(Auth.ValidateAccessTokenIdentity(signedIn.AccessToken));
         Assert.Equal((null, null), Admin.ValidateAccessToken(reader.AccessToken!));
         Assert.Equal(admin.Id, (await Admin.RefreshTokenAsync(signedIn.RefreshToken, Ct))?.Admin.Id);
         Assert.NotNull(await Admin.GetAdminByIdAsync(admin.Id, Ct));
@@ -603,6 +610,9 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         public Task<AccountUpdate> PromoteGuestAsync(Guid userId, string email, string? name, string passwordHash, CancellationToken ct) => inner.PromoteGuestAsync(userId, email, name, passwordHash, ct);
         public Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct) => inner.SetRoleAsync(userId, role, ct);
         public Task<bool> DeleteAsync(Guid userId, CancellationToken ct) => inner.DeleteAsync(userId, ct);
+        public Task<UserAccount?> UpdateNameAndLanguageAsync(Guid userId, string? name, string? nativeLanguage, CancellationToken ct) => inner.UpdateNameAndLanguageAsync(userId, name, nativeLanguage, ct);
+        public Task<UserAccount?> SetPictureAsync(Guid userId, string? picture, CancellationToken ct) => inner.SetPictureAsync(userId, picture, ct);
+        public Task<bool> TouchActiveAsync(Guid userId, DateTimeOffset now, CancellationToken ct) => inner.TouchActiveAsync(userId, now, ct);
     }
 
     /// <summary>The real sessions, except that every rotation loses to a concurrent one.</summary>

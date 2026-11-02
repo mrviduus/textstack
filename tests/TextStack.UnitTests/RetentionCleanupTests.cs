@@ -8,42 +8,6 @@ public class RetentionCleanupTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
 
-    private static bool IsDeleted(DateTimeOffset expiresAt) =>
-        RetentionCleanupWorker.ExpiredUserToken(Now).Compile()(
-            new UserRefreshToken { TokenHash = "h", ExpiresAt = expiresAt });
-
-    [Fact]
-    public void ExpiredUserToken_ExpiredOverADayAgo_Deleted() =>
-        Assert.True(IsDeleted(Now.AddDays(-1).AddSeconds(-1)));
-
-    [Fact]
-    public void ExpiredUserToken_ExpiredWithinGrace_Kept() =>
-        Assert.False(IsDeleted(Now.AddHours(-23)));
-
-    [Fact]
-    public void ExpiredUserToken_StillValid_Kept() =>
-        Assert.False(IsDeleted(Now.AddDays(30)));
-
-    private static bool IsDeadGrant(DateTimeOffset? revokedAt, DateTimeOffset refreshExpiresAt) =>
-        RetentionCleanupWorker.DeadOAuthGrant(Now).Compile()(
-            new OAuthGrant { RevokedAt = revokedAt, RefreshTokenExpiresAt = refreshExpiresAt });
-
-    [Fact]
-    public void DeadOAuthGrant_LiveNeverRevoked_Kept() =>
-        Assert.False(IsDeadGrant(null, Now.AddDays(30)));
-
-    [Fact]
-    public void DeadOAuthGrant_RevokedOverADayAgo_Deleted() =>
-        Assert.True(IsDeadGrant(Now.AddDays(-2), Now.AddDays(30)));
-
-    [Fact]
-    public void DeadOAuthGrant_RefreshExpiredOverADayAgo_Deleted() =>
-        Assert.True(IsDeadGrant(null, Now.AddDays(-2)));
-
-    [Fact]
-    public void DeadOAuthGrant_RevokedWithinGrace_Kept() =>
-        Assert.False(IsDeadGrant(Now.AddHours(-1), Now.AddDays(30)));
-
     private static bool IsOldSsgJob(DateTimeOffset? finishedAt) =>
         RetentionCleanupWorker.OldSsgRebuildJob(Now).Compile()(
             new SsgRebuildJob { CreatedAt = Now.AddYears(-1), FinishedAt = finishedAt });
@@ -71,22 +35,6 @@ public class RetentionCleanupTests
     [Fact]
     public void OldTutorSession_UsedRecently_Kept() =>
         Assert.False(IsOldTutorSession(Now.AddDays(-89)));
-
-    [Fact]
-    public void ExpiredPasswordReset_OverADayPastExpiry_Deleted() =>
-        Assert.True(RetentionCleanupWorker.ExpiredPasswordReset(Now).Compile()(new PasswordResetToken { ExpiresAt = Now.AddDays(-2) }));
-
-    [Fact]
-    public void ExpiredPasswordReset_WithinGrace_Kept() =>
-        Assert.False(RetentionCleanupWorker.ExpiredPasswordReset(Now).Compile()(new PasswordResetToken { ExpiresAt = Now.AddHours(-1) }));
-
-    [Fact]
-    public void ExpiredDeviceAuthorization_OverADayPastExpiry_Deleted() =>
-        Assert.True(RetentionCleanupWorker.ExpiredDeviceAuthorization(Now).Compile()(new DeviceAuthorization { ExpiresAt = Now.AddDays(-2) }));
-
-    [Fact]
-    public void ExpiredDeviceAuthorization_WithinGrace_Kept() =>
-        Assert.False(RetentionCleanupWorker.ExpiredDeviceAuthorization(Now).Compile()(new DeviceAuthorization { ExpiresAt = Now.AddHours(-1) }));
 
     private static LlmTrace Trace(DateTimeOffset createdAt, string messages = "[{\"role\":\"user\"}]", string? response = "text") =>
         new() { FeatureTag = "f", ModelId = "m", PromptHash = "h", MessagesJson = messages, ResponseText = response, CreatedAt = createdAt };

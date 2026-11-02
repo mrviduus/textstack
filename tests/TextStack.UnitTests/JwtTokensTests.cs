@@ -21,8 +21,12 @@ public class JwtTokensTests
     public void MintAccessToken_RoundTrip_TheUserAndItsGuestFlag(bool isGuest)
     {
         var id = Guid.NewGuid();
+        var before = DateTimeOffset.UtcNow.AddSeconds(-1);
 
-        Assert.Equal((id, isGuest), Tokens.ValidateAccessToken(Tokens.MintAccessToken(id, "reader@example.test", null, isGuest)));
+        var identity = Tokens.ValidateAccessToken(Tokens.MintAccessToken(id, "reader@example.test", null, isGuest))!;
+
+        Assert.Equal((id, isGuest), (identity.UserId, identity.IsGuest));
+        Assert.InRange(identity.IssuedAt, before, DateTimeOffset.UtcNow);
     }
 
     [Fact]
@@ -31,7 +35,9 @@ public class JwtTokensTests
         var id = Guid.NewGuid();
         var legacy = new AuthService(null!, Options.Create(Settings()), Options.Create(new GoogleSettings { ClientId = "unused" }));
 
-        Assert.Equal((id, true), legacy.ValidateAccessTokenIdentity(Tokens.MintAccessToken(id, "guest@guest.local", "Guest", isGuest: true)));
+        var identity = legacy.ValidateAccessTokenIdentity(Tokens.MintAccessToken(id, "guest@guest.local", "Guest", isGuest: true))!;
+
+        Assert.Equal((id, true), (identity.UserId, identity.IsGuest));
     }
 
     [Fact]
@@ -39,7 +45,7 @@ public class JwtTokensTests
     {
         var expired = new JwtTokens(Settings(accessMinutes: -1)).MintAccessToken(Guid.NewGuid(), "reader@example.test", null, false);
 
-        Assert.Equal((null, false), Tokens.ValidateAccessToken(expired));
+        Assert.Null(Tokens.ValidateAccessToken(expired));
     }
 
     [Fact]
@@ -48,7 +54,7 @@ public class JwtTokensTests
         var forged = new JwtTokens(Settings(secret: "a-DIFFERENT-signing-key-long-enough-for-hmac-sha256-xyz"))
             .MintAccessToken(Guid.NewGuid(), "reader@example.test", null, false);
 
-        Assert.Equal((null, false), Tokens.ValidateAccessToken(forged));
+        Assert.Null(Tokens.ValidateAccessToken(forged));
     }
 
     [Fact]
@@ -58,7 +64,7 @@ public class JwtTokensTests
         var admin = Tokens.MintAdminAccessToken(id, "admin@example.test", AdminRole.Editor, 15);
 
         Assert.Equal((id, AdminRole.Editor), Tokens.ValidateAdminAccessToken(admin));
-        Assert.Equal((null, false), Tokens.ValidateAccessToken(admin));
+        Assert.Null(Tokens.ValidateAccessToken(admin));
         Assert.Equal((null, null), Tokens.ValidateAdminAccessToken(Tokens.MintAccessToken(id, "reader@example.test", null, false)));
     }
 

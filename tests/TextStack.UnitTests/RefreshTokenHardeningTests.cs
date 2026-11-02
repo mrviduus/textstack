@@ -183,7 +183,8 @@ public class RefreshTokenHardeningTests
 
         Assert.True(guest.Succeeded);
         Assert.True(guest.User.IsGuest);
-        Assert.Equal((guest.User.Id, true), _auth.ValidateAccessTokenIdentity(guest.AccessToken));
+        Assert.Equal(guest.User.Id, _auth.ValidateAccessTokenIdentity(guest.AccessToken)?.UserId);
+        Assert.True(_auth.ValidateAccessTokenIdentity(guest.AccessToken)?.IsGuest);
     }
 
     [Fact]

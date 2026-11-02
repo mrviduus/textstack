@@ -35,12 +35,15 @@ public class AccessTokenIdentityTests
         int expiresInMinutes = 60, string? audience = JwtSettings.UserAudience, string algorithm = SecurityAlgorithms.HmacSha256) =>
         TestTokens.Token(userId, guestClaim, guestClaimValue, issuer, secret, expiresInMinutes, audience, algorithm);
 
+    // The (user, guest) pair these tests were written against; null reads as (null, false).
+    private static (Guid? UserId, bool IsGuest) Split(AccessTokenIdentity? identity) => (identity?.UserId, identity?.IsGuest ?? false);
+
     [Fact]
     public void ValidateAccessTokenIdentity_GuestToken_ReportsTheUserAndTheGuestFlag()
     {
         var id = Guid.NewGuid();
 
-        var (userId, isGuest) = Service().ValidateAccessTokenIdentity(Token(id, guestClaim: true));
+        var (userId, isGuest) = Split(Service().ValidateAccessTokenIdentity(Token(id, guestClaim: true)));
 
         Assert.Equal(id, userId);
         Assert.True(isGuest);
@@ -53,7 +56,7 @@ public class AccessTokenIdentityTests
         // GuestCleanupWorker, and an UPDATE per request on every signed-in reader is pure cost.
         var id = Guid.NewGuid();
 
-        var (userId, isGuest) = Service().ValidateAccessTokenIdentity(Token(id, guestClaim: false));
+        var (userId, isGuest) = Split(Service().ValidateAccessTokenIdentity(Token(id, guestClaim: false)));
 
         Assert.Equal(id, userId);
         Assert.False(isGuest);
@@ -62,10 +65,10 @@ public class AccessTokenIdentityTests
     [Fact]
     public void ValidateAccessTokenIdentity_ExpiredGuestToken_IsNobody()
     {
-        // The documented contract: (null, false) rather than an id, so no caller can mistake an
+        // The documented contract: null rather than an id, so no caller can mistake an
         // expired token for an account. `ClockSkew = Zero`, so one minute in the past is expired.
-        var (userId, isGuest) = Service().ValidateAccessTokenIdentity(
-            Token(Guid.NewGuid(), guestClaim: true, expiresInMinutes: -1));
+        var (userId, isGuest) = Split(Service().ValidateAccessTokenIdentity(
+            Token(Guid.NewGuid(), guestClaim: true, expiresInMinutes: -1)));
 
         Assert.Null(userId);
         Assert.False(isGuest);
@@ -75,8 +78,8 @@ public class AccessTokenIdentityTests
     public void ValidateAccessTokenIdentity_ForeignSignature_IsNobody()
     {
         // Structurally a real guest token, signed with a key this deployment does not hold.
-        var (userId, isGuest) = Service().ValidateAccessTokenIdentity(
-            Token(Guid.NewGuid(), guestClaim: true, secret: OtherSecret));
+        var (userId, isGuest) = Split(Service().ValidateAccessTokenIdentity(
+            Token(Guid.NewGuid(), guestClaim: true, secret: OtherSecret)));
 
         Assert.Null(userId);
         Assert.False(isGuest);
@@ -85,8 +88,8 @@ public class AccessTokenIdentityTests
     [Fact]
     public void ValidateAccessTokenIdentity_WrongIssuer_IsNobody()
     {
-        var (userId, isGuest) = Service().ValidateAccessTokenIdentity(
-            Token(Guid.NewGuid(), guestClaim: true, issuer: "someone-elses.app"));
+        var (userId, isGuest) = Split(Service().ValidateAccessTokenIdentity(
+            Token(Guid.NewGuid(), guestClaim: true, issuer: "someone-elses.app")));
 
         Assert.Null(userId);
         Assert.False(isGuest);
@@ -98,8 +101,8 @@ public class AccessTokenIdentityTests
     [InlineData("someone-elses-api")]
     public void ValidateAccessTokenIdentity_NotTheUserAudience_IsNobody(string? audience)
     {
-        var (userId, isGuest) = Service().ValidateAccessTokenIdentity(
-            Token(Guid.NewGuid(), guestClaim: false, audience: audience));
+        var (userId, isGuest) = Split(Service().ValidateAccessTokenIdentity(
+            Token(Guid.NewGuid(), guestClaim: false, audience: audience)));
 
         Assert.Null(userId);
         Assert.False(isGuest);
@@ -118,8 +121,8 @@ public class AccessTokenIdentityTests
             googleSettings: Options.Create(new GoogleSettings { ClientId = "unused.apps.googleusercontent.com" }));
         var id = Guid.NewGuid();
 
-        var (userId, _) = service.ValidateAccessTokenIdentity(
-            Token(id, guestClaim: false, secret: longSecret, algorithm: algorithm));
+        var (userId, _) = Split(service.ValidateAccessTokenIdentity(
+            Token(id, guestClaim: false, secret: longSecret, algorithm: algorithm)));
 
         Assert.Equal(accepted ? id : null, userId);
     }
@@ -127,8 +130,8 @@ public class AccessTokenIdentityTests
     [Fact]
     public void ValidateAccessTokenIdentity_NoSubjectClaim_IsNobody()
     {
-        var (userId, isGuest) = Service().ValidateAccessTokenIdentity(
-            Token(userId: null, guestClaim: true));
+        var (userId, isGuest) = Split(Service().ValidateAccessTokenIdentity(
+            Token(userId: null, guestClaim: true)));
 
         Assert.Null(userId);
         Assert.False(isGuest);
@@ -143,8 +146,8 @@ public class AccessTokenIdentityTests
     {
         var id = Guid.NewGuid();
 
-        var (userId, isGuest) = Service().ValidateAccessTokenIdentity(
-            Token(id, guestClaim: true, guestClaimValue: value));
+        var (userId, isGuest) = Split(Service().ValidateAccessTokenIdentity(
+            Token(id, guestClaim: true, guestClaimValue: value)));
 
         Assert.Equal(id, userId);
         Assert.False(isGuest);
@@ -159,7 +162,7 @@ public class AccessTokenIdentityTests
     {
         // A connect key is an account-level credential and never a guest's; it must fall through
         // quietly rather than throw inside a middleware that runs on every request.
-        var (userId, isGuest) = Service().ValidateAccessTokenIdentity(token);
+        var (userId, isGuest) = Split(Service().ValidateAccessTokenIdentity(token));
 
         Assert.Null(userId);
         Assert.False(isGuest);
@@ -176,8 +179,8 @@ public class AccessTokenIdentityTests
         var account = Token(id, guestClaim: false);
         var dead = Token(id, guestClaim: true, expiresInMinutes: -1);
 
-        Assert.Equal(service.ValidateAccessToken(guest), service.ValidateAccessTokenIdentity(guest).UserId);
-        Assert.Equal(service.ValidateAccessToken(account), service.ValidateAccessTokenIdentity(account).UserId);
-        Assert.Equal(service.ValidateAccessToken(dead), service.ValidateAccessTokenIdentity(dead).UserId);
+        Assert.Equal(service.ValidateAccessToken(guest), service.ValidateAccessTokenIdentity(guest)?.UserId);
+        Assert.Equal(service.ValidateAccessToken(account), service.ValidateAccessTokenIdentity(account)?.UserId);
+        Assert.Equal(service.ValidateAccessToken(dead), service.ValidateAccessTokenIdentity(dead)?.UserId);
     }
 }

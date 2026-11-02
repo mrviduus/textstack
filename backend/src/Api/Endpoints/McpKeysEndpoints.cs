@@ -1,10 +1,8 @@
 using Api.Extensions;
-using Api.Sites;
 using Application.Auth;
-using Application.Common.Interfaces;
+using Application.Identity;
 using Contracts.Mcp;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace Api.Endpoints;
 
@@ -34,7 +32,7 @@ public static class McpKeysEndpoints
     private static async Task<IResult> ListKeys(
         HttpContext httpContext,
         AuthService authService,
-        IAppDbContext db,
+        IMcpKeyRepository keys,
         CancellationToken ct)
     {
         var userId = httpContext.GetUserId(authService);
@@ -42,30 +40,23 @@ public static class McpKeysEndpoints
 
         // Revoked keys are listed too, marked as such. A key that vanishes when you revoke it gives
         // no confirmation that the right one went; the row is also the record that it happened.
-        var keys = await db.McpAccessKeys
-            .Where(k => k.UserId == userId.Value)
-            .OrderByDescending(k => k.CreatedAt)
-            .Select(k => new McpKeyDto(
-                k.Id, k.Name, k.Prefix, k.CreatedAt, k.LastUsedAt, k.RevokedAt))
-            .ToListAsync(ct);
+        var items = (await keys.ListAsync(userId.Value, ct))
+            .Select(k => new McpKeyDto(k.Id, k.Name, k.Prefix, k.CreatedAt, k.LastUsedAt, k.RevokedAt));
 
-        return Results.Ok(new { items = keys });
+        return Results.Ok(new { items });
     }
 
     private static async Task<IResult> CreateKey(
         [FromBody] CreateMcpKeyRequest request,
         HttpContext httpContext,
         AuthService authService,
-        IAppDbContext db,
+        IMcpKeyRepository keys,
         CancellationToken ct)
     {
-        var userId = httpContext.GetUserId(authService);
-        if (userId == null) return Results.Unauthorized();
+        var identity = httpContext.GetAccessTokenIdentity(authService);
+        if (identity == null) return Results.Unauthorized();
 
-        var liveCount = await db.McpAccessKeys
-            .CountAsync(k => k.UserId == userId.Value && k.RevokedAt == null, ct);
-
-        if (liveCount >= McpKeys.MaxKeysPerUser)
+        if (await keys.CountLiveAsync(identity.UserId, ct) >= McpKeys.MaxKeysPerUser)
             return Results.BadRequest(new
             {
                 error = $"You already have {McpKeys.MaxKeysPerUser} active keys. Revoke one first.",
@@ -73,19 +64,10 @@ public static class McpKeysEndpoints
 
         var raw = McpKeys.Generate();
 
-        var key = new Domain.Entities.McpAccessKey
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId.Value,
-            SiteId = httpContext.GetSiteId(),
-            Name = McpKeys.NormalizeName(request.Name),
-            KeyHash = DeviceCodes.HashToken(raw),
-            Prefix = McpKeys.DisplayPrefix(raw),
-            CreatedAt = DateTimeOffset.UtcNow,
-        };
-
-        db.McpAccessKeys.Add(key);
-        await db.SaveChangesAsync(ct);
+        var key = await keys.CreateAsync(identity.UserId, McpKeys.NormalizeName(request.Name),
+            DeviceCodes.HashToken(raw), McpKeys.DisplayPrefix(raw), identity.IssuedAt, ct);
+        // The account is gone, or (V2) its password was reset after this token was issued: sign in again.
+        if (key is null) return Results.Unauthorized();
 
         // `key` is returned here and nowhere else, ever — only its hash is kept. The client must show
         // it once and tell the reader so.
@@ -97,25 +79,14 @@ public static class McpKeysEndpoints
         Guid id,
         HttpContext httpContext,
         AuthService authService,
-        IAppDbContext db,
+        IMcpKeyRepository keys,
         CancellationToken ct)
     {
         var userId = httpContext.GetUserId(authService);
         if (userId == null) return Results.Unauthorized();
 
-        var key = await db.McpAccessKeys
-            .FirstOrDefaultAsync(k => k.Id == id && k.UserId == userId.Value, ct);
-
-        if (key is null) return Results.NotFound();
-
         // Idempotent: revoking an already-revoked key keeps the original timestamp, so the audit
         // answer stays "when was this turned off" rather than "when was it last clicked".
-        if (key.RevokedAt is null)
-        {
-            key.RevokedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(ct);
-        }
-
-        return Results.NoContent();
+        return await keys.RevokeAsync(userId.Value, id, ct) ? Results.NoContent() : Results.NotFound();
     }
 }

@@ -49,22 +49,22 @@ public sealed class JwtTokens
         return Write(claims, JwtSettings.UserAudience, _jwt.AccessTokenExpiryMinutes);
     }
 
-    /// <summary>The user a reader's access token names and whether it is a guest's; <c>(null, false)</c> when it does not validate.</summary>
-    public (Guid? UserId, bool IsGuest) ValidateAccessToken(string accessToken)
+    /// <summary>The user a reader's access token names, whether it is a guest's, and its <c>iat</c>; null when it does not validate.</summary>
+    public AccessTokenIdentity? ValidateAccessToken(string accessToken)
     {
         try
         {
-            var principal = Handler.ValidateToken(accessToken, _readerValidation, out _);
+            var principal = Handler.ValidateToken(accessToken, _readerValidation, out var validated);
 
             var userIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (userIdClaim == null) return (null, false);
+            if (userIdClaim == null) return null;
 
             var isGuest = principal.FindFirst(GuestClaimType)?.Value == "true";
-            return (Guid.Parse(userIdClaim), isGuest);
+            return new AccessTokenIdentity(Guid.Parse(userIdClaim), isGuest, new DateTimeOffset(((JwtSecurityToken)validated).IssuedAt, TimeSpan.Zero));
         }
         catch
         {
-            return (null, false);
+            return null;
         }
     }
 
@@ -127,3 +127,9 @@ public sealed class JwtTokens
         return Handler.WriteToken(token);
     }
 }
+
+/// <summary>
+/// What a validated reader access token says: whose it is, whether a guest's, and when it was issued
+/// (<c>iat</c>, whole seconds, UTC), which a credential minted from it is checked against (#1092).
+/// </summary>
+public sealed record AccessTokenIdentity(Guid UserId, bool IsGuest, DateTimeOffset IssuedAt);

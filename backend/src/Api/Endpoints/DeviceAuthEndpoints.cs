@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 using Api.Extensions;
+using Api.Mapping;
 using Application.Auth;
-using Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Api.Endpoints;
@@ -29,7 +29,7 @@ public static class DeviceAuthEndpoints
     }
 
     private static async Task<IResult> RequestDeviceCode(
-        AuthService authService,
+        IAuthService authService,
         IConfiguration config,
         CancellationToken ct)
     {
@@ -52,7 +52,7 @@ public static class DeviceAuthEndpoints
 
     private static async Task<IResult> PollDeviceToken(
         [FromBody] DeviceTokenRequest request,
-        AuthService authService,
+        IAuthService authService,
         CancellationToken ct)
     {
         if (!string.Equals(request.GrantType, GrantType, StringComparison.Ordinal))
@@ -70,7 +70,7 @@ public static class DeviceAuthEndpoints
                 access_token = result.AccessToken,
                 refresh_token = result.RefreshToken,
                 token_type = "Bearer",
-                user = ToDto(result.User!)
+                user = result.User!.ToDto()
             }),
             DeviceRedeemStatus.AuthorizationPending => Results.BadRequest(new { error = "authorization_pending" }),
             DeviceRedeemStatus.AccessDenied => Results.BadRequest(new { error = "access_denied" }),
@@ -80,24 +80,24 @@ public static class DeviceAuthEndpoints
 
     private static async Task<IResult> ApproveDevice(
         [FromBody] DeviceApproveRequest request,
-        AuthService authService,
+        IAuthService authService,
         HttpContext httpContext,
         CancellationToken ct)
     {
-        var userId = httpContext.GetUserId(authService);
-        if (userId == null)
+        var identity = httpContext.GetAccessTokenIdentity(authService);
+        if (identity == null)
             return Results.Unauthorized();
 
         if (string.IsNullOrWhiteSpace(request.UserCode))
             return Results.BadRequest(new { error = "invalid_request" });
 
-        var result = await authService.ApproveDeviceAsync(request.UserCode, userId.Value, ct);
+        var result = await authService.ApproveDeviceAsync(request.UserCode, identity.UserId, identity.IssuedAt, ct);
         return MapApproval(result);
     }
 
     private static async Task<IResult> DenyDevice(
         [FromBody] DeviceApproveRequest request,
-        AuthService authService,
+        IAuthService authService,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -121,9 +121,6 @@ public static class DeviceAuthEndpoints
         DeviceApprovalResult.Unauthorized => Results.Unauthorized(),
         _ => Results.BadRequest(new { error = "invalid_user_code" })
     };
-
-    private static UserDto ToDto(User user) =>
-        new(user.Id, user.Email, user.Name, user.Picture, user.IsGuest, user.CreatedAt, user.NativeLanguage);
 
     // Bodies are JSON with snake_case keys (RFC 8628 §3.4). The frontend approve
     // call sends { "user_code": "WDJB-MQXR" }; the CLI poll sends
