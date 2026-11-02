@@ -105,12 +105,25 @@ public class JwtTokens(JwtSettings jwt, GoogleSettings? google = null, AppleSett
         }
     }
 
-    /// <summary>A new opaque secret (a refresh token, a reset code): the raw value goes to the client once, only the hash is stored.</summary>
-    public static (string Raw, string Hash) NewOpaqueToken()
+    /// <summary>
+    /// Starts every V2 admin-panel refresh token, so an admin session is told from a reader session of
+    /// the same account by the token alone (the stored hash covers the prefix, so it cannot be added).
+    /// ponytail: a <c>kind</c> column on <c>user_refresh_tokens</c> in migration 0002 (#1092's bundle) replaces it.
+    /// </summary>
+    public const string AdminRefreshTokenPrefix = "adm.";
+
+    /// <summary>
+    /// A new opaque secret (a refresh token, a reset code), <paramref name="prefix"/> first: the raw
+    /// value goes to the client once, only the hash of all of it is stored.
+    /// </summary>
+    public static (string Raw, string Hash) NewOpaqueToken(string prefix = "")
     {
-        var raw = DeviceCodes.GenerateSecureToken();
+        var raw = prefix + DeviceCodes.GenerateSecureToken();
         return (raw, DeviceCodes.HashToken(raw));
     }
+
+    /// <summary>Whether <paramref name="refreshToken"/> is an admin-panel session's (<see cref="AdminRefreshTokenPrefix"/>).</summary>
+    public static bool IsAdminRefreshToken(string refreshToken) => refreshToken.StartsWith(AdminRefreshTokenPrefix, StringComparison.Ordinal);
 
     /// <summary>
     /// The absolute lifetime of a V2 sign-in: past this many days since a chain's first session,

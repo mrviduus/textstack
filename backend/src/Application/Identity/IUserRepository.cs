@@ -40,7 +40,8 @@ public interface IUserRepository
     /// <summary>
     /// Turns a guest into an account in place: email, name and password set, <c>promoted_at</c> stamped,
     /// everything it owns kept. <see cref="AccountUpdateOutcome.NotFound"/> when <paramref name="userId"/>
-    /// is not a guest, <see cref="AccountUpdateOutcome.EmailTaken"/> when another account holds the email.
+    /// is not a guest (or is an admin: a guest promotion never sets an admin's password),
+    /// <see cref="AccountUpdateOutcome.EmailTaken"/> when another account holds the email.
     /// </summary>
     Task<AccountUpdate> PromoteGuestAsync(Guid userId, string email, string? name, string passwordHash, CancellationToken ct);
 

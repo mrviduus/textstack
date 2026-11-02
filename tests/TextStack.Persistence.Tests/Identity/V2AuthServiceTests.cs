@@ -436,6 +436,83 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task AdminRefreshTokenAsync_ReaderSessionOfAnAdminAccount_Refused()
+    {
+        var (registered, email) = await AdminAccountAsync();
+        var reader = await Auth.LoginWithEmailAsync(email, Password, Ct);
+
+        Assert.True(reader.Succeeded);
+        Assert.Null(await Admin.RefreshTokenAsync(reader.RefreshToken!, Ct));
+        Assert.Null(await Admin.RefreshTokenAsync(registered.RefreshToken!, Ct));
+        Assert.False(await Admin.LogoutAsync(reader.RefreshToken!, Ct));
+    }
+
+    [Fact]
+    public async Task RefreshTokenAsync_AdminPanelToken_RefusedAndNotSignedOut()
+    {
+        var (_, email) = await AdminAccountAsync();
+        var admin = (await Admin.LoginAsync(email, Password, Ct))!;
+
+        Assert.StartsWith(JwtTokens.AdminRefreshTokenPrefix, admin.RefreshToken);
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(admin.RefreshToken, Ct)).Status);
+        Assert.False(await Auth.LogoutAsync(admin.RefreshToken, Ct));
+        Assert.True(await Admin.LogoutAsync(admin.RefreshToken, Ct));
+    }
+
+    [Fact]
+    public async Task RedeemDeviceCodeAsync_ApprovedByAnAdmin_ReaderSessionThatNeverRefreshesIntoAdmin()
+    {
+        var (registered, _) = await AdminAccountAsync();
+        var device = await Auth.CreateDeviceAuthorizationAsync(Ct);
+        await Auth.ApproveDeviceAsync(device.UserCode, registered.User!.Id, Ct);
+
+        var redeemed = await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct);
+
+        Assert.True(redeemed.Succeeded);
+        Assert.Null(await Admin.RefreshTokenAsync(redeemed.RefreshToken!, Ct));
+    }
+
+    [Fact]
+    public async Task TestLoginAsync_AdminAccount_InvalidToken()
+    {
+        var (_, email) = await AdminAccountAsync();
+
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.TestLoginAsync(email, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task LoginWithProviderAsync_AdminAccountsSubject_InvalidToken()
+    {
+        var (registered, _) = await AdminAccountAsync();
+        var (google, apple) = (Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
+        await db.ExecAsync("UPDATE users SET google_subject = @google, apple_subject = @apple WHERE id = @user", new { google, apple, user = registered.User!.Id });
+        _tokens.Google["g"] = new(google, registered.User.Email, "Admin", null);
+        _tokens.Apple["a"] = new(apple, null, null, null);
+
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithGoogleAsync("g", Ct)).Status);
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithAppleAsync("a", null, null, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task RegisterWithEmailAsync_GuestIdOfAnAdmin_NewAccountTheAdminUntouched()
+    {
+        var guest = (await Auth.CreateGuestSessionAsync(Ct)).User!;
+        await _users.SetRoleAsync(guest.Id, UserAccount.AdminRole, Ct);
+
+        var (registered, _) = await RegisterAsync(guest.Id);
+
+        Assert.NotEqual(guest.Id, registered.User?.Id);
+        Assert.Null((await _users.GetAsync(guest.Id, Ct))!.PasswordHash);
+    }
+
+    private async Task<(AuthResult Registered, string Email)> AdminAccountAsync()
+    {
+        var (registered, email) = await RegisterAsync();
+        await _users.SetRoleAsync(registered.User!.Id, UserAccount.AdminRole, Ct);
+        return (registered, email);
+    }
+
+    [Fact]
     public async Task AdminLoginAsync_ReaderOrWrongPassword_Null()
     {
         var (reader, email) = await RegisterAsync();

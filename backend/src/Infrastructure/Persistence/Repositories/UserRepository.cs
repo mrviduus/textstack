@@ -73,7 +73,7 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
 
     private const string PromoteGuest = $"""
         UPDATE users SET email = @email, name = @name, password_hash = @passwordHash, is_guest = false, promoted_at = now()
-        WHERE id = @userId AND is_guest
+        WHERE id = @userId AND is_guest AND role = 'reader'
         RETURNING {Columns}
         """;
 

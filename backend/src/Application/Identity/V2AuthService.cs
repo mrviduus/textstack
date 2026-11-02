@@ -8,7 +8,9 @@ namespace Application.Identity;
 /// <summary>
 /// <see cref="IAuthService"/> on <c>textstack_v2</c> (M2.5b), over the identity ports and the shared
 /// <see cref="JwtTokens"/>. Registered nowhere: M5.1's <c>Database:Mode</c> picks it, and until then
-/// only tests build it. Admins sign in through <see cref="V2AdminAuthService"/>.
+/// only tests build it. Admins sign in through <see cref="V2AdminAuthService"/>: here an admin account
+/// signs in only with its password (a reader session, never an admin one), and an admin-panel refresh
+/// token neither refreshes nor signs out.
 /// </summary>
 public sealed class V2AuthService(
     IUserRepository users,
@@ -24,6 +26,7 @@ public sealed class V2AuthService(
         var user = await users.GetByEmailAsync(email, ct)
             ?? await users.CreateAsync(new UserAccount { Id = Guid.NewGuid(), Email = email, Name = email.Split('@')[0] }, ct)
             ?? await users.GetByEmailAsync(email, ct); // a concurrent sign-in made it
+        if (user is { Role: UserAccount.AdminRole }) return AuthResult.Failed(AuthStatus.InvalidToken);
         return user is null ? AuthResult.Failed(AuthStatus.EmailTaken) : await IssueAsync(user, null, ct, AuthStatus.InvalidToken);
     }
 
@@ -33,6 +36,7 @@ public sealed class V2AuthService(
         if (google?.Email is null) return AuthResult.Failed(AuthStatus.InvalidToken);
 
         var user = await users.GetByGoogleSubjectAsync(google.Subject, ct);
+        if (user is { Role: UserAccount.AdminRole }) return AuthResult.Failed(AuthStatus.InvalidToken);
         if (user is null)
             user = await CreateAsync(
                 new UserAccount { Id = Guid.NewGuid(), Email = google.Email, Name = google.Name, Picture = google.Picture, GoogleSubject = google.Subject },
@@ -50,6 +54,7 @@ public sealed class V2AuthService(
         if (apple is null) return AuthResult.Failed(AuthStatus.InvalidToken);
 
         var user = await users.GetByAppleSubjectAsync(apple.Subject, ct);
+        if (user is { Role: UserAccount.AdminRole }) return AuthResult.Failed(AuthStatus.InvalidToken);
         if (user is null)
             user = await CreateAsync(
                 new UserAccount { Id = Guid.NewGuid(), Email = email ?? apple.Email ?? $"{apple.Subject}@privaterelay.appleid.com", Name = fullName, AppleSubject = apple.Subject },
@@ -116,6 +121,7 @@ public sealed class V2AuthService(
 
     public async Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct)
     {
+        if (JwtTokens.IsAdminRefreshToken(refreshToken)) return AuthResult.Failed(AuthStatus.InvalidToken);
         var hash = DeviceCodes.HashToken(refreshToken);
         var now = clock.GetUtcNow();
         var session = await sessions.GetLiveAsync(hash, now, ct);
@@ -135,8 +141,8 @@ public sealed class V2AuthService(
             : AuthResult.Ok(user, MintAccessToken(user), raw);
     }
 
-    public Task<bool> LogoutAsync(string refreshToken, CancellationToken ct) =>
-        sessions.RevokeAsync(DeviceCodes.HashToken(refreshToken), ct);
+    public async Task<bool> LogoutAsync(string refreshToken, CancellationToken ct) =>
+        !JwtTokens.IsAdminRefreshToken(refreshToken) && await sessions.RevokeAsync(DeviceCodes.HashToken(refreshToken), ct);
 
     public Task<UserAccount?> GetUserByIdAsync(Guid userId, CancellationToken ct) => users.GetAsync(userId, ct);
 
