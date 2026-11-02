@@ -137,6 +137,25 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
     }
 
+    // Same user, chapter and (no) file: only the share's book differs. Without the book guard the
+    // insert would pass and the deferred share FK refuse it at commit, a 500.
+    [Fact]
+    public async Task AppendAsync_OwnShareOfAnotherBook_IsAShareMismatchAndStoresNothing()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var other = await db.NewBookAsync(book.UserId, "Another book");
+        var share = NewShare(book);
+        share.FileId = null;
+        await _shares.ShareAsync(share, Ct);
+        var checkpoint = NewCheckpoint(other, share);
+        checkpoint.FileId = null;
+
+        var result = await _repo.AppendAsync(checkpoint, Ct);
+
+        Assert.Equal((WriteOutcome.ShareMismatch, null), (result.Outcome, result.Row));
+        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book.UserId, other.Id));
+    }
+
     [Fact]
     public async Task AppendAsync_ShareOfAnotherFileVersion_IsAShareMismatchAndStoresNothing()
     {
