@@ -80,6 +80,18 @@ public class V2FeedEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixture>
     }
 
     [Fact]
+    public async Task Changes_EmptyCursorAndLimit_AreAFullPull()
+    {
+        v2.Require();
+        var guest = await v2.NewGuestAsync();
+        var (bookId, _, _) = await v2.ImportAsync(guest);
+
+        var page = await v2.SendAsync(guest, HttpMethod.Get, "/me/v2/library/changes?cursor=&limit=");
+
+        Assert.Equal((HttpStatusCode.OK, bookId), (page.Status, page.Body.GetProperty("items")[0].GetProperty("id").GetGuid()));
+    }
+
+    [Fact]
     public async Task Changes_ForeignCursor_IsInvalidPayload()
     {
         v2.Require();

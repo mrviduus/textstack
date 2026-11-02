@@ -530,8 +530,10 @@ their `server_storage_key` is cleared only once the bytes are gone (schema comme
 `GET /me/v2/{library|reading|annotations|vocabulary}/changes?cursor=&limit=` → `{ items, cursor, hasMore }`.
 
 - Rows ordered by `(updated_at, id)`, keyset-paged; tombstones included (`removedAt`, `deletedAt`).
-- The final page's `cursor` encodes `max(updated_at)`. A pull that **starts** from a stored cursor
-  reads from `cursor − 30 s`: a write transaction that took `now()` before a row the previous pull saw,
+- Inside a pull (`hasMore`) the cursor is the exact `(updated_at, id)` after the last row sent; the
+  final page's cursor is that position too when the last row is older than 30 s at pull time (no
+  transaction still in flight can commit an earlier row), else the watermark `max(updated_at)`,
+  which a pull that **starts** from it reads from `cursor − 30 s`: a write transaction that took `now()` before a row the previous pull saw,
   but committed after it, is still delivered. A pulled row **always replaces** the client's cached
   server copy of that row (revision is a write count, not recency: reviews change a schedule without
   one, state restarts at 1 after a replacement, books have none); the client's unpushed outbox
