@@ -34,18 +34,7 @@ public sealed partial class AccountMergeRepository
         ORDER BY account_book, created_at, guest_book
         """;
 
-    private static Task<List<BookMatch>> MatchBooksAsync(Run run) => run.QueryAsync<BookMatch>(MatchBooks);
-
-    // A replacement of the account's book must not change its current file under the merge.
-    // ponytail: locked after the match, so a replacement that commits in between is missed (the
-    // merge then repoints onto a now non-current file, still valid); lock before matching if it shows.
-    private const string LockAccountBooks = "SELECT id FROM books WHERE user_id = @accountId AND id = ANY(@accountBooks) ORDER BY id FOR UPDATE";
-
-    private static async Task LockAccountBooksAsync(Run run, List<BookMatch> books)
-    {
-        if (books.Count > 0) await run.ExecuteAsync(LockAccountBooks, Pairs(books));
-    }
-
+    /// <summary>The matches as the four parallel arrays every later step's <c>unnest</c> reads.</summary>
     private static object Pairs(List<BookMatch> books) => new
     {
         guestBooks = books.Select(b => b.GuestBook).ToArray(),
@@ -54,59 +43,33 @@ public sealed partial class AccountMergeRepository
         accountFiles = books.Select(b => b.AccountFile).ToArray(),
     };
 
-    // The appends on a matched guest book change book (and maybe file) id, both hashed: listed now,
-    // rehashed in step 7. The guest's own rows only, the account's keep their hashes.
+    // The appends on a matched guest book change book (and maybe file) id, both hashed: listed before
+    // anything moves, rehashed in step 7. The guest's own rows only, the account's keep their hashes.
     private const string SelectAppendsOnMatchedBooks = """
         SELECT 'example', id FROM vocabulary_examples WHERE user_id = @guestId AND book_id = ANY(@guestBooks)
         UNION ALL SELECT 'share', id FROM shared_chapters WHERE user_id = @guestId AND book_id = ANY(@guestBooks)
         UNION ALL SELECT 'checkpoint', id FROM discussion_checkpoints WHERE user_id = @guestId AND book_id = ANY(@guestBooks)
         """;
 
-    private static async Task<(List<Guid> Examples, List<Guid> Shares, List<Guid> Checkpoints)> AppendsOnMatchedBooksAsync(Run run, List<BookMatch> books)
-    {
-        var rows = books.Count == 0 ? [] : await run.QueryAsync<(string Kind, Guid Id)>(SelectAppendsOnMatchedBooks, Pairs(books));
-        List<Guid> Of(string kind) => rows.Where(r => r.Kind == kind).Select(r => r.Id).ToList();
-        return (Of("example"), Of("share"), Of("checkpoint"));
-    }
+    private static Guid[] Of(List<(string Kind, Guid Id)> appends, string kind) => appends.Where(a => a.Kind == kind).Select(a => a.Id).ToArray();
 
-    private const string StateColumns =
-        "book_id, file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision, reset_revision";
-
-    // Locked: a device of the account must not advance a state this merge is about to overwrite.
-    private const string LockStates = $"SELECT {StateColumns} FROM reading_state WHERE user_id = @userId AND book_id = ANY(@bookIds) FOR UPDATE";
-
-    // A state's locators mean something only in the file they were taken in, and the two current files
-    // hold the same bytes: the guest's state counts only on its current file, the account's likewise.
-    // One statement for every matched book.
-    private const string UpsertAccountStates = """
-        INSERT INTO reading_state (user_id, book_id, file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision, reset_revision)
-        SELECT @accountId, m.book_id, m.file_id, CAST(m.current_locator AS jsonb), m.book_fraction, CAST(m.frontier_locator AS jsonb),
-               m.frontier_fraction, m.completed_at, m.client_recorded_at, now(), m.revision, m.reset_revision
-        FROM unnest(@bookIds, @fileIds, @currentLocators, @bookFractions, @frontierLocators, @frontierFractions, @completedAts, @clientRecordedAts, @revisions, @resetRevisions)
-            AS m(book_id, file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, revision, reset_revision)
-        ON CONFLICT (user_id, book_id) DO UPDATE SET
-            file_id = EXCLUDED.file_id, current_locator = EXCLUDED.current_locator, book_fraction = EXCLUDED.book_fraction,
-            frontier_locator = EXCLUDED.frontier_locator, frontier_fraction = EXCLUDED.frontier_fraction,
-            completed_at = EXCLUDED.completed_at, client_recorded_at = EXCLUDED.client_recorded_at,
-            updated_at = now(), revision = EXCLUDED.revision, reset_revision = EXCLUDED.reset_revision
+    // Locked: a device of either user must not advance a state this merge is about to overwrite.
+    private const string LockStates = $"""
+        SELECT user_id = @guestId, {ReadingStateRepository.Columns} FROM reading_state
+        WHERE (user_id = @guestId AND book_id = ANY(@guestBooks)) OR (user_id = @accountId AND book_id = ANY(@accountBooks))
+        FOR UPDATE
         """;
 
-    // Merged or not (a state left on an old version loses), the guest's row must go before its files
-    // move, or the cascade lands it on the account's key.
-    private const string DeleteGuestStates = "DELETE FROM reading_state WHERE user_id = @guestId AND book_id = ANY(@guestBooks)";
-
     /// <summary>
-    /// Step 3a: the guest's state of a matched book lands on the account's book, merged with the
-    /// account's when that one is on its current file. An account state on an old version is
-    /// overwritten by the guest's; with no guest state, the account's stays as it is.
+    /// Step 3a: the guest's state of a matched book lands on the account's book. A state counts only on
+    /// its book's current file (its locators mean nothing in another): the guest's on another is
+    /// dropped, the account's on another is overwritten with a revision past it (a stale device holds
+    /// that one). With no guest state the account's stays as it is.
     /// </summary>
-    private static async Task MergeReadingStatesAsync(Run run, List<BookMatch> books)
+    private static List<ReadingState> MergedStates(List<BookMatch> books, List<(bool OfGuest, ReadingState State)> states)
     {
-        if (books.Count == 0) return;
-        var guest = (await run.QueryAsync<ReadingState>(LockStates, new { userId = run.GuestId, bookIds = books.Select(b => b.GuestBook).ToArray() }))
-            .ToDictionary(s => s.BookId);
-        var account = (await run.QueryAsync<ReadingState>(LockStates, new { userId = run.AccountId, bookIds = books.Select(b => b.AccountBook).ToArray() }))
-            .ToDictionary(s => s.BookId);
+        var guest = states.Where(s => s.OfGuest).ToDictionary(s => s.State.BookId, s => s.State);
+        var account = states.Where(s => !s.OfGuest).ToDictionary(s => s.State.BookId, s => s.State);
         var merged = new List<ReadingState>();
         foreach (var book in books)
         {
@@ -114,29 +77,13 @@ public sealed partial class AccountMergeRepository
             var state = account.GetValueOrDefault(book.AccountBook) switch
             {
                 null => theirs,
-                { } ours when ours.FileId == book.AccountFile => MergeStates(theirs, ours),
-                // A stale device of the account holds this row's revision: the overwrite passes it.
+                { } ours when ours.FileId == book.AccountFile => ReadingState.Merge(theirs, ours),
                 { } stale => Overwrite(theirs, Math.Max(theirs.Revision, stale.Revision) + 1),
             };
             (state.BookId, state.FileId) = (book.AccountBook, book.AccountFile);
             merged.Add(state);
         }
-        if (merged.Count > 0)
-            await run.ExecuteAsync(UpsertAccountStates, new
-            {
-                bookIds = merged.Select(s => s.BookId).ToArray(),
-                fileIds = merged.Select(s => s.FileId).ToArray(),
-                currentLocators = merged.Select(s => s.CurrentLocator).ToArray(),
-                bookFractions = merged.Select(s => s.BookFraction).ToArray(),
-                frontierLocators = merged.Select(s => s.FrontierLocator).ToArray(),
-                frontierFractions = merged.Select(s => s.FrontierFraction).ToArray(),
-                // Arrays skip Dapper's UTC handler, and Npgsql writes timestamptz only from offset 0.
-                completedAts = merged.Select(s => s.CompletedAt?.ToUniversalTime()).ToArray(),
-                clientRecordedAts = merged.Select(s => s.ClientRecordedAt.ToUniversalTime()).ToArray(),
-                revisions = merged.Select(s => s.Revision).ToArray(),
-                resetRevisions = merged.Select(s => s.ResetRevision).ToArray(),
-            });
-        await run.ExecuteAsync(DeleteGuestStates, Pairs(books));
+        return merged;
     }
 
     private static ReadingState Overwrite(ReadingState theirs, long revision)
@@ -145,50 +92,49 @@ public sealed partial class AccountMergeRepository
         return theirs;
     }
 
-    /// <summary>
-    /// The PDD's reading-state rule: the newer <c>clientRecordedAt</c> wins (a tie: the account's);
-    /// the frontier is the furthest of both frontiers and the winner's position, so it never trails
-    /// it; <c>completed_at</c> is the winner's as it is (null too: no COALESCE); the account's reset
-    /// is kept; the revision passes both.
-    /// </summary>
-    private static ReadingState MergeStates(ReadingState guest, ReadingState account)
+    private static object StateArgs(List<ReadingState> merged) => new
     {
-        var winner = guest.ClientRecordedAt > account.ClientRecordedAt ? guest : account;
-        var frontier = new[]
-            {
-                (Locator: account.FrontierLocator, Fraction: account.FrontierFraction),
-                (Locator: guest.FrontierLocator, Fraction: guest.FrontierFraction),
-                (Locator: (string?)winner.CurrentLocator, Fraction: (decimal?)winner.BookFraction),
-            }
-            .Where(f => f.Fraction is not null).MaxBy(f => f.Fraction);
-        return new ReadingState
-        {
-            CurrentLocator = winner.CurrentLocator,
-            BookFraction = winner.BookFraction,
-            FrontierLocator = frontier.Locator,
-            FrontierFraction = frontier.Fraction,
-            CompletedAt = winner.CompletedAt,
-            ClientRecordedAt = winner.ClientRecordedAt,
-            Revision = Math.Max(guest.Revision, account.Revision) + 1,
-            ResetRevision = account.ResetRevision,
-        };
-    }
+        stateBooks = merged.Select(s => s.BookId).ToArray(),
+        stateFiles = merged.Select(s => s.FileId).ToArray(),
+        currentLocators = merged.Select(s => s.CurrentLocator).ToArray(),
+        bookFractions = merged.Select(s => s.BookFraction).ToArray(),
+        frontierLocators = merged.Select(s => s.FrontierLocator).ToArray(),
+        frontierFractions = merged.Select(s => s.FrontierFraction).ToArray(),
+        // Arrays skip Dapper's UTC handler, and Npgsql writes timestamptz only from offset 0.
+        completedAts = merged.Select(s => s.CompletedAt?.ToUniversalTime()).ToArray(),
+        clientRecordedAts = merged.Select(s => s.ClientRecordedAt.ToUniversalTime()).ToArray(),
+        revisions = merged.Select(s => s.Revision).ToArray(),
+        resetRevisions = merged.Select(s => s.ResetRevision).ToArray(),
+    };
 
-    // 3b. What points into the guest's same-bytes file now points into the account's. IN both users:
-    // step 2 already moved some examples to the account, still naming the guest's book and file.
-    private const string RepointToAccountFiles = """
-        UPDATE annotations t SET user_id = @accountId, book_id = m.account_book, file_id = m.account_file
-        FROM unnest(@guestFiles, @accountBooks, @accountFiles) AS m(guest_file, account_book, account_file)
-        WHERE t.user_id IN (@guestId, @accountId) AND t.file_id = m.guest_file;
-        UPDATE vocabulary_examples t SET user_id = @accountId, book_id = m.account_book, file_id = m.account_file
-        FROM unnest(@guestFiles, @accountBooks, @accountFiles) AS m(guest_file, account_book, account_file)
-        WHERE t.user_id IN (@guestId, @accountId) AND t.file_id = m.guest_file;
-        UPDATE shared_chapters t SET user_id = @accountId, book_id = m.account_book, file_id = m.account_file
-        FROM unnest(@guestFiles, @accountBooks, @accountFiles) AS m(guest_file, account_book, account_file)
-        WHERE t.user_id IN (@guestId, @accountId) AND t.file_id = m.guest_file;
-        UPDATE discussion_checkpoints t SET user_id = @accountId, book_id = m.account_book, file_id = m.account_file
-        FROM unnest(@guestFiles, @accountBooks, @accountFiles) AS m(guest_file, account_book, account_file)
-        WHERE t.user_id IN (@guestId, @accountId) AND t.file_id = m.guest_file
+    private const string UpsertAccountStates = """
+        INSERT INTO reading_state (user_id, book_id, file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision, reset_revision)
+        SELECT @accountId, m.book_id, m.file_id, CAST(m.current_locator AS jsonb), m.book_fraction, CAST(m.frontier_locator AS jsonb),
+               m.frontier_fraction, m.completed_at, m.client_recorded_at, clock_timestamp(), m.revision, m.reset_revision
+        FROM unnest(@stateBooks, @stateFiles, @currentLocators, @bookFractions, @frontierLocators, @frontierFractions, @completedAts, @clientRecordedAts, @revisions, @resetRevisions)
+            AS m(book_id, file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, revision, reset_revision)
+        ON CONFLICT (user_id, book_id) DO UPDATE SET
+            file_id = EXCLUDED.file_id, current_locator = EXCLUDED.current_locator, book_fraction = EXCLUDED.book_fraction,
+            frontier_locator = EXCLUDED.frontier_locator, frontier_fraction = EXCLUDED.frontier_fraction,
+            completed_at = EXCLUDED.completed_at, client_recorded_at = EXCLUDED.client_recorded_at,
+            updated_at = clock_timestamp(), revision = EXCLUDED.revision, reset_revision = EXCLUDED.reset_revision
+        """;
+
+    // Merged or not, the guest's row must go before its files move, or the cascade lands it on the account's key.
+    private const string DeleteGuestStates = "DELETE FROM reading_state WHERE user_id = @guestId AND book_id = ANY(@guestBooks)";
+
+    // 3b. What points into the guest's same-bytes file now points into the account's. Both users: step
+    // 2 already moved some examples to the account, still naming the guest's book and file. Checkpoints
+    // before shares: a share's move cascades into its checkpoints' book, which this filter keys on.
+    private const string RepointTail = """
+        FROM unnest(@guestBooks, @guestFiles, @accountBooks, @accountFiles) AS m(guest_book, guest_file, account_book, account_file)
+        WHERE t.user_id IN (@guestId, @accountId) AND t.book_id = m.guest_book AND t.file_id = m.guest_file
+        """;
+    private const string RepointToAccountFiles = $"""
+        UPDATE annotations t SET user_id = @accountId, book_id = m.account_book, file_id = m.account_file {RepointTail};
+        UPDATE vocabulary_examples t SET user_id = @accountId, book_id = m.account_book, file_id = m.account_file {RepointTail};
+        UPDATE discussion_checkpoints t SET user_id = @accountId, book_id = m.account_book, file_id = m.account_file {RepointTail};
+        UPDATE shared_chapters t SET user_id = @accountId, book_id = m.account_book, file_id = m.account_file {RepointTail}
         """;
 
     // Its chapters and jobs go with it; the account's file has its own.
@@ -203,63 +149,37 @@ public sealed partial class AccountMergeRepository
         WHERE f.user_id = @guestId AND f.book_id = m.guest_book
         """;
 
-    // 3d. What still names the guest book: rows with no file, and examples step 2 moved.
-    private const string MoveLeftoversToAccountBooks = """
-        UPDATE annotations t SET user_id = @accountId, book_id = m.account_book
-        FROM unnest(@guestBooks, @accountBooks) AS m(guest_book, account_book)
-        WHERE t.user_id IN (@guestId, @accountId) AND t.book_id = m.guest_book;
-        UPDATE vocabulary_examples t SET user_id = @accountId, book_id = m.account_book
-        FROM unnest(@guestBooks, @accountBooks) AS m(guest_book, account_book)
-        WHERE t.user_id IN (@guestId, @accountId) AND t.book_id = m.guest_book;
-        UPDATE shared_chapters t SET user_id = @accountId, book_id = m.account_book
-        FROM unnest(@guestBooks, @accountBooks) AS m(guest_book, account_book)
-        WHERE t.user_id IN (@guestId, @accountId) AND t.book_id = m.guest_book;
-        UPDATE discussion_checkpoints t SET user_id = @accountId, book_id = m.account_book
-        FROM unnest(@guestBooks, @accountBooks) AS m(guest_book, account_book)
-        WHERE t.user_id IN (@guestId, @accountId) AND t.book_id = m.guest_book;
-        UPDATE reading_sessions t SET user_id = @accountId, book_id = m.account_book
+    // 3d. What still names the guest book: rows with no file, and examples step 2 moved. Insights too, in 3e.
+    private const string LeftoverTail = """
+        SET user_id = @accountId, book_id = m.account_book
         FROM unnest(@guestBooks, @accountBooks) AS m(guest_book, account_book)
         WHERE t.user_id IN (@guestId, @accountId) AND t.book_id = m.guest_book
         """;
+    private const string MoveLeftoversToAccountBooks = $"""
+        UPDATE annotations t {LeftoverTail};
+        UPDATE vocabulary_examples t {LeftoverTail};
+        UPDATE shared_chapters t {LeftoverTail};
+        UPDATE discussion_checkpoints t {LeftoverTail};
+        UPDATE reading_sessions t {LeftoverTail}
+        """;
 
-    /// <summary>Steps 3b–3d.</summary>
-    private static async Task MoveOntoAccountBooksAsync(Run run, List<BookMatch> books)
-    {
-        if (books.Count == 0) return;
-        var pairs = Pairs(books);
-        await run.ExecuteAsync(RepointToAccountFiles, pairs);
-        await run.ExecuteAsync(DeleteSameBytesFiles, pairs);
-        await run.ExecuteAsync(MoveOtherVersions, pairs);
-        await run.ExecuteAsync(MoveLeftoversToAccountBooks, pairs);
-    }
-
-    // 3f. Emptied by now (insights moved in 3e), so the cascade deletes nothing.
+    // 3f. Emptied by now, so the cascade deletes nothing.
     private const string DeleteMatchedGuestBooks = "DELETE FROM books WHERE user_id = @guestId AND id = ANY(@guestBooks)";
-    private const string TouchAccountBooks = "UPDATE books SET updated_at = now() WHERE user_id = @accountId AND id = ANY(@accountBooks)";
+
+    // 6, and the moved books of 4. The cascade does not touch updated_at, and the account's other
+    // devices pull by it. clock_timestamp(), not now() (the transaction's start): a row stamped when it
+    // moved cannot fall behind a cursor that passed an account write committed during the merge.
+    // Bumps the account's own rows of a matched book too: extra feed entries, nothing wrong.
+    private const string TouchAccountBooks = "UPDATE books SET updated_at = clock_timestamp() WHERE user_id = @accountId AND id = ANY(@accountBooks)";
 
     // 4. Ids kept (decision 12); files, state, annotations, sessions, appends, insights, chapters and jobs follow.
-    private const string MoveUnmatchedBooks = "UPDATE books SET user_id = @accountId, updated_at = now() WHERE user_id = @guestId RETURNING id";
+    private const string MoveUnmatchedBooks = "UPDATE books SET user_id = @accountId, updated_at = clock_timestamp() WHERE user_id = @guestId";
 
     // 5. A session of a deleted book has no (user_id, book_id) for the cascade to follow.
     private const string MoveBooklessSessions = "UPDATE reading_sessions SET user_id = @accountId WHERE user_id = @guestId AND book_id IS NULL";
 
-    // 6. The cascade does not touch updated_at, and the account's other devices pull by it. Bumps the
-    // account's own rows of a matched book too: extra feed entries, nothing wrong. ponytail: now() is
-    // the transaction's start, so an account write committed during a merge longer than the feeds'
-    // 30 s overlap can pass these rows in a cursor; stamp clock_timestamp() if merges ever run that long.
     private const string BumpFeeds = """
-        UPDATE reading_state SET updated_at = now() WHERE user_id = @accountId AND book_id = ANY(@bookIds);
-        UPDATE annotations SET updated_at = now() WHERE user_id = @accountId AND book_id = ANY(@bookIds)
+        UPDATE reading_state SET updated_at = clock_timestamp() WHERE user_id = @accountId AND book_id = ANY(@bumped);
+        UPDATE annotations SET updated_at = clock_timestamp() WHERE user_id = @accountId AND book_id = ANY(@bumped)
         """;
-
-    /// <summary>Steps 3f, 4, 5, 6.</summary>
-    private static async Task MoveBooksAsync(Run run, List<BookMatch> books)
-    {
-        var pairs = Pairs(books);
-        await run.ExecuteAsync(DeleteMatchedGuestBooks, pairs);
-        await run.ExecuteAsync(TouchAccountBooks, pairs);
-        var moved = await run.QueryAsync<Guid>(MoveUnmatchedBooks);
-        await run.ExecuteAsync(MoveBooklessSessions);
-        await run.ExecuteAsync(BumpFeeds, new { bookIds = moved.Concat(books.Select(b => b.AccountBook)).ToArray() });
-    }
 }

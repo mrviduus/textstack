@@ -8,7 +8,7 @@ public enum AccountMergeOutcome
     /// <summary>No such guest: it never had V2 rows, or it is already merged (a re-run lands here, not in an error).</summary>
     NoGuest,
 
-    /// <summary>Nothing moved: the guest is not a guest, the account is missing or a guest, or the two ids are one.</summary>
+    /// <summary>Nothing moved: the guest is not a guest, the account is missing, or the two ids are one.</summary>
     Refused,
 }
 

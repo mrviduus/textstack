@@ -65,7 +65,7 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         Assert.Equal(AccountMergeOutcome.NoGuest, (await MergeAsync(Guid.NewGuid(), account)).Outcome);
     }
 
-    public static TheoryData<string> RefusedCases => ["NotGuest", "AccountIsGuest", "SameId", "NoAccount"];
+    public static TheoryData<string> RefusedCases => ["NotGuest", "SameId", "NoAccount"];
 
     [Theory, MemberData(nameof(RefusedCases))]
     public async Task MergeAsync_NotAGuestIntoAnAccount_RefusedAndNothingMoves(string refused)
@@ -73,7 +73,6 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         var guest = refused == "NotGuest" ? await db.NewReaderAsync() : await NewGuestAsync();
         var account = refused switch
         {
-            "AccountIsGuest" => await NewGuestAsync(),
             "SameId" => guest,
             "NoAccount" => Guid.NewGuid(),
             _ => await db.NewReaderAsync(),
@@ -83,6 +82,17 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         Assert.Equal(AccountMergeOutcome.Refused, (await MergeAsync(guest, account)).Outcome);
         Assert.Equal(1L, await db.CountAsync("books", guest));
         Assert.Equal(1L, await ScalarAsync<long>("SELECT count(*) FROM users WHERE id = @guest", new { guest }));
+    }
+
+    [Fact]
+    public async Task MergeAsync_AccountStillFlaggedAGuest_MergedAndTheFlagCleared()
+    {
+        // A guest promoted in place whose promotion did not reach V2: the caller signed it in as an account.
+        var (guest, account) = (await NewGuestAsync(), await NewGuestAsync());
+        await db.NewBookAsync(guest);
+
+        Assert.Equal(AccountMergeOutcome.Merged, (await MergeAsync(guest, account)).Outcome);
+        Assert.Equal((false, 1L), (await ScalarAsync<bool>("SELECT is_guest FROM users WHERE id = @account", new { account }), await db.CountAsync("books", account)));
     }
 
     [Fact]
