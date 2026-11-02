@@ -53,9 +53,10 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task IssueAsync_NoPasswordChecked_DoesNotWaitForAnUpdateOfTheUser()
+    public async Task IssueAsync_NoProof_WaitsForTheUserRowAndThenIssues()
     {
-        // A provider, guest or refresh issue must not queue behind the user row (a reset, a profile write).
+        // #1107: a Google, Apple, guest or test sign-in queues behind a reset too, or it could commit
+        // beside the reset unseen by its sign-out.
         var user = await db.NewReaderAsync();
         await using var holder = await db.DataSource.OpenConnectionAsync(Ct);
         await using var tx = await holder.BeginTransactionAsync(Ct);
@@ -67,7 +68,7 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         var blocked = !issue.IsCompleted;
         await tx.CommitAsync(Ct);
 
-        Assert.False(blocked);
+        Assert.True(blocked);
         Assert.NotNull(await issue);
     }
 
@@ -121,6 +122,16 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         Assert.True(waited);
         Assert.Null(await signIn);
         Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
+    }
+
+    [Fact]
+    public async Task IssueAsync_PasswordAndTokenBothGiven_RefusedByTheReset()
+    {
+        // Both proofs are checked: a matching password does not excuse a token from before the reset.
+        var user = await ReaderWithPasswordAsync("same-hash");
+        await db.ExecAsync("UPDATE users SET credentials_reset_at = now() WHERE id = @user", new { user });
+
+        Assert.Null(await _repo.IssueAsync(user, NewHash(), NextWeek, "same-hash", DateTimeOffset.UtcNow.AddMinutes(-1), SessionKind.Reader, Ct));
     }
 
     [Fact]
@@ -209,6 +220,23 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task RefreshAsync_ReplayedAfterTheSweepDeletedIt_ReusedAndTheFamilyDies()
+    {
+        // #1107: the sweep may delete the spent row at any cutoff; the live successor still names the family.
+        var user = await db.NewReaderAsync();
+        var (first, second) = (NewHash(), NewHash());
+        await _repo.IssueAsync(user, first, NextWeek, null, null, SessionKind.Reader, Ct);
+        var rotatedAt = DateTimeOffset.UtcNow;
+        await RefreshAsync(first, second, now: rotatedAt);
+        await _repo.DeleteExpiredSessionsAsync(rotatedAt.AddSeconds(1), Ct);
+        await AgeAsync(user, "1 minute");
+
+        Assert.Equal(SessionRefreshOutcome.Reused, (await RefreshAsync(first, NewHash())).Outcome);
+
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
+    }
+
+    [Fact]
     public async Task RefreshAsync_AdminTokenReplayedAsAReader_InvalidAndItsFamilyLives()
     {
         var admin = await db.NewReaderAsync();
@@ -236,19 +264,6 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal(SessionRefreshOutcome.Invalid, (await RefreshAsync(third, NewHash())).Outcome);
         Assert.True(await IsLiveAsync(third));
-    }
-
-    [Fact]
-    public async Task RefreshAsync_SignInBeganBeforeTheLastReset_InvalidAndIssuesNothing()
-    {
-        // A session a reset did not see: a sign-in that committed beside it, unlocked (Google, a guest).
-        var user = await db.NewReaderAsync();
-        var old = NewHash();
-        await _repo.IssueAsync(user, old, NextWeek, null, null, SessionKind.Reader, Ct);
-        await db.ExecAsync("UPDATE users SET credentials_reset_at = now() + interval '1 second' WHERE id = @user", new { user });
-
-        Assert.Equal(SessionRefreshOutcome.Invalid, (await RefreshAsync(old, NewHash())).Outcome);
-        Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user));
     }
 
     [Fact]
@@ -389,6 +404,34 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal(user, await reset);
         Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", user));
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_WaitedForARotation_StampRefusesTheTokenItMinted()
+    {
+        // #1107: the reset queues behind a rotation, which mints an access token after the reset's
+        // transaction began; the stamp is taken once the lock is held, so that token still predates it.
+        var user = await db.NewReaderAsync();
+        var code = NewHash();
+        await _repo.CreatePasswordResetAsync(user, code, DateTimeOffset.UtcNow.AddHours(1), Ct);
+        await using var rotator = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var tx = await rotator.BeginTransactionAsync(Ct);
+        await rotator.ExecuteAsync(new CommandDefinition(
+            "SELECT FROM users WHERE id = @user FOR NO KEY UPDATE", new { user }, tx, cancellationToken: Ct));
+
+        var reset = _repo.ResetPasswordAsync(code, "new-hash", DateTimeOffset.UtcNow, Ct);
+        await db.WaitUntilBlockedByAsync(rotator, reset);
+        await Task.Delay(TimeSpan.FromSeconds(1.1), Ct); // past the reset's start, in whole seconds
+        var minted = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()); // the rotation's iat
+        await tx.CommitAsync(Ct);
+        await reset;
+
+        var devices = new DeviceLoginRepository(db.DataSource);
+        var login = NewDeviceLogin();
+        await devices.CreateAsync(login, Ct);
+        Assert.Null(await _repo.IssueAsync(user, NewHash(), NextWeek, null, minted, SessionKind.Reader, Ct));
+        Assert.Equal("pending", await devices.DecideAsync(login.UserCode, user, minted, DateTimeOffset.UtcNow, Ct));
+        Assert.Null(await new McpKeyRepository(db.DataSource).CreateAsync(user, "laptop", NewHash(), "tsk_ab", minted, Ct));
     }
 
     [Fact]

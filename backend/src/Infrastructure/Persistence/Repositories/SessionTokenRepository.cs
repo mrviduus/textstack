@@ -11,11 +11,11 @@ namespace Infrastructure.Persistence.Repositories;
 /// <list type="bullet">
 /// <item>Lock order on the user row, so a password reset either runs before a credential write (which
 /// then finds nothing to do) or after it (and sees what to sign out): the reset and a rotation take it
-/// <c>FOR NO KEY UPDATE</c>; a password sign-in, a sign-in from an access token and a device redemption
-/// take it <c>FOR SHARE</c>. Rows that only reference the user (FK checks: <c>KEY SHARE</c>) are not held up.</item>
+/// <c>FOR NO KEY UPDATE</c>; every sign-in and a device redemption take it <c>FOR SHARE</c>. Rows
+/// that only reference the user (FK checks: <c>KEY SHARE</c>) are not held up.</item>
 /// <item>A sign-in starts a family (<c>family_id</c> = its first session's id, <c>family_started_at</c>);
-/// a rotation copies both, so the family revoke and the absolute lifetime read the row itself, and the
-/// sweep may delete spent sessions at any cutoff.</item>
+/// a rotation copies both, so the absolute lifetime reads the row itself, the family revoke reads the
+/// live successor, and the sweep may delete spent sessions at any cutoff.</item>
 /// </list>
 /// </summary>
 public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTokenRepository
@@ -28,30 +28,23 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
     internal static string Kind(SessionKind kind) => kind == SessionKind.Admin ? "admin" : "reader";
 
     /// <summary>
-    /// A new session of <c>users u</c> that starts its own family (<c>@tokenHash</c>, <c>@kind</c>,
-    /// <c>@expiresAt</c>): the caller adds the WHERE. Selected from users, so a user gone is no row
-    /// rather than an FK error.
+    /// A new session of <c>users u</c> that starts its own family (<c>@id</c> is both its id and its
+    /// family's; <c>@tokenHash</c>, <c>@kind</c>, <c>@expiresAt</c>): the caller adds the WHERE.
+    /// Selected from users, so a user gone is no row rather than an FK error.
     /// </summary>
     internal const string InsertSessionFromUser = """
         INSERT INTO user_refresh_tokens (id, user_id, token_hash, kind, family_id, family_started_at, expires_at, created_at)
-        SELECT s.id, u.id, @tokenHash, @kind, s.id, now(), @expiresAt, now() FROM users u, (SELECT gen_random_uuid() AS id) s
+        SELECT @id, u.id, @tokenHash, @kind, @id, now(), @expiresAt, now() FROM users u
         """;
 
+    // Every sign-in queues behind a reset: committed before it, the reset deletes it; after it, it is
+    // a sign-in of its own. READ COMMITTED re-checks both proofs on the row a reset committed while
+    // this waited.
     private const string InsertSession = $"""
-        {InsertSessionFromUser} WHERE u.id = @userId
-        RETURNING {SessionColumns}
-        """;
-
-    // READ COMMITTED re-checks password_hash on the row a reset committed while this waited.
-    private const string InsertSessionIfPasswordUnchanged = $"""
-        {InsertSessionFromUser} WHERE u.id = @userId AND u.password_hash = @verifiedPasswordHash
-        FOR SHARE OF u
-        RETURNING {SessionColumns}
-        """;
-
-    // The same re-check, of the reset stamp.
-    private const string InsertSessionIfNotResetSinceToken = $"""
-        {InsertSessionFromUser} WHERE u.id = @userId AND {UserRepository.NotResetSinceToken}
+        {InsertSessionFromUser}
+        WHERE u.id = @userId
+          AND (@verifiedPasswordHash::text IS NULL OR u.password_hash = @verifiedPasswordHash)
+          AND (@tokenIssuedAt::timestamptz IS NULL OR {UserRepository.NotResetSinceToken})
         FOR SHARE OF u
         RETURNING {SessionColumns}
         """;
@@ -59,12 +52,11 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
     public async Task<SessionToken?> IssueAsync(
         Guid userId, string tokenHash, DateTimeOffset expiresAt, string? verifiedPasswordHash, DateTimeOffset? tokenIssuedAt, SessionKind kind, CancellationToken ct)
     {
-        var sql = verifiedPasswordHash is not null ? InsertSessionIfPasswordUnchanged
-            : tokenIssuedAt is not null ? InsertSessionIfNotResetSinceToken
-            : InsertSession;
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<SessionToken>(new CommandDefinition(
-            sql, new { userId, tokenHash, kind = Kind(kind), expiresAt, verifiedPasswordHash, tokenIssuedAt }, cancellationToken: ct));
+        return await conn.QuerySingleOrDefaultAsync<SessionToken>(new CommandDefinition(InsertSession, new
+        {
+            id = Guid.NewGuid(), userId, tokenHash, kind = Kind(kind), expiresAt, verifiedPasswordHash, tokenIssuedAt,
+        }, cancellationToken: ct));
     }
 
     private const string LockLiveSessionOwner = $"""
@@ -74,29 +66,28 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         """;
 
     // Of two rotations of one token, the second waits for the first and then finds a successor:
-    // nothing to spend. Nor is an expired token, one whose sign-in began before @familyNotBefore, or
-    // one whose sign-in began before the last reset (it committed beside the reset, unseen by it).
-    // The user row is locked by this transaction, so its stamp is the latest.
+    // nothing to spend. Nor is an expired token, or one whose sign-in began before @familyNotBefore.
     private const string RotateSession = $"""
         WITH spent AS (
             UPDATE user_refresh_tokens SET expires_at = @now
             WHERE user_id = @userId AND token_hash = @oldTokenHash AND expires_at > @now
               AND NOT EXISTS (SELECT FROM user_refresh_tokens WHERE previous_token_hash = @oldTokenHash)
               AND family_started_at >= @familyNotBefore
-              AND family_started_at >= (SELECT coalesce(credentials_reset_at, '-infinity') FROM users WHERE id = @userId)
             RETURNING token_hash, kind, family_id, family_started_at)
         INSERT INTO user_refresh_tokens (id, user_id, token_hash, kind, family_id, family_started_at, expires_at, created_at, previous_token_hash)
         SELECT gen_random_uuid(), @userId, @newTokenHash, kind, family_id, family_started_at, @expiresAt, now(), token_hash FROM spent
         RETURNING {SessionColumns}
         """;
 
-    // A rotated-away token presented again: its whole family, unless its successor is younger than
-    // the grace (two tabs refreshing at once). created_at is stamped by now(), so the grace is on the
-    // same clock.
+    // A rotated-away token presented again: the whole family of its successor, unless that successor
+    // is younger than the grace (two tabs refreshing at once). Read from the successor, not the
+    // replayed row: the sweep may have deleted the spent row, never a live successor. created_at is
+    // stamped by now(), so the grace is on the same clock.
     private const string RevokeFamily = """
         DELETE FROM user_refresh_tokens
-        WHERE family_id = (SELECT family_id FROM user_refresh_tokens WHERE token_hash = @oldTokenHash AND kind = @kind)
-          AND EXISTS (SELECT FROM user_refresh_tokens WHERE previous_token_hash = @oldTokenHash AND created_at < now() - @grace)
+        WHERE family_id = (
+            SELECT family_id FROM user_refresh_tokens
+            WHERE previous_token_hash = @oldTokenHash AND kind = @kind AND created_at < now() - @grace)
         RETURNING user_id
         """;
 
@@ -161,14 +152,15 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
     // its snapshot is taken after the lock wait, so it sees what was committed meanwhile. Of two
     // redemptions of one code, the second finds it used. Keys and grants are revoked, not deleted,
     // as the reader's own revoke does. The stamp refuses what access tokens minted before it would
-    // still create (UserRepository.NotResetSinceToken).
+    // still create (UserRepository.NotResetSinceToken); clock_timestamp(), not now(): a rotation this
+    // waited for may have minted a token after the transaction began, and the stamp must follow it.
     private const string RedeemPasswordReset = """
         WITH spent AS (
             UPDATE password_reset_tokens SET used = true
             WHERE token_hash = @tokenHash AND NOT used AND expires_at > @now
             RETURNING user_id),
         new_password AS (
-            UPDATE users SET password_hash = @passwordHash, credentials_reset_at = now() WHERE id IN (SELECT user_id FROM spent)),
+            UPDATE users SET password_hash = @passwordHash, credentials_reset_at = clock_timestamp() WHERE id IN (SELECT user_id FROM spent)),
         signed_out AS (
             DELETE FROM user_refresh_tokens WHERE user_id IN (SELECT user_id FROM spent)),
         expired_logins AS (

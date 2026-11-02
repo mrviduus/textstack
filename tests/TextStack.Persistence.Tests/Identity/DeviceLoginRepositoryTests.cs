@@ -59,13 +59,23 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task DecideAsync_ApproverResetAfterTheToken_ReturnsNullAndStaysPending()
+    public async Task DecideAsync_ApproverResetAfterTheToken_ReturnsPendingAndDecidesNothing()
     {
         var (user, login) = (await db.NewReaderAsync(), await CreatedAsync());
         await db.ExecAsync("UPDATE users SET credentials_reset_at = now() WHERE id = @user", new { user });
 
-        Assert.Null(await _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow, Ct));
+        Assert.Equal(DeviceLogin.Pending, await _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow, Ct));
+        Assert.Null((await _repo.GetByDeviceCodeAsync(login.DeviceCodeHash, Ct))!.UserId);
         Assert.Equal(DeviceLogin.Approved, await _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow.AddMinutes(1), DateTimeOffset.UtcNow, Ct));
+    }
+
+    [Fact]
+    public async Task DecideAsync_PastTheDeadlineAndApproverReset_MarksItExpired()
+    {
+        var (user, login) = (await db.NewReaderAsync(), await CreatedAsync());
+        await db.ExecAsync("UPDATE users SET credentials_reset_at = now() WHERE id = @user", new { user });
+
+        Assert.Equal(DeviceLogin.Expired, await _repo.DecideAsync(login.UserCode, user, DateTimeOffset.UtcNow.AddMinutes(-1), login.ExpiresAt, Ct));
     }
 
     [Fact]
@@ -87,7 +97,7 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
         await tx.CommitAsync(Ct);
 
         Assert.True(waited);
-        Assert.Null(await approval);
+        Assert.Equal(DeviceLogin.Pending, await approval);
         Assert.Equal(DeviceLogin.Pending, (await _repo.GetByDeviceCodeAsync(login.DeviceCodeHash, Ct))!.Status);
     }
 

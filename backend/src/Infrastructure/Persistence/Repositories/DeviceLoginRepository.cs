@@ -35,24 +35,30 @@ public sealed class DeviceLoginRepository(V2DataSource dataSource) : IDeviceLogi
         }
     }
 
-    // An approval runs only while the approver's access token outlives the last password reset; the
-    // approver's row FOR SHARE, so a reset committing meanwhile is seen (and one that comes after
-    // finds the approval and expires it). Not taken for a denial.
+    // The deadline first: a login past it is expired whoever asks. An approval then needs the
+    // approver's access token to outlive the last password reset; otherwise the login stays pending
+    // and that is the answer. The approver's row FOR SHARE, so a reset committing meanwhile is seen
+    // (and one that comes after finds the approval and expires it). A denial matches no user.
     private const string Decide = $"""
+        WITH approver AS (
+            SELECT EXISTS (
+                SELECT FROM users u WHERE u.id = @approvedBy AND {UserRepository.NotResetSinceToken}
+                FOR SHARE) AS fresh)
         UPDATE device_authorizations SET
-            status = CASE WHEN expires_at <= @now THEN 'expired' WHEN @approvedBy IS NULL THEN 'denied' ELSE 'approved' END,
-            user_id = CASE WHEN expires_at <= @now THEN NULL ELSE @approvedBy END
+            status = CASE
+                WHEN expires_at <= @now THEN 'expired'
+                WHEN @approvedBy IS NULL THEN 'denied'
+                WHEN (SELECT fresh FROM approver) THEN 'approved'
+                ELSE status END,
+            user_id = CASE WHEN expires_at > @now AND (SELECT fresh FROM approver) THEN @approvedBy END
         WHERE id = (
             SELECT id FROM device_authorizations
             WHERE user_code = @userCode AND status = 'pending'
             FOR UPDATE)
-          AND (@approvedBy IS NULL OR EXISTS (
-            SELECT FROM users u WHERE u.id = @approvedBy AND {UserRepository.NotResetSinceToken}
-            FOR SHARE))
         RETURNING status
         """;
 
-    public async Task<string?> DecideAsync(string userCode, Guid? approvedBy, DateTimeOffset tokenIssuedAt, DateTimeOffset now, CancellationToken ct)
+    public async Task<string?> DecideAsync(string userCode, Guid? approvedBy, DateTimeOffset? tokenIssuedAt, DateTimeOffset now, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         return await conn.QuerySingleOrDefaultAsync<string>(new CommandDefinition(Decide, new { userCode, approvedBy, tokenIssuedAt, now }, cancellationToken: ct));
@@ -87,7 +93,7 @@ public sealed class DeviceLoginRepository(V2DataSource dataSource) : IDeviceLogi
         await using var tx = await conn.BeginTransactionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition(LockApprover, new { loginId }, tx, cancellationToken: ct));
         var redeemed = await conn.ExecuteAsync(new CommandDefinition(
-            RedeemApproved, new { loginId, tokenHash, kind = SessionTokenRepository.Kind(SessionKind.Reader), expiresAt = sessionExpiresAt, now }, tx, cancellationToken: ct)) > 0;
+            RedeemApproved, new { id = Guid.NewGuid(), loginId, tokenHash, kind = SessionTokenRepository.Kind(SessionKind.Reader), expiresAt = sessionExpiresAt, now }, tx, cancellationToken: ct)) > 0;
         await tx.CommitAsync(ct);
         return redeemed;
     }

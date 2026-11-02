@@ -74,7 +74,8 @@ public interface IAuthService
     /// <summary>
     /// Approves the pending login showing <paramref name="userCode"/> for the user an access token
     /// names (<paramref name="accessTokenIssuedAt"/>: its <c>iat</c>). V2 answers
-    /// <see cref="DeviceApprovalResult.NotFound"/> when the password was reset after it; legacy has no stamp.
+    /// <see cref="DeviceApprovalResult.Unauthorized"/> (the endpoint's 401) when the password was reset
+    /// after it, and the login stays pending; legacy has no stamp and never returns it.
     /// </summary>
     Task<DeviceApprovalResult> ApproveDeviceAsync(string userCode, Guid userId, DateTimeOffset accessTokenIssuedAt, CancellationToken ct);
 

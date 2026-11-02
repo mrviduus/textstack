@@ -323,7 +323,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.True(await Auth.ResetPasswordAsync((await Auth.RequestPasswordResetAsync(account.Email, Ct))!, NewPassword, Ct));
 
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.IssueSessionAsync(account, issuedAt, Ct)).Status);
-        Assert.Equal(DeviceApprovalResult.NotFound, await Auth.ApproveDeviceAsync(device.UserCode, account.Id, issuedAt, Ct));
+        Assert.Equal(DeviceApprovalResult.Unauthorized, await Auth.ApproveDeviceAsync(device.UserCode, account.Id, issuedAt, Ct));
         Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", account.Id));
         Assert.Equal(DeviceRedeemStatus.AuthorizationPending, (await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct)).Status);
     }

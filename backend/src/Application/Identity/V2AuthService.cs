@@ -214,10 +214,9 @@ public sealed class V2AuthService(
     public Task<DeviceApprovalResult> ApproveDeviceAsync(string userCode, Guid userId, DateTimeOffset accessTokenIssuedAt, CancellationToken ct) =>
         DecideAsync(userCode, userId, accessTokenIssuedAt, ct);
 
-    // A denial mints nothing: no token age to check.
-    public Task<DeviceApprovalResult> DenyDeviceAsync(string userCode, CancellationToken ct) => DecideAsync(userCode, null, DateTimeOffset.MaxValue, ct);
+    public Task<DeviceApprovalResult> DenyDeviceAsync(string userCode, CancellationToken ct) => DecideAsync(userCode, null, null, ct);
 
-    private async Task<DeviceApprovalResult> DecideAsync(string userCode, Guid? approvedBy, DateTimeOffset tokenIssuedAt, CancellationToken ct)
+    private async Task<DeviceApprovalResult> DecideAsync(string userCode, Guid? approvedBy, DateTimeOffset? tokenIssuedAt, CancellationToken ct)
     {
         var normalized = DeviceCodes.NormalizeUserCode(userCode);
         if (normalized.Length == 0) return DeviceApprovalResult.NotFound;
@@ -225,6 +224,7 @@ public sealed class V2AuthService(
         {
             null => DeviceApprovalResult.NotFound,
             DeviceLogin.Expired => DeviceApprovalResult.Expired,
+            DeviceLogin.Pending => DeviceApprovalResult.Unauthorized,
             _ => DeviceApprovalResult.Ok,
         };
     }

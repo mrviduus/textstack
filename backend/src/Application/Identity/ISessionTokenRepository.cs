@@ -26,7 +26,8 @@ public interface ISessionTokenRepository
     /// With <paramref name="verifiedPasswordHash"/> (a password sign-in: the hash the password was
     /// checked against), only while the password still is that hash; with
     /// <paramref name="tokenIssuedAt"/> (a sign-in from an access token: its <c>iat</c>), only if the
-    /// password was not reset after it. Either way a reset committing meanwhile wins.
+    /// password was not reset after it; both when both are given. Every sign-in serializes with a reset:
+    /// one committing meanwhile wins.
     /// </summary>
     Task<SessionToken?> IssueAsync(
         Guid userId, string tokenHash, DateTimeOffset expiresAt, string? verifiedPasswordHash, DateTimeOffset? tokenIssuedAt, SessionKind kind, CancellationToken ct);
@@ -39,8 +40,8 @@ public interface ISessionTokenRepository
     /// <see cref="RefreshReuseGrace"/>), which revokes its whole sign-in;
     /// <see cref="SessionRefreshOutcome.Invalid"/> otherwise: unknown, expired, another kind, an admin
     /// session of a non-admin, a concurrent rotation or reset won, the sign-in is past
-    /// <see cref="RefreshAbsoluteDays"/> or older than the last password reset. A successor never
-    /// survives a <see cref="ResetPasswordAsync"/> that runs at the same time.
+    /// <see cref="RefreshAbsoluteDays"/>. A successor never survives a
+    /// <see cref="ResetPasswordAsync"/> that runs at the same time.
     /// </summary>
     Task<SessionRefresh> RefreshAsync(
         string oldTokenHash, string newTokenHash, SessionKind kind, Func<UserAccount, DateTimeOffset> expiresAt, DateTimeOffset now, CancellationToken ct);
@@ -63,7 +64,7 @@ public interface ISessionTokenRepository
 
     /// <summary>
     /// Deletes sessions that expired before <paramref name="expiredBefore"/>, rotated-away ones included
-    /// (a token replayed after that is only refused, its family no longer found); returns how many.
+    /// (a replay is still caught while its live successor is kept); returns how many.
     /// </summary>
     Task<int> DeleteExpiredSessionsAsync(DateTimeOffset expiredBefore, CancellationToken ct);
 
