@@ -7,7 +7,8 @@ its schema as plain SQL files, and the runner that applies them. The schema itse
 
 ```
 database/v2/
-  run.sh                        migrator-v2's entrypoint: creates the database if missing, then migrate.sh
+  run.sh                        migrator-v2's entrypoint: creates the database if missing, then migrate.sh;
+                                also `create` (database only) and `drop <name>` (the baseline's rollback)
   migrate.sh                    -> ../migrate.sh (the runner resolves migrations/ next to the path it is called by)
   migrations/
     0000_baseline.up.sql        the whole V2 schema; no down, no seed rows
@@ -30,7 +31,7 @@ what differs.
 |---|---|---|
 | Compose service | `migrator` | `migrator-v2` (same image, entrypoint `run.sh`) |
 | Database | `POSTGRES_DB` | `V2_POSTGRES_DB`, default `textstack_v2` |
-| Make | `migrate`, `migrate-down V=`, `migrate-status` | `migrate-v2`, `migrate-v2-down V=`, `migrate-v2-status` |
+| Make | `migrate`, `migrate-down V=`, `migrate-status` | `migrate-v2`, `migrate-v2-down V=`, `migrate-v2-status`, `migrate-v2-drop CONFIRM=` |
 | Created by | the postgres image, on first start | `run.sh up`/`down`, if missing (`CREATE DATABASE` via `\gexec`); `status` and `verify` never create it |
 | Text ordering | glibc, via the server's `en_US.utf8` | **ICU**, locale `und` — see below |
 | Run by `docker compose up` | yes | **no** — profile `v2`; run it with `make migrate-v2` |
@@ -68,10 +69,30 @@ template0`; with an ICU provider they are not what sorts, so `C` there is correc
 
 `/health/ready` reports this database's collation version either way (#1059).
 
-**There is no rollback of the baseline.** `make migrate-v2-down V=0` prints `Nothing above version 0.`
-and exits 0 — correct (nothing is applied above the baseline) but not a rollback: the baseline has
-no down file. Undoing it is `DROP DATABASE textstack_v2`, by hand; the next `migrator-v2` run
-builds it again.
+**The baseline's rollback is `make migrate-v2-drop CONFIRM=textstack_v2`.** `make migrate-v2-down V=0`
+prints `Nothing above version 0.` and exits 0 — correct (nothing is applied above the baseline) but
+not a rollback: the baseline has no down file. `migrate-v2-drop` runs `run.sh drop <name>` in the
+migrator image: `DROP DATABASE ... WITH (FORCE)`, all its data gone, refused unless `CONFIRM` names
+the database `PGDATABASE` points at. The next `make migrate-v2` builds it again. Dump it first
+(`make backup`) if it holds anything.
+
+## Backups (#1043)
+
+`textstack_v2` lives in the same `db` container and data directory (`./data/postgres-prod`) as
+legacy: whatever removes or replaces that directory takes V2 with it, and a cluster rebuilt from the
+legacy dump alone has **no** V2 database, not an empty one. So every dump of legacy has a V2 twin,
+named by the database and taken after legacy's, and none of them may stop a legacy one:
+
+| Where | V2 file | Database absent | V2 dump fails |
+|---|---|---|---|
+| `backup.yml` (nightly) | `textstack_v2-db-<date>.sql.gz`, R2 `/db_v2.sql` | skipped, green | legacy steps all run; job red at the end |
+| `deploy.yml` pre-deploy | `textstack_v2-pre-deploy-<date-time>.sql.gz` | skipped | warning; the deploy goes on (it never migrates V2) |
+| `make backup` | `textstack_v2-db_<date_time>.sql.gz` | skipped, exit 0 | exit 1, legacy file already saved |
+| `restore-drill.yml` | restores `/db_v2.sql`, counts every table its ledger's migrations create | "no V2 in this backup"; fails only if the backed-up `.env` has `FEATURES_V2API=true` | red |
+
+Restore: `make restore-v2 FILE=<a V2 dump>` loads it into a V2 database that does not exist yet,
+created by `run.sh create` (ICU, `template0`, no migrations: the dump carries schema and ledger). It
+refuses when the database exists — `make migrate-v2-drop` first. `make restore` stays legacy-only.
 
 Without psql installed:
 
