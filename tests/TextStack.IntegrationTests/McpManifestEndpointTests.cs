@@ -63,7 +63,8 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
         Assert.SkipWhen(IntegrationSkip.Unavailable(response), "endpoint unavailable (404/500)");
 
         var manifest = await response.Content.ReadFromJsonAsync<McpManifest>(cancellationToken: ct);
-        var health = await (await _fixture.Client.GetAsync("/health/ready", ct)).Content.ReadFromJsonAsync<JsonElement>(ct);
+        var healthResponse = await _fixture.Client.SendAsync(_fixture.CreateRequest(HttpMethod.Get, "/health/ready"), ct);
+        var health = await healthResponse.Content.ReadFromJsonAsync<JsonElement>(ct);
         Assert.SkipWhen(!health.GetProperty("components").TryGetProperty("v2", out var v2Component),
             "API predates the v2 readiness component");
         var v2Api = v2Component.GetProperty("status").GetString() != "off";
