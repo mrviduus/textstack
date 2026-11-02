@@ -9,7 +9,7 @@ namespace Application.Identity;
 /// <para>Emails are stored as given: the caller normalises them (legacy AuthService trims and
 /// lower-cases). <c>ix_users_email</c> makes lookups and uniqueness case-insensitive, not
 /// whitespace-tolerant.</para>
-/// The guest→account merge is not here: it moves every aggregate (M2.5, plan §6.1).
+/// The guest→account merge is not here: it moves every aggregate (<see cref="IAccountMergeRepository"/>).
 /// </summary>
 public interface IUserRepository
 {
