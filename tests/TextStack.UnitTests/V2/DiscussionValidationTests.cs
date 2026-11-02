@@ -70,10 +70,15 @@ public class DiscussionValidationTests
     [Fact]
     public async Task ShareAsync_LongChapterTitle_IsRefused() => Assert.Equal("chapterTitle", await Share(chapterTitle: Text(MaxChapterTitle + 1)));
 
-    // The cap is in UTF-8 bytes: 100 K Cyrillic letters are 200 KB.
+    // The cap is in UTF-8 bytes: four-byte emoji to exactly the cap fit, one byte more does not.
     [Fact]
-    public async Task ShareAsync_ChapterTextOverItsBytes_IsRefused() =>
-        Assert.Equal("chapterText", await Share(chapterText: new string('ж', MaxChapterTextBytes / 2 + 1)));
+    public async Task ShareAsync_ChapterTextOfEmojiAtItsBytesAndOneOver_PassesThenIsRefused()
+    {
+        var atCap = string.Concat(Enumerable.Repeat("😀", MaxChapterTextBytes / 4));
+
+        Assert.Null(await Share(chapterText: atCap));
+        Assert.Equal("chapterText", await Share(chapterText: atCap + "x"));
+    }
 
     [Fact]
     public async Task ShareAsync_ChapterTextWithANul_IsRefused() => Assert.Equal("chapterText", await Share(chapterText: "a\0b"));
