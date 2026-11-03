@@ -247,7 +247,13 @@ async function flushPendingSessions() {
         if (sent.clientSessionId) {
           // A replay of the same id answers 200: first write wins.
           const { clientSessionId, editionId: _editionId, userBookId, ...rest } = sent
-          await v2Api.putSession(clientSessionId, { ...rest, bookId: userBookId ?? null })
+          try {
+            await v2Api.putSession(clientSessionId, { ...rest, bookId: userBookId ?? null })
+          } catch (err) {
+            // 404: V2 is unmapped now, or the book is gone. The session never counted; never retried.
+            if (!(err instanceof ApiError && err.status === 404)) throw err
+            console.warn('[session] V2 session dropped (404)', clientSessionId)
+          }
         } else {
           await submitSession(sent)
         }
