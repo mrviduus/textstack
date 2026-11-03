@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useTranslation } from '../../hooks/useTranslation'
 // Pure, and shared on purpose: a key minted on the phone is the same key here, so both platforms
 // must hand out the same snippet and the same default name.
-import { chatgptConnectorUrl, claudeDesktopConfig, defaultKeyName, liveKeys, mcpKeysApi, type McpKey, type CreatedMcpKey } from '@textstack/shared'
+import { capabilitiesFor, chatgptConnectorUrl, claudeDesktopConfig, defaultKeyName, liveKeys, mcpKeysApi, type McpKey, type CreatedMcpKey } from '@textstack/shared'
 
 /**
  * Create and manage the connect keys that let an outside assistant reach the reader's books.
@@ -19,9 +19,9 @@ import { chatgptConnectorUrl, claudeDesktopConfig, defaultKeyName, liveKeys, mcp
  */
 export function ConnectAssistant() {
   const { t } = useTranslation()
-  const { isAuthenticated, isGuest, openAuthModal } = useAuth()
+  const { user, openAuthModal } = useAuth()
   // A connect key is a persistent credential: the server refuses guests (403 account_required, #1120).
-  const hasAccount = isAuthenticated && !isGuest
+  const { hasSession, canConnectAssistant } = capabilitiesFor(user)
 
   const [keys, setKeys] = useState<McpKey[]>([])
   const [loading, setLoading] = useState(false)
@@ -45,8 +45,8 @@ export function ConnectAssistant() {
   }, [t])
 
   useEffect(() => {
-    if (hasAccount) void refresh()
-  }, [hasAccount, refresh])
+    if (canConnectAssistant) void refresh()
+  }, [canConnectAssistant, refresh])
 
   const create = async () => {
     setCreating(true)
@@ -85,13 +85,14 @@ export function ConnectAssistant() {
     }
   }
 
-  if (!hasAccount) {
+  if (!canConnectAssistant) {
+    // A guest already has a session: what it lacks is an account, so it is asked to sign up, not in.
     return (
       <section className="mcp-section mcp-connect">
         <h2 className="mcp-section__heading">{t('mcp.connect.heading')}</h2>
-        <p className="mcp-section__lead">{t('mcp.connect.signInLead')}</p>
-        <button type="button" className="mcp-connect__btn" onClick={openAuthModal}>
-          {t('mcp.connect.signInCta')}
+        <p className="mcp-section__lead">{t(hasSession ? 'mcp.connect.guestLead' : 'mcp.connect.signInLead')}</p>
+        <button type="button" className="mcp-connect__btn" onClick={() => openAuthModal(hasSession ? 'register' : 'login')}>
+          {t(hasSession ? 'mcp.connect.signUpCta' : 'mcp.connect.signInCta')}
         </button>
       </section>
     )
