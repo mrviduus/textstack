@@ -22,7 +22,7 @@ public partial class AuthService : IAuthService
     async Task<AuthResult> IAuthService.CreateGuestSessionAsync(CancellationToken ct) =>
         Ok(await CreateGuestSessionAsync(ct));
 
-    async Task<AuthResult> IAuthService.IssueSessionAsync(UserAccount user, CancellationToken ct)
+    async Task<AuthResult> IAuthService.IssueSessionAsync(UserAccount user, DateTimeOffset accessTokenIssuedAt, CancellationToken ct)
     {
         var refreshToken = await CreateRefreshTokenAsync(user.Id, ct, isGuest: user.IsGuest);
         return AuthResult.Ok(user, _tokens.MintAccessToken(user.Id, user.Email, user.Name, user.IsGuest), refreshToken);
@@ -50,6 +50,9 @@ public partial class AuthService : IAuthService
 
     async Task<AuthResult> IAuthService.LoginWithEmailAsync(string email, string password, CancellationToken ct) =>
         Result(await LoginWithEmailAsync(email, password, ct), AuthStatus.InvalidCredentials);
+
+    Task<DeviceApprovalResult> IAuthService.ApproveDeviceAsync(string userCode, Guid userId, DateTimeOffset accessTokenIssuedAt, CancellationToken ct) =>
+        ApproveDeviceAsync(userCode, userId, ct);
 
     async Task<DeviceRedeemResult<UserAccount>> IAuthService.RedeemDeviceCodeAsync(string deviceCode, CancellationToken ct)
     {

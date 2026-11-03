@@ -13,7 +13,10 @@ public enum DeviceApprovalResult
     Ok,
     NotFound,
     Expired,
-    AlreadyUsed
+    AlreadyUsed,
+
+    /// <summary>The approver's access token predates a password reset (V2 only): sign in again.</summary>
+    Unauthorized
 }
 
 /// <summary>RFC 8628 §3.5 token-endpoint outcomes for a device_code poll.</summary>

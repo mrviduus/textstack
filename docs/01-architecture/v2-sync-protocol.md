@@ -96,6 +96,7 @@ server stores them as UTC.
 | `toc` | json array | no | opaque, ≤ 256 KB |
 | `isCurrent` | bool | server | |
 | `hasContent` | bool | server | `server_storage_key IS NOT NULL`: bytes downloadable |
+| `contentRemovedAt` | time | server | the reader stopped syncing this version (`DELETE …/content`): no client uploads its bytes on its own; a deliberate upload clears it (M2.6) |
 | `createdAt` | time | server | |
 
 ### Reading state
@@ -114,10 +115,55 @@ One per book (`reading_state`, PK `(user_id, book_id)`), always on one file vers
 | `clientRecordedAt` | time | yes | the client's clock, already clamped by the client to its now + 5 min (ADR-019 `MAX_CLIENT_SKEW_MS`); the server stores it as sent |
 | `revision`, `updatedAt`, `resetRevision` | | server | see [The revision rule](#the-revision-rule) |
 
-**Locator schemes on V2 writes:** `epub-cfi` and `pdf-page` only. `textstack-position-v1` /
-`textstack-anchor-v1` exist for migrated rows (ADR-031) and are refused (400 `invalid_payload`).
+**Locator schemes on V2 writes:** `epub-cfi` and `pdf-page` from the V2 reader; the legacy
+reader's `textstack-position-v1` and `textstack-anchor-v1` from the transitional server-chapter
+reader (M2.7a, owner decision 2026-11-02, #1112). Only `epub-cfi` carries `quote`.
 `pdf-page` values: a position is `{"page":N}` (1-based int); an annotation is the legacy `PdfAnchor`
 `{"page":N,"rects":[{"x":…,"y":…,"w":…,"h":…}],"exact":"…"}` (page-relative, unscaled numbers).
+
+**Transitional locators (until R8).** The two `textstack-*` schemes, as `textPosition.ts` and
+`textAnchor.ts` serialize them; members a value does not name pass, as on `epub-cfi` (the serialized
+`TextPosition` carries its own `v`):
+
+| Scheme | Use | `value` |
+|---|---|---|
+| `textstack-position-v1` | reading-state `currentLocator` / `frontierLocator` only | `chapterSlug` (the chapter key: 1–200, non-blank), `chapterFraction` (0..1), optional `anchor` `{prefix, exact, suffix, startOffset, endOffset}` (`exact` 1–64 code points, `prefix`/`suffix` ≤ 32, offsets integers ≥ 0 with `endOffset ≥ startOffset`), optional `charOffset` (integer ≥ 0). A scroll-only position has no `anchor` (ADR-031 decided item 5) |
+| `textstack-anchor-v1` | annotation `locator` only | `chapterKey` (1–200, non-blank), `prefix`, `exact` (≤ 4000 code points, a sanity bound; `selectedText`'s 4000 UTF-16 units binds first), `suffix`, `startOffset`, `endOffset`, otherwise the same rules as the position's `anchor`; offsets are int32 |
+
+The server counts quote and context in code points. The clients cut them in UTF-16 units (the unit
+of the offsets) but never between the halves of a surrogate pair (`notInSurrogatePair`, used by
+`buildTextPosition` and the engine's `quoteAt`): a lone surrogate has no UTF-8 form and is refused
+like a NUL.
+
+A scheme in the other use, or a value breaking a rule, is 400 `invalid_payload`. Each such write is
+accepted only on a file version of the user's whose extracted chapters (`book_chapters`,
+`(user_id, file_id, chapter_key)`) include the one it names — otherwise 409 `chapter_not_found`,
+also for a file that has no chapters (never uploaded, or its extraction not finished). On reading
+state the check is part of the write statement (a re-extraction cannot slip between a check and the
+write) and covers what the write stores: the position's chapter always, the frontier's only when that
+frontier is stored (none stored yet, or the offered one is further) — a client echoing back a stored
+frontier whose chapter was renamed is not refused. The file's own codes come first: a loss on a file
+that is not the current one is `file_replaced` / `unknown_file`, as any write on it. Annotations check
+only a locator the write sets: an edit or a replay keeping the stored one is not refused. A catalog book has no file, and a locator
+needs a `fileId` (400 without one), so these schemes never reach a file-less book. **No server or
+client converts a `textstack-*` locator to a CFI, and foliate is never given one**: it is stored and
+returned as sent, and only the transitional reader resolves it, against `book_chapters`.
+
+**Two readers on one book.** Schemes are never compared: the revision rule alone decides which write
+wins, whichever scheme it carries. The frontier is kept by fraction (`ReadingState.Furthest`), so a
+`textstack-*` position and an `epub-cfi` position of one book are ordered by `bookFraction` like any
+two. A reader that cannot resolve the stored scheme resumes from `bookFraction` (ADR-031
+"Consequences"), and its next write replaces the locator by the ordinary revisioned write. A merged
+locator naming a chapter the account's file does not have yet resumes from `bookFraction`; the next
+write naming it is refused until the file's chapters exist ([Guest → account merge](#guest--account-merge)
+step 5). A `textstack-*` locator on a superseded file is refused by the file guard like any other. An
+annotation is anchored in one scheme for life: the V2 reader lists a `textstack-anchor-v1`
+annotation as a quotation (its `selectedText`), the rule ADR-031 applies to catalog highlights.
+
+**Removal.** The `textstack-*` write path goes when the V2 reader is ready on every client **and**
+the old-client support window (plan §5.4: 60 days, closed only after the last 14 are silent) has
+closed — that is R8 ([#1040](https://github.com/mrviduus/textstack/issues/1040)), which also drops
+`book_chapters` (M6.4). After it these schemes are refused again and survive only in migrated rows.
 
 The client may omit the frontier entirely: the server keeps the furthest of every accepted position.
 From R2's local store (`store.mjs` position `{cfi, quote, index, fraction, at}`):
@@ -142,7 +188,7 @@ fraction`, `clientRecordedAt = at`.
 | `expectedRevision` | int64 \| null | yes (may be null) | null = create |
 | `bookId` | uuid | yes | |
 | `fileId` | uuid | if `locator` | **any** version of this book, current or not: a highlight made offline in a superseded version is still valid provenance |
-| `selectedText` | string | yes | non-blank; the full selection (the page's `quote`) |
+| `selectedText` | string | yes | non-blank, ≤ 4000 (`SyncLimits.MaxSelectedText`; legacy had no cap); the full selection (the page's `quote`) |
 | `noteText` | string | no | |
 | `locator` | locator | no | `epub-cfi`: `value` = CFI, optional `quote` (≤64 code points), optional `prefix`/`suffix` (≤32 code points each; the page's 30-char context) as sibling keys — opaque to the server |
 | `color` | string | yes | default `yellow`; not enumerated server-side |
@@ -295,8 +341,9 @@ JSON):
 `current` is the stored row of the aggregate the write targeted (the full read shape above); `revision`
 repeats `current.revision` (null when there is no row). Optional members: `fileId` (the book's current
 file id) and `currentFile` (its file version), on reading-state and file codes only; `field` on
-`invalid_payload`; `expectedSha256`, `actualSha256`, `byteSize` on `content_mismatch`. 404s and 422s use the same
-shape.
+`invalid_payload`. As built (M2.6), the two bytes codes carry their facts in `current`:
+`{expectedSha256, actualSha256, byteSize}` on `content_mismatch` (`byteSize` = the parts' total) and
+`{used, limit}` on `quota_exceeded`. 404s, 411s, 413s and 422s use the same shape.
 
 `stale_revision` — another device moved (or the state never existed for this revision). Client: ADR-019
 rule 5 — adopt if it has not restored yet, move if the reader has not moved since, otherwise ask; then
@@ -429,13 +476,16 @@ annotations, the M2.2 endpoint (M1.3 delta 1); a word id held by another user, t
 | `reset` | 409 | reading-state PUT | `current` with `resetRevision` | drop local frontier/completion; resend position with new revision |
 | `file_replaced` | 409 | reading-state PUT; file PUT whose `replacesFileId` is not current, or naming a superseded version; parts/content for a non-current file | `fileId`, `currentFile` | drop queued state writes and uploads for the old file; offer fetch/import |
 | `unknown_file` | 409 | every write naming a `fileId` (reading state, annotation, example, share, checkpoint, parts, content) | — | push the file version first; keep the write queued |
+| `chapter_not_found` | 409 | reading-state PUT, annotation PUT with a `textstack-*` locator (transitional, until R8) | — | while the file's extraction is `queued`/`processing` (`GET …/chapters`), keep the write queued; otherwise drop it — the chapter keys changed (resume from `bookFraction`) |
 | `deleted` | 409 | annotation PUT, word save/PATCH, example add, review | `current` = tombstone | drop the edit, delete locally; word: offer restore |
 | `operation_conflict` | 409 | example, review, share, checkpoint | `current` = stored row | log, drop the operation |
 | `duplicate_file` | 409 | book PUT | `current` = the existing book with those bytes | re-key as for a merge map (local entry, local store, outbox: book id and file id); drop the import |
 | `book_removed` | 409 | file PUT (replace/attach), parts, content | `current` = the removed book | restore first (`POST …/restore`) or drop the write |
 | `id_conflict` | 409 | any create | — (no row: it may be another user's) | mint a new id, retry |
 | `share_mismatch` | 422 | checkpoint | — | send the matching share or none |
-| `content_mismatch` | 422 | content complete | `expectedSha256`, `actualSha256`, `byteSize` | re-hash locally; re-upload all parts |
+| `content_mismatch` | 422 | content complete | `current` = `{expectedSha256, actualSha256, byteSize}` | re-hash locally; re-upload all parts |
+| `quota_exceeded` | 413 | parts (advisory), content complete (decides) | `current` = `{used, limit}` (bytes) | tell the reader storage is full; keep the book local; parts already sent are deleted on a refused complete |
+| `length_required` | 411 | parts | — | send each part with its `Content-Length` (never chunked) |
 | `incomplete_upload` | 400 | content complete | — | a part is missing (e.g. dropped by a restart): re-send **all** parts, then complete again |
 | `book_not_found` | 404 | anything under a book, and every write naming a `bookId` (examples, sessions) | — | push the book first (outbox order); if the book is gone locally too, drop |
 | `not_found` | 404 | annotation/word/example/share/checkpoint by id | — | an id the server never had: its create is still queued → keep; else drop |
@@ -522,8 +572,45 @@ device learns of the replacement from its next pull (`books.updated_at` bumps on
 `file_replaced` 409, whichever comes first.
 
 **Storage key** (plan §4.5): `library/{userId[..2]}/{userId}/{bookId}/{fileId}.{epub|pdf}` relative to
-`Storage:LibraryRoot`. Old versions' bytes are deleted by a retried job after the replacement commits;
-their `server_storage_key` is cleared only once the bytes are gone (schema comment).
+`Storage:LibraryRoot`. As built (M2.6), an old version's bytes are released with the replacement: its
+`server_storage_key` is cleared in the replacing transaction and the bytes deleted after the commit,
+best-effort (the orphan sweep collects a failed delete), so the quota is exact at commit. The baseline's
+column comment ("cleared only once its file is deleted") says the opposite order and is frozen; the next V2
+migration's `COMMENT ON COLUMN` corrects it.
+
+**As built (M2.6).**
+- `Storage:LibraryRoot` defaults to `Storage:RootPath` (the persistent volume), so the keys `library/…`
+  and the parts `uploads/{userId}/{fileId}/{index:D5}.part` sit directly on it and survive an api
+  restart. That is the public `/storage` root, which therefore 404s `/storage/library/*` and
+  `/storage/uploads/*` (`UserStoragePolicy`, nginx). Every key is built from ids and the stored
+  `format`, never from client text. Book bytes are served `Cache-Control: private, no-store`.
+- **Quota** = `SUM(byte_size)` of the user's files with `server_storage_key` set, against legacy's tier
+  limits and `storage_limit_override_bytes`. A part checks it cheaply (stored + this file's size); the
+  complete decides inside `AttachContentAsync`'s transaction, which takes `pg_advisory_xact_lock` on
+  the user id, so concurrent completes cannot together pass the limit. A replacement releases the old
+  version's bytes at once, so they stop counting at its commit.
+- **Order of writes.** Attach: lock, checks, row update, place the bytes, commit (a failed place rolls
+  the row back). Stop syncing: clear the row (returning the key it held, under its row lock), then
+  delete those bytes. Replace: clear the old version's key with its currency, delete its bytes after
+  the commit. Cover: stage beside the target, update the row, move into place.
+- **Sweeps** (the worker, transitional ingestion host), on their own clocks whatever the queue: about
+  once a minute, upload parts untouched for a day (the api never sweeps) and the stuck-jobs gauge; once
+  a day, every file under `library/` older than an hour that no `server_storage_key` or
+  `cover_key` names, then empty directories older than an hour. That one orphan sweep collects
+  whatever lost its row (a commit that failed after the place, a merge's dropped guest copies, a failed
+  delete). A removed book keeps its bytes (removal is a hide). An account delete lists the user's keys,
+  deletes the V2 rows, then the user's directories and any listed key outside them (`V2IdentityMirror`).
+- **Parts.** Not summed against the file's `byteSize`: stray parts of an earlier chunking (another
+  `maxPartBytes`, another device) must not block a new one; the complete checks size and sha256. A
+  complete that finds a part missing re-reads the row: a concurrent complete stored it → 200. Parts go
+  on success, `content_mismatch`, `quota_exceeded` and `file_replaced` (a superseded version is never
+  uploadable again); they stay on `incomplete_upload` and `book_removed` (a restore may follow).
+- **Extraction failures.** A file the extractor cannot read fails its job. Anything that throws (disk,
+  database) leaves the job processing: the stuck reclaim retries it, and 3 attempts end it.
+- A merge releases the guest's superseded and duplicate bytes (the matched books' files, deleted after the
+  commit, best-effort); the account's own files keep their keys wherever they sit (reads go through the
+  key; an account delete removes them by key).
+- The parts route reads the raw body (no JSON binder); the global body cap (500 MB) is above `maxPartBytes`.
 
 ## Pull and push
 
@@ -597,9 +684,15 @@ keeping their client ids (ADR-031 rule 3). Order inside the transaction:
 4. On every moved row: `updated_at = now()` (other devices of the account must see it in their
    feeds); recompute `payload_sha256` through `CanonicalPayload` where a hashed field changed
    (`bookId`, `fileId`, `wordId`, `sharedChapterId`).
-5. File bytes: `server_storage_key` embeds the user id (plan §4.5), so stored bytes move to the
-   account's key and the column is rewritten — after commit, by the same retried job that deletes
-   superseded bytes, which reads both keys until it is done.
+5. File bytes do not move (as built, M2.6): `server_storage_key` embeds the user id (plan §4.5), and a
+   moved row keeps its key wherever it sits — every read and delete goes through the key, and an account
+   delete removes the account's bytes by key. The merge releases the guest's superseded and duplicate
+   bytes (the matched books' files): their keys are cleared in the merge and the bytes deleted after the
+   commit, best-effort; the orphan sweep collects a failed delete.
+   `textstack-*` locators move with their rows without a `book_chapters` check (M2.7a): when the
+   account holds the same bytes but never uploaded them, its file has no chapters yet, so a merged
+   locator names a key that file lacks. Same bytes extract to the same keys (slug of title + index),
+   so it resolves once the account uploads the bytes — which the transitional reader needs anyway.
 
 | Aggregate | Rule |
 |---|---|
@@ -694,16 +787,16 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 | M2.2 | `GET /books/by-sha256/{sha256}` | — | 200 book · 404 |
 | M2.2 | `PUT /books/{bookId}` | book + `file` | 201 · 200 replay · 409 `duplicate_file` / `id_conflict` |
 | M2.2 | `PATCH /books/{bookId}` | `expectedRevision`, `title?`, `author?`, `language?`, `description?`, `genre?`, `publishedYear?`, `tags?` | 200 (revision + 1, bumps `updated_at`) · 409 `stale_revision` · 404 |
-| M2.6 | `PUT /books/{bookId}/cover` · `GET /books/{bookId}/cover` | image bytes (client-extracted; server checks size and format, never parses the EPUB) | 200 · 400 `invalid_payload` · 404 |
-| M2.6 | `DELETE /books/{bookId}/files/{fileId}/content` | — | 204: server bytes deleted, `content_removed_at` set, `hasContent=false`; rows, local copies and reading data untouched; no client uploads bytes for that file again on its own |
+| M2.6 | `PUT /books/{bookId}/cover` · `GET /books/{bookId}/cover` | image bytes, `Content-Type` `image/jpeg` \| `image/png` \| `image/webp`, ≤ 2 MB (client-extracted; the server checks size and the type's magic bytes, never parses the EPUB) | PUT: 200 book (`hasCover`) · 400 `invalid_payload` · 404 `book_not_found` · 409 `book_removed`. GET: 200 bytes, `Cache-Control: private, max-age=31536000` and an `ETag` of the book's `updatedAt` (the URL stays: ask with `?v={updatedAt}` after a change) · 404 `not_found` (no cover) / `book_not_found` |
+| M2.6 | `DELETE /books/{bookId}/files/{fileId}/content` | — | 204 (idempotent; any version): server bytes deleted, `content_removed_at` set, `hasContent=false`; rows, local copies and reading data untouched; no client uploads bytes for that file again **on its own** — a deliberate upload by the reader is allowed and clears `content_removed_at` (a client rule; the server accepts it) · 404 `book_not_found` · 409 `unknown_file` |
 | M2.2 | `PUT /books/{bookId}/files/{fileId}` | `{replacesFileId, file:{…}}` (the import's file shape; the path's id wins) | 200 `{current, superseded}` · 409 `file_replaced` / `book_removed` / `id_conflict` · 404 |
 | M2.2 | `DELETE /books/{bookId}` · `POST /books/{bookId}/restore` | — | 204 (idempotent) · 404 |
 | M2.2 | `GET /reading/changes` · `GET /books/{bookId}/reading-state` | — | 200 · 404 |
-| M2.2 | `PUT /books/{bookId}/reading-state` | reading state | 200 state · 409 `stale_revision` / `reset` / `file_replaced` / `unknown_file` · 404 |
+| M2.2 | `PUT /books/{bookId}/reading-state` | reading state | 200 state · 409 `stale_revision` / `reset` / `file_replaced` / `unknown_file` / `chapter_not_found` (M2.7a, `textstack-position-v1`) · 404 |
 | M2.2 | `POST /books/{bookId}/reading-state/reset` | `{expectedRevision}` | 200 state · 409 `stale_revision` (own write if `current` is the reset) · 404 |
 | M2.2 | `PUT /reading/sessions/{clientSessionId}` | session | 201 · 200 replay · 404 `book_not_found` |
 | M2.2 | `GET /annotations/changes` | — | 200 feed |
-| M2.2 | `PUT /annotations/{id}` | annotation | 201 · 200 · 409 `stale_revision` / `deleted` / `unknown_file` / `id_conflict` · 404 `book_not_found` |
+| M2.2 | `PUT /annotations/{id}` | annotation | 201 · 200 · 409 `stale_revision` / `deleted` / `unknown_file` / `chapter_not_found` (M2.7a, `textstack-anchor-v1`) / `id_conflict` · 404 `book_not_found` |
 | M2.2 | `DELETE /annotations/{id}` | — | 200 tombstone (idempotent) · 404 |
 | M2.3 | `GET /vocabulary/changes` · `GET /vocabulary/due?limit=` | — | 200 |
 | M2.3 | `PUT /vocabulary/words` | word (`id`, `language`, `word`, `translation?`, `definition?`) + optional `example` | 201 card · 200 existing card (id may differ) + `example: "added" \| "replayed"` · 409 `deleted` / `operation_conflict` / `unknown_file` / `id_conflict` · 404 `book_not_found`. Both halves are idempotent and run in turn: an example whose `operationId` conflicts still leaves the card created (409 `operation_conflict`, `current` = the stored example); on a tombstone the example is asked first, so a replay answers 200 with the tombstone and `example: "replayed"` |
@@ -715,9 +808,11 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 | M2.4 | `POST /books/{bookId}/shares` · `GET /books/{bookId}/shares` · `DELETE /shares/{id}` | share | 201 · 200 replay · 409 `operation_conflict` / `unknown_file` · 404 `book_not_found` / `not_found` · 204 |
 | M2.4 | `POST /books/{bookId}/checkpoints` · `GET /books/{bookId}/checkpoints?chapterKey=&cursor=&limit=` (wire: `{items, cursor, hasMore}`, the feeds' `ChangeFeedDto`; `cursor` null on the last page; paged internally by M1.4's `CheckpointPage`) · `DELETE /checkpoints/{id}` | checkpoint | 201 · 200 replay · 400 `invalid_payload` (`sharedChapterId` without `chapterKey`) · 409 `operation_conflict` / `unknown_file` · 422 `share_mismatch` · 404 `book_not_found` / `not_found` · 204 |
 | M2.4 | `PUT /books/{bookId}/checkpoint-saving` | `{enabled}` | 200 |
-| M2.6 | `PUT /books/{bookId}/files/{fileId}/parts/{index}` | bytes, `Content-Length` ≤ `maxPartBytes` | 200 `{index, size}` · 411 · 400 `invalid_payload` (part over `maxPartBytes`) · 409 `file_replaced` / `unknown_file` / `book_removed` |
-| M2.6 | `POST /books/{bookId}/files/{fileId}/content` | `{partCount}` | 200 file · 422 `content_mismatch` · 400 `incomplete_upload` · 409 `file_replaced` / `unknown_file` / `book_removed` |
-| M2.6 | `GET /books/{bookId}/files/{fileId}/content` | `Range` | 200/206 · 404 `no_content` |
+| M2.6 | `PUT /books/{bookId}/files/{fileId}/parts/{index}` | bytes, `Content-Length` ≤ `maxPartBytes`, `index` 0–999 | 200 `{index, size}` · 411 `length_required` · 400 `invalid_payload` (index, part over `maxPartBytes`) · 413 `quota_exceeded` · 409 `file_replaced` / `unknown_file` / `book_removed` · 404 `book_not_found` |
+| M2.6 | `POST /books/{bookId}/files/{fileId}/content` | `{partCount}` (1–1000) | 200 file (also a replay: already stored, no quota check) · 422 `content_mismatch` (parts deleted) · 400 `incomplete_upload` (parts kept) · 413 `quota_exceeded` (parts deleted) · 409 `file_replaced` (parts deleted) / `unknown_file` / `book_removed` (parts kept) · 404 `book_not_found`. Success queues the transitional extraction for `epub`/`pdf` |
+| M2.6 | `GET /books/{bookId}/files/{fileId}/content` | `Range` | 200/206 (`Accept-Ranges`, the current version or a merged-in older one still stored; `Cache-Control: private, no-store`, `nosniff` and a sandbox CSP, as `/storage`) · 404 `no_content` (no key, or the bytes missing on disk: logged as drift) · 409 `unknown_file` · 404 `book_not_found` |
+| M2.6 **Transitional** (dropped at M6.4) | `GET /books/{bookId}/files/{fileId}/chapters` | — | 200 `{items: [{chapterKey, chapterNumber, title, wordCount}], ingestion: "queued"\|"processing"\|"succeeded"\|"failed"\|null}` (items empty while the job runs; `ingestion` from the file's latest job) · 409 `unknown_file` · 404 `book_not_found` |
+| M2.6 **Transitional** (dropped at M6.4) | `GET /books/{bookId}/files/{fileId}/chapters/{chapterKey}` | — | 200 `{chapterKey, chapterNumber, title, html, wordCount, previous, next}` (neighbours in reading order, null at an end) · 400 `invalid_payload` (key) · 404 `not_found` · 409 `unknown_file` · 404 `book_not_found`. Read-only: no chapter editing on V2 (#1091) |
 
 **`operation_id` names a logical operation** (owner decision 13): a retry of the same save reuses the
 id; a new, deliberate save mints a new one. Never one per network attempt, never a hash of the payload
@@ -758,7 +853,7 @@ metadata import is M2.2's, only the bytes are M2.6's. #1067 (explicit V2 transac
 - **4.** **Done 2026-11-01** (M2.2), except the two marked: `ILibraryRepository` gains
    `GetFileAsync(userId, bookId, fileId)` (classify `file_replaced` vs
    `unknown_file`), `AttachContentAsync(userId, bookId, fileId, storageKey)` (`WHERE is_current`, book
-   not removed; **lands with M2.6**), `SetCheckpointSavingAsync(userId, bookId, enabled)` (**lands with
+   not removed; **done with M2.6**, taking the quota limit and the callback that places the bytes inside its transaction), `SetCheckpointSavingAsync(userId, bookId, enabled)` (**lands with
    M2.4**), `UpdateMetadataAsync` (revision-guarded, owner decision 5),
    `ListChangedAsync(userId, since, afterId, limit)` (removed books included). **Every** library write
    bumps `books.updated_at` — attach and checkpoint-saving too, or `hasContent` never reaches other

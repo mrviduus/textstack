@@ -68,8 +68,6 @@ public class SyncValidationTests
         Assert.Equal("toc", FieldOf(File("", Book(toc: """{"chapters":[]}"""))));
 
     [Theory]
-    [InlineData("""{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"one"}}""")]
-    [InlineData("""{"version":1,"scheme":"textstack-anchor-v1","value":{"chapterKey":"one"}}""")]
     [InlineData("""{"version":2,"scheme":"epub-cfi","value":"epubcfi(/6/4)","quote":"x"}""")]
     [InlineData("""{"version":1,"scheme":"epub-cfi","value":null,"quote":"x"}""")]
     [InlineData("""{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4)"}""")]
@@ -104,6 +102,122 @@ public class SyncValidationTests
     [Fact]
     public void Locator_LegacyPdfAnchorOnAnAnnotation_Passes() =>
         Assert.Null(Locator(Json("""{"version":1,"scheme":"pdf-page","value":{"page":2,"rects":[{"x":0.1,"y":0.2,"w":0.3,"h":0.04}],"exact":"quoted"}}"""), "locator", LocatorUse.Annotation));
+
+    // The legacy reader's position as serializeTextPosition writes it (its own "v" included), and its highlight anchor.
+    private const string Anchor = """{"prefix":"was a ","exact":"bright cold day","suffix":" in April","startOffset":6,"endOffset":21}""";
+    private const string TextPosition = $$"""{"v":1,"chapterSlug":"ch-1","anchor":{{Anchor}},"charOffset":6,"chapterFraction":0.25}""";
+    private const string TextAnchor = """{"chapterKey":"ch-1","prefix":"was a ","exact":"bright cold day","suffix":" in April","startOffset":6,"endOffset":21}""";
+
+    private static SyncResult? Transitional(string scheme, string value, LocatorUse use, string extra = "") =>
+        Locator(Json($$"""{"version":1,"scheme":"{{scheme}}","value":{{value}}{{extra}}}"""), "locator", use);
+
+    private static SyncResult? TextPositionWith(string value) => Transitional("textstack-position-v1", value, LocatorUse.Position);
+
+    private static SyncResult? TextAnchorWith(string value) => Transitional("textstack-anchor-v1", value, LocatorUse.Annotation);
+
+    /// <summary><paramref name="json"/> with one member set to <paramref name="value"/> (JSON), or removed when it is null.</summary>
+    private static string With(string json, string member, string? value)
+    {
+        var members = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json)!;
+        if (value is null) members.Remove(member);
+        else members[member] = Json(value);
+        return JsonSerializer.Serialize(members);
+    }
+
+    [Fact]
+    public void Locator_LegacyTextPositionAsSerialized_Passes() => Assert.Null(TextPositionWith(TextPosition));
+
+    [Fact]
+    public void Locator_ScrollOnlyTextPosition_PassesWithoutAnAnchor() =>
+        Assert.Null(TextPositionWith("""{"chapterSlug":"ch-1","chapterFraction":0}"""));
+
+    [Theory]
+    [InlineData("chapterSlug", null)]
+    [InlineData("chapterSlug", "\" \"")]
+    [InlineData("chapterSlug", "1")]
+    [InlineData("chapterFraction", null)]
+    [InlineData("chapterFraction", "1.01")]
+    [InlineData("chapterFraction", "-0.01")]
+    [InlineData("chapterFraction", "\"0.5\"")]
+    [InlineData("anchor", "null")]
+    [InlineData("charOffset", "-1")]
+    [InlineData("charOffset", "1.5")]
+    public void Locator_TextPositionBreakingOneRule_IsRefused(string member, string? value) =>
+        Assert.Equal("locator", FieldOf(TextPositionWith(With(TextPosition, member, value))));
+
+    [Fact]
+    public void Locator_TextPositionChapterSlugOverTheChapterKeyCap_IsRefused()
+    {
+        Assert.Null(TextPositionWith(With(TextPosition, "chapterSlug", $"\"{new string('k', MaxChapterKey)}\"")));
+        Assert.Equal("locator", FieldOf(TextPositionWith(With(TextPosition, "chapterSlug", $"\"{new string('k', MaxChapterKey + 1)}\""))));
+    }
+
+    // A position quotes textPosition.ts's POSITION_QUOTE_LENGTH (64); a highlight quotes whatever was selected.
+    [Fact]
+    public void Locator_TextPositionQuoteOver64_IsRefusedAndAHighlightsIsNot()
+    {
+        var quote = (int length) => With(Anchor, "exact", $"\"{new string('q', length)}\"");
+
+        Assert.Null(TextPositionWith(With(TextPosition, "anchor", quote(64))));
+        Assert.Equal("locator", FieldOf(TextPositionWith(With(TextPosition, "anchor", quote(65)))));
+    }
+
+    [Fact]
+    public void Locator_LegacyTextAnchor_Passes() => Assert.Null(TextAnchorWith(TextAnchor));
+
+    [Theory]
+    [InlineData("chapterKey", null)]
+    [InlineData("chapterKey", "\"\"")]
+    [InlineData("exact", null)]
+    [InlineData("exact", "\"\"")]
+    [InlineData("prefix", null)]
+    [InlineData("prefix", "\"ppppppppppppppppppppppppppppppppp\"")] // 33 code points
+    [InlineData("suffix", "\"sssssssssssssssssssssssssssssssss\"")]
+    [InlineData("suffix", "null")]
+    [InlineData("startOffset", null)]
+    [InlineData("startOffset", "-1")]
+    [InlineData("startOffset", "\"6\"")]
+    [InlineData("endOffset", null)]
+    [InlineData("endOffset", "5")] // before startOffset
+    public void Locator_TextAnchorBreakingOneRule_IsRefused(string member, string? value) =>
+        Assert.Equal("locator", FieldOf(TextAnchorWith(With(TextAnchor, member, value))));
+
+    [Fact]
+    public void Locator_TextAnchorContextOf32CodePoints_Passes() =>
+        Assert.Null(TextAnchorWith(With(With(TextAnchor, "prefix", $"\"{new string('p', 32)}\""), "suffix", $"\"{new string('s', 32)}\"")));
+
+    // An int32 offset: 2^31 does not fit and is refused, never clamped.
+    [Fact]
+    public void Locator_TextAnchorOffsetOf2To31_IsRefused()
+    {
+        Assert.Null(TextAnchorWith(With(TextAnchor, "endOffset", int.MaxValue.ToString())));
+        Assert.Equal("locator", FieldOf(TextAnchorWith(With(TextAnchor, "endOffset", "2147483648"))));
+    }
+
+    [Fact]
+    public void Locator_TextAnchorExactOverTheSelectedTextCap_IsRefused()
+    {
+        Assert.Null(TextAnchorWith(With(TextAnchor, "exact", $"\"{new string('q', MaxSelectedText)}\"")));
+        Assert.Equal("locator", FieldOf(TextAnchorWith(With(TextAnchor, "exact", $"\"{new string('q', MaxSelectedText + 1)}\""))));
+    }
+
+    [Fact]
+    public void Locator_TextPositionAsAnAnnotation_IsRefused() =>
+        Assert.Equal("locator", FieldOf(Transitional("textstack-position-v1", TextPosition, LocatorUse.Annotation)));
+
+    [Fact]
+    public void Locator_TextAnchorAsAPosition_IsRefused() =>
+        Assert.Equal("locator", FieldOf(Transitional("textstack-anchor-v1", TextAnchor, LocatorUse.Position)));
+
+    [Fact]
+    public void Locator_TextstackSchemeWithAQuote_IsRefused() =>
+        Assert.Equal("locator", FieldOf(Transitional("textstack-position-v1", TextPosition, LocatorUse.Position, ""","quote":"x" """)));
+
+    [Theory]
+    [InlineData("""{"version":1,"value":"x","quote":"q"}""")]
+    [InlineData("""{"version":1,"scheme":"cfi","value":"x","quote":"q"}""")]
+    public void Locator_UnknownOrMissingSchemeWithAQuote_IsRefusedForItsScheme(string locator) =>
+        Assert.Contains("schemes only", Assert.IsType<V2Error>(Locator(Json(locator), "locator", LocatorUse.Annotation)!.Body).Message);
 
     [Theory]
     [InlineData(-0.01)]

@@ -93,7 +93,10 @@ shape minus `site_id` plus the delta shown.
 
 Both transitional tables carry this `COMMENT ON TABLE`: *"Transitional. Dropped at M6.4 once the V2
 reader serves EPUB and PDF on all clients; see ADR-031."* They feed the legacy reader,
-`get_my_chapter` and `shared_chapters` snapshots, and nothing new may depend on them.
+`get_my_chapter` and `shared_chapters` snapshots, and nothing new may depend on them. Read-only to
+users ([#1091](https://github.com/mrviduus/textstack/issues/1091), M2.6): a re-extraction replaces a file
+version's chapters whole (V2 annotations anchor by locator, not chapter id), and V2 uploads get no
+chapter editing endpoints.
 
 `book_chapters` needs `book_id` as well as `file_id`: `book_files`' referencable key is
 `(user_id, book_id, id)`.
@@ -106,11 +109,14 @@ Allowed in `reading_state.current_locator` / `frontier_locator` and `annotations
 |---|---|---|
 | `epub-cfi` | an `epubcfi(...)` string, plus a sibling **`quote`**: the first ≤64 characters of text at the CFI — `{"version":1,"scheme":"epub-cfi","value":"epubcfi(...)","quote":"…"}`. `quote` is **required** in `reading_state.current_locator` (resume restores only if the text at the CFI still starts with it) and **optional** in `annotations.locator` (annotations carry `selected_text`) | the V2 EPUB reader (ADR-029, R0); CFIs are not sortable, so fractions sit beside them |
 | `pdf-page` | position: `{"page":N}` (1-based). Annotation: legacy `PdfAnchor` `{page, rects:[{x,y,w,h}], exact}`, page-relative unscaled rects (`pdfHighlightAnchor.ts`) | the PDF viewer; ETL from legacy `page:<n>` progress and `kind:'pdf'` highlights |
-| `textstack-position-v1` | legacy `TextPosition` `{chapterSlug, anchor:{prefix,exact,suffix,startOffset,endOffset}, charOffset, chapterFraction}` — a 64-char quote with 30 chars of context each side; offsets are hints (`textPosition.ts`) | ETL from `user_books.progress_position_json`, or from a scroll-only locator as `{chapterSlug, chapterFraction}` with no `anchor` (decided item 5); resolves only against `book_chapters` |
-| `textstack-anchor-v1` | legacy `TextAnchor` `{chapterKey, prefix, exact, suffix, startOffset, endOffset}` — `chapterKey` is the chapter slug (legacy `chapterId` replaced; ids change on re-ingest) (`textAnchor.ts`) | ETL from reflow `highlights.anchor_json` on uploads |
+| `textstack-position-v1` | legacy `TextPosition` `{chapterSlug, anchor:{prefix,exact,suffix,startOffset,endOffset}, charOffset, chapterFraction}` — a 64-char quote with 30 chars of context each side; offsets are hints (`textPosition.ts`) | ETL from `user_books.progress_position_json`, or from a scroll-only locator as `{chapterSlug, chapterFraction}` with no `anchor` (decided item 5); the transitional reader, until R8 (M2.7a); resolves only against `book_chapters` |
+| `textstack-anchor-v1` | legacy `TextAnchor` `{chapterKey, prefix, exact, suffix, startOffset, endOffset}` — `chapterKey` is the chapter slug (legacy `chapterId` replaced; ids change on re-ingest) (`textAnchor.ts`) | ETL from reflow `highlights.anchor_json` on uploads; the transitional reader, until R8 (M2.7a) |
 
 The two `textstack-*` schemes exist only for migrated rows and the transitional reader; no V2
-writer produces them.
+writer produces them. They are accepted on V2 writes from the transitional reader until R8
+([#1040](https://github.com/mrviduus/textstack/issues/1040)) (M2.7a, owner decision 2026-11-02,
+#1112); the rules and the removal condition: [v2-sync-protocol.md](../v2-sync-protocol.md)
+"Transitional locators".
 
 `quote` on `epub-cfi` (added 2026-10-30) resolves ADR-029's contradiction 1: its position model
 verifies a 64-character quote at the CFI, which the envelope as first written could not store.
@@ -205,6 +211,7 @@ and can be read back from it; none is silently lost.
 | `models`, `model_promotions` | D7: configuration (`Ai:Routes`) |
 | `book_quality_jobs` | catalog/PDF quality pipeline, not part of V2 |
 | `user_books.takedown_at`/`takedown_reason`, metadata-enrichment status fields, `total_word_count`, `seo_source`, `suggested_tags*` | decided item 3: catalog/SEO/enrichment machinery, not library data |
+| `user_chapters.content_quality_score` | not in `book_chapters`' column list; PDF quality cleanup is not a V2 feature |
 | `vocabulary_words.total_reviews`/`correct_reviews` | decided item 4: derived from `vocabulary_reviews` |
 | The losing card of a case-variant vocabulary merge (its SRS state) | decided item 4: its examples and reviews move to the survivor |
 | All catalog, SEO and SSG content (#1–#20) | D3: the public catalog is retired within V2 |
@@ -328,6 +335,47 @@ is never edited (ADR-026); the rows and rules above read with these deltas:
   revision-guarded (owner decision 5).
 - **`book_files`:** `content_removed_at timestamptz NULL` — "stop syncing this file": the server's
   bytes are deleted and no client re-uploads on its own (owner decision 6).
+
+## Amended 2026-11-02 — migration `0002` ([#1092](https://github.com/mrviduus/textstack/issues/1092), [#1047](https://github.com/mrviduus/textstack/issues/1047))
+
+`database/v2/migrations/0002_identity_and_indexes`: M2.5's identity bundle (owner decision
+2026-11-02 on #1092) and the indexes M1.5–M2.4 collected on #1047.
+
+- **`users`:** `credentials_reset_at timestamptz NULL`, stamped by the password reset in the statement
+  that spends its code, with `clock_timestamp()` once the user row is locked (a rotation the reset
+  waited for mints its token after the reset's transaction began). A credential minted from an access
+  token issued before it (`iat < credentials_reset_at`) is refused — a session re-issue, a device
+  approval (`DeviceApprovalResult.Unauthorized`, the login stays pending), an MCP key, an OAuth consent —
+  under the user row's `FOR SHARE`, so a reset committing meanwhile is seen. A grant is connected only
+  for a consent requested after the stamp, and the reset expires approved, unexchanged OAuth requests
+  as it expires approved device logins. Every sign-in takes that lock, so none
+  commits beside a reset unseen. `iat` has whole seconds: a token minted in the reset's own second is
+  refused too. The stamp is the database's clock and `iat` the api's: one host (compose) keeps them one
+  clock; split across hosts, their skew is a window in which a pre-reset token passes.
+- **`user_refresh_tokens`:** `kind text NOT NULL`, `ck_user_refresh_tokens_kind` (`reader`, `admin`)
+  replaces the `adm.` hash prefix; `token_hash` stays unique across kinds. `family_id uuid NOT NULL`
+  (the sign-in's first session's id), copied by every rotation, with
+  `ix_user_refresh_tokens_family_id_expires_at`. The family revoke is one `DELETE`; the 90-day absolute
+  lifetime reads the family's first row (its `created_at`); the sweep deletes a family whole once none
+  of it lives (any cutoff), so a replayed token of a live family always finds its successor and its
+  family, and the first row is there while any member is. `0002` signs every V2 session out; M5's
+  session port starts families fresh.
+- **Change feeds:** `(user_id, updated_at, id)` on `books`, `annotations`, `vocabulary_words`;
+  `(user_id, updated_at, book_id)` on `reading_state` (its key).
+- **`vocabulary_words`:** the due index is `(user_id, next_review_at, id)`, `0001`'s predicate kept.
+- **Sweeps:** `ix_password_reset_tokens_expires_at`; `ix_oauth_grants_refresh_token_expires_at` and
+  `ix_oauth_grants_revoked_at` (partial) — the grant sweep's `OR` uses indexes only with both arms.
+- **`device_authorizations`:** `ix_device_authorizations_user_code` is unique among pending logins; a
+  pending login past its deadline holds its code until decided or swept. `0002` expires every pending
+  login first (expired ones could share a code).
+- **`discussion_checkpoints`:** `ix_discussion_checkpoints_user_id_book_id_chapter_key` on
+  `(user_id, book_id, chapter_key, created_at, id)` for the `?chapterKey=` page.
+
+Not changed, decided on #1047: `reading_state` already has `ck_reading_state_frontier_ahead`
+(`frontier_fraction >= book_fraction`) since the baseline; `books.origin` gets no `? 'kind'` CHECK
+yet — every writer sets a kind (`Book.Origin` defaults to `{"kind":"upload"}`), but the column's own
+default is `'{}'`, and the CHECK worth having names the kinds the ETL (M3.2) settles, so it comes with
+M3.1.
 
 Related: [v2-plan.md](../v2-plan.md) · [ADR-030](ADR-030-two-databases-one-cutover.md) ·
 [ADR-028](ADR-028-dapper-and-repositories.md) · [ADR-026](ADR-026-sql-first-migrations.md) ·

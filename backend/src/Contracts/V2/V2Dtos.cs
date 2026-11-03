@@ -30,9 +30,34 @@ public sealed record BookDto(
     string[] Tags, bool CheckpointSavingEnabled, bool HasCover, long Revision,
     DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? RemovedAt, BookFileDto? CurrentFile);
 
+/// <summary><see cref="ContentRemovedAt"/>: the reader stopped syncing this version, so no client uploads its bytes on its own.</summary>
 public sealed record BookFileDto(
     Guid Id, string Sha256, long ByteSize, string OriginalName, string Format, int? PageCount, [property: JsonConverter(typeof(RawJsonConverter))] string? Toc,
-    bool IsCurrent, bool HasContent, DateTimeOffset CreatedAt);
+    bool IsCurrent, bool HasContent, DateTimeOffset CreatedAt, DateTimeOffset? ContentRemovedAt);
+
+/// <summary>A part stored: its index and its size in bytes.</summary>
+public sealed record UploadedPartDto(int Index, long Size);
+
+public sealed record CompleteContentRequest(int? PartCount);
+
+/// <summary><c>current</c> of a 422 <c>content_mismatch</c>: what the file version says and what the parts hash to; <see cref="ByteSize"/> is the parts' total.</summary>
+public sealed record ContentMismatchDto(string ExpectedSha256, string ActualSha256, long ByteSize);
+
+/// <summary><c>current</c> of a 413 <c>quota_exceeded</c>: the bytes the server holds for the user, and the limit.</summary>
+public sealed record StorageQuotaDto(long Used, long Limit);
+
+/// <summary>Transitional (dropped at M6.4): a server-extracted chapter in a table of contents. <see cref="ChapterNumber"/> orders, never displays.</summary>
+public sealed record ChapterHeadingDto(string ChapterKey, int ChapterNumber, string Title, int? WordCount);
+
+/// <summary>
+/// Transitional (dropped at M6.4): a file version's chapters, and its latest extraction job's status
+/// (<c>queued</c>, <c>processing</c>, <c>succeeded</c>, <c>failed</c>; null: none). Empty while it runs.
+/// </summary>
+public sealed record FileChaptersDto(IReadOnlyList<ChapterHeadingDto> Items, string? Ingestion);
+
+/// <summary>Transitional (dropped at M6.4): one chapter and its neighbours in reading order (null at an end).</summary>
+public sealed record ChapterDto(
+    string ChapterKey, int ChapterNumber, string Title, string Html, int? WordCount, ChapterHeadingDto? Previous, ChapterHeadingDto? Next);
 
 /// <summary>A file version as a client sends it: on import (with <see cref="Id"/>) and on replace (the path's id wins).</summary>
 public sealed record BookFileRequest(

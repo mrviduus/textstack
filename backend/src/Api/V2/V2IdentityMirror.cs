@@ -2,6 +2,7 @@ using Application.Auth;
 using Application.Common;
 using Application.Common.Interfaces;
 using Application.Identity;
+using Application.Library;
 using Domain.Identity;
 
 namespace Api.V2;
@@ -18,11 +19,23 @@ namespace Api.V2;
 /// </summary>
 public sealed class V2IdentityMirror(
     IConfiguration config, V2Readiness readiness, V2ShadowUsers shadows, IUserRepository users,
-    IAccountMergeRepository merges, IAppDbContext legacy, ILogger<V2IdentityMirror> logger)
+    IAccountMergeRepository merges, IAppDbContext legacy, ILibraryRepository library, ILibraryFileStore files, ILogger<V2IdentityMirror> logger)
 {
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(10);
 
-    public Task DeleteAsync(Guid userId) => MirrorAsync(userId, userId, ct => users.DeleteAsync(userId, ct));
+    /// <summary>
+    /// The users cascade drops the rows; the account's bytes go after it, best-effort: its own directories,
+    /// then any key it held elsewhere (listed before the delete: after a merge some sit under the former
+    /// guest's directory; the rest are already gone, a cheap no-op). What fails here the orphan sweep collects.
+    /// </summary>
+    public Task DeleteAsync(Guid userId) => MirrorAsync(userId, userId, async ct =>
+    {
+        var keys = await library.ListStorageKeysAsync(userId, ct);
+        await users.DeleteAsync(userId, ct);
+        files.DeleteUser(userId);
+        foreach (var key in keys)
+            if (!files.TryDelete(key)) logger.LogWarning("Could not delete {StorageKey} of deleted user {UserId}; the orphan sweep will", key, userId);
+    });
 
     /// <summary>A guest registered in place: its V2 row becomes the account. No V2 row: nothing to do.</summary>
     public Task PromoteAsync(Guid userId, string email, string? name, string passwordHash) => MirrorAsync(userId, userId, async ct =>
@@ -57,11 +70,16 @@ public sealed class V2IdentityMirror(
             }
             if (merged.Outcome == AccountMergeOutcome.Refused) Stranded("merge_refused", guestId, accountId);
             if (merged.Outcome == AccountMergeOutcome.Merged)
+            {
+                // Committed: the bytes no row names any more go now, best-effort (the orphan sweep is the backstop).
+                foreach (var key in merged.ReleasedKeys)
+                    if (!files.TryDelete(key)) logger.LogWarning("Could not delete {StorageKey} released by merging {GuestUserId} into {UserId}; the orphan sweep will", key, guestId, accountId);
                 logger.LogInformation(
                     "V2 merge {GuestUserId} → {UserId}: {Books} books, {Files} files, {Words} words remapped; {DroppedDuplicates} guest copies dropped, "
                     + "{HashAnomalies} of them with another payload; {UnscheduledReviewQuestions} review questions unscheduled",
                     guestId, accountId, merged.Books.Count, merged.Files.Count, merged.Words.Count,
                     merged.DroppedDuplicates, merged.HashAnomalies, merged.UnscheduledReviewQuestions);
+            }
         });
         return merged is { Outcome: AccountMergeOutcome.Merged } m && m.Books.Count + m.Files.Count + m.Words.Count > 0
             ? new GuestMergeMap(m.Books, m.Files, m.Words)

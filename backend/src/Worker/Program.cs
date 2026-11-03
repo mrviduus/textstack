@@ -41,6 +41,7 @@ builder.Services.AddScoped<IAppDbContext>(sp =>
 // File storage
 var storagePath = builder.Configuration["Storage:RootPath"] ?? "/storage";
 builder.Services.AddSingleton<IFileStorageService>(new LocalFileStorageService(storagePath));
+builder.Services.AddSingleton<Application.Library.ILibraryFileStore>(new LibraryFileStore(builder.Configuration["Storage:LibraryRoot"] ?? storagePath));
 
 // Extraction
 builder.Services.AddSingleton<ITextExtractor, EpubTextExtractor>();
@@ -81,6 +82,9 @@ builder.Services.AddSingleton<IngestionWorkerService>();
 builder.Services.AddSingleton<UserBookEnrichmentService>();
 builder.Services.AddSingleton<UserIngestionService>();
 builder.Services.AddHostedService<IngestionWorker>();
+// Transitional (dropped at M6.4): V2 uploads' chapters. Idle unless Features:V2Api and ConnectionStrings:V2.
+builder.Services.AddSingleton<V2IngestionService>();
+builder.Services.AddHostedService<V2IngestionWorker>();
 // Sweep: drains Pending (API re-enrich reaches the worker here) + reclaims stale Running rows.
 builder.Services.AddHostedService<MetadataEnrichmentWorker>();
 builder.Services.AddHostedService<StuckJobsMetricsWorker>();

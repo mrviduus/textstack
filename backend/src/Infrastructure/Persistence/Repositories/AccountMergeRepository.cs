@@ -76,10 +76,14 @@ public sealed partial class AccountMergeRepository(V2DataSource dataSource) : IA
         }
 
         // 3a–d. Matched books: state, what points into the guest's file and book; then the insight clashes.
+        List<string> released;
         List<InsightLoser> losers;
         List<(Guid InsightId, string Prompt, string Answer)> questions;
         await using (var third = await run.QueryMultipleAsync(MoveOntoAccountBooks, StateArgs(MergedStates(books, states))))
+        {
+            released = (await third.ReadAsync<string>()).AsList();
             (losers, questions) = ((await third.ReadAsync<InsightLoser>()).AsList(), (await third.ReadAsync<(Guid, string, string)>()).AsList());
+        }
 
         // 3e–6. Insights, the emptied guest books, every other book, book-less sessions, feeds, share
         // links; then the rows step 7 rehashes, as they stand now.
@@ -107,7 +111,7 @@ public sealed partial class AccountMergeRepository(V2DataSource dataSource) : IA
         await unit.CommitAsync(ct);
         return new(AccountMergeOutcome.Merged,
             books.ToDictionary(b => b.GuestBook, b => b.AccountBook), books.ToDictionary(b => b.GuestFile, b => b.AccountFile),
-            words.ToDictionary(w => w.Guest, w => w.Account), dropped, anomalies, questions.Count);
+            words.ToDictionary(w => w.Guest, w => w.Account), dropped, anomalies, questions.Count, released);
     }
 
     // Users: FOR UPDATE, not FOR NO KEY UPDATE, so it conflicts with the FOR KEY SHARE every FK insert
@@ -183,7 +187,7 @@ public sealed partial class AccountMergeRepository(V2DataSource dataSource) : IA
          DeleteEmptiedGuestCards, MoveCards]);
 
     private static readonly string MoveOntoAccountBooks = string.Join(";\n",
-        [UpsertAccountStates, DeleteGuestStates, RepointToAccountFiles, DeleteSameBytesFiles, MoveOtherVersions, MoveLeftoversToAccountBooks,
+        [UpsertAccountStates, DeleteGuestStates, RepointToAccountFiles, SelectReleasedKeys, DeleteSameBytesFiles, MoveOtherVersions, MoveLeftoversToAccountBooks,
          SelectInsightLosers, SelectQuestionsOfLosers]);
 
     private static readonly string MoveBooksAndReadAppends = string.Join(";\n",

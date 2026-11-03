@@ -32,6 +32,17 @@ describe('buildTextPosition', () => {
     expect(CHAPTER.slice(pos.charOffset)).toContain(pos.anchor.exact)
   })
 
+  it('never cuts a surrogate pair, which the server refuses as text with no UTF-8 form', () => {
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+    const text = '😀'.repeat(200)   // every odd index is between the halves of a pair
+    for (const offset of [31, 32, 33, 61, 100]) {
+      const pos = buildTextPosition({ chapterSlug: 'x', chapterText: text, charOffset: offset, chapterFraction: 0.5 })!
+      for (const part of [pos.anchor.prefix, pos.anchor.exact, pos.anchor.suffix]) expect(part).not.toMatch(lone)
+      expect(text.slice(pos.anchor.startOffset, pos.anchor.endOffset)).toBe(pos.anchor.exact)
+      expect(pos.anchor.exact.length).toBeLessThanOrEqual(POSITION_QUOTE_LENGTH)
+    }
+  })
+
   it('has nothing to anchor to past the end of the chapter', () => {
     // The fraction still says where the reader is; only the precision is lost.
     expect(buildTextPosition({

@@ -35,6 +35,12 @@ public class UserAccount
     /// <summary>When a guest became an account in place; null otherwise.</summary>
     public DateTimeOffset? PromotedAt { get; set; }
 
+    /// <summary>
+    /// When the password was last reset; null if never. An access token issued before it mints no
+    /// credential (#1092). Set by the reset only; ignored on write.
+    /// </summary>
+    public DateTimeOffset? CredentialsResetAt { get; set; }
+
     /// <summary>Set by the server on create; ignored on write.</summary>
     public DateTimeOffset CreatedAt { get; set; }
 }

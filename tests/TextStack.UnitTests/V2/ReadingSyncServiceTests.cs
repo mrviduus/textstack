@@ -3,6 +3,7 @@ using Application.Common;
 using Application.Library;
 using Application.Reading;
 using Application.Sync;
+using Application.Transitional;
 using Contracts.V2;
 using Domain.Library;
 using Domain.Reading;
@@ -26,7 +27,8 @@ public class ReadingSyncServiceTests
     private readonly Mock<ILibraryRepository> _library = V2Fakes.Library(User, BookId, CurrentFile, OldFile);
     private readonly Mock<IReadingStateRepository> _states = new();
     private readonly Mock<IReadingSessionRepository> _sessions = new();
-    private ReadingSyncService Service => new(_library.Object, _states.Object, _sessions.Object);
+    private readonly Mock<IBookChapterRepository> _chapters = new();
+    private ReadingSyncService Service => new(_library.Object, _states.Object, _sessions.Object, _chapters.Object);
 
     private static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
 
@@ -46,14 +48,14 @@ public class ReadingSyncServiceTests
     };
 
     private void Loses(ReadingState? stored) =>
-        _states.Setup(s => s.AdvanceAsync(User, BookId, It.IsAny<ReadingState>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+        _states.Setup(s => s.AdvanceAsync(User, BookId, It.IsAny<ReadingState>(), It.IsAny<long?>(), It.IsAny<TransitionalChapterKeys>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RevisionedWrite<ReadingState>(false, stored));
 
 
     [Fact]
     public async Task WriteAsync_Accepted_IsOkWithTheStoredState()
     {
-        _states.Setup(s => s.AdvanceAsync(User, BookId, It.IsAny<ReadingState>(), null, It.IsAny<CancellationToken>()))
+        _states.Setup(s => s.AdvanceAsync(User, BookId, It.IsAny<ReadingState>(), null, It.IsAny<TransitionalChapterKeys>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RevisionedWrite<ReadingState>(true, Stored(1)));
 
         var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null), Ct);
@@ -65,7 +67,7 @@ public class ReadingSyncServiceTests
     public async Task WriteAsync_LostOnABookThatIsNotTheUsers_IsBookNotFound()
     {
         var otherBook = Guid.NewGuid();
-        _states.Setup(s => s.AdvanceAsync(User, otherBook, It.IsAny<ReadingState>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+        _states.Setup(s => s.AdvanceAsync(User, otherBook, It.IsAny<ReadingState>(), It.IsAny<long?>(), It.IsAny<TransitionalChapterKeys>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RevisionedWrite<ReadingState>(false, null));
 
         var result = await Service.WriteAsync(User, otherBook, Write(CurrentFile, null), Ct);
@@ -140,11 +142,113 @@ public class ReadingSyncServiceTests
         Assert.Equal((SyncCodes.StaleRevision, (long?)null, (object?)null), (error.Code, error.Revision, error.Current));
     }
 
+    private static JsonElement TextPosition(string chapterSlug) =>
+        Json($$$"""{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"{{{chapterSlug}}}","chapterFraction":0.5}}""");
+
+    private void FileHasChapter(Guid fileId, string chapterKey) =>
+        _chapters.Setup(c => c.ExistsAsync(User, fileId, chapterKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
     [Fact]
-    public async Task WriteAsync_MigratedLocatorScheme_IsInvalidPayloadAndWritesNothing()
+    public async Task WriteAsync_TextPosition_HandsItsChapterKeysToTheWrite()
     {
-        var result = await Service.WriteAsync(User, BookId,
-            Write(CurrentFile, null, Json("""{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"one"}}""")), Ct);
+        _states.Setup(s => s.AdvanceAsync(User, BookId, It.IsAny<ReadingState>(), null, new TransitionalChapterKeys("ch-1", "ch-1"), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RevisionedWrite<ReadingState>(true, Stored(1)));
+
+        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null, TextPosition("ch-1")), Ct);
+
+        Assert.Equal(200, result.Status);
+        _chapters.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task WriteAsync_LostOnAChapterTheFileLacks_IsChapterNotFound()
+    {
+        Loses(null);
+
+        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null, TextPosition("no-such")), Ct);
+
+        Assert.Equal((409, SyncCodes.ChapterNotFound), (result.Status, V2Fakes.Error(result).Code));
+    }
+
+    [Fact]
+    public async Task WriteAsync_LostWithAWinningFrontierOnAChapterTheFileLacks_IsChapterNotFound()
+    {
+        FileHasChapter(CurrentFile, "ch-1");
+        Loses(Stored(2));
+        var request = Write(CurrentFile, 1, TextPosition("ch-1")) with { FrontierLocator = TextPosition("no-such"), FrontierFraction = 0.6m };
+
+        Assert.Equal(SyncCodes.ChapterNotFound, V2Fakes.Error(await Service.WriteAsync(User, BookId, request, Ct)).Code);
+    }
+
+    // The stored frontier is ahead, so this write would not have stored its own: that chapter is not why it lost.
+    [Fact]
+    public async Task WriteAsync_LostWithAFrontierBehindTheStoredOneOnAMissingChapter_IsStaleRevision()
+    {
+        FileHasChapter(CurrentFile, "ch-1");
+        var stored = Stored(2);
+        (stored.FrontierLocator, stored.FrontierFraction) = (stored.CurrentLocator, 0.9m);
+        Loses(stored);
+        var request = Write(CurrentFile, 1, TextPosition("ch-1")) with { FrontierLocator = TextPosition("no-such"), FrontierFraction = 0.6m };
+
+        Assert.Equal(SyncCodes.StaleRevision, V2Fakes.Error(await Service.WriteAsync(User, BookId, request, Ct)).Code);
+    }
+
+    // Any write on a superseded version is file_replaced (PDD "Reading state"), whatever its chapter.
+    [Fact]
+    public async Task WriteAsync_LostOnASupersededVersionWithAMissingChapter_IsFileReplaced()
+    {
+        Loses(Stored(5));
+
+        var error = V2Fakes.Error(await Service.WriteAsync(User, BookId, Write(OldFile, 3, TextPosition("no-such")), Ct));
+
+        Assert.Equal((SyncCodes.FileReplaced, CurrentFile, (long?)5), (error.Code, error.FileId, error.Revision));
+    }
+
+    [Fact]
+    public async Task WriteAsync_TextPositionOnAFileThatIsNoVersionOfTheBook_IsUnknownFile()
+    {
+        Loses(null);
+
+        Assert.Equal(SyncCodes.UnknownFile, V2Fakes.Error(await Service.WriteAsync(User, BookId, Write(Guid.NewGuid(), null, TextPosition("ch-1")), Ct)).Code);
+    }
+
+    [Fact]
+    public async Task WriteAsync_TextPositionOnABookThatIsNotTheUsers_IsBookNotFound()
+    {
+        var otherBook = Guid.NewGuid();
+        _states.Setup(s => s.AdvanceAsync(User, otherBook, It.IsAny<ReadingState>(), It.IsAny<long?>(), It.IsAny<TransitionalChapterKeys>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RevisionedWrite<ReadingState>(false, null));
+
+        Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(await Service.WriteAsync(User, otherBook, Write(CurrentFile, null, TextPosition("ch-1")), Ct)).Code);
+    }
+
+    [Fact]
+    public async Task WriteAsync_LostWithPositionAndFrontierInOneChapter_AsksTheChapterOnce()
+    {
+        FileHasChapter(CurrentFile, "ch-1");
+        Loses(Stored(2));
+        var request = Write(CurrentFile, 1, TextPosition("ch-1")) with { FrontierLocator = TextPosition("ch-1"), FrontierFraction = 0.6m };
+
+        await Service.WriteAsync(User, BookId, request, Ct);
+
+        _chapters.Verify(c => c.ExistsAsync(User, CurrentFile, "ch-1", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task WriteAsync_EpubCfiPosition_AsksNoChapter()
+    {
+        Loses(Stored(2));
+
+        await Service.WriteAsync(User, BookId, Write(CurrentFile, 1), Ct);
+
+        _chapters.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task WriteAsync_TextAnchorAsAPosition_IsInvalidPayloadAndWritesNothing()
+    {
+        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null,
+            Json("""{"version":1,"scheme":"textstack-anchor-v1","value":{"chapterKey":"ch-1","prefix":"","exact":"x","suffix":"","startOffset":0,"endOffset":1}}""")), Ct);
 
         Assert.Equal((400, SyncCodes.InvalidPayload, "currentLocator"), (result.Status, V2Fakes.Error(result).Code, V2Fakes.Error(result).Field));
         _states.VerifyNoOtherCalls();
