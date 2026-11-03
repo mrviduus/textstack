@@ -28,6 +28,8 @@ public sealed class EfOAuthRepository(IAppDbContext db) : IOAuthRepository
         CreatedAt = c.CreatedAt,
     };
 
+    private static readonly Func<OAuthClient, OAuthClientRegistration> AsClient = ToClient.Compile();
+
     private static readonly Expression<Func<OAuthAuthorizationRequest, OAuthAuthorization>> ToRequest = r => new OAuthAuthorization
     {
         Id = r.Id,
@@ -68,33 +70,36 @@ public sealed class EfOAuthRepository(IAppDbContext db) : IOAuthRepository
     public Task<OAuthClientRegistration?> GetClientAsync(string clientId, CancellationToken ct) =>
         db.OAuthClients.AsNoTracking().Where(c => c.ClientId == clientId).Select(ToClient).FirstOrDefaultAsync(ct);
 
+    // A registration (DCR) mints a new client id: one INSERT. A metadata document is refreshed in
+    // place, or inserted on its first fetch; a concurrent first fetch makes the insert lose, and its
+    // document is written over the winner's (last write wins).
     public async Task<OAuthClientRegistration> SaveClientAsync(OAuthClientRegistration client, CancellationToken ct)
     {
-        if (await RefreshClientAsync(client, ct) == 0)
+        if (client.IsMetadataDocument && await RefreshClientAsync(client, ct) > 0)
+            return (await GetClientAsync(client.ClientId, ct))!;
+
+        var row = new OAuthClient
         {
-            var row = new OAuthClient
-            {
-                Id = client.Id,
-                ClientId = client.ClientId,
-                ClientName = client.ClientName,
-                RedirectUris = client.RedirectUris,
-                IsMetadataDocument = client.IsMetadataDocument,
-                FetchedAt = client.FetchedAt,
-                CreatedAt = DateTimeOffset.UtcNow,
-            };
-            db.OAuthClients.Add(row);
-            try
-            {
-                await db.SaveChangesAsync(ct);
-            }
-            // A concurrent first fetch of the same metadata document inserted it: last write wins.
-            catch (DbUpdateException e) when (e.IsUniqueViolation())
-            {
-                db.OAuthClients.Entry(row).State = EntityState.Detached;
-                await RefreshClientAsync(client, ct);
-            }
+            Id = client.Id,
+            ClientId = client.ClientId,
+            ClientName = client.ClientName,
+            RedirectUris = client.RedirectUris,
+            IsMetadataDocument = client.IsMetadataDocument,
+            FetchedAt = client.FetchedAt,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        db.OAuthClients.Add(row);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return AsClient(row);
         }
-        return (await GetClientAsync(client.ClientId, ct))!;
+        catch (DbUpdateException e) when (client.IsMetadataDocument && e.IsUniqueViolation())
+        {
+            db.OAuthClients.Entry(row).State = EntityState.Detached;
+            await RefreshClientAsync(client, ct);
+            return (await GetClientAsync(client.ClientId, ct))!;
+        }
     }
 
     private Task<int> RefreshClientAsync(OAuthClientRegistration client, CancellationToken ct) =>
@@ -131,6 +136,8 @@ public sealed class EfOAuthRepository(IAppDbContext db) : IOAuthRepository
     public async Task<OAuthAuthorization?> ApproveRequestAsync(
         Guid requestId, Guid userId, string codeHash, DateTimeOffset codeExpiresAt, DateTimeOffset tokenIssuedAt, DateTimeOffset now, CancellationToken ct)
     {
+        // ExecuteUpdate returns no row and EF has no UPDATE … RETURNING, so the approved row is read
+        // back; the guarded UPDATE is what decides, the read only reports.
         var approved = await Pending(requestId, now)
             .Where(_ => db.Users.Any(u => u.Id == userId))
             .ExecuteUpdateAsync(s => s

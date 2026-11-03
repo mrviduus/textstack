@@ -37,6 +37,18 @@ public abstract class OAuthRepositoryContract(IIdentityFixture db, IOAuthReposit
     }
 
     [Fact]
+    public async Task SaveClientAsync_Registration_ReturnsTheStoredClient()
+    {
+        var clientId = "tsc_" + Guid.NewGuid();
+
+        var saved = await _repo.SaveClientAsync(new() { Id = Guid.NewGuid(), ClientId = clientId, ClientName = "Claude", RedirectUris = ["https://claude.ai/cb"] }, Ct);
+
+        var stored = (await _repo.GetClientAsync(clientId, Ct))!;
+        Assert.Equal((stored.Id, stored.ClientName, false), (saved.Id, saved.ClientName, saved.IsMetadataDocument));
+        Assert.Equal(stored.CreatedAt, saved.CreatedAt, TimeSpan.FromMilliseconds(1));
+    }
+
+    [Fact]
     public async Task SaveClientAsync_SameClientIdAgain_RefreshesTheRegistration()
     {
         var url = $"https://client.test/{Guid.NewGuid()}.json";
