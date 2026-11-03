@@ -9,6 +9,7 @@ import {
   type WeeklyProgressDto,
 } from '../api/vocabulary'
 import { type ReviewMode } from '@textstack/shared'
+import { v2Enabled } from '../api/v2'
 
 export type { ReviewMode }
 
@@ -52,7 +53,8 @@ export function useVocabularyReview() {
   }, [])
 
   const startSession = useCallback(async (limit?: number, rMode?: ReviewMode, includeAll?: boolean, practice?: boolean) => {
-    if (rMode) setReviewMode(rMode)
+    // V2 cards carry no distractors, so a V2 session is flashcards whatever was asked.
+    if (rMode || v2Enabled()) setReviewMode(v2Enabled() ? 'classic' : rMode!)
     const practiceFlag = practice === true
     setIsPractice(practiceFlag)
     setLoading(true)

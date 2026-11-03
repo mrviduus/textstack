@@ -5,7 +5,7 @@
  * ADR-031 D6).
  */
 import { v2Api, type V2Word } from '@textstack/shared'
-import { v2Book, clip } from './v2'
+import { v2Book, clip, pullFeed } from './v2'
 import type {
   VocabWordDto, SaveWordRequest, SaveWordResponse, UpdateWordRequest, ReviewQueueResponse,
   SubmitReviewRequest, SubmitReviewResponse, ReaderVocabWordDto,
@@ -47,7 +47,7 @@ export function toVocabWord(w: V2Word): VocabWordDto {
 
 /** Every live card. ponytail: a full pull per list, no local store (R6). */
 async function liveWords(): Promise<V2Word[]> {
-  return (await v2Api.pullAll<V2Word>('vocabulary')).items.filter((w) => !w.deletedAt).map(remember)
+  return (await pullFeed<V2Word>('vocabulary')).items.filter((w) => !w.deletedAt).map(remember)
 }
 
 const nullable = (text: string | null | undefined, max: number) => (text?.trim() ? clip(text, max) : null)
@@ -114,32 +114,41 @@ export async function updateV2Word(id: string, data: UpdateWordRequest): Promise
     ...(data.translation !== undefined && { translation: nullable(data.translation, 500) }),
     ...(data.definition !== undefined && { definition: nullable(data.definition, 2000) }),
   })
-  try {
-    if (data.onlyIfEmpty) {
-      // TR-2: an automatic fill never replaces a translation.
-      const card = await v2Api.getWord(id)
-      if (card.translation) return toVocabWord(remember(card))
-      return toVocabWord(remember(await patch(card.revision)))
+  let card: V2Word | null = data.onlyIfEmpty ? remember(await v2Api.getWord(id)) : null
+  for (let retried = false; ; retried = true) {
+    // TR-2: an automatic fill never replaces a translation — checked against every card it would land on.
+    if (data.onlyIfEmpty && card?.translation) return toVocabWord(card)
+    try {
+      return toVocabWord(remember(await patch(card?.revision ?? revisions.get(id) ?? remember(await v2Api.getWord(id)).revision)))
+    } catch (e) {
+      const err = v2Api.v2ErrorOf(e)
+      if (retried || err?.code !== 'stale_revision' || !err.current) throw e
+      card = remember(err.current as V2Word) // another device edited it: decide again on what it holds now
     }
-    return toVocabWord(remember(await patch(revisions.get(id) ?? remember(await v2Api.getWord(id)).revision)))
-  } catch (e) {
-    const err = v2Api.v2ErrorOf(e)
-    if (err?.code !== 'stale_revision' || err.revision == null) throw e
-    return toVocabWord(remember(await patch(err.revision)))
   }
 }
 
-/** The due cards as flashcards. ponytail: no distractors on V2, so multiple choice has no options. */
-export async function getV2ReviewQueue(limit?: number): Promise<ReviewQueueResponse> {
-  const due = (await v2Api.getDue(limit)).map(remember)
+/**
+ * The due cards as flashcards; with `includeAll` and nothing due, the cards nearest to due (as
+ * legacy's practice falls back). ponytail: flashcards only — multiple choice needs distractors,
+ * a server feature V2 does not have (ADR-031 D6); the fallback sorts the full pull client-side.
+ */
+export async function getV2ReviewQueue(limit?: number, includeAll?: boolean): Promise<ReviewQueueResponse> {
+  let due = (await v2Api.getDue(limit)).map(remember)
+  const totalDue = due.length
+  if (!due.length && includeAll) {
+    due = (await liveWords()).filter((w) => !w.retiredAt)
+      .sort((a, b) => a.nextReviewAt.localeCompare(b.nextReviewAt))
+      .slice(0, limit ?? 20)
+  }
   return {
     cards: due.map((w) => ({
       wordId: w.id, word: w.word, translation: w.translation, definition: w.definition,
-      reviewMode: 'multiple_choice', blankSentence: null, originalSentence: w.examples[0]?.sentence ?? null,
+      reviewMode: 'flashcard', blankSentence: null, originalSentence: w.examples[0]?.sentence ?? null,
       bookTitle: w.examples[0]?.bookTitle ?? null, hint: null, explanation: null, isNew: w.stage === 0,
       options: null, correctOptionIndex: null,
     })),
-    totalDue: due.length,
+    totalDue,
     weeklyProgress: null,
   }
 }

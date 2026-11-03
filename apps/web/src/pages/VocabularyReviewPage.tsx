@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, useV2 } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 import { completeCluster, type SelfAssessment } from '../api/vocabulary'
@@ -18,6 +18,8 @@ import { EmptyState } from '../components/EmptyState'
 
 export function VocabularyReviewPage() {
   const { user } = useAuth()
+  // V2: flashcards only, no cluster rounds (legacy-only data).
+  const { enabled: v2 } = useV2()
   const { language } = useLanguage()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -42,13 +44,13 @@ export function VocabularyReviewPage() {
   useEffect(() => {
     if (user) {
       sessionStartRef.current = Date.now()
-      if (clusterIdParam) {
+      if (clusterIdParam && !v2) {
         review.startClusterSession(clusterIdParam, initialReviewMode)
       } else {
         review.startSession(initialBatchSize, initialReviewMode, undefined, practiceMode)
       }
     }
-  }, [user, initialReviewMode, clusterIdParam, practiceMode]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user, initialReviewMode, clusterIdParam, practiceMode, v2]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAnswer = (isCorrect: boolean, responseTimeMs: number, selfAssessment?: SelfAssessment) => {
     playSound(isCorrect ? 'correct' : 'wrong')
@@ -145,7 +147,7 @@ export function VocabularyReviewPage() {
             review.retryWrong()
           }}
           onBatchChange={setBatchSize}
-          onModeChange={(m: ReviewMode) => review.setReviewMode(m)}
+          onModeChange={v2 ? undefined : (m: ReviewMode) => review.setReviewMode(m)}
         />
       </div>
     )
