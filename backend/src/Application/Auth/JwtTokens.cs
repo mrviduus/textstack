@@ -22,13 +22,16 @@ public sealed class JwtTokens
     private static readonly JwtSecurityTokenHandler Handler = new();
 
     private readonly JwtSettings _jwt;
+    private readonly TimeProvider _clock;
     private readonly SigningCredentials _signing;
     private readonly TokenValidationParameters _readerValidation;
     private readonly TokenValidationParameters _adminValidation;
 
-    public JwtTokens(JwtSettings jwt)
+    /// <param name="clock">What <c>iat</c> and expiry are minted from; the system clock unless a test sets it.</param>
+    public JwtTokens(JwtSettings jwt, TimeProvider? clock = null)
     {
         _jwt = jwt;
+        _clock = clock ?? TimeProvider.System;
         _signing = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SecretKey)), SecurityAlgorithms.HmacSha256);
         _readerValidation = jwt.ValidationParameters(JwtSettings.UserAudience);
         _adminValidation = jwt.ValidationParameters(JwtSettings.AdminAudience);
@@ -116,7 +119,7 @@ public sealed class JwtTokens
     // iat: what a credentials-reset stamp is compared with.
     private string Write(IEnumerable<Claim> claims, string audience, int expiryMinutes)
     {
-        var now = DateTime.UtcNow;
+        var now = _clock.GetUtcNow().UtcDateTime;
         var token = new JwtSecurityToken(
             issuer: _jwt.Issuer,
             audience: audience,
