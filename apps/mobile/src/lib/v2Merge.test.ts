@@ -6,7 +6,7 @@ import { saveUserBookLocalProgress, getUserBookLocalProgress, setUserBookV2State
 
 const rekeyed = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('./offlineDb', () => ({ rekeyCachedUserBooks: rekeyed }))
-vi.mock('./v2', () => ({ forgetV2Session: () => {} }))
+vi.mock('./v2', () => ({ onV2: async () => false }))
 
 describe('a sign-in merge map re-keys the local stores', () => {
   it('moves progress, the PDF flag and queued sessions to the account ids; drops the guest revision', async () => {

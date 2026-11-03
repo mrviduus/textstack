@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { ApiError, initApi, type PendingSession } from '@textstack/shared'
+import { fakeApi } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 import {
   clearPendingSessions,
   enqueuePendingSession,
@@ -39,31 +40,26 @@ beforeEach(async () => {
 
 describe('an upload session with its V2 id', () => {
   const sent = () => {
-    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, text: async () => '{}' }))
-    vi.stubGlobal('fetch', fetchMock)
     initApi({ baseUrl: 'http://api', getAccessToken: async () => 't', onUnauthorized: async () => null })
-    return fetchMock
+    return fakeApi({ 'PUT /me/v2/reading/sessions/s-1': [{ status: 200, body: {} }], 'POST /me/reading/sessions': [{ status: 200, body: {} }] }, 'http://api')
   }
   const v2Session = { ...session('x'), editionId: undefined, userBookId: 'b1', clientSessionId: 's-1' }
 
   it('goes to the V2 route when V2 answers on at send time', async () => {
-    const fetchMock = sent()
+    const calls = sent()
     v2On.value = true
     await enqueuePendingSession(v2Session)
     await flushPendingSessions()
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect([init.method, url]).toEqual(['PUT', 'http://api/me/v2/reading/sessions/s-1'])
-    expect(JSON.parse(init.body as string)).toMatchObject({ bookId: 'b1' })
+    expect(calls[0]).toMatchObject({ method: 'PUT', path: '/me/v2/reading/sessions/s-1', body: { bookId: 'b1' } })
     vi.unstubAllGlobals()
   })
 
   it('goes to the legacy route without the V2 id when V2 is off', async () => {
-    const fetchMock = sent()
+    const calls = sent()
     await enqueuePendingSession(v2Session)
     await flushPendingSessions()
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toContain('/me/reading/sessions')
-    expect(JSON.parse(init.body as string)).not.toHaveProperty('clientSessionId')
+    expect(calls[0]).toMatchObject({ method: 'POST', path: '/me/reading/sessions' })
+    expect(calls[0].body).not.toHaveProperty('clientSessionId')
     vi.unstubAllGlobals()
   })
 })

@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { Platform } from 'react-native'
-import type { UserDto, MobileAuthResponse, V2Switch } from '@textstack/shared'
+import type { UserDto, V2MergeMap, V2Switch } from '@textstack/shared'
 import { authApi, V2_OFF } from '@textstack/shared'
 import { onAuthFailure } from '../lib/authEvents'
 import { resetAuthFailureLatch } from '../lib/api'
@@ -16,7 +16,7 @@ import { clearAllLocalProgress } from '../lib/progressStorage'
 import { clearPendingSessions, flushPendingSessions } from '../lib/pendingSessions'
 import { useReconnectCount } from '../hooks/useOnline'
 import { clearReaderCache } from '../lib/readerOfflineCache'
-import { reprobeV2AfterReconnect, forgetV2Session } from '../lib/v2'
+import { reprobeV2AfterReconnect, v2Store } from '../lib/v2'
 import { applyV2MergeMap } from '../lib/v2Merge'
 
 // Lazy import so the Google module isn't pulled on platforms / contexts
@@ -103,7 +103,7 @@ interface AuthState {
   // truth for one policy is how the profile screen shipped the pencil bug.
   isLoading: boolean
   /** `merge`: the sign-in's V2 id map (a guest merged); the local stores are re-keyed before the user is set. */
-  signInWithTokens: (accessToken: string, refreshToken: string, user: UserDto, merge?: MobileAuthResponse['merge']) => Promise<void>
+  signInWithTokens: (accessToken: string, refreshToken: string, user: UserDto, merge?: V2MergeMap) => Promise<void>
   updateUser: (user: UserDto) => Promise<void>
   getAccessToken: () => Promise<string | null>
   signOut: () => Promise<void>
@@ -255,7 +255,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.id])
 
   const signInWithTokens = useCallback(
-    async (accessToken: string, refreshToken: string, userData: UserDto, merge?: MobileAuthResponse['merge']) => {
+    async (accessToken: string, refreshToken: string, userData: UserDto, merge?: V2MergeMap) => {
       // Synchronous, and before anything can yield: this is what an in-flight
       // guest mint reads to discover that it lost.
       queueRef.current.bumpEpoch()
@@ -264,7 +264,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await SecureStore.setItemAsync('refresh_token', refreshToken)
         await SecureStore.setItemAsync('user', JSON.stringify(userData))
         // Another account's V2 cache must not answer this one; a merged guest's ids move first.
-        forgetV2Session()
+        v2Store.reset()
         if (merge) await applyV2MergeMap(merge)
         // Fresh session — allow the next terminal auth failure to fire
         // again (the latch is one-shot per session).
@@ -316,7 +316,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearAllLocalProgress().catch(() => {})
       clearPendingSessions().catch(() => {})
       clearReaderCache().catch(() => {})
-      forgetV2Session()
+      v2Store.reset()
       setUser(null)
     })
   }, [runExclusive])
@@ -343,7 +343,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearAllLocalProgress().catch(() => {})
         clearPendingSessions().catch(() => {})
         clearReaderCache().catch(() => {})
-        forgetV2Session()
+        v2Store.reset()
         setUser(null)
       }
     })

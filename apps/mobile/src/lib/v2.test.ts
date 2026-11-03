@@ -1,29 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHash } from 'node:crypto'
 import { initApi } from '@textstack/shared'
-import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, type UploadIo } from './v2'
+import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, type UploadIo } from './v2'
 import { getUserBookLocalProgress, setUserBookV2State, getUserBookV2State } from './progressStorage'
+import { fakeApi as fakeV2, conflict, state, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
-vi.mock('./offlineDb', () => ({ dropReplacedUserBookFile: async () => false }))
+vi.mock('./offlineDb', () => ({ dropReplacedUserBookFiles: async () => [] }))
 vi.mock('./originalFileCache', () => ({ deleteOriginal: async () => {} }))
 
-type Answer = { status: number; body?: unknown }
-interface Call { method: string; path: string; body: unknown }
-
-/** A fake API: each `METHOD /path` (under /me/v2, no query) answers its list in turn, the last repeating. */
-function fakeApi(routes: Record<string, Answer[]>) {
-  const calls: Call[] = []
-  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
-    const path = url.replace('http://api/me/v2', '').split('?')[0]
-    const method = init.method ?? 'GET'
-    const isJson = typeof init.body === 'string'
-    calls.push({ method, path, body: isJson ? JSON.parse(init.body as string) : init.body })
-    const list = routes[`${method} ${path}`] ?? [{ status: 404, body: { code: 'not_found', message: 'none' } }]
-    const a = list.length > 1 ? list.shift()! : list[0]
-    return { ok: a.status < 300, status: a.status, text: async () => (a.body === undefined ? '' : JSON.stringify(a.body)) }
-  }))
-  return calls
-}
+const V2 = 'http://api/me/v2'
+const fakeApi = (routes: Record<string, Answer[]>) => fakeV2(routes, V2)
 
 const bytes = Uint8Array.from({ length: 25 }, (_, i) => i)
 const sha = createHash('sha256').update(bytes).digest('hex')
@@ -119,6 +105,18 @@ describe('mobile v2', () => {
     await expect(uploadV2Book({ uri: 'u', name: 'a.pdf' }, 25, io())).rejects.toBeInstanceOf(V2UploadError)
   })
 
+  it('caps a device part at 8 MB whatever the server takes (RN sends it as base64)', async () => {
+    const big = new Uint8Array(MAX_DEVICE_PART_BYTES * 2 + 1)
+    const sizes: number[] = []
+    vi.stubGlobal('fetch', wrapIds([]))
+    await uploadV2Book({ uri: 'u', name: 'big.pdf' }, 80 * 1024 * 1024, {
+      open: () => ({ size: big.length, read: (at, n) => big.subarray(at, at + n), close: () => {} }),
+      sendPart: async (_b, _f, _i, part) => { sizes.push(part.length) },
+      yieldNow: async () => {},
+    })
+    expect(sizes).toEqual([MAX_DEVICE_PART_BYTES, MAX_DEVICE_PART_BYTES, 1])
+  })
+
   it('streams the hash in chunks to the same digest', async () => {
     const big = Uint8Array.from({ length: 3 * 1024 * 1024 + 7 }, (_, i) => (i * 13) & 0xff)
     const hex = await sha256Of({ size: big.length, read: (at, n) => big.subarray(at, at + n), close: () => {} }, async () => {})
@@ -127,12 +125,8 @@ describe('mobile v2', () => {
 
   it('a lost reading-state write adopts the server place as this device record', async () => {
     await setUserBookV2State('b1', { revision: 3, fileId: 'f1' })
-    const current = {
-      bookId: 'b1', fileId: 'f1', revision: 5, bookFraction: 0.4, completedAt: null, frontierLocator: null, frontierFraction: null,
-      currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 9 } },
-      clientRecordedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:01.000Z', resetRevision: null,
-    }
-    const calls = fakeApi({ 'PUT /books/b1/reading-state': [{ status: 409, body: { code: 'stale_revision', message: 'x', current } }] })
+    const current = state('b1', 5, { bookFraction: 0.4, currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 9 } } })
+    const calls = fakeApi({ 'PUT /books/b1/reading-state': [conflict('stale_revision', { current })] })
     expect(await saveV2Progress('b1', { chapterSlug: null, locator: 'page:2', percent: 0.1 })).toEqual({ adopted: expect.objectContaining({ locator: 'page:9' }) })
     expect(calls[0].body).toMatchObject({ expectedRevision: 3, fileId: 'f1', currentLocator: { scheme: 'pdf-page', value: { page: 2 } } })
     expect(await getUserBookV2State('b1')).toEqual({ revision: 5, fileId: 'f1', bookFraction: 0.4 })
@@ -142,8 +136,8 @@ describe('mobile v2', () => {
   it('a replaced file forgets the book and asks for a reload; a missing chapter drops the write', async () => {
     await setUserBookV2State('b1', { revision: 1, fileId: 'f1' })
     fakeApi({ 'PUT /books/b1/reading-state': [
-      { status: 409, body: { code: 'chapter_not_found', message: 'x' } },
-      { status: 409, body: { code: 'file_replaced', message: 'x' } },
+      conflict('chapter_not_found'),
+      conflict('file_replaced'),
     ] })
     expect(await saveV2Progress('b1', { chapterSlug: 'k1' })).toBe('dropped')
     expect(await saveV2Progress('b1', { chapterSlug: 'k1' })).toBe('reload')
@@ -157,7 +151,7 @@ describe('mobile v2', () => {
  */
 function wrapIds(calls: Call[], completes: Answer[] = [{ status: 200, body: {} }]) {
   return vi.fn(async (url: string, init: RequestInit = {}) => {
-    const path = url.replace('http://api/me/v2', '')
+    const path = url.replace(V2, '')
     const method = init.method ?? 'GET'
     calls.push({ method, path, body: typeof init.body === 'string' ? JSON.parse(init.body) : init.body })
     let a: Answer = { status: 200, body: {} }

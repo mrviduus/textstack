@@ -105,7 +105,7 @@ async function getDb(): Promise<any> {
       // writes that follow one need it.
       // V2 (#1025): the file version an upload's rows were cached from (null on legacy rows). The
       // key stays (book_id, chapter_slug) — on V2 the slug is the chapter key — and a replaced file
-      // drops its book's rows (`dropReplacedUserBookFile`), so a key can never serve another file's text.
+      // drops its book's rows (`dropReplacedUserBookFiles`), so a key can never serve another file's text.
       for (const alter of [
         'ALTER TABLE chapters ADD COLUMN chapter_id TEXT',
         'ALTER TABLE user_chapters ADD COLUMN file_id TEXT',
@@ -583,27 +583,24 @@ export async function deleteCachedUserBook(bookId: string): Promise<void> {
 
 /**
  * V2: drop what this device cached from a file version that is no longer its book's current one
- * (replaced elsewhere), for the books of one library pull. Legacy rows (no file id) are left alone.
- * Returns the books that lost rows: the caller drops their downloaded originals too.
- * ponytail: one statement per table per pull with the pairs inline; SQLite binds at most 32766
- * variables, which caps it near 8k books.
+ * (replaced elsewhere), for the books of one library pull. Legacy rows (no file id) and books not in
+ * the pull are left alone. Returns the books that lost rows: the caller drops their originals too.
  */
 export async function dropReplacedUserBookFiles(current: { bookId: string; fileId: string }[]): Promise<string[]> {
   const d = await getDb()
   if (!d || current.length === 0) return []
-  const pairs = current.map(() => '(?, ?)').join(', ')
-  const args = current.flatMap(c => [c.bookId, c.fileId])
-  const where = `WHERE file_id IS NOT NULL AND book_id IN (SELECT column1 FROM (VALUES ${pairs})) AND (book_id, file_id) NOT IN (VALUES ${pairs})`
+  const currentFile = new Map(current.map(c => [c.bookId, c.fileId]))
   let dropped: string[] = []
   await d.withTransactionAsync(async () => {
-    const rows = await d.getAllAsync(
-      `SELECT book_id FROM user_chapters ${where} UNION SELECT book_id FROM cached_user_books ${where}`,
-      [...args, ...args, ...args, ...args],
-    ) as { book_id: string }[]
-    dropped = rows.map(r => r.book_id)
-    if (dropped.length === 0) return
-    await d.runAsync(`DELETE FROM user_chapters ${where}`, [...args, ...args])
-    await d.runAsync(`DELETE FROM cached_user_books ${where}`, [...args, ...args])
+    const stored = await d.getAllAsync(
+      'SELECT DISTINCT book_id, file_id FROM user_chapters WHERE file_id IS NOT NULL UNION SELECT book_id, file_id FROM cached_user_books WHERE file_id IS NOT NULL',
+    ) as { book_id: string; file_id: string }[]
+    dropped = [...new Set(stored.filter(r => currentFile.has(r.book_id) && currentFile.get(r.book_id) !== r.file_id).map(r => r.book_id))]
+    for (const bookId of dropped) {
+      const args = [bookId, currentFile.get(bookId)!]
+      await d.runAsync('DELETE FROM user_chapters WHERE book_id = ? AND file_id IS NOT NULL AND file_id <> ?', args)
+      await d.runAsync('DELETE FROM cached_user_books WHERE book_id = ? AND file_id IS NOT NULL AND file_id <> ?', args)
+    }
   })
   return dropped
 }

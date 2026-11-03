@@ -8,27 +8,22 @@
  */
 import { userBooksApi as legacy } from '@textstack/shared'
 import {
-  onV2, v2Enabled, getV2UserBooks, getV2UserBook, getV2UserBookChapter, removeV2Book, v2FileUrl,
-  readV2Progress, saveV2Progress, completeV2Book, uncompleteV2Book, type V2WriteOutcome,
+  switched, v2Enabled, getV2UserBooks, getV2UserBook, getV2UserBookChapter, removeV2Book, v2FileUrl,
+  readV2Progress, saveV2Progress, completeV2Book, uncompleteV2Book,
 } from './v2'
-
-type UpdateProgress = Parameters<typeof legacy.updateUserBookProgress>[1]
 
 export const userBooksApi = {
   ...legacy,
-  getUserBooks: async () => ((await onV2()) ? getV2UserBooks() : legacy.getUserBooks()),
-  getUserBook: async (id: string) => ((await onV2()) ? getV2UserBook(id) : legacy.getUserBook(id)),
-  getUserBookChapter: async (bookId: string, slug: string) =>
-    ((await onV2()) ? getV2UserBookChapter(bookId, slug) : legacy.getUserBookChapter(bookId, slug)),
-  deleteUserBook: async (id: string) => ((await onV2()) ? removeV2Book(id) : legacy.deleteUserBook(id)),
-  getUserBookProgress: async (bookId: string) =>
-    ((await onV2()) ? readV2Progress(bookId) : legacy.getUserBookProgress(bookId)),
-  /** On V2 the revision rule decides (`V2WriteOutcome`). */
-  updateUserBookProgress: async (bookId: string, data: UpdateProgress): Promise<V2WriteOutcome | void> =>
-    ((await onV2()) ? saveV2Progress(bookId, data) : legacy.updateUserBookProgress(bookId, data)),
-  markUserBookComplete: async (id: string) => ((await onV2()) ? completeV2Book(id) : legacy.markUserBookComplete(id)),
-  unmarkUserBookComplete: async (id: string) => ((await onV2()) ? uncompleteV2Book(id) : legacy.unmarkUserBookComplete(id)),
-  getUserBookBookmarks: async (bookId: string) => ((await onV2()) ? [] : legacy.getUserBookBookmarks(bookId)),
+  getUserBooks: switched(getV2UserBooks, legacy.getUserBooks),
+  getUserBook: switched(getV2UserBook, legacy.getUserBook),
+  getUserBookChapter: switched(getV2UserBookChapter, legacy.getUserBookChapter),
+  deleteUserBook: switched(removeV2Book, legacy.deleteUserBook),
+  getUserBookProgress: switched(readV2Progress, legacy.getUserBookProgress),
+  /** On V2 the revision rule decides (`V2WriteOutcome`); legacy answers nothing. */
+  updateUserBookProgress: switched(saveV2Progress, legacy.updateUserBookProgress),
+  markUserBookComplete: switched(completeV2Book, legacy.markUserBookComplete),
+  unmarkUserBookComplete: switched(uncompleteV2Book, legacy.unmarkUserBookComplete),
+  getUserBookBookmarks: switched(() => [], legacy.getUserBookBookmarks),
   /** '' on V2 while the book's file is not known yet: callers treat it as no URL, never a legacy route. */
   getUserBookFileUrl: (id: string, apiBase: string) =>
     (v2Enabled() ? v2FileUrl(id) : legacy.getUserBookFileUrl(id, apiBase)),

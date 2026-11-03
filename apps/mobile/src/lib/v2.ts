@@ -9,7 +9,7 @@ import { uuid } from 'expo-modules-core'
 import {
   v2Api, ApiError, isOfflineError, V2_OFF, clip, chapterAtFraction, placeToV2Locator, v2LocatorToPlace, createSha256, parsePdfPageLocator,
   type V2Book, type V2FileChapters, type V2Annotation, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
-  type LegacyPlace, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse,
+  type V2WriteOutcome, type UserBookProgressDto, type LegacyPlace, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse,
 } from '@textstack/shared'
 import { dropReplacedUserBookFiles } from './offlineDb'
 import { deleteOriginal } from './originalFileCache'
@@ -55,35 +55,44 @@ export const v2Enabled = () => known.enabled
 /** Every call site checks one thing: `if (await onV2()) …`. */
 export const onV2 = async () => (await startV2Probe()).enabled
 
-/** Sign-out or another account: what this app cached from V2 belongs to the previous session. */
-export function forgetV2Session() {
-  books.clear()
-  chapters.clear()
-  v2Annotations.rows.clear()
-  v2Annotations.pulled.clear()
-}
+/** A call that is `legacy` with V2 off and `v2` with it on, decided per call (after the probe answers); it takes legacy's arguments. */
+export const switched = <A extends unknown[], V, L>(v2: (...args: NoInfer<A>) => Promise<V> | V, legacy: (...args: A) => Promise<L> | L) =>
+  async (...args: A): Promise<V | L> => ((await onV2()) ? v2(...args) : legacy(...args))
 
-/** Upload highlights as last pulled or written, by id, and the books pulled since they were opened (./v2Highlights). */
-export const v2Annotations = {
-  rows: new Map<string, V2Annotation>(),
+/**
+ * Everything this app caches from V2, per signed-in account: `reset()` on sign-out and on an
+ * account change, so the next account never reads the previous one's books. ponytail: memory only,
+ * a full pull per library load; R6 is the local library.
+ */
+export const v2Store = {
+  /** The last library pull, by book id: a book's current file. */
+  books: new Map<string, V2Book>(),
+  /** A file's chapters, once its extraction succeeded (they never change after). */
+  chapters: new Map<string, V2FileChapters>(),
+  /** Per book: the reading state as last pulled, read or written. */
+  states: new Map<string, V2ReadingState>(),
+  /** Upload highlights as last pulled or written, by id, and the books pulled since they were opened. */
+  annotations: new Map<string, V2Annotation>(),
   pulled: new Set<string>(),
+  /** Per word: the card revision last read (the shared V2 vocabulary). */
+  revisions: new Map<string, number>(),
+  reset() {
+    for (const cache of [this.books, this.chapters, this.states, this.annotations, this.pulled, this.revisions]) cache.clear()
+    v2Api.forgetPulls()
+  },
 }
 
-/** Tests only: forget the probe. */
+/** Tests only: forget the probe and the cache. */
 export function resetV2ForTests() {
   probe = null
   known = V2_OFF
   unreached = false
-  forgetV2Session()
+  v2Store.reset()
 }
 
 // ---- Library ------------------------------------------------------------------------------------
 
-// The last library pull, by book id: the reader, the upload and the reading state find a book's
-// current file here. ponytail: a full pull per library load, no local store; R6 is the local library.
-const books = new Map<string, V2Book>()
-// A file's chapters, once its extraction succeeded (they never change after).
-const chapters = new Map<string, V2FileChapters>()
+const { books, chapters } = v2Store
 
 /** Books whose file changed since this device cached them: drop the old files' chapters and originals. */
 async function dropReplaced(list: V2Book[]): Promise<void> {
@@ -95,18 +104,13 @@ async function dropReplaced(list: V2Book[]): Promise<void> {
   }
 }
 
-let pulling: Promise<V2Book[]> | null = null
-
-/** The library feed, whole; concurrent callers (the list, the sweep, the reader) share one pull. */
-export function pullV2Books(): Promise<V2Book[]> {
-  pulling ??= (async () => {
-    const { items } = await v2Api.pullAll<V2Book>('library')
-    books.clear()
-    for (const b of items) books.set(b.id, b)
-    await dropReplaced(items)
-    return items
-  })().finally(() => { pulling = null })
-  return pulling
+/** The library feed, whole (concurrent callers share one pull, `pullFeed`). */
+export async function pullV2Books(): Promise<V2Book[]> {
+  const { items } = await v2Api.pullFeed<V2Book>('library')
+  books.clear()
+  for (const b of items) books.set(b.id, b)
+  await dropReplaced(items)
+  return items
 }
 
 /** A live book of the user's, from the last pull or a fresh one; 404 when there is none. */
@@ -132,6 +136,7 @@ async function forgetV2Book(id: string) {
   const file = books.get(id)?.currentFile
   if (file) chapters.delete(file.id)
   books.delete(id)
+  v2Store.states.delete(id)
   await setUserBookV2State(id, null)
 }
 
@@ -151,8 +156,9 @@ const totalWords = (toc: V2FileChapters) =>
  * either); one chapters call per book per load, for status and counts.
  */
 export async function getV2UserBooks(): Promise<UserBookDto[]> {
-  const [list, reading] = await Promise.all([pullV2Books(), v2Api.pullAll<V2ReadingState>('reading')])
-  const stateOf = new Map(reading.items.map((s) => [s.bookId, s]))
+  const [list, reading] = await Promise.all([pullV2Books(), v2Api.pullFeed<V2ReadingState>('reading')])
+  for (const s of reading.items) v2Store.states.set(s.bookId, s)
+  const stateOf = v2Store.states
   return Promise.all(list.filter((b) => !b.removedAt).map(async (b): Promise<UserBookDto> => {
     // One failing call (content removed, a 503) costs that book its status, never the shelf.
     const toc = await v2Chapters(b).catch((): V2FileChapters => ({ items: [], ingestion: null }))
@@ -183,7 +189,6 @@ export async function getV2UserBooks(): Promise<UserBookDto[]> {
 /** The book page and the reader's book: the chapter list is the current file's. */
 export async function getV2UserBook(id: string): Promise<UserBookDetailResponse> {
   const b = await v2Book(id)
-  await dropReplaced([b])
   const toc = await v2Chapters(b)
   return {
     id: b.id,
@@ -203,8 +208,8 @@ export async function getV2UserBook(id: string): Promise<UserBookDetailResponse>
     toc: null,
     createdAt: b.createdAt,
     updatedAt: b.updatedAt,
-    // ponytail: one reading-state read per book page, for `completedAt` (#1118 puts it on the book).
-    completedAt: (await v2Api.getReadingState(id).catch(() => null))?.completedAt ?? null,
+    // From the reading pull (the library) or the reader's read; fetched only on a miss (#1118 puts it on the book).
+    completedAt: (v2Store.states.get(id) ?? await readState(id))?.completedAt ?? null,
     hasOriginalPdf: isPdf(b),
     originalFileBytes: isPdf(b) ? b.currentFile!.byteSize : null,
     pageCount: b.currentFile?.pageCount ?? null,
@@ -237,26 +242,27 @@ export function v2FileUrl(id: string): string {
 
 // ---- Reading state ------------------------------------------------------------------------------
 
-/** The legacy progress row the reader restores from (`getUserBookProgress`'s shape). */
-export interface V2Progress {
-  chapterSlug: string | null
-  locator: string | null
-  percent: number | null
-  updatedAt: string | null
-  positionJson?: string | null
-  clientUpdatedAt?: string | null
+const NO_PROGRESS: UserBookProgressDto = { chapterSlug: null, locator: null, percent: null, updatedAt: null, positionJson: null, clientUpdatedAt: null }
+
+/** A state read or written: the session's store, and its revision beside the local progress (survives a restart). */
+const remember = (s: V2ReadingState) => {
+  v2Store.states.set(s.bookId, s)
+  return setUserBookV2State(s.bookId, { revision: s.revision, fileId: s.fileId, bookFraction: s.bookFraction })
 }
 
-const NO_PROGRESS: V2Progress = { chapterSlug: null, locator: null, percent: null, updatedAt: null, positionJson: null, clientUpdatedAt: null }
-
-const remember = (s: V2ReadingState) => setUserBookV2State(s.bookId, { revision: s.revision, fileId: s.fileId, bookFraction: s.bookFraction })
+/** The book's reading state from the server (null: none yet), remembered. */
+async function readState(bookId: string): Promise<V2ReadingState | null> {
+  const s = await v2Api.getReadingState(bookId)
+  if (s) await remember(s)
+  return s
+}
 
 /** The chapter a stored state resumes in: its own, none for a PDF page, by fraction for an `epub-cfi` (never converted). */
 const resumeChapter = (s: V2ReadingState, toc: V2FileChapters) =>
   v2LocatorToPlace(s.currentLocator)?.chapterSlug ?? (s.currentLocator.scheme === 'pdf-page' ? null : chapterAtFraction(toc.items, s.bookFraction))
 
 /** A V2 state as the legacy progress row. An `epub-cfi` (the V2 reader's) resumes by fraction. */
-async function toProgress(s: V2ReadingState): Promise<V2Progress> {
+async function toProgress(s: V2ReadingState): Promise<UserBookProgressDto> {
   const place = v2LocatorToPlace(s.currentLocator)
   const toc = place ? { items: [], ingestion: null } : await v2Chapters(await v2Book(s.bookId))
   return {
@@ -269,15 +275,13 @@ async function toProgress(s: V2ReadingState): Promise<V2Progress> {
   }
 }
 
-export async function readV2Progress(bookId: string): Promise<V2Progress> {
-  const s = await v2Api.getReadingState(bookId)
-  if (!s) return NO_PROGRESS
-  await remember(s)
-  return toProgress(s)
+export async function readV2Progress(bookId: string): Promise<UserBookProgressDto> {
+  const s = await readState(bookId)
+  return s ? toProgress(s) : NO_PROGRESS
 }
 
 /** A lost write takes the server's place: it becomes this device's record, so the next open resumes there. */
-async function adopt(s: V2ReadingState): Promise<V2Progress> {
+async function adopt(s: V2ReadingState): Promise<UserBookProgressDto> {
   await remember(s)
   const p = await toProgress(s)
   const page = parsePdfPageLocator(p.locator)
@@ -324,20 +328,14 @@ export interface ProgressWrite extends LegacyPlace {
 }
 
 /**
- * One reading-state write under the revision rule (PDD "The revision rule"). Lost (409):
- * `stale_revision` adopts the server's row; `reset` writes this place again on the new revision;
- * `file_replaced` forgets the book and asks the reader to reload; `unknown_file` refetches the
- * book and writes once more; `chapter_not_found` drops the write (the file's chapters changed — the
- * place resumes from `bookFraction`). Anything else throws: the local record stays unsynced.
+ * One reading-state write under the revision rule (PDD "The revision rule"), answered as a
+ * `V2WriteOutcome`. Lost (409): `stale_revision` adopts the server's row (it becomes this device's
+ * record); `reset` writes this place again on the new revision; `file_replaced` forgets the book
+ * and asks the reader to reload; `unknown_file` refetches the book and writes once more;
+ * `chapter_not_found` drops the write (the file's chapters changed — the place resumes from
+ * `bookFraction`). Anything else throws: the local record stays unsynced.
  * ponytail: a `chapter_not_found` while the file is still extracting is dropped too, not queued (R6).
  */
-/**
- * After a write, as web's: `accepted` the server holds it (mark it synced); `adopted` the server's
- * place is now this device's record; `reload` the book's file was replaced; `dropped` neither —
- * the local record stays unsynced.
- */
-export type V2WriteOutcome = 'accepted' | 'dropped' | 'reload' | { adopted: V2Progress }
-
 export async function saveV2Progress(bookId: string, data: ProgressWrite, retried = false): Promise<V2WriteOutcome> {
   const stored = await getUserBookV2State(bookId)
   const current = books.get(bookId)?.currentFile?.id ?? (stored ? undefined : (await v2Book(bookId)).currentFile?.id)
@@ -420,6 +418,7 @@ export interface UploadIo {
 }
 
 const HASH_CHUNK = 1024 * 1024
+export const MAX_DEVICE_PART_BYTES = 8 * 1024 * 1024
 
 /** Lowercase hex SHA-256 of the file, streamed a chunk at a time (never the whole file in memory). */
 export async function sha256Of(source: ByteSource, yieldNow: () => Promise<void>): Promise<string> {
@@ -469,7 +468,9 @@ export async function uploadV2Book(
     const bookId = target.id
     const fileId = target.currentFile.id
 
-    const partBytes = Math.max(1, maxPartBytes)
+    // RN fetch sends a typed-array body as base64 over the bridge: an 80 MB part would peak near
+    // 200 MB of JS memory on Hermes, so a part is at most 8 MB whatever the server takes.
+    const partBytes = Math.min(Math.max(1, maxPartBytes), MAX_DEVICE_PART_BYTES)
     const partCount = Math.max(1, Math.ceil(source.size / partBytes))
     const sendAll = async () => {
       for (let i = 0; i < partCount; i++) {

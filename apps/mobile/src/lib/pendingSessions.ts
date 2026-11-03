@@ -4,6 +4,8 @@ import {
   drainPendingSessions,
   readingTrackingApi,
   v2Api,
+  toV2Session,
+  rekeyPendingSessions as rekeyQueue,
   type PendingSession,
 } from '@textstack/shared'
 import { onV2 } from './v2'
@@ -26,8 +28,7 @@ type Submit = (s: PendingSession) => Promise<unknown>
  */
 const submitSession: Submit = async ({ clientSessionId, ...s }) => {
   if (!clientSessionId || !(await onV2())) return readingTrackingApi.submitSession(s)
-  const { editionId: _editionId, userBookId, ...rest } = s
-  return v2Api.putSession(clientSessionId, { ...rest, bookId: userBookId ?? null })
+  return v2Api.putSession(clientSessionId, toV2Session(s))
 }
 
 // One JS runtime, so a promise chain is enough to keep a flush from overwriting a session enqueued
@@ -68,9 +69,8 @@ export function flushPendingSessions(submit: Submit = submitSession): Promise<vo
 /** V2 guest → account merge: queued sessions name the account's book id. */
 export function rekeyPendingSessions(books: Record<string, string>): Promise<void> {
   return serialized(async () => {
-    const queue = await read()
-    if (!queue.some(s => s.userBookId && books[s.userBookId])) return
-    await write(queue.map(s => (s.userBookId && books[s.userBookId] ? { ...s, userBookId: books[s.userBookId] } : s)))
+    const rekeyed = rekeyQueue(await read(), books)
+    if (rekeyed) await write(rekeyed)
   })
 }
 

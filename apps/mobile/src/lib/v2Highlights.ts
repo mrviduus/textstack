@@ -12,11 +12,11 @@ import {
   v2Api, highlightsApi, isPdfAnchor, anchorToV2Locator, v2LocatorToAnchor, clip, MAX_SELECTED_TEXT,
   type PublicHighlight, type UpdateHighlightData, type V2Annotation, type V2AnnotationWrite, type TextAnchor, type PdfAnchor,
 } from '@textstack/shared'
-import { onV2, v2Book, v2Annotations } from './v2'
+import { switched, v2Book, v2Store } from './v2'
 
 // The rows last pulled or written, by id (an edit is a full write on the revision it read), and the
 // books pulled since they were opened: in the session's V2 store, emptied on sign-out.
-const { rows, pulled } = v2Annotations
+const { annotations: rows, pulled } = v2Store
 
 const remember = (a: V2Annotation) => {
   rows.set(a.id, a)
@@ -131,9 +131,8 @@ async function deleteV2(id: string): Promise<void> {
 /** The reader's highlight calls for an upload, switched per call. */
 export const userBookHighlightsApi = {
   ...highlightsApi,
-  getUserBookHighlights: async (bookId: string) => ((await onV2()) ? listV2(bookId) : highlightsApi.getUserBookHighlights(bookId)),
-  createHighlight: async (data: Parameters<typeof highlightsApi.createHighlight>[0]) =>
-    ((await onV2()) ? createV2(data) : highlightsApi.createHighlight(data)),
-  updateHighlight: async (id: string, data: UpdateHighlightData) => ((await onV2()) ? updateV2(id, data) : highlightsApi.updateHighlight(id, data)),
-  deleteHighlight: async (id: string) => ((await onV2()) ? deleteV2(id) : highlightsApi.deleteHighlight(id)),
+  getUserBookHighlights: switched(listV2, highlightsApi.getUserBookHighlights),
+  createHighlight: switched(createV2, highlightsApi.createHighlight),
+  updateHighlight: switched(updateV2, highlightsApi.updateHighlight),
+  deleteHighlight: switched(deleteV2, highlightsApi.deleteHighlight),
 }
