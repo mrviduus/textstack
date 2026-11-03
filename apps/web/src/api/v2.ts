@@ -25,16 +25,20 @@ let probe: Promise<V2Switch> | null = null
 let known: V2Switch = V2_OFF
 
 /**
- * `GET /me/v2/status`, once per app start: 200 on, 404 (unmapped) / 503 / offline off for this
- * start (sync stays legacy). Only a 401 is asked again — there was no session to ask with yet.
+ * `GET /me/v2/status`, once per app start, started by the session (AuthContext, the moment a user
+ * is set): 200 on, 404 (unmapped) / 503 / offline off for this start (sync stays legacy). Only a
+ * 401 is asked again with the next session.
  */
-export function v2Status(): Promise<V2Switch> {
+export function startV2Probe(): Promise<V2Switch> {
   probe ??= v2Api.probeV2().then(
     (s) => (known = s),
     () => { probe = null; return V2_OFF },
   )
   return probe
 }
+
+/** The probe's answer; off while no session has started it. */
+export const v2Status = (): Promise<V2Switch> => probe ?? Promise.resolve(V2_OFF)
 
 /** The probe's answer once it has settled (off before): for the synchronous paths. */
 export const v2Enabled = () => known.enabled
@@ -354,6 +358,15 @@ export class V2UploadError extends Error {
   constructor(readonly code: 'content_mismatch' | 'quota_exceeded', readonly quota?: { used: number; limit: number }) {
     super(code)
   }
+}
+
+const megabytes = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
+
+/** The reader-facing message of a failed V2 upload; null when the error is not one of these. */
+export function v2UploadMessage(err: unknown, t: (key: string, vars?: Record<string, string | number>) => string): string | null {
+  if (!(err instanceof V2UploadError)) return null
+  if (err.code === 'content_mismatch') return t('upload.v2.contentMismatch')
+  return t('upload.v2.quotaExceeded', { used: megabytes(err.quota?.used ?? 0), limit: megabytes(err.quota?.limit ?? 0) })
 }
 
 /** Lowercase hex SHA-256 of the file: the browser's own digest, the whole file in memory (≤ 500 MB). */

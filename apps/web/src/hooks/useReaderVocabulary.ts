@@ -123,6 +123,9 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       const existing = mapRef.current.get(key)
       try {
         const resp = await saveWord({
+          // V2: the queued save is one operation — its replay names the same card and example.
+          id: p.id,
+          operationId: p.id,
           word: p.word,
           language: p.language,
           // Prefer translation captured locally after pending was created (via updateTranslation).

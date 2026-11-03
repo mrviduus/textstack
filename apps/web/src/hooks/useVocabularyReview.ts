@@ -118,6 +118,7 @@ export function useVocabularyReview() {
         responseTimeMs,
         selfAssessment,
         isPractice,
+        reviewMode,
       })
       setLastResult(result)
       setLastAnswerCorrect(isCorrect)
@@ -139,7 +140,7 @@ export function useVocabularyReview() {
     } finally {
       setSubmitting(false)
     }
-  }, [cards, currentIndex, submitting, isPractice])
+  }, [cards, currentIndex, submitting, isPractice, reviewMode])
 
   const nextCard = useCallback(() => {
     const nextIdx = currentIndex + 1

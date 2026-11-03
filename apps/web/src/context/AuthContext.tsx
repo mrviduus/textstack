@@ -11,7 +11,7 @@ import { authToastFor, type AuthToast } from '../lib/authToast'
 import { flushLocalProgress } from '../lib/progressSync'
 import { replayAllPendingHighlights } from '../lib/highlightSync'
 import { trackLogin, trackSignUp } from '../lib/analytics'
-import { v2Status, V2_OFF, type V2Switch } from '../api/v2'
+import { startV2Probe, V2_OFF, type V2Switch } from '../api/v2'
 
 export type AuthModalView = 'login' | 'register'
 
@@ -100,13 +100,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [guestMergeSkipped, setGuestMergeSkipped] = useState<GuestMergeSkipReason | null>(null)
   const dismissGuestMergeSkipped = useCallback(() => setGuestMergeSkipped(null), [])
   const [v2, setV2] = useState<V2Switch>(V2_OFF)
-
-  // The V2 probe needs a session (PathGates answers 401 without one): the first user of this app
-  // start asks once. API calls await the same probe, so none of them races it.
-  const hasUser = user !== null
-  useEffect(() => {
-    if (hasUser) void v2Status().then(setV2)
-  }, [hasUser])
+  // The V2 probe needs a session (PathGates answers 401 without one): started wherever a user is
+  // set, before anything that calls the API next. API calls await the same probe, so none races it.
+  const probeV2 = useCallback(() => { void startV2Probe().then(setV2) }, [])
 
   // Google callback - stable ref to avoid stale closures
   const handleGoogleCallback = useCallback(async (response: google.accounts.id.CredentialResponse) => {
@@ -120,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         else setAuthSuccessToast(toast)
         return authResponse.user
       })
+      probeV2()
       setShowAuthModal(false)
       // Distinguish new signups from returning logins via createdAt recency.
       // Backend doesn't surface an isNew flag yet; 60s window is a safe heuristic.
@@ -135,7 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [probeV2])
 
   // Session-ready gate: resolves once the initial auth/refresh/guest-create attempt has settled.
   // Consumers (e.g. reader vocab save) await this before deciding to hit auth-gated APIs.
@@ -163,6 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // I3: no-downgrade — не перетираем не-guest юзера.
         // Race: login мог завершиться пока guest-промис был in-flight.
         setUser(prev => (prev && !prev.isGuest ? prev : res.user))
+        probeV2()
         return res.user
       })
       .catch(() => {
@@ -173,7 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => { inFlightGuestRef.current = null })
     inFlightGuestRef.current = promise
     return promise
-  }, [])
+  }, [probeV2])
 
   // StrictMode fires effects twice in dev; this ref dedupes the bootstrap so we never hit /auth/guest twice.
   const bootstrapStartedRef = useRef(false)
@@ -207,11 +205,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const response = await getCurrentUser()
         setUser(response.user)
+        probeV2()
         void flushIfReal(response.user)
       } catch {
         try {
           const response = await refreshToken()
           setUser(response.user)
+          probeV2()
           void flushIfReal(response.user)
         } catch {
           // I1: bootstrap read-only. user остаётся null; фичи сами зовут ensureSession().
@@ -283,6 +283,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       else setAuthSuccessToast(toast)
       return response.user
     })
+    probeV2()
     setShowAuthModal(false)
     if (kind === 'sign_up') trackSignUp('email')
     else trackLogin('email')
@@ -290,7 +291,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // and replay highlights made without a session, across every book.
     void flushLocalProgress().catch(() => {})
     void replayAllPendingHighlights()
-  }, [])
+  }, [probeV2])
 
   const loginWithEmail = useCallback(
     (email: string, password: string) => authenticateAndClose(() => loginWithEmailApi(email, password), 'login'),
