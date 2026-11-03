@@ -41,6 +41,10 @@ public sealed class EfMcpKeyRepository(IAppDbContext db) : IMcpKeyRepository
 
     public async Task<McpConnectKey?> CreateAsync(Guid userId, string name, string keyHash, string prefix, DateTimeOffset tokenIssuedAt, CancellationToken ct)
     {
+        // A guest mints no key (#1120). EF has no INSERT … SELECT, so legacy asks first; a guest only ever
+        // becomes an account, never the reverse, so the gap can only refuse one that just signed up.
+        if (await db.Users.AnyAsync(u => u.Id == userId && u.IsGuest, ct)) return null;
+
         var key = new McpAccessKey
         {
             Id = Guid.NewGuid(),
@@ -74,7 +78,8 @@ public sealed class EfMcpKeyRepository(IAppDbContext db) : IMcpKeyRepository
     }
 
     public Task<McpConnectKey?> GetLiveByHashAsync(string keyHash, CancellationToken ct) =>
-        db.McpAccessKeys.AsNoTracking().Where(k => k.KeyHash == keyHash && k.RevokedAt == null).Select(ToKey).FirstOrDefaultAsync(ct);
+        // A guest's key (minted before #1120) authenticates nothing.
+        db.McpAccessKeys.AsNoTracking().Where(k => k.KeyHash == keyHash && k.RevokedAt == null && !k.User.IsGuest).Select(ToKey).FirstOrDefaultAsync(ct);
 
     public async Task TouchAsync(Guid keyId, CancellationToken ct)
     {

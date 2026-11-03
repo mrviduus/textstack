@@ -31,6 +31,29 @@ public abstract class McpKeyRepositoryContract(IIdentityFixture db, IMcpKeyRepos
     }
 
     [Fact]
+    public async Task CreateAsync_Guest_ReturnsNullAndStoresNothing()
+    {
+        var guest = await db.NewReaderAsync(isGuest: true);
+
+        Assert.Null(await _repo.CreateAsync(guest, "laptop", NewHash(), "tsk_ab", DateTimeOffset.UtcNow, Ct));
+        Assert.Equal(0, await _repo.CountLiveAsync(guest, Ct));
+    }
+
+    // A key a guest minted before #1120 stops authenticating; it stays listed (and revocable).
+    [Fact]
+    public async Task GetLiveByHashAsync_GuestsKey_IsNull()
+    {
+        // Minted while the guest check did not exist: as an account's key, then the row made a guest.
+        var guest = await db.NewReaderAsync();
+        var hash = NewHash();
+        await _repo.CreateAsync(guest, "old", hash, "tsk_ab", DateTimeOffset.UtcNow, Ct);
+        await db.ExecAsync("UPDATE users SET is_guest = true WHERE id = @guest", new { guest });
+
+        Assert.Null(await _repo.GetLiveByHashAsync(hash, Ct));
+        Assert.Single(await _repo.ListAsync(guest, Ct));
+    }
+
+    [Fact]
     public async Task RevokeAsync_Key_StopsItsLookup()
     {
         var user = await db.NewReaderAsync();
