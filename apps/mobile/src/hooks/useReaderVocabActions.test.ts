@@ -160,4 +160,24 @@ describe('useReaderVocabActions', () => {
     const src = readFileSync(resolve(__dirname, 'useReaderVocabMap.ts'), 'utf8')
     expect(src).toContain('vocabularyApi.updateWord(id, { translation, onlyIfEmpty: true })')
   })
+
+  // V2 (#1025): a save is one card and one operation however many times it is retried.
+  it('saveWord_TransientFailures_RetriesWithSameIdAndOperationId', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    api.saveWord.mockReset()
+    api.saveWord
+      .mockRejectedValueOnce(new Error('503'))
+      .mockRejectedValueOnce(new Error('503'))
+      .mockResolvedValue({ outcome: 'srs', word: { id: 'w9', word: 'quay', stage: 0, sentence: null } })
+    const { result } = setup({ current: {} as VocabMap })
+    const done = act(async () => { await result.current.saveWord({ text: 'quay', sentence: 'At the quay.', selectionId: 9 }) })
+    await vi.runAllTimersAsync()
+    await done
+    vi.useRealTimers()
+    const bodies = api.saveWord.mock.calls.map((c) => c[0] as { id: string; operationId: string })
+    expect(bodies).toHaveLength(3)
+    expect(new Set(bodies.map((b) => b.id)).size).toBe(1)
+    expect(new Set(bodies.map((b) => b.operationId)).size).toBe(1)
+    expect(bodies[0].id).not.toBe(bodies[0].operationId)
+  })
 })

@@ -23,9 +23,9 @@ let known: V2Switch = V2_OFF
 let unreached = false
 
 /**
- * `GET /me/v2/status`, once per app start with a session: 200 on, 404 (unmapped) / 503 off for
- * this start (sync stays legacy). A 401 (no session yet) is asked again by the next call; a network
- * failure — the usual mobile cold start — is off until `reprobeV2AfterReconnect`. Started by the
+ * `GET /me/v2/status`, once per app start with a session: 200 on, 404 (unmapped) off for this start
+ * (sync stays legacy). A 401 (no session yet) is asked again by the next call; a network failure —
+ * the usual mobile cold start — or a 503 is off until `reprobeV2AfterReconnect`. Started by the
  * session (AuthContext) and by the first call that needs the answer, whichever comes first.
  */
 export function startV2Probe(): Promise<V2Switch> {
@@ -33,7 +33,8 @@ export function startV2Probe(): Promise<V2Switch> {
     (s) => (known = { enabled: true, maxPartBytes: s.maxPartBytes }),
     (e) => {
       if (e instanceof ApiError && e.status === 401) probe = null
-      else unreached = isOfflineError(e)
+      // Never reached, or V2 paused (503 `v2_unavailable`): asked again after a reconnect. 404 = unmapped, off.
+      else unreached = isOfflineError(e) || (e instanceof ApiError && e.status === 503)
       return V2_OFF
     },
   )
@@ -461,7 +462,9 @@ export async function uploadV2Book(
       } catch (e) {
         const err = v2Api.v2ErrorOf(e)
         if (err?.code !== 'duplicate_file') throw e
-        target = err.current as V2Book
+        // The book that has these bytes: the 409's `current`, or looked up again when it carries none.
+        target = (err.current as V2Book | undefined) ?? await v2Api.findBySha256(sha256)
+        if (!target) throw e
       }
     }
     if (!target.currentFile || target.currentFile.hasContent) return { bookId: target.id, existing: true }

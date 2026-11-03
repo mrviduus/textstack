@@ -620,15 +620,28 @@ export async function getAllCachedUserBooks(): Promise<CachedUserBookMeta[]> {
  * account's private file, and leaving its text in SQLite would hand it to
  * whoever signs in on this device next.
  */
+export async function clearCachedUserBooks(): Promise<void> {
+  const d = await getDb()
+  if (!d) return
+  await d.runAsync('DELETE FROM user_chapters')
+  await d.runAsync('DELETE FROM cached_user_books')
+}
+
 /**
  * V2 guest → account merge: the rows cached under the guest's book and file ids move to the
- * account's (only the ids that changed). One transaction.
+ * account's (only the ids that changed). Where the account already has the same row on this device,
+ * the account's wins and the guest's goes, so no key collides and one book never blocks the others.
  */
 export async function rekeyCachedUserBooks(books: Record<string, string>, files: Record<string, string>): Promise<void> {
   const d = await getDb()
   if (!d) return
   await d.withTransactionAsync(async () => {
     for (const [from, to] of Object.entries(books)) {
+      await d.runAsync(
+        'DELETE FROM user_chapters WHERE book_id = ? AND chapter_slug IN (SELECT chapter_slug FROM user_chapters WHERE book_id = ?)',
+        [from, to],
+      )
+      await d.runAsync('DELETE FROM cached_user_books WHERE book_id = ? AND EXISTS (SELECT 1 FROM cached_user_books WHERE book_id = ?)', [from, to])
       await d.runAsync('UPDATE user_chapters SET book_id = ? WHERE book_id = ?', [to, from])
       await d.runAsync('UPDATE cached_user_books SET book_id = ? WHERE book_id = ?', [to, from])
     }
@@ -637,13 +650,6 @@ export async function rekeyCachedUserBooks(books: Record<string, string>, files:
       await d.runAsync('UPDATE cached_user_books SET file_id = ? WHERE file_id = ?', [to, from])
     }
   })
-}
-
-export async function clearCachedUserBooks(): Promise<void> {
-  const d = await getDb()
-  if (!d) return
-  await d.runAsync('DELETE FROM user_chapters')
-  await d.runAsync('DELETE FROM cached_user_books')
 }
 
 export async function isUserBookFullyCached(bookId: string): Promise<boolean> {

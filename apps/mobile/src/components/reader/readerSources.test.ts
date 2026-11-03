@@ -323,3 +323,23 @@ describe('H3 — the foreground check compares against the device record as it i
     expect(r.rt().originalNewerPage).toMatchObject({ page: 30, onReturn: true })
   })
 })
+
+// V2 (#1025): the reader marks a write synced only on `accepted` (or legacy's void).
+describe('V2 write outcomes in the upload reader', () => {
+  it.each([
+    [undefined, true],
+    ['accepted', true],
+    ['dropped', false],
+  ] as const)('updateUserBookProgress answering %j leaves synced=%s', async (outcome, synced) => {
+    await setUserBookIsPdf('b1', false)
+    fx.userBooks.getUserBook.mockResolvedValue(BOOK(false))
+    fx.userBooks.updateUserBookProgress.mockResolvedValue(outcome)
+    const r = mountUpload()
+    await settle()
+    r.loadEnd()
+    r.readTo(400, 0.2)
+    await settle()
+    expect(fx.userBooks.updateUserBookProgress).toHaveBeenCalled()
+    expect(!!(await getUserBookLocalProgress('b1'))?.synced).toBe(synced)
+  })
+})

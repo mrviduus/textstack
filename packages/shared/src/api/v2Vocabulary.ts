@@ -65,8 +65,11 @@ const response = (outcome: 'srs' | 'deleted', w: V2Word): SaveWordResponseDto =>
   ({ outcome, word: toVocabWord(w), pendingId: null, lookupId: null, tapsRemaining: null, reason: null })
 
 export function createV2Vocabulary({ newId, fileIdOf, revisions }: V2VocabularyPlatform) {
+  // The cards last seen, by id: a practice answer reports the card as it stands.
+  const seen = new Map<string, V2Word>()
   const remember = (w: V2Word) => {
     revisions.set(w.id, w.revision)
+    seen.set(w.id, w)
     return w
   }
 
@@ -192,8 +195,19 @@ export function createV2Vocabulary({ newId, fileIdOf, revisions }: V2VocabularyP
     }
   }
 
-  /** One answer; the server schedules it (S3). `operationId` is the answer's: a retry of it sends the same one. */
-  async function submitV2Review(data: { wordId: string; isCorrect: boolean; responseTimeMs: number; reviewMode?: string; operationId?: string }): Promise<SubmitReviewResponse> {
+  /**
+   * One answer; the server schedules it (S3). `operationId` is the answer's: a retry of it sends the
+   * same one. A practice answer is not posted — V2 has no practice, and a posted review moves the
+   * card's schedule (legacy's practice leaves it alone) — and reports the card unchanged.
+   */
+  async function submitV2Review(data: { wordId: string; isCorrect: boolean; responseTimeMs: number; reviewMode?: string; operationId?: string; isPractice?: boolean }): Promise<SubmitReviewResponse> {
+    if (data.isPractice) {
+      const w = seen.get(data.wordId)
+      return {
+        wordId: data.wordId, previousStage: w?.stage ?? 0, newStage: w?.stage ?? 0, stageChanged: false,
+        nextIntervalDays: w?.intervalDays ?? 0, nextReviewAt: w?.nextReviewAt ?? new Date().toISOString(), totalReviews: 0, correctReviews: 0,
+      }
+    }
     const { review, word } = await v2Api.recordReview({
       operationId: data.operationId ?? newId(),
       wordId: data.wordId,
