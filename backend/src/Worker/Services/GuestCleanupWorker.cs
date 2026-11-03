@@ -1,15 +1,34 @@
 using Application.Common.Interfaces;
+using Application.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Worker.Services;
 
+/// <summary>
+/// Reaps legacy guests idle for <see cref="ExpiryThreshold"/> that hold nothing. With
+/// <c>Features:V2Api</c> on and <c>ConnectionStrings:V2</c> set, "nothing" includes V2: a guest holding
+/// anything there is kept, each reaped one's V2 account and bytes go after its legacy delete commits
+/// (<see cref="V2Follow"/>), and a V2 that cannot answer pauses reaping for the run. Without either, V2
+/// is not asked (unconfigured, it holds nothing) and V2 holdings of a reaped guest are orphans the M3 ETL
+/// pre-flight sweeps (#1094).
+/// </summary>
+/// <remarks>
+/// ponytail: no V2-side guest sweep here. Until M5.1 a V2 <c>users.last_active_at</c> is written only by
+/// the identity mirror, so every shadow guest on V2 looks idle and a sweep there would reap live guests'
+/// rows. M5.1, which moves the activity stamp to V2, adds it (<c>ix_users_guest_cleanup</c> is there).
+/// </remarks>
 public class GuestCleanupWorker(
     IServiceScopeFactory scopeFactory,
+    IConfiguration config,
     ILogger<GuestCleanupWorker> logger) : BackgroundService
 {
+    /// <summary>How long one V2 step for one guest may take: the reaper never waits on V2 longer.</summary>
+    public TimeSpan V2Budget { get; init; } = V2Follow.Budget;
+
     // Run cleanup every 2h: short enough to reclaim abandoned guest slots quickly,
     // long enough to avoid hammering the DB on a weak server.
     private static readonly TimeSpan Interval = TimeSpan.FromHours(2);
@@ -42,11 +61,12 @@ public class GuestCleanupWorker(
         }
     }
 
-    private async Task CleanupExpiredGuestsAsync(CancellationToken ct)
+    public async Task CleanupExpiredGuestsAsync(CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
         var storage = scope.ServiceProvider.GetRequiredService<IFileStorageService>();
+        var v2 = scope.ServiceProvider.GetRequiredService<V2AccountDeletion>();
 
         var cutoff = DateTimeOffset.UtcNow - ExpiryThreshold;
 
@@ -73,8 +93,21 @@ public class GuestCleanupWorker(
 
         logger.LogInformation("Cleaning up {Count} expired guest users", expiredGuests.Count);
 
+        var askV2 = V2Follow.IsOn(config) && !string.IsNullOrWhiteSpace(config.GetConnectionString("V2"));
         foreach (var guest in expiredGuests)
         {
+            // Legacy's filter cannot see V2: a guest that uploaded or annotated there is engaged too.
+            // V2 unable to answer reaps nobody this run rather than guessing.
+            if (askV2)
+            {
+                var holdsNothing = false;
+                if (!await V2Follow.RunAsync(config, logger, "expired guest check", guest.Id, guest.Id,
+                        "guest reaping paused for this run: V2 is configured but did not say what expired guests hold there",
+                        async t => holdsNothing = await v2.HoldsNothingDurableAsync(guest.Id, t), V2Budget))
+                    return;
+                if (!holdsNothing) continue;
+            }
+
             try
             {
                 // Delete files from storage for each book. Per-book try/catch so a single
@@ -104,6 +137,9 @@ public class GuestCleanupWorker(
                 await db.SaveChangesAsync(ct);
 
                 logger.LogInformation("Deleted expired guest {GuestId}", guest.Id);
+                if (askV2)
+                    await V2Follow.RunAsync(config, logger, "expired guest delete", guest.Id, guest.Id, V2Follow.RowsLeftForTheEtlSweep,
+                        t => v2.DeleteAsync(guest.Id, t), V2Budget);
             }
             catch (Exception ex)
             {

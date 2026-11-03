@@ -11,6 +11,7 @@ using Application.Reading;
 using Application.Transitional;
 using Application.Vocabulary;
 using Dapper;
+using Infrastructure.Persistence.Legacy;
 using Infrastructure.Persistence.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -83,11 +84,9 @@ public static class DataSource
             .AddSingleton<ICheckpointRepository, CheckpointRepository>()
             .AddSingleton<IBookInsightRepository, BookInsightRepository>()
             .AddSingleton<IReviewQuestionRepository, ReviewQuestionRepository>()
-            .AddSingleton<IUserRepository, UserRepository>()
-            .AddSingleton<ISessionTokenRepository, SessionTokenRepository>()
-            .AddSingleton<IOAuthRepository, OAuthRepository>()
-            .AddSingleton<IDeviceLoginRepository, DeviceLoginRepository>()
-            .AddSingleton<IMcpKeyRepository, McpKeyRepository>()
+            // Concrete: the identity ports are legacy's until M5.1 (AddLegacyIdentityPorts); V2 services get it through WithV2Users.
+            .AddSingleton<UserRepository>()
+            .AddSingleton(sp => sp.WithV2Users<V2AccountDeletion>())
             .AddSingleton<IAccountMergeRepository, AccountMergeRepository>()
             // Concrete, not as the Core writer interfaces: those stay bound to the EF writers until the cutover.
             .AddSingleton<V2LlmTraceWriter>()
@@ -96,4 +95,21 @@ public static class DataSource
             .AddSingleton<IAdminSettingsRepository, AdminSettingsRepository>()
             .AddSingleton<IBookChapterRepository, BookChapterRepository>()
             .AddSingleton<IIngestionJobRepository, IngestionJobRepository>();
+
+    /// <summary>
+    /// The identity ports on the legacy database (#1100): what the endpoints, middleware and workers
+    /// reach identity through until M5.1's <c>Database:Mode</c> re-binds them to the V2 repositories.
+    /// Scoped: they share the request's <see cref="IAppDbContext"/>, which the host registers.
+    /// </summary>
+    public static IServiceCollection AddLegacyIdentityPorts(this IServiceCollection services) =>
+        services
+            .AddScoped<IUserRepository, EfUserRepository>()
+            .AddScoped<ISessionTokenRepository, EfSessionTokenRepository>()
+            .AddScoped<IOAuthRepository, EfOAuthRepository>()
+            .AddScoped<IDeviceLoginRepository, EfDeviceLoginRepository>()
+            .AddScoped<IMcpKeyRepository, EfMcpKeyRepository>();
+
+    /// <summary>A V2 service built on V2's accounts, whatever <see cref="IUserRepository"/> is bound to.</summary>
+    public static T WithV2Users<T>(this IServiceProvider services) =>
+        ActivatorUtilities.CreateInstance<T>(services, services.GetRequiredService<UserRepository>());
 }

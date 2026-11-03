@@ -2,6 +2,7 @@ using Api.Extensions;
 using Api.Mapping;
 using Application.Auth;
 using Application.Common.Interfaces;
+using Application.Identity;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Api.Endpoints;
@@ -31,7 +32,7 @@ public static class ProfileEndpoints
     // stale cached user object — mobile uses this on launch to pick up a native
     // language the user set on another device.
     private static async Task<IResult> GetProfile(
-        AuthService authService,
+        IAuthService authService,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -46,8 +47,8 @@ public static class ProfileEndpoints
 
     private static async Task<IResult> UpdateProfile(
         [FromBody] UpdateProfileRequest request,
-        AuthService authService,
-        IAppDbContext db,
+        IAuthService authService,
+        IUserRepository users,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -57,21 +58,20 @@ public static class ProfileEndpoints
         var user = await authService.GetUserByIdAsync(userId.Value, ct);
         if (user == null) return Results.Unauthorized();
 
-        user.Name = request.Name?.Trim();
-
         // NativeLanguage: treat omitted (null) as "don't change"; empty string as "clear".
-        // Only persist the value when the request includes a non-null field — otherwise
+        // Only change the value when the request includes a non-null field — otherwise
         // a simple name update would silently wipe the user's language preference.
+        var nativeLanguage = user.NativeLanguage;
         if (request.NativeLanguage != null)
         {
             var trimmed = request.NativeLanguage.Trim();
             if (trimmed.Length == 0)
             {
-                user.NativeLanguage = null;
+                nativeLanguage = null;
             }
             else if (NativeLanguageShape.IsMatch(trimmed))
             {
-                user.NativeLanguage = trimmed;
+                nativeLanguage = trimmed;
             }
             else
             {
@@ -79,15 +79,14 @@ public static class ProfileEndpoints
             }
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Results.Ok(new AuthResponse(user.ToDto()));
+        var updated = await users.UpdateNameAndLanguageAsync(userId.Value, request.Name?.Trim(), nativeLanguage, ct);
+        return updated == null ? Results.Unauthorized() : Results.Ok(new AuthResponse(updated.ToDto()));
     }
 
     private static async Task<IResult> UploadAvatar(
         IFormFile file,
-        AuthService authService,
-        IAppDbContext db,
+        IAuthService authService,
+        IUserRepository users,
         IFileStorageService storage,
         IImageOptimizer imageOptimizer,
         HttpContext httpContext,
@@ -124,15 +123,13 @@ public static class ProfileEndpoints
         var fileName = $"avatar{optimized.Extension}";
         var relativePath = await storage.SaveFileAsync(userId.Value, fileName, optimizedStream, ct);
 
-        user.Picture = relativePath;
-        await db.SaveChangesAsync(ct);
-
-        return Results.Ok(new AuthResponse(user.ToDto()));
+        var updated = await users.SetPictureAsync(userId.Value, relativePath, ct);
+        return updated == null ? Results.Unauthorized() : Results.Ok(new AuthResponse(updated.ToDto()));
     }
 
     private static async Task<IResult> DeleteAvatar(
-        AuthService authService,
-        IAppDbContext db,
+        IAuthService authService,
+        IUserRepository users,
         IFileStorageService storage,
         HttpContext httpContext,
         CancellationToken ct)
@@ -148,9 +145,7 @@ public static class ProfileEndpoints
             await storage.DeleteFileAsync(user.Picture, ct);
         }
 
-        user.Picture = null;
-        await db.SaveChangesAsync(ct);
-
+        await users.SetPictureAsync(userId.Value, null, ct);
         return Results.Ok();
     }
 }

@@ -218,13 +218,15 @@ public static partial class ServiceCollectionExtensions
                     QueueLimit = 0,
                 });
             });
+            // Configurable (RateLimits:McpKeysPermitLimit) for the integration suite only.
+            var mcpKeysPermitLimit = rateLimits.EffectiveMcpKeysPermitLimit;
             options.AddPolicy("mcp-keys", httpContext =>
             {
                 var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(5),
-                    PermitLimit = 10,
+                    PermitLimit = mcpKeysPermitLimit,
                     QueueLimit = 0,
                 });
             });

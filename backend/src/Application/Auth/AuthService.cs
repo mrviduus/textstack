@@ -626,6 +626,56 @@ public partial class AuthService
         return true;
     }
 
+    /// <summary>
+    /// The GDPR / Google-Play hard delete. Every user-owned entity has an FK to <c>users</c> configured
+    /// ON DELETE CASCADE, so one <c>Users.Remove</c> removes it all in FK-safe order. Rows that would
+    /// survive the cascade go explicitly first, in the same transaction: agent_run and
+    /// device_authorizations (FK is SET NULL, but the content is the user's) and
+    /// oauth_authorization_requests (no FK) (#941). llm_traces carry no user id; their text is
+    /// scrubbed after 30 days by RetentionCleanupWorker.
+    /// <para>Disk files (the uploads' tree and a local avatar) go after the commit, best-effort and
+    /// logged: the database is the source of truth, and a failure here must not resurrect the account.</para>
+    /// </summary>
+    public async Task<bool> DeleteAccountAsync(Guid userId, CancellationToken ct)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user == null) return false;
+
+        // Local-file avatar only: external picture URLs (Google) are not ours to delete.
+        var avatarPath = !string.IsNullOrEmpty(user.Picture) && !user.Picture.StartsWith("http") ? user.Picture : null;
+
+        await using (var tx = await _db.BeginTransactionAsync(ct))
+        {
+            await _db.AgentRuns.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.DeviceAuthorizations.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await _db.OAuthAuthorizationRequests.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            _db.Users.Remove(user);
+            await _db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        }
+
+        if (_storage is not null)
+        {
+            await DeleteStoredAsync("DeleteUserDirectory", userId, () => _storage.DeleteUserDirectoryAsync(userId, ct));
+            if (avatarPath != null)
+                await DeleteStoredAsync("DeleteAvatar", userId, () => _storage.DeleteFileAsync(avatarPath, ct));
+        }
+        return true;
+    }
+
+    // An orphan file is recoverable, but it must be observable.
+    private async Task DeleteStoredAsync(string operation, Guid userId, Func<Task> delete)
+    {
+        try
+        {
+            await delete();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Account {UserId} deleted but storage cleanup failed for {Operation}", userId, operation);
+        }
+    }
+
     public async Task<User?> GetUserByIdAsync(Guid userId, CancellationToken ct)
     {
         return await _db.Users.FirstOrDefaultAsync(x => x.Id == userId, ct);
@@ -943,7 +993,7 @@ public partial class AuthService
         throw new InvalidOperationException("Could not generate a unique device user_code.");
     }
 
-    public Guid? ValidateAccessToken(string accessToken) => ValidateAccessTokenIdentity(accessToken).UserId;
+    public Guid? ValidateAccessToken(string accessToken) => ValidateAccessTokenIdentity(accessToken)?.UserId;
 
     /// <summary>
     /// The user this token belongs to, AND whether it is a guest's.
@@ -955,10 +1005,10 @@ public partial class AuthService
     /// reaching for the claim through <c>context.User</c> silently saw nothing, which is exactly how
     /// <c>GuestActivityMiddleware</c> spent its whole life returning early on every request.</para>
     ///
-    /// <para>Returns <c>(null, false)</c> for a token that does not validate, so a caller cannot
-    /// mistake an expired token for an account.</para>
+    /// <para>Null for a token that does not validate, so a caller cannot mistake an expired token
+    /// for an account.</para>
     /// </summary>
-    public (Guid? UserId, bool IsGuest) ValidateAccessTokenIdentity(string accessToken) => _tokens.ValidateAccessToken(accessToken);
+    public AccessTokenIdentity? ValidateAccessTokenIdentity(string accessToken) => _tokens.ValidateAccessToken(accessToken);
 
     /// <summary>Null when the Google email is held by another account (<c>ix_users_email</c>): a refusal, not a 500.</summary>
     private async Task<User?> GetOrCreateUserAsync(ProviderIdentity payload, CancellationToken ct)

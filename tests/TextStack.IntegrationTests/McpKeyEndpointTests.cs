@@ -39,6 +39,7 @@ public class McpKeyEndpointTests : IClassFixture<LiveApiFixture>
 
         var createResp = await _fixture.Client.SendAsync(createReq, ct);
         Assert.SkipWhen(IntegrationSkip.Unavailable(createResp), "/me/mcp/keys unavailable");
+        Assert.SkipWhen(createResp.StatusCode == HttpStatusCode.TooManyRequests, McpKeysLimited);
         Assert.Equal(HttpStatusCode.OK, createResp.StatusCode);
 
         var created = await createResp.Content.ReadFromJsonAsync<JsonElement>(ct);
@@ -78,6 +79,57 @@ public class McpKeyEndpointTests : IClassFixture<LiveApiFixture>
         Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(HttpMethod.Get, "/me/books", rawKey!, ct));
     }
 
+    // The suite's rule: a throttled run skips rather than reads a 429 as a failure. Raise
+    // MCP_KEYS_PERMIT_LIMIT (RateLimits:McpKeysPermitLimit) to run the class twice inside 5 minutes.
+    private const string McpKeysLimited = "mcp-keys rate limit hit (MCP_KEYS_PERMIT_LIMIT)";
+
+    // A leaked connect key must not mint another credential. Both groups carry RejectOAuthTokens, so
+    // the filter answers before the handler, which reads only a JWT's iat (#1100).
+    [Fact]
+    public async Task ConnectKey_CreatesNoConnectKey_403()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var key = await NewConnectKeyAsync(ct);
+        Assert.SkipWhen(key is null, "registration unavailable");
+
+        await AssertInsufficientScopeAsync("/me/mcp/keys", new { name = "Minted by a key" }, key!, ct);
+    }
+
+    [Fact]
+    public async Task ConnectKey_ApprovesNoDeviceLogin_403()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var key = await NewConnectKeyAsync(ct);
+        Assert.SkipWhen(key is null, "registration unavailable");
+
+        await AssertInsufficientScopeAsync("/auth/device/approve", new { user_code = "ABCD-EFGH" }, key!, ct);
+    }
+
+    private async Task<string?> NewConnectKeyAsync(CancellationToken ct)
+    {
+        var owner = await SignUpAsync(ct);
+        if (owner is null) return null;
+        var create = _fixture.CreateRequest(HttpMethod.Post, "/me/mcp/keys");
+        create.Headers.TryAddWithoutValidation("Authorization", $"Bearer {owner}");
+        create.Content = JsonContent.Create(new { name = "Leaked" });
+        var created = await _fixture.Client.SendAsync(create, ct);
+        Assert.SkipWhen(created.StatusCode == HttpStatusCode.TooManyRequests, McpKeysLimited);
+        return created.IsSuccessStatusCode ? (await created.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("key").GetString() : null;
+    }
+
+    private async Task AssertInsufficientScopeAsync(string path, object body, string key, CancellationToken ct)
+    {
+        var req = _fixture.CreateRequest(HttpMethod.Post, path);
+        req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {key}");
+        req.Content = JsonContent.Create(body);
+        var resp = await _fixture.Client.SendAsync(req, ct);
+        // The limiter answers before the endpoint's filter.
+        Assert.SkipWhen(resp.StatusCode == HttpStatusCode.TooManyRequests, McpKeysLimited);
+
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Equal("insufficient_scope", (await resp.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("error").GetString());
+    }
+
     [Fact]
     public async Task ConnectKey_AccountManagement_403_LibraryAllowed()
     {
@@ -91,6 +143,7 @@ public class McpKeyEndpointTests : IClassFixture<LiveApiFixture>
         createReq.Content = JsonContent.Create(new { name = "Scope probe" });
         var createResp = await _fixture.Client.SendAsync(createReq, ct);
         Assert.SkipWhen(IntegrationSkip.Unavailable(createResp), "/me/mcp/keys unavailable");
+        Assert.SkipWhen(createResp.StatusCode == HttpStatusCode.TooManyRequests, McpKeysLimited);
         var key = (await createResp.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("key").GetString()!;
 
         // Same list as the OAuth-token test: a connect key is an assistant credential too.
@@ -149,6 +202,7 @@ public class McpKeyEndpointTests : IClassFixture<LiveApiFixture>
         createReq.Content = JsonContent.Create(new { name = "Mine" });
         var createResp = await _fixture.Client.SendAsync(createReq, ct);
         Assert.SkipWhen(IntegrationSkip.Unavailable(createResp), "/me/mcp/keys unavailable");
+        Assert.SkipWhen(createResp.StatusCode == HttpStatusCode.TooManyRequests, McpKeysLimited);
 
         var keyId = (await createResp.Content.ReadFromJsonAsync<JsonElement>(ct))
             .GetProperty("id").GetString();

@@ -114,6 +114,33 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
         }
     }
 
+    private const string UpdateNameAndLanguage = $"""
+        UPDATE users SET name = @name, native_language = @nativeLanguage WHERE id = @userId
+        RETURNING {Columns}
+        """;
+
+    public async Task<UserAccount?> UpdateNameAndLanguageAsync(Guid userId, string? name, string? nativeLanguage, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return await conn.QuerySingleOrDefaultAsync<UserAccount>(new CommandDefinition(UpdateNameAndLanguage, new { userId, name, nativeLanguage }, cancellationToken: ct));
+    }
+
+    private const string UpdatePicture = $"UPDATE users SET picture = @picture WHERE id = @userId RETURNING {Columns}";
+
+    public async Task<UserAccount?> SetPictureAsync(Guid userId, string? picture, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return await conn.QuerySingleOrDefaultAsync<UserAccount>(new CommandDefinition(UpdatePicture, new { userId, picture }, cancellationToken: ct));
+    }
+
+    private const string TouchActive = "UPDATE users SET last_active_at = @now WHERE id = @userId";
+
+    public async Task<bool> TouchActiveAsync(Guid userId, DateTimeOffset now, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return await conn.ExecuteAsync(new CommandDefinition(TouchActive, new { userId, now }, cancellationToken: ct)) > 0;
+    }
+
     private const string UpdateRole = "UPDATE users SET role = @role WHERE id = @userId";
 
     public async Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct)

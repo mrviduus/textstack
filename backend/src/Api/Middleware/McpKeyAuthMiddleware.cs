@@ -1,7 +1,6 @@
 using Api.Extensions;
 using Application.Auth;
-using Application.Common.Interfaces;
-using Microsoft.EntityFrameworkCore;
+using Application.Identity;
 
 namespace Api.Middleware;
 
@@ -44,12 +43,12 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
     /// </summary>
     public const string OAuthTokenItemKey = "oauth_access_token";
 
-    public async Task InvokeAsync(HttpContext context, IAppDbContext db, IConfiguration config)
+    public async Task InvokeAsync(HttpContext context, IMcpKeyRepository keys, IOAuthRepository oauth, IConfiguration config)
     {
         var token = context.GetAccessToken();
         if (OAuth.LooksLikeAccessToken(token))
         {
-            await ResolveOAuthTokenAsync(context, db, config, token!);
+            await ResolveOAuthTokenAsync(context, oauth, config, token!);
             await next(context);
             return;
         }
@@ -60,12 +59,9 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
             return;
         }
 
-        var hash = DeviceCodes.HashToken(token!);
-
         // Revocation is checked in the same query as the lookup — a revoked key must stop
         // authenticating the moment it is revoked, with no cached decision in between.
-        var key = await db.McpAccessKeys
-            .FirstOrDefaultAsync(k => k.KeyHash == hash && k.RevokedAt == null, context.RequestAborted);
+        var key = await keys.GetLiveByHashAsync(DeviceCodes.HashToken(token!), context.RequestAborted);
 
         if (key is not null)
         {
@@ -75,12 +71,8 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
 
             // Throttled: an assistant makes one request per tool call. Writing this per request
             // would put an UPDATE in front of every read of the user's own library.
-            var now = DateTimeOffset.UtcNow;
-            if (key.LastUsedAt is null || now - key.LastUsedAt.Value >= McpKeys.LastUsedWriteInterval)
-            {
-                key.LastUsedAt = now;
-                await db.SaveChangesAsync(context.RequestAborted);
-            }
+            if (key.LastUsedAt is null || DateTimeOffset.UtcNow - key.LastUsedAt.Value >= McpKeys.LastUsedWriteInterval)
+                await keys.TouchAsync(key.Id, context.RequestAborted);
         }
 
         await next(context);
@@ -91,14 +83,11 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
     /// revocation in the query — plus the two things a key does not have: expiry, and the audience
     /// (RFC 8707). A token is only good for the resource it was issued for, the MCP endpoint.
     /// </summary>
-    private static async Task ResolveOAuthTokenAsync(HttpContext context, IAppDbContext db, IConfiguration config, string token)
+    private static async Task ResolveOAuthTokenAsync(HttpContext context, IOAuthRepository oauth, IConfiguration config, string token)
     {
-        var hash = DeviceCodes.HashToken(token);
         var now = DateTimeOffset.UtcNow;
-        var resource = Endpoints.OAuthEndpoints.Resource(config);
-
-        var grant = await db.OAuthGrants.FirstOrDefaultAsync(
-            OAuth.LiveAccessToken(hash, resource, now), context.RequestAborted);
+        var grant = await oauth.GetByAccessTokenAsync(
+            DeviceCodes.HashToken(token), Endpoints.OAuthEndpoints.Resource(config), now, context.RequestAborted);
         if (grant is null) return;
 
         context.Items[UserIdItemKey] = grant.UserId;
@@ -106,9 +95,6 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
         context.Items[OAuthTokenItemKey] = true;
 
         if (grant.LastUsedAt is null || now - grant.LastUsedAt.Value >= McpKeys.LastUsedWriteInterval)
-        {
-            grant.LastUsedAt = now;
-            await db.SaveChangesAsync(context.RequestAborted);
-        }
+            await oauth.TouchAsync(grant.Id, context.RequestAborted);
     }
 }

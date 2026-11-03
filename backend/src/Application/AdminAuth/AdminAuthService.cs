@@ -82,22 +82,18 @@ public class AdminAuthService : IAdminAuthService
 
     public (Guid? adminId, AdminRole? role) ValidateAccessToken(string accessToken) => _tokens.ValidateAdminAccessToken(accessToken);
 
-    public async Task<AdminUser> CreateAdminUserAsync(
-        string email,
-        string password,
-        AdminRole role,
-        CancellationToken ct)
+    // ADR-031 decided 7: editor and moderator collapse to admin, so the CLI creates admins only.
+    async Task<AdminUserDto?> IAdminAuthService.CreateAdminAsync(string email, string password, CancellationToken ct)
     {
-        var existingUser = await _db.AdminUsers.FirstOrDefaultAsync(x => x.Email == email, ct);
-        if (existingUser != null)
-            throw new InvalidOperationException($"Admin user with email {email} already exists");
+        if (await _db.AdminUsers.AnyAsync(x => x.Email == email, ct))
+            return null;
 
         var user = new AdminUser
         {
             Id = Guid.NewGuid(),
             Email = email,
             PasswordHash = PasswordHashing.Hash(password),
-            Role = role,
+            Role = AdminRole.Admin,
             IsActive = true,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
@@ -105,7 +101,7 @@ public class AdminAuthService : IAdminAuthService
 
         _db.AdminUsers.Add(user);
         await _db.SaveChangesAsync(ct);
-        return user;
+        return ToDto(user);
     }
 
     async Task<AdminAuthResult?> IAdminAuthService.LoginAsync(string email, string password, CancellationToken ct) =>

@@ -40,6 +40,9 @@ public static class DependencyInjection
         services.AddScoped<Ingestion.IngestionService>();
         services.AddScoped<AuthService>();
         services.AddScoped<AdminAuthService>();
+        // The legacy services behind the interfaces M5.1's Database:Mode re-binds to V2's.
+        services.AddScoped<IAuthService>(sp => sp.GetRequiredService<AuthService>());
+        services.AddScoped<IAdminAuthService>(sp => sp.GetRequiredService<AdminAuthService>());
         services.AddScoped<AdminSettingsService>();
         services.AddScoped<ReprocessingService>();
 

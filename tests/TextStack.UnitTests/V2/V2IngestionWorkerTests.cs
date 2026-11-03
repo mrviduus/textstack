@@ -209,8 +209,7 @@ public sealed class V2IngestionWorkerTests : IDisposable
         _files.Verify(f => f.TryDelete("library/orphan.epub"));
     }
 
-    private static IConfiguration Config(bool flag, string? v2) => new ConfigurationBuilder()
-        .AddInMemoryCollection(new Dictionary<string, string?> { ["Features:V2Api"] = flag.ToString(), ["ConnectionStrings:V2"] = v2 }).Build();
+    private static IConfiguration Config(bool flag, string? v2) => V2Fakes.Config(flag, v2);
 
     [Theory]
     [InlineData(false, "Host=x")]

@@ -668,4 +668,37 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal(expected, await ScalarAsync<string>("SELECT native_language FROM users WHERE id = @account", new { account }));
     }
+
+    [Fact]
+    public async Task HoldsNothingDurableAsync_EmptyGuest_True()
+    {
+        Assert.True(await _repo.HoldsNothingDurableAsync(await db.NewReaderAsync(isGuest: true), Ct));
+    }
+
+    [Fact]
+    public async Task HoldsNothingDurableAsync_GuestWithABook_False()
+    {
+        var guest = await db.NewReaderAsync(isGuest: true);
+        await db.NewBookAsync(guest);
+
+        Assert.False(await _repo.HoldsNothingDurableAsync(guest, Ct));
+    }
+
+    [Fact]
+    public async Task HoldsNothingDurableAsync_GuestWithAWordOnly_False()
+    {
+        var guest = await db.NewReaderAsync(isGuest: true);
+        await new VocabularyRepository(db.DataSource).SaveWordAsync(guest, NewWord(guest), Ct);
+
+        Assert.False(await _repo.HoldsNothingDurableAsync(guest, Ct));
+    }
+
+    [Fact]
+    public async Task HoldsNothingDurableAsync_BobsBook_DoesNotCountForAlice()
+    {
+        var (alice, bob) = (await db.NewReaderAsync(isGuest: true), await db.NewReaderAsync(isGuest: true));
+        await db.NewBookAsync(bob);
+
+        Assert.True(await _repo.HoldsNothingDurableAsync(alice, Ct));
+    }
 }

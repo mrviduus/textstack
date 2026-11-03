@@ -37,6 +37,7 @@ builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
 // Register IAppDbContext for scoped services (creates context via factory)
 builder.Services.AddScoped<IAppDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
+builder.Services.AddLegacyIdentityPorts();
 
 // File storage
 var storagePath = builder.Configuration["Storage:RootPath"] ?? "/storage";

@@ -5,6 +5,7 @@ using Application.Identity;
 using Application.Library;
 using Application.Reading;
 using Application.Vocabulary;
+using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -23,11 +24,12 @@ public static partial class ServiceCollectionExtensions
             // invalid_payload) instead of a bare 400. For every route, as Development already did.
             .Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = true)
             .AddSingleton<V2Readiness>()
-            .AddSingleton<V2ShadowUsers>()
+            // On V2's accounts: IUserRepository itself is bound to legacy until M5.1.
+            .AddSingleton(sp => sp.WithV2Users<V2ShadowUsers>())
             // Scoped: it reads the legacy account through the request's IAppDbContext.
-            .AddScoped<V2IdentityMirror>()
+            .AddScoped(sp => sp.WithV2Users<V2IdentityMirror>())
             .AddSingleton<LibrarySyncService>()
-            .AddSingleton<LibraryContentService>()
+            .AddSingleton(sp => sp.WithV2Users<LibraryContentService>())
             .AddSingleton<Application.Transitional.ChapterReadService>()
             .AddSingleton<ReadingSyncService>()
             .AddSingleton<AnnotationSyncService>()

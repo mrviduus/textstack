@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using Application.Common.Interfaces;
+using Application.Identity;
 using Domain.Entities;
 using Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -11,7 +12,8 @@ namespace Worker.Services;
 
 /// <summary>
 /// The "how long do we keep this row" rules, in one daily sweep. Each rule is its own try, so a
-/// failure on one table never skips the others. Rules are public expressions so tests can run them.
+/// failure on one table never skips the others. The credential rules are the identity ports' sweeps
+/// (#1100); the rest are public expressions so tests can run them.
 /// Not here: <c>oauth_authorization_requests</c>, swept on every authorize (<c>OAuthEndpoints</c>).
 /// </summary>
 public class RetentionCleanupWorker(
@@ -65,20 +67,22 @@ public class RetentionCleanupWorker(
     private async Task CleanupAsync(CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
+        var services = scope.ServiceProvider;
+        var db = services.GetRequiredService<IAppDbContext>();
 
         var now = DateTimeOffset.UtcNow;
+        // A day past expiry: nothing reads an expired token (refresh filters on expiry, reuse detection
+        // reads live rows only), and an in-flight request never races the sweep.
         var tokenCutoff = now - TokenGrace;
-        await DeleteAsync("admin refresh tokens",
-            () => db.AdminRefreshTokens.Where(t => t.ExpiresAt < tokenCutoff).ExecuteDeleteAsync(ct), ct);
-        await DeleteAsync("user refresh tokens",
-            () => db.UserRefreshTokens.Where(ExpiredUserToken(now)).ExecuteDeleteAsync(ct), ct);
+        // Each port is resolved inside its own rule, so a wiring fault fails that rule only.
+        await DeleteAsync("sessions",
+            () => services.GetRequiredService<ISessionTokenRepository>().DeleteExpiredSessionsAsync(tokenCutoff, ct), ct);
         await DeleteAsync("password reset tokens",
-            () => db.PasswordResetTokens.Where(ExpiredPasswordReset(now)).ExecuteDeleteAsync(ct), ct);
+            () => services.GetRequiredService<ISessionTokenRepository>().DeleteExpiredPasswordResetsAsync(tokenCutoff, ct), ct);
         await DeleteAsync("device authorizations",
-            () => db.DeviceAuthorizations.Where(ExpiredDeviceAuthorization(now)).ExecuteDeleteAsync(ct), ct);
+            () => services.GetRequiredService<IDeviceLoginRepository>().DeleteExpiredAsync(tokenCutoff, ct), ct);
         await DeleteAsync("OAuth grants",
-            () => db.OAuthGrants.Where(DeadOAuthGrant(now)).ExecuteDeleteAsync(ct), ct);
+            () => services.GetRequiredService<IOAuthRepository>().DeleteDeadGrantsAsync(tokenCutoff, ct), ct);
         // Traces keep their cost, tokens and latency for spend history; only the text goes.
         // Batches: the first run rewrites months of text (~750 MB); one statement would be one huge
         // transaction.
@@ -127,40 +131,6 @@ public class RetentionCleanupWorker(
         {
             logger.LogError(ex, "Retention: error deleting {What}", what);
         }
-    }
-
-    /// <summary>
-    /// A user refresh token past its expiry, plus a day's grace. Nothing reads it any more: refresh
-    /// filters on <c>ExpiresAt</c>, and reuse detection looks a successor up by
-    /// <c>PreviousTokenHash</c> — an expired successor is a dead chain, so there is nothing to revoke.
-    /// </summary>
-    public static Expression<Func<UserRefreshToken, bool>> ExpiredUserToken(DateTimeOffset now)
-    {
-        var cutoff = now - TokenGrace;
-        return t => t.ExpiresAt < cutoff;
-    }
-
-    public static Expression<Func<PasswordResetToken, bool>> ExpiredPasswordReset(DateTimeOffset now)
-    {
-        var cutoff = now - TokenGrace;
-        return t => t.ExpiresAt < cutoff;
-    }
-
-    public static Expression<Func<DeviceAuthorization, bool>> ExpiredDeviceAuthorization(DateTimeOffset now)
-    {
-        var cutoff = now - TokenGrace;
-        return d => d.ExpiresAt < cutoff;
-    }
-
-    /// <summary>
-    /// A grant that can never authorize again: revoked, or its refresh token expired. Reuse
-    /// detection reads only live grants (<c>RevokedAt == null</c>, by <c>PreviousRefreshTokenHash</c>),
-    /// so a dead row is not needed for it.
-    /// </summary>
-    public static Expression<Func<OAuthGrant, bool>> DeadOAuthGrant(DateTimeOffset now)
-    {
-        var cutoff = now - TokenGrace;
-        return g => g.RevokedAt < cutoff || g.RefreshTokenExpiresAt < cutoff;
     }
 
     /// <summary>A trace older than the retention that still holds text (not yet scrubbed).</summary>

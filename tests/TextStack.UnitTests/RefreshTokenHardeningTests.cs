@@ -79,6 +79,26 @@ public class RefreshTokenHardeningTests
     }
 
     [Fact]
+    public async Task IAdminAuthServiceCreateAdminAsync_NewEmail_AnActiveAdminThatSignsIn()
+    {
+        var admin = await ((IAdminAuthService)_adminAuth).CreateAdminAsync("new-admin@test.dev", "a long password", CancellationToken.None);
+
+        Assert.Equal((AdminRole.Admin, "new-admin@test.dev"), (admin!.Role, admin.Email));
+        Assert.True(Assert.Single(_admins).IsActive);
+        Assert.NotNull(await _adminAuth.LoginAsync("new-admin@test.dev", "a long password", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task IAdminAuthServiceCreateAdminAsync_TakenEmail_NullAndNothingAdded()
+    {
+        var service = (IAdminAuthService)_adminAuth;
+        await service.CreateAdminAsync("admin@test.dev", "a long password", CancellationToken.None);
+
+        Assert.Null(await service.CreateAdminAsync("admin@test.dev", "another password", CancellationToken.None));
+        Assert.Single(_admins);
+    }
+
+    [Fact]
     public void HashToken_SampleToken_MatchesTheMigrationSqlExpression()
     {
         // Produced on PostgreSQL 16 by the exact expression the HashRefreshTokens migration runs:
@@ -183,7 +203,8 @@ public class RefreshTokenHardeningTests
 
         Assert.True(guest.Succeeded);
         Assert.True(guest.User.IsGuest);
-        Assert.Equal((guest.User.Id, true), _auth.ValidateAccessTokenIdentity(guest.AccessToken));
+        Assert.Equal(guest.User.Id, _auth.ValidateAccessTokenIdentity(guest.AccessToken)?.UserId);
+        Assert.True(_auth.ValidateAccessTokenIdentity(guest.AccessToken)?.IsGuest);
     }
 
     [Fact]
