@@ -78,6 +78,50 @@ public class McpKeyEndpointTests : IClassFixture<LiveApiFixture>
         Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(HttpMethod.Get, "/me/books", rawKey!, ct));
     }
 
+    // A leaked connect key must not mint another credential. Both groups carry RejectOAuthTokens, so
+    // the filter answers before the handler, which reads only a JWT's iat (#1100).
+    [Fact]
+    public async Task ConnectKey_CreatesNoConnectKey_403()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var key = await NewConnectKeyAsync(ct);
+        Assert.SkipWhen(key is null, "registration unavailable");
+
+        await AssertInsufficientScopeAsync("/me/mcp/keys", new { name = "Minted by a key" }, key!, ct);
+    }
+
+    [Fact]
+    public async Task ConnectKey_ApprovesNoDeviceLogin_403()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var key = await NewConnectKeyAsync(ct);
+        Assert.SkipWhen(key is null, "registration unavailable");
+
+        await AssertInsufficientScopeAsync("/auth/device/approve", new { user_code = "ABCD-EFGH" }, key!, ct);
+    }
+
+    private async Task<string?> NewConnectKeyAsync(CancellationToken ct)
+    {
+        var owner = await SignUpAsync(ct);
+        if (owner is null) return null;
+        var create = _fixture.CreateRequest(HttpMethod.Post, "/me/mcp/keys");
+        create.Headers.TryAddWithoutValidation("Authorization", $"Bearer {owner}");
+        create.Content = JsonContent.Create(new { name = "Leaked" });
+        var created = await _fixture.Client.SendAsync(create, ct);
+        return created.IsSuccessStatusCode ? (await created.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("key").GetString() : null;
+    }
+
+    private async Task AssertInsufficientScopeAsync(string path, object body, string key, CancellationToken ct)
+    {
+        var req = _fixture.CreateRequest(HttpMethod.Post, path);
+        req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {key}");
+        req.Content = JsonContent.Create(body);
+        var resp = await _fixture.Client.SendAsync(req, ct);
+
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Equal("insufficient_scope", (await resp.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("error").GetString());
+    }
+
     [Fact]
     public async Task ConnectKey_AccountManagement_403_LibraryAllowed()
     {
