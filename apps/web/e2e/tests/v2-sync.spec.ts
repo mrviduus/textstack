@@ -5,7 +5,7 @@ import { waitForReaderLoad } from '../helpers/reader'
 
 // @v2 — the web app on the V2 sync API (#1025 M2.7): with Features:V2Api on, an upload, the reader,
 // its position, a highlight, a saved word and a delete all go through /me/v2. Skips when the probe
-// answers 404 (the flag is off: every other run of this suite). CI runs it blocking in a second,
+// answers 404 (the flag is off: every other run of this suite) unless V2_E2E=1. CI runs it blocking in a second,
 // V2-on pass of the e2e job. Every wait is a poll on a real signal.
 //
 // Content: a 3-chapter EPUB fixture (50 paragraphs each), uploaded by a fresh user each run, so the
@@ -57,7 +57,8 @@ test.describe('V2 sync @v2', () => {
     const login = await request.post(`${API_URL}/auth/test-login`, { data: { email }, headers: API_HEADERS })
     expect(login.ok(), `test-login: ${login.status()}`).toBeTruthy()
     const status = await request.get(`${API_URL}/me/v2/status`, { headers: API_HEADERS })
-    test.skip(status.status() === 404, 'Features:V2Api is off: /me/v2 is not mapped')
+    // V2_E2E=1 (CI's V2 pass): a 404 fails instead of skipping, so that pass cannot go green untested.
+    test.skip(status.status() === 404 && process.env.V2_E2E !== '1', 'Features:V2Api is off: /me/v2 is not mapped')
     expect(status.ok(), `GET /me/v2/status: ${status.status()}`).toBeTruthy()
     await context.addInitScript(() => {
       localStorage.setItem('textstack_native_language', 'en')
