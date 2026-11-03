@@ -16,7 +16,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     private static ReadingState At(Guid fileId, int page) => new()
     {
         FileId = fileId,
-        CurrentLocator = Page(page),
+        CurrentLocator = Cfi(page),
         BookFraction = page / 10m,
         ClientRecordedAt = DateTimeOffset.UtcNow,
     };
@@ -39,7 +39,39 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     private static readonly TransitionalChapterKeys OnChapter = new("ch-1", "ch-1");
 
     private static ReadingState WithFrontier(Guid fileId, int page, int frontierPage) =>
-        new() { FileId = fileId, CurrentLocator = Page(page), BookFraction = page / 10m, FrontierLocator = Page(frontierPage), FrontierFraction = frontierPage / 10m, ClientRecordedAt = DateTimeOffset.UtcNow };
+        new() { FileId = fileId, CurrentLocator = Cfi(page), BookFraction = page / 10m, FrontierLocator = Cfi(frontierPage), FrontierFraction = frontierPage / 10m, ClientRecordedAt = DateTimeOffset.UtcNow };
+
+    // #1122: the scheme guard, in the write itself.
+    private const string PdfPage = """{"version":1,"scheme":"pdf-page","value":{"page":2}}""";
+    private const string TextPosition = """{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"ch-1","chapterFraction":0.2}}""";
+
+    private static ReadingState Locating(Guid fileId, string locator, decimal fraction = 0.2m) =>
+        new() { FileId = fileId, CurrentLocator = locator, BookFraction = fraction, ClientRecordedAt = DateTimeOffset.UtcNow };
+
+    [Fact]
+    public async Task AdvanceAsync_PdfPageOnAnEpub_LosesFirstAndLater()
+    {
+        var (user, book, file) = await ReaderWithBookAsync();
+
+        Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, PdfPage), null, default, Ct)).Accepted);
+        Assert.True((await _repo.AdvanceAsync(user, book, At(file, 1), null, default, Ct)).Accepted);
+        Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, PdfPage, 0.3m), 1, default, Ct)).Accepted);
+    }
+
+    [Fact]
+    public async Task AdvanceAsync_OnAPdf_PdfPageAndTextstackWinAndEpubCfiLoses()
+    {
+        var user = await db.NewReaderAsync();
+        var imported = new Domain.Library.Book { Id = Guid.NewGuid(), Title = "A PDF" };
+        var pdf = (await _library.ImportAsync(user, imported, V2PostgresFixture.NewFile(user, imported.Id, format: "pdf"), Ct)).Book!;
+        var file = pdf.CurrentFile!.Id;
+
+        Assert.False((await _repo.AdvanceAsync(user, pdf.Id, At(file, 1), null, default, Ct)).Accepted);
+        Assert.True((await _repo.AdvanceAsync(user, pdf.Id, Locating(file, PdfPage), null, default, Ct)).Accepted);
+        // The transitional reader's reflow of a PDF; the chapter guard is not this test's (no keys handed in).
+        Assert.True((await _repo.AdvanceAsync(user, pdf.Id, Locating(file, TextPosition, 0.3m), 1, default, Ct)).Accepted);
+        Assert.False((await _repo.AdvanceAsync(user, pdf.Id, Locating(file, Cfi(4), 0.4m), 2, default, Ct)).Accepted);
+    }
 
     [Fact]
     public async Task AdvanceAsync_FirstWriteOnAChapterTheFileLacks_LosesAndOnItsChapterWins()
@@ -103,8 +135,8 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         Assert.True(result.Accepted);
         var stored = (await _repo.GetAsync(user, book, Ct))!;
         Assert.Equal((1L, file, 0.3m, 0.3m), (stored.Revision, stored.FileId, stored.BookFraction, stored.FrontierFraction));
-        AssertSameJson(Page(3), stored.CurrentLocator);
-        AssertSameJson(Page(3), stored.FrontierLocator);
+        AssertSameJson(Cfi(3), stored.CurrentLocator);
+        AssertSameJson(Cfi(3), stored.FrontierLocator);
     }
 
     [Fact]
@@ -143,7 +175,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
 
         Assert.False(result.Accepted);
         Assert.Equal((2L, 0.6m), (result.Current!.Revision, result.Current.BookFraction));
-        AssertSameJson(Page(6), result.Current.CurrentLocator);
+        AssertSameJson(Cfi(6), result.Current.CurrentLocator);
         Assert.Equal(0.6m, (await _repo.GetAsync(user, book, Ct))!.BookFraction);
     }
 
@@ -171,13 +203,13 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         await _repo.AdvanceAsync(user, book, At(file, 8), null, default, Ct);
 
         var back = At(file, 2);
-        back.FrontierLocator = Page(5); // a device that knew less: still behind the stored frontier
+        back.FrontierLocator = Cfi(5); // a device that knew less: still behind the stored frontier
         back.FrontierFraction = 0.5m;
         var result = await _repo.AdvanceAsync(user, book, back, 1, default, Ct);
 
         Assert.True(result.Accepted);
         Assert.Equal((0.2m, 0.8m), (result.Current!.BookFraction, result.Current.FrontierFraction));
-        AssertSameJson(Page(8), result.Current.FrontierLocator);
+        AssertSameJson(Cfi(8), result.Current.FrontierLocator);
     }
 
     [Fact]
@@ -187,12 +219,12 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
 
         var state = At(file, 2);
-        state.FrontierLocator = Page(9);
+        state.FrontierLocator = Cfi(9);
         state.FrontierFraction = 0.9m;
         var result = await _repo.AdvanceAsync(user, book, state, 1, default, Ct);
 
         Assert.Equal(0.9m, result.Current!.FrontierFraction);
-        AssertSameJson(Page(9), result.Current.FrontierLocator);
+        AssertSameJson(Cfi(9), result.Current.FrontierLocator);
     }
 
     [Fact]
@@ -266,7 +298,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
 
         Assert.True(result.Accepted);
         Assert.Equal(0.3m, result.Current!.FrontierFraction);
-        AssertSameJson(Page(3), result.Current.FrontierLocator);
+        AssertSameJson(Cfi(3), result.Current.FrontierLocator);
     }
 
     [Fact]
@@ -284,7 +316,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal((2L, 2L, 0.8m, (decimal?)null, (string?)null, (DateTimeOffset?)null),
             (reset.Revision, reset.ResetRevision, reset.BookFraction, reset.FrontierFraction, reset.FrontierLocator, reset.CompletedAt));
-        AssertSameJson(Page(8), reset.CurrentLocator);
+        AssertSameJson(Cfi(8), reset.CurrentLocator);
         // The next write moves the revision on; reset_revision keeps naming the reset's.
         var next = await _repo.AdvanceAsync(user, book, At(file, 1), reset.Revision, default, Ct);
         Assert.Equal((3L, 2L, 0.1m), (next.Current!.Revision, next.Current.ResetRevision, next.Current.FrontierFraction));

@@ -31,10 +31,6 @@ public sealed class ReadingSyncService(
     public async Task<SyncResult> WriteAsync(Guid userId, Guid bookId, ReadingStateRequest request, CancellationToken ct)
     {
         if (Validate(request) is { } invalid) return invalid;
-        // The scheme must fit the file (#1122): one key read, no toc. A file that is no version of the book is
-        // left to the write's guard, whose loss names it. Formats never change, so nothing slips in between.
-        if (await library.FileFormatAsync(userId, bookId, request.FileId!.Value, ct) is { } format
-            && FitsFile(request.CurrentLocator!.Value, format, "currentLocator") is { } misfit) return misfit;
         var state = new ReadingState
         {
             FileId = request.FileId!.Value,
@@ -60,11 +56,24 @@ public sealed class ReadingSyncService(
             return await library.GetFileAsync(userId, bookId, sent.FileId, ct) is null
                 ? SyncResult.UnknownFile
                 : SyncResult.FileReplaced(current, stored?.Revision, stored?.ToDto());
+        if (MisfitsTheFile(sent, stored, current!.Format) is { } misfit) return misfit;
         if (await NamesAMissingChapterAsync(userId, sent, keys, stored, ct)) return SyncResult.ChapterNotFound;
         // A first writer had no frontier to lose, so a reset is news only to a writer that read an older revision.
         return expectedRevision is not null && stored?.ResetRevision > expectedRevision
             ? SyncResult.Fail(SyncCodes.Reset, stored!.Revision, stored.ToDto(), current?.Id, current?.ToDto())
             : SyncResult.StaleRevision(stored?.Revision, stored?.ToDto(), current);
+    }
+
+    /// <summary>
+    /// The write SQL's scheme guard asked again, to name the loss (#1122): the position's scheme, and the offered
+    /// frontier's when the write would have stored it, as the chapter guard below.
+    /// </summary>
+    private static SyncResult? MisfitsTheFile(ReadingState sent, ReadingState? stored, string format)
+    {
+        var (frontier, offered) = ReadingState.Furthest((sent.FrontierLocator, sent.FrontierFraction), (sent.CurrentLocator, sent.BookFraction));
+        var frontierStored = stored?.FrontierFraction is not { } kept || offered > kept;
+        return FitsFile(SchemeOf(sent.CurrentLocator), format, "currentLocator")
+            ?? (frontierStored && frontier is not null ? FitsFile(SchemeOf(frontier), format, "frontierLocator") : null);
     }
 
     /// <summary>
@@ -89,11 +98,7 @@ public sealed class ReadingSyncService(
         ?? ((r.FrontierLocator is null) != (r.FrontierFraction is null)
             ? SyncResult.Invalid("frontierLocator", "frontierLocator and frontierFraction are sent together or not at all.") : null)
         ?? (r.FrontierLocator is { } frontier
-            ? Locator(frontier, "frontierLocator", LocatorUse.Position) ?? Fraction(r.FrontierFraction, "frontierFraction")
-              // One file, one scheme family: the position's is checked against the file, so the frontier must agree (#1122).
-              ?? (IsPdfLocator(frontier) != IsPdfLocator(r.CurrentLocator!.Value)
-                  ? SyncResult.Invalid("frontierLocator", "frontierLocator and currentLocator must both be pdf-page, or neither.") : null)
-            : null);
+            ? Locator(frontier, "frontierLocator", LocatorUse.Position) ?? Fraction(r.FrontierFraction, "frontierFraction") : null);
 
     public async Task<SyncResult> ResetAsync(Guid userId, Guid bookId, ResetReadingStateRequest request, CancellationToken ct)
     {

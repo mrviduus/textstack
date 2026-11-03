@@ -227,16 +227,30 @@ public static class SyncValidation
         };
     }
 
-    /// <summary>Whether a valid locator (<see cref="Locator"/>) is <c>pdf-page</c>: the only scheme a PDF takes, and one only a PDF takes.</summary>
-    public static bool IsPdfLocator(JsonElement locator) => locator.GetProperty("scheme").GetString() == "pdf-page";
+    /// <summary>The scheme of a valid locator (<see cref="Locator"/>).</summary>
+    public static string? SchemeOf(JsonElement locator) => locator.GetProperty("scheme").GetString();
+
+    /// <inheritdoc cref="SchemeOf(JsonElement)"/>
+    public static string? SchemeOf(string locator)
+    {
+        using var json = JsonDocument.Parse(locator);
+        return SchemeOf(json.RootElement);
+    }
 
     /// <summary>
-    /// A locator fits the file it is written in (#1122): <c>pdf-page</c> only on a <c>pdf</c>, <c>epub-cfi</c> and
-    /// <c>textstack-*</c> only on <c>epub</c>/<c>html</c>.
+    /// A locator's scheme fits the file it is written in (#1122): <c>pdf-page</c> only on a <c>pdf</c>, <c>epub-cfi</c>
+    /// only on an <c>epub</c> or <c>html</c>. <c>textstack-*</c> fits any: the transitional reader writes it on PDFs
+    /// too (reflow), and its real guard is the chapter check. <c>ReadingStateRepository</c>'s write asks the same in SQL.
     /// </summary>
-    public static SyncResult? FitsFile(JsonElement locator, string format, string field) =>
-        IsPdfLocator(locator) == (format == "pdf") ? null
-            : SyncResult.Invalid(field, $"A {locator.GetProperty("scheme").GetString()} locator does not fit a {format} file.");
+    public static SyncResult? FitsFile(string? scheme, string format, string field) => scheme switch
+    {
+        "pdf-page" when format != "pdf" => Misfit(scheme, format, field),
+        "epub-cfi" when format is not ("epub" or "html") => Misfit(scheme, format, field),
+        _ => null,
+    };
+
+    private static SyncResult Misfit(string scheme, string format, string field) =>
+        SyncResult.Invalid(field, $"A {scheme} locator does not fit a {format} file.");
 
     private static SyncResult? EpubCfi(JsonElement locator, JsonElement value, string field, LocatorUse use)
     {

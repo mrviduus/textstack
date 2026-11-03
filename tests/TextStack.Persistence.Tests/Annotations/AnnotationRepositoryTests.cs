@@ -20,7 +20,7 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         FileId = book.CurrentFile!.Id,
         SelectedText = "quoted",
         NoteText = note,
-        Locator = Page(3),
+        Locator = Cfi(3),
     };
 
     private async Task<(Book Book, Annotation Stored)> SavedHighlightAsync()
@@ -54,7 +54,7 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         var stored = (await _repo.GetAsync(book.UserId, highlight.Id, Ct))!;
         Assert.Equal((1L, book.Id, book.CurrentFile!.Id, "quoted", "a note", "yellow", (DateTimeOffset?)null),
             (stored.Revision, stored.BookId, stored.FileId, stored.SelectedText, stored.NoteText, stored.Color, stored.DeletedAt));
-        AssertSameJson(Page(3), stored.Locator);
+        AssertSameJson(Cfi(3), stored.Locator);
     }
 
     [Fact]

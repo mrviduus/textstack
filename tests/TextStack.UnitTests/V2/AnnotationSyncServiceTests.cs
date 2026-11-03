@@ -246,35 +246,61 @@ public class AnnotationSyncServiceTests
     private void FileIs(string format) =>
         _library.Setup(l => l.FileFormatAsync(User, BookId, FileId, It.IsAny<CancellationToken>())).ReturnsAsync(format);
 
-    // A null locator stands for the transitional textstack-anchor-v1 on chapter ch-1.
+    private void Accepts()
+    {
+        _chapters.Setup(c => c.ExistsAsync(User, FileId, OnChapter, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _annotations.Setup(a => a.SaveAsync(User, It.IsAny<Annotation>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid user, Annotation sent, long? expected, CancellationToken token) => new RevisionedWrite<Annotation>(true, sent));
+    }
+
     [Theory]
     [InlineData(PdfAnchor, "epub")]
     [InlineData(PdfAnchor, "html")]
     [InlineData(Cfi, "pdf")]
-    [InlineData(null, "pdf")]
-    public async Task SaveAsync_LocatorSchemeThatDoesNotFitTheFile_IsInvalidPayloadAndWritesNothing(string? locator, string format)
+    public async Task SaveAsync_NewLocatorSchemeThatDoesNotFitTheFile_IsInvalidPayloadAndWritesNothing(string locator, string format)
     {
         FileIs(format);
 
-        var result = await Service.SaveAsync(User, Id, Highlight(locator ?? TextAnchor(OnChapter)), Ct);
+        var result = await Service.SaveAsync(User, Id, Highlight(locator), Ct);
 
         Assert.Equal((400, SyncCodes.InvalidPayload, "locator"), (result.Status, V2Fakes.Error(result).Code, V2Fakes.Error(result).Field));
-        _annotations.VerifyNoOtherCalls();
+        _annotations.Verify(a => a.SaveAsync(It.IsAny<Guid>(), It.IsAny<Annotation>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()), Times.Never);
         _library.Verify(l => l.ExistsAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    // A null locator stands for the transitional textstack-anchor-v1 on chapter ch-1, which fits any file.
     [Theory]
     [InlineData(PdfAnchor, "pdf")]
     [InlineData(Cfi, "epub")]
     [InlineData(Cfi, "html")]
     [InlineData(null, "epub")]
+    [InlineData(null, "pdf")]
     public async Task SaveAsync_LocatorSchemeThatFitsTheFile_Writes(string? locator, string format)
     {
         FileIs(format);
-        _chapters.Setup(c => c.ExistsAsync(User, FileId, OnChapter, It.IsAny<CancellationToken>())).ReturnsAsync(true);
-        _annotations.Setup(a => a.SaveAsync(User, It.IsAny<Annotation>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid user, Annotation sent, long? expected, CancellationToken token) => new RevisionedWrite<Annotation>(true, sent));
+        Accepts();
 
         Assert.Equal(200, (await Service.SaveAsync(User, Id, Highlight(locator ?? TextAnchor(OnChapter)), Ct)).Status);
+    }
+
+    // An edit or replay of an annotation stored before the check keeps its locator: it is never refused for it.
+    [Fact]
+    public async Task SaveAsync_KeptLocatorThatDoesNotFitTheFile_Writes()
+    {
+        FileIs("pdf");
+        Accepts();
+        _annotations.Setup(a => a.GetAsync(User, Id, It.IsAny<CancellationToken>())).ReturnsAsync(Stored());
+
+        Assert.Equal(200, (await Service.SaveAsync(User, Id, Highlight() with { NoteText = "an edit" }, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task SaveAsync_ChangedLocatorThatDoesNotFitTheFile_IsInvalidPayload()
+    {
+        FileIs("pdf");
+        _annotations.Setup(a => a.GetAsync(User, Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Stored(locator: """{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/2!/4/2/1:0)","quote":"bright"}"""));
+
+        Assert.Equal(400, (await Service.SaveAsync(User, Id, Highlight(), Ct)).Status);
     }
 }

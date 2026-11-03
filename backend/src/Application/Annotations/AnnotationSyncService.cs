@@ -27,12 +27,14 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
         if (invalid is not null) return invalid;
         var bookId = r.BookId!.Value;
         // Any version of the book, current or not: a highlight made offline in a superseded one is still valid provenance.
-        // The happy path is one round trip: the file's format proves the version and checks the locator's scheme.
-        if (r.FileId is { } fileId && await library.FileFormatAsync(userId, bookId, fileId, ct) is { } format)
+        // One round trip: the file's format proves the version and is what the locator's scheme must fit.
+        string? format = null;
+        if (r.FileId is { } fileId)
         {
-            if (r.Locator is { } sentLocator && FitsFile(sentLocator, format, "locator") is { } misfit) return misfit;
+            format = await library.FileFormatAsync(userId, bookId, fileId, ct);
+            if (format is null) return await library.ExistsAsync(userId, bookId, ct) ? SyncResult.UnknownFile : SyncResult.BookNotFound;
         }
-        else if (await library.MissingBookOrFileAsync(userId, bookId, r.FileId, ct) is { } missing) return missing;
+        else if (!await library.ExistsAsync(userId, bookId, ct)) return SyncResult.BookNotFound;
 
         var sent = new Annotation
         {
@@ -45,7 +47,10 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
             Color = r.Color ?? DefaultColor,
         };
         // Only a locator this write sets is checked: an edit or a replay that keeps the stored one still lands
-        // after a re-extraction renamed its chapter.
+        // after a re-extraction renamed its chapter, or when it was stored before its scheme was checked (#1122).
+        if (sent.Locator is not null && FitsFile(SchemeOf(sent.Locator), format!, "locator") is { } misfit
+            && !(await annotations.GetAsync(userId, id, ct) is { } before && SameAnchor(before, sent)))
+            return misfit;
         if (TransitionalLocators.ChapterKeyOf(sent.Locator) is { } chapterKey
             && !await chapters.ExistsAsync(userId, r.FileId!.Value, chapterKey, ct)
             && !(await annotations.GetAsync(userId, id, ct) is { } kept && SameAnchor(kept, sent)))

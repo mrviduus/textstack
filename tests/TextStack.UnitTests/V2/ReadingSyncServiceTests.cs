@@ -330,54 +330,62 @@ public class ReadingSyncServiceTests
         Assert.Equal(status, (await Service.SaveSessionAsync(User, Guid.NewGuid(), Session(BookId), Ct)).Status);
     }
 
-    // #1122: a locator's scheme fits the file it names. The file's format is the one extra read.
+    // #1122: the write's SQL refuses a scheme that does not fit the file; the loss is named here, from the book's current file.
     private const string PdfPage = """{"version":1,"scheme":"pdf-page","value":{"page":2}}""";
     private const string Cfi = """{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4!/4/2/1:0)","quote":"It was a bright cold day"}""";
     private const string TextPositionV1 = """{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"ch-1","chapterFraction":0.5}}""";
 
-    private void FileIs(string format) =>
-        _library.Setup(l => l.FileFormatAsync(User, BookId, CurrentFile, It.IsAny<CancellationToken>())).ReturnsAsync(format);
+    private void CurrentFileIs(string format)
+    {
+        _library.Setup(l => l.GetAsync(User, BookId, It.IsAny<CancellationToken>())).ReturnsAsync(new Book
+        {
+            Id = BookId,
+            UserId = User,
+            CurrentFile = new BookFile { Id = CurrentFile, BookId = BookId, Sha256 = new string('a', 64), Format = format, IsCurrent = true },
+        });
+        _chapters.Setup(c => c.ExistsAsync(User, CurrentFile, "ch-1", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+    }
 
     [Theory]
     [InlineData(PdfPage, "epub")]
     [InlineData(PdfPage, "html")]
     [InlineData(Cfi, "pdf")]
-    [InlineData(TextPositionV1, "pdf")]
-    public async Task WriteAsync_LocatorSchemeThatDoesNotFitTheFile_IsInvalidPayloadAndWritesNothing(string locator, string format)
+    public async Task WriteAsync_LostOnASchemeThatDoesNotFitTheFile_IsInvalidPayload(string locator, string format)
     {
-        FileIs(format);
+        CurrentFileIs(format);
+        Loses(null);
 
         var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null, Json(locator)), Ct);
 
         Assert.Equal((400, SyncCodes.InvalidPayload, "currentLocator"), (result.Status, V2Fakes.Error(result).Code, V2Fakes.Error(result).Field));
-        _states.VerifyNoOtherCalls();
     }
 
+    // textstack-* fits any file: the transitional reader writes it on a PDF's reflow too.
     [Theory]
     [InlineData(PdfPage, "pdf")]
     [InlineData(Cfi, "epub")]
     [InlineData(Cfi, "html")]
     [InlineData(TextPositionV1, "epub")]
-    public async Task WriteAsync_LocatorSchemeThatFitsTheFile_Writes(string locator, string format)
+    [InlineData(TextPositionV1, "pdf")]
+    public async Task WriteAsync_LostOnASchemeThatFitsTheFile_IsStaleRevisionNotInvalid(string locator, string format)
     {
-        FileIs(format);
-        _states.Setup(s => s.AdvanceAsync(User, BookId, It.IsAny<ReadingState>(), null, It.IsAny<TransitionalChapterKeys>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new RevisionedWrite<ReadingState>(true, Stored(1)));
+        CurrentFileIs(format);
+        Loses(Stored(2));
 
-        Assert.Equal(200, (await Service.WriteAsync(User, BookId, Write(CurrentFile, null, Json(locator)), Ct)).Status);
+        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, 1, Json(locator)), Ct);
+
+        Assert.Equal((409, SyncCodes.StaleRevision), (result.Status, V2Fakes.Error(result).Code));
     }
 
-    [Theory]
-    [InlineData(Cfi, PdfPage)]
-    [InlineData(PdfPage, TextPositionV1)]
-    public async Task WriteAsync_FrontierOfTheOtherSchemeFamily_IsInvalidPayloadAndReadsNothing(string current, string frontier)
+    [Fact]
+    public async Task WriteAsync_LostOnAFrontierThatDoesNotFitTheFile_IsInvalidPayloadNamingTheFrontier()
     {
-        var request = Write(CurrentFile, null, Json(current)) with { FrontierLocator = Json(frontier), FrontierFraction = 0.5m };
+        CurrentFileIs("pdf");
+        Loses(null);
+        var request = Write(CurrentFile, null, Json(TextPositionV1)) with { FrontierLocator = Json(Cfi), FrontierFraction = 0.6m };
 
         var result = await Service.WriteAsync(User, BookId, request, Ct);
 
         Assert.Equal((400, "frontierLocator"), (result.Status, V2Fakes.Error(result).Field));
-        _library.Verify(l => l.FileFormatAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
-        _states.VerifyNoOtherCalls();
     }
 }
