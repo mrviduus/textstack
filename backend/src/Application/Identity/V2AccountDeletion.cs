@@ -11,10 +11,20 @@ namespace Application.Identity;
 public sealed class V2AccountDeletion(IUserRepository users, ILibraryRepository library, ILibraryFileStore files, ILogger<V2AccountDeletion> logger)
 {
     /// <summary>
-    /// The users cascade drops the rows; the account's bytes go after it, best-effort: its own directories,
-    /// then any key it held elsewhere (listed before the delete: after a merge some sit under the former
-    /// guest's directory; the rest are already gone, a cheap no-op). What fails here the orphan sweep
-    /// collects. False when there was no such account (its directories are still swept).
+    /// Whether the account holds nothing a reader would miss on V2: no book, annotation, word, reading
+    /// state, share, checkpoint or insight. What the guest reaper asks before reaping on legacy, whose
+    /// own filter cannot see V2.
+    /// </summary>
+    public Task<bool> HoldsNothingDurableAsync(Guid userId, CancellationToken ct) => users.HoldsNothingDurableAsync(userId, ct);
+
+    /// <summary>
+    /// Safe to fail at any step, so a caller without a readiness check (the Worker) leaves no half
+    /// state: the keys are read first, then the rows go in one statement (<c>DELETE FROM users</c>; the
+    /// cascade drops the rest), and only once it committed the bytes: the account's own directories,
+    /// then any key it held elsewhere (after a merge some sit under the former guest's directory; the
+    /// rest are already gone, a cheap no-op). A failure before the delete touches nothing; a byte left
+    /// behind the orphan sweep collects. False when there was no such account (its directories are
+    /// still swept).
     /// </summary>
     public async Task<bool> DeleteAsync(Guid userId, CancellationToken ct)
     {

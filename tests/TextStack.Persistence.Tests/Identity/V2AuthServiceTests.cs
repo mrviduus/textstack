@@ -655,6 +655,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         public Task<UserAccount?> UpdateNameAndLanguageAsync(Guid userId, string? name, string? nativeLanguage, CancellationToken ct) => inner.UpdateNameAndLanguageAsync(userId, name, nativeLanguage, ct);
         public Task<UserAccount?> SetPictureAsync(Guid userId, string? picture, CancellationToken ct) => inner.SetPictureAsync(userId, picture, ct);
         public Task<bool> TouchActiveAsync(Guid userId, DateTimeOffset now, CancellationToken ct) => inner.TouchActiveAsync(userId, now, ct);
+        public Task<bool> HoldsNothingDurableAsync(Guid userId, CancellationToken ct) => inner.HoldsNothingDurableAsync(userId, ct);
     }
 
     /// <summary>The real sessions, except that every rotation loses to a concurrent one.</summary>

@@ -9,8 +9,10 @@ using Microsoft.Extensions.Logging;
 namespace Worker.Services;
 
 /// <summary>
-/// Reaps legacy guests idle for <see cref="ExpiryThreshold"/> that hold nothing, and with
-/// <c>Features:V2Api</c> on, each one's V2 account and bytes after its legacy delete commits.
+/// Reaps legacy guests idle for <see cref="ExpiryThreshold"/> that hold nothing. With
+/// <c>Features:V2Api</c> on, "nothing" includes V2: a guest holding anything there is kept, and each
+/// reaped one's V2 account and bytes go after its legacy delete commits (<see cref="V2Follow"/>). With the
+/// flag off, V2 holdings of a reaped guest are orphans the M3 ETL pre-flight sweeps (#1094).
 /// </summary>
 /// <remarks>
 /// ponytail: no V2-side guest sweep here. Until M5.1 a V2 <c>users.last_active_at</c> is written only by
@@ -22,8 +24,8 @@ public class GuestCleanupWorker(
     IConfiguration config,
     ILogger<GuestCleanupWorker> logger) : BackgroundService
 {
-    /// <summary>How long one guest's V2 delete may take: the reaper never waits on V2 longer.</summary>
-    public TimeSpan V2Budget { get; init; } = TimeSpan.FromSeconds(10);
+    /// <summary>How long one V2 step for one guest may take: the reaper never waits on V2 longer.</summary>
+    public TimeSpan V2Budget { get; init; } = V2Follow.Budget;
 
     // Run cleanup every 2h: short enough to reclaim abandoned guest slots quickly,
     // long enough to avoid hammering the DB on a weak server.
@@ -57,7 +59,7 @@ public class GuestCleanupWorker(
         }
     }
 
-    private async Task CleanupExpiredGuestsAsync(CancellationToken ct)
+    public async Task CleanupExpiredGuestsAsync(CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
@@ -88,8 +90,25 @@ public class GuestCleanupWorker(
 
         logger.LogInformation("Cleaning up {Count} expired guest users", expiredGuests.Count);
 
+        V2AccountDeletion? v2 = null;
+        V2AccountDeletion V2() => v2 ??= scope.ServiceProvider.GetRequiredService<V2AccountDeletion>();
+
         foreach (var guest in expiredGuests)
         {
+            // Legacy's filter cannot see V2: a guest that uploaded or annotated there is engaged too.
+            // V2 unable to answer reaps nobody this run rather than guessing.
+            if (V2Follow.IsOn(config))
+            {
+                var holdsNothing = false;
+                if (!await V2Follow.RunAsync(config, logger, "expired guest check", guest.Id, guest.Id,
+                        async t => holdsNothing = await V2().HoldsNothingDurableAsync(guest.Id, t), V2Budget))
+                {
+                    logger.LogWarning("Guest cleanup stopped: V2 cannot say what expired guests hold there; none reaped this run");
+                    return;
+                }
+                if (!holdsNothing) continue;
+            }
+
             try
             {
                 // Delete files from storage for each book. Per-book try/catch so a single
@@ -119,32 +138,12 @@ public class GuestCleanupWorker(
                 await db.SaveChangesAsync(ct);
 
                 logger.LogInformation("Deleted expired guest {GuestId}", guest.Id);
-                await DeleteOnV2Async(scope.ServiceProvider, guest.Id);
+                await V2Follow.RunAsync(config, logger, "expired guest delete", guest.Id, guest.Id, t => V2().DeleteAsync(guest.Id, t), V2Budget);
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Failed to delete guest {GuestId}", guest.Id);
             }
-        }
-    }
-
-    /// <summary>
-    /// The guest's V2 account, rows and bytes (<see cref="V2AccountDeletion"/>), after its legacy delete
-    /// committed: the identity mirror's account delete, for the reaper. Best-effort on its own
-    /// <see cref="V2Budget"/>; a failure is an Error log with the id, never thrown, and the M3 ETL
-    /// pre-flight sweeps V2 users with no legacy row (#1094).
-    /// </summary>
-    public async Task DeleteOnV2Async(IServiceProvider services, Guid guestId)
-    {
-        if (!config.GetValue<bool>("Features:V2Api") || string.IsNullOrWhiteSpace(config.GetConnectionString("V2"))) return;
-        using var budget = new CancellationTokenSource(V2Budget);
-        try
-        {
-            await services.GetRequiredService<V2AccountDeletion>().DeleteAsync(guestId, budget.Token);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "V2 delete of expired guest {GuestId} failed; legacy is done, V2 keeps its rows until the ETL sweep (#1094)", guestId);
         }
     }
 }

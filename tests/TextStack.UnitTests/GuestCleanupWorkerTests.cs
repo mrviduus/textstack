@@ -1,5 +1,7 @@
+using Application.Common.Interfaces;
 using Application.Identity;
 using Application.Library;
+using Domain.Entities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -11,88 +13,136 @@ using Worker.Services;
 namespace TextStack.UnitTests;
 
 /// <summary>
-/// The reaper's V2 follow-up (#1100): an expired guest's V2 account and bytes go after its legacy
-/// delete, and V2 failing never reaches the reaper.
+/// The guest reaper with V2 in the picture (#1100): a guest engaged on V2 is not reaped on legacy's
+/// say-so, a reaped one's V2 account and bytes go after the legacy commit, and V2 failing or hanging
+/// never deletes a guest on a guess nor reaches the reaper as an exception.
 /// </summary>
 public class GuestCleanupWorkerTests
 {
-    private const string V2 = "Host=v2;Database=textstack_v2";
-
-    private readonly Mock<IUserRepository> _users = new();
+    private readonly List<User> _legacyUsers = [];
+    private readonly Mock<IUserRepository> _v2Users = new();
     private readonly Mock<ILibraryRepository> _library = new();
     private readonly Mock<ILibraryFileStore> _files = new();
     private readonly CapturingLogger<GuestCleanupWorker> _log = new();
-    private readonly Guid _guest = Guid.NewGuid();
 
     public GuestCleanupWorkerTests() =>
         _library.Setup(l => l.ListStorageKeysAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
 
-    private async Task DeleteOnV2Async(bool flag = true, string? v2 = V2, TimeSpan? budget = null)
+    private User ExpiredGuest()
     {
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["Features:V2Api"] = flag.ToString(),
-            ["ConnectionStrings:V2"] = v2,
-        }).Build();
+        var guest = new User { Id = Guid.NewGuid(), Email = "guest@guest.local", IsGuest = true, LastActiveAt = DateTimeOffset.UtcNow.AddDays(-40) };
+        _legacyUsers.Add(guest);
+        return guest;
+    }
+
+    private void V2Holds(bool nothing) =>
+        _v2Users.Setup(u => u.HoldsNothingDurableAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(nothing);
+
+    private async Task SweepAsync(bool flag = true, TimeSpan? budget = null)
+    {
+        var db = new Mock<IAppDbContext>();
+        db.Setup(d => d.Users).Returns(() => new FakeDbSet<User>(_legacyUsers));
+        db.Setup(d => d.VocabularyWords).Returns(() => new FakeDbSet<VocabularyWord>([]));
+        db.Setup(d => d.Highlights).Returns(() => new FakeDbSet<Highlight>([]));
+        db.Setup(d => d.Bookmarks).Returns(() => new FakeDbSet<Bookmark>([]));
+        db.Setup(d => d.UserLibraries).Returns(() => new FakeDbSet<UserLibrary>([]));
+        db.Setup(d => d.UserBooks).Returns(() => new FakeDbSet<UserBook>([]));
+        db.Setup(d => d.ReadingProgresses).Returns(() => new FakeDbSet<ReadingProgress>([]));
         await using var services = new ServiceCollection()
-            .AddSingleton(new V2AccountDeletion(_users.Object, _library.Object, _files.Object, NullLogger<V2AccountDeletion>.Instance))
+            .AddScoped(_ => db.Object)
+            .AddSingleton(Mock.Of<IFileStorageService>())
+            .AddSingleton(new V2AccountDeletion(_v2Users.Object, _library.Object, _files.Object, NullLogger<V2AccountDeletion>.Instance))
             .BuildServiceProvider();
-        var worker = new GuestCleanupWorker(null!, config, _log) { V2Budget = budget ?? TimeSpan.FromSeconds(10) };
-        await worker.DeleteOnV2Async(services, _guest).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Features:V2Api"] = flag.ToString() }).Build();
+        var worker = new GuestCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), config, _log) { V2Budget = budget ?? TimeSpan.FromSeconds(10) };
+
+        await worker.CleanupExpiredGuestsAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+    }
+
+    private IEnumerable<(LogLevel Level, string Message, Exception? Exception)> Errors => _log.Entries.Where(e => e.Level == LogLevel.Error);
+
+    [Fact]
+    public async Task CleanupExpiredGuestsAsync_FlagOnNothingOnV2_ReapedOnLegacyThenOnV2()
+    {
+        var guest = ExpiredGuest();
+        V2Holds(nothing: true);
+
+        await SweepAsync();
+
+        Assert.Empty(_legacyUsers);
+        _v2Users.Verify(u => u.DeleteAsync(guest.Id, It.IsAny<CancellationToken>()), Times.Once);
+        _files.Verify(f => f.DeleteUser(guest.Id), Times.Once);
     }
 
     [Fact]
-    public async Task DeleteOnV2Async_FlagOn_DeletesTheGuestsV2RowsAndDirectories()
+    public async Task CleanupExpiredGuestsAsync_FlagOnGuestHoldsAV2Book_Kept()
     {
-        await DeleteOnV2Async();
+        var guest = ExpiredGuest();
+        V2Holds(nothing: false);
 
-        _users.Verify(u => u.DeleteAsync(_guest, It.IsAny<CancellationToken>()), Times.Once);
-        _files.Verify(f => f.DeleteUser(_guest), Times.Once);
+        await SweepAsync();
+
+        Assert.Equal(guest, Assert.Single(_legacyUsers));
+        _v2Users.Verify(u => u.DeleteAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
-    public async Task DeleteOnV2Async_FlagOff_TouchesNothingOnV2()
+    public async Task CleanupExpiredGuestsAsync_FlagOff_ReapedWithoutAskingV2()
     {
-        await DeleteOnV2Async(flag: false);
+        // Today's behaviour: V2 holdings of a reaped guest are orphans the M3 ETL sweep collects (#1094).
+        ExpiredGuest();
 
-        _users.VerifyNoOtherCalls();
+        await SweepAsync(flag: false);
+
+        Assert.Empty(_legacyUsers);
+        _v2Users.VerifyNoOtherCalls();
         _files.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public async Task DeleteOnV2Async_NoV2ConnectionString_TouchesNothingOnV2()
+    public async Task CleanupExpiredGuestsAsync_V2CannotAnswer_NobodyReapedAndOneError()
     {
-        await DeleteOnV2Async(v2: null);
+        ExpiredGuest();
+        ExpiredGuest();
+        _v2Users.Setup(u => u.HoldsNothingDurableAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ThrowsAsync(new TimeoutException());
 
-        _users.VerifyNoOtherCalls();
-        Assert.Empty(_log.Entries);
+        await SweepAsync();
+
+        Assert.Equal(2, _legacyUsers.Count);
+        Assert.IsType<TimeoutException>(Assert.Single(Errors).Exception);
     }
 
     [Fact]
-    public async Task DeleteOnV2Async_V2Throws_AnErrorLogNamingTheGuestNotAnException()
+    public async Task CleanupExpiredGuestsAsync_V2CheckHangs_GivesUpAtItsBudget()
     {
-        _users.Setup(u => u.DeleteAsync(_guest, It.IsAny<CancellationToken>())).ThrowsAsync(new TimeoutException());
-
-        await DeleteOnV2Async();
-
-        var (level, message, exception) = Assert.Single(_log.Entries);
-        Assert.Equal(LogLevel.Error, level);
-        Assert.IsType<TimeoutException>(exception);
-        Assert.Contains(_guest.ToString(), message);
-    }
-
-    [Fact]
-    public async Task DeleteOnV2Async_V2Hangs_GivesUpAtItsBudget()
-    {
-        _users.Setup(u => u.DeleteAsync(_guest, It.IsAny<CancellationToken>()))
+        ExpiredGuest();
+        _v2Users.Setup(u => u.HoldsNothingDurableAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .Returns(async (Guid _, CancellationToken ct) =>
             {
                 await Task.Delay(Timeout.Infinite, ct);
                 return true;
             });
 
-        await DeleteOnV2Async(budget: TimeSpan.FromMilliseconds(50));
+        await SweepAsync(budget: TimeSpan.FromMilliseconds(50));
 
-        Assert.Equal(LogLevel.Error, Assert.Single(_log.Entries).Level);
+        Assert.Single(_legacyUsers);
+        Assert.IsAssignableFrom<OperationCanceledException>(Assert.Single(Errors).Exception);
+    }
+
+    [Fact]
+    public async Task CleanupExpiredGuestsAsync_V2DeleteThrows_LegacyDeleteStandsAndAnErrorNamingTheGuest()
+    {
+        var guest = ExpiredGuest();
+        V2Holds(nothing: true);
+        _v2Users.Setup(u => u.DeleteAsync(guest.Id, It.IsAny<CancellationToken>())).ThrowsAsync(new TimeoutException());
+
+        await SweepAsync();
+
+        Assert.Empty(_legacyUsers);
+        var (_, message, exception) = Assert.Single(Errors);
+        Assert.IsType<TimeoutException>(exception);
+        Assert.Contains(guest.Id.ToString(), message);
+        // Rows first: a failed delete touches no bytes.
+        _files.VerifyNoOtherCalls();
     }
 }
