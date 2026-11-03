@@ -19,7 +19,9 @@ import { chatgptConnectorUrl, claudeDesktopConfig, defaultKeyName, liveKeys, mcp
  */
 export function ConnectAssistant() {
   const { t } = useTranslation()
-  const { isAuthenticated, openAuthModal } = useAuth()
+  const { isAuthenticated, isGuest, openAuthModal } = useAuth()
+  // A connect key is a persistent credential: the server refuses guests (403 account_required, #1120).
+  const hasAccount = isAuthenticated && !isGuest
 
   const [keys, setKeys] = useState<McpKey[]>([])
   const [loading, setLoading] = useState(false)
@@ -43,8 +45,8 @@ export function ConnectAssistant() {
   }, [t])
 
   useEffect(() => {
-    if (isAuthenticated) void refresh()
-  }, [isAuthenticated, refresh])
+    if (hasAccount) void refresh()
+  }, [hasAccount, refresh])
 
   const create = async () => {
     setCreating(true)
@@ -83,7 +85,7 @@ export function ConnectAssistant() {
     }
   }
 
-  if (!isAuthenticated) {
+  if (!hasAccount) {
     return (
       <section className="mcp-section mcp-connect">
         <h2 className="mcp-section__heading">{t('mcp.connect.heading')}</h2>

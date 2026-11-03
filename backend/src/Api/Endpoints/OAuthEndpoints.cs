@@ -167,12 +167,7 @@ public static class OAuthEndpoints
 
         // Owner decision: connecting an assistant needs a real account. 403 (sign UP), not 401
         // (sign in) — the same distinction and code RequireAiAccount uses.
-        if (user.IsGuest)
-            return Results.Problem(
-                title: "Account required",
-                detail: "Create a free account to connect an assistant.",
-                statusCode: StatusCodes.Status403Forbidden,
-                extensions: new Dictionary<string, object?> { ["error"] = AiAccountPolicy.ErrorCode });
+        if (user.IsGuest) return AiAccountPolicy.AssistantAccountRequired();
 
         var now = DateTimeOffset.UtcNow;
         var code = OAuth.NewToken("");

@@ -105,6 +105,29 @@ public class McpKeyEndpointTests : IClassFixture<LiveApiFixture>
         await AssertInsufficientScopeAsync("/auth/device/approve", new { user_code = "ABCD-EFGH" }, key!, ct);
     }
 
+    // #1120: a guest session mints no persistent assistant credential — the same 403 as OAuth consent.
+    [Fact]
+    public async Task CreateKey_Guest_Returns403AccountRequired()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var guestReq = _fixture.CreateRequest(HttpMethod.Post, "/auth/guest");
+        guestReq.Headers.Add("X-Client", "mobile");
+        var guestResp = await _fixture.Client.SendAsync(guestReq, ct);
+        Assert.SkipWhen(IntegrationSkip.Unavailable(guestResp) || guestResp.StatusCode == HttpStatusCode.TooManyRequests, "guest session unavailable");
+        var guest = (await guestResp.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("accessToken").GetString()!;
+
+        var create = _fixture.CreateRequest(HttpMethod.Post, "/me/mcp/keys");
+        create.Headers.TryAddWithoutValidation("Authorization", $"Bearer {guest}");
+        create.Content = JsonContent.Create(new { name = "Guest key" });
+        var resp = await _fixture.Client.SendAsync(create, ct);
+        Assert.SkipWhen(resp.StatusCode == HttpStatusCode.TooManyRequests, McpKeysLimited);
+
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Equal("account_required", (await resp.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("error").GetString());
+        // Listing stays open to a guest (it is empty).
+        Assert.Equal(0, (await ListKeysAsync(guest, ct)).GetArrayLength());
+    }
+
     private async Task<string?> NewConnectKeyAsync(CancellationToken ct)
     {
         var owner = await SignUpAsync(ct);

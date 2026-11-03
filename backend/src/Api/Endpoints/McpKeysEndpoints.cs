@@ -56,6 +56,11 @@ public static class McpKeysEndpoints
         var identity = httpContext.GetAccessTokenIdentity(authService);
         if (identity == null) return Results.Unauthorized();
 
+        // A connect key is a persistent assistant credential: guests get the same 403 as OAuth consent.
+        var user = await authService.GetUserByIdAsync(identity.UserId, ct);
+        if (user is null) return Results.Unauthorized();
+        if (user.IsGuest) return AiAccountPolicy.AssistantAccountRequired();
+
         if (await keys.CountLiveAsync(identity.UserId, ct) >= McpKeys.MaxKeysPerUser)
             return Results.BadRequest(new
             {
