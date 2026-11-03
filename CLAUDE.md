@@ -78,7 +78,7 @@ pnpm -C apps/web test:e2e:ui                # Playwright E2E (UI mode)
 dotnet format textstack.sln                  # Backend
 
 # CLI commands (via dotnet run --project backend/src/Api --)
-# create-admin <email> <password> [role]
+# create-admin <email> <password>            (always Admin: Editor/Moderator collapse to Admin on V2, ADR-031 decided 7)
 # optimize-images [--dry-run]
 # import-textstack <book-path>
 # backfill-pdf-page-counts [--dry-run]   (fills null UserBook.PageCount for PDF uploads)
@@ -215,7 +215,7 @@ Test naming convention: `{MethodName}_{Scenario}_{ExpectedResult}`
 ```bash
 make migrate-v2               # once: the textstack_v2 database the V2 classes (tests/…/V2) need
 CLIP_PERMIT_LIMIT=200 ACCOUNT_DELETE_PERMIT_LIMIT=50 GUEST_SESSION_PERMIT_LIMIT=50 \
-  USER_LOGIN_PERMIT_LIMIT=100 DEVICE_CODE_PERMIT_LIMIT=50 FEATURES_V2API=true \
+  USER_LOGIN_PERMIT_LIMIT=100 DEVICE_CODE_PERMIT_LIMIT=50 MCP_KEYS_PERMIT_LIMIT=100 FEATURES_V2API=true \
   docker compose up -d --no-deps --force-recreate api
 # once per database: editions ChapterReviewEndpointTests needs (else it skips); idempotent
 docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"' \
