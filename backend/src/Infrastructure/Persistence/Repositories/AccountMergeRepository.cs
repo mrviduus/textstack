@@ -233,4 +233,20 @@ public sealed partial class AccountMergeRepository(V2DataSource dataSource) : IA
             return new CommandDefinition(sql, parameters, unit.Transaction, cancellationToken: ct);
         }
     }
+
+    private const string HoldsNothingDurable = """
+        SELECT NOT EXISTS (SELECT FROM books WHERE user_id = @userId)
+           AND NOT EXISTS (SELECT FROM annotations WHERE user_id = @userId)
+           AND NOT EXISTS (SELECT FROM vocabulary_words WHERE user_id = @userId)
+           AND NOT EXISTS (SELECT FROM reading_state WHERE user_id = @userId)
+           AND NOT EXISTS (SELECT FROM shared_chapters WHERE user_id = @userId)
+           AND NOT EXISTS (SELECT FROM discussion_checkpoints WHERE user_id = @userId)
+           AND NOT EXISTS (SELECT FROM book_insight WHERE user_id = @userId)
+        """;
+
+    public async Task<bool> HoldsNothingDurableAsync(Guid userId, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return await conn.ExecuteScalarAsync<bool>(new CommandDefinition(HoldsNothingDurable, new { userId }, cancellationToken: ct));
+    }
 }

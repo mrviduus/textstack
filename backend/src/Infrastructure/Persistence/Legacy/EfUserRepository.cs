@@ -49,7 +49,4 @@ public sealed class EfUserRepository(IAppDbContext db) : IUserRepository
     public Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct) => throw LegacySignIn.Owns();
 
     public Task<bool> DeleteAsync(Guid userId, CancellationToken ct) => throw LegacySignIn.Owns();
-
-    // Legacy's own filter is GuestCleanupWorker's query; only V2's answer is asked.
-    public Task<bool> HoldsNothingDurableAsync(Guid userId, CancellationToken ct) => throw LegacySignIn.Owns();
 }

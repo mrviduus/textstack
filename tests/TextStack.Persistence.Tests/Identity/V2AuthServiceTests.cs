@@ -49,7 +49,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         new(users ?? _users, sessions ?? _sessions, _devices, merges ?? new AccountMergeRepository(db.DataSource), Deletion,
             _tokens, _providers, _clock, NullLogger<V2AuthService>.Instance);
 
-    private V2AccountDeletion Deletion => new(_users, new LibraryRepository(db.DataSource), _files, NullLogger<V2AccountDeletion>.Instance);
+    private V2AccountDeletion Deletion => new(_users, new AccountMergeRepository(db.DataSource), new LibraryRepository(db.DataSource), _files, NullLogger<V2AccountDeletion>.Instance);
 
     private V2AdminAuthService Admin => AdminWith();
 
@@ -626,6 +626,8 @@ public class V2AuthServiceTests(V2PostgresFixture db)
                 ? Task.FromResult(AccountMerge.Empty(AccountMergeOutcome.Merged))
                 : throw new PostgresException("scripted", "ERROR", "ERROR", sqlState);
         }
+
+        public Task<bool> HoldsNothingDurableAsync(Guid userId, CancellationToken ct) => throw new NotSupportedException();
     }
 
     /// <summary>The real users, with a hook that runs once right after the first email lookup.</summary>
@@ -655,7 +657,6 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         public Task<UserAccount?> UpdateNameAndLanguageAsync(Guid userId, string? name, string? nativeLanguage, CancellationToken ct) => inner.UpdateNameAndLanguageAsync(userId, name, nativeLanguage, ct);
         public Task<UserAccount?> SetPictureAsync(Guid userId, string? picture, CancellationToken ct) => inner.SetPictureAsync(userId, picture, ct);
         public Task<bool> TouchActiveAsync(Guid userId, DateTimeOffset now, CancellationToken ct) => inner.TouchActiveAsync(userId, now, ct);
-        public Task<bool> HoldsNothingDurableAsync(Guid userId, CancellationToken ct) => inner.HoldsNothingDurableAsync(userId, ct);
     }
 
     /// <summary>The real sessions, except that every rotation loses to a concurrent one.</summary>

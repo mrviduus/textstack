@@ -54,12 +54,6 @@ public interface IUserRepository
     /// <summary>Records that the user was active at <paramref name="now"/> (what the guest sweep reads); the caller debounces. False when there is no such account.</summary>
     Task<bool> TouchActiveAsync(Guid userId, DateTimeOffset now, CancellationToken ct);
 
-    /// <summary>
-    /// True when the account owns no book, annotation, vocabulary word, reading state, share, discussion
-    /// checkpoint or insight (none when there is no such account): reaping it loses nothing a reader made.
-    /// </summary>
-    Task<bool> HoldsNothingDurableAsync(Guid userId, CancellationToken ct);
-
     /// <summary>Sets <see cref="UserAccount.Role"/> (a value outside the CHECK is a caller bug). False when there is no such account.</summary>
     Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct);
 

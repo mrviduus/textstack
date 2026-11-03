@@ -30,4 +30,11 @@ public interface IAccountMergeRepository
     /// with a fresh snapshot settles it.
     /// </summary>
     Task<AccountMerge> MergeAsync(Guid guestId, Guid accountId, NpgsqlTransaction? tx, CancellationToken ct);
+
+    /// <summary>
+    /// True when <paramref name="userId"/> owns no book, annotation, vocabulary word, reading state,
+    /// share, discussion checkpoint or insight (none when there is no such account): reaping it loses
+    /// nothing a reader made. Here because it names every aggregate a user owns, as the merge does.
+    /// </summary>
+    Task<bool> HoldsNothingDurableAsync(Guid userId, CancellationToken ct);
 }

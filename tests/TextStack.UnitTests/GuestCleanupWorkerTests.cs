@@ -21,6 +21,7 @@ public class GuestCleanupWorkerTests
 {
     private readonly List<User> _legacyUsers = [];
     private readonly Mock<IUserRepository> _v2Users = new();
+    private readonly Mock<IAccountMergeRepository> _v2Aggregates = new();
     private readonly Mock<ILibraryRepository> _library = new();
     private readonly Mock<ILibraryFileStore> _files = new();
     private readonly CapturingLogger<GuestCleanupWorker> _log = new();
@@ -36,7 +37,7 @@ public class GuestCleanupWorkerTests
     }
 
     private void V2Holds(bool nothing) =>
-        _v2Users.Setup(u => u.HoldsNothingDurableAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(nothing);
+        _v2Aggregates.Setup(u => u.HoldsNothingDurableAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(nothing);
 
     private async Task SweepAsync(bool flag = true, TimeSpan? budget = null)
     {
@@ -51,7 +52,7 @@ public class GuestCleanupWorkerTests
         await using var services = new ServiceCollection()
             .AddScoped(_ => db.Object)
             .AddSingleton(Mock.Of<IFileStorageService>())
-            .AddSingleton(new V2AccountDeletion(_v2Users.Object, _library.Object, _files.Object, NullLogger<V2AccountDeletion>.Instance))
+            .AddSingleton(new V2AccountDeletion(_v2Users.Object, _v2Aggregates.Object, _library.Object, _files.Object, NullLogger<V2AccountDeletion>.Instance))
             .BuildServiceProvider();
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Features:V2Api"] = flag.ToString() }).Build();
         var worker = new GuestCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), config, _log) { V2Budget = budget ?? TimeSpan.FromSeconds(10) };
@@ -96,6 +97,7 @@ public class GuestCleanupWorkerTests
 
         Assert.Empty(_legacyUsers);
         _v2Users.VerifyNoOtherCalls();
+        _v2Aggregates.VerifyNoOtherCalls();
         _files.VerifyNoOtherCalls();
     }
 
@@ -104,7 +106,7 @@ public class GuestCleanupWorkerTests
     {
         ExpiredGuest();
         ExpiredGuest();
-        _v2Users.Setup(u => u.HoldsNothingDurableAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ThrowsAsync(new TimeoutException());
+        _v2Aggregates.Setup(u => u.HoldsNothingDurableAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ThrowsAsync(new TimeoutException());
 
         await SweepAsync();
 
@@ -116,7 +118,7 @@ public class GuestCleanupWorkerTests
     public async Task CleanupExpiredGuestsAsync_V2CheckHangs_GivesUpAtItsBudget()
     {
         ExpiredGuest();
-        _v2Users.Setup(u => u.HoldsNothingDurableAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+        _v2Aggregates.Setup(u => u.HoldsNothingDurableAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .Returns(async (Guid _, CancellationToken ct) =>
             {
                 await Task.Delay(Timeout.Infinite, ct);

@@ -141,22 +141,6 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
         return await conn.ExecuteAsync(new CommandDefinition(TouchActive, new { userId, now }, cancellationToken: ct)) > 0;
     }
 
-    private const string HoldsNothingDurable = """
-        SELECT NOT EXISTS (SELECT FROM books WHERE user_id = @userId)
-           AND NOT EXISTS (SELECT FROM annotations WHERE user_id = @userId)
-           AND NOT EXISTS (SELECT FROM vocabulary_words WHERE user_id = @userId)
-           AND NOT EXISTS (SELECT FROM reading_state WHERE user_id = @userId)
-           AND NOT EXISTS (SELECT FROM shared_chapters WHERE user_id = @userId)
-           AND NOT EXISTS (SELECT FROM discussion_checkpoints WHERE user_id = @userId)
-           AND NOT EXISTS (SELECT FROM book_insight WHERE user_id = @userId)
-        """;
-
-    public async Task<bool> HoldsNothingDurableAsync(Guid userId, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteScalarAsync<bool>(new CommandDefinition(HoldsNothingDurable, new { userId }, cancellationToken: ct));
-    }
-
     private const string UpdateRole = "UPDATE users SET role = @role WHERE id = @userId";
 
     public async Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct)
