@@ -19,6 +19,13 @@ vi.mock('@textstack/shared', async orig => {
     highlightsApi: { ...real.highlightsApi, createHighlight: api.createHighlight, getHighlights: async () => [] },
   }
 })
+// The hooks reach the APIs through their V2 switches (#1025); V2 is off here.
+vi.mock('../../lib/vocabularyApi', async () => ({ vocabularyApi: (await import('@textstack/shared')).vocabularyApi }))
+vi.mock('../../lib/v2Highlights', async () => ({
+  userBookHighlightsApi: (await import('@textstack/shared')).highlightsApi,
+  forgetV2Highlights: () => {},
+  HighlightDeletedError: class extends Error {},
+}))
 vi.mock('../../hooks/useReaderVocabMap', () => ({
   useReaderVocabMap: () => ({ vocabMapRef: { current: {} }, flushToCache: () => {}, bumpVocab: () => {} }),
 }))

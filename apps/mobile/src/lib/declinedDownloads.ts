@@ -51,3 +51,10 @@ export async function undeclineDownload(bookId: string): Promise<void> {
   if (!ids.delete(bookId)) return
   await write(ids)
 }
+
+/** V2 guest → account merge: a declined guest book stays declined under the account's id. */
+export async function rekeyDeclinedDownloads(books: Record<string, string>): Promise<void> {
+  const ids = await read()
+  if (![...ids].some(id => books[id])) return
+  await write(new Set([...ids].map(id => books[id] ?? id)))
+}

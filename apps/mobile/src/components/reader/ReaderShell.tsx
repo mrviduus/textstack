@@ -2,9 +2,9 @@ import { useEffect, useState, useRef } from 'react'
 import { View, StyleSheet, Linking, BackHandler } from 'react-native'
 import { WebView } from 'react-native-webview'
 import { useRouter, Stack } from 'expo-router'
-import { t, estimateTimeLeft, formatMinutesLeft, buildChapterDiscussBrief, isReviewableChapter, chapterSlugForPage } from '@textstack/shared'
+import { v2Offers, t, estimateTimeLeft, formatMinutesLeft, buildChapterDiscussBrief, isReviewableChapter, chapterSlugForPage } from '@textstack/shared'
 import { API_URL } from '../../lib/api'
-import { useAuth } from '../../context/AuthContext'
+import { useAuth, useV2 } from '../../context/AuthContext'
 import { useReaderSettings } from '../../hooks/useReaderSettings'
 import { useReaderBars } from '../../hooks/useReaderBars'
 import { useKeepReaderAwake } from '../../hooks/useKeepReaderAwake'
@@ -77,6 +77,9 @@ export function ReaderShell(props: ReaderShellProps) {
 
   const router = useRouter()
   const { isAuthenticated, user } = useAuth()
+  // V2 holds no bookmarks: an upload on V2 offers none (V2_FEATURES).
+  const v2 = useV2()
+  const bookmarksOffered = source.kind !== 'userbook' || v2Offers(v2, 'bookmarks')
   const { settings, update: updateSettings, resolvedFontFamily, resolvedTheme } = useReaderSettings()
   const { colors } = useTheme()
   const { language } = useLanguage()
@@ -421,7 +424,7 @@ export function ReaderShell(props: ReaderShellProps) {
           hasChapters={chapters.length > 0}
           isCurrentBookmarked={isCurrentBookmarked}
           onExit={handleExit}
-          onBookmarksPress={() => setBookmarksOpen(true)}
+          onBookmarksPress={bookmarksOffered ? () => setBookmarksOpen(true) : undefined}
           onHighlightsPress={() => setHighlightsOpen(true)}
           onTocPress={() => setTocOpen(true)}
           onSettingsPress={() => setSettingsOpen(true)}
@@ -440,7 +443,7 @@ export function ReaderShell(props: ReaderShellProps) {
             onSaveWord={handleSaveWord}
             onHighlight={handleHighlight}
             highlightColor={settings.lastHighlightColor}
-            onMarkKnown={handleMarkKnown}
+            onMarkKnown={v2Offers(v2, 'markAsKnown') ? handleMarkKnown : undefined}
             onRemove={handleRemoveWord}
             tooLong={selection.tooLong}
             isSpeaking={isSpeaking}

@@ -1,9 +1,17 @@
 import { authFetch } from './client'
-import { onV2 } from './v2'
-import {
+import { createV2Vocabulary } from '@textstack/shared'
+import { onV2, v2Book, v2Store } from './v2'
+
+// Vocabulary on V2 (#1025): the shared V2 vocabulary (one copy for web and mobile) with the
+// browser's ids, the last library pull's files and this tab's revision cache.
+const {
   saveV2Word, getV2Words, getV2ReaderVocab, deleteV2Word, updateV2Word, getV2ReviewQueue, submitV2Review,
   restoreV2Word, deleteAllV2Words,
-} from './v2Vocabulary'
+} = createV2Vocabulary({
+  newId: () => crypto.randomUUID(),
+  fileIdOf: async (bookId) => (await v2Book(bookId)).currentFile?.id ?? null,
+  revisions: v2Store.revisions,
+})
 
 // --- Types ---
 

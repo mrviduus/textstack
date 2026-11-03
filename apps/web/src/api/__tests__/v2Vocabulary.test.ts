@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { saveWord, updateWord, getReviewQueue, submitReview, restoreWord, deleteAllWords } from '../vocabulary'
 import { startV2Probe, resetV2ForTests } from '../v2'
-import { fakeApi, V2_ON, feed, card, conflict } from './fakeV2Api'
+import { fakeApi, V2_ON, feed, card, conflict } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 afterEach(() => {
   vi.unstubAllGlobals()

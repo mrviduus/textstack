@@ -4,6 +4,7 @@ import type { PublicHighlight, PdfAnchor } from '@textstack/shared'
 import { highlightCache, userBookHighlightCache } from '../lib/readerOfflineCache'
 import { matchesChapter } from '../lib/highlightChapter'
 import { clearSelectionJs } from '../lib/readerSelectionJs'
+import { userBookHighlightsApi, forgetV2Highlights, HighlightDeletedError } from '../lib/v2Highlights'
 
 type Selection = { text: string; anchor?: unknown; token?: number } | null
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
@@ -63,6 +64,13 @@ export function useReaderHighlights({
   // for user-book mode. Drives cache key + load API choice.
   const bookId = userBookMode ? userBookId : editionId
   const cache = pickCache(userBookMode)
+  // An upload's highlights switch to V2 per call (#1025); the catalog's never do.
+  const api = userBookMode ? userBookHighlightsApi : highlightsApi
+  // V2: the annotations feed is pulled once per book open; closing the book lets the next open pull again.
+  useEffect(() => {
+    if (!userBookMode || !bookId) return
+    return () => { forgetV2Highlights(bookId) }
+  }, [userBookMode, bookId])
 
   const [editingHighlight, setEditingHighlight] = useState<PublicHighlight | null>(null)
   const highlightsRef = useRef<PublicHighlight[]>([])
@@ -139,8 +147,8 @@ export function useReaderHighlights({
     }
 
     const loader = userBookMode
-      ? highlightsApi.getUserBookHighlights(bookId)
-      : highlightsApi.getHighlights(bookId)
+      ? api.getUserBookHighlights(bookId)
+      : api.getHighlights(bookId)
     loader
       .then(highlights => {
         if (cancelled) return
@@ -149,7 +157,7 @@ export function useReaderHighlights({
       })
       .catch(() => { /* offline — cache paint already rendered */ })
     return () => { cancelled = true }
-  }, [isAuthenticated, chapterId, user?.id, bookId, userBookMode, cache, injectJs, original, pushPdf])
+  }, [isAuthenticated, chapterId, user?.id, bookId, userBookMode, api, cache, injectJs, original, pushPdf])
 
   /** Sync handle for callbacks — picks the right ref based on mode. */
   const currentBookId = useCallback((): string | null => {
@@ -167,7 +175,7 @@ export function useReaderHighlights({
         const payload = userBookMode
           ? { userBookId: bId, userChapterId: chapter.id, anchorJson, color, selectedText: selection.text }
           : { editionId: bId, chapterId: chapter.id, anchorJson, color, selectedText: selection.text }
-        const hl = await highlightsApi.createHighlight(payload)
+        const hl = await api.createHighlight(payload)
         // The paint drops this selection's word mark itself, by its own token (SEL-1).
         injectJs(`${clearSelectionJs(selection.token, true)};renderHighlight(${JSON.stringify(hl.id)}, ${JSON.stringify(anchorJson)}, ${JSON.stringify(color)}, ${JSON.stringify(selection.text)})`)
         highlightsRef.current = [...highlightsRef.current, hl]
@@ -184,7 +192,7 @@ export function useReaderHighlights({
         return failed()
       }
     },
-    [currentBookId, userBookMode, cache, injectJs, showToast, user?.id, bumpHighlights]
+    [api, currentBookId, userBookMode, cache, injectJs, showToast, user?.id, bumpHighlights]
   )
 
   // Original PDF: create a CHAPTERLESS highlight from a quad-rect anchor (the
@@ -197,7 +205,7 @@ export function useReaderHighlights({
       if (!bId) return
       try {
         const anchorJson = JSON.stringify(anchor)
-        const hl = await highlightsApi.createHighlight({ userBookId: bId, anchorJson, color, selectedText })
+        const hl = await api.createHighlight({ userBookId: bId, anchorJson, color, selectedText })
         highlightsRef.current = [...highlightsRef.current, hl]
         pushPdf()
         bumpHighlights()
@@ -212,13 +220,37 @@ export function useReaderHighlights({
         showToast({ message: 'Could not add highlight. Try again.', variant: 'error' })
       }
     },
-    [currentBookId, cache, pushPdf, showToast, user?.id, bumpHighlights]
+    [api, currentBookId, cache, pushPdf, showToast, user?.id, bumpHighlights]
   )
+
+  /** Take a highlight off the page, the ref and the cache (deleted here, or on another device). */
+  const dropLocal = useCallback((id: string) => {
+    highlightsRef.current = highlightsRef.current.filter(h => h.id !== id)
+    if (original) pushPdf()
+    else injectJs(`removeHighlight(${JSON.stringify(id)})`)
+    bumpHighlights()
+    const uid = user?.id
+    const bId = currentBookId()
+    if (uid && bId) {
+      cache.get(uid, bId).then(prev => {
+        if (!prev) return
+        cache.set(uid, bId, prev.filter(h => h.id !== id))
+      })
+    }
+  }, [currentBookId, cache, injectJs, user?.id, bumpHighlights, original, pushPdf])
+
+  /** V2: an edit lost to another device's delete removes the highlight rather than keep it drawn. */
+  const deletedElsewhere = useCallback((e: unknown, id: string) => {
+    if (!(e instanceof HighlightDeletedError)) return false
+    dropLocal(id)
+    showToast({ message: e.message, variant: 'info' })
+    return true
+  }, [dropLocal, showToast])
 
   const saveNote = useCallback(
     async (id: string, note: string) => {
       try {
-        const updated = await highlightsApi.updateHighlight(id, { noteText: note || null })
+        const updated = await api.updateHighlight(id, { noteText: note || null })
         highlightsRef.current = highlightsRef.current.map(h => h.id === id ? updated : h)
         const uid = user?.id
         const bId = currentBookId()
@@ -229,11 +261,12 @@ export function useReaderHighlights({
           })
         }
       } catch (e) {
+        if (deletedElsewhere(e, id)) return
         console.warn('Highlight note save failed:', e)
         showToast({ message: 'Could not save note. Try again.', variant: 'error' })
       }
     },
-    [currentBookId, cache, showToast, user?.id]
+    [api, currentBookId, cache, showToast, user?.id, deletedElsewhere]
   )
 
   const updateColor = useCallback(
@@ -252,7 +285,7 @@ export function useReaderHighlights({
         injectJs(`renderHighlight(${JSON.stringify(id)}, ${JSON.stringify(prevHl.anchorJson)}, ${JSON.stringify(color)}, ${JSON.stringify(prevHl.selectedText)})`)
       }
       try {
-        const updated = await highlightsApi.updateHighlight(id, { color })
+        const updated = await api.updateHighlight(id, { color })
         highlightsRef.current = highlightsRef.current.map(h => h.id === id ? updated : h)
         if (original) pushPdf()
         bumpHighlights()
@@ -265,6 +298,7 @@ export function useReaderHighlights({
           })
         }
       } catch (e) {
+        if (deletedElsewhere(e, id)) return
         console.warn('Highlight color update failed:', e)
         // Rollback paint
         if (original) {
@@ -277,31 +311,20 @@ export function useReaderHighlights({
         showToast({ message: 'Could not change color. Try again.', variant: 'error' })
       }
     },
-    [currentBookId, cache, injectJs, showToast, user?.id, bumpHighlights, original, pushPdf]
+    [api, currentBookId, cache, injectJs, showToast, user?.id, bumpHighlights, original, pushPdf, deletedElsewhere]
   )
 
   const remove = useCallback(
     async (id: string) => {
       try {
-        await highlightsApi.deleteHighlight(id)
-        highlightsRef.current = highlightsRef.current.filter(h => h.id !== id)
-        if (original) pushPdf()
-        else injectJs(`removeHighlight(${JSON.stringify(id)})`)
-        bumpHighlights()
-        const uid = user?.id
-        const bId = currentBookId()
-        if (uid && bId) {
-          cache.get(uid, bId).then(prev => {
-            if (!prev) return
-            cache.set(uid, bId, prev.filter(h => h.id !== id))
-          })
-        }
+        await api.deleteHighlight(id)
+        dropLocal(id)
       } catch (e) {
         console.warn('Highlight delete failed:', e)
         showToast({ message: 'Could not delete highlight. Try again.', variant: 'error' })
       }
     },
-    [currentBookId, cache, injectJs, showToast, user?.id, bumpHighlights, original, pushPdf]
+    [api, dropLocal, showToast]
   )
 
   return {

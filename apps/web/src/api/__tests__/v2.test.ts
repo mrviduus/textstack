@@ -5,7 +5,7 @@ import {
 } from '../v2'
 import { getUserBook, getUserBooks, saveUserBookProgress, getUserBookFileUrl, getUserBookBookmarks } from '../userBooks'
 import { getWords } from '../vocabulary'
-import { fakeApi, V2_ON, book, file, feed, conflict, state, position } from './fakeV2Api'
+import { fakeApi, V2_ON, book, file, feed, conflict, state, position } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -216,6 +216,15 @@ describe('the V2 reading state', () => {
     const puts = calls.filter((c) => c.method === 'PUT')
     expect(puts[0].body).toMatchObject({ expectedRevision: null, fileId: 'f1', bookFraction: 0.5, currentLocator: { scheme: 'textstack-position-v1', value: position } })
     expect(puts[1].body).toMatchObject({ expectedRevision: 1 })
+  })
+
+  it('keeps the fraction the server holds when a write knows no percent yet (never 0 over it)', async () => {
+    const calls = fakeApi({ ...library, [put]: [{ status: 200, body: state('b1', 1) }, { status: 200, body: state('b1', 2) }] })
+    await saveV2Progress('b1', write)
+    await saveV2Progress('b1', { ...write, percent: undefined })
+    const held = state('b1', 1).bookFraction
+    expect(calls.filter((c) => c.method === 'PUT')[1].body).toMatchObject({ bookFraction: held })
+    expect(held).toBeGreaterThan(0)
   })
 
   it("adopts the server's place on stale_revision and writes on its revision next", async () => {

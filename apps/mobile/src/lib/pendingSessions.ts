@@ -3,8 +3,12 @@ import {
   appendPendingSession,
   drainPendingSessions,
   readingTrackingApi,
+  v2Api,
+  toV2Session,
+  rekeyPendingSessions as rekeyQueue,
   type PendingSession,
 } from '@textstack/shared'
+import { onV2 } from './v2'
 
 /**
  * Reading sessions whose submit has not succeeded yet, persisted so an offline read still counts.
@@ -17,6 +21,15 @@ import {
 const KEY = 'reading.pendingSessions'
 
 type Submit = (s: PendingSession) => Promise<unknown>
+
+/**
+ * An upload's session (it has a `clientSessionId`) to V2's idempotent PUT when V2 is on, decided
+ * at send time; anything else to the legacy route, without the V2 id.
+ */
+const submitSession: Submit = async ({ clientSessionId, ...s }) => {
+  if (!clientSessionId || !(await onV2())) return readingTrackingApi.submitSession(s)
+  return v2Api.putSession(clientSessionId, toV2Session(s))
+}
 
 // One JS runtime, so a promise chain is enough to keep a flush from overwriting a session enqueued
 // while it was in flight.
@@ -45,11 +58,19 @@ export function enqueuePendingSession(session: PendingSession): Promise<void> {
   return serialized(async () => write(appendPendingSession(await read(), session)))
 }
 
-export function flushPendingSessions(submit: Submit = readingTrackingApi.submitSession): Promise<void> {
+export function flushPendingSessions(submit: Submit = submitSession): Promise<void> {
   return serialized(async () => {
     const queue = await read()
     if (queue.length === 0) return
     await write(await drainPendingSessions(queue, submit))
+  })
+}
+
+/** V2 guest → account merge: queued sessions name the account's book id. */
+export function rekeyPendingSessions(books: Record<string, string>): Promise<void> {
+  return serialized(async () => {
+    const rekeyed = rekeyQueue(await read(), books)
+    if (rekeyed) await write(rekeyed)
   })
 }
 

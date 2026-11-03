@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState } from 'react-native'
 import { useRouter } from 'expo-router'
 import { WebView } from 'react-native-webview'
-import { userBooksApi, isOfflineError, parseScrollLocator, buildUserBookProgressPayload, buildPdfProgressPayload, parsePdfPageLocator, parseTextPosition, serializeTextPosition, bookmarkChapterSlug } from '@textstack/shared'
-import type { UserBookChapterDto, BookmarkDto, TextPosition } from '@textstack/shared'
+import { isOfflineError, parseScrollLocator, buildUserBookProgressPayload, buildPdfProgressPayload, parsePdfPageLocator, parseTextPosition, serializeTextPosition, bookmarkChapterSlug } from '@textstack/shared'
+import { userBooksApi } from '../../lib/userBooksApi'
+import type { UserBookChapterDto, BookmarkDto, TextPosition, V2WriteOutcome } from '@textstack/shared'
 import { API_URL } from '../../lib/api'
 import { getUserBookLocalProgress, markUserBookLocalProgressSynced, saveUserBookLocalProgress, getUserBookIsPdf, setUserBookIsPdf, type UserBookLocalProgress } from '../../lib/progressStorage'
 import { returnedToForeground, serverProvablyNewer } from '../../lib/progressRestore'
@@ -333,6 +334,21 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast, chapte
   const originalOwnsRef = useRef(false)
   originalOwnsRef.current = !reflowWritesEnabled({ hasOriginalPdf, forceReflow })
 
+  // V2 (#1025): the book's file was replaced on another device — this text is no longer its text.
+  // Back to the book page, which loads the new version. Through a ref: `persist`'s identity stays
+  // keyed on [bookId, chapters].
+  const reloadRef = useRef(() => {})
+  reloadRef.current = () => {
+    showToast({ message: 'This book was replaced on another device.', variant: 'info' })
+    router.replace(`/my-books/${bookId}`)
+  }
+  // Synced only when the server stored this write. Legacy answers nothing (void); V2's adopted
+  // place is already this device's synced record; a dropped write stays unsynced.
+  const afterWrite = useCallback((outcome: V2WriteOutcome | void, recordedAt: number) => {
+    if (outcome === 'reload') reloadRef.current()
+    else if (outcome === undefined || outcome === 'accepted') return markUserBookLocalProgressSynced(bookId, recordedAt)
+  }, [bookId])
+
   const persist = useCallback((snap: ProgressSnapshot) => {
     if (!bookId) return
     // The Original viewer owns this book's position: a reflow snapshot here is fiction, and would
@@ -357,7 +373,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast, chapte
     })
     const written = payload && !offlineReflowOfPdfRef.current
       ? userBooksApi.updateUserBookProgress(bookId, payload)
-        .then(() => markUserBookLocalProgressSynced(bookId, snap.updatedAt))
+        .then(outcome => afterWrite(outcome, snap.updatedAt))
         .catch(e => { if (__DEV__) console.warn('[user-book-progress] PUT failed:', e) })
       : undefined
     // Always written, not only when the server write succeeds — this record is
@@ -374,7 +390,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast, chapte
       // A PDF read as text (offline, or "read as text"): keep the page the Original viewer resumes from.
     }, { keepPage: hasOriginalPdfRef.current || offlineReflowOfPdfRef.current }).catch(() => {})
     return written
-  }, [bookId, chapters])
+  }, [bookId, chapters, afterWrite])
 
   /**
    * Where to reopen this chapter.
@@ -545,7 +561,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast, chapte
     const recordedAt = Date.now()
     const payload = buildPdfProgressPayload(page, numPages, recordedAt)
     userBooksApi.updateUserBookProgress(bookId, payload)
-      .then(() => markUserBookLocalProgressSynced(bookId, recordedAt))
+      .then(outcome => afterWrite(outcome, recordedAt))
       .catch(e => { if (__DEV__) console.warn('[user-book-pdf-progress] PUT failed:', e) })
     // Local book-% cache so ContinueReadingCard renders the same "% of book" UX
     // as reflow books (page fraction === book fraction for a chapterless PDF).
@@ -559,7 +575,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast, chapte
       chapterSlug: null,
       page,
     }).catch(() => {})
-  }, [bookId])
+  }, [bookId, afterWrite])
 
   const flushPdfProgress = useCallback(() => {
     if (pdfServerTimerRef.current) { clearTimeout(pdfServerTimerRef.current); pdfServerTimerRef.current = null }
@@ -721,7 +737,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast, chapte
     // The downloaded file when there is one, the streaming URL otherwise. The
     // shell tells them apart by scheme: a `file://` needs no Bearer.
     originalFileUrl: hasOriginalPdf && bookId
-      ? (localOriginalUri ?? userBooksApi.getUserBookFileUrl(bookId, API_URL))
+      ? (localOriginalUri ?? userBooksApi.getUserBookFileUrl(bookId, API_URL)) || null
       : null,
     originalInitialPage: sourceStartPageBySlugRef.current[chapterSlug] ?? null,
     originalChapterPicked: chapterPicked,

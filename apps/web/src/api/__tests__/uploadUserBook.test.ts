@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { uploadUserBook, RATE_LIMIT_WAIT_MS } from '../userBooks'
 import { startV2Probe, resetV2ForTests, V2UploadError } from '../v2'
-import { fakeApi, V2_ON, book } from './fakeV2Api'
+import { fakeApi, V2_ON, book } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 // Cloudflare 413s any single request body over ~100 MB before it reaches the API. A file above the
 // server's maxSingleUploadBytes must go up as parts + complete; a small one stays one multipart POST.

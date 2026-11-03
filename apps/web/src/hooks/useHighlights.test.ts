@@ -318,7 +318,7 @@ describe('useHighlights on V2 (a user book)', () => {
   })
 
   it('saves a new highlight under its own uuid, pending for the V2 sync — never the legacy POST', async () => {
-    const { fakeApi, V2_ON } = await import('../api/__tests__/fakeV2Api')
+    const { fakeApi, V2_ON } = await import('../../../../packages/shared/src/api/__tests__/fakeV2Api')
     fakeApi(V2_ON)
     await (await import('../api/v2')).startV2Probe()
     vi.mocked(offlineDb.getHighlightsForUserBook).mockResolvedValue([])

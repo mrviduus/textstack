@@ -13,6 +13,19 @@ export interface PendingSession {
   wordsRead: number
   startPercent: number
   endPercent: number
+  /** V2 (`PUT /me/v2/reading/sessions/{id}`): minted once when queued, so a resend is the same session. */
+  clientSessionId?: string
+}
+
+/** A queued upload session as V2's `PUT /me/v2/reading/sessions/{clientSessionId}` body. */
+export function toV2Session({ clientSessionId: _id, editionId: _editionId, userBookId, ...rest }: PendingSession) {
+  return { ...rest, bookId: userBookId ?? null }
+}
+
+/** V2 guest → account merge: queued sessions name the account's book ids. Null when nothing changed. */
+export function rekeyPendingSessions(queue: PendingSession[], books: Record<string, string>): PendingSession[] | null {
+  if (!queue.some((s) => s.userBookId && books[s.userBookId])) return null
+  return queue.map((s) => (s.userBookId && books[s.userBookId] ? { ...s, userBookId: books[s.userBookId] } : s))
 }
 
 export const MAX_PENDING_SESSIONS = 50

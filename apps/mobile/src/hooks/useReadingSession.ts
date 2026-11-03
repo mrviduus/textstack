@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { AppState } from 'react-native'
 import type { PendingSession } from '@textstack/shared'
+import { uuid } from 'expo-modules-core'
 import { enqueuePendingSession, flushPendingSessions } from '../lib/pendingSessions'
 import type { SessionSnapshot } from '../lib/readerVisit'
 import { applySessionProgress, jumpDistance, sessionWordsRead, tickSeconds } from '../lib/sessionMath'
@@ -83,6 +84,9 @@ export function useReadingSession(config: SessionConfig) {
     }
     if (config.editionId) data.editionId = config.editionId
     if (config.userBookId) data.userBookId = config.userBookId
+    // V2 (#1025): an upload's session has an id of its own, kept until acked; whether it goes to the
+    // V2 route is decided when it is sent (the probe may not have answered yet).
+    if (config.userBookId) data.clientSessionId = uuid.v4()
 
     // Queued before it is sent: a failed submit (offline, 5xx) stays on disk and is retried by the
     // next flush instead of being thrown away. The server acks a resend idempotently.

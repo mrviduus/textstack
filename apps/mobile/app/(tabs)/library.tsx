@@ -4,8 +4,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter, useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import {
-  libraryApi, readingProgressApi, userBooksApi, isOfflineError, plural,
+  libraryApi, readingProgressApi, isOfflineError, plural,
 } from '@textstack/shared'
+import { userBooksApi } from '../../src/lib/userBooksApi'
 import {
   collectionsApi, buildLibraryEntries, filterEntries, countEntries, sortEntries, entryTitle, entryAuthor,
   type UserLibraryItem, type UserBookDto, type ReadingProgressDto,

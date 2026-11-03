@@ -529,11 +529,12 @@ live under the persistent volume (`Storage:LibraryRoot`/`uploads/`); the V2 quot
 The client picks the part size, ≤ `maxPartBytes` from `GET /status`. STATUS's "RN cannot slice an
 opaque `file://`" looks out of date for the retained copy: expo-file-system 57's `File.open()` returns
 a `FileHandle` with a settable `offset` and `readBytes(n)`, and `books/<sha256>.epub` lives in the
-app's own documents dir. **Unverified**: that a `readBytes` `Uint8Array` goes through RN `fetch` as a
-request body intact. Fallback that needs no such path: write each part to a cache file
-(`FileHandle.writeBytes`) and send it with the native `File.upload()` (`httpMethod: 'PUT'`, binary),
-which exists in 57.0.7. R6 proves one of the two on a device before M2.6 ships. Web sends
-`Blob.slice` parts as today.
+app's own documents dir. **Verified (M2.7, Android emulator)**: a `readBytes` `Uint8Array` goes
+through RN `fetch` as a request body intact (the complete's sha256 check passed) — RN sends a typed
+array as base64 over the bridge, so the mobile client caps a part at 8 MB whatever `maxPartBytes`
+allows (an 80 MB part would peak near 200 MB on Hermes). The fallback, if a device ever disagrees:
+write each part to a cache file (`FileHandle.writeBytes`) and send it with the native
+`File.upload()` (`httpMethod: 'PUT'`, binary). Web sends `Blob.slice` parts as today.
 
 | Option | For | Against |
 |---|---|---|

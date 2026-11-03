@@ -2,7 +2,7 @@ import { Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-nat
 import { useCallback, useRef, useState } from 'react'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { userBooksApi } from '@textstack/shared'
+import { userBooksApi } from '../../lib/userBooksApi'
 import type { ContinueReadingPick } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'

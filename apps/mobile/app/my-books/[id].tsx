@@ -4,7 +4,10 @@ import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import NetInfo from '@react-native-community/netinfo'
-import { userBooksApi, currentReviewChapter, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural, bookPages } from '@textstack/shared'
+import { currentReviewChapter, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural, bookPages } from '@textstack/shared'
+import { v2Offers } from '@textstack/shared'
+import { useV2 } from '../../src/context/AuthContext'
+import { userBooksApi } from '../../src/lib/userBooksApi'
 import type { UserBookDetailResponse } from '@textstack/shared'
 import { enrichUserBook } from '../../src/lib/api'
 import { useTheme } from '../../src/context/ThemeContext'
@@ -128,6 +131,8 @@ export default function UserBookDetailScreen() {
   const { colors } = useTheme()
   const { show: showToast } = useToast()
   const { t } = useLanguage()
+  // V2 (#1025): no retry, collections, insights or chapter reviews on a V2 book (V2_FEATURES).
+  const v2 = useV2()
   const [book, setBook] = useState<UserBookDetailResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<'offline' | 'failed' | null>(null)
@@ -320,7 +325,7 @@ export default function UserBookDetailScreen() {
     : null
 
   const isReady = book?.status.toLowerCase() === 'ready'
-  const { insights, reviews, removeInsight } = useBookReviews(isReady && book ? { userBookId: book.id } : null)
+  const { insights, reviews, removeInsight } = useBookReviews(isReady && book && v2Offers(v2, 'insights') ? { userBookId: book.id } : null)
   const isFailed = book?.status.toLowerCase() === 'failed'
   const isProcessing = book && !isReady && !isFailed
 
@@ -649,7 +654,7 @@ export default function UserBookDetailScreen() {
         )}
 
         {/* Retry */}
-        {isFailed && (
+        {isFailed && v2Offers(v2, 'retry') && (
           <View style={styles.actions}>
             <TouchableOpacity
               style={[styles.retryBtn, { backgroundColor: colors.warning + '22' }]}
@@ -725,7 +730,7 @@ export default function UserBookDetailScreen() {
                 {fileBusy ? 'Preparing…' : 'Share'}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity
+            {v2Offers(v2, 'collections') && <TouchableOpacity
               style={[styles.secondaryBtn, { borderColor: colors.border }]}
               onPress={() => setCollectionSheetOpen(true)}
               accessibilityRole="button"
@@ -733,7 +738,7 @@ export default function UserBookDetailScreen() {
             >
               <Ionicons name="folder-outline" size={18} color={colors.text} />
               <Text style={[styles.secondaryBtnText, { color: colors.text }]}>{t('library.actions.addToCollection')}</Text>
-            </TouchableOpacity>
+            </TouchableOpacity>}
           </View>
         )}
 
@@ -747,7 +752,7 @@ export default function UserBookDetailScreen() {
 
         {/* Above the chapter list on purpose: coming back to a book, what you
             already worked out is more use than the table of contents. */}
-        {isReady && <BookInsightsSection insights={insights} onRemoved={removeInsight} userBookId={book.id} />}
+        {isReady && v2Offers(v2, 'insights') && <BookInsightsSection insights={insights} onRemoved={removeInsight} userBookId={book.id} />}
 
         {/* Chapter list */}
         {isReady && book.chapters.length > 0 && (
@@ -777,7 +782,7 @@ export default function UserBookDetailScreen() {
                   </View>
                   {isCurrentChapter && <Ionicons name="play-circle" size={18} color={colors.primary} />}
                   {/* A review is keyed by the real slug; a slugless legacy chapter cannot be reviewed. */}
-                  {!!ch.slug?.trim() && (
+                  {!!ch.slug?.trim() && v2Offers(v2, 'insights') && (
                     <ChapterReviewAction
                       book={{ title: book.title, author: book.author, userBookId: book.id }}
                       chapter={{ slug: ch.slug, title: ch.title, wordCount: ch.wordCount }}

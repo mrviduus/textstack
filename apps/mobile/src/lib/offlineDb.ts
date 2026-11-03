@@ -80,6 +80,7 @@ async function getDb(): Promise<any> {
           prev_json TEXT,
           next_json TEXT,
           cached_at INTEGER NOT NULL,
+          file_id TEXT,
           PRIMARY KEY (book_id, chapter_slug)
         );
         CREATE TABLE IF NOT EXISTS cached_user_books (
@@ -92,7 +93,8 @@ async function getDb(): Promise<any> {
           cached_chapters INTEGER NOT NULL DEFAULT 0,
           total_word_count INTEGER,
           is_pdf INTEGER NOT NULL DEFAULT 0,
-          cached_at INTEGER NOT NULL
+          cached_at INTEGER NOT NULL,
+          file_id TEXT
         );
       `)
       // `chapters.chapter_id` is in the CREATE above for a fresh install and
@@ -101,10 +103,19 @@ async function getDb(): Promise<any> {
       // NOT EXISTS`, so the duplicate-column error is the check. Rows written
       // before the column existed keep a NULL id and stay readable; only the
       // writes that follow one need it.
-      try {
-        await opened.execAsync('ALTER TABLE chapters ADD COLUMN chapter_id TEXT')
-      } catch {
-        // Already there.
+      // V2 (#1025): the file version an upload's rows were cached from (null on legacy rows). The
+      // key stays (book_id, chapter_slug) — on V2 the slug is the chapter key — and a replaced file
+      // drops its book's rows (`dropReplacedUserBookFiles`), so a key can never serve another file's text.
+      for (const alter of [
+        'ALTER TABLE chapters ADD COLUMN chapter_id TEXT',
+        'ALTER TABLE user_chapters ADD COLUMN file_id TEXT',
+        'ALTER TABLE cached_user_books ADD COLUMN file_id TEXT',
+      ]) {
+        try {
+          await opened.execAsync(alter)
+        } catch {
+          // Already there.
+        }
       }
       return opened
     })().catch(err => {
@@ -350,6 +361,8 @@ export interface CachedUserBookMeta {
   /** The upload is a PDF: offline it reads as extracted text, not as the original. */
   isPdf: boolean
   cachedAt: number
+  /** V2: the file version cached; absent/null on legacy. */
+  fileId?: string | null
 }
 
 type UserChapterRow = {
@@ -377,6 +390,7 @@ type UserBookRow = {
   total_word_count: number | null
   is_pdf: number
   cached_at: number
+  file_id: string | null
 }
 
 function toUserChapter(row: UserChapterRow): CachedUserChapter {
@@ -407,6 +421,7 @@ function toUserBookMeta(row: UserBookRow): CachedUserBookMeta {
     totalWordCount: row.total_word_count,
     isPdf: row.is_pdf === 1,
     cachedAt: row.cached_at,
+    fileId: row.file_id ?? null,
   }
 }
 
@@ -432,8 +447,8 @@ export async function cacheUserChapter(
   if (!d) return
   await d.runAsync(
     `INSERT OR REPLACE INTO user_chapters
-       (book_id, chapter_slug, chapter_id, html, title, word_count, chapter_number, source_start_page, prev_json, next_json, cached_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (book_id, chapter_slug, chapter_id, html, title, word_count, chapter_number, source_start_page, prev_json, next_json, cached_at, file_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       bookId,
       chapter.slug,
@@ -446,6 +461,7 @@ export async function cacheUserChapter(
       chapter.prev ? JSON.stringify(chapter.prev) : null,
       chapter.next ? JSON.stringify(chapter.next) : null,
       Date.now(),
+      chapter.fileId ?? null,
     ],
   )
 }
@@ -461,7 +477,8 @@ export async function refreshCachedUserChapter(
   if (!d) return
   await d.runAsync(
     `UPDATE user_chapters
-        SET chapter_id = ?, html = ?, title = ?, word_count = ?, source_start_page = COALESCE(?, source_start_page), prev_json = ?, next_json = ?
+        SET chapter_id = ?, html = ?, title = ?, word_count = ?, source_start_page = COALESCE(?, source_start_page), prev_json = ?, next_json = ?,
+            file_id = COALESCE(?, file_id)
       WHERE book_id = ? AND chapter_slug = ?`,
     [
       chapter.id,
@@ -471,6 +488,7 @@ export async function refreshCachedUserChapter(
       chapter.sourceStartPage ?? null,
       chapter.prev ? JSON.stringify(chapter.prev) : null,
       chapter.next ? JSON.stringify(chapter.next) : null,
+      chapter.fileId ?? null,
       bookId,
       chapter.slug,
     ],
@@ -540,12 +558,12 @@ export async function setCachedUserBookMeta(meta: CachedUserBookMeta): Promise<v
   if (!d) return
   await d.runAsync(
     `INSERT OR REPLACE INTO cached_user_books
-       (book_id, title, author, cover_path, language, total_chapters, cached_chapters, total_word_count, is_pdf, cached_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (book_id, title, author, cover_path, language, total_chapters, cached_chapters, total_word_count, is_pdf, cached_at, file_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       meta.bookId, meta.title, meta.author, meta.coverPath, meta.language,
       meta.totalChapters, meta.cachedChapters, meta.totalWordCount,
-      meta.isPdf ? 1 : 0, meta.cachedAt,
+      meta.isPdf ? 1 : 0, meta.cachedAt, meta.fileId ?? null,
     ],
   )
 }
@@ -561,6 +579,30 @@ export async function deleteCachedUserBook(bookId: string): Promise<void> {
   if (!d) return
   await d.runAsync('DELETE FROM user_chapters WHERE book_id = ?', [bookId])
   await d.runAsync('DELETE FROM cached_user_books WHERE book_id = ?', [bookId])
+}
+
+/**
+ * V2: drop what this device cached from a file version that is no longer its book's current one
+ * (replaced elsewhere), for the books of one library pull. Legacy rows (no file id) and books not in
+ * the pull are left alone. Returns the books that lost rows: the caller drops their originals too.
+ */
+export async function dropReplacedUserBookFiles(current: { bookId: string; fileId: string }[]): Promise<string[]> {
+  const d = await getDb()
+  if (!d || current.length === 0) return []
+  const currentFile = new Map(current.map(c => [c.bookId, c.fileId]))
+  let dropped: string[] = []
+  await d.withTransactionAsync(async () => {
+    const stored = await d.getAllAsync(
+      'SELECT DISTINCT book_id, file_id FROM user_chapters WHERE file_id IS NOT NULL UNION SELECT book_id, file_id FROM cached_user_books WHERE file_id IS NOT NULL',
+    ) as { book_id: string; file_id: string }[]
+    dropped = [...new Set(stored.filter(r => currentFile.has(r.book_id) && currentFile.get(r.book_id) !== r.file_id).map(r => r.book_id))]
+    for (const bookId of dropped) {
+      const args = [bookId, currentFile.get(bookId)!]
+      await d.runAsync('DELETE FROM user_chapters WHERE book_id = ? AND file_id IS NOT NULL AND file_id <> ?', args)
+      await d.runAsync('DELETE FROM cached_user_books WHERE book_id = ? AND file_id IS NOT NULL AND file_id <> ?', args)
+    }
+  })
+  return dropped
 }
 
 export async function getAllCachedUserBooks(): Promise<CachedUserBookMeta[]> {
@@ -583,6 +625,31 @@ export async function clearCachedUserBooks(): Promise<void> {
   if (!d) return
   await d.runAsync('DELETE FROM user_chapters')
   await d.runAsync('DELETE FROM cached_user_books')
+}
+
+/**
+ * V2 guest → account merge: the rows cached under the guest's book and file ids move to the
+ * account's (only the ids that changed). Where the account already has the same row on this device,
+ * the account's wins and the guest's goes, so no key collides and one book never blocks the others.
+ */
+export async function rekeyCachedUserBooks(books: Record<string, string>, files: Record<string, string>): Promise<void> {
+  const d = await getDb()
+  if (!d) return
+  await d.withTransactionAsync(async () => {
+    for (const [from, to] of Object.entries(books)) {
+      await d.runAsync(
+        'DELETE FROM user_chapters WHERE book_id = ? AND chapter_slug IN (SELECT chapter_slug FROM user_chapters WHERE book_id = ?)',
+        [from, to],
+      )
+      await d.runAsync('DELETE FROM cached_user_books WHERE book_id = ? AND EXISTS (SELECT 1 FROM cached_user_books WHERE book_id = ?)', [from, to])
+      await d.runAsync('UPDATE user_chapters SET book_id = ? WHERE book_id = ?', [to, from])
+      await d.runAsync('UPDATE cached_user_books SET book_id = ? WHERE book_id = ?', [to, from])
+    }
+    for (const [from, to] of Object.entries(files)) {
+      await d.runAsync('UPDATE user_chapters SET file_id = ? WHERE file_id = ?', [to, from])
+      await d.runAsync('UPDATE cached_user_books SET file_id = ? WHERE file_id = ?', [to, from])
+    }
+  })
 }
 
 export async function isUserBookFullyCached(bookId: string): Promise<boolean> {

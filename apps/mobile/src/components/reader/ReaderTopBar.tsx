@@ -16,7 +16,8 @@ type Props = {
   hasChapters: boolean
   isCurrentBookmarked: boolean
   onExit: () => void
-  onBookmarksPress: () => void
+  /** Absent: no bookmarks here (a V2 upload, V2_FEATURES). */
+  onBookmarksPress?: () => void
   onHighlightsPress: () => void
   onTocPress: () => void
   onSettingsPress: () => void
@@ -72,7 +73,7 @@ export function ReaderTopBar({
         </View>
       )}
       <View style={styles.topBarRight}>
-        {isAuthenticated && (
+        {isAuthenticated && onBookmarksPress && (
           <TouchableOpacity onPress={onBookmarksPress} style={styles.iconBtn}>
             <Ionicons name={isCurrentBookmarked ? 'bookmark' : 'bookmark-outline'} size={20} color={barText} />
           </TouchableOpacity>

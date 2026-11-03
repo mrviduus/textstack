@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import { createBooksApi, plural, userBooksApi } from '@textstack/shared'
+import { createBooksApi, plural } from '@textstack/shared'
+import { userBooksApi } from '../lib/userBooksApi'
+import { API_URL } from '../lib/api'
 import type { BookDetail, UserBookDetailResponse } from '@textstack/shared'
 import {
   cacheChapter,
@@ -428,6 +430,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       totalWordCount: book.totalWordCount,
       isPdf: book.hasOriginalPdf === true,
       cachedAt: Date.now(),
+      fileId: book.fileId ?? null,
     })
 
     // The file FIRST, then the chapters. Not an ordering preference: the status
@@ -438,7 +441,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     // (They now join rather than race — `downloadOriginal` is single-flighted —
     // but a button that lies about what it is doing is the actual defect.)
     if (book.hasOriginalPdf === true && !cancelledRef.current.has(bookId)) {
-      const outcome = await downloadOriginal(bookId, 'pdf')
+      const outcome = await downloadOriginal(bookId, 'pdf', userBooksApi.getUserBookFileUrl(bookId, API_URL))
       if (outcome.status !== 'downloaded') {
         // Not swallowed. The screen has already promised that this book will
         // look the same offline, and the chapters alone will finish and render
@@ -505,7 +508,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     // The file first, same reasoning as the initial download: while it is in
     // flight the status must not read as finished.
     if (originalFailed) {
-      const outcome = await downloadOriginal(id, 'pdf')
+      const outcome = await downloadOriginal(id, 'pdf', userBooksApi.getUserBookFileUrl(id, API_URL))
       if (outcome.status === 'downloaded') {
         originalFailedRef.current.delete(id)
       } else if (toRetry.length === 0) {

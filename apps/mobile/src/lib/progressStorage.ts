@@ -120,7 +120,7 @@ export async function clearAllLocalProgress(): Promise<void> {
     // Explicit union — clears catalog AND user-book rows. Listing both
     // prefixes by name (rather than relying on the substring coincidence)
     // makes the intent obvious and survives a future prefix rename.
-    const progressKeys = keys.filter(k => isCatalogKey(k) || k.startsWith(USERBOOK_KEY_PREFIX) || k.startsWith(USERBOOK_PDF_PREFIX))
+    const progressKeys = keys.filter(k => isCatalogKey(k) || k.startsWith(USERBOOK_KEY_PREFIX) || k.startsWith(USERBOOK_PDF_PREFIX) || k.startsWith(USERBOOK_V2_PREFIX))
     if (progressKeys.length === 0) return
     await AsyncStorage.multiRemove(progressKeys)
   } catch {
@@ -130,6 +130,35 @@ export async function clearAllLocalProgress(): Promise<void> {
 
 // Not under USERBOOK_KEY_PREFIX: getAllUserBookLocalProgress lists that prefix as progress rows.
 const USERBOOK_PDF_PREFIX = 'reading.userbook-is-pdf.'
+const USERBOOK_V2_PREFIX = 'reading.userbook-v2-state.'
+
+/** V2 (#1025): the reading-state revision last read or written for a book, and the file it is on —
+ *  beside the local progress, so a write after a restart names the revision it read. */
+export interface UserBookV2State {
+  revision: number | null
+  fileId: string
+  /** The book fraction it holds: a write that knows none yet sends this, never 0 (absent on older records). */
+  bookFraction?: number
+}
+
+export async function getUserBookV2State(bookId: string): Promise<UserBookV2State | null> {
+  try {
+    const raw = await AsyncStorage.getItem(`${USERBOOK_V2_PREFIX}${bookId}`)
+    return raw ? (JSON.parse(raw) as UserBookV2State) : null
+  } catch {
+    return null
+  }
+}
+
+/** Null forgets it (the book's file changed). */
+export async function setUserBookV2State(bookId: string, state: UserBookV2State | null): Promise<void> {
+  try {
+    if (state) await AsyncStorage.setItem(`${USERBOOK_V2_PREFIX}${bookId}`, JSON.stringify(state))
+    else await AsyncStorage.removeItem(`${USERBOOK_V2_PREFIX}${bookId}`)
+  } catch {
+    // Non-fatal: a write without its revision loses once and adopts the server's.
+  }
+}
 
 /** Whether an upload is a PDF, remembered from the last time the server said so — so the next
  *  open knows its viewer without a network (deviceLayout, H1). Null: never known here. */
@@ -285,4 +314,24 @@ export async function getAllLocalProgress(): Promise<Map<string, LocalProgress>>
     // Storage unavailable — return empty.
   }
   return map
+}
+
+/**
+ * V2 guest → account merge: an upload's local records move from the guest's book id to the
+ * account's. The stored revision is dropped (it named the guest's row): the next write reads anew.
+ */
+export async function rekeyUserBookProgress(books: Record<string, string>): Promise<void> {
+  try {
+    for (const [from, to] of Object.entries(books)) {
+      for (const prefix of [USERBOOK_KEY_PREFIX, USERBOOK_PDF_PREFIX]) {
+        const value = await AsyncStorage.getItem(prefix + from)
+        if (value == null) continue
+        await AsyncStorage.setItem(prefix + to, value)
+        await AsyncStorage.removeItem(prefix + from)
+      }
+      await AsyncStorage.removeItem(USERBOOK_V2_PREFIX + from)
+    }
+  } catch {
+    // Storage unavailable: the old ids stay, and their writes are refused and dropped.
+  }
 }

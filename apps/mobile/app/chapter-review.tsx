@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import { ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native'
 import { Stack, router, useLocalSearchParams } from 'expo-router'
 import {
-  createBooksApi, highlightsApi, insightDateLabel, nextChapterAfter, resolveReviewHighlights, userBooksApi,
+  createBooksApi, highlightsApi, insightDateLabel, nextChapterAfter, resolveReviewHighlights,
   type ChapterReviewBlock, type PublicHighlight,
 } from '@textstack/shared'
+import { userBooksApi } from '../src/lib/userBooksApi'
 import { useTheme } from '../src/context/ThemeContext'
 import { useLanguage } from '../src/context/LanguageContext'
 import { useAuth } from '../src/context/AuthContext'

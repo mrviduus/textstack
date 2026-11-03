@@ -1,13 +1,9 @@
+import { rekeyPendingSessions, type V2MergeMap, type PendingSession } from '@textstack/shared'
 import {
   getAllStoredHighlights, saveHighlight, listPendingVocabWords, deletePendingVocabWord, addPendingVocabWord,
 } from './offlineDb'
 
-/** The sign-in's `merge` (V2 on, a guest merged): guest id → account id, only the ids that changed. */
-export interface V2MergeMap {
-  books?: Record<string, string>
-  files?: Record<string, string>
-  words?: Record<string, string>
-}
+export type { V2MergeMap } from '@textstack/shared'
 
 /** The localStorage records keyed by a user book's id. */
 const BOOK_KEYS = ['userbook.progress.', 'reader.pdfPage.', 'reader.pdfPageAt.']
@@ -46,11 +42,8 @@ export async function applyV2MergeMap(map: V2MergeMap): Promise<void> {
         localStorage.removeItem(prefix + from)
       }
     }
-    const sessions = JSON.parse(localStorage.getItem(SESSIONS_KEY) || '[]') as { userBookId?: string | null }[]
-    if (sessions.some((s) => s.userBookId && books[s.userBookId])) {
-      localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions.map((s) =>
-        s.userBookId && books[s.userBookId] ? { ...s, userBookId: books[s.userBookId] } : s)))
-    }
+    const sessions = rekeyPendingSessions(JSON.parse(localStorage.getItem(SESSIONS_KEY) || '[]') as PendingSession[], books)
+    if (sessions) localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions))
   } catch {
     // localStorage unavailable
   }

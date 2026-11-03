@@ -1,3 +1,4 @@
+import type { V2MergeMap } from '../api/v2'
 export interface BookAuthor {
   id: string
   slug: string
@@ -176,6 +177,8 @@ export interface MobileAuthResponse {
   refreshToken: string
   /** See {@link AuthResponse.guestMergeSkipped}. */
   guestMergeSkipped?: GuestMergeSkipReason | null
+  /** V2 on and a guest merged: the ids that changed (PDD "Guest → account merge"). */
+  merge?: V2MergeMap
 }
 
 // Reading Progress (matches backend ReadingProgressDto)
@@ -279,7 +282,8 @@ export interface VocabularyStatsDto {
   wordsByBook: { editionId: string | null; userBookId: string | null; bookTitle: string; count: number }[]
 }
 
-export type SaveWordOutcome = 'srs' | 'pending' | 'lookup' | 'lookup_pending' | 'already_saved'
+/** 'deleted' (V2): the reader deleted this word earlier; `word` is the tombstone, restore is offered. */
+export type SaveWordOutcome = 'srs' | 'pending' | 'lookup' | 'lookup_pending' | 'already_saved' | 'deleted'
 
 export interface SaveWordResponseDto {
   outcome: SaveWordOutcome
@@ -382,7 +386,7 @@ export interface ReviewCardDto {
    * copies (this one and `apps/web/src/api/vocabulary.ts`), the server contract
    * and the projections, and it belongs in its own slice. Do not build on it.
    */
-  reviewMode: 'multiple_choice' | 'context'
+  reviewMode: 'multiple_choice' | 'context' | 'flashcard'
   blankSentence: string | null
   originalSentence: string | null
   bookTitle: string | null
@@ -516,6 +520,8 @@ export interface UserBookChapterDto {
   next: ChapterNav | null
   /** 1-based PDF page where this chapter starts. Null for EPUBs / unknown. */
   sourceStartPage?: number | null
+  /** V2 (`/me/v2`): the file version this chapter is from. Absent on legacy. */
+  fileId?: string | null
 }
 
 // ── Chapter review (ADR-016) — `BookInsight.review`; mirrors Contracts/ChapterReview/ChapterReviewDtos.cs ──

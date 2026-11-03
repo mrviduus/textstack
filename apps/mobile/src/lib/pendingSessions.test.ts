@@ -1,11 +1,16 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { ApiError, type PendingSession } from '@textstack/shared'
+import { ApiError, initApi, type PendingSession } from '@textstack/shared'
+import { fakeApi } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 import {
   clearPendingSessions,
   enqueuePendingSession,
   flushPendingSessions,
 } from './pendingSessions'
+
+// Whether a session goes to V2 is decided at send time (`v2On`); the rest run with V2 off.
+const v2On = vi.hoisted(() => ({ value: false }))
+vi.mock('./v2', () => ({ onV2: async () => v2On.value }))
 
 const KEY = 'reading.pendingSessions'
 
@@ -30,6 +35,33 @@ const offline = async () => { throw new ApiError(0, 'offline') }
 
 beforeEach(async () => {
   await AsyncStorage.removeItem(KEY)
+  v2On.value = false
+})
+
+describe('an upload session with its V2 id', () => {
+  const sent = () => {
+    initApi({ baseUrl: 'http://api', getAccessToken: async () => 't', onUnauthorized: async () => null })
+    return fakeApi({ 'PUT /me/v2/reading/sessions/s-1': [{ status: 200, body: {} }], 'POST /me/reading/sessions': [{ status: 200, body: {} }] }, 'http://api')
+  }
+  const v2Session = { ...session('x'), editionId: undefined, userBookId: 'b1', clientSessionId: 's-1' }
+
+  it('goes to the V2 route when V2 answers on at send time', async () => {
+    const calls = sent()
+    v2On.value = true
+    await enqueuePendingSession(v2Session)
+    await flushPendingSessions()
+    expect(calls[0]).toMatchObject({ method: 'PUT', path: '/me/v2/reading/sessions/s-1', body: { bookId: 'b1' } })
+    vi.unstubAllGlobals()
+  })
+
+  it('goes to the legacy route without the V2 id when V2 is off', async () => {
+    const calls = sent()
+    await enqueuePendingSession(v2Session)
+    await flushPendingSessions()
+    expect(calls[0]).toMatchObject({ method: 'POST', path: '/me/reading/sessions' })
+    expect(calls[0].body).not.toHaveProperty('clientSessionId')
+    vi.unstubAllGlobals()
+  })
 })
 
 describe('pendingSessions (mobile storage)', () => {

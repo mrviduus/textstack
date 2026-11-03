@@ -3,6 +3,7 @@ import { API_URL, APP_HEADERS, freshAccessToken } from './api'
 import { bookFileName } from './bookFileName'
 import { getCachedOriginalUri } from './originalFileCache'
 import type { OriginalFormat } from './originalFilePolicy'
+import { userBooksApi } from './userBooksApi'
 
 /**
  * Hand the reader back the file they uploaded.
@@ -77,11 +78,14 @@ export async function shareOriginalFile(
       return { status: 'failed' }
     }
   } else {
+    // The legacy route, or V2's content route; '' = a V2 book whose file is not known yet.
+    const url = userBooksApi.getUserBookFileUrl(bookId, API_URL)
+    if (!url) return { status: 'failed' }
     const token = await freshAccessToken()
     if (!token) return { status: 'unauthorized' }
     try {
       await File.downloadFileAsync(
-        `${API_URL}/me/books/${bookId}/file`,
+        url,
         destination,
         { headers: { ...APP_HEADERS, Authorization: `Bearer ${token}` }, idempotent: true },
       )

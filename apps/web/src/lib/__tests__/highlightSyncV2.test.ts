@@ -14,7 +14,7 @@ vi.mock('../offlineDb', () => ({
 
 import { fromV2Annotation, toV2Write, syncBookHighlights } from '../highlightSync'
 import { startV2Probe, resetV2ForTests } from '../../api/v2'
-import { fakeApi, V2_ON, book, feed, conflict } from '../../api/__tests__/fakeV2Api'
+import { fakeApi, V2_ON, book, feed, conflict } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 const text: TextAnchor = { prefix: 'before ', exact: 'the quote', suffix: ' after', startOffset: 7, endOffset: 16, chapterId: '2-the-woods' }
 
