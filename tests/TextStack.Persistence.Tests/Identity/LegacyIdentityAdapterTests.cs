@@ -41,9 +41,10 @@ public class EfSessionTokenRepositoryTests(PostgresFixture db) : SessionTokenRep
     [Fact]
     public async Task DeleteExpiredSessionsAsync_AdminSessions_SweptLikeReaders()
     {
-        // Legacy keeps admin sessions in their own table; V2's one table holds both kinds.
+        // Legacy keeps admin sessions in their own table; V2's one table holds both kinds. The contract's
+        // cutoff, so the reader sweep in this class never counts these rows, nor this sweep its rows.
         var admin = Guid.NewGuid();
-        var cutoff = new DateTimeOffset(2000, 1, 2, 0, 0, 0, TimeSpan.Zero);
+        var cutoff = SweepCutoff;
         await db.ExecAsync("""
             INSERT INTO admin_users (id, email, password_hash, role, is_active, created_at, updated_at) VALUES (@admin, @email, 'x', 0, true, now(), now());
             INSERT INTO admin_refresh_tokens (id, admin_user_id, token_hash, expires_at, created_at) VALUES

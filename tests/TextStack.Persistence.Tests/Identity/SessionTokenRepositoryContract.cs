@@ -14,6 +14,13 @@ public abstract class SessionTokenRepositoryContract(IIdentityFixture db, ISessi
     private readonly ISessionTokenRepository _sweeps = repo;
     protected static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>
+    /// The sessions sweep's cutoff, far back so another class's sessions are never on the wrong side of
+    /// it. A subclass sweeping sessions of its own uses the same one, with one row a day before it and
+    /// one at it: in either order each sweep then deletes only its own expired row.
+    /// </summary>
+    protected static readonly DateTimeOffset SweepCutoff = new(2001, 1, 2, 0, 0, 0, TimeSpan.Zero);
+
     /// <summary>A reader session of the user, expiring at <paramref name="expiresAt"/>.</summary>
     protected abstract Task SeedSessionAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt);
 
@@ -24,8 +31,7 @@ public abstract class SessionTokenRepositoryContract(IIdentityFixture db, ISessi
     public async Task DeleteExpiredSessionsAsync_Cutoff_DeletesOnlySessionsExpiredBeforeIt()
     {
         var user = await db.NewReaderAsync();
-        // Far back, so another test's sessions are never on the wrong side of this cutoff.
-        var cutoff = new DateTimeOffset(2001, 1, 2, 0, 0, 0, TimeSpan.Zero);
+        var cutoff = SweepCutoff;
         await SeedSessionAsync(user, NewHash(), cutoff.AddDays(-1));
         // Expiring at the cutoff instant itself is not "before" it.
         await SeedSessionAsync(user, NewHash(), cutoff);
