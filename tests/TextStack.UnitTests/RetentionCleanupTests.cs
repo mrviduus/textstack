@@ -44,6 +44,29 @@ public class RetentionCleanupTests
         oauth.Verify(o => o.DeleteDeadGrantsAsync(It.Is<DateTimeOffset>(c => atGrace(c)), It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task CleanupAsync_APortMissing_TheOtherRulesStillRun()
+    {
+        var oauth = new Mock<IOAuthRepository>();
+        var lastSweep = new TaskCompletionSource();
+        oauth.Setup(o => o.DeleteDeadGrantsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+            .Callback(lastSweep.SetResult).ReturnsAsync(0);
+        var devices = new Mock<IDeviceLoginRepository>();
+        // No ISessionTokenRepository: its two rules fail, logged, and the rest go on.
+        await using var services = new ServiceCollection()
+            .AddScoped(_ => Mock.Of<IAppDbContext>())
+            .AddScoped(_ => devices.Object)
+            .AddScoped(_ => oauth.Object)
+            .BuildServiceProvider();
+        using var worker = new RetentionCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<RetentionCleanupWorker>.Instance);
+
+        await worker.StartAsync(TestContext.Current.CancellationToken);
+        await lastSweep.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await worker.StopAsync(TestContext.Current.CancellationToken);
+
+        devices.Verify(d => d.DeleteExpiredAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private static bool IsOldSsgJob(DateTimeOffset? finishedAt) =>
         RetentionCleanupWorker.OldSsgRebuildJob(Now).Compile()(
             new SsgRebuildJob { CreatedAt = Now.AddYears(-1), FinishedAt = finishedAt });
