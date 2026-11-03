@@ -28,6 +28,16 @@ public static partial class ServiceCollectionExtensions
             options.OllamaTimeoutSeconds = configuration.GetValue("Ollama:TimeoutSeconds", 30);
         });
 
+        // Application services on the SRS library, user books and email — Api-only, so not in
+        // AddApplication, which the Worker calls too (#1108).
+        // The single writer of SRS state — shared by ordinary review and Smart session.
+        services.AddScoped<Application.Vocabulary.VocabularyReviewRecorder>();
+        services.AddScoped<Application.Vocabulary.RetirementSweeper>();
+        services.AddScoped<Application.Vocabulary.ClusterCandidateService>();
+        services.AddScoped<Application.Vocabulary.ConceptClusteringService>();
+        services.AddScoped<Application.Seo.SeoJobProcessor>();
+        services.AddScoped<Application.Admin.AdminService>();
+
         // Image optimization
         services.AddSingleton<IImageOptimizer, ImageOptimizer>();
 

@@ -38,6 +38,16 @@ public class WorkerContainerTests
             Assert.Null(scope.ServiceProvider.GetService(type));
     }
 
+    [Fact]
+    public void WorkerHost_Development_PassesDiValidation()
+    {
+        // Development turns on ValidateOnBuild + ValidateScopes: Build() throws if any registration
+        // cannot resolve (#1108), so reaching the built host is the assertion.
+        var services = WorkerServices("Development");
+
+        Assert.True(services.GetRequiredService<IHostEnvironment>().IsDevelopment());
+    }
+
     // Unique, so the host this test stops is the Worker's and not one another test builds meanwhile.
     private const string ApplicationName = "TextStack.WorkerContainerTests";
 
@@ -50,7 +60,7 @@ public class WorkerContainerTests
     /// hosting diagnostics event <c>HostBuilt</c>, as the test host factories do). Only the Worker's own
     /// host is stopped: other tests build hosts in parallel.
     /// </summary>
-    private static IServiceProvider WorkerServices()
+    private static IServiceProvider WorkerServices(string environment = "Production")
     {
         IHost? worker = null;
         using var listeners = DiagnosticListener.AllListeners.Subscribe(new Observer<DiagnosticListener>(listener =>
@@ -70,7 +80,7 @@ public class WorkerContainerTests
         {
             typeof(HeartbeatWorker).Assembly.EntryPoint!.Invoke(null, [new[]
             {
-                "--environment=Production", $"--applicationName={ApplicationName}", "--Features:V2Api=true", $"--Storage:RootPath={StorageRoot}",
+                $"--environment={environment}", $"--applicationName={ApplicationName}", "--Features:V2Api=true", $"--Storage:RootPath={StorageRoot}",
                 // Port 1: should the host ever run, nothing it opens reaches a real database.
                 "--ConnectionStrings:Default=Host=127.0.0.1;Port=1;Database=none;Timeout=1",
                 "--ConnectionStrings:V2=Host=127.0.0.1;Port=1;Database=none;Timeout=1",
