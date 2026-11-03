@@ -1,6 +1,10 @@
 import { authFetch, API_BASE, ApiError } from './client'
 import { trackBookUploaded } from '../lib/analytics'
 import { refreshToken } from './auth'
+import {
+  onV2, v2Status, v2Enabled, getV2UserBooks, getV2UserBook, getV2UserBookChapter, removeV2Book, v2FileUrl,
+  readV2Progress, saveV2Progress, uploadV2Book, V2UploadError, type V2WriteOutcome,
+} from './v2'
 
 export interface UserBook {
   id: string
@@ -114,19 +118,30 @@ const DEFAULT_MAX_SINGLE_UPLOAD = 80 * 1024 * 1024
 const MAX_PART_BYTES = 50 * 1024 * 1024
 
 class UploadError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(message: string, readonly status: number, readonly body?: unknown) {
     super(message)
   }
 }
 
 function uploadError(xhr: XMLHttpRequest): UploadError {
-  if (xhr.status === 413) return new UploadError('File is too large to upload. Try a smaller file.', 413)
+  let body: unknown
+  try { body = JSON.parse(xhr.responseText) } catch {}
+  if (xhr.status === 413) return new UploadError('File is too large to upload. Try a smaller file.', 413, body)
   let error = `Upload failed: ${xhr.status}`
+  if ((body as { error?: string } | undefined)?.error) error = (body as { error: string }).error
+  return new UploadError(error, xhr.status, body)
+}
+
+/** A V2 part: the same XHR send (progress, one retry); a 413 is the quota (`current` = `{used, limit}`). */
+async function sendV2Part(url: string, part: Blob, onLoaded: (loaded: number) => void): Promise<void> {
   try {
-    const json = JSON.parse(xhr.responseText)
-    if (json.error) error = json.error
-  } catch {}
-  return new UploadError(error, xhr.status)
+    await withOneRetry(() => send('PUT', url, part, onLoaded, 'application/octet-stream'))
+  } catch (err) {
+    if (err instanceof UploadError && err.status === 413) {
+      throw new V2UploadError('quota_exceeded', (err.body as { current?: { used: number; limit: number } } | undefined)?.current)
+    }
+    throw err
+  }
 }
 
 function send(
@@ -199,7 +214,13 @@ export async function uploadUserBook(
   title?: string,
   language?: string,
   onProgress?: (percent: number) => void
-): Promise<UploadResponse> {
+): Promise<UploadResponse & { existing?: boolean }> {
+  const v2 = await v2Status()
+  if (v2.enabled) {
+    const result = await uploadV2Book(file, v2.maxPartBytes, sendV2Part, onProgress)
+    if (!result.existing) trackBookUploaded({ format: (file.name.split('.').pop() || '').toLowerCase() || 'unknown', sizeBytes: file.size })
+    return result
+  }
   // Only a big file pays for the quota round-trip that tells us the server's ceiling.
   const maxSingle = file.size > DEFAULT_MAX_SINGLE_UPLOAD
     ? (await getStorageQuota().catch(() => null))?.maxSingleUploadBytes ?? DEFAULT_MAX_SINGLE_UPLOAD
@@ -233,6 +254,8 @@ export interface GetUserBooksOptions {
 }
 
 export async function getUserBooks(opts?: GetUserBooksOptions): Promise<UserBook[]> {
+  // V2 has no clips: the Read later shelf is empty there.
+  if (await onV2()) return opts?.shelf ? [] : getV2UserBooks()
   const params = new URLSearchParams()
   if (opts?.shelf) params.set('shelf', opts.shelf)
   if (opts?.status) params.set('status', opts.status)
@@ -246,14 +269,17 @@ export async function markUserBookRead(id: string): Promise<void> {
 }
 
 export async function getUserBook(id: string): Promise<UserBookDetail> {
+  if (await onV2()) return getV2UserBook(id)
   return authFetch<UserBookDetail>(`/me/books/${id}`)
 }
 
 export async function getUserBookChapter(bookId: string, slug: string): Promise<UserChapter> {
+  if (await onV2()) return getV2UserBookChapter(bookId, slug)
   return authFetch<UserChapter>(`/me/books/${bookId}/chapters/${slug}`)
 }
 
 export async function deleteUserBook(id: string): Promise<void> {
+  if (await onV2()) return removeV2Book(id)
   await authFetch<void>(`/me/books/${id}`, { method: 'DELETE' })
 }
 
@@ -305,6 +331,8 @@ export async function updateUserBookMetadata(
 
 export function getUserBookCoverUrl(coverPath: string | null | undefined): string | undefined {
   if (!coverPath) return undefined
+  // A V2 cover is an API route (the library maps it), not a storage path.
+  if (coverPath.startsWith('/me/v2/')) return `${API_BASE}${coverPath}`
   return `${API_BASE}/storage/${coverPath}`
 }
 
@@ -313,6 +341,7 @@ export function getUserBookCoverUrl(coverPath: string | null | undefined): strin
  * Cookie-authed same-origin; pass to pdf.js via `getDocument({ url, withCredentials: true })`.
  */
 export function getUserBookFileUrl(id: string): string {
+  if (v2Enabled()) return v2FileUrl(id)
   return `${API_BASE}/me/books/${id}/file`
 }
 
@@ -448,6 +477,7 @@ export async function getUserBookProgress(bookId: string): Promise<UserBookProgr
 /** The reader's read: `null` answered with nothing, `undefined` no answer — see `readProgress`
  *  in api/auth.ts. */
 export async function readUserBookProgress(bookId: string, signal?: AbortSignal): Promise<UserBookProgress | null | undefined> {
+  if (await onV2()) return readV2Progress(bookId, signal)
   try {
     return await authFetch<UserBookProgress>(`/me/books/${bookId}/progress`, { signal })
   } catch (e) {
@@ -473,7 +503,9 @@ export async function saveUserBookProgress(
     /** Serialised TextPosition (ADR-015). Beside the locator, never instead. */
     positionJson?: string
   }
-): Promise<void> {
+): Promise<V2WriteOutcome | void> {
+  // V2: the revision rule decides; the outcome says whether the reader adopts the server's place or reloads.
+  if (await onV2()) return saveV2Progress(bookId, data)
   await authFetch<void>(`/me/books/${bookId}/progress`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

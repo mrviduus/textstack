@@ -18,6 +18,7 @@ import { ApiError } from '../api/client'
 import { emitDataChange } from '../lib/dataEvents'
 import { syncBookHighlights, isLocalHighlightId, fromServerHighlight, type ChapterRef } from '../lib/highlightSync'
 import { useNetworkRecovery } from './useNetworkRecovery'
+import { v2Enabled } from '../api/v2'
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -118,8 +119,10 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
       // chapter-relative TextAnchor.
       const isPdf = isPdfAnchor(anchor)
       const chapterId = isPdf ? '' : anchor.chapterId
+      // V2 (#1025): a user book's highlight is its own uuid, saved locally and pushed by the sync.
+      const v2 = isUserBook && v2Enabled()
       const highlight: StoredHighlight = {
-        id: generateId(),
+        id: v2 ? crypto.randomUUID() : generateId(),
         editionId: isUserBook ? '' : bookId,
         chapterId,
         userBookId: isUserBook ? bookId : undefined,
@@ -134,7 +137,7 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
       }
 
       // If authenticated, create on server first
-      if (isAuthenticated) {
+      if (isAuthenticated && !v2) {
         try {
           const serverHighlight = await createPublicHighlight(
             isUserBook
@@ -168,9 +171,10 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
       await saveHighlight(highlight)
       setHighlights((prev) => [highlight, ...prev])
       emitDataChange('highlights')
+      if (v2 && isAuthenticated) void syncWithServer(() => false)
       return highlight
     },
-    [bookId, isAuthenticated, isUserBook]
+    [bookId, isAuthenticated, isUserBook, syncWithServer]
   )
 
   const updateHighlight = useCallback(
@@ -201,7 +205,9 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
 
       let replay = false
       if (isAuthenticated) {
-        if (existing.syncStatus === 'synced') {
+        if (isUserBook && v2Enabled()) {
+          replay = true // V2: the sync pushes it on the revision it was made from
+        } else if (existing.syncStatus === 'synced') {
           try {
             // Conditional on the version we last saw: another device's edit since → 409.
             const serverHighlight = await updatePublicHighlight(id, {
@@ -227,15 +233,17 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
       if (replay) void syncWithServer(() => false)
       return updated
     },
-    [highlights, isAuthenticated, syncWithServer]
+    [highlights, isAuthenticated, isUserBook, syncWithServer]
   )
 
   const removeHighlight = useCallback(
     async (id: string) => {
+      const v2 = isAuthenticated && isUserBook && v2Enabled()
       let confirmed = !isAuthenticated
       // A client-id row never reached the server (as far as we know) — leave a
       // tombstone so sync can remove its twin if a lost-response create did land.
-      if (isAuthenticated && !isLocalHighlightId(id)) {
+      // V2: always a tombstone, which the sync turns into a DELETE.
+      if (isAuthenticated && !v2 && !isLocalHighlightId(id)) {
         try {
           await deletePublicHighlight(id)
           confirmed = true
@@ -251,8 +259,9 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
       else await saveHighlight({ ...existing, deleted: true, syncStatus: 'pending' })
       setHighlights((prev) => prev.filter((h) => h.id !== id))
       emitDataChange('highlights')
+      if (v2) void syncWithServer(() => false)
     },
-    [highlights, isAuthenticated]
+    [highlights, isAuthenticated, isUserBook, syncWithServer]
   )
 
   const getHighlightsForRange = useCallback(

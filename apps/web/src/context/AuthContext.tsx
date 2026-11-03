@@ -11,6 +11,7 @@ import { authToastFor, type AuthToast } from '../lib/authToast'
 import { flushLocalProgress } from '../lib/progressSync'
 import { replayAllPendingHighlights } from '../lib/highlightSync'
 import { trackLogin, trackSignUp } from '../lib/analytics'
+import { v2Status, V2_OFF, type V2Switch } from '../api/v2'
 
 export type AuthModalView = 'login' | 'register'
 
@@ -53,6 +54,8 @@ interface AuthContextValue {
    */
   guestMergeSkipped: GuestMergeSkipReason | null
   dismissGuestMergeSkipped: () => void
+  /** The V2 sync API (`Features:V2Api`), probed once a session exists; read it with `useV2()`. */
+  v2: V2Switch
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -78,6 +81,7 @@ const AuthContext = createContext<AuthContextValue>({
   dismissAuthSuccessToast: () => {},
   guestMergeSkipped: null,
   dismissGuestMergeSkipped: () => {},
+  v2: V2_OFF,
 })
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
@@ -95,6 +99,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const dismissAuthSuccessToast = useCallback(() => setAuthSuccessToast(null), [])
   const [guestMergeSkipped, setGuestMergeSkipped] = useState<GuestMergeSkipReason | null>(null)
   const dismissGuestMergeSkipped = useCallback(() => setGuestMergeSkipped(null), [])
+  const [v2, setV2] = useState<V2Switch>(V2_OFF)
+
+  // The V2 probe needs a session (PathGates answers 401 without one): the first user of this app
+  // start asks once. API calls await the same probe, so none of them races it.
+  const hasUser = user !== null
+  useEffect(() => {
+    if (hasUser) void v2Status().then(setV2)
+  }, [hasUser])
 
   // Google callback - stable ref to avoid stale closures
   const handleGoogleCallback = useCallback(async (response: google.accounts.id.CredentialResponse) => {
@@ -364,6 +376,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         dismissAuthSuccessToast,
         guestMergeSkipped,
         dismissGuestMergeSkipped,
+        v2,
       }}
     >
       {children}
@@ -373,4 +386,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   return useContext(AuthContext)
+}
+
+/** `{enabled, maxPartBytes}`: whether this app start talks V2 (`/me/v2`). Off until probed. */
+export function useV2(): V2Switch {
+  return useContext(AuthContext).v2
 }
