@@ -2,6 +2,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
 import { waitForReaderLoad } from '../helpers/reader'
+import { testLogin } from '../helpers/api'
 
 // @v2 — the web app on the V2 sync API (#1025 M2.7): with Features:V2Api on, an upload, the reader,
 // its position, a highlight, a saved word and a delete all go through /me/v2. Skips when the probe
@@ -54,8 +55,7 @@ test.describe('V2 sync @v2', () => {
     const context = await browser.newContext()
     const request = context.request
     const email = `e2e-v2-${Date.now()}-${test.info().repeatEachIndex}@textstack.app`
-    const login = await request.post(`${API_URL}/auth/test-login`, { data: { email }, headers: API_HEADERS })
-    expect(login.ok(), `test-login: ${login.status()}`).toBeTruthy()
+    await testLogin(request, email)
     const status = await request.get(`${API_URL}/me/v2/status`, { headers: API_HEADERS })
     // V2_E2E=1 (CI's V2 pass): a 404 fails instead of skipping, so that pass cannot go green untested.
     test.skip(status.status() === 404 && process.env.V2_E2E !== '1', 'Features:V2Api is off: /me/v2 is not mapped')
