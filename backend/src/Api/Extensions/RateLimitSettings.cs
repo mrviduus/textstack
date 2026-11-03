@@ -90,6 +90,16 @@ public sealed class RateLimitSettings
     /// <inheritdoc cref="EffectiveGuestSessionPermitLimit"/>
     public int EffectiveDeviceCodePermitLimit => Effective(DeviceCodePermitLimit, DefaultDeviceCodePermitLimit);
 
+    /// <summary>Connect-key creates (<c>POST /me/mcp/keys</c>) allowed per IP per 5 minutes.
+    /// Production default is 10.</summary>
+    /// <remarks>A reader makes a handful, ever; <c>McpKeyEndpointTests</c> makes about ten per run.</remarks>
+    public int McpKeysPermitLimit { get; set; } = DefaultMcpKeysPermitLimit;
+
+    public const int DefaultMcpKeysPermitLimit = 10;
+
+    /// <inheritdoc cref="EffectiveGuestSessionPermitLimit"/>
+    public int EffectiveMcpKeysPermitLimit => Effective(McpKeysPermitLimit, DefaultMcpKeysPermitLimit);
+
     /// <summary>Shared normalization: a configured 0 or negative is a typo, and a zero permit limit
     /// is an outage, so it degrades to the production default rather than to a lockout.</summary>
     private static int Effective(int configured, int productionDefault) =>

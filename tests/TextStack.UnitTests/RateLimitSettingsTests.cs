@@ -77,6 +77,14 @@ public class RateLimitSettingsTests
     }
 
     [Fact]
+    public void McpKeysPermitLimit_UnconfiguredConfiguredAndInvalid_BehavesLikeGuestKnob()
+    {
+        Assert.Equal(10, Bind().EffectiveMcpKeysPermitLimit);
+        Assert.Equal(100, Bind(("RateLimits:McpKeysPermitLimit", "100")).EffectiveMcpKeysPermitLimit);
+        Assert.Equal(10, Bind(("RateLimits:McpKeysPermitLimit", "0")).EffectiveMcpKeysPermitLimit);
+    }
+
+    [Fact]
     public void AccountDeletePermitLimit_UnconfiguredConfiguredAndInvalid_BehavesLikeGuestKnob()
     {
         Assert.Equal(3, Bind().EffectiveAccountDeletePermitLimit);

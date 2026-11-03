@@ -135,6 +135,8 @@ services:
       # Device-code requests per IP per minute. Production keeps 5; CI raises it because
       # DeviceAuthEndpointTests requests a code in nearly every test.
       RateLimits__DeviceCodePermitLimit: ${DEVICE_CODE_PERMIT_LIMIT:-5}
+      # Connect-key creates per IP per 5 minutes. Production keeps 10; McpKeyEndpointTests makes ~10 a run.
+      RateLimits__McpKeysPermitLimit: ${MCP_KEYS_PERMIT_LIMIT:-10}
       # New vocabulary words a GUEST may push through paid LLM enrichment per UTC day. Production
       # keeps 50 (appsettings). CI lowers it so the cap is reachable in a test: proving that
       # promoting a parked lookup respects it takes `cap` real saves, and 50 is not testable.
