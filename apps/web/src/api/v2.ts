@@ -7,7 +7,7 @@
 import {
   v2Api, ApiError, notInSurrogatePair, parsePdfPageLocator, parseTextPosition,
   type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2Locator,
-  type V2ReadingStateWrite,
+  type V2ReadingStateWrite, type V2FeedName,
 } from '@textstack/shared'
 import { API_BASE } from './client'
 import type { UserBook, UserBookDetail, UserChapter, UploadResponse, UserBookProgress } from './userBooks'
@@ -60,8 +60,20 @@ const books = new Map<string, V2Book>()
 // A file's chapters, once its extraction succeeded (they never change after).
 const chapters = new Map<string, V2FileChapters>()
 
+const inFlight = new Map<V2FeedName, Promise<{ items: unknown[] }>>()
+
+/** A full pull of a feed, shared by every caller while one is in flight (a reader open asks twice). */
+export function pullFeed<T>(feed: V2FeedName): Promise<{ items: T[] }> {
+  let pull = inFlight.get(feed)
+  if (!pull) {
+    pull = v2Api.pullAll(feed).finally(() => inFlight.delete(feed))
+    inFlight.set(feed, pull)
+  }
+  return pull as Promise<{ items: T[] }>
+}
+
 export async function pullV2Books(): Promise<V2Book[]> {
-  const { items } = await v2Api.pullAll<V2Book>('library')
+  const { items } = await pullFeed<V2Book>('library')
   books.clear()
   for (const b of items) books.set(b.id, b)
   return items
@@ -136,11 +148,15 @@ function resumeChapter(state: V2ReadingState, toc: V2FileChapters): string | nul
 
 /** The uploads shelf: live books only, each with its status and the reader's place. */
 export async function getV2UserBooks(): Promise<UserBook[]> {
-  const [list, reading] = await Promise.all([pullV2Books(), v2Api.pullAll<V2ReadingState>('reading')])
+  const [list, reading] = await Promise.all([pullV2Books(), pullFeed<V2ReadingState>('reading')])
   const stateOf = new Map(reading.items.map((s) => [s.bookId, s]))
+  const live = list.filter((b) => !b.removedAt)
   // ponytail: one chapters call per book per load (status + chapter count); a status on the feed if libraries grow.
-  return Promise.all(list.filter((b) => !b.removedAt).map(async (b): Promise<UserBook> => {
-    const toc = await v2Chapters(b)
+  // One failing call (content removed, a 503) costs that book its status, never the shelf.
+  const tocs = await Promise.allSettled(live.map(v2Chapters))
+  return live.map((b, i): UserBook => {
+    const settled = tocs[i]
+    const toc: V2FileChapters = settled.status === 'fulfilled' ? settled.value : { items: [], ingestion: null }
     const state = stateOf.get(b.id)
     return {
       id: b.id,
@@ -163,7 +179,7 @@ export async function getV2UserBooks(): Promise<UserBook[]> {
       tags: b.tags,
       hasOriginalPdf: isPdf(b),
     }
-  }))
+  })
 }
 
 const totalWords = (toc: V2FileChapters) =>
@@ -297,8 +313,13 @@ export function v2ProgressBody(bookId: string, data: ProgressWrite): V2ReadingSt
   }
 }
 
-/** What the reader does after a V2 write: adopt the server's place, or reload a replaced book. */
+/**
+ * What the reader does after a V2 write: `accepted` the server holds it (mark it synced);
+ * `adopted` the server's place replaces it; `reload` the book's file was replaced. None of the
+ * three: the write was dropped (`chapter_not_found`, …), and the local place stays unsynced.
+ */
 export interface V2WriteOutcome {
+  accepted?: boolean
   adopted?: UserBookProgress
   reload?: boolean
 }
@@ -306,17 +327,17 @@ export interface V2WriteOutcome {
 /**
  * One reading-state write under the revision rule. Lost (409): `stale_revision` adopts the server's
  * row (a lost write takes the server's place); `reset` writes this place again on the new revision;
- * `file_replaced` asks for a reload; `unknown_file` forgets the book (the next write refetches it);
+ * `file_replaced` asks for a reload; `unknown_file` refetches the book and writes once more;
  * `chapter_not_found` drops the write (the file's chapters changed). Anything else throws: the
  * caller keeps the write for its next save.
  */
-export async function saveV2Progress(bookId: string, data: ProgressWrite): Promise<V2WriteOutcome> {
+export async function saveV2Progress(bookId: string, data: ProgressWrite, retried = false): Promise<V2WriteOutcome> {
   if (!states.has(bookId) && !books.has(bookId)) await v2Book(bookId)
   const body = v2ProgressBody(bookId, data)
   if (!body) return {}
   try {
     remember(await v2Api.putReadingState(bookId, body))
-    return {}
+    return { accepted: true }
   } catch (e) {
     const err = v2Api.v2ErrorOf(e)
     const current = err?.current as V2ReadingState | null | undefined
@@ -331,13 +352,14 @@ export async function saveV2Progress(bookId: string, data: ProgressWrite): Promi
       case 'reset':
         if (current) remember(current)
         remember(await v2Api.putReadingState(bookId, { ...body, expectedRevision: current?.revision ?? null }))
-        return {}
+        return { accepted: true }
       case 'file_replaced':
         forgetV2Book(bookId)
         return { reload: true }
       case 'unknown_file':
+        // The book's file is not the one we named: fetch the book again and write once more.
         forgetV2Book(bookId)
-        return {}
+        return retried ? {} : saveV2Progress(bookId, data, true)
       case 'chapter_not_found':
         return {}
       default:
@@ -382,7 +404,7 @@ type SendPart = (url: string, part: Blob, onLoaded: (loaded: number) => void) =>
 
 /**
  * An upload on V2 (PDD "File sync upload protocol"): hash, look the bytes up, import the metadata,
- * send the parts, complete. The same bytes already in the library open that book (`existing`).
+ * send the parts, complete. The same bytes already in the library open that book (`existing`), its bytes sent first if it has none.
  * `content_mismatch` re-hashes (same hash: send again once; changed: tell the reader);
  * `incomplete_upload` re-sends every part once; `quota_exceeded` carries `used/limit`. `sendPart` is the XHR sender with its progress and retry.
  * ponytail: no cover (`PUT /cover` needs an EPUB parse on the client), the title is the file name.
@@ -394,11 +416,16 @@ export async function uploadV2Book(
   onProgress?: (percent: number) => void,
 ): Promise<UploadResponse & { existing?: boolean }> {
   const format = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'epub'
-  const opened = (id: string, b?: V2Book) =>
-    ({ userBookId: id, jobId: '', status: 'existing', existing: true, hasOriginalPdf: b ? isPdf(b) : false })
   const sha256 = await sha256Hex(file)
+  // The same bytes already in the library: open that book. If its bytes never arrived (an earlier
+  // upload broke after the import), this upload sends them to it, then opens it.
+  const reuse = async (b: V2Book) => {
+    const fileId = b.currentFile?.id
+    if (fileId && !b.currentFile!.hasContent) await sendBytes(file, sha256, b.id, fileId, maxPartBytes, sendPart, onProgress)
+    return { userBookId: b.id, jobId: '', status: 'existing', existing: true, hasOriginalPdf: b.currentFile?.format === 'pdf' }
+  }
   const existing = await v2Api.findBySha256(sha256)
-  if (existing) return opened(existing.id, existing)
+  if (existing) return reuse(existing)
 
   const bookId = crypto.randomUUID()
   const fileId = crypto.randomUUID()
@@ -407,10 +434,18 @@ export async function uploadV2Book(
     await v2Api.importBook(bookId, { title, file: { id: fileId, sha256, byteSize: file.size, originalName: clip(file.name, 500), format } })
   } catch (e) {
     const err = v2Api.v2ErrorOf(e)
-    if (err?.code === 'duplicate_file') return opened((err.current as V2Book).id, err.current as V2Book)
+    if (err?.code === 'duplicate_file') return reuse(err.current as V2Book)
     throw e
   }
+  await sendBytes(file, sha256, bookId, fileId, maxPartBytes, sendPart, onProgress)
+  return { userBookId: bookId, jobId: '', status: 'Processing', hasOriginalPdf: format === 'pdf' }
+}
 
+/** The parts, then the complete, with the retries `uploadV2Book` names. */
+async function sendBytes(
+  file: File, sha256: string, bookId: string, fileId: string, maxPartBytes: number,
+  sendPart: SendPart, onProgress?: (percent: number) => void,
+): Promise<void> {
   const partBytes = Math.max(1, maxPartBytes)
   const partCount = Math.max(1, Math.ceil(file.size / partBytes))
   const sendAll = async () => {
@@ -437,5 +472,4 @@ export async function uploadV2Book(
       throw err?.code === 'content_mismatch' ? new V2UploadError('content_mismatch') : e
     }
   }
-  return { userBookId: bookId, jobId: '', status: 'Processing', hasOriginalPdf: format === 'pdf' }
 }
