@@ -33,6 +33,18 @@ nodeLinker: hoisted
 # @expo/vector-icons > expo-font > expo. Forcing versions through an SDK's
 # internals to quiet an audit is how a working mobile build stops working.
 #
+# 2026-11-03, Dependabot #26/#27/#28, the same rule:
+# - decode-uri-component 0.2.2 (high, quadratic DoS) arrives via expo-router >
+#   query-string 7.1.3, which expo-router pins. The fix (0.5.1) is ESM-only since
+#   0.4 and query-string 7 `require`s it, so an override breaks the Metro bundle.
+#   Exposure: query-string parses deep-link query strings on the reader's own
+#   device — a crafted link can only slow that one app. Revisit when expo-router
+#   moves to query-string >= 9.
+# - glob 13.0.6 and minimatch 10.2.6 (moderate) arrive via @expo/cli,
+#   @expo/config, @expo/fingerprint and @sentry/bundler-plugins — build tools,
+#   never in the app or the web bundle. Their fixes are new majors (glob 14,
+#   minimatch 11) under those tools. Revisit with the next Expo SDK.
+#
 # zod 3.25.76 and node-forge 1.4.0 (high, 2026-10-26) both arrive through
 # @expo/cli — the build tool, never in the app bundle. zod's fix is 4.6.6, a
 # major that @expo/cli cannot take (installed 57.0.27 and latest 58.1.15 both pin zod ^3.25.76), and zod 3 has
