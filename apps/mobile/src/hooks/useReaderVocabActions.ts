@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, MutableRefObject } from 'react'
-import { vocabularyApi, t } from '@textstack/shared'
+import { t } from '@textstack/shared'
+import { uuid } from 'expo-modules-core'
+import { vocabularyApi } from '../lib/vocabularyApi'
 import { cachedTranslate } from '../lib/translateCache'
 import type { Chapter, VocabularyWordDto, Language } from '@textstack/shared'
 import type { VocabMap } from './useReaderVocabMap'
@@ -54,10 +56,12 @@ const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
  *  that previously dropped a tapped word silently (no underline, no retry).
  *  Deterministic 4xx just exhausts the 3 attempts quickly, then rethrows. */
 async function saveWordWithRetry(body: Parameters<typeof vocabularyApi.saveWord>[0]) {
+  // V2: one card id and one operationId per save, reused by every retry (the server replays it).
+  const once = { ...body, id: uuid.v4(), operationId: uuid.v4() }
   let lastErr: unknown
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return await vocabularyApi.saveWord(body)
+      return await vocabularyApi.saveWord(once)
     } catch (e) {
       lastErr = e
       if (attempt < 2) await delay(350 * (attempt + 1))

@@ -1,0 +1,33 @@
+/**
+ * `@textstack/shared`'s `userBooksApi`, switched per call to V2 when the server has `Features:V2Api`
+ * (#1025 M2.7) — the one switch for every screen and hook, as web's `api/userBooks.ts`. With V2 off
+ * each call is the shared one, unchanged.
+ *
+ * On V2 only open, read, progress and delete exist. Bookmarks list empty (V2 has none);
+ * ponytail: the other legacy-only routes (bookmark writes, retry, cancel, complete, quota, enrich)
+ * still call /me/books and fail on a V2 id, as web's "open + delete only" menu.
+ */
+import { userBooksApi as legacy } from '@textstack/shared'
+import {
+  onV2, v2Enabled, getV2UserBooks, getV2UserBook, getV2UserBookChapter, removeV2Book, v2FileUrl,
+  readV2Progress, saveV2Progress,
+} from './v2'
+
+type UpdateProgress = Parameters<typeof legacy.updateUserBookProgress>[1]
+
+export const userBooksApi = {
+  ...legacy,
+  getUserBooks: async () => ((await onV2()) ? getV2UserBooks() : legacy.getUserBooks()),
+  getUserBook: async (id: string) => ((await onV2()) ? getV2UserBook(id) : legacy.getUserBook(id)),
+  getUserBookChapter: async (bookId: string, slug: string) =>
+    ((await onV2()) ? getV2UserBookChapter(bookId, slug) : legacy.getUserBookChapter(bookId, slug)),
+  deleteUserBook: async (id: string) => ((await onV2()) ? removeV2Book(id) : legacy.deleteUserBook(id)),
+  getUserBookProgress: async (bookId: string) =>
+    ((await onV2()) ? readV2Progress(bookId) : legacy.getUserBookProgress(bookId)),
+  /** On V2 the revision rule decides; `reload`: the book's file was replaced, reopen it. */
+  updateUserBookProgress: async (bookId: string, data: UpdateProgress): Promise<{ reload?: boolean } | void> =>
+    ((await onV2()) ? saveV2Progress(bookId, data) : legacy.updateUserBookProgress(bookId, data)),
+  getUserBookBookmarks: async (bookId: string) => ((await onV2()) ? [] : legacy.getUserBookBookmarks(bookId)),
+  getUserBookFileUrl: (id: string, apiBase: string) =>
+    (v2Enabled() && v2FileUrl(id)) || legacy.getUserBookFileUrl(id, apiBase),
+}

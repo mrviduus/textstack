@@ -100,6 +100,8 @@ export async function getCachedOriginalUri(
 export async function downloadOriginal(
   bookId: string,
   format: OriginalFormat,
+  /** Where the bytes are: the legacy route, or V2's content route (`userBooksApi.getUserBookFileUrl`). */
+  url = `${API_URL}/me/books/${bookId}/file`,
 ): Promise<OriginalDownloadOutcome> {
   if (Platform.OS === 'web') return { status: 'failed' }
   // One download per book at a time. Two of them share a `.part` path, and the
@@ -109,7 +111,7 @@ export async function downloadOriginal(
   // second tap now joins the first instead of racing it.
   const inFlight = downloadsInFlight.get(bookId)
   if (inFlight) return inFlight
-  const run = downloadOriginalOnce(bookId, format)
+  const run = downloadOriginalOnce(bookId, format, url)
   downloadsInFlight.set(bookId, run)
   try {
     return await run
@@ -123,6 +125,7 @@ const downloadsInFlight = new Map<string, Promise<OriginalDownloadOutcome>>()
 async function downloadOriginalOnce(
   bookId: string,
   format: OriginalFormat,
+  url: string,
 ): Promise<OriginalDownloadOutcome> {
 
   const token = await freshAccessToken()
@@ -153,7 +156,7 @@ async function downloadOriginalOnce(
   let downloaded: InstanceType<typeof File>
   try {
     downloaded = await File.downloadFileAsync(
-      `${API_URL}/me/books/${bookId}/file`,
+      url,
       destination,
       { headers: { ...APP_HEADERS, Authorization: `Bearer ${token}` }, idempotent: true },
     )

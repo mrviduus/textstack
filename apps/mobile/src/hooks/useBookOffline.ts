@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { userBooksApi, createBooksApi, type LibraryEntry } from '@textstack/shared'
+import { createBooksApi, type LibraryEntry } from '@textstack/shared'
+import { userBooksApi } from '../lib/userBooksApi'
 import { useToast } from '../context/ToastContext'
 import { useDownload } from '../context/DownloadContext'
 import { downloadPercent, offlineStateFor } from '../lib/offlineState'

@@ -16,6 +16,7 @@ import { clearAllLocalProgress } from '../lib/progressStorage'
 import { clearPendingSessions, flushPendingSessions } from '../lib/pendingSessions'
 import { useReconnectCount } from '../hooks/useOnline'
 import { clearReaderCache } from '../lib/readerOfflineCache'
+import { startV2Probe } from '../lib/v2'
 
 // Lazy import so the Google module isn't pulled on platforms / contexts
 // that don't ship it (e.g. Expo Go web preview, where this package may
@@ -341,6 +342,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (userId) flushPendingSessions().catch(() => {})
   }, [userId, reconnects])
+
+  // The V2 probe (`GET /me/v2/status`, #1025) needs a session; once per app start. A call that needs
+  // the answer before this runs starts it itself (`onV2`).
+  useEffect(() => {
+    if (userId) void startV2Probe()
+  }, [userId])
 
   // -------------------------------------------------------------------------
   // Guest minting

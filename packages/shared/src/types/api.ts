@@ -516,6 +516,8 @@ export interface UserBookChapterDto {
   next: ChapterNav | null
   /** 1-based PDF page where this chapter starts. Null for EPUBs / unknown. */
   sourceStartPage?: number | null
+  /** V2 (`/me/v2`): the file version this chapter is from. Absent on legacy. */
+  fileId?: string | null
 }
 
 // ── Chapter review (ADR-016) — `BookInsight.review`; mirrors Contracts/ChapterReview/ChapterReviewDtos.cs ──

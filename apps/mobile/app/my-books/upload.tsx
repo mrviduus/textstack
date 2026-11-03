@@ -3,13 +3,15 @@ import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-na
 import { useRouter, Stack } from 'expo-router'
 import * as DocumentPicker from 'expo-document-picker'
 import { formatBytes } from '../../src/lib/formatBytes'
-import { userBooksApi, getApiConfig } from '@textstack/shared'
+import { getApiConfig } from '@textstack/shared'
+import { userBooksApi } from '../../src/lib/userBooksApi'
 import { colors } from '../../src/theme/colors'
 import { useAuth } from '../../src/context/AuthContext'
 import { useDownload } from '../../src/context/DownloadContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
 import { SessionGate } from '../../src/components/SessionGate'
 import { APP_HEADERS } from '../../src/lib/api'
+import { startV2Probe, uploadV2Book, deviceUploadIo } from '../../src/lib/v2'
 
 
 export default function UploadRoute() {
@@ -37,6 +39,8 @@ function UploadScreen() {
   const [ownsRights, setOwnsRights] = useState(false)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
   const unmountedRef = useRef(false)
+  // V2 parts go one by one through fetch: Cancel stops before the next part (no XHR to abort).
+  const v2CancelledRef = useRef(false)
 
   useEffect(() => {
     // A guest now gets this figure, and it is the truth: their `Guest` tier
@@ -55,6 +59,7 @@ function UploadScreen() {
   useEffect(() => {
     return () => {
       unmountedRef.current = true
+      v2CancelledRef.current = true
       if (xhrRef.current) {
         try { xhrRef.current.abort() } catch {}
         xhrRef.current = null
@@ -99,6 +104,7 @@ function UploadScreen() {
   }
 
   const handleCancel = () => {
+    v2CancelledRef.current = true
     if (xhrRef.current) {
       try { xhrRef.current.abort() } catch {}
       xhrRef.current = null
@@ -130,6 +136,23 @@ function UploadScreen() {
       const file = result.assets[0]
       setFileName(file.name)
       setUploading(true)
+
+      // V2 (#1025): sha256 → by-sha256 → import → parts → complete. The same bytes already in the
+      // library open that book instead.
+      const v2 = await startV2Probe()
+      if (v2.enabled) {
+        v2CancelledRef.current = false
+        const { bookId, existing } = await uploadV2Book(
+          file, v2.maxPartBytes, deviceUploadIo(() => v2CancelledRef.current), setUploadProgress)
+        if (unmountedRef.current) return
+        if (existing) {
+          router.replace(`/my-books/${bookId}`)
+          return
+        }
+        void syncOfflineLibrary().catch(err => console.warn('[auto-download] post-upload sweep failed:', err))
+        router.back()
+        return
+      }
 
       const { baseUrl, getAccessToken } = getApiConfig()
       const token = await getAccessToken()

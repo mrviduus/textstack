@@ -3,6 +3,7 @@ import {
   appendPendingSession,
   drainPendingSessions,
   readingTrackingApi,
+  v2Api,
   type PendingSession,
 } from '@textstack/shared'
 
@@ -17,6 +18,13 @@ import {
 const KEY = 'reading.pendingSessions'
 
 type Submit = (s: PendingSession) => Promise<unknown>
+
+/** A V2 session (it has a `clientSessionId`) to its idempotent PUT; the rest to the legacy route. */
+const submitSession: Submit = (s) => {
+  if (!s.clientSessionId) return readingTrackingApi.submitSession(s)
+  const { clientSessionId, editionId: _editionId, userBookId, ...rest } = s
+  return v2Api.putSession(clientSessionId, { ...rest, bookId: userBookId ?? null })
+}
 
 // One JS runtime, so a promise chain is enough to keep a flush from overwriting a session enqueued
 // while it was in flight.
@@ -45,7 +53,7 @@ export function enqueuePendingSession(session: PendingSession): Promise<void> {
   return serialized(async () => write(appendPendingSession(await read(), session)))
 }
 
-export function flushPendingSessions(submit: Submit = readingTrackingApi.submitSession): Promise<void> {
+export function flushPendingSessions(submit: Submit = submitSession): Promise<void> {
   return serialized(async () => {
     const queue = await read()
     if (queue.length === 0) return

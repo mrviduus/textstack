@@ -13,6 +13,8 @@ export interface PendingSession {
   wordsRead: number
   startPercent: number
   endPercent: number
+  /** V2 (`PUT /me/v2/reading/sessions/{id}`): minted once when queued, so a resend is the same session. */
+  clientSessionId?: string
 }
 
 export const MAX_PENDING_SESSIONS = 50

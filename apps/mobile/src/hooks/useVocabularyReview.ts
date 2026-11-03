@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { vocabularyApi } from '@textstack/shared'
+import { vocabularyApi } from '../lib/vocabularyApi'
 import type { ReviewCardDto, SubmitReviewResponse, SelfAssessment, ReviewMode, WeeklyProgressDto } from '@textstack/shared'
 
 export type { ReviewMode }

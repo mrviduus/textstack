@@ -46,6 +46,8 @@ export interface UserBookDetailResponse {
   metadataEnrichmentStatus?: string
   /** Page a clipped article came from. Null for uploaded files; absent on older payloads. */
   sourceUrl?: string | null
+  /** V2 (`/me/v2`): the book's current file version. Absent on legacy. */
+  fileId?: string | null
 }
 
 export function getUserBook(id: string) {

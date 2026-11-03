@@ -111,6 +111,7 @@ export interface CachedUserBookMeta {
   totalWordCount: number | null
   isPdf: boolean
   cachedAt: number
+  fileId?: string | null
 }
 
 export async function getCachedUserChapter(): Promise<CachedUserChapter | null> {
@@ -151,6 +152,10 @@ export async function updateCachedUserChapterCount(): Promise<void> {
 
 export async function deleteCachedUserBook(): Promise<void> {
   /* no-op */
+}
+
+export async function dropReplacedUserBookFile(): Promise<boolean> {
+  return false
 }
 
 export async function getAllCachedUserBooks(): Promise<CachedUserBookMeta[]> {

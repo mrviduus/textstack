@@ -36,6 +36,11 @@ export default defineConfig({
         find: '@react-native-async-storage/async-storage',
         replacement: resolve(__dirname, 'src/lib/__mocks__/async-storage.ts'),
       },
+      // expo-modules-core ships untranspiled TS; the code under test only reaches its `uuid`.
+      {
+        find: 'expo-modules-core',
+        replacement: resolve(__dirname, 'src/lib/__mocks__/expo-modules-core.ts'),
+      },
       // Shared workspace package is a source path-alias (not built) — point
       // Vitest at its source entry so lib tests that import RN-free helpers
       // from modules which also re-export `authFetch` (e.g. agents.ts) resolve.

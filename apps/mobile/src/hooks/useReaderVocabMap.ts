@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { vocabularyApi } from '@textstack/shared'
+import { vocabularyApi } from '../lib/vocabularyApi'
 import { vocabMapCache } from '../lib/readerOfflineCache'
 import { cachedTranslate } from '../lib/translateCache'
 import { vocabPaintJs } from '../lib/vocabPaintJs'
