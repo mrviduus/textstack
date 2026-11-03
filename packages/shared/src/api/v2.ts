@@ -33,6 +33,45 @@ export interface V2Status {
   maxPartBytes: number
 }
 
+/** The client's switch: whether this app start talks V2, and the part size the server takes. */
+export interface V2Switch {
+  enabled: boolean
+  maxPartBytes: number
+}
+
+export const V2_OFF: V2Switch = { enabled: false, maxPartBytes: 0 }
+
+/**
+ * What a client offers on a V2 user book (`Features:V2Api` on). V2 holds no bookmarks, no
+ * distractors, clusters, tutor, stats or tags (ADR-031 D6): web and mobile hide the same things
+ * from this one table, and M6 deletes it. `false` = hidden.
+ */
+export const V2_FEATURES = {
+  bookmarks: false,
+  /** Flashcards only: multiple choice needs server-made distractors. */
+  reviewModes: ['classic'] as const,
+  clusters: false,
+  tutor: false,
+  /** Book actions offered on an upload. */
+  bookActions: ['open', 'delete', 'finish'] as const,
+  metadataEdit: false,
+  enrich: false,
+  retry: false,
+  tags: false,
+  collections: false,
+  stats: false,
+  insights: false,
+  contentSearch: false,
+  readLater: false,
+  storageQuota: false,
+  markAsKnown: false,
+} as const
+
+export type V2Feature = { [K in keyof typeof V2_FEATURES]: (typeof V2_FEATURES)[K] extends boolean ? K : never }[keyof typeof V2_FEATURES]
+
+/** Whether the client offers `feature` on a user book: always with V2 off, else as `V2_FEATURES` says. */
+export const v2Offers = (s: V2Switch, feature: V2Feature): boolean => !s.enabled || V2_FEATURES[feature]
+
 /** One page of a change feed; pass `cursor` back while `hasMore`. */
 export interface V2Feed<T> {
   items: T[]
@@ -374,6 +413,7 @@ export const removeContent = (bookId: string, fileId: string) => authFetch<void>
 export const contentUrl = (bookId: string, fileId: string) => `${getApiConfig().baseUrl}${file(bookId, fileId)}/content`
 export const putCover = (bookId: string, bytes: Blob | ArrayBuffer | Uint8Array, contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
   authFetch<V2Book>(`${book(bookId)}/cover`, { method: 'PUT', headers: { 'Content-Type': contentType }, body: bytes as BodyInit })
+export const readingStateUrl = (bookId: string) => `${getApiConfig().baseUrl}${book(bookId)}/reading-state`
 /** The cover; `updatedAt` busts the year-long cache after a change. */
 export const coverUrl = (bookId: string, updatedAt: string) =>
   `${getApiConfig().baseUrl}${book(bookId)}/cover?v=${encodeURIComponent(updatedAt)}`

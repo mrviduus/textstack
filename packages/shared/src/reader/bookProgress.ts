@@ -108,3 +108,22 @@ export function computeBookProgress(
   // Equal-weight fallback — every chapter counts the same.
   return Math.max(0, Math.min(1, (idx + clampedProg) / chapters.length))
 }
+
+/**
+ * The chapter at a book fraction, by cumulative word counts: where a reader resumes from a stored
+ * place it cannot resolve (a V2 reader's `epub-cfi`, ADR-031). ponytail: proportional on word
+ * counts; a chapter without a count weighs the average.
+ */
+export function chapterAtFraction(items: { chapterKey: string; wordCount: number | null }[], fraction: number): string | null {
+  if (items.length === 0) return null
+  const known = items.filter((c) => c.wordCount != null)
+  const average = known.length ? known.reduce((s, c) => s + c.wordCount!, 0) / known.length : 1
+  const weights = items.map((c) => c.wordCount ?? average)
+  const target = Math.min(1, Math.max(0, fraction)) * weights.reduce((s, w) => s + w, 0)
+  let sum = 0
+  for (let i = 0; i < items.length; i++) {
+    sum += weights[i]
+    if (target < sum) return items[i].chapterKey
+  }
+  return items[items.length - 1].chapterKey
+}
