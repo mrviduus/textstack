@@ -1,4 +1,9 @@
+using Application.Common.Interfaces;
+using Application.Identity;
 using Domain.Entities;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using Worker.Services;
 
 namespace TextStack.UnitTests;
@@ -7,6 +12,37 @@ namespace TextStack.UnitTests;
 public class RetentionCleanupTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task CleanupAsync_CredentialSweeps_EachGetsADayPastNow()
+    {
+        // The identity ports sweep with the cutoff they are given (their contract tests); the grace is the worker's.
+        var sessions = new Mock<ISessionTokenRepository>();
+        var devices = new Mock<IDeviceLoginRepository>();
+        var oauth = new Mock<IOAuthRepository>();
+        var lastSweep = new TaskCompletionSource();
+        oauth.Setup(o => o.DeleteDeadGrantsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+            .Callback(lastSweep.SetResult).ReturnsAsync(0);
+        await using var services = new ServiceCollection()
+            .AddScoped(_ => Mock.Of<IAppDbContext>())
+            .AddScoped(_ => sessions.Object)
+            .AddScoped(_ => devices.Object)
+            .AddScoped(_ => oauth.Object)
+            .BuildServiceProvider();
+        using var worker = new RetentionCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<RetentionCleanupWorker>.Instance);
+        var before = DateTimeOffset.UtcNow - RetentionCleanupWorker.TokenGrace;
+
+        await worker.StartAsync(TestContext.Current.CancellationToken);
+        await lastSweep.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await worker.StopAsync(TestContext.Current.CancellationToken);
+
+        var after = DateTimeOffset.UtcNow - RetentionCleanupWorker.TokenGrace;
+        Func<DateTimeOffset, bool> atGrace = cutoff => cutoff >= before && cutoff <= after;
+        sessions.Verify(s => s.DeleteExpiredSessionsAsync(It.Is<DateTimeOffset>(c => atGrace(c)), It.IsAny<CancellationToken>()), Times.Once);
+        sessions.Verify(s => s.DeleteExpiredPasswordResetsAsync(It.Is<DateTimeOffset>(c => atGrace(c)), It.IsAny<CancellationToken>()), Times.Once);
+        devices.Verify(d => d.DeleteExpiredAsync(It.Is<DateTimeOffset>(c => atGrace(c)), It.IsAny<CancellationToken>()), Times.Once);
+        oauth.Verify(o => o.DeleteDeadGrantsAsync(It.Is<DateTimeOffset>(c => atGrace(c)), It.IsAny<CancellationToken>()), Times.Once);
+    }
 
     private static bool IsOldSsgJob(DateTimeOffset? finishedAt) =>
         RetentionCleanupWorker.OldSsgRebuildJob(Now).Compile()(
