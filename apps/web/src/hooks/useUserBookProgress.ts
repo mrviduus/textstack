@@ -1,7 +1,8 @@
-import { PERCENT_UNIT_BOOK, LOCATOR_SPACE_SCROLL } from '@textstack/shared'
+import { PERCENT_UNIT_BOOK, LOCATOR_SPACE_SCROLL, parsePdfPageLocator } from '@textstack/shared'
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { readUserBookProgress, saveUserBookProgress, type UserBookProgress } from '../api/userBooks'
 import { v2Enabled, v2ProgressBody, v2StateUrl, rememberV2State, type V2WriteOutcome } from '../api/v2'
+import { writePdfPage } from '../lib/originalLayoutPref'
 import { preferLocalProgress, markProgressSynced, PROGRESS_GET_TIMEOUT_MS, timeoutSignal } from '../lib/progressSync'
 
 const STORAGE_KEY = 'userbook.progress.'
@@ -114,15 +115,26 @@ export function useUserBookProgress(bookId: string) {
     return () => { cancelled = true }
   }, [bookId])
 
-  // V2 (#1025): a lost write takes the server's place, and moves the reader only if the place
-  // differs; a replaced file reloads the book.
-  const adoptV2 = useCallback((outcome: V2WriteOutcome) => {
+  // V2 (#1025), a write the server did not take as sent: a lost write takes the server's place
+  // (moving the reader only if the place differs; a PDF page becomes the PDF view's place); a
+  // replaced file reloads the book; a dropped write leaves the local place unsynced, to be sent again.
+  const adoptV2 = useCallback((outcome: V2WriteOutcome, sent: SavedProgress) => {
     if (outcome.reload) {
       window.location.reload()
       return
     }
     const server = outcome.adopted
-    if (!server?.chapterSlug) return
+    if (!server) return
+    if (pendingSyncRef.current === sent) pendingSyncRef.current = null
+    const page = parsePdfPageLocator(server.locator)
+    if (page != null) {
+      writePdfPage(bookId, page)
+      setServerRow(server)
+      // The server's place is the newer one: this record no longer wins a restore.
+      markProgressSynced(`${STORAGE_KEY}${bookId}`, sent.updatedAt)
+      return
+    }
+    if (!server.chapterSlug) return
     const adopted: SavedProgress = {
       chapterSlug: server.chapterSlug,
       locator: server.locator ?? undefined,
@@ -168,10 +180,14 @@ export function useUserBookProgress(bookId: string) {
         updatedAt: new Date(toSync.updatedAt).toISOString(),
       })
         .then((outcome) => {
+          // V2 marks synced only what the server accepted; legacy resolves with nothing on success.
+          if (outcome && !outcome.accepted) {
+            adoptV2(outcome, toSync)
+            return
+          }
           lastAckedKeyRef.current = `${toSync.chapterSlug}:${toSync.locator ?? ''}`
           if (pendingSyncRef.current === toSync) pendingSyncRef.current = null
           markProgressSynced(`${STORAGE_KEY}${bookId}`, toSync.updatedAt)
-          if (outcome) adoptV2(outcome)
         })
         .catch((err) => {
           // Leave ref so next save retries. Log only — never interrupt reading.
