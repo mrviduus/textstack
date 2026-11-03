@@ -32,7 +32,7 @@ public static class ProfileEndpoints
     // stale cached user object — mobile uses this on launch to pick up a native
     // language the user set on another device.
     private static async Task<IResult> GetProfile(
-        AuthService authService,
+        IAuthService authService,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -47,7 +47,7 @@ public static class ProfileEndpoints
 
     private static async Task<IResult> UpdateProfile(
         [FromBody] UpdateProfileRequest request,
-        AuthService authService,
+        IAuthService authService,
         IUserRepository users,
         HttpContext httpContext,
         CancellationToken ct)
@@ -85,7 +85,7 @@ public static class ProfileEndpoints
 
     private static async Task<IResult> UploadAvatar(
         IFormFile file,
-        AuthService authService,
+        IAuthService authService,
         IUserRepository users,
         IFileStorageService storage,
         IImageOptimizer imageOptimizer,
@@ -128,7 +128,7 @@ public static class ProfileEndpoints
     }
 
     private static async Task<IResult> DeleteAvatar(
-        AuthService authService,
+        IAuthService authService,
         IUserRepository users,
         IFileStorageService storage,
         HttpContext httpContext,

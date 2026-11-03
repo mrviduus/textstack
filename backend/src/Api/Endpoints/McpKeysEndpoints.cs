@@ -31,7 +31,7 @@ public static class McpKeysEndpoints
 
     private static async Task<IResult> ListKeys(
         HttpContext httpContext,
-        AuthService authService,
+        IAuthService authService,
         IMcpKeyRepository keys,
         CancellationToken ct)
     {
@@ -49,7 +49,7 @@ public static class McpKeysEndpoints
     private static async Task<IResult> CreateKey(
         [FromBody] CreateMcpKeyRequest request,
         HttpContext httpContext,
-        AuthService authService,
+        IAuthService authService,
         IMcpKeyRepository keys,
         CancellationToken ct)
     {
@@ -78,7 +78,7 @@ public static class McpKeysEndpoints
     private static async Task<IResult> RevokeKey(
         Guid id,
         HttpContext httpContext,
-        AuthService authService,
+        IAuthService authService,
         IMcpKeyRepository keys,
         CancellationToken ct)
     {

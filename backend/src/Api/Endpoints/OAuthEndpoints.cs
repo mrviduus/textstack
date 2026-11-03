@@ -44,7 +44,7 @@ public static class OAuthEndpoints
         // The MCP host asks this before serving a tso_ bearer, so an expired token gets the 401
         // challenge clients refresh on. No limiter: it arrives from the one bridge address, per
         // MCP request, and costs the lookup McpKeyAuthMiddleware already did.
-        oauth.MapGet("/token-status", (HttpContext http, AuthService auth) =>
+        oauth.MapGet("/token-status", (HttpContext http, IAuthService auth) =>
             http.GetUserId(auth) is null ? Results.Unauthorized() : Results.NoContent()).ExcludeFromDescription();
 
         var grants = app.MapGroup("/me/oauth/grants").WithTags("OAuth").RejectOAuthTokens();
@@ -156,7 +156,7 @@ public static class OAuthEndpoints
         : "pending";
 
     private static async Task<IResult> Approve(
-        [FromBody] OAuthDecisionRequest body, HttpContext http, AuthService auth, IOAuthRepository oauth,
+        [FromBody] OAuthDecisionRequest body, HttpContext http, IAuthService auth, IOAuthRepository oauth,
         IConfiguration config, CancellationToken ct)
     {
         var identity = http.GetAccessTokenIdentity(auth);
@@ -419,7 +419,7 @@ public static class OAuthEndpoints
 
     // ── connected apps ───────────────────────────────────────────────────────────
 
-    private static async Task<IResult> ListGrants(HttpContext http, AuthService auth, IOAuthRepository oauth, CancellationToken ct)
+    private static async Task<IResult> ListGrants(HttpContext http, IAuthService auth, IOAuthRepository oauth, CancellationToken ct)
     {
         var userId = http.GetUserId(auth);
         if (userId is null) return Results.Unauthorized();
@@ -433,7 +433,7 @@ public static class OAuthEndpoints
         });
     }
 
-    private static async Task<IResult> RevokeGrant(Guid id, HttpContext http, AuthService auth, IOAuthRepository oauth, CancellationToken ct)
+    private static async Task<IResult> RevokeGrant(Guid id, HttpContext http, IAuthService auth, IOAuthRepository oauth, CancellationToken ct)
     {
         var userId = http.GetUserId(auth);
         if (userId is null) return Results.Unauthorized();
