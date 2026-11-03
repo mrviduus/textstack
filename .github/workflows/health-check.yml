@@ -141,6 +141,26 @@ jobs:
           fi
           echo "collation ok"
 
+      # V2 (ADR-030, #1043). Soft in /health/ready, which never answers 503 for it (#1053), so it is
+      # asserted here. The component names the deployment's flag: "off" = FEATURES_V2API off, accepted
+      # and never an alarm. Flag on, anything but "ok" (behind / unreachable / unconfigured) means
+      # /me/v2 answers 503: sync is paused, the rest of the site is untouched.
+      - name: V2 database ready (flag on)
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          v2=$(jq -c '.components.v2 // empty' "$RUNNER_TEMP/ready.json")
+          if [ -z "$v2" ]; then
+            echo "::warning::readiness probe has no v2 component yet — API not redeployed"
+            exit 0
+          fi
+          status=$(printf '%s' "$v2" | jq -r '.status')
+          case "$status" in
+            off) echo "v2 off (FEATURES_V2API=false)" ;;
+            ok) echo "v2 ok" ;;
+            *) echo "::error::FEATURES_V2API is on and textstack_v2 is $status ($v2): /me/v2 answers 503. On the server: make migrate-v2-status (ADR-030, #1053)."; exit 1 ;;
+          esac
+
       # A failing rebuild is a malfunction, so it alarms at once. Age is not checked: since #992
       # the SSG tree is frozen and rebuilt only by hand, so an old tree is the normal state.
       - name: SSG freshness

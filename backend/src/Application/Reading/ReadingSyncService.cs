@@ -1,6 +1,7 @@
 using Application.Common;
 using Application.Library;
 using Application.Sync;
+using Application.Transitional;
 using Contracts.V2;
 using Domain.Reading;
 using static Application.Sync.SyncValidation;
@@ -14,7 +15,8 @@ namespace Application.Reading;
 /// is a row with a higher revision exactly as after a move, so only the library can tell them apart.
 /// A removed book still accepts state and sessions (owner decision 11).
 /// </summary>
-public sealed class ReadingSyncService(ILibraryRepository library, IReadingStateRepository states, IReadingSessionRepository sessions)
+public sealed class ReadingSyncService(
+    ILibraryRepository library, IReadingStateRepository states, IReadingSessionRepository sessions, IBookChapterRepository chapters)
 {
     public async Task<SyncResult> GetAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
@@ -39,24 +41,40 @@ public sealed class ReadingSyncService(ILibraryRepository library, IReadingState
             CompletedAt = request.CompletedAt,
             ClientRecordedAt = request.ClientRecordedAt!.Value,
         };
-        var result = await states.AdvanceAsync(userId, bookId, state, request.ExpectedRevision, ct);
-        return result.Accepted ? SyncResult.Ok(result.Current!.ToDto()) : await ClassifyLossAsync(userId, bookId, state.FileId, request.ExpectedRevision, result.Current, ct);
+        var keys = TransitionalLocators.ChapterKeysOf(state);
+        var result = await states.AdvanceAsync(userId, bookId, state, request.ExpectedRevision, keys, ct);
+        return result.Accepted ? SyncResult.Ok(result.Current!.ToDto()) : await ClassifyLossAsync(userId, bookId, state, keys, request.ExpectedRevision, result.Current, ct);
     }
 
     private async Task<SyncResult> ClassifyLossAsync(
-        Guid userId, Guid bookId, Guid fileId, long? expectedRevision, ReadingState? stored, CancellationToken ct)
+        Guid userId, Guid bookId, ReadingState sent, TransitionalChapterKeys keys, long? expectedRevision, ReadingState? stored, CancellationToken ct)
     {
         var book = await library.GetAsync(userId, bookId, ct);
         if (book is null) return SyncResult.BookNotFound;
         var current = book.CurrentFile;
-        if (fileId != current?.Id)
-            return await library.GetFileAsync(userId, bookId, fileId, ct) is null
+        if (sent.FileId != current?.Id)
+            return await library.GetFileAsync(userId, bookId, sent.FileId, ct) is null
                 ? SyncResult.UnknownFile
                 : SyncResult.FileReplaced(current, stored?.Revision, stored?.ToDto());
+        if (await NamesAMissingChapterAsync(userId, sent, keys, stored, ct)) return SyncResult.ChapterNotFound;
         // A first writer had no frontier to lose, so a reset is news only to a writer that read an older revision.
         return expectedRevision is not null && stored?.ResetRevision > expectedRevision
             ? SyncResult.Fail(SyncCodes.Reset, stored!.Revision, stored.ToDto(), current?.Id, current?.ToDto())
             : SyncResult.StaleRevision(stored?.Revision, stored?.ToDto(), current);
+    }
+
+    /// <summary>
+    /// The write SQL's chapter guard asked again, to name the loss: the position's chapter, and the offered
+    /// frontier's when the write would have stored it (no stored frontier, or the offered one is further).
+    /// </summary>
+    private async Task<bool> NamesAMissingChapterAsync(Guid userId, ReadingState sent, TransitionalChapterKeys keys, ReadingState? stored, CancellationToken ct)
+    {
+        var (_, offered) = ReadingState.Furthest((sent.FrontierLocator, sent.FrontierFraction), (sent.CurrentLocator, sent.BookFraction));
+        var frontierStored = stored?.FrontierFraction is not { } kept || offered > kept;
+        foreach (var key in new[] { keys.Current, frontierStored ? keys.Frontier : null }.OfType<string>().Distinct())
+            if (!await chapters.ExistsAsync(userId, sent.FileId, key, ct))
+                return true;
+        return false;
     }
 
     private static SyncResult? Validate(ReadingStateRequest r) =>

@@ -21,7 +21,7 @@
  * So: a reading position is a highlight without a colour.
  */
 
-import { ANCHOR_CONTEXT_LENGTH, findAnchorOffset, type TextAnchor } from './textAnchor'
+import { ANCHOR_CONTEXT_LENGTH, findAnchorOffset, notInSurrogatePair, type TextAnchor } from './textAnchor'
 
 /**
  * The version, on the wire.
@@ -89,8 +89,12 @@ export function buildTextPosition(input: {
   const { chapterSlug, chapterText } = input
   if (!chapterSlug || typeof chapterText !== 'string' || chapterText.length === 0) return null
 
-  const start = clampInt(input.charOffset, 0, chapterText.length)
-  const exact = chapterText.slice(start, start + POSITION_QUOTE_LENGTH)
+  // Every cut lands between code points: half a surrogate pair has no UTF-8 form, and the server
+  // refuses a position holding one (400). Offsets stay in UTF-16 units, the unit findAnchorOffset reads.
+  const len = chapterText.length
+  const start = notInSurrogatePair(chapterText, clampInt(input.charOffset, 0, len), -1)
+  const end = notInSurrogatePair(chapterText, Math.min(len, start + POSITION_QUOTE_LENGTH), -1)
+  const exact = chapterText.slice(start, end)
   // A position at the very end of a chapter has nothing left to quote. The fraction still says
   // where the reader is, so the caller keeps that and loses only the precision.
   if (exact.length === 0) return null
@@ -99,11 +103,11 @@ export function buildTextPosition(input: {
     v: TEXT_POSITION_VERSION,
     chapterSlug,
     anchor: {
-      prefix: chapterText.slice(Math.max(0, start - ANCHOR_CONTEXT_LENGTH), start),
+      prefix: chapterText.slice(notInSurrogatePair(chapterText, Math.max(0, start - ANCHOR_CONTEXT_LENGTH), 1), start),
       exact,
-      suffix: chapterText.slice(start + exact.length, start + exact.length + ANCHOR_CONTEXT_LENGTH),
+      suffix: chapterText.slice(end, notInSurrogatePair(chapterText, Math.min(len, end + ANCHOR_CONTEXT_LENGTH), -1)),
       startOffset: start,
-      endOffset: start + exact.length,
+      endOffset: end,
     },
     charOffset: start,
     chapterFraction: clampUnit(input.chapterFraction),

@@ -165,6 +165,32 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ExistsAsync_KeyOfTheFile_IsTrueAndAnotherKeyIsNot()
+    {
+        var book = await BookWithChaptersAsync();
+
+        Assert.True(await _repo.ExistsAsync(book.UserId, book.CurrentFile!.Id, "two", Ct));
+        Assert.False(await _repo.ExistsAsync(book.UserId, book.CurrentFile.Id, "three", Ct));
+    }
+
+    [Fact]
+    public async Task ExistsAsync_KeyOfAnotherVersion_IsFalse()
+    {
+        var book = await BookWithChaptersAsync();
+        var replaced = await db.ReplaceFileAsync(book);
+
+        Assert.False(await _repo.ExistsAsync(book.UserId, replaced.Current!.Id, "two", Ct));
+    }
+
+    [Fact]
+    public async Task ExistsAsync_Bob_IsFalse()
+    {
+        var book = await BookWithChaptersAsync();
+
+        Assert.False(await _repo.ExistsAsync(await db.NewReaderAsync(), book.CurrentFile!.Id, "two", Ct));
+    }
+
+    [Fact]
     public async Task GetPlainTextAsync_Bob_ReturnsNull()
     {
         var book = await BookWithChaptersAsync();

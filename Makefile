@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status migrate migrate-down migrate-status migrate-v2 migrate-v2-down migrate-v2-status migrator-guard backup restore backup-list backup-verify rebuild-ssg clean-ssg featured featured-show nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
+.PHONY: up down restart logs status migrate migrate-down migrate-status migrate-v2 migrate-v2-down migrate-v2-status migrate-v2-drop migrator-guard backup restore restore-v2 backup-list backup-verify rebuild-ssg clean-ssg featured featured-show nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
 
 # ============================================================
 # Docker Services
@@ -72,6 +72,12 @@ migrate-v2-down: migrator-guard
 migrate-v2-status: migrator-guard
 	$(MIGRATOR_V2) status
 
+# The baseline's rollback: 0000 has no down file, so `migrate-v2-down V=0` undoes nothing. Drops the
+# whole V2 database and its data; `make migrate-v2` builds it again. CONFIRM must name the database.
+migrate-v2-drop: migrator-guard
+	@test -n "$(CONFIRM)" || { echo 'usage: make migrate-v2-drop CONFIRM=<V2_POSTGRES_DB, default textstack_v2> (all its data is lost)'; exit 1; }
+	$(MIGRATOR_V2) drop $(CONFIRM)
+
 # ============================================================
 # Deployment
 # ============================================================
@@ -144,20 +150,49 @@ nginx-setup-mac:
 # ============================================================
 
 BACKUP_DIR := $(HOME)/backups/textstack
+# Overridable only so the targets can be run against a throwaway Postgres.
+DB_CONTAINER ?= textstack_db_prod
+# Prints the V2 database's name (ADR-030) when it exists in DB_CONTAINER, nothing when it does not.
+V2_EXISTS = docker exec $(DB_CONTAINER) psql -XtA -U $$POSTGRES_USER -d postgres \
+	-c "SELECT datname FROM pg_database WHERE datname = '$${V2_POSTGRES_DB:-textstack_v2}'"
 
 backup:
 	@mkdir -p $(BACKUP_DIR)
-	@. ./.env && docker exec textstack_db_prod pg_dump -U $$POSTGRES_USER $$POSTGRES_DB | gzip > $(BACKUP_DIR)/db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
-	@echo "Backup saved:"
+	@# The same checked dump as backup.yml: pipefail + trailer, so a failed pg_dump never leaves an
+	@# empty .gz behind a "Backup saved" line.
+	@. ./.env && POSTGRES_USER=$$POSTGRES_USER DB_CONTAINER=$(DB_CONTAINER) \
+		bash infra/scripts/pg-dump-checked.sh $$POSTGRES_DB $(BACKUP_DIR)/db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
 	@ls -lh $(BACKUP_DIR)/db_*.sql.gz | tail -1
+	@# V2 after legacy, so nothing legacy waits on it; a database migrator-v2 has not created yet
+	@# (profile `v2`) is skipped, not an error.
+	@. ./.env && v2=$${V2_POSTGRES_DB:-textstack_v2} && POSTGRES_USER=$$POSTGRES_USER DB_CONTAINER=$(DB_CONTAINER) \
+		bash infra/scripts/pg-dump-checked.sh $$v2 $(BACKUP_DIR)/$$v2-db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
 
 restore:
 	@if [ -z "$(FILE)" ]; then \
 		echo "Usage: make restore FILE=$(BACKUP_DIR)/db_YYYY-MM-DD_HHMMSS.sql.gz"; \
 		exit 1; \
 	fi
+	@# A V2 dump is often the newest file in backup-list; loaded here it would put V2 tables into legacy.
+	@. ./.env && case "$(notdir $(FILE))" in $${V2_POSTGRES_DB:-textstack_v2}-*) \
+		echo "$(FILE) is a V2 dump: make restore-v2 FILE=$(FILE)"; exit 1;; esac
 	@echo "Restoring from $(FILE)..."
-	@. ./.env && gunzip -c $(FILE) | docker exec -i textstack_db_prod psql -U $$POSTGRES_USER $$POSTGRES_DB
+	@. ./.env && gunzip -c $(FILE) | docker exec -i $(DB_CONTAINER) psql -v ON_ERROR_STOP=1 -U $$POSTGRES_USER $$POSTGRES_DB
+	@echo "Done."
+
+# A V2 dump (textstack_v2-db_*.sql.gz, textstack_v2-db-*, textstack_v2-pre-deploy-*) into a V2
+# database that does not exist: a dump loaded over tables already there would half-apply. Drop it
+# first (migrate-v2-drop). Created by run.sh, as migrator-v2 creates it: ICU, from template0.
+# bash: the load needs pipefail, which /bin/sh (dash) may not have.
+restore-v2: SHELL := /bin/bash
+restore-v2:
+	@test -n "$(FILE)" || { echo "Usage: make restore-v2 FILE=$(BACKUP_DIR)/textstack_v2-db_YYYY-MM-DD_HHMMSS.sql.gz"; exit 1; }
+	@# Before anything is created: a typo must not leave an empty V2 that then blocks the retry.
+	@test -f "$(FILE)" || { echo "No such file: $(FILE)"; exit 1; }
+	@. ./.env && v2=$$($(V2_EXISTS)) || exit 1; \
+	[ -z "$$v2" ] || { echo "$$v2 exists. Restore only into an absent one: make migrate-v2-drop CONFIRM=$$v2 first."; exit 1; }
+	$(MIGRATOR_V2) create
+	@set -o pipefail; . ./.env && gunzip -c $(FILE) | docker exec -i $(DB_CONTAINER) psql -X -q -v ON_ERROR_STOP=1 -U $$POSTGRES_USER -d $${V2_POSTGRES_DB:-textstack_v2}
 	@echo "Done."
 
 backup-list:

@@ -4,7 +4,7 @@
 //
 // Skips the reader's gloss nodes (READER_GLOSS_SELECTOR): the engine's own overlay carries that marker.
 import type { Locator } from './api'
-import { ANCHOR_CONTEXT_LENGTH } from '../../shared/src/reader/textAnchor'
+import { ANCHOR_CONTEXT_LENGTH, notInSurrogatePair } from '../../shared/src/reader/textAnchor'
 import { buildTextPosition } from '../../shared/src/reader/textPosition'
 import { READER_GLOSS_SELECTOR } from '../../shared/src/text/gloss'
 import { normalizeVocabKey, tokenizeVocabWords } from '../../shared/src/text/vocabKey'
@@ -80,15 +80,12 @@ export function rangeToLocator(root: Node, range: Range, href: string): Locator 
   return quoteAt(chapterText(root), start, end, href)
 }
 
-/** [start, end) of the chapter's text as a TextQuoteSelector locator. */
+/** [start, end) of the chapter's text as a TextQuoteSelector locator; the context never splits a surrogate pair. */
 export function quoteAt(text: string, start: number, end: number, href?: string): Locator {
   const n = ANCHOR_CONTEXT_LENGTH
-  return {
-    href,
-    type: 'text/html',
-    locations: { charOffset: start },
-    text: { before: text.slice(Math.max(0, start - n), start), highlight: text.slice(start, end), after: text.slice(end, end + n) },
-  }
+  const before = text.slice(notInSurrogatePair(text, Math.max(0, start - n), 1), start)
+  const after = text.slice(end, notInSurrogatePair(text, Math.min(text.length, end + n), -1))
+  return { href, type: 'text/html', locations: { charOffset: start }, text: { before, highlight: text.slice(start, end), after } }
 }
 
 const WORD_CHAR = /[\p{L}\p{M}\p{N}]/u

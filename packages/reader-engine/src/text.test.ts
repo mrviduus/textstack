@@ -6,7 +6,7 @@ import mcp from '../../shared/src/reader/__fixtures__/anchors/mcp.json'
 import { ANCHOR_CASES, PRODUCER_ONLY_CASES, caseStart, chapterById } from '../../shared/src/reader/__fixtures__/anchors/chapters'
 import { anchorToLocator } from './mappers'
 import { resolveLocator } from './resolve'
-import { chapterText, positionAt, rangeAt, rangeToLocator } from './text'
+import { chapterText, positionAt, quoteAt, rangeAt, rangeToLocator } from './text'
 
 /**
  * The chapter as text (ADR-025 Phase 2, slice 2): the DOM half of anchoring. Offsets count the
@@ -51,6 +51,16 @@ describe('rangeToLocator: a selection becomes a TextQuoteSelector', () => {
       expect(el.innerHTML, 'text nodes untouched').toBe(html)
     })
   }
+
+  // V2 refuses a lone surrogate (no UTF-8 form) as 400: the context never cuts a pair in half.
+  it('quoteAt: the context never splits a surrogate pair', () => {
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+    const text = '😀'.repeat(40) + 'word' + '😀'.repeat(40)   // 30 units back from 81, and on from 83, land mid-pair
+    const quote = quoteAt(text, 81, 83).text!
+    expect(quote.highlight).toBe('or')
+    expect(quote.before).not.toMatch(lone)
+    expect(quote.after).not.toMatch(lone)
+  })
 })
 
 describe('rangeAt: an offset back to a Range', () => {

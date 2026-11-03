@@ -109,11 +109,14 @@ Allowed in `reading_state.current_locator` / `frontier_locator` and `annotations
 |---|---|---|
 | `epub-cfi` | an `epubcfi(...)` string, plus a sibling **`quote`**: the first ≤64 characters of text at the CFI — `{"version":1,"scheme":"epub-cfi","value":"epubcfi(...)","quote":"…"}`. `quote` is **required** in `reading_state.current_locator` (resume restores only if the text at the CFI still starts with it) and **optional** in `annotations.locator` (annotations carry `selected_text`) | the V2 EPUB reader (ADR-029, R0); CFIs are not sortable, so fractions sit beside them |
 | `pdf-page` | position: `{"page":N}` (1-based). Annotation: legacy `PdfAnchor` `{page, rects:[{x,y,w,h}], exact}`, page-relative unscaled rects (`pdfHighlightAnchor.ts`) | the PDF viewer; ETL from legacy `page:<n>` progress and `kind:'pdf'` highlights |
-| `textstack-position-v1` | legacy `TextPosition` `{chapterSlug, anchor:{prefix,exact,suffix,startOffset,endOffset}, charOffset, chapterFraction}` — a 64-char quote with 30 chars of context each side; offsets are hints (`textPosition.ts`) | ETL from `user_books.progress_position_json`, or from a scroll-only locator as `{chapterSlug, chapterFraction}` with no `anchor` (decided item 5); resolves only against `book_chapters` |
-| `textstack-anchor-v1` | legacy `TextAnchor` `{chapterKey, prefix, exact, suffix, startOffset, endOffset}` — `chapterKey` is the chapter slug (legacy `chapterId` replaced; ids change on re-ingest) (`textAnchor.ts`) | ETL from reflow `highlights.anchor_json` on uploads |
+| `textstack-position-v1` | legacy `TextPosition` `{chapterSlug, anchor:{prefix,exact,suffix,startOffset,endOffset}, charOffset, chapterFraction}` — a 64-char quote with 30 chars of context each side; offsets are hints (`textPosition.ts`) | ETL from `user_books.progress_position_json`, or from a scroll-only locator as `{chapterSlug, chapterFraction}` with no `anchor` (decided item 5); the transitional reader, until R8 (M2.7a); resolves only against `book_chapters` |
+| `textstack-anchor-v1` | legacy `TextAnchor` `{chapterKey, prefix, exact, suffix, startOffset, endOffset}` — `chapterKey` is the chapter slug (legacy `chapterId` replaced; ids change on re-ingest) (`textAnchor.ts`) | ETL from reflow `highlights.anchor_json` on uploads; the transitional reader, until R8 (M2.7a) |
 
 The two `textstack-*` schemes exist only for migrated rows and the transitional reader; no V2
-writer produces them.
+writer produces them. They are accepted on V2 writes from the transitional reader until R8
+([#1040](https://github.com/mrviduus/textstack/issues/1040)) (M2.7a, owner decision 2026-11-02,
+#1112); the rules and the removal condition: [v2-sync-protocol.md](../v2-sync-protocol.md)
+"Transitional locators".
 
 `quote` on `epub-cfi` (added 2026-10-30) resolves ADR-029's contradiction 1: its position model
 verifies a 64-character quote at the CFI, which the envelope as first written could not store.

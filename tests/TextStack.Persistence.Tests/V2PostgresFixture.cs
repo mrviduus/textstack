@@ -115,7 +115,7 @@ public sealed class V2PostgresFixture : IAsyncLifetime, Identity.IIdentityFixtur
         var book = await NewBookAsync(userId);
         var file = book.CurrentFile!;
         await new ReadingStateRepository(DataSource).AdvanceAsync(userId, book.Id,
-            new() { FileId = file.Id, CurrentLocator = TestJson.Page(1), BookFraction = 0.1m, ClientRecordedAt = DateTimeOffset.UtcNow }, null, Ct);
+            new() { FileId = file.Id, CurrentLocator = TestJson.Page(1), BookFraction = 0.1m, ClientRecordedAt = DateTimeOffset.UtcNow }, null, default, Ct);
         await new AnnotationRepository(DataSource).SaveAsync(userId,
             new() { Id = Guid.NewGuid(), UserId = userId, BookId = book.Id, FileId = file.Id, SelectedText = "quoted", Locator = TestJson.Page(1) }, null, Ct);
         var vocabulary = new VocabularyRepository(DataSource);
