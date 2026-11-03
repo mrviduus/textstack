@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using TextStack.UnitTests.Fakes;
+using TextStack.UnitTests.V2;
 using Worker.Services;
 
 namespace TextStack.UnitTests;
@@ -54,13 +55,11 @@ public class GuestCleanupWorkerTests
             .AddSingleton(Mock.Of<IFileStorageService>())
             .AddSingleton(new V2AccountDeletion(_v2Users.Object, _v2Aggregates.Object, _library.Object, _files.Object, NullLogger<V2AccountDeletion>.Instance))
             .BuildServiceProvider();
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Features:V2Api"] = flag.ToString() }).Build();
+        var config = V2Fakes.Config(flag);
         var worker = new GuestCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), config, _log) { V2Budget = budget ?? TimeSpan.FromSeconds(10) };
 
         await worker.CleanupExpiredGuestsAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
     }
-
-    private IEnumerable<(LogLevel Level, string Message, Exception? Exception)> Errors => _log.Entries.Where(e => e.Level == LogLevel.Error);
 
     [Fact]
     public async Task CleanupExpiredGuestsAsync_FlagOnNothingOnV2_ReapedOnLegacyThenOnV2()
@@ -111,7 +110,7 @@ public class GuestCleanupWorkerTests
         await SweepAsync();
 
         Assert.Equal(2, _legacyUsers.Count);
-        Assert.IsType<TimeoutException>(Assert.Single(Errors).Exception);
+        Assert.IsType<TimeoutException>(Assert.Single(_log.Errors).Exception);
     }
 
     [Fact]
@@ -128,7 +127,7 @@ public class GuestCleanupWorkerTests
         await SweepAsync(budget: TimeSpan.FromMilliseconds(50));
 
         Assert.Single(_legacyUsers);
-        Assert.IsAssignableFrom<OperationCanceledException>(Assert.Single(Errors).Exception);
+        Assert.IsAssignableFrom<OperationCanceledException>(Assert.Single(_log.Errors).Exception);
     }
 
     [Fact]
@@ -141,7 +140,7 @@ public class GuestCleanupWorkerTests
         await SweepAsync();
 
         Assert.Empty(_legacyUsers);
-        var (_, message, exception) = Assert.Single(Errors);
+        var (_, message, exception) = Assert.Single(_log.Errors);
         Assert.IsType<TimeoutException>(exception);
         Assert.Contains(guest.Id.ToString(), message);
         // Rows first: a failed delete touches no bytes.

@@ -74,24 +74,11 @@ public sealed class PostgresFixture : IAsyncLifetime, IIdentityFixture
         return userId;
     }
 
-    public async Task ExecAsync(string sql, object args)
-    {
-        await using var conn = await DataSource.OpenConnectionAsync(Ct);
-        await conn.ExecuteAsync(new CommandDefinition(sql, args, cancellationToken: Ct));
-    }
+    public Task ExecAsync(string sql, object args) => Identity.TestSql.ExecAsync(DataSource.OpenConnectionAsync, sql, args);
 
-    public async Task<T> ScalarAsync<T>(string sql, object args)
-    {
-        await using var conn = await DataSource.OpenConnectionAsync(Ct);
-        return (await conn.ExecuteScalarAsync<T>(new CommandDefinition(sql, args, cancellationToken: Ct)))!;
-    }
+    public Task<T> ScalarAsync<T>(string sql, object args) => Identity.TestSql.ScalarAsync<T>(DataSource.OpenConnectionAsync, sql, args);
 
-    public async Task<long> CountAsync(string table, Guid userId, Guid? bookId = null)
-    {
-        await using var conn = await DataSource.OpenConnectionAsync(Ct);
-        var sql = $"SELECT count(*) FROM {table} WHERE user_id = @userId" + (bookId is null ? "" : " AND book_id = @bookId");
-        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(sql, new { userId, bookId }, cancellationToken: Ct));
-    }
+    public Task<long> CountAsync(string table, Guid userId, Guid? bookId = null) => Identity.TestSql.CountAsync(DataSource.OpenConnectionAsync, table, userId, bookId);
 
     /// <summary>A catalog edition the baseline seeds.</summary>
     public async Task<Guid> AnyEditionAsync()

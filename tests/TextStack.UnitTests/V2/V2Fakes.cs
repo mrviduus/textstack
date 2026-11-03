@@ -6,6 +6,7 @@ using Application.Sync;
 using Contracts.V2;
 using Domain.Discussion;
 using Domain.Library;
+using Microsoft.Extensions.Configuration;
 using Moq;
 
 namespace TextStack.UnitTests.V2;
@@ -13,6 +14,10 @@ namespace TextStack.UnitTests.V2;
 /// <summary>What the V2 service tests share: a user's one book on a mocked library, and reading a failure's body.</summary>
 internal static class V2Fakes
 {
+    /// <summary>A configuration with <c>Features:V2Api</c> = <paramref name="v2Api"/> and, when given, <c>ConnectionStrings:V2</c>.</summary>
+    public static IConfiguration Config(bool v2Api, string? v2ConnectionString = null) => new ConfigurationBuilder()
+        .AddInMemoryCollection(new Dictionary<string, string?> { ["Features:V2Api"] = v2Api.ToString(), ["ConnectionStrings:V2"] = v2ConnectionString }).Build();
+
     /// <summary>A library where <paramref name="user"/> has <paramref name="bookId"/>, whose current file is <paramref name="currentFile"/> and whose versions are <paramref name="versions"/> too.</summary>
     public static Mock<ILibraryRepository> Library(Guid user, Guid bookId, Guid? currentFile, params Guid[] versions)
     {

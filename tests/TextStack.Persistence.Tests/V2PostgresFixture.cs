@@ -62,17 +62,9 @@ public sealed class V2PostgresFixture : IAsyncLifetime, Identity.IIdentityFixtur
     }
 
     /// <summary>Runs <paramref name="sql"/> (a test's own setup, never input) in its own autocommit.</summary>
-    public async Task ExecAsync(string sql, object args)
-    {
-        await using var conn = await DataSource.OpenConnectionAsync(Ct);
-        await conn.ExecuteAsync(new CommandDefinition(sql, args, cancellationToken: Ct));
-    }
+    public Task ExecAsync(string sql, object args) => Identity.TestSql.ExecAsync(DataSource.OpenConnectionAsync, sql, args);
 
-    public async Task<T> ScalarAsync<T>(string sql, object args)
-    {
-        await using var conn = await DataSource.OpenConnectionAsync(Ct);
-        return (await conn.ExecuteScalarAsync<T>(new CommandDefinition(sql, args, cancellationToken: Ct)))!;
-    }
+    public Task<T> ScalarAsync<T>(string sql, object args) => Identity.TestSql.ScalarAsync<T>(DataSource.OpenConnectionAsync, sql, args);
 
     private const string UserTables = "SELECT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'user_id' ORDER BY 1";
 
@@ -191,12 +183,7 @@ public sealed class V2PostgresFixture : IAsyncLifetime, Identity.IIdentityFixtur
     }
 
     /// <summary>The user's rows in <paramref name="table"/> (a constant, never input), only those of <paramref name="bookId"/> when given.</summary>
-    public async Task<long> CountAsync(string table, Guid userId, Guid? bookId = null)
-    {
-        await using var conn = await DataSource.OpenConnectionAsync(Ct);
-        var sql = $"SELECT count(*) FROM {table} WHERE user_id = @userId" + (bookId is null ? "" : " AND book_id = @bookId");
-        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(sql, new { userId, bookId }, cancellationToken: Ct));
-    }
+    public Task<long> CountAsync(string table, Guid userId, Guid? bookId = null) => Identity.TestSql.CountAsync(DataSource.OpenConnectionAsync, table, userId, bookId);
 
     /// <summary>A new file version of the given book; its hash is unique unless one is given.</summary>
     public static BookFile NewFile(Guid userId, Guid bookId, string? sha256 = null, string format = "epub") => new()
