@@ -5,6 +5,7 @@ import { useTranslation } from '../../hooks/useTranslation'
 import { refreshToken } from '../../api/auth'
 import { saveUserBookProgress } from '../../api/userBooks'
 import { readPdfPage, writePdfPage } from '../../lib/originalLayoutPref'
+import { applyV2Outcome } from '../../lib/v2Reading'
 import { openPdfSource } from '../../lib/pdfRangeSource'
 import { setMountedEngine, unmountEngine } from '../../lib/readerEngine'
 import { useNewerPositionCheck } from '../../hooks/useNewerPositionCheck'
@@ -191,9 +192,12 @@ export default function PdfEngineView({
     // One stamp for both records, so this device's own write never reads back as newer.
     const stamp = Date.now()
     writePdfPage(bookId, p, stamp)
-    saveUserBookProgress(bookId, buildPdfProgressPayload(p, np, stamp)).catch((err) => {
-      console.warn('[progress] pdf save failed', err)
-    })
+    saveUserBookProgress(bookId, buildPdfProgressPayload(p, np, stamp))
+      // V2 (#1025): a lost write takes the server's page as this device's; a replaced file reloads.
+      .then((outcome) => { applyV2Outcome(bookId, outcome) })
+      .catch((err) => {
+        console.warn('[progress] pdf save failed', err)
+      })
   }, [bookId])
 
   const flushRef = useRef(flushServerProgress)

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, useV2 } from '../context/AuthContext'
+import { v2Offers } from '@textstack/shared'
 import { useLanguage } from '../context/LanguageContext'
 import { getUserBook, getUserBookProgress, deleteUserBook, retryUserBook, enrichUserBook, markUserBookComplete, unmarkUserBookComplete, getUserBookCoverUrl, getUserBookFileUrl, type UserBookDetail } from '../api/userBooks'
 import { SeoHead } from '../components/SeoHead'
@@ -27,6 +28,8 @@ export function UserBookDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
+  // V2 (#1025): no stats, insights or re-extract on a V2 book (V2_FEATURES).
+  const v2 = useV2()
   const { language } = useLanguage()
   const { t } = useTranslation()
   const [book, setBook] = useState<UserBookDetail | null>(null)
@@ -45,7 +48,7 @@ export function UserBookDetailPage() {
   // popup and the prior loud red-circle visual.
   const [pendingDelete, setPendingDelete] = useState(false)
   const pendingTimeoutRef = useRef<number | null>(null)
-  const { reviews, insights, remove: removeInsight } = useBookReviews(isAuthenticated && book?.status === 'Ready' ? { userBookId: book.id } : null)
+  const { reviews, insights, remove: removeInsight } = useBookReviews(isAuthenticated && book?.status === 'Ready' && v2Offers(v2, 'insights') ? { userBookId: book.id } : null)
 
   // The server's position is the truth (the library card already shows it); localStorage only
   // knows what THIS browser read, so on any other device a 44%-read book said "Start Reading" and
@@ -409,7 +412,8 @@ export function UserBookDetailPage() {
               />
             )}
 
-            {isReady && !book.completedAt && (
+            {/* V2: completion is written on the reading place, so a book with no chapter yet has none to mark. */}
+            {isReady && !book.completedAt && (!v2.enabled || book.chapters.length > 0) && (
               <button
                 onClick={async () => {
                   await markUserBookComplete(book.id)
@@ -458,7 +462,7 @@ export function UserBookDetailPage() {
               </a>
             )}
 
-            {isReady && (
+            {isReady && v2Offers(v2, 'retry') && (
               <button
                 type="button"
                 onClick={async () => {
@@ -510,13 +514,13 @@ export function UserBookDetailPage() {
         </div>
       </div>
 
-      {isReady && book && (
+      {isReady && book && v2Offers(v2, 'stats') && (
         <BookStatsSection bookId={book.id} />
       )}
 
       {/* Above the chapter list on purpose: coming back to a book, what you
           already worked out is more use than the table of contents. */}
-      {isReady && book && (
+      {isReady && book && v2Offers(v2, 'insights') && (
         <BookInsightsSection insights={insights} onRemove={removeInsight} userBookId={book.id} />
       )}
 

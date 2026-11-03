@@ -87,14 +87,18 @@ function parseJsonSafe<T>(text: string, status: number): T {
 async function errorFromResponse(res: Response, fallbackStatus = res.status): Promise<ApiError> {
   const text = await res.text().catch(() => '')
   let message = `API error: ${fallbackStatus}`
+  let body: unknown
   try {
-    const json = JSON.parse(text)
+    body = JSON.parse(text)
+    const json = body as { error?: string; message?: string } | null
     if (json?.error) message = json.error
     else if (json?.message) message = json.message
   } catch {
     // non-JSON body — keep the generic status message
   }
-  return new ApiError(fallbackStatus, message)
+  const err = new ApiError(fallbackStatus, message)
+  err.body = body
+  return err
 }
 
 export async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -173,6 +177,9 @@ export class ApiError extends Error {
    * your connection" instead of a generic server error.
    */
   isNetworkError = false
+
+  /** The parsed JSON error body, when there was one (a V2 call's `V2Error`, see `v2ErrorOf`). */
+  body: unknown
 
   constructor(
     public status: number,

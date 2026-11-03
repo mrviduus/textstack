@@ -3,6 +3,7 @@ import { uploadUserBook, getStorageQuota, type StorageQuota } from '../../api/us
 import { emit } from '../../lib/telemetry/myBooksV2'
 import { pdfFilePassesSanityCheck } from '../../lib/pdfUploadSanity'
 import { useTranslation } from '../../hooks/useTranslation'
+import { v2UploadMessage } from '../../api/v2'
 
 interface UploadFormProps {
   onUploadComplete: (newBookId?: string, hasOriginalPdf?: boolean) => void
@@ -49,7 +50,7 @@ export function UploadForm({ onUploadComplete, initialFile, queueLabel }: Upload
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
       emit('upload.failed', { reason: msg })
-      setError(msg)
+      setError(v2UploadMessage(err, t) ?? msg)
     } finally {
       setIsUploading(false)
       setUploadProgress(0)

@@ -1,7 +1,9 @@
-import { PERCENT_UNIT_BOOK, LOCATOR_SPACE_SCROLL } from '@textstack/shared'
+import { PERCENT_UNIT_BOOK, LOCATOR_SPACE_SCROLL, parsePdfPageLocator, v2Api } from '@textstack/shared'
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { readUserBookProgress, saveUserBookProgress, type UserBookProgress } from '../api/userBooks'
-import { preferLocalProgress, markProgressSynced, PROGRESS_GET_TIMEOUT_MS, timeoutSignal } from '../lib/progressSync'
+import { v2Enabled, v2ProgressBody, rememberV2State } from '../api/v2'
+import { applyV2Outcome } from '../lib/v2Reading'
+import { preferLocalProgress, markProgressSynced, keepalivePut, PROGRESS_GET_TIMEOUT_MS, timeoutSignal } from '../lib/progressSync'
 
 const STORAGE_KEY = 'userbook.progress.'
 const DEBOUNCE_MS = 2000
@@ -113,6 +115,32 @@ export function useUserBookProgress(bookId: string) {
     return () => { cancelled = true }
   }, [bookId])
 
+  // V2 (#1025), a write the server did not take as sent: a lost write takes the server's place
+  // (moving the reader only if the place differs; a PDF page becomes the PDF view's place); a
+  // replaced file reloads the book; a dropped write leaves the local place unsynced, to be sent again.
+  const adoptV2 = useCallback((server: UserBookProgress, sent: SavedProgress) => {
+    if (pendingSyncRef.current === sent) pendingSyncRef.current = null
+    if (parsePdfPageLocator(server.locator) != null) {
+      setServerRow(server) // the PDF view's page was taken by applyV2Outcome
+      // The server's place is the newer one: this record no longer wins a restore.
+      markProgressSynced(`${STORAGE_KEY}${bookId}`, sent.updatedAt)
+      return
+    }
+    if (!server.chapterSlug) return
+    const adopted: SavedProgress = {
+      chapterSlug: server.chapterSlug,
+      locator: server.locator ?? undefined,
+      positionJson: server.positionJson ?? undefined,
+      percent: server.percent ?? 0,
+      updatedAt: Date.now(),
+      synced: true,
+    }
+    lastAckedKeyRef.current = `${adopted.chapterSlug}:${adopted.locator ?? ''}`
+    try { localStorage.setItem(`${STORAGE_KEY}${bookId}`, JSON.stringify(adopted)) } catch {}
+    setSavedProgress((prev) =>
+      prev && prev.chapterSlug === adopted.chapterSlug && prev.positionJson === adopted.positionJson ? prev : adopted)
+  }, [bookId])
+
   // Sync to server (debounced). Advance lastAckedKeyRef only on success.
   const syncToServer = useCallback((data: SavedProgress) => {
     pendingSyncRef.current = data
@@ -129,7 +157,7 @@ export function useUserBookProgress(bookId: string) {
       const toSync = pendingSyncRef.current
       if (!toSync || !bookId) return
 
-      saveUserBookProgress(bookId, {
+      void saveUserBookProgress(bookId, {
         chapterSlug: toSync.chapterSlug,
         locator: toSync.locator,
         positionJson: toSync.positionJson,
@@ -143,7 +171,13 @@ export function useUserBookProgress(bookId: string) {
         locatorKind: LOCATOR_SPACE_SCROLL,
         updatedAt: new Date(toSync.updatedAt).toISOString(),
       })
-        .then(() => {
+        .then((outcome) => {
+          // V2 marks synced only what the server accepted; legacy resolves with nothing on success.
+          if (outcome && outcome !== 'accepted') {
+            const adopted = applyV2Outcome(bookId, outcome)
+            if (adopted) adoptV2(adopted, toSync)
+            return
+          }
           lastAckedKeyRef.current = `${toSync.chapterSlug}:${toSync.locator ?? ''}`
           if (pendingSyncRef.current === toSync) pendingSyncRef.current = null
           markProgressSynced(`${STORAGE_KEY}${bookId}`, toSync.updatedAt)
@@ -153,7 +187,31 @@ export function useUserBookProgress(bookId: string) {
           console.warn('[progress] userbook save failed', err)
         })
     }, DEBOUNCE_MS)
-  }, [bookId])
+  }, [bookId, adoptV2])
+
+  /** The V2 keepalive PUT; a book not known yet goes the ordinary way. */
+  const flushV2 = useCallback((id: string, toSync: SavedProgress) => {
+    const data = { ...toSync, updatedAt: new Date(toSync.updatedAt).toISOString() }
+    const body = v2ProgressBody(id, data)
+    const ack = () => {
+      lastAckedKeyRef.current = `${toSync.chapterSlug}:${toSync.locator ?? ''}`
+      markProgressSynced(`${STORAGE_KEY}${id}`, toSync.updatedAt)
+    }
+    if (!body) {
+      void saveUserBookProgress(id, data)
+        .then((outcome) => { if (outcome === 'accepted') ack() })
+        .catch((err) => console.warn('[progress] userbook flush save failed', err))
+      return
+    }
+    // A 409 here is left to the next write, which reads the answer and applies the revision rule.
+    keepalivePut(v2Api.readingStateUrl(id), JSON.stringify(body))
+      .then(async (res) => {
+        if (!res.ok) return
+        rememberV2State(await res.json())
+        ack()
+      })
+      .catch((err) => console.warn('[progress] userbook flush save failed', err))
+  }, [])
 
   // Flush pending sync immediately (bypasses debounce, uses keepalive for tab close reliability)
   const flushSave = useCallback(() => {
@@ -164,6 +222,12 @@ export function useUserBookProgress(bookId: string) {
     if (serverSyncTimerRef.current) {
       clearTimeout(serverSyncTimerRef.current)
       serverSyncTimerRef.current = null
+    }
+
+    if (v2Enabled()) {
+      flushV2(bookId, toSync)
+      pendingSyncRef.current = null
+      return
     }
 
     const payload = JSON.stringify({
@@ -180,14 +244,7 @@ export function useUserBookProgress(bookId: string) {
     })
     const url = `/api/me/books/${bookId}/progress`
 
-    // Use fetch with keepalive (survives page unload like sendBeacon, but supports PUT)
-    fetch(url, {
-      method: 'PUT',
-      body: payload,
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      keepalive: true,
-    })
+    keepalivePut(url, payload)
       .then((res) => {
         // A non-ok answer is not an ACK: leave the dedupe key and the unsynced local entry
         // alone, so the next write of this same position is sent rather than deduped away.
@@ -200,7 +257,7 @@ export function useUserBookProgress(bookId: string) {
       })
 
     pendingSyncRef.current = null
-  }, [bookId])
+  }, [bookId, flushV2])
 
   // Lifecycle event triggers: flush pending sync on tab switch/close
   useEffect(() => {

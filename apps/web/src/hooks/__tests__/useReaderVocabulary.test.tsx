@@ -458,4 +458,25 @@ describe('useReaderVocabulary', () => {
 
     expect(saveWordMock).toHaveBeenCalledTimes(1)
   })
+
+  it.each(['deleted', 'operation_conflict', 'invalid_payload', 'book_not_found'])(
+    'drops a queued save V2 refuses for good (%s) and goes on to the next, under its own id and operation', async (code) => {
+      const { ApiError } = await import('@textstack/shared')
+      const refused = Object.assign(new ApiError(409, code), { body: { code, message: code } })
+      pendingStore['op-a'] = { id: 'op-a', word: 'alpha', language: 'en', createdAt: 1 }
+      pendingStore['op-b'] = { id: 'op-b', wordId: 'account-word', word: 'beta', language: 'en', createdAt: 2 }
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      saveWordMock
+        .mockRejectedValueOnce(refused)
+        .mockResolvedValue({ outcome: 'srs', word: { id: 'w', word: 'x', stage: 0 }, pendingId: null, reason: null })
+      const { result } = renderHook(() => useReaderVocabulary('en', null))
+      await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
+
+      await act(async () => { await result.current.addWord({ word: 'gamma', language: 'en' }) })
+
+      expect(pendingStore).toEqual({})
+      expect(saveWordMock.mock.calls.map((c) => [c[0].word, c[0].id, c[0].operationId])).toEqual([
+        ['alpha', 'op-a', 'op-a'], ['beta', 'account-word', 'op-b'], ['gamma', undefined, undefined],
+      ])
+    })
 })

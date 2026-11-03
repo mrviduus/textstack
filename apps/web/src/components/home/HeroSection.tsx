@@ -9,6 +9,7 @@ import { DEMO_BOOK } from '../../config/demoBook'
 import { MobileSearchOverlay } from '../Search'
 import { LocalizedLink } from '../LocalizedLink'
 import { uploadUserBook } from '../../api/userBooks'
+import { v2UploadMessage } from '../../api/v2'
 import { pdfFilePassesSanityCheck } from '../../lib/pdfUploadSanity'
 import { useLibraryShelves } from '../../hooks/useLibraryShelves'
 import { ContinueReadingCard } from './ContinueReadingCard'
@@ -82,7 +83,7 @@ export function HeroSection() {
       const result = await uploadUserBook(file)
       navigate(`/${language}/library/my/${result.userBookId}`)
     } catch (err: any) {
-      setUploadError(err.message || 'Upload failed')
+      setUploadError(v2UploadMessage(err, t) ?? (err.message || 'Upload failed'))
     } finally {
       setUploading(false)
     }

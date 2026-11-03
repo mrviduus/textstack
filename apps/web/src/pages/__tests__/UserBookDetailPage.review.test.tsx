@@ -18,7 +18,7 @@ vi.mock('@textstack/shared', async (importOriginal) => ({
   insightsApi: { getBookInsights: (...a: unknown[]) => getBookInsights(...a), deleteBookInsight: vi.fn() },
 }))
 vi.mock('../../api/oauth', () => ({ listOAuthGrants: () => Promise.resolve([]) }))
-vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ isAuthenticated: true }) }))
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ isAuthenticated: true }), useV2: () => ({ enabled: false, maxPartBytes: 0 }) }))
 vi.mock('../../context/LanguageContext', () => ({
   useLanguage: () => ({ language: 'en', getLocalizedPath: (p: string) => `/en${p}` }),
 }))

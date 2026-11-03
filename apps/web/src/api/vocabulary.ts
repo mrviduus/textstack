@@ -1,4 +1,9 @@
 import { authFetch } from './client'
+import { onV2 } from './v2'
+import {
+  saveV2Word, getV2Words, getV2ReaderVocab, deleteV2Word, updateV2Word, getV2ReviewQueue, submitV2Review,
+  restoreV2Word, deleteAllV2Words,
+} from './v2Vocabulary'
 
 // --- Types ---
 
@@ -50,7 +55,8 @@ export interface ReviewCardDto {
   word: string
   translation: string | null
   definition: string | null
-  reviewMode: 'multiple_choice' | 'context'
+  /** 'flashcard': a V2 card (no distractors, no blanked sentence). */
+  reviewMode: 'multiple_choice' | 'context' | 'flashcard'
   blankSentence: string | null
   originalSentence: string | null
   bookTitle: string | null
@@ -137,7 +143,8 @@ export interface VocabStatsDto {
   wordsByBook: { editionId: string | null; userBookId: string | null; bookTitle: string; count: number }[]
 }
 
-export type SaveWordOutcome = 'srs' | 'pending' | 'lookup' | 'lookup_pending' | 'already_saved'
+/** 'deleted' (V2): the reader deleted this word earlier; `word` is the tombstone, restore is offered. */
+export type SaveWordOutcome = 'srs' | 'pending' | 'lookup' | 'lookup_pending' | 'already_saved' | 'deleted'
 
 export interface SaveWordResponse {
   outcome: SaveWordOutcome
@@ -194,7 +201,10 @@ export interface PendingListResponse {
 
 // --- API Functions ---
 
-export async function saveWord(data: SaveWordRequest): Promise<SaveWordResponse> {
+/** `id`/`operationId`: V2 only — a queued save replays as the same card and the same operation. */
+export async function saveWord(request: SaveWordRequest & { id?: string; operationId?: string }): Promise<SaveWordResponse> {
+  if (await onV2()) return saveV2Word(request)
+  const { id: _id, operationId: _operationId, ...data } = request
   return authFetch<SaveWordResponse>('/me/vocabulary/words', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -240,6 +250,7 @@ export async function getWords(params?: {
   limit?: number
   offset?: number
 }): Promise<{ total: number; items: VocabWordDto[] }> {
+  if (await onV2()) return getV2Words(params)
   const query = new URLSearchParams()
   if (params?.stage) query.set('stage', params.stage)
   if (params?.language) query.set('language', params.language)
@@ -254,14 +265,17 @@ export async function getWords(params?: {
 }
 
 export async function deleteWord(id: string): Promise<void> {
+  if (await onV2()) return deleteV2Word(id)
   await authFetch<void>(`/me/vocabulary/words/${id}`, { method: 'DELETE' })
 }
 
 export async function deleteAllWords(): Promise<{ deleted: number }> {
+  if (await onV2()) return deleteAllV2Words()
   return authFetch<{ deleted: number }>('/me/vocabulary/words', { method: 'DELETE' })
 }
 
 export async function updateWord(id: string, data: UpdateWordRequest): Promise<VocabWordDto> {
+  if (await onV2()) return updateV2Word(id, data)
   return authFetch<VocabWordDto>(`/me/vocabulary/words/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -270,6 +284,7 @@ export async function updateWord(id: string, data: UpdateWordRequest): Promise<V
 }
 
 export async function getReviewQueue(limit?: number, includeAll?: boolean, practice?: boolean): Promise<ReviewQueueResponse> {
+  if (await onV2()) return getV2ReviewQueue(limit, includeAll)
   const params = new URLSearchParams()
   if (limit) params.set('limit', String(limit))
   if (includeAll) params.set('includeAll', 'true')
@@ -278,7 +293,10 @@ export async function getReviewQueue(limit?: number, includeAll?: boolean, pract
   return authFetch<ReviewQueueResponse>(`/me/vocabulary/review${qs ? `?${qs}` : ''}`)
 }
 
-export async function submitReview(data: SubmitReviewRequest): Promise<SubmitReviewResponse> {
+/** `reviewMode`, `operationId`: V2 only (the review row records the mode; a retried answer reuses its id). */
+export async function submitReview(request: SubmitReviewRequest & { reviewMode?: string; operationId?: string }): Promise<SubmitReviewResponse> {
+  if (await onV2()) return submitV2Review(request)
+  const { reviewMode: _reviewMode, operationId: _operationId, ...data } = request
   return authFetch<SubmitReviewResponse>('/me/vocabulary/review', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -315,7 +333,11 @@ export interface ReaderVocabWordDto {
   translation?: string
 }
 
+/** V2 only: bring back a word deleted earlier (a save answered `deleted`). */
+export const restoreWord = (id: string): Promise<VocabWordDto> => restoreV2Word(id)
+
 export async function getReaderVocab(): Promise<ReaderVocabWordDto[]> {
+  if (await onV2()) return getV2ReaderVocab()
   return authFetch<ReaderVocabWordDto[]>('/me/vocabulary/words/reader')
 }
 

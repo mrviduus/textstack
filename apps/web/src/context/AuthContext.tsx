@@ -11,6 +11,9 @@ import { authToastFor, type AuthToast } from '../lib/authToast'
 import { flushLocalProgress } from '../lib/progressSync'
 import { replayAllPendingHighlights } from '../lib/highlightSync'
 import { trackLogin, trackSignUp } from '../lib/analytics'
+import { V2_OFF, type V2Switch } from '@textstack/shared'
+import { startV2Probe, settleV2Session, v2Store } from '../api/v2'
+import { applyV2MergeMap, type V2MergeMap } from '../lib/v2Merge'
 
 export type AuthModalView = 'login' | 'register'
 
@@ -53,6 +56,8 @@ interface AuthContextValue {
    */
   guestMergeSkipped: GuestMergeSkipReason | null
   dismissGuestMergeSkipped: () => void
+  /** The V2 sync API (`Features:V2Api`), probed once a session exists; read it with `useV2()`. */
+  v2: V2Switch
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -78,9 +83,20 @@ const AuthContext = createContext<AuthContextValue>({
   dismissAuthSuccessToast: () => {},
   guestMergeSkipped: null,
   dismissGuestMergeSkipped: () => {},
+  v2: V2_OFF,
 })
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
+
+/**
+ * After a sign-in: re-key the local stores by the V2 merge map (PDD "Guest → account merge"), then
+ * replay what was made without a session. The in-memory V2 cache is emptied by the account change.
+ */
+async function afterMerge(merge: V2MergeMap | undefined) {
+  if (merge) await applyV2MergeMap(merge)
+  void flushLocalProgress().catch(() => {})
+  void replayAllPendingHighlights()
+}
 
 /** Hard ceiling on how long waitForSession waits for bootstrap to settle. */
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 15_000
@@ -95,6 +111,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const dismissAuthSuccessToast = useCallback(() => setAuthSuccessToast(null), [])
   const [guestMergeSkipped, setGuestMergeSkipped] = useState<GuestMergeSkipReason | null>(null)
   const dismissGuestMergeSkipped = useCallback(() => setGuestMergeSkipped(null), [])
+  const [v2, setV2] = useState<V2Switch>(V2_OFF)
+  // The V2 probe needs a session (PathGates answers 401 without one): started wherever a user is
+  // set, before anything that calls the API next. API calls await the same probe, so none races it.
+  const probeV2 = useCallback(() => { void startV2Probe().then(setV2) }, [])
+
+  // The V2 cache is one account's: an account change (sign-out, another sign-in) empties it.
+  const userId = user?.id ?? null
+  const cachedForRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (cachedForRef.current !== null && cachedForRef.current !== userId) v2Store.reset()
+    cachedForRef.current = userId
+  }, [userId])
 
   // Google callback - stable ref to avoid stale closures
   const handleGoogleCallback = useCallback(async (response: google.accounts.id.CredentialResponse) => {
@@ -108,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         else setAuthSuccessToast(toast)
         return authResponse.user
       })
+      probeV2()
       setShowAuthModal(false)
       // Distinguish new signups from returning logins via createdAt recency.
       // Backend doesn't surface an isNew flag yet; 60s window is a safe heuristic.
@@ -115,15 +144,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const isFreshAccount = Number.isFinite(createdAtMs) && Date.now() - createdAtMs < 60_000
       if (isFreshAccount) trackSignUp('google')
       else trackLogin('google')
-      // Fire-and-forget: flush any anonymous localStorage progress + pending highlights to server.
-      void flushLocalProgress().catch(() => {})
-      void replayAllPendingHighlights()
+      // Fire-and-forget: flush any anonymous localStorage progress + pending highlights to server,
+      // after a V2 merge re-keyed them.
+      void afterMerge(authResponse.merge)
     } catch (error) {
       console.error('Login failed:', error)
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [probeV2])
 
   // Session-ready gate: resolves once the initial auth/refresh/guest-create attempt has settled.
   // Consumers (e.g. reader vocab save) await this before deciding to hit auth-gated APIs.
@@ -151,6 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // I3: no-downgrade — не перетираем не-guest юзера.
         // Race: login мог завершиться пока guest-промис был in-flight.
         setUser(prev => (prev && !prev.isGuest ? prev : res.user))
+        probeV2()
         return res.user
       })
       .catch(() => {
@@ -161,7 +191,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => { inFlightGuestRef.current = null })
     inFlightGuestRef.current = promise
     return promise
-  }, [])
+  }, [probeV2])
 
   // StrictMode fires effects twice in dev; this ref dedupes the bootstrap so we never hit /auth/guest twice.
   const bootstrapStartedRef = useRef(false)
@@ -195,11 +225,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const response = await getCurrentUser()
         setUser(response.user)
+        probeV2()
         void flushIfReal(response.user)
       } catch {
         try {
           const response = await refreshToken()
           setUser(response.user)
+          probeV2()
           void flushIfReal(response.user)
         } catch {
           // I1: bootstrap read-only. user остаётся null; фичи сами зовут ensureSession().
@@ -214,6 +246,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (timeoutId) clearTimeout(timeoutId)
         setIsLoading(false)
         sessionReady.resolve()
+        settleV2Session()
       }
     })()
   }, [])
@@ -259,7 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const closeAuthModal = useCallback(() => setShowAuthModal(false), [])
 
   const authenticateAndClose = useCallback(async (
-    apiCall: () => Promise<{ user: User; guestMergeSkipped?: GuestMergeSkipReason | null }>,
+    apiCall: () => Promise<{ user: User; guestMergeSkipped?: GuestMergeSkipReason | null; merge?: V2MergeMap }>,
     kind: 'login' | 'sign_up',
   ) => {
     const response = await apiCall()
@@ -271,14 +304,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       else setAuthSuccessToast(toast)
       return response.user
     })
+    probeV2()
     setShowAuthModal(false)
     if (kind === 'sign_up') trackSignUp('email')
     else trackLogin('email')
     // Fire-and-forget: flush any anonymous localStorage progress to server (server LWW is safe),
-    // and replay highlights made without a session, across every book.
-    void flushLocalProgress().catch(() => {})
-    void replayAllPendingHighlights()
-  }, [])
+    // and replay highlights made without a session, across every book — after a V2 merge re-keyed them.
+    void afterMerge(response.merge)
+  }, [probeV2])
 
   const loginWithEmail = useCallback(
     (email: string, password: string) => authenticateAndClose(() => loginWithEmailApi(email, password), 'login'),
@@ -364,6 +397,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         dismissAuthSuccessToast,
         guestMergeSkipped,
         dismissGuestMergeSkipped,
+        v2,
       }}
     >
       {children}
@@ -373,4 +407,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   return useContext(AuthContext)
+}
+
+/** `{enabled, maxPartBytes}`: whether this app start talks V2 (`/me/v2`). Off until probed. */
+export function useV2(): V2Switch {
+  return useContext(AuthContext).v2
 }

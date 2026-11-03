@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, useV2 } from '../context/AuthContext'
+import { v2Offers } from '@textstack/shared'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 import { useVocabulary } from '../hooks/useVocabulary'
@@ -79,6 +80,8 @@ function getLast7Days(dailyStats: VocabDailyStatDto[]) {
 
 export function VocabularyPage() {
   const { isAuthenticated } = useAuth()
+  // V2 (#1025): no mode switch, cluster rounds or tutor (V2_FEATURES); the review hook forces the mode.
+  const v2 = useV2()
   const { getLocalizedPath } = useLanguage()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -302,7 +305,7 @@ export function VocabularyPage() {
         )}
 
         {/* Anti-spiral F3: LLM-grouped thematic bonus round */}
-        {isAuthenticated && stats && (stats.clusterCount ?? 0) > 0 && (
+        {isAuthenticated && v2Offers(v2, 'clusters') && stats && (stats.clusterCount ?? 0) > 0 && (
           <ClusterBonusCard onChange={refresh} />
         )}
 
@@ -310,7 +313,7 @@ export function VocabularyPage() {
         {isAuthenticated && stats && totalWords > 0 && (
           <div className="practice-page__card">
             <div className="practice-page__settings">
-              <div className="practice-page__setting">
+              {!v2.enabled && <div className="practice-page__setting">
                 <span className="practice-page__setting-label">{t('vocabulary.practice.mode')}</span>
                 <div className="vocab-mode-toggle">
                   {(['classic', 'blitz'] as ReviewMode[]).map(m => (
@@ -323,7 +326,7 @@ export function VocabularyPage() {
                     </button>
                   ))}
                 </div>
-              </div>
+              </div>}
               <div className="practice-page__setting">
                 <span className="practice-page__setting-label">{t('vocabulary.practice.length')}</span>
                 <div className="review-summary__batch-row">
@@ -347,14 +350,14 @@ export function VocabularyPage() {
               >
                 {practiceLabel()}
               </button>
-              <button
+              {v2Offers(v2, 'tutor') && <button
                 className="practice-page__tutor-btn"
                 onClick={() => navigate(getLocalizedPath('/vocabulary/tutor'))}
                 title={t('tutor.entry.hint')}
               >
                 <span className="practice-page__tutor-icon" aria-hidden>🧭</span>
                 {t('tutor.entry.cta')}
-              </button>
+              </button>}
             </div>
           </div>
         )}

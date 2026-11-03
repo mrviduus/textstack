@@ -12,7 +12,8 @@ interface Props {
   onAgain: () => void
   onRetryWrong: () => void
   onBatchChange: (size: number) => void
-  onModeChange: (mode: ReviewMode) => void
+  /** Absent: the session has one mode (V2: flashcards), and no switch is shown. */
+  onModeChange?: (mode: ReviewMode) => void
 }
 
 function getReward(rate: number, t: (k: string) => string) {
@@ -54,7 +55,7 @@ export function SessionSummary({
       </div>
 
       {/* Review style toggle */}
-      <div className="review-summary__section">
+      {onModeChange && <div className="review-summary__section">
         <span className="review-summary__section-label">Mode</span>
         <div className="review-summary__toggle">
           {(['classic', 'blitz'] as ReviewMode[]).map(m => (
@@ -67,7 +68,7 @@ export function SessionSummary({
             </button>
           ))}
         </div>
-      </div>
+      </div>}
 
       {/* Batch size */}
       <div className="review-summary__section">

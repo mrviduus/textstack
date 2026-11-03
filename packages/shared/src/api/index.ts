@@ -26,3 +26,6 @@ export type { HighlightListItem, HighlightReviewItem, PublicHighlight, Highlight
 export * as collectionsApi from './collections'
 export type { Collection, BookType as CollectionBookType } from './collections'
 export * from './tutor'
+export * as v2Api from './v2'
+export type * from './v2'
+export { V2_OFF, V2_FEATURES, v2Offers } from './v2'

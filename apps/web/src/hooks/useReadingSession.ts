@@ -3,6 +3,8 @@ import { useAuth } from '../context/AuthContext'
 import { submitSession, type SubmitSessionResponse } from '../api/readingTracking'
 import { ApiError } from '../api/client'
 import { trackReadingSessionEnd } from '../lib/analytics'
+import { v2Api } from '@textstack/shared'
+import { v2Enabled } from '../api/v2'
 
 const PENDING_SESSIONS_KEY = 'reading.pendingSessions'
 const HEARTBEAT_INTERVAL = 30_000 // 30s
@@ -26,6 +28,8 @@ interface PendingSession {
   wordsRead: number
   startPercent: number
   endPercent: number
+  /** V2 (#1025): a user book's session goes to `PUT /me/v2/reading/sessions/{id}`; minted at the end, kept until acked. */
+  clientSessionId?: string
 }
 
 export function useReadingSession(options: UseReadingSessionOptions) {
@@ -98,6 +102,7 @@ export function useReadingSession(options: UseReadingSessionOptions) {
         : 0,
       startPercent: startPercentRef.current,
       endPercent: currentPercentRef.current,
+      ...(userBookId && v2Enabled() && { clientSessionId: crypto.randomUUID() }),
     }
 
     sessionActiveRef.current = false
@@ -106,8 +111,10 @@ export function useReadingSession(options: UseReadingSessionOptions) {
     // Always save to localStorage first (beacon is best-effort, can't detect server errors)
     savePendingSession(session)
 
+    // V2 has no beacon route (a PUT): the queue sends it now, and again until it is acked.
+    if (session.clientSessionId) void flushPendingSessions()
     // Try sendBeacon as fast path (fire-and-forget)
-    if (navigator.sendBeacon) {
+    else if (navigator.sendBeacon) {
       const payload = JSON.stringify(session)
       navigator.sendBeacon(`/api/me/reading/sessions?tz=${-new Date().getTimezoneOffset()}`, new Blob([payload], { type: 'application/json' }))
     }
@@ -236,7 +243,20 @@ async function flushPendingSessions() {
       try {
         // Sessions queued before the clamp above can carry a duration longer than their own span.
         const span = Math.floor((Date.parse(session.endedAt) - Date.parse(session.startedAt)) / 1000)
-        await submitSession(span >= 0 ? { ...session, durationSeconds: Math.min(session.durationSeconds, span) } : session)
+        const sent = span >= 0 ? { ...session, durationSeconds: Math.min(session.durationSeconds, span) } : session
+        if (sent.clientSessionId) {
+          // A replay of the same id answers 200: first write wins.
+          const { clientSessionId, editionId: _editionId, userBookId, ...rest } = sent
+          try {
+            await v2Api.putSession(clientSessionId, { ...rest, bookId: userBookId ?? null })
+          } catch (err) {
+            // 404: V2 is unmapped now, or the book is gone. The session never counted; never retried.
+            if (!(err instanceof ApiError && err.status === 404)) throw err
+            console.warn('[session] V2 session dropped (404)', clientSessionId)
+          }
+        } else {
+          await submitSession(sent)
+        }
         // Success or duplicate — either way, done
         done.push(session)
       } catch (err) {
