@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { saveWord } from '../vocabulary'
+import { saveWord, updateWord, getReviewQueue } from '../vocabulary'
 import { startV2Probe, resetV2ForTests } from '../v2'
 
 const card = { id: 'w1', language: 'en', word: 'quiver', translation: null, definition: null, stage: 0, intervalDays: 0,
@@ -59,5 +59,53 @@ describe('saveWord on V2', () => {
     expect(post.body).not.toHaveProperty('id')
     expect(post.body).not.toHaveProperty('operationId')
     expect(post.body).toMatchObject({ word: 'quiver', userBookId: 'b1', chapterId: '2-the-woods' })
+  })
+})
+
+/** Answers by `METHOD path-under-/me/v2` in turn (the last repeating); records each request. */
+function routes(map: Record<string, { status: number; body?: unknown }[]>) {
+  const calls: { method: string; path: string }[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
+    const method = init.method ?? 'GET'
+    const path = url.replace(/^.*\/me\/v2/, '').split('?')[0]
+    calls.push({ method, path })
+    const queue = map[`${method} ${path}`]
+    if (!queue) throw new Error(`unexpected ${method} ${path}`)
+    const a = queue.length > 1 ? queue.shift()! : queue[0]
+    return { ok: a.status < 300, status: a.status, text: async () => JSON.stringify(a.body ?? {}) }
+  }))
+  return calls
+}
+
+describe('vocabulary edits and review on V2', () => {
+  it('an automatic fill that loses to another device checks again, and stops if that device filled it', async () => {
+    const theirs = { ...card, translation: 'колчан', revision: 2 }
+    const calls = routes({
+      'GET /status': [{ status: 200, body: { maxPartBytes: 1 } }],
+      'GET /vocabulary/words/w1': [{ status: 200, body: card }],
+      'PATCH /vocabulary/words/w1': [{ status: 409, body: { code: 'stale_revision', message: 'x', revision: 2, current: theirs } }],
+    })
+    await startV2Probe()
+
+    const result = await updateWord('w1', { translation: 'сагайдак', onlyIfEmpty: true })
+
+    expect(result.translation).toBe('колчан')
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1)
+  })
+
+  it('reviews as flashcards, and with nothing due offers the cards nearest to due', async () => {
+    const later = { ...card, id: 'w2', word: 'later', nextReviewAt: '2026-12-01T00:00:00Z' }
+    const sooner = { ...card, id: 'w3', word: 'sooner', nextReviewAt: '2026-11-10T00:00:00Z' }
+    routes({
+      'GET /status': [{ status: 200, body: { maxPartBytes: 1 } }],
+      'GET /vocabulary/due': [{ status: 200, body: [] }],
+      'GET /vocabulary/changes': [{ status: 200, body: { items: [later, sooner], cursor: null, hasMore: false } }],
+    })
+    await startV2Probe()
+
+    const queue = await getReviewQueue(1, true)
+
+    expect(queue.cards.map((c) => [c.word, c.reviewMode])).toEqual([['sooner', 'flashcard']])
+    expect(queue.totalDue).toBe(0)
   })
 })

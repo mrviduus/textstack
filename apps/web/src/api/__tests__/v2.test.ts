@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   startV2Probe, v2Status, resetV2ForTests, uploadV2Book, V2UploadError, saveV2Progress, readV2Progress,
-  v2Locator, chapterAtFraction, pullV2Books,
+  v2Locator, chapterAtFraction, pullV2Books, getV2UserBooks,
 } from '../v2'
 
 const API = 'http://localhost:8080/me/v2'
@@ -138,6 +138,24 @@ describe('the V2 upload', () => {
     expect(sent).toHaveLength(2)
   })
 
+  it.each([
+    ['the sha256 lookup', (b: unknown) => ({ [`GET /books/by-sha256/${SHA}`]: [{ status: 200, body: b }] })],
+    ['duplicate_file', (b: unknown) => ({
+      [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+      [`PUT /books/${B}`]: [conflict('duplicate_file', { current: b })],
+    })],
+  ])('sends the bytes to a book whose earlier upload broke, found by %s, then opens it', async (_name, routes) => {
+    const broken = { ...book('broken', 'f-broken'), currentFile: file('f-broken', { hasContent: false }) }
+    const calls = fakeApi({ ...routes(broken), 'POST /books/broken/files/f-broken/content': [{ status: 200, body: file('f-broken') }] })
+    const { sent, send } = parts()
+
+    const result = await uploadV2Book(epub(), 5, send)
+
+    expect(result).toMatchObject({ userBookId: 'broken', existing: true })
+    expect(sent.map((p) => p.url)).toEqual([expect.stringContaining('/books/broken/files/f-broken/parts/0')])
+    expect(calls[calls.length - 1]).toMatchObject({ method: 'POST', path: '/books/broken/files/f-broken/content', body: { partCount: 1 } })
+  })
+
   it('carries used and limit on quota_exceeded', async () => {
     fakeApi({
       [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
@@ -208,11 +226,42 @@ describe('the V2 reading state', () => {
     expect(await readV2Progress('rb5')).toMatchObject({ chapterSlug: 'two', positionJson: null, percent: 0.7 })
   })
 
+  it('says the server accepted the write, and refetches the book once on unknown_file', async () => {
+    const calls = fakeApi({
+      'GET /library/changes': [
+        { status: 200, body: { items: [book('rb6', 'f-old')], cursor: null, hasMore: false } },
+        { status: 200, body: { items: [book('rb6', 'f-new')], cursor: null, hasMore: false } },
+      ],
+      'PUT /books/rb6/reading-state': [conflict('unknown_file'), { status: 200, body: state('rb6', 1) }],
+    })
+    expect(await saveV2Progress('rb6', write)).toEqual({ accepted: true })
+    expect(calls.filter((c) => c.method === 'PUT').map((c) => (c.body as { fileId: string }).fileId)).toEqual(['f-old', 'f-new'])
+  })
+
   it('picks the chapter at a fraction by cumulative word counts', () => {
     const items = [{ chapterKey: 'a', wordCount: 10 }, { chapterKey: 'b', wordCount: 30 }, { chapterKey: 'c', wordCount: null }]
     expect(chapterAtFraction(items, 0)).toBe('a')
     expect(chapterAtFraction(items, 0.5)).toBe('b')
     expect(chapterAtFraction(items, 1)).toBe('c')
     expect(chapterAtFraction([], 0.5)).toBeNull()
+  })
+})
+
+describe('the V2 library', () => {
+  it('shares one in-flight pull between concurrent callers', async () => {
+    const calls = fakeApi({ 'GET /library/changes': feed(book('lb0', 'f0')) })
+    await Promise.all([pullV2Books(), pullV2Books()])
+    expect(calls.filter((c) => c.path === '/library/changes')).toHaveLength(1)
+  })
+
+  it('keeps the shelf when one book\'s chapters call fails: that book has no status, the rest are there', async () => {
+    fakeApi({
+      'GET /library/changes': feed(book('lb1', 'f1'), book('lb2', 'f2')),
+      'GET /reading/changes': feed(),
+      'GET /books/lb1/files/f1/chapters': [{ status: 503, body: { code: 'v2_unavailable', message: 'x' } }],
+      'GET /books/lb2/files/f2/chapters': [{ status: 200, body: { items: [{ chapterKey: 'one', chapterNumber: 1, title: 'One', wordCount: 10 }], ingestion: 'succeeded' } }],
+    })
+    const shelf = await getV2UserBooks()
+    expect(shelf.map((b) => [b.id, b.status, b.chapterCount])).toEqual([['lb1', 'Failed', 0], ['lb2', 'Ready', 1]])
   })
 })
