@@ -147,12 +147,12 @@ describe('useUserBookProgress on V2 (the write outcome)', () => {
   })
 
   it('an accepted write is synced; a dropped one stays unsynced, to be sent again', async () => {
-    await saveAndSettle({ accepted: true })
+    await saveAndSettle('accepted')
     expect(JSON.parse(localStorage.getItem(KEY)!).synced).toBe(true)
 
     localStorage.clear()
     vi.useRealTimers()
-    await saveAndSettle({})
+    await saveAndSettle('dropped')
     expect(JSON.parse(localStorage.getItem(KEY)!).synced).toBeUndefined()
   })
 
@@ -166,7 +166,7 @@ describe('useUserBookProgress on V2 (the write outcome)', () => {
   it('a replaced file reloads the book', async () => {
     const reload = vi.fn()
     vi.stubGlobal('location', { ...window.location, reload })
-    await saveAndSettle({ reload: true })
+    await saveAndSettle('reload')
     expect(reload).toHaveBeenCalledTimes(1)
   })
 })

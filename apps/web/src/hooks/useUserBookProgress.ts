@@ -1,9 +1,9 @@
-import { PERCENT_UNIT_BOOK, LOCATOR_SPACE_SCROLL, parsePdfPageLocator } from '@textstack/shared'
+import { PERCENT_UNIT_BOOK, LOCATOR_SPACE_SCROLL, parsePdfPageLocator, v2Api } from '@textstack/shared'
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { readUserBookProgress, saveUserBookProgress, type UserBookProgress } from '../api/userBooks'
-import { v2Enabled, v2ProgressBody, v2StateUrl, rememberV2State, type V2WriteOutcome } from '../api/v2'
-import { writePdfPage } from '../lib/originalLayoutPref'
-import { preferLocalProgress, markProgressSynced, PROGRESS_GET_TIMEOUT_MS, timeoutSignal } from '../lib/progressSync'
+import { v2Enabled, v2ProgressBody, rememberV2State } from '../api/v2'
+import { applyV2Outcome } from '../lib/v2Reading'
+import { preferLocalProgress, markProgressSynced, keepalivePut, PROGRESS_GET_TIMEOUT_MS, timeoutSignal } from '../lib/progressSync'
 
 const STORAGE_KEY = 'userbook.progress.'
 const DEBOUNCE_MS = 2000
@@ -118,18 +118,10 @@ export function useUserBookProgress(bookId: string) {
   // V2 (#1025), a write the server did not take as sent: a lost write takes the server's place
   // (moving the reader only if the place differs; a PDF page becomes the PDF view's place); a
   // replaced file reloads the book; a dropped write leaves the local place unsynced, to be sent again.
-  const adoptV2 = useCallback((outcome: V2WriteOutcome, sent: SavedProgress) => {
-    if (outcome.reload) {
-      window.location.reload()
-      return
-    }
-    const server = outcome.adopted
-    if (!server) return
+  const adoptV2 = useCallback((server: UserBookProgress, sent: SavedProgress) => {
     if (pendingSyncRef.current === sent) pendingSyncRef.current = null
-    const page = parsePdfPageLocator(server.locator)
-    if (page != null) {
-      writePdfPage(bookId, page)
-      setServerRow(server)
+    if (parsePdfPageLocator(server.locator) != null) {
+      setServerRow(server) // the PDF view's page was taken by applyV2Outcome
       // The server's place is the newer one: this record no longer wins a restore.
       markProgressSynced(`${STORAGE_KEY}${bookId}`, sent.updatedAt)
       return
@@ -181,8 +173,9 @@ export function useUserBookProgress(bookId: string) {
       })
         .then((outcome) => {
           // V2 marks synced only what the server accepted; legacy resolves with nothing on success.
-          if (outcome && !outcome.accepted) {
-            adoptV2(outcome, toSync)
+          if (outcome && outcome !== 'accepted') {
+            const adopted = applyV2Outcome(bookId, outcome)
+            if (adopted) adoptV2(adopted, toSync)
             return
           }
           lastAckedKeyRef.current = `${toSync.chapterSlug}:${toSync.locator ?? ''}`
@@ -205,17 +198,13 @@ export function useUserBookProgress(bookId: string) {
       markProgressSynced(`${STORAGE_KEY}${id}`, toSync.updatedAt)
     }
     if (!body) {
-      void saveUserBookProgress(id, data).then(ack).catch((err) => console.warn('[progress] userbook flush save failed', err))
+      void saveUserBookProgress(id, data)
+        .then((outcome) => { if (outcome === 'accepted') ack() })
+        .catch((err) => console.warn('[progress] userbook flush save failed', err))
       return
     }
     // A 409 here is left to the next write, which reads the answer and applies the revision rule.
-    fetch(v2StateUrl(id), {
-      method: 'PUT',
-      body: JSON.stringify(body),
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      keepalive: true,
-    })
+    keepalivePut(v2Api.readingStateUrl(id), JSON.stringify(body))
       .then(async (res) => {
         if (!res.ok) return
         rememberV2State(await res.json())
@@ -255,14 +244,7 @@ export function useUserBookProgress(bookId: string) {
     })
     const url = `/api/me/books/${bookId}/progress`
 
-    // Use fetch with keepalive (survives page unload like sendBeacon, but supports PUT)
-    fetch(url, {
-      method: 'PUT',
-      body: payload,
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      keepalive: true,
-    })
+    keepalivePut(url, payload)
       .then((res) => {
         // A non-ok answer is not an ACK: leave the dedupe key and the unsynced local entry
         // alone, so the next write of this same position is sent rather than deduped away.
