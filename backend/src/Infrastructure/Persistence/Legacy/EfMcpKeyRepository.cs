@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using Application.Common;
 using Application.Common.Interfaces;
 using Application.Identity;
 using Domain.Entities;
@@ -40,7 +41,6 @@ public sealed class EfMcpKeyRepository(IAppDbContext db) : IMcpKeyRepository
 
     public async Task<McpConnectKey?> CreateAsync(Guid userId, string name, string keyHash, string prefix, DateTimeOffset tokenIssuedAt, CancellationToken ct)
     {
-        if (!await db.Users.AnyAsync(u => u.Id == userId, ct)) return null;
         var key = new McpAccessKey
         {
             Id = Guid.NewGuid(),
@@ -51,7 +51,16 @@ public sealed class EfMcpKeyRepository(IAppDbContext db) : IMcpKeyRepository
             CreatedAt = DateTimeOffset.UtcNow,
         };
         db.McpAccessKeys.Add(key);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        // The user is gone: the users FK refuses the key.
+        catch (DbUpdateException e) when (e.IsForeignKeyViolation())
+        {
+            db.McpAccessKeys.Entry(key).State = EntityState.Detached;
+            return null;
+        }
         return AsKey(key);
     }
 
