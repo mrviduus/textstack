@@ -88,4 +88,13 @@ describe('UserBookDetailPage on V2', () => {
     expect(useBookReviews).toHaveBeenLastCalledWith(on ? null : { userBookId: 'bk-1' })
     v2On = false
   })
+
+  it.each([[false, 1], [true, 0]])('V2 %s: a Ready book with no chapter offers "Mark as read" %i times (nothing to write completion on)', async (on, shown) => {
+    v2On = on
+    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined, chapters: [] })
+    renderPage()
+    await screen.findByText('Test Book')
+    expect(screen.queryAllByText('Mark as read')).toHaveLength(shown)
+    v2On = false
+  })
 })

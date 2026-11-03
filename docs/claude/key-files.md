@@ -15,6 +15,7 @@ Moved verbatim from `CLAUDE.md` (2026-10-12) to keep the always-loaded context s
 | Extraction | `backend/src/Extraction/` (EPUB/PDF parsers) |
 | Search | `backend/src/Search/TextStack.Search/Providers/PostgresFts/PostgresSearchProvider.cs` |
 | DB Context | `backend/src/Infrastructure/Persistence/AppDbContext.cs` |
+| Identity ports on legacy (EF adapters, bound until M5.1) | `backend/src/Infrastructure/Persistence/Legacy/`, `DataSource.AddLegacyIdentityPorts` |
 | Web Contexts | `apps/web/src/context/` |
 | Web Pages | `apps/web/src/pages/` |
 | Reader | `apps/web/src/pages/ReaderPage.tsx` |

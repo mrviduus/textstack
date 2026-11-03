@@ -1,4 +1,9 @@
+using Application.Common.Interfaces;
+using Application.Identity;
 using Domain.Entities;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using Worker.Services;
 
 namespace TextStack.UnitTests;
@@ -8,41 +13,59 @@ public class RetentionCleanupTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
 
-    private static bool IsDeleted(DateTimeOffset expiresAt) =>
-        RetentionCleanupWorker.ExpiredUserToken(Now).Compile()(
-            new UserRefreshToken { TokenHash = "h", ExpiresAt = expiresAt });
+    [Fact]
+    public async Task CleanupAsync_CredentialSweeps_EachGetsADayPastNow()
+    {
+        // The identity ports sweep with the cutoff they are given (their contract tests); the grace is the worker's.
+        var sessions = new Mock<ISessionTokenRepository>();
+        var devices = new Mock<IDeviceLoginRepository>();
+        var oauth = new Mock<IOAuthRepository>();
+        var lastSweep = new TaskCompletionSource();
+        oauth.Setup(o => o.DeleteDeadGrantsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+            .Callback(lastSweep.SetResult).ReturnsAsync(0);
+        await using var services = new ServiceCollection()
+            .AddScoped(_ => Mock.Of<IAppDbContext>())
+            .AddScoped(_ => sessions.Object)
+            .AddScoped(_ => devices.Object)
+            .AddScoped(_ => oauth.Object)
+            .BuildServiceProvider();
+        using var worker = new RetentionCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<RetentionCleanupWorker>.Instance);
+        var before = DateTimeOffset.UtcNow - RetentionCleanupWorker.TokenGrace;
+
+        await worker.StartAsync(TestContext.Current.CancellationToken);
+        await lastSweep.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await worker.StopAsync(TestContext.Current.CancellationToken);
+
+        var after = DateTimeOffset.UtcNow - RetentionCleanupWorker.TokenGrace;
+        Func<DateTimeOffset, bool> atGrace = cutoff => cutoff >= before && cutoff <= after;
+        sessions.Verify(s => s.DeleteExpiredSessionsAsync(It.Is<DateTimeOffset>(c => atGrace(c)), It.IsAny<CancellationToken>()), Times.Once);
+        sessions.Verify(s => s.DeleteExpiredPasswordResetsAsync(It.Is<DateTimeOffset>(c => atGrace(c)), It.IsAny<CancellationToken>()), Times.Once);
+        devices.Verify(d => d.DeleteExpiredAsync(It.Is<DateTimeOffset>(c => atGrace(c)), It.IsAny<CancellationToken>()), Times.Once);
+        oauth.Verify(o => o.DeleteDeadGrantsAsync(It.Is<DateTimeOffset>(c => atGrace(c)), It.IsAny<CancellationToken>()), Times.Once);
+    }
 
     [Fact]
-    public void ExpiredUserToken_ExpiredOverADayAgo_Deleted() =>
-        Assert.True(IsDeleted(Now.AddDays(-1).AddSeconds(-1)));
+    public async Task CleanupAsync_APortMissing_TheOtherRulesStillRun()
+    {
+        var oauth = new Mock<IOAuthRepository>();
+        var lastSweep = new TaskCompletionSource();
+        oauth.Setup(o => o.DeleteDeadGrantsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+            .Callback(lastSweep.SetResult).ReturnsAsync(0);
+        var devices = new Mock<IDeviceLoginRepository>();
+        // No ISessionTokenRepository: its two rules fail, logged, and the rest go on.
+        await using var services = new ServiceCollection()
+            .AddScoped(_ => Mock.Of<IAppDbContext>())
+            .AddScoped(_ => devices.Object)
+            .AddScoped(_ => oauth.Object)
+            .BuildServiceProvider();
+        using var worker = new RetentionCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<RetentionCleanupWorker>.Instance);
 
-    [Fact]
-    public void ExpiredUserToken_ExpiredWithinGrace_Kept() =>
-        Assert.False(IsDeleted(Now.AddHours(-23)));
+        await worker.StartAsync(TestContext.Current.CancellationToken);
+        await lastSweep.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await worker.StopAsync(TestContext.Current.CancellationToken);
 
-    [Fact]
-    public void ExpiredUserToken_StillValid_Kept() =>
-        Assert.False(IsDeleted(Now.AddDays(30)));
-
-    private static bool IsDeadGrant(DateTimeOffset? revokedAt, DateTimeOffset refreshExpiresAt) =>
-        RetentionCleanupWorker.DeadOAuthGrant(Now).Compile()(
-            new OAuthGrant { RevokedAt = revokedAt, RefreshTokenExpiresAt = refreshExpiresAt });
-
-    [Fact]
-    public void DeadOAuthGrant_LiveNeverRevoked_Kept() =>
-        Assert.False(IsDeadGrant(null, Now.AddDays(30)));
-
-    [Fact]
-    public void DeadOAuthGrant_RevokedOverADayAgo_Deleted() =>
-        Assert.True(IsDeadGrant(Now.AddDays(-2), Now.AddDays(30)));
-
-    [Fact]
-    public void DeadOAuthGrant_RefreshExpiredOverADayAgo_Deleted() =>
-        Assert.True(IsDeadGrant(null, Now.AddDays(-2)));
-
-    [Fact]
-    public void DeadOAuthGrant_RevokedWithinGrace_Kept() =>
-        Assert.False(IsDeadGrant(Now.AddHours(-1), Now.AddDays(30)));
+        devices.Verify(d => d.DeleteExpiredAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
 
     private static bool IsOldSsgJob(DateTimeOffset? finishedAt) =>
         RetentionCleanupWorker.OldSsgRebuildJob(Now).Compile()(
@@ -71,22 +94,6 @@ public class RetentionCleanupTests
     [Fact]
     public void OldTutorSession_UsedRecently_Kept() =>
         Assert.False(IsOldTutorSession(Now.AddDays(-89)));
-
-    [Fact]
-    public void ExpiredPasswordReset_OverADayPastExpiry_Deleted() =>
-        Assert.True(RetentionCleanupWorker.ExpiredPasswordReset(Now).Compile()(new PasswordResetToken { ExpiresAt = Now.AddDays(-2) }));
-
-    [Fact]
-    public void ExpiredPasswordReset_WithinGrace_Kept() =>
-        Assert.False(RetentionCleanupWorker.ExpiredPasswordReset(Now).Compile()(new PasswordResetToken { ExpiresAt = Now.AddHours(-1) }));
-
-    [Fact]
-    public void ExpiredDeviceAuthorization_OverADayPastExpiry_Deleted() =>
-        Assert.True(RetentionCleanupWorker.ExpiredDeviceAuthorization(Now).Compile()(new DeviceAuthorization { ExpiresAt = Now.AddDays(-2) }));
-
-    [Fact]
-    public void ExpiredDeviceAuthorization_WithinGrace_Kept() =>
-        Assert.False(RetentionCleanupWorker.ExpiredDeviceAuthorization(Now).Compile()(new DeviceAuthorization { ExpiresAt = Now.AddHours(-1) }));
 
     private static LlmTrace Trace(DateTimeOffset createdAt, string messages = "[{\"role\":\"user\"}]", string? response = "text") =>
         new() { FeatureTag = "f", ModelId = "m", PromptHash = "h", MessagesJson = messages, ResponseText = response, CreatedAt = createdAt };

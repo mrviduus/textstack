@@ -412,7 +412,8 @@ export function UserBookDetailPage() {
               />
             )}
 
-            {isReady && !book.completedAt && (
+            {/* V2: completion is written on the reading place, so a book with no chapter yet has none to mark. */}
+            {isReady && !book.completedAt && (!v2.enabled || book.chapters.length > 0) && (
               <button
                 onClick={async () => {
                   await markUserBookComplete(book.id)

@@ -39,8 +39,12 @@ docker exec textstack_db_prod pg_dump -U $POSTGRES_USER $POSTGRES_DB \
 `.github/workflows/backup.yml` runs **daily at 03:00 UTC** on the self-hosted runner:
 
 1. `pg_dump` → `~/backups/textstack/db-<YYYY-MM-DD>.sql.gz` (`pipefail` + dump-complete trailer check).
+   Then the V2 database → `textstack_v2-db-<YYYY-MM-DD>.sql.gz`: skipped while it does not exist, and a
+   failure there lets every legacy step run and turns the job red at the end
+   ([database/v2/README.md § Backups](../../database/v2/README.md#backups-1043)).
 2. `tar czf` of `./data/storage` → `storage-<YYYY-MM-DD>.tar.gz` (tar exit 1 "file changed as we read it" is a warning).
-3. Prunes to the **2** newest local copies of each kind (`db-`, `storage-`, `pre-deploy-`) — history lives in R2.
+3. Prunes to the **2** newest local copies of each kind (`db-`, `storage-`, `pre-deploy-`, and V2's
+   `textstack_v2-db-`, `textstack_v2-pre-deploy-`) — history lives in R2.
 4. `gunzip -t`, then `infra/scripts/backup-verify.sh` restores the new dump into a throwaway pgvector container.
 5. **Off-site copy to Cloudflare R2** (below).
 6. Queues the nightly full SSG rebuild; then a disk alarm fails the job at ≥85% on `/` or the Docker root.
@@ -53,7 +57,8 @@ The only copy that survives losing the server. restic runs in Docker (`restic/re
 on the host. Bucket `textstack-backups`, repository encrypted client-side.
 
 - **What:** the DB dump as plain SQL through stdin (`/db.sql` — plain so it deduplicates; a `.gz` re-uploaded
-  ~1.2 GB every night), plus `data/storage` and `.env` (`/backup`).
+  ~1.2 GB every night), plus `data/storage` and `.env` (`/backup`). The V2 dump goes as `/db_v2.sql`, last,
+  on nights it exists.
 - **Retention:** 7 nightly + 3 monthly. **Guard:** the job fails above 9 GB to stay inside R2's free 10 GB.
 - **Secrets (GitHub → Actions):** `RESTIC_REPOSITORY`, `RESTIC_PASSWORD`, `R2_ACCESS_KEY_ID` (32 chars),
   `R2_SECRET_ACCESS_KEY` (64 chars). **`RESTIC_PASSWORD` must also be in the owner's password manager** — without
@@ -94,6 +99,10 @@ Data takes ~4 min to restore (drill timings). Most of the time is rebuilding the
    ```
    Snapshots older than 2026-10-05 hold the dump as `/backup/db.sql.gz` instead:
    `$R dump --path /backup latest /backup/db.sql.gz | gunzip | docker exec -i …`.
+   Then V2, if the backup has one (`$R snapshots --path /db_v2.sql`): create the empty database the way
+   `migrator-v2` does and load it — `docker compose run --rm migrator-v2 create`, then
+   `$R dump --path /db_v2.sql latest /db_v2.sql | docker exec -i textstack_db_prod psql -U "$POSTGRES_USER" -d textstack_v2 -v ON_ERROR_STOP=1`.
+   Skip it and the cluster has no V2 database at all (not an empty one); fine only while `FEATURES_V2API` is off.
 4. **Start the rest:** `docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml up -d`
    (the migrator brings the schema forward if the code is newer than the dump).
 5. **Verify:** `curl https://textstack.app/api/health` → `"healthy"`, `/api/health/ready` all ok, open a book,

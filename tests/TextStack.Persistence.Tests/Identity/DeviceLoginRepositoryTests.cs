@@ -5,10 +5,12 @@ using static TextStack.Persistence.Tests.V2PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Identity;
 
-public class DeviceLoginRepositoryTests(V2PostgresFixture db)
+/// <summary>The legacy-shared sweep on V2, and the device flow, which only V2 implements on the port.</summary>
+public class DeviceLoginRepositoryTests(V2PostgresFixture db) : DeviceLoginRepositoryContract(db, new DeviceLoginRepository(db.DataSource))
 {
     private readonly DeviceLoginRepository _repo = new(db.DataSource);
-    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    protected override Task SeedAsync(DeviceLogin login) => _repo.CreateAsync(login, Ct);
 
     private async Task<DeviceLogin> CreatedAsync()
     {
@@ -244,19 +246,5 @@ public class DeviceLoginRepositoryTests(V2PostgresFixture db)
         var login = await CreatedAsync();
 
         Assert.False(await _repo.RedeemAsync(login.Id, NewHash(), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow, Ct));
-    }
-
-    [Fact]
-    public async Task DeleteExpiredAsync_Cutoff_DeletesOnlyLoginsExpiredBeforeIt()
-    {
-        var (old, fresh) = (NewDeviceLogin(), NewDeviceLogin());
-        old.ExpiresAt = new DateTimeOffset(2005, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        await _repo.CreateAsync(old, Ct);
-        await _repo.CreateAsync(fresh, Ct);
-
-        Assert.Equal(1, await _repo.DeleteExpiredAsync(new DateTimeOffset(2005, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct));
-
-        Assert.Null(await _repo.GetByDeviceCodeAsync(old.DeviceCodeHash, Ct));
-        Assert.NotNull(await _repo.GetByDeviceCodeAsync(fresh.DeviceCodeHash, Ct));
     }
 }

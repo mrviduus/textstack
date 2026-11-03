@@ -16,6 +16,7 @@ public sealed class V2AuthService(
     ISessionTokenRepository sessions,
     IDeviceLoginRepository devices,
     IAccountMergeRepository merges,
+    V2AccountDeletion deletion,
     JwtTokens tokens,
     ProviderTokens providers,
     TimeProvider clock,
@@ -258,7 +259,9 @@ public sealed class V2AuthService(
         }
     }
 
-    public (Guid? UserId, bool IsGuest) ValidateAccessTokenIdentity(string accessToken) => tokens.ValidateAccessToken(accessToken);
+    public Task<bool> DeleteAccountAsync(Guid userId, CancellationToken ct) => deletion.DeleteAsync(userId, ct);
+
+    public AccessTokenIdentity? ValidateAccessTokenIdentity(string accessToken) => tokens.ValidateAccessToken(accessToken);
 
     /// <summary>
     /// A new reader session and access token for <paramref name="user"/>. An admin account needs its

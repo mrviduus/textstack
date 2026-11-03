@@ -5,10 +5,16 @@ using static TextStack.Persistence.Tests.V2PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Identity;
 
-public class SessionTokenRepositoryTests(V2PostgresFixture db)
+/// <summary>The legacy-shared sweeps on V2, and the session protocol, which only V2 implements on the port.</summary>
+public class SessionTokenRepositoryTests(V2PostgresFixture db) : SessionTokenRepositoryContract(db, new SessionTokenRepository(db.DataSource))
 {
     private readonly SessionTokenRepository _repo = new(db.DataSource);
-    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    protected override Task SeedSessionAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt) =>
+        _repo.IssueAsync(userId, tokenHash, expiresAt, null, null, SessionKind.Reader, Ct);
+
+    protected override Task SeedPasswordResetAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt) =>
+        _repo.CreatePasswordResetAsync(userId, tokenHash, expiresAt, Ct);
 
     private static DateTimeOffset NextWeek => DateTimeOffset.UtcNow.AddDays(7);
 
@@ -511,33 +517,6 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db)
         var reset = await _repo.CreatePasswordResetAsync(user, NewHash(), DateTimeOffset.UtcNow.AddHours(1), Ct);
 
         Assert.Equal((user, false), (reset.UserId, reset.Used));
-    }
-
-    [Fact]
-    public async Task DeleteExpiredSessionsAsync_Cutoff_DeletesOnlySessionsExpiredBeforeIt()
-    {
-        var user = await db.NewReaderAsync();
-        // Far back, so another test's sessions are never on the wrong side of this cutoff.
-        var cutoff = new DateTimeOffset(2001, 1, 2, 0, 0, 0, TimeSpan.Zero);
-        await _repo.IssueAsync(user, NewHash(), cutoff.AddDays(-1), null, null, SessionKind.Reader, Ct);
-        // Expiring at the cutoff instant itself is not "before" it.
-        await _repo.IssueAsync(user, NewHash(), cutoff, null, null, SessionKind.Reader, Ct);
-
-        Assert.Equal(1, await _repo.DeleteExpiredSessionsAsync(cutoff, Ct));
-
-        Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user));
-    }
-
-    [Fact]
-    public async Task DeleteExpiredPasswordResetsAsync_Cutoff_DeletesOnlyCodesExpiredBeforeIt()
-    {
-        var user = await db.NewReaderAsync();
-        await _repo.CreatePasswordResetAsync(user, NewHash(), new DateTimeOffset(2002, 1, 1, 0, 0, 0, TimeSpan.Zero), Ct);
-        await _repo.CreatePasswordResetAsync(user, NewHash(), new DateTimeOffset(2002, 1, 3, 0, 0, 0, TimeSpan.Zero), Ct);
-
-        Assert.Equal(1, await _repo.DeleteExpiredPasswordResetsAsync(new DateTimeOffset(2002, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct));
-
-        Assert.Equal(1L, await db.CountAsync("password_reset_tokens", user));
     }
 
     private async Task<Guid> ReaderWithPasswordAsync(string passwordHash)

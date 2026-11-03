@@ -2,11 +2,10 @@ using System.Text.Json;
 using Api.Extensions;
 using Api.Services;
 using Application.Auth;
-using Application.Common.Interfaces;
+using Application.Identity;
 using Contracts.Mcp;
-using Domain.Entities;
+using Domain.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace Api.Endpoints;
 
@@ -45,7 +44,7 @@ public static class OAuthEndpoints
         // The MCP host asks this before serving a tso_ bearer, so an expired token gets the 401
         // challenge clients refresh on. No limiter: it arrives from the one bridge address, per
         // MCP request, and costs the lookup McpKeyAuthMiddleware already did.
-        oauth.MapGet("/token-status", (HttpContext http, AuthService auth) =>
+        oauth.MapGet("/token-status", (HttpContext http, IAuthService auth) =>
             http.GetUserId(auth) is null ? Results.Unauthorized() : Results.NoContent()).ExcludeFromDescription();
 
         var grants = app.MapGroup("/me/oauth/grants").WithTags("OAuth").RejectOAuthTokens();
@@ -91,12 +90,12 @@ public static class OAuthEndpoints
     // ── authorize ────────────────────────────────────────────────────────────────
 
     private static async Task<IResult> Authorize(
-        HttpContext http, IAppDbContext db, ClientMetadataFetcher fetcher, IConfiguration config, CancellationToken ct)
+        HttpContext http, IOAuthRepository oauth, ClientMetadataFetcher fetcher, IConfiguration config, CancellationToken ct)
     {
         var q = http.Request.Query;
         string? P(string key) => q[key].FirstOrDefault() is { Length: > 0 } v ? v : null;
 
-        var (client, clientError) = await ResolveClientAsync(P("client_id"), db, fetcher, ct);
+        var (client, clientError) = await ResolveClientAsync(P("client_id"), oauth, fetcher, ct);
         if (client is null) return Error("invalid_client", clientError);
 
         // Until redirect_uri is proven, errors go to the browser, never to the URI (RFC 6749 §4.1.2.1).
@@ -121,9 +120,9 @@ public static class OAuthEndpoints
 
         var now = DateTimeOffset.UtcNow;
         // Sweep: requests live minutes; a day-old row is garbage whatever state it is in.
-        await db.OAuthAuthorizationRequests.Where(r => r.CreatedAt < now.AddDays(-1)).ExecuteDeleteAsync(ct);
+        await oauth.DeleteRequestsCreatedBeforeAsync(now.AddDays(-1), ct);
 
-        var request = new OAuthAuthorizationRequest
+        var request = new OAuthAuthorization
         {
             Id = Guid.NewGuid(),
             ClientId = client.ClientId,
@@ -133,18 +132,16 @@ public static class OAuthEndpoints
             CodeChallenge = P("code_challenge")!,
             Resource = resource,
             Scope = OAuth.GrantedScope(P("scope")),
-            CreatedAt = now,
             ExpiresAt = now + OAuth.ConsentLifetime,
         };
-        db.OAuthAuthorizationRequests.Add(request);
-        await db.SaveChangesAsync(ct);
+        await oauth.CreateRequestAsync(request, ct);
 
         return Results.Redirect($"{issuer}/en/oauth/consent/?req={request.Id}"); // trailing slash: nginx would 301 to it
     }
 
-    private static async Task<IResult> GetRequest(Guid id, IAppDbContext db, CancellationToken ct)
+    private static async Task<IResult> GetRequest(Guid id, IOAuthRepository oauth, CancellationToken ct)
     {
-        var r = await db.OAuthAuthorizationRequests.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+        var r = await oauth.GetRequestAsync(id, ct);
         if (r is null) return Results.NotFound();
 
         return Results.Ok(new OAuthConsentRequestDto(
@@ -152,20 +149,20 @@ public static class OAuthEndpoints
             OAuth.LibraryScopeDescription, StatusOf(r, DateTimeOffset.UtcNow), r.ExpiresAt));
     }
 
-    private static string StatusOf(OAuthAuthorizationRequest r, DateTimeOffset now) =>
+    private static string StatusOf(OAuthAuthorization r, DateTimeOffset now) =>
         r.DeniedAt is not null ? "denied"
         : r.UserId is not null ? "approved"
         : r.ExpiresAt <= now ? "expired"
         : "pending";
 
     private static async Task<IResult> Approve(
-        [FromBody] OAuthDecisionRequest body, HttpContext http, AuthService auth, IAppDbContext db,
+        [FromBody] OAuthDecisionRequest body, HttpContext http, IAuthService auth, IOAuthRepository oauth,
         IConfiguration config, CancellationToken ct)
     {
-        var userId = http.GetUserId(auth);
-        if (userId is null) return Results.Unauthorized();
+        var identity = http.GetAccessTokenIdentity(auth);
+        if (identity is null) return Results.Unauthorized();
 
-        var user = await auth.GetUserByIdAsync(userId.Value, ct);
+        var user = await auth.GetUserByIdAsync(identity.UserId, ct);
         if (user is null) return Results.Unauthorized();
 
         // Owner decision: connecting an assistant needs a real account. 403 (sign UP), not 401
@@ -177,36 +174,34 @@ public static class OAuthEndpoints
                 statusCode: StatusCodes.Status403Forbidden,
                 extensions: new Dictionary<string, object?> { ["error"] = AiAccountPolicy.ErrorCode });
 
-        var r = await db.OAuthAuthorizationRequests.FirstOrDefaultAsync(x => x.Id == body.RequestId, ct);
-        if (r is null) return Results.NotFound();
-
         var now = DateTimeOffset.UtcNow;
-        if (StatusOf(r, now) is var status && status != "pending")
-            return Results.BadRequest(new { error = $"request_{status}" });
-
         var code = OAuth.NewToken("");
-        r.UserId = userId.Value;
-        r.CodeHash = DeviceCodes.HashToken(code);
-        r.ExpiresAt = now + OAuth.CodeLifetime;
-        await db.SaveChangesAsync(ct);
+        var approved = await oauth.ApproveRequestAsync(
+            body.RequestId, identity.UserId, DeviceCodes.HashToken(code), now + OAuth.CodeLifetime, identity.IssuedAt, now, ct);
+        if (approved is null)
+        {
+            // Not pending (unknown, decided, expired), or still pending and the approver was refused:
+            // gone, or on V2 its password was reset after this token was issued, so sign in again.
+            var r = await oauth.GetRequestAsync(body.RequestId, ct);
+            if (r is null) return Results.NotFound();
+            return StatusOf(r, now) is var status && status != "pending"
+                ? Results.BadRequest(new { error = $"request_{status}" })
+                : Results.Unauthorized();
+        }
 
-        return Results.Ok(new OAuthDecisionResponse(OAuth.AppendQuery(r.RedirectUri,
-            ("code", code), ("state", r.State), ("iss", Issuer(config)))));
+        return Results.Ok(new OAuthDecisionResponse(OAuth.AppendQuery(approved.RedirectUri,
+            ("code", code), ("state", approved.State), ("iss", Issuer(config)))));
     }
 
     // No sign-in needed: "Cancel" must reach the client even from a signed-out consent page, and
     // denying a request someone else started is not a capability worth guarding.
     private static async Task<IResult> Deny(
-        [FromBody] OAuthDecisionRequest body, IAppDbContext db, IConfiguration config, CancellationToken ct)
+        [FromBody] OAuthDecisionRequest body, IOAuthRepository oauth, IConfiguration config, CancellationToken ct)
     {
-        var r = await db.OAuthAuthorizationRequests.FirstOrDefaultAsync(x => x.Id == body.RequestId, ct);
+        var r = await oauth.GetRequestAsync(body.RequestId, ct);
         if (r is null) return Results.NotFound();
 
-        if (StatusOf(r, DateTimeOffset.UtcNow) == "pending")
-        {
-            r.DeniedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(ct);
-        }
+        await oauth.DenyRequestAsync(r.Id, DateTimeOffset.UtcNow, ct);
 
         return Results.Ok(new OAuthDecisionResponse(OAuth.AppendQuery(r.RedirectUri,
             ("error", "access_denied"), ("state", r.State), ("iss", Issuer(config)))));
@@ -214,7 +209,7 @@ public static class OAuthEndpoints
 
     // ── token ────────────────────────────────────────────────────────────────────
 
-    private static async Task<IResult> Token(HttpContext http, IAppDbContext db, CancellationToken ct)
+    private static async Task<IResult> Token(HttpContext http, IOAuthRepository oauth, CancellationToken ct)
     {
         // Form read by hand, not [FromForm]: form binding in minimal APIs switches on antiforgery,
         // which a machine-to-machine token endpoint must not have.
@@ -228,30 +223,26 @@ public static class OAuthEndpoints
 
         return F("grant_type") switch
         {
-            "authorization_code" => await RedeemCodeAsync(F, db, ct),
-            "refresh_token" => await RefreshAsync(F, db, ct),
+            "authorization_code" => await RedeemCodeAsync(F, oauth, ct),
+            "refresh_token" => await RefreshAsync(F, oauth, ct),
             _ => Error("unsupported_grant_type", "authorization_code or refresh_token"),
         };
     }
 
     private static async Task<IResult> RedeemCodeAsync(
-        Func<string, string?> f, IAppDbContext db, CancellationToken ct)
+        Func<string, string?> f, IOAuthRepository oauth, CancellationToken ct)
     {
         var code = f("code");
         if (code is null) return Error("invalid_request", "code is required");
 
-        var hash = DeviceCodes.HashToken(code);
-        var r = await db.OAuthAuthorizationRequests.AsNoTracking().FirstOrDefaultAsync(x => x.CodeHash == hash, ct);
+        var r = await oauth.GetRequestByCodeAsync(DeviceCodes.HashToken(code), ct);
         if (r is null) return Error("invalid_grant", "unknown code");
 
         // Burn the code FIRST, atomically: one redemption wins, and a failed attempt (bad verifier,
         // wrong redirect) still spends it.
-        var now = DateTimeOffset.UtcNow;
-        var burned = await db.OAuthAuthorizationRequests
-            .Where(x => x.Id == r.Id && x.ConsumedAt == null)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.ConsumedAt, now), ct);
-        if (burned == 0) return Error("invalid_grant", "code already used");
+        if (!await oauth.BurnCodeAsync(r.Id, ct)) return Error("invalid_grant", "code already used");
 
+        var now = DateTimeOffset.UtcNow;
         if (r.UserId is null || r.ExpiresAt <= now) return Error("invalid_grant", "code expired");
         if (f("client_id") != r.ClientId) return Error("invalid_grant", "code was issued to another client");
         if (f("redirect_uri") != r.RedirectUri) return Error("invalid_grant", "redirect_uri does not match");
@@ -260,20 +251,12 @@ public static class OAuthEndpoints
 
         // One grant per app: reconnecting replaces the previous grant(s) for the same app — matched on
         // (user, client name, redirect host), not client_id, because DCR mints a new client_id on every
-        // connect. Revoked in the same SaveChanges as the insert, so the swap is atomic.
-        var host = OAuth.DisplayHost(r.RedirectUri);
-        var previous = await db.OAuthGrants
-            .Where(g => g.UserId == r.UserId.Value && g.ClientName == r.ClientName && g.RevokedAt == null)
-            .ToListAsync(ct);
-        foreach (var old in previous.Where(g => OAuth.DisplayHost(g.RedirectUri) == host))
-            old.RevokedAt = now;
-
+        // connect. The port revokes them atomically with the insert.
         var access = OAuth.NewToken(OAuth.AccessTokenPrefix);
         var refresh = OAuth.NewToken(OAuth.RefreshTokenPrefix);
-        db.OAuthGrants.Add(new OAuthGrant
+        var connected = await oauth.ConnectAsync(r.UserId.Value, r.Id, new OAuthTokenGrant
         {
             Id = Guid.NewGuid(),
-            UserId = r.UserId.Value,
             ClientId = r.ClientId,
             ClientName = r.ClientName,
             RedirectUri = r.RedirectUri,
@@ -283,32 +266,28 @@ public static class OAuthEndpoints
             AccessTokenExpiresAt = now + OAuth.AccessTokenLifetime,
             RefreshTokenHash = DeviceCodes.HashToken(refresh),
             RefreshTokenExpiresAt = now + OAuth.RefreshTokenLifetime,
-            CreatedAt = now,
-        });
-        await db.SaveChangesAsync(ct);
+        }, ct);
+        // (V2) The password was reset after this consent was requested: the client asks again.
+        if (!connected) return Error("invalid_grant", "code expired");
 
         return TokenResponse(access, refresh, r.Scope);
     }
 
     private static async Task<IResult> RefreshAsync(
-        Func<string, string?> f, IAppDbContext db, CancellationToken ct)
+        Func<string, string?> f, IOAuthRepository oauth, CancellationToken ct)
     {
         var refresh = f("refresh_token");
         if (refresh is null) return Error("invalid_request", "refresh_token is required");
 
         var oldHash = DeviceCodes.HashToken(refresh);
         var now = DateTimeOffset.UtcNow;
-        var grant = await db.OAuthGrants.AsNoTracking()
-            .FirstOrDefaultAsync(g => g.RefreshTokenHash == oldHash && g.RevokedAt == null, ct);
+        var grant = await oauth.GetByRefreshTokenAsync(oldHash, ct);
 
         if (grant is null)
         {
             // An already-rotated refresh token coming back means two parties hold the chain — the
             // standard breach response (RFC 9700 §4.14.2) is to kill the whole grant, both tokens.
-            // ponytail: remembers one generation back; an older token is refused but not treated as reuse.
-            await db.OAuthGrants
-                .Where(g => g.PreviousRefreshTokenHash == oldHash && g.RevokedAt == null)
-                .ExecuteUpdateAsync(s => s.SetProperty(g => g.RevokedAt, now), ct);
+            await oauth.RevokeOnRefreshReuseAsync(oldHash, ct);
             return Error("invalid_grant", "refresh token is invalid or expired");
         }
         if (grant.RefreshTokenExpiresAt <= now) return Error("invalid_grant", "refresh token is invalid or expired");
@@ -318,20 +297,12 @@ public static class OAuthEndpoints
 
         var access = OAuth.NewToken(OAuth.AccessTokenPrefix);
         var newRefresh = OAuth.NewToken(OAuth.RefreshTokenPrefix);
-        var accessHash = DeviceCodes.HashToken(access);
-        var refreshHash = DeviceCodes.HashToken(newRefresh);
 
         // Conditional on the OLD hash: two concurrent refreshes with one token — exactly one wins.
-        var rotated = await db.OAuthGrants
-            .Where(g => g.Id == grant.Id && g.RefreshTokenHash == oldHash && g.RevokedAt == null)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(g => g.AccessTokenHash, accessHash)
-                .SetProperty(g => g.AccessTokenExpiresAt, now + OAuth.AccessTokenLifetime)
-                .SetProperty(g => g.PreviousRefreshTokenHash, oldHash)
-                .SetProperty(g => g.RefreshTokenHash, refreshHash)
-                .SetProperty(g => g.RefreshTokenExpiresAt, now + OAuth.RefreshTokenLifetime)
-                .SetProperty(g => g.LastUsedAt, now), ct);
-        if (rotated == 0) return Error("invalid_grant", "refresh token is invalid or expired");
+        var rotated = await oauth.RotateAsync(grant.Id, oldHash,
+            DeviceCodes.HashToken(access), now + OAuth.AccessTokenLifetime,
+            DeviceCodes.HashToken(newRefresh), now + OAuth.RefreshTokenLifetime, ct);
+        if (!rotated) return Error("invalid_grant", "refresh token is invalid or expired");
 
         return TokenResponse(access, newRefresh, grant.Scope);
     }
@@ -347,7 +318,7 @@ public static class OAuthEndpoints
 
     // ── revoke (RFC 7009) ────────────────────────────────────────────────────────
 
-    private static async Task<IResult> Revoke(HttpContext http, IAppDbContext db, CancellationToken ct)
+    private static async Task<IResult> Revoke(HttpContext http, IOAuthRepository oauth, CancellationToken ct)
     {
         if (!http.Request.HasFormContentType)
             return Error("invalid_request", "use application/x-www-form-urlencoded");
@@ -356,11 +327,7 @@ public static class OAuthEndpoints
         if (string.IsNullOrEmpty(token)) return Error("invalid_request", "token is required");
 
         // Either token of the pair revokes the whole grant. Unknown tokens are 200 too (§2.2).
-        var hash = DeviceCodes.HashToken(token);
-        var now = DateTimeOffset.UtcNow;
-        await db.OAuthGrants
-            .Where(g => (g.AccessTokenHash == hash || g.RefreshTokenHash == hash) && g.RevokedAt == null)
-            .ExecuteUpdateAsync(s => s.SetProperty(g => g.RevokedAt, now), ct);
+        await oauth.RevokeByTokenAsync(DeviceCodes.HashToken(token), ct);
         return Results.Ok();
     }
 
@@ -369,7 +336,7 @@ public static class OAuthEndpoints
     private const int MaxRedirectUris = 10;
     private const int MaxClientNameLength = 100;
 
-    private static async Task<IResult> Register(HttpContext http, IAppDbContext db, IConfiguration config, CancellationToken ct)
+    private static async Task<IResult> Register(HttpContext http, IOAuthRepository oauth, IConfiguration config, CancellationToken ct)
     {
         JsonElement body;
         try
@@ -395,16 +362,13 @@ public static class OAuthEndpoints
 
         // Always registered as a public client, whatever auth method was asked for — RFC 7591 §3.2.1
         // lets the server substitute, and the client must use what comes back.
-        var client = new OAuthClient
+        var client = await oauth.SaveClientAsync(new OAuthClientRegistration
         {
             Id = Guid.NewGuid(),
             ClientId = OAuth.NewToken(OAuth.ClientIdPrefix),
             ClientName = name,
             RedirectUris = uris,
-            CreatedAt = DateTimeOffset.UtcNow,
-        };
-        db.OAuthClients.Add(client);
-        await db.SaveChangesAsync(ct);
+        }, ct);
 
         return Results.Json(new
         {
@@ -420,12 +384,12 @@ public static class OAuthEndpoints
 
     // ── client resolution (DCR row or CIMD document) ─────────────────────────────
 
-    private static async Task<(OAuthClient? Client, string? Error)> ResolveClientAsync(
-        string? clientId, IAppDbContext db, ClientMetadataFetcher fetcher, CancellationToken ct)
+    private static async Task<(OAuthClientRegistration? Client, string? Error)> ResolveClientAsync(
+        string? clientId, IOAuthRepository oauth, ClientMetadataFetcher fetcher, CancellationToken ct)
     {
         if (clientId is null) return (null, "client_id is required");
 
-        var row = await db.OAuthClients.FirstOrDefaultAsync(c => c.ClientId == clientId, ct);
+        var row = await oauth.GetClientAsync(clientId, ct);
         if (!ClientMetadataFetcher.IsMetadataUrl(clientId))
             return row is { IsMetadataDocument: false } ? (row, null) : (null, "unknown client_id");
 
@@ -436,37 +400,26 @@ public static class OAuthEndpoints
         var (doc, error) = await fetcher.FetchAsync(clientId, ct);
         if (doc is null) return (null, error);
 
-        if (row is null)
+        // A concurrent first fetch of the same document lands on the same row: last write wins.
+        return (await oauth.SaveClientAsync(new OAuthClientRegistration
         {
-            row = new OAuthClient { Id = Guid.NewGuid(), ClientId = clientId, IsMetadataDocument = true, CreatedAt = now };
-            db.OAuthClients.Add(row);
-        }
-        row.ClientName = doc.ClientName.Length > MaxClientNameLength ? doc.ClientName[..MaxClientNameLength] : doc.ClientName;
-        row.RedirectUris = doc.RedirectUris;
-        row.FetchedAt = now;
-        try
-        {
-            await db.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateException)
-        {
-            // A concurrent first fetch inserted the same client_id. The document in hand is as good.
-        }
-        return (row, null);
+            Id = Guid.NewGuid(),
+            ClientId = clientId,
+            ClientName = doc.ClientName.Length > MaxClientNameLength ? doc.ClientName[..MaxClientNameLength] : doc.ClientName,
+            RedirectUris = doc.RedirectUris,
+            IsMetadataDocument = true,
+            FetchedAt = now,
+        }, ct), null);
     }
 
     // ── connected apps ───────────────────────────────────────────────────────────
 
-    private static async Task<IResult> ListGrants(HttpContext http, AuthService auth, IAppDbContext db, CancellationToken ct)
+    private static async Task<IResult> ListGrants(HttpContext http, IAuthService auth, IOAuthRepository oauth, CancellationToken ct)
     {
         var userId = http.GetUserId(auth);
         if (userId is null) return Results.Unauthorized();
 
-        var now = DateTimeOffset.UtcNow;
-        var rows = await db.OAuthGrants.AsNoTracking()
-            .Where(g => g.UserId == userId.Value && g.RevokedAt == null && g.RefreshTokenExpiresAt > now)
-            .OrderByDescending(g => g.CreatedAt)
-            .ToListAsync(ct);
+        var rows = await oauth.ListLiveAsync(userId.Value, DateTimeOffset.UtcNow, ct);
 
         return Results.Ok(new
         {
@@ -475,20 +428,13 @@ public static class OAuthEndpoints
         });
     }
 
-    private static async Task<IResult> RevokeGrant(Guid id, HttpContext http, AuthService auth, IAppDbContext db, CancellationToken ct)
+    private static async Task<IResult> RevokeGrant(Guid id, HttpContext http, IAuthService auth, IOAuthRepository oauth, CancellationToken ct)
     {
         var userId = http.GetUserId(auth);
         if (userId is null) return Results.Unauthorized();
 
-        var grant = await db.OAuthGrants.FirstOrDefaultAsync(g => g.Id == id && g.UserId == userId.Value, ct);
-        if (grant is null) return Results.NotFound();
-
-        if (grant.RevokedAt is null)
-        {
-            grant.RevokedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(ct);
-        }
-        return Results.NoContent();
+        // Idempotent: an already revoked grant keeps its original time.
+        return await oauth.RevokeAsync(userId.Value, id, ct) ? Results.NoContent() : Results.NotFound();
     }
 
     private static IResult Error(string error, string? description) =>

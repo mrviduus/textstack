@@ -45,6 +45,7 @@ public static partial class ServiceCollectionExtensions
                     .Ignore(CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning)));
 
         services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbContext>());
+        services.AddLegacyIdentityPorts();
 
         // File storage
         var storagePath = configuration["Storage:RootPath"] ?? "/storage";

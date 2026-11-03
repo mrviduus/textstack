@@ -1,7 +1,6 @@
 using Application.Auth;
-using Application.Common.Interfaces;
+using Application.Identity;
 using Api.Extensions;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Api.Middleware;
@@ -53,12 +52,8 @@ public class GuestActivityMiddleware(RequestDelegate next)
         await next(context);
 
         // A connect key (tsk_…) is account-level and never a guest's, so the Items path that
-        // McpKeyAuthMiddleware writes is deliberately not consulted here.
-        var token = context.GetAccessToken();
-        if (token == null) return;
-
-        var (userId, isGuest) = authService.ValidateAccessTokenIdentity(token);
-        if (!isGuest || userId is not { } id) return;
+        // McpKeyAuthMiddleware writes is deliberately not consulted here: the JWT only.
+        if (context.GetAccessTokenIdentity(authService) is not { IsGuest: true, UserId: var id }) return;
 
         // Debounced in memory, not by reading the row first. The previous version's debounce cost a
         // SELECT on every single guest request to decide whether to skip the UPDATE — the read it
@@ -68,13 +63,8 @@ public class GuestActivityMiddleware(RequestDelegate next)
 
         try
         {
-            var db = context.RequestServices.GetRequiredService<IAppDbContext>();
-            // Targeted UPDATE: no entity load, no change tracking, and nothing else on the row can
-            // be written by accident.
-            await db.Users
-                .Where(u => u.Id == id)
-                .ExecuteUpdateAsync(s => s.SetProperty(u => u.LastActiveAt, DateTimeOffset.UtcNow),
-                    CancellationToken.None);
+            var users = context.RequestServices.GetRequiredService<IUserRepository>();
+            await users.TouchActiveAsync(id, DateTimeOffset.UtcNow, CancellationToken.None);
 
             cache.Set(key, DateTimeOffset.UtcNow, DebounceInterval);
         }

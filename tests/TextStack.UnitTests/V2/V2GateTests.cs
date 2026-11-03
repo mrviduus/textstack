@@ -11,6 +11,7 @@ using Api.V2;
 using Application.AdminAuth;
 using Application.Auth;
 using Application.Identity;
+using Infrastructure.Persistence.Legacy;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -80,14 +81,29 @@ public class V2GateTests
     [Fact]
     public void ApiContainer_V2On_ResolvesOnlyTheLegacyAuthServices()
     {
-        // M2.5b: the V2 auth services exist, and nothing at runtime resolves them until M5.1's Database:Mode.
+        // M2.5b/#1100: the V2 auth services exist, and nothing at runtime resolves them until M5.1's Database:Mode.
         using var api = Api(v2Api: true, Unreachable);
         using var scope = api.Services.CreateScope();
 
-        foreach (var type in new[] { typeof(IAuthService), typeof(IAdminAuthService), typeof(V2AuthService), typeof(V2AdminAuthService), typeof(JwtTokens), typeof(ProviderTokens) })
+        foreach (var type in new[] { typeof(V2AuthService), typeof(V2AdminAuthService), typeof(JwtTokens), typeof(ProviderTokens) })
             Assert.Null(scope.ServiceProvider.GetService(type));
-        Assert.IsType<AuthService>(scope.ServiceProvider.GetRequiredService<AuthService>());
-        Assert.IsType<AdminAuthService>(scope.ServiceProvider.GetRequiredService<AdminAuthService>());
+        Assert.IsType<AuthService>(scope.ServiceProvider.GetRequiredService<IAuthService>());
+        Assert.IsType<AdminAuthService>(scope.ServiceProvider.GetRequiredService<IAdminAuthService>());
+    }
+
+    [Theory]
+    [InlineData(typeof(IUserRepository), typeof(EfUserRepository))]
+    [InlineData(typeof(ISessionTokenRepository), typeof(EfSessionTokenRepository))]
+    [InlineData(typeof(IOAuthRepository), typeof(EfOAuthRepository))]
+    [InlineData(typeof(IDeviceLoginRepository), typeof(EfDeviceLoginRepository))]
+    [InlineData(typeof(IMcpKeyRepository), typeof(EfMcpKeyRepository))]
+    public void ApiContainer_V2On_IdentityPortIsTheLegacyAdapter(Type port, Type adapter)
+    {
+        // #1100: the owner's rule, no runtime switch before M5.1: production reaches identity through legacy.
+        using var api = Api(v2Api: true, Unreachable);
+        using var scope = api.Services.CreateScope();
+
+        Assert.IsType(adapter, scope.ServiceProvider.GetRequiredService(port));
     }
 
     [Fact]
