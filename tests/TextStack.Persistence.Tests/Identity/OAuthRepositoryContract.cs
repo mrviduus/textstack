@@ -373,6 +373,21 @@ public abstract class OAuthRepositoryContract(IIdentityFixture db, IOAuthReposit
     }
 
     [Fact]
+    public async Task DeleteDeadGrantsAsync_RefreshExpiredBeforeTheCutoff_DeletesItAndKeepsTheLive()
+    {
+        var user = await db.NewReaderAsync();
+        // Never revoked, its refresh token long dead; a year no other test sweeps.
+        var dead = NewGrant();
+        dead.RefreshTokenExpiresAt = new DateTimeOffset(2006, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        await _repo.ConnectAsync(user, await ApprovedRequestAsync(user), dead, Ct);
+        await _repo.ConnectAsync(user, await ApprovedRequestAsync(user), NewGrant("http://localhost:3/cb"), Ct);
+
+        Assert.Equal(1, await _repo.DeleteDeadGrantsAsync(new DateTimeOffset(2006, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct));
+
+        Assert.Equal(1L, await db.CountAsync("oauth_grants", user));
+    }
+
+    [Fact]
     public async Task DeleteDeadGrantsAsync_RevokedBeforeTheCutoff_DeletesItAndKeepsTheLive()
     {
         var (user, dead) = await ConnectedAsync();

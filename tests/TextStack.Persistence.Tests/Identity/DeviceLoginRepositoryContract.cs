@@ -33,4 +33,18 @@ public abstract class DeviceLoginRepositoryContract(IIdentityFixture db, IDevice
         Assert.Equal(0L, await CountAsync(old));
         Assert.Equal(1L, await CountAsync(fresh));
     }
+
+    [Fact]
+    public async Task DeleteExpiredAsync_ExpiringAtTheCutoff_Kept()
+    {
+        // Expiring at the cutoff instant itself is not "before" it; a year no other test sweeps.
+        var cutoff = new DateTimeOffset(2007, 1, 2, 0, 0, 0, TimeSpan.Zero);
+        var login = NewDeviceLogin();
+        login.ExpiresAt = cutoff;
+        await SeedAsync(login);
+
+        await _sweeps.DeleteExpiredAsync(cutoff, Ct);
+
+        Assert.Equal(1L, await CountAsync(login));
+    }
 }
