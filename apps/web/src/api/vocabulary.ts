@@ -2,6 +2,7 @@ import { authFetch } from './client'
 import { onV2 } from './v2'
 import {
   saveV2Word, getV2Words, getV2ReaderVocab, deleteV2Word, updateV2Word, getV2ReviewQueue, submitV2Review,
+  restoreV2Word, deleteAllV2Words,
 } from './v2Vocabulary'
 
 // --- Types ---
@@ -142,7 +143,8 @@ export interface VocabStatsDto {
   wordsByBook: { editionId: string | null; userBookId: string | null; bookTitle: string; count: number }[]
 }
 
-export type SaveWordOutcome = 'srs' | 'pending' | 'lookup' | 'lookup_pending' | 'already_saved'
+/** 'deleted' (V2): the reader deleted this word earlier; `word` is the tombstone, restore is offered. */
+export type SaveWordOutcome = 'srs' | 'pending' | 'lookup' | 'lookup_pending' | 'already_saved' | 'deleted'
 
 export interface SaveWordResponse {
   outcome: SaveWordOutcome
@@ -268,6 +270,7 @@ export async function deleteWord(id: string): Promise<void> {
 }
 
 export async function deleteAllWords(): Promise<{ deleted: number }> {
+  if (await onV2()) return deleteAllV2Words()
   return authFetch<{ deleted: number }>('/me/vocabulary/words', { method: 'DELETE' })
 }
 
@@ -290,10 +293,10 @@ export async function getReviewQueue(limit?: number, includeAll?: boolean, pract
   return authFetch<ReviewQueueResponse>(`/me/vocabulary/review${qs ? `?${qs}` : ''}`)
 }
 
-/** `reviewMode`: V2 only (the review row records it). */
-export async function submitReview(request: SubmitReviewRequest & { reviewMode?: string }): Promise<SubmitReviewResponse> {
+/** `reviewMode`, `operationId`: V2 only (the review row records the mode; a retried answer reuses its id). */
+export async function submitReview(request: SubmitReviewRequest & { reviewMode?: string; operationId?: string }): Promise<SubmitReviewResponse> {
   if (await onV2()) return submitV2Review(request)
-  const { reviewMode: _reviewMode, ...data } = request
+  const { reviewMode: _reviewMode, operationId: _operationId, ...data } = request
   return authFetch<SubmitReviewResponse>('/me/vocabulary/review', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -329,6 +332,9 @@ export interface ReaderVocabWordDto {
   stage: number
   translation?: string
 }
+
+/** V2 only: bring back a word deleted earlier (a save answered `deleted`). */
+export const restoreWord = (id: string): Promise<VocabWordDto> => restoreV2Word(id)
 
 export async function getReaderVocab(): Promise<ReaderVocabWordDto[]> {
   if (await onV2()) return getV2ReaderVocab()

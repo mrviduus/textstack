@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import {
   getReviewQueue,
   startClusterBonus,
@@ -8,8 +8,17 @@ import {
   type SubmitReviewResponse,
   type WeeklyProgressDto,
 } from '../api/vocabulary'
-import { type ReviewMode } from '@textstack/shared'
+import { type ReviewMode, V2_FEATURES } from '@textstack/shared'
 import { v2Enabled } from '../api/v2'
+
+/**
+ * The mode a session runs in: the asked one, unless V2 does not offer it (`V2_FEATURES.reviewModes`:
+ * flashcards — multiple choice needs distractors). The one place a mode is forced, whatever a link asked.
+ */
+export function sessionMode(asked: ReviewMode | undefined): ReviewMode | undefined {
+  const offered: readonly ReviewMode[] | null = v2Enabled() ? V2_FEATURES.reviewModes : null
+  return offered && !(asked && offered.includes(asked)) ? offered[0] : asked
+}
 
 export type { ReviewMode }
 
@@ -53,8 +62,8 @@ export function useVocabularyReview() {
   }, [])
 
   const startSession = useCallback(async (limit?: number, rMode?: ReviewMode, includeAll?: boolean, practice?: boolean) => {
-    // V2 cards carry no distractors, so a V2 session is flashcards whatever was asked.
-    if (rMode || v2Enabled()) setReviewMode(v2Enabled() ? 'classic' : rMode!)
+    const mode = sessionMode(rMode)
+    if (mode) setReviewMode(mode)
     const practiceFlag = practice === true
     setIsPractice(practiceFlag)
     setLoading(true)
@@ -78,7 +87,8 @@ export function useVocabularyReview() {
   }, [resetAnswerState, showNewWordIfNeeded])
 
   const startClusterSession = useCallback(async (clusterId: string, rMode?: ReviewMode) => {
-    if (rMode) setReviewMode(rMode)
+    const mode = sessionMode(rMode)
+    if (mode) setReviewMode(mode)
     setIsPractice(false)
     setLoading(true)
     setError(null)
@@ -104,6 +114,9 @@ export function useVocabularyReview() {
     setShowingNewWord(false)
   }, [])
 
+  // The answer's operation id (V2): minted once per card shown, reused if the submit is retried.
+  const answerOpRef = useRef<{ key: string; id: string } | null>(null)
+
   const submitAnswer = useCallback(async (
     isCorrect: boolean,
     responseTimeMs: number,
@@ -113,8 +126,11 @@ export function useVocabularyReview() {
     if (!card || submitting) return
 
     setSubmitting(true)
+    const key = `${currentIndex}:${card.wordId}:${cards.length}`
+    if (answerOpRef.current?.key !== key) answerOpRef.current = { key, id: crypto.randomUUID() }
     try {
       const result = await submitReview({
+        operationId: answerOpRef.current.id,
         wordId: card.wordId,
         isCorrect,
         responseTimeMs,

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useGuestLimits } from '../context/GuestLimitsContext'
 import { getReaderVocab, markAsKnown as markAsKnownApi, saveWord, deleteWord as deleteWordApi, updateWord, type SaveWordRequest, type SaveWordResponse, type VocabWordDto } from '../api/vocabulary'
+import { v2Api } from '@textstack/shared'
 import { emitDataChange } from '../lib/dataEvents'
 import { translate as translateWord } from '../api/translation'
 import {
@@ -124,7 +125,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       try {
         const resp = await saveWord({
           // V2: the queued save is one operation — its replay names the same card and example.
-          id: p.id,
+          id: p.wordId ?? p.id,
           operationId: p.id,
           word: p.word,
           language: p.language,
@@ -139,7 +140,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
           nativeLanguage: p.nativeLanguage ?? null,
         })
         await deletePendingVocabWord(p.id).catch(() => {})
-        const saved = resp.word
+        const saved = resp.outcome === 'deleted' ? null : resp.word
         if (!saved) {
           // outcome=pending (daily cap hit during flush) → drop local pending, leave map entry.
           // Next reconciler tick will promote it; user won't see the word as "saved" in reader
@@ -155,7 +156,15 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
             translation: preserved ?? undefined,
           })
         })
-      } catch {
+      } catch (e) {
+        // V2 refused this entry for good (a deleted word, a reused operation, a bad payload, a book
+        // gone): drop it and go on, so it never blocks the saves behind it.
+        const code = v2Api.v2ErrorOf(e)?.code
+        if (code === 'deleted' || code === 'operation_conflict' || code === 'invalid_payload' || code === 'book_not_found') {
+          console.warn('[vocab] queued save dropped:', code, p.word)
+          await deletePendingVocabWord(p.id).catch(() => {})
+          continue
+        }
         // I4: keep in local, retry on next trigger. Stop iteration to avoid hammering a failing API.
         break
       }
@@ -181,7 +190,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       await flushPendingIfAny()
       const resp = await saveWord(req)
       trackVocabSaved({ language: req.language, nativeLanguage: req.nativeLanguage ?? undefined, source: 'reader' })
-      const saved = resp.word
+      const saved = resp.outcome === 'deleted' ? null : resp.word
       if (saved) {
         const key = normalizeVocabKey(saved.word)
         const existing = mapRef.current.get(key)

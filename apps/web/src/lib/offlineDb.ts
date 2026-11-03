@@ -91,7 +91,9 @@ export interface CachedExplain {
 }
 
 export interface PendingVocabWord {
-  id: string           // crypto.randomUUID(), stable local ID
+  id: string           // crypto.randomUUID(), stable local ID; the V2 save's operationId
+  /** V2: the card id to save under, when a guest→account merge re-keyed it (else `id`). */
+  wordId?: string
   word: string
   language: string
   translation?: string | null
