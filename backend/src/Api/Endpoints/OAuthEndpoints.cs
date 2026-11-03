@@ -174,28 +174,23 @@ public static class OAuthEndpoints
                 statusCode: StatusCodes.Status403Forbidden,
                 extensions: new Dictionary<string, object?> { ["error"] = AiAccountPolicy.ErrorCode });
 
-        var r = await oauth.GetRequestAsync(body.RequestId, ct);
-        if (r is null) return Results.NotFound();
-
         var now = DateTimeOffset.UtcNow;
-        if (StatusOf(r, now) is var status && status != "pending")
-            return Results.BadRequest(new { error = $"request_{status}" });
-
         var code = OAuth.NewToken("");
-        if (await oauth.ApproveRequestAsync(
-                r.Id, identity.UserId, DeviceCodes.HashToken(code), now + OAuth.CodeLifetime, identity.IssuedAt, now, ct) is null)
+        var approved = await oauth.ApproveRequestAsync(
+            body.RequestId, identity.UserId, DeviceCodes.HashToken(code), now + OAuth.CodeLifetime, identity.IssuedAt, now, ct);
+        if (approved is null)
         {
-            // Still pending: the approver was refused (gone, or on V2 its password was reset after this
-            // token was issued): sign in again. Otherwise a concurrent click decided it meanwhile.
-            r = await oauth.GetRequestAsync(r.Id, ct);
+            // Not pending (unknown, decided, expired), or still pending and the approver was refused:
+            // gone, or on V2 its password was reset after this token was issued, so sign in again.
+            var r = await oauth.GetRequestAsync(body.RequestId, ct);
             if (r is null) return Results.NotFound();
-            return StatusOf(r, now) is var raced && raced != "pending"
-                ? Results.BadRequest(new { error = $"request_{raced}" })
+            return StatusOf(r, now) is var status && status != "pending"
+                ? Results.BadRequest(new { error = $"request_{status}" })
                 : Results.Unauthorized();
         }
 
-        return Results.Ok(new OAuthDecisionResponse(OAuth.AppendQuery(r.RedirectUri,
-            ("code", code), ("state", r.State), ("iss", Issuer(config)))));
+        return Results.Ok(new OAuthDecisionResponse(OAuth.AppendQuery(approved.RedirectUri,
+            ("code", code), ("state", approved.State), ("iss", Issuer(config)))));
     }
 
     // No sign-in needed: "Cancel" must reach the client even from a signed-out consent page, and
