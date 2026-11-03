@@ -40,7 +40,7 @@ public class GuestCleanupWorkerTests
     private void V2Holds(bool nothing) =>
         _v2Aggregates.Setup(u => u.HoldsNothingDurableAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(nothing);
 
-    private async Task SweepAsync(bool flag = true, TimeSpan? budget = null)
+    private async Task SweepAsync(bool flag = true, string? v2 = "Host=v2;Database=textstack_v2", TimeSpan? budget = null)
     {
         var db = new Mock<IAppDbContext>();
         db.Setup(d => d.Users).Returns(() => new FakeDbSet<User>(_legacyUsers));
@@ -55,7 +55,7 @@ public class GuestCleanupWorkerTests
             .AddSingleton(Mock.Of<IFileStorageService>())
             .AddSingleton(new V2AccountDeletion(_v2Users.Object, _v2Aggregates.Object, _library.Object, _files.Object, NullLogger<V2AccountDeletion>.Instance))
             .BuildServiceProvider();
-        var config = V2Fakes.Config(flag);
+        var config = V2Fakes.Config(flag, v2);
         var worker = new GuestCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), config, _log) { V2Budget = budget ?? TimeSpan.FromSeconds(10) };
 
         await worker.CleanupExpiredGuestsAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
@@ -101,7 +101,21 @@ public class GuestCleanupWorkerTests
     }
 
     [Fact]
-    public async Task CleanupExpiredGuestsAsync_V2CannotAnswer_NobodyReapedAndOneError()
+    public async Task CleanupExpiredGuestsAsync_FlagOnNoV2ConnectionString_ReapedOnLegacyWithoutAskingV2()
+    {
+        // Unconfigured, V2 holds nothing (the Api's readiness says "unconfigured"): reaping goes on as before.
+        ExpiredGuest();
+
+        await SweepAsync(v2: null);
+
+        Assert.Empty(_legacyUsers);
+        _v2Users.VerifyNoOtherCalls();
+        _v2Aggregates.VerifyNoOtherCalls();
+        Assert.Empty(_log.Errors);
+    }
+
+    [Fact]
+    public async Task CleanupExpiredGuestsAsync_V2CannotAnswer_NobodyReapedAndOneErrorSayingSo()
     {
         ExpiredGuest();
         ExpiredGuest();
@@ -110,10 +124,13 @@ public class GuestCleanupWorkerTests
         await SweepAsync();
 
         Assert.Equal(2, _legacyUsers.Count);
-        Assert.IsType<TimeoutException>(Assert.Single(_log.Errors).Exception);
+        var (_, message, exception) = Assert.Single(_log.Errors);
+        Assert.IsType<TimeoutException>(exception);
+        Assert.Contains("guest reaping paused for this run", message);
     }
 
-    [Fact]
+    // Its own timeout: a budget that is not honoured must fail this test, not hang the run.
+    [Fact(Timeout = 10_000)]
     public async Task CleanupExpiredGuestsAsync_V2CheckHangs_GivesUpAtItsBudget()
     {
         ExpiredGuest();

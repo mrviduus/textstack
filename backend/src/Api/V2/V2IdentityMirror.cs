@@ -81,7 +81,7 @@ public sealed class V2IdentityMirror(
             reason, subjectId, userId);
 
     private Task MirrorAsync(Guid subjectId, Guid userId, Func<CancellationToken, Task> mirror) =>
-        V2Follow.RunAsync(config, logger, "identity mirror", subjectId, userId, async ct =>
+        V2Follow.RunAsync(config, logger, "identity mirror", subjectId, userId, V2Follow.RowsLeftForTheEtlSweep, async ct =>
         {
             if ((await readiness.GetAsync()).IsReady) await mirror(ct);
         }, Timeout, readiness.Observe);

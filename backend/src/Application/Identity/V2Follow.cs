@@ -15,11 +15,17 @@ public static class V2Follow
 {
     public static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
 
+    /// <summary>The consequence of a failed step that follows a legacy commit.</summary>
+    public const string RowsLeftForTheEtlSweep = "legacy is done, V2 keeps the rows until the ETL sweep (#1094)";
+
     public static bool IsOn(IConfiguration config) => config.GetValue<bool>("Features:V2Api");
 
-    /// <summary>Runs <paramref name="step"/> when V2 is on. False when it is off, or the step failed (logged; <paramref name="observe"/> sees the error).</summary>
+    /// <summary>
+    /// Runs <paramref name="step"/> when V2 is on. False when it is off, or the step failed: logged with
+    /// <paramref name="onFailure"/>, what the failure leaves behind; <paramref name="observe"/> sees the error.
+    /// </summary>
     public static async Task<bool> RunAsync(
-        IConfiguration config, ILogger logger, string stepName, Guid subjectId, Guid userId,
+        IConfiguration config, ILogger logger, string stepName, Guid subjectId, Guid userId, string onFailure,
         Func<CancellationToken, Task> step, TimeSpan? budget = null, Action<Exception>? observe = null)
     {
         if (!IsOn(config)) return false;
@@ -32,8 +38,7 @@ public static class V2Follow
         catch (Exception e)
         {
             observe?.Invoke(e);
-            logger.LogError(e, "V2 {Step} failed for {SubjectUserId} → {UserId}; nothing legacy waits on it, the ETL sweep (#1094) collects what V2 keeps",
-                stepName, subjectId, userId);
+            logger.LogError(e, "V2 {Step} failed for {SubjectUserId} → {UserId}; {Consequence}", stepName, subjectId, userId, onFailure);
             return false;
         }
     }
