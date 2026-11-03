@@ -27,10 +27,11 @@ public interface IOAuthRepository
     /// <summary>
     /// Approves a pending request (not denied, not approved, not expired at <paramref name="now"/>):
     /// binds it to the user and gives it the code's hash and deadline. Returns it; null when it was
-    /// not pending.
+    /// not pending, or the user's password was reset after <paramref name="tokenIssuedAt"/> (the
+    /// <c>iat</c> of the access token consenting; a reset committing meanwhile included).
     /// </summary>
     Task<OAuthAuthorization?> ApproveRequestAsync(
-        Guid requestId, Guid userId, string codeHash, DateTimeOffset codeExpiresAt, DateTimeOffset now, CancellationToken ct);
+        Guid requestId, Guid userId, string codeHash, DateTimeOffset codeExpiresAt, DateTimeOffset tokenIssuedAt, DateTimeOffset now, CancellationToken ct);
 
     /// <summary>Denies a request pending at <paramref name="now"/> (the same test as approval). False when it was not pending.</summary>
     Task<bool> DenyRequestAsync(Guid requestId, DateTimeOffset now, CancellationToken ct);
@@ -50,9 +51,11 @@ public interface IOAuthRepository
     /// <summary>
     /// Stores the user's new grant and, atomically with it, revokes the user's live grants for
     /// the same app (same client name and redirect host: dynamic registration mints a new client id on
-    /// every connect), so reconnecting replaces rather than adds.
+    /// every connect), so reconnecting replaces rather than adds. False (nothing stored) unless
+    /// <paramref name="requestId"/> is a request the user approved, requested after the user's last
+    /// password reset (a reset committing meanwhile included): a pre-reset consent mints no grant.
     /// </summary>
-    Task ConnectAsync(Guid userId, OAuthTokenGrant grant, CancellationToken ct);
+    Task<bool> ConnectAsync(Guid userId, Guid requestId, OAuthTokenGrant grant, CancellationToken ct);
 
     /// <summary>The unrevoked grant holding this refresh token (expired or not); null when none.</summary>
     Task<OAuthTokenGrant?> GetByRefreshTokenAsync(string refreshTokenHash, CancellationToken ct);

@@ -25,12 +25,12 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     private async Task<Book> BookWithChaptersAsync()
     {
         var book = await db.NewReaderWithBookAsync();
-        await _repo.InsertForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("four", 4), Chapter("one", 1), Chapter("two", 2)], Ct);
+        await _repo.ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("four", 4), Chapter("one", 1), Chapter("two", 2)], Ct);
         return book;
     }
 
     [Fact]
-    public async Task InsertForFileAsync_Chapters_ListTocInReadingOrder()
+    public async Task ReplaceForFileAsync_Chapters_ListTocInReadingOrder()
     {
         var book = await BookWithChaptersAsync();
 
@@ -41,10 +41,44 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ReplaceForFileAsync_SecondExtraction_ReplacesTheFirstsChapters()
+    {
+        var book = await BookWithChaptersAsync();
+
+        await _repo.ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("one", 1), Chapter("five", 2)], Ct);
+
+        var toc = await _repo.ListTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct);
+        Assert.Equal(["one", "five"], toc.Select(c => c.ChapterKey));
+    }
+
+    [Fact]
+    public async Task ReplaceForFileAsync_AnotherVersionsChapters_AreKept()
+    {
+        var book = await BookWithChaptersAsync();
+        var replaced = await db.ReplaceFileAsync(book);
+
+        await _repo.ReplaceForFileAsync(book.UserId, book.Id, replaced.Current!.Id, [Chapter("new", 1)], Ct);
+
+        Assert.Equal(3, (await _repo.ListTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct)).Count);
+        Assert.Single(await _repo.ListTocAsync(book.UserId, book.Id, replaced.Current.Id, Ct));
+    }
+
+    [Fact]
+    public async Task ReplaceForFileAsync_FailedReplacement_KeepsTheOldChapters()
+    {
+        var book = await BookWithChaptersAsync();
+
+        await Assert.ThrowsAsync<PostgresException>(() =>
+            _repo.ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("dup", 1), Chapter("dup", 2)], Ct));
+
+        Assert.Equal(3, (await _repo.ListTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct)).Count);
+    }
+
+    [Fact]
     public async Task ListTocAsync_ZeroBasedSparseNumbersInsertedOutOfOrder_ComeInNumberOrder()
     {
         var book = await db.NewReaderWithBookAsync();
-        await _repo.InsertForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id,
+        await _repo.ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id,
             [Chapter("ten", 10), Chapter("zero", 0), Chapter("hundred", 100), Chapter("two", 2)], Ct);
 
         var toc = await _repo.ListTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct);
@@ -53,26 +87,27 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task InsertForFileAsync_DuplicateKey_StoresNone()
+    public async Task ReplaceForFileAsync_DuplicateKey_StoresNone()
     {
         var book = await db.NewReaderWithBookAsync();
 
         await Assert.ThrowsAsync<PostgresException>(() =>
-            _repo.InsertForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("one", 1), Chapter("one", 2)], Ct));
+            _repo.ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("one", 1), Chapter("one", 2)], Ct));
 
         Assert.Empty(await _repo.ListTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct));
     }
 
     [Fact]
-    public async Task InsertForFileAsync_AnotherUsersFile_IsRefusedByTheFk()
+    public async Task ReplaceForFileAsync_AnotherUsersFile_IsRefusedByTheFkAndAlicesChaptersStay()
     {
-        var alices = await db.NewReaderWithBookAsync();
+        var alices = await BookWithChaptersAsync();
         var bob = await db.NewReaderAsync();
 
         var error = await Assert.ThrowsAsync<PostgresException>(() =>
-            _repo.InsertForFileAsync(bob, alices.Id, alices.CurrentFile!.Id, [Chapter("one", 1)], Ct));
+            _repo.ReplaceForFileAsync(bob, alices.Id, alices.CurrentFile!.Id, [Chapter("one", 1)], Ct));
 
         Assert.Equal("23503", error.SqlState);
+        Assert.Equal(3, (await _repo.ListTocAsync(alices.UserId, alices.Id, alices.CurrentFile.Id, Ct)).Count);
     }
 
     [Fact]
@@ -84,49 +119,41 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task GetAsync_Key_ReturnsTheWholeChapter()
+    public async Task GetWithNeighboursAsync_Key_ReturnsTheWholeChapterAndSkipsTheGap()
     {
         var book = await BookWithChaptersAsync();
 
-        var chapter = (await _repo.GetAsync(book.UserId, book.CurrentFile!.Id, "two", Ct))!;
+        var (chapter, previous, next) = await _repo.GetWithNeighboursAsync(book.UserId, book.Id, book.CurrentFile!.Id, "four", Ct);
 
-        Assert.Equal((2, "<p>two</p>", "text of two", book.Id), (chapter.ChapterNumber, chapter.Html, chapter.PlainText, chapter.BookId));
-    }
-
-    [Fact]
-    public async Task GetAsync_Bob_ReturnsNull()
-    {
-        var book = await BookWithChaptersAsync();
-
-        Assert.Null(await _repo.GetAsync(await db.NewReaderAsync(), book.CurrentFile!.Id, "two", Ct));
-    }
-
-    [Fact]
-    public async Task GetNeighboursAsync_GapInTheNumbering_SkipsIt()
-    {
-        var book = await BookWithChaptersAsync();
-
-        var (previous, next) = await _repo.GetNeighboursAsync(book.UserId, book.Id, book.CurrentFile!.Id, "four", Ct);
-
+        Assert.Equal((4, "<p>four</p>", "text of four", book.Id), (chapter!.ChapterNumber, chapter.Html, chapter.PlainText, chapter.BookId));
         Assert.Equal(("two", (string?)null), (previous?.ChapterKey, next?.ChapterKey));
     }
 
     [Fact]
-    public async Task GetNeighboursAsync_FirstChapter_HasOnlyANext()
+    public async Task GetWithNeighboursAsync_FirstChapter_HasOnlyANext()
     {
         var book = await BookWithChaptersAsync();
 
-        var (previous, next) = await _repo.GetNeighboursAsync(book.UserId, book.Id, book.CurrentFile!.Id, "one", Ct);
+        var (_, previous, next) = await _repo.GetWithNeighboursAsync(book.UserId, book.Id, book.CurrentFile!.Id, "one", Ct);
 
         Assert.Equal(((string?)null, "two"), (previous?.ChapterKey, next?.ChapterKey));
     }
 
     [Fact]
-    public async Task GetNeighboursAsync_Bob_FindsNeither()
+    public async Task GetWithNeighboursAsync_Bob_FindsNothing()
     {
         var book = await BookWithChaptersAsync();
 
-        Assert.Equal((null, null), await _repo.GetNeighboursAsync(await db.NewReaderAsync(), book.Id, book.CurrentFile!.Id, "two", Ct));
+        Assert.Equal((null, null, null), await _repo.GetWithNeighboursAsync(await db.NewReaderAsync(), book.Id, book.CurrentFile!.Id, "two", Ct));
+    }
+
+    [Fact]
+    public async Task GetWithNeighboursAsync_FileOfAnotherBook_FindsNothing()
+    {
+        var book = await BookWithChaptersAsync();
+        var other = await db.NewBookAsync(book.UserId);
+
+        Assert.Equal((null, null, null), await _repo.GetWithNeighboursAsync(book.UserId, other.Id, book.CurrentFile!.Id, "two", Ct));
     }
 
     [Fact]
@@ -135,6 +162,32 @@ public class BookChapterRepositoryTests(V2PostgresFixture db)
         var book = await BookWithChaptersAsync();
 
         Assert.Equal("text of one", await _repo.GetPlainTextAsync(book.UserId, book.CurrentFile!.Id, "one", Ct));
+    }
+
+    [Fact]
+    public async Task ExistsAsync_KeyOfTheFile_IsTrueAndAnotherKeyIsNot()
+    {
+        var book = await BookWithChaptersAsync();
+
+        Assert.True(await _repo.ExistsAsync(book.UserId, book.CurrentFile!.Id, "two", Ct));
+        Assert.False(await _repo.ExistsAsync(book.UserId, book.CurrentFile.Id, "three", Ct));
+    }
+
+    [Fact]
+    public async Task ExistsAsync_KeyOfAnotherVersion_IsFalse()
+    {
+        var book = await BookWithChaptersAsync();
+        var replaced = await db.ReplaceFileAsync(book);
+
+        Assert.False(await _repo.ExistsAsync(book.UserId, replaced.Current!.Id, "two", Ct));
+    }
+
+    [Fact]
+    public async Task ExistsAsync_Bob_IsFalse()
+    {
+        var book = await BookWithChaptersAsync();
+
+        Assert.False(await _repo.ExistsAsync(await db.NewReaderAsync(), book.CurrentFile!.Id, "two", Ct));
     }
 
     [Fact]

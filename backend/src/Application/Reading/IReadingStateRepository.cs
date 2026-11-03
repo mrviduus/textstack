@@ -1,4 +1,5 @@
 using Application.Common;
+using Application.Transitional;
 using Domain.Reading;
 using Npgsql;
 
@@ -20,10 +21,12 @@ public interface IReadingStateRepository
     /// is null for a first write, else the revision the caller last read. A stale write is not an
     /// error, it loses: the result carries the state that won (null when there is none). The
     /// frontier never moves back, and a write for a file that is not the book's current one (first
-    /// write) or not the stored one (later writes) loses too.
+    /// write) or not the stored one (later writes) loses too. So does one naming, in <paramref name="chapters"/>,
+    /// a chapter the file does not have (transitional, M2.7a): the position's always, the frontier's only
+    /// when that frontier would be stored, so an unchanged frontier echoed back is never refused.
     /// </summary>
     Task<RevisionedWrite<ReadingState>> AdvanceAsync(
-        Guid userId, Guid bookId, ReadingState state, long? expectedRevision, CancellationToken ct);
+        Guid userId, Guid bookId, ReadingState state, long? expectedRevision, TransitionalChapterKeys chapters, CancellationToken ct);
 
     /// <summary>
     /// The explicit way back to the start, guarded like a write (M1.2 delta 2a): forgets the frontier

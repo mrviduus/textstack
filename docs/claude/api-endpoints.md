@@ -16,6 +16,8 @@ Moved verbatim from `CLAUDE.md` (2026-10-12) to keep the always-loaded context s
 
 **User Books**: `POST /me/books/upload`, chunked upload for files over the single-request ceiling (`PUT /me/books/uploads/{id}/parts/{index}`, `POST /me/books/uploads/{id}/complete`, `DELETE /me/books/uploads/{id}`), `GET /me/books`, `GET /me/books/quota`, `GET /me/books/{id}`, `GET /me/books/{id}/chapters/{slug}`, `GET /me/books/{id}/file` (the stored original, any format, Range-enabled), `GET/PUT /me/books/{id}/progress`, `GET/POST/DELETE /me/books/{id}/bookmarks`, `POST /me/books/{id}/retry`, `DELETE /me/books/{id}`
 
+**V2 sync** (`Features:V2Api`; every route and code in `docs/01-architecture/v2-sync-protocol.md` "Endpoints"): library, reading, annotations, vocabulary, shares, checkpoints under `/me/v2`; file bytes (M2.6): `PUT /me/v2/books/{id}/files/{fileId}/parts/{index}`, `POST|GET|DELETE /me/v2/books/{id}/files/{fileId}/content`, `PUT|GET /me/v2/books/{id}/cover`; transitional (dropped at M6.4) `GET /me/v2/books/{id}/files/{fileId}/chapters[/{chapterKey}]`
+
 **Vocabulary**: `POST /me/vocabulary/words`, `GET /me/vocabulary/words?filter=&sort=&search=&limit=&offset=`, `PATCH /me/vocabulary/words/{id}`, `DELETE /me/vocabulary/words/{id}`, `GET /me/vocabulary/review?limit=`, `POST /me/vocabulary/review`, `GET /me/vocabulary/stats`
 
 **Admin**: `POST /admin/books/upload`, `/admin/import/textstack`, `/admin/reimport/textstack`, `/admin/sync/standardebooks`, `/admin/reprocess/{editionId}`, `/admin/reprocess/all`, `GET /admin/ingestion/jobs`, `/admin/ingestion/jobs/{id}/retry`, `/admin/ingestion/jobs/{id}/preview`, `/admin/chapters/{id}` (GET/PUT/DELETE), `/admin/settings`, `/admin/ssg/jobs` (+ `/{id}`, `/cancel`), CRUD for `/admin/authors`, `/admin/genres`

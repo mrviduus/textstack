@@ -46,7 +46,7 @@ migrator-guard:
 	head=$$(git rev-parse --short=12 HEAD); \
 	[ -z "$$rel" ] || [ "$$rel" = "$$head" ] || { \
 		echo "This checkout ($$head) is not the running release ($$rel)."; \
-		echo "Use the deployed image's files: docker compose run --rm migrator <up|down N|status>"; exit 1; }
+		echo "Use the deployed image's files: docker compose run --rm migrator (or migrator-v2) <up|down N|status>"; exit 1; }
 
 migrate: migrator-guard
 	$(MIGRATOR) up

@@ -25,16 +25,21 @@ public sealed class McpKeyRepository(V2DataSource dataSource) : IMcpKeyRepositor
         return await conn.ExecuteScalarAsync<int>(new CommandDefinition(CountLiveKeys, new { userId }, cancellationToken: ct));
     }
 
+    // The user's row FOR SHARE (SessionTokenRepository's lock order): a reset committing meanwhile is
+    // seen by the stamp, one coming after sees the key and revokes it.
     private const string InsertKey = $"""
         INSERT INTO mcp_access_keys (id, user_id, name, key_hash, prefix, created_at)
-        VALUES (gen_random_uuid(), @userId, @name, @keyHash, @prefix, now())
+        SELECT gen_random_uuid(), u.id, @name, @keyHash, @prefix, now() FROM users u
+        WHERE u.id = @userId AND {UserRepository.NotResetSinceToken}
+        FOR SHARE
         RETURNING {Columns}
         """;
 
-    public async Task<McpConnectKey> CreateAsync(Guid userId, string name, string keyHash, string prefix, CancellationToken ct)
+    public async Task<McpConnectKey?> CreateAsync(Guid userId, string name, string keyHash, string prefix, DateTimeOffset tokenIssuedAt, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleAsync<McpConnectKey>(new CommandDefinition(InsertKey, new { userId, name, keyHash, prefix }, cancellationToken: ct));
+        return await conn.QuerySingleOrDefaultAsync<McpConnectKey>(new CommandDefinition(
+            InsertKey, new { userId, name, keyHash, prefix, tokenIssuedAt }, cancellationToken: ct));
     }
 
     // COALESCE keeps the first revocation time: the audit answer is "when was it turned off".

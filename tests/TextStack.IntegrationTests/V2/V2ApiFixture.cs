@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
@@ -124,6 +125,25 @@ public sealed class V2ApiFixture : IAsyncLifetime
         return new V2Response(response.StatusCode, text.Length == 0 ? default : JsonSerializer.Deserialize<JsonElement>(text));
     }
 
+    /// <summary>A request with a raw body (bytes routes); <paramref name="configure"/> sets its headers. The caller disposes the answer.</summary>
+    public async Task<HttpResponseMessage> SendRawAsync(V2Session who, HttpMethod method, string path, HttpContent? content = null, Action<HttpRequestMessage>? configure = null)
+    {
+        using var request = Request(method, path, who);
+        request.Content = content;
+        configure?.Invoke(request);
+        return await _client.SendAsync(request, TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>Imports a new book whose one file is exactly <paramref name="bytes"/> (its sha256 and size); returns its ids.</summary>
+    public async Task<(Guid Book, Guid File)> ImportBytesAsync(V2Session who, byte[] bytes, string format = "epub")
+    {
+        var (bookId, fileId) = (Guid.NewGuid(), Guid.NewGuid());
+        var file = new { id = fileId, sha256 = Convert.ToHexStringLower(SHA256.HashData(bytes)), byteSize = bytes.Length, originalName = "book." + format, format };
+        var created = await SendAsync(who, HttpMethod.Put, $"/me/v2/books/{bookId}", new { title = "Bytes", file });
+        Assert.Equal(HttpStatusCode.Created, created.Status);
+        return (bookId, fileId);
+    }
+
     public static string NewSha256() => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Guid.NewGuid().ToString())));
 
     public static object File(Guid id, string? sha256 = null) =>
@@ -150,14 +170,105 @@ public sealed class V2ApiFixture : IAsyncLifetime
     public static object Position(int step) =>
         new { version = 1, scheme = "epub-cfi", value = $"epubcfi(/6/{2 * step}!/4/2/1:0)", quote = $"Chapter {step} begins" };
 
-    public static object State(Guid fileId, long? expectedRevision, int step = 1) => new
+    /// <summary>A reading-state write: <see cref="Position"/>(<paramref name="step"/>) at step/10 unless a locator and fraction are given.</summary>
+    public static object State(Guid fileId, long? expectedRevision, int step = 1, object? locator = null, decimal? bookFraction = null) => new
     {
         expectedRevision,
         fileId,
-        currentLocator = Position(step),
-        bookFraction = step / 10m,
+        currentLocator = locator ?? Position(step),
+        bookFraction = bookFraction ?? step / 10m,
         clientRecordedAt = DateTimeOffset.UtcNow,
     };
+
+    public Task<V2Response> PutAnnotationAsync(V2Session who, Guid id, object body) => SendAsync(who, HttpMethod.Put, $"/me/v2/annotations/{id}", body);
+
+    /// <summary>Sends <paramref name="bytes"/> as two parts and completes; the complete's answer.</summary>
+    public async Task<V2Response> UploadAsync(V2Session who, Guid book, Guid file, byte[] bytes)
+    {
+        var half = bytes.Length / 2;
+        foreach (var (index, part) in new[] { (0, bytes[..half]), (1, bytes[half..]) })
+        {
+            using var put = await SendRawAsync(who, HttpMethod.Put, $"/me/v2/books/{book}/files/{file}/parts/{index}", new ByteArrayContent(part));
+            Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        }
+        return await SendAsync(who, HttpMethod.Post, $"/me/v2/books/{book}/files/{file}/content", new { partCount = 2 });
+    }
+
+    /// <summary>Imports an EPUB with one chapter per title and has it extracted (<see cref="UploadAndExtractAsync"/>); its ids and chapter keys.</summary>
+    public async Task<(Guid Book, Guid File, IReadOnlyList<string> Keys)> ImportWithChaptersAsync(V2Session who, params string[] titles)
+    {
+        var bytes = Epub(titles);
+        var (book, file) = await ImportBytesAsync(who, bytes);
+        return (book, file, await UploadAndExtractAsync(who, book, file, bytes));
+    }
+
+    /// <summary>
+    /// Uploads a file's bytes and waits for the transitional extraction (the worker must run against this api's
+    /// storage root and V2 database); returns the file's chapter keys in order.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> UploadAndExtractAsync(V2Session who, Guid book, Guid file, byte[] bytes)
+    {
+        var chapters = $"/me/v2/books/{book}/files/{file}/chapters";
+        Assert.Equal(HttpStatusCode.OK, (await UploadAsync(who, book, file, bytes)).Status);
+
+        var toc = await SendAsync(who, HttpMethod.Get, chapters);
+        for (var waited = 0; waited < 60_000 && toc.Body.GetProperty("ingestion").GetString() is "queued" or "processing"; waited += 500)
+        {
+            await Task.Delay(500, TestContext.Current.CancellationToken);
+            toc = await SendAsync(who, HttpMethod.Get, chapters);
+        }
+        Assert.Equal("succeeded", toc.Body.GetProperty("ingestion").GetString());
+        return toc.Body.GetProperty("items").EnumerateArray().Select(c => c.GetProperty("chapterKey").GetString()!).ToList();
+    }
+
+    /// <summary>A valid EPUB 3 with one chapter per title, its bytes unique to this call.</summary>
+    public static byte[] Epub(params string[] titles)
+    {
+        using var buffer = new MemoryStream();
+        using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            void Add(string name, string text, CompressionLevel level = CompressionLevel.Optimal)
+            {
+                using var writer = new StreamWriter(zip.CreateEntry(name, level).Open());
+                writer.Write(text);
+            }
+            Add("mimetype", "application/epub+zip", CompressionLevel.NoCompression);
+            Add("META-INF/container.xml", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+                </container>
+                """);
+            var ids = titles.Select((_, i) => $"c{i + 1}").ToArray();
+            Add("OEBPS/content.opf", $"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                    <dc:identifier id="uid">{Guid.NewGuid()}</dc:identifier><dc:title>Three chapters</dc:title><dc:language>en</dc:language>
+                    <meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>
+                  </metadata>
+                  <manifest>
+                    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+                    {string.Concat(ids.Select(id => $"""<item id="{id}" href="{id}.xhtml" media-type="application/xhtml+xml"/>"""))}
+                  </manifest>
+                  <spine>{string.Concat(ids.Select(id => $"""<itemref idref="{id}"/>"""))}</spine>
+                </package>
+                """);
+            Add("OEBPS/nav.xhtml", $"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head>
+                <body><nav epub:type="toc"><ol>{string.Concat(titles.Select((t, i) => $"""<li><a href="{ids[i]}.xhtml">{t}</a></li>"""))}</ol></nav></body></html>
+                """);
+            for (var i = 0; i < titles.Length; i++)
+                Add($"OEBPS/{ids[i]}.xhtml", $"""
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <html xmlns="http://www.w3.org/1999/xhtml"><head><title>{titles[i]}</title></head>
+                    <body><h1>{titles[i]}</h1><p>The chapter called {titles[i]} has enough words in it to be read as real content.</p>
+                    <p>A second paragraph keeps it from looking empty to the extractor.</p></body></html>
+                    """);
+        }
+        return buffer.ToArray();
+    }
 
     public ValueTask DisposeAsync()
     {

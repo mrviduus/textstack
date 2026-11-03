@@ -137,3 +137,51 @@ BEGIN
         RAISE EXCEPTION 'ix_users_email is not a unique index on lower(email)';
     END IF;
 END $$;
+
+-- Migration 0002's indexes, each with its exact definition: the change feeds page by (updated_at,
+-- key) within a user; the due queue in page order over live, unretired cards; a user code shows at
+-- most one pending login; a family revoke and the sweep's live-member probe; the two sweeps (the
+-- grant sweep's OR needs an index on each arm); one chapter's checkpoints in page order.
+DO $$
+DECLARE bad text;
+BEGIN
+    SELECT string_agg(x.ix, ', ') INTO bad FROM (VALUES
+        ('ix_books_user_id_updated_at_id', 'CREATE INDEX % USING btree (user_id, updated_at, id)'),
+        ('ix_reading_state_user_id_updated_at_book_id', 'CREATE INDEX % USING btree (user_id, updated_at, book_id)'),
+        ('ix_annotations_user_id_updated_at_id', 'CREATE INDEX % USING btree (user_id, updated_at, id)'),
+        ('ix_vocabulary_words_user_id_updated_at_id', 'CREATE INDEX % USING btree (user_id, updated_at, id)'),
+        ('ix_vocabulary_words_user_id_next_review_at',
+         'CREATE INDEX % USING btree (user_id, next_review_at, id) WHERE ((deleted_at IS NULL) AND (retired_at IS NULL))'),
+        ('ix_device_authorizations_user_code',
+         'CREATE UNIQUE INDEX % USING btree (user_code) WHERE ((status)::text = ''pending''::text)'),
+        ('ix_user_refresh_tokens_family_id_expires_at', 'CREATE INDEX % USING btree (family_id, expires_at)'),
+        ('ix_password_reset_tokens_expires_at', 'CREATE INDEX % USING btree (expires_at)'),
+        ('ix_oauth_grants_refresh_token_expires_at', 'CREATE INDEX % USING btree (refresh_token_expires_at)'),
+        ('ix_oauth_grants_revoked_at', 'CREATE INDEX % USING btree (revoked_at) WHERE (revoked_at IS NOT NULL)'),
+        ('ix_discussion_checkpoints_user_id_book_id_chapter_key',
+         'CREATE INDEX % USING btree (user_id, book_id, chapter_key, created_at, id)')
+    ) x(ix, def)
+    WHERE NOT EXISTS (SELECT FROM pg_indexes WHERE schemaname = 'public' AND indexname = x.ix AND indexdef LIKE x.def);
+    IF bad IS NOT NULL THEN RAISE EXCEPTION '0002 indexes missing or not as defined: %', bad; END IF;
+END $$;
+
+-- Migration 0002's columns, present with their nullability: a reset stamps the account; every
+-- session names its kind and its family. Whether a replayed token of a live family is found is the
+-- repository's sweep and revoke, pinned by its tests.
+DO $$
+DECLARE bad text;
+BEGIN
+    SELECT string_agg(x.t || '.' || x.c, ', ') INTO bad FROM (VALUES
+        ('users', 'credentials_reset_at', 'YES'),
+        ('user_refresh_tokens', 'kind', 'NO'),
+        ('user_refresh_tokens', 'family_id', 'NO')
+    ) x(t, c, nullable)
+    WHERE NOT EXISTS (SELECT FROM information_schema.columns
+                      WHERE table_schema = 'public' AND table_name = x.t AND column_name = x.c AND is_nullable = x.nullable);
+    IF bad IS NOT NULL THEN RAISE EXCEPTION '0002 columns missing or of the wrong nullability: %', bad; END IF;
+
+    IF pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'ck_user_refresh_tokens_kind'))
+       IS DISTINCT FROM 'CHECK ((kind = ANY (ARRAY[''reader''::text, ''admin''::text])))' THEN
+        RAISE EXCEPTION 'ck_user_refresh_tokens_kind is not kind IN (reader, admin)';
+    END IF;
+END $$;

@@ -27,6 +27,9 @@ public class BookFile
     /// <summary>Relative key of the bytes on the volume; null when the server holds none.</summary>
     public string? ServerStorageKey { get; set; }
 
+    /// <summary>When the reader stopped syncing this version ("stop syncing this file"): no client re-uploads it on its own.</summary>
+    public DateTimeOffset? ContentRemovedAt { get; set; }
+
     public bool IsCurrent { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 }

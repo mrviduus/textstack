@@ -9,18 +9,20 @@ namespace Application.Identity;
 public interface IDeviceLoginRepository
 {
     /// <summary>
-    /// Stores a pending login. False when a pending login alive at <paramref name="now"/> already shows
-    /// its user code: nothing stored, the caller mints another code.
+    /// Stores a pending login. False when a pending login already shows its user code (one past its
+    /// deadline too, until it is decided or swept): nothing stored, the caller mints another code.
     /// </summary>
-    Task<bool> CreateAsync(DeviceLogin login, DateTimeOffset now, CancellationToken ct);
+    Task<bool> CreateAsync(DeviceLogin login, CancellationToken ct);
 
     /// <summary>
     /// Decides the pending login showing <paramref name="userCode"/>: approves it for
     /// <paramref name="approvedBy"/>, or denies it when that is null. A login past its deadline at
     /// <paramref name="now"/> is marked expired instead. Returns the status it now has; null when no
-    /// pending login shows that code.
+    /// pending login shows that code. <see cref="DeviceLogin.Pending"/> when the approver's password
+    /// was reset after <paramref name="tokenIssuedAt"/> (the <c>iat</c> of the access token approving;
+    /// null for a denial) or the approver is gone: nothing decided.
     /// </summary>
-    Task<string?> DecideAsync(string userCode, Guid? approvedBy, DateTimeOffset now, CancellationToken ct);
+    Task<string?> DecideAsync(string userCode, Guid? approvedBy, DateTimeOffset? tokenIssuedAt, DateTimeOffset now, CancellationToken ct);
 
     /// <summary>The login polled with this device code; null when none.</summary>
     Task<DeviceLogin?> GetByDeviceCodeAsync(string deviceCodeHash, CancellationToken ct);

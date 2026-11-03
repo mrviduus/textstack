@@ -14,7 +14,24 @@ namespace Infrastructure.Persistence.Repositories;
 public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
 {
     internal const string Columns =
-        "id, email, google_subject, apple_subject, password_hash, name, picture, is_guest, last_active_at, native_language, storage_used_bytes, storage_limit_override_bytes, tier, role, promoted_at, created_at";
+        "id, email, google_subject, apple_subject, password_hash, name, picture, is_guest, last_active_at, native_language, storage_used_bytes, storage_limit_override_bytes, tier, role, promoted_at, credentials_reset_at, created_at";
+
+    /// <summary>
+    /// The guard of a credential minted from an access token issued at <c>@tokenIssuedAt</c> (its
+    /// <c>iat</c>), over <c>users u</c>: false once the account's password was reset after it. Read
+    /// under <c>FOR SHARE</c> by the writer, so a reset committing meanwhile is seen. <c>iat</c> has
+    /// whole seconds, so a token minted in the reset's own second is refused too, until a refresh replaces it.
+    /// The stamp is the database's clock (<c>clock_timestamp()</c>), <c>iat</c> the api's: both run on
+    /// one host (compose), so they are one clock. Split them across hosts and their skew becomes a
+    /// window in which a pre-reset token passes.
+    /// </summary>
+    internal const string NotResetSinceToken = "(u.credentials_reset_at IS NULL OR u.credentials_reset_at <= @tokenIssuedAt)";
+
+    /// <summary>
+    /// <c>@userId</c> exists and passes <see cref="NotResetSinceToken"/>, its row held <c>FOR SHARE</c>
+    /// (rechecked after a reset's lock): an approval's guard, written into the approving statement.
+    /// </summary>
+    internal const string FreshUserExists = $"EXISTS (SELECT FROM users u WHERE u.id = @userId AND {NotResetSinceToken} FOR SHARE)";
 
     private const string SelectById = $"SELECT {Columns} FROM users WHERE id = @userId";
 

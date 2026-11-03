@@ -1,0 +1,192 @@
+using System.Security.Cryptography;
+using Application.Library;
+using Infrastructure.Services;
+
+namespace TextStack.UnitTests.V2;
+
+/// <summary><see cref="LibraryFileStore"/> on a temp directory: parts, the join and its hash, placing, the sweeps.</summary>
+public sealed class LibraryFileStoreTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "library-store-" + Guid.NewGuid());
+    private readonly LibraryFileStore _store;
+    private static readonly Guid User = Guid.NewGuid();
+    private static readonly Guid BookId = Guid.NewGuid();
+    private static readonly Guid FileId = Guid.NewGuid();
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    public LibraryFileStoreTests() => _store = new LibraryFileStore(_root);
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
+    }
+
+    private string Key => _store.FileKey(User, BookId, FileId, "epub");
+
+    private Task<long?> PartAsync(int index, byte[] bytes, Guid? fileId = null, long maxBytes = 1024) =>
+        _store.SavePartAsync(User, fileId ?? FileId, index, new MemoryStream(bytes), maxBytes, Ct);
+
+    /// <summary>Stores <paramref name="bytes"/> under <paramref name="key"/>, as a cover put does: staged, then placed.</summary>
+    private async Task PutAsync(string key, byte[] bytes) => _store.Place(await _store.StageAsync(key, bytes, Ct));
+
+    private string UploadDir => Path.Combine(_root, "uploads", User.ToString(), FileId.ToString());
+
+    [Fact]
+    public void FileKey_Ids_AreThePlanLayoutUnderLibrary()
+    {
+        var u = User.ToString();
+
+        Assert.Equal($"library/{u[..2]}/{u}/{BookId}/{FileId}.pdf", _store.FileKey(User, BookId, FileId, "pdf"));
+        Assert.Equal($"library/{u[..2]}/{u}/{BookId}/cover.png", _store.CoverKey(User, BookId, "png"));
+    }
+
+    [Fact]
+    public async Task SavePartAsync_BodyLongerThanTheCap_KeepsNothing()
+    {
+        Assert.Null(await PartAsync(0, new byte[11], maxBytes: 10));
+        Assert.Null(await PartAsync(1, []));
+
+        Assert.Empty(Directory.EnumerateFiles(UploadDir));
+    }
+
+    [Fact]
+    public async Task AssembleAsync_TwoParts_HashesTheJoinedBytesAndPlaceMovesThemToTheKey()
+    {
+        await PartAsync(0, [1, 2, 3]);
+        await PartAsync(1, [4, 5]);
+
+        var staged = (await _store.AssembleAsync(User, FileId, 2, Key, Ct))!;
+        _store.Place(staged);
+
+        Assert.Equal((Convert.ToHexStringLower(SHA256.HashData([1, 2, 3, 4, 5])), 5L), (staged.Sha256, staged.ByteSize));
+        Assert.Equal([1, 2, 3, 4, 5], await File.ReadAllBytesAsync(_store.Locate(Key)!, Ct));
+        Assert.False(File.Exists(staged.TempPath));
+        Assert.Equal(2, Directory.EnumerateFiles(UploadDir).Count());
+    }
+
+    [Fact]
+    public async Task AssembleAsync_ReSentPart_JoinsTheLastAttempt()
+    {
+        await PartAsync(0, [9, 9]);
+        await PartAsync(0, [1]);
+
+        var staged = (await _store.AssembleAsync(User, FileId, 1, Key, Ct))!;
+
+        Assert.Equal(1L, staged.ByteSize);
+    }
+
+    [Fact]
+    public async Task AssembleAsync_PartMissing_NullAndThePartsStay()
+    {
+        await PartAsync(0, [1]);
+        await PartAsync(2, [3]);
+
+        Assert.Null(await _store.AssembleAsync(User, FileId, 3, Key, Ct));
+
+        Assert.Equal(2, Directory.EnumerateFiles(UploadDir).Count());
+        Assert.Null(_store.Locate(Key));
+        Assert.False(Directory.Exists(Path.GetDirectoryName(Path.Combine(_root, Key))));
+    }
+
+    [Fact]
+    public async Task StageAsync_PlacedOrDiscarded_TheSecondPlaceReplacesAndADiscardLeavesNothing()
+    {
+        var key = _store.CoverKey(User, BookId, "png");
+
+        await PutAsync(key, [1, 2]);
+        await PutAsync(key, [3]);
+        var discarded = await _store.StageAsync(Key, new byte[] { 1 }, Ct);
+        _store.Discard(discarded);
+
+        Assert.Equal([3], await File.ReadAllBytesAsync(_store.Locate(key)!, Ct));
+        Assert.Null(_store.Locate(Key));
+        Assert.False(File.Exists(discarded.TempPath));
+        Assert.Null(discarded.Sha256);
+    }
+
+    [Fact]
+    public async Task SweepStaleParts_UploadUntouchedForADay_IsDeletedAFreshOneStays()
+    {
+        var other = Guid.NewGuid();
+        await PartAsync(0, [1]);
+        await PartAsync(0, [1], other);
+        Directory.SetLastWriteTimeUtc(UploadDir, DateTime.UtcNow.AddDays(-2));
+
+        _store.SweepStaleParts(DateTimeOffset.UtcNow);
+
+        Assert.False(Directory.Exists(UploadDir));
+        Assert.True(Directory.Exists(Path.Combine(_root, "uploads", User.ToString(), other.ToString())));
+    }
+
+    [Fact]
+    public async Task SavePartAsync_IntoAnUploadTheSweepJustRemoved_StillStores()
+    {
+        await PartAsync(0, [1]);
+        Directory.SetLastWriteTimeUtc(UploadDir, DateTime.UtcNow.AddDays(-2));
+        _store.SweepStaleParts(DateTimeOffset.UtcNow);
+
+        Assert.Equal(1L, await PartAsync(1, [2]));
+        Assert.Single(Directory.EnumerateFiles(UploadDir));
+    }
+
+    [Fact]
+    public async Task TryDelete_StoredAndAbsentKey_RemovesTheBytesAndAnswersTrue()
+    {
+        await PutAsync(Key, [1]);
+
+        Assert.True(_store.TryDelete(Key));
+        Assert.True(_store.TryDelete(_store.FileKey(Guid.NewGuid(), BookId, FileId, "pdf")));
+        Assert.Null(_store.Locate(Key));
+    }
+
+    [Fact]
+    public async Task DeleteUser_LibraryAndParts_AreGoneAnotherUsersStay()
+    {
+        var otherKey = _store.FileKey(Guid.NewGuid(), BookId, FileId, "epub");
+        await PutAsync(Key, [1]);
+        await PutAsync(otherKey, [1]);
+        await PartAsync(0, [1]);
+
+        _store.DeleteUser(User);
+
+        Assert.Null(_store.Locate(Key));
+        Assert.False(Directory.Exists(UploadDir));
+        Assert.NotNull(_store.Locate(otherKey));
+    }
+
+    [Fact]
+    public async Task EnumerateLibraryFilesOlderThan_OldAndNewFiles_ListsTheOldKeysOnly()
+    {
+        var old = _store.CoverKey(User, BookId, "png");
+        await PutAsync(old, [1]);
+        await PutAsync(Key, [1]);
+        File.SetLastWriteTimeUtc(_store.Locate(old)!, DateTime.UtcNow.AddHours(-2));
+
+        Assert.Equal([old], _store.EnumerateLibraryFilesOlderThan(DateTimeOffset.UtcNow.AddHours(-1)));
+    }
+
+    [Fact]
+    public async Task RemoveEmptyDirectories_OldEnough_RemovesTheEmptiedChainButNotTheRoots()
+    {
+        await PutAsync(Key, [1]);
+        await PartAsync(0, [1]);
+        _store.TryDelete(Key);
+        _store.DeleteParts(User, FileId);
+
+        _store.RemoveEmptyDirectories(DateTimeOffset.UtcNow.AddMinutes(1));
+
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(_root, "library")));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(_root, "uploads")));
+    }
+
+    [Fact]
+    public async Task RemoveEmptyDirectories_YoungDirectory_Stays()
+    {
+        await PutAsync(Key, [1]);
+        _store.TryDelete(Key);
+
+        _store.RemoveEmptyDirectories(DateTimeOffset.UtcNow.AddHours(-1));
+
+        Assert.True(Directory.Exists(Path.GetDirectoryName(Path.Combine(_root, Key))));
+    }
+}

@@ -2,11 +2,13 @@ using Application.Common;
 using Application.Library;
 using Application.Reading;
 using Application.Sync;
+using Application.Transitional;
 using Contracts.V2;
 using Domain.Library;
 using Domain.Reading;
 using Npgsql;
 using Infrastructure.Persistence.Repositories;
+using Infrastructure.Services;
 using static TextStack.Persistence.Tests.TestJson;
 
 namespace TextStack.Persistence.Tests.Library;
@@ -15,7 +17,9 @@ namespace TextStack.Persistence.Tests.Library;
 public class LibrarySyncServiceTests(V2PostgresFixture db)
 {
     private readonly ReadingStateRepository _reading = new(db.DataSource);
-    private readonly LibrarySyncService _service = new(new LibraryRepository(db.DataSource), new ReadingStateRepository(db.DataSource), db.DataSource);
+    // A store on a temp directory: the replacement deletes the old version's bytes from it.
+    private static readonly LibraryFileStore Files = new(Path.Combine(Path.GetTempPath(), "library-sync-" + Guid.NewGuid()));
+    private readonly LibrarySyncService _service = new(new LibraryRepository(db.DataSource), new ReadingStateRepository(db.DataSource), db.DataSource, Files);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static ReplaceFileRequest Replacing(Guid? replacesFileId) =>
@@ -25,7 +29,7 @@ public class LibrarySyncServiceTests(V2PostgresFixture db)
     {
         var book = await db.NewReaderWithBookAsync();
         await _reading.AdvanceAsync(book.UserId, book.Id,
-            new() { FileId = book.CurrentFile!.Id, CurrentLocator = Page(3), BookFraction = 0.3m, ClientRecordedAt = DateTimeOffset.UtcNow }, null, Ct);
+            new() { FileId = book.CurrentFile!.Id, CurrentLocator = Page(3), BookFraction = 0.3m, ClientRecordedAt = DateTimeOffset.UtcNow }, null, default, Ct);
         return book;
     }
 
@@ -68,8 +72,8 @@ public class LibrarySyncServiceTests(V2PostgresFixture db)
     {
         public Task<ReadingState?> GetAsync(Guid userId, Guid bookId, CancellationToken ct) => real.GetAsync(userId, bookId, ct);
 
-        public Task<RevisionedWrite<ReadingState>> AdvanceAsync(Guid userId, Guid bookId, ReadingState state, long? expectedRevision, CancellationToken ct) =>
-            real.AdvanceAsync(userId, bookId, state, expectedRevision, ct);
+        public Task<RevisionedWrite<ReadingState>> AdvanceAsync(Guid userId, Guid bookId, ReadingState state, long? expectedRevision, TransitionalChapterKeys chapters, CancellationToken ct) =>
+            real.AdvanceAsync(userId, bookId, state, expectedRevision, chapters, ct);
 
         public Task<RevisionedWrite<ReadingState>> ResetAsync(Guid userId, Guid bookId, long expectedRevision, CancellationToken ct) =>
             real.ResetAsync(userId, bookId, expectedRevision, ct);
@@ -85,11 +89,26 @@ public class LibrarySyncServiceTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ReplaceFileAsync_StoredCurrentFile_DeletesItsBytesAfterTheCommit()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var file = book.CurrentFile!;
+        var key = Files.FileKey(book.UserId, book.Id, file.Id, "epub");
+        var staged = await Files.StageAsync(key, new byte[] { 1 }, Ct);
+        await new LibraryRepository(db.DataSource).AttachContentAsync(book.UserId, book.Id, file.Id, key, long.MaxValue, () => Files.Place(staged), Ct);
+
+        var result = await _service.ReplaceFileAsync(book.UserId, book.Id, Guid.NewGuid(), Replacing(file.Id), Ct);
+
+        Assert.Equal(200, result.Status);
+        Assert.Null(Files.Locate(key));
+    }
+
+    [Fact]
     public async Task ReplaceFileAsync_FailureBeforeCommit_RollsBackTheReplacementAndTheStateDeleteTogether()
     {
         var book = await BookWithStateAsync();
         var library = new LibraryRepository(db.DataSource);
-        var failing = new LibrarySyncService(library, new FailsAfterDelete(_reading), db.DataSource);
+        var failing = new LibrarySyncService(library, new FailsAfterDelete(_reading), db.DataSource, Files);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             failing.ReplaceFileAsync(book.UserId, book.Id, Guid.NewGuid(), Replacing(book.CurrentFile!.Id), Ct));

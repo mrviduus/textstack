@@ -40,6 +40,7 @@ public sealed record SyncResult(int Status, object? Body)
     public static readonly SyncResult NotFound = Fail(SyncCodes.NotFound);
     public static readonly SyncResult IdConflict = Fail(SyncCodes.IdConflict);
     public static readonly SyncResult UnknownFile = Fail(SyncCodes.UnknownFile);
+    public static readonly SyncResult ChapterNotFound = Fail(SyncCodes.ChapterNotFound);
     public static readonly SyncResult V2Unavailable = Fail(SyncCodes.V2Unavailable);
 
     public static SyncResult BookRemoved(Book book) => Fail(SyncCodes.BookRemoved, book.Revision, book.ToDto());
@@ -51,7 +52,13 @@ public sealed record SyncResult(int Status, object? Body)
 
     public static SyncResult FileReplaced(BookFile? currentFile, long? revision = null, object? current = null) =>
         Fail(SyncCodes.FileReplaced, revision, current, currentFile?.Id, currentFile?.ToDto());
+
+    /// <summary>A file the endpoint streams as is (<see cref="StoredBytes"/>), not JSON.</summary>
+    public static SyncResult Bytes(StoredBytes bytes) => new(200, bytes);
 }
+
+/// <summary>Bytes on disk to stream: ranges served; with an <see cref="ETag"/>, a matching <c>If-None-Match</c> is a 304.</summary>
+public sealed record StoredBytes(string Path, string ContentType, string? ETag = null, string? CacheControl = null);
 
 /// <summary>
 /// Every code of v2-sync-protocol.md "Conflict codes", with its status and its one message. Some are
@@ -64,6 +71,7 @@ public static class SyncCodes
     public const string Reset = "reset";
     public const string FileReplaced = "file_replaced";
     public const string UnknownFile = "unknown_file";
+    public const string ChapterNotFound = "chapter_not_found";
     public const string Deleted = "deleted";
     public const string OperationConflict = "operation_conflict";
     public const string DuplicateFile = "duplicate_file";
@@ -76,6 +84,8 @@ public static class SyncCodes
     public const string NotFound = "not_found";
     public const string NoContent = "no_content";
     public const string InvalidPayload = "invalid_payload";
+    public const string QuotaExceeded = "quota_exceeded";
+    public const string LengthRequired = "length_required";
     public const string V2Unavailable = "v2_unavailable";
 
     public static int StatusOf(string code) => Table(code).Status;
@@ -88,6 +98,7 @@ public static class SyncCodes
         Reset => (409, "The book was restarted on another device."),
         FileReplaced => (409, "This book's file was replaced."),
         UnknownFile => (409, "Push the file version first."),
+        ChapterNotFound => (409, "The file has no such chapter."),
         Deleted => (409, "This item was deleted."),
         OperationConflict => (409, "This operation id was used with a different payload."),
         DuplicateFile => (409, "A book with these bytes is already in the library."),
@@ -100,6 +111,8 @@ public static class SyncCodes
         NotFound => (404, "The server has no such item."),
         NoContent => (404, "The server holds no bytes for this file."),
         InvalidPayload => (400, "The request does not match the protocol."),
+        QuotaExceeded => (413, "Storage limit reached."),
+        LengthRequired => (411, "Send the part with its Content-Length."),
         V2Unavailable => (503, "Sync is paused; reading is unaffected."),
         _ => throw new ArgumentOutOfRangeException(nameof(code), code, "Not a code of the sync protocol."),
     };

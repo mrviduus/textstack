@@ -32,7 +32,7 @@ public sealed class V2AdminAuthService(
         var (raw, hash) = JwtTokens.NewOpaqueToken();
         var (_, days) = await SessionSettingsAsync(ct);
         // Null: a reset changed the password since it was checked.
-        return await sessions.IssueAsync(admin.Id, hash, clock.GetUtcNow().AddDays(days), verified, SessionKind.Admin, ct) is null
+        return await sessions.IssueAsync(admin.Id, hash, clock.GetUtcNow().AddDays(days), verified, null, SessionKind.Admin, ct) is null
             ? null
             : await ResultAsync(admin, raw, ct);
     }
