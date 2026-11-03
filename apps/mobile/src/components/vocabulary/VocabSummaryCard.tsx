@@ -24,7 +24,8 @@ interface Props {
   stats: VocabularyStatsDto | null
   dueCount: number
   onPractice: () => void
-  onSmartSession: () => void
+  /** Absent: no tutor here (V2, V2_FEATURES). */
+  onSmartSession?: () => void
   smartSessionLabel: string
 }
 
@@ -62,7 +63,7 @@ export function VocabSummaryCard({ stats, dueCount, onPractice, onSmartSession, 
             <Text style={styles.primaryText}>Practice</Text>
           </TouchableOpacity>
         )}
-        <TouchableOpacity
+        {onSmartSession && <TouchableOpacity
           style={[styles.secondary, { borderColor: colors.primary }]}
           onPress={onSmartSession}
           accessibilityRole="button"
@@ -72,7 +73,7 @@ export function VocabSummaryCard({ stats, dueCount, onPractice, onSmartSession, 
           <Text style={[styles.secondaryText, { color: colors.primary }]} numberOfLines={1}>
             {smartSessionLabel}
           </Text>
-        </TouchableOpacity>
+        </TouchableOpacity>}
       </View>
     </View>
   )

@@ -10,6 +10,7 @@ import { useTts } from '../../src/hooks/useTts'
 import { useHaptics } from '../../src/hooks/useHaptics'
 import { useVocabularyReview } from '../../src/hooks/useVocabularyReview'
 import { reviewModeFromParam } from '../../src/lib/reviewMode'
+import { V2_FEATURES } from '@textstack/shared'
 import { v2Enabled } from '../../src/lib/v2'
 import { LoadingScreen } from '../../src/components/ui/LoadingScreen'
 import { PressableScale } from '../../src/components/ui/PressableScale'
@@ -31,7 +32,7 @@ export default function VocabularyReviewScreen() {
   // is NOT hook state. See `reviewModeFromParam` for the failure that made this
   // necessary (#558); web derives it the same way and for the same reason.
   // V2 cards are flashcards only (no distractors on V2, ADR-031 D6).
-  const initialReviewMode = v2Enabled() ? 'classic' : reviewModeFromParam(params.reviewMode)
+  const initialReviewMode = v2Enabled() ? V2_FEATURES.reviewModes[0] : reviewModeFromParam(params.reviewMode)
 
   const [batchSize, setBatchSize] = useState(() => {
     const v = parseInt(params.limit || String(DEFAULT_BATCH_SIZE), 10)
@@ -122,7 +123,7 @@ export default function VocabularyReviewScreen() {
 
   const handleAgain = () => {
     sessionStartRef.current = Date.now()
-    review.startSession(batchSize, v2Enabled() ? 'classic' : review.reviewMode, practiceMode)
+    review.startSession(batchSize, v2Enabled() ? V2_FEATURES.reviewModes[0] : review.reviewMode, practiceMode)
   }
 
   const handlePracticeAnyway = () => {

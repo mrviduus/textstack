@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router'
 import { WebView } from 'react-native-webview'
 import { isOfflineError, parseScrollLocator, buildUserBookProgressPayload, buildPdfProgressPayload, parsePdfPageLocator, parseTextPosition, serializeTextPosition, bookmarkChapterSlug } from '@textstack/shared'
 import { userBooksApi } from '../../lib/userBooksApi'
+import type { V2WriteOutcome } from '../../lib/v2'
 import type { UserBookChapterDto, BookmarkDto, TextPosition } from '@textstack/shared'
 import { API_URL } from '../../lib/api'
 import { getUserBookLocalProgress, markUserBookLocalProgressSynced, saveUserBookLocalProgress, getUserBookIsPdf, setUserBookIsPdf, type UserBookLocalProgress } from '../../lib/progressStorage'
@@ -342,10 +343,11 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast, chapte
     showToast({ message: 'This book was replaced on another device.', variant: 'info' })
     router.replace(`/my-books/${bookId}`)
   }
-  const afterWrite = useCallback((outcome: { reload?: boolean; dropped?: boolean } | void, recordedAt: number) => {
-    if (outcome?.reload) reloadRef.current()
-    // Synced only when the server stored this write (or this device adopted the server's).
-    else if (!outcome?.dropped) return markUserBookLocalProgressSynced(bookId, recordedAt)
+  // Synced only when the server stored this write. Legacy answers nothing (void); V2's adopted
+  // place is already this device's synced record; a dropped write stays unsynced.
+  const afterWrite = useCallback((outcome: V2WriteOutcome | void, recordedAt: number) => {
+    if (outcome === 'reload') reloadRef.current()
+    else if (outcome === undefined || outcome === 'accepted') return markUserBookLocalProgressSynced(bookId, recordedAt)
   }, [bookId])
 
   const persist = useCallback((snap: ProgressSnapshot) => {

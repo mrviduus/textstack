@@ -2,27 +2,20 @@
  * The mobile app on V2 (`Features:V2Api`, #1025 M2.7): the probe, and the V2 side of the user-book
  * API — library, upload, the transitional chapter reader, reading state — mapped onto the shared
  * legacy shapes, so `userBooksApi` (./userBooksApi) switches per call and no screen changes. The
- * twin of apps/web/src/api/v2.ts; wire calls are `v2Api`, the locator mapping is
+ * twin of apps/web/src/api/v2.ts; wire calls are `v2Api`, the place and anchor mappings are
  * `@textstack/shared` reader/v2Locators.
  */
 import { uuid } from 'expo-modules-core'
 import {
-  v2Api, ApiError, clip, v2PositionLocator, v2ResumeChapter, createSha256, parsePdfPageLocator,
-  type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite,
-  type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse,
+  v2Api, ApiError, V2_OFF, clip, chapterAtFraction, placeToV2Locator, v2LocatorToPlace, createSha256, parsePdfPageLocator,
+  type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
+  type LegacyPlace, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse,
 } from '@textstack/shared'
 import { dropReplacedUserBookFile } from './offlineDb'
 import { deleteOriginal } from './originalFileCache'
 import { getUserBookV2State, setUserBookV2State, saveUserBookLocalProgress } from './progressStorage'
 
 // ---- The switch ---------------------------------------------------------------------------------
-
-export interface V2Switch {
-  enabled: boolean
-  maxPartBytes: number
-}
-
-export const V2_OFF: V2Switch = { enabled: false, maxPartBytes: 0 }
 
 let probe: Promise<V2Switch> | null = null
 let known: V2Switch = V2_OFF
@@ -47,12 +40,17 @@ export const v2Enabled = () => known.enabled
 /** Every call site checks one thing: `if (await onV2()) …`. */
 export const onV2 = async () => (await startV2Probe()).enabled
 
+/** Sign-out or another account: what this app cached from V2 belongs to the previous session. */
+export function forgetV2Session() {
+  books.clear()
+  chapters.clear()
+}
+
 /** Tests only: forget the probe. */
 export function resetV2ForTests() {
   probe = null
   known = V2_OFF
-  books.clear()
-  chapters.clear()
+  forgetV2Session()
 }
 
 // ---- Library ------------------------------------------------------------------------------------
@@ -151,7 +149,7 @@ export async function getV2UserBooks(): Promise<UserBookDto[]> {
       errorMessage: null,
       progressPercent: state ? state.bookFraction : null,
       progressUpdatedAt: state?.updatedAt ?? null,
-      progressChapterSlug: state ? v2ResumeChapter(state, toc) : null,
+      progressChapterSlug: state ? resumeChapter(state, toc) : null,
       progressLocator: state?.currentLocator.scheme === 'pdf-page' ? `page:${(state.currentLocator.value as { page: number }).page}` : null,
       progressClientUpdatedAt: state?.clientRecordedAt ?? null,
       hasOriginalPdf: isPdf(b),
@@ -229,18 +227,20 @@ const NO_PROGRESS: V2Progress = { chapterSlug: null, locator: null, percent: nul
 
 const remember = (s: V2ReadingState) => setUserBookV2State(s.bookId, { revision: s.revision, fileId: s.fileId })
 
+/** The chapter a stored state resumes in: its own, none for a PDF page, by fraction for an `epub-cfi` (never converted). */
+const resumeChapter = (s: V2ReadingState, toc: V2FileChapters) =>
+  v2LocatorToPlace(s.currentLocator)?.chapterSlug ?? (s.currentLocator.scheme === 'pdf-page' ? null : chapterAtFraction(toc.items, s.bookFraction))
+
 /** A V2 state as the legacy progress row. An `epub-cfi` (the V2 reader's) resumes by fraction. */
 async function toProgress(s: V2ReadingState): Promise<V2Progress> {
-  const { scheme, value } = s.currentLocator
-  const page = scheme === 'pdf-page' ? (value as { page: number }).page : null
-  const toc = scheme === 'epub-cfi' ? await v2Chapters(await v2Book(s.bookId)) : { items: [], ingestion: null }
+  const place = v2LocatorToPlace(s.currentLocator)
+  const toc = place ? { items: [], ingestion: null } : await v2Chapters(await v2Book(s.bookId))
   return {
-    chapterSlug: v2ResumeChapter(s, toc),
-    locator: page != null ? `page:${page}` : null,
+    chapterSlug: resumeChapter(s, toc),
+    locator: place?.locator ?? null,
     percent: s.bookFraction,
     updatedAt: s.updatedAt,
-    // A position with an anchor is the TextPosition the reader serialized; scroll-only has none.
-    positionJson: scheme === 'textstack-position-v1' && (value as { anchor?: unknown }).anchor ? JSON.stringify(value) : null,
+    positionJson: place?.positionJson ?? null,
     clientUpdatedAt: s.clientRecordedAt,
   }
 }
@@ -253,7 +253,7 @@ export async function readV2Progress(bookId: string): Promise<V2Progress> {
 }
 
 /** A lost write takes the server's place: it becomes this device's record, so the next open resumes there. */
-async function adopt(s: V2ReadingState): Promise<void> {
+async function adopt(s: V2ReadingState): Promise<V2Progress> {
   await remember(s)
   const p = await toProgress(s)
   const page = parsePdfPageLocator(p.locator)
@@ -266,14 +266,37 @@ async function adopt(s: V2ReadingState): Promise<void> {
     positionJson: p.positionJson ?? undefined,
     ...(page != null && { page }),
   })
+  return p
 }
 
-export interface ProgressWrite {
-  chapterSlug: string | null
-  locator?: string
+/** Mark read on V2: the state as it stands (or the book's start), with `completedAt` — web's rule. */
+export async function completeV2Book(bookId: string): Promise<void> {
+  const b = await v2Book(bookId)
+  const state = await v2Api.getReadingState(bookId)
+  const first = (await v2Chapters(b)).items[0]?.chapterKey
+  const sameFile = state && state.fileId === b.currentFile?.id
+  const currentLocator = sameFile ? state.currentLocator : placeToV2Locator({ chapterSlug: first ?? null })
+  if (!b.currentFile || !currentLocator) throw new ApiError(409, 'Nothing to mark read yet')
+  const now = new Date().toISOString()
+  await remember(await v2Api.putReadingState(bookId, {
+    expectedRevision: sameFile ? state.revision : null,
+    fileId: b.currentFile.id,
+    currentLocator,
+    bookFraction: sameFile ? state.bookFraction : 0,
+    completedAt: now,
+    clientRecordedAt: now,
+  }))
+}
+
+/** Mark unread on V2: a reset clears completion and the frontier; the place stays. */
+export async function uncompleteV2Book(bookId: string): Promise<void> {
+  const state = await v2Api.getReadingState(bookId)
+  if (state) await remember(await v2Api.resetReadingState(bookId, state.revision))
+}
+
+export interface ProgressWrite extends LegacyPlace {
   percent?: number
   updatedAt?: string
-  positionJson?: string
 }
 
 /**
@@ -284,17 +307,17 @@ export interface ProgressWrite {
  * place resumes from `bookFraction`). Anything else throws: the local record stays unsynced.
  * ponytail: a `chapter_not_found` while the file is still extracting is dropped too, not queued (R6).
  */
-export interface V2WriteOutcome {
-  /** The book's file was replaced: reopen it. */
-  reload?: boolean
-  /** Neither stored nor adopted: the local record stays unsynced. */
-  dropped?: boolean
-}
+/**
+ * After a write, as web's: `accepted` the server holds it (mark it synced); `adopted` the server's
+ * place is now this device's record; `reload` the book's file was replaced; `dropped` neither —
+ * the local record stays unsynced.
+ */
+export type V2WriteOutcome = 'accepted' | 'dropped' | 'reload' | { adopted: V2Progress }
 
 export async function saveV2Progress(bookId: string, data: ProgressWrite, retried = false): Promise<V2WriteOutcome> {
   const known = (await getUserBookV2State(bookId)) ?? { revision: null, fileId: (await v2Book(bookId)).currentFile?.id }
-  const currentLocator = v2PositionLocator(data)
-  if (!known.fileId || !currentLocator) return { dropped: true }
+  const currentLocator = placeToV2Locator(data)
+  if (!known.fileId || !currentLocator) return 'dropped'
   const now = Date.now()
   const body: V2ReadingStateWrite = {
     expectedRevision: known.revision,
@@ -306,27 +329,33 @@ export async function saveV2Progress(bookId: string, data: ProgressWrite, retrie
   }
   try {
     await remember(await v2Api.putReadingState(bookId, body))
-    return {}
+    return 'accepted'
   } catch (e) {
     const err = v2Api.v2ErrorOf(e)
     const current = err?.current as V2ReadingState | null | undefined
     switch (err?.code) {
       case 'stale_revision':
-        if (current) await adopt(current)
-        else await setUserBookV2State(bookId, null)
-        return current ? {} : { dropped: true }
+        if (!current) {
+          await setUserBookV2State(bookId, null)
+          return 'dropped'
+        }
+        return { adopted: await adopt(current) }
       case 'reset':
         await remember(await v2Api.putReadingState(bookId, { ...body, expectedRevision: current?.revision ?? null }))
-        return {}
+        return 'accepted'
       case 'file_replaced':
         await forgetV2Book(bookId)
-        return { reload: true }
+        return 'reload'
       case 'unknown_file':
         // The file we named is not the book's: fetch the book again and write once more.
         await forgetV2Book(bookId)
-        return retried ? { dropped: true } : saveV2Progress(bookId, data, true)
-      case 'chapter_not_found':
-        return { dropped: true }
+        return retried ? 'dropped' : saveV2Progress(bookId, data, true)
+      case 'chapter_not_found': {
+        // The file's chapter keys changed: its TOC is fetched again.
+        const file = books.get(bookId)?.currentFile
+        if (file) chapters.delete(file.id)
+        return 'dropped'
+      }
       default:
         throw e
     }

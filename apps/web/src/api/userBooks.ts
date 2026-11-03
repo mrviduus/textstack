@@ -3,7 +3,7 @@ import { trackBookUploaded } from '../lib/analytics'
 import { refreshToken } from './auth'
 import {
   onV2, v2Status, v2Enabled, getV2UserBooks, getV2UserBook, getV2UserBookChapter, removeV2Book, v2FileUrl,
-  readV2Progress, saveV2Progress, uploadV2Book, V2UploadError, type V2WriteOutcome,
+  readV2Progress, saveV2Progress, uploadV2Book, V2UploadError, completeV2Book, uncompleteV2Book, type V2WriteOutcome,
 } from './v2'
 
 export interface UserBook {
@@ -298,14 +298,18 @@ export async function cancelUserBook(id: string): Promise<void> {
 }
 
 export async function markUserBookComplete(id: string): Promise<void> {
+  if (await onV2()) return completeV2Book(id)
   await authFetch<void>(`/me/books/${id}/complete`, { method: 'POST' })
 }
 
 export async function unmarkUserBookComplete(id: string): Promise<void> {
+  if (await onV2()) return uncompleteV2Book(id)
   await authFetch<void>(`/me/books/${id}/complete`, { method: 'DELETE' })
 }
 
 export async function getStorageQuota(): Promise<StorageQuota> {
+  // V2 serves no quota until an upload hits it (413 `quota_exceeded` carries used/limit): the line is hidden.
+  if (await onV2()) throw new ApiError(404, 'No storage quota on V2')
   return authFetch<StorageQuota>('/me/books/quota')
 }
 
@@ -331,8 +335,8 @@ export async function updateUserBookMetadata(
 
 export function getUserBookCoverUrl(coverPath: string | null | undefined): string | undefined {
   if (!coverPath) return undefined
-  // A V2 cover is an API route (the library maps it), not a storage path.
-  if (coverPath.startsWith('/me/v2/')) return `${API_BASE}${coverPath}`
+  // A V2 cover is already an absolute URL (the API's cover route), not a storage path.
+  if (/^https?:\/\//.test(coverPath)) return coverPath
   return `${API_BASE}/storage/${coverPath}`
 }
 
@@ -381,7 +385,22 @@ export interface BulkResult {
   failed: { id: string; reason: string }[]
 }
 
+/** A bulk action on V2: one request per book (no bulk routes), the legacy result shape. */
+async function eachV2(ids: string[], action: (id: string) => Promise<void>): Promise<BulkResult> {
+  const result: BulkResult = { succeeded: [], failed: [] }
+  for (const id of ids) {
+    try {
+      await action(id)
+      result.succeeded.push(id)
+    } catch (e) {
+      result.failed.push({ id, reason: e instanceof Error ? e.message : 'failed' })
+    }
+  }
+  return result
+}
+
 export async function bulkFinishUserBooks(ids: string[], isFinished: boolean): Promise<BulkResult> {
+  if (await onV2()) return eachV2(ids, isFinished ? completeV2Book : uncompleteV2Book)
   return authFetch<BulkResult>('/me/books/bulk/finish', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -390,6 +409,7 @@ export async function bulkFinishUserBooks(ids: string[], isFinished: boolean): P
 }
 
 export async function bulkDeleteUserBooks(ids: string[]): Promise<BulkResult> {
+  if (await onV2()) return eachV2(ids, removeV2Book)
   return authFetch<BulkResult>('/me/books/bulk/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -526,6 +546,8 @@ export interface UserBookBookmark {
 }
 
 export async function getUserBookBookmarks(bookId: string): Promise<UserBookBookmark[]> {
+  // V2 has no bookmarks (ADR-031): nothing to load for a V2 book.
+  if (await onV2()) return []
   return authFetch<UserBookBookmark[]>(`/me/books/${bookId}/bookmarks`)
 }
 

@@ -610,6 +610,25 @@ export async function getAllCachedUserBooks(): Promise<CachedUserBookMeta[]> {
  * account's private file, and leaving its text in SQLite would hand it to
  * whoever signs in on this device next.
  */
+/**
+ * V2 guest → account merge: the rows cached under the guest's book and file ids move to the
+ * account's (only the ids that changed). One transaction.
+ */
+export async function rekeyCachedUserBooks(books: Record<string, string>, files: Record<string, string>): Promise<void> {
+  const d = await getDb()
+  if (!d) return
+  await d.withTransactionAsync(async () => {
+    for (const [from, to] of Object.entries(books)) {
+      await d.runAsync('UPDATE user_chapters SET book_id = ? WHERE book_id = ?', [to, from])
+      await d.runAsync('UPDATE cached_user_books SET book_id = ? WHERE book_id = ?', [to, from])
+    }
+    for (const [from, to] of Object.entries(files)) {
+      await d.runAsync('UPDATE user_chapters SET file_id = ? WHERE file_id = ?', [to, from])
+      await d.runAsync('UPDATE cached_user_books SET file_id = ? WHERE file_id = ?', [to, from])
+    }
+  })
+}
+
 export async function clearCachedUserBooks(): Promise<void> {
   const d = await getDb()
   if (!d) return

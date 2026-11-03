@@ -11,7 +11,9 @@ import { authToastFor, type AuthToast } from '../lib/authToast'
 import { flushLocalProgress } from '../lib/progressSync'
 import { replayAllPendingHighlights } from '../lib/highlightSync'
 import { trackLogin, trackSignUp } from '../lib/analytics'
-import { startV2Probe, V2_OFF, type V2Switch } from '../api/v2'
+import { V2_OFF, type V2Switch } from '@textstack/shared'
+import { startV2Probe, settleV2Session, v2Store } from '../api/v2'
+import { applyV2MergeMap, type V2MergeMap } from '../lib/v2Merge'
 
 export type AuthModalView = 'login' | 'register'
 
@@ -86,6 +88,16 @@ const AuthContext = createContext<AuthContextValue>({
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
 
+/**
+ * After a sign-in: re-key the local stores by the V2 merge map (PDD "Guest → account merge"), then
+ * replay what was made without a session. The in-memory V2 cache is emptied by the account change.
+ */
+async function afterMerge(merge: V2MergeMap | undefined) {
+  if (merge) await applyV2MergeMap(merge)
+  void flushLocalProgress().catch(() => {})
+  void replayAllPendingHighlights()
+}
+
 /** Hard ceiling on how long waitForSession waits for bootstrap to settle. */
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 15_000
 
@@ -103,6 +115,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // The V2 probe needs a session (PathGates answers 401 without one): started wherever a user is
   // set, before anything that calls the API next. API calls await the same probe, so none races it.
   const probeV2 = useCallback(() => { void startV2Probe().then(setV2) }, [])
+
+  // The V2 cache is one account's: an account change (sign-out, another sign-in) empties it.
+  const userId = user?.id ?? null
+  const cachedForRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (cachedForRef.current !== null && cachedForRef.current !== userId) v2Store.reset()
+    cachedForRef.current = userId
+  }, [userId])
 
   // Google callback - stable ref to avoid stale closures
   const handleGoogleCallback = useCallback(async (response: google.accounts.id.CredentialResponse) => {
@@ -124,9 +144,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const isFreshAccount = Number.isFinite(createdAtMs) && Date.now() - createdAtMs < 60_000
       if (isFreshAccount) trackSignUp('google')
       else trackLogin('google')
-      // Fire-and-forget: flush any anonymous localStorage progress + pending highlights to server.
-      void flushLocalProgress().catch(() => {})
-      void replayAllPendingHighlights()
+      // Fire-and-forget: flush any anonymous localStorage progress + pending highlights to server,
+      // after a V2 merge re-keyed them.
+      void afterMerge(authResponse.merge)
     } catch (error) {
       console.error('Login failed:', error)
     } finally {
@@ -226,6 +246,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (timeoutId) clearTimeout(timeoutId)
         setIsLoading(false)
         sessionReady.resolve()
+        settleV2Session()
       }
     })()
   }, [])
@@ -271,7 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const closeAuthModal = useCallback(() => setShowAuthModal(false), [])
 
   const authenticateAndClose = useCallback(async (
-    apiCall: () => Promise<{ user: User; guestMergeSkipped?: GuestMergeSkipReason | null }>,
+    apiCall: () => Promise<{ user: User; guestMergeSkipped?: GuestMergeSkipReason | null; merge?: V2MergeMap }>,
     kind: 'login' | 'sign_up',
   ) => {
     const response = await apiCall()
@@ -288,9 +309,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (kind === 'sign_up') trackSignUp('email')
     else trackLogin('email')
     // Fire-and-forget: flush any anonymous localStorage progress to server (server LWW is safe),
-    // and replay highlights made without a session, across every book.
-    void flushLocalProgress().catch(() => {})
-    void replayAllPendingHighlights()
+    // and replay highlights made without a session, across every book — after a V2 merge re-keyed them.
+    void afterMerge(response.merge)
   }, [probeV2])
 
   const loginWithEmail = useCallback(

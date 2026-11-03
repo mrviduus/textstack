@@ -175,3 +175,8 @@ function findFuzzyMatch(fullText: string, exact: string): number | null {
 
   return bestIndex === -1 ? null : bestIndex
 }
+
+/** `text` cut to `max` UTF-16 units, never between the halves of a surrogate pair (the server refuses a lone one). */
+export function clip(text: string, max: number): string {
+  return text.length <= max ? text : text.slice(0, notInSurrogatePair(text, max, -1))
+}

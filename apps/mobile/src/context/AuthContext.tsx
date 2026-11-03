@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { Platform } from 'react-native'
-import type { UserDto } from '@textstack/shared'
-import { authApi } from '@textstack/shared'
+import type { UserDto, MobileAuthResponse, V2Switch } from '@textstack/shared'
+import { authApi, V2_OFF } from '@textstack/shared'
 import { onAuthFailure } from '../lib/authEvents'
 import { resetAuthFailureLatch } from '../lib/api'
 import { createSingleFlight } from '../lib/singleFlight'
@@ -16,7 +16,8 @@ import { clearAllLocalProgress } from '../lib/progressStorage'
 import { clearPendingSessions, flushPendingSessions } from '../lib/pendingSessions'
 import { useReconnectCount } from '../hooks/useOnline'
 import { clearReaderCache } from '../lib/readerOfflineCache'
-import { startV2Probe } from '../lib/v2'
+import { startV2Probe, forgetV2Session } from '../lib/v2'
+import { applyV2MergeMap } from '../lib/v2Merge'
 
 // Lazy import so the Google module isn't pulled on platforms / contexts
 // that don't ship it (e.g. Expo Go web preview, where this package may
@@ -101,7 +102,8 @@ interface AuthState {
   // `disabled={isGuest}` would have sailed straight past it. Two sources of
   // truth for one policy is how the profile screen shipped the pencil bug.
   isLoading: boolean
-  signInWithTokens: (accessToken: string, refreshToken: string, user: UserDto) => Promise<void>
+  /** `merge`: the sign-in's V2 id map (a guest merged); the local stores are re-keyed before the user is set. */
+  signInWithTokens: (accessToken: string, refreshToken: string, user: UserDto, merge?: MobileAuthResponse['merge']) => Promise<void>
   updateUser: (user: UserDto) => Promise<void>
   getAccessToken: () => Promise<string | null>
   signOut: () => Promise<void>
@@ -122,6 +124,8 @@ interface AuthState {
    * means "we have not looked yet".
    */
   waitForSession: () => Promise<void>
+  /** The V2 sync API (`Features:V2Api`), probed once a session exists; read it with `useV2()`. */
+  v2: V2Switch
 }
 
 const AuthContext = createContext<AuthState>({
@@ -137,10 +141,16 @@ const AuthContext = createContext<AuthState>({
   // as "open the book signed out", which is the right fallback here too.
   ensureSession: async () => ({ status: 'failed', error: new Error('AuthProvider is missing') }),
   waitForSession: async () => {},
+  v2: V2_OFF,
 })
 
 export function useAuth() {
   return useContext(AuthContext)
+}
+
+/** `{enabled, maxPartBytes}`: whether this app start talks V2; screens hide by `v2Offers(v2, …)`. Off until probed. */
+export function useV2(): V2Switch {
+  return useContext(AuthContext).v2
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -245,7 +255,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.id])
 
   const signInWithTokens = useCallback(
-    async (accessToken: string, refreshToken: string, userData: UserDto) => {
+    async (accessToken: string, refreshToken: string, userData: UserDto, merge?: MobileAuthResponse['merge']) => {
       // Synchronous, and before anything can yield: this is what an in-flight
       // guest mint reads to discover that it lost.
       queueRef.current.bumpEpoch()
@@ -253,6 +263,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await SecureStore.setItemAsync('access_token', accessToken)
         await SecureStore.setItemAsync('refresh_token', refreshToken)
         await SecureStore.setItemAsync('user', JSON.stringify(userData))
+        // Another account's V2 cache must not answer this one; a merged guest's ids move first.
+        forgetV2Session()
+        if (merge) await applyV2MergeMap(merge)
         // Fresh session — allow the next terminal auth failure to fire
         // again (the latch is one-shot per session).
         resetAuthFailureLatch()
@@ -303,6 +316,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearAllLocalProgress().catch(() => {})
       clearPendingSessions().catch(() => {})
       clearReaderCache().catch(() => {})
+      forgetV2Session()
       setUser(null)
     })
   }, [runExclusive])
@@ -329,6 +343,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearAllLocalProgress().catch(() => {})
         clearPendingSessions().catch(() => {})
         clearReaderCache().catch(() => {})
+        forgetV2Session()
         setUser(null)
       }
     })
@@ -345,8 +360,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // The V2 probe (`GET /me/v2/status`, #1025) needs a session; once per app start. A call that needs
   // the answer before this runs starts it itself (`onV2`).
+  const [v2, setV2] = useState<V2Switch>(V2_OFF)
   useEffect(() => {
-    if (userId) void startV2Probe()
+    if (userId) void startV2Probe().then(setV2)
   }, [userId])
 
   // -------------------------------------------------------------------------
@@ -442,6 +458,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signOut,
         ensureSession,
         waitForSession,
+        v2,
       }}
     >
       {children}

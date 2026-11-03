@@ -5,8 +5,9 @@ import * as DocumentPicker from 'expo-document-picker'
 import { formatBytes } from '../../src/lib/formatBytes'
 import { getApiConfig } from '@textstack/shared'
 import { userBooksApi } from '../../src/lib/userBooksApi'
+import { v2Offers } from '@textstack/shared'
 import { colors } from '../../src/theme/colors'
-import { useAuth } from '../../src/context/AuthContext'
+import { useAuth, useV2 } from '../../src/context/AuthContext'
 import { useDownload } from '../../src/context/DownloadContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
 import { SessionGate } from '../../src/components/SessionGate'
@@ -31,6 +32,8 @@ function UploadScreen() {
   const { user } = useAuth()
   const { syncOfflineLibrary } = useDownload()
   const { canUpload } = capabilitiesFor(user)
+  // V2 (#1025): the quota line shows legacy's figure, not V2's (V2_FEATURES.storageQuota): hidden.
+  const showQuota = canUpload && v2Offers(useV2(), 'storageQuota')
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -47,11 +50,11 @@ function UploadScreen() {
     // answer is 50 MB and they may spend it (ADR-014 §3, reversed 2026-09-06).
     // The guard stays for the sessionless case, where `/me/books/quota` has no
     // bearer token and would only 401 into the console.
-    if (!canUpload) return
+    if (!showQuota) return
     userBooksApi.getStorageQuota()
       .then(setQuota)
       .catch(err => console.warn('getStorageQuota failed:', err))
-  }, [canUpload])
+  }, [showQuota])
 
   // Abort any in-flight upload on unmount so the user doesn't silently
   // consume bandwidth after navigating away, and so a subsequent retry
@@ -265,7 +268,7 @@ function UploadScreen() {
           <Text style={styles.title}>Upload a Book</Text>
           <Text style={styles.subtitle}>Supported formats: EPUB, PDF</Text>
 
-          {quota && (
+          {showQuota && quota && (
             <View style={styles.quotaBox}>
               <View style={styles.quotaBar}>
                 <View style={[styles.quotaFill, { width: `${usedPercent}%` as any }]} />

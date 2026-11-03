@@ -9,6 +9,13 @@ vi.mock('../../../context/LanguageContext', () => ({
   useLanguage: () => ({ language: 'en' }),
 }))
 
+// V2 on/off, per test (#1025): the real context otherwise.
+let v2On = false
+vi.mock('../../../context/AuthContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../context/AuthContext')>()),
+  useV2: () => ({ enabled: v2On, maxPartBytes: 0 }),
+}))
+
 const markComplete = vi.fn(async (_id: string) => {})
 const unmarkComplete = vi.fn(async (_id: string) => {})
 const del = vi.fn(async (_id: string) => {})
@@ -27,7 +34,7 @@ import { BookActionMenu } from '../BookActionMenu'
 import type { LibraryItem } from '../../../api/auth'
 import type { UserBook } from '../../../api/userBooks'
 
-afterEach(() => { cleanup(); markComplete.mockClear(); unmarkComplete.mockClear(); del.mockClear(); retry.mockClear(); cancel.mockClear() })
+afterEach(() => { v2On = false; cleanup(); markComplete.mockClear(); unmarkComplete.mockClear(); del.mockClear(); retry.mockClear(); cancel.mockClear() })
 
 const wrap = (node: React.ReactElement) =>
   render(<MemoryRouter>{node}</MemoryRouter>)
@@ -103,4 +110,24 @@ describe('BookActionMenu (userbook)', () => {
     fireEvent.click(screen.getByLabelText('library.actions.menu'))
     expect(screen.getByText('library.actions.markUnfinished')).toBeInTheDocument()
   })
+})
+
+describe('BookActionMenu (userbook) on V2', () => {
+  it('a Ready book offers view, mark finished and delete — no edit or collections (V2_FEATURES)', () => {
+    v2On = true
+    wrap(<BookActionMenu type="userbook" book={ub()} onChange={() => {}} />)
+    fireEvent.click(screen.getByLabelText('library.actions.menu'))
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+      'library.actions.viewDetails', 'library.actions.markFinished', 'library.actions.delete',
+    ])
+  })
+
+  it.each([['Failed', 'library.actions.retry'], ['Processing', 'library.actions.cancel']] as const)(
+    'a %s book has no %s', (status, hidden) => {
+      v2On = true
+      wrap(<BookActionMenu type="userbook" book={ub({ status })} onChange={() => {}} />)
+      fireEvent.click(screen.getByLabelText('library.actions.menu'))
+      expect(screen.queryByText(hidden)).not.toBeInTheDocument()
+      expect(screen.getByText('library.actions.delete')).toBeInTheDocument()
+    })
 })

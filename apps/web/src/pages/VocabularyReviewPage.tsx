@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth, useV2 } from '../context/AuthContext'
+import { v2Offers } from '@textstack/shared'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 import { completeCluster, type SelfAssessment } from '../api/vocabulary'
@@ -18,8 +19,8 @@ import { EmptyState } from '../components/EmptyState'
 
 export function VocabularyReviewPage() {
   const { user } = useAuth()
-  // V2: flashcards only, no cluster rounds (legacy-only data).
-  const { enabled: v2 } = useV2()
+  // V2: no cluster rounds (V2_FEATURES); the hook forces the review mode.
+  const v2 = useV2()
   const { language } = useLanguage()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -44,7 +45,7 @@ export function VocabularyReviewPage() {
   useEffect(() => {
     if (user) {
       sessionStartRef.current = Date.now()
-      if (clusterIdParam && !v2) {
+      if (clusterIdParam && v2Offers(v2, 'clusters')) {
         review.startClusterSession(clusterIdParam, initialReviewMode)
       } else {
         review.startSession(initialBatchSize, initialReviewMode, undefined, practiceMode)
@@ -147,7 +148,7 @@ export function VocabularyReviewPage() {
             review.retryWrong()
           }}
           onBatchChange={setBatchSize}
-          onModeChange={v2 ? undefined : (m: ReviewMode) => review.setReviewMode(m)}
+          onModeChange={v2.enabled ? undefined : (m: ReviewMode) => review.setReviewMode(m)}
         />
       </div>
     )

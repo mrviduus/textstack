@@ -29,7 +29,8 @@ interface Props {
   sort: string
   sortOptions: readonly { key: string; label: string }[]
   stats: VocabularyStatsDto | null
-  onSelectReviewMode: (next: ReviewModeKey) => void
+  /** Absent: one review style only (V2 is flashcards, V2_FEATURES). */
+  onSelectReviewMode?: (next: ReviewModeKey) => void
   onSelectSort: (next: string) => void
   onOpenSettings: () => void
   onClose: () => void
@@ -90,6 +91,7 @@ export function VocabViewSheet({
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
+          {onSelectReviewMode && <>
           <SectionHeading>Review style</SectionHeading>
           {/* The old segment showed two icons and two words in a filled bar with
               no heading, which QA read as "an unnamed orange strip". Naming what
@@ -108,6 +110,7 @@ export function VocabViewSheet({
             active={reviewMode === 'classic'}
             onPress={() => onSelectReviewMode('classic')}
           />
+          </>}
 
           <SectionHeading>Sort</SectionHeading>
           {sortOptions.map(s => (

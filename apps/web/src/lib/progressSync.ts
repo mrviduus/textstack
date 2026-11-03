@@ -131,6 +131,11 @@ export function timeoutSignal(ms: number): AbortSignal {
   return c.signal
 }
 
+/** A PUT that survives the page unloading (like sendBeacon, but a PUT), with the session cookie. */
+export function keepalivePut(url: string, body: string): Promise<Response> {
+  return fetch(url, { method: 'PUT', body, headers: { 'Content-Type': 'application/json' }, credentials: 'include', keepalive: true })
+}
+
 export function preferLocalProgress(local: { synced?: boolean } | null, hasServer: boolean): boolean {
   return !!local && (!hasServer || !local.synced)
 }

@@ -2,7 +2,8 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import type { TextSelectionState } from './useTextSelection'
 import type { useReaderVocabulary } from './useReaderVocabulary'
 import { useBubbleTranslationSync } from './useBubbleTranslationSync'
-import { promoteLookup } from '../api/vocabulary'
+import { promoteLookup, restoreWord } from '../api/vocabulary'
+import { emitDataChange } from '../lib/dataEvents'
 import { tokenizeVocabWords } from '../lib/vocabKey'
 import { fetchWordBubble } from '../lib/wordBubbleFetch'
 import { vocabChapterId } from '../lib/textAnchor'
@@ -54,6 +55,8 @@ export function useWordBubble({
   // Anti-spiral F2: toast when a save lands in the pending queue (daily cap hit).
   // Cleared on auto-dismiss; new pending saves overwrite the message.
   const [pendingToast, setPendingToast] = useState<string | null>(null)
+  // V2: a save answered `deleted` — the word the reader deleted earlier, offered back.
+  const [deletedWord, setDeletedWord] = useState<{ id: string; word: string } | null>(null)
 
   // Anti-spiral F1: rare-word state. When SaveWord returns lookup / lookup_pending
   // we keep the lookupId + kind so WordPopup can render RareWordNotice with an
@@ -149,7 +152,9 @@ export function useWordBubble({
       // stomping a newer in-flight save from a re-tap.
       setSavingWord((prev) => (prev === word ? null : prev))
     }
-    if (resp?.outcome === 'pending') {
+    if (resp?.outcome === 'deleted' && resp.word) {
+      setDeletedWord({ id: resp.word.id, word })
+    } else if (resp?.outcome === 'pending') {
       setPendingToast(t('reader.vocab.queuedForTomorrow'))
     } else if (resp?.outcome === 'lookup' || resp?.outcome === 'lookup_pending') {
       // Keep lookupId so "Add anyway" can POST /lookups/{id}/promote. No toast:
@@ -294,6 +299,17 @@ export function useWordBubble({
     }
   }, [lookupState, addAnywayBusy, t, closeBubble, recordSavedWord])
 
+  const restoreDeletedWord = useCallback(async () => {
+    if (!deletedWord) return
+    setDeletedWord(null)
+    try {
+      vocab.recordSavedWord(await restoreWord(deletedWord.id))
+      emitDataChange('vocabulary')
+    } catch {
+      setPendingToast(t('reader.vocab.restoreFailed'))
+    }
+  }, [deletedWord, vocab, t])
+
   return {
     bubble,
     closeBubble,
@@ -303,6 +319,9 @@ export function useWordBubble({
     savingWord,
     handleAddAnyway,
     pendingToast,
+    deletedWord,
+    dismissDeletedWord: () => setDeletedWord(null),
+    restoreDeletedWord,
     setPendingToast,
   }
 }

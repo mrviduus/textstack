@@ -107,7 +107,7 @@ describe('mobile v2', () => {
       clientRecordedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:01.000Z', resetRevision: null,
     }
     const calls = fakeApi({ 'PUT /books/b1/reading-state': [{ status: 409, body: { code: 'stale_revision', message: 'x', current } }] })
-    expect(await saveV2Progress('b1', { chapterSlug: null, locator: 'page:2', percent: 0.1 })).toEqual({})
+    expect(await saveV2Progress('b1', { chapterSlug: null, locator: 'page:2', percent: 0.1 })).toEqual({ adopted: expect.objectContaining({ locator: 'page:9' }) })
     expect(calls[0].body).toMatchObject({ expectedRevision: 3, fileId: 'f1', currentLocator: { scheme: 'pdf-page', value: { page: 2 } } })
     expect(await getUserBookV2State('b1')).toEqual({ revision: 5, fileId: 'f1' })
     expect(await getUserBookLocalProgress('b1')).toMatchObject({ page: 9, bookPercent: 0.4, synced: true })
@@ -119,8 +119,8 @@ describe('mobile v2', () => {
       { status: 409, body: { code: 'chapter_not_found', message: 'x' } },
       { status: 409, body: { code: 'file_replaced', message: 'x' } },
     ] })
-    expect(await saveV2Progress('b1', { chapterSlug: 'k1' })).toEqual({ dropped: true })
-    expect(await saveV2Progress('b1', { chapterSlug: 'k1' })).toEqual({ reload: true })
+    expect(await saveV2Progress('b1', { chapterSlug: 'k1' })).toBe('dropped')
+    expect(await saveV2Progress('b1', { chapterSlug: 'k1' })).toBe('reload')
     expect(await getUserBookV2State('b1')).toBeNull()
   })
 })

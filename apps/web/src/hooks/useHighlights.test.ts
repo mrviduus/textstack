@@ -310,3 +310,27 @@ describe('useHighlights.loaded', () => {
     expect((result.current as { loaded?: boolean }).loaded).toBe(false)
   })
 })
+
+describe('useHighlights on V2 (a user book)', () => {
+  afterEach(async () => {
+    vi.unstubAllGlobals()
+    ;(await import('../api/v2')).resetV2ForTests()
+  })
+
+  it('saves a new highlight under its own uuid, pending for the V2 sync — never the legacy POST', async () => {
+    const { fakeApi, V2_ON } = await import('../api/__tests__/fakeV2Api')
+    fakeApi(V2_ON)
+    await (await import('../api/v2')).startV2Probe()
+    vi.mocked(offlineDb.getHighlightsForUserBook).mockResolvedValue([])
+    const { result } = renderHook(() => useHighlights(undefined, 'b1', { isAuthenticated: true }))
+
+    let saved: StoredHighlight | undefined
+    await act(async () => {
+      saved = await result.current.addHighlight({ prefix: '', exact: 'x', suffix: '', startOffset: 0, endOffset: 1, chapterId: 'k' }, 'yellow', 'x')
+    })
+
+    expect(saved!.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4/)
+    expect(saved!.syncStatus).toBe('pending')
+    expect(userData.createPublicHighlight).not.toHaveBeenCalled()
+  })
+})

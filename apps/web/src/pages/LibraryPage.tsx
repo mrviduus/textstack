@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, useV2 } from '../context/AuthContext'
+import { v2Offers } from '@textstack/shared'
 import { useHighlightedBook } from '../hooks/useHighlightedBook'
 import { useLibrary } from '../hooks/useLibrary'
 import { useLanguage } from '../context/LanguageContext'
@@ -45,6 +46,8 @@ type ViewMode = 'list' | 'grid'
 
 export function LibraryPage() {
   const { isAuthenticated, isLoading: authLoading, user } = useAuth()
+  // V2 (#1025): no Read later shelf, content search, tags or collections on uploads (V2_FEATURES).
+  const v2 = useV2()
   const { items, loading, remove } = useLibrary()
   const { language } = useLanguage()
   const { t } = useTranslation()
@@ -129,7 +132,7 @@ export function LibraryPage() {
   // Content search (server-side FTS) — runs only when toggle is on and we have a query
   useEffect(() => {
     if (!showUploadsBlock) return
-    if (!contentSearch) { setContentHits(null); return }
+    if (!contentSearch || !v2Offers(v2, 'contentSearch')) { setContentHits(null); return }
     const parsed = parseQuery(queryD)
     if (!parsed.text) { setContentHits(null); return }
     const ctrl = new AbortController()
@@ -139,7 +142,7 @@ export function LibraryPage() {
       .catch(err => { if (err?.name !== 'AbortError') setContentHits([]) })
       .finally(() => setContentLoading(false))
     return () => ctrl.abort()
-  }, [contentSearch, queryD, showUploadsBlock])
+  }, [contentSearch, queryD, showUploadsBlock, v2])
 
   // Fetch user books
   const fetchUserBooks = useCallback(async () => {
@@ -413,7 +416,7 @@ export function LibraryPage() {
         <CollectionChips activeId={activeCollectionId} onSelect={onCollectionChange} />
 
         {/* Shelf tabs: Books (existing library) vs Read later (Send to TextStack clips) */}
-        <LibraryShelfTabs shelf={shelf} onSelect={setShelf} t={t} />
+        {v2Offers(v2, 'readLater') && <LibraryShelfTabs shelf={shelf} onSelect={setShelf} t={t} />}
 
         {shelf === 'readlater' ? (
           <ReadLaterShelf
@@ -449,8 +452,8 @@ export function LibraryPage() {
                   <LibrarySearch
                     value={query}
                     onChange={setQuery}
-                    contentSearch={showUploadsBlock ? contentSearch : undefined}
-                    onToggleContentSearch={showUploadsBlock ? setContentSearch : undefined}
+                    contentSearch={showUploadsBlock && v2Offers(v2, 'contentSearch') ? contentSearch : undefined}
+                    onToggleContentSearch={showUploadsBlock && v2Offers(v2, 'contentSearch') ? setContentSearch : undefined}
                   />
                   <LibraryStatusTabs value={status} onChange={setStatus} counts={combinedCounts} />
                 </>
@@ -560,8 +563,8 @@ export function LibraryPage() {
           onSelectAll={onSelectAllVisible}
           onMarkFinished={onBulkFinish}
           onDelete={onBulkDelete}
-          onAddTag={onBulkAddTag}
-          onAddToCollection={onBulkAddToCollection}
+          onAddTag={v2Offers(v2, 'tags') ? onBulkAddTag : undefined}
+          onAddToCollection={v2Offers(v2, 'collections') ? onBulkAddToCollection : undefined}
           busy={bulkBusy}
         />
       )}

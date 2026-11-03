@@ -144,6 +144,7 @@ export function ReaderHighlights({
 
   const {
     bubble, closeBubble, clearAutoSave, lookupState, addAnywayBusy, savingWord, handleAddAnyway, pendingToast, setPendingToast,
+    deletedWord, dismissDeletedWord, restoreDeletedWord,
   } = useWordBubble({
     selection, clearSelection, hasSelection, isSingleWord, bookLanguage, targetLang,
     editionId, chapterId, userBookId, bookTitle, nativeLanguage, hasConfirmedLanguage,
@@ -450,6 +451,15 @@ export function ReaderHighlights({
           duration={6000}
           onClose={dismissGuestNudge}
           action={{ label: t('guest.nudgeCta'), onClick: () => openAuthModal('register') }}
+        />
+      )}
+
+      {deletedWord && (
+        <Toast
+          message={t('reader.vocab.deletedEarlier', { word: deletedWord.word })}
+          duration={6000}
+          onClose={dismissDeletedWord}
+          action={{ label: t('reader.vocab.restore'), onClick: () => { void restoreDeletedWord() } }}
         />
       )}
 

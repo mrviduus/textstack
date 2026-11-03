@@ -1,3 +1,4 @@
+import type { V2MergeMap } from '../lib/v2Merge'
 import { PERCENT_UNIT_BOOK, PROGRESS_LOCATOR_END, PROGRESS_LOCATOR_START } from '@textstack/shared'
 import type { ReadingProgressDto, GuestMergeSkipReason } from '@textstack/shared'
 
@@ -28,6 +29,8 @@ export interface AuthResponse {
    * `GuestMergeSkipReason` in the shared types. Absent on the ordinary path.
    */
   guestMergeSkipped?: GuestMergeSkipReason | null
+  /** V2 on and a guest merged: the ids that changed (the client re-keys its local stores by it). */
+  merge?: V2MergeMap
 }
 
 async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {

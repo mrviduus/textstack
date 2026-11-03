@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createEngine, pdfAnchorToLocator, type ChapterDoc, type Locator, type ReaderEngine } from '@textstack/reader-engine'
-import { buildPdfProgressPayload, isPdfAnchor, parsePdfPageLocator, pdfGateReduce, PDF_GATE_INITIAL, resolveOpenPage } from '@textstack/shared'
+import { buildPdfProgressPayload, isPdfAnchor, pdfGateReduce, PDF_GATE_INITIAL, resolveOpenPage } from '@textstack/shared'
 import { useTranslation } from '../../hooks/useTranslation'
 import { refreshToken } from '../../api/auth'
 import { saveUserBookProgress } from '../../api/userBooks'
 import { readPdfPage, writePdfPage } from '../../lib/originalLayoutPref'
+import { applyV2Outcome } from '../../lib/v2Reading'
 import { openPdfSource } from '../../lib/pdfRangeSource'
 import { setMountedEngine, unmountEngine } from '../../lib/readerEngine'
 import { useNewerPositionCheck } from '../../hooks/useNewerPositionCheck'
@@ -192,12 +193,8 @@ export default function PdfEngineView({
     const stamp = Date.now()
     writePdfPage(bookId, p, stamp)
     saveUserBookProgress(bookId, buildPdfProgressPayload(p, np, stamp))
-      .then((outcome) => {
-        // V2 (#1025): a lost write takes the server's page as this device's; a replaced file reloads.
-        if (outcome?.reload) window.location.reload()
-        const page = parsePdfPageLocator(outcome?.adopted?.locator)
-        if (page != null) writePdfPage(bookId, page)
-      })
+      // V2 (#1025): a lost write takes the server's page as this device's; a replaced file reloads.
+      .then((outcome) => { applyV2Outcome(bookId, outcome) })
       .catch((err) => {
         console.warn('[progress] pdf save failed', err)
       })

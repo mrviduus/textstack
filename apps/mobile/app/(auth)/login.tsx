@@ -145,13 +145,13 @@ export default function LoginScreen() {
       } else if (mode === 'register') {
         const wasGuest = isGuest
         const result = await authApi.registerWithEmail(email.trim(), password, name.trim() || undefined)
-        await signInWithTokens(result.accessToken, result.refreshToken, result.user)
+        await signInWithTokens(result.accessToken, result.refreshToken, result.user, result.merge)
         warnIfNothingCarried(result, wasGuest)
         landAfterAuth(result.user)
       } else {
         const wasGuest = isGuest
         const result = await authApi.loginWithEmail(email.trim(), password)
-        await signInWithTokens(result.accessToken, result.refreshToken, result.user)
+        await signInWithTokens(result.accessToken, result.refreshToken, result.user, result.merge)
         warnIfNothingCarried(result, wasGuest)
         landAfterAuth(result.user)
       }
@@ -209,7 +209,7 @@ export default function LoginScreen() {
       if (!idToken) throw new Error('No ID token')
 
       const result = await authApi.loginWithGoogle(idToken)
-      await signInWithTokens(result.accessToken, result.refreshToken, result.user)
+      await signInWithTokens(result.accessToken, result.refreshToken, result.user, result.merge)
       warnIfNothingCarried(result, wasGuest)
       landAfterAuth(result.user)
     } catch (e: any) {
@@ -257,7 +257,7 @@ export default function LoginScreen() {
         credential.email,
       )
 
-      await signInWithTokens(result.accessToken, result.refreshToken, result.user)
+      await signInWithTokens(result.accessToken, result.refreshToken, result.user, result.merge)
       warnIfNothingCarried(result, wasGuest)
       landAfterAuth(result.user)
     } catch (e: any) {

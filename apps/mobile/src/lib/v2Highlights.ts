@@ -9,7 +9,7 @@
  */
 import { uuid } from 'expo-modules-core'
 import {
-  v2Api, highlightsApi, isPdfAnchor, v2AnchorLocator, anchorOfV2Locator, clip, V2_MAX_SELECTED_TEXT,
+  v2Api, highlightsApi, isPdfAnchor, anchorToV2Locator, v2LocatorToAnchor, clip, MAX_SELECTED_TEXT,
   type PublicHighlight, type UpdateHighlightData, type V2Annotation, type V2AnnotationWrite, type TextAnchor, type PdfAnchor,
 } from '@textstack/shared'
 import { onV2, v2Book } from './v2'
@@ -23,7 +23,7 @@ const remember = (a: V2Annotation) => {
 }
 
 export function toPublicHighlight(a: V2Annotation): PublicHighlight {
-  const anchor = anchorOfV2Locator(a.locator)
+  const anchor = v2LocatorToAnchor(a.locator)
   const chapterKey = anchor && !isPdfAnchor(anchor) ? anchor.chapterId : null
   return {
     id: a.id,
@@ -55,9 +55,9 @@ export function toV2Write(
     expectedRevision,
     bookId: h.userBookId,
     fileId: drawable ? fileId : null,
-    selectedText: clip(h.selectedText, V2_MAX_SELECTED_TEXT),
+    selectedText: clip(h.selectedText, MAX_SELECTED_TEXT),
     noteText: h.noteText?.trim() ? h.noteText : null,
-    locator: drawable ? v2AnchorLocator(anchor!, h.userChapterId ?? '') : null,
+    locator: drawable ? anchorToV2Locator(isPdfAnchor(anchor!) ? anchor! : { ...anchor!, chapterId: h.userChapterId! }) : null,
     color: h.color,
   }
 }

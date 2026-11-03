@@ -6,6 +6,8 @@ import {
   FINISHED_THRESHOLD,
 } from '@textstack/shared'
 import { userBooksApi } from '../lib/userBooksApi'
+import { v2Offers } from '@textstack/shared'
+import { useV2 } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useToast } from '../context/ToastContext'
 
@@ -24,6 +26,8 @@ interface UploadCtx {
 }
 
 export function useBookActions() {
+  // V2 (#1025): open, finish and delete; collections, retry and cancel have no V2 counterpart (V2_FEATURES).
+  const v2 = useV2()
   const { language, t } = useLanguage()
   const { show: showToast } = useToast()
 
@@ -129,20 +133,20 @@ export function useBookActions() {
           isFinished ? 'Mark as unfinished' : 'Mark as finished',
         ),
       })
-      if (ctx.onAddToCollection) {
+      if (ctx.onAddToCollection && v2Offers(v2, 'collections')) {
         buttons.push({
           text: t('library.actions.addToCollection'),
           onPress: ctx.onAddToCollection,
         })
       }
     }
-    if (isFailed) {
+    if (isFailed && v2Offers(v2, 'retry')) {
       buttons.push({
         text: t('library.actions.retry'),
         onPress: () => run(() => userBooksApi.retryUserBook(item.id), 'Retry'),
       })
     }
-    if (isProcessing) {
+    if (isProcessing && v2Offers(v2, 'retry')) {
       buttons.push({
         text: t('library.actions.cancel'),
         style: 'destructive',
@@ -178,7 +182,7 @@ export function useBookActions() {
     buttons.push({ text: t('library.actions.cancel'), style: 'cancel' })
 
     Alert.alert(item.title || 'Untitled', undefined, buttons)
-  }, [t, showToast])
+  }, [t, showToast, v2])
 
   return { showSavedActions, showUploadActions }
 }

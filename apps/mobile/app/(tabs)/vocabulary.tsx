@@ -4,10 +4,10 @@ import {
   RefreshControl, ScrollView } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
-import { isOfflineError, plural } from '@textstack/shared'
+import { isOfflineError, plural, v2Offers } from '@textstack/shared'
 import { vocabularyApi } from '../../src/lib/vocabularyApi'
 import type { VocabularyWordDto, VocabularyStatsDto, PendingVocabWordDto, WordLookupDto } from '@textstack/shared'
-import { useAuth } from '../../src/context/AuthContext'
+import { useAuth, useV2 } from '../../src/context/AuthContext'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
 import { useToast } from '../../src/context/ToastContext'
@@ -53,6 +53,8 @@ export default function VocabularyScreen() {
   // `isAuthenticated` is false for the whole of it. Passed through so the machine can
   // hold the skeleton instead of flashing the sign-in wall on a cold start.
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth()
+  // V2 (#1025): no tutor, cluster rounds or review-style switch (V2_FEATURES); review runs as flashcards.
+  const v2 = useV2()
   const { colors } = useTheme()
   const { t } = useLanguage()
   const router = useRouter()
@@ -314,7 +316,7 @@ export default function VocabularyScreen() {
         stats={stats}
         dueCount={dueCount}
         onPractice={() => router.push(`/vocabulary/review?reviewMode=${reviewMode}`)}
-        onSmartSession={() => router.push('/tutor')}
+        onSmartSession={v2Offers(v2, 'tutor') ? () => router.push('/tutor') : undefined}
         smartSessionLabel={t('tutor.entry.cta')}
       />
 
@@ -330,14 +332,14 @@ export default function VocabularyScreen() {
         sort={sort}
         sortOptions={SORT_OPTIONS}
         stats={stats}
-        onSelectReviewMode={selectReviewMode}
+        onSelectReviewMode={v2.enabled ? undefined : selectReviewMode}
         onSelectSort={k => setSort(k as SortKey)}
         onOpenSettings={() => setSettingsOpen(true)}
         onClose={() => setViewSheetOpen(false)}
       />
 
       {/* Cluster bonus card — only when an active, non-dismissed cluster exists */}
-      {stats && (stats.clusterCount ?? 0) > 0 && (
+      {v2Offers(v2, 'clusters') && stats && (stats.clusterCount ?? 0) > 0 && (
         <ClusterBonusCard onChange={() => { offsetRef.current = 0; loadData() }} />
       )}
 

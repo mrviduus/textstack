@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { View, Text, StyleSheet } from 'react-native'
-import { userBooksApi } from '@textstack/shared'
+import { userBooksApi, v2Offers } from '@textstack/shared'
+import { useV2 } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
@@ -38,16 +39,19 @@ export function StorageQuotaRow({ variant = 'full', refreshKey = 0 }: Props) {
   const { colors } = useTheme()
   const { t } = useLanguage()
   const [quota, setQuota] = useState<{ usedBytes: number; limitBytes: number } | null>(null)
+  // V2 (#1025): the figure is legacy's, not the V2 quota (V2_FEATURES.storageQuota): hidden.
+  const offered = v2Offers(useV2(), 'storageQuota')
 
   useEffect(() => {
+    if (!offered) return
     let cancelled = false
     userBooksApi.getStorageQuota()
       .then(q => { if (!cancelled) setQuota(q) })
       .catch(e => console.warn('Storage quota fetch failed:', e))
     return () => { cancelled = true }
-  }, [refreshKey])
+  }, [refreshKey, offered])
 
-  if (!quota || quota.limitBytes <= 0) return null
+  if (!offered || !quota || quota.limitBytes <= 0) return null
 
   const fraction = quota.usedBytes / quota.limitBytes
   if (variant === 'warning' && fraction < QUOTA_WARN_AT) return null

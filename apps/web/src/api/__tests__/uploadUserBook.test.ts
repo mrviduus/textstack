@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { uploadUserBook, RATE_LIMIT_WAIT_MS } from '../userBooks'
+import { startV2Probe, resetV2ForTests, V2UploadError } from '../v2'
+import { fakeApi, V2_ON, book } from './fakeV2Api'
 
 // Cloudflare 413s any single request body over ~100 MB before it reaches the API. A file above the
 // server's maxSingleUploadBytes must go up as parts + complete; a small one stays one multipart POST.
@@ -137,5 +139,30 @@ describe('uploadUserBook', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('uploadUserBook on V2', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    resetV2ForTests()
+  })
+
+  it("reads a part's 413 as quota_exceeded, with the used and limit it carries", async () => {
+    const B = '00000000-0000-4000-8000-00000000b001'
+    vi.spyOn(crypto, 'randomUUID').mockReturnValueOnce(B).mockReturnValueOnce('00000000-0000-4000-8000-00000000f001')
+    fakeApi({
+      ...V2_ON,
+      'GET /me/v2/books/by-sha256/74f81fe167d99b4cb41d6d0ccda82278caee9f3e2f25d5e5a3936ff3dcec60d0': [{ status: 404 }],
+      [`PUT /me/v2/books/${B}`]: [{ status: 201, body: book(B, 'f') }],
+    })
+    await startV2Probe()
+    stubXhr([413], JSON.stringify({ code: 'quota_exceeded', message: 'x', current: { used: 9, limit: 10 } }))
+
+    const error = await uploadUserBook(new File([new Uint8Array([1, 2, 3, 4, 5])], 'b.epub')).catch((e) => e)
+
+    expect(error).toBeInstanceOf(V2UploadError)
+    expect(error).toMatchObject({ code: 'quota_exceeded', quota: { used: 9, limit: 10 } })
   })
 })

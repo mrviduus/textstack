@@ -6,7 +6,7 @@
  */
 import * as v2Api from './v2'
 import type { V2Word } from './v2'
-import { clip } from '../reader/v2Locators'
+import { clip } from '../reader/textAnchor'
 import type { VocabularyWordDto, SaveWordResponseDto, ReviewCardDto, WeeklyProgressDto, SubmitReviewResponse } from '../types/api'
 
 export interface V2VocabularyPlatform {

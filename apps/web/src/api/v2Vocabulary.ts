@@ -5,17 +5,15 @@
  * ADR-031 D6).
  */
 import { v2Api, type V2Word } from '@textstack/shared'
-import { v2Book, clip, pullFeed } from './v2'
+import { clip } from '@textstack/shared'
+import { v2Book, pullFeed, v2Store } from './v2'
 import type {
   VocabWordDto, SaveWordRequest, SaveWordResponse, UpdateWordRequest, ReviewQueueResponse,
   SubmitReviewRequest, SubmitReviewResponse, ReaderVocabWordDto,
 } from './vocabulary'
 
-// The card revisions of the last pull: an edit names the one it read.
-const revisions = new Map<string, number>()
-
 const remember = (w: V2Word) => {
-  revisions.set(w.id, w.revision)
+  v2Store.revisions.set(w.id, w.revision)
   return w
 }
 
@@ -61,7 +59,9 @@ export async function saveV2Word(data: SaveWordRequest & { id?: string; operatio
   const sentence = nullable(data.sentence, 1000)
   const bookId = data.userBookId ?? null
   const fileId = bookId ? (await v2Book(bookId).catch(() => null))?.currentFile?.id ?? null : null
-  const word = remember(await v2Api.saveWord({
+  let saved: V2Word
+  try {
+    saved = await v2Api.saveWord({
     id: data.id ?? crypto.randomUUID(),
     language: data.language,
     word: clip(data.word, 200),
@@ -75,8 +75,27 @@ export async function saveV2Word(data: SaveWordRequest & { id?: string; operatio
       chapterKey: bookId ? data.chapterId ?? null : null,
       bookTitle: nullable(data.bookTitle, 500),
     } : undefined,
-  }))
-  return { outcome: 'srs', word: toVocabWord(word), pendingId: null, lookupId: null, tapsRemaining: null, reason: null }
+    })
+  } catch (e) {
+    // The reader deleted this word earlier: say so, and offer the restore (`restoreV2Word`).
+    const err = v2Api.v2ErrorOf(e)
+    if (err?.code !== 'deleted' || !err.current) throw e
+    return { outcome: 'deleted', word: toVocabWord(remember(err.current as V2Word)), pendingId: null, lookupId: null, tapsRemaining: null, reason: null }
+  }
+  return { outcome: 'srs', word: toVocabWord(remember(saved)), pendingId: null, lookupId: null, tapsRemaining: null, reason: null }
+}
+
+/** Bring a deleted card back, on the revision its tombstone carried. */
+export async function restoreV2Word(id: string): Promise<VocabWordDto> {
+  const revision = v2Store.revisions.get(id) ?? remember(await v2Api.getWord(id)).revision
+  return toVocabWord(remember(await v2Api.restoreWord(id, revision)))
+}
+
+/** "Delete all" as one DELETE per live card. ponytail: per-item requests; a bulk route if libraries grow. */
+export async function deleteAllV2Words(): Promise<{ deleted: number }> {
+  const live = await liveWords()
+  for (const w of live) await deleteV2Word(w.id)
+  return { deleted: live.length }
 }
 
 /** The list page's query, applied to the full pull: stage ('0', '1,2,3'), search, sort, paging. */
@@ -104,7 +123,7 @@ export async function getV2ReaderVocab(): Promise<ReaderVocabWordDto[]> {
 
 export async function deleteV2Word(id: string): Promise<void> {
   await v2Api.deleteWord(id)
-  revisions.delete(id)
+  v2Store.revisions.delete(id)
 }
 
 /** An edit on the revision last read; lost to another device's edit, it is applied once more on top. */
@@ -119,7 +138,7 @@ export async function updateV2Word(id: string, data: UpdateWordRequest): Promise
     // TR-2: an automatic fill never replaces a translation — checked against every card it would land on.
     if (data.onlyIfEmpty && card?.translation) return toVocabWord(card)
     try {
-      return toVocabWord(remember(await patch(card?.revision ?? revisions.get(id) ?? remember(await v2Api.getWord(id)).revision)))
+      return toVocabWord(remember(await patch(card?.revision ?? v2Store.revisions.get(id) ?? remember(await v2Api.getWord(id)).revision)))
     } catch (e) {
       const err = v2Api.v2ErrorOf(e)
       if (retried || err?.code !== 'stale_revision' || !err.current) throw e
@@ -153,10 +172,10 @@ export async function getV2ReviewQueue(limit?: number, includeAll?: boolean): Pr
   }
 }
 
-/** One answer; the server schedules it (S3). */
-export async function submitV2Review(data: SubmitReviewRequest & { reviewMode?: string }): Promise<SubmitReviewResponse> {
+/** One answer; the server schedules it (S3). `operationId` is the answer's: a retry of it sends the same one. */
+export async function submitV2Review(data: SubmitReviewRequest & { reviewMode?: string; operationId?: string }): Promise<SubmitReviewResponse> {
   const { review, word } = await v2Api.recordReview({
-    operationId: crypto.randomUUID(),
+    operationId: data.operationId ?? crypto.randomUUID(),
     wordId: data.wordId,
     reviewMode: data.reviewMode || 'review',
     isCorrect: data.isCorrect,

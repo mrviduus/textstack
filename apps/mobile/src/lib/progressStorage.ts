@@ -313,3 +313,23 @@ export async function getAllLocalProgress(): Promise<Map<string, LocalProgress>>
   }
   return map
 }
+
+/**
+ * V2 guest → account merge: an upload's local records move from the guest's book id to the
+ * account's. The stored revision is dropped (it named the guest's row): the next write reads anew.
+ */
+export async function rekeyUserBookProgress(books: Record<string, string>): Promise<void> {
+  try {
+    for (const [from, to] of Object.entries(books)) {
+      for (const prefix of [USERBOOK_KEY_PREFIX, USERBOOK_PDF_PREFIX]) {
+        const value = await AsyncStorage.getItem(prefix + from)
+        if (value == null) continue
+        await AsyncStorage.setItem(prefix + to, value)
+        await AsyncStorage.removeItem(prefix + from)
+      }
+      await AsyncStorage.removeItem(USERBOOK_V2_PREFIX + from)
+    }
+  } catch {
+    // Storage unavailable: the old ids stay, and their writes are refused and dropped.
+  }
+}

@@ -61,6 +61,15 @@ export function flushPendingSessions(submit: Submit = submitSession): Promise<vo
   })
 }
 
+/** V2 guest → account merge: queued sessions name the account's book id. */
+export function rekeyPendingSessions(books: Record<string, string>): Promise<void> {
+  return serialized(async () => {
+    const queue = await read()
+    if (!queue.some(s => s.userBookId && books[s.userBookId])) return
+    await write(queue.map(s => (s.userBookId && books[s.userBookId] ? { ...s, userBookId: books[s.userBookId] } : s)))
+  })
+}
+
 /** Sign-out: one account's unsent sessions must not be posted under the next one. */
 export function clearPendingSessions(): Promise<void> {
   return serialized(() => AsyncStorage.removeItem(KEY))
