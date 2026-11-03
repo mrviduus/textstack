@@ -651,18 +651,21 @@ public partial class AuthService
             await tx.CommitAsync(ct);
         }
 
-        await DeleteStoredAsync("DeleteUserDirectory", userId, s => s.DeleteUserDirectoryAsync(userId, ct));
-        if (avatarPath != null)
-            await DeleteStoredAsync("DeleteAvatar", userId, s => s.DeleteFileAsync(avatarPath, ct));
+        if (_storage is not null)
+        {
+            await DeleteStoredAsync("DeleteUserDirectory", userId, () => _storage.DeleteUserDirectoryAsync(userId, ct));
+            if (avatarPath != null)
+                await DeleteStoredAsync("DeleteAvatar", userId, () => _storage.DeleteFileAsync(avatarPath, ct));
+        }
         return true;
     }
 
     // An orphan file is recoverable, but it must be observable.
-    private async Task DeleteStoredAsync(string operation, Guid userId, Func<IFileStorageService, Task> delete)
+    private async Task DeleteStoredAsync(string operation, Guid userId, Func<Task> delete)
     {
         try
         {
-            await delete(_storage!);
+            await delete();
         }
         catch (Exception ex)
         {
