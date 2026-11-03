@@ -15,16 +15,17 @@ import { v2ReaderPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
  * ready → openUrl → opened → restore → restored, then store / relocate / word / openLink.
  */
 
-const V2_ROOT = new Directory(Paths.document, 'v2')
+// Built on use: at module scope it threw on the web bundle (expo-file-system web has no paths), which loads every route.
+const v2Root = () => new Directory(Paths.document, 'v2')
 
 /** `name` under <documents>/v2/, e.g. `books/<sha256>.epub`. */
-const v2File = (name: string) => new File(V2_ROOT, ...name.split('/'))
+const v2File = (name: string) => new File(v2Root(), ...name.split('/'))
 
 function deviceFiles(): V2Files {
   // Anything still staged belongs to an open that never finished in an earlier process.
-  const staging = new Directory(V2_ROOT, 'staging')
+  const staging = new Directory(v2Root(), 'staging')
   if (staging.exists) staging.delete()
-  for (const dir of ['books', 'store', 'staging']) new Directory(V2_ROOT, dir).create({ intermediates: true, idempotent: true })
+  for (const dir of ['books', 'store', 'staging']) new Directory(v2Root(), dir).create({ intermediates: true, idempotent: true })
   return {
     read: async (name) => {
       const file = v2File(name)
