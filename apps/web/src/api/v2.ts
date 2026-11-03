@@ -371,7 +371,7 @@ export function v2UploadMessage(err: unknown, t: (key: string, vars?: Record<str
 
 /** Lowercase hex SHA-256 of the file: the browser's own digest, the whole file in memory (≤ 500 MB). */
 export async function sha256Hex(file: Blob): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(await file.arrayBuffer()))
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
