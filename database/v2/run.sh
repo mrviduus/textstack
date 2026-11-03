@@ -3,6 +3,8 @@
 # runs migrate.sh with the same arguments. See database/v2/README.md.
 #
 #   run.sh up | down <version> | status | verify
+#   run.sh create    only the CREATE below, no migrations: the empty database `make restore-v2` loads
+#   run.sh drop <name>   DROP DATABASE, the baseline's only rollback; <name> must equal PGDATABASE
 #
 # Connection: the libpq variables, as for migrate.sh. PGUSER must be allowed to CREATE DATABASE,
 # and the server must have the maintenance database `postgres` to run that statement from.
@@ -30,7 +32,7 @@ set -eu
 # `/health/ready` reports this database's collation version either way (#1059): ICU can move too,
 # it just cannot move without the image moving.
 case "${1:-}" in
-up | down)
+up | down | create)
     # The check and the CREATE are two statements, so two runners can both find the database
     # missing. The loser is told it already exists — which is the state it wanted, so it goes on;
     # anything else is a real failure and stops the container before migrate.sh runs.
@@ -47,6 +49,19 @@ SQL
         esac
     fi
     ;;
+drop)
+    # 0000_baseline has no down file, so `down 0` undoes nothing: this is its rollback, everything
+    # in the database is lost, and the next `up` builds it again. The name is typed twice (here and
+    # in PGDATABASE) so a mis-set variable cannot drop some other database. FORCE closes the Api's
+    # open V2 connections; /me/v2 answers 503 until the next `up`.
+    [ "${2:-}" = "$PGDATABASE" ] || { echo "refusing: run.sh drop $PGDATABASE (the name must match PGDATABASE)" >&2; exit 1; }
+    psql -X -q -v ON_ERROR_STOP=1 -v db="$PGDATABASE" -d postgres <<'SQL'
+DROP DATABASE IF EXISTS :"db" WITH (FORCE);
+SQL
+    echo "Dropped $PGDATABASE (if it existed)."
+    exit 0
+    ;;
 esac
+[ "${1:-}" != create ] || exit 0
 
 exec sh "$(dirname "$0")/migrate.sh" "$@"

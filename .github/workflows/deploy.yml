@@ -267,6 +267,18 @@ jobs:
           # Keep only the 2 newest pre-deploy backups
           cd ~/backups/textstack && ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
 
+      # The V2 database's rollback point (ADR-030, #1043), after legacy's. A deploy never migrates V2
+      # (that is `make migrate-v2`), and nothing legacy may wait on V2 (the 2026-10-30 postmortem):
+      # a missing database is skipped and a failed dump is a warning, never a stopped deploy.
+      - name: Pre-deploy backup (V2)
+        continue-on-error: true
+        run: |
+          v2=$(sed -n 's/^V2_POSTGRES_DB=//p' $PROJECT_DIR/.env | tr -d "\"' ")
+          v2=${v2:-textstack_v2}
+          POSTGRES_USER=textstack_prod bash $PROJECT_DIR/infra/scripts/pg-dump-checked.sh \
+            "$v2" ~/backups/textstack/"$v2-pre-deploy-$(date +%F-%H%M).sql.gz"
+          cd ~/backups/textstack && ls -1t $v2-pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
+
       # Vite reads apps/web/.env* and inlines VITE_* values into public JS. Nothing
       # here needs those files — the four VITE_ variables the code reads come from
       # apps/web/production.env (the fallback build below exports them, and the
