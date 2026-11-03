@@ -64,6 +64,7 @@ public class GuestCleanupWorker(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
         var storage = scope.ServiceProvider.GetRequiredService<IFileStorageService>();
+        var v2 = scope.ServiceProvider.GetRequiredService<V2AccountDeletion>();
 
         var cutoff = DateTimeOffset.UtcNow - ExpiryThreshold;
 
@@ -90,9 +91,6 @@ public class GuestCleanupWorker(
 
         logger.LogInformation("Cleaning up {Count} expired guest users", expiredGuests.Count);
 
-        V2AccountDeletion? v2 = null;
-        V2AccountDeletion V2() => v2 ??= scope.ServiceProvider.GetRequiredService<V2AccountDeletion>();
-
         foreach (var guest in expiredGuests)
         {
             // Legacy's filter cannot see V2: a guest that uploaded or annotated there is engaged too.
@@ -101,7 +99,7 @@ public class GuestCleanupWorker(
             {
                 var holdsNothing = false;
                 if (!await V2Follow.RunAsync(config, logger, "expired guest check", guest.Id, guest.Id,
-                        async t => holdsNothing = await V2().HoldsNothingDurableAsync(guest.Id, t), V2Budget))
+                        async t => holdsNothing = await v2.HoldsNothingDurableAsync(guest.Id, t), V2Budget))
                 {
                     logger.LogWarning("Guest cleanup stopped: V2 cannot say what expired guests hold there; none reaped this run");
                     return;
@@ -138,7 +136,7 @@ public class GuestCleanupWorker(
                 await db.SaveChangesAsync(ct);
 
                 logger.LogInformation("Deleted expired guest {GuestId}", guest.Id);
-                await V2Follow.RunAsync(config, logger, "expired guest delete", guest.Id, guest.Id, t => V2().DeleteAsync(guest.Id, t), V2Budget);
+                await V2Follow.RunAsync(config, logger, "expired guest delete", guest.Id, guest.Id, t => v2.DeleteAsync(guest.Id, t), V2Budget);
             }
             catch (Exception ex)
             {

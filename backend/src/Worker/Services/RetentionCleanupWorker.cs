@@ -69,19 +69,22 @@ public class RetentionCleanupWorker(
         using var scope = scopeFactory.CreateScope();
         var services = scope.ServiceProvider;
         var db = services.GetRequiredService<IAppDbContext>();
+        var sessions = services.GetRequiredService<ISessionTokenRepository>();
+        var devices = services.GetRequiredService<IDeviceLoginRepository>();
+        var oauth = services.GetRequiredService<IOAuthRepository>();
 
         var now = DateTimeOffset.UtcNow;
         // A day past expiry: nothing reads an expired token (refresh filters on expiry, reuse detection
         // reads live rows only), and an in-flight request never races the sweep.
         var tokenCutoff = now - TokenGrace;
         await DeleteAsync("sessions",
-            () => services.GetRequiredService<ISessionTokenRepository>().DeleteExpiredSessionsAsync(tokenCutoff, ct), ct);
+            () => sessions.DeleteExpiredSessionsAsync(tokenCutoff, ct), ct);
         await DeleteAsync("password reset tokens",
-            () => services.GetRequiredService<ISessionTokenRepository>().DeleteExpiredPasswordResetsAsync(tokenCutoff, ct), ct);
+            () => sessions.DeleteExpiredPasswordResetsAsync(tokenCutoff, ct), ct);
         await DeleteAsync("device authorizations",
-            () => services.GetRequiredService<IDeviceLoginRepository>().DeleteExpiredAsync(tokenCutoff, ct), ct);
+            () => devices.DeleteExpiredAsync(tokenCutoff, ct), ct);
         await DeleteAsync("OAuth grants",
-            () => services.GetRequiredService<IOAuthRepository>().DeleteDeadGrantsAsync(tokenCutoff, ct), ct);
+            () => oauth.DeleteDeadGrantsAsync(tokenCutoff, ct), ct);
         // Traces keep their cost, tokens and latency for spend history; only the text goes.
         // Batches: the first run rewrites months of text (~750 MB); one statement would be one huge
         // transaction.
