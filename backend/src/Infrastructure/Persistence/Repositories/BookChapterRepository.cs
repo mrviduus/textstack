@@ -60,6 +60,14 @@ public sealed class BookChapterRepository(V2DataSource dataSource) : IBookChapte
         return chapter is null ? (null, null, null) : (chapter, previous, next);
     }
 
+    private const string ChapterExists = $"SELECT EXISTS (SELECT FROM book_chapters WHERE {ChapterByKey})";
+
+    public async Task<bool> ExistsAsync(Guid userId, Guid fileId, string chapterKey, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return await conn.ExecuteScalarAsync<bool>(new CommandDefinition(ChapterExists, new { userId, fileId, chapterKey }, cancellationToken: ct));
+    }
+
     private const string SelectPlainText = $"SELECT plain_text FROM book_chapters WHERE {ChapterByKey}";
 
     public async Task<string?> GetPlainTextAsync(Guid userId, Guid fileId, string chapterKey, CancellationToken ct)

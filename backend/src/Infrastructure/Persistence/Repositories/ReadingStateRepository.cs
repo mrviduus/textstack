@@ -1,5 +1,6 @@
 using Application.Common;
 using Application.Reading;
+using Application.Transitional;
 using Dapper;
 using Domain.Reading;
 using Npgsql;
@@ -27,6 +28,14 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
             new CommandDefinition(SelectState, new { userId, bookId }, cancellationToken: ct));
     }
 
+    // Transitional (M2.7a, dropped at R8): a textstack-* locator lands only on a chapter of its file, checked
+    // in the write itself so a re-extraction cannot slip between a check and the write.
+    private const string CurrentChapterExists =
+        "(CAST(@CurrentKey AS text) IS NULL OR EXISTS (SELECT FROM book_chapters c WHERE c.user_id = @userId AND c.file_id = @FileId AND c.chapter_key = @CurrentKey))";
+
+    private const string FrontierChapterExists =
+        "(CAST(@FrontierKey AS text) IS NULL OR EXISTS (SELECT FROM book_chapters c WHERE c.user_id = @userId AND c.file_id = @FileId AND c.chapter_key = @FrontierKey))";
+
     // A first write may only start on the book's current file; ON CONFLICT turns "someone wrote
     // first" into no row returned. Selecting the file by user also makes another user's ids a loss.
     private const string InsertFirstState = $"""
@@ -34,6 +43,7 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
         SELECT f.user_id, f.book_id, f.id, CAST(@CurrentLocator AS jsonb), @BookFraction, CAST(@FrontierLocator AS jsonb), @FrontierFraction, @CompletedAt, @ClientRecordedAt, now(), 1
         FROM book_files f
         WHERE f.user_id = @userId AND f.book_id = @bookId AND f.id = @FileId AND f.is_current
+            AND {CurrentChapterExists} AND {FrontierChapterExists}
         -- Waits for a replacement in flight, then re-checks is_current: no state lands on a superseded file.
         FOR SHARE OF f
         ON CONFLICT (user_id, book_id) DO NOTHING
@@ -54,11 +64,14 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
             updated_at = now(),
             revision = revision + 1
         WHERE user_id = @userId AND book_id = @bookId AND file_id = @FileId AND revision = @expectedRevision
+            -- The frontier's chapter only when this write stores it: an unchanged one echoed back is not refused.
+            AND {CurrentChapterExists}
+            AND (frontier_fraction IS NOT NULL AND @FrontierFraction <= frontier_fraction OR {FrontierChapterExists})
         RETURNING {Columns}
         """;
 
     public async Task<RevisionedWrite<ReadingState>> AdvanceAsync(
-        Guid userId, Guid bookId, ReadingState state, long? expectedRevision, CancellationToken ct)
+        Guid userId, Guid bookId, ReadingState state, long? expectedRevision, TransitionalChapterKeys chapters, CancellationToken ct)
     {
         var (frontierLocator, frontierFraction) = ReadingState.Furthest(
             (state.FrontierLocator, state.FrontierFraction), (state.CurrentLocator, state.BookFraction));
@@ -74,6 +87,8 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
             FrontierFraction = frontierFraction,
             state.CompletedAt,
             state.ClientRecordedAt,
+            CurrentKey = chapters.Current,
+            FrontierKey = chapters.Frontier,
         };
         await using (var conn = await dataSource.OpenConnectionAsync(ct))
         {

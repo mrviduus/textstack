@@ -115,10 +115,55 @@ One per book (`reading_state`, PK `(user_id, book_id)`), always on one file vers
 | `clientRecordedAt` | time | yes | the client's clock, already clamped by the client to its now + 5 min (ADR-019 `MAX_CLIENT_SKEW_MS`); the server stores it as sent |
 | `revision`, `updatedAt`, `resetRevision` | | server | see [The revision rule](#the-revision-rule) |
 
-**Locator schemes on V2 writes:** `epub-cfi` and `pdf-page` only. `textstack-position-v1` /
-`textstack-anchor-v1` exist for migrated rows (ADR-031) and are refused (400 `invalid_payload`).
+**Locator schemes on V2 writes:** `epub-cfi` and `pdf-page` from the V2 reader; the legacy
+reader's `textstack-position-v1` and `textstack-anchor-v1` from the transitional server-chapter
+reader (M2.7a, owner decision 2026-11-02, #1112). Only `epub-cfi` carries `quote`.
 `pdf-page` values: a position is `{"page":N}` (1-based int); an annotation is the legacy `PdfAnchor`
 `{"page":N,"rects":[{"x":…,"y":…,"w":…,"h":…}],"exact":"…"}` (page-relative, unscaled numbers).
+
+**Transitional locators (until R8).** The two `textstack-*` schemes, as `textPosition.ts` and
+`textAnchor.ts` serialize them; members a value does not name pass, as on `epub-cfi` (the serialized
+`TextPosition` carries its own `v`):
+
+| Scheme | Use | `value` |
+|---|---|---|
+| `textstack-position-v1` | reading-state `currentLocator` / `frontierLocator` only | `chapterSlug` (the chapter key: 1–200, non-blank), `chapterFraction` (0..1), optional `anchor` `{prefix, exact, suffix, startOffset, endOffset}` (`exact` 1–64 code points, `prefix`/`suffix` ≤ 32, offsets integers ≥ 0 with `endOffset ≥ startOffset`), optional `charOffset` (integer ≥ 0). A scroll-only position has no `anchor` (ADR-031 decided item 5) |
+| `textstack-anchor-v1` | annotation `locator` only | `chapterKey` (1–200, non-blank), `prefix`, `exact` (≤ 4000 code points, a sanity bound; `selectedText`'s 4000 UTF-16 units binds first), `suffix`, `startOffset`, `endOffset`, otherwise the same rules as the position's `anchor`; offsets are int32 |
+
+The server counts quote and context in code points. The clients cut them in UTF-16 units (the unit
+of the offsets) but never between the halves of a surrogate pair (`notInSurrogatePair`, used by
+`buildTextPosition` and the engine's `quoteAt`): a lone surrogate has no UTF-8 form and is refused
+like a NUL.
+
+A scheme in the other use, or a value breaking a rule, is 400 `invalid_payload`. Each such write is
+accepted only on a file version of the user's whose extracted chapters (`book_chapters`,
+`(user_id, file_id, chapter_key)`) include the one it names — otherwise 409 `chapter_not_found`,
+also for a file that has no chapters (never uploaded, or its extraction not finished). On reading
+state the check is part of the write statement (a re-extraction cannot slip between a check and the
+write) and covers what the write stores: the position's chapter always, the frontier's only when that
+frontier is stored (none stored yet, or the offered one is further) — a client echoing back a stored
+frontier whose chapter was renamed is not refused. The file's own codes come first: a loss on a file
+that is not the current one is `file_replaced` / `unknown_file`, as any write on it. Annotations check
+only a locator the write sets: an edit or a replay keeping the stored one is not refused. A catalog book has no file, and a locator
+needs a `fileId` (400 without one), so these schemes never reach a file-less book. **No server or
+client converts a `textstack-*` locator to a CFI, and foliate is never given one**: it is stored and
+returned as sent, and only the transitional reader resolves it, against `book_chapters`.
+
+**Two readers on one book.** Schemes are never compared: the revision rule alone decides which write
+wins, whichever scheme it carries. The frontier is kept by fraction (`ReadingState.Furthest`), so a
+`textstack-*` position and an `epub-cfi` position of one book are ordered by `bookFraction` like any
+two. A reader that cannot resolve the stored scheme resumes from `bookFraction` (ADR-031
+"Consequences"), and its next write replaces the locator by the ordinary revisioned write. A merged
+locator naming a chapter the account's file does not have yet resumes from `bookFraction`; the next
+write naming it is refused until the file's chapters exist ([Guest → account merge](#guest--account-merge)
+step 5). A `textstack-*` locator on a superseded file is refused by the file guard like any other. An
+annotation is anchored in one scheme for life: the V2 reader lists a `textstack-anchor-v1`
+annotation as a quotation (its `selectedText`), the rule ADR-031 applies to catalog highlights.
+
+**Removal.** The `textstack-*` write path goes when the V2 reader is ready on every client **and**
+the old-client support window (plan §5.4: 60 days, closed only after the last 14 are silent) has
+closed — that is R8 ([#1040](https://github.com/mrviduus/textstack/issues/1040)), which also drops
+`book_chapters` (M6.4). After it these schemes are refused again and survive only in migrated rows.
 
 The client may omit the frontier entirely: the server keeps the furthest of every accepted position.
 From R2's local store (`store.mjs` position `{cfi, quote, index, fraction, at}`):
@@ -143,7 +188,7 @@ fraction`, `clientRecordedAt = at`.
 | `expectedRevision` | int64 \| null | yes (may be null) | null = create |
 | `bookId` | uuid | yes | |
 | `fileId` | uuid | if `locator` | **any** version of this book, current or not: a highlight made offline in a superseded version is still valid provenance |
-| `selectedText` | string | yes | non-blank; the full selection (the page's `quote`) |
+| `selectedText` | string | yes | non-blank, ≤ 4000 (`SyncLimits.MaxSelectedText`; legacy had no cap); the full selection (the page's `quote`) |
 | `noteText` | string | no | |
 | `locator` | locator | no | `epub-cfi`: `value` = CFI, optional `quote` (≤64 code points), optional `prefix`/`suffix` (≤32 code points each; the page's 30-char context) as sibling keys — opaque to the server |
 | `color` | string | yes | default `yellow`; not enumerated server-side |
@@ -431,6 +476,7 @@ annotations, the M2.2 endpoint (M1.3 delta 1); a word id held by another user, t
 | `reset` | 409 | reading-state PUT | `current` with `resetRevision` | drop local frontier/completion; resend position with new revision |
 | `file_replaced` | 409 | reading-state PUT; file PUT whose `replacesFileId` is not current, or naming a superseded version; parts/content for a non-current file | `fileId`, `currentFile` | drop queued state writes and uploads for the old file; offer fetch/import |
 | `unknown_file` | 409 | every write naming a `fileId` (reading state, annotation, example, share, checkpoint, parts, content) | — | push the file version first; keep the write queued |
+| `chapter_not_found` | 409 | reading-state PUT, annotation PUT with a `textstack-*` locator (transitional, until R8) | — | while the file's extraction is `queued`/`processing` (`GET …/chapters`), keep the write queued; otherwise drop it — the chapter keys changed (resume from `bookFraction`) |
 | `deleted` | 409 | annotation PUT, word save/PATCH, example add, review | `current` = tombstone | drop the edit, delete locally; word: offer restore |
 | `operation_conflict` | 409 | example, review, share, checkpoint | `current` = stored row | log, drop the operation |
 | `duplicate_file` | 409 | book PUT | `current` = the existing book with those bytes | re-key as for a merge map (local entry, local store, outbox: book id and file id); drop the import |
@@ -643,6 +689,10 @@ keeping their client ids (ADR-031 rule 3). Order inside the transaction:
    delete removes the account's bytes by key. The merge releases the guest's superseded and duplicate
    bytes (the matched books' files): their keys are cleared in the merge and the bytes deleted after the
    commit, best-effort; the orphan sweep collects a failed delete.
+   `textstack-*` locators move with their rows without a `book_chapters` check (M2.7a): when the
+   account holds the same bytes but never uploaded them, its file has no chapters yet, so a merged
+   locator names a key that file lacks. Same bytes extract to the same keys (slug of title + index),
+   so it resolves once the account uploads the bytes — which the transitional reader needs anyway.
 
 | Aggregate | Rule |
 |---|---|
@@ -742,11 +792,11 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 | M2.2 | `PUT /books/{bookId}/files/{fileId}` | `{replacesFileId, file:{…}}` (the import's file shape; the path's id wins) | 200 `{current, superseded}` · 409 `file_replaced` / `book_removed` / `id_conflict` · 404 |
 | M2.2 | `DELETE /books/{bookId}` · `POST /books/{bookId}/restore` | — | 204 (idempotent) · 404 |
 | M2.2 | `GET /reading/changes` · `GET /books/{bookId}/reading-state` | — | 200 · 404 |
-| M2.2 | `PUT /books/{bookId}/reading-state` | reading state | 200 state · 409 `stale_revision` / `reset` / `file_replaced` / `unknown_file` · 404 |
+| M2.2 | `PUT /books/{bookId}/reading-state` | reading state | 200 state · 409 `stale_revision` / `reset` / `file_replaced` / `unknown_file` / `chapter_not_found` (M2.7a, `textstack-position-v1`) · 404 |
 | M2.2 | `POST /books/{bookId}/reading-state/reset` | `{expectedRevision}` | 200 state · 409 `stale_revision` (own write if `current` is the reset) · 404 |
 | M2.2 | `PUT /reading/sessions/{clientSessionId}` | session | 201 · 200 replay · 404 `book_not_found` |
 | M2.2 | `GET /annotations/changes` | — | 200 feed |
-| M2.2 | `PUT /annotations/{id}` | annotation | 201 · 200 · 409 `stale_revision` / `deleted` / `unknown_file` / `id_conflict` · 404 `book_not_found` |
+| M2.2 | `PUT /annotations/{id}` | annotation | 201 · 200 · 409 `stale_revision` / `deleted` / `unknown_file` / `chapter_not_found` (M2.7a, `textstack-anchor-v1`) / `id_conflict` · 404 `book_not_found` |
 | M2.2 | `DELETE /annotations/{id}` | — | 200 tombstone (idempotent) · 404 |
 | M2.3 | `GET /vocabulary/changes` · `GET /vocabulary/due?limit=` | — | 200 |
 | M2.3 | `PUT /vocabulary/words` | word (`id`, `language`, `word`, `translation?`, `definition?`) + optional `example` | 201 card · 200 existing card (id may differ) + `example: "added" \| "replayed"` · 409 `deleted` / `operation_conflict` / `unknown_file` / `id_conflict` · 404 `book_not_found`. Both halves are idempotent and run in turn: an example whose `operationId` conflicts still leaves the card created (409 `operation_conflict`, `current` = the stored example); on a tombstone the example is asked first, so a replay answers 200 with the tombstone and `example: "replayed"` |

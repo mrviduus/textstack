@@ -17,6 +17,9 @@ public static class SyncLimits
     public const int MaxChapterKey = 200;
     public const int MaxReviewMode = 64;
 
+    // Annotations: legacy has no cap on highlight text; a selection past this is not a highlight.
+    public const int MaxSelectedText = 4000;
+
     // Shares and checkpoints (v2-sync-protocol.md "Shares and checkpoints").
     public const int MaxChapterTitle = 500;
     public const int MaxChapterTextBytes = 200 * 1024;

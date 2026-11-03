@@ -1,4 +1,3 @@
-using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
@@ -31,15 +30,6 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
     private Task<V2Response> CompleteAsync(V2Session who, Guid book, Guid file, int partCount) =>
         v2.SendAsync(who, HttpMethod.Post, $"{Files(book, file)}/content", new { partCount });
 
-    /// <summary>Sends <paramref name="bytes"/> as two parts and completes.</summary>
-    private async Task<V2Response> UploadAsync(V2Session who, Guid book, Guid file, byte[] bytes)
-    {
-        var half = bytes.Length / 2;
-        Assert.Equal(HttpStatusCode.OK, await PartAsync(who, book, file, 0, bytes[..half]));
-        Assert.Equal(HttpStatusCode.OK, await PartAsync(who, book, file, 1, bytes[half..]));
-        return await CompleteAsync(who, book, file, 2);
-    }
-
     [Fact]
     public async Task Upload_TwoPartsThenComplete_HasContentAndARangeIs206()
     {
@@ -47,7 +37,7 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         var bytes = RandomBytes(1000);
         var (book, file) = await v2.ImportBytesAsync(v2.Alice, bytes);
 
-        var completed = await UploadAsync(v2.Alice, book, file, bytes);
+        var completed = await v2.UploadAsync(v2.Alice, book, file, bytes);
         var replay = await CompleteAsync(v2.Alice, book, file, 2);
         using var range = await v2.SendRawAsync(v2.Alice, HttpMethod.Get, $"{Files(book, file)}/content", configure: r => r.Headers.Range = new RangeHeaderValue(0, 9));
 
@@ -67,7 +57,7 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         var guest = await v2.NewGuestAsync();
         var bytes = RandomBytes(64);
         var (book, file) = await v2.ImportBytesAsync(guest, bytes);
-        await UploadAsync(guest, book, file, bytes);
+        await v2.UploadAsync(guest, book, file, bytes);
 
         var feed = await v2.SendAsync(guest, HttpMethod.Get, "/me/v2/library/changes");
 
@@ -81,7 +71,7 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         v2.Require();
         var (book, file) = await v2.ImportBytesAsync(v2.Alice, RandomBytes(100));
 
-        var mismatch = await UploadAsync(v2.Alice, book, file, RandomBytes(100));
+        var mismatch = await v2.UploadAsync(v2.Alice, book, file, RandomBytes(100));
         var again = await CompleteAsync(v2.Alice, book, file, 2);
 
         Assert.Equal((HttpStatusCode.UnprocessableEntity, "content_mismatch"), (mismatch.Status, mismatch.Code));
@@ -136,12 +126,12 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         v2.Require();
         var bytes = RandomBytes(100);
         var (book, file) = await v2.ImportBytesAsync(v2.Alice, bytes);
-        await UploadAsync(v2.Alice, book, file, bytes);
+        await v2.UploadAsync(v2.Alice, book, file, bytes);
 
         var removed = await v2.SendAsync(v2.Alice, HttpMethod.Delete, $"{Files(book, file)}/content");
         var again = await v2.SendAsync(v2.Alice, HttpMethod.Delete, $"{Files(book, file)}/content");
         var read = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"{Files(book, file)}/content");
-        var reupload = await UploadAsync(v2.Alice, book, file, bytes);
+        var reupload = await v2.UploadAsync(v2.Alice, book, file, bytes);
 
         Assert.Equal((HttpStatusCode.NoContent, HttpStatusCode.NoContent), (removed.Status, again.Status));
         Assert.Equal((HttpStatusCode.NotFound, "no_content"), (read.Status, read.Code));
@@ -185,7 +175,7 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         v2.Require();
         var bytes = RandomBytes(100);
         var (book, file) = await v2.ImportBytesAsync(v2.Alice, bytes);
-        await UploadAsync(v2.Alice, book, file, bytes);
+        await v2.UploadAsync(v2.Alice, book, file, bytes);
         using var _ = await PutCoverAsync(v2.Alice, book, OnePixelPng, "image/png");
 
         using var part = await v2.SendRawAsync(v2.Bob, HttpMethod.Put, $"{Files(book, file)}/parts/0", new ByteArrayContent(bytes));
@@ -206,71 +196,12 @@ public class V2ContentEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         Assert.Equal(HttpStatusCode.OK, stillThere.StatusCode);
     }
 
-    /// <summary>A valid EPUB 3 with one chapter per title, its bytes unique to this call.</summary>
-    private static byte[] Epub(params string[] titles)
-    {
-        using var buffer = new MemoryStream();
-        using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
-        {
-            void Add(string name, string text, CompressionLevel level = CompressionLevel.Optimal)
-            {
-                using var writer = new StreamWriter(zip.CreateEntry(name, level).Open());
-                writer.Write(text);
-            }
-            Add("mimetype", "application/epub+zip", CompressionLevel.NoCompression);
-            Add("META-INF/container.xml", """
-                <?xml version="1.0" encoding="UTF-8"?>
-                <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-                  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
-                </container>
-                """);
-            var ids = titles.Select((_, i) => $"c{i + 1}").ToArray();
-            Add("OEBPS/content.opf", $"""
-                <?xml version="1.0" encoding="UTF-8"?>
-                <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
-                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-                    <dc:identifier id="uid">{Guid.NewGuid()}</dc:identifier><dc:title>Three chapters</dc:title><dc:language>en</dc:language>
-                    <meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>
-                  </metadata>
-                  <manifest>
-                    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
-                    {string.Concat(ids.Select(id => $"""<item id="{id}" href="{id}.xhtml" media-type="application/xhtml+xml"/>"""))}
-                  </manifest>
-                  <spine>{string.Concat(ids.Select(id => $"""<itemref idref="{id}"/>"""))}</spine>
-                </package>
-                """);
-            Add("OEBPS/nav.xhtml", $"""
-                <?xml version="1.0" encoding="UTF-8"?>
-                <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head>
-                <body><nav epub:type="toc"><ol>{string.Concat(titles.Select((t, i) => $"""<li><a href="{ids[i]}.xhtml">{t}</a></li>"""))}</ol></nav></body></html>
-                """);
-            for (var i = 0; i < titles.Length; i++)
-                Add($"OEBPS/{ids[i]}.xhtml", $"""
-                    <?xml version="1.0" encoding="UTF-8"?>
-                    <html xmlns="http://www.w3.org/1999/xhtml"><head><title>{titles[i]}</title></head>
-                    <body><h1>{titles[i]}</h1><p>The chapter called {titles[i]} has enough words in it to be read as real content.</p>
-                    <p>A second paragraph keeps it from looking empty to the extractor.</p></body></html>
-                    """);
-        }
-        return buffer.ToArray();
-    }
-
     [Fact]
     public async Task Chapters_AfterContent_SucceedAndAChapterCarriesItsNeighbours()
     {
         v2.Require();
-        var bytes = Epub("One", "Two", "Three");
-        var (book, file) = await v2.ImportBytesAsync(v2.Alice, bytes);
-        await UploadAsync(v2.Alice, book, file, bytes);
+        var (book, file, keys) = await v2.ImportWithChaptersAsync(v2.Alice, "One", "Two", "Three");
 
-        var toc = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"{Files(book, file)}/chapters");
-        for (var waited = 0; waited < 60_000 && toc.Body.GetProperty("ingestion").GetString() is "queued" or "processing"; waited += 500)
-        {
-            await Task.Delay(500, Ct);
-            toc = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"{Files(book, file)}/chapters");
-        }
-        Assert.Equal("succeeded", toc.Body.GetProperty("ingestion").GetString());
-        var keys = toc.Body.GetProperty("items").EnumerateArray().Select(c => c.GetProperty("chapterKey").GetString()!).ToList();
         var middle = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"{Files(book, file)}/chapters/{keys[1]}");
         var unknown = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"{Files(book, file)}/chapters/no-such-chapter");
 
