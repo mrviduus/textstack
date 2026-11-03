@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useLanguage } from '../../context/LanguageContext'
 import { useV2 } from '../../context/AuthContext'
+import { v2Offers } from '@textstack/shared'
 import { useBookActions } from '../../hooks/useBookActions'
 import { ConfirmDeleteModal } from './ConfirmDeleteModal'
 import { UserBookEditModal } from './UserBookEditModal'
@@ -206,8 +207,8 @@ function UserBookMenu({
   const isFailed = book.status === 'Failed'
   const isProcessing = book.status === 'Processing'
   const isFinished = !!book.completedAt
-  // V2 (#1025): only open and delete; finish, metadata, collections, retry and cancel are legacy routes.
-  const legacy = !useV2().enabled
+  // V2 (#1025): open, finish, delete; metadata, collections, retry and cancel have no V2 counterpart (V2_FEATURES).
+  const v2 = useV2()
   const [toast, setToast] = useState<Toast | null>(null)
   const [editOpen, setEditOpen] = useState(false)
 
@@ -240,7 +241,7 @@ function UserBookMenu({
               {t('library.actions.viewDetails')}
             </button>
           )}
-          {isReady && legacy && (
+          {isReady && (
             <button
               className="book-card-menu__item"
               role="menuitem"
@@ -250,7 +251,7 @@ function UserBookMenu({
               {isFinished ? t('library.actions.markUnfinished') : t('library.actions.markFinished')}
             </button>
           )}
-          {isReady && legacy && (
+          {isReady && v2Offers(v2, 'metadataEdit') && (
             <button
               className="book-card-menu__item"
               role="menuitem"
@@ -259,7 +260,7 @@ function UserBookMenu({
               {t('library.actions.editMetadata')}
             </button>
           )}
-          {isReady && legacy && (
+          {isReady && v2Offers(v2, 'collections') && (
             <AddToCollectionButton
               variant="menu"
               bookId={book.id}
@@ -268,7 +269,7 @@ function UserBookMenu({
               onToast={setToast}
             />
           )}
-          {isFailed && legacy && (
+          {isFailed && v2Offers(v2, 'retry') && (
             <button
               className="book-card-menu__item"
               role="menuitem"
@@ -278,7 +279,7 @@ function UserBookMenu({
               {actions.pending === 'retry' ? t('library.actions.retrying') : t('library.actions.retry')}
             </button>
           )}
-          {isProcessing && legacy && (
+          {isProcessing && v2Offers(v2, 'retry') && (
             <button
               className="book-card-menu__item book-card-menu__item--danger"
               role="menuitem"

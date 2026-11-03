@@ -20,6 +20,7 @@ vi.mock('../../api/userBooks', () => ({
 
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ isAuthenticated: true }),
+  useV2: () => ({ enabled: false, maxPartBytes: 0 }),
 }))
 vi.mock('../../context/LanguageContext', () => ({
   useLanguage: () => ({ language: 'en' }),

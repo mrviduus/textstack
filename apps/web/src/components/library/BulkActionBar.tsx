@@ -11,8 +11,10 @@ interface Props {
   onSelectAll: () => void
   onMarkFinished: () => void
   onDelete: () => void
-  onAddTag: (tag: string) => void
-  onAddToCollection: (id: string) => void
+  /** Absent: no tag menu (a V2 library has no tags). */
+  onAddTag?: (tag: string) => void
+  /** Absent: no collection menu (V2 has no collections). */
+  onAddToCollection?: (id: string) => void
   busy?: boolean
 }
 
@@ -27,7 +29,7 @@ export function BulkActionBar({
   const submitTag = () => {
     const t = normalizeTag(tagDraft)
     if (!t) return
-    onAddTag(t)
+    onAddTag?.(t)
     setTagDraft('')
     setOpenMenu(null)
   }
@@ -42,7 +44,7 @@ export function BulkActionBar({
         {t('library.bulk.markFinished')}
       </button>
 
-      <div className="bulk-action-bar__menu-wrap">
+      {onAddTag && <div className="bulk-action-bar__menu-wrap">
         <button type="button" className="bulk-action-bar__btn" onClick={() => setOpenMenu(openMenu === 'tag' ? null : 'tag')} disabled={busy || count === 0}>
           {t('library.bulk.addTag')} ▾
         </button>
@@ -60,9 +62,9 @@ export function BulkActionBar({
             <button type="button" onClick={submitTag} disabled={!normalizeTag(tagDraft)}>OK</button>
           </div>
         )}
-      </div>
+      </div>}
 
-      <div className="bulk-action-bar__menu-wrap">
+      {onAddToCollection && <div className="bulk-action-bar__menu-wrap">
         <button type="button" className="bulk-action-bar__btn" onClick={() => setOpenMenu(openMenu === 'collection' ? null : 'collection')} disabled={busy || count === 0 || collections.length === 0}>
           {t('library.bulk.addToCollection')} ▾
         </button>
@@ -79,7 +81,7 @@ export function BulkActionBar({
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
       <button type="button" className="bulk-action-bar__btn bulk-action-bar__btn--danger" onClick={onDelete} disabled={busy || count === 0}>
         {t('library.bulk.delete')}

@@ -34,6 +34,15 @@ describe('ReaderTopBar — Original-layout toggle removed (ADR-012)', () => {
 
 })
 
+describe('ReaderTopBar — a V2 user book', () => {
+  it('has no bookmark button when no bookmark action is given (V2 has no bookmarks)', () => {
+    const { container } = renderBar({ onBookmarkClick: undefined })
+    const titles = Array.from(container.querySelectorAll('.reader-top-bar__btn')).map((b) => b.getAttribute('title'))
+    expect(titles).not.toContain('Add bookmark')
+    expect(titles).toHaveLength(3)
+  })
+})
+
 describe('ReaderTopBar — Original-layout PDF adaptations', () => {
   it('hides the search button when showSearch is false (no page-aware search yet)', () => {
     const { container } = renderBar({ showSearch: false })
