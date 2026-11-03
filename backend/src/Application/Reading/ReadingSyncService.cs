@@ -31,6 +31,10 @@ public sealed class ReadingSyncService(
     public async Task<SyncResult> WriteAsync(Guid userId, Guid bookId, ReadingStateRequest request, CancellationToken ct)
     {
         if (Validate(request) is { } invalid) return invalid;
+        // The scheme must fit the file (#1122): one key read, no toc. A file that is no version of the book is
+        // left to the write's guard, whose loss names it. Formats never change, so nothing slips in between.
+        if (await library.FileFormatAsync(userId, bookId, request.FileId!.Value, ct) is { } format
+            && FitsFile(request.CurrentLocator!.Value, format, "currentLocator") is { } misfit) return misfit;
         var state = new ReadingState
         {
             FileId = request.FileId!.Value,
@@ -85,7 +89,11 @@ public sealed class ReadingSyncService(
         ?? ((r.FrontierLocator is null) != (r.FrontierFraction is null)
             ? SyncResult.Invalid("frontierLocator", "frontierLocator and frontierFraction are sent together or not at all.") : null)
         ?? (r.FrontierLocator is { } frontier
-            ? Locator(frontier, "frontierLocator", LocatorUse.Position) ?? Fraction(r.FrontierFraction, "frontierFraction") : null);
+            ? Locator(frontier, "frontierLocator", LocatorUse.Position) ?? Fraction(r.FrontierFraction, "frontierFraction")
+              // One file, one scheme family: the position's is checked against the file, so the frontier must agree (#1122).
+              ?? (IsPdfLocator(frontier) != IsPdfLocator(r.CurrentLocator!.Value)
+                  ? SyncResult.Invalid("frontierLocator", "frontierLocator and currentLocator must both be pdf-page, or neither.") : null)
+            : null);
 
     public async Task<SyncResult> ResetAsync(Guid userId, Guid bookId, ResetReadingStateRequest request, CancellationToken ct)
     {

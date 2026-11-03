@@ -227,6 +227,17 @@ public static class SyncValidation
         };
     }
 
+    /// <summary>Whether a valid locator (<see cref="Locator"/>) is <c>pdf-page</c>: the only scheme a PDF takes, and one only a PDF takes.</summary>
+    public static bool IsPdfLocator(JsonElement locator) => locator.GetProperty("scheme").GetString() == "pdf-page";
+
+    /// <summary>
+    /// A locator fits the file it is written in (#1122): <c>pdf-page</c> only on a <c>pdf</c>, <c>epub-cfi</c> and
+    /// <c>textstack-*</c> only on <c>epub</c>/<c>html</c>.
+    /// </summary>
+    public static SyncResult? FitsFile(JsonElement locator, string format, string field) =>
+        IsPdfLocator(locator) == (format == "pdf") ? null
+            : SyncResult.Invalid(field, $"A {locator.GetProperty("scheme").GetString()} locator does not fit a {format} file.");
+
     private static SyncResult? EpubCfi(JsonElement locator, JsonElement value, string field, LocatorUse use)
     {
         if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()))

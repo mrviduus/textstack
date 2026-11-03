@@ -237,4 +237,44 @@ public class AnnotationSyncServiceTests
     [Fact]
     public async Task DeleteAsync_IdTheServerNeverHad_IsNotFound() =>
         Assert.Equal(SyncCodes.NotFound, V2Fakes.Error(await Service.DeleteAsync(User, Id, Ct)).Code);
+
+    // #1122: a locator's scheme fits the file it names, read with the provenance check (no extra round trip).
+    private const string PdfAnchor = """{"version":1,"scheme":"pdf-page","value":{"page":2,"rects":[{"x":0.1,"y":0.2,"w":0.3,"h":0.04}],"exact":"bright"}}""";
+    private const string Cfi = """{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4!/4/2/1:0)","quote":"bright"}""";
+    private const string OnChapter = "ch-1";
+
+    private void FileIs(string format) =>
+        _library.Setup(l => l.FileFormatAsync(User, BookId, FileId, It.IsAny<CancellationToken>())).ReturnsAsync(format);
+
+    // A null locator stands for the transitional textstack-anchor-v1 on chapter ch-1.
+    [Theory]
+    [InlineData(PdfAnchor, "epub")]
+    [InlineData(PdfAnchor, "html")]
+    [InlineData(Cfi, "pdf")]
+    [InlineData(null, "pdf")]
+    public async Task SaveAsync_LocatorSchemeThatDoesNotFitTheFile_IsInvalidPayloadAndWritesNothing(string? locator, string format)
+    {
+        FileIs(format);
+
+        var result = await Service.SaveAsync(User, Id, Highlight(locator ?? TextAnchor(OnChapter)), Ct);
+
+        Assert.Equal((400, SyncCodes.InvalidPayload, "locator"), (result.Status, V2Fakes.Error(result).Code, V2Fakes.Error(result).Field));
+        _annotations.VerifyNoOtherCalls();
+        _library.Verify(l => l.ExistsAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(PdfAnchor, "pdf")]
+    [InlineData(Cfi, "epub")]
+    [InlineData(Cfi, "html")]
+    [InlineData(null, "epub")]
+    public async Task SaveAsync_LocatorSchemeThatFitsTheFile_Writes(string? locator, string format)
+    {
+        FileIs(format);
+        _chapters.Setup(c => c.ExistsAsync(User, FileId, OnChapter, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _annotations.Setup(a => a.SaveAsync(User, It.IsAny<Annotation>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid user, Annotation sent, long? expected, CancellationToken token) => new RevisionedWrite<Annotation>(true, sent));
+
+        Assert.Equal(200, (await Service.SaveAsync(User, Id, Highlight(locator ?? TextAnchor(OnChapter)), Ct)).Status);
+    }
 }

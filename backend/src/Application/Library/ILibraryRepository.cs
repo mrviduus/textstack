@@ -21,8 +21,8 @@ public interface ILibraryRepository
     /// <summary>Whether the book is the user's, removed or not.</summary>
     Task<bool> ExistsAsync(Guid userId, Guid bookId, CancellationToken ct);
 
-    /// <summary>Whether <paramref name="fileId"/> is a version of the user's book, current or superseded (no toc read).</summary>
-    Task<bool> FileIsVersionAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct);
+    /// <summary>The format of <paramref name="fileId"/> when it is a version of the user's book, current or superseded (no toc read); else null.</summary>
+    Task<string?> FileFormatAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct);
 
     /// <summary>A version of the user's book, current or superseded; null when it is not one of this book's.</summary>
     Task<BookFile?> GetFileAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct);

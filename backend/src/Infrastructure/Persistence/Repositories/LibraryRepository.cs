@@ -61,12 +61,12 @@ public sealed partial class LibraryRepository(V2DataSource dataSource) : ILibrar
         return await conn.ExecuteScalarAsync<bool>(new CommandDefinition(BookExists, new { userId, bookId }, cancellationToken: ct));
     }
 
-    private const string FileIsVersion = "SELECT EXISTS (SELECT FROM book_files WHERE user_id = @userId AND book_id = @bookId AND id = @fileId)";
+    private const string FileFormat = "SELECT format FROM book_files WHERE user_id = @userId AND book_id = @bookId AND id = @fileId";
 
-    public async Task<bool> FileIsVersionAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
+    public async Task<string?> FileFormatAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteScalarAsync<bool>(new CommandDefinition(FileIsVersion, new { userId, bookId, fileId }, cancellationToken: ct));
+        return await conn.ExecuteScalarAsync<string?>(new CommandDefinition(FileFormat, new { userId, bookId, fileId }, cancellationToken: ct));
     }
 
     private const string SelectFile = $"SELECT {FileColumns} FROM book_files WHERE user_id = @userId AND book_id = @bookId AND id = @fileId";

@@ -27,7 +27,12 @@ public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotatio
         if (invalid is not null) return invalid;
         var bookId = r.BookId!.Value;
         // Any version of the book, current or not: a highlight made offline in a superseded one is still valid provenance.
-        if (await library.MissingBookOrFileAsync(userId, bookId, r.FileId, ct) is { } missing) return missing;
+        // The happy path is one round trip: the file's format proves the version and checks the locator's scheme.
+        if (r.FileId is { } fileId && await library.FileFormatAsync(userId, bookId, fileId, ct) is { } format)
+        {
+            if (r.Locator is { } sentLocator && FitsFile(sentLocator, format, "locator") is { } misfit) return misfit;
+        }
+        else if (await library.MissingBookOrFileAsync(userId, bookId, r.FileId, ct) is { } missing) return missing;
 
         var sent = new Annotation
         {
