@@ -54,7 +54,8 @@ export interface ReviewCardDto {
   word: string
   translation: string | null
   definition: string | null
-  reviewMode: 'multiple_choice' | 'context'
+  /** 'flashcard': a V2 card (no distractors, no blanked sentence). */
+  reviewMode: 'multiple_choice' | 'context' | 'flashcard'
   blankSentence: string | null
   originalSentence: string | null
   bookTitle: string | null
@@ -280,7 +281,7 @@ export async function updateWord(id: string, data: UpdateWordRequest): Promise<V
 }
 
 export async function getReviewQueue(limit?: number, includeAll?: boolean, practice?: boolean): Promise<ReviewQueueResponse> {
-  if (await onV2()) return getV2ReviewQueue(limit)
+  if (await onV2()) return getV2ReviewQueue(limit, includeAll)
   const params = new URLSearchParams()
   if (limit) params.set('limit', String(limit))
   if (includeAll) params.set('includeAll', 'true')

@@ -48,13 +48,14 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
 
   // Merge server + local pending, then replay (lib/highlightSync — shared with the
   // post-sign-in replay, and serialized with it).
+  // `pushOnly` (V2): send this reader's pending rows without pulling the whole annotations feed.
   const syncWithServer = useCallback(
-    (isCancelled: () => boolean) =>
+    (isCancelled: () => boolean, pushOnly = false) =>
       syncBookHighlights(bookId, isUserBook, {
         isCancelled,
         onVisible: setHighlights,
         onReplaced: (oldId, saved) => setHighlights((prev) => prev.map((p) => (p.id === oldId ? saved : p))),
-      }, chaptersRef.current),
+      }, chaptersRef.current, pushOnly),
     [bookId, isUserBook]
   )
 
@@ -171,7 +172,7 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
       await saveHighlight(highlight)
       setHighlights((prev) => [highlight, ...prev])
       emitDataChange('highlights')
-      if (v2 && isAuthenticated) void syncWithServer(() => false)
+      if (v2 && isAuthenticated) void syncWithServer(() => false, true)
       return highlight
     },
     [bookId, isAuthenticated, isUserBook, syncWithServer]
@@ -230,7 +231,7 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
       await saveHighlight(updated)
       setHighlights((prev) => prev.map((h) => (h.id === id ? updated : h)))
       emitDataChange('highlights')
-      if (replay) void syncWithServer(() => false)
+      if (replay) void syncWithServer(() => false, isUserBook && v2Enabled())
       return updated
     },
     [highlights, isAuthenticated, isUserBook, syncWithServer]
@@ -259,7 +260,7 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
       else await saveHighlight({ ...existing, deleted: true, syncStatus: 'pending' })
       setHighlights((prev) => prev.filter((h) => h.id !== id))
       emitDataChange('highlights')
-      if (v2) void syncWithServer(() => false)
+      if (v2) void syncWithServer(() => false, true)
     },
     [highlights, isAuthenticated, isUserBook, syncWithServer]
   )

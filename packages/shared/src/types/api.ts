@@ -382,7 +382,7 @@ export interface ReviewCardDto {
    * copies (this one and `apps/web/src/api/vocabulary.ts`), the server contract
    * and the projections, and it belongs in its own slice. Do not build on it.
    */
-  reviewMode: 'multiple_choice' | 'context'
+  reviewMode: 'multiple_choice' | 'context' | 'flashcard'
   blankSentence: string | null
   originalSentence: string | null
   bookTitle: string | null

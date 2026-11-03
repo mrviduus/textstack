@@ -133,8 +133,8 @@ export async function getV2UserBooks(): Promise<UserBookDto[]> {
   const [list, reading] = await Promise.all([pullV2Books(), v2Api.pullAll<V2ReadingState>('reading')])
   const stateOf = new Map(reading.items.map((s) => [s.bookId, s]))
   return Promise.all(list.filter((b) => !b.removedAt).map(async (b): Promise<UserBookDto> => {
-    // One book's chapters failing must not empty the shelf: it shows as processing, re-asked by the poll.
-    const toc = await v2Chapters(b).catch((): V2FileChapters => ({ items: [], ingestion: 'processing' }))
+    // One failing call (content removed, a 503) costs that book its status, never the shelf.
+    const toc = await v2Chapters(b).catch((): V2FileChapters => ({ items: [], ingestion: null }))
     const state = stateOf.get(b.id)
     return {
       id: b.id,
@@ -279,8 +279,8 @@ export interface ProgressWrite {
 /**
  * One reading-state write under the revision rule (PDD "The revision rule"). Lost (409):
  * `stale_revision` adopts the server's row; `reset` writes this place again on the new revision;
- * `file_replaced` forgets the book and asks the reader to reload; `unknown_file` forgets it (the
- * next write refetches); `chapter_not_found` drops the write (the file's chapters changed — the
+ * `file_replaced` forgets the book and asks the reader to reload; `unknown_file` refetches the
+ * book and writes once more; `chapter_not_found` drops the write (the file's chapters changed — the
  * place resumes from `bookFraction`). Anything else throws: the local record stays unsynced.
  * ponytail: a `chapter_not_found` while the file is still extracting is dropped too, not queued (R6).
  */
@@ -291,7 +291,7 @@ export interface V2WriteOutcome {
   dropped?: boolean
 }
 
-export async function saveV2Progress(bookId: string, data: ProgressWrite): Promise<V2WriteOutcome> {
+export async function saveV2Progress(bookId: string, data: ProgressWrite, retried = false): Promise<V2WriteOutcome> {
   const known = (await getUserBookV2State(bookId)) ?? { revision: null, fileId: (await v2Book(bookId)).currentFile?.id }
   const currentLocator = v2PositionLocator(data)
   if (!known.fileId || !currentLocator) return { dropped: true }
@@ -322,8 +322,9 @@ export async function saveV2Progress(bookId: string, data: ProgressWrite): Promi
         await forgetV2Book(bookId)
         return { reload: true }
       case 'unknown_file':
+        // The file we named is not the book's: fetch the book again and write once more.
         await forgetV2Book(bookId)
-        return { dropped: true }
+        return retried ? { dropped: true } : saveV2Progress(bookId, data, true)
       case 'chapter_not_found':
         return { dropped: true }
       default:

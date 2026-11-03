@@ -130,3 +130,23 @@ describe('useReadingSession — flushPendingSessions pruning', () => {
     })
   })
 })
+
+describe('useReadingSession — a queued V2 session', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    submitSession.mockReset()
+  })
+
+  it('answered 404 (V2 unmapped, or the book gone) is dropped, not retried forever', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404, text: async () => '{"code":"book_not_found","message":"x"}' }))
+    localStorage.setItem(KEY, JSON.stringify([{ ...makePendingSession(), editionId: null, userBookId: 'b1', clientSessionId: 's1' }]))
+
+    renderHook(() => useReadingSession(opts))
+
+    await waitFor(() => expect(localStorage.getItem(KEY)).toBeNull())
+    expect(submitSession).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+})

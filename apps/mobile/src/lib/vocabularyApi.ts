@@ -26,7 +26,7 @@ export const vocabularyApi = {
     ((await onV2()) ? v2.updateV2Word(id, data) : legacy.updateWord(id, data)),
   deleteWord: async (id: string) => ((await onV2()) ? v2.deleteV2Word(id) : legacy.deleteWord(id)),
   getReviewQueue: async (limit?: number, practice?: boolean) =>
-    ((await onV2()) ? v2.getV2ReviewQueue(limit) : legacy.getReviewQueue(limit, practice)),
+    ((await onV2()) ? v2.getV2ReviewQueue(limit, practice) : legacy.getReviewQueue(limit, practice)),
   submitReview: async (data: Parameters<typeof legacy.submitReview>[0]) =>
     ((await onV2()) ? v2.submitV2Review(data) : legacy.submitReview(data)),
 }
