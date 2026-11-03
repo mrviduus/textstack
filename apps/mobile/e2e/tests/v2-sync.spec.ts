@@ -99,6 +99,9 @@ test.describe('V2 sync @v2', () => {
     await page.goto(`/my-books/${bookId}`)
     expect((await state).status()).toBe(200)
     await expect(page.getByText('50%').first()).toBeVisible({ timeout: 15_000 })
+    // V2_FEATURES: finish is offered on V2, collections are not (the row they share is on screen).
+    await expect(page.getByText('Mark as read')).toBeVisible()
+    await expect(page.getByText('Add to collection')).toHaveCount(0)
     const nextChapter = page.waitForResponse((r) => r.url().includes(`/me/v2/books/${bookId}/files/${fileId}/chapters/${keys[1]}`) && r.ok())
     await page.getByText('Continue Reading').click()
     await nextChapter
