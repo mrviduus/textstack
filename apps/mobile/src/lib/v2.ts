@@ -7,11 +7,11 @@
  */
 import { uuid } from 'expo-modules-core'
 import {
-  v2Api, ApiError, V2_OFF, clip, chapterAtFraction, placeToV2Locator, v2LocatorToPlace, createSha256, parsePdfPageLocator,
-  type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
+  v2Api, ApiError, isOfflineError, V2_OFF, clip, chapterAtFraction, placeToV2Locator, v2LocatorToPlace, createSha256, parsePdfPageLocator,
+  type V2Book, type V2FileChapters, type V2Annotation, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
   type LegacyPlace, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse,
 } from '@textstack/shared'
-import { dropReplacedUserBookFile } from './offlineDb'
+import { dropReplacedUserBookFiles } from './offlineDb'
 import { deleteOriginal } from './originalFileCache'
 import { getUserBookV2State, setUserBookV2State, saveUserBookLocalProgress } from './progressStorage'
 
@@ -19,19 +19,34 @@ import { getUserBookV2State, setUserBookV2State, saveUserBookLocalProgress } fro
 
 let probe: Promise<V2Switch> | null = null
 let known: V2Switch = V2_OFF
+/** The last probe never reached the server: off until the network is back, then asked again. */
+let unreached = false
 
 /**
- * `GET /me/v2/status`, once per app start with a session: 200 on, 404 (unmapped) / 503 / offline
- * off for this start (sync stays legacy). A 401 (no session yet) is asked again by the next call.
- * Started by the session (AuthContext) and by the first call that needs the answer, whichever
- * comes first — a screen's effect can run before the provider's.
+ * `GET /me/v2/status`, once per app start with a session: 200 on, 404 (unmapped) / 503 off for
+ * this start (sync stays legacy). A 401 (no session yet) is asked again by the next call; a network
+ * failure — the usual mobile cold start — is off until `reprobeV2AfterReconnect`. Started by the
+ * session (AuthContext) and by the first call that needs the answer, whichever comes first.
  */
 export function startV2Probe(): Promise<V2Switch> {
-  probe ??= v2Api.probeV2().then(
-    (s) => (known = s),
-    () => { probe = null; return V2_OFF },
+  probe ??= v2Api.getStatus().then(
+    (s) => (known = { enabled: true, maxPartBytes: s.maxPartBytes }),
+    (e) => {
+      if (e instanceof ApiError && e.status === 401) probe = null
+      else unreached = isOfflineError(e)
+      return V2_OFF
+    },
   )
   return probe
+}
+
+/** The network is back (AuthContext's reconnect count): a probe that never reached the server asks again. */
+export function reprobeV2AfterReconnect(): Promise<V2Switch> {
+  if (unreached) {
+    unreached = false
+    probe = null
+  }
+  return startV2Probe()
 }
 
 /** The probe's answer once it has settled (off before): for the synchronous paths. */
@@ -44,12 +59,21 @@ export const onV2 = async () => (await startV2Probe()).enabled
 export function forgetV2Session() {
   books.clear()
   chapters.clear()
+  v2Annotations.rows.clear()
+  v2Annotations.pulled.clear()
+}
+
+/** Upload highlights as last pulled or written, by id, and the books pulled since they were opened (./v2Highlights). */
+export const v2Annotations = {
+  rows: new Map<string, V2Annotation>(),
+  pulled: new Set<string>(),
 }
 
 /** Tests only: forget the probe. */
 export function resetV2ForTests() {
   probe = null
   known = V2_OFF
+  unreached = false
   forgetV2Session()
 }
 
@@ -61,12 +85,11 @@ const books = new Map<string, V2Book>()
 // A file's chapters, once its extraction succeeded (they never change after).
 const chapters = new Map<string, V2FileChapters>()
 
-/** A book whose file changed since this device cached it: drop the old file's chapters and original. */
-async function dropReplaced(b: V2Book): Promise<void> {
-  const fileId = b.currentFile?.id
-  if (!fileId) return
+/** Books whose file changed since this device cached them: drop the old files' chapters and originals. */
+async function dropReplaced(list: V2Book[]): Promise<void> {
+  const current = list.flatMap((b) => (b.currentFile ? [{ bookId: b.id, fileId: b.currentFile.id }] : []))
   try {
-    if (await dropReplacedUserBookFile(b.id, fileId)) await deleteOriginal(b.id, 'pdf')
+    for (const id of await dropReplacedUserBookFiles(current)) await deleteOriginal(id, 'pdf')
   } catch (e) {
     console.warn('[v2] could not drop a replaced file:', e)
   }
@@ -80,7 +103,7 @@ export function pullV2Books(): Promise<V2Book[]> {
     const { items } = await v2Api.pullAll<V2Book>('library')
     books.clear()
     for (const b of items) books.set(b.id, b)
-    await Promise.all(items.map(dropReplaced))
+    await dropReplaced(items)
     return items
   })().finally(() => { pulling = null })
   return pulling
@@ -160,7 +183,7 @@ export async function getV2UserBooks(): Promise<UserBookDto[]> {
 /** The book page and the reader's book: the chapter list is the current file's. */
 export async function getV2UserBook(id: string): Promise<UserBookDetailResponse> {
   const b = await v2Book(id)
-  await dropReplaced(b)
+  await dropReplaced([b])
   const toc = await v2Chapters(b)
   return {
     id: b.id,
@@ -180,7 +203,8 @@ export async function getV2UserBook(id: string): Promise<UserBookDetailResponse>
     toc: null,
     createdAt: b.createdAt,
     updatedAt: b.updatedAt,
-    completedAt: null,
+    // ponytail: one reading-state read per book page, for `completedAt` (#1118 puts it on the book).
+    completedAt: (await v2Api.getReadingState(id).catch(() => null))?.completedAt ?? null,
     hasOriginalPdf: isPdf(b),
     originalFileBytes: isPdf(b) ? b.currentFile!.byteSize : null,
     pageCount: b.currentFile?.pageCount ?? null,
@@ -225,7 +249,7 @@ export interface V2Progress {
 
 const NO_PROGRESS: V2Progress = { chapterSlug: null, locator: null, percent: null, updatedAt: null, positionJson: null, clientUpdatedAt: null }
 
-const remember = (s: V2ReadingState) => setUserBookV2State(s.bookId, { revision: s.revision, fileId: s.fileId })
+const remember = (s: V2ReadingState) => setUserBookV2State(s.bookId, { revision: s.revision, fileId: s.fileId, bookFraction: s.bookFraction })
 
 /** The chapter a stored state resumes in: its own, none for a PDF page, by fraction for an `epub-cfi` (never converted). */
 const resumeChapter = (s: V2ReadingState, toc: V2FileChapters) =>
@@ -315,7 +339,11 @@ export interface ProgressWrite extends LegacyPlace {
 export type V2WriteOutcome = 'accepted' | 'dropped' | 'reload' | { adopted: V2Progress }
 
 export async function saveV2Progress(bookId: string, data: ProgressWrite, retried = false): Promise<V2WriteOutcome> {
-  const known = (await getUserBookV2State(bookId)) ?? { revision: null, fileId: (await v2Book(bookId)).currentFile?.id }
+  const stored = await getUserBookV2State(bookId)
+  const current = books.get(bookId)?.currentFile?.id ?? (stored ? undefined : (await v2Book(bookId)).currentFile?.id)
+  // A state on a superseded file is not written on: the write is a first write on the current one (as web).
+  const onStored = !!stored && (!current || stored.fileId === current)
+  const known = onStored ? stored! : { revision: null, fileId: current, bookFraction: undefined }
   const currentLocator = placeToV2Locator(data)
   if (!known.fileId || !currentLocator) return 'dropped'
   const now = Date.now()
@@ -323,7 +351,8 @@ export async function saveV2Progress(bookId: string, data: ProgressWrite, retrie
     expectedRevision: known.revision,
     fileId: known.fileId,
     currentLocator,
-    bookFraction: Math.min(1, Math.max(0, data.percent ?? 0)),
+    // No percent yet (the chapter list has not loaded): the fraction last read, never 0 over it.
+    bookFraction: Math.min(1, Math.max(0, data.percent ?? known.bookFraction ?? 0)),
     // The device's stamp of the write, never later than now (MAX_CLIENT_SKEW_MS is the server's bound).
     clientRecordedAt: new Date(Math.min(Date.parse(data.updatedAt ?? '') || now, now)).toISOString(),
   }
@@ -422,11 +451,14 @@ export async function uploadV2Book(
     // The same bytes already in the library open that book — or, when another device imported it
     // without its bytes, this upload sends them to that book's file.
     let target = await v2Api.findBySha256(sha256)
+    // This upload made the book (not found, not another device's): a cancel before its bytes removes it.
+    let imported = false
     if (!target) {
       const id = uuid.v4()
       const title = clip(file.name.replace(/\.(epub|pdf)$/i, '').trim() || file.name, 500)
       try {
         target = await v2Api.importBook(id, { title, file: { id: uuid.v4(), sha256, byteSize: source.size, originalName: clip(file.name, 500), format } })
+        imported = true
       } catch (e) {
         const err = v2Api.v2ErrorOf(e)
         if (err?.code !== 'duplicate_file') throw e
@@ -456,6 +488,9 @@ export async function uploadV2Book(
       try {
         await sendAll()
       } catch (e) {
+        // Cancelled: a book without bytes would sit on the shelf as Failed with no action on V2 (no
+        // retry), so the one this upload imported goes. Picking the file again starts afresh.
+        if ((e as { aborted?: boolean }).aborted && imported) await v2Api.removeBook(bookId).catch(() => {})
         throw quota(e)
       }
       try {

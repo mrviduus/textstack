@@ -137,6 +137,8 @@ const USERBOOK_V2_PREFIX = 'reading.userbook-v2-state.'
 export interface UserBookV2State {
   revision: number | null
   fileId: string
+  /** The book fraction it holds: a write that knows none yet sends this, never 0 (absent on older records). */
+  bookFraction?: number
 }
 
 export async function getUserBookV2State(bookId: string): Promise<UserBookV2State | null> {

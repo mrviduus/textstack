@@ -12,14 +12,26 @@ import {
   v2Api, highlightsApi, isPdfAnchor, anchorToV2Locator, v2LocatorToAnchor, clip, MAX_SELECTED_TEXT,
   type PublicHighlight, type UpdateHighlightData, type V2Annotation, type V2AnnotationWrite, type TextAnchor, type PdfAnchor,
 } from '@textstack/shared'
-import { onV2, v2Book } from './v2'
+import { onV2, v2Book, v2Annotations } from './v2'
 
-// The rows last seen, by id: an edit is a full write on the revision it read.
-const rows = new Map<string, V2Annotation>()
+// The rows last pulled or written, by id (an edit is a full write on the revision it read), and the
+// books pulled since they were opened: in the session's V2 store, emptied on sign-out.
+const { rows, pulled } = v2Annotations
 
 const remember = (a: V2Annotation) => {
   rows.set(a.id, a)
   return a
+}
+
+/** The book was closed: its next open pulls the feed again. */
+export const forgetV2Highlights = (bookId: string) => pulled.delete(bookId)
+
+/** A highlight another device deleted: the reader removes it instead of drawing the tombstone. */
+export class HighlightDeletedError extends Error {
+  readonly deleted = true
+  constructor(readonly id: string) {
+    super('This highlight was deleted on another device.')
+  }
 }
 
 export function toPublicHighlight(a: V2Annotation): PublicHighlight {
@@ -62,17 +74,28 @@ export function toV2Write(
   }
 }
 
-/** On a 409 that carries the server's row (`stale_revision`, `deleted`): that row. */
-function adopted(e: unknown): V2Annotation {
-  const err = v2Api.v2ErrorOf(e)
-  if ((err?.code === 'stale_revision' || err?.code === 'deleted') && err.current) return err.current as V2Annotation
-  throw e
+/** A write lost (409): `stale_revision` adopts the server's row; `deleted` drops it here and tells the reader. */
+function adopted(id: string) {
+  return (e: unknown): V2Annotation => {
+    const err = v2Api.v2ErrorOf(e)
+    if (err?.code === 'stale_revision' && err.current) return err.current as V2Annotation
+    if (err?.code === 'deleted') {
+      rows.delete(id)
+      throw new HighlightDeletedError(id)
+    }
+    throw e
+  }
 }
 
+/** The book's live highlights: the feed pulled once per book open, then answered from the store. */
 async function listV2(bookId: string): Promise<PublicHighlight[]> {
-  // ponytail: the feed is per user, filtered here; a per-book list when one exists.
-  const { items } = await v2Api.pullAll<V2Annotation>('annotations')
-  return items.filter((a) => a.bookId === bookId && !a.deletedAt).map((a) => toPublicHighlight(remember(a)))
+  if (!pulled.has(bookId)) {
+    // ponytail: the feed is per user, filtered here; a per-book list when one exists.
+    const { items } = await v2Api.pullAll<V2Annotation>('annotations')
+    for (const a of items) remember(a)
+    pulled.add(bookId)
+  }
+  return [...rows.values()].filter((a) => a.bookId === bookId && !a.deletedAt).map(toPublicHighlight)
 }
 
 async function createV2(data: Parameters<typeof highlightsApi.createHighlight>[0]): Promise<PublicHighlight> {
@@ -80,7 +103,7 @@ async function createV2(data: Parameters<typeof highlightsApi.createHighlight>[0
   const fileId = (await v2Book(bookId)).currentFile?.id ?? null
   const id = uuid.v4()
   const write = toV2Write({ ...data, userBookId: bookId }, fileId, null)
-  const saved = await v2Api.putAnnotation(id, write).catch(adopted)
+  const saved = await v2Api.putAnnotation(id, write).catch(adopted(id))
   return toPublicHighlight(remember(saved))
 }
 
@@ -96,7 +119,7 @@ async function updateV2(id: string, data: UpdateHighlightData): Promise<PublicHi
     selectedText: data.selectedText ?? row.selectedText,
     noteText: data.noteText === undefined ? row.noteText : data.noteText,
   }, row.fileId, row.revision)
-  const saved = await v2Api.putAnnotation(id, write).catch(adopted)
+  const saved = await v2Api.putAnnotation(id, write).catch(adopted(id))
   return toPublicHighlight(remember(saved))
 }
 

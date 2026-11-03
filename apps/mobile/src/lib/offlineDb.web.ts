@@ -154,8 +154,8 @@ export async function deleteCachedUserBook(): Promise<void> {
   /* no-op */
 }
 
-export async function dropReplacedUserBookFile(): Promise<boolean> {
-  return false
+export async function dropReplacedUserBookFiles(): Promise<string[]> {
+  return []
 }
 
 export async function getAllCachedUserBooks(): Promise<CachedUserBookMeta[]> {

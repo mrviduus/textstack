@@ -582,17 +582,30 @@ export async function deleteCachedUserBook(bookId: string): Promise<void> {
 }
 
 /**
- * V2: drop what this device cached of a book from a file version other than `fileId` (the book's
- * file was replaced elsewhere). Legacy rows (no file id) are left alone. True when anything went —
- * the caller drops the downloaded original too.
+ * V2: drop what this device cached from a file version that is no longer its book's current one
+ * (replaced elsewhere), for the books of one library pull. Legacy rows (no file id) are left alone.
+ * Returns the books that lost rows: the caller drops their downloaded originals too.
+ * ponytail: one statement per table per pull with the pairs inline; SQLite binds at most 32766
+ * variables, which caps it near 8k books.
  */
-export async function dropReplacedUserBookFile(bookId: string, fileId: string): Promise<boolean> {
+export async function dropReplacedUserBookFiles(current: { bookId: string; fileId: string }[]): Promise<string[]> {
   const d = await getDb()
-  if (!d) return false
-  const where = 'WHERE book_id = ? AND file_id IS NOT NULL AND file_id <> ?'
-  const chapters = await d.runAsync(`DELETE FROM user_chapters ${where}`, [bookId, fileId])
-  const meta = await d.runAsync(`DELETE FROM cached_user_books ${where}`, [bookId, fileId])
-  return chapters.changes + meta.changes > 0
+  if (!d || current.length === 0) return []
+  const pairs = current.map(() => '(?, ?)').join(', ')
+  const args = current.flatMap(c => [c.bookId, c.fileId])
+  const where = `WHERE file_id IS NOT NULL AND book_id IN (SELECT column1 FROM (VALUES ${pairs})) AND (book_id, file_id) NOT IN (VALUES ${pairs})`
+  let dropped: string[] = []
+  await d.withTransactionAsync(async () => {
+    const rows = await d.getAllAsync(
+      `SELECT book_id FROM user_chapters ${where} UNION SELECT book_id FROM cached_user_books ${where}`,
+      [...args, ...args, ...args, ...args],
+    ) as { book_id: string }[]
+    dropped = rows.map(r => r.book_id)
+    if (dropped.length === 0) return
+    await d.runAsync(`DELETE FROM user_chapters ${where}`, [...args, ...args])
+    await d.runAsync(`DELETE FROM cached_user_books ${where}`, [...args, ...args])
+  })
+  return dropped
 }
 
 export async function getAllCachedUserBooks(): Promise<CachedUserBookMeta[]> {

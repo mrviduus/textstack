@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHash } from 'node:crypto'
 import { initApi } from '@textstack/shared'
-import { resetV2ForTests, startV2Probe, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, type UploadIo } from './v2'
+import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, type UploadIo } from './v2'
 import { getUserBookLocalProgress, setUserBookV2State, getUserBookV2State } from './progressStorage'
 
 vi.mock('./offlineDb', () => ({ dropReplacedUserBookFile: async () => false }))
@@ -46,9 +46,35 @@ describe('mobile v2', () => {
   })
   afterEach(() => vi.unstubAllGlobals())
 
-  it('is off for this start when the status route is not mapped', async () => {
-    fakeApi({ 'GET /status': [{ status: 404 }] })
+  it('is off for this start when the status route is not mapped, even after a reconnect', async () => {
+    const calls = fakeApi({ 'GET /status': [{ status: 404 }] })
     expect((await startV2Probe()).enabled).toBe(false)
+    expect((await reprobeV2AfterReconnect()).enabled).toBe(false)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('asks again on a reconnect when the probe never reached the server', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network request failed') }))
+    expect((await startV2Probe()).enabled).toBe(false)
+    expect((await startV2Probe()).enabled).toBe(false) // no retry per call while offline
+    fakeApi({ 'GET /status': [{ status: 200, body: { maxPartBytes: 1024 } }] })
+    expect(await reprobeV2AfterReconnect()).toEqual({ enabled: true, maxPartBytes: 1024 })
+  })
+
+  it('a write that knows no percent yet keeps the fraction the server holds', async () => {
+    await setUserBookV2State('b1', { revision: 2, fileId: 'f1', bookFraction: 0.6 })
+    const calls = fakeApi({ 'PUT /books/b1/reading-state': [{ status: 200, body: { bookId: 'b1', fileId: 'f1', revision: 3, bookFraction: 0.6 } }] })
+    expect(await saveV2Progress('b1', { chapterSlug: 'k1' })).toBe('accepted')
+    expect(calls[0].body).toMatchObject({ expectedRevision: 2, bookFraction: 0.6 })
+  })
+
+  it('a cancelled upload removes the book it imported', async () => {
+    const calls: Call[] = []
+    vi.stubGlobal('fetch', wrapIds(calls))
+    const cancelled: UploadIo = { ...io(), sendPart: async () => { throw Object.assign(new Error('Upload cancelled'), { aborted: true }) } }
+    await expect(uploadV2Book({ uri: 'u', name: 'a.epub' }, 10, cancelled)).rejects.toMatchObject({ aborted: true })
+    const put = calls.find((c) => c.method === 'PUT')!
+    expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: put.path })
   })
 
   it('hashes the file streamed, imports, sends parts by the server size and completes', async () => {
@@ -109,7 +135,7 @@ describe('mobile v2', () => {
     const calls = fakeApi({ 'PUT /books/b1/reading-state': [{ status: 409, body: { code: 'stale_revision', message: 'x', current } }] })
     expect(await saveV2Progress('b1', { chapterSlug: null, locator: 'page:2', percent: 0.1 })).toEqual({ adopted: expect.objectContaining({ locator: 'page:9' }) })
     expect(calls[0].body).toMatchObject({ expectedRevision: 3, fileId: 'f1', currentLocator: { scheme: 'pdf-page', value: { page: 2 } } })
-    expect(await getUserBookV2State('b1')).toEqual({ revision: 5, fileId: 'f1' })
+    expect(await getUserBookV2State('b1')).toEqual({ revision: 5, fileId: 'f1', bookFraction: 0.4 })
     expect(await getUserBookLocalProgress('b1')).toMatchObject({ page: 9, bookPercent: 0.4, synced: true })
   })
 

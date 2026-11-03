@@ -59,7 +59,7 @@ export const v2Store = {
   /** A file's chapters, once its extraction succeeded (they never change after). */
   chapters: new Map<string, V2FileChapters>(),
   /** Per book: the reading-state revision last read or written, and its file. */
-  states: new Map<string, { revision: number | null; fileId: string }>(),
+  states: new Map<string, { revision: number | null; fileId: string; bookFraction: number }>(),
   /** Per word: the card revision last read. */
   revisions: new Map<string, number>(),
   /** The annotations as last pulled or written, by id; and the books pulled at least once. */
@@ -226,7 +226,7 @@ export function v2FileUrl(id: string): string {
 
 // ---- Reading state ------------------------------------------------------------------------------
 
-const remember = (s: V2ReadingState) => v2Store.states.set(s.bookId, { revision: s.revision, fileId: s.fileId })
+const remember = (s: V2ReadingState) => v2Store.states.set(s.bookId, { revision: s.revision, fileId: s.fileId, bookFraction: s.bookFraction })
 
 /** A V2 state as the legacy progress row the reader restores from. */
 async function toProgress(s: V2ReadingState): Promise<UserBookProgress> {
@@ -279,7 +279,8 @@ export function v2ProgressBody(bookId: string, data: ProgressWrite): V2ReadingSt
     expectedRevision: onKnown ? known!.revision : null,
     fileId,
     currentLocator,
-    bookFraction: Math.min(1, Math.max(0, data.percent ?? 0)),
+    // No percent yet (the chapter list has not loaded): the fraction last read, never 0 over it.
+    bookFraction: Math.min(1, Math.max(0, data.percent ?? known?.bookFraction ?? 0)),
     // The client's clock as the write was made; it is already this device's now, so within MAX_CLIENT_SKEW_MS of it.
     clientRecordedAt: data.updatedAt ?? new Date().toISOString(),
   }

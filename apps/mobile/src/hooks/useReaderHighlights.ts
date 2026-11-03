@@ -4,7 +4,7 @@ import type { PublicHighlight, PdfAnchor } from '@textstack/shared'
 import { highlightCache, userBookHighlightCache } from '../lib/readerOfflineCache'
 import { matchesChapter } from '../lib/highlightChapter'
 import { clearSelectionJs } from '../lib/readerSelectionJs'
-import { userBookHighlightsApi } from '../lib/v2Highlights'
+import { userBookHighlightsApi, forgetV2Highlights, HighlightDeletedError } from '../lib/v2Highlights'
 
 type Selection = { text: string; anchor?: unknown; token?: number } | null
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
@@ -66,6 +66,11 @@ export function useReaderHighlights({
   const cache = pickCache(userBookMode)
   // An upload's highlights switch to V2 per call (#1025); the catalog's never do.
   const api = userBookMode ? userBookHighlightsApi : highlightsApi
+  // V2: the annotations feed is pulled once per book open; closing the book lets the next open pull again.
+  useEffect(() => {
+    if (!userBookMode || !bookId) return
+    return () => { forgetV2Highlights(bookId) }
+  }, [userBookMode, bookId])
 
   const [editingHighlight, setEditingHighlight] = useState<PublicHighlight | null>(null)
   const highlightsRef = useRef<PublicHighlight[]>([])
@@ -218,6 +223,30 @@ export function useReaderHighlights({
     [api, currentBookId, cache, pushPdf, showToast, user?.id, bumpHighlights]
   )
 
+  /** Take a highlight off the page, the ref and the cache (deleted here, or on another device). */
+  const dropLocal = useCallback((id: string) => {
+    highlightsRef.current = highlightsRef.current.filter(h => h.id !== id)
+    if (original) pushPdf()
+    else injectJs(`removeHighlight(${JSON.stringify(id)})`)
+    bumpHighlights()
+    const uid = user?.id
+    const bId = currentBookId()
+    if (uid && bId) {
+      cache.get(uid, bId).then(prev => {
+        if (!prev) return
+        cache.set(uid, bId, prev.filter(h => h.id !== id))
+      })
+    }
+  }, [currentBookId, cache, injectJs, user?.id, bumpHighlights, original, pushPdf])
+
+  /** V2: an edit lost to another device's delete removes the highlight rather than keep it drawn. */
+  const deletedElsewhere = useCallback((e: unknown, id: string) => {
+    if (!(e instanceof HighlightDeletedError)) return false
+    dropLocal(id)
+    showToast({ message: e.message, variant: 'info' })
+    return true
+  }, [dropLocal, showToast])
+
   const saveNote = useCallback(
     async (id: string, note: string) => {
       try {
@@ -232,11 +261,12 @@ export function useReaderHighlights({
           })
         }
       } catch (e) {
+        if (deletedElsewhere(e, id)) return
         console.warn('Highlight note save failed:', e)
         showToast({ message: 'Could not save note. Try again.', variant: 'error' })
       }
     },
-    [api, currentBookId, cache, showToast, user?.id]
+    [api, currentBookId, cache, showToast, user?.id, deletedElsewhere]
   )
 
   const updateColor = useCallback(
@@ -268,6 +298,7 @@ export function useReaderHighlights({
           })
         }
       } catch (e) {
+        if (deletedElsewhere(e, id)) return
         console.warn('Highlight color update failed:', e)
         // Rollback paint
         if (original) {
@@ -280,31 +311,20 @@ export function useReaderHighlights({
         showToast({ message: 'Could not change color. Try again.', variant: 'error' })
       }
     },
-    [api, currentBookId, cache, injectJs, showToast, user?.id, bumpHighlights, original, pushPdf]
+    [api, currentBookId, cache, injectJs, showToast, user?.id, bumpHighlights, original, pushPdf, deletedElsewhere]
   )
 
   const remove = useCallback(
     async (id: string) => {
       try {
         await api.deleteHighlight(id)
-        highlightsRef.current = highlightsRef.current.filter(h => h.id !== id)
-        if (original) pushPdf()
-        else injectJs(`removeHighlight(${JSON.stringify(id)})`)
-        bumpHighlights()
-        const uid = user?.id
-        const bId = currentBookId()
-        if (uid && bId) {
-          cache.get(uid, bId).then(prev => {
-            if (!prev) return
-            cache.set(uid, bId, prev.filter(h => h.id !== id))
-          })
-        }
+        dropLocal(id)
       } catch (e) {
         console.warn('Highlight delete failed:', e)
         showToast({ message: 'Could not delete highlight. Try again.', variant: 'error' })
       }
     },
-    [api, currentBookId, cache, injectJs, showToast, user?.id, bumpHighlights, original, pushPdf]
+    [api, dropLocal, showToast]
   )
 
   return {

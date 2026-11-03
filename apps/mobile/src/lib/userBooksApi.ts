@@ -29,6 +29,7 @@ export const userBooksApi = {
   markUserBookComplete: async (id: string) => ((await onV2()) ? completeV2Book(id) : legacy.markUserBookComplete(id)),
   unmarkUserBookComplete: async (id: string) => ((await onV2()) ? uncompleteV2Book(id) : legacy.unmarkUserBookComplete(id)),
   getUserBookBookmarks: async (bookId: string) => ((await onV2()) ? [] : legacy.getUserBookBookmarks(bookId)),
+  /** '' on V2 while the book's file is not known yet: callers treat it as no URL, never a legacy route. */
   getUserBookFileUrl: (id: string, apiBase: string) =>
-    (v2Enabled() && v2FileUrl(id)) || legacy.getUserBookFileUrl(id, apiBase),
+    (v2Enabled() ? v2FileUrl(id) : legacy.getUserBookFileUrl(id, apiBase)),
 }

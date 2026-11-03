@@ -103,7 +103,8 @@ export async function downloadOriginal(
   /** Where the bytes are: the legacy route, or V2's content route (`userBooksApi.getUserBookFileUrl`). */
   url = `${API_URL}/me/books/${bookId}/file`,
 ): Promise<OriginalDownloadOutcome> {
-  if (Platform.OS === 'web') return { status: 'failed' }
+  // No URL: a V2 book whose file is not known yet.
+  if (Platform.OS === 'web' || !url) return { status: 'failed' }
   // One download per book at a time. Two of them share a `.part` path, and the
   // second one's opening `delete()` removes the file the first is still
   // streaming into — whichever finishes last renames a truncated document onto

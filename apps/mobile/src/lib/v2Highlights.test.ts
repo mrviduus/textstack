@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { V2Annotation } from '@textstack/shared'
-import { toPublicHighlight, toV2Write } from './v2Highlights'
+import { initApi } from '@textstack/shared'
+import { toPublicHighlight, toV2Write, userBookHighlightsApi, HighlightDeletedError } from './v2Highlights'
 
-vi.mock('./v2', () => ({ onV2: async () => true, v2Book: async () => ({ currentFile: { id: 'f1' } }) }))
+vi.mock('./v2', () => ({ onV2: async () => true, v2Book: async () => ({ currentFile: { id: 'f1' } }), v2Annotations: { rows: new Map(), pulled: new Set() } }))
 
 const row = (locator: V2Annotation['locator']): V2Annotation => ({
   id: 'h1', bookId: 'b1', fileId: 'f1', selectedText: 'hello there', noteText: null, locator, color: 'yellow',
@@ -33,5 +34,24 @@ describe('upload highlights on V2', () => {
     expect(JSON.parse(h.anchorJson)).toMatchObject({ exact: 'hello', chapterId: 'key-2' })
     // The V2 reader's epub-cfi highlight is its quotation here (never converted).
     expect(JSON.parse(toPublicHighlight(row({ version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' })).anchorJson)).toEqual({ exact: 'hello there' })
+  })
+
+  it('an edit lost to another device\'s delete is reported deleted, not drawn', async () => {
+    initApi({ baseUrl: 'http://api', getAccessToken: async () => 't', onUnauthorized: async () => null })
+    const live = row({ version: 1, scheme: 'textstack-anchor-v1', value: { chapterKey: 'k', prefix: '', exact: 'hello', suffix: '', startOffset: 0, endOffset: 5 } })
+    const answers = [
+      { status: 200, body: { items: [live], cursor: 'c', hasMore: false } },
+      { status: 409, body: { code: 'deleted', message: 'x', current: { ...live, deletedAt: '2026-11-02T00:00:00Z' } } },
+    ]
+    const fetchMock = vi.fn(async () => {
+      const a = answers.shift()!
+      return { ok: a.status < 300, status: a.status, text: async () => JSON.stringify(a.body) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await userBookHighlightsApi.getUserBookHighlights('b1')).toHaveLength(1)
+    expect(await userBookHighlightsApi.getUserBookHighlights('b1')).toHaveLength(1) // from the store: one pull per open
+    await expect(userBookHighlightsApi.updateHighlight('h1', { color: 'blue' })).rejects.toBeInstanceOf(HighlightDeletedError)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    vi.unstubAllGlobals()
   })
 })

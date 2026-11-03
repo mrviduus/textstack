@@ -6,6 +6,7 @@ import {
   v2Api,
   type PendingSession,
 } from '@textstack/shared'
+import { onV2 } from './v2'
 
 /**
  * Reading sessions whose submit has not succeeded yet, persisted so an offline read still counts.
@@ -19,10 +20,13 @@ const KEY = 'reading.pendingSessions'
 
 type Submit = (s: PendingSession) => Promise<unknown>
 
-/** A V2 session (it has a `clientSessionId`) to its idempotent PUT; the rest to the legacy route. */
-const submitSession: Submit = (s) => {
-  if (!s.clientSessionId) return readingTrackingApi.submitSession(s)
-  const { clientSessionId, editionId: _editionId, userBookId, ...rest } = s
+/**
+ * An upload's session (it has a `clientSessionId`) to V2's idempotent PUT when V2 is on, decided
+ * at send time; anything else to the legacy route, without the V2 id.
+ */
+const submitSession: Submit = async ({ clientSessionId, ...s }) => {
+  if (!clientSessionId || !(await onV2())) return readingTrackingApi.submitSession(s)
+  const { editionId: _editionId, userBookId, ...rest } = s
   return v2Api.putSession(clientSessionId, { ...rest, bookId: userBookId ?? null })
 }
 

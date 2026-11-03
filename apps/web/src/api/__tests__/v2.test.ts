@@ -218,6 +218,15 @@ describe('the V2 reading state', () => {
     expect(puts[1].body).toMatchObject({ expectedRevision: 1 })
   })
 
+  it('keeps the fraction the server holds when a write knows no percent yet (never 0 over it)', async () => {
+    const calls = fakeApi({ ...library, [put]: [{ status: 200, body: state('b1', 1) }, { status: 200, body: state('b1', 2) }] })
+    await saveV2Progress('b1', write)
+    await saveV2Progress('b1', { ...write, percent: undefined })
+    const held = state('b1', 1).bookFraction
+    expect(calls.filter((c) => c.method === 'PUT')[1].body).toMatchObject({ bookFraction: held })
+    expect(held).toBeGreaterThan(0)
+  })
+
   it("adopts the server's place on stale_revision and writes on its revision next", async () => {
     const theirs = { ...position, chapterSlug: 'three' }
     const calls = fakeApi({ ...library, [put]: [conflict('stale_revision', { current: state('b1', 5, { currentLocator: { version: 1, scheme: 'textstack-position-v1', value: theirs } }) }), { status: 200, body: state('b1', 6) }] })

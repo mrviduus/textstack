@@ -738,7 +738,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast, chapte
     // The downloaded file when there is one, the streaming URL otherwise. The
     // shell tells them apart by scheme: a `file://` needs no Bearer.
     originalFileUrl: hasOriginalPdf && bookId
-      ? (localOriginalUri ?? userBooksApi.getUserBookFileUrl(bookId, API_URL))
+      ? (localOriginalUri ?? userBooksApi.getUserBookFileUrl(bookId, API_URL)) || null
       : null,
     originalInitialPage: sourceStartPageBySlugRef.current[chapterSlug] ?? null,
     originalChapterPicked: chapterPicked,
