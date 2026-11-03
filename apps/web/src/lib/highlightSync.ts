@@ -21,8 +21,10 @@ import { ApiError } from '../api/client'
 import { emitDataChange } from './dataEvents'
 import { isPdfAnchor } from '@textstack/shared'
 import { isCacheChapterKey, highlightChapterKey, chapterForHighlight } from './textAnchor'
-import { v2Api, type V2Annotation, type V2AnnotationWrite, type V2Locator, type PdfAnchor } from '@textstack/shared'
-import { onV2, v2Book, clip, pullFeed } from '../api/v2'
+import {
+  v2Api, clip, anchorToV2Locator, v2LocatorToAnchor, MAX_SELECTED_TEXT, type V2Annotation, type V2AnnotationWrite,
+} from '@textstack/shared'
+import { onV2, v2Book, pullFeed, v2Store } from '../api/v2'
 
 export type ChapterRef = { id: string; identifier: string }
 
@@ -348,40 +350,10 @@ export async function replayAllPendingHighlights(): Promise<void> {
 // ---- V2 (#1025): a user book's highlights on /me/v2/annotations ----------------------------------
 // IndexedDB stays the cache; a highlight's id is its own client uuid and `version` is the V2 revision.
 
-/** `SyncLimits.MaxSelectedText`: the selection and the anchor's quote share it. */
-const MAX_SELECTED_TEXT = 4000
-
-/**
- * A highlight's V2 locator: a reflow `TextAnchor` is `textstack-anchor-v1` with the chapter key it
- * was made in (the anchor's chapter id is the key on V2); a PDF one is `pdf-page`, the `PdfAnchor`
- * as stored. `exact` is cut as `selectedText` is (one cap, never inside a surrogate pair).
- */
-export function toV2Locator(anchor: HighlightAnchor): V2Locator {
-  if (isPdfAnchor(anchor)) return { version: 1, scheme: 'pdf-page', value: anchor }
-  const exact = clip(anchor.exact, MAX_SELECTED_TEXT)
-  return {
-    version: 1,
-    scheme: 'textstack-anchor-v1',
-    value: {
-      chapterKey: anchor.chapterId, prefix: anchor.prefix, exact, suffix: anchor.suffix,
-      startOffset: anchor.startOffset, endOffset: anchor.startOffset + exact.length,
-    },
-  }
-}
-
 /** A V2 annotation as the reader stores it; null when this reader cannot draw it (an `epub-cfi`, or none). */
 export function fromV2Annotation(a: V2Annotation): StoredHighlight | null {
-  let anchor: HighlightAnchor
-  if (a.locator?.scheme === 'textstack-anchor-v1') {
-    const { chapterKey, prefix, exact, suffix, startOffset, endOffset } = a.locator.value as {
-      chapterKey: string; prefix: string; exact: string; suffix: string; startOffset: number; endOffset: number
-    }
-    anchor = { chapterId: chapterKey, prefix, exact, suffix, startOffset, endOffset }
-  } else if (a.locator?.scheme === 'pdf-page') {
-    anchor = { ...(a.locator.value as PdfAnchor), v: 1, kind: 'pdf' }
-  } else {
-    return null
-  }
+  const anchor: HighlightAnchor | null = v2LocatorToAnchor(a.locator)
+  if (!anchor) return null
   const chapterId = isPdfAnchor(anchor) ? '' : anchor.chapterId
   return {
     id: a.id,
@@ -407,18 +379,14 @@ export function toV2Write(h: StoredHighlight, fileId: string | null, expectedRev
     fileId,
     selectedText: clip(h.selectedText, MAX_SELECTED_TEXT),
     noteText: h.noteText?.trim() ? h.noteText : null,
-    locator: toV2Locator(h.anchor),
+    locator: anchorToV2Locator(h.anchor),
     color: h.color,
   }
 }
 
-/** The server's annotations as last pulled or written, by id; and the books pulled at least once. */
-const serverRows = new Map<string, V2Annotation>()
-const pulledBooks = new Set<string>()
-
 /**
- * The V2 twin of `syncOnce`. Server rows replace synced local ones; pending rows are pushed: a create (unknown to the server) with `expectedRevision` null, an edit on the
- * revision it was made from, a tombstone as a DELETE. 409 `stale_revision` adopts the server's
+ * The V2 twin of `syncOnce`. Server rows replace synced local ones; pending rows are pushed: a
+ * create (unknown to the server) with `expectedRevision` null, an edit on the revision it was made from, a tombstone as a DELETE. 409 `stale_revision` adopts the server's
  * row; `deleted` deletes locally (a tombstone wins); `chapter_not_found` drops the write (the
  * file's chapters changed). Other failures leave the row pending. Never rejects, never re-plans.
  * `pushOnly` (a highlight added, edited or deleted in the reader) replays against what the last
@@ -428,20 +396,20 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
   const cancelled = () => ui?.isCancelled() ?? false
   try {
     const fileId = (await v2Book(bookId)).currentFile?.id ?? null
-    const pull = !pushOnly || !pulledBooks.has(bookId)
+    const pull = !pushOnly || !v2Store.pulled.has(bookId)
     if (pull) {
       // ponytail: the feed is per user, filtered here; a per-book list when one exists.
-      for (const a of (await pullFeed<V2Annotation>('annotations')).items) serverRows.set(a.id, a)
-      pulledBooks.add(bookId)
+      for (const a of (await pullFeed<V2Annotation>('annotations')).items) v2Store.annotations.set(a.id, a)
+      v2Store.pulled.add(bookId)
     }
     if (cancelled()) return false
-    const server = [...serverRows.values()].filter((a) => a.bookId === bookId)
+    const server = [...v2Store.annotations.values()].filter((a) => a.bookId === bookId)
     const serverById = new Map(server.map((a) => [a.id, a]))
     const local = await getHighlightsForUserBook(bookId)
     const pending = new Set(local.filter((h) => h.syncStatus === 'pending').map((h) => h.id))
 
     const adopt = async (a: V2Annotation) => {
-      serverRows.set(a.id, a)
+      v2Store.annotations.set(a.id, a)
       const row = a.deletedAt ? null : fromV2Annotation(a)
       if (row) await saveHighlight(row)
       else await deleteHighlightFromDB(a.id)
