@@ -187,6 +187,7 @@ export async function getV2UserBooks(): Promise<UserBook[]> {
 /** The book page and the reader's book: the chapter list is the current file's. */
 export async function getV2UserBook(id: string): Promise<UserBookDetail> {
   const b = await v2Book(id)
+  // ponytail: one reading-state read per book open for `completedAt`; the library feed could carry it (#1118).
   const [toc, state] = await Promise.all([v2Chapters(b), v2Api.getReadingState(id).catch(() => null)])
   return {
     ...baseBook(b, toc),

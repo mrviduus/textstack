@@ -241,7 +241,7 @@ function UserBookMenu({
               {t('library.actions.viewDetails')}
             </button>
           )}
-          {isReady && (
+          {isReady && (!v2.enabled || book.chapterCount > 0) && (
             <button
               className="book-card-menu__item"
               role="menuitem"
