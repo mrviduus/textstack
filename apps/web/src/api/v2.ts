@@ -5,12 +5,15 @@
  * Wire calls are `@textstack/shared`'s `v2Api`; this file only maps and sequences.
  */
 import {
-  v2Api, ApiError, notInSurrogatePair, parsePdfPageLocator, parseTextPosition,
-  type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2Locator,
+  v2Api, ApiError, chapterAtFraction, clip, v2PositionLocator, v2ResumeChapter as resumeChapter,
+  type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState,
   type V2ReadingStateWrite,
 } from '@textstack/shared'
 import { API_BASE } from './client'
 import type { UserBook, UserBookDetail, UserChapter, UploadResponse, UserBookProgress } from './userBooks'
+
+// The locator helpers both clients use live in `@textstack/shared` (reader/v2Locators).
+export { chapterAtFraction, clip, v2PositionLocator as v2Locator }
 
 // ---- The switch ---------------------------------------------------------------------------------
 
@@ -105,34 +108,6 @@ const isPdf = (b: V2Book) => b.currentFile?.format === 'pdf' && b.currentFile.ha
 
 /** The cover route, versioned by `updatedAt` (`getUserBookCoverUrl` passes a `/me/v2/` path through). */
 const coverPath = (b: V2Book) => (b.hasCover ? `/me/v2/books/${b.id}/cover?v=${encodeURIComponent(b.updatedAt)}` : null)
-
-/**
- * The chapter at a book fraction, by cumulative word counts: where a reader resumes when the stored
- * position is not one it can resolve (an `epub-cfi` from the V2 reader). ponytail: proportional on
- * word counts, chapters without a count weigh the average.
- */
-export function chapterAtFraction(items: { chapterKey: string; wordCount: number | null }[], fraction: number): string | null {
-  if (items.length === 0) return null
-  const known = items.filter((c) => c.wordCount != null)
-  const average = known.length ? known.reduce((s, c) => s + c.wordCount!, 0) / known.length : 1
-  const weights = items.map((c) => c.wordCount ?? average)
-  const target = Math.min(1, Math.max(0, fraction)) * weights.reduce((s, w) => s + w, 0)
-  let sum = 0
-  for (let i = 0; i < items.length; i++) {
-    sum += weights[i]
-    if (target < sum) return items[i].chapterKey
-  }
-  return items[items.length - 1].chapterKey
-}
-
-/** The chapter a stored state resumes in: its own for a position the reader wrote, none for a PDF page. */
-function resumeChapter(state: V2ReadingState, toc: V2FileChapters): string | null {
-  const { scheme, value } = state.currentLocator
-  if (scheme === 'textstack-position-v1') return (value as { chapterSlug: string }).chapterSlug
-  if (scheme === 'pdf-page') return null
-  // An epub-cfi (the V2 reader's) is never turned into a chapter place (ADR-031): resume from the fraction.
-  return chapterAtFraction(toc.items, state.bookFraction)
-}
 
 /** The uploads shelf: live books only, each with its status and the reader's place. */
 export async function getV2UserBooks(): Promise<UserBook[]> {
@@ -266,26 +241,11 @@ export interface ProgressWrite {
   positionJson?: string
 }
 
-/**
- * The legacy write as a V2 locator. A PDF page is `pdf-page {"page":N}`; a reflow place is the
- * reader's own TextPosition as `textstack-position-v1` — never converted to a CFI (ADR-031). Null:
- * nothing to write (no chapter and no page).
- */
-export function v2Locator(data: ProgressWrite): V2Locator | null {
-  const page = parsePdfPageLocator(data.locator)
-  if (page != null) return { version: 1, scheme: 'pdf-page', value: { page } }
-  if (!data.chapterSlug) return null
-  const position = parseTextPosition(data.positionJson)
-  // ponytail: a place with nothing to quote (the very end of a chapter) is sent scroll-only at the chapter's start.
-  const value = position?.chapterSlug === data.chapterSlug ? position : { v: 1, chapterSlug: data.chapterSlug, chapterFraction: 0 }
-  return { version: 1, scheme: 'textstack-position-v1', value }
-}
-
 /** The PUT body for a write, synchronously (the keepalive flush); null when the book is not known yet. */
 export function v2ProgressBody(bookId: string, data: ProgressWrite): V2ReadingStateWrite | null {
   const known = states.get(bookId)
   const fileId = known?.fileId ?? books.get(bookId)?.currentFile?.id
-  const currentLocator = v2Locator(data)
+  const currentLocator = v2PositionLocator(data)
   if (!fileId || !currentLocator) return null
   return {
     expectedRevision: known?.revision ?? null,
@@ -374,9 +334,6 @@ export async function sha256Hex(file: Blob): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(await file.arrayBuffer()))
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
 }
-
-/** Cut to `max` UTF-16 units, never between the halves of a surrogate pair (the server refuses a lone one). */
-export const clip = (text: string, max: number) => (text.length <= max ? text : text.slice(0, notInSurrogatePair(text, max, -1)))
 
 type SendPart = (url: string, part: Blob, onLoaded: (loaded: number) => void) => Promise<unknown>
 

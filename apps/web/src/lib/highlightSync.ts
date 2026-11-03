@@ -21,8 +21,11 @@ import { ApiError } from '../api/client'
 import { emitDataChange } from './dataEvents'
 import { isPdfAnchor } from '@textstack/shared'
 import { isCacheChapterKey, highlightChapterKey, chapterForHighlight } from './textAnchor'
-import { v2Api, type V2Annotation, type V2AnnotationWrite, type V2Locator, type PdfAnchor } from '@textstack/shared'
-import { onV2, v2Book, clip } from '../api/v2'
+import {
+  v2Api, v2AnchorLocator, anchorOfV2Locator, clip, V2_MAX_SELECTED_TEXT,
+  type V2Annotation, type V2AnnotationWrite, type V2Locator,
+} from '@textstack/shared'
+import { onV2, v2Book } from '../api/v2'
 
 export type ChapterRef = { id: string; identifier: string }
 
@@ -348,40 +351,14 @@ export async function replayAllPendingHighlights(): Promise<void> {
 // ---- V2 (#1025): a user book's highlights on /me/v2/annotations ----------------------------------
 // IndexedDB stays the cache; a highlight's id is its own client uuid and `version` is the V2 revision.
 
-/** `SyncLimits.MaxSelectedText`: the selection and the anchor's quote share it. */
-const MAX_SELECTED_TEXT = 4000
-
-/**
- * A highlight's V2 locator: a reflow `TextAnchor` is `textstack-anchor-v1` with the chapter key it
- * was made in (the anchor's chapter id is the key on V2); a PDF one is `pdf-page`, the `PdfAnchor`
- * as stored. `exact` is cut as `selectedText` is (one cap, never inside a surrogate pair).
- */
-export function toV2Locator(anchor: HighlightAnchor): V2Locator {
-  if (isPdfAnchor(anchor)) return { version: 1, scheme: 'pdf-page', value: anchor }
-  const exact = clip(anchor.exact, MAX_SELECTED_TEXT)
-  return {
-    version: 1,
-    scheme: 'textstack-anchor-v1',
-    value: {
-      chapterKey: anchor.chapterId, prefix: anchor.prefix, exact, suffix: anchor.suffix,
-      startOffset: anchor.startOffset, endOffset: anchor.startOffset + exact.length,
-    },
-  }
-}
+/** A highlight's V2 locator (the anchor's chapter id is the chapter key on V2). */
+export const toV2Locator = (anchor: HighlightAnchor): V2Locator =>
+  v2AnchorLocator(anchor, isPdfAnchor(anchor) ? '' : anchor.chapterId)
 
 /** A V2 annotation as the reader stores it; null when this reader cannot draw it (an `epub-cfi`, or none). */
 export function fromV2Annotation(a: V2Annotation): StoredHighlight | null {
-  let anchor: HighlightAnchor
-  if (a.locator?.scheme === 'textstack-anchor-v1') {
-    const { chapterKey, prefix, exact, suffix, startOffset, endOffset } = a.locator.value as {
-      chapterKey: string; prefix: string; exact: string; suffix: string; startOffset: number; endOffset: number
-    }
-    anchor = { chapterId: chapterKey, prefix, exact, suffix, startOffset, endOffset }
-  } else if (a.locator?.scheme === 'pdf-page') {
-    anchor = { ...(a.locator.value as PdfAnchor), v: 1, kind: 'pdf' }
-  } else {
-    return null
-  }
+  const anchor: HighlightAnchor | null = anchorOfV2Locator(a.locator)
+  if (!anchor) return null
   const chapterId = isPdfAnchor(anchor) ? '' : anchor.chapterId
   return {
     id: a.id,
@@ -405,7 +382,7 @@ export function toV2Write(h: StoredHighlight, fileId: string | null, expectedRev
     expectedRevision,
     bookId: h.userBookId!,
     fileId,
-    selectedText: clip(h.selectedText, MAX_SELECTED_TEXT),
+    selectedText: clip(h.selectedText, V2_MAX_SELECTED_TEXT),
     noteText: h.noteText?.trim() ? h.noteText : null,
     locator: toV2Locator(h.anchor),
     color: h.color,
