@@ -894,13 +894,18 @@ public partial class AuthService
             return DeviceApprovalResult.Expired;
         }
 
-        // A valid token whose user is gone (account deleted) names nobody: 401, not the FK's 500 (#1119).
-        if (!await _db.Users.AnyAsync(u => u.Id == userId, ct))
-            return DeviceApprovalResult.Unauthorized;
-
         row.Status = DeviceAuthorizationStatus.Approved;
         row.UserId = userId;
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        // A valid token whose user is gone (account deleted) names nobody: 401, not the FK's 500 (#1119).
+        // Caught on the write itself, so a delete committing meanwhile is covered too.
+        catch (DbUpdateException e) when (e.IsForeignKeyViolation())
+        {
+            return DeviceApprovalResult.Unauthorized;
+        }
         return DeviceApprovalResult.Ok;
     }
 

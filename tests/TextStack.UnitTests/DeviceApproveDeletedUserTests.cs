@@ -4,22 +4,21 @@ using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Moq;
+using Npgsql;
 
 namespace TextStack.UnitTests;
 
-/// <summary>#1119: a valid access token whose user row is gone approves nothing (401), never a 500 from the FK.</summary>
+/// <summary>#1119: a valid access token whose user row is gone approves nothing (401): the FK violation on save is the answer, never a 500.</summary>
 public class DeviceApproveDeletedUserTests
 {
     private const string UserCode = "WDJBMQXR";
 
-    private readonly List<User> _users = [];
     private readonly List<DeviceAuthorization> _devices = [];
     private readonly Mock<IAppDbContext> _db = new();
     private readonly AuthService _service;
 
     public DeviceApproveDeletedUserTests()
     {
-        _db.Setup(x => x.Users).Returns(() => FakeSet(_users).Object);
         _db.Setup(x => x.DeviceAuthorizations).Returns(() => FakeSet(_devices).Object);
         _db.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
         _service = new AuthService(
@@ -52,26 +51,34 @@ public class DeviceApproveDeletedUserTests
     }
 
     [Fact]
-    public async Task ApproveDeviceAsync_UserRowDeleted_UnauthorizedAndRowUntouched()
+    public async Task ApproveDeviceAsync_UserRowDeleted_UnauthorizedNotAnError()
     {
+        // device_authorizations.user_id refuses an id with no users row.
+        _db.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ThrowsAsync(new DbUpdateException("save failed",
+            new PostgresException("fk", "ERROR", "ERROR", PostgresErrorCodes.ForeignKeyViolation)));
+
         var result = await _service.ApproveDeviceAsync(UserCode, Guid.NewGuid(), CancellationToken.None);
 
         Assert.Equal(DeviceApprovalResult.Unauthorized, result);
-        Assert.Equal(DeviceAuthorizationStatus.Pending, _devices[0].Status);
-        Assert.Null(_devices[0].UserId);
-        _db.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ApproveDeviceAsync_AnyOtherSaveFailure_StillThrows()
+    {
+        _db.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ThrowsAsync(new DbUpdateException("down"));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _service.ApproveDeviceAsync(UserCode, Guid.NewGuid(), CancellationToken.None));
     }
 
     [Fact]
     public async Task ApproveDeviceAsync_UserExists_ApprovesAndBindsUser()
     {
-        var user = new User { Id = Guid.NewGuid(), Email = "a@test.dev" };
-        _users.Add(user);
+        var userId = Guid.NewGuid();
 
-        var result = await _service.ApproveDeviceAsync(UserCode, user.Id, CancellationToken.None);
+        var result = await _service.ApproveDeviceAsync(UserCode, userId, CancellationToken.None);
 
         Assert.Equal(DeviceApprovalResult.Ok, result);
         Assert.Equal(DeviceAuthorizationStatus.Approved, _devices[0].Status);
-        Assert.Equal(user.Id, _devices[0].UserId);
+        Assert.Equal(userId, _devices[0].UserId);
     }
 }
