@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, useV2 } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useReaderSettings } from '../hooks/useReaderSettings'
 import { useReaderChapter, type ReaderMode } from '../hooks/useReaderChapter'
@@ -75,8 +75,11 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
 
   const { settings, update } = useReaderSettings()
 
+  // V2 has no bookmarks (ADR-031): a V2 user book shows neither the action nor the list, and loads none.
+  const v2On = useV2().enabled
+  const bookmarksOff = mode === 'userbook' && v2On
   const bookmarksApi = useReaderBookmarks({
-    mode, bookSlug, userBookId: id, publicEditionId: publicBook?.id, publicChapter, book, isAuthenticated,
+    mode, bookSlug, userBookId: bookmarksOff ? undefined : id, publicEditionId: publicBook?.id, publicChapter, book, isAuthenticated,
     userId: user?.id, isGuest,
   })
   const { error: bookmarkError, clearError: clearBookmarkError } = bookmarksApi
@@ -268,7 +271,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
         onSearchClick={() => setSearchOpen(true)}
         onTocClick={() => setTocOpen(true)}
         onSettingsClick={() => setSettingsOpen(true)}
-        onBookmarkClick={() => {
+        onBookmarkClick={bookmarksOff ? undefined : () => {
           if (originalActive) {
             // Toggle a bookmark on the CURRENT PDF page.
             const existing = bookmarksApi.getPageBookmark(pdfCurrentPage)
@@ -379,6 +382,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
           chapters: book.chapters,
           currentChapterIdentifier: activeChapterIdentifier,
           bookmarks: bookmarksApi.bookmarks,
+          showBookmarks: !bookmarksOff,
           highlights: highlightsApi.highlights,
           autoSave: autoSaveInfo,
           getChapterUrl,

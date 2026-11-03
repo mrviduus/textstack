@@ -61,6 +61,8 @@ interface Props {
   onChapterSelect?: (identifier: string) => void // For scroll mode: scroll to chapter instead of navigate
   onBookmarkSelect?: (bookmark: Bookmark) => void // Original-layout PDF: jump to the bookmark's page instead of navigating
   onHighlightSelect?: (highlight: StoredHighlight) => void // Highlights tab: jump to the highlight (navigation-only)
+  /** False: no Bookmarks tab (a V2 user book: V2 has no bookmarks, ADR-031). */
+  showBookmarks?: boolean
 }
 
 type Tab = 'contents' | 'bookmarks' | 'highlights'
@@ -79,6 +81,7 @@ export function ReaderTocDrawer({
   onChapterSelect,
   onBookmarkSelect,
   onHighlightSelect,
+  showBookmarks = true,
 }: Props) {
   const containerRef = useFocusTrap(open)
   const { t } = useTranslation()
@@ -108,12 +111,14 @@ export function ReaderTocDrawer({
             >
               Contents
             </button>
-            <button
-              className={`reader-toc-drawer__tab ${activeTab === 'bookmarks' ? 'active' : ''}`}
-              onClick={() => setActiveTab('bookmarks')}
-            >
-              Bookmarks {bookmarks.length > 0 && `(${bookmarks.length})`}
-            </button>
+            {showBookmarks && (
+              <button
+                className={`reader-toc-drawer__tab ${activeTab === 'bookmarks' ? 'active' : ''}`}
+                onClick={() => setActiveTab('bookmarks')}
+              >
+                Bookmarks {bookmarks.length > 0 && `(${bookmarks.length})`}
+              </button>
+            )}
             <button
               className={`reader-toc-drawer__tab ${activeTab === 'highlights' ? 'active' : ''}`}
               onClick={() => setActiveTab('highlights')}
