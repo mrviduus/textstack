@@ -74,12 +74,18 @@ async function dropReplaced(b: V2Book): Promise<void> {
   }
 }
 
-export async function pullV2Books(): Promise<V2Book[]> {
-  const { items } = await v2Api.pullAll<V2Book>('library')
-  books.clear()
-  for (const b of items) books.set(b.id, b)
-  await Promise.all(items.map(dropReplaced))
-  return items
+let pulling: Promise<V2Book[]> | null = null
+
+/** The library feed, whole; concurrent callers (the list, the sweep, the reader) share one pull. */
+export function pullV2Books(): Promise<V2Book[]> {
+  pulling ??= (async () => {
+    const { items } = await v2Api.pullAll<V2Book>('library')
+    books.clear()
+    for (const b of items) books.set(b.id, b)
+    await Promise.all(items.map(dropReplaced))
+    return items
+  })().finally(() => { pulling = null })
+  return pulling
 }
 
 /** A live book of the user's, from the last pull or a fresh one; 404 when there is none. */
@@ -127,7 +133,8 @@ export async function getV2UserBooks(): Promise<UserBookDto[]> {
   const [list, reading] = await Promise.all([pullV2Books(), v2Api.pullAll<V2ReadingState>('reading')])
   const stateOf = new Map(reading.items.map((s) => [s.bookId, s]))
   return Promise.all(list.filter((b) => !b.removedAt).map(async (b): Promise<UserBookDto> => {
-    const toc = await v2Chapters(b)
+    // One book's chapters failing must not empty the shelf: it shows as processing, re-asked by the poll.
+    const toc = await v2Chapters(b).catch((): V2FileChapters => ({ items: [], ingestion: 'processing' }))
     const state = stateOf.get(b.id)
     return {
       id: b.id,
@@ -277,10 +284,17 @@ export interface ProgressWrite {
  * place resumes from `bookFraction`). Anything else throws: the local record stays unsynced.
  * ponytail: a `chapter_not_found` while the file is still extracting is dropped too, not queued (R6).
  */
-export async function saveV2Progress(bookId: string, data: ProgressWrite): Promise<{ reload?: boolean }> {
+export interface V2WriteOutcome {
+  /** The book's file was replaced: reopen it. */
+  reload?: boolean
+  /** Neither stored nor adopted: the local record stays unsynced. */
+  dropped?: boolean
+}
+
+export async function saveV2Progress(bookId: string, data: ProgressWrite): Promise<V2WriteOutcome> {
   const known = (await getUserBookV2State(bookId)) ?? { revision: null, fileId: (await v2Book(bookId)).currentFile?.id }
   const currentLocator = v2PositionLocator(data)
-  if (!known.fileId || !currentLocator) return {}
+  if (!known.fileId || !currentLocator) return { dropped: true }
   const now = Date.now()
   const body: V2ReadingStateWrite = {
     expectedRevision: known.revision,
@@ -300,7 +314,7 @@ export async function saveV2Progress(bookId: string, data: ProgressWrite): Promi
       case 'stale_revision':
         if (current) await adopt(current)
         else await setUserBookV2State(bookId, null)
-        return {}
+        return current ? {} : { dropped: true }
       case 'reset':
         await remember(await v2Api.putReadingState(bookId, { ...body, expectedRevision: current?.revision ?? null }))
         return {}
@@ -309,9 +323,9 @@ export async function saveV2Progress(bookId: string, data: ProgressWrite): Promi
         return { reload: true }
       case 'unknown_file':
         await forgetV2Book(bookId)
-        return {}
+        return { dropped: true }
       case 'chapter_not_found':
-        return {}
+        return { dropped: true }
       default:
         throw e
     }
@@ -375,19 +389,23 @@ export async function uploadV2Book(
   try {
     const format = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'epub'
     const sha256 = await sha256Of(source, io.yieldNow)
-    const found = await v2Api.findBySha256(sha256)
-    if (found) return { bookId: found.id, existing: true }
-
-    const bookId = uuid.v4()
-    const fileId = uuid.v4()
-    const title = clip(file.name.replace(/\.(epub|pdf)$/i, '').trim() || file.name, 500)
-    try {
-      await v2Api.importBook(bookId, { title, file: { id: fileId, sha256, byteSize: source.size, originalName: clip(file.name, 500), format } })
-    } catch (e) {
-      const err = v2Api.v2ErrorOf(e)
-      if (err?.code === 'duplicate_file') return { bookId: (err.current as V2Book).id, existing: true }
-      throw e
+    // The same bytes already in the library open that book — or, when another device imported it
+    // without its bytes, this upload sends them to that book's file.
+    let target = await v2Api.findBySha256(sha256)
+    if (!target) {
+      const id = uuid.v4()
+      const title = clip(file.name.replace(/\.(epub|pdf)$/i, '').trim() || file.name, 500)
+      try {
+        target = await v2Api.importBook(id, { title, file: { id: uuid.v4(), sha256, byteSize: source.size, originalName: clip(file.name, 500), format } })
+      } catch (e) {
+        const err = v2Api.v2ErrorOf(e)
+        if (err?.code !== 'duplicate_file') throw e
+        target = err.current as V2Book
+      }
     }
+    if (!target.currentFile || target.currentFile.hasContent) return { bookId: target.id, existing: true }
+    const bookId = target.id
+    const fileId = target.currentFile.id
 
     const partBytes = Math.max(1, maxPartBytes)
     const partCount = Math.max(1, Math.ceil(source.size / partBytes))

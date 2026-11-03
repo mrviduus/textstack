@@ -10,7 +10,7 @@
 import { userBooksApi as legacy } from '@textstack/shared'
 import {
   onV2, v2Enabled, getV2UserBooks, getV2UserBook, getV2UserBookChapter, removeV2Book, v2FileUrl,
-  readV2Progress, saveV2Progress,
+  readV2Progress, saveV2Progress, type V2WriteOutcome,
 } from './v2'
 
 type UpdateProgress = Parameters<typeof legacy.updateUserBookProgress>[1]
@@ -24,8 +24,8 @@ export const userBooksApi = {
   deleteUserBook: async (id: string) => ((await onV2()) ? removeV2Book(id) : legacy.deleteUserBook(id)),
   getUserBookProgress: async (bookId: string) =>
     ((await onV2()) ? readV2Progress(bookId) : legacy.getUserBookProgress(bookId)),
-  /** On V2 the revision rule decides; `reload`: the book's file was replaced, reopen it. */
-  updateUserBookProgress: async (bookId: string, data: UpdateProgress): Promise<{ reload?: boolean } | void> =>
+  /** On V2 the revision rule decides (`V2WriteOutcome`). */
+  updateUserBookProgress: async (bookId: string, data: UpdateProgress): Promise<V2WriteOutcome | void> =>
     ((await onV2()) ? saveV2Progress(bookId, data) : legacy.updateUserBookProgress(bookId, data)),
   getUserBookBookmarks: async (bookId: string) => ((await onV2()) ? [] : legacy.getUserBookBookmarks(bookId)),
   getUserBookFileUrl: (id: string, apiBase: string) =>

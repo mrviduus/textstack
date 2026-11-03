@@ -342,9 +342,10 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast, chapte
     showToast({ message: 'This book was replaced on another device.', variant: 'info' })
     router.replace(`/my-books/${bookId}`)
   }
-  const afterWrite = useCallback((outcome: { reload?: boolean } | void, recordedAt: number) => {
+  const afterWrite = useCallback((outcome: { reload?: boolean; dropped?: boolean } | void, recordedAt: number) => {
     if (outcome?.reload) reloadRef.current()
-    else return markUserBookLocalProgressSynced(bookId, recordedAt)
+    // Synced only when the server stored this write (or this device adopted the server's).
+    else if (!outcome?.dropped) return markUserBookLocalProgressSynced(bookId, recordedAt)
   }, [bookId])
 
   const persist = useCallback((snap: ProgressSnapshot) => {

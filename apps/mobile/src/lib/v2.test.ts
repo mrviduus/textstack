@@ -63,8 +63,18 @@ describe('mobile v2', () => {
     expect(calls.at(-1)).toMatchObject({ method: 'POST', body: { partCount: 3 } })
   })
 
+  it('sends the bytes to a book imported elsewhere without them', async () => {
+    fakeApi({
+      ['GET /books/by-sha256/' + sha]: [{ status: 200, body: { id: 'b-meta', currentFile: { id: 'f-meta', hasContent: false } } }],
+      'POST /books/b-meta/files/f-meta/content': [{ status: 200, body: {} }],
+    })
+    const sent: Uint8Array[] = []
+    expect(await uploadV2Book({ uri: 'u', name: 'a.epub' }, 25, io(sent))).toEqual({ bookId: 'b-meta', existing: false })
+    expect(sent).toHaveLength(1)
+  })
+
   it('opens the book that already has these bytes instead of importing', async () => {
-    const calls = fakeApi({ ['GET /books/by-sha256/' + sha]: [{ status: 200, body: { id: 'b-old' } }] })
+    const calls = fakeApi({ ['GET /books/by-sha256/' + sha]: [{ status: 200, body: { id: 'b-old', currentFile: { id: 'f', hasContent: true } } }] })
     expect(await uploadV2Book({ uri: 'u', name: 'a.epub' }, 10, io())).toEqual({ bookId: 'b-old', existing: true })
     expect(calls.some((c) => c.method === 'PUT')).toBe(false)
   })
@@ -109,7 +119,7 @@ describe('mobile v2', () => {
       { status: 409, body: { code: 'chapter_not_found', message: 'x' } },
       { status: 409, body: { code: 'file_replaced', message: 'x' } },
     ] })
-    expect(await saveV2Progress('b1', { chapterSlug: 'k1' })).toEqual({})
+    expect(await saveV2Progress('b1', { chapterSlug: 'k1' })).toEqual({ dropped: true })
     expect(await saveV2Progress('b1', { chapterSlug: 'k1' })).toEqual({ reload: true })
     expect(await getUserBookV2State('b1')).toBeNull()
   })
@@ -126,6 +136,11 @@ function wrapIds(calls: Call[], completes: Answer[] = [{ status: 200, body: {} }
     calls.push({ method, path, body: typeof init.body === 'string' ? JSON.parse(init.body) : init.body })
     let a: Answer = { status: 200, body: {} }
     if (path.startsWith('/books/by-sha256/')) a = { status: 404 }
+    else if (method === 'PUT' && /^\/books\/[^/]+$/.test(path)) {
+      // The import answers the book with its first file, no bytes yet.
+      const sent = JSON.parse(init.body as string)
+      a = { status: 201, body: { id: path.slice(7), currentFile: { id: sent.file.id, hasContent: false } } }
+    }
     else if (method === 'POST' && path.endsWith('/content')) a = completes.length > 1 ? completes.shift()! : completes[0]
     return { ok: a.status < 300, status: a.status, text: async () => (a.body === undefined ? '' : JSON.stringify(a.body)) }
   })
