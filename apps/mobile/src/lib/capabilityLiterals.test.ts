@@ -3,7 +3,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
- * Guest policy is written once, in `src/lib/capabilities.ts`, and nowhere else.
+ * Guest policy is written once, in `capabilitiesFor` (`packages/shared/src/lib/capabilities.ts`,
+ * re-exported by `src/lib/capabilities.ts`), and nowhere else in this app.
  *
  * The failure this prevents is not hypothetical — it shipped. `app/(tabs)/profile.tsx`
  * derived `const isGuest = !!user?.isGuest` and then used it twice: to hide the edit
@@ -34,10 +35,6 @@ const SKIP_DIRS = new Set(['node_modules', '__snapshots__', '__mocks__'])
  * shrinking this list is always an improvement, growing it needs a reason on the line.
  */
 const ALLOW: { file: string; why: string }[] = [
-  {
-    file: 'src/lib/capabilities.ts',
-    why: 'the one place the policy is written — `capabilitiesFor` reads `user.isGuest` so nobody else has to',
-  },
   {
     file: 'src/context/AuthContext.tsx',
     why:

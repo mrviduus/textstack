@@ -66,8 +66,13 @@ public static class McpKeysEndpoints
 
         var key = await keys.CreateAsync(identity.UserId, McpKeys.NormalizeName(request.Name),
             DeviceCodes.HashToken(raw), McpKeys.DisplayPrefix(raw), identity.IssuedAt, ct);
-        // The account is gone, or (V2) its password was reset after this token was issued: sign in again.
-        if (key is null) return Results.Unauthorized();
+        // Refused: a guest (a key is a persistent assistant credential, #1120) gets OAuth consent's 403;
+        // an account that is gone, or (V2) whose password was reset after this token was issued, signs in
+        // again. The user is read only here, on the refusal.
+        if (key is null)
+            return await authService.GetUserByIdAsync(identity.UserId, ct) is { IsGuest: true }
+                ? AiAccountPolicy.AssistantAccountRequired()
+                : Results.Unauthorized();
 
         // `key` is returned here and nowhere else, ever — only its hash is kept. The client must show
         // it once and tell the reader so.

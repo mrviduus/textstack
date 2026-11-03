@@ -193,16 +193,16 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task FileIsVersionAsync_SupersededVersionAnotherBooksFileAndAnotherUser_AreTrueFalseFalse()
+    public async Task FileFormatAsync_SupersededVersionAnotherBooksFileAndAnotherUser_AreFormatNullNull()
     {
         var book = await db.NewReaderWithBookAsync();
-        var superseded = book.CurrentFile!.Id;
+        var (superseded, format) = (book.CurrentFile!.Id, book.CurrentFile.Format);
         await db.ReplaceFileAsync(book);
         var other = await db.NewBookAsync(book.UserId, "Another book");
 
-        Assert.True(await _repo.FileIsVersionAsync(book.UserId, book.Id, superseded, Ct));
-        Assert.False(await _repo.FileIsVersionAsync(book.UserId, book.Id, other.CurrentFile!.Id, Ct));
-        Assert.False(await _repo.FileIsVersionAsync(await db.NewReaderAsync(), book.Id, superseded, Ct));
+        Assert.Equal(format, await _repo.FileFormatAsync(book.UserId, book.Id, superseded, Ct));
+        Assert.Null(await _repo.FileFormatAsync(book.UserId, book.Id, other.CurrentFile!.Id, Ct));
+        Assert.Null(await _repo.FileFormatAsync(await db.NewReaderAsync(), book.Id, superseded, Ct));
     }
 
     [Fact]

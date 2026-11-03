@@ -92,6 +92,40 @@ public class DeviceAuthEndpointTests : IClassFixture<AuthenticatedApiFixture>
         Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
     }
 
+    // #1119: a still-valid access token whose account was deleted names nobody — 401, not the FK's 500.
+    [Fact]
+    public async Task Approve_TokenOfADeletedAccount_Returns401()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var register = Bare(HttpMethod.Post, "/auth/register", null);
+        register.Headers.Add("X-Client", "mobile");
+        register.Content = JsonContent.Create(new { email = $"device-gone-{Guid.NewGuid():N}@textstack.test", password = "correct-horse-battery", name = "Gone" });
+        var registered = await _fixture.Client.SendAsync(register, ct);
+        Assert.SkipWhen(IntegrationSkip.Unavailable(registered) || !registered.IsSuccessStatusCode, "registration unavailable");
+        var token = (await registered.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("accessToken").GetString()!;
+
+        var deleted = await _fixture.Client.SendAsync(Bare(HttpMethod.Delete, "/me/account", token), ct);
+        Assert.SkipWhen(deleted.StatusCode == HttpStatusCode.TooManyRequests, "account-delete rate limit (ACCOUNT_DELETE_PERMIT_LIMIT)");
+        Assert.True(deleted.IsSuccessStatusCode, $"account delete → {(int)deleted.StatusCode}");
+
+        var userCode = (await RequestCodeAsync(ct)).GetProperty("user_code").GetString()!;
+        var approve = Bare(HttpMethod.Post, "/auth/device/approve", token);
+        approve.Content = JsonContent.Create(new { user_code = userCode });
+        var resp = await _fixture.Client.SendAsync(approve, ct);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
+    // No fixture cookie: the bearer is the only identity on the request.
+    private static HttpRequestMessage Bare(HttpMethod method, string path, string? bearer)
+    {
+        var req = new HttpRequestMessage(method, path);
+        req.Headers.Host = AuthenticatedApiFixture.TestHost;
+        if (bearer is not null) req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {bearer}");
+        return req;
+    }
+
     [Fact]
     public async Task PollToken_AfterApproval_ReturnsAccessAndRefreshToken()
     {

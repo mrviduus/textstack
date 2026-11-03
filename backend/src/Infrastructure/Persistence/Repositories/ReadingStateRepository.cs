@@ -36,6 +36,14 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
     private const string FrontierChapterExists =
         "(CAST(@FrontierKey AS text) IS NULL OR EXISTS (SELECT FROM book_chapters c WHERE c.user_id = @userId AND c.file_id = @FileId AND c.chapter_key = @FrontierKey))";
 
+    // A locator's scheme fits its file (#1122): pdf-page only on a PDF, epub-cfi only on an EPUB or HTML;
+    // textstack-* on any (its guard is the chapter check). SyncValidation.FitsFile names a loss to these.
+    private const string CurrentFitsFile =
+        "(CASE CAST(@CurrentLocator AS jsonb) ->> 'scheme' WHEN 'pdf-page' THEN f.format = 'pdf' WHEN 'epub-cfi' THEN f.format IN ('epub', 'html') ELSE true END)";
+
+    private const string FrontierFitsFile =
+        "(CASE CAST(@FrontierLocator AS jsonb) ->> 'scheme' WHEN 'pdf-page' THEN f.format = 'pdf' WHEN 'epub-cfi' THEN f.format IN ('epub', 'html') ELSE true END)";
+
     // A first write may only start on the book's current file; ON CONFLICT turns "someone wrote
     // first" into no row returned. Selecting the file by user also makes another user's ids a loss.
     private const string InsertFirstState = $"""
@@ -43,6 +51,7 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
         SELECT f.user_id, f.book_id, f.id, CAST(@CurrentLocator AS jsonb), @BookFraction, CAST(@FrontierLocator AS jsonb), @FrontierFraction, @CompletedAt, @ClientRecordedAt, now(), 1
         FROM book_files f
         WHERE f.user_id = @userId AND f.book_id = @bookId AND f.id = @FileId AND f.is_current
+            AND {CurrentFitsFile} AND {FrontierFitsFile}
             AND {CurrentChapterExists} AND {FrontierChapterExists}
         -- Waits for a replacement in flight, then re-checks is_current: no state lands on a superseded file.
         FOR SHARE OF f
@@ -64,6 +73,9 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
             updated_at = now(),
             revision = revision + 1
         WHERE user_id = @userId AND book_id = @bookId AND file_id = @FileId AND revision = @expectedRevision
+            -- The file's format, read by key in the same statement; the frontier's scheme only when this write stores it.
+            AND EXISTS (SELECT FROM book_files f WHERE f.user_id = @userId AND f.id = @FileId
+                AND {CurrentFitsFile} AND (frontier_fraction IS NOT NULL AND @FrontierFraction <= frontier_fraction OR {FrontierFitsFile}))
             -- The frontier's chapter only when this write stores it: an unchanged one echoed back is not refused.
             AND {CurrentChapterExists}
             AND (frontier_fraction IS NOT NULL AND @FrontierFraction <= frontier_fraction OR {FrontierChapterExists})

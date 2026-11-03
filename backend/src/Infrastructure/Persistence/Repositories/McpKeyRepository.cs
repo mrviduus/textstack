@@ -30,7 +30,8 @@ public sealed class McpKeyRepository(V2DataSource dataSource) : IMcpKeyRepositor
     private const string InsertKey = $"""
         INSERT INTO mcp_access_keys (id, user_id, name, key_hash, prefix, created_at)
         SELECT gen_random_uuid(), u.id, @name, @keyHash, @prefix, now() FROM users u
-        WHERE u.id = @userId AND {UserRepository.NotResetSinceToken}
+        -- A guest mints no key: a key is a persistent assistant credential (#1120).
+        WHERE u.id = @userId AND NOT u.is_guest AND {UserRepository.NotResetSinceToken}
         FOR SHARE
         RETURNING {Columns}
         """;
@@ -51,7 +52,12 @@ public sealed class McpKeyRepository(V2DataSource dataSource) : IMcpKeyRepositor
         return await conn.ExecuteAsync(new CommandDefinition(RevokeKeyOfUser, new { userId, keyId }, cancellationToken: ct)) > 0;
     }
 
-    private const string SelectLiveByHash = $"SELECT {Columns} FROM mcp_access_keys WHERE key_hash = @keyHash AND revoked_at IS NULL";
+    // A guest's key (minted before #1120) authenticates nothing.
+    private const string SelectLiveByHash = """
+        SELECT k.id, k.user_id, k.name, k.key_hash, k.prefix, k.last_used_at, k.revoked_at, k.created_at
+        FROM mcp_access_keys k JOIN users u ON u.id = k.user_id
+        WHERE k.key_hash = @keyHash AND k.revoked_at IS NULL AND NOT u.is_guest
+        """;
 
     public async Task<McpConnectKey?> GetLiveByHashAsync(string keyHash, CancellationToken ct)
     {

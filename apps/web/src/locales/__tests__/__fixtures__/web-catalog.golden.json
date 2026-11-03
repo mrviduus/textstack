@@ -1096,6 +1096,8 @@
   "mcp.connect.lead": "Create a key, paste it into Claude or ChatGPT once, and it can read the books you upload and write conclusions back. The key does not expire; revoke it here whenever you like.",
   "mcp.connect.signInLead": "Sign in to create a key. It is tied to your account — that is what lets an assistant reach your library and nobody else's.",
   "mcp.connect.signInCta": "Sign in",
+  "mcp.connect.guestLead": "Create a free account to connect an assistant. A key reaches your library from outside the app, so it belongs to an account you can sign back into.",
+  "mcp.connect.signUpCta": "Create a free account",
   "mcp.connect.createCta": "Create a key",
   "mcp.connect.creating": "Creating…",
   "mcp.connect.shownOnce": "Copy this now — it is shown once and cannot be recovered. We store only a hash of it.",

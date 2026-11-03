@@ -413,7 +413,7 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
     {
         var (guest, account, theirs, ours) = await SameBytesAsync();
         await new AnnotationRepository(db.DataSource).SaveAsync(guest,
-            new() { Id = Guid.NewGuid(), UserId = guest, BookId = theirs.Id, FileId = theirs.CurrentFile!.Id, SelectedText = "quoted", Locator = TestJson.Page(1) }, null, Ct);
+            new() { Id = Guid.NewGuid(), UserId = guest, BookId = theirs.Id, FileId = theirs.CurrentFile!.Id, SelectedText = "quoted", Locator = TestJson.Cfi(1) }, null, Ct);
         await db.ExecAsync("""
             UPDATE books SET updated_at = now() - interval '1 day' WHERE user_id IN (@guest, @account);
             UPDATE annotations SET updated_at = now() - interval '1 day' WHERE user_id = @guest
@@ -469,7 +469,7 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
     // ===== Reading state =====
 
     private static ReadingState State(Guid fileId, decimal fraction, DateTimeOffset at) =>
-        new() { FileId = fileId, CurrentLocator = TestJson.Page((int)(fraction * 100)), BookFraction = fraction, ClientRecordedAt = at };
+        new() { FileId = fileId, CurrentLocator = TestJson.Cfi((int)(fraction * 100)), BookFraction = fraction, ClientRecordedAt = at };
 
     /// <summary>Matched books, each read: the guest's at 0.3 written at <paramref name="guestAt"/>, the account's at 0.8 then back to <paramref name="accountBack"/>.</summary>
     private async Task<(Guid Guest, Guid Account, Guid AccountBook)> BothReadAsync(DateTimeOffset guestAt, bool resetAccount = false, decimal accountBack = 0.2m)
@@ -554,7 +554,7 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         await db.ExecAsync("""
             INSERT INTO reading_state (user_id, book_id, file_id, current_locator, book_fraction, client_recorded_at)
             VALUES (@guest, @book, @old, CAST(@loc AS jsonb), 0.3, now())
-            """, new { guest, book = theirs.Id, old, loc = TestJson.Page(3) });
+            """, new { guest, book = theirs.Id, old, loc = TestJson.Cfi(3) });
         await db.NewBookAsync(account, sha256: current.Sha256);
 
         await MergeAsync(guest, account);

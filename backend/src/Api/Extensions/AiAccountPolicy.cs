@@ -23,6 +23,16 @@ public static class AiAccountPolicy
     public const string ErrorCode = "account_required";
 
     /// <summary>
+    /// 403 <see cref="ErrorCode"/> for a guest connecting an assistant (OAuth consent, MCP connect keys):
+    /// a persistent assistant credential needs a real account (#1120).
+    /// </summary>
+    public static IResult AssistantAccountRequired() => Results.Problem(
+        title: "Account required",
+        detail: "Create a free account to connect an assistant.",
+        statusCode: StatusCodes.Status403Forbidden,
+        extensions: new Dictionary<string, object?> { ["error"] = ErrorCode });
+
+    /// <summary>
     /// Rejects callers whose tier has AI switched off, before the handler runs (and therefore before
     /// any token is spent). 401 when unauthenticated, 403 when authenticated but not entitled —
     /// the distinction matters to the client: one means "sign in", the other "sign UP".

@@ -1,4 +1,3 @@
-using Application.Admin;
 using Application.AdminAuth;
 using Application.AdminSettings;
 using Application.Auth;
@@ -35,8 +34,6 @@ public static class DependencyInjection
         services.AddScoped<SeoContextBuilder>();
         services.AddScoped<SeoContentApplier>();
         services.AddScoped<SeoCoverageAnalyzer>();
-        services.AddScoped<SeoJobProcessor>();
-        services.AddScoped<AdminService>();
         services.AddScoped<Ingestion.IngestionService>();
         services.AddScoped<AuthService>();
         services.AddScoped<AdminAuthService>();
@@ -46,16 +43,13 @@ public static class DependencyInjection
         services.AddScoped<AdminSettingsService>();
         services.AddScoped<ReprocessingService>();
 
-        // The single writer of SRS state — shared by ordinary review and Smart session.
-        services.AddScoped<VocabularyReviewRecorder>();
-
         // Vocabulary anti-spiral
         services.AddScoped<WeeklyBudgetService>();
         services.AddScoped<DailyCapService>();
-        services.AddScoped<RetirementSweeper>();
-        services.AddScoped<ClusterCandidateService>();
-        services.AddScoped<ConceptClusteringService>();
         services.AddSingleton<IFrequencyFilter, FrequencyFilter>();
+        // SeoJobProcessor, AdminService, VocabularyReviewRecorder, RetirementSweeper and the cluster
+        // services need Api-only dependencies (email, user books, the SRS library): the Api registers
+        // them in AddTextStackContentServices, so the Worker's container validates (#1108).
 
         // Legacy ILlmServiceFactory — now backed by LegacyLlmAdapter over the new
         // stack (AI-005). The old keyed Domain.LLM providers are gone; callers

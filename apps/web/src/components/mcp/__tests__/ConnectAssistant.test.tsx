@@ -8,7 +8,7 @@ vi.mock('../../../hooks/useTranslation', () => ({
 // vi.mock is hoisted above every top-level binding, so the fakes have to be created inside
 // vi.hoisted rather than as plain consts — otherwise the factory runs before they exist.
 const { auth, api } = vi.hoisted(() => ({
-  auth: { isAuthenticated: true, openAuthModal: () => {} },
+  auth: { user: { isGuest: false } as { isGuest: boolean } | null, openAuthModal: vi.fn() },
   api: { listMcpKeys: vi.fn(), createMcpKey: vi.fn(), revokeMcpKey: vi.fn() },
 }))
 
@@ -33,7 +33,8 @@ const listed = (over: Partial<{ id: string; lastUsedAt: string | null; revokedAt
 })
 
 beforeEach(() => {
-  auth.isAuthenticated = true
+  auth.user = { isGuest: false }
+  auth.openAuthModal.mockReset()
   api.listMcpKeys.mockReset().mockResolvedValue([])
   api.createMcpKey.mockReset()
   api.revokeMcpKey.mockReset().mockResolvedValue(undefined)
@@ -42,11 +43,23 @@ afterEach(() => cleanup())
 
 describe('ConnectAssistant', () => {
   it('asks a signed-out reader to sign in and never calls the API', async () => {
-    auth.isAuthenticated = false
+    auth.user = null
     render(<ConnectAssistant />)
 
     expect(screen.getByText('mcp.connect.signInCta')).toBeTruthy()
     // A key is per-account; listing before there is an account is a guaranteed 401.
+    expect(api.listMcpKeys).not.toHaveBeenCalled()
+  })
+
+  it('asks a guest to sign up instead of offering a key, and never calls the API', async () => {
+    auth.user = { isGuest: true }
+    render(<ConnectAssistant />)
+
+    // The server refuses a guest's key (403 account_required); the button must not be offered.
+    expect(screen.getByText('mcp.connect.guestLead')).toBeTruthy()
+    expect(screen.queryByText('mcp.connect.createCta')).toBeNull()
+    fireEvent.click(screen.getByText('mcp.connect.signUpCta'))
+    expect(auth.openAuthModal).toHaveBeenCalledWith('register')
     expect(api.listMcpKeys).not.toHaveBeenCalled()
   })
 

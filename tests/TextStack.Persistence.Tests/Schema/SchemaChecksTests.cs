@@ -21,7 +21,7 @@ public class SchemaChecksTests(V2PostgresFixture db)
     {
         var book = await db.NewReaderWithBookAsync();
         await new ReadingStateRepository(db.DataSource).AdvanceAsync(book.UserId, book.Id,
-            new() { FileId = book.CurrentFile!.Id, CurrentLocator = TestJson.Page(1), BookFraction = 0.1m, ClientRecordedAt = DateTimeOffset.UtcNow }, null, default, Ct);
+            new() { FileId = book.CurrentFile!.Id, CurrentLocator = TestJson.Cfi(1), BookFraction = 0.1m, ClientRecordedAt = DateTimeOffset.UtcNow }, null, default, Ct);
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
 
         var error = await Assert.ThrowsAsync<PostgresException>(() =>

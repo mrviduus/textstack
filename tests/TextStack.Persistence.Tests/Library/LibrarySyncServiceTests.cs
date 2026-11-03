@@ -29,7 +29,7 @@ public class LibrarySyncServiceTests(V2PostgresFixture db)
     {
         var book = await db.NewReaderWithBookAsync();
         await _reading.AdvanceAsync(book.UserId, book.Id,
-            new() { FileId = book.CurrentFile!.Id, CurrentLocator = Page(3), BookFraction = 0.3m, ClientRecordedAt = DateTimeOffset.UtcNow }, null, default, Ct);
+            new() { FileId = book.CurrentFile!.Id, CurrentLocator = Cfi(3), BookFraction = 0.3m, ClientRecordedAt = DateTimeOffset.UtcNow }, null, default, Ct);
         return book;
     }
 
