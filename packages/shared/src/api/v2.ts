@@ -33,6 +33,35 @@ export interface V2Status {
   maxPartBytes: number
 }
 
+/**
+ * The legacy user-book progress row (`GET /me/books/{id}/progress`), the shape both clients'
+ * readers restore from; a V2 reading state is mapped onto it.
+ */
+export interface UserBookProgressDto {
+  chapterSlug: string | null
+  locator: string | null
+  percent: number | null
+  updatedAt: string | null
+  /** Where the reader is IN THE TEXT, serialised (ADR-015). Prefer it over `locator`. */
+  positionJson?: string | null
+  /** Client clock of the kept write — compare local stamps with this, never `updatedAt`. */
+  clientUpdatedAt?: string | null
+}
+
+/**
+ * After a V2 reading-state write: `accepted` the server holds it (mark it synced); `dropped`
+ * neither stored nor adopted (the local place stays unsynced); `reload` the book's file was
+ * replaced; `adopted` the server's place replaces this one.
+ */
+export type V2WriteOutcome = 'accepted' | 'dropped' | 'reload' | { adopted: UserBookProgressDto }
+
+/** A sign-in's `merge` (V2 on, a guest merged): guest id → account id, only the ids that changed. */
+export interface V2MergeMap {
+  books?: Record<string, string>
+  files?: Record<string, string>
+  words?: Record<string, string>
+}
+
 /** The client's switch: whether this app start talks V2, and the part size the server takes. */
 export interface V2Switch {
   enabled: boolean
@@ -391,6 +420,21 @@ export async function pullAll<T>(feed: V2FeedName, cursor: string | null = null)
     if (!page.hasMore) return { items, cursor }
   }
 }
+
+const inFlight = new Map<V2FeedName, Promise<{ items: unknown[]; cursor: string | null }>>()
+
+/** A full pull of a feed, shared by every caller while one is in flight (a reader open asks twice). */
+export function pullFeed<T>(feed: V2FeedName): Promise<{ items: T[]; cursor: string | null }> {
+  let pull = inFlight.get(feed)
+  if (!pull) {
+    pull = pullAll(feed).finally(() => inFlight.delete(feed))
+    inFlight.set(feed, pull)
+  }
+  return pull as Promise<{ items: T[]; cursor: string | null }>
+}
+
+/** Sign-out / another account / tests: a pull in flight belongs to the previous session. */
+export const forgetPulls = () => inFlight.clear()
 
 export const findBySha256 = (sha256: string) => orNull(authFetch<V2Book>(`${V2}/books/by-sha256/${sha256}`))
 export const importBook = (bookId: string, body: V2ImportBook) => authFetch<V2Book>(book(bookId), jsonBody('PUT', body))

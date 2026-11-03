@@ -6,9 +6,10 @@
  * mappings are shared (`v2Locators`); this file only caches, maps and sequences.
  */
 import {
+  type V2WriteOutcome,
   v2Api, ApiError, V2_OFF, clip, chapterAtFraction, placeToV2Locator, v2LocatorToPlace,
   type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2Annotation,
-  type V2ReadingStateWrite, type V2FeedName, type V2Switch, type LegacyPlace,
+  type V2ReadingStateWrite, type V2Switch, type LegacyPlace,
 } from '@textstack/shared'
 import { API_BASE } from './client'
 import { settleV2Session, v2SessionSettled, rearmV2Session } from '../lib/v2Session'
@@ -65,10 +66,9 @@ export const v2Store = {
   /** The annotations as last pulled or written, by id; and the books pulled at least once. */
   annotations: new Map<string, V2Annotation>(),
   pulled: new Set<string>(),
-  /** One full pull per feed in flight. */
-  inFlight: new Map<V2FeedName, Promise<{ items: unknown[] }>>(),
   reset() {
-    for (const cache of [this.books, this.chapters, this.states, this.revisions, this.annotations, this.pulled, this.inFlight]) cache.clear()
+    for (const cache of [this.books, this.chapters, this.states, this.revisions, this.annotations, this.pulled]) cache.clear()
+    v2Api.forgetPulls()
   },
 }
 
@@ -80,15 +80,8 @@ export function resetV2ForTests() {
   v2Store.reset()
 }
 
-/** A full pull of a feed, shared by every caller while one is in flight (a reader open asks twice). */
-export function pullFeed<T>(feed: V2FeedName): Promise<{ items: T[] }> {
-  let pull = v2Store.inFlight.get(feed)
-  if (!pull) {
-    pull = v2Api.pullAll(feed).finally(() => v2Store.inFlight.delete(feed))
-    v2Store.inFlight.set(feed, pull)
-  }
-  return pull as Promise<{ items: T[] }>
-}
+/** A full pull of a feed, shared by every caller while one is in flight (`@textstack/shared`). */
+export const pullFeed = v2Api.pullFeed
 
 // ---- Library ------------------------------------------------------------------------------------
 
@@ -286,12 +279,7 @@ export function v2ProgressBody(bookId: string, data: ProgressWrite): V2ReadingSt
   }
 }
 
-/**
- * What the reader does after a V2 write: `accepted` mark it synced; `dropped` leave the local
- * place unsynced (sent again with the next save); `reload` the book's file was replaced; or adopt
- * the server's place.
- */
-export type V2WriteOutcome = 'accepted' | 'dropped' | 'reload' | { adopted: UserBookProgress }
+export type { V2WriteOutcome } from '@textstack/shared'
 
 /**
  * One reading-state write under the revision rule. Lost (409): `stale_revision` adopts the server's

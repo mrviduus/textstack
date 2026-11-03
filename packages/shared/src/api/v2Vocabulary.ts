@@ -1,8 +1,9 @@
 /**
- * Vocabulary on V2 (#1025 M2.7), for both clients: the card list, saves, edits, deletes and the
- * review queue on `/me/v2/vocabulary/*`, mapped onto the legacy DTOs so the pages and hooks are
- * unchanged. Stats, settings, clusters, lookups and pending words stay legacy whatever the flag (V2
- * holds no such data, ADR-031 D6). The platform gives the id source and a book's current file.
+ * Vocabulary on V2 (#1025 M2.7), for both clients: the card list, saves, edits, deletes, restores
+ * and the review queue on `/me/v2/vocabulary/*`, mapped onto the legacy DTOs so the pages and hooks
+ * are unchanged. Stats, settings, clusters, lookups and pending words stay legacy whatever the flag
+ * (V2 holds no such data, ADR-031 D6). The platform gives the id source, a book's current file and
+ * the session's revision cache.
  */
 import * as v2Api from './v2'
 import type { V2Word } from './v2'
@@ -14,6 +15,8 @@ export interface V2VocabularyPlatform {
   newId(): string
   /** The book's current file id, or null (unknown, or no file). */
   fileIdOf(bookId: string): Promise<string | null>
+  /** Per word: the card revision last read — the session's store, emptied with it. */
+  revisions: Map<string, number>
 }
 
 export interface V2SaveWord {
@@ -58,38 +61,66 @@ export function toVocabWord(w: V2Word): VocabularyWordDto {
 
 const nullable = (text: string | null | undefined, max: number) => (text?.trim() ? clip(text, max) : null)
 
-export function createV2Vocabulary(platform: V2VocabularyPlatform) {
-  // The card revisions of the last pull: an edit names the one it read.
-  const revisions = new Map<string, number>()
+const response = (outcome: 'srs' | 'deleted', w: V2Word): SaveWordResponseDto =>
+  ({ outcome, word: toVocabWord(w), pendingId: null, lookupId: null, tapsRemaining: null, reason: null })
+
+export function createV2Vocabulary({ newId, fileIdOf, revisions }: V2VocabularyPlatform) {
   const remember = (w: V2Word) => {
     revisions.set(w.id, w.revision)
     return w
   }
 
   /** Every live card. ponytail: a full pull per list, no local store (R6). */
-  const liveWords = async () => (await v2Api.pullAll<V2Word>('vocabulary')).items.filter((w) => !w.deletedAt).map(remember)
+  const liveWords = async () => (await v2Api.pullFeed<V2Word>('vocabulary')).items.filter((w) => !w.deletedAt).map(remember)
 
-  /** A save from the reader: one card by key (an existing one keeps its id and comes back), plus the sentence as an example. */
+  /**
+   * A save from the reader: one card by key (an existing one keeps its id and comes back), plus the
+   * sentence as an example on a user book. A word the reader deleted earlier answers `deleted`
+   * with the tombstone, and `restoreV2Word` brings it back.
+   */
   async function saveV2Word(data: V2SaveWord): Promise<SaveWordResponseDto> {
     const sentence = nullable(data.sentence, 1000)
     const bookId = data.userBookId ?? null
-    const fileId = bookId ? await platform.fileIdOf(bookId).catch(() => null) : null
-    const word = remember(await v2Api.saveWord({
-      id: data.id ?? platform.newId(),
-      language: data.language,
-      word: clip(data.word, 200),
-      translation: nullable(data.translation, 500),
-      definition: nullable(data.definition, 2000),
-      example: sentence ? {
-        operationId: data.operationId ?? platform.newId(),
-        sentence,
-        bookId,
-        fileId,
-        chapterKey: bookId ? data.chapterId ?? null : null,
-        bookTitle: nullable(data.bookTitle, 500),
-      } : undefined,
-    }))
-    return { outcome: 'srs', word: toVocabWord(word), pendingId: null, lookupId: null, tapsRemaining: null, reason: null }
+    const fileId = bookId ? await fileIdOf(bookId).catch(() => null) : null
+    try {
+      return response('srs', remember(await v2Api.saveWord({
+        id: data.id ?? newId(),
+        language: data.language,
+        word: clip(data.word, 200),
+        translation: nullable(data.translation, 500),
+        definition: nullable(data.definition, 2000),
+        example: sentence ? {
+          operationId: data.operationId ?? newId(),
+          sentence,
+          bookId,
+          fileId,
+          chapterKey: bookId ? data.chapterId ?? null : null,
+          bookTitle: nullable(data.bookTitle, 500),
+        } : undefined,
+      })))
+    } catch (e) {
+      const err = v2Api.v2ErrorOf(e)
+      if (err?.code !== 'deleted' || !err.current) throw e
+      return response('deleted', remember(err.current as V2Word))
+    }
+  }
+
+  /** Bring a deleted card back, on the revision its tombstone carried. */
+  async function restoreV2Word(id: string): Promise<VocabularyWordDto> {
+    const revision = revisions.get(id) ?? remember(await v2Api.getWord(id)).revision
+    return toVocabWord(remember(await v2Api.restoreWord(id, revision)))
+  }
+
+  async function deleteV2Word(id: string): Promise<void> {
+    await v2Api.deleteWord(id)
+    revisions.delete(id)
+  }
+
+  /** "Delete all" as one DELETE per live card. ponytail: per-item requests; a bulk route if libraries grow. */
+  async function deleteAllV2Words(): Promise<{ deleted: number }> {
+    const live = await liveWords()
+    for (const w of live) await deleteV2Word(w.id)
+    return { deleted: live.length }
   }
 
   /** The list page's query, applied to the full pull: stage ('0', '1,2,3'), search, sort, paging. */
@@ -115,12 +146,7 @@ export function createV2Vocabulary(platform: V2VocabularyPlatform) {
     return (await liveWords()).map((w) => ({ id: w.id, word: w.word, stage: w.stage, translation: w.translation ?? undefined }))
   }
 
-  async function deleteV2Word(id: string): Promise<void> {
-    await v2Api.deleteWord(id)
-    revisions.delete(id)
-  }
-
-  /** An edit on the revision last read; lost to another device's edit, it is applied once more on top. */
+  /** An edit on the revision last read; lost to another device's edit, it is decided again on what that card holds. */
   async function updateV2Word(id: string, data: { translation?: string | null; definition?: string | null; onlyIfEmpty?: boolean }): Promise<VocabularyWordDto> {
     const patch = (expectedRevision: number) => v2Api.patchWord(id, {
       expectedRevision,
@@ -166,10 +192,10 @@ export function createV2Vocabulary(platform: V2VocabularyPlatform) {
     }
   }
 
-  /** One answer; the server schedules it (S3). */
-  async function submitV2Review(data: { wordId: string; isCorrect: boolean; responseTimeMs: number; reviewMode?: string }): Promise<SubmitReviewResponse> {
+  /** One answer; the server schedules it (S3). `operationId` is the answer's: a retry of it sends the same one. */
+  async function submitV2Review(data: { wordId: string; isCorrect: boolean; responseTimeMs: number; reviewMode?: string; operationId?: string }): Promise<SubmitReviewResponse> {
     const { review, word } = await v2Api.recordReview({
-      operationId: platform.newId(),
+      operationId: data.operationId ?? newId(),
       wordId: data.wordId,
       reviewMode: data.reviewMode || 'review',
       isCorrect: data.isCorrect,
@@ -189,5 +215,8 @@ export function createV2Vocabulary(platform: V2VocabularyPlatform) {
     }
   }
 
-  return { saveV2Word, getV2Words, getV2ReaderVocab, deleteV2Word, updateV2Word, getV2ReviewQueue, submitV2Review }
+  return {
+    saveV2Word, restoreV2Word, deleteV2Word, deleteAllV2Words, getV2Words, getV2ReaderVocab, updateV2Word,
+    getV2ReviewQueue, submitV2Review,
+  }
 }

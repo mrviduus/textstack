@@ -1,3 +1,4 @@
+import type { UserBookProgressDto } from '@textstack/shared'
 import { authFetch, API_BASE, ApiError } from './client'
 import { trackBookUploaded } from '../lib/analytics'
 import { refreshToken } from './auth'
@@ -478,17 +479,8 @@ export async function bulkRemoveFromCollection(collectionId: string, ids: string
 }
 
 // Progress API
-export interface UserBookProgress {
-  chapterSlug: string | null
-  locator: string | null
-  percent: number | null
-  updatedAt: string | null
-  /** Where the reader is IN THE TEXT, serialised (ADR-015). Prefer it over
-   *  `locator`: a pixel offset stops being true the moment the text reflows. */
-  positionJson?: string | null
-  /** Client clock of the kept write — compare local stamps with this, never `updatedAt`. */
-  clientUpdatedAt?: string | null
-}
+/** The progress row both clients restore from (`@textstack/shared`). */
+export type UserBookProgress = UserBookProgressDto
 
 export async function getUserBookProgress(bookId: string): Promise<UserBookProgress | null> {
   return (await readUserBookProgress(bookId)) ?? null

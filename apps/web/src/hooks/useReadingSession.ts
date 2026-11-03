@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import { submitSession, type SubmitSessionResponse } from '../api/readingTracking'
 import { ApiError } from '../api/client'
 import { trackReadingSessionEnd } from '../lib/analytics'
-import { v2Api } from '@textstack/shared'
+import { v2Api, toV2Session, type PendingSession } from '@textstack/shared'
 import { v2Enabled } from '../api/v2'
 
 const PENDING_SESSIONS_KEY = 'reading.pendingSessions'
@@ -19,18 +19,6 @@ interface UseReadingSessionOptions {
   isAuthenticated: boolean
 }
 
-interface PendingSession {
-  editionId?: string | null
-  userBookId?: string | null
-  startedAt: string
-  endedAt: string
-  durationSeconds: number
-  wordsRead: number
-  startPercent: number
-  endPercent: number
-  /** V2 (#1025): a user book's session goes to `PUT /me/v2/reading/sessions/{id}`; minted at the end, kept until acked. */
-  clientSessionId?: string
-}
 
 export function useReadingSession(options: UseReadingSessionOptions) {
   const { isAuthenticated } = useAuth()
@@ -246,9 +234,9 @@ async function flushPendingSessions() {
         const sent = span >= 0 ? { ...session, durationSeconds: Math.min(session.durationSeconds, span) } : session
         if (sent.clientSessionId) {
           // A replay of the same id answers 200: first write wins.
-          const { clientSessionId, editionId: _editionId, userBookId, ...rest } = sent
+          const { clientSessionId } = sent
           try {
-            await v2Api.putSession(clientSessionId, { ...rest, bookId: userBookId ?? null })
+            await v2Api.putSession(clientSessionId, toV2Session(sent))
           } catch (err) {
             // 404: V2 is unmapped now, or the book is gone. The session never counted; never retried.
             if (!(err instanceof ApiError && err.status === 404)) throw err

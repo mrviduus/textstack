@@ -4,17 +4,16 @@ import { vi } from 'vitest'
 export type Answer = { status: number; body?: unknown }
 export interface Call { method: string; path: string; body: any }
 
-const BASE = 'http://localhost:8080'
-
 /**
- * A fake API behind `fetch`: each `METHOD /path` (no query) answers its list in turn, the last one
- * repeating; an unrouted request answers 599. Returns every request made, in order.
+ * A fake V2 API behind `fetch`, for both clients' tests: each `METHOD /path` (no query, `base`
+ * stripped) answers its list in turn, the last one repeating; an unrouted request answers 599.
+ * Returns every request made, in order.
  */
-export function fakeApi(routes: Record<string, Answer[]>): Call[] {
+export function fakeApi(routes: Record<string, Answer[]>, base = 'http://localhost:8080'): Call[] {
   const calls: Call[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET'
-    const path = url.replace(BASE, '').split('?')[0]
+    const path = url.replace(base, '').split('?')[0]
     calls.push({ method, path, body: typeof init.body === 'string' ? JSON.parse(init.body) : init.body })
     const queue = routes[`${method} ${path}`]
     if (!queue) return { ok: false, status: 599, text: async () => `unexpected ${method} ${path}` }

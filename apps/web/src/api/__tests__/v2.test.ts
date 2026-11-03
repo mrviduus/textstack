@@ -5,7 +5,7 @@ import {
 } from '../v2'
 import { getUserBook, getUserBooks, saveUserBookProgress, getUserBookFileUrl, getUserBookBookmarks } from '../userBooks'
 import { getWords } from '../vocabulary'
-import { fakeApi, V2_ON, book, file, feed, conflict, state, position } from './fakeV2Api'
+import { fakeApi, V2_ON, book, file, feed, conflict, state, position } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 afterEach(() => {
   vi.restoreAllMocks()

@@ -17,6 +17,17 @@ export interface PendingSession {
   clientSessionId?: string
 }
 
+/** A queued upload session as V2's `PUT /me/v2/reading/sessions/{clientSessionId}` body. */
+export function toV2Session({ clientSessionId: _id, editionId: _editionId, userBookId, ...rest }: PendingSession) {
+  return { ...rest, bookId: userBookId ?? null }
+}
+
+/** V2 guest → account merge: queued sessions name the account's book ids. Null when nothing changed. */
+export function rekeyPendingSessions(queue: PendingSession[], books: Record<string, string>): PendingSession[] | null {
+  if (!queue.some((s) => s.userBookId && books[s.userBookId])) return null
+  return queue.map((s) => (s.userBookId && books[s.userBookId] ? { ...s, userBookId: books[s.userBookId] } : s))
+}
+
 export const MAX_PENDING_SESSIONS = 50
 /** Server rejects sessions older than 7 days — drop at 6 to give a safety margin. */
 export const MAX_PENDING_SESSION_AGE_MS = 6 * 24 * 60 * 60 * 1000
