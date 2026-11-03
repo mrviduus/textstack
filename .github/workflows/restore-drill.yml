@@ -5,6 +5,7 @@ name: Restore drill (R2 → clean machine)
 # fresh pgvector postgres, and checks that it is complete and that the files the DB points
 # at exist in the restored storage. Prints how long each step took: that is the real RTO.
 # Nothing is written anywhere; the runner is thrown away.
+# The V2 database (ADR-030, #1043) is restored and row-counted too, when the backup has one.
 #
 # Monthly + on demand. A backup that was never restored is a hope, not a backup.
 
@@ -41,6 +42,12 @@ jobs:
       PSQL: psql -h 127.0.0.1 -U drill -d drill -v ON_ERROR_STOP=1 -qAt
       RESTORE: /tmp/restore
     steps:
+      # Only for database/v2: run.sh creates the scratch V2 database, the migrations name its tables.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: database
+          persist-credentials: false
+
       - name: Install restic + psql
         run: |
           sudo apt-get update -qq
@@ -115,9 +122,59 @@ jobs:
             grep -q "^$k=." "$E" && echo "$k: set" || { echo "::error::$k missing in backed-up .env"; exit 1; }
           done
 
+      # V2: backup.yml sends /db_v2.sql to R2 only when textstack_v2 existed that night. No such
+      # snapshot = "no V2 in this backup": fine while the backed-up .env has FEATURES_V2API off (V2 is
+      # empty by design), a failure when it is on (the Api serves V2 data that no backup holds).
+      # Counted: every table a migration in the restored ledger creates, read from that migration.
+      - name: Restore + count V2 database (timed)
+        env:
+          PGHOST: 127.0.0.1
+          PGUSER: drill
+          PGDATABASE: textstack_v2
+        run: |
+          set -euo pipefail
+          # As the Api's binder reads it: True/true, quoted or not.
+          flag=off
+          grep -qiE '^FEATURES_V2API="?true"?[[:space:]]*$' "$RESTORE/backup/env" && flag=on
+          if ! restic snapshots --path /db_v2.sql --json | grep -q '"id"'; then
+            if [ "$flag" = on ]; then
+              echo "::error::FEATURES_V2API=true in the backed-up .env, but no V2 dump in R2"; exit 1
+            fi
+            echo "no V2 in this backup (FEATURES_V2API off)"
+            echo "V2_RESULT=no V2 in this backup" >> "$GITHUB_ENV"; exit 0
+          fi
+          # A nightly V2 dump failing for weeks still leaves an old /db_v2.sql as "latest". Older than the
+          # legacy dump by more than a day: an alarm with the flag on, a warning with it off.
+          newest() { restic snapshots --path "$1" --json | grep -o '"time":"[^"]*"' | cut -d'"' -f4 | sort | tail -n 1; }
+          legacy_t=$(newest /db.sql); v2_t=$(newest /db_v2.sql)
+          if [ -n "$legacy_t" ]; then
+            lag=$(( $(date -d "$legacy_t" +%s) - $(date -d "$v2_t" +%s) ))
+            if [ "$lag" -gt 86400 ]; then
+              msg="V2 snapshot ($v2_t) is $((lag / 3600))h older than the legacy one ($legacy_t)"
+              [ "$flag" = on ] && { echo "::error::$msg"; exit 1; }
+              echo "::warning::$msg; FEATURES_V2API off"
+            fi
+          fi
+          start=$(date +%s)
+          sh database/v2/run.sh create
+          restic dump --path /db_v2.sql latest /db_v2.sql | psql -X -q -v ON_ERROR_STOP=1 >/dev/null
+          secs=$(( $(date +%s) - start ))
+          n=0
+          for v in $(psql -XAt -c "SELECT lpad(version::text, 4, '0') || '_' || name FROM schema_migrations ORDER BY version"); do
+            for t in $(grep -o 'CREATE TABLE public\.[a-z0-9_]*' "database/v2/migrations/$v.up.sql" | cut -d. -f2); do
+              # Not inside echo: echo's status would hide a table the dump never created.
+              c=$(psql -XAt -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM public.$t") || exit 1
+              echo "$t: $c"
+              n=$((n + 1))
+            done
+          done
+          [ "$n" -gt 0 ] || { echo "::error::restored V2 database has no migrated tables"; exit 1; }
+          echo "V2_RESULT=${secs}s, $n tables counted" >> "$GITHUB_ENV"
+
       - name: Recovery time
         run: |
           echo "### Restore drill passed" >> "$GITHUB_STEP_SUMMARY"
           echo "- database restore: ${DB_SECONDS}s" >> "$GITHUB_STEP_SUMMARY"
           echo "- storage + .env restore: ${FILES_SECONDS}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- V2 database: ${V2_RESULT}" >> "$GITHUB_STEP_SUMMARY"
           echo "DB ${DB_SECONDS}s, files ${FILES_SECONDS}s"

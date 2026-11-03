@@ -21,6 +21,9 @@ public interface IAdminAuthService
 
     Task<AdminUserDto?> GetAdminByIdAsync(Guid adminId, CancellationToken ct);
 
+    /// <summary>The <c>create-admin</c> CLI: a new admin with this password. Null when the email is taken.</summary>
+    Task<AdminUserDto?> CreateAdminAsync(string email, string password, CancellationToken ct);
+
     (Guid? adminId, AdminRole? role) ValidateAccessToken(string accessToken);
 
     Task<int> GetAccessTokenExpiryMinutesAsync(CancellationToken ct = default);

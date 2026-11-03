@@ -661,36 +661,20 @@ if (args.Length > 0 && args[0] == "optimize-images")
     return;
 }
 
-// CLI: create-admin command
+// CLI: create-admin command. One role since ADR-031 decided 7 (editor and moderator collapsed to admin).
 if (args.Length > 0 && args[0] == "create-admin")
 {
     if (args.Length < 3)
     {
-        Console.WriteLine("Usage: dotnet run create-admin <email> <password> [role]");
-        Console.WriteLine("Roles: Admin (default), Editor, Moderator");
+        Console.WriteLine("Usage: dotnet run create-admin <email> <password>");
         return;
     }
 
-    var email = args[1];
-    var password = args[2];
-    var role = AdminRole.Admin;
-
-    if (args.Length >= 4 && Enum.TryParse<AdminRole>(args[3], true, out var parsedRole))
-        role = parsedRole;
-
     using var cliScope = app.Services.CreateScope();
-    var adminAuthService = cliScope.ServiceProvider.GetRequiredService<AdminAuthService>();
+    var adminAuthService = cliScope.ServiceProvider.GetRequiredService<IAdminAuthService>();
 
-    try
-    {
-        var admin = await adminAuthService.CreateAdminUserAsync(email, password, role, CancellationToken.None);
-        Console.WriteLine($"Admin user created: {admin.Email} ({admin.Role})");
-    }
-    catch (InvalidOperationException ex)
-    {
-        Console.WriteLine($"Error: {ex.Message}");
-    }
-
+    var admin = await adminAuthService.CreateAdminAsync(args[1], args[2], CancellationToken.None);
+    Console.WriteLine(admin is null ? $"Error: an admin with email {args[1]} already exists" : $"Admin user created: {admin.Email} ({admin.Role})");
     return;
 }
 

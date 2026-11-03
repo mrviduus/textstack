@@ -43,10 +43,11 @@ public class V2IdentityMirrorTests
     {
         var legacy = new Mock<IAppDbContext>();
         legacy.Setup(d => d.Users).Returns(() => new FakeDbSet<User>([_account]));
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Features:V2Api"] = flag.ToString() }).Build();
+        var config = V2Fakes.Config(flag);
         var readiness = V2ReadinessTests.Readiness(_ => { _checks++; return Task.FromResult(ready ? new List<string>() : ["0002_next"]); });
         var shadows = new V2ShadowUsers(_users.Object, new MemoryCache(new MemoryCacheOptions()), NullLogger<V2ShadowUsers>.Instance);
-        return new(config, readiness, shadows, _users.Object, _merges.Object, legacy.Object, _library.Object, _files.Object, _log) { Timeout = timeout ?? TimeSpan.FromSeconds(10) };
+        var deletion = new V2AccountDeletion(_users.Object, _merges.Object, _library.Object, _files.Object, NullLogger<V2AccountDeletion>.Instance);
+        return new(config, readiness, shadows, _users.Object, deletion, _merges.Object, legacy.Object, _files.Object, _log) { Timeout = timeout ?? TimeSpan.FromSeconds(10) };
     }
 
     private Moq.Language.Flow.ISetup<IAccountMergeRepository, Task<AccountMerge>> Merge() =>
@@ -54,7 +55,7 @@ public class V2IdentityMirrorTests
 
     private static PostgresException Unique() => new("duplicate key", "ERROR", "ERROR", PostgresErrorCodes.UniqueViolation);
 
-    private (LogLevel Level, string Message, Exception? Exception) SingleError() => Assert.Single(_log.Entries, e => e.Level == LogLevel.Error);
+    private (LogLevel Level, string Message, Exception? Exception) SingleError() => Assert.Single(_log.Errors);
 
     [Fact]
     public async Task MergeAsync_V2Throws_NullAndAnErrorLogNamingBothIds()
@@ -260,7 +261,7 @@ public class V2IdentityMirrorTests
 
         await Mirror().PromoteAsync(_account.Id, _account.Email, "Reader", "hash");
 
-        Assert.Equal(errors, _log.Entries.Count(e => e.Level == LogLevel.Error));
+        Assert.Equal(errors, _log.Errors.Count());
         _users.Verify(u => u.PromoteGuestAsync(_account.Id, _account.Email, "Reader", "hash", It.IsAny<CancellationToken>()));
     }
 }

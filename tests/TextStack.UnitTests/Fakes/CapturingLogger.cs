@@ -7,6 +7,8 @@ public sealed class CapturingLogger<T> : ILogger<T>
 {
     public List<(LogLevel Level, string Message, Exception? Exception)> Entries { get; } = [];
 
+    public IEnumerable<(LogLevel Level, string Message, Exception? Exception)> Errors => Entries.Where(e => e.Level == LogLevel.Error);
+
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
     public bool IsEnabled(LogLevel logLevel) => true;

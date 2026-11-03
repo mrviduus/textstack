@@ -652,6 +652,7 @@ jobs:
           CLIP_PERMIT_LIMIT=200
           ACCOUNT_DELETE_PERMIT_LIMIT=50
           DEVICE_CODE_PERMIT_LIMIT=50
+          MCP_KEYS_PERMIT_LIMIT=100
           GUEST_DAILY_ENRICHMENT_CAP=3
           # The V2 sync API, against the textstack_v2 the step below migrates (tests/…/V2).
           FEATURES_V2API=true

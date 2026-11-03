@@ -45,6 +45,15 @@ public interface IUserRepository
     /// </summary>
     Task<AccountUpdate> PromoteGuestAsync(Guid userId, string email, string? name, string passwordHash, CancellationToken ct);
 
+    /// <summary>The reader's own profile edit: sets both; returns the account updated, null when there is none.</summary>
+    Task<UserAccount?> UpdateNameAndLanguageAsync(Guid userId, string? name, string? nativeLanguage, CancellationToken ct);
+
+    /// <summary>Sets (or, with null, clears) the avatar; returns the account updated, null when there is none.</summary>
+    Task<UserAccount?> SetPictureAsync(Guid userId, string? picture, CancellationToken ct);
+
+    /// <summary>Records that the user was active at <paramref name="now"/> (what the guest sweep reads); the caller debounces. False when there is no such account.</summary>
+    Task<bool> TouchActiveAsync(Guid userId, DateTimeOffset now, CancellationToken ct);
+
     /// <summary>Sets <see cref="UserAccount.Role"/> (a value outside the CHECK is a caller bug). False when there is no such account.</summary>
     Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct);
 
