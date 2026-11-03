@@ -182,10 +182,17 @@ public static class OAuthEndpoints
             return Results.BadRequest(new { error = $"request_{status}" });
 
         var code = OAuth.NewToken("");
-        var approved = await oauth.ApproveRequestAsync(
-            r.Id, identity.UserId, DeviceCodes.HashToken(code), now + OAuth.CodeLifetime, identity.IssuedAt, now, ct);
-        // Decided by a concurrent click meanwhile, or (V2) the password was reset since this token was issued.
-        if (approved is null) return Results.BadRequest(new { error = "request_not_pending" });
+        if (await oauth.ApproveRequestAsync(
+                r.Id, identity.UserId, DeviceCodes.HashToken(code), now + OAuth.CodeLifetime, identity.IssuedAt, now, ct) is null)
+        {
+            // Still pending: the approver was refused (gone, or on V2 its password was reset after this
+            // token was issued): sign in again. Otherwise a concurrent click decided it meanwhile.
+            r = await oauth.GetRequestAsync(r.Id, ct);
+            if (r is null) return Results.NotFound();
+            return StatusOf(r, now) is var raced && raced != "pending"
+                ? Results.BadRequest(new { error = $"request_{raced}" })
+                : Results.Unauthorized();
+        }
 
         return Results.Ok(new OAuthDecisionResponse(OAuth.AppendQuery(r.RedirectUri,
             ("code", code), ("state", r.State), ("iss", Issuer(config)))));
