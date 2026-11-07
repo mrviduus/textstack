@@ -664,8 +664,8 @@ jobs:
           # the api container runs as uid 1000, and every cache write is
           # best-effort - so an uncreated dir means the cache silently does
           # nothing.
-          mkdir -p data/storage data/textstack data/postgres-prod data/explain-cache
-          chmod 777 data/storage data/textstack data/explain-cache
+          mkdir -p data/storage data/library data/textstack data/postgres-prod data/explain-cache
+          chmod 777 data/storage data/library data/textstack data/explain-cache
 
       # Loaded into the local daemon under compose's own names, so the plain
       # `up -d` below starts them without building again.
@@ -788,8 +788,8 @@ jobs:
           # the api container runs as uid 1000, and every cache write is
           # best-effort - so an uncreated dir means the cache silently does
           # nothing.
-          mkdir -p data/storage data/textstack data/postgres-prod data/explain-cache
-          chmod 777 data/storage data/textstack data/explain-cache
+          mkdir -p data/storage data/library data/textstack data/postgres-prod data/explain-cache
+          chmod 777 data/storage data/library data/textstack data/explain-cache
 
       # Same images and cache scopes as `docker`; see the note there.
       - name: Build containers

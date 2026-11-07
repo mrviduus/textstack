@@ -42,7 +42,7 @@ builder.Services.AddLegacyIdentityPorts();
 // File storage
 var storagePath = builder.Configuration["Storage:RootPath"] ?? "/storage";
 builder.Services.AddSingleton<IFileStorageService>(new LocalFileStorageService(storagePath));
-builder.Services.AddSingleton<Application.Library.ILibraryFileStore>(new LibraryFileStore(builder.Configuration["Storage:LibraryRoot"] ?? storagePath));
+builder.Services.AddSingleton<Application.Library.ILibraryFileStore>(new LibraryFileStore(builder.Configuration["Storage:LibraryRoot"] ?? "/library"));
 
 // Extraction
 builder.Services.AddSingleton<ITextExtractor, EpubTextExtractor>();

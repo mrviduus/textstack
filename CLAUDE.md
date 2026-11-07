@@ -119,7 +119,7 @@ npm run submit:android            # Submit to Google Play
 | Admin | http://localhost:81 | https://textstack.dev |
 | Aspire | http://127.0.0.1:18888 | — |
 
-**Storage**: `./data/storage/` — catalog `{id[..2]}/{id}/{file}`, uploads `users/{userId[..2]}/{userId}/books/{userBookId}/` (`LocalFileStorageService.cs`).
+**Storage**: `./data/storage/` — catalog `{id[..2]}/{id}/{file}`, uploads `users/{userId[..2]}/{userId}/books/{userBookId}/` (`LocalFileStorageService.cs`). V2 library: `./data/library/` (`/library`, `Storage:LibraryRoot`), outside the public root — `library/…`, `uploads/…` (`LibraryFileStore.cs`).
 
 ## Architecture
 

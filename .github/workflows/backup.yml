@@ -103,6 +103,7 @@ jobs:
               -e RESTIC_REPOSITORY -e RESTIC_PASSWORD -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
               -v "$HOME/.cache/restic:/root/.cache/restic" \
               -v "$PROJECT_DIR/data/storage:/backup/storage:ro" \
+              -v "$PROJECT_DIR/data/library:/backup/library:ro" \
               -v "$PROJECT_DIR/.env:/backup/env:ro" \
               restic/restic:0.17.3@sha256:8f5a62b422a2cb1277ea0dd6e826fe1acf649e5b9f02d60e5268d5fd1976255a "$@"
           }

@@ -5,10 +5,9 @@ using Application.Library;
 namespace Infrastructure.Services;
 
 /// <summary>
-/// <see cref="ILibraryFileStore"/> on a local directory, <c>Storage:LibraryRoot</c> (by default the
-/// storage volume's root). Layout under it: <c>library/…</c> (the keys) and
-/// <c>uploads/{userId}/{fileId}/{index:D5}.part</c>; the public <c>/storage</c> root refuses both
-/// (<c>UserStoragePolicy</c>, nginx). The user id is in every path, so one user's ids never reach
+/// <see cref="ILibraryFileStore"/> on a local directory, <c>Storage:LibraryRoot</c> (<c>/library</c>, its own
+/// volume outside the public <c>/storage</c> root, so nothing serves it but /me/v2; #1110). Layout under it:
+/// <c>library/…</c> (the keys) and <c>uploads/{userId}/{fileId}/{index:D5}.part</c>. The user id is in every path, so one user's ids never reach
 /// another's files. Ids are Guids and formats come from the database, so a key cannot climb out of the root.
 /// </summary>
 public sealed class LibraryFileStore(string root) : ILibraryFileStore

@@ -6,6 +6,7 @@
 |------|----------------|--------|
 | PostgreSQL | `./data/postgres-prod` | `pg_dump` inside `textstack_db_prod` → local + R2 |
 | Book files | `./data/storage` | `tar` locally; restic → R2 |
+| V2 library (`Storage:LibraryRoot`) | `./data/library` | restic → R2 only |
 | `.env` | repo root on the server | restic → R2 only |
 
 Local copies land in `~/backups/textstack/` on the server; the off-site copy is Cloudflare R2 (see below).
@@ -57,7 +58,7 @@ The only copy that survives losing the server. restic runs in Docker (`restic/re
 on the host. Bucket `textstack-backups`, repository encrypted client-side.
 
 - **What:** the DB dump as plain SQL through stdin (`/db.sql` — plain so it deduplicates; a `.gz` re-uploaded
-  ~1.2 GB every night), plus `data/storage` and `.env` (`/backup`). The V2 dump goes as `/db_v2.sql`, last,
+  ~1.2 GB every night), plus `data/storage`, `data/library` and `.env` (`/backup`). The V2 dump goes as `/db_v2.sql`, last,
   on nights it exists.
 - **Retention:** 7 nightly + 3 monthly. **Guard:** the job fails above 9 GB to stay inside R2's free 10 GB.
 - **Secrets (GitHub → Actions):** `RESTIC_REPOSITORY`, `RESTIC_PASSWORD`, `R2_ACCESS_KEY_ID` (32 chars),
@@ -89,6 +90,7 @@ Data takes ~4 min to restore (drill timings). Most of the time is rebuilding the
    $R snapshots
    $R restore latest --path /backup --target /out/restore
    cp restore/backup/env .env && mkdir -p data && mv restore/backup/storage data/storage
+   [ -d restore/backup/library ] && mv restore/backup/library data/library   # snapshots before #1110 have none
    ```
 3. **Start only the database** and load the dump (prod user from `.env`):
    ```bash

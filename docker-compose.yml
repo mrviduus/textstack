@@ -149,6 +149,8 @@ services:
       # The V2 sync API. Off: /me/v2/* is not mapped (404) and the stack is exactly as before it.
       Features__V2Api: ${FEATURES_V2API:-false}
       Storage__RootPath: /storage
+      # V2 library bytes, outside the public /storage root: nothing serves them but /me/v2 (#1110).
+      Storage__LibraryRoot: /library
       Jwt__SecretKey: ${JWT_SECRET}
       Jwt__Issuer: ${JWT_ISSUER}
       Jwt__Audience: ${JWT_AUDIENCE}
@@ -178,6 +180,7 @@ services:
       Mobile__LatestBuild: ${MOBILE_LATEST_BUILD:-}
     volumes:
       - ./data/storage:/storage
+      - ./data/library:/library
       - ./data/textstack:/data/textstack
       - ./data/tts-cache:/data/tts-cache
       - ./data/explain-cache:/data/explain-cache
@@ -223,6 +226,8 @@ services:
       ConnectionStrings__V2: "Host=db;Port=5432;Database=${V2_POSTGRES_DB:-textstack_v2};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Features__V2Api: ${FEATURES_V2API:-false}
       Storage__RootPath: /storage
+      # V2 library bytes, outside the public /storage root: nothing serves them but /me/v2 (#1110).
+      Storage__LibraryRoot: /library
       # The worker routes bookmeta.agent to OpenAI (Ai:Routes), so it needs the
       # key too — without it OpenAiLlmClient throws on an empty key.
       OpenAI__ApiKey: ${OPENAI_API_KEY:-}
@@ -239,6 +244,7 @@ services:
       SENTRY_DSN: ${SENTRY_DSN:-}
     volumes:
       - ./data/storage:/storage
+      - ./data/library:/library
     restart: always
     healthcheck:
       # HeartbeatWorker writes /tmp/worker-alive every 30s. 2min grace covers
