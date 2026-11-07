@@ -254,7 +254,7 @@ flowchart LR
 
 ### 5.2 ETL — `dotnet run --project backend/src/Api -- etl-v2 [--dry-run] [--source <cs>] [--target <cs>]`
 - Reads legacy with Dapper (read-only connection), writes V2 through the **same repositories the API uses** (so every constraint and ownership rule is exercised) except bulk `book_chapters`, which uses `COPY`.
-- **Deterministic ids**: uploads keep ids; catalog pairs → `uuid_v5('textstack-v2', user ‖ edition)`; examples/reviews `operation_id` = `uuid_v5(…, legacy row id)`. Re-runs are no-ops (`ON CONFLICT DO NOTHING` + count report).
+- **Deterministic ids**: uploads keep ids; catalog pairs → `uuid_v5('textstack-v2', user ‖ edition)`; examples/reviews `operation_id` = `uuid_v5(…, legacy row id)`. Re-runs converge, never silently: each aggregate states its own conflict rule (M3.2/M3.3; users upsert by id, #1094). No blanket `ON CONFLICT DO NOTHING`: a target row that differs from what the source maps to is reported, not skipped.
 - **Pair selection** for catalog books = the intent query from [catalog-retirement-plan.md §3.4](catalog-retirement-plan.md) minus bookmarks (retired).
 - Ledger `migration_runs(id, started_at, finished_at, outcome, source_dump_sha, counts jsonb, validation jsonb)` in V2 (migration `0003`; `finished_at`/`outcome` NULL = running or interrupted; dry runs write no row) — the only table not in §4.2; dropped at M6.
 - **Validation script** `database/v2/scripts/validate-etl.sql` (adapted from catalog plan §6.2): completeness per intent pair; ownership; every migrated annotation's `selected_text` found in its chapter `plain_text` (uploads); SRS fields equal; review counts equal; insight hashes equal; sessions seconds per user equal; 0 rows with unknown `user_id`.
