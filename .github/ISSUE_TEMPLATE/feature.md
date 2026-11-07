@@ -19,7 +19,7 @@ you don't need to design the full implementation. -->
 
 <!-- Is this about deep reading? SRS quality? Offline? Performance? Tie
 it back to one of the pillars if you can:
-https://github.com/mrviduus/textstack/blob/main/CONTRIBUTING.md#what-i-care-about
+https://github.com/mrviduus/textstack/blob/main/.github/CONTRIBUTING.md#what-i-care-about
 -->
 
 ## Alternatives considered
