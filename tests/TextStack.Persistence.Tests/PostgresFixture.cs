@@ -45,6 +45,15 @@ public sealed class PostgresFixture : IAsyncLifetime, IIdentityFixture
         return new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = name }.ConnectionString;
     }
 
+    /// <summary>A <c>textstack_v2</c> in this (legacy) cluster, by <c>v2/run.sh up</c>: same system id as the legacy databases.</summary>
+    public async Task<string> NewV2DatabaseAsync(string name)
+    {
+        var migrate = await _container.ExecAsync(["sh", "-c", $"PGUSER=postgres PGDATABASE={name} sh /database/v2/run.sh up"]);
+        if (migrate.ExitCode != 0)
+            throw new InvalidOperationException($"run.sh up failed:\n{migrate.Stdout}\n{migrate.Stderr}");
+        return new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = name }.ConnectionString;
+    }
+
     public async ValueTask DisposeAsync()
     {
         await DataSource.DisposeAsync();

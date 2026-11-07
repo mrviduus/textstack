@@ -187,6 +187,294 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
         Assert.Equal("--source is not a valid connection string", error.Message);
     }
 
+    [Fact]
+    public async Task RunAsync_SameClusterOtherDatabase_Allowed()
+    {
+        // Legacy and textstack_v2 side by side in one cluster (production's layout): same system id, other name.
+        var name = "etl_" + Guid.NewGuid().ToString("N");
+        var source = await legacy.NewDatabaseAsync(name);
+        var target = await legacy.NewV2DatabaseAsync(name + "_v2");
+
+        var report = await EtlV2.RunAsync(new EtlV2Options(source, target, DryRun: false), [], Ct);
+
+        Assert.NotNull(report.RunId);
+        Assert.Equal(await ScalarAsync<string>(source, "SELECT system_identifier::text FROM pg_control_system()"),
+            await ScalarAsync<string>(target, "SELECT system_identifier::text FROM pg_control_system()"));
+    }
+
+    [Fact]
+    public async Task RunAsync_TargetIsTemplateCopy_Allowed()
+    {
+        var name = "etl_" + Guid.NewGuid().ToString("N");
+        var source = await legacy.NewDatabaseAsync(name);
+        var original = await legacy.NewV2DatabaseAsync(name + "_v2");
+        NpgsqlConnection.ClearAllPools(); // CREATE DATABASE ... TEMPLATE needs the template free of sessions
+        await ExecAsync(source, $"CREATE DATABASE \"{name}_copy\" TEMPLATE \"{name}_v2\"");
+        var copy = new NpgsqlConnectionStringBuilder(original) { Database = name + "_copy" }.ConnectionString;
+
+        var report = await EtlV2.RunAsync(new EtlV2Options(source, copy, DryRun: false), [], Ct);
+
+        Assert.NotNull(report.RunId);
+    }
+
+    [Fact]
+    public async Task RunAsync_SameDatabaseHostColonPortForm_Rejected()
+    {
+        var options = await NewPairAsync();
+        var target = new NpgsqlConnectionStringBuilder(options.Target);
+        // "Host=127.0.0.1:<port>" with the Port key left at its default: another spelling of the same server.
+        var alias = new NpgsqlConnectionStringBuilder(options.Target) { Host = $"127.0.0.1:{target.Port}" };
+        alias.Remove("Port");
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            EtlV2.RunAsync(options with { Source = alias.ConnectionString, DryRun = true }, [], Ct));
+
+        Assert.Contains("same database", error.Message);
+    }
+
+    [Fact]
+    public async Task RunAsync_DatabaseNamesDifferOnlyInCase_Allowed()
+    {
+        // Postgres database names are case-sensitive: "Etl_X" and "etl_x" are two databases.
+        var name = "etl_" + Guid.NewGuid().ToString("N");
+        var source = await legacy.NewDatabaseAsync(name.ToUpperInvariant());
+        var target = await legacy.NewV2DatabaseAsync(name);
+
+        var report = await EtlV2.RunAsync(new EtlV2Options(source, target, DryRun: true), [], Ct);
+
+        Assert.Equal(0, report.SourceCounts["users"]);
+    }
+
+    [Fact]
+    public async Task RunAsync_OtherSourceSameTarget_RefusedByTargetLock()
+    {
+        var options = await NewPairAsync();
+        var otherSource = await legacy.NewDatabaseAsync("etl_" + Guid.NewGuid().ToString("N"));
+        var (started, release) = (new TaskCompletionSource(), new TaskCompletionSource());
+        var first = EtlV2.RunAsync(options, [new("hold", async (_, _) => { started.SetResult(); await release.Task; })], Ct);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            EtlV2.RunAsync(options with { Source = otherSource }, [], Ct).WaitAsync(TimeSpan.FromSeconds(10), Ct));
+        release.SetResult();
+        await first;
+
+        Assert.Contains("another etl-v2 run", error.Message);
+    }
+
+    [Fact]
+    public async Task RunAsync_NonSuperuserRoles_IdentityAndDryRunWork()
+    {
+        // Production's roles are not superusers: pg_control_system() and the counts must work without it.
+        var options = await NewPairAsync(dryRun: true);
+        const string password = "p'a;s\"s w=rd";
+        string Role(string cs) => new NpgsqlConnectionStringBuilder(cs) { Username = "etl_ro", Password = password }.ConnectionString;
+        foreach (var cs in new[] { options.Source, options.Target })
+        {
+            var db = new NpgsqlConnectionStringBuilder(cs).Database;
+            await ExecAsync(cs, $"""
+                DO $$ BEGIN CREATE ROLE etl_ro LOGIN PASSWORD 'p''a;s"s w=rd'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+                GRANT CONNECT ON DATABASE "{db}" TO etl_ro;
+                GRANT SELECT ON ALL TABLES IN SCHEMA public TO etl_ro;
+                """);
+        }
+
+        var report = await EtlV2.RunAsync(options with { Source = Role(options.Source), Target = Role(options.Target) }, [], Ct);
+
+        Assert.Equal(1, report.SourceCounts["users"]);
+        Assert.DoesNotContain("s w=rd", report.Source + report.Target);
+    }
+
+    [Fact]
+    public async Task RunAsync_WrongPasswordWithSpecialCharacters_MessageDoesNotQuoteIt()
+    {
+        var options = await NewPairAsync(dryRun: true);
+        const string password = "wr'o;n\"g=pw";
+        var bad = new NpgsqlConnectionStringBuilder(options.Source) { Password = password }.ConnectionString;
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(options with { Source = bad }, [], Ct));
+
+        Assert.DoesNotContain("n\"g=pw", error.Message);
+    }
+
+    [Fact]
+    public async Task RunAsync_SourceSnapshot_RepeatableReadAcrossSteps()
+    {
+        var options = await NewPairAsync();
+        long seen = -1;
+        var step = new EtlV2Step("concurrent-write", async (context, ct) =>
+        {
+            // A row committed on the source after the run started is outside the run's snapshot.
+            await ExecAsync(options.Source, "INSERT INTO users (id, email, google_subject, created_at) VALUES (gen_random_uuid(), 'late@test', NULL, now())");
+            seen = await context.Source.Connection!.ExecuteScalarAsync<long>(new CommandDefinition(
+                "SELECT count(*) FROM users", transaction: context.Source, cancellationToken: ct));
+        });
+
+        var report = await EtlV2.RunAsync(options, [step], Ct);
+
+        Assert.Equal(1, seen);
+        Assert.Equal(1, report.SourceCounts["users"]);
+    }
+
+    [Theory]
+    [InlineData("SET transaction_read_only = off")]
+    [InlineData("COMMIT; INSERT INTO users (id, email, google_subject, created_at) VALUES (gen_random_uuid(), 'c@test', NULL, now())")]
+    public async Task RunAsync_StepEscapesSourceSnapshot_StillReadOnly(string sql)
+    {
+        var options = await NewPairAsync();
+        var step = new EtlV2Step("escape", (context, ct) =>
+            context.Source.Connection!.ExecuteAsync(new CommandDefinition(sql, cancellationToken: ct)));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(options, [step], Ct));
+
+        Assert.Equal(1, await ScalarAsync<long>(options.Source, "SELECT count(*) FROM users"));
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunStepFails_NoLedgerRow()
+    {
+        var options = await NewPairAsync(dryRun: true);
+        var fail = new EtlV2Step("fail", (_, _) => throw new InvalidDataException("boom"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(options, [fail], Ct));
+
+        Assert.Equal(0, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM migration_runs"));
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunTargetWriteThroughUnitOfWork_Refused()
+    {
+        var options = await NewPairAsync(dryRun: true);
+        var write = new EtlV2Step("write-target-tx", async (context, ct) =>
+        {
+            await using var tx = await context.Target.BeginAsync(ct);
+            await tx.Connection.ExecuteAsync(new CommandDefinition(
+                "INSERT INTO users (id, email, created_at) VALUES (gen_random_uuid(), 'x@test', now())", transaction: tx.Transaction, cancellationToken: ct));
+            await tx.CommitAsync(ct);
+        });
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(options, [write], Ct));
+
+        Assert.Equal(PostgresErrorCodes.ReadOnlySqlTransaction, Assert.IsType<PostgresException>(error.InnerException).SqlState);
+        Assert.Equal(0, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM users"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_AfterFailedRun_NextRunGetsLock(bool dryRun)
+    {
+        var options = await NewPairAsync(dryRun);
+        var fail = new EtlV2Step("fail", (_, _) => throw new InvalidDataException("boom"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(options, [fail], Ct));
+
+        var report = await EtlV2.RunAsync(options, [], Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
+
+        Assert.Equal(dryRun, report.RunId is null);
+    }
+
+    [Fact]
+    public async Task RunAsync_LockRefused_HolderUnaffectedAndLockFreedAfter()
+    {
+        var options = await NewPairAsync();
+        var (started, release) = (new TaskCompletionSource(), new TaskCompletionSource());
+        var first = EtlV2.RunAsync(options, [new("hold", async (_, _) => { started.SetResult(); await release.Task; })], Ct);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(options, [], Ct));
+        release.SetResult();
+        await first;
+
+        var third = await EtlV2.RunAsync(options, [], Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
+
+        Assert.NotNull(third.RunId);
+    }
+
+    [Fact]
+    public async Task RunAsync_TargetWithoutMigrationRuns_FailsWithoutWritingAndFreesLock()
+    {
+        var name = "etl_" + Guid.NewGuid().ToString("N");
+        var source = await legacy.NewDatabaseAsync(name);
+        var migrated = await v2.NewDatabaseAsync(name);
+        await ExecAsync(migrated, $"CREATE DATABASE \"{name}_bare\"");
+        var bare = new NpgsqlConnectionStringBuilder(migrated) { Database = name + "_bare" }.ConnectionString;
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(new EtlV2Options(source, bare, false), [], Ct));
+
+        Assert.Contains("migration_runs", error.Message);
+        Assert.False(await ScalarAsync<bool>(bare, "SELECT EXISTS (SELECT FROM pg_locks WHERE locktype = 'advisory')"));
+    }
+
+    [Fact]
+    public async Task RunAsync_CancelledDuringStep_LedgerFailedAndLockFreed()
+    {
+        var options = await NewPairAsync();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var step = new EtlV2Step("slow", async (context, ct) =>
+        {
+            cts.Cancel();
+            await context.Source.Connection!.ExecuteAsync(new CommandDefinition("SELECT pg_sleep(30)", transaction: context.Source, cancellationToken: ct));
+        });
+
+        var error = await Assert.ThrowsAnyAsync<Exception>(() => EtlV2.RunAsync(options, [step], cts.Token).WaitAsync(TimeSpan.FromSeconds(20), Ct));
+
+        Assert.IsType<InvalidOperationException>(error);
+        Assert.Equal("failed", await ScalarAsync<string>(options.Target, "SELECT outcome FROM migration_runs"));
+        Assert.NotNull(await EtlV2.RunAsync(options, [], Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct));
+    }
+
+    [Fact]
+    public async Task RunAsync_StepReportsOrphansAndCleanups_ListedInReportAndLedgerNothingDeleted()
+    {
+        var options = await NewPairAsync();
+        var step = new EtlV2Step("orphans", (context, _) =>
+        {
+            context.OrphanCandidates.Add("user_books 42: owner missing");
+            context.CleanupActions.Add("DELETE FROM book_files WHERE id = 7");
+            return Task.CompletedTask;
+        });
+
+        var report = await EtlV2.RunAsync(options, [step], Ct);
+
+        Assert.Equal(["user_books 42: owner missing"], report.OrphanCandidates);
+        Assert.Equal(["DELETE FROM book_files WHERE id = 7"], report.CleanupActions);
+        Assert.Equal("user_books 42: owner missing", await ScalarAsync<string>(options.Target, $"SELECT validation -> 'orphanCandidates' ->> 0 FROM migration_runs WHERE id = '{report.RunId}'"));
+        Assert.Equal("DELETE FROM book_files WHERE id = 7", await ScalarAsync<string>(options.Target, $"SELECT validation -> 'cleanupActions' ->> 0 FROM migration_runs WHERE id = '{report.RunId}'"));
+        Assert.Equal(1, await ScalarAsync<long>(options.Source, "SELECT count(*) FROM users"));
+    }
+
+    [Fact]
+    public async Task RunAsync_FailedRun_LedgerKeepsSourceCountsAndFinishedAt()
+    {
+        var options = await NewPairAsync();
+        var fail = new EtlV2Step("fail", (_, _) => throw new InvalidDataException("boom"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(options, [fail], Ct));
+
+        Assert.True(await ScalarAsync<bool>(options.Target,
+            "SELECT finished_at IS NOT NULL AND (counts -> 'source' ->> 'users')::bigint = 1 FROM migration_runs WHERE outcome = 'failed'"));
+    }
+
+    [Fact]
+    public void EtlSources_NoBlanketOnConflictDoNothing()
+    {
+        // v2-plan §5.2: per-aggregate conflict rules; a blanket DO NOTHING hides a re-run's divergence.
+        var dir = Path.Combine(PostgresFixture.RepoRoot(), "backend", "src", "Infrastructure", "Persistence", "Etl");
+        var offenders = Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories)
+            .Where(f => System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(f), @"ON\s+CONFLICT\s+DO\s+NOTHING", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            .ToList();
+
+        Assert.Empty(offenders);
+    }
+
+    [Theory]
+    [InlineData("Host=db;Password='hunter2;x\"y'")]
+    [InlineData("Host=db;PWD=hunter2")]
+    [InlineData("Host=db;psw=hunter2")]
+    public void Redact_QuotedOrAliasedPassword_Stripped(string connectionString)
+    {
+        Assert.DoesNotContain("hunter2", EtlV2.Redact(connectionString));
+    }
+
     private static async Task ExecAsync(string connectionString, string sql)
     {
         await using var conn = new NpgsqlConnection(connectionString);

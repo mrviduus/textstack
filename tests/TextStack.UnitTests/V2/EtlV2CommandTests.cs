@@ -62,4 +62,53 @@ public class EtlV2CommandTests
         Assert.Equal(1, exit);
         Assert.DoesNotContain("hunter2", error.ToString());
     }
+
+    [Theory]
+    [InlineData("--target")]
+    [InlineData("--dry-run", "--target")]
+    public void Parse_TrailingFlagWithoutValue_Null(params string[] args) =>
+        Assert.Null(EtlV2Command.Parse(args, Config));
+
+    [Theory]
+    [InlineData("--source", "")]
+    [InlineData("--target", "  ")]
+    public void Parse_BlankConnectionString_Null(string flag, string value) =>
+        Assert.Null(EtlV2Command.Parse([flag, value], Config));
+
+    [Fact]
+    public void Parse_DryRunTwice_DryRun() =>
+        Assert.True(EtlV2Command.Parse(["--dry-run", "--dry-run"], Config)!.DryRun);
+
+    [Theory]
+    [InlineData("Host=db;Password=hunter2;Port=abc")]
+    [InlineData("Host=db;Password=hunter2;Timeout=-5")]
+    [InlineData("Host=db;Password=hunter2;SSL Mode=bogus")]
+    [InlineData("Host=db;Password=\"hunter2;Bogus")]
+    [InlineData("Password='hunter2")]
+    public async Task RunAsync_BadValueInConnectionString_Exit1WithoutQuotingSecret(string source)
+    {
+        var (output, error) = (new StringWriter(), new StringWriter());
+
+        var exit = await EtlV2Command.RunAsync(["--dry-run", "--source", source], Config, output, error);
+
+        Assert.Equal(1, exit);
+        Assert.DoesNotContain("hunter2", output.ToString() + error.ToString());
+    }
+
+    [Fact]
+    public async Task RunAsync_UnreachableServer_Exit1WithoutQuotingSecret()
+    {
+        var (output, error) = (new StringWriter(), new StringWriter());
+        const string cs = "Host=127.0.0.1;Port=1;Database=x;Username=u;Password=hu'nt;er\"2;Timeout=3";
+
+        var exit = await EtlV2Command.RunAsync(["--dry-run", "--source", cs.Replace("Password=hu'nt;er\"2", "Password='hu''nt;er\"2'"), "--target", cs.Replace("Password=hu'nt;er\"2", "Password='hu''nt;er\"2'")],
+            Config, output, error);
+
+        Assert.Equal(1, exit);
+        Assert.StartsWith("etl-v2: ", error.ToString());
+        // The message only: the wrapped exception and its stack trace are not printed.
+        Assert.DoesNotContain("   at ", error.ToString());
+        Assert.DoesNotContain("nt;er", output.ToString() + error.ToString());
+        Assert.Empty(output.ToString());
+    }
 }
