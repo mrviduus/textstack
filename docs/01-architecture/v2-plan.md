@@ -5,7 +5,7 @@
 
 **Start here:** [v2-architecture.md](v2-architecture.md) → this plan → the slice you own.
 **Owner decisions:** [v2-target-model.md](v2-target-model.md) plus the 2026-10-29 answers recorded in §1.3.
-**Bound by:** ADR-026 (SQL-first migrations) · ADR-028 (Dapper + repositories; **port in progress, pilot = `book_insight` only**) · ADR-025 (reader engine; amended by R0) · ADR-027 + [catalog-retirement-plan.md](catalog-retirement-plan.md) (research input, reused in §5) · [epub-engine-prototype.md](epub-engine-prototype.md) · [mcp-discussion-checkpoints.md](mcp-discussion-checkpoints.md).
+**Bound by:** ADR-026 (SQL-first migrations) · ADR-028 (Dapper + repositories; **port in progress, pilot = `book_insight` only**) · ADR-025 (reader engine; amended by R0, retires after R8) · [ADR-032](adr/ADR-032-one-engine-foliate-fork.md) (one engine: foliate-js fork, every format) · ADR-027 + [catalog-retirement-plan.md](catalog-retirement-plan.md) (research input, reused in §5) · [epub-engine-prototype.md](epub-engine-prototype.md) · [mcp-discussion-checkpoints.md](mcp-discussion-checkpoints.md).
 
 ---
 
@@ -181,7 +181,7 @@ Dependency rule: `Api → Application → Domain ← Infrastructure` (unchanged)
 | | `password_reset_tokens` | a reset code | same | |
 | | `oauth_clients`, `oauth_authorization_requests`, `oauth_grants`, `device_authorizations`, `mcp_access_keys` | MCP auth | same | `oauth_authorization_requests.user_id` gets a real FK |
 | Library | `books` | a library entry | `user_books` (96, same id) + catalog pairs (D5, deterministic id) | **add** `origin jsonb` (`{"kind":"upload"}` / `{"kind":"catalog","editionSlug":…}` / `{"kind":"clip","sourceUrl":…}`), `cover_key text`, `tags text[] NOT NULL DEFAULT '{}'`, `description`, `genre`, `published_year` (from `user_books`); `checkpoint_saving_enabled` per draft |
-| | `book_files` | an exact file version | `user_book_files` (96, same id, sha256 kept) | **CHECK `format IN ('epub','pdf','html')`** (draft said epub only; 22+ PDFs exist; `html` = clips); `page_count int`, `toc jsonb` (nullable, from `user_books`); `server_storage_key` = relative path on the volume |
+| | `book_files` | an exact file version | `user_book_files` (96, same id, sha256 kept) | **CHECK `format IN ('epub','pdf','html')`** (draft said epub only; 22+ PDFs exist; `html` = clips; `mobi`/`azw3`/`fb2`/`cbz` pending, ADR-032); `page_count int`, `toc jsonb` (nullable, from `user_books`); `server_storage_key` = relative path on the volume |
 | Reading | `reading_state` | accepted state for one book | `user_books.progress_*` → scheme `textstack-position-v1` (reflow `progress_position_json`) or `pdf-page` (PDF `page:<n>`); catalog `reading_progresses` **not migrated** (owner exception) | per draft |
 | | `reading_sessions` | a reading interval | `reading_sessions` (587) | `book_id` nullable (deleted-book trail kept); unique `(user_id, client_session_id)` |
 | Annotations | `annotations` | a highlight + note, or an unanchored quotation | `highlights` (39): `selected_text`, `note_text`, color; uploads → `file_id` + locator `textstack-anchor-v1` (prefix/exact/suffix) or `pdf-page` (PDF highlights: page + rects); catalog → unanchored | per draft |
@@ -299,6 +299,8 @@ Per aggregate, in one transaction: books — reparent; same `sha256` on both sid
 
 ## 7. Reader track (unchanged in substance from the 2026-10-29 reader plan)
 
+> **2026-11-07 — [ADR-032](adr/ADR-032-one-engine-foliate-fork.md):** one engine, not two. The foliate-js fork `mrviduus/foliate-js` (pinned by SHA) reads every V2 format — EPUB, MOBI, AZW3, FB2, CBZ, PDF — paginated by default with a scrolled option; no server extraction for any new format. R7 becomes PDF on foliate behind a gate on the real PDF uploads (the pdf.js viewer stays until it passes). Implementation: [#1128](https://github.com/mrviduus/textstack/issues/1128).
+
 Verified from prototype code (not from its README): retained copy + immediate open + sha256 dedupe (`foliate.tsx:98-159`, `library.mjs:21`); CFI+quote resume and highlights (`page.mjs:195-294`); malformed/interrupted/missing-file handling; CSP sandbox (`build.mjs:55`); pin `78914aef` + one-line paginator patch + reproducer; serialized navigation; `file://` direct read. **README-only**: kill/relaunch results, 4.7 s vs 27.9 s timing, hostile-book results (gate script asserts nothing), physical device. **Defects to fix when porting**: non-atomic `writeStore`; mount effect runs before the `__DEV__` redirect; `file://` + `connect-src file:` exposure needs a review; a fresh clone does not build (generated page gitignored). **Doc conflict**: ADR-025 (Accepted) rejects foliate → R0.
 
 | Slice | Agent | Do | DoD |
@@ -310,7 +312,7 @@ Verified from prototype code (not from its README): retained copy + immediate op
 | **R4** adoption gates | qa + owner | physical device, 80 MB book, real ENOSPC, old WebView, security review | evidence table in `epub-engine-prototype.md`; ADR-029 updated |
 | **R5** web dev path | frontend-engineer | dev-only route or reader-engine playground; ArrayBuffer in; localStorage only | prod bundle unchanged |
 | **R6** local library + sync client | mobile-engineer | SQLite (new DB name) for books/state/annotations; sync to M2 API with `revision`/`operation_id`; file sync opt-in | offline first; conflict tests |
-| **R7** PDF on the V2 path | mobile-engineer | existing pdf.js viewer behind V2 `books`/`book_files`, locator scheme `pdf-page` | PDF uploads readable on V2 |
+| **R7** PDF on the V2 path | mobile-engineer | existing pdf.js viewer behind V2 `books`/`book_files`, locator scheme `pdf-page`; then PDF on the foliate fork (ADR-032), the viewer deleted once the fork passes on the real PDF uploads | PDF uploads readable on V2 |
 | **R8** retire legacy reader | mobile/frontend | delete `ReaderShell` server-chapter path; drop `book_chapters` + `ingestion_jobs` (M6 gate) | |
 
 ---

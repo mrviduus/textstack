@@ -1,6 +1,8 @@
 # ADR-012: PDF books — original-first display, parsing decoupled & lazy for AI
 
 ## Status
+> **Amended 2026-11-07 ([ADR-032](ADR-032-one-engine-foliate-fork.md)).** In V2, PDF moves to the foliate-js fork's pdf.js adapter once it passes the gate on the existing real PDF uploads; until then this original-first viewer stays the V2 PDF reader, and after it, the viewer is deleted.
+
 > **Partly obsolete since 2026-09-10.** The original-first display and instant-readable upload (§1–2) are in force. Everything about "Ask this book", vision-LLM → Markdown parsing, chunks and RAG with page citations (the RAG row of §3, all of §4, S3, S5b) was deleted with the in-app chat and RAG spine (MCP replaced it; leftovers removed in #665, 2026-10-01). Read those parts as history.
 
 Accepted — shipped 2026-07-10. S1 #419, S2 #420, S3 #421 (+ eval gate #422),
