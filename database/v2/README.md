@@ -37,6 +37,9 @@ what differs.
 | Text ordering | glibc, via the server's `en_US.utf8` | **ICU**, locale `und` — see below |
 | Run by `docker compose up` | yes | **no** — profile `v2`; run it with `make migrate-v2` |
 
+`make migrate-v2` builds the schema; it moves no data. The data moves with `make etl-v2` (the ETL,
+[v2-plan §5.2](../../docs/01-architecture/v2-plan.md)), which records each run in `migration_runs`.
+
 `api` and `worker` wait for `migrator` (ADR-021) and **not** for `migrator-v2`: nothing connects to
 `textstack_v2` yet (M1.2), so a V2 migrator that cannot reach or create its database must not keep
 the site down. It did, once, on the day it shipped —

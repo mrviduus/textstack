@@ -18,6 +18,14 @@ using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// CLI: etl-v2 [--dry-run] [--source <cs>] [--target <cs>] — legacy → textstack_v2 (v2-plan §5.2).
+// Before Build(): it needs configuration only, and no startup step may touch either database first.
+if (args is ["etl-v2", ..])
+{
+    Environment.ExitCode = await Api.V2.EtlV2Command.RunAsync(args[1..], builder.Configuration, Console.Out, Console.Error);
+    return;
+}
+
 // Host-level configuration (Kestrel/multipart limits + OpenTelemetry + Sentry).
 builder.AddTextStackUploadLimits();
 builder.AddTextStackObservability();

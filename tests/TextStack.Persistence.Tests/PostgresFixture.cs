@@ -34,6 +34,17 @@ public sealed class PostgresFixture : IAsyncLifetime, IIdentityFixture
         DataSource = Infrastructure.Persistence.DataSource.Create(_container.GetConnectionString());
     }
 
+    /// <summary>A database of its own in this container, built by <c>migrate.sh up</c> like the shared one; its connection string.</summary>
+    public async Task<string> NewDatabaseAsync(string name)
+    {
+        await using (var cmd = DataSource.CreateCommand($"CREATE DATABASE \"{name}\""))
+            await cmd.ExecuteNonQueryAsync();
+        var migrate = await _container.ExecAsync(["sh", "-c", $"PGUSER=postgres PGDATABASE={name} sh /database/migrate.sh up"]);
+        if (migrate.ExitCode != 0)
+            throw new InvalidOperationException($"migrate.sh up failed:\n{migrate.Stdout}\n{migrate.Stderr}");
+        return new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = name }.ConnectionString;
+    }
+
     public async ValueTask DisposeAsync()
     {
         await DataSource.DisposeAsync();

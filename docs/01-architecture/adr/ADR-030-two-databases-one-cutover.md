@@ -49,7 +49,7 @@ preserved set: `user_chapters`, 131 MB), so moving it in one event costs minutes
    every V2 user-owned table keys on `users`. So auth over V2 (plan M2.5: `AuthService`, guest merge,
    account delete) ships first, and during M2–M4 V2 is test-only behind `Features:V2Api`: no real
    user's data is written to `textstack_v2` before the cutover's ETL.
-4. **Preserved data moves by an ETL CLI, `migrate-v2`** (plan §5.2). Reads legacy over a read-only
+4. **Preserved data moves by an ETL CLI, `etl-v2`** (plan §5.2). Reads legacy over a read-only
    connection; writes through the same V2 repositories the API uses (bulk `book_chapters` by `COPY`).
    Deterministic ids: uploads keep their ids (`books.id = user_books.id`); catalog pairs get
    `uuid_v5('textstack-v2', user ‖ edition)`; operation ids are `uuid_v5` of the legacy row id. Re-runs
@@ -57,7 +57,7 @@ preserved set: `user_chapters`, 131 MB), so moving it in one event costs minutes
    M6). Gate: `database/v2/scripts/validate-etl.sql` must report 0 failures. Rehearsed on restored
    backups via `restore-drill.yml` until it reports 0 failures three times in a row.
 5. **Cutover is one event** (plan §5.3): write freeze ≤10 min (`Maintenance:WriteFreeze`); `pg_dump`
-   of legacy to an archive outside restic retention + git tag `pre-v2-cutover`; `migrate-v2`;
+   of legacy to an archive outside restic retention + git tag `pre-v2-cutover`; `etl-v2`;
    validation 0 failures; flip `Database:Mode=v2` (force-recreate api/worker); legacy database
    `default_transaction_read_only = on`. **Rollback = flip back** and turn read-only off: V2 code
    never writes legacy, so legacy is exactly as it was at the freeze.
