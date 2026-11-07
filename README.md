@@ -67,7 +67,7 @@ Tests, migrations, mobile and the rest: [docs/03-ops/local-dev.md](docs/03-ops/l
 
 ## Contributing
 
-Bug reports, ideas and PRs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first, or [open an issue](https://github.com/mrviduus/textstack/issues/new/choose).
+Bug reports, ideas and PRs are welcome. Read [CONTRIBUTING.md](.github/CONTRIBUTING.md) first, or [open an issue](https://github.com/mrviduus/textstack/issues/new/choose).
 
 ## License
 
