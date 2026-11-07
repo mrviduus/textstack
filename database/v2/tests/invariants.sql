@@ -5,7 +5,7 @@
 -- Each block raises (non-zero exit) with the offending names. Adding or dropping a table means
 -- editing the expected set below, on purpose: it is ADR-031's table list.
 
--- The table set is exactly ADR-031's 24 + 2 transitional.
+-- The table set is exactly ADR-031's 24 + 2 transitional, plus the ETL's ledger (0003, dropped at M6).
 DO $$
 DECLARE missing text; extra text;
 BEGIN
@@ -18,7 +18,8 @@ BEGIN
         ('vocabulary_words'), ('vocabulary_examples'), ('vocabulary_reviews'),
         ('shared_chapters'), ('discussion_checkpoints'), ('book_insight'), ('review_question'),
         ('llm_traces'), ('agent_run'), ('eval_runs'), ('admin_settings'),
-        ('book_chapters'), ('ingestion_jobs')),
+        ('book_chapters'), ('ingestion_jobs'),
+        ('migration_runs')),
     db(t) AS (SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations')
     SELECT (SELECT string_agg(t, ', ') FROM (SELECT t FROM adr EXCEPT SELECT t FROM db) m),
            (SELECT string_agg(t, ', ') FROM (SELECT t FROM db EXCEPT SELECT t FROM adr) e)
