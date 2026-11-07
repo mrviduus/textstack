@@ -1,6 +1,13 @@
 # ADR-029 — foliate-js renders V2 EPUBs
 
-**Status:** Proposed · **Date:** 2026-10-30 · **Plan:** [v2-plan.md](../v2-plan.md) §7 · **Amends:** [ADR-025](ADR-025-reader-engine-package.md) (scope: ADR-025 keeps server-chapter reflow and PDF until the V2 reader replaces them; its rejection of foliate is withdrawn for V2 local EPUBs) · **Keeps:** ADR-012 (PDF original-first), ADR-019 (position rules, re-expressed over CFI) · **Builds on:** ADR-031 (locator schemes)
+**Status:** Proposed · **Date:** 2026-10-30 · **Plan:** [v2-plan.md](../v2-plan.md) §7 · **Amends:** [ADR-025](ADR-025-reader-engine-package.md) (scope: ADR-025 keeps server-chapter reflow and PDF until the V2 reader replaces them; its rejection of foliate is withdrawn for V2 local EPUBs) · **Keeps:** ADR-012 (PDF original-first), ADR-019 (position rules, re-expressed over CFI) · **Builds on:** ADR-031 (locator schemes) · **Amended by:** [ADR-032](ADR-032-one-engine-foliate-fork.md)
+
+> **Amended 2026-11-07 (ADR-032).** (1) foliate renders **every** V2 format — EPUB, MOBI, AZW3, FB2,
+> CBZ and PDF — not only EPUB; Decision 8 (PDF unchanged) holds only until ADR-032's PDF gate passes.
+> (2) Decision 2 changes: the engine is the GitHub fork `mrviduus/foliate-js` pinned by commit SHA,
+> not upstream + `patches/*.patch`; engine fixes live in the fork and are offered upstream.
+> (3) Paginated stays the default; **scrolled is a per-user option**, so the "Paginated, not scroll"
+> cost below no longer applies. (4) The "two renderers coexist until R8" cost no longer applies to V2 books.
 
 ## Context
 
@@ -137,8 +144,7 @@ origin to book content, so it cannot inherit the production reader's safety argu
 - **iframe-per-section breaks ADR-025's no-iframe rule** for this path: the selection, word-tap,
   inline-translation and vocabulary overlays must be rebuilt inside foliate's overlayer and its
   per-section documents, not reused from reader-engine's container model.
-- **Paginated, not scroll** — the opposite of ADR-025 decision 3; code blocks and wide tables in
-  technical books will split across pages.
+- ~~**Paginated, not scroll**~~ — removed 2026-11-07: scrolled is a per-user option (ADR-032 Decision 4).
 - **"The engine never fetches" (ADR-025 decision 6) does not hold** for the prototype's page, which
   reads the EPUB by XHR. Whether it stays that way is part of the R4 security review.
 - **Bundle size** ~216 KB per open, outside reader-engine's budget.

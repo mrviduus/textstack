@@ -7,7 +7,12 @@
 [ADR-015](ADR-015-reader-position-is-logical.md) (position = place in the text),
 [ADR-018](ADR-018-reingest-updates-chapters-in-place.md) · **Starts after:** Phase 0 (#774); no engine
 runtime code reaches users before the Play production launch (~2026-10-16) · **Amended by:**
-[ADR-029](ADR-029-foliate-for-v2-epub.md) (V2 local EPUBs use foliate; this ADR keeps server-chapter reflow and PDF)
+[ADR-029](ADR-029-foliate-for-v2-epub.md) (V2 local EPUBs use foliate; this ADR keeps server-chapter reflow and PDF) · **Superseded after R8 by:** [ADR-032](ADR-032-one-engine-foliate-fork.md)
+
+> **Amended 2026-11-07 (ADR-032).** V2 reads every format through one foliate-js fork. This package
+> keeps serving the transitional server-chapter reader until R8, then retires; its proven parts
+> (`overlay.ts`, `rangeToLocator`, the ADR-019 rules re-keyed over CFI) are ported into the wrapper
+> around the fork.
 
 ## Context
 

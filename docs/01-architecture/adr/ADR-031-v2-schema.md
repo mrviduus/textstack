@@ -1,6 +1,6 @@
 # ADR-031 — V2 schema: textstack_v2
 
-**Status:** Proposed · **Date:** 2026-10-30 (decisions appended 2026-10-30) · **Plan:** [v2-plan.md](../v2-plan.md) §4 · **Builds on:** [ADR-030](ADR-030-two-databases-one-cutover.md), ADR-026, ADR-028 · **Keeps:** ADR-014 (guest sessions), ADR-016 (chapter review in book_insight) · **Adopts:** [v2-library-draft.sql](../v2-library-draft.sql) with the deltas below
+**Status:** Proposed · **Date:** 2026-10-30 (decisions appended 2026-10-30) · **Plan:** [v2-plan.md](../v2-plan.md) §4 · **Builds on:** [ADR-030](ADR-030-two-databases-one-cutover.md), ADR-026, ADR-028 · **Keeps:** ADR-014 (guest sessions), ADR-016 (chapter review in book_insight) · **Adopts:** [v2-library-draft.sql](../v2-library-draft.sql) with the deltas below · **Amended by:** [ADR-032](ADR-032-one-engine-foliate-fork.md) (`book_files.format`)
 
 ## Context
 
@@ -381,3 +381,12 @@ Related: [v2-plan.md](../v2-plan.md) · [ADR-030](ADR-030-two-databases-one-cuto
 [ADR-028](ADR-028-dapper-and-repositories.md) · [ADR-026](ADR-026-sql-first-migrations.md) ·
 [ADR-014](ADR-014-guest-sessions.md) · [ADR-016](ADR-016-chapter-review-lives-in-book-insight.md) ·
 [v2-library-draft.sql](../v2-library-draft.sql) · [data-model.md](../data-model.md).
+
+## Amended 2026-11-07 — `book_files.format` gains four formats ([ADR-032](ADR-032-one-engine-foliate-fork.md), [#1128](https://github.com/mrviduus/textstack/issues/1128))
+
+V2 reads MOBI, AZW3 (KF8), FB2 and CBZ on the device through the foliate-js fork, with no server
+extraction. `ck_book_files_format` becomes `format IN ('epub','pdf','html','mobi','azw3','fb2','cbz')`.
+**Pending migration** (a new `NNNN` on `textstack_v2`, not written yet); until it lands the
+baseline's three values stand. The locator rule moves with it: `epub-cfi` fits the new formats,
+`pdf-page` stays PDF-only (#1122's scheme-fits-file check, in `SyncValidation` and the reading-state
+write SQL). No `ingestion_jobs` row is enqueued for the new formats.
