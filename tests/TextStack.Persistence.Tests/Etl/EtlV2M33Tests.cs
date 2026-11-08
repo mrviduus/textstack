@@ -380,6 +380,9 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
         { $"UPDATE vocabulary_reviews SET user_id = '{Carol}' WHERE id = '72000000-0000-4000-8000-000000000002'", "vocabulary_reviews: another user's card", ["72000000-0000-4000-8000-000000000002"] },
         { "UPDATE highlights SET selected_text = ' ' WHERE id = '41000000-0000-4000-8000-000000000001'", "annotations (catalog): blank text or a version below 1", ["41000000-0000-4000-8000-000000000001"] },
         { $"UPDATE editions SET title = ' ' WHERE id = '{DesignPatterns}'", "books (catalog): blank edition title", [EtlV2Ids.CatalogBook(Alice, DesignPatterns).ToString()] },
+        { "UPDATE highlights SET version = 0 WHERE id = '41000000-0000-4000-8000-000000000001'", "annotations (catalog): blank text or a version below 1", ["41000000-0000-4000-8000-000000000001"] },
+        { "UPDATE review_question SET interval_days = -1", "review_question: negative SRS field", ["16000000-0000-4000-8000-000000000001"] },
+        { $"UPDATE book_insight SET user_id = '{Carol}' WHERE id = '15000000-0000-4000-8000-000000000002'", "book_insight: its upload belongs to another user", ["15000000-0000-4000-8000-000000000002"] },
     };
 
     [Theory]
@@ -416,5 +419,232 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
             EtlV2Ids.V5(Guid.Parse("6ba7b810-9dad-11d1-80b4-00c04fd430c8"), "python.org"u8.ToArray()));
         Assert.Equal(EtlV2Ids.CatalogBook(Alice, CleanCode), EtlV2Ids.CatalogBook(Alice, CleanCode));
         Assert.NotEqual(EtlV2Ids.CatalogBook(Alice, CleanCode), EtlV2Ids.CatalogBook(CleanCode, Alice));
+    }
+
+    // QA pins (mutation testing, #1028): each kills a mutation the tests above let through.
+    private static readonly Guid Dave = Guid.Parse("da7e0000-0000-4000-8000-000000000004");
+    private static readonly Guid OpsAdmin = Guid.Parse("0a500000-0000-4000-8000-000000000005");
+    private static readonly Guid Squatter = Guid.Parse("eeeeeeee-0000-4000-8000-0000000000aa");
+    private static readonly Guid SquatterWord = Guid.Parse("eeeeeeee-0000-4000-8000-0000000000bb");
+    private static readonly Guid CarolReview = Guid.Parse("72000000-0000-4000-8000-000000000004");
+
+    [Fact]
+    public void Ids_IndependentVectors_PinTheDerivation()
+    {
+        // Computed outside .NET (RFC 9562 §5.5 with Python's hashlib): the tests above derive ids through EtlV2Ids itself,
+        // so a changed namespace, input order or byte order would pass them and still break convergence with any earlier run.
+        Assert.Equal(Guid.Parse("1bf10a76-ae74-52e8-9c16-a47a8bfdbae1"), EtlV2Ids.Namespace);
+        Assert.Equal(Guid.Parse("a4e4d1c3-613b-5566-884d-a824e9fc9050"), EtlV2Ids.CatalogBook(Alice, CleanCode));
+        Assert.Equal(Guid.Parse("f6c8cfa2-7b92-5281-a888-8667e12a9f68"), EtlV2Ids.Operation(RunSurvivor));
+    }
+
+    [Fact]
+    public async Task RunAsync_SecondRun_ReportsNoCleanupForItsOwnRows()
+    {
+        // The uploads step skips catalog books and their annotations: else every re-run lists each as "V2 row with no legacy row".
+        var options = await NewPairAsync();
+        await EtlV2.RunAsync(options, ct: Ct);
+
+        var second = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Empty(second.CleanupActions);
+    }
+
+    [Fact]
+    public async Task RunAsync_CaseVariantsMerge_ExampleHashUsesTheSurvivorsNormalizedKey()
+    {
+        // " RUN " (language "EN") is a loser: its example hashes under the survivor's (en, run), not its own spelling.
+        var options = await NewPairAsync();
+
+        await EtlV2.RunAsync(options, ct: Ct);
+
+        var hash = VocabularyPayloads.ExampleSha256(new VocabularyWord { Language = "en", WordKey = "run" },
+            new VocabularyExample { BookTitle = "Doomed", Sentence = "RUN!" });
+        Assert.Equal(hash, await ScalarAsync<string>(options.Target, "SELECT payload_sha256 FROM vocabulary_examples WHERE sentence = 'RUN!'"));
+    }
+
+    [Fact]
+    public async Task RunAsync_SurvivorTranslationBlank_TakesTheLosers()
+    {
+        // Q8's "has none" is a blank translation too, not only NULL.
+        var options = await NewPairAsync(extra: "UPDATE vocabulary_words SET translation = '  ' WHERE id = '70000000-0000-4000-8000-000000000002';");
+
+        await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal("бігти", await ScalarAsync<string>(options.Target, "SELECT translation FROM vocabulary_words WHERE word_key = 'run'"));
+    }
+
+    [Fact]
+    public async Task RunAsync_WordWithAChapterButNoBook_ExampleHasNoChapterKey()
+    {
+        // Legacy allows a chapter with no edition (no CHECK); V2's ck_vocabulary_examples_chapter_key would abort a key without a book.
+        var options = await NewPairAsync(extra: "UPDATE vocabulary_words SET edition_id = NULL WHERE id = '70000000-0000-4000-8000-000000000001';");
+
+        await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal("-|-", await ScalarAsync<string>(options.Target,
+            "SELECT coalesce(book_id::text, '-') || '|' || coalesce(chapter_key, '-') FROM vocabulary_examples WHERE sentence = 'Run, Forest!'"));
+    }
+
+    /// <summary>One intent row per live table the fixture never uses as a pair's only intent.</summary>
+    public static TheoryData<string> LiveIntents => new()
+    {
+        $"""
+        INSERT INTO vocabulary_words (id, user_id, site_id, word, language, edition_id, stage, interval_days, consecutive_correct, next_review_at,
+            total_reviews, correct_reviews, created_at, updated_at, is_retired)
+        VALUES (gen_random_uuid(), '{Bob}', '{Site}', 'kob', 'uk', '{Kobzar}', 0, 0, 0, now(), 0, 0, '2026-02-09Z', now(), false)
+        """,
+        $"INSERT INTO book_insight (id, user_id, site_id, edition_id, text, created_at, updated_at) VALUES (gen_random_uuid(), '{Bob}', '{Site}', '{Kobzar}', 'k', '2026-02-09Z', now())",
+    };
+
+    [Theory]
+    [MemberData(nameof(LiveIntents))]
+    public async Task RunAsync_IntentOnlyInALiveTable_PairIsCarried(string intent)
+    {
+        var options = await NewPairAsync(extra: intent + ";");
+
+        await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal("The Kobzar|2026-02-09", await ScalarAsync<string>(options.Target,
+            "SELECT title || '|' || (created_at AT TIME ZONE 'UTC')::date FROM books WHERE id = @id", new { id = EtlV2Ids.CatalogBook(Bob, Kobzar) }));
+    }
+
+    [Fact]
+    public async Task RunAsync_V2BookOfAnotherOriginUnderAPlannedId_NamedMismatchNotACrash()
+    {
+        // The catalog step reads V2 books by planned id too: a non-catalog row there is a mismatch, not a 23505 on insert.
+        var options = await NewPairAsync();
+        await EtlV2.RunAsync(options, ct: Ct);
+        var book = EtlV2Ids.CatalogBook(Alice, CleanCode);
+        await ExecAsync(options.Target, """UPDATE books SET origin = '{"kind":"upload"}' WHERE id = @book""", new { book });
+
+        var error = await FailsAsync(options);
+
+        Assert.Equal([book.ToString()], Failed(error, "books (catalog): V2 row differs from its legacy mapping"));
+    }
+
+    [Fact]
+    public async Task RunAsync_V2HasAReviewLegacyNeverHad_ReviewCountCheckFails()
+    {
+        // To Plan that row is a cleanup line and parity checks only mapped rows: the count check alone sees it.
+        var options = await NewPairAsync();
+        await EtlV2.RunAsync(options, ct: Ct);
+        await ExecAsync(options.Target, """
+            INSERT INTO vocabulary_reviews (id, user_id, word_id, operation_id, payload_sha256, review_mode, is_correct, stage_before, stage_after, client_recorded_at)
+            VALUES (gen_random_uuid(), @Alice, @RunSurvivor, gen_random_uuid(), repeat('a', 64), 'flashcard', true, 0, 1, now())
+            """, new { Alice, RunSurvivor });
+
+        var error = await FailsAsync(options);
+
+        Assert.Equal([RunSurvivor.ToString()], Failed(error, "vocabulary: review count differs (legacy reviews of a merged group vs its survivor's V2 reviews)"));
+    }
+
+    [Fact]
+    public async Task RunAsync_V2HasSecondsForAUserWithNoLegacySession_SecondsCheckFails()
+    {
+        // Dave is a legacy user with no session: the per-user sum must cover V2's users, not only legacy's.
+        var options = await NewPairAsync(extra: $"INSERT INTO users (id, email, created_at, is_guest) VALUES ('{Dave}', 'dave@test', '2026-01-01Z', false);");
+        await EtlV2.RunAsync(options, ct: Ct);
+        await ExecAsync(options.Target, """
+            INSERT INTO reading_sessions (id, user_id, client_session_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent, created_at)
+            VALUES (@Squatter, @Dave, @Squatter, now(), now(), 30, 0, 0, 0, now())
+            """, new { Squatter, Dave });
+
+        var error = await FailsAsync(options);
+
+        Assert.Equal([Dave.ToString()], Failed(error, "reading_sessions: seconds per user differ"));
+    }
+
+    /// <summary>A V2 row under another id holding a planned row's secondary key: V2 setup SQL, the check, the failing "row/holder".</summary>
+    public static TheoryData<string, string, string> Squatters => new()
+    {
+        {
+            $"""
+            INSERT INTO reading_sessions (id, user_id, client_session_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent, created_at)
+            VALUES ('{Squatter}', '{Carol}', '5e000000-0000-4000-8000-000000000006', now(), now(), 0, 0, 0, 0, now())
+            """,
+            "reading_sessions: (user_id, client_session_id) held by another V2 id", $"5e000000-0000-4000-8000-000000000006/{Squatter}"
+        },
+        {
+            $"""
+            INSERT INTO vocabulary_words (id, user_id, language, word, word_key) VALUES ('{SquatterWord}', '{Carol}', 'en', 'zz', 'zz');
+            INSERT INTO vocabulary_reviews (id, user_id, word_id, operation_id, payload_sha256, review_mode, is_correct, stage_before, stage_after, client_recorded_at)
+            VALUES ('{Squatter}', '{Carol}', '{SquatterWord}', '{EtlV2Ids.Operation(CarolReview)}', repeat('a', 64), 'flashcard', true, 0, 1, now())
+            """,
+            "vocabulary_reviews: (user_id, operation_id) held by another V2 id", $"{CarolReview}/{Squatter}"
+        },
+        {
+            $"""
+            INSERT INTO vocabulary_words (id, user_id, language, word, word_key) VALUES ('{SquatterWord}', '{Alice}', 'en', 'zz', 'zz');
+            INSERT INTO vocabulary_examples (id, user_id, word_id, sentence, operation_id, payload_sha256)
+            VALUES ('{Squatter}', '{Alice}', '{SquatterWord}', 'x', '{EtlV2Ids.Operation(RunSurvivor)}', repeat('a', 64))
+            """,
+            "vocabulary_examples: (user_id, operation_id) held by another V2 id", $"{EtlV2Ids.Operation(RunSurvivor)}/{Squatter}"
+        },
+        {
+            $$"""
+            INSERT INTO books (id, user_id, title, origin) VALUES ('{{EtlV2Ids.CatalogBook(Carol, CleanCode)}}', '{{Carol}}', 'x', '{"kind":"catalog"}');
+            INSERT INTO book_insight (id, user_id, book_id, text, created_at, updated_at)
+            VALUES ('{{Squatter}}', '{{Carol}}', '{{EtlV2Ids.CatalogBook(Carol, CleanCode)}}', 'x', now(), now())
+            """,
+            "book_insight: (user_id, book_id, chapter_slug) held by another V2 id", $"15000000-0000-4000-8000-000000000003/{Squatter}"
+        },
+        {
+            $$"""
+            INSERT INTO books (id, user_id, title, origin) VALUES ('{{EtlV2Ids.CatalogBook(Alice, CleanCode)}}', '{{Alice}}', 'x', '{"kind":"catalog"}');
+            INSERT INTO book_insight (id, user_id, book_id, chapter_slug, text, created_at, updated_at)
+            VALUES ('15000000-0000-4000-8000-000000000001', '{{Alice}}', '{{EtlV2Ids.CatalogBook(Alice, CleanCode)}}', 'meaningful-names', 'x', now(), now());
+            INSERT INTO review_question (id, user_id, book_insight_id, block_index, prompt, answer, prompt_hash, stage, interval_days, consecutive_correct,
+                next_review_at, total_reviews, correct_reviews, is_retired, created_at, updated_at)
+            VALUES ('{{Squatter}}', '{{Alice}}', '15000000-0000-4000-8000-000000000001', 0, 'p', 'a', 'deadbeefdeadbeef', 0, 0, 0, now(), 0, 0, false, now(), now())
+            """,
+            "review_question: (user_id, book_insight_id, prompt_hash) held by another V2 id", $"16000000-0000-4000-8000-000000000001/{Squatter}"
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(Squatters))]
+    public async Task RunAsync_V2RowUnderAnotherIdHoldsAPlannedKey_PreflightFailsTheNamedCheck(string sql, string check, string pair)
+    {
+        var options = await NewPairAsync(dryRun: true);
+        await ExecAsync(options.Target, $"""
+            INSERT INTO users (id, email, created_at) VALUES ('{Alice}', 'alice@test', '2026-01-01Z'), ('{Carol}', 'carol@test', '2026-01-01Z');
+            {sql};
+            """);
+
+        var error = await FailsAsync(options);
+
+        Assert.Equal([pair], Failed(error, check));
+    }
+
+    [Fact]
+    public async Task UnknownUsers_ChecksEveryOwnedTableAStepWrites()
+    {
+        // A table a step writes that has a user_id and is not checked would let an unknown owner through unseen.
+        var target = await V2.Databases.NewV2Async(NewName());
+        var owned = (await ScalarAsync<string>(target,
+            "SELECT string_agg(table_name, ',') FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'user_id'")).Split(',');
+
+        var written = EtlV2.Steps.Where(s => s != EtlV2UnknownUsers.Step).SelectMany(s => s.Targets).Intersect(owned);
+
+        Assert.Equal(written.Order(StringComparer.Ordinal), EtlV2UnknownUsers.Step.Targets.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task RunAsync_V2RowOwnedByALegacyAdmin_UnknownUserCheckPasses()
+    {
+        // The users step carries admin_users: their V2 rows (made after a run) have a known owner.
+        var options = await NewPairAsync(extra: $"""
+            INSERT INTO admin_users (id, email, password_hash, role, is_active, created_at, updated_at)
+            VALUES ('{OpsAdmin}', 'ops@test', 'hash-ops', 0, true, '2026-01-01Z', '2026-01-01Z');
+            """);
+        await EtlV2.RunAsync(options, ct: Ct);
+        await ExecAsync(options.Target, """
+            INSERT INTO vocabulary_words (id, user_id, language, word, word_key) VALUES (@Squatter, @OpsAdmin, 'en', 'ops', 'ops')
+            """, new { Squatter, OpsAdmin });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal(0, Assert.Single(report.Checks, c => c.Name == "unknown-user-ids: V2 rows whose owner is no legacy user or admin").Failures);
     }
 }
