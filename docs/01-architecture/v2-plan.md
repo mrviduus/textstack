@@ -256,7 +256,7 @@ flowchart LR
 - Reads legacy with Dapper (read-only connection), writes V2 through the **same repositories the API uses** (so every constraint and ownership rule is exercised) except bulk `book_chapters`, which uses `COPY`.
 - **Deterministic ids**: uploads keep ids; catalog pairs → `uuid_v5('textstack-v2', user ‖ edition)`; examples/reviews `operation_id` = `uuid_v5(…, legacy row id)`. Re-runs are no-ops (`ON CONFLICT DO NOTHING` + count report).
 - **Pair selection** for catalog books = the intent query from [catalog-retirement-plan.md §3.4](catalog-retirement-plan.md) minus bookmarks (retired).
-- Ledger `migration_runs(id, started_at, finished_at, outcome, source_dump_sha, counts jsonb, validation jsonb)` in V2 (migration `0003`; `finished_at`/`outcome` NULL = running or interrupted; dry runs write no row) — the only table not in §4.2; dropped at M6.
+- Ledger `migration_runs(id, started_at, finished_at, outcome, source_dump_sha, counts jsonb, validation jsonb)` in V2 (migrations `0003`+`0004`; `finished_at`/`outcome` NULL = running; a run that holds the ETL lock closes earlier unfinished rows as `interrupted`, never deletes them; `--source-dump-sha` records the rehearsal backup's SHA-256; dry runs write no row) — the only table not in §4.2; dropped at M6.4.
 - **Validation script** `database/v2/scripts/validate-etl.sql` (adapted from catalog plan §6.2): completeness per intent pair; ownership; every migrated annotation's `selected_text` found in its chapter `plain_text` (uploads); SRS fields equal; review counts equal; insight hashes equal; sessions seconds per user equal; 0 rows with unknown `user_id`.
 - Rehearsal = `restore-drill.yml` + `migrate-v2` + validation on a throwaway branch (the drill already restores a backup).
 
@@ -370,7 +370,7 @@ Fixed rules for every slice: English only; one PR, closes its issue; `/pr` write
 | M5.4 | backend | rename `/me/v2/*` → final routes; `routes.public.txt` |
 
 ### M6 — Retire
-M6.1 catalog/SEO/SSG code · M6.2 EF Core + `AppDbContext` + drift tests · M6.3 legacy clients UI · M6.4 `book_chapters`/`ingestion_jobs` (after R8) · M6.5 `DROP DATABASE` after the archive restore is proven · M6.6 docs: `data-model.md` = V2 only, `CLAUDE.md` commands updated.
+M6.1 catalog/SEO/SSG code · M6.2 EF Core + `AppDbContext` + drift tests · M6.3 legacy clients UI · M6.4 `book_chapters`/`ingestion_jobs` (after R8) and the ETL ledger `migration_runs`, one V2 drop migration · M6.5 `DROP DATABASE` after the archive restore is proven · M6.6 docs: `data-model.md` = V2 only, `CLAUDE.md` commands updated.
 
 ---
 

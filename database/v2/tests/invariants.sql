@@ -186,3 +186,30 @@ BEGIN
         RAISE EXCEPTION 'ck_user_refresh_tokens_kind is not kind IN (reader, admin)';
     END IF;
 END $$;
+
+-- Migration 0004: the etl-v2 ledger's rules. It is transitional (dropped at M6); a finished run has an
+-- outcome, 'interrupted' among them; counts/validation are objects; a succeeded run carries its
+-- validation; source_dump_sha is a SHA-256 hex digest; no clock-order CHECK (a clock step back
+-- must not fail a finish). The behaviour is pinned by the etl-v2 tests.
+DO $$
+DECLARE bad text;
+BEGIN
+    IF obj_description('public.migration_runs'::regclass, 'pg_class') NOT LIKE 'Transitional. Dropped at M6%' THEN
+        RAISE EXCEPTION 'migration_runs COMMENT lacks its sunset sentence';
+    END IF;
+
+    SELECT string_agg(c, ', ') INTO bad FROM (VALUES
+        ('ck_migration_runs_outcome'), ('ck_migration_runs_finished'), ('ck_migration_runs_counts'),
+        ('ck_migration_runs_validation'), ('ck_migration_runs_source_dump_sha')) x(c)
+    WHERE NOT EXISTS (SELECT FROM pg_constraint WHERE conname = x.c AND conrelid = 'public.migration_runs'::regclass);
+    IF bad IS NOT NULL THEN RAISE EXCEPTION 'migration_runs CHECKs missing: %', bad; END IF;
+
+    IF EXISTS (SELECT FROM pg_constraint WHERE conname = 'ck_migration_runs_order') THEN
+        RAISE EXCEPTION 'ck_migration_runs_order is back (a clock step would fail a finish)';
+    END IF;
+
+    IF pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'ck_migration_runs_outcome'))
+       IS DISTINCT FROM 'CHECK ((outcome = ANY (ARRAY[''succeeded''::text, ''failed''::text, ''interrupted''::text])))' THEN
+        RAISE EXCEPTION 'ck_migration_runs_outcome is not outcome IN (succeeded, failed, interrupted)';
+    END IF;
+END $$;
