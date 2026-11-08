@@ -148,7 +148,7 @@ public sealed class EtlReaderTests(PostgresFixture legacy, V2PostgresFixture v2)
         var (role, asReader) = await NewWriterAsReaderAsync(admin);
         var target = await V2.Databases.NewV2Async(NewName());
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(new EtlV2Options(asReader, target, DryRun: true), [], Ct));
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => RunAsync(new EtlV2Options(asReader, target, DryRun: true), [], Ct));
 
         Assert.Contains($"source login {role} can write (", error.Message);
     }
@@ -159,7 +159,7 @@ public sealed class EtlReaderTests(PostgresFixture legacy, V2PostgresFixture v2)
         var (admin, _) = await NewSourcePairAsync();
         var target = await V2.Databases.NewV2Async(NewName());
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(new EtlV2Options(admin, target, DryRun: false), [], Ct));
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => RunAsync(new EtlV2Options(admin, target, DryRun: false), [], Ct));
 
         // The login is "postgres", which is also this container's password, so the scrub masks it here.
         Assert.Contains("can write (", error.Message);

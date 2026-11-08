@@ -13,7 +13,7 @@ The ETL reads legacy as a SELECT-only role. The read-only connection default
 safeguard; the role is the one that holds when a session switches that default off.
 
 `etl_reader` has: LOGIN, CONNECT on the source database, USAGE on `public`, SELECT on exactly the tables
-etl-v2 reads (the list in the script, the same as `EtlV2.SourceCounts`). It has no ownership, no
+etl-v2 reads (the list in the script: every step's declared `Sources`). It has no ownership, no
 SUPERUSER/CREATEROLE/CREATEDB/REPLICATION/BYPASSRLS, NOINHERIT and no role membership. The application
 role's privileges are not touched.
 

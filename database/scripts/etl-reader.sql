@@ -36,7 +36,7 @@ DO $$ BEGIN EXECUTE format('GRANT CONNECT ON DATABASE %I TO etl_reader', current
 
 GRANT USAGE ON SCHEMA public TO etl_reader;
 
--- Exactly the tables etl-v2 reads (EtlV2.SourceCounts); a mapper that reads one more adds it here.
+-- Exactly the tables etl-v2 reads (every EtlV2Step.Sources); a mapper that reads one more adds it here.
 GRANT SELECT ON TABLE
     public.users,
     public.admin_users,
