@@ -387,8 +387,8 @@ Related: [v2-plan.md](../v2-plan.md) · [ADR-030](ADR-030-two-databases-one-cuto
 
 V2 reads MOBI, AZW3 (KF8), FB2 and CBZ on the device through the foliate-js fork, with no server
 extraction. `ck_book_files_format` becomes `format IN ('epub','pdf','html','mobi','azw3','fb2','cbz')`.
-**Pending migration** (a new `NNNN` on `textstack_v2`, not written yet); until it lands the
-baseline's three values stand. The locator rule moves with it: `epub-cfi` fits the new formats,
+Carried by migration `0005_book_formats`, which also widens `ck_ingestion_jobs_source_format` with
+`mobi`, `azw3`, `cbz` (the list stays `book_files.format` plus `unknown`). The locator rule moves with it: `epub-cfi` fits the new formats,
 `pdf-page` stays PDF-only (#1122's scheme-fits-file check, in `SyncValidation` and the reading-state
 write SQL). No `ingestion_jobs` row is enqueued for the new formats.
 

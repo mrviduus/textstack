@@ -401,6 +401,23 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.Equal(9, await V2Scalar<int>(options, "SELECT attempt_count FROM ingestion_jobs WHERE id = @EpubJob", new { EpubJob }));
     }
 
+    [Fact]
+    public async Task RunAsync_Fb2Upload_CarriedAsFb2WithBytesAndChapters()
+    {
+        // Legacy's fb2 uploads went through extraction like an epub; 0005 lets V2 hold them as fb2.
+        var options = await SeedAsync();
+        await ExecAsync(options.Source, "UPDATE user_book_files SET format = 2, original_file_name = 'dune.fb2' WHERE id = @EpubFile", new { EpubFile });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.All(report.Checks, c => Assert.Equal(0, c.Failures));
+        Assert.Equal($"{Sha(EpubBytes)}|fb2|{FileKey(Alice, Epub, EpubFile, "fb2")}", await V2Scalar<string>(options,
+            "SELECT sha256 || '|' || format || '|' || server_storage_key FROM book_files WHERE id = @EpubFile", new { EpubFile }));
+        Assert.Equal(EpubBytes, await File.ReadAllBytesAsync(Path.Combine(LibraryRoot, FileKey(Alice, Epub, EpubFile, "fb2")), Ct));
+        Assert.Equal(2, await V2Scalar<long>(options, "SELECT count(*) FROM book_chapters WHERE file_id = @EpubFile", new { EpubFile }));
+        Assert.Equal(1, await V2Scalar<long>(options, "SELECT count(*) FROM reading_state WHERE book_id = @Epub", new { Epub }));
+    }
+
     // Mutation-testing pins (QA pass, #1027): each test below kills a hand-mutation the suite above let survive.
 
     /// <summary>One legacy defect per row: its setup SQL, the check it must fail, the failing ids, and a file to put (relative to the storage root), if any.</summary>
@@ -418,7 +435,7 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
             "users: apple_subject duplicated in legacy", [$"{Alice}/{Carol}"], null },
         { $"INSERT INTO user_book_files (id, user_book_id, original_file_name, storage_path, format, sha256, file_size, uploaded_at) VALUES (gen_random_uuid(), '{Clip}', 'clip2.html', '{Dir(Bob, Clip)}/clip2.html', 3, NULL, 5, now())",
             "book_files: more than one legacy file for a book", [Clip.ToString()], null },
-        { $"UPDATE user_book_files SET format = 2 WHERE id = '{ClipFile}'", "book_files: format V2 does not take (fb2/other, pending ADR-032's migration)", [ClipFile.ToString()], null },
+        { $"UPDATE user_book_files SET format = 99 WHERE id = '{ClipFile}'", "book_files: format V2 does not take (other)", [ClipFile.ToString()], null },
         { $"UPDATE user_book_files SET file_size = 0 WHERE id = '{ClipFile}'", "book_files: not a positive byte size or a blank name", [ClipFile.ToString()], null },
         { $"UPDATE user_book_files SET original_file_name = ' ' WHERE id = '{ClipFile}'", "book_files: not a positive byte size or a blank name", [ClipFile.ToString()], null },
         { $"UPDATE user_books SET title = '  ' WHERE id = '{Clip}'", "books: blank title", [Clip.ToString()], null },
