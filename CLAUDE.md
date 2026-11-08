@@ -35,6 +35,7 @@ Load-bearing decisions still go to `docs/01-architecture/adr/`. Details: `.claud
 cp .env.example .env          # Edit with real values
 make nginx-setup              # Install nginx config (Linux)
 make nginx-setup-mac          # Mac
+make fix-permissions          # Create data/library etc. owned by uid 1000 (else V2 uploads fail)
 make up                       # Start services
 
 # Docker
@@ -86,6 +87,8 @@ dotnet format textstack.sln                  # Backend
 #   credentials via env ConnectionStrings__Default / ConnectionStrings__V2 or Passfile=, never argv (refused): ConnectionStrings__Default=… make etl-v2 ARGS=--dry-run
 
 # Local dev (no Docker)
+# From the repo root; the defaults /storage and /library are container paths. Two siblings, never nested:
+export Storage__RootPath=data/storage Storage__LibraryRoot=data/library
 dotnet run --project backend/src/Api
 dotnet run --project backend/src/Worker
 pnpm -C apps/web dev          # http://localhost:5173
@@ -121,7 +124,7 @@ npm run submit:android            # Submit to Google Play
 | Admin | http://localhost:81 | https://textstack.dev |
 | Aspire | http://127.0.0.1:18888 | — |
 
-**Storage**: `./data/storage/` — catalog `{id[..2]}/{id}/{file}`, uploads `users/{userId[..2]}/{userId}/books/{userBookId}/` (`LocalFileStorageService.cs`).
+**Storage**: `./data/storage/` — catalog `{id[..2]}/{id}/{file}`, uploads `users/{userId[..2]}/{userId}/books/{userBookId}/` (`LocalFileStorageService.cs`). V2 library: `./data/library/` (`/library`, `Storage:LibraryRoot`), outside the public root — `library/…`, `uploads/…` (`LibraryFileStore.cs`).
 
 ## Architecture
 
