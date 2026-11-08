@@ -43,6 +43,12 @@ public abstract class EtlTestBase(PostgresFixture legacy, V2PostgresFixture v2) 
     protected static Task<EtlV2Report> RunAsync(EtlV2Options options, EtlV2Step[] steps, CancellationToken ct) =>
         EtlV2.RunAsync(options, [.. steps, Ok], ct);
 
+    /// <summary>A run of every step (<see cref="EtlV2.Steps"/>) that must fail: its exception.</summary>
+    protected static Task<EtlV2Exception> FailsAsync(EtlV2Options options) => Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+
+    /// <summary>The failing ids of the one check named <paramref name="check"/>.</summary>
+    protected static IReadOnlyList<string>? Failed(EtlV2Exception error, string check) => Assert.Single(error.Checks, c => c.Name == check).Ids;
+
     /// <summary>A new login with a random name and password on <paramref name="connectionString"/>'s database: CONNECT plus <paramref name="grants"/> ({r}: the role); its connection string.</summary>
     protected async Task<(string Role, string ConnectionString)> NewProbeRoleAsync(string connectionString, string grants)
     {

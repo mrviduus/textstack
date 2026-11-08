@@ -65,23 +65,16 @@ public static partial class EtlV2Uploads
         ORDER BY id
         """;
 
-    private const string SelectV2Books = """
-        SELECT id, user_id, title, author, language, description, genre, published_year, tags, cover_key, origin::text AS origin,
-               checkpoint_saving_enabled, revision, created_at, updated_at, removed_at
-        FROM books
+    // Catalog pairs' books are the catalog step's (M3.3); a row under a mapped id is read whatever its origin (a mismatch, not a 23505).
+    private const string SelectV2Books = EtlV2BookRows.SelectBooks + """
+
+        WHERE origin->>'kind' IS DISTINCT FROM 'catalog' OR id = ANY(@ids)
         """;
 
     private const string SelectV2Files = """
         SELECT id, user_id, book_id, sha256, byte_size, original_name, format, page_count, toc::text AS toc, server_storage_key,
                is_current, content_removed_at, created_at
         FROM book_files
-        """;
-
-    private const string InsertBook = """
-        INSERT INTO books (id, user_id, title, author, language, description, genre, published_year, tags, cover_key, origin,
-                           checkpoint_saving_enabled, revision, created_at, updated_at, removed_at)
-        VALUES (@Id, @UserId, @Title, @Author, @Language, @Description, @Genre, @PublishedYear, @Tags, @CoverKey, CAST(@Origin AS jsonb),
-                @CheckpointSavingEnabled, @Revision, @CreatedAt, @UpdatedAt, @RemovedAt)
         """;
 
     private const string InsertFile = """
@@ -107,6 +100,8 @@ public static partial class EtlV2Uploads
     private static async Task RunAsync(EtlV2Context context, CancellationToken ct)
     {
         var legacyBooks = await EtlV2Rows.SourceAsync<LegacyBook>(context, SelectLegacyBooks, null, ct);
+        // Every user_books row: the owner map the later steps check foreign uploads against, without a second read.
+        context.UploadOwners ??= legacyBooks.ToDictionary(b => b.Id, b => b.UserId);
         var legacyFiles = await EtlV2Rows.SourceAsync<LegacyFile>(context, SelectLegacyFiles, null, ct);
         // Null only when legacy has no upload: then no book, cover or file (user_book_files → user_books) names a byte.
         var bytes = legacyBooks.Count > 0 ? new Bytes(context) : null;
@@ -120,14 +115,16 @@ public static partial class EtlV2Uploads
         var chapters = await MapChaptersAsync(context, files, ct);
         var jobs = await MapJobsAsync(context, files, ct);
 
-        var v2Books = await EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, null, ct);
+        var bookIds = new { ids = books.Select(b => b.Id).ToArray() };
+        var annotationIds = new { ids = annotations.Select(a => a.Id).ToArray() };
+        var v2Books = await EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, bookIds, ct);
         var v2Chapters = await EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2Chapters, null, ct);
         var v2Files = await EtlV2Rows.TargetAsync<FileRow>(context, SelectV2Files, null, ct);
         ReportStaleTakedowns(context, legacyBooks, v2Books, bytes);
         var bookPlan = EtlV2Rows.Plan(context, "books", books, v2Books, b => b.Id);
         var filePlan = EtlV2Rows.Plan(context, "book_files", files.Values, v2Files, f => f.Id);
         var statePlan = EtlV2Rows.Plan(context, "reading_state", states, await EtlV2Rows.TargetAsync<StateRow>(context, SelectV2States, null, ct), s => (s.UserId, s.BookId));
-        var annotationPlan = EtlV2Rows.Plan(context, "annotations", annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct), a => a.Id);
+        var annotationPlan = EtlV2Rows.Plan(context, "annotations", annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, annotationIds, ct), a => a.Id);
         var chapterPlan = EtlV2Rows.Plan(context, "book_chapters", chapters, v2Chapters, c => c.Id);
         // V2's secondary unique keys: a new row whose key a stale V2 row holds (legacy re-extracted, a file replaced) would abort with 23505.
         EtlV2Rows.HeldByAnother(context, "book_files: (user_id, book_id) current file", filePlan.New, v2Files.Where(f => f.IsCurrent), f => f.Id, f => (f.UserId, f.BookId));
@@ -146,21 +143,21 @@ public static partial class EtlV2Uploads
             // Inside the fence, so a run that lost it copies nothing; bytes before rows, so a row never names a
             // key with nothing behind it. A run that fails after this leaves bytes no row names (the worker's orphan sweep).
             bytes?.CopyPending(ct);
-            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertBook, bookPlan.New, tx.Transaction, cancellationToken: ct));
+            await tx.Connection.ExecuteAsync(new CommandDefinition(EtlV2BookRows.InsertBook, bookPlan.New, tx.Transaction, cancellationToken: ct));
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertFile, filePlan.New, tx.Transaction, cancellationToken: ct));
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertJob, jobPlan.New, tx.Transaction, cancellationToken: ct));
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertState, statePlan.New, tx.Transaction, cancellationToken: ct));
-            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertAnnotation, annotationPlan.New, tx.Transaction, cancellationToken: ct));
+            await tx.Connection.ExecuteAsync(new CommandDefinition(EtlV2BookRows.InsertAnnotation, annotationPlan.New, tx.Transaction, cancellationToken: ct));
             await CopyChaptersAsync(context, tx, chapterPlan.New, ct);
             await tx.CommitAsync(ct);
         }
 
         // Chapters: only the rows this run wrote are re-read (the rest were equal before the write, and the write adds only).
-        var booksAfter = EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, null, ct);
+        var booksAfter = EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, bookIds, ct);
         var filesAfter = EtlV2Rows.TargetAsync<FileRow>(context, SelectV2Files, null, ct);
         var jobsAfter = EtlV2Rows.TargetAsync<JobRow>(context, SelectV2Jobs, null, ct);
         var statesAfter = EtlV2Rows.TargetAsync<StateRow>(context, SelectV2States, null, ct);
-        var annotationsAfter = EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct);
+        var annotationsAfter = EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, annotationIds, ct);
         var chaptersAfter = EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2ChaptersById, new { ids = chapterPlan.New.Select(c => c.Id).ToArray() }, ct);
         await Task.WhenAll(booksAfter, filesAfter, jobsAfter, statesAfter, annotationsAfter, chaptersAfter);
         EtlV2Rows.Verify(context, "books: parity", books, await booksAfter, b => b.Id);
@@ -440,26 +437,6 @@ public static partial class EtlV2Uploads
         public string? Sha256 { get; init; }
         public long ByteSize { get; init; }
         public DateTimeOffset CreatedAt { get; init; }
-    }
-
-    private sealed record BookRow
-    {
-        public Guid Id { get; init; }
-        public Guid UserId { get; init; }
-        public string Title { get; init; } = "";
-        public string? Author { get; init; }
-        public string? Language { get; init; }
-        public string? Description { get; init; }
-        public string? Genre { get; init; }
-        public int? PublishedYear { get; init; }
-        public string[] Tags { get; init; } = [];
-        public string? CoverKey { get; init; }
-        public string Origin { get; init; } = "";
-        public bool CheckpointSavingEnabled { get; init; }
-        public long Revision { get; init; } = 1;
-        public DateTimeOffset CreatedAt { get; init; }
-        public DateTimeOffset UpdatedAt { get; init; }
-        public DateTimeOffset? RemovedAt { get; init; }
     }
 
     private sealed record FileRow

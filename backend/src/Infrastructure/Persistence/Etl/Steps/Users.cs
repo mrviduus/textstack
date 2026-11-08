@@ -1,4 +1,3 @@
-using Dapper;
 using Domain.Enums;
 
 namespace Infrastructure.Persistence.Etl;
@@ -55,6 +54,8 @@ public static class EtlV2Users
     {
         var legacy = await EtlV2Rows.SourceAsync<UserRow>(context, SelectLegacyUsers, null, ct);
         var admins = await EtlV2Rows.SourceAsync<AdminRow>(context, SelectAdmins, null, ct);
+        // The accounts this step carries, for the later steps' checks, without a second read.
+        context.CarriedUsers ??= legacy.Select(u => u.Id).Concat(admins.Select(a => a.Id)).ToHashSet();
         var v2 = (await EtlV2Rows.TargetAsync<UserRow>(context, SelectV2Users, null, ct)).ToDictionary(u => u.Id);
 
         string[] emails = [.. legacy.Select(u => u.Email).Concat(admins.Select(a => a.Email)).Concat(v2.Values.Select(u => u.Email)).Distinct()];
@@ -97,14 +98,8 @@ public static class EtlV2Users
             ? $"users {orphan.Id}: V2 guest with no legacy row (#1094); if the identity mirror left it behind, a human deletes it "
                 + $"with its V2 rows: DELETE FROM users WHERE id = '{orphan.Id}'"
             : $"users {orphan.Id}: V2 account with no legacy row; not deleted, a human reviews it");
-        if (!context.MayWrite)
+        if (!await EtlV2Rows.InsertAsync(context, ct, (InsertUser, plan.New), (UpdateUser, plan.Different)))
             return;
-        await using (var tx = await context.BeginWriteAsync(ct))
-        {
-            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertUser, plan.New, tx.Transaction, cancellationToken: ct));
-            await tx.Connection.ExecuteAsync(new CommandDefinition(UpdateUser, plan.Different, tx.Transaction, cancellationToken: ct));
-            await tx.CommitAsync(ct);
-        }
         EtlV2Rows.Verify(context, "users: parity (every legacy user and admin is its V2 row)", expected.Values,
             await EtlV2Rows.TargetAsync<UserRow>(context, SelectV2Users, null, ct), u => u.Id);
     }

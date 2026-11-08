@@ -13,11 +13,16 @@ namespace Infrastructure.Persistence.Etl;
 public static class EtlV2
 {
     /// <summary>
-    /// The mappers, in dependency order: users first (every V2 row points at one), then books and files,
-    /// then what hangs on them. A step never deletes: what it would delete goes to
-    /// <see cref="EtlV2Context.OrphanCandidates"/> or <see cref="EtlV2Context.CleanupActions"/>.
+    /// The mappers, in dependency order: users first (every V2 row points at one), then books and files
+    /// (uploads, then catalog pairs), then what hangs on them; the unknown-user check last. A step never
+    /// deletes: what it would delete goes to <see cref="EtlV2Context.OrphanCandidates"/> or
+    /// <see cref="EtlV2Context.CleanupActions"/>.
     /// </summary>
-    public static readonly IReadOnlyList<EtlV2Step> Steps = [EtlV2Users.Step, EtlV2Uploads.Step];
+    public static readonly IReadOnlyList<EtlV2Step> Steps =
+    [
+        EtlV2Users.Step, EtlV2Uploads.Step, EtlV2Catalog.Step, EtlV2Vocabulary.Step, EtlV2Insights.Step, EtlV2Sessions.Step,
+        EtlV2UnknownUsers.Step,
+    ];
 
     /// <summary>The session advisory lock on the target ("etl-v2" in ASCII) that keeps runs one at a time.</summary>
     public const long LockKey = 0x65_74_6c_2d_76_32;

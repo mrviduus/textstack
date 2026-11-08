@@ -177,11 +177,12 @@ the second SIGINT). If it does not (a run stuck where no signal reaches it), `do
 A run killed outright leaves its ledger row unfinished; the next real run, once it holds the lock,
 closes it as `interrupted` and lists it in `interruptedRuns`. Nothing is ever deleted.
 
-## 4. What a run carries (M3.2: users and uploads)
+## 4. What a run carries (M3.2: users and uploads; M3.3: catalog pairs, vocabulary, insights, sessions)
 
 Steps, in order: `users` (legacy `users`, `admin_users` → `users`), then `uploads` (`user_books`,
 `user_book_files`, `user_chapters`, upload `highlights`, `user_ingestion_jobs` → `books`, `book_files`,
-`reading_state`, `annotations`, `book_chapters`, `ingestion_jobs`). Ids are legacy's (an admin with no user keeps its `admin_users` id), so a
+`reading_state`, `annotations`, `book_chapters`, `ingestion_jobs`), then M3.3's `catalog`, `vocabulary`,
+`insights`, `sessions` and `unknown-users` (below). Ids are legacy's (an admin with no user keeps its `admin_users` id), so a
 second run over the same source writes nothing and reports the same counts. The steps write with their
 own inline SQL (data-access.md rule 13) in the fenced transaction, not through the API's repositories:
 those stamp `created_at`/`updated_at` with `now()`, refuse a second book with the same bytes and open
@@ -271,3 +272,51 @@ temp file beside its key, then is renamed into place; an existing key is never o
 copied before the rows are written; a run that fails between leaves bytes no row names, and the worker's
 daily orphan sweep removes them. A dry run reads (and hashes) legacy's bytes and V2's existing ones, and
 writes no file.
+
+### M3.3: catalog pairs, vocabulary, insights, sessions
+
+Same engine and the same rule for every table: insert what V2 lacks, leave what is equal, and a V2 row that
+differs from its mapping fails `<table>: V2 row differs from its legacy mapping` (never overwritten); a V2
+row with no legacy row is a cleanup line, never deleted. A legacy row V2's CHECKs or FKs would abort on fails
+a named check (`<table>: <rule>`, failing ids) and is not carried; the run then writes nothing more. A
+secondary unique key V2 holds under another id fails `<table>: (<key>) held by another V2 id` before the write.
+Every legacy row's owner is a legacy user (legacy FKs), and the users step carries every one, so no row is
+dropped for its user. The catalog step's targets are reported as `books (catalog)` and `annotations
+(catalog)`; the uploads step compares only non-catalog books and their annotations.
+
+| Aggregate (V2 key) | Id | Mapping, and what fails |
+|---|---|---|
+| Catalog pair (`books`) | `uuid_v5(ns, user ‖ edition)`, ns = `uuid_v5(nil, "textstack-v2")`, names in RFC byte order | Pair = catalog plan §3.4's intent query minus bookmarks: `user_libraries`, `reading_progresses`, catalog `highlights`, `vocabulary_words`, `book_insight`, and the retired `pending_vocabulary_words`, `word_lookups`, `word_clusters`, savedbook shelf entries (owner 2026-11-08). Row: edition title, first author by credit order, edition language, `origin {"kind":"catalog","editionSlug"}`, `created_at = updated_at` = the pair's first intent by immutable creation times (a `reading_progresses` row has none: its `updated_at` moves between dumps; a progress-only pair takes the edition's `created_at`); **no description, no cover** (owner 2026-11-08), no genre/year/tags, no file, no reading state (D5). Edition gone (a dangling shelf entry): orphan candidate. Fails: a blank edition title |
+| Catalog highlight (`annotations`) | legacy id | Unanchored (ADR-031 row 43): text, note, colour, times, `revision = version`; no file, no locator. One with neither edition nor upload is M3.2's trail. Fails: a blank text, a version below 1 |
+| Vocabulary card (`vocabulary_words`) | the survivor's legacy id | Merge below. Fails: a blank word or language, a negative SRS field, an `interval_days` not representable as `numeric` (non-finite or beyond decimal's range; below its precision it becomes 0, accepted), an upload of another user |
+| Example (`vocabulary_examples`) | `id = operation_id = uuid_v5(ns, legacy card id)` | One per legacy card with a non-blank sentence, on the survivor. Book: the upload's id, or the catalog pair's book; a deleted edition leaves no book but keeps `book_title`. `chapter_key` = the catalog chapter's `COALESCE(slug, 'ch-' ‖ number)`, only with a book. Hash: `VocabularyPayloads.ExampleSha256` over the survivor's `language` + `word_key` |
+| Review (`vocabulary_reviews`) | legacy id; `operation_id = uuid_v5(ns, legacy id)` | On its card's survivor; `client_recorded_at` = `created_at` truncated to ms (stored and hashed: `VocabularyPayloads.ReviewSha256`); `created_at` exact. Fails: another user's card, a blank mode, a negative time or stage |
+| Insight (`book_insight`) | legacy id | `book_id` = the upload's id or the pair's book. Fails: `source` not `mcp`, `review_json` without `chapter_slug`, an upload of another user |
+| Review question (`review_question`) | legacy id | As stored, `prompt_hash` verbatim (a legacy hash is kept, never recomputed). Fails: another user's insight, a negative SRS field |
+| Session (`reading_sessions`) | legacy id = `client_session_id` | `book_id` = the upload's id, or the pair's book if the pair is carried; a session-only pair (no intent row), a deleted edition or upload → `book_id` NULL, **seconds kept** (owner 2026-11-08); a session-only pair is listed as an orphan candidate, carried anyway. `deleted_book_sha256` as stored. Fails: a percent outside 0..1, a negative duration or word count, a sha256 not lowercase hex, an upload of another user |
+
+**Vocabulary case merge (ADR-031 decided item 4).** Group key: `(user, WordKeys.Language(language),
+WordKeys.Of(word))`: trimmed, invariant-lowercased, the API's own functions ("Run", "run" and " RUN " in
+`EN` are one card). Ranking: the higher `total_reviews`, then the newer `updated_at`, then the lower id (a
+full tie is still deterministic); the first is the survivor. The card is the survivor's row: its spelling,
+schedule (`stage`, `interval_days`, `consecutive_correct`, `next_review_at`, `last_reviewed_at`),
+`created_at`/`updated_at`. Edge cases:
+- **A loser has a translation or definition the survivor lacks** (owner 2026-11-08): the survivor takes it,
+  per field, from the best-ranked loser that has one; a survivor's own (non-blank) value is never replaced.
+- **Both cards have reviews**: every review of both moves to the survivor; the schedule stays the survivor's.
+- **Both have sentences**: each becomes its own example on the survivor (with its own book/chapter).
+- **Retired**: the survivor's `is_retired` → `retired_at` (its `retired_at`, or `updated_at` when that is
+  null); a loser's retirement is not carried.
+
+**Validation** (plan §5.2 parts 5–8; a real run, after the write, reading V2 back): `catalog: intent pair
+incomplete` (completeness per intent pair: its book and every annotation as mapped), `vocabulary_words:
+parity (SRS fields equal)`, `vocabulary: review count differs` (a group's legacy reviews vs its survivor's V2
+reviews), `book_insight: parity` and `review_question: parity` (insight hashes equal, as every column
+compared), `reading_sessions: parity` and `reading_sessions: seconds per user differ` (all legacy sessions vs
+all V2 ones, per user carried; a V2-only user's sessions are cleanup lines, not this failure). On a dry and a
+real run: `unknown-user-ids` (V2 rows of any table etl-v2 writes whose owner is in neither legacy nor V2 users;
+ids `table/user`). A V2-only user's rows fail nothing: each is a "V2 row with no legacy row" cleanup line,
+report-only like the user (owner 2026-11-08).
+
+A catalog chapter's blank legacy slug falls back to `ch-<number>`, as a null one does. A legacy card with both
+`user_book_id` and `edition_id` keeps its example on the upload and is listed in `cleanupActions`.

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Dapper;
 
@@ -17,6 +18,18 @@ internal static class EtlV2Rows
     /// <summary>Rows from legacy, in the run's snapshot.</summary>
     public static async Task<List<T>> SourceAsync<T>(EtlV2Context context, string sql, object? args, CancellationToken ct) =>
         (await context.Source.Connection!.QueryAsync<T>(new CommandDefinition(sql, args, context.Source, cancellationToken: ct))).AsList();
+
+    /// <summary>Legacy <c>user_books</c> id → owner, read once per run and kept on the context.</summary>
+    public static async Task<Dictionary<Guid, Guid>> UploadOwnersAsync(EtlV2Context context, CancellationToken ct) =>
+        context.UploadOwners ??= (await SourceAsync<(Guid Id, Guid UserId)>(context, "SELECT id, user_id FROM user_books", null, ct)).ToDictionary(b => b.Id, b => b.UserId);
+
+    /// <summary>The ids the users step carries (legacy <c>users</c> and <c>admin_users</c>), read once per run and kept on the context.</summary>
+    public static async Task<IReadOnlySet<Guid>> CarriedUserIdsAsync(EtlV2Context context, CancellationToken ct) =>
+        context.CarriedUsers ??= (await SourceAsync<Guid>(context, "SELECT id FROM users UNION SELECT id FROM admin_users", null, ct)).ToHashSet();
+
+    /// <summary>The catalog step's pairs (<see cref="EtlV2Context.CatalogPairs"/>): a step that links to a pair's book runs after it.</summary>
+    public static IReadOnlyDictionary<(Guid UserId, Guid EditionId), bool> CatalogPairs(EtlV2Context context) =>
+        context.CatalogPairs ?? throw new InvalidOperationException("the catalog step must run before a step that links to a catalog pair's book");
 
     /// <summary>Rows from <c>textstack_v2</c>, outside any write: what is there now.</summary>
     public static async Task<List<T>> TargetAsync<T>(EtlV2Context context, string sql, object? args, CancellationToken ct)
@@ -79,6 +92,49 @@ internal static class EtlV2Rows
     /// <summary>Rows sharing a non-null key, each group as "id1/id2/…".</summary>
     public static IEnumerable<string> Duplicates<T, TKey>(IEnumerable<T> rows, Func<T, TKey?> key, Func<T, Guid> id) =>
         rows.Where(r => key(r) is not null).GroupBy(r => key(r)!).Where(g => g.Count() > 1).Select(g => string.Join("/", g.Select(id)));
+
+    /// <summary>
+    /// The rows no rule refuses. Each rule is a check, <c>"{table}: {rule}"</c>, failing with the ids it refuses:
+    /// a row V2's CHECKs or FKs would abort on is refused whole, never carried half or dropped silently.
+    /// </summary>
+    public static List<T> Admit<T>(EtlV2Context context, string table, IEnumerable<T> rows, Func<T, Guid> id, params (string Rule, Func<T, bool> Refused)[] rules)
+    {
+        var list = rows.ToList();
+        foreach (var (rule, refused) in rules)
+            Check(context, $"{table}: {rule}", list.Where(refused).Select(r => id(r).ToString()));
+        return [.. list.Where(r => !rules.Any(x => x.Refused(r)))];
+    }
+
+    /// <summary>The <see cref="Admit"/> rule for a row naming an upload of another user: V2's <c>(user_id, book_id)</c> FK would abort on it.</summary>
+    public static (string Rule, Func<T, bool> Refused) ForeignUploadRule<T>(IReadOnlyDictionary<Guid, Guid> owners, Func<T, Guid?> upload, Func<T, Guid> user) =>
+        ("its upload belongs to another user", r => upload(r) is { } ub && owners[ub] != user(r));
+
+    /// <summary>A per-key total check: every key of either side whose totals differ (a missing key is 0).</summary>
+    public static void Totals<TKey>(EtlV2Context context, string name, IReadOnlyDictionary<TKey, long> expected, IReadOnlyDictionary<TKey, long> actual)
+        where TKey : notnull =>
+        Check(context, name, expected.Keys.Union(actual.Keys).Where(k => expected.GetValueOrDefault(k) != actual.GetValueOrDefault(k)).Select(k => k.ToString()!));
+
+    /// <summary>
+    /// The step's inserts in one fenced transaction, in order; false (nothing written) on a dry run or once a check
+    /// has failed (<see cref="EtlV2Context.MayWrite"/>).
+    /// </summary>
+    public static async Task<bool> InsertAsync(EtlV2Context context, CancellationToken ct, params (string Sql, object Rows)[] writes)
+    {
+        if (!context.MayWrite)
+            return false;
+        await using var tx = await context.BeginWriteAsync(ct);
+        foreach (var (sql, rows) in writes)
+            await tx.Connection.ExecuteAsync(new CommandDefinition(sql, rows, tx.Transaction, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+        return true;
+    }
+
+    /// <summary>
+    /// A legacy <c>double precision</c> as V2's <c>numeric</c>: its shortest round-trip digits (Postgres's own
+    /// cast keeps 15), so the stored value and the one a check compares are the same decimal.
+    /// </summary>
+    public static decimal Numeric(double value) =>
+        decimal.Parse(value.ToString("R", CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture);
 
     /// <summary>A check whose failures are <paramref name="ids"/> (ids only, never content).</summary>
     public static void Check(EtlV2Context context, string name, IEnumerable<string> ids)

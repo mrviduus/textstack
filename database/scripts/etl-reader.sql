@@ -50,5 +50,16 @@ GRANT SELECT ON TABLE
     public.vocabulary_reviews,
     public.book_insight,
     public.review_question,
-    public.reading_sessions
+    public.reading_sessions,
+    -- The catalog intent query (minus bookmarks), what a pair's book snapshots, a catalog example's chapter key.
+    public.editions,
+    public.edition_authors,
+    public.authors,
+    public.chapters,
+    public.reading_progresses,
+    public.pending_vocabulary_words,
+    public.word_lookups,
+    public.word_clusters,
+    public.collections,
+    public.book_collections
 TO etl_reader;

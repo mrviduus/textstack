@@ -149,11 +149,6 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
 
     private Task<T> V2Scalar<T>(EtlV2Options options, string sql, object? args = null) => ScalarAsync<T>(options.Target, sql, args);
 
-    private static Task<EtlV2Exception> FailsAsync(EtlV2Options options) => Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
-
-    /// <summary>The failing ids of the one check named <paramref name="check"/>.</summary>
-    private static IReadOnlyList<string>? Failed(EtlV2Exception error, string check) => Assert.Single(error.Checks, c => c.Name == check).Ids;
-
     [Fact]
     public async Task RunAsync_ProductionShapes_CarriesEveryAggregateAndSucceeds()
     {
@@ -562,7 +557,7 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
                 VALUES (@highlight, @Alice, '11111111-1111-1111-1111-111111111111', @edition, '{"exact":"z"}', 'yellow', 'z', 1, now(), now());
             """, new { work, edition, highlight, Alice });
 
-        var report = await EtlV2.RunAsync(options, ct: Ct);
+        var report = await EtlV2.RunAsync(options, [EtlV2Users.Step, EtlV2Uploads.Step], Ct);
 
         Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM annotations WHERE id = @highlight", new { highlight }));
         Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(highlight.ToString()));
