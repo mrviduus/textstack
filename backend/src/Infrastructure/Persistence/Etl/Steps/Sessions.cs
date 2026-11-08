@@ -1,3 +1,4 @@
+using Application.Sync;
 using Dapper;
 
 namespace Infrastructure.Persistence.Etl;
@@ -11,15 +12,13 @@ namespace Infrastructure.Persistence.Etl;
 /// </summary>
 public static class EtlV2Sessions
 {
-    public static readonly EtlV2Step Step = new("sessions", ["reading_sessions", "user_books", "users", "admin_users", .. EtlV2Catalog.IntentSources], ["reading_sessions"], RunAsync);
+    public static readonly EtlV2Step Step = new("sessions", ["reading_sessions", "user_books", "users", "admin_users"], ["reading_sessions"], RunAsync);
 
     private const string SelectLegacySessions = """
         SELECT id, user_id, edition_id, user_book_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent,
             deleted_book_sha256, created_at
         FROM reading_sessions ORDER BY id
         """;
-
-    private const string SelectUploadOwners = "SELECT id, user_id FROM user_books";
 
     // The accounts the users step carries.
     private const string SelectCarriedUsers = "SELECT id FROM users UNION SELECT id FROM admin_users";
@@ -39,24 +38,24 @@ public static class EtlV2Sessions
 
     private static async Task RunAsync(EtlV2Context context, CancellationToken ct)
     {
-        var uploadOwner = (await EtlV2Rows.SourceAsync<(Guid Id, Guid UserId)>(context, SelectUploadOwners, null, ct)).ToDictionary(b => b.Id, b => b.UserId);
-        // The pairs the catalog step carries (a blank-titled one fails the run there).
-        var pairs = (await EtlV2Rows.SourceAsync<EtlV2Catalog.IntentPair>(context, EtlV2Catalog.IntentPairs, null, ct))
-            .Where(p => p.EditionExists && !string.IsNullOrWhiteSpace(p.Title)).Select(p => (p.UserId, p.EditionId)).ToHashSet();
+        var uploadOwner = await EtlV2Rows.UploadOwnersAsync(context, ct);
+        // The catalog step's pairs: carried → linked; refused (its check already fails the run) → neither linked nor "session-only".
+        var pairs = EtlV2Rows.CatalogPairs(context);
         var legacy = await EtlV2Rows.SourceAsync<LegacySession>(context, SelectLegacySessions, null, ct);
         var admitted = EtlV2Rows.Admit(context, "reading_sessions", legacy, s => s.Id,
-            ("percent outside 0..1", s => s.StartPercent is < 0 or > 1 || s.EndPercent is < 0 or > 1),
+            // Negated, so NaN is outside too (Numeric cannot carry it).
+            ("percent outside 0..1", s => !(s.StartPercent is >= 0 and <= 1) || !(s.EndPercent is >= 0 and <= 1)),
             ("negative duration or words", s => s.DurationSeconds < 0 || s.WordsRead < 0),
-            ("deleted_book_sha256 is not lowercase hex", s => s.DeletedBookSha256 is { } sha && !IsSha256(sha)),
+            ("deleted_book_sha256 is not lowercase hex", s => s.DeletedBookSha256 is { } sha && SyncValidation.Sha256(sha) is not null),
             ("its upload belongs to another user", s => s.UserBookId is { } ub && uploadOwner[ub] != s.UserId));
         // A report, not a failure (catalog plan §6.2 item 10): the session stays, with no book.
-        foreach (var s in admitted.Where(s => s.EditionId is { } e && !pairs.Contains((s.UserId, e))))
+        foreach (var s in admitted.Where(s => s.EditionId is { } e && !pairs.ContainsKey((s.UserId, e))))
             context.OrphanCandidates.Add($"reading_sessions {s.Id}: session-only catalog pair; carried with no book");
         var sessions = admitted.Select(s => new SessionRow
         {
             Id = s.Id,
             UserId = s.UserId,
-            BookId = s.UserBookId ?? (s.EditionId is { } e && pairs.Contains((s.UserId, e)) ? EtlV2Ids.CatalogBook(s.UserId, e) : null),
+            BookId = s.UserBookId ?? (s.EditionId is { } e && pairs.GetValueOrDefault((s.UserId, e)) ? EtlV2Ids.CatalogBook(s.UserId, e) : null),
             ClientSessionId = s.Id,
             StartedAt = s.StartedAt,
             EndedAt = s.EndedAt,
@@ -90,8 +89,6 @@ public static class EtlV2Sessions
         EtlV2Rows.Check(context, "reading_sessions: seconds per user differ",
             expected.Keys.Union(actual.Keys).Where(u => expected.GetValueOrDefault(u) != actual.GetValueOrDefault(u)).Select(u => u.ToString()));
     }
-
-    private static bool IsSha256(string s) => s.Length == 64 && s.All(c => c is (>= '0' and <= '9') or (>= 'a' and <= 'f'));
 
     private sealed record LegacySession
     {

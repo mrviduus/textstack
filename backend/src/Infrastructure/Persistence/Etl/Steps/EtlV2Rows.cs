@@ -19,6 +19,14 @@ internal static class EtlV2Rows
     public static async Task<List<T>> SourceAsync<T>(EtlV2Context context, string sql, object? args, CancellationToken ct) =>
         (await context.Source.Connection!.QueryAsync<T>(new CommandDefinition(sql, args, context.Source, cancellationToken: ct))).AsList();
 
+    /// <summary>Legacy <c>user_books</c> id → owner, read once per run and kept on the context.</summary>
+    public static async Task<Dictionary<Guid, Guid>> UploadOwnersAsync(EtlV2Context context, CancellationToken ct) =>
+        context.UploadOwners ??= (await SourceAsync<(Guid Id, Guid UserId)>(context, "SELECT id, user_id FROM user_books", null, ct)).ToDictionary(b => b.Id, b => b.UserId);
+
+    /// <summary>The catalog step's pairs (<see cref="EtlV2Context.CatalogPairs"/>): a step that links to a pair's book runs after it.</summary>
+    public static IReadOnlyDictionary<(Guid UserId, Guid EditionId), bool> CatalogPairs(EtlV2Context context) =>
+        context.CatalogPairs ?? throw new InvalidOperationException("the catalog step must run before a step that links to a catalog pair's book");
+
     /// <summary>Rows from <c>textstack_v2</c>, outside any write: what is there now.</summary>
     public static async Task<List<T>> TargetAsync<T>(EtlV2Context context, string sql, object? args, CancellationToken ct)
     {

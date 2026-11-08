@@ -405,14 +405,49 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
     [Fact]
     public async Task RunAsync_WordWithBothOwners_ExampleOnTheUploadAndReported()
     {
-        // B2: no owner CHECK in legacy; the upload is the more specific owner, and the run says so.
+        // B2: no owner CHECK in legacy; the upload is the more specific owner, and the run says so. The card's
+        // catalog chapter names a chapter of the edition, not of the upload: no chapter_key on the upload's example.
         var options = await NewPairAsync(extra: $"UPDATE vocabulary_words SET user_book_id = '{Upload}' WHERE id = '70000000-0000-4000-8000-000000000001';");
 
         var report = await EtlV2.RunAsync(options, ct: Ct);
 
-        Assert.Equal(Upload, await ScalarAsync<Guid>(options.Target, "SELECT book_id FROM vocabulary_examples WHERE sentence = 'Run, Forest!'"));
-        Assert.Contains($"vocabulary_words 70000000-0000-4000-8000-000000000001: both owners set (upload {Upload}, edition {CleanCode}); example kept on the upload",
+        Assert.Equal($"{Upload}|-", await ScalarAsync<string>(options.Target,
+            "SELECT book_id || '|' || coalesce(chapter_key, '-') FROM vocabulary_examples WHERE sentence = 'Run, Forest!'"));
+        Assert.Contains($"vocabulary_words 70000000-0000-4000-8000-000000000001: both owners set (upload {Upload}, edition {CleanCode}); example kept on the upload"
+            + $", catalog chapter {MeaningfulNames} not carried as its chapter_key", report.CleanupActions);
+    }
+
+    [Fact]
+    public async Task RunAsync_ChapterOfAnotherEdition_ExampleCarriedWithNoChapterKeyAndReported()
+    {
+        // Legacy ties chapter_id to no edition: a chapter of Clean Code on a Design Patterns card is not that book's chapter.
+        var options = await NewPairAsync(extra: $"UPDATE vocabulary_words SET edition_id = '{DesignPatterns}' WHERE id = '70000000-0000-4000-8000-000000000001';");
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal($"{EtlV2Ids.CatalogBook(Alice, DesignPatterns)}|-", await ScalarAsync<string>(options.Target,
+            "SELECT book_id || '|' || coalesce(chapter_key, '-') FROM vocabulary_examples WHERE sentence = 'Run, Forest!'"));
+        Assert.Contains($"vocabulary_words 70000000-0000-4000-8000-000000000001: chapter {MeaningfulNames} is not of its edition; example carried with no chapter_key",
             report.CleanupActions);
+    }
+
+    [Fact]
+    public async Task RunAsync_SessionOnARefusedPair_NeitherLinkedNorSessionOnly()
+    {
+        // The catalog step's pairs are the only ones: a refused pair's session is not "session-only", and links to no book.
+        var refusedSession = Guid.Parse("5e000000-0000-4000-8000-000000000007");
+        var options = await NewPairAsync(dryRun: true, extra: $"""
+            UPDATE editions SET title = ' ' WHERE id = '{DesignPatterns}';
+            INSERT INTO reading_sessions (id, user_id, site_id, edition_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent, created_at)
+            VALUES ('{refusedSession}', '{Alice}', '{Site}', '{DesignPatterns}', now(), now(), 10, 0, 0, 0.1, now());
+            """);
+
+        var error = await FailsAsync(options);
+
+        Assert.Equal([EtlV2Ids.CatalogBook(Alice, DesignPatterns).ToString()], Failed(error, "books (catalog): blank edition title"));
+        Assert.DoesNotContain(error.OrphanCandidates, o => o.Contains(refusedSession.ToString()));
+        // Bob has no intent on Design Patterns: his session there is still session-only.
+        Assert.Contains("reading_sessions 5e000000-0000-4000-8000-000000000003: session-only catalog pair; carried with no book", error.OrphanCandidates);
     }
 
     /// <summary>One legacy defect per row: its SQL, the check it must fail, the failing ids.</summary>
@@ -432,6 +467,9 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
         { "UPDATE vocabulary_reviews SET review_mode = ' ' WHERE id = '72000000-0000-4000-8000-000000000002'", "vocabulary_reviews: blank review_mode", ["72000000-0000-4000-8000-000000000002"] },
         { $"UPDATE vocabulary_reviews SET user_id = '{Carol}' WHERE id = '72000000-0000-4000-8000-000000000002'", "vocabulary_reviews: another user's card", ["72000000-0000-4000-8000-000000000002"] },
         { "UPDATE highlights SET selected_text = ' ' WHERE id = '41000000-0000-4000-8000-000000000001'", "annotations (catalog): blank text or a version below 1", ["41000000-0000-4000-8000-000000000001"] },
+        // NaN passes "< 0 or > 1" and Numeric cannot parse it; +Infinity passes "< 0". Named checks, not a crash.
+        { "UPDATE reading_sessions SET end_percent = 'NaN' WHERE id = '5e000000-0000-4000-8000-000000000001'", "reading_sessions: percent outside 0..1", ["5e000000-0000-4000-8000-000000000001"] },
+        { "UPDATE vocabulary_words SET interval_days = 'Infinity' WHERE id = '70000000-0000-4000-8000-000000000004'", "vocabulary_words: interval_days not a finite number", ["70000000-0000-4000-8000-000000000004"] },
         { $"UPDATE editions SET title = ' ' WHERE id = '{DesignPatterns}'", "books (catalog): blank edition title", [EtlV2Ids.CatalogBook(Alice, DesignPatterns).ToString()] },
         { "UPDATE highlights SET version = 0 WHERE id = '41000000-0000-4000-8000-000000000001'", "annotations (catalog): blank text or a version below 1", ["41000000-0000-4000-8000-000000000001"] },
         { "UPDATE review_question SET interval_days = -1", "review_question: negative SRS field", ["16000000-0000-4000-8000-000000000001"] },

@@ -19,13 +19,14 @@ public static class EtlV2Vocabulary
         ["vocabulary_words", "vocabulary_examples", "vocabulary_reviews"], RunAsync);
 
     // A catalog chapter is named by decided item 6's fallback key; a blank legacy slug (nullable, no CHECK) falls back
-    // too, since V2's chapter_key CHECK refuses it and the number still names the chapter.
+    // too, since V2's chapter_key CHECK refuses it and the number still names the chapter. Only a chapter of the
+    // card's own edition: legacy has no FK tying the two.
     private const string SelectLegacyWords = """
-        SELECT w.id, w.user_id, w.language, w.word, w.translation, w.definition, w.edition_id, w.user_book_id, w.sentence, w.book_title,
+        SELECT w.id, w.user_id, w.language, w.word, w.translation, w.definition, w.edition_id, w.user_book_id, w.chapter_id, w.sentence, w.book_title,
             COALESCE(NULLIF(btrim(c.slug), ''), 'ch-' || c.chapter_number) AS chapter_key,
             w.stage, w.interval_days, w.consecutive_correct, w.next_review_at, w.last_reviewed_at, w.total_reviews,
             w.created_at, w.updated_at, w.is_retired, w.retired_at
-        FROM vocabulary_words w LEFT JOIN chapters c ON c.id = w.chapter_id
+        FROM vocabulary_words w LEFT JOIN chapters c ON c.id = w.chapter_id AND c.edition_id = w.edition_id
         ORDER BY w.id
         """;
 
@@ -33,8 +34,6 @@ public static class EtlV2Vocabulary
         SELECT id, vocabulary_word_id, user_id, review_mode, is_correct, response_time_ms, stage_before, stage_after, created_at
         FROM vocabulary_reviews ORDER BY id
         """;
-
-    private const string SelectUploadOwners = "SELECT id, user_id FROM user_books";
 
     private const string SelectV2Words = """
         SELECT id, user_id, language, word, word_key, translation, definition, stage, interval_days, consecutive_correct,
@@ -80,15 +79,20 @@ public static class EtlV2Vocabulary
 
     private static async Task RunAsync(EtlV2Context context, CancellationToken ct)
     {
-        var uploadOwner = (await EtlV2Rows.SourceAsync<(Guid Id, Guid UserId)>(context, SelectUploadOwners, null, ct)).ToDictionary(b => b.Id, b => b.UserId);
+        var uploadOwner = await EtlV2Rows.UploadOwnersAsync(context, ct);
         var legacyWords = EtlV2Rows.Admit(context, "vocabulary_words", await EtlV2Rows.SourceAsync<LegacyWord>(context, SelectLegacyWords, null, ct), w => w.Id,
             ("blank word or language", w => WordKeys.Language(w.Language) == "" || WordKeys.Of(w.Word) == ""),
             ("negative SRS field", w => w.Stage < 0 || w.IntervalDays < 0 || w.ConsecutiveCorrect < 0),
+            ("interval_days not a finite number", w => !double.IsFinite(w.IntervalDays)),
             ("its upload belongs to another user", w => w.UserBookId is { } ub && uploadOwner[ub] != w.UserId));
 
         // No owner CHECK in legacy: a card can name both. The upload is the more specific owner; reported, not silent.
+        // A chapter_id is carried as chapter_key only for an example on its edition's pair; anything else is listed too.
         foreach (var w in legacyWords.Where(w => w.UserBookId is not null && w.EditionId is not null))
-            context.CleanupActions.Add($"vocabulary_words {w.Id}: both owners set (upload {w.UserBookId}, edition {w.EditionId}); example kept on the upload");
+            context.CleanupActions.Add($"vocabulary_words {w.Id}: both owners set (upload {w.UserBookId}, edition {w.EditionId}); example kept on the upload"
+                + (w.ChapterId is null ? "" : $", catalog chapter {w.ChapterId} not carried as its chapter_key"));
+        foreach (var w in legacyWords.Where(w => w.ChapterId is not null && w.UserBookId is null && w.ChapterKey is null))
+            context.CleanupActions.Add($"vocabulary_words {w.Id}: chapter {w.ChapterId} is not of its edition; example carried with no chapter_key");
 
         // legacy card id → the survivor's card
         var cardOf = new Dictionary<Guid, WordRow>();
@@ -179,7 +183,8 @@ public static class EtlV2Vocabulary
         var example = new VocabularyExample
         {
             BookId = bookId,
-            ChapterKey = bookId is null ? null : w.ChapterKey,
+            // The key names a chapter of the edition: only on that edition's pair, never on an upload.
+            ChapterKey = w.UserBookId is null && bookId is not null ? w.ChapterKey : null,
             BookTitle = w.BookTitle,
             Sentence = w.Sentence!,
         };
@@ -237,6 +242,7 @@ public static class EtlV2Vocabulary
         public string? Definition { get; init; }
         public Guid? EditionId { get; init; }
         public Guid? UserBookId { get; init; }
+        public Guid? ChapterId { get; init; }
         public string? Sentence { get; init; }
         public string? BookTitle { get; init; }
         public string? ChapterKey { get; init; }

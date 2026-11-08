@@ -98,6 +98,15 @@ public sealed class EtlV2Context
     /// <summary>Per target: what was written, or what a dry run would write.</summary>
     public Dictionary<string, EtlV2Writes> Writes { get; } = [];
 
+    /// <summary>
+    /// Set by the catalog step: every intent pair whose edition exists, and whether it is carried (false: refused,
+    /// a failed check). Later steps link to a pair's book only through it; null = the catalog step has not run.
+    /// </summary>
+    internal IReadOnlyDictionary<(Guid UserId, Guid EditionId), bool>? CatalogPairs { get; set; }
+
+    /// <summary>Legacy <c>user_books</c> id → owner, read once per run (the snapshot does not change); see <c>EtlV2Rows.UploadOwnersAsync</c>.</summary>
+    internal Dictionary<Guid, Guid>? UploadOwners { get; set; }
+
     /// <summary>A step writes only on a real run and only while no check has failed: after one failure the rest is computed and reported, never written.</summary>
     public bool MayWrite => !DryRun && Checks.All(c => c.Failures == 0);
 

@@ -23,8 +23,6 @@ public static class EtlV2Insights
         FROM review_question ORDER BY id
         """;
 
-    private const string SelectUploadOwners = "SELECT id, user_id FROM user_books";
-
     private const string SelectV2Insights = """
         SELECT id, user_id, book_id, chapter_slug, text, question, source, review_json::text AS review_json, created_at, updated_at
         FROM book_insight
@@ -50,7 +48,7 @@ public static class EtlV2Insights
 
     private static async Task RunAsync(EtlV2Context context, CancellationToken ct)
     {
-        var uploadOwner = (await EtlV2Rows.SourceAsync<(Guid Id, Guid UserId)>(context, SelectUploadOwners, null, ct)).ToDictionary(b => b.Id, b => b.UserId);
+        var uploadOwner = await EtlV2Rows.UploadOwnersAsync(context, ct);
         var legacy = EtlV2Rows.Admit(context, "book_insight", await EtlV2Rows.SourceAsync<LegacyInsight>(context, SelectLegacyInsights, null, ct), i => i.Id,
             ("source V2 does not take (only mcp)", i => i.Source != "mcp"),
             ("a review without a chapter", i => i.ReviewJson is not null && i.ChapterSlug is null),

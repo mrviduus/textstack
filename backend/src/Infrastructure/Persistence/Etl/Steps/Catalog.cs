@@ -12,7 +12,7 @@ namespace Infrastructure.Persistence.Etl;
 /// </summary>
 public static class EtlV2Catalog
 {
-    internal static readonly string[] IntentSources =
+    private static readonly string[] IntentSources =
     [
         "user_libraries", "reading_progresses", "highlights", "vocabulary_words", "pending_vocabulary_words", "word_lookups",
         "word_clusters", "book_insight", "collections", "book_collections", "editions", "edition_authors", "authors",
@@ -23,7 +23,7 @@ public static class EtlV2Catalog
     // catalog-retirement-plan §3.4's intent query minus bookmarks (retired), one row per pair: created_at is
     // the pair's first intent. The retired tables (lookups, clusters, pending words, shelves) still select pairs
     // (owner 2026-11-08). Edition columns are NULL for a pair whose edition is gone (a shelf entry has no FK).
-    internal const string IntentPairs = """
+    private const string IntentPairs = """
         WITH intent(user_id, edition_id, at) AS (
             SELECT user_id, edition_id, created_at FROM user_libraries
             UNION ALL SELECT user_id, edition_id, updated_at FROM reading_progresses
@@ -86,6 +86,8 @@ public static class EtlV2Catalog
             ("blank edition title", b => string.IsNullOrWhiteSpace(b.Title)));
 
         var bookIds = books.Select(b => b.Id).ToHashSet();
+        context.CatalogPairs = pairs.Where(p => p.EditionExists)
+            .ToDictionary(p => (p.UserId, p.EditionId), p => bookIds.Contains(EtlV2Ids.CatalogBook(p.UserId, p.EditionId)));
         // A highlight's edition is an intent, so its pair is planned unless refused above (that check already fails the run).
         var annotations = EtlV2Rows.Admit(context, "annotations (catalog)",
             (await EtlV2Rows.SourceAsync<LegacyHighlight>(context, SelectLegacyHighlights, null, ct))
@@ -141,7 +143,7 @@ public static class EtlV2Catalog
         Revision = h.Revision,
     };
 
-    internal sealed record IntentPair
+    private sealed record IntentPair
     {
         public Guid UserId { get; init; }
         public Guid EditionId { get; init; }
