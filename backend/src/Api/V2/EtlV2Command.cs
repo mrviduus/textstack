@@ -55,8 +55,8 @@ public static partial class EtlV2Command
         catch (EtlV2Exception e)
         {
             // What the steps found (ids only), so a failed dry run is still the pre-flight's report.
-            if (e.Checks.Count + e.OrphanCandidates.Count + e.CleanupActions.Count > 0)
-                await output.WriteLineAsync(JsonSerializer.Serialize(new { e.RunId, e.Checks, e.OrphanCandidates, e.CleanupActions }, Json));
+            if (e.Checks.Count + e.OrphanCandidates.Count + e.CleanupActions.Count + e.Writes.Count > 0)
+                await output.WriteLineAsync(JsonSerializer.Serialize(new { e.RunId, e.Checks, e.OrphanCandidates, e.CleanupActions, e.Writes }, Json));
             // The message only: EtlV2 scrubs it, the inner exception it wraps it does not.
             await error.WriteLineAsync($"etl-v2: {e.Message}");
             // 130 only when a ledger row records the cancel; before it, an ordinary failure.

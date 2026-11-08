@@ -149,7 +149,7 @@ public sealed record EtlV2Report(
 /// The one exception <see cref="EtlV2.RunAsync"/> throws: refused, failed or cancelled, its message scrubbed
 /// of passwords. <see cref="RunId"/>: the ledger row recording the failure; null = nothing recorded.
 /// <see cref="Canceled"/>: the run's own token was cancelled. What the steps found before it (checks with
-/// their ids, orphans, cleanups) comes with it, so a failed dry run still reports them.
+/// their ids, orphans, cleanups, per-table writes) comes with it, so a failed dry run still reports them.
 /// </summary>
 public sealed class EtlV2Exception(string message, Exception? inner, Guid? runId = null, bool canceled = false, EtlV2Context? context = null)
     : Exception(message, inner)
@@ -163,6 +163,8 @@ public sealed class EtlV2Exception(string message, Exception? inner, Guid? runId
     public IReadOnlyList<string> OrphanCandidates { get; } = context?.OrphanCandidates.ToArray() ?? [];
 
     public IReadOnlyList<string> CleanupActions { get; } = context?.CleanupActions.ToArray() ?? [];
+
+    public IReadOnlyDictionary<string, EtlV2Writes> Writes { get; } = context?.Writes.ToDictionary() ?? [];
 }
 
 /// <summary>The run finished its steps but did not validate: <see cref="Type"/> is the ledger's error type.</summary>

@@ -29,6 +29,10 @@ public static class EtlV2Users
 
     private const string SelectV2Users = $"SELECT {Columns} FROM users";
 
+    // Case folding by V2's own lower(), the one ix_users_email indexes: .NET's ToLowerInvariant disagrees on
+    // some non-ASCII letters ('İ'), and a preflight that folds otherwise passes what the insert then aborts on.
+    private const string FoldEmails = "SELECT e AS email, lower(e) AS folded FROM unnest(@emails) AS e";
+
     private const string InsertUser = """
         INSERT INTO users (id, email, google_subject, apple_subject, password_hash, name, picture, is_guest, last_active_at, native_language,
                            storage_used_bytes, storage_limit_override_bytes, tier, promoted_at, role, created_at)
@@ -52,14 +56,18 @@ public static class EtlV2Users
         var admins = await EtlV2Rows.SourceAsync<AdminRow>(context, SelectAdmins, null, ct);
         var v2 = (await EtlV2Rows.TargetAsync<UserRow>(context, SelectV2Users, null, ct)).ToDictionary(u => u.Id);
 
+        string[] emails = [.. legacy.Select(u => u.Email).Concat(admins.Select(a => a.Email)).Concat(v2.Values.Select(u => u.Email)).Distinct()];
+        var folded = (await EtlV2Rows.TargetAsync<FoldedEmail>(context, FoldEmails, new { emails }, ct)).ToDictionary(f => f.Email, f => f.Folded);
+        string Fold(string email) => folded[email];
+
         var expected = legacy.ToDictionary(u => u.Id);
-        var byEmail = legacy.ToLookup(u => u.Email.ToLowerInvariant());
+        var byEmail = legacy.ToLookup(u => Fold(u.Email));
         // An inactive admin is not promoted, and not decided either: refused, never guessed (ADR-031 item 7 covers active ones).
         EtlV2Rows.Check(context, "users: inactive admin_users row (no rule decided)", admins.Where(a => !a.IsActive).Select(a => a.Id.ToString()));
         var adminIdTaken = new List<string>();
         foreach (var admin in admins.Where(a => a.IsActive))
         {
-            var matched = byEmail[admin.Email.ToLowerInvariant()].ToList();
+            var matched = byEmail[Fold(admin.Email)].ToList();
             if (matched.Count > 0)
                 matched.ForEach(u => expected[u.Id] = expected[u.Id] with { Role = "admin" });
             else if (expected.ContainsKey(admin.Id))
@@ -70,15 +78,16 @@ public static class EtlV2Users
         EtlV2Rows.Check(context, "users: admin_users id held by a user of another email", adminIdTaken);
         // No merge rule is decided for them (#1027): the second of a pair would abort on V2's lower(email) index.
         // Over every row to write, so two admins with no user (admin_users.email is unique only case-sensitively) count too.
-        EtlV2Rows.Check(context, "users: legacy emails equal but for case", expected.Values.GroupBy(u => u.Email.ToLowerInvariant())
+        EtlV2Rows.Check(context, "users: legacy emails equal but for case", expected.Values.GroupBy(u => Fold(u.Email))
             .Where(g => g.Count() > 1).Select(g => string.Join("/", g.Select(u => u.Id))));
         foreach (var (id, row) in expected)
             if (v2.TryGetValue(id, out var current) && current.Role == "admin")
                 expected[id] = row with { Role = "admin" };
         EtlV2Rows.Check(context, "users: tier outside V2's set", expected.Values.Where(u => !Tiers.Contains(u.Tier)).Select(u => u.Id.ToString()));
-        var v2ByEmail = v2.Values.ToLookup(u => u.Email.ToLowerInvariant(), u => u.Id);
-        EtlV2Rows.Check(context, "users: email held by another V2 id", expected.Values.SelectMany(u =>
-            v2ByEmail[u.Email.ToLowerInvariant()].Where(holder => holder != u.Id).Select(holder => $"{u.Id}/{holder}")));
+        HeldByAnother(context, "email", expected.Values, v2.Values, u => Fold(u.Email));
+        // V2's partial unique indexes on the subjects (exact, no folding): a raw 23505 otherwise.
+        HeldByAnother(context, "google_subject", expected.Values, v2.Values, u => u.GoogleSubject);
+        HeldByAnother(context, "apple_subject", expected.Values, v2.Values, u => u.AppleSubject);
 
         // Owner 2026-11-08: reported only, never deleted. Only a guest gets a ready DELETE; an account is a human's call.
         foreach (var orphan in v2.Values.Where(u => !expected.ContainsKey(u.Id)).OrderBy(u => u.Id))
@@ -101,6 +110,16 @@ public static class EtlV2Users
         EtlV2Rows.Check(context, "users: parity (every legacy user and admin is its V2 row)",
             after.New.Concat(after.Different).Select(u => u.Id.ToString()));
     }
+
+    /// <summary>A unique value of a row to write that V2 holds under another id: "users: {column} held by another V2 id", as row/holder.</summary>
+    private static void HeldByAnother(EtlV2Context context, string column, IEnumerable<UserRow> expected, IEnumerable<UserRow> v2, Func<UserRow, string?> value)
+    {
+        var holders = v2.Where(u => value(u) is not null).ToLookup(u => value(u)!, u => u.Id);
+        EtlV2Rows.Check(context, $"users: {column} held by another V2 id", expected.Where(u => value(u) is not null).SelectMany(u =>
+            holders[value(u)!].Where(holder => holder != u.Id).Select(holder => $"{u.Id}/{holder}")));
+    }
+
+    private sealed record FoldedEmail(string Email, string Folded);
 
     private sealed record UserRow
     {

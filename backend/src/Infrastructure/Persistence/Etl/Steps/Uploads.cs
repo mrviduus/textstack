@@ -22,7 +22,8 @@ public static partial class EtlV2Uploads
 
     // The resume position, built here so jsonb prints it as the target will (ADR-031 item 5): a stored
     // TextPosition as-is; page:<n> → pdf-page; scroll:<slug>:<px> → its chapter at fraction 0 (px has no
-    // chapter length to divide by); anything else is null and fails "no mappable locator".
+    // chapter length to divide by); anything else is null. Where that is null or unmappable, the chapter slug
+    // alone (progress_chapter_slug) at fraction 0, the same scroll-only rule; neither fails "no mappable locator".
     private const string LegacyLocator = """
         CASE
             WHEN jsonb_typeof(b.progress_position_json) = 'object'
@@ -41,8 +42,12 @@ public static partial class EtlV2Uploads
                     ELSE jsonb_build_object('kind', 'upload') END::text AS origin,
                b.created_at, b.updated_at, b.page_count, b.toc_json::text AS toc,
                (b.progress_locator IS NOT NULL OR b.progress_position_json IS NOT NULL OR b.progress_percent IS NOT NULL
-                OR b.completed_at IS NOT NULL OR b.is_read) AS has_progress,
+                OR b.completed_at IS NOT NULL OR b.is_read OR NULLIF(b.progress_chapter_slug, '') IS NOT NULL) AS has_progress,
                ({LegacyLocator})::text AS current_locator,
+               CASE WHEN NULLIF(b.progress_chapter_slug, '') IS NOT NULL
+                   THEN jsonb_build_object('version', 1, 'scheme', 'textstack-position-v1',
+                        'value', jsonb_build_object('chapterSlug', b.progress_chapter_slug, 'chapterFraction', 0))
+               END::text AS slug_locator,
                b.progress_percent::numeric AS book_fraction,
                COALESCE(b.completed_at, CASE WHEN b.is_read THEN COALESCE(b.read_at, b.updated_at) END) AS completed_at,
                COALESCE(b.progress_client_updated_at, b.progress_updated_at, b.updated_at) AS client_recorded_at,
@@ -100,19 +105,23 @@ public static partial class EtlV2Uploads
         var bytes = new Bytes(context, legacyBooks.Count > 0);
 
         var books = MapBooks(context, legacyBooks, bytes);
-        var files = MapFiles(context, legacyBooks.ToDictionary(b => b.Id), legacyFiles, bytes);
+        var byId = legacyBooks.ToDictionary(b => b.Id);
+        var files = MapFiles(context, byId, legacyFiles, bytes);
         bytes.Report();
         var states = MapStates(context, legacyBooks, files);
-        var annotations = await MapAnnotationsAsync(context, legacyBooks.ToDictionary(b => b.Id), files, ct);
+        var annotations = await MapAnnotationsAsync(context, byId, files, ct);
         var takenDown = legacyBooks.Where(b => b.TakedownAt is not null).Select(b => b.Id).ToHashSet();
         var chapters = await MapChaptersAsync(context, files, takenDown, ct);
         var jobs = await MapJobsAsync(context, files, ct);
 
-        var bookPlan = Plan(context, "books", books, await EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, null, ct), b => b.Id);
+        var v2Books = await EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, null, ct);
+        var v2Chapters = await EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2Chapters, null, ct);
+        ReportStaleTakedowns(context, legacyBooks, v2Books, v2Chapters, bytes);
+        var bookPlan = Plan(context, "books", books, v2Books, b => b.Id);
         var filePlan = Plan(context, "book_files", files.Values, await EtlV2Rows.TargetAsync<FileRow>(context, SelectV2Files, null, ct), f => f.Id);
         var statePlan = Plan(context, "reading_state", states, await EtlV2Rows.TargetAsync<StateRow>(context, SelectV2States, null, ct), s => (s.UserId, s.BookId));
         var annotationPlan = Plan(context, "annotations", annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct), a => a.Id);
-        var chapterPlan = Plan(context, "book_chapters", chapters, await EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2Chapters, null, ct), c => c.Id);
+        var chapterPlan = Plan(context, "book_chapters", chapters, v2Chapters, c => c.Id);
         var jobPlan = Plan(context, "ingestion_jobs", jobs, await EtlV2Rows.TargetAsync<JobRow>(context, SelectV2Jobs, null, ct), j => j.Id);
         context.Writes["library_files"] = new(bytes.Pending.Count, 0, bytes.Present);
 
@@ -125,7 +134,7 @@ public static partial class EtlV2Uploads
         {
             // Inside the fence, so a run that lost it copies nothing; bytes before rows, so a row never names a
             // key with nothing behind it. A run that fails after this leaves bytes no row names (the worker's orphan sweep).
-            bytes.CopyPending();
+            bytes.CopyPending(ct);
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertBook, bookPlan.New, tx.Transaction, cancellationToken: ct));
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertFile, filePlan.New, tx.Transaction, cancellationToken: ct));
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertJob, jobPlan.New, tx.Transaction, cancellationToken: ct));
@@ -142,6 +151,26 @@ public static partial class EtlV2Uploads
         Verify(context, "annotations", annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct), a => a.Id, a => a.UserId);
         Verify(context, "book_chapters", chapters, await EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2Chapters, null, ct), c => c.Id, c => c.UserId);
         await CheckQuotesAsync(context, annotations, takenDown, written: true, ct);
+    }
+
+    /// <summary>
+    /// A takedown since an earlier run: what that run carried (chapters, cover, bytes) is still in V2, and its rows
+    /// now differ from the mapping (a failed check). Each named for a human to remove by hand; never deleted by a run.
+    /// </summary>
+    private static void ReportStaleTakedowns(EtlV2Context context, List<LegacyBook> legacy, List<BookRow> v2Books, List<ChapterRow> v2Chapters, Bytes bytes)
+    {
+        var chaptersByBook = v2Chapters.ToLookup(c => c.BookId, c => c.Id);
+        var covers = v2Books.Where(b => b.CoverKey is not null).ToDictionary(b => b.Id, b => b.CoverKey!);
+        foreach (var b in legacy.Where(b => b.TakedownAt is not null))
+        {
+            const string Stale = "taken down since an earlier run; V2 still holds";
+            foreach (var chapter in chaptersByBook[b.Id].Order())
+                context.CleanupActions.Add($"books {b.Id}: {Stale} book_chapters {chapter}; a human removes it");
+            if (covers.TryGetValue(b.Id, out var cover))
+                context.CleanupActions.Add($"books {b.Id}: {Stale} cover_key {cover}; a human clears it");
+            foreach (var key in bytes.HeldFor(b.UserId, b.Id))
+                context.CleanupActions.Add($"books {b.Id}: {Stale} library bytes {key}; a human removes them");
+        }
     }
 
     /// <summary>The mapped rows against the target; a V2 row that differs from its mapping is a failure, never overwritten.</summary>
@@ -262,6 +291,7 @@ public static partial class EtlV2Uploads
         private readonly EtlV2Context _context;
         private readonly string _storageRoot = "";
         private readonly string _libraryRoot = "";
+        private readonly LibraryFileStore? _store;
         private readonly List<string> _outside = [];
         private readonly List<string> _wrongHash = [];
         private readonly List<string> _keyTaken = [];
@@ -269,18 +299,19 @@ public static partial class EtlV2Uploads
         public Bytes(EtlV2Context context, bool needed)
         {
             _context = context;
-            if (needed && (string.IsNullOrWhiteSpace(context.StorageRoot) || string.IsNullOrWhiteSpace(context.LibraryRoot)))
-                throw new InvalidOperationException("carrying uploads needs both file roots (Storage:RootPath, Storage:LibraryRoot)");
             if (!needed)
                 return;
-            _storageRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(context.StorageRoot!)) + Path.DirectorySeparatorChar;
-            _libraryRoot = Path.GetFullPath(context.LibraryRoot!);
-            // /storage is served publicly: copied library bytes under it would be too (#1110), and the other way
-            // round the library's sweeps would walk legacy's files.
-            var library = Path.TrimEndingDirectorySeparator(_libraryRoot) + Path.DirectorySeparatorChar;
-            if (library.StartsWith(_storageRoot, StringComparison.OrdinalIgnoreCase) || _storageRoot.StartsWith(library, StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(context.StorageRoot) || string.IsNullOrWhiteSpace(context.LibraryRoot))
+                throw new InvalidOperationException("carrying uploads needs both file roots (Storage:RootPath, Storage:LibraryRoot)");
+            // An unmounted root would read as "every file missing": a run that carries no bytes and succeeds.
+            if (!Directory.Exists(context.StorageRoot))
+                throw new InvalidOperationException("Storage:RootPath does not exist; is legacy's storage mounted?");
+            _storageRoot = FileStoreRegistration.AsDirectory(context.StorageRoot);
+            _libraryRoot = Path.GetFullPath(context.LibraryRoot);
+            // /storage is served publicly: copied library bytes under it would be too (#1110).
+            if (FileStoreRegistration.RootsAreNested(_storageRoot, _libraryRoot))
                 throw new InvalidOperationException("Storage:LibraryRoot and Storage:RootPath are nested; make them separate directories (#1110)");
-            Store = new LibraryFileStore(_libraryRoot);
+            _store = new LibraryFileStore(_libraryRoot);
         }
 
         /// <summary>The checks over every <see cref="Carry"/> so far.</summary>
@@ -291,7 +322,17 @@ public static partial class EtlV2Uploads
             EtlV2Rows.Check(_context, "library_files: V2 key already holds other bytes", _keyTaken);
         }
 
-        public LibraryFileStore Store { get; } = new("/");
+        /// <summary>The library's keys; only when there are uploads to carry (the roots were checked).</summary>
+        public LibraryFileStore Store => _store ?? throw new InvalidOperationException("no uploads to carry: the library store is not configured");
+
+        /// <summary>The keys of the files the library holds under a book's directory.</summary>
+        public IEnumerable<string> HeldFor(Guid userId, Guid bookId)
+        {
+            var dir = Path.Combine(_libraryRoot, Path.GetDirectoryName(Store.CoverKey(userId, bookId, "x"))!);
+            return Directory.Exists(dir)
+                ? Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(_libraryRoot, f)).Order(StringComparer.Ordinal)
+                : [];
+        }
 
         public List<(string From, string To)> Pending { get; } = [];
 
@@ -324,10 +365,11 @@ public static partial class EtlV2Uploads
         }
 
         /// <summary>Each queued copy to a temp file beside its key, then renamed into place; an existing key is never overwritten.</summary>
-        public void CopyPending()
+        public void CopyPending(CancellationToken ct)
         {
             foreach (var (from, to) in Pending)
             {
+                ct.ThrowIfCancellationRequested();
                 Directory.CreateDirectory(Path.GetDirectoryName(to)!);
                 var temp = $"{to}.{Guid.NewGuid():N}.tmp";
                 try
@@ -368,6 +410,7 @@ public static partial class EtlV2Uploads
         public string? Toc { get; init; }
         public bool HasProgress { get; init; }
         public string? CurrentLocator { get; init; }
+        public string? SlugLocator { get; init; }
         public decimal? BookFraction { get; init; }
         public DateTimeOffset? CompletedAt { get; init; }
         public DateTimeOffset ClientRecordedAt { get; init; }

@@ -76,8 +76,10 @@ public static partial class EtlV2Uploads
                 context.OrphanCandidates.Add($"user_books {b.Id}: progress not carried, the book has no file row (its position resets, as a catalog book's)");
                 continue;
             }
-            // No locator V2 can resume from (a percent or a "read" mark alone), or a page on a file that is not a PDF.
-            if (b.CurrentLocator is null || (Scheme(b.CurrentLocator) == "pdf-page" && file.Format != "pdf"))
+            // No locator V2 can resume from (a percent or a "read" mark alone), or a page on a file that is not a PDF:
+            // the chapter slug if legacy has one, else a failed check.
+            var locator = b.CurrentLocator is null || (Scheme(b.CurrentLocator) == "pdf-page" && file.Format != "pdf") ? b.SlugLocator : b.CurrentLocator;
+            if (locator is null)
             {
                 unmappable.Add(b.Id.ToString());
                 continue;
@@ -90,7 +92,7 @@ public static partial class EtlV2Uploads
                 UserId = b.UserId,
                 BookId = b.Id,
                 FileId = file.Id,
-                CurrentLocator = b.CurrentLocator,
+                CurrentLocator = locator,
                 BookFraction = fraction,
                 CompletedAt = b.CompletedAt,
                 ClientRecordedAt = b.ClientRecordedAt,
@@ -156,8 +158,13 @@ public static partial class EtlV2Uploads
         EtlV2Rows.Check(context, "annotations: selected_text not in its chapter's plain_text", missing.Select(id => id.ToString()));
     }
 
-    private static string? Scheme(string? locator) =>
-        locator is null ? null : JsonDocument.Parse(locator).RootElement.GetProperty("scheme").GetString();
+    private static string? Scheme(string? locator)
+    {
+        if (locator is null)
+            return null;
+        using var doc = JsonDocument.Parse(locator);
+        return doc.RootElement.GetProperty("scheme").GetString();
+    }
 
     private sealed record LegacyHighlight
     {

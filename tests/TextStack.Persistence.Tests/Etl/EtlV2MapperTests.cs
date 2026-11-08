@@ -353,6 +353,9 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
 
         Assert.Equal([$"user_book_files {ClipFile}"], Assert.Single(error.Checks, c => c.Failures > 0).Ids);
+        // A failed dry run is still the pre-flight's report: the per-table writes come with it.
+        Assert.Equal(new EtlV2Writes(3, 1, 0), error.Writes["users"]);
+        Assert.Equal(new EtlV2Writes(4, 0, 0), error.Writes["annotations"]);
     }
 
     [Fact]
@@ -709,5 +712,100 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.Equal(1, await V2Scalar<long>(options, "SELECT count(*) FROM books WHERE id = @Pdf AND removed_at IS NULL", new { Pdf }));
         Assert.Equal(PdfBytes, await File.ReadAllBytesAsync(Path.Combine(LibraryRoot, FileKey(Alice, Pdf, PdfFile, "pdf")), Ct));
         Assert.Contains($"user_books {Pdf}: legacy status {name}, carried with its bytes; a human reviews it", report.CleanupActions);
+    }
+
+    // Code review (xhigh, #1027): each test below pins one finding.
+
+    [Fact]
+    public async Task RunAsync_StorageRootMissing_FailsFastNotEveryFileOrphaned()
+    {
+        var options = await SeedAsync(dryRun: true);
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options with { StorageRoot = Path.Combine(_files, "unmounted") }, ct: Ct));
+
+        Assert.Contains("Storage:RootPath does not exist", error.Message);
+    }
+
+    [Fact]
+    public async Task RunAsync_NoUploadsAndNoFileRoots_Succeeds()
+    {
+        // No upload to carry: the roots are not needed, and the library store is never touched.
+        var name = NewName();
+        var options = new EtlV2Options(await NewSourceAsync(name), await V2.Databases.NewV2Async(name), DryRun: true);
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal(new EtlV2Writes(0, 0, 0), report.Writes["books"]);
+    }
+
+    [Fact]
+    public async Task RunAsync_TakenDownBetweenRuns_StaleV2ContentNamedAndKept()
+    {
+        var options = await SeedAsync();
+        await EtlV2.RunAsync(options, ct: Ct);
+        await ExecAsync(options.Source, TakeDownEpub, new { Epub });
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+
+        const string Stale = "taken down since an earlier run; V2 still holds";
+        var cover = $"library/a1/{Alice}/{Epub}/cover.jpg";
+        Assert.Equal(
+            [
+                $"books {Epub}: {Stale} book_chapters {Chapter1}; a human removes it",
+                $"books {Epub}: {Stale} book_chapters {Chapter2}; a human removes it",
+                $"books {Epub}: {Stale} cover_key {cover}; a human clears it",
+                $"books {Epub}: {Stale} library bytes {cover}; a human removes them",
+                $"books {Epub}: {Stale} library bytes {FileKey(Alice, Epub, EpubFile, "epub")}; a human removes them",
+            ],
+            error.CleanupActions.Where(a => a.Contains(Stale)));
+        // Reported, never deleted.
+        Assert.Equal(2, await V2Scalar<long>(options, "SELECT count(*) FROM book_chapters WHERE book_id = @Epub", new { Epub }));
+        Assert.True(File.Exists(Path.Combine(LibraryRoot, cover)));
+    }
+
+    [Theory]
+    [InlineData("google_subject")]
+    [InlineData("apple_subject")]
+    public async Task RunAsync_SubjectHeldByAnotherV2Id_PreflightFailsTheNamedCheck(string column)
+    {
+        var options = await SeedAsync(dryRun: true);
+        var holder = Guid.NewGuid();
+        await ExecAsync(options.Source, $"UPDATE users SET {column} = 'subject-carol' WHERE id = @Carol", new { Carol });
+        await ExecAsync(options.Target, $"INSERT INTO users (id, email, {column}, created_at) VALUES (@holder, 'holder@test.com', 'subject-carol', now())", new { holder });
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+
+        Assert.Equal([$"{Carol}/{holder}"], Assert.Single(error.Checks, c => c.Name == $"users: {column} held by another V2 id").Ids);
+    }
+
+    [Fact]
+    public async Task RunAsync_EmailsEqualOnlyUnderPostgresLower_PreflightAgreesWithTheIndex()
+    {
+        // V2's ICU lower() folds 'İ' (U+0130) to 'i' + U+0307; .NET's ToLowerInvariant keeps it. The preflight folds as the index does.
+        var options = await SeedAsync(dryRun: true);
+        var (dotted, combining) = (Guid.Parse("a1000000-0000-0000-0000-0000000000a3"), Guid.Parse("a1000000-0000-0000-0000-0000000000a4"));
+        await ExecAsync(options.Source, """
+            INSERT INTO users (id, email, google_subject, created_at) VALUES (@dotted, 'İnci@test.com', NULL, now()), (@combining, E'i\u0307nci@test.com', NULL, now())
+            """, new { dotted, combining });
+        Assert.True(await V2Scalar<bool>(options, "SELECT lower('İnci@test.com') = lower(E'i\u0307nci@test.com')"));
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+
+        Assert.Equal([$"{dotted}/{combining}"], Assert.Single(error.Checks, c => c.Name == "users: legacy emails equal but for case").Ids);
+    }
+
+    [Theory]
+    [InlineData("progress_position_json = NULL, progress_locator = NULL, progress_percent = NULL, completed_at = NULL, is_read = false")]
+    [InlineData("progress_position_json = NULL, progress_locator = 'page:3'")]
+    public async Task RunAsync_ChapterSlugProgress_CarriedAtFractionZero(string progress)
+    {
+        // Slug-only progress, or a locator V2 cannot hold beside a slug: the slug at fraction 0 (the scroll-only rule).
+        var options = await SeedAsync();
+        await ExecAsync(options.Source, $"UPDATE user_books SET {progress}, progress_chapter_slug = 'two' WHERE id = @Epub", new { Epub });
+
+        await EtlV2.RunAsync(options, ct: Ct);
+
+        TestJson.AssertSameJson("""{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"two","chapterFraction":0}}""",
+            await V2Scalar<string>(options, "SELECT current_locator::text FROM reading_state WHERE book_id = @Epub", new { Epub }));
     }
 }
