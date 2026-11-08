@@ -160,6 +160,11 @@ jobs:
             ok) echo "v2 ok" ;;
             *) echo "::error::FEATURES_V2API is on and textstack_v2 is $status ($v2): /me/v2 answers 503. On the server: make migrate-v2-status (ADR-030, #1053)."; exit 1 ;;
           esac
+          # The library volume (#1110): flag on, an unwritable one fails every V2 upload. No component = not redeployed.
+          library=$(jq -c '.components.library // empty' "$RUNNER_TEMP/ready.json")
+          if [ "$status" != off ] && [ -n "$library" ] && [ "$(printf '%s' "$library" | jq -r '.status')" != ok ]; then
+            echo "::error::FEATURES_V2API is on and the V2 library volume is not writable ($library). On the server: make fix-permissions (#1110)."; exit 1
+          fi
 
       # A failing rebuild is a malfunction, so it alarms at once. Age is not checked: since #992
       # the SSG tree is frozen and rebuilt only by hand, so an old tree is the normal state.

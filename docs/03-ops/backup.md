@@ -6,6 +6,7 @@
 |------|----------------|--------|
 | PostgreSQL | `./data/postgres-prod` | `pg_dump` inside `textstack_db_prod` → local + R2 |
 | Book files | `./data/storage` | `tar` locally; restic → R2 |
+| V2 library (`Storage:LibraryRoot`) | `./data/library` | `tar` locally (same archive); restic → R2 |
 | `.env` | repo root on the server | restic → R2 only |
 
 Local copies land in `~/backups/textstack/` on the server; the off-site copy is Cloudflare R2 (see below).
@@ -42,7 +43,9 @@ docker exec textstack_db_prod pg_dump -U $POSTGRES_USER $POSTGRES_DB \
    Then the V2 database → `textstack_v2-db-<YYYY-MM-DD>.sql.gz`: skipped while it does not exist, and a
    failure there lets every legacy step run and turns the job red at the end
    ([database/v2/README.md § Backups](../../database/v2/README.md#backups-1043)).
-2. `tar czf` of `./data/storage` → `storage-<YYYY-MM-DD>.tar.gz` (tar exit 1 "file changed as we read it" is a warning).
+2. `infra/scripts/backup-files-tar.sh`: `tar czf` of `./data/storage` and `./data/library` (a notice while the
+   latter does not exist) → `storage-<YYYY-MM-DD>.tar.gz`. Tar exit 1 "file changed as we read it" is a warning; an
+   unreadable file fails the job.
 3. Prunes to the **2** newest local copies of each kind (`db-`, `storage-`, `pre-deploy-`, and V2's
    `textstack_v2-db-`, `textstack_v2-pre-deploy-`) — history lives in R2.
 4. `gunzip -t`, then `infra/scripts/backup-verify.sh` restores the new dump into a throwaway pgvector container.
@@ -57,7 +60,7 @@ The only copy that survives losing the server. restic runs in Docker (`restic/re
 on the host. Bucket `textstack-backups`, repository encrypted client-side.
 
 - **What:** the DB dump as plain SQL through stdin (`/db.sql` — plain so it deduplicates; a `.gz` re-uploaded
-  ~1.2 GB every night), plus `data/storage` and `.env` (`/backup`). The V2 dump goes as `/db_v2.sql`, last,
+  ~1.2 GB every night), plus `data/storage`, `data/library` and `.env` (`/backup`). The V2 dump goes as `/db_v2.sql`, last,
   on nights it exists.
 - **Retention:** 7 nightly + 3 monthly. **Guard:** the job fails above 9 GB to stay inside R2's free 10 GB.
 - **Secrets (GitHub → Actions):** `RESTIC_REPOSITORY`, `RESTIC_PASSWORD`, `R2_ACCESS_KEY_ID` (32 chars),
@@ -89,6 +92,7 @@ Data takes ~4 min to restore (drill timings). Most of the time is rebuilding the
    $R snapshots
    $R restore latest --path /backup --target /out/restore
    cp restore/backup/env .env && mkdir -p data && mv restore/backup/storage data/storage
+   mkdir -p data/library && { [ ! -d restore/backup/library ] || cp -a restore/backup/library/. data/library/; }   # snapshots before #1110 have none
    ```
 3. **Start only the database** and load the dump (prod user from `.env`):
    ```bash

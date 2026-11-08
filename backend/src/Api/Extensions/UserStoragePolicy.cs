@@ -39,8 +39,9 @@ public static class UserStoragePolicy
         var segments = (path.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (segments.Length < 2 || !segments[0].Equals("storage", StringComparison.OrdinalIgnoreCase))
             return false;
-        // The V2 library (Storage:LibraryRoot defaults to this root): books and covers under library/,
-        // upload parts under uploads/, all owner-only through /me/v2. Nothing under either is public.
+        // The V2 library's names (library/ books and covers, uploads/ parts; owner-only through /me/v2).
+        // #1110 moved the bytes to their own volume; the rule stays so a misplaced file (a symlink, a
+        // bind, a write after startup) is never public. Same rule: nginx.
         if (segments[1].Equals("library", StringComparison.OrdinalIgnoreCase) || segments[1].Equals("uploads", StringComparison.OrdinalIgnoreCase))
             return true;
         if (!segments[1].Equals("users", StringComparison.OrdinalIgnoreCase))

@@ -42,4 +42,18 @@ public class SchemaReadinessTests : IClassFixture<LiveApiFixture>
             "API predates the collation readiness component");
         Assert.Equal("ok", collation.GetProperty("status").GetString());
     }
+
+    // The compose stack mounts ./data/library at /library (#1110); CI creates it writable.
+    [Fact]
+    public async Task HealthReady_LibraryVolumeMounted_ReportsLibraryOk()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var resp = await _fixture.Client.GetAsync("/health/ready", ct);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>(ct);
+
+        var components = body.GetProperty("components");
+        Assert.SkipWhen(!components.TryGetProperty("library", out var library),
+            "API predates the library readiness component");
+        Assert.Equal("ok", library.GetProperty("status").GetString());
+    }
 }
