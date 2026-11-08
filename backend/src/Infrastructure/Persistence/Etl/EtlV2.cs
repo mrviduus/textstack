@@ -7,17 +7,17 @@ namespace Infrastructure.Persistence.Etl;
 
 /// <summary>
 /// The legacy → <c>textstack_v2</c> ETL (v2-plan §5.2, M3.1 skeleton): identity check, advisory lock,
-/// <c>migration_runs</c> ledger, per-aggregate counts, then the mapper steps. Every failure leaves as an
-/// <see cref="InvalidOperationException"/> whose message carries no password.
+/// <c>migration_runs</c> ledger, counts of the steps' tables, then the mapper steps. Every failure leaves as an
+/// <see cref="EtlV2Exception"/> whose message carries no password.
 /// </summary>
 public static class EtlV2
 {
     /// <summary>
-    /// The mappers, in dependency order: users first (every V2 row points at one), then books, then
-    /// what hangs on books. Empty until M3.2. A step writes through the V2 repositories and never
-    /// deletes on its own: what it would delete goes to <see cref="EtlV2Context.OrphanCandidates"/>.
+    /// The mappers, in dependency order: users first (every V2 row points at one), then books and files,
+    /// then what hangs on them. A step never deletes: what it would delete goes to
+    /// <see cref="EtlV2Context.OrphanCandidates"/> or <see cref="EtlV2Context.CleanupActions"/>.
     /// </summary>
-    public static readonly IReadOnlyList<EtlV2Step> Steps = [];
+    public static readonly IReadOnlyList<EtlV2Step> Steps = [EtlV2Users.Step, EtlV2Uploads.Step];
 
     /// <summary>The session advisory lock on the target ("etl-v2" in ASCII) that keeps runs one at a time.</summary>
     public const long LockKey = 0x65_74_6c_2d_76_32;
@@ -60,39 +60,13 @@ public static class EtlV2
         WHERE id = @id AND finished_at IS NULL
         """;
 
-    // The legacy tables M3.2 (users, uploads) and M3.3 (catalog pairs, vocabulary, insights, sessions) map.
-    private const string SourceCounts = """
-        SELECT
-            (SELECT count(*) FROM users) AS users,
-            (SELECT count(*) FROM admin_users) AS admin_users,
-            (SELECT count(*) FROM user_books) AS user_books,
-            (SELECT count(*) FROM user_book_files) AS user_book_files,
-            (SELECT count(*) FROM user_chapters) AS user_chapters,
-            (SELECT count(*) FROM user_libraries) AS user_libraries,
-            (SELECT count(*) FROM highlights) AS highlights,
-            (SELECT count(*) FROM vocabulary_words) AS vocabulary_words,
-            (SELECT count(*) FROM vocabulary_reviews) AS vocabulary_reviews,
-            (SELECT count(*) FROM book_insight) AS book_insight,
-            (SELECT count(*) FROM review_question) AS review_question,
-            (SELECT count(*) FROM reading_sessions) AS reading_sessions
-        """;
+    // A table name a step declares: a code constant, checked anyway before it reaches SQL (rule 3).
+    private static readonly System.Text.RegularExpressions.Regex TableName = new("^[a-z_][a-z0-9_]*$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    // The V2 tables those land in.
-    private const string TargetCounts = """
-        SELECT
-            (SELECT count(*) FROM users) AS users,
-            (SELECT count(*) FROM books) AS books,
-            (SELECT count(*) FROM book_files) AS book_files,
-            (SELECT count(*) FROM book_chapters) AS book_chapters,
-            (SELECT count(*) FROM reading_state) AS reading_state,
-            (SELECT count(*) FROM annotations) AS annotations,
-            (SELECT count(*) FROM vocabulary_words) AS vocabulary_words,
-            (SELECT count(*) FROM vocabulary_examples) AS vocabulary_examples,
-            (SELECT count(*) FROM vocabulary_reviews) AS vocabulary_reviews,
-            (SELECT count(*) FROM book_insight) AS book_insight,
-            (SELECT count(*) FROM review_question) AS review_question,
-            (SELECT count(*) FROM reading_sessions) AS reading_sessions
-        """;
+    /// <summary>One row of <c>count(*)</c> per table, named by the table: the tables the steps declare.</summary>
+    private static string CountsOf(IEnumerable<string> tables) =>
+        "SELECT " + string.Join(", ", tables.Distinct().Order(StringComparer.Ordinal).Select(t =>
+            TableName.IsMatch(t) ? $"(SELECT count(*) FROM {t}) AS {t}" : throw new ArgumentException($"not a table name: {t}")));
 
     public static async Task<EtlV2Report> RunAsync(EtlV2Options options, IReadOnlyList<EtlV2Step>? steps = null, CancellationToken ct = default)
     {
@@ -103,20 +77,22 @@ public static class EtlV2
         {
             return await RunCoreAsync(source, target, options, steps ?? Steps, secrets, ct);
         }
-        catch (EtlV2CanceledException)
+        catch (EtlV2Exception)
         {
             throw;
         }
-        catch (OperationCanceledException e) when (ct.IsCancellationRequested)
-        {
-            // Before the ledger row: nothing to record.
-            throw new EtlV2CanceledException(null, e, ct);
-        }
         catch (Exception e)
         {
-            throw new InvalidOperationException(Scrub(e.Message, secrets), e);
+            // Before the steps' context: nothing recorded.
+            throw Edge(e, secrets, null, null, ct);
         }
     }
+
+    /// <summary><paramref name="e"/> as the edge exception: cancelled by the run's own token, or failed, its message scrubbed.</summary>
+    private static EtlV2Exception Edge(Exception e, string[] secrets, Guid? runId, EtlV2Context? context, CancellationToken ct) =>
+        e is OperationCanceledException && ct.IsCancellationRequested
+            ? new(runId is null ? "cancelled; nothing recorded" : $"cancelled; run {runId} recorded as failed", e, runId, canceled: true, context)
+            : new(Scrub(e.Message, secrets), e, runId, canceled: false, context);
 
     private static async Task<EtlV2Report> RunCoreAsync(
         NpgsqlConnectionStringBuilder source, NpgsqlConnectionStringBuilder target, EtlV2Options options,
@@ -150,13 +126,21 @@ public static class EtlV2
             await targetConn.ExecuteAsync(new CommandDefinition(StartRun, new { id = runId, sourceDumpSha = options.SourceDumpSha },
                 commandTimeout: LedgerTimeoutSeconds, cancellationToken: CancellationToken.None));
 
-        var context = new EtlV2Context { DryRun = dryRun, Source = snapshot, Target = targetDb };
+        var context = new EtlV2Context
+        {
+            DryRun = dryRun,
+            RunId = dryRun ? null : runId,
+            Source = snapshot,
+            Target = targetDb,
+            StorageRoot = options.StorageRoot,
+            LibraryRoot = options.LibraryRoot,
+        };
         Dictionary<string, long> sourceCounts = [];
         try
         {
             // Inside the try: a cancel that arrived during the INSERT is recorded on the row it made.
             ct.ThrowIfCancellationRequested();
-            sourceCounts = await CountAsync(sourceConn, SourceCounts, snapshot, ct);
+            sourceCounts = await CountAsync(sourceConn, steps.SelectMany(s => s.Sources), snapshot, ct);
             foreach (var step in steps)
             {
                 await EnsureLockAsync(targetConn, ct);
@@ -169,19 +153,26 @@ public static class EtlV2
             var failures = context.Checks.Sum(c => c.Failures);
             if (failures > 0)
                 throw EtlV2ValidationException.Failed(failures);
-            var targetCounts = await CountAsync(targetConn, TargetCounts, null, ct);
+            var targetCounts = await CountAsync(targetConn, steps.SelectMany(s => s.Targets), null, ct);
             if (!dryRun)
             {
                 await EnsureLockAsync(targetConn, ct);
                 // Past this statement the run is succeeded or failed by what committed, not by a late cancel.
-                await FinishAsync(targetConn, runId, "succeeded", sourceCounts, targetCounts,
-                    new { checks = context.Checks, orphanCandidates = context.OrphanCandidates, cleanupActions = context.CleanupActions }, 0);
+                await FinishAsync(targetConn, runId, "succeeded", sourceCounts, targetCounts, new
+                {
+                    checks = context.Checks,
+                    orphanCandidates = context.OrphanCandidates,
+                    cleanupActions = context.CleanupActions,
+                    writes = context.Writes,
+                }, 0);
             }
             return new EtlV2Report(dryRun ? null : runId, dryRun, Redacted(source), Redacted(target), options.SourceDumpSha, interrupted,
-                sourceCounts, targetCounts, context.Checks, context.OrphanCandidates, context.CleanupActions);
+                sourceCounts, targetCounts, context.Checks, context.OrphanCandidates, context.CleanupActions, context.Writes);
         }
-        catch (Exception e) when (!dryRun)
+        catch (Exception e)
         {
+            if (dryRun)
+                throw Edge(e, secrets, null, context, ct);
             try
             {
                 // Type and SQLSTATE only: a message can quote row values (the caller prints it, scrubbed, to stderr).
@@ -201,9 +192,7 @@ public static class EtlV2
             {
                 // The target is gone too (or the row was closed): the next run closes it as interrupted.
             }
-            if (e is OperationCanceledException && ct.IsCancellationRequested)
-                throw new EtlV2CanceledException(runId, e, ct);
-            throw;
+            throw Edge(e, secrets, runId, context, ct);
         }
     }
 
@@ -238,8 +227,11 @@ public static class EtlV2
             throw new InvalidOperationException($"run {id} was closed as interrupted by another run; its writes overlapped");
     }
 
-    private static async Task<Dictionary<string, long>> CountAsync(NpgsqlConnection conn, string sql, NpgsqlTransaction? tx, CancellationToken ct)
+    private static async Task<Dictionary<string, long>> CountAsync(NpgsqlConnection conn, IEnumerable<string> tables, NpgsqlTransaction? tx, CancellationToken ct)
     {
+        var sql = CountsOf(tables);
+        if (sql == "SELECT ")
+            return [];
         var row = (IDictionary<string, object>)await conn.QuerySingleAsync(new CommandDefinition(sql, transaction: tx, cancellationToken: ct));
         return row.ToDictionary(c => c.Key, c => (long)c.Value);
     }
@@ -278,7 +270,7 @@ public static class EtlV2
         catch (ArgumentException)
         {
             // Not the parser's message: it may quote the string back.
-            throw new InvalidOperationException($"{name} is not a valid connection string");
+            throw new EtlV2Exception($"{name} is not a valid connection string", null);
         }
     }
 

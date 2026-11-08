@@ -26,28 +26,20 @@ public static class FileStoreRegistration
     /// </summary>
     public static IServiceCollection AddTextStackFileStores(this IServiceCollection services, IConfiguration configuration)
     {
-        var storage = Path.GetFullPath(StorageRoot(configuration));
-        var library = Path.GetFullPath(LibraryRoot(configuration));
-        // Both with one trailing separator, so "/storage-x" is not inside "/storage" and "/" holds everything.
-        // Ignoring case is stricter, and right on a case-insensitive disk (macOS).
-        if (!Path.EndsInDirectorySeparator(library))
-            library += Path.DirectorySeparatorChar;
-        if (!Path.EndsInDirectorySeparator(storage))
-            storage += Path.DirectorySeparatorChar;
-        // Either direction: the library inside the public root is served; the public root inside the
-        // library mixes the two, and the library's sweeps would walk public files.
-        if (library.StartsWith(storage, StringComparison.OrdinalIgnoreCase) || storage.StartsWith(library, StringComparison.OrdinalIgnoreCase))
+        var (storage, library) = (StorageRoot(configuration), LibraryRoot(configuration));
+        if (RootsAreNested(storage, library))
             throw new InvalidOperationException(
-                $"Storage:LibraryRoot ({library}) and Storage:RootPath ({storage}) are nested, and /storage serves the root publicly. Make them separate directories, e.g. /library and /storage (#1110).");
+                $"Storage:LibraryRoot ({AsDirectory(library)}) and Storage:RootPath ({AsDirectory(storage)}) are nested, and /storage serves the root publicly. Make them separate directories, e.g. /library and /storage (#1110).");
 
         // Leftover V2 files under the public root: a warning in both modes, never a crash loop. The
         // /storage/library|uploads denylist (UserStoragePolicy, nginx) keeps them private meanwhile.
         // No logger exists yet at registration; stderr reaches `docker compose logs`.
         foreach (var dir in new[] { "library", "uploads" })
         {
-            var (hasFiles, unreadable) = Scan(Path.Combine(storage, dir));
+            var leftover = Path.Combine(Path.GetFullPath(storage), dir);
+            var (hasFiles, unreadable) = Scan(leftover);
             if (hasFiles)
-                Console.Error.WriteLine(LeftoverWarning(Path.Combine(storage, dir)));
+                Console.Error.WriteLine(LeftoverWarning(leftover));
             if (unreadable is not null)
                 Console.Error.WriteLine($"warn: V2 leftover scan incomplete: {unreadable} unreadable.");
         }
@@ -55,6 +47,24 @@ public static class FileStoreRegistration
         services.AddSingleton<IFileStorageService>(new LocalFileStorageService(StorageRoot(configuration)));
         services.AddSingleton<ILibraryFileStore>(new LibraryFileStore(LibraryRoot(configuration)));
         return services;
+    }
+
+    /// <summary>
+    /// Whether the roots nest or are equal. Either direction: the library inside the public root is served; the
+    /// public root inside the library mixes the two, and the library's sweeps would walk public files.
+    /// </summary>
+    public static bool RootsAreNested(string storage, string library)
+    {
+        var (s, l) = (AsDirectory(storage), AsDirectory(library));
+        // Ignoring case is stricter, and right on a case-insensitive disk (macOS).
+        return l.StartsWith(s, StringComparison.OrdinalIgnoreCase) || s.StartsWith(l, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Full, with one trailing separator, so "/storage-x" is not inside "/storage" and "/" holds everything.
+    internal static string AsDirectory(string root)
+    {
+        var full = Path.GetFullPath(root);
+        return Path.EndsInDirectorySeparator(full) ? full : full + Path.DirectorySeparatorChar;
     }
 
     /// <summary>The fix, per directory and safe to re-run: copy into data/library/{dir}, then remove.</summary>
