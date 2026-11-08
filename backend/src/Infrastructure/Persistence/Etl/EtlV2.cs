@@ -162,6 +162,10 @@ public static class EtlV2
         var targetId = await targetConn.ExecuteScalarAsync<string>(new CommandDefinition(Identity, cancellationToken: ct));
         if (sourceId == targetId)
             throw new InvalidOperationException($"source and target are the same database ({targetId}); etl-v2 reads legacy and writes textstack_v2");
+        var violations = await EtlV2SourceAudit.ViolationsAsync(sourceConn, snapshot, ct);
+        if (violations.Count > 0)
+            throw new InvalidOperationException(
+                $"source role {source.Username} can write ({string.Join("; ", violations.Take(5))}{(violations.Count > 5 ? $"; and {violations.Count - 5} more" : "")}); read as the SELECT-only etl_reader (docs/03-ops/v2-etl.md)");
         if (!await targetConn.ExecuteScalarAsync<bool>(new CommandDefinition(TryLock, new { LockKey }, cancellationToken: ct)))
             throw new InvalidOperationException($"another etl-v2 run holds the target's advisory lock {LockKey}; wait for it to finish");
 

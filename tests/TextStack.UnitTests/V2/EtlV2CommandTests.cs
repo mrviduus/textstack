@@ -46,7 +46,7 @@ public class EtlV2CommandTests
     {
         var error = new StringWriter();
 
-        var exit = await EtlV2Command.RunAsync(["--bogus"], Config, TextWriter.Null, error);
+        var exit = await EtlV2Command.RunAsync(["--bogus"], Config, TextWriter.Null, error, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, exit);
         Assert.StartsWith("usage: etl-v2", error.ToString());
@@ -57,7 +57,7 @@ public class EtlV2CommandTests
     {
         var error = new StringWriter();
 
-        var exit = await EtlV2Command.RunAsync(["--source", "Password=hunter2;Bogus Key=1"], Config, TextWriter.Null, error);
+        var exit = await EtlV2Command.RunAsync([], Env("Password=hunter2;Bogus Key=1"), TextWriter.Null, error, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exit);
         Assert.DoesNotContain("hunter2", error.ToString());
@@ -89,7 +89,7 @@ public class EtlV2CommandTests
     {
         var (output, error) = (new StringWriter(), new StringWriter());
 
-        var exit = await EtlV2Command.RunAsync(["--dry-run", "--source", source], Config, output, error);
+        var exit = await EtlV2Command.RunAsync(["--dry-run"], Env(source), output, error, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exit);
         Assert.DoesNotContain("hunter2", output.ToString() + error.ToString());
@@ -101,8 +101,9 @@ public class EtlV2CommandTests
         var (output, error) = (new StringWriter(), new StringWriter());
         const string cs = "Host=127.0.0.1;Port=1;Database=x;Username=u;Password=hu'nt;er\"2;Timeout=3";
 
-        var exit = await EtlV2Command.RunAsync(["--dry-run", "--source", cs.Replace("Password=hu'nt;er\"2", "Password='hu''nt;er\"2'"), "--target", cs.Replace("Password=hu'nt;er\"2", "Password='hu''nt;er\"2'")],
-            Config, output, error);
+        var quoted = cs.Replace("Password=hu'nt;er\"2", "Password='hu''nt;er\"2'");
+
+        var exit = await EtlV2Command.RunAsync(["--dry-run"], Env(quoted, quoted), output, error, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exit);
         Assert.StartsWith("etl-v2: ", error.ToString());
@@ -130,7 +131,7 @@ public class EtlV2CommandTests
     {
         var error = new StringWriter();
 
-        var exit = await EtlV2Command.RunAsync(["--source-dump-sha", sha.Replace("\\n", "\n")], Config, TextWriter.Null, error);
+        var exit = await EtlV2Command.RunAsync(["--source-dump-sha", sha.Replace("\\n", "\n")], Config, TextWriter.Null, error, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, exit);
         Assert.StartsWith("usage: etl-v2", error.ToString());
@@ -139,4 +140,44 @@ public class EtlV2CommandTests
     [Fact]
     public void Parse_SourceDumpShaWithoutValue_Null() =>
         Assert.Null(EtlV2Command.Parse(["--source-dump-sha"], Config));
+
+    /// <summary>Connection strings as the env gives them (ConnectionStrings__Default / __V2): the only place a password may be.</summary>
+    private static IConfiguration Env(string source, string target = "Host=db;Database=textstack_v2") =>
+        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Default"] = source,
+            ["ConnectionStrings:V2"] = target,
+        }).Build();
+
+    [Theory]
+    [InlineData("--source", "Host=db;Password=hunter2")]
+    [InlineData("--target", "Host=db;password = hunter2")]
+    [InlineData("--source", "PWD=hunter2;Host=db")]
+    [InlineData("--target", "Host=db; Psw=hunter2")]
+    [InlineData("--source", "Host=db;SSL Password=hunter2")]
+    [InlineData("--source", "Host=db;SslPassword=hunter2")]
+    public async Task RunAsync_PasswordInArgv_Exit2PointingToEnvOrPassfile(string flag, string value)
+    {
+        var error = new StringWriter();
+
+        var exit = await EtlV2Command.RunAsync(["--dry-run", flag, value], Config, TextWriter.Null, error, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, exit);
+        Assert.Contains("ConnectionStrings__Default", error.ToString());
+        Assert.Contains("Passfile", error.ToString());
+        Assert.DoesNotContain("hunter2", error.ToString());
+        Assert.Null(EtlV2Command.Parse([flag, value], Config));
+    }
+
+    [Fact]
+    public void Parse_PassfileInArgv_Kept()
+    {
+        var options = EtlV2Command.Parse(["--source", "Host=db;Username=etl_reader;Passfile=/run/secrets/pgpass"], Config);
+
+        Assert.Equal("Host=db;Username=etl_reader;Passfile=/run/secrets/pgpass", options!.Source);
+    }
+
+    [Fact]
+    public void Parse_PasswordFromEnv_Kept() =>
+        Assert.Equal("Host=db;Password=hunter2", EtlV2Command.Parse([], Env("Host=db;Password=hunter2"))!.Source);
 }

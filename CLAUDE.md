@@ -82,7 +82,8 @@ dotnet format textstack.sln                  # Backend
 # optimize-images [--dry-run]
 # import-textstack <book-path>
 # backfill-pdf-page-counts [--dry-run]   (fills null UserBook.PageCount for PDF uploads)
-# etl-v2 [--dry-run] [--source <cs>] [--target <cs>]   (legacy -> textstack_v2 data, v2-plan §5.2; `make etl-v2 ARGS=--dry-run`; not the schema: that is `make migrate-v2`)
+# etl-v2 [--dry-run] [--source <cs>] [--target <cs>] [--source-dump-sha <hex>]   (legacy -> textstack_v2 data, v2-plan §5.2, docs/03-ops/v2-etl.md; not the schema: that is `make migrate-v2`)
+#   credentials via env ConnectionStrings__Default / ConnectionStrings__V2 or Passfile=, never argv (refused): ConnectionStrings__Default=… make etl-v2 ARGS=--dry-run
 
 # Local dev (no Docker)
 dotnet run --project backend/src/Api

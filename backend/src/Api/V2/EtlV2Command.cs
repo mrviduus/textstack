@@ -17,10 +17,22 @@ public static class EtlV2Command
     // \z, not $: $ also matches before a trailing newline.
     private static readonly Regex Sha256Hex = new(@"\A[0-9a-f]{64}\z", RegexOptions.Compiled);
 
+    // Npgsql's password keys and aliases (Password, PWD, PSW, SSL Password), anywhere in the string.
+    private static readonly Regex PasswordKey = new(@"(?:^|;)\s*(?:ssl\s*password|password|pwd|psw)\s*=", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private const string PasswordInArgv =
+        "etl-v2: a password on the command line is visible in ps; set it in ConnectionStrings__Default / ConnectionStrings__V2 "
+        + "(env), or point the string at a pgpass file (Passfile=<path>)";
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     public static async Task<int> RunAsync(string[] args, IConfiguration config, TextWriter output, TextWriter error, CancellationToken ct = default)
     {
+        if (args.Any(PasswordKey.IsMatch))
+        {
+            await error.WriteLineAsync(PasswordInArgv);
+            return 2;
+        }
         var options = Parse(args, config);
         if (options is null)
         {
@@ -46,7 +58,10 @@ public static class EtlV2Command
         }
     }
 
-    /// <summary>The options, or null on an unknown argument, a flag without its value, or no connection string.</summary>
+    /// <summary>
+    /// The options, or null on an unknown argument, a flag without its value, a bad dump hash, a password in
+    /// a <c>--source</c>/<c>--target</c> value, or no connection string.
+    /// </summary>
     public static EtlV2Options? Parse(string[] args, IConfiguration config)
     {
         var (dryRun, source, target) = (false, config.GetConnectionString("Default"), config.GetConnectionString("V2"));
@@ -58,10 +73,10 @@ public static class EtlV2Command
                 case "--dry-run":
                     dryRun = true;
                     break;
-                case "--source" when i + 1 < args.Length:
+                case "--source" when i + 1 < args.Length && !PasswordKey.IsMatch(args[i + 1]):
                     source = args[++i];
                     break;
-                case "--target" when i + 1 < args.Length:
+                case "--target" when i + 1 < args.Length && !PasswordKey.IsMatch(args[i + 1]):
                     target = args[++i];
                     break;
                 case "--source-dump-sha" when i + 1 < args.Length && Sha256Hex.IsMatch(args[i + 1]):

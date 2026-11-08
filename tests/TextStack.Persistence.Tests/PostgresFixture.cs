@@ -45,6 +45,22 @@ public sealed class PostgresFixture : IAsyncLifetime, IIdentityFixture
         return new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = name }.ConnectionString;
     }
 
+    public const string EtlReaderPassword = "etl-r3ader-pw";
+
+    /// <summary>
+    /// <c>database/scripts/etl-reader.sql</c> run on <paramref name="connectionString"/>'s database, as the
+    /// runbook runs it; the same connection string as <c>etl_reader</c>.
+    /// </summary>
+    public async Task<string> ProvisionEtlReaderAsync(string connectionString)
+    {
+        var db = new NpgsqlConnectionStringBuilder(connectionString).Database;
+        var run = await _container.ExecAsync(["sh", "-c",
+            $"psql -v ON_ERROR_STOP=1 -v etl_reader_password={EtlReaderPassword} -U postgres -d '{db}' -f /database/scripts/etl-reader.sql"]);
+        if (run.ExitCode != 0)
+            throw new InvalidOperationException($"etl-reader.sql failed:\n{run.Stdout}\n{run.Stderr}");
+        return new NpgsqlConnectionStringBuilder(connectionString) { Username = "etl_reader", Password = EtlReaderPassword }.ConnectionString;
+    }
+
     /// <summary>A <c>textstack_v2</c> in this (legacy) cluster, by <c>v2/run.sh up</c>: same system id as the legacy databases.</summary>
     public async Task<string> NewV2DatabaseAsync(string name)
     {

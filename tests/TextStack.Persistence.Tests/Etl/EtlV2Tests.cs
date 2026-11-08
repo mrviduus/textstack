@@ -9,6 +9,7 @@ namespace TextStack.Persistence.Tests.Etl;
 /// by <c>migrate.sh</c>) and its own <c>textstack_v2</c> (by <c>v2/run.sh</c>), so counts and the
 /// ledger are the test's alone.
 /// </summary>
+[Collection("etl_reader")]
 public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -16,10 +17,17 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
     private async Task<EtlV2Options> NewPairAsync(bool dryRun = false)
     {
         var name = "etl_" + Guid.NewGuid().ToString("N");
-        var source = await legacy.NewDatabaseAsync(name);
+        var source = await NewSourceAsync(name);
         await ExecAsync(source, "INSERT INTO users (id, email, google_subject, created_at) VALUES (gen_random_uuid(), 'a@test', NULL, now())");
         return new EtlV2Options(source, await v2.NewDatabaseAsync(name), dryRun);
     }
+
+    /// <summary>A fresh legacy database, read as <c>etl_reader</c> (the only kind of source the audit lets through).</summary>
+    private async Task<string> NewSourceAsync(string name) => await legacy.ProvisionEtlReaderAsync(await legacy.NewDatabaseAsync(name));
+
+    /// <summary>The test's own setup and read-back run as the container's superuser, whatever role the string names.</summary>
+    private static string AsAdmin(string connectionString) =>
+        new NpgsqlConnectionStringBuilder(connectionString) { Username = "postgres", Password = "postgres" }.ConnectionString;
 
     [Fact]
     public async Task RunAsync_DryRun_WritesNothing()
@@ -261,7 +269,7 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
     {
         // Legacy and textstack_v2 side by side in one cluster (production's layout): same system id, other name.
         var name = "etl_" + Guid.NewGuid().ToString("N");
-        var source = await legacy.NewDatabaseAsync(name);
+        var source = await NewSourceAsync(name);
         var target = await legacy.NewV2DatabaseAsync(name + "_v2");
 
         var report = await EtlV2.RunAsync(new EtlV2Options(source, target, DryRun: false), [], Ct);
@@ -275,7 +283,7 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
     public async Task RunAsync_TargetIsTemplateCopy_Allowed()
     {
         var name = "etl_" + Guid.NewGuid().ToString("N");
-        var source = await legacy.NewDatabaseAsync(name);
+        var source = await NewSourceAsync(name);
         var original = await legacy.NewV2DatabaseAsync(name + "_v2");
         NpgsqlConnection.ClearAllPools(); // CREATE DATABASE ... TEMPLATE needs the template free of sessions
         await ExecAsync(source, $"CREATE DATABASE \"{name}_copy\" TEMPLATE \"{name}_v2\"");
@@ -306,7 +314,7 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
     {
         // Postgres database names are case-sensitive: "Etl_X" and "etl_x" are two databases.
         var name = "etl_" + Guid.NewGuid().ToString("N");
-        var source = await legacy.NewDatabaseAsync(name.ToUpperInvariant());
+        var source = await NewSourceAsync(name.ToUpperInvariant());
         var target = await legacy.NewV2DatabaseAsync(name);
 
         var report = await EtlV2.RunAsync(new EtlV2Options(source, target, DryRun: true), [], Ct);
@@ -318,7 +326,7 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
     public async Task RunAsync_OtherSourceSameTarget_RefusedByTargetLock()
     {
         var options = await NewPairAsync();
-        var otherSource = await legacy.NewDatabaseAsync("etl_" + Guid.NewGuid().ToString("N"));
+        var otherSource = await NewSourceAsync("etl_" + Guid.NewGuid().ToString("N"));
         var (started, release) = (new TaskCompletionSource(), new TaskCompletionSource());
         var first = EtlV2.RunAsync(options, [new("hold", async (_, _) => { started.SetResult(); await release.Task; })], Ct);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(30), Ct);
@@ -462,7 +470,7 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
     public async Task RunAsync_TargetWithoutMigrationRuns_FailsWithoutWritingAndFreesLock()
     {
         var name = "etl_" + Guid.NewGuid().ToString("N");
-        var source = await legacy.NewDatabaseAsync(name);
+        var source = await NewSourceAsync(name);
         var migrated = await v2.NewDatabaseAsync(name);
         await ExecAsync(migrated, $"CREATE DATABASE \"{name}_bare\"");
         var bare = new NpgsqlConnectionStringBuilder(migrated) { Database = name + "_bare" }.ConnectionString;
@@ -554,6 +562,38 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
         Assert.StartsWith("\t@", recipe);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Makefile_EtlV2ConnectionStringsFromEnv_PassedByNameOnly(bool set)
+    {
+        // make -n prints the command make would run: what ps would show of docker compose.
+        var make = new System.Diagnostics.ProcessStartInfo("make", "-n etl-v2 ARGS=--dry-run")
+        {
+            WorkingDirectory = PostgresFixture.RepoRoot(),
+            RedirectStandardOutput = true,
+        };
+        if (set)
+        {
+            make.Environment["ConnectionStrings__Default"] = "Host=db;Username=etl_reader;Password=env-s3cret";
+            make.Environment["ConnectionStrings__V2"] = "Host=db;Password=env-s3cret";
+        }
+        else
+        {
+            make.Environment.Remove("ConnectionStrings__Default");
+            make.Environment.Remove("ConnectionStrings__V2");
+        }
+        using var process = System.Diagnostics.Process.Start(make)!;
+        var command = await process.StandardOutput.ReadToEndAsync(Ct);
+        await process.WaitForExitAsync(Ct);
+
+        Assert.DoesNotContain("env-s3cret", command);
+        // Unset: no bare -e, which would blank the container's own connection strings.
+        Assert.Equal(set, command.Contains("-e ConnectionStrings__Default "));
+        Assert.Equal(set, command.Contains("-e ConnectionStrings__V2 "));
+        Assert.Contains("api dotnet Api.dll etl-v2 --dry-run", command);
+    }
+
     [Fact]
     public void EtlSources_NoBlanketOnConflictDoNothing()
     {
@@ -577,13 +617,13 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
 
     private static async Task ExecAsync(string connectionString, string sql)
     {
-        await using var conn = new NpgsqlConnection(connectionString);
+        await using var conn = new NpgsqlConnection(AsAdmin(connectionString));
         await conn.ExecuteAsync(new CommandDefinition(sql, cancellationToken: Ct));
     }
 
     private static async Task<T> ScalarAsync<T>(string connectionString, string sql)
     {
-        await using var conn = new NpgsqlConnection(connectionString);
+        await using var conn = new NpgsqlConnection(AsAdmin(connectionString));
         return (await conn.ExecuteScalarAsync<T>(new CommandDefinition(sql, cancellationToken: Ct)))!;
     }
 }

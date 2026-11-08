@@ -40,7 +40,10 @@ what differs.
 | Run by `docker compose up` | yes | **no** — profile `v2`; run it with `make migrate-v2` |
 
 `make migrate-v2` builds the schema; it moves no data. The data moves with `make etl-v2` (the ETL,
-[v2-plan §5.2](../../docs/01-architecture/v2-plan.md)), which records each run in `migration_runs`.
+[v2-plan §5.2](../../docs/01-architecture/v2-plan.md), runbook [v2-etl.md](../../docs/03-ops/v2-etl.md)), which records each run in
+`migration_runs`. It reads legacy as the SELECT-only `etl_reader`; connection strings go in by env
+(`ConnectionStrings__Default`, `ConnectionStrings__V2`) or a pgpass `Passfile=`, never as `--source`/`--target`
+with a password (visible in `ps`; refused).
 
 `api` and `worker` wait for `migrator` (ADR-021) and **not** for `migrator-v2`: nothing connects to
 `textstack_v2` yet (M1.2), so a V2 migrator that cannot reach or create its database must not keep
