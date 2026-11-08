@@ -144,9 +144,12 @@ public static partial class EtlV2Uploads
         return rows;
     }
 
-    private static async Task CheckQuotesAsync(EtlV2Context context, List<AnnotationRow> annotations, bool written, CancellationToken ct)
+    private static async Task CheckQuotesAsync(
+        EtlV2Context context, List<AnnotationRow> annotations, HashSet<Guid> takenDown, bool written, CancellationToken ct)
     {
-        var ids = annotations.Where(a => Scheme(a.Locator) == "textstack-anchor-v1").Select(a => a.Id).ToArray();
+        // V2 holds no chapters for a takedown, so its anchors are checked against legacy's only (dry run).
+        var ids = annotations.Where(a => Scheme(a.Locator) == "textstack-anchor-v1" && !(written && takenDown.Contains(a.BookId)))
+            .Select(a => a.Id).ToArray();
         var missing = written
             ? await EtlV2Rows.TargetAsync<Guid>(context, QuotesMissingInV2, new { ids }, ct)
             : await EtlV2Rows.SourceAsync<Guid>(context, QuotesMissingInLegacy, new { ids }, ct);

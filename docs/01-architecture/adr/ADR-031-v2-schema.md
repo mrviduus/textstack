@@ -391,3 +391,9 @@ extraction. `ck_book_files_format` becomes `format IN ('epub','pdf','html','mobi
 baseline's three values stand. The locator rule moves with it: `epub-cfi` fits the new formats,
 `pdf-page` stays PDF-only (#1122's scheme-fits-file check, in `SyncValidation` and the reading-state
 write SQL). No `ingestion_jobs` row is enqueued for the new formats.
+
+## Amended 2026-11-08 — `takedown_at` ([#1027](https://github.com/mrviduus/textstack/issues/1027))
+
+- `user_books.takedown_at`: its meaning is carried into V2 as content-removed (`books.removed_at` and
+  `book_files.content_removed_at` = `takedown_at`, no bytes, no chapters; `docs/03-ops/v2-etl.md` §4);
+  the column itself stays retired (decided item 3).

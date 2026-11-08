@@ -32,9 +32,11 @@ public static partial class EtlV2Uploads
         FROM STDIN (FORMAT BINARY)
         """;
 
-    private static async Task<List<ChapterRow>> MapChaptersAsync(EtlV2Context context, Dictionary<Guid, FileRow> files, CancellationToken ct)
+    private static async Task<List<ChapterRow>> MapChaptersAsync(
+        EtlV2Context context, Dictionary<Guid, FileRow> files, HashSet<Guid> takenDown, CancellationToken ct)
     {
-        var legacy = await EtlV2Rows.SourceAsync<ChapterRow>(context, SelectLegacyChapters, null, ct);
+        // A takedown's chapters are its content: never carried (listed once, with the book).
+        var legacy = (await EtlV2Rows.SourceAsync<ChapterRow>(context, SelectLegacyChapters, null, ct)).Where(c => !takenDown.Contains(c.BookId)).ToList();
         foreach (var book in legacy.Where(c => !files.ContainsKey(c.BookId)).GroupBy(c => c.BookId))
             context.OrphanCandidates.Add($"user_books {book.Key}: {book.Count()} user_chapters not carried, the book has no file row");
         var rows = legacy.Where(c => files.ContainsKey(c.BookId)).Select(c => c with { FileId = files[c.BookId].Id }).ToList();

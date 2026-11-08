@@ -46,7 +46,8 @@ public static partial class EtlV2Uploads
                b.progress_percent::numeric AS book_fraction,
                COALESCE(b.completed_at, CASE WHEN b.is_read THEN COALESCE(b.read_at, b.updated_at) END) AS completed_at,
                COALESCE(b.progress_client_updated_at, b.progress_updated_at, b.updated_at) AS client_recorded_at,
-               COALESCE(b.progress_updated_at, b.updated_at) AS state_updated_at
+               COALESCE(b.progress_updated_at, b.updated_at) AS state_updated_at,
+               b.takedown_at, b.status
         FROM user_books b
         ORDER BY b.id
         """;
@@ -87,6 +88,9 @@ public static partial class EtlV2Uploads
     // Legacy BookFormat → book_files.format. Fb2 (2) and Other (99) have no V2 format until ADR-032's migration lands.
     private static readonly Dictionary<int, string> Formats = new() { [0] = "epub", [1] = "pdf", [3] = "html" };
 
+    // Legacy UserBookStatus: Processing = 0, Ready = 1, Failed = 2.
+    private static readonly Dictionary<int, string> NotReady = new() { [0] = "Processing", [2] = "Failed" };
+
     private static readonly Regex CoverExtension = new("^[a-z0-9]{1,5}$", RegexOptions.Compiled);
 
     private static async Task RunAsync(EtlV2Context context, CancellationToken ct)
@@ -100,7 +104,8 @@ public static partial class EtlV2Uploads
         bytes.Report();
         var states = MapStates(context, legacyBooks, files);
         var annotations = await MapAnnotationsAsync(context, legacyBooks.ToDictionary(b => b.Id), files, ct);
-        var chapters = await MapChaptersAsync(context, files, ct);
+        var takenDown = legacyBooks.Where(b => b.TakedownAt is not null).Select(b => b.Id).ToHashSet();
+        var chapters = await MapChaptersAsync(context, files, takenDown, ct);
         var jobs = await MapJobsAsync(context, files, ct);
 
         var bookPlan = Plan(context, "books", books, await EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, null, ct), b => b.Id);
@@ -113,7 +118,7 @@ public static partial class EtlV2Uploads
 
         if (!context.MayWrite)
         {
-            await CheckQuotesAsync(context, annotations, written: false, ct);
+            await CheckQuotesAsync(context, annotations, takenDown, written: false, ct);
             return;
         }
         await using (var tx = await context.BeginWriteAsync(ct))
@@ -136,7 +141,7 @@ public static partial class EtlV2Uploads
         Verify(context, "reading_state", states, await EtlV2Rows.TargetAsync<StateRow>(context, SelectV2States, null, ct), s => (s.UserId, s.BookId), s => s.UserId);
         Verify(context, "annotations", annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct), a => a.Id, a => a.UserId);
         Verify(context, "book_chapters", chapters, await EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2Chapters, null, ct), c => c.Id, c => c.UserId);
-        await CheckQuotesAsync(context, annotations, written: true, ct);
+        await CheckQuotesAsync(context, annotations, takenDown, written: true, ct);
     }
 
     /// <summary>The mapped rows against the target; a V2 row that differs from its mapping is a failure, never overwritten.</summary>
@@ -167,6 +172,12 @@ public static partial class EtlV2Uploads
         {
             if (string.IsNullOrWhiteSpace(b.Title))
                 blank.Add(b.Id.ToString());
+            // Owner 2026-11-08: a takedown is carried hidden (removed_at) with no bytes and no chapters; legacy keeps the bytes.
+            if (b.TakedownAt is not null)
+                context.OrphanCandidates.Add($"user_books {b.Id}: taken down; carried hidden (removed_at, file content_removed_at) without bytes, cover or chapters");
+            // Owner 2026-11-08: a Processing or Failed upload is still the user's file: carried as is, listed for a human.
+            if (NotReady.TryGetValue(b.Status, out var status))
+                context.CleanupActions.Add($"user_books {b.Id}: legacy status {status}, carried with its bytes; a human reviews it");
             rows.Add(new BookRow
             {
                 Id = b.Id,
@@ -181,7 +192,8 @@ public static partial class EtlV2Uploads
                 Origin = b.Origin,
                 CreatedAt = b.CreatedAt,
                 UpdatedAt = b.UpdatedAt,
-                CoverKey = b.CoverPath is null ? null : Cover(context, b, bytes),
+                CoverKey = b.CoverPath is null || b.TakedownAt is not null ? null : Cover(context, b, bytes),
+                RemovedAt = b.TakedownAt,
             });
         }
         EtlV2Rows.Check(context, "books: blank title", blank);
@@ -214,8 +226,10 @@ public static partial class EtlV2Uploads
             var book = books[f.BookId];
             var format = Formats[f.Format];
             var key = bytes.Store.FileKey(book.UserId, book.Id, f.Id, format);
+            var takenDown = book.TakedownAt is not null;
             // ADR-031 item 2: null sha256 → hashed from the bytes; no bytes → no row, the book stays without a file.
-            if (bytes.Carry($"user_book_files {f.Id}", f.StoragePath, key, f.Sha256) is not { } sha256)
+            // A takedown's bytes are hashed, never copied.
+            if (bytes.Carry($"user_book_files {f.Id}", f.StoragePath, key, f.Sha256, copy: !takenDown) is not { } sha256)
             {
                 context.OrphanCandidates.Add($"user_book_files {f.Id}: no bytes on disk; book {book.Id} migrates without a file (ADR-031 item 2)");
                 continue;
@@ -231,7 +245,8 @@ public static partial class EtlV2Uploads
                 Format = format,
                 PageCount = book.PageCount,
                 Toc = book.Toc,
-                ServerStorageKey = key,
+                ServerStorageKey = takenDown ? null : key,
+                ContentRemovedAt = book.TakedownAt,
                 CreatedAt = f.CreatedAt,
             };
         }
@@ -282,8 +297,8 @@ public static partial class EtlV2Uploads
 
         public int Present { get; private set; }
 
-        /// <summary>The bytes' SHA-256 when legacy has them (copy queued unless V2 holds them already); null when missing.</summary>
-        public string? Carry(string what, string relativePath, string key, string? recordedSha256)
+        /// <summary>The bytes' SHA-256 when legacy has them (copy queued, unless V2 holds them already or not <paramref name="copy"/>); null when missing.</summary>
+        public string? Carry(string what, string relativePath, string key, string? recordedSha256, bool copy = true)
         {
             var from = Path.GetFullPath(Path.Combine(_storageRoot, relativePath));
             if (!from.StartsWith(_storageRoot, StringComparison.Ordinal))
@@ -296,6 +311,8 @@ public static partial class EtlV2Uploads
             var sha256 = Hash(from);
             if (recordedSha256 is not null && recordedSha256 != sha256)
                 _wrongHash.Add(what);
+            if (!copy)
+                return sha256;
             var to = Path.Combine(_libraryRoot, key);
             if (!File.Exists(to))
                 Pending.Add((from, to));
@@ -355,6 +372,8 @@ public static partial class EtlV2Uploads
         public DateTimeOffset? CompletedAt { get; init; }
         public DateTimeOffset ClientRecordedAt { get; init; }
         public DateTimeOffset StateUpdatedAt { get; init; }
+        public DateTimeOffset? TakedownAt { get; init; }
+        public int Status { get; init; }
     }
 
     private sealed record LegacyFile

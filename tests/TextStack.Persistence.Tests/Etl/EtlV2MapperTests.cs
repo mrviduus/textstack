@@ -655,4 +655,59 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM ingestion_jobs WHERE id = @EpubJob", new { EpubJob }));
         Assert.Contains($"user_ingestion_jobs {EpubJob}: not carried, its file {PdfFile} has no book_files row", report.OrphanCandidates);
     }
+
+    // Owner 2026-11-08 (#1027): a takedown is carried hidden with no bytes and no chapters; a non-ready upload is carried and listed.
+
+    private const string TakeDownEpub = "UPDATE user_books SET takedown_at = '2025-08-01T10:00:00Z', takedown_reason = 'dmca' WHERE id = @Epub";
+
+    private static string TakedownLine => $"user_books {Epub}: taken down; carried hidden (removed_at, file content_removed_at) without bytes, cover or chapters";
+
+    [Fact]
+    public async Task RunAsync_TakenDownBook_CarriedHiddenWithoutBytesOrChapters()
+    {
+        var options = await SeedAsync();
+        await ExecAsync(options.Source, TakeDownEpub, new { Epub });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.True(await V2Scalar<bool>(options,
+            "SELECT removed_at = '2025-08-01T10:00:00Z' AND cover_key IS NULL FROM books WHERE id = @Epub", new { Epub }));
+        Assert.True(await V2Scalar<bool>(options,
+            "SELECT content_removed_at = '2025-08-01T10:00:00Z' AND server_storage_key IS NULL AND sha256 = @sha FROM book_files WHERE id = @EpubFile",
+            new { EpubFile, sha = Sha(EpubBytes) }));
+        Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM book_chapters WHERE book_id = @Epub", new { Epub }));
+        Assert.False(Directory.Exists(Path.Combine(LibraryRoot, Path.GetDirectoryName(FileKey(Alice, Epub, EpubFile, "epub"))!)));
+        Assert.Equal(new EtlV2Writes(2, 0, 0), report.Writes["library_files"]); // the pdf and the clip only
+        Assert.Contains(TakedownLine, report.OrphanCandidates);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunTakenDownBook_ReportedAndNothingWritten()
+    {
+        var options = await SeedAsync(dryRun: true);
+        await ExecAsync(options.Source, TakeDownEpub, new { Epub });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Contains(TakedownLine, report.OrphanCandidates);
+        Assert.Equal(new EtlV2Writes(2, 0, 0), report.Writes["library_files"]);
+        Assert.Equal(new EtlV2Writes(0, 0, 0), report.Writes["book_chapters"]);
+        Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM books"));
+        Assert.False(Directory.Exists(LibraryRoot));
+    }
+
+    [Theory]
+    [InlineData(0, "Processing")]
+    [InlineData(2, "Failed")]
+    public async Task RunAsync_NotReadyUpload_CarriedWithBytesAndListed(int status, string name)
+    {
+        var options = await SeedAsync();
+        await ExecAsync(options.Source, "UPDATE user_books SET status = @status WHERE id = @Pdf", new { status, Pdf });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal(1, await V2Scalar<long>(options, "SELECT count(*) FROM books WHERE id = @Pdf AND removed_at IS NULL", new { Pdf }));
+        Assert.Equal(PdfBytes, await File.ReadAllBytesAsync(Path.Combine(LibraryRoot, FileKey(Alice, Pdf, PdfFile, "pdf")), Ct));
+        Assert.Contains($"user_books {Pdf}: legacy status {name}, carried with its bytes; a human reviews it", report.CleanupActions);
+    }
 }

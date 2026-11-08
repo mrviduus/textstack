@@ -219,6 +219,15 @@ may run (it cascades to that user's V2 rows); a non-guest account comes with non
 - **Books** (row 33, items 1, 3): `origin` `{"kind":"upload"}` or `{"kind":"clip","sourceUrl":…}`;
   `tags`, `description`, `genre`, `published_year` carried; the cover is copied to
   `library/…/{bookId}/cover.{ext}` (missing on disk: `cover_key` NULL, listed). Fails: a blank title.
+- **Taken-down uploads** (`user_books.takedown_at` set; owner 2026-11-08): the book is carried **hidden**,
+  `books.removed_at = takedown_at` (the library lists only `removed_at IS NULL`); its file row gets
+  `content_removed_at = takedown_at` and `server_storage_key` NULL (the API serves no content without a
+  key). No bytes are copied (file or cover; `cover_key` NULL): legacy keeps them as the rollback, and a
+  null `sha256` is hashed from them read-only. Its chapters are not carried; its reading state,
+  annotations and jobs are. Its anchored annotations are quote-checked against legacy's chapters only
+  (dry run). Each such book is listed in `orphanCandidates`, on a dry and a real run. Not a failure.
+- **Non-ready uploads** (`user_books.status` Processing or Failed; owner 2026-11-08): carried with their
+  bytes as any upload (it is the user's file), and each listed in `cleanupActions` for a human. Not a failure.
 - **Files** (row 35, item 2): `sha256` lowercased; a null one is hashed from the bytes; a file whose bytes
   are not on disk gets **no row** and its book migrates without a file (listed). `page_count`,
   `toc_json` move here. Fails: more than one legacy file for a book, format Fb2/Other (V2 takes them only
