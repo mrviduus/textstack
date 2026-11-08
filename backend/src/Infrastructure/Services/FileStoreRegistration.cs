@@ -15,7 +15,7 @@ public static class FileStoreRegistration
     public static string LibraryRoot(IConfiguration configuration) =>
         string.IsNullOrWhiteSpace(configuration["Storage:LibraryRoot"]) ? "/library" : configuration["Storage:LibraryRoot"]!;
 
-    /// <summary>Registers both stores; throws at startup when the V2 library would be public.</summary>
+    /// <summary>Registers both stores; throws at startup when the two roots nest or the V2 library would be public.</summary>
     public static IServiceCollection AddTextStackFileStores(this IServiceCollection services, IConfiguration configuration)
     {
         // As the Api's static files read it (Program.cs), so the check is against what /storage serves.
@@ -28,9 +28,11 @@ public static class FileStoreRegistration
             library += Path.DirectorySeparatorChar;
         if (!Path.EndsInDirectorySeparator(storage))
             storage += Path.DirectorySeparatorChar;
-        if (library.StartsWith(storage, StringComparison.OrdinalIgnoreCase))
+        // Either direction: the library inside the public root is served; the public root inside the
+        // library mixes the two, and the library's sweeps would walk public files.
+        if (library.StartsWith(storage, StringComparison.OrdinalIgnoreCase) || storage.StartsWith(library, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException(
-                $"Storage:LibraryRoot ({library}) is inside Storage:RootPath ({storage}), which /storage serves publicly. Point it outside, e.g. /library (#1110).");
+                $"Storage:LibraryRoot ({library}) and Storage:RootPath ({storage}) are nested, and /storage serves the root publicly. Make them separate directories, e.g. /library and /storage (#1110).");
 
         foreach (var dir in new[] { "library", "uploads" })
         {

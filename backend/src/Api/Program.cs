@@ -286,34 +286,35 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
     // probe's status code (#1053). Read from V2Readiness's cache; with the flag off, V2 is not touched.
     components["v2"] = cfg.GetValue<bool>("Features:V2Api") ? await v2.GetAsync() : new { status = "off" };
 
-    try
+    // Write probes. A file of its own per request: one shared name raced between concurrent probes,
+    // one request deleting the file another was about to delete (a false "down").
+    async Task<(bool Ok, object Component)> ProbeAsync(string root)
     {
-        var root = cfg["Storage:RootPath"] ?? "/storage";
-        var probe = Path.Combine(root, ".health-probe");
-        await File.WriteAllTextAsync(probe, started.ToString("O"), ct);
-        File.Delete(probe);
-        components["storage"] = new { status = "ok", path = root };
-    }
-    catch (Exception ex)
-    {
-        components["storage"] = new { status = "down", error = ex.GetType().Name };
-        criticalOk = false;
+        var probe = Path.Combine(root, $".health-probe-{Guid.NewGuid():N}");
+        try
+        {
+            await File.WriteAllTextAsync(probe, started.ToString("O"), ct);
+            return (true, new { status = "ok", path = root });
+        }
+        catch (Exception ex)
+        {
+            return (false, new { status = "down", error = ex.GetType().Name });
+        }
+        finally
+        {
+            try { File.Delete(probe); } catch { /* nothing written, or already gone */ }
+        }
     }
 
-    // The V2 library's own volume (#1110). Soft, like v2: an unwritable one fails V2 uploads and
-    // nothing else; health-check.yml alarms on it when the flag is on.
-    try
-    {
-        var root = Infrastructure.Services.FileStoreRegistration.LibraryRoot(cfg);
-        var probe = Path.Combine(root, ".health-probe");
-        await File.WriteAllTextAsync(probe, started.ToString("O"), ct);
-        File.Delete(probe);
-        components["library"] = new { status = "ok", path = root };
-    }
-    catch (Exception ex)
-    {
-        components["library"] = new { status = "down", error = ex.GetType().Name };
-    }
+    var (storageOk, storage) = await ProbeAsync(cfg["Storage:RootPath"] ?? "/storage");
+    components["storage"] = storage;
+    criticalOk &= storageOk;
+
+    // The V2 library's own volume (#1110). With V2 on, an unwritable one fails every V2 upload, so it
+    // is critical; with V2 off nothing writes there, so it is only reported.
+    var (libraryOk, library) = await ProbeAsync(Infrastructure.Services.FileStoreRegistration.LibraryRoot(cfg));
+    components["library"] = library;
+    criticalOk &= libraryOk || !cfg.GetValue<bool>("Features:V2Api");
 
     try
     {

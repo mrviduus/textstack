@@ -53,13 +53,10 @@ jobs:
           POSTGRES_USER=textstack_prod bash $PROJECT_DIR/infra/scripts/pg-dump-checked.sh \
             $V2_DB $BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz
 
+      # data/storage + data/library (the V2 volume, #1110; a notice while it does not exist). A file
+      # that changed while read is accepted, an unreadable one fails. Contract + self-check: the script.
       - name: Backup storage
-        run: |
-          # GNU tar exits 1 when a file changed while being read (readers upload while we
-          # archive) — the archive is still complete for everything else. Only >1 is fatal.
-          # library = the V2 volume (#1110); --ignore-failed-read: a missing one warns, not fails.
-          tar czf $BACKUP_DIR/storage-$BACKUP_DATE.tar.gz --ignore-failed-read -C $PROJECT_DIR/data storage library || [ $? -eq 1 ]
-          echo "Storage backup: storage-$BACKUP_DATE.tar.gz"
+        run: bash $PROJECT_DIR/infra/scripts/backup-files-tar.sh $PROJECT_DIR/data $BACKUP_DIR/storage-$BACKUP_DATE.tar.gz
 
       - name: Cleanup old backups (keep 2 newest of each type — history lives in R2)
         run: |

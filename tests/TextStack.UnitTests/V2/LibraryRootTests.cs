@@ -81,17 +81,26 @@ public sealed class LibraryRootTests : IDisposable
         var config = Config(StorageRoot, StorageRoot + suffix);
 
         var e = Assert.Throws<InvalidOperationException>(() => Register(config));
-        Assert.Contains("inside Storage:RootPath", e.Message);
+        Assert.Contains("are nested", e.Message);
     }
 
-    [Fact]
-    public void AddTextStackFileStores_StorageRootIsFilesystemRoot_Throws() =>
-        Assert.Throws<InvalidOperationException>(() => Register(Config("/", "/library")));
+    [Theory]
+    [InlineData("/", "/library")]                            // the public root holds everything
+    [InlineData("/data/private/library", "/data/private")]   // the public root inside the library
+    [InlineData("/library/storage", "/library")]
+    [InlineData("/library", "/library")]                     // equal
+    [InlineData("/library/", "/LIBRARY")]                    // equal up to a slash and case
+    public void AddTextStackFileStores_RootsNestedEitherWay_Throws(string rootPath, string libraryRoot) =>
+        Assert.Throws<InvalidOperationException>(() => Register(Config(rootPath, libraryRoot)));
 
-    [Fact]
-    public void AddTextStackFileStores_SiblingWithSamePrefix_Registers()
+    [Theory]
+    [InlineData("storage", "storage-library")]
+    [InlineData("storage-library", "storage")]
+    [InlineData("storage", "library")]
+    public void AddTextStackFileStores_SiblingRoots_Register(string rootPath, string libraryRoot)
     {
-        var services = new ServiceCollection().AddTextStackFileStores(Config(StorageRoot, StorageRoot + "-library"));
+        // Under the temp dir: the file store creates its root at registration.
+        var services = new ServiceCollection().AddTextStackFileStores(Config(Path.Combine(_dir, rootPath), Path.Combine(_dir, libraryRoot)));
 
         Assert.Contains(services, d => d.ServiceType == typeof(ILibraryFileStore));
     }

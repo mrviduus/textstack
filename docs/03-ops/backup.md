@@ -43,7 +43,9 @@ docker exec textstack_db_prod pg_dump -U $POSTGRES_USER $POSTGRES_DB \
    Then the V2 database → `textstack_v2-db-<YYYY-MM-DD>.sql.gz`: skipped while it does not exist, and a
    failure there lets every legacy step run and turns the job red at the end
    ([database/v2/README.md § Backups](../../database/v2/README.md#backups-1043)).
-2. `tar czf` of `./data/storage` and `./data/library` → `storage-<YYYY-MM-DD>.tar.gz` (tar exit 1 "file changed as we read it" is a warning).
+2. `infra/scripts/backup-files-tar.sh`: `tar czf` of `./data/storage` and `./data/library` (a notice while the
+   latter does not exist) → `storage-<YYYY-MM-DD>.tar.gz`. Tar exit 1 "file changed as we read it" is a warning; an
+   unreadable file fails the job.
 3. Prunes to the **2** newest local copies of each kind (`db-`, `storage-`, `pre-deploy-`, and V2's
    `textstack_v2-db-`, `textstack_v2-pre-deploy-`) — history lives in R2.
 4. `gunzip -t`, then `infra/scripts/backup-verify.sh` restores the new dump into a throwaway pgvector container.

@@ -445,11 +445,12 @@ jobs:
 
       # The deploy's web swap and SSG restore (deploy.yml "Put web bundle live",
       # "Restore preserved SSG + assets"): fake dists with SSG trees, two releases, a
-      # reader racing the swap, and stale staging on both paths.
+      # reader racing the swap, and stale staging on both paths. Plus backup.yml's files archive.
       - name: Web swap self-check
         run: |
           bash scripts/swap-web-dist.test.sh
           bash scripts/restore-ssg-staging.test.sh
+          bash infra/scripts/backup-files-tar.test.sh
 
       # A gauge, not a gate — it cannot fail the build. The bump lane runs twice
       # a year now (deps-refresh.yml), and a calendar that quiet needs something
