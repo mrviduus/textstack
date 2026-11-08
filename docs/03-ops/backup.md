@@ -6,7 +6,7 @@
 |------|----------------|--------|
 | PostgreSQL | `./data/postgres-prod` | `pg_dump` inside `textstack_db_prod` → local + R2 |
 | Book files | `./data/storage` | `tar` locally; restic → R2 |
-| V2 library (`Storage:LibraryRoot`) | `./data/library` | restic → R2 only |
+| V2 library (`Storage:LibraryRoot`) | `./data/library` | `tar` locally (same archive); restic → R2 |
 | `.env` | repo root on the server | restic → R2 only |
 
 Local copies land in `~/backups/textstack/` on the server; the off-site copy is Cloudflare R2 (see below).
@@ -43,7 +43,7 @@ docker exec textstack_db_prod pg_dump -U $POSTGRES_USER $POSTGRES_DB \
    Then the V2 database → `textstack_v2-db-<YYYY-MM-DD>.sql.gz`: skipped while it does not exist, and a
    failure there lets every legacy step run and turns the job red at the end
    ([database/v2/README.md § Backups](../../database/v2/README.md#backups-1043)).
-2. `tar czf` of `./data/storage` → `storage-<YYYY-MM-DD>.tar.gz` (tar exit 1 "file changed as we read it" is a warning).
+2. `tar czf` of `./data/storage` and `./data/library` → `storage-<YYYY-MM-DD>.tar.gz` (tar exit 1 "file changed as we read it" is a warning).
 3. Prunes to the **2** newest local copies of each kind (`db-`, `storage-`, `pre-deploy-`, and V2's
    `textstack_v2-db-`, `textstack_v2-pre-deploy-`) — history lives in R2.
 4. `gunzip -t`, then `infra/scripts/backup-verify.sh` restores the new dump into a throwaway pgvector container.
@@ -90,7 +90,7 @@ Data takes ~4 min to restore (drill timings). Most of the time is rebuilding the
    $R snapshots
    $R restore latest --path /backup --target /out/restore
    cp restore/backup/env .env && mkdir -p data && mv restore/backup/storage data/storage
-   [ -d restore/backup/library ] && mv restore/backup/library data/library   # snapshots before #1110 have none
+   mkdir -p data/library && [ -d restore/backup/library ] && mv restore/backup/library/* data/library/   # snapshots before #1110 have none
    ```
 3. **Start only the database** and load the dump (prod user from `.env`):
    ```bash

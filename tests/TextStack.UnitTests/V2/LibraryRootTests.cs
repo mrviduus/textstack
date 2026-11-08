@@ -1,36 +1,48 @@
 using Api.Extensions;
 using Application.Library;
+using Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 
 namespace TextStack.UnitTests.V2;
 
-/// <summary>The Api's V2 file store writes under <c>Storage:LibraryRoot</c>, never under the <c>/storage</c> static root (#1110).</summary>
+/// <summary>
+/// The V2 file store writes under <c>Storage:LibraryRoot</c>, never under the <c>/storage</c> static root,
+/// and startup refuses a layout that would make it public (#1110). The Api and the Worker share
+/// <see cref="FileStoreRegistration.AddTextStackFileStores"/>.
+/// </summary>
 public sealed class LibraryRootTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "library-root-" + Guid.NewGuid());
 
+    private string StorageRoot => Path.Combine(_dir, "storage");
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    public LibraryRootTests() => Directory.CreateDirectory(StorageRoot);
 
     public void Dispose()
     {
         if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true);
     }
 
+    private static IConfiguration Config(string? rootPath, string? libraryRoot) =>
+        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Storage:RootPath"] = rootPath,
+            ["Storage:LibraryRoot"] = libraryRoot,
+        }).Build();
+
+    private static void Register(IConfiguration config) => new ServiceCollection().AddTextStackFileStores(config);
+
     [Fact]
     public async Task AddTextStackPersistence_LibraryRootSet_FilesUnreachableFromStaticRoot()
     {
-        var storageRoot = Path.Combine(_dir, "storage");
         var libraryRoot = Path.Combine(_dir, "library");
-        Directory.CreateDirectory(storageRoot);
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["Storage:RootPath"] = storageRoot,
-            ["Storage:LibraryRoot"] = libraryRoot,
-        }).Build();
+        var config = Config(StorageRoot, libraryRoot);
         using var provider = new ServiceCollection()
-            .AddSingleton<IConfiguration>(config)
+            .AddSingleton(config)
             .AddTextStackPersistence("Host=unused", config)
             .BuildServiceProvider();
         var store = provider.GetRequiredService<ILibraryFileStore>();
@@ -42,8 +54,67 @@ public sealed class LibraryRootTests : IDisposable
         Assert.Equal(1, part);
         Assert.Equal(Path.Combine(libraryRoot, key), store.Locate(key));
         // What /storage serves (Program.cs: PhysicalFileProvider over Storage:RootPath) holds neither the key nor the part.
-        using var statics = new PhysicalFileProvider(storageRoot);
+        using var statics = new PhysicalFileProvider(StorageRoot);
         Assert.False(statics.GetFileInfo(key).Exists);
-        Assert.Empty(Directory.EnumerateFileSystemEntries(storageRoot, "*", SearchOption.AllDirectories));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(StorageRoot, "*", SearchOption.AllDirectories));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void LibraryRoot_UnsetOrBlank_DefaultsToLibraryVolume(string? value)
+    {
+        var config = Config(StorageRoot, value);
+
+        Assert.Equal("/library", FileStoreRegistration.LibraryRoot(config));
+        Register(config); // /library is outside the storage root: no throw
+    }
+
+    [Theory]
+    [InlineData("")]                  // the root itself
+    [InlineData("/")]                 // trailing slash on the root
+    [InlineData("/library")]          // the pre-#1110 layout
+    [InlineData("/a/../uploads/x")]   // normalized before the check
+    public void AddTextStackFileStores_LibraryRootInsideStorageRoot_Throws(string suffix)
+    {
+        var config = Config(StorageRoot, StorageRoot + suffix);
+
+        var e = Assert.Throws<InvalidOperationException>(() => Register(config));
+        Assert.Contains("inside Storage:RootPath", e.Message);
+    }
+
+    [Fact]
+    public void AddTextStackFileStores_StorageRootIsFilesystemRoot_Throws() =>
+        Assert.Throws<InvalidOperationException>(() => Register(Config("/", "/library")));
+
+    [Fact]
+    public void AddTextStackFileStores_SiblingWithSamePrefix_Registers()
+    {
+        var services = new ServiceCollection().AddTextStackFileStores(Config(StorageRoot, StorageRoot + "-library"));
+
+        Assert.Contains(services, d => d.ServiceType == typeof(ILibraryFileStore));
+    }
+
+    [Theory]
+    [InlineData("library/ab/abcd/1234/5678.epub")]
+    [InlineData("uploads/abcd/5678/00000.part")]
+    public void AddTextStackFileStores_LeftoverV2FileUnderStorageRoot_ThrowsWithMoveCommand(string leftover)
+    {
+        var path = Path.Combine(StorageRoot, leftover);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "x");
+
+        var e = Assert.Throws<InvalidOperationException>(() => Register(Config(StorageRoot, Path.Combine(_dir, "library"))));
+        Assert.Contains("mv data/storage/library data/storage/uploads data/library/", e.Message);
+    }
+
+    [Fact]
+    public void AddTextStackFileStores_EmptyLeftoverDirectories_Registers()
+    {
+        Directory.CreateDirectory(Path.Combine(StorageRoot, "library", "ab"));
+        Directory.CreateDirectory(Path.Combine(StorageRoot, "uploads"));
+
+        Register(Config(StorageRoot, Path.Combine(_dir, "library")));
     }
 }

@@ -57,7 +57,8 @@ jobs:
         run: |
           # GNU tar exits 1 when a file changed while being read (readers upload while we
           # archive) — the archive is still complete for everything else. Only >1 is fatal.
-          tar czf $BACKUP_DIR/storage-$BACKUP_DATE.tar.gz -C $PROJECT_DIR/data storage || [ $? -eq 1 ]
+          # library = the V2 volume (#1110); --ignore-failed-read: a missing one warns, not fails.
+          tar czf $BACKUP_DIR/storage-$BACKUP_DATE.tar.gz --ignore-failed-read -C $PROJECT_DIR/data storage library || [ $? -eq 1 ]
           echo "Storage backup: storage-$BACKUP_DATE.tar.gz"
 
       - name: Cleanup old backups (keep 2 newest of each type — history lives in R2)

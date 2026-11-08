@@ -300,6 +300,21 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
         criticalOk = false;
     }
 
+    // The V2 library's own volume (#1110). Soft, like v2: an unwritable one fails V2 uploads and
+    // nothing else; health-check.yml alarms on it when the flag is on.
+    try
+    {
+        var root = Infrastructure.Services.FileStoreRegistration.LibraryRoot(cfg);
+        var probe = Path.Combine(root, ".health-probe");
+        await File.WriteAllTextAsync(probe, started.ToString("O"), ct);
+        File.Delete(probe);
+        components["library"] = new { status = "ok", path = root };
+    }
+    catch (Exception ex)
+    {
+        components["library"] = new { status = "down", error = ex.GetType().Name };
+    }
+
     try
     {
         var baseUrl = cfg["Ollama:BaseUrl"] ?? "http://localhost:11434";

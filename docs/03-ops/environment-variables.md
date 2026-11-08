@@ -85,6 +85,7 @@ Ollama (`Ollama__BaseUrl`, `Ollama__Model=gemma4:e2b`) and the cache paths (`Tts
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `Storage__RootPath` | No | `/storage` | Set in `docker-compose.yml`; host dir `./data/storage` |
+| `Storage__LibraryRoot` | No | `/library` | V2 library bytes; host dir `./data/library`. Must be outside `Storage__RootPath` (served publicly): startup fails otherwise, and while `library/` or `uploads/` under the root hold files (#1110) |
 
 ### Migrations
 

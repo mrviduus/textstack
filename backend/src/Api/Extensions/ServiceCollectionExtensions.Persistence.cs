@@ -47,10 +47,7 @@ public static partial class ServiceCollectionExtensions
         services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbContext>());
         services.AddLegacyIdentityPorts();
 
-        // File storage
-        var storagePath = configuration["Storage:RootPath"] ?? "/storage";
-        services.AddSingleton<IFileStorageService>(new LocalFileStorageService(storagePath));
-        services.AddSingleton<Application.Library.ILibraryFileStore>(new LibraryFileStore(configuration["Storage:LibraryRoot"] ?? "/library"));
+        services.AddTextStackFileStores(configuration);
 
         return services;
     }

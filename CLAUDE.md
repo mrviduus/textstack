@@ -35,6 +35,7 @@ Load-bearing decisions still go to `docs/01-architecture/adr/`. Details: `.claud
 cp .env.example .env          # Edit with real values
 make nginx-setup              # Install nginx config (Linux)
 make nginx-setup-mac          # Mac
+make fix-permissions          # Create data/library etc. owned by uid 1000 (else V2 uploads fail)
 make up                       # Start services
 
 # Docker
