@@ -20,9 +20,6 @@ public static class EtlV2Sessions
         FROM reading_sessions ORDER BY id
         """;
 
-    // The accounts the users step carries.
-    private const string SelectCarriedUsers = "SELECT id FROM users UNION SELECT id FROM admin_users";
-
     private const string SelectV2Sessions = """
         SELECT id, user_id, book_id, client_session_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent,
             deleted_book_sha256, created_at
@@ -83,7 +80,7 @@ public static class EtlV2Sessions
         EtlV2Rows.Verify(context, "reading_sessions: parity", sessions, after, s => s.Id);
         // Per carried user, every legacy session against every V2 one: a session not carried, or one V2 has beyond legacy's,
         // shows here. A V2-only user's sessions are report-only (the plan's cleanup lines), never this failure (owner 2026-11-08).
-        var carried = (await EtlV2Rows.SourceAsync<Guid>(context, SelectCarriedUsers, null, ct)).ToHashSet();
+        var carried = await EtlV2Rows.CarriedUserIdsAsync(context, ct);
         var expected = legacy.GroupBy(s => s.UserId).ToDictionary(g => g.Key, g => g.Sum(s => (long)s.DurationSeconds));
         var actual = after.Where(s => carried.Contains(s.UserId)).GroupBy(s => s.UserId).ToDictionary(g => g.Key, g => g.Sum(s => (long)s.DurationSeconds));
         EtlV2Rows.Check(context, "reading_sessions: seconds per user differ",

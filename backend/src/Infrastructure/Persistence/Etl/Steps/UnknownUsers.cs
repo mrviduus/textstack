@@ -18,8 +18,6 @@ public static class EtlV2UnknownUsers
 
     public static readonly EtlV2Step Step = new("unknown-users", ["users", "admin_users"], Owned, RunAsync);
 
-    private const string SelectLegacyOwners = "SELECT id FROM users UNION SELECT id FROM admin_users";
-
     private const string SelectV2Users = "SELECT id FROM users";
 
     // Owned's tables (code constants), one branch each.
@@ -28,7 +26,7 @@ public static class EtlV2UnknownUsers
 
     private static async Task RunAsync(EtlV2Context context, CancellationToken ct)
     {
-        var known = (await EtlV2Rows.SourceAsync<Guid>(context, SelectLegacyOwners, null, ct)).ToHashSet();
+        var known = new HashSet<Guid>(await EtlV2Rows.CarriedUserIdsAsync(context, ct));
         known.UnionWith(await EtlV2Rows.TargetAsync<Guid>(context, SelectV2Users, null, ct));
         var owners = await EtlV2Rows.TargetAsync<(string Table, Guid UserId)>(context, SelectV2Owners, null, ct);
         EtlV2Rows.Check(context, "unknown-user-ids: V2 rows whose owner is in neither legacy nor V2 users",

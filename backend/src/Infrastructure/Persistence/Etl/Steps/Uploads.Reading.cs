@@ -38,11 +38,11 @@ public static partial class EtlV2Uploads
         ORDER BY h.id
         """;
 
-    // Annotations of catalog pairs' books are the catalog step's (M3.3).
+    // Annotations of catalog pairs' books are the catalog step's (M3.3); a row under a mapped id is read wherever it hangs.
     private const string SelectV2Annotations = """
         SELECT id, user_id, book_id, file_id, selected_text, note_text, locator::text AS locator, color, created_at, updated_at, deleted_at, revision
         FROM annotations
-        WHERE book_id NOT IN (SELECT id FROM books WHERE origin->>'kind' = 'catalog')
+        WHERE book_id NOT IN (SELECT id FROM books WHERE origin->>'kind' = 'catalog') OR id = ANY(@ids)
         """;
 
     private const string InsertAnnotation = """

@@ -83,7 +83,8 @@ public static class EtlV2Vocabulary
         var legacyWords = EtlV2Rows.Admit(context, "vocabulary_words", await EtlV2Rows.SourceAsync<LegacyWord>(context, SelectLegacyWords, null, ct), w => w.Id,
             ("blank word or language", w => WordKeys.Language(w.Language) == "" || WordKeys.Of(w.Word) == ""),
             ("negative SRS field", w => w.Stage < 0 || w.IntervalDays < 0 || w.ConsecutiveCorrect < 0),
-            ("interval_days not a finite number", w => !double.IsFinite(w.IntervalDays)),
+            // Numeric needs a decimal: finite and within its range (a value below its precision becomes 0, fine for a day count).
+            ("interval_days not a representable number", w => !double.IsFinite(w.IntervalDays) || Math.Abs(w.IntervalDays) >= (double)decimal.MaxValue),
             ("its upload belongs to another user", w => w.UserBookId is { } ub && uploadOwner[ub] != w.UserId));
 
         // No owner CHECK in legacy: a card can name both. The upload is the more specific owner; reported, not silent.
@@ -91,7 +92,9 @@ public static class EtlV2Vocabulary
         foreach (var w in legacyWords.Where(w => w.UserBookId is not null && w.EditionId is not null))
             context.CleanupActions.Add($"vocabulary_words {w.Id}: both owners set (upload {w.UserBookId}, edition {w.EditionId}); example kept on the upload"
                 + (w.ChapterId is null ? "" : $", catalog chapter {w.ChapterId} not carried as its chapter_key"));
-        foreach (var w in legacyWords.Where(w => w.ChapterId is not null && w.UserBookId is null && w.ChapterKey is null))
+        foreach (var w in legacyWords.Where(w => w.ChapterId is not null && w.EditionId is null))
+            context.CleanupActions.Add($"vocabulary_words {w.Id}: chapter {w.ChapterId} dropped, the card has no edition; example carried with no chapter_key");
+        foreach (var w in legacyWords.Where(w => w.ChapterId is not null && w.EditionId is not null && w.UserBookId is null && w.ChapterKey is null))
             context.CleanupActions.Add($"vocabulary_words {w.Id}: chapter {w.ChapterId} is not of its edition; example carried with no chapter_key");
 
         // legacy card id → the survivor's card

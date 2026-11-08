@@ -21,12 +21,13 @@ public static class EtlV2Catalog
     public static readonly EtlV2Step Step = new("catalog", IntentSources, ["books", "annotations"], RunAsync);
 
     // catalog-retirement-plan §3.4's intent query minus bookmarks (retired), one row per pair: created_at is
-    // the pair's first intent. The retired tables (lookups, clusters, pending words, shelves) still select pairs
+    // the pair's first intent by immutable creation times only; reading_progresses has none (updated_at moves, and
+    // would make a re-run over a newer dump a mismatch), so a progress-only pair takes the edition's created_at. The retired tables (lookups, clusters, pending words, shelves) still select pairs
     // (owner 2026-11-08). Edition columns are NULL for a pair whose edition is gone (a shelf entry has no FK).
     private const string IntentPairs = """
         WITH intent(user_id, edition_id, at) AS (
             SELECT user_id, edition_id, created_at FROM user_libraries
-            UNION ALL SELECT user_id, edition_id, updated_at FROM reading_progresses
+            UNION ALL SELECT user_id, edition_id, NULL FROM reading_progresses
             UNION ALL SELECT user_id, edition_id, created_at FROM highlights WHERE edition_id IS NOT NULL
             UNION ALL SELECT user_id, edition_id, created_at FROM vocabulary_words WHERE edition_id IS NOT NULL
             UNION ALL SELECT user_id, edition_id, created_at FROM pending_vocabulary_words WHERE edition_id IS NOT NULL
@@ -35,13 +36,13 @@ public static class EtlV2Catalog
             UNION ALL SELECT user_id, edition_id, created_at FROM book_insight WHERE edition_id IS NOT NULL
             UNION ALL SELECT c.user_id, bc.book_id, bc.added_at FROM book_collections bc
                 JOIN collections c ON c.id = bc.collection_id WHERE bc.book_type = 'savedbook')
-        SELECT i.user_id, i.edition_id, min(i.at) AS created_at, e.id IS NOT NULL AS edition_exists, e.title, e.language,
+        SELECT i.user_id, i.edition_id, COALESCE(min(i.at), e.created_at) AS created_at, e.id IS NOT NULL AS edition_exists, e.title, e.language,
             jsonb_build_object('kind', 'catalog', 'editionSlug', e.slug)::text AS origin,
             -- The first author by credit order; name and id break ties.
             (SELECT a.name FROM edition_authors ea JOIN authors a ON a.id = ea.author_id
              WHERE ea.edition_id = e.id ORDER BY ea."order", a.name, a.id LIMIT 1) AS author
         FROM intent i LEFT JOIN editions e ON e.id = i.edition_id
-        GROUP BY i.user_id, i.edition_id, e.id
+        GROUP BY i.user_id, i.edition_id, e.id, e.created_at
         ORDER BY i.user_id, i.edition_id
         """;
 

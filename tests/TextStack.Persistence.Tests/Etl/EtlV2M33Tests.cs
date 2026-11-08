@@ -432,6 +432,60 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
     }
 
     [Fact]
+    public async Task RunAsync_ProgressOnlyPair_EditionCreatedAtAndConvergesWhenProgressMoves()
+    {
+        // reading_progresses.updated_at moves between dumps: a pair whose only intent it is takes the edition's created_at.
+        var options = await NewPairAsync();
+        var pair = EtlV2Ids.CatalogBook(Alice, DesignPatterns);
+        var edition = await ScalarAsync<DateTimeOffset>(options.Source, $"SELECT created_at FROM editions WHERE id = '{DesignPatterns}'");
+        await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.True(await ScalarAsync<bool>(options.Target, "SELECT created_at = @edition AND updated_at = @edition FROM books WHERE id = @pair", new { edition, pair }));
+        await ExecAsync(options.Source, $"UPDATE reading_progresses SET updated_at = '2026-09-09Z' WHERE edition_id = '{DesignPatterns}'");
+
+        var second = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.All(second.Checks, c => Assert.Equal(0, c.Failures));
+        Assert.Equal(new EtlV2Writes(0, 0, 4), second.Writes["books (catalog)"]);
+    }
+
+    [Fact]
+    public async Task RunAsync_UploadIdsHeldOnACatalogBook_NamedMismatchNotA23505()
+    {
+        // A mapped upload row (book, annotation) whose id V2 holds on the catalog side: the uploads step still sees it.
+        var (highlight, catalogBook) = (Guid.Parse("41000000-0000-4000-8000-0000000000aa"), Guid.Parse("b0000000-0000-4000-8000-0000000000aa"));
+        var options = await NewPairAsync(extra: $$"""
+            INSERT INTO highlights (id, user_id, site_id, user_book_id, anchor_json, color, selected_text, version, created_at, updated_at)
+            VALUES ('{{highlight}}', '{{Alice}}', '{{Site}}', '{{Upload}}', '{}', 'yellow', 'mine', 1, '2026-02-05Z', '2026-02-05Z');
+            """);
+        await ExecAsync(options.Target, $$"""
+            INSERT INTO users (id, email, created_at) VALUES ('{{Alice}}', 'alice@test', '2026-01-01Z');
+            INSERT INTO books (id, user_id, title, origin) VALUES
+                ('{{Upload}}', '{{Alice}}', 'My Upload', '{"kind":"catalog","editionSlug":"x"}'),
+                ('{{catalogBook}}', '{{Alice}}', 'Other', '{"kind":"catalog","editionSlug":"y"}');
+            INSERT INTO annotations (id, user_id, book_id, selected_text) VALUES ('{{highlight}}', '{{Alice}}', '{{catalogBook}}', 'mine');
+            """);
+
+        var error = await FailsAsync(options);
+
+        Assert.Equal([Upload.ToString()], Failed(error, "books: V2 row differs from its legacy mapping"));
+        Assert.Equal([highlight.ToString()], Failed(error, "annotations: V2 row differs from its legacy mapping"));
+        Assert.Null(error.InnerException as Npgsql.PostgresException);
+    }
+
+    [Fact]
+    public async Task RunAsync_UploadOwnedWordWithAChapter_ChapterDroppedAndReported()
+    {
+        var options = await NewPairAsync(extra: $"UPDATE vocabulary_words SET chapter_id = '{MeaningfulNames}' WHERE id = '{RunSurvivor}';");
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal($"{Upload}|-", await ScalarAsync<string>(options.Target,
+            "SELECT book_id || '|' || coalesce(chapter_key, '-') FROM vocabulary_examples WHERE sentence = 'I run daily.'"));
+        Assert.Contains($"vocabulary_words {RunSurvivor}: chapter {MeaningfulNames} dropped, the card has no edition; example carried with no chapter_key", report.CleanupActions);
+    }
+
+    [Fact]
     public async Task RunAsync_SessionOnARefusedPair_NeitherLinkedNorSessionOnly()
     {
         // The catalog step's pairs are the only ones: a refused pair's session is not "session-only", and links to no book.
@@ -469,7 +523,9 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
         { "UPDATE highlights SET selected_text = ' ' WHERE id = '41000000-0000-4000-8000-000000000001'", "annotations (catalog): blank text or a version below 1", ["41000000-0000-4000-8000-000000000001"] },
         // NaN passes "< 0 or > 1" and Numeric cannot parse it; +Infinity passes "< 0". Named checks, not a crash.
         { "UPDATE reading_sessions SET end_percent = 'NaN' WHERE id = '5e000000-0000-4000-8000-000000000001'", "reading_sessions: percent outside 0..1", ["5e000000-0000-4000-8000-000000000001"] },
-        { "UPDATE vocabulary_words SET interval_days = 'Infinity' WHERE id = '70000000-0000-4000-8000-000000000004'", "vocabulary_words: interval_days not a finite number", ["70000000-0000-4000-8000-000000000004"] },
+        { "UPDATE vocabulary_words SET interval_days = 'Infinity' WHERE id = '70000000-0000-4000-8000-000000000004'", "vocabulary_words: interval_days not a representable number", ["70000000-0000-4000-8000-000000000004"] },
+        // Finite but beyond decimal's range: Numeric would overflow.
+        { "UPDATE vocabulary_words SET interval_days = 1e300 WHERE id = '70000000-0000-4000-8000-000000000004'", "vocabulary_words: interval_days not a representable number", ["70000000-0000-4000-8000-000000000004"] },
         { $"UPDATE editions SET title = ' ' WHERE id = '{DesignPatterns}'", "books (catalog): blank edition title", [EtlV2Ids.CatalogBook(Alice, DesignPatterns).ToString()] },
         { "UPDATE highlights SET version = 0 WHERE id = '41000000-0000-4000-8000-000000000001'", "annotations (catalog): blank text or a version below 1", ["41000000-0000-4000-8000-000000000001"] },
         { "UPDATE review_question SET interval_days = -1", "review_question: negative SRS field", ["16000000-0000-4000-8000-000000000001"] },

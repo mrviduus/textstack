@@ -65,12 +65,12 @@ public static partial class EtlV2Uploads
         ORDER BY id
         """;
 
-    // Catalog pairs' books are the catalog step's (M3.3).
+    // Catalog pairs' books are the catalog step's (M3.3); a row under a mapped id is read whatever its origin (a mismatch, not a 23505).
     private const string SelectV2Books = """
         SELECT id, user_id, title, author, language, description, genre, published_year, tags, cover_key, origin::text AS origin,
                checkpoint_saving_enabled, revision, created_at, updated_at, removed_at
         FROM books
-        WHERE origin->>'kind' IS DISTINCT FROM 'catalog'
+        WHERE origin->>'kind' IS DISTINCT FROM 'catalog' OR id = ANY(@ids)
         """;
 
     private const string SelectV2Files = """
@@ -122,14 +122,15 @@ public static partial class EtlV2Uploads
         var chapters = await MapChaptersAsync(context, files, ct);
         var jobs = await MapJobsAsync(context, files, ct);
 
-        var v2Books = await EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, null, ct);
+        var (bookIds, annotationIds) = (new { ids = books.Select(b => b.Id).ToArray() }, new { ids = annotations.Select(a => a.Id).ToArray() });
+        var v2Books = await EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, bookIds, ct);
         var v2Chapters = await EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2Chapters, null, ct);
         var v2Files = await EtlV2Rows.TargetAsync<FileRow>(context, SelectV2Files, null, ct);
         ReportStaleTakedowns(context, legacyBooks, v2Books, bytes);
         var bookPlan = EtlV2Rows.Plan(context, "books", books, v2Books, b => b.Id);
         var filePlan = EtlV2Rows.Plan(context, "book_files", files.Values, v2Files, f => f.Id);
         var statePlan = EtlV2Rows.Plan(context, "reading_state", states, await EtlV2Rows.TargetAsync<StateRow>(context, SelectV2States, null, ct), s => (s.UserId, s.BookId));
-        var annotationPlan = EtlV2Rows.Plan(context, "annotations", annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct), a => a.Id);
+        var annotationPlan = EtlV2Rows.Plan(context, "annotations", annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, annotationIds, ct), a => a.Id);
         var chapterPlan = EtlV2Rows.Plan(context, "book_chapters", chapters, v2Chapters, c => c.Id);
         // V2's secondary unique keys: a new row whose key a stale V2 row holds (legacy re-extracted, a file replaced) would abort with 23505.
         EtlV2Rows.HeldByAnother(context, "book_files: (user_id, book_id) current file", filePlan.New, v2Files.Where(f => f.IsCurrent), f => f.Id, f => (f.UserId, f.BookId));
@@ -158,11 +159,11 @@ public static partial class EtlV2Uploads
         }
 
         // Chapters: only the rows this run wrote are re-read (the rest were equal before the write, and the write adds only).
-        var booksAfter = EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, null, ct);
+        var booksAfter = EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, bookIds, ct);
         var filesAfter = EtlV2Rows.TargetAsync<FileRow>(context, SelectV2Files, null, ct);
         var jobsAfter = EtlV2Rows.TargetAsync<JobRow>(context, SelectV2Jobs, null, ct);
         var statesAfter = EtlV2Rows.TargetAsync<StateRow>(context, SelectV2States, null, ct);
-        var annotationsAfter = EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct);
+        var annotationsAfter = EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, annotationIds, ct);
         var chaptersAfter = EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2ChaptersById, new { ids = chapterPlan.New.Select(c => c.Id).ToArray() }, ct);
         await Task.WhenAll(booksAfter, filesAfter, jobsAfter, statesAfter, annotationsAfter, chaptersAfter);
         EtlV2Rows.Verify(context, "books: parity", books, await booksAfter, b => b.Id);
