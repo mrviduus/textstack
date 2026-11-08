@@ -495,4 +495,145 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
 
         Assert.Contains("are nested", error.Message);
     }
+
+    // Mutation-testing pins (QA pass, #1027): each test below kills a hand-mutation the suite above let survive.
+
+    /// <summary>One legacy defect per case: its setup SQL, the check it must fail, and the failing ids.</summary>
+    private static (string Sql, string Check, string[] Ids) Defect(string defect) => defect switch
+    {
+        "tier" => ($"UPDATE users SET tier = 'Gold' WHERE id = '{Carol}'", "users: tier outside V2's set", [Carol.ToString()]),
+        "admin-id-taken" => ($"UPDATE admin_users SET id = '{Bob}' WHERE id = '{OpsAdmin}'", "users: admin_users id held by a user of another email", [Bob.ToString()]),
+        "two-files" => ($"INSERT INTO user_book_files (id, user_book_id, original_file_name, storage_path, format, sha256, file_size, uploaded_at) VALUES (gen_random_uuid(), '{Clip}', 'clip2.html', '{Dir(Bob, Clip)}/clip2.html', 3, NULL, 5, now())",
+            "book_files: more than one legacy file for a book", [Clip.ToString()]),
+        "zero-size" => ($"UPDATE user_book_files SET file_size = 0 WHERE id = '{ClipFile}'", "book_files: not a positive byte size or a blank name", [ClipFile.ToString()]),
+        "blank-name" => ($"UPDATE user_book_files SET original_file_name = ' ' WHERE id = '{ClipFile}'", "book_files: not a positive byte size or a blank name", [ClipFile.ToString()]),
+        "blank-title" => ($"UPDATE user_books SET title = '  ' WHERE id = '{Clip}'", "books: blank title", [Clip.ToString()]),
+        "outside-root" => ($"UPDATE user_book_files SET storage_path = '../escape/clip.html' WHERE id = '{ClipFile}'", "library_files: legacy path outside Storage:RootPath", [$"user_book_files {ClipFile}"]),
+        "page-on-epub" => ($"UPDATE user_books SET progress_position_json = NULL, progress_locator = 'page:3' WHERE id = '{Epub}'", "reading_state: legacy progress with no mappable locator", [Epub.ToString()]),
+        "percent-out" => ($"UPDATE user_books SET progress_percent = 1.5 WHERE id = '{Pdf}'", "reading_state: progress percent outside 0..1", [Pdf.ToString()]),
+        "read-mark-only" => ($"UPDATE user_books SET progress_locator = NULL, progress_percent = NULL, completed_at = NULL, is_read = true WHERE id = '{Pdf}'",
+            "reading_state: legacy progress with no mappable locator", [Pdf.ToString()]),
+        "completed-only" => ($"UPDATE user_books SET progress_locator = NULL, progress_percent = NULL, completed_at = now(), is_read = false WHERE id = '{Pdf}'",
+            "reading_state: legacy progress with no mappable locator", [Pdf.ToString()]),
+        "version-0" => ($"UPDATE highlights SET version = 0 WHERE id = '{PdfHighlight}'", "annotations: blank text or a version below 1", [PdfHighlight.ToString()]),
+        "blank-text" => ($"UPDATE highlights SET selected_text = ' ' WHERE id = '{PdfHighlight}'", "annotations: blank text or a version below 1", [PdfHighlight.ToString()]),
+        "pdf-anchor-on-epub" => ($"UPDATE highlights SET user_book_id = '{Epub}' WHERE id = '{PdfHighlight}'", "annotations: anchor V2 cannot hold", [PdfHighlight.ToString()]),
+        "dup-chapter-key" => ($"UPDATE user_chapters SET slug = 'ch-1' WHERE id = '{Chapter1}'", "book_chapters: two chapters of a file with one key", [$"{Chapter1}/{Chapter2}"]),
+        "blank-chapter-key" => ($"UPDATE user_chapters SET slug = ' ' WHERE id = '{Chapter2}'", "book_chapters: blank chapter key", [Chapter2.ToString()]),
+        "job-format" => ($"UPDATE user_ingestion_jobs SET source_format = 'Mobi' WHERE id = '{EpubJob}'", "ingestion_jobs: status or source format V2 does not take", [EpubJob.ToString()]),
+        _ => throw new ArgumentOutOfRangeException(nameof(defect)),
+    };
+
+    [Theory]
+    [InlineData("tier")]
+    [InlineData("admin-id-taken")]
+    [InlineData("two-files")]
+    [InlineData("zero-size")]
+    [InlineData("blank-name")]
+    [InlineData("blank-title")]
+    [InlineData("outside-root")]
+    [InlineData("page-on-epub")]
+    [InlineData("percent-out")]
+    [InlineData("read-mark-only")]
+    [InlineData("completed-only")]
+    [InlineData("version-0")]
+    [InlineData("blank-text")]
+    [InlineData("pdf-anchor-on-epub")]
+    [InlineData("dup-chapter-key")]
+    [InlineData("blank-chapter-key")]
+    [InlineData("job-format")]
+    public async Task RunAsync_DryRunLegacyDefect_PreflightFailsTheNamedCheck(string defect)
+    {
+        // A dry run is the pre-flight: a defect the real run's CHECKs would abort on must fail here, by name and id.
+        var options = await SeedAsync(dryRun: true);
+        var (sql, check, ids) = Defect(defect);
+        await ExecAsync(options.Source, sql);
+        if (defect == "outside-root")
+            Put("../escape/clip.html", ClipBytes); // the bytes exist, just outside the root
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+
+        Assert.Equal(ids, Assert.Single(error.Checks, c => c.Name == check).Ids);
+        Assert.False(Directory.Exists(LibraryRoot));
+    }
+
+    [Fact]
+    public async Task RunAsync_EmptyGoogleSubject_CarriedAsNull()
+    {
+        var options = await SeedAsync();
+
+        await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.True(await V2Scalar<bool>(options, "SELECT google_subject IS NULL FROM users WHERE id = @Alice", new { Alice }));
+    }
+
+    [Fact]
+    public async Task RunAsync_RealRunCheckFails_WritesNoRowAndNoBytes()
+    {
+        // MayWrite: one failed check (an inactive admin, no constraint would catch it) and nothing is written.
+        var options = await SeedAsync();
+        await ExecAsync(options.Source, "UPDATE admin_users SET is_active = false WHERE id = @OpsAdmin", new { OpsAdmin });
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+
+        Assert.NotNull(error.RunId);
+        Assert.Equal(2, await V2Scalar<long>(options, "SELECT count(*) FROM users"));
+        Assert.Null(await V2Scalar<string?>(options, "SELECT name FROM users WHERE id = @Carol", new { Carol }));
+        Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM books"));
+        Assert.False(Directory.Exists(LibraryRoot));
+    }
+
+    [Fact]
+    public async Task RunAsync_StorageRootInsideLibraryRoot_FailsFast()
+    {
+        var options = await SeedAsync(dryRun: true);
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options with { LibraryRoot = _files }, ct: Ct));
+
+        Assert.Contains("are nested", error.Message);
+    }
+
+    [Fact]
+    public async Task RunAsync_CoverMissingOnDisk_CoverKeyNullAndListed()
+    {
+        var options = await SeedAsync();
+        File.Delete(Path.Combine(StorageRoot, $"{Dir(Alice, Epub)}/cover.JPG"));
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.True(await V2Scalar<bool>(options, "SELECT cover_key IS NULL FROM books WHERE id = @Epub", new { Epub }));
+        Assert.Contains($"user_books {Epub}: cover not carried (missing on disk or no image extension); cover_key left null", report.OrphanCandidates);
+    }
+
+    [Fact]
+    public async Task RunAsync_CatalogHighlight_NotCarriedNorListedAsTrail()
+    {
+        // Catalog highlights are M3.3's: the uploads step neither carries nor reports them.
+        var options = await SeedAsync();
+        var (work, edition, highlight) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        await ExecAsync(options.Source, """
+            INSERT INTO works (id, slug, created_at, site_id) VALUES (@work, 'w', now(), '11111111-1111-1111-1111-111111111111');
+            INSERT INTO editions (id, work_id, language, slug, title, status, is_public_domain, created_at, updated_at, site_id)
+                VALUES (@edition, @work, 'en', 'e', 'E', 1, true, now(), now(), '11111111-1111-1111-1111-111111111111');
+            INSERT INTO highlights (id, user_id, site_id, edition_id, anchor_json, color, selected_text, version, created_at, updated_at)
+                VALUES (@highlight, @Alice, '11111111-1111-1111-1111-111111111111', @edition, '{"exact":"z"}', 'yellow', 'z', 1, now(), now());
+            """, new { work, edition, highlight, Alice });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM annotations WHERE id = @highlight", new { highlight }));
+        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(highlight.ToString()));
+    }
+
+    [Fact]
+    public async Task RunAsync_JobNamesAnotherBooksFile_NotCarriedAndListed()
+    {
+        var options = await SeedAsync();
+        await ExecAsync(options.Source, "UPDATE user_ingestion_jobs SET user_book_file_id = @PdfFile WHERE id = @EpubJob", new { PdfFile, EpubJob });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM ingestion_jobs WHERE id = @EpubJob", new { EpubJob }));
+        Assert.Contains($"user_ingestion_jobs {EpubJob}: not carried, its file {PdfFile} has no book_files row", report.OrphanCandidates);
+    }
 }
