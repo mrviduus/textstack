@@ -12,10 +12,10 @@ legacy database.
 ## V2 (`textstack_v2`) — see [ADR-031](adr/ADR-031-v2-schema.md)
 
 A second database ([ADR-030](adr/ADR-030-two-databases-one-cutover.md)), created and migrated by
-`migrator-v2` ([database/v2/](../../database/v2/README.md)). 24 permanent tables + 2 transitional;
+`migrator-v2` ([database/v2/](../../database/v2/README.md)). 24 permanent tables + 2 transitional, plus the ETL's ledger `migration_runs` (`0003`/`0004`, dropped at M6.5);
 column truth: [`database/v2/migrations/0000_baseline.up.sql`](../../database/v2/migrations/0000_baseline.up.sql)
 plus the migrations after it, read in order (`0001_sync_protocol_deltas`: ADR-031 "Amended 2026-11-01";
-`0002_identity_and_indexes`: "Amended 2026-11-02").
+`0002_identity_and_indexes`: "Amended 2026-11-02"; `0003_migration_runs` + `0004_migration_runs_fixes`: the `etl-v2` run ledger, v2-plan §5.2).
 What happens to each legacy table (the disposition column) lives in ADR-031, not here. The legacy
 inventory below stays until M6, when this page becomes V2 only.
 
@@ -212,6 +212,7 @@ and `reading_sessions` serve both through edition-or-upload keys, at most one se
 | `bookmarks`, `highlights`, `book_insight`, `review_question` | user_id | Annotations, assistant output |
 | `mcp_access_keys`, `oauth_grants`, `device_authorizations`, `oauth_authorization_requests` | user id | Credentials |
 | `llm_traces`, `agent_run` | prompt/response text (scrubbed before write) | Traces carry no user id; their text goes after 30 d. Agent runs are deleted with the account. (`shadow_runs` held the same, was never written; dropped by `0007`) |
+| `migration_runs` (V2) | counts + validation report of an `etl-v2` run: may name legacy row ids and user ids (orphan candidates, errors); the `etl-v2` CLI must store errors as exception type + SQLSTATE only (the full message, which can quote a row's values, goes to the operator's console, never to the ledger; pinned by the M3.1 tests), so no email or content | No `user_id`, so an account delete does not reach it; kept only until M6.5, which drops the table |
 | `user_books`, `user_chapters`, `user_book_files`, `user_book_bookmarks`, `user_libraries`, `user_ingestion_jobs` | user_id | Uploaded content + library |
 
 **Guest users**: `users.is_guest = true`. `GuestCleanupWorker` (every 2 h) deletes guests inactive

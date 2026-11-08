@@ -58,7 +58,8 @@ with a written sunset; **Q3** retire collections; **Q5** keep guest sessions (AD
 ## Decision — tables
 
 **24 permanent + 2 transitional = 26** at baseline (plus the runner's `schema_migrations` and the
-ETL's `migration_runs`, dropped at M6). After M6.4, `\dt` lists the 24 (plan §10).
+ETL's `migration_runs`, migrations `0003`/`0004`, dropped at M6.5 with the legacy database). After M6.5,
+`\dt` lists the 24 (plan §10).
 "Draft" = the table is in the validated draft; "legacy" = not in the draft, defined as the legacy
 shape minus `site_id` plus the delta shown.
 
