@@ -27,11 +27,12 @@ public sealed class LibraryRootTests : IDisposable
         if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true);
     }
 
-    private static IConfiguration Config(string? rootPath, string? libraryRoot) =>
+    private static IConfiguration Config(string? rootPath, string? libraryRoot, bool v2Api = false) =>
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Storage:RootPath"] = rootPath,
             ["Storage:LibraryRoot"] = libraryRoot,
+            ["Features:V2Api"] = v2Api ? "true" : "false",
         }).Build();
 
     private static void Register(IConfiguration config) => new ServiceCollection().AddTextStackFileStores(config);
@@ -108,14 +109,56 @@ public sealed class LibraryRootTests : IDisposable
     [Theory]
     [InlineData("library/ab/abcd/1234/5678.epub")]
     [InlineData("uploads/abcd/5678/00000.part")]
-    public void AddTextStackFileStores_LeftoverV2FileUnderStorageRoot_ThrowsWithMoveCommand(string leftover)
+    public void AddTextStackFileStores_V2OnLeftoverV2FileUnderStorageRoot_ThrowsWithMoveCommand(string leftover)
+    {
+        WriteLeftover(leftover);
+
+        var e = Assert.Throws<InvalidOperationException>(() => Register(Config(StorageRoot, Path.Combine(_dir, "library"), v2Api: true)));
+        Assert.Contains("mv data/storage/library data/storage/uploads data/library/", e.Message);
+    }
+
+    [Theory]
+    [InlineData("library/ab/abcd/1234/5678.epub")]
+    [InlineData("uploads/abcd/5678/00000.part")]
+    public void AddTextStackFileStores_V2OffLeftoverV2FileUnderStorageRoot_Registers(string leftover)
+    {
+        WriteLeftover(leftover);
+
+        var services = new ServiceCollection().AddTextStackFileStores(Config(StorageRoot, Path.Combine(_dir, "library")));
+
+        Assert.Contains(services, d => d.ServiceType == typeof(ILibraryFileStore));
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public void AddTextStackFileStores_UnreadableSubdirectory_DoesNotThrow()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "unix modes");
+        var locked = Path.Combine(StorageRoot, "library", "locked");
+        Directory.CreateDirectory(locked);
+        File.SetUnixFileMode(locked, UnixFileMode.None);
+        try
+        {
+            Register(Config(StorageRoot, Path.Combine(_dir, "library"), v2Api: true));
+        }
+        finally
+        {
+            File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void StorageRoot_UnsetOrBlank_DefaultsToStorage(string? value) =>
+        Assert.Equal("/storage", FileStoreRegistration.StorageRoot(Config(value, null)));
+
+    private void WriteLeftover(string leftover)
     {
         var path = Path.Combine(StorageRoot, leftover);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, "x");
-
-        var e = Assert.Throws<InvalidOperationException>(() => Register(Config(StorageRoot, Path.Combine(_dir, "library"))));
-        Assert.Contains("mv data/storage/library data/storage/uploads data/library/", e.Message);
     }
 
     [Fact]

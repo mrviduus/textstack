@@ -92,7 +92,7 @@ Data takes ~4 min to restore (drill timings). Most of the time is rebuilding the
    $R snapshots
    $R restore latest --path /backup --target /out/restore
    cp restore/backup/env .env && mkdir -p data && mv restore/backup/storage data/storage
-   mkdir -p data/library && [ -d restore/backup/library ] && mv restore/backup/library/* data/library/   # snapshots before #1110 have none
+   mkdir -p data/library && { [ ! -d restore/backup/library ] || cp -a restore/backup/library/. data/library/; }   # snapshots before #1110 have none
    ```
 3. **Start only the database** and load the dump (prod user from `.env`):
    ```bash

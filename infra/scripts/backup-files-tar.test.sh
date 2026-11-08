@@ -30,4 +30,9 @@ else
   [ ! -e "$T/c.tar.gz" ] && [ ! -e "$T/c.tar.gz.partial" ] || fail "a failed backup left an archive"
 fi
 
+# 4. Interrupted mid-archive (tar killed): the trap removes the partial file.
+mkdir -p "$T/fakebin"; printf '#!/bin/sh\ntouch "$2"; kill -TERM $PPID\n' > "$T/fakebin/tar"; chmod +x "$T/fakebin/tar"
+PATH="$T/fakebin:$PATH" bash "$TAR" "$T/data" "$T/d.tar.gz" >/dev/null 2>&1 || true
+[ ! -e "$T/d.tar.gz.partial" ] || fail "an interrupted backup left $T/d.tar.gz.partial"
+
 echo "backup-files-tar: ok"

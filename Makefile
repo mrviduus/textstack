@@ -89,7 +89,8 @@ fix-permissions:
 	@echo "Fixing volume permissions..."
 	@docker run --rm -v $$(pwd)/data:/data alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 sh -c '\
 		mkdir -p /data/library /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache /data/pdf-cleanup-dataset && \
-		chown -R 1000:1000 /data/library /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache /data/pdf-cleanup-dataset'
+		chown 1000:1000 /data/library && \
+		chown -R 1000:1000 /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache /data/pdf-cleanup-dataset'
 	@echo "Done."
 
 # Queues a Full rebuild for ssg-worker and follows it to the end (the only rebuild besides admin, #992).

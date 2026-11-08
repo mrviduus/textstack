@@ -582,8 +582,8 @@ migration's `COMMENT ON COLUMN` corrects it.
 **As built (M2.6).**
 - `Storage:LibraryRoot` is `/library` (`./data/library` on api and worker), its own persistent volume
   outside the public `/storage` root (#1110), so the keys `library/…` and the parts
-  `uploads/{userId}/{fileId}/{index:D5}.part` survive an api restart and nothing serves them: no
-  denylist in `UserStoragePolicy` or nginx. Every key is built from ids and the stored
+  `uploads/{userId}/{fileId}/{index:D5}.part` survive an api restart and nothing serves them; the
+  `/storage/library|uploads` 404 in `UserStoragePolicy` and nginx stays as defense in depth. Every key is built from ids and the stored
   `format`, never from client text. Book bytes are served `Cache-Control: private, no-store`.
 - **Quota** = `SUM(byte_size)` of the user's files with `server_storage_key` set, against legacy's tier
   limits and `storage_limit_override_bytes`. A part checks it cheaply (stored + this file's size); the

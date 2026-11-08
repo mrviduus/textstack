@@ -19,10 +19,11 @@ else
   echo "::notice::$data/library does not exist (no V2 library yet): archiving storage only"
 fi
 
+# Never a half archive left behind: on failure, interrupt, or (harmless) after the rename.
+trap 'rm -f "$out.partial"' EXIT
 rc=0
 tar czf "$out.partial" -C "$data" "${dirs[@]}" || rc=$?
 if [ "$rc" -gt 1 ]; then
-  rm -f "$out.partial"
   echo "::error::tar exited $rc: $out not written"
   exit "$rc"
 fi

@@ -37,7 +37,7 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException("ConnectionStrings:Default is required");
 
 // storagePath is consumed again by the static-file middleware below.
-var storagePath = builder.Configuration["Storage:RootPath"] ?? "/storage";
+var storagePath = Infrastructure.Services.FileStoreRegistration.StorageRoot(builder.Configuration);
 
 // Persistence, search, RAG, product services, workers, and rate-limiting.
 builder.Services
@@ -306,7 +306,7 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
         }
     }
 
-    var (storageOk, storage) = await ProbeAsync(cfg["Storage:RootPath"] ?? "/storage");
+    var (storageOk, storage) = await ProbeAsync(Infrastructure.Services.FileStoreRegistration.StorageRoot(cfg));
     components["storage"] = storage;
     criticalOk &= storageOk;
 
