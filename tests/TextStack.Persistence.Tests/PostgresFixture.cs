@@ -24,14 +24,16 @@ public sealed class PostgresFixture : IAsyncLifetime, IIdentityFixture
 
     public NpgsqlDataSource DataSource { get; private set; } = null!;
 
+    /// <summary>Whole databases of a test's own in this cluster (legacy or V2), copied from migrated templates.</summary>
+    public ScratchDatabases Databases { get; }
+
+    public PostgresFixture() => Databases = new ScratchDatabases(_container);
+
     public async ValueTask InitializeAsync()
     {
         await _container.StartAsync();
-        var migrate = await _container.ExecAsync(
-            ["sh", "-c", "PGUSER=postgres PGDATABASE=postgres sh /database/migrate.sh up"]);
-        if (migrate.ExitCode != 0)
-            throw new InvalidOperationException($"migrate.sh up failed:\n{migrate.Stdout}\n{migrate.Stderr}");
-        DataSource = Infrastructure.Persistence.DataSource.Create(_container.GetConnectionString());
+        await Databases.MigrateLegacyAsync("postgres");
+        DataSource = Infrastructure.Persistence.DataSource.Create(Databases.ConnectionString("postgres"));
     }
 
     public async ValueTask DisposeAsync()

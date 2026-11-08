@@ -33,17 +33,18 @@ public sealed class V2PostgresFixture : IAsyncLifetime, Identity.IIdentityFixtur
 
     public V2DataSource DataSource { get; private set; } = null!;
 
+    /// <summary>Whole V2 databases of a test's own in this container, copied from a migrated template.</summary>
+    public ScratchDatabases Databases { get; }
+
+    public V2PostgresFixture() => Databases = new ScratchDatabases(_container);
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     public async ValueTask InitializeAsync()
     {
         await _container.StartAsync();
-        var migrate = await _container.ExecAsync(
-            ["sh", "-c", "PGUSER=postgres PGDATABASE=textstack_v2 sh /database/v2/run.sh up"]);
-        if (migrate.ExitCode != 0)
-            throw new InvalidOperationException($"run.sh up failed:\n{migrate.Stdout}\n{migrate.Stderr}");
-        var connectionString = new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = "textstack_v2" };
-        DataSource = new V2DataSource(connectionString.ConnectionString);
+        await Databases.MigrateV2Async("textstack_v2");
+        DataSource = new V2DataSource(Databases.ConnectionString("textstack_v2"));
     }
 
     public async ValueTask DisposeAsync()

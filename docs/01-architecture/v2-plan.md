@@ -113,7 +113,7 @@ flowchart TB
   v2 --> fs
   oldr --> leg --> db1
   shim --> v2
-  etl[ETL CLI<br/>migrate-v2] --> db1
+  etl[ETL CLI<br/>etl-v2] --> db1
   etl --> db2
   classDef gone stroke-dasharray: 5 5
   class leg,db1,oldr,etl gone
@@ -252,20 +252,21 @@ flowchart LR
 - **Both DBs in one process** during M2–M5: a second `NpgsqlDataSource` (`V2DataSource`) registered beside the existing one; `IAppDbContext` stays bound to legacy.
 - **Cutover is one rehearsed event**, not a drift: the ETL is run on restored backups until the validation script reports 0 failures three times in a row; then on production inside a write freeze (minutes, not hours — the data is small: 58 tables, largest preserved set is `user_chapters` 131 MB).
 
-### 5.2 ETL — `dotnet run --project backend/src/Api -- migrate-v2 [--dry-run] [--source <cs>] [--target <cs>]`
+### 5.2 ETL — `dotnet run --project backend/src/Api -- etl-v2 [--dry-run] [--source <cs>] [--target <cs>] [--source-dump-sha <hex>]`
 - Reads legacy with Dapper (read-only connection), writes V2 through the **same repositories the API uses** (so every constraint and ownership rule is exercised) except bulk `book_chapters`, which uses `COPY`.
-- **Deterministic ids**: uploads keep ids; catalog pairs → `uuid_v5('textstack-v2', user ‖ edition)`; examples/reviews `operation_id` = `uuid_v5(…, legacy row id)`. Re-runs are no-ops (`ON CONFLICT DO NOTHING` + count report).
+- **Deterministic ids**: uploads keep ids; catalog pairs → `uuid_v5('textstack-v2', user ‖ edition)`; examples/reviews `operation_id` = `uuid_v5(…, legacy row id)`. Re-runs converge, never silently: each aggregate states its own conflict rule (M3.2/M3.3; users upsert by id, #1094). No blanket `ON CONFLICT DO NOTHING`: a target row that differs from what the source maps to is reported, not skipped.
 - **Pair selection** for catalog books = the intent query from [catalog-retirement-plan.md §3.4](catalog-retirement-plan.md) minus bookmarks (retired).
 - Ledger `migration_runs(id, started_at, finished_at, outcome, source_dump_sha, counts jsonb, validation jsonb, validation_failures int)` in V2 (migrations `0003`+`0004`; `finished_at`/`outcome` NULL = running, or dead and not yet closed (only the lock tells them apart); a run that holds the ETL lock closes every unfinished row except its own as `interrupted`, never deletes them; a finish writes only its own still-unfinished row and fails loudly if it was closed meanwhile; `validation_failures` (typed, 0 on a succeeded run) is what a gate reads; `--source-dump-sha` records the rehearsal backup's SHA-256; dry runs write no row) — the only table not in §4.2; dropped at M6.5.
 - **Validation script** `database/v2/scripts/validate-etl.sql` (adapted from catalog plan §6.2): completeness per intent pair; ownership; every migrated annotation's `selected_text` found in its chapter `plain_text` (uploads); SRS fields equal; review counts equal; insight hashes equal; sessions seconds per user equal; 0 rows with unknown `user_id`.
-- Rehearsal = `restore-drill.yml` + `migrate-v2` + validation on a throwaway branch (the drill already restores a backup).
+- **Run safety** (M3.1, owner 2026-11-07): the source is read as the SELECT-only `etl_reader` (`database/scripts/etl-reader.sql`; every run audits the login's (`session_user`) effective privileges and refuses one that can write, or a session running as another role), read-only per connection too (`default_transaction_read_only`), in one REPEATABLE READ snapshot; source and target must differ by server-side identity (system identifier + database); one run at a time (`pg_try_advisory_lock` on the target, a second run is refused); unfinished rows are closed as `interrupted` only under that lock (a dry run lists them, closes none); `--dry-run` writes nothing, ledger included, and opens the target read-only: an M3.2/M3.3 step computes what it would write and counts it, it never writes and rolls back (sequences advance anyway); a real run succeeds only if its steps ran validation checks and all passed (0 checks = `NoValidationChecks`, failed; a dry run, which writes no gate row, reports 0 checks with a warning and exits 0); the lock is re-checked before every step and the final ledger write (lost = abort); the ledger INSERT and finish ignore the cancel token, so a committed finish is never mis-reported; no statement or idle timeout on either connection; credentials come from env (`ConnectionStrings__Default`/`__V2`) or a pgpass file (`Passfile=`), never argv (a password there: exit 2); no secret in any output, and the ledger's error is `{"error":{"type","sqlState"}}` only (the scrubbed message goes to stderr); Ctrl+C = `failed`, exit 130; orphans and cleanups are reported, never deleted by a retry. Runbook: [v2-etl.md](../03-ops/v2-etl.md). `make etl-v2 ARGS=--dry-run`; `make migrate-v2` stays the schema migrator.
+- Rehearsal = `restore-drill.yml` + `etl-v2` + validation on a throwaway branch (the drill already restores a backup).
 
 ### 5.3 Cutover (M5), step list
 1. Deploy build N: V2 modules on, flag `Database:Mode=legacy`. Shim (§5.4) deployed but dormant.
 2. Announce window; `MOBILE_MIN_SUPPORTED_BUILD` unchanged.
 3. Freeze: API returns 503 on writes to legacy for ≤10 min (`Maintenance:WriteFreeze=true`).
 4. `pg_dump` legacy → archive (outside restic retention); git tag `pre-v2-cutover`.
-5. `migrate-v2` on production; `validate-etl.sql` → must be 0 failures.
+5. `etl-v2` on production; `validate-etl.sql` → must be 0 failures.
 6. Flip `Database:Mode=v2` (force-recreate api/worker). Legacy DB `ALTER DATABASE … SET default_transaction_read_only = on`.
 7. Smoke: web + Android: sign in, library, open upload, highlights, vocabulary, MCP S1–S10 scenario suite (reused from catalog plan §8.1).
 8. **Rollback** (within the window): flip back to `legacy`, read-only off. Legacy was never written by V2 code, so nothing to reconcile.
@@ -353,7 +354,7 @@ Fixed rules for every slice: English only; one PR, closes its issue; `/pr` write
 ### M3 — ETL rehearsed
 | # | Agent | Do | DoD |
 |---|---|---|---|
-| M3.1 | backend-engineer | `migrate-v2` CLI skeleton, ledger, dry-run, counts | runs on CI Testcontainers pair |
+| M3.1 | backend-engineer | `etl-v2` CLI skeleton, ledger, dry-run, counts | runs on CI Testcontainers pair |
 | M3.2 | backend-engineer | mappers: users/admin → users; uploads → books/files/state/annotations/chapters | validation §5.2 parts 1–4 |
 | M3.3 | backend-engineer | catalog pairs → books (no file) + unanchored annotations; vocabulary → words/examples/reviews; insights, sessions | validation parts 5–8 |
 | M3.4 | qa-automation | `validate-etl.sql`; T1–T4 from catalog plan §6.1 (interrupted, retry, concurrent, idempotent) | all green on a fixture DB |
@@ -387,7 +388,7 @@ M6.1 catalog/SEO/SSG code · M6.2 EF Core + `AppDbContext` + drift tests · M6.3
 
 ## 10. Verification (end to end)
 - `database/v2/tests/roundtrip.sh` + `dotnet test tests/TextStack.Persistence.Tests` (both fixtures) in CI.
-- `migrate-v2 --dry-run` + `validate-etl.sql` in CI against a seeded legacy fixture.
+- `etl-v2 --dry-run` + `validate-etl.sql` in CI against a seeded legacy fixture.
 - `restore-drill.yml` variant: restore → ETL → validate → 0 failures.
 - Integration tests on `Database:Mode=v2`; MCP over-the-wire S1–S10.
 - Reader: R3 Playwright check; R4 evidence table.
