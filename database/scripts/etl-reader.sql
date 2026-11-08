@@ -36,7 +36,7 @@ DO $$ BEGIN EXECUTE format('GRANT CONNECT ON DATABASE %I TO etl_reader', current
 
 GRANT USAGE ON SCHEMA public TO etl_reader;
 
--- Exactly the tables etl-v2 reads (EtlV2.SourceCounts); a mapper that reads one more adds it here.
+-- Exactly the tables etl-v2 reads (EtlV2.SourceCounts, then each step's SourceTables); a mapper that reads one more adds it here.
 GRANT SELECT ON TABLE
     public.users,
     public.admin_users,
@@ -49,5 +49,16 @@ GRANT SELECT ON TABLE
     public.vocabulary_reviews,
     public.book_insight,
     public.review_question,
-    public.reading_sessions
+    public.reading_sessions,
+    -- M3.3: the catalog intent query (minus bookmarks) and what a pair's book snapshots.
+    public.editions,
+    public.edition_authors,
+    public.authors,
+    public.chapters,
+    public.reading_progresses,
+    public.pending_vocabulary_words,
+    public.word_lookups,
+    public.word_clusters,
+    public.collections,
+    public.book_collections
 TO etl_reader;

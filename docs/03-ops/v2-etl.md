@@ -13,7 +13,7 @@ The ETL reads legacy as a SELECT-only role. The read-only connection default
 safeguard; the role is the one that holds when a session switches that default off.
 
 `etl_reader` has: LOGIN, CONNECT on the source database, USAGE on `public`, SELECT on exactly the tables
-etl-v2 reads (the list in the script, the same as `EtlV2.SourceCounts`). It has no ownership, no
+etl-v2 reads (the list in the script: `EtlV2.SourceCounts` plus each step's `SourceTables`). It has no ownership, no
 SUPERUSER/CREATEROLE/CREATEDB/REPLICATION/BYPASSRLS, NOINHERIT and no role membership. The application
 role's privileges are not touched.
 
@@ -118,8 +118,7 @@ own process with signals proxied, not inside the serving api. **No merge to `mai
 flight**: a deploy recreates services and may take the run's network or image with it.
 
 A run succeeds only if its steps ran validation checks and every one passed. A real run with no check
-fails closed (`NoValidationChecks`): until M3.2 adds count parity, every real run ends `failed`, by
-design. A dry run writes no gate row, so with 0 checks it exits 0 with its report and warns
+fails closed (`NoValidationChecks`). A dry run writes no gate row, so with 0 checks it exits 0 with its report and warns
 `0 validation checks ran (no mapper steps yet)` on stderr: its exit code stays the audit's verdict. In a
 dry run, steps compute and count what they would write; nothing is written (not even rolled back: a
 rolled-back transaction still advances sequences).
@@ -144,3 +143,52 @@ the second SIGINT). If it does not (a run stuck where no signal reaches it), `do
 
 A run killed outright leaves its ledger row unfinished; the next real run, once it holds the lock,
 closes it as `interrupted` and lists it in `interruptedRuns`. Nothing is ever deleted.
+
+## 4. M3.3 mappers: catalog pairs, vocabulary, insights, sessions
+
+Steps `catalog`, `vocabulary`, `insights`, `sessions`, `unknown-users`, in that order, after M3.2's
+(`backend/src/Infrastructure/Persistence/Etl/Steps/`). They write with their own inline SQL, not the API
+repositories: those stamp `now()` and move the schedule, and a migrated row keeps its legacy times and
+SRS state; the schema's CHECKs and FKs hold either way.
+
+**One rule for every aggregate.** A planned row is compared with the target row under its id:
+absent → inserted (a dry run counts it: check `<table>: would insert N, unchanged M`); equal → nothing;
+different → a **mismatch**: never overwritten, listed by id in `cleanupActions`, and a failure of
+`<table>.target-matches-source`. No `ON CONFLICT`: a unique key held by another row fails the run. A
+source row the target's CHECK/FK would refuse is **unmappable**: listed by id, a failure of
+`<table>.unmappable`, never carried half. A row whose user (or edition, or insight) is not there is an
+**orphan candidate**: listed by id in `orphanCandidates`, not carried, not a failure, never deleted.
+"Known users" = the target's `users` (a dry run adds the source's: the users step would have written them).
+
+| Aggregate (target) | Id | Conflict / edge rule |
+|---|---|---|
+| Catalog pair (`books`) | `uuid_v5(ns, user ‖ edition)`, ns = `uuid_v5(nil, "textstack-v2")`, names in RFC byte order | Pair = catalog plan §3.4's intent query minus bookmarks (`user_libraries`, `reading_progresses`, catalog `highlights`, `vocabulary_words`, `pending_vocabulary_words`, `word_lookups`, `word_clusters`, `book_insight`, savedbook shelf entries). Row: edition title, first author by credit order, edition language, `origin {"kind":"catalog","editionSlug"}`, `created_at = updated_at` = the pair's first intent; no file, no reading state (D5). Edition gone (dangling shelf entry) or user unknown → orphan. Every column is compared, defaults included |
+| Catalog highlight (`annotations`) | legacy id | Unanchored: text, note, colour, times, `revision = version`; no file, no locator. A highlight with neither edition nor upload (its book was deleted) → orphan. Upload highlights are M3.2's |
+| Vocabulary card (`vocabulary_words`) | the survivor's legacy id | Merge below. Another card already holding the planned `(user, language, word_key)` → reported (`vocabulary_words.key-held-by-another-card`), the card and its examples and reviews not written |
+| Example (`vocabulary_examples`) | `id = operation_id = uuid_v5(ns, legacy card id)` | One per legacy card with a non-blank sentence, on the survivor. Book: the upload's id, or the catalog pair's book; a deleted edition leaves no book but keeps `book_title`. `chapter_key` = the catalog chapter's `COALESCE(slug, 'ch-' ‖ number)`, only with a book. Hash: `VocabularyPayloads.ExampleSha256` over the survivor's `language` + `word_key` |
+| Review (`vocabulary_reviews`) | legacy id; `operation_id = uuid_v5(ns, legacy id)` | On its card's survivor; `client_recorded_at` = `created_at` truncated to ms (stored and hashed: `VocabularyPayloads.ReviewSha256`); `created_at` exact |
+| Insight (`book_insight`) | legacy id | `book_id` = the upload's id or the pair's book. Unmappable: `source` not `mcp`; `review_json` without `chapter_slug` |
+| Review question (`review_question`) | legacy id | As stored, `prompt_hash` verbatim even where today's `OpenThreads.PromptHash` would differ (a legacy hash is kept, never recomputed). Its insight not carried → orphan |
+| Session (`reading_sessions`) | legacy id = `client_session_id` | `book_id` = the upload's id, or the pair's book if the pair is carried; a session-only pair (no intent row), a deleted edition or a deleted upload → `book_id` NULL, still counted; reported (session-only) as an orphan candidate, carried anyway. `deleted_book_sha256` as stored. Unmappable: percent outside 0..1, negative duration/words |
+
+**Vocabulary case merge (ADR-031 decided item 4).** Group key: `(user, WordKeys.Language(language),
+WordKeys.Of(word))` — trimmed, invariant-lowercased, the API's own functions ("Run", "run" and " RUN "
+in `EN` are one card). Survivor: the higher `total_reviews`, then the newer `updated_at`, then the lower
+id (a full tie is still deterministic). The card is the survivor's row as it was: its spelling,
+translation, definition, schedule (`stage`, `interval_days`, `consecutive_correct`, `next_review_at`,
+`last_reviewed_at`), `created_at`/`updated_at`. Edge cases:
+- **Both cards have reviews**: every review of both moves to the survivor; the schedule stays the
+  survivor's; the loser's schedule is not carried. `vocabulary.review-counts-equal` checks the group's
+  legacy review rows = the survivor's V2 reviews.
+- **Both have sentences**: each becomes its own example on the survivor (with its own book/chapter).
+- **Only the loser has a translation or definition**: dropped with the loser (the survivor's fields only).
+- **Retired**: the survivor's `is_retired` → `retired_at` (its `retired_at`, or `updated_at` when that is
+  null); a loser's retirement is not carried.
+- **Language case** (`en` vs `EN`) merges; a blank word or language after trimming is unmappable.
+
+**Validation checks** (a real run; they read the target back): `catalog.intent-pairs-complete` (every
+carried pair's book and annotations as mapped), `vocabulary.srs-fields-equal`,
+`vocabulary.review-counts-equal`, `insights.hashes-equal` (canonical-JSON SHA-256 of every mapped column,
+insights and questions), `sessions.seconds-per-user-equal` (all legacy sessions of a known user vs the
+target), `unknown-user-ids` (rows in these eight tables whose owner is no legacy user or admin). A dry run
+registers only the mismatch, unmappable and would-insert checks.

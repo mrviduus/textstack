@@ -1,6 +1,7 @@
 using System.Data;
 using System.Text.Json;
 using Dapper;
+using Infrastructure.Persistence.Etl.Steps;
 using Npgsql;
 
 namespace Infrastructure.Persistence.Etl;
@@ -14,10 +15,14 @@ public static class EtlV2
 {
     /// <summary>
     /// The mappers, in dependency order: users first (every V2 row points at one), then books, then
-    /// what hangs on books. Empty until M3.2. A step writes through the V2 repositories and never
-    /// deletes on its own: what it would delete goes to <see cref="EtlV2Context.OrphanCandidates"/>.
+    /// what hangs on books. M3.2's steps go first; M3.3's (catalog pairs, vocabulary, insights,
+    /// sessions, then the unknown-user check) after them. A step never deletes on its own: what it
+    /// would delete goes to <see cref="EtlV2Context.OrphanCandidates"/>.
     /// </summary>
-    public static readonly IReadOnlyList<EtlV2Step> Steps = [];
+    public static readonly IReadOnlyList<EtlV2Step> Steps =
+    [
+        EtlV2Catalog.Step, EtlV2Vocabulary.Step, EtlV2Insights.Step, EtlV2Sessions.Step, EtlV2UnknownUsers.Step,
+    ];
 
     /// <summary>The session advisory lock on the target ("etl-v2" in ASCII) that keeps runs one at a time.</summary>
     public const long LockKey = 0x65_74_6c_2d_76_32;
