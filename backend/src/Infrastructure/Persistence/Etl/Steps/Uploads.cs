@@ -275,18 +275,21 @@ public static partial class EtlV2Uploads
             var takenDown = book.TakedownAt is not null;
             // ADR-031 item 2: null sha256 → hashed from the bytes; no bytes → no row, the book stays without a file.
             // A takedown's bytes are hashed, never copied.
-            if (bytes.Carry($"user_book_files {f.Id}", f.StoragePath, key, f.Sha256, copy: !takenDown, recordedSize: f.ByteSize) is not { } sha256)
+            if (bytes.Carry($"user_book_files {f.Id}", f.StoragePath, key, f.Sha256, copy: !takenDown, recordedSize: f.ByteSize) is not (string sha256, long length))
             {
                 context.OrphanCandidates.Add($"user_book_files {f.Id}: no bytes on disk; book {book.Id} migrates without a file (ADR-031 item 2)");
                 continue;
             }
+            if (f.Sha256 == sha256 && f.ByteSize != length)
+                context.CleanupActions.Add($"book_files {f.Id}: legacy file_size {f.ByteSize} differs from the bytes ({length}); byte_size taken from the bytes");
             rows[book.Id] = new FileRow
             {
                 Id = f.Id,
                 UserId = book.UserId,
                 BookId = book.Id,
                 Sha256 = sha256,
-                ByteSize = f.ByteSize,
+                // The bytes are the truth (V2's quota sums byte_size); a recorded sha256 has vouched for them.
+                ByteSize = length,
                 OriginalName = f.OriginalName,
                 Format = format,
                 PageCount = book.PageCount,
@@ -357,8 +360,8 @@ public static partial class EtlV2Uploads
 
         public int Present { get; private set; }
 
-        /// <summary>The bytes' SHA-256 when legacy has them (copy queued, unless V2 holds them already or not <paramref name="copy"/>); null when missing.</summary>
-        public string? Carry(string what, string relativePath, string key, string? recordedSha256, bool copy = true, long? recordedSize = null)
+        /// <summary>The bytes' SHA-256 and length when legacy has them (copy queued, unless V2 holds them already or not <paramref name="copy"/>); null when missing.</summary>
+        public (string Sha256, long Length)? Carry(string what, string relativePath, string key, string? recordedSha256, bool copy = true, long? recordedSize = null)
         {
             var from = Path.GetFullPath(Path.Combine(_storageRoot, relativePath));
             if (!from.StartsWith(_storageRoot, StringComparison.Ordinal))
@@ -376,7 +379,7 @@ public static partial class EtlV2Uploads
             if (recordedSha256 is null && recordedSize is { } size && size != length)
                 _wrongSize.Add(what);
             if (!copy)
-                return sha256;
+                return (sha256, length);
             var to = Path.Combine(_libraryRoot, key);
             if (!File.Exists(to))
                 Pending.Add((from, to));
@@ -385,7 +388,7 @@ public static partial class EtlV2Uploads
                 Present++;
             else
                 _keyTaken.Add(what);
-            return sha256;
+            return (sha256, length);
         }
 
         /// <summary>Each queued copy to a temp file beside its key, then renamed into place; an existing key is never overwritten.</summary>

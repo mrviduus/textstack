@@ -888,4 +888,17 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.Contains($"books {book}: V2 row with no legacy row; not deleted, a human reviews it", report.CleanupActions);
         Assert.Equal(1, await V2Scalar<long>(options, "SELECT count(*) FROM books WHERE id = @book", new { book }));
     }
+
+    [Fact]
+    public async Task RunAsync_RecordedShaMatchesButFileSizeWrong_ByteSizeFromBytesAndReported()
+    {
+        // V2's quota sums byte_size: it is the bytes' length; legacy's drift is reported, not failed (the sha vouched for the bytes).
+        var options = await SeedAsync();
+        await ExecAsync(options.Source, "UPDATE user_book_files SET file_size = 999 WHERE id = @PdfFile", new { PdfFile });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal(PdfBytes.Length, await V2Scalar<long>(options, "SELECT byte_size FROM book_files WHERE id = @PdfFile", new { PdfFile }));
+        Assert.Contains($"book_files {PdfFile}: legacy file_size 999 differs from the bytes ({PdfBytes.Length}); byte_size taken from the bytes", report.CleanupActions);
+    }
 }
