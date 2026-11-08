@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Infra** — M3.3: the `etl-v2` mapper steps — catalog pairs → `books` (uuid v5, no file) + unanchored annotations, vocabulary with its case-merge, insights, review questions, sessions, and the unknown-users check (#1028) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-11-08-m3-3-etl-mappers-catalog-vocab)
 - **Infra** — M3.2: the `etl-v2` mapper steps — users/admin → `users`, uploads → `books`/`book_files`/`reading_state`/`annotations`/`book_chapters`/`ingestion_jobs` (fenced writes, per-aggregate named checks, files copied never moved, takedowns carried hidden without bytes, #1027) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-11-08-m3-2-etl-mappers-users-uploads)
 - **Infra** — M3.1: the `etl-v2` CLI skeleton (ledger, ETL lock, read-only audited `etl_reader` source, dry run that writes nothing, fail-closed validation; no mapper steps yet, #1026) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-11-07-m3-1-etl-v2-cli-skeleton)
 - **Infra** — `textstack_v2` gains the `etl-v2` run ledger `migration_runs` (`0003` #1131, `0004` #1133); not applied on prod until `make migrate-v2` — infra · [details](docs/changelog-archive/2026-H2.md#2026-11-08-v2-migration-runs-ledger)
