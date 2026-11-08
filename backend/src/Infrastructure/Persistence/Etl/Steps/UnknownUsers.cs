@@ -1,48 +1,33 @@
 using Dapper;
 
-namespace Infrastructure.Persistence.Etl.Steps;
+namespace Infrastructure.Persistence.Etl;
 
 /// <summary>
-/// v2-plan §5.2 validation: 0 rows with an unknown <c>user_id</c> in the tables M3.3 writes — every
-/// owner is a legacy user or admin (the only accounts M3.2 carries). The FKs prove the user exists in
-/// the target; this proves it came from the source. Read-only; a real run only.
+/// v2-plan §5.2 validation: 0 rows with an unknown <c>user_id</c> in the tables etl-v2 writes. Every owner is a
+/// legacy user or admin (the only accounts the users step carries): the FKs prove the user exists in V2, this
+/// proves it came from legacy. Read-only, on a dry and a real run; the failing ids are <c>table/user</c>.
 /// </summary>
 public static class EtlV2UnknownUsers
 {
-    public static readonly string[] SourceTables = ["users", "admin_users"];
+    private static readonly string[] Owned =
+    [
+        "books", "book_files", "reading_state", "annotations", "book_chapters", "ingestion_jobs",
+        "vocabulary_words", "vocabulary_examples", "vocabulary_reviews", "book_insight", "review_question", "reading_sessions",
+    ];
 
-    public static readonly string[] TargetTables =
-        [.. EtlV2Catalog.TargetTables, .. EtlV2Vocabulary.TargetTables, .. EtlV2Insights.TargetTables, .. EtlV2Sessions.TargetTables];
+    public static readonly EtlV2Step Step = new("unknown-users", ["users", "admin_users"], Owned, RunAsync);
 
-    public static readonly EtlV2Step Step = new("unknown-users", RunAsync);
+    private const string SelectLegacyOwners = "SELECT id FROM users UNION SELECT id FROM admin_users";
 
-    private const string SourceOwners = "SELECT id FROM users UNION SELECT id FROM admin_users";
-
-    // TargetTables, one branch each.
-    private const string TargetOwners = """
-        SELECT t, user_id, count(*) AS rows FROM (
-            SELECT 'books' AS t, user_id FROM books
-            UNION ALL SELECT 'annotations', user_id FROM annotations
-            UNION ALL SELECT 'vocabulary_words', user_id FROM vocabulary_words
-            UNION ALL SELECT 'vocabulary_examples', user_id FROM vocabulary_examples
-            UNION ALL SELECT 'vocabulary_reviews', user_id FROM vocabulary_reviews
-            UNION ALL SELECT 'book_insight', user_id FROM book_insight
-            UNION ALL SELECT 'review_question', user_id FROM review_question
-            UNION ALL SELECT 'reading_sessions', user_id FROM reading_sessions) owners
-        GROUP BY t, user_id
-        """;
+    // Owned's tables (code constants), one branch each.
+    private static readonly string SelectV2Owners =
+        string.Join(" UNION ", Owned.Select(t => $"SELECT DISTINCT '{t}' AS t, user_id FROM {t}"));
 
     private static async Task RunAsync(EtlV2Context context, CancellationToken ct)
     {
-        if (context.DryRun)
-            return;
-        var source = context.Source;
-        var known = (await source.Connection!.QueryAsync<Guid>(new CommandDefinition(SourceOwners, transaction: source, cancellationToken: ct))).ToHashSet();
-        await using var conn = await context.Target.OpenConnectionAsync(ct);
-        var owners = await conn.QueryAsync<(string Table, Guid UserId, long Rows)>(new CommandDefinition(TargetOwners, cancellationToken: ct));
-        var unknown = owners.Where(o => !known.Contains(o.UserId)).ToList();
-        foreach (var (table, userId, rows) in unknown)
-            context.CleanupActions.Add($"{table}: {rows} row(s) of user {userId}, who is no source user");
-        context.Checks.Add(new("unknown-user-ids", (int)unknown.Sum(o => o.Rows)));
+        var known = (await EtlV2Rows.SourceAsync<Guid>(context, SelectLegacyOwners, null, ct)).ToHashSet();
+        var owners = await EtlV2Rows.TargetAsync<(string Table, Guid UserId)>(context, SelectV2Owners, null, ct);
+        EtlV2Rows.Check(context, "unknown-user-ids: V2 rows whose owner is no legacy user or admin",
+            owners.Where(o => !known.Contains(o.UserId)).Select(o => $"{o.Table}/{o.UserId}").Order(StringComparer.Ordinal));
     }
 }

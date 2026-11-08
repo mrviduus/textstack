@@ -65,10 +65,12 @@ public static partial class EtlV2Uploads
         ORDER BY id
         """;
 
+    // Catalog pairs' books are the catalog step's (M3.3).
     private const string SelectV2Books = """
         SELECT id, user_id, title, author, language, description, genre, published_year, tags, cover_key, origin::text AS origin,
                checkpoint_saving_enabled, revision, created_at, updated_at, removed_at
         FROM books
+        WHERE origin->>'kind' IS DISTINCT FROM 'catalog'
         """;
 
     private const string SelectV2Files = """

@@ -1,37 +1,33 @@
-using Application.Common;
 using Dapper;
 
-namespace Infrastructure.Persistence.Etl.Steps;
+namespace Infrastructure.Persistence.Etl;
 
 /// <summary>
-/// M3.3 insights (ADR-031 #48, #49): <c>book_insight</c> with <c>edition_id</c>/<c>user_book_id</c>
-/// folded into one <c>book_id</c> (the catalog pair's book, or the upload's own id); its
-/// <c>review_question</c> rows as they are, the stored <c>prompt_hash</c> included (never recomputed).
+/// Insights (ADR-031 rows 48, 49): <c>book_insight</c> with <c>edition_id</c>/<c>user_book_id</c> folded into one
+/// <c>book_id</c> (the catalog pair's book, or the upload's own id); its <c>review_question</c> rows as they are,
+/// the stored <c>prompt_hash</c> included (never recomputed). Conflict rule for both: insert what V2 lacks, leave
+/// what is equal; a V2 row that differs is a failed check, never overwritten.
 /// </summary>
 public static class EtlV2Insights
 {
-    public static readonly string[] SourceTables = ["book_insight", "review_question", "user_books"];
+    public static readonly EtlV2Step Step = new("insights", ["book_insight", "review_question", "user_books"], ["book_insight", "review_question"], RunAsync);
 
-    public static readonly string[] TargetTables = ["book_insight", "review_question"];
-
-    public static readonly EtlV2Step Step = new("insights", RunAsync);
-
-    private const string LegacyInsights = """
+    private const string SelectLegacyInsights = """
         SELECT id, user_id, edition_id, user_book_id, chapter_slug, text, question, source, review_json::text AS review_json, created_at, updated_at
         FROM book_insight ORDER BY id
         """;
 
-    private const string LegacyQuestions = """
+    private const string SelectLegacyQuestions = """
         SELECT id, user_id, book_insight_id, block_index, prompt, answer, prompt_hash, stage, interval_days, consecutive_correct,
             next_review_at, last_reviewed_at, total_reviews, correct_reviews, is_retired, created_at, updated_at
         FROM review_question ORDER BY id
         """;
 
-    private const string UploadOwners = "SELECT id, user_id FROM user_books";
+    private const string SelectUploadOwners = "SELECT id, user_id FROM user_books";
 
-    private const string SelectInsights = """
+    private const string SelectV2Insights = """
         SELECT id, user_id, book_id, chapter_slug, text, question, source, review_json::text AS review_json, created_at, updated_at
-        FROM book_insight WHERE id = ANY(@ids)
+        FROM book_insight
         """;
 
     private const string InsertInsight = """
@@ -39,10 +35,10 @@ public static class EtlV2Insights
         VALUES (@Id, @UserId, @BookId, @ChapterSlug, @Text, @Question, @Source, CAST(@ReviewJson AS jsonb), @CreatedAt, @UpdatedAt)
         """;
 
-    private const string SelectQuestions = """
+    private const string SelectV2Questions = """
         SELECT id, user_id, book_insight_id, block_index, prompt, answer, prompt_hash, stage, interval_days, consecutive_correct,
             next_review_at, last_reviewed_at, total_reviews, correct_reviews, is_retired, created_at, updated_at
-        FROM review_question WHERE id = ANY(@ids)
+        FROM review_question
         """;
 
     private const string InsertQuestion = """
@@ -52,74 +48,55 @@ public static class EtlV2Insights
             @NextReviewAt, @LastReviewedAt, @TotalReviews, @CorrectReviews, @IsRetired, @CreatedAt, @UpdatedAt)
         """;
 
-    private static Task RunAsync(EtlV2Context context, CancellationToken ct) => EtlV2Rows.InTargetAsync(context, async tx =>
+    private static async Task RunAsync(EtlV2Context context, CancellationToken ct)
     {
-        var source = context.Source;
-        var users = await EtlV2Rows.KnownUsersAsync(context, tx, ct);
-        var legacy = (await source.Connection!.QueryAsync<LegacyInsight>(new CommandDefinition(LegacyInsights, transaction: source, cancellationToken: ct))).AsList();
-        var questions = (await source.Connection!.QueryAsync<Question>(new CommandDefinition(LegacyQuestions, transaction: source, cancellationToken: ct))).AsList();
-        var uploadOwner = (await source.Connection!.QueryAsync<(Guid Id, Guid UserId)>(new CommandDefinition(UploadOwners, transaction: source, cancellationToken: ct)))
-            .ToDictionary(b => b.Id, b => b.UserId);
-
-        var insights = new List<Insight>();
-        var orphans = new List<(Guid, string)>();
-        var unmappable = new List<(Guid, string)>();
-        foreach (var i in legacy)
+        var uploadOwner = (await EtlV2Rows.SourceAsync<(Guid Id, Guid UserId)>(context, SelectUploadOwners, null, ct)).ToDictionary(b => b.Id, b => b.UserId);
+        var legacy = EtlV2Rows.Admit(context, "book_insight", await EtlV2Rows.SourceAsync<LegacyInsight>(context, SelectLegacyInsights, null, ct), i => i.Id,
+            ("source V2 does not take (only mcp)", i => i.Source != "mcp"),
+            ("a review without a chapter", i => i.ReviewJson is not null && i.ChapterSlug is null),
+            ("its upload belongs to another user", i => i.UserBookId is { } ub && uploadOwner[ub] != i.UserId));
+        // ck_book_insight_target in legacy: exactly one of the two.
+        var insights = legacy.Select(i => new InsightRow
         {
-            var reason = i.Source != "mcp" ? "source is not mcp"
-                : i.ReviewJson is not null && i.ChapterSlug is null ? "a review without a chapter"
-                : i.UserBookId is { } ub && uploadOwner[ub] != i.UserId ? "its upload belongs to another user"
-                : null;
-            if (!users.Contains(i.UserId))
-                orphans.Add((i.Id, $"user {i.UserId} is not in the target"));
-            else if (reason is not null)
-                unmappable.Add((i.Id, reason));
-            else
-                insights.Add(new Insight
-                {
-                    Id = i.Id,
-                    UserId = i.UserId,
-                    // ck_book_insight_target: exactly one of the two.
-                    BookId = i.UserBookId ?? EtlV2Ids.CatalogBook(i.UserId, i.EditionId!.Value),
-                    ChapterSlug = i.ChapterSlug,
-                    Text = i.Text,
-                    Question = i.Question,
-                    Source = i.Source,
-                    ReviewJson = i.ReviewJson,
-                    CreatedAt = i.CreatedAt,
-                    UpdatedAt = i.UpdatedAt,
-                });
-        }
-        EtlV2Rows.Orphans(context, "book_insight", orphans);
-        EtlV2Rows.Unmappable(context, "book_insight", unmappable);
+            Id = i.Id,
+            UserId = i.UserId,
+            BookId = i.UserBookId ?? EtlV2Ids.CatalogBook(i.UserId, i.EditionId!.Value),
+            ChapterSlug = i.ChapterSlug,
+            Text = i.Text,
+            Question = i.Question,
+            Source = i.Source,
+            ReviewJson = i.ReviewJson,
+            CreatedAt = i.CreatedAt,
+            UpdatedAt = i.UpdatedAt,
+        }).ToList();
 
+        // A question of a refused insight is not planned: that insight's check already fails the run.
         var carried = insights.ToDictionary(i => i.Id);
-        EtlV2Rows.Orphans(context, "review_question", questions.Where(q => !carried.ContainsKey(q.BookInsightId))
-            .Select(q => (q.Id, $"its insight {q.BookInsightId} is not carried")));
-        var planned = new List<Question>();
-        var badQuestions = new List<(Guid, string)>();
-        foreach (var q in questions.Where(q => carried.ContainsKey(q.BookInsightId)))
-        {
-            var reason = carried[q.BookInsightId].UserId != q.UserId ? "another user's insight"
-                : q.Stage < 0 || q.IntervalDays < 0 || q.ConsecutiveCorrect < 0 ? "negative SRS field"
-                : null;
-            if (reason is null) planned.Add(q);
-            else badQuestions.Add((q.Id, reason));
-        }
-        EtlV2Rows.Unmappable(context, "review_question", badQuestions);
+        var questions = EtlV2Rows.Admit(context, "review_question",
+            (await EtlV2Rows.SourceAsync<QuestionRow>(context, SelectLegacyQuestions, null, ct)).Where(q => carried.ContainsKey(q.BookInsightId)), q => q.Id,
+            ("another user's insight", q => carried[q.BookInsightId].UserId != q.UserId),
+            ("negative SRS field", q => q.Stage < 0 || q.IntervalDays < 0 || q.ConsecutiveCorrect < 0));
 
-        await EtlV2Rows.ConvergeAsync(context, tx, "book_insight", insights, i => i.Id, SelectInsights, InsertInsight, ct);
-        await EtlV2Rows.ConvergeAsync(context, tx, "review_question", planned, q => q.Id, SelectQuestions, InsertQuestion, ct);
-        if (context.DryRun)
+        var v2Insights = await EtlV2Rows.TargetAsync<InsightRow>(context, SelectV2Insights, null, ct);
+        var v2Questions = await EtlV2Rows.TargetAsync<QuestionRow>(context, SelectV2Questions, null, ct);
+        var insightPlan = EtlV2Rows.Plan(context, "book_insight", insights, v2Insights, i => i.Id);
+        var questionPlan = EtlV2Rows.Plan(context, "review_question", questions, v2Questions, q => q.Id);
+        EtlV2Rows.HeldByAnother(context, "book_insight: (user_id, book_id, chapter_slug)", insights, v2Insights, i => i.Id, i => (i.UserId, i.BookId, i.ChapterSlug));
+        EtlV2Rows.HeldByAnother(context, "review_question: (user_id, book_insight_id, prompt_hash)", questions, v2Questions, q => q.Id, q => (q.UserId, q.BookInsightId, q.PromptHash));
+
+        if (!context.MayWrite)
             return;
+        await using (var tx = await context.BeginWriteAsync(ct))
+        {
+            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertInsight, insightPlan.New, tx.Transaction, cancellationToken: ct));
+            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertQuestion, questionPlan.New, tx.Transaction, cancellationToken: ct));
+            await tx.CommitAsync(ct);
+        }
 
-        // A content hash per row (canonical JSON of every mapped column), source mapping vs target.
-        var storedInsights = await EtlV2Rows.ReadAsync<Insight>(tx, SelectInsights, [.. insights.Select(i => i.Id)], i => i.Id, ct);
-        var storedQuestions = await EtlV2Rows.ReadAsync<Question>(tx, SelectQuestions, [.. planned.Select(q => q.Id)], q => q.Id, ct);
-        context.Checks.Add(new("insights.hashes-equal",
-            insights.Count(i => !storedInsights.TryGetValue(i.Id, out var s) || CanonicalPayload.Sha256(s) != CanonicalPayload.Sha256(i))
-            + planned.Count(q => !storedQuestions.TryGetValue(q.Id, out var s) || CanonicalPayload.Sha256(s) != CanonicalPayload.Sha256(q))));
-    }, ct);
+        // Plan §5.2 "insight hashes equal", as every column compared: stricter than a hash of them.
+        EtlV2Rows.Verify(context, "book_insight: parity", insights, await EtlV2Rows.TargetAsync<InsightRow>(context, SelectV2Insights, null, ct), i => i.Id);
+        EtlV2Rows.Verify(context, "review_question: parity", questions, await EtlV2Rows.TargetAsync<QuestionRow>(context, SelectV2Questions, null, ct), q => q.Id);
+    }
 
     private sealed record LegacyInsight
     {
@@ -137,7 +114,7 @@ public static class EtlV2Insights
     }
 
     /// <summary><c>review_json</c> as Postgres prints jsonb, the same on both sides.</summary>
-    internal sealed record Insight
+    private sealed record InsightRow
     {
         public Guid Id { get; init; }
         public Guid UserId { get; init; }
@@ -152,7 +129,7 @@ public static class EtlV2Insights
     }
 
     /// <summary>The same columns on both sides (legacy minus <c>site_id</c>).</summary>
-    internal sealed record Question
+    private sealed record QuestionRow
     {
         public Guid Id { get; init; }
         public Guid UserId { get; init; }
