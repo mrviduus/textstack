@@ -113,11 +113,11 @@ s_users AS (
     UNION ALL
     SELECT a.id::text, a.id, md5(row(a.email, NULL, NULL, a.password_hash, NULL, NULL, false, NULL, NULL, 0, NULL, 'Free', NULL, a.created_at)::text)
     FROM admin_users a JOIN admin_match m ON m.admin_id = a.id WHERE m.user_id IS NULL),
--- a book's one file etl-v2 can carry (more than one, or fb2/other, fails the run: then no row here, and the set check fails too)
+-- a book's one file etl-v2 can carry (more than one, or an Other format, fails the run: then no row here, and the set check fails too; fb2 carried since 0005)
 bf AS (
-    SELECT f.*, CASE f.format WHEN 0 THEN 'epub' WHEN 1 THEN 'pdf' WHEN 3 THEN 'html' END AS fmt
+    SELECT f.*, CASE f.format WHEN 0 THEN 'epub' WHEN 1 THEN 'pdf' WHEN 2 THEN 'fb2' WHEN 3 THEN 'html' END AS fmt
     FROM user_book_files f
-    WHERE f.format IN (0, 1, 3) AND (SELECT count(*) FROM user_book_files g WHERE g.user_book_id = f.user_book_id) = 1),
+    WHERE f.format IN (0, 1, 2, 3) AND (SELECT count(*) FROM user_book_files g WHERE g.user_book_id = f.user_book_id) = 1),
 s_books AS (
     SELECT id::text AS k, user_id AS u, md5(row(title, author, language, description, genre, published_year, tags,
         CASE WHEN is_clip THEN jsonb_strip_nulls(jsonb_build_object('kind', 'clip', 'sourceUrl', source_url)) ELSE jsonb_build_object('kind', 'upload') END,
@@ -127,7 +127,7 @@ s_catalog_books AS (
     SELECT book_id::text AS k, user_id AS u, md5(row(title, author, language, origin::jsonb, created_at, created_at, true)::text) AS h FROM carried_pair),
 s_files AS (
     SELECT f.id::text AS k, b.user_id AS u, lower(f.sha256) AS x,
-        md5(row(f.user_book_id, CASE f.format WHEN 0 THEN 'epub' WHEN 1 THEN 'pdf' WHEN 3 THEN 'html' END, f.original_file_name, b.page_count,
+        md5(row(f.user_book_id, CASE f.format WHEN 0 THEN 'epub' WHEN 1 THEN 'pdf' WHEN 2 THEN 'fb2' WHEN 3 THEN 'html' END, f.original_file_name, b.page_count,
             b.toc_json, f.uploaded_at, b.takedown_at, b.takedown_at IS NOT NULL)::text) AS h
     FROM user_book_files f JOIN user_books b ON b.id = f.user_book_id),
 s_states AS (

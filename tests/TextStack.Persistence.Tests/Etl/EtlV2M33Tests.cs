@@ -10,7 +10,7 @@ namespace TextStack.Persistence.Tests.Etl;
 /// pair with no progress, a deleted edition, sessions on deleted books and on a session-only pair, a review
 /// question with a legacy hash, a dangling shelf entry.
 /// </summary>
-public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) : EtlTestBase(legacy, v2), IDisposable
+public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) : EtlTestBase(legacy, v2)
 {
     private static readonly Guid Alice = Guid.Parse("a11ce000-0000-4000-8000-000000000001");
     private static readonly Guid Bob = Guid.Parse("b0b00000-0000-4000-8000-000000000002");
@@ -97,10 +97,12 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
 
     private readonly string _files = Path.Combine(Path.GetTempPath(), "etl-v2-m33-tests", Guid.NewGuid().ToString("N"));
 
-    public void Dispose()
+    // xunit.v3 calls only DisposeAsync on a class that has both: the temp tree goes here, then the base drops the databases.
+    public override async ValueTask DisposeAsync()
     {
         if (Directory.Exists(_files))
             Directory.Delete(_files, recursive: true);
+        await base.DisposeAsync();
     }
 
     private async Task<EtlV2Options> NewPairAsync(bool dryRun = false, string? extra = null)

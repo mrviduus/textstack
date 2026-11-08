@@ -10,7 +10,7 @@ namespace TextStack.Persistence.Tests.Etl;
 /// shadow row, an admin with no user, null and recorded sha256s, a missing file, a clip, scroll-only and
 /// PDF progress, a slug-less chapter, anchored, PDF and chapterless highlights, a deleted upload's trail.
 /// </summary>
-public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v2) : EtlTestBase(legacy, v2), IDisposable
+public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v2) : EtlTestBase(legacy, v2)
 {
     private static readonly Guid Alice = Guid.Parse("a1000000-0000-0000-0000-000000000001");
     private static readonly Guid Bob = Guid.Parse("b2000000-0000-0000-0000-000000000002");
@@ -54,10 +54,12 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
 
     private string LibraryRoot => Path.Combine(_files, "library");
 
-    public void Dispose()
+    // xunit.v3 calls only DisposeAsync on a class that has both: the temp tree goes here, then the base drops the databases.
+    public override async ValueTask DisposeAsync()
     {
         if (Directory.Exists(_files))
             Directory.Delete(_files, recursive: true);
+        await base.DisposeAsync();
     }
 
     private static string Sha(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));

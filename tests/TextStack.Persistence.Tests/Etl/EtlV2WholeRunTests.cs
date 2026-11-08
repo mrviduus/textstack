@@ -13,10 +13,6 @@ namespace TextStack.Persistence.Tests.Etl;
 /// </summary>
 public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture v2) : EtlTestBase(legacy, v2)
 {
-    /// <summary>Flip when ADR-032's pending migration (0005) lets V2 take fb2: the fixture's fb2 upload then migrates and validates.</summary>
-    private const bool V2TakesFb2 = false;
-
-    private const string Fb2Check = "book_files: format V2 does not take (fb2/other, pending ADR-032's migration)";
 
     private const string Script = "/database/v2/scripts/validate-etl.sql";
 
@@ -116,22 +112,16 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
     }
 
     [Fact]
-    public async Task RunAsync_ProductionShapesWithFb2_FailsUntilV2TakesFb2()
+    public async Task RunAsync_ProductionShapesWithFb2_CarriedAndValidates()
     {
-        // ADR-032's fb2 migration (0005) has not landed: the fb2 upload fails the run by name. Flip V2TakesFb2 when it does.
-        var options = await NewPairAsync(sameContainer: V2TakesFb2, withFb2: true);
+        // 0005 lets V2 take fb2: the fixture's fb2 upload migrates and validate-etl accepts the run.
+        var options = await NewPairAsync(sameContainer: true, withFb2: true);
 
-        if (!V2TakesFb2)
-        {
-            var error = await FailsAsync(options);
-            Assert.Equal([ProductionShapes.FileOf(ProductionShapes.Fb2Book).ToString()], Failed(error, Fb2Check));
-            Assert.Equal(0, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM books"));
-            return;
-        }
-#pragma warning disable CS0162 // unreachable until V2TakesFb2 flips
         await EtlV2.RunAsync(options, ct: Ct);
-        Assert.Equal(0, (await ValidateAsync(options)).ExitCode);
-#pragma warning restore CS0162
+        var (exit, stdout, stderr) = await ValidateAsync(options);
+        Assert.True(exit == 0, $"validate-etl failed:\n{stdout}\n{stderr}");
+        Assert.Equal("fb2", await ScalarAsync<string>(options.Target,
+            $"SELECT format FROM book_files WHERE id = '{ProductionShapes.FileOf(ProductionShapes.Fb2Book)}'"));
     }
 
     // ---------------------------------------------------------------- T1: interrupted
