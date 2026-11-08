@@ -9,12 +9,13 @@ namespace Infrastructure.Persistence.Etl;
 public static partial class EtlV2Uploads
 {
     // chapter_key = COALESCE(slug, 'ch-' || chapter_number) (ADR-031 item 6). search_vector and
-    // content_quality_score are not carried.
+    // content_quality_score are not carried, nor a takedown's chapters (its content; listed once, with the book).
     private const string SelectLegacyChapters = """
         SELECT c.id, b.user_id, c.user_book_id AS book_id, COALESCE(c.slug, 'ch-' || c.chapter_number) AS chapter_key, c.chapter_number, c.title,
                md5(c.html) AS html_md5, md5(c.plain_text) AS plain_text_md5, c.word_count, c.source_start_page, c.source_end_page, c.created_at
         FROM user_chapters c
         JOIN user_books b ON b.id = c.user_book_id
+        WHERE b.takedown_at IS NULL
         ORDER BY c.id
         """;
 
@@ -24,6 +25,9 @@ public static partial class EtlV2Uploads
         FROM book_chapters
         """;
 
+    // The rows a run wrote, re-read for parity.
+    private const string SelectV2ChaptersById = SelectV2Chapters + " WHERE id = ANY(@ids)";
+
     private const string SelectChapterTexts = "SELECT id, html, plain_text FROM user_chapters WHERE id = ANY(@ids)";
 
     private const string CopyChapters = """
@@ -32,18 +36,15 @@ public static partial class EtlV2Uploads
         FROM STDIN (FORMAT BINARY)
         """;
 
-    private static async Task<List<ChapterRow>> MapChaptersAsync(
-        EtlV2Context context, Dictionary<Guid, FileRow> files, HashSet<Guid> takenDown, CancellationToken ct)
+    private static async Task<List<ChapterRow>> MapChaptersAsync(EtlV2Context context, Dictionary<Guid, FileRow> files, CancellationToken ct)
     {
-        // A takedown's chapters are its content: never carried (listed once, with the book).
-        var legacy = (await EtlV2Rows.SourceAsync<ChapterRow>(context, SelectLegacyChapters, null, ct)).Where(c => !takenDown.Contains(c.BookId)).ToList();
+        var legacy = await EtlV2Rows.SourceAsync<ChapterRow>(context, SelectLegacyChapters, null, ct);
         foreach (var book in legacy.Where(c => !files.ContainsKey(c.BookId)).GroupBy(c => c.BookId))
             context.OrphanCandidates.Add($"user_books {book.Key}: {book.Count()} user_chapters not carried, the book has no file row");
         var rows = legacy.Where(c => files.ContainsKey(c.BookId)).Select(c => c with { FileId = files[c.BookId].Id }).ToList();
         EtlV2Rows.Check(context, "book_chapters: blank chapter key", rows.Where(c => string.IsNullOrWhiteSpace(c.ChapterKey)).Select(c => c.Id.ToString()));
         // The 'ch-<n>' fallback can collide with a real slug: V2's (user_id, file_id, chapter_key) key would refuse the second.
-        EtlV2Rows.Check(context, "book_chapters: two chapters of a file with one key",
-            rows.GroupBy(c => (c.FileId, c.ChapterKey)).Where(g => g.Count() > 1).Select(g => string.Join("/", g.Select(c => c.Id))));
+        EtlV2Rows.Check(context, "book_chapters: two chapters of a file with one key", EtlV2Rows.Duplicates(rows, c => (c.FileId, c.ChapterKey), c => c.Id));
         return rows;
     }
 

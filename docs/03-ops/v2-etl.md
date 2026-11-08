@@ -224,8 +224,8 @@ may run (it cascades to that user's V2 rows); a non-guest account comes with non
   `content_removed_at = takedown_at` and `server_storage_key` NULL (the API serves no content without a
   key). No bytes are copied (file or cover; `cover_key` NULL): legacy keeps them as the rollback, and a
   null `sha256` is hashed from them read-only. Its chapters are not carried; its reading state,
-  annotations and jobs are. Its anchored annotations are quote-checked against legacy's chapters only
-  (dry run). Each such book is listed in `orphanCandidates`, on a dry and a real run. Not a failure.
+  annotations and jobs are. Its anchored annotations are quote-checked against legacy's chapters, as
+  every one is. Each such book is listed in `orphanCandidates`, on a dry and a real run. Not a failure.
 - **Non-ready uploads** (`user_books.status` Processing or Failed; owner 2026-11-08): carried with their
   bytes as any upload (it is the user's file), and each listed in `cleanupActions` for a human. Not a failure.
 - **Files** (row 35, item 2): `sha256` lowercased; a null one is hashed from the bytes; a file whose bytes
@@ -257,10 +257,10 @@ may run (it cascades to that user's V2 rows); a non-guest account comes with non
 
 ### Validation (plan §5.2 parts 1–3)
 
-After the write, per target: `<table>: parity` (every mapped row is in V2, equal to its mapping: count
-and content), `<table>: ownership` (under its legacy owner), and `annotations: selected_text not in its
-chapter's plain_text` for every `textstack-anchor-v1` annotation (on a dry run, or a run already failed,
-against legacy's chapters). That comparison collapses every whitespace run to one space on both sides
+Before the write, on a dry and a real run: `annotations: selected_text not in its chapter's plain_text`
+for every `textstack-anchor-v1` annotation, against legacy's chapters (V2's are their md5 copies, so it
+holds there too; a failure stops the write). After the write, per target: `<table>: parity` (every mapped
+row is in V2, equal to its mapping: count and content, owner included). The quote comparison collapses every whitespace run to one space on both sides
 first, and is otherwise strict: no trim, no case folding (owner 2026-11-08). `users: parity` covers the shadow rows and the admins.
 
 ### Files

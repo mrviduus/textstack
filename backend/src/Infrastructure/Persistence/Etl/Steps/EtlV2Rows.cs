@@ -41,6 +41,45 @@ internal static class EtlV2Rows
         return plan;
     }
 
+    /// <summary>
+    /// The mapped rows against the target. A V2 row that differs is updated (<paramref name="updateDifferent"/>) or
+    /// a failed check, never overwritten. A V2 row with no mapped row is a cleanup line, never deleted:
+    /// <paramref name="orphanLine"/>'s, or the generic one.
+    /// </summary>
+    public static EtlV2Plan<T> Plan<T, TKey>(EtlV2Context context, string table, IEnumerable<T> expected, IEnumerable<T> actual, Func<T, TKey> key,
+        bool updateDifferent = false, Func<T, string>? orphanLine = null)
+        where TKey : notnull
+    {
+        var mapped = expected.Select(key).ToHashSet();
+        foreach (var orphan in actual.Where(r => !mapped.Contains(key(r))).OrderBy(r => key(r).ToString(), StringComparer.Ordinal))
+            context.CleanupActions.Add(orphanLine?.Invoke(orphan) ?? $"{table} {key(orphan)}: V2 row with no legacy row; not deleted, a human reviews it");
+        var plan = Classify(expected, actual, key);
+        if (!updateDifferent)
+            Check(context, $"{table}: V2 row differs from its legacy mapping", plan.Different.Select(r => key(r).ToString()!));
+        context.Writes[table] = new(plan.New.Count, updateDifferent ? plan.Different.Count : 0, plan.Unchanged);
+        return plan;
+    }
+
+    /// <summary>After the write: every mapped row is in V2 as mapped, every column (owner included) compared.</summary>
+    public static void Verify<T, TKey>(EtlV2Context context, string name, IEnumerable<T> expected, IEnumerable<T> actual, Func<T, TKey> key)
+        where TKey : notnull
+    {
+        var after = Classify(expected, actual, key);
+        Check(context, name, after.New.Concat(after.Different).Select(r => key(r).ToString()!));
+    }
+
+    /// <summary>A unique value of a row to write that V2 holds under another id: "{name} held by another V2 id", as row/holder. Null values hold nothing.</summary>
+    public static void HeldByAnother<T, TKey>(EtlV2Context context, string name, IEnumerable<T> rows, IEnumerable<T> v2, Func<T, Guid> id, Func<T, TKey?> value)
+    {
+        var holders = v2.Where(r => value(r) is not null).ToLookup(r => value(r)!, id);
+        Check(context, $"{name} held by another V2 id", rows.Where(r => value(r) is not null)
+            .SelectMany(r => holders[value(r)!].Where(holder => holder != id(r)).Select(holder => $"{id(r)}/{holder}")));
+    }
+
+    /// <summary>Rows sharing a non-null key, each group as "id1/id2/…".</summary>
+    public static IEnumerable<string> Duplicates<T, TKey>(IEnumerable<T> rows, Func<T, TKey?> key, Func<T, Guid> id) =>
+        rows.Where(r => key(r) is not null).GroupBy(r => key(r)!).Where(g => g.Count() > 1).Select(g => string.Join("/", g.Select(id)));
+
     /// <summary>A check whose failures are <paramref name="ids"/> (ids only, never content).</summary>
     public static void Check(EtlV2Context context, string name, IEnumerable<string> ids)
     {

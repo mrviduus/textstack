@@ -149,6 +149,11 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
 
     private Task<T> V2Scalar<T>(EtlV2Options options, string sql, object? args = null) => ScalarAsync<T>(options.Target, sql, args);
 
+    private static Task<EtlV2Exception> FailsAsync(EtlV2Options options) => Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+
+    /// <summary>The failing ids of the one check named <paramref name="check"/>.</summary>
+    private static IReadOnlyList<string>? Failed(EtlV2Exception error, string check) => Assert.Single(error.Checks, c => c.Name == check).Ids;
+
     [Fact]
     public async Task RunAsync_ProductionShapes_CarriesEveryAggregateAndSucceeds()
     {
@@ -272,9 +277,9 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         var holder = Guid.NewGuid();
         await ExecAsync(options.Target, "INSERT INTO users (id, email, created_at) VALUES (@holder, 'alice@test.COM', now())", new { holder });
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
-        Assert.Equal([$"{Alice}/{holder}"], Assert.Single(error.Checks, c => c.Name == "users: email held by another V2 id").Ids);
+        Assert.Equal([$"{Alice}/{holder}"], Failed(error, "users: email held by another V2 id"));
         Assert.Equal(1, error.Checks.Sum(c => c.Failures));
         Assert.Equal("failed/ValidationFailed", await V2Scalar<string>(options, "SELECT outcome || '/' || (validation -> 'error' ->> 'type') FROM migration_runs"));
         Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM books"));
@@ -289,9 +294,9 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         var twin = Guid.Parse("a1000000-0000-0000-0000-0000000000a2");
         await ExecAsync(options.Source, "INSERT INTO users (id, email, google_subject, created_at) VALUES (@twin, 'alice@test.com', NULL, now())", new { twin });
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
-        Assert.Equal([$"{Alice}/{twin}"], Assert.Single(error.Checks, c => c.Name == "users: legacy emails equal but for case").Ids);
+        Assert.Equal([$"{Alice}/{twin}"], Failed(error, "users: legacy emails equal but for case"));
         Assert.Null(error.RunId);
     }
 
@@ -307,26 +312,15 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     }
 
     [Fact]
-    public async Task RunAsync_InactiveAdmin_FailsNoRuleDecided()
-    {
-        var options = await SeedAsync(dryRun: true);
-        await ExecAsync(options.Source, "UPDATE admin_users SET is_active = false WHERE id = @OpsAdmin", new { OpsAdmin });
-
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
-
-        Assert.Equal([OpsAdmin.ToString()], Assert.Single(error.Checks, c => c.Failures > 0).Ids);
-    }
-
-    [Fact]
     public async Task RunAsync_V2BookDiffersFromMapping_MismatchFailsNotOverwritten()
     {
         var options = await SeedAsync();
         await EtlV2.RunAsync(options, ct: Ct);
         await ExecAsync(options.Target, "UPDATE books SET title = 'Renamed in V2' WHERE id = @Epub", new { Epub });
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
-        Assert.Equal([Epub.ToString()], Assert.Single(error.Checks, c => c.Name == "books: V2 row differs from its legacy mapping").Ids);
+        Assert.Equal([Epub.ToString()], Failed(error, "books: V2 row differs from its legacy mapping"));
         Assert.Equal("Renamed in V2", await V2Scalar<string>(options, "SELECT title FROM books WHERE id = @Epub", new { Epub }));
     }
 
@@ -338,9 +332,9 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Directory.CreateDirectory(Path.GetDirectoryName(key)!);
         await File.WriteAllTextAsync(key, "other bytes", Ct);
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
-        Assert.Equal([$"user_book_files {PdfFile}"], Assert.Single(error.Checks, c => c.Name == "library_files: V2 key already holds other bytes").Ids);
+        Assert.Equal([$"user_book_files {PdfFile}"], Failed(error, "library_files: V2 key already holds other bytes"));
         Assert.Equal("other bytes", await File.ReadAllTextAsync(key, Ct));
     }
 
@@ -350,34 +344,12 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         var options = await SeedAsync(dryRun: true);
         await ExecAsync(options.Source, $"UPDATE user_book_files SET sha256 = '{new string('0', 64)}' WHERE id = @ClipFile", new { ClipFile });
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
         Assert.Equal([$"user_book_files {ClipFile}"], Assert.Single(error.Checks, c => c.Failures > 0).Ids);
         // A failed dry run is still the pre-flight's report: the per-table writes come with it.
         Assert.Equal(new EtlV2Writes(3, 1, 0), error.Writes["users"]);
         Assert.Equal(new EtlV2Writes(4, 0, 0), error.Writes["annotations"]);
-    }
-
-    [Fact]
-    public async Task RunAsync_Fb2File_FailsUntilV2TakesTheFormat()
-    {
-        var options = await SeedAsync(dryRun: true);
-        await ExecAsync(options.Source, "UPDATE user_book_files SET format = 2 WHERE id = @ClipFile", new { ClipFile });
-
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
-
-        Assert.Equal([ClipFile.ToString()], Assert.Single(error.Checks, c => c.Failures > 0).Ids);
-    }
-
-    [Fact]
-    public async Task RunAsync_QuoteNotInItsChapter_Fails()
-    {
-        var options = await SeedAsync(dryRun: true);
-        await ExecAsync(options.Source, "UPDATE highlights SET selected_text = 'melange' WHERE id = @Anchored", new { Anchored });
-
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
-
-        Assert.Equal([Anchored.ToString()], Assert.Single(error.Checks, c => c.Name == "annotations: selected_text not in its chapter's plain_text").Ids);
     }
 
     [Theory]
@@ -393,17 +365,6 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         var report = await EtlV2.RunAsync(options, ct: Ct);
 
         Assert.Contains(report.Checks, c => c.Name == "annotations: selected_text not in its chapter's plain_text" && c.Failures == 0);
-    }
-
-    [Fact]
-    public async Task RunAsync_QuoteDiffersInCase_FailsOtherwiseStrict()
-    {
-        var options = await SeedAsync(dryRun: true);
-        await ExecAsync(options.Source, "UPDATE highlights SET selected_text = 'Spice' WHERE id = @Anchored", new { Anchored });
-
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
-
-        Assert.Equal([Anchored.ToString()], Assert.Single(error.Checks, c => c.Name == "annotations: selected_text not in its chapter's plain_text").Ids);
     }
 
     [Fact]
@@ -433,145 +394,102 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     }
 
     [Fact]
-    public async Task RunAsync_ProgressWithoutLocator_FailsNotGuessed()
-    {
-        // A "mark as finished" with no position: V2 needs a locator to hold a reading_state row.
-        var options = await SeedAsync(dryRun: true);
-        await ExecAsync(options.Source, "UPDATE user_books SET progress_locator = NULL, completed_at = now() WHERE id = @Pdf", new { Pdf });
-
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
-
-        Assert.Equal([Pdf.ToString()], Assert.Single(error.Checks, c => c.Name == "reading_state: legacy progress with no mappable locator").Ids);
-    }
-
-    [Fact]
-    public async Task RunAsync_HighlightOwnerIsNotTheUploadOwner_Fails()
-    {
-        var options = await SeedAsync(dryRun: true);
-        await ExecAsync(options.Source, "UPDATE highlights SET user_id = @Bob WHERE id = @PdfHighlight", new { Bob, PdfHighlight });
-
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
-
-        Assert.Equal([PdfHighlight.ToString()], Assert.Single(error.Checks, c => c.Name == "annotations: highlight owner is not its upload's owner").Ids);
-    }
-
-    [Fact]
-    public async Task RunAsync_IngestionJobStatusUnknown_Fails()
-    {
-        var options = await SeedAsync(dryRun: true);
-        await ExecAsync(options.Source, "UPDATE user_ingestion_jobs SET status = 7 WHERE id = @PdfJob", new { PdfJob });
-
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
-
-        Assert.Equal([PdfJob.ToString()], Assert.Single(error.Checks, c => c.Name == "ingestion_jobs: status or source format V2 does not take").Ids);
-    }
-
-    [Fact]
     public async Task RunAsync_V2IngestionJobDiffers_MismatchFailsNotOverwritten()
     {
         var options = await SeedAsync();
         await EtlV2.RunAsync(options, ct: Ct);
         await ExecAsync(options.Target, "UPDATE ingestion_jobs SET attempt_count = 9 WHERE id = @EpubJob", new { EpubJob });
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
-        Assert.Equal([EpubJob.ToString()], Assert.Single(error.Checks, c => c.Name == "ingestion_jobs: V2 row differs from its legacy mapping").Ids);
+        Assert.Equal([EpubJob.ToString()], Failed(error, "ingestion_jobs: V2 row differs from its legacy mapping"));
         Assert.Equal(9, await V2Scalar<int>(options, "SELECT attempt_count FROM ingestion_jobs WHERE id = @EpubJob", new { EpubJob }));
-    }
-
-    [Fact]
-    public async Task RunAsync_NoFileRoots_FailsFast()
-    {
-        var options = await SeedAsync(dryRun: true);
-
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options with { StorageRoot = null }, ct: Ct));
-
-        Assert.Contains("needs both file roots", error.Message);
-    }
-
-    [Fact]
-    public async Task RunAsync_LibraryRootInsideStorageRoot_FailsFast()
-    {
-        var options = await SeedAsync(dryRun: true);
-
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() =>
-            EtlV2.RunAsync(options with { LibraryRoot = Path.Combine(StorageRoot, "library-v2") }, ct: Ct));
-
-        Assert.Contains("are nested", error.Message);
     }
 
     // Mutation-testing pins (QA pass, #1027): each test below kills a hand-mutation the suite above let survive.
 
-    /// <summary>One legacy defect per case: its setup SQL, the check it must fail, and the failing ids.</summary>
-    private static (string Sql, string Check, string[] Ids) Defect(string defect) => defect switch
+    /// <summary>One legacy defect per row: its setup SQL, the check it must fail, the failing ids, and a file to put (relative to the storage root), if any.</summary>
+    public static TheoryData<string, string, string[], string?> Defects => new()
     {
-        "tier" => ($"UPDATE users SET tier = 'Gold' WHERE id = '{Carol}'", "users: tier outside V2's set", [Carol.ToString()]),
-        "admin-id-taken" => ($"UPDATE admin_users SET id = '{Bob}' WHERE id = '{OpsAdmin}'", "users: admin_users id held by a user of another email", [Bob.ToString()]),
-        "two-files" => ($"INSERT INTO user_book_files (id, user_book_id, original_file_name, storage_path, format, sha256, file_size, uploaded_at) VALUES (gen_random_uuid(), '{Clip}', 'clip2.html', '{Dir(Bob, Clip)}/clip2.html', 3, NULL, 5, now())",
-            "book_files: more than one legacy file for a book", [Clip.ToString()]),
-        "zero-size" => ($"UPDATE user_book_files SET file_size = 0 WHERE id = '{ClipFile}'", "book_files: not a positive byte size or a blank name", [ClipFile.ToString()]),
-        "blank-name" => ($"UPDATE user_book_files SET original_file_name = ' ' WHERE id = '{ClipFile}'", "book_files: not a positive byte size or a blank name", [ClipFile.ToString()]),
-        "blank-title" => ($"UPDATE user_books SET title = '  ' WHERE id = '{Clip}'", "books: blank title", [Clip.ToString()]),
-        "outside-root" => ($"UPDATE user_book_files SET storage_path = '../escape/clip.html' WHERE id = '{ClipFile}'", "library_files: legacy path outside Storage:RootPath", [$"user_book_files {ClipFile}"]),
-        "page-on-epub" => ($"UPDATE user_books SET progress_position_json = NULL, progress_locator = 'page:3' WHERE id = '{Epub}'", "reading_state: legacy progress with no mappable locator", [Epub.ToString()]),
-        "percent-out" => ($"UPDATE user_books SET progress_percent = 1.5 WHERE id = '{Pdf}'", "reading_state: progress percent outside 0..1", [Pdf.ToString()]),
-        "read-mark-only" => ($"UPDATE user_books SET progress_locator = NULL, progress_percent = NULL, completed_at = NULL, is_read = true WHERE id = '{Pdf}'",
-            "reading_state: legacy progress with no mappable locator", [Pdf.ToString()]),
-        "completed-only" => ($"UPDATE user_books SET progress_locator = NULL, progress_percent = NULL, completed_at = now(), is_read = false WHERE id = '{Pdf}'",
-            "reading_state: legacy progress with no mappable locator", [Pdf.ToString()]),
-        "version-0" => ($"UPDATE highlights SET version = 0 WHERE id = '{PdfHighlight}'", "annotations: blank text or a version below 1", [PdfHighlight.ToString()]),
-        "blank-text" => ($"UPDATE highlights SET selected_text = ' ' WHERE id = '{PdfHighlight}'", "annotations: blank text or a version below 1", [PdfHighlight.ToString()]),
-        "pdf-anchor-on-epub" => ($"UPDATE highlights SET user_book_id = '{Epub}' WHERE id = '{PdfHighlight}'", "annotations: anchor V2 cannot hold", [PdfHighlight.ToString()]),
-        "dup-chapter-key" => ($"UPDATE user_chapters SET slug = 'ch-1' WHERE id = '{Chapter1}'", "book_chapters: two chapters of a file with one key", [$"{Chapter1}/{Chapter2}"]),
-        "blank-chapter-key" => ($"UPDATE user_chapters SET slug = ' ' WHERE id = '{Chapter2}'", "book_chapters: blank chapter key", [Chapter2.ToString()]),
-        "admin-case-twin" => ($"INSERT INTO admin_users (id, email, password_hash, role, is_active, created_at, updated_at) VALUES ('{OpsTwin}', 'Ops@Test.com', 'hash-ops2', 0, true, now(), now())",
-            "users: legacy emails equal but for case", [$"{OpsAdmin}/{OpsTwin}"]),
+        { $"UPDATE users SET tier = 'Gold' WHERE id = '{Carol}'", "users: tier outside V2's set", [Carol.ToString()], null },
+        { $"UPDATE admin_users SET id = '{Bob}' WHERE id = '{OpsAdmin}'", "users: admin_users id held by a user of another email", [Bob.ToString()], null },
+        { $"UPDATE admin_users SET is_active = false WHERE id = '{OpsAdmin}'", "users: inactive admin_users row (no rule decided)", [OpsAdmin.ToString()], null },
+        { $"INSERT INTO admin_users (id, email, password_hash, role, is_active, created_at, updated_at) VALUES ('{OpsTwin}', 'Ops@Test.com', 'hash-ops2', 0, true, now(), now())",
+            "users: legacy emails equal but for case", [$"{OpsAdmin}/{OpsTwin}"], null },
         // Legacy's own unique indexes forbid these; dropped to stand for a source that drifted from them.
-        "dup-google-subject" => ($"DROP INDEX ix_users_google_subject; UPDATE users SET google_subject = 'google-carol' WHERE id = '{Alice}'",
-            "users: google_subject duplicated in legacy", [$"{Alice}/{Carol}"]),
-        "dup-apple-subject" => ($"DROP INDEX ix_users_apple_subject; UPDATE users SET apple_subject = 'apple-x' WHERE id IN ('{Alice}', '{Carol}')",
-            "users: apple_subject duplicated in legacy", [$"{Alice}/{Carol}"]),
-        "size-mismatch" => ($"UPDATE user_book_files SET file_size = 999 WHERE id = '{EpubFile}'",
-            "library_files: bytes differ from the recorded file_size (no recorded sha256)", [$"user_book_files {EpubFile}"]),
-        "job-format" => ($"UPDATE user_ingestion_jobs SET source_format = 'Mobi' WHERE id = '{EpubJob}'", "ingestion_jobs: status or source format V2 does not take", [EpubJob.ToString()]),
-        _ => throw new ArgumentOutOfRangeException(nameof(defect)),
+        { $"DROP INDEX ix_users_google_subject; UPDATE users SET google_subject = 'google-carol' WHERE id = '{Alice}'",
+            "users: google_subject duplicated in legacy", [$"{Alice}/{Carol}"], null },
+        { $"DROP INDEX ix_users_apple_subject; UPDATE users SET apple_subject = 'apple-x' WHERE id IN ('{Alice}', '{Carol}')",
+            "users: apple_subject duplicated in legacy", [$"{Alice}/{Carol}"], null },
+        { $"INSERT INTO user_book_files (id, user_book_id, original_file_name, storage_path, format, sha256, file_size, uploaded_at) VALUES (gen_random_uuid(), '{Clip}', 'clip2.html', '{Dir(Bob, Clip)}/clip2.html', 3, NULL, 5, now())",
+            "book_files: more than one legacy file for a book", [Clip.ToString()], null },
+        { $"UPDATE user_book_files SET format = 2 WHERE id = '{ClipFile}'", "book_files: format V2 does not take (fb2/other, pending ADR-032's migration)", [ClipFile.ToString()], null },
+        { $"UPDATE user_book_files SET file_size = 0 WHERE id = '{ClipFile}'", "book_files: not a positive byte size or a blank name", [ClipFile.ToString()], null },
+        { $"UPDATE user_book_files SET original_file_name = ' ' WHERE id = '{ClipFile}'", "book_files: not a positive byte size or a blank name", [ClipFile.ToString()], null },
+        { $"UPDATE user_books SET title = '  ' WHERE id = '{Clip}'", "books: blank title", [Clip.ToString()], null },
+        // The bytes exist, just outside the root.
+        { $"UPDATE user_book_files SET storage_path = '../escape/clip.html' WHERE id = '{ClipFile}'", "library_files: legacy path outside Storage:RootPath",
+            [$"user_book_files {ClipFile}"], "../escape/clip.html" },
+        { $"UPDATE user_book_files SET file_size = 999 WHERE id = '{EpubFile}'", "library_files: bytes differ from the recorded file_size (no recorded sha256)",
+            [$"user_book_files {EpubFile}"], null },
+        { $"UPDATE user_books SET progress_position_json = NULL, progress_locator = 'page:3' WHERE id = '{Epub}'", "reading_state: legacy progress with no mappable locator", [Epub.ToString()], null },
+        { $"UPDATE user_books SET progress_percent = 1.5 WHERE id = '{Pdf}'", "reading_state: progress percent outside 0..1", [Pdf.ToString()], null },
+        { $"UPDATE user_books SET progress_locator = NULL, progress_percent = NULL, completed_at = NULL, is_read = true WHERE id = '{Pdf}'",
+            "reading_state: legacy progress with no mappable locator", [Pdf.ToString()], null },
+        { $"UPDATE user_books SET progress_locator = NULL, progress_percent = NULL, completed_at = now(), is_read = false WHERE id = '{Pdf}'",
+            "reading_state: legacy progress with no mappable locator", [Pdf.ToString()], null },
+        // A "mark as finished" with no position: V2 needs a locator to hold a reading_state row.
+        { $"UPDATE user_books SET progress_locator = NULL, completed_at = now() WHERE id = '{Pdf}'", "reading_state: legacy progress with no mappable locator", [Pdf.ToString()], null },
+        { $"UPDATE highlights SET version = 0 WHERE id = '{PdfHighlight}'", "annotations: blank text or a version below 1", [PdfHighlight.ToString()], null },
+        { $"UPDATE highlights SET selected_text = ' ' WHERE id = '{PdfHighlight}'", "annotations: blank text or a version below 1", [PdfHighlight.ToString()], null },
+        { $"UPDATE highlights SET user_book_id = '{Epub}' WHERE id = '{PdfHighlight}'", "annotations: anchor V2 cannot hold", [PdfHighlight.ToString()], null },
+        { $"UPDATE highlights SET user_id = '{Bob}' WHERE id = '{PdfHighlight}'", "annotations: highlight owner is not its upload's owner", [PdfHighlight.ToString()], null },
+        { $"UPDATE highlights SET selected_text = 'melange' WHERE id = '{Anchored}'", "annotations: selected_text not in its chapter's plain_text", [Anchored.ToString()], null },
+        // Otherwise strict: no case folding.
+        { $"UPDATE highlights SET selected_text = 'Spice' WHERE id = '{Anchored}'", "annotations: selected_text not in its chapter's plain_text", [Anchored.ToString()], null },
+        { $"UPDATE user_chapters SET slug = 'ch-1' WHERE id = '{Chapter1}'", "book_chapters: two chapters of a file with one key", [$"{Chapter1}/{Chapter2}"], null },
+        { $"UPDATE user_chapters SET slug = ' ' WHERE id = '{Chapter2}'", "book_chapters: blank chapter key", [Chapter2.ToString()], null },
+        { $"UPDATE user_ingestion_jobs SET status = 7 WHERE id = '{PdfJob}'", "ingestion_jobs: status or source format V2 does not take", [PdfJob.ToString()], null },
+        { $"UPDATE user_ingestion_jobs SET source_format = 'Mobi' WHERE id = '{EpubJob}'", "ingestion_jobs: status or source format V2 does not take", [EpubJob.ToString()], null },
     };
 
     [Theory]
-    [InlineData("tier")]
-    [InlineData("admin-id-taken")]
-    [InlineData("two-files")]
-    [InlineData("zero-size")]
-    [InlineData("blank-name")]
-    [InlineData("blank-title")]
-    [InlineData("outside-root")]
-    [InlineData("page-on-epub")]
-    [InlineData("percent-out")]
-    [InlineData("read-mark-only")]
-    [InlineData("completed-only")]
-    [InlineData("version-0")]
-    [InlineData("blank-text")]
-    [InlineData("pdf-anchor-on-epub")]
-    [InlineData("dup-chapter-key")]
-    [InlineData("blank-chapter-key")]
-    [InlineData("job-format")]
-    [InlineData("admin-case-twin")]
-    [InlineData("dup-google-subject")]
-    [InlineData("dup-apple-subject")]
-    [InlineData("size-mismatch")]
-    public async Task RunAsync_DryRunLegacyDefect_PreflightFailsTheNamedCheck(string defect)
+    [MemberData(nameof(Defects))]
+    public async Task RunAsync_DryRunLegacyDefect_PreflightFailsTheNamedCheck(string sql, string check, string[] ids, string? put)
     {
         // A dry run is the pre-flight: a defect the real run's CHECKs would abort on must fail here, by name and id.
         var options = await SeedAsync(dryRun: true);
-        var (sql, check, ids) = Defect(defect);
         await ExecAsync(options.Source, sql);
-        if (defect == "outside-root")
-            Put("../escape/clip.html", ClipBytes); // the bytes exist, just outside the root
+        if (put is not null)
+            Put(put, ClipBytes);
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
-        Assert.Equal(ids, Assert.Single(error.Checks, c => c.Name == check).Ids);
+        Assert.Equal(ids, Failed(error, check));
         Assert.False(Directory.Exists(LibraryRoot));
+    }
+
+    [Theory]
+    [InlineData("no-storage-root", "needs both file roots")]
+    [InlineData("storage-root-missing", "Storage:RootPath does not exist")]
+    [InlineData("library-inside-storage", "are nested")]
+    [InlineData("storage-inside-library", "are nested")]
+    public async Task RunAsync_BadFileRoots_FailsFast(string roots, string message)
+    {
+        // An unmounted storage root would otherwise read as "every file missing": a run that carries nothing and succeeds.
+        var options = await SeedAsync(dryRun: true);
+        options = roots switch
+        {
+            "no-storage-root" => options with { StorageRoot = null },
+            "storage-root-missing" => options with { StorageRoot = Path.Combine(_files, "unmounted") },
+            "library-inside-storage" => options with { LibraryRoot = Path.Combine(StorageRoot, "library-v2") },
+            "storage-inside-library" => options with { LibraryRoot = _files },
+            _ => throw new ArgumentOutOfRangeException(nameof(roots)),
+        };
+
+        var error = await FailsAsync(options);
+
+        Assert.Contains(message, error.Message);
     }
 
     [Theory]
@@ -609,23 +527,13 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         var options = await SeedAsync();
         await ExecAsync(options.Source, "UPDATE admin_users SET is_active = false WHERE id = @OpsAdmin", new { OpsAdmin });
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
         Assert.NotNull(error.RunId);
         Assert.Equal(2, await V2Scalar<long>(options, "SELECT count(*) FROM users"));
         Assert.Null(await V2Scalar<string?>(options, "SELECT name FROM users WHERE id = @Carol", new { Carol }));
         Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM books"));
         Assert.False(Directory.Exists(LibraryRoot));
-    }
-
-    [Fact]
-    public async Task RunAsync_StorageRootInsideLibraryRoot_FailsFast()
-    {
-        var options = await SeedAsync(dryRun: true);
-
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options with { LibraryRoot = _files }, ct: Ct));
-
-        Assert.Contains("are nested", error.Message);
     }
 
     [Fact]
@@ -730,16 +638,6 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     // Code review (xhigh, #1027): each test below pins one finding.
 
     [Fact]
-    public async Task RunAsync_StorageRootMissing_FailsFastNotEveryFileOrphaned()
-    {
-        var options = await SeedAsync(dryRun: true);
-
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options with { StorageRoot = Path.Combine(_files, "unmounted") }, ct: Ct));
-
-        Assert.Contains("Storage:RootPath does not exist", error.Message);
-    }
-
-    [Fact]
     public async Task RunAsync_NoUploadsAndNoFileRoots_Succeeds()
     {
         // No upload to carry: the roots are not needed, and the library store is never touched.
@@ -758,14 +656,14 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         await EtlV2.RunAsync(options, ct: Ct);
         await ExecAsync(options.Source, TakeDownEpub, new { Epub });
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
         const string Stale = "taken down since an earlier run; V2 still holds";
         var cover = $"library/a1/{Alice}/{Epub}/cover.jpg";
+        Assert.Contains($"book_chapters {Chapter1}: V2 row with no legacy row; not deleted, a human reviews it", error.CleanupActions);
+        Assert.Contains($"book_chapters {Chapter2}: V2 row with no legacy row; not deleted, a human reviews it", error.CleanupActions);
         Assert.Equal(
             [
-                $"books {Epub}: {Stale} book_chapters {Chapter1}; a human removes it",
-                $"books {Epub}: {Stale} book_chapters {Chapter2}; a human removes it",
                 $"books {Epub}: {Stale} cover_key {cover}; a human clears it",
                 $"books {Epub}: {Stale} library bytes {cover}; a human removes them",
                 $"books {Epub}: {Stale} library bytes {FileKey(Alice, Epub, EpubFile, "epub")}; a human removes them",
@@ -786,9 +684,9 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         await ExecAsync(options.Source, $"UPDATE users SET {column} = 'subject-carol' WHERE id = @Carol", new { Carol });
         await ExecAsync(options.Target, $"INSERT INTO users (id, email, {column}, created_at) VALUES (@holder, 'holder@test.com', 'subject-carol', now())", new { holder });
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
-        Assert.Equal([$"{Carol}/{holder}"], Assert.Single(error.Checks, c => c.Name == $"users: {column} held by another V2 id").Ids);
+        Assert.Equal([$"{Carol}/{holder}"], Failed(error, $"users: {column} held by another V2 id"));
     }
 
     [Fact]
@@ -802,9 +700,9 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
             """, new { dotted, combining });
         Assert.True(await V2Scalar<bool>(options, "SELECT lower('İnci@test.com') = lower(E'i\u0307nci@test.com')"));
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
-        Assert.Equal([$"{dotted}/{combining}"], Assert.Single(error.Checks, c => c.Name == "users: legacy emails equal but for case").Ids);
+        Assert.Equal([$"{dotted}/{combining}"], Failed(error, "users: legacy emails equal but for case"));
     }
 
     [Theory]
@@ -839,10 +737,10 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
             UPDATE user_chapters SET chapter_number = 1 WHERE id = @reExtracted;
             """, new { reExtracted, Chapter2 });
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
-        Assert.Equal([$"{reExtracted}/{Chapter2}"], Assert.Single(error.Checks, c => c.Name == "book_chapters: (user_id, file_id, chapter_key) held by another V2 id").Ids);
-        Assert.Equal([$"{reExtracted}/{Chapter2}"], Assert.Single(error.Checks, c => c.Name == "book_chapters: (user_id, book_id, file_id, chapter_number) held by another V2 id").Ids);
+        Assert.Equal([$"{reExtracted}/{Chapter2}"], Failed(error, "book_chapters: (user_id, file_id, chapter_key) held by another V2 id"));
+        Assert.Equal([$"{reExtracted}/{Chapter2}"], Failed(error, "book_chapters: (user_id, book_id, file_id, chapter_number) held by another V2 id"));
         Assert.Contains($"book_chapters {Chapter2}: V2 row with no legacy row; not deleted, a human reviews it", error.CleanupActions);
         Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM book_chapters WHERE id = @reExtracted", new { reExtracted }));
     }
@@ -856,9 +754,9 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         await ExecAsync(options.Source, "UPDATE user_book_files SET id = @replacement WHERE id = @ClipFile",
             new { replacement, ClipFile });
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
-        Assert.Equal([$"{replacement}/{ClipFile}"], Assert.Single(error.Checks, c => c.Name == "book_files: (user_id, book_id) current file held by another V2 id").Ids);
+        Assert.Equal([$"{replacement}/{ClipFile}"], Failed(error, "book_files: (user_id, book_id) current file held by another V2 id"));
     }
 
     [Fact]
@@ -868,9 +766,9 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         var options = await SeedAsync();
         await ExecAsync(options.Source, "UPDATE highlights SET selected_text = 'melange' WHERE id = @Anchored", new { Anchored });
 
-        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+        var error = await FailsAsync(options);
 
-        Assert.Equal([Anchored.ToString()], Assert.Single(error.Checks, c => c.Name == "annotations: selected_text not in its chapter's plain_text").Ids);
+        Assert.Equal([Anchored.ToString()], Failed(error, "annotations: selected_text not in its chapter's plain_text"));
         Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM books"));
         Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM annotations"));
         Assert.False(Directory.Exists(LibraryRoot));

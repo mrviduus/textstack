@@ -1,3 +1,6 @@
+using Domain.Enums;
+using Domain.Transitional;
+
 namespace Infrastructure.Persistence.Etl;
 
 // user_ingestion_jobs → ingestion_jobs (transitional, ADR-031 row 36): keyed to the carried file, int status → text.
@@ -21,8 +24,14 @@ public static partial class EtlV2Uploads
         VALUES (@Id, @UserId, @BookId, @FileId, @Status, @AttemptCount, @Error, @SourceFormat, @CreatedAt, @StartedAt, @FinishedAt)
         """;
 
-    // Legacy JobStatus: Queued 0, Processing 1, Succeeded 2, Failed 3.
-    private static readonly string[] JobStatuses = ["queued", "processing", "succeeded", "failed"];
+    // Legacy JobStatus (int) → V2's text.
+    private static readonly Dictionary<int, string> JobStatuses = new()
+    {
+        [(int)JobStatus.Queued] = FileIngestionJob.Queued,
+        [(int)JobStatus.Processing] = FileIngestionJob.Processing,
+        [(int)JobStatus.Succeeded] = FileIngestionJob.Succeeded,
+        [(int)JobStatus.Failed] = FileIngestionJob.Failed,
+    };
 
     private static readonly string[] JobSourceFormats = ["epub", "pdf", "html", "fb2", "unknown"];
 
@@ -36,7 +45,7 @@ public static partial class EtlV2Uploads
                 context.OrphanCandidates.Add($"user_ingestion_jobs {j.Id}: not carried, its file {j.FileId} has no book_files row");
                 continue;
             }
-            if (j.LegacyStatus is < 0 or > 3 || (j.SourceFormat is not null && !JobSourceFormats.Contains(j.SourceFormat)))
+            if (!JobStatuses.ContainsKey(j.LegacyStatus) || (j.SourceFormat is not null && !JobSourceFormats.Contains(j.SourceFormat)))
             {
                 invalid.Add(j.Id.ToString());
                 continue;

@@ -1,4 +1,5 @@
 using Dapper;
+using Domain.Enums;
 
 namespace Infrastructure.Persistence.Etl;
 
@@ -48,7 +49,7 @@ public static class EtlV2Users
         WHERE id = @Id
         """;
 
-    private static readonly string[] Tiers = ["Guest", "Free", "Supporter", "Staff"];
+    private static readonly string[] Tiers = Enum.GetNames<UserTier>();
 
     private static async Task RunAsync(EtlV2Context context, CancellationToken ct)
     {
@@ -78,30 +79,24 @@ public static class EtlV2Users
         EtlV2Rows.Check(context, "users: admin_users id held by a user of another email", adminIdTaken);
         // No merge rule is decided for them (#1027): the second of a pair would abort on V2's lower(email) index.
         // Over every row to write, so two admins with no user (admin_users.email is unique only case-sensitively) count too.
-        EtlV2Rows.Check(context, "users: legacy emails equal but for case", expected.Values.GroupBy(u => Fold(u.Email))
-            .Where(g => g.Count() > 1).Select(g => string.Join("/", g.Select(u => u.Id))));
-        // V2's partial unique indexes on the subjects (exact, no folding): the second of a pair would abort the insert.
-        foreach (var (column, subject) in new (string, Func<UserRow, string?>)[] { ("google_subject", u => u.GoogleSubject), ("apple_subject", u => u.AppleSubject) })
-            EtlV2Rows.Check(context, $"users: {column} duplicated in legacy", expected.Values.Where(u => subject(u) is not null).GroupBy(subject)
-                .Where(g => g.Count() > 1).Select(g => string.Join("/", g.Select(u => u.Id))));
+        EtlV2Rows.Check(context, "users: legacy emails equal but for case", EtlV2Rows.Duplicates(expected.Values, u => Fold(u.Email), u => u.Id));
+        // V2's partial unique indexes on the subjects (exact, no folding): a pair among the rows, or a value V2
+        // holds under another id, would abort the insert with a raw 23505.
+        EtlV2Rows.Check(context, "users: google_subject duplicated in legacy", EtlV2Rows.Duplicates(expected.Values, u => u.GoogleSubject, u => u.Id));
+        EtlV2Rows.Check(context, "users: apple_subject duplicated in legacy", EtlV2Rows.Duplicates(expected.Values, u => u.AppleSubject, u => u.Id));
         foreach (var (id, row) in expected.ToArray())
             if (v2.TryGetValue(id, out var current) && current.Role == "admin")
                 expected[id] = row with { Role = "admin" };
         EtlV2Rows.Check(context, "users: tier outside V2's set", expected.Values.Where(u => !Tiers.Contains(u.Tier)).Select(u => u.Id.ToString()));
-        HeldByAnother(context, "email", expected.Values, v2.Values, u => Fold(u.Email));
-        // V2's partial unique indexes on the subjects (exact, no folding): a raw 23505 otherwise.
-        HeldByAnother(context, "google_subject", expected.Values, v2.Values, u => u.GoogleSubject);
-        HeldByAnother(context, "apple_subject", expected.Values, v2.Values, u => u.AppleSubject);
+        EtlV2Rows.HeldByAnother(context, "users: email", expected.Values, v2.Values, u => u.Id, u => Fold(u.Email));
+        EtlV2Rows.HeldByAnother(context, "users: google_subject", expected.Values, v2.Values, u => u.Id, u => u.GoogleSubject);
+        EtlV2Rows.HeldByAnother(context, "users: apple_subject", expected.Values, v2.Values, u => u.Id, u => u.AppleSubject);
 
         // Owner 2026-11-08: reported only, never deleted. Only a guest gets a ready DELETE; an account is a human's call.
-        foreach (var orphan in v2.Values.Where(u => !expected.ContainsKey(u.Id)).OrderBy(u => u.Id))
-            context.CleanupActions.Add(orphan.IsGuest
-                ? $"users {orphan.Id}: V2 guest with no legacy row (#1094); if the identity mirror left it behind, a human deletes it "
-                    + $"with its V2 rows: DELETE FROM users WHERE id = '{orphan.Id}'"
-                : $"users {orphan.Id}: V2 account with no legacy row; not deleted, a human reviews it");
-
-        var plan = EtlV2Rows.Classify(expected.Values, v2.Values, u => u.Id);
-        context.Writes["users"] = new(plan.New.Count, plan.Different.Count, plan.Unchanged);
+        var plan = EtlV2Rows.Plan(context, "users", expected.Values, v2.Values, u => u.Id, updateDifferent: true, orphan => orphan.IsGuest
+            ? $"users {orphan.Id}: V2 guest with no legacy row (#1094); if the identity mirror left it behind, a human deletes it "
+                + $"with its V2 rows: DELETE FROM users WHERE id = '{orphan.Id}'"
+            : $"users {orphan.Id}: V2 account with no legacy row; not deleted, a human reviews it");
         if (!context.MayWrite)
             return;
         await using (var tx = await context.BeginWriteAsync(ct))
@@ -110,17 +105,8 @@ public static class EtlV2Users
             await tx.Connection.ExecuteAsync(new CommandDefinition(UpdateUser, plan.Different, tx.Transaction, cancellationToken: ct));
             await tx.CommitAsync(ct);
         }
-        var after = EtlV2Rows.Classify(expected.Values, await EtlV2Rows.TargetAsync<UserRow>(context, SelectV2Users, null, ct), u => u.Id);
-        EtlV2Rows.Check(context, "users: parity (every legacy user and admin is its V2 row)",
-            after.New.Concat(after.Different).Select(u => u.Id.ToString()));
-    }
-
-    /// <summary>A unique value of a row to write that V2 holds under another id: "users: {column} held by another V2 id", as row/holder.</summary>
-    private static void HeldByAnother(EtlV2Context context, string column, IEnumerable<UserRow> expected, IEnumerable<UserRow> v2, Func<UserRow, string?> value)
-    {
-        var holders = v2.Where(u => value(u) is not null).ToLookup(u => value(u)!, u => u.Id);
-        EtlV2Rows.Check(context, $"users: {column} held by another V2 id", expected.Where(u => value(u) is not null).SelectMany(u =>
-            holders[value(u)!].Where(holder => holder != u.Id).Select(holder => $"{u.Id}/{holder}")));
+        EtlV2Rows.Verify(context, "users: parity (every legacy user and admin is its V2 row)", expected.Values,
+            await EtlV2Rows.TargetAsync<UserRow>(context, SelectV2Users, null, ct), u => u.Id);
     }
 
     private sealed record FoldedEmail(string Email, string Folded);

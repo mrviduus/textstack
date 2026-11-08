@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Dapper;
+using Domain.Enums;
 using Infrastructure.Services;
 
 namespace Infrastructure.Persistence.Etl;
@@ -90,11 +91,16 @@ public static partial class EtlV2Uploads
                 @IsCurrent, @ContentRemovedAt, @CreatedAt)
         """;
 
-    // Legacy BookFormat → book_files.format. Fb2 (2) and Other (99) have no V2 format until ADR-032's migration lands.
-    private static readonly Dictionary<int, string> Formats = new() { [0] = "epub", [1] = "pdf", [3] = "html" };
+    // Legacy BookFormat → book_files.format. Fb2 and Other have no V2 format until ADR-032's migration lands.
+    private static readonly Dictionary<int, string> Formats = new()
+    {
+        [(int)BookFormat.Epub] = "epub",
+        [(int)BookFormat.Pdf] = "pdf",
+        [(int)BookFormat.Html] = "html",
+    };
 
-    // Legacy UserBookStatus: Processing = 0, Ready = 1, Failed = 2.
-    private static readonly Dictionary<int, string> NotReady = new() { [0] = "Processing", [2] = "Failed" };
+    private static readonly Dictionary<int, string> NotReady =
+        new[] { UserBookStatus.Processing, UserBookStatus.Failed }.ToDictionary(s => (int)s, s => s.ToString());
 
     private static readonly Regex CoverExtension = new("^[a-z0-9]{1,5}$", RegexOptions.Compiled);
 
@@ -102,35 +108,36 @@ public static partial class EtlV2Uploads
     {
         var legacyBooks = await EtlV2Rows.SourceAsync<LegacyBook>(context, SelectLegacyBooks, null, ct);
         var legacyFiles = await EtlV2Rows.SourceAsync<LegacyFile>(context, SelectLegacyFiles, null, ct);
-        var bytes = new Bytes(context, legacyBooks.Count > 0);
+        // Null only when legacy has no upload: then no book, cover or file (user_book_files → user_books) names a byte.
+        var bytes = legacyBooks.Count > 0 ? new Bytes(context) : null;
 
-        var books = MapBooks(context, legacyBooks, bytes);
+        var books = MapBooks(context, legacyBooks, bytes!);
         var byId = legacyBooks.ToDictionary(b => b.Id);
-        var files = MapFiles(context, byId, legacyFiles, bytes);
-        bytes.Report();
+        var files = MapFiles(context, byId, legacyFiles, bytes!);
+        bytes?.Report();
         var states = MapStates(context, legacyBooks, files);
         var annotations = await MapAnnotationsAsync(context, byId, files, ct);
-        var takenDown = legacyBooks.Where(b => b.TakedownAt is not null).Select(b => b.Id).ToHashSet();
-        var chapters = await MapChaptersAsync(context, files, takenDown, ct);
+        var chapters = await MapChaptersAsync(context, files, ct);
         var jobs = await MapJobsAsync(context, files, ct);
 
         var v2Books = await EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, null, ct);
         var v2Chapters = await EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2Chapters, null, ct);
-        ReportStaleTakedowns(context, legacyBooks, v2Books, v2Chapters, bytes);
-        var bookPlan = Plan(context, "books", books, v2Books, b => b.Id);
         var v2Files = await EtlV2Rows.TargetAsync<FileRow>(context, SelectV2Files, null, ct);
-        var filePlan = Plan(context, "book_files", files.Values, v2Files, f => f.Id);
-        var statePlan = Plan(context, "reading_state", states, await EtlV2Rows.TargetAsync<StateRow>(context, SelectV2States, null, ct), s => (s.UserId, s.BookId));
-        var annotationPlan = Plan(context, "annotations", annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct), a => a.Id);
-        var chapterPlan = Plan(context, "book_chapters", chapters, v2Chapters, c => c.Id);
+        ReportStaleTakedowns(context, legacyBooks, v2Books, bytes);
+        var bookPlan = EtlV2Rows.Plan(context, "books", books, v2Books, b => b.Id);
+        var filePlan = EtlV2Rows.Plan(context, "book_files", files.Values, v2Files, f => f.Id);
+        var statePlan = EtlV2Rows.Plan(context, "reading_state", states, await EtlV2Rows.TargetAsync<StateRow>(context, SelectV2States, null, ct), s => (s.UserId, s.BookId));
+        var annotationPlan = EtlV2Rows.Plan(context, "annotations", annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct), a => a.Id);
+        var chapterPlan = EtlV2Rows.Plan(context, "book_chapters", chapters, v2Chapters, c => c.Id);
         // V2's secondary unique keys: a new row whose key a stale V2 row holds (legacy re-extracted, a file replaced) would abort with 23505.
-        HeldByAnother(context, "book_files: (user_id, book_id) current file", filePlan.New, v2Files.Where(f => f.IsCurrent), f => f.Id, f => (f.UserId, f.BookId));
-        HeldByAnother(context, "book_chapters: (user_id, file_id, chapter_key)", chapterPlan.New, v2Chapters, c => c.Id, c => (c.UserId, c.FileId, c.ChapterKey));
-        HeldByAnother(context, "book_chapters: (user_id, book_id, file_id, chapter_number)", chapterPlan.New, v2Chapters, c => c.Id, c => (c.UserId, c.BookId, c.FileId, c.ChapterNumber));
-        var jobPlan = Plan(context, "ingestion_jobs", jobs, await EtlV2Rows.TargetAsync<JobRow>(context, SelectV2Jobs, null, ct), j => j.Id);
-        context.Writes["library_files"] = new(bytes.Pending.Count, 0, bytes.Present);
-        // The gate, on both kinds of run: a failing quote found after the commit would wedge every re-run.
-        await CheckQuotesAsync(context, annotations, takenDown, written: false, ct);
+        EtlV2Rows.HeldByAnother(context, "book_files: (user_id, book_id) current file", filePlan.New, v2Files.Where(f => f.IsCurrent), f => f.Id, f => (f.UserId, f.BookId));
+        EtlV2Rows.HeldByAnother(context, "book_chapters: (user_id, file_id, chapter_key)", chapterPlan.New, v2Chapters, c => c.Id, c => (c.UserId, c.FileId, c.ChapterKey));
+        EtlV2Rows.HeldByAnother(context, "book_chapters: (user_id, book_id, file_id, chapter_number)", chapterPlan.New, v2Chapters, c => c.Id, c => (c.UserId, c.BookId, c.FileId, c.ChapterNumber));
+        var jobPlan = EtlV2Rows.Plan(context, "ingestion_jobs", jobs, await EtlV2Rows.TargetAsync<JobRow>(context, SelectV2Jobs, null, ct), j => j.Id);
+        context.Writes["library_files"] = new(bytes?.Pending.Count ?? 0, 0, bytes?.Present ?? 0);
+        // The gate, on both kinds of run, against legacy's chapters: V2's are their md5 copies (chapter parity), so a
+        // quote that holds here holds there; found after the commit instead, it would wedge every re-run.
+        await CheckQuotesAsync(context, annotations, ct);
 
         if (!context.MayWrite)
             return;
@@ -138,7 +145,7 @@ public static partial class EtlV2Uploads
         {
             // Inside the fence, so a run that lost it copies nothing; bytes before rows, so a row never names a
             // key with nothing behind it. A run that fails after this leaves bytes no row names (the worker's orphan sweep).
-            bytes.CopyPending(ct);
+            bytes?.CopyPending(ct);
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertBook, bookPlan.New, tx.Transaction, cancellationToken: ct));
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertFile, filePlan.New, tx.Transaction, cancellationToken: ct));
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertJob, jobPlan.New, tx.Transaction, cancellationToken: ct));
@@ -148,66 +155,38 @@ public static partial class EtlV2Uploads
             await tx.CommitAsync(ct);
         }
 
-        Verify(context, "books", books, await EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, null, ct), b => b.Id, b => b.UserId);
-        Verify(context, "book_files", files.Values, await EtlV2Rows.TargetAsync<FileRow>(context, SelectV2Files, null, ct), f => f.Id, f => f.UserId);
-        Verify(context, "ingestion_jobs", jobs, await EtlV2Rows.TargetAsync<JobRow>(context, SelectV2Jobs, null, ct), j => j.Id, j => j.UserId);
-        Verify(context, "reading_state", states, await EtlV2Rows.TargetAsync<StateRow>(context, SelectV2States, null, ct), s => (s.UserId, s.BookId), s => s.UserId);
-        Verify(context, "annotations", annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct), a => a.Id, a => a.UserId);
-        Verify(context, "book_chapters", chapters, await EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2Chapters, null, ct), c => c.Id, c => c.UserId);
-        await CheckQuotesAsync(context, annotations, takenDown, written: true, ct);
+        // Chapters: only the rows this run wrote are re-read (the rest were equal before the write, and the write adds only).
+        var booksAfter = EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, null, ct);
+        var filesAfter = EtlV2Rows.TargetAsync<FileRow>(context, SelectV2Files, null, ct);
+        var jobsAfter = EtlV2Rows.TargetAsync<JobRow>(context, SelectV2Jobs, null, ct);
+        var statesAfter = EtlV2Rows.TargetAsync<StateRow>(context, SelectV2States, null, ct);
+        var annotationsAfter = EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct);
+        var chaptersAfter = EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2ChaptersById, new { ids = chapterPlan.New.Select(c => c.Id).ToArray() }, ct);
+        await Task.WhenAll(booksAfter, filesAfter, jobsAfter, statesAfter, annotationsAfter, chaptersAfter);
+        EtlV2Rows.Verify(context, "books: parity", books, await booksAfter, b => b.Id);
+        EtlV2Rows.Verify(context, "book_files: parity", files.Values, await filesAfter, f => f.Id);
+        EtlV2Rows.Verify(context, "ingestion_jobs: parity", jobs, await jobsAfter, j => j.Id);
+        EtlV2Rows.Verify(context, "reading_state: parity", states, await statesAfter, s => (s.UserId, s.BookId));
+        EtlV2Rows.Verify(context, "annotations: parity", annotations, await annotationsAfter, a => a.Id);
+        EtlV2Rows.Verify(context, "book_chapters: parity", chapterPlan.New, await chaptersAfter, c => c.Id);
     }
 
     /// <summary>
-    /// A takedown since an earlier run: what that run carried (chapters, cover, bytes) is still in V2, and its rows
-    /// now differ from the mapping (a failed check). Each named for a human to remove by hand; never deleted by a run.
+    /// A takedown since an earlier run: what that run carried is still in V2, and its rows now differ from the
+    /// mapping (a failed check). The cover and the library bytes are named here (its chapters by the plan, as V2
+    /// rows with no legacy row), for a human to remove by hand; never deleted by a run.
     /// </summary>
-    private static void ReportStaleTakedowns(EtlV2Context context, List<LegacyBook> legacy, List<BookRow> v2Books, List<ChapterRow> v2Chapters, Bytes bytes)
+    private static void ReportStaleTakedowns(EtlV2Context context, List<LegacyBook> legacy, List<BookRow> v2Books, Bytes? bytes)
     {
-        var chaptersByBook = v2Chapters.ToLookup(c => c.BookId, c => c.Id);
         var covers = v2Books.Where(b => b.CoverKey is not null).ToDictionary(b => b.Id, b => b.CoverKey!);
-        foreach (var b in legacy.Where(b => b.TakedownAt is not null))
+        foreach (var b in legacy.Where(b => b.TakenDown))
         {
             const string Stale = "taken down since an earlier run; V2 still holds";
-            foreach (var chapter in chaptersByBook[b.Id].Order())
-                context.CleanupActions.Add($"books {b.Id}: {Stale} book_chapters {chapter}; a human removes it");
             if (covers.TryGetValue(b.Id, out var cover))
                 context.CleanupActions.Add($"books {b.Id}: {Stale} cover_key {cover}; a human clears it");
-            foreach (var key in bytes.HeldFor(b.UserId, b.Id))
+            foreach (var key in bytes!.HeldFor(b.UserId, b.Id))
                 context.CleanupActions.Add($"books {b.Id}: {Stale} library bytes {key}; a human removes them");
         }
-    }
-
-    /// <summary>The mapped rows against the target; a V2 row that differs from its mapping is a failure, never overwritten.</summary>
-    private static EtlV2Plan<T> Plan<T, TKey>(EtlV2Context context, string table, IEnumerable<T> expected, IEnumerable<T> actual, Func<T, TKey> key)
-        where TKey : notnull
-    {
-        var plan = EtlV2Rows.Classify(expected, actual, key);
-        EtlV2Rows.Check(context, $"{table}: V2 row differs from its legacy mapping", plan.Different.Select(r => key(r).ToString()!));
-        context.Writes[table] = new(plan.New.Count, 0, plan.Unchanged);
-        // As users: reported only, never deleted.
-        var mapped = expected.Select(key).ToHashSet();
-        foreach (var orphan in actual.Select(key).Where(k => !mapped.Contains(k)).Select(k => k.ToString()!).Order(StringComparer.Ordinal))
-            context.CleanupActions.Add($"{table} {orphan}: V2 row with no legacy row; not deleted, a human reviews it");
-        return plan;
-    }
-
-    /// <summary>A new row whose secondary unique key V2 holds under another id: "{key} held by another V2 id", as row/holder.</summary>
-    private static void HeldByAnother<T, TKey>(EtlV2Context context, string key, IEnumerable<T> rows, IEnumerable<T> v2, Func<T, Guid> id, Func<T, TKey> value)
-        where TKey : notnull
-    {
-        var holders = v2.ToLookup(value, id);
-        EtlV2Rows.Check(context, $"{key} held by another V2 id",
-            rows.SelectMany(r => holders[value(r)].Where(holder => holder != id(r)).Select(holder => $"{id(r)}/{holder}")));
-    }
-
-    /// <summary>After the write: every mapped row is in V2 as mapped (count and content parity), and under its legacy owner.</summary>
-    private static void Verify<T, TKey>(EtlV2Context context, string table, IEnumerable<T> expected, List<T> actual, Func<T, TKey> key, Func<T, Guid> owner)
-        where TKey : notnull
-    {
-        var after = EtlV2Rows.Classify(expected, actual, key);
-        EtlV2Rows.Check(context, $"{table}: parity", after.New.Concat(after.Different).Select(r => key(r).ToString()!));
-        var owners = actual.ToDictionary(key, owner);
-        EtlV2Rows.Check(context, $"{table}: ownership", expected.Where(r => owners.TryGetValue(key(r), out var o) && o != owner(r)).Select(r => key(r).ToString()!));
     }
 
     private static List<BookRow> MapBooks(EtlV2Context context, List<LegacyBook> legacy, Bytes bytes)
@@ -219,7 +198,7 @@ public static partial class EtlV2Uploads
             if (string.IsNullOrWhiteSpace(b.Title))
                 blank.Add(b.Id.ToString());
             // Owner 2026-11-08: a takedown is carried hidden (removed_at) with no bytes and no chapters; legacy keeps the bytes.
-            if (b.TakedownAt is not null)
+            if (b.TakenDown)
                 context.OrphanCandidates.Add($"user_books {b.Id}: taken down; carried hidden (removed_at, file content_removed_at) without bytes, cover or chapters");
             // Owner 2026-11-08: a Processing or Failed upload is still the user's file: carried as is, listed for a human.
             if (NotReady.TryGetValue(b.Status, out var status))
@@ -238,7 +217,7 @@ public static partial class EtlV2Uploads
                 Origin = b.Origin,
                 CreatedAt = b.CreatedAt,
                 UpdatedAt = b.UpdatedAt,
-                CoverKey = b.CoverPath is null || b.TakedownAt is not null ? null : Cover(context, b, bytes),
+                CoverKey = b.CoverPath is null || b.TakenDown ? null : Cover(context, b, bytes),
                 RemovedAt = b.TakedownAt,
             });
         }
@@ -251,8 +230,11 @@ public static partial class EtlV2Uploads
     {
         var extension = Path.GetExtension(b.CoverPath)!.TrimStart('.').ToLowerInvariant();
         if (CoverExtension.IsMatch(extension) && bytes.Store.CoverKey(b.UserId, b.Id, extension) is var key
-            && bytes.Carry($"user_books {b.Id} cover", b.CoverPath!, key, null) is not null)
+            && bytes.Read($"user_books {b.Id} cover", b.CoverPath!, null) is { } cover)
+        {
+            bytes.Queue($"user_books {b.Id} cover", cover, key);
             return key;
+        }
         context.OrphanCandidates.Add($"user_books {b.Id}: cover not carried (missing on disk or no image extension); cover_key left null");
         return null;
     }
@@ -266,39 +248,44 @@ public static partial class EtlV2Uploads
             legacy.Where(f => !Formats.ContainsKey(f.Format)).Select(f => f.Id.ToString()));
         EtlV2Rows.Check(context, "book_files: not a positive byte size or a blank name",
             legacy.Where(f => f.ByteSize <= 0 || string.IsNullOrWhiteSpace(f.OriginalName)).Select(f => f.Id.ToString()));
-        var rows = new Dictionary<Guid, FileRow>();
+        var (wrongSize, rows) = (new List<string>(), new Dictionary<Guid, FileRow>());
         foreach (var f in legacy.Where(f => !several.Contains(f.BookId) && Formats.ContainsKey(f.Format)))
         {
             var book = books[f.BookId];
             var format = Formats[f.Format];
             var key = bytes.Store.FileKey(book.UserId, book.Id, f.Id, format);
-            var takenDown = book.TakedownAt is not null;
             // ADR-031 item 2: null sha256 → hashed from the bytes; no bytes → no row, the book stays without a file.
-            // A takedown's bytes are hashed, never copied.
-            if (bytes.Carry($"user_book_files {f.Id}", f.StoragePath, key, f.Sha256, copy: !takenDown, recordedSize: f.ByteSize) is not (string sha256, long length))
+            if (bytes.Read($"user_book_files {f.Id}", f.StoragePath, f.Sha256) is not { } read)
             {
                 context.OrphanCandidates.Add($"user_book_files {f.Id}: no bytes on disk; book {book.Id} migrates without a file (ADR-031 item 2)");
                 continue;
             }
-            if (f.Sha256 == sha256 && f.ByteSize != length)
-                context.CleanupActions.Add($"book_files {f.Id}: legacy file_size {f.ByteSize} differs from the bytes ({length}); byte_size taken from the bytes");
+            // A takedown's bytes are hashed, never copied.
+            if (!book.TakenDown)
+                bytes.Queue($"user_book_files {f.Id}", read, key);
+            // byte_size is the bytes' length (V2's quota sums it). Legacy's file_size disagreeing is a failure when no
+            // recorded sha256 vouches for the bytes, and a line for a human when one does.
+            if (f.ByteSize != read.Length && f.Sha256 is null)
+                wrongSize.Add($"user_book_files {f.Id}");
+            else if (f.ByteSize != read.Length && f.Sha256 == read.Sha256)
+                context.CleanupActions.Add($"book_files {f.Id}: legacy file_size {f.ByteSize} differs from the bytes ({read.Length}); byte_size taken from the bytes");
             rows[book.Id] = new FileRow
             {
                 Id = f.Id,
                 UserId = book.UserId,
                 BookId = book.Id,
-                Sha256 = sha256,
-                // The bytes are the truth (V2's quota sums byte_size); a recorded sha256 has vouched for them.
-                ByteSize = length,
+                Sha256 = read.Sha256,
+                ByteSize = read.Length,
                 OriginalName = f.OriginalName,
                 Format = format,
                 PageCount = book.PageCount,
                 Toc = book.Toc,
-                ServerStorageKey = takenDown ? null : key,
+                ServerStorageKey = book.TakenDown ? null : key,
                 ContentRemovedAt = book.TakedownAt,
                 CreatedAt = f.CreatedAt,
             };
         }
+        EtlV2Rows.Check(context, "library_files: bytes differ from the recorded file_size (no recorded sha256)", wrongSize);
         return rows;
     }
 
@@ -309,48 +296,43 @@ public static partial class EtlV2Uploads
     private sealed class Bytes
     {
         private readonly EtlV2Context _context;
-        private readonly string _storageRoot = "";
-        private readonly string _libraryRoot = "";
-        private readonly LibraryFileStore? _store;
+        private readonly string _storageRoot;
+        private readonly string _libraryRoot;
         private readonly List<string> _outside = [];
         private readonly List<string> _wrongHash = [];
         private readonly List<string> _keyTaken = [];
-        private readonly List<string> _wrongSize = [];
 
-        public Bytes(EtlV2Context context, bool needed)
+        public Bytes(EtlV2Context context)
         {
             _context = context;
-            if (!needed)
-                return;
             if (string.IsNullOrWhiteSpace(context.StorageRoot) || string.IsNullOrWhiteSpace(context.LibraryRoot))
                 throw new InvalidOperationException("carrying uploads needs both file roots (Storage:RootPath, Storage:LibraryRoot)");
             // An unmounted root would read as "every file missing": a run that carries no bytes and succeeds.
             if (!Directory.Exists(context.StorageRoot))
                 throw new InvalidOperationException("Storage:RootPath does not exist; is legacy's storage mounted?");
-            _storageRoot = FileStoreRegistration.AsDirectory(context.StorageRoot);
-            _libraryRoot = Path.GetFullPath(context.LibraryRoot);
             // /storage is served publicly: copied library bytes under it would be too (#1110).
             if (FileStoreRegistration.RootsAreNested(context.StorageRoot, context.LibraryRoot))
                 throw new InvalidOperationException("Storage:LibraryRoot and Storage:RootPath are nested; make them separate directories (#1110)");
-            _store = new LibraryFileStore(_libraryRoot);
+            _storageRoot = FileStoreRegistration.AsDirectory(context.StorageRoot);
+            _libraryRoot = Path.GetFullPath(context.LibraryRoot);
+            Store = new LibraryFileStore(_libraryRoot);
         }
 
-        /// <summary>The checks over every <see cref="Carry"/> so far.</summary>
+        /// <summary>The checks over every <see cref="Read"/> and <see cref="Queue"/> so far.</summary>
         public void Report()
         {
             EtlV2Rows.Check(_context, "library_files: legacy path outside Storage:RootPath", _outside);
             EtlV2Rows.Check(_context, "library_files: bytes differ from the recorded sha256", _wrongHash);
             EtlV2Rows.Check(_context, "library_files: V2 key already holds other bytes", _keyTaken);
-            EtlV2Rows.Check(_context, "library_files: bytes differ from the recorded file_size (no recorded sha256)", _wrongSize);
         }
 
-        /// <summary>The library's keys; only when there are uploads to carry (the roots were checked).</summary>
-        public LibraryFileStore Store => _store ?? throw new InvalidOperationException("no uploads to carry: the library store is not configured");
+        /// <summary>The library's keys.</summary>
+        public LibraryFileStore Store { get; }
 
         /// <summary>The keys of the files the library holds under a book's directory.</summary>
         public IEnumerable<string> HeldFor(Guid userId, Guid bookId)
         {
-            var dir = Path.Combine(_libraryRoot, Path.GetDirectoryName(Store.CoverKey(userId, bookId, "x"))!);
+            var dir = Path.Combine(_libraryRoot, LibraryFileStore.BookDir(userId, bookId));
             return Directory.Exists(dir)
                 ? Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(_libraryRoot, f)).Order(StringComparer.Ordinal)
                 : [];
@@ -360,8 +342,8 @@ public static partial class EtlV2Uploads
 
         public int Present { get; private set; }
 
-        /// <summary>The bytes' SHA-256 and length when legacy has them (copy queued, unless V2 holds them already or not <paramref name="copy"/>); null when missing.</summary>
-        public (string Sha256, long Length)? Carry(string what, string relativePath, string key, string? recordedSha256, bool copy = true, long? recordedSize = null)
+        /// <summary>Legacy's bytes, hashed and measured; null when missing (or outside the root, a failed check).</summary>
+        public LegacyBytes? Read(string what, string relativePath, string? recordedSha256)
         {
             var from = Path.GetFullPath(Path.Combine(_storageRoot, relativePath));
             if (!from.StartsWith(_storageRoot, StringComparison.Ordinal))
@@ -371,24 +353,23 @@ public static partial class EtlV2Uploads
             }
             if (!File.Exists(from))
                 return null;
-            var sha256 = Hash(from);
-            var length = new FileInfo(from).Length;
-            if (recordedSha256 is not null && recordedSha256 != sha256)
+            var read = new LegacyBytes(from, Hash(from), new FileInfo(from).Length);
+            if (recordedSha256 is not null && recordedSha256 != read.Sha256)
                 _wrongHash.Add(what);
-            // No recorded hash to vouch for them: byte_size is legacy's file_size, so it must be the bytes' length.
-            if (recordedSha256 is null && recordedSize is { } size && size != length)
-                _wrongSize.Add(what);
-            if (!copy)
-                return (sha256, length);
+            return read;
+        }
+
+        /// <summary>A copy to <paramref name="key"/> queued, unless V2 holds the same bytes there already; other bytes there fail.</summary>
+        public void Queue(string what, LegacyBytes read, string key)
+        {
             var to = Path.Combine(_libraryRoot, key);
             if (!File.Exists(to))
-                Pending.Add((from, to));
+                Pending.Add((read.Path, to));
             // Another length is other bytes, no hash needed; an equal one is confirmed by hash.
-            else if (new FileInfo(to).Length == length && Hash(to) == sha256)
+            else if (new FileInfo(to).Length == read.Length && Hash(to) == read.Sha256)
                 Present++;
             else
                 _keyTaken.Add(what);
-            return (sha256, length);
         }
 
         /// <summary>Each queued copy to a temp file beside its key, then renamed into place; an existing key is never overwritten.</summary>
@@ -418,8 +399,11 @@ public static partial class EtlV2Uploads
         }
     }
 
+    private sealed record LegacyBytes(string Path, string Sha256, long Length);
+
     private sealed record LegacyBook
     {
+        public bool TakenDown => TakedownAt is not null;
         public Guid Id { get; init; }
         public Guid UserId { get; init; }
         public string Title { get; init; } = "";

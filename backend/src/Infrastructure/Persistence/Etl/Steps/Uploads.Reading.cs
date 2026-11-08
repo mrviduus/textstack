@@ -1,4 +1,4 @@
-using System.Text.Json;
+using Application.Sync;
 
 namespace Infrastructure.Persistence.Etl;
 
@@ -48,21 +48,18 @@ public static partial class EtlV2Uploads
         VALUES (@Id, @UserId, @BookId, @FileId, @SelectedText, @NoteText, CAST(@Locator AS jsonb), @Color, @CreatedAt, @UpdatedAt, @DeletedAt, @Revision)
         """;
 
-    // Plan §5.2 validation part 3: an anchored upload annotation's text is in its chapter's plain_text. On a
-    // written run, what V2 holds; otherwise legacy's (the rows V2 would hold). Owner 2026-11-08: every whitespace
-    // run collapses to one space on both sides before comparing (a selection spans line breaks the text keeps);
-    // otherwise strict (no trim, no case folding).
-    private const string QuotesMissingInV2 = """
-        SELECT a.id FROM annotations a
-        LEFT JOIN book_chapters c ON c.user_id = a.user_id AND c.file_id = a.file_id AND c.chapter_key = a.locator -> 'value' ->> 'chapterKey'
-        WHERE a.id = ANY(@ids) AND (c.id IS NULL OR strpos(regexp_replace(c.plain_text, '\s+', ' ', 'g'), regexp_replace(a.selected_text, '\s+', ' ', 'g')) = 0)
-        ORDER BY a.id
-        """;
-
-    private const string QuotesMissingInLegacy = """
-        SELECT h.id FROM highlights h
-        LEFT JOIN user_chapters c ON c.id = h.user_chapter_id AND c.user_book_id = h.user_book_id
-        WHERE h.id = ANY(@ids) AND (c.id IS NULL OR strpos(regexp_replace(c.plain_text, '\s+', ' ', 'g'), regexp_replace(h.selected_text, '\s+', ' ', 'g')) = 0)
+    // Plan §5.2 validation part 3: an anchored upload annotation's text is in its chapter's plain_text, legacy's
+    // (V2's are their md5 copies). Owner 2026-11-08: every whitespace run collapses to one space on both sides
+    // before comparing (a selection spans line breaks the text keeps); otherwise strict (no trim, no case
+    // folding). Each chapter is normalized once, however many highlights it holds.
+    private const string QuotesMissing = """
+        WITH h AS (SELECT id, user_book_id, user_chapter_id, selected_text FROM highlights WHERE id = ANY(@ids)),
+             c AS MATERIALIZED (
+                 SELECT id, user_book_id, regexp_replace(plain_text, '\s+', ' ', 'g') AS text
+                 FROM user_chapters WHERE id IN (SELECT user_chapter_id FROM h))
+        SELECT h.id FROM h
+        LEFT JOIN c ON c.id = h.user_chapter_id AND c.user_book_id = h.user_book_id
+        WHERE c.id IS NULL OR strpos(c.text, regexp_replace(h.selected_text, '\s+', ' ', 'g')) = 0
         ORDER BY h.id
         """;
 
@@ -76,16 +73,17 @@ public static partial class EtlV2Uploads
                 context.OrphanCandidates.Add($"user_books {b.Id}: progress not carried, the book has no file row (its position resets, as a catalog book's)");
                 continue;
             }
-            // No locator V2 can resume from (a percent or a "read" mark alone), or a page on a file that is not a PDF:
+            // No locator V2 can resume from (a percent or a "read" mark alone), or one that does not fit the file (a page on a non-PDF):
             // the chapter slug if legacy has one, else a failed check.
-            var locator = b.CurrentLocator is null || (Scheme(b.CurrentLocator) == "pdf-page" && file.Format != "pdf") ? b.SlugLocator : b.CurrentLocator;
+            var locator = b.CurrentLocator is null || SyncValidation.FitsFile(Scheme(b.CurrentLocator), file.Format, "current_locator") is not null
+                ? b.SlugLocator : b.CurrentLocator;
             if (locator is null)
             {
                 unmappable.Add(b.Id.ToString());
                 continue;
             }
             var fraction = b.BookFraction ?? 0;
-            if (fraction is < 0 or > 1)
+            if (SyncValidation.Fraction(fraction, "book_fraction") is not null)
                 outOfRange.Add(b.Id.ToString());
             rows.Add(new StateRow
             {
@@ -119,7 +117,7 @@ public static partial class EtlV2Uploads
             var file = files.GetValueOrDefault(bookId);
             if (h.UserId != book.UserId)
                 notOwner.Add(h.Id.ToString());
-            if (!h.AnchorIsObject || (Scheme(h.Locator) == "pdf-page" && file is not null && file.Format != "pdf"))
+            if (!h.AnchorIsObject || (file is not null && SyncValidation.FitsFile(Scheme(h.Locator), file.Format, "locator") is not null))
                 unmappable.Add(h.Id.ToString());
             if (string.IsNullOrWhiteSpace(h.SelectedText) || h.Revision < 1)
                 invalid.Add(h.Id.ToString());
@@ -146,27 +144,14 @@ public static partial class EtlV2Uploads
         return rows;
     }
 
-    private static async Task CheckQuotesAsync(
-        EtlV2Context context, List<AnnotationRow> annotations, HashSet<Guid> takenDown, bool written, CancellationToken ct)
+    private static async Task CheckQuotesAsync(EtlV2Context context, List<AnnotationRow> annotations, CancellationToken ct)
     {
-        // V2 holds no chapters for a takedown, so its anchors are checked against legacy's only (dry run).
-        var ids = annotations.Where(a => Scheme(a.Locator) == "textstack-anchor-v1" && !(written && takenDown.Contains(a.BookId)))
-            .Select(a => a.Id).ToArray();
-        var missing = written
-            ? await EtlV2Rows.TargetAsync<Guid>(context, QuotesMissingInV2, new { ids }, ct)
-            : await EtlV2Rows.SourceAsync<Guid>(context, QuotesMissingInLegacy, new { ids }, ct);
-        // The gate (legacy's chapters) keeps its name; the verification after the write names V2's.
-        EtlV2Rows.Check(context, written ? "annotations: selected_text not in its V2 chapter's plain_text (after the write)"
-            : "annotations: selected_text not in its chapter's plain_text", missing.Select(id => id.ToString()));
+        var ids = annotations.Where(a => Scheme(a.Locator) == "textstack-anchor-v1").Select(a => a.Id).ToArray();
+        var missing = await EtlV2Rows.SourceAsync<Guid>(context, QuotesMissing, new { ids }, ct);
+        EtlV2Rows.Check(context, "annotations: selected_text not in its chapter's plain_text", missing.Select(id => id.ToString()));
     }
 
-    private static string? Scheme(string? locator)
-    {
-        if (locator is null)
-            return null;
-        using var doc = JsonDocument.Parse(locator);
-        return doc.RootElement.GetProperty("scheme").GetString();
-    }
+    private static string? Scheme(string? locator) => locator is null ? null : SyncValidation.SchemeOf(locator);
 
     private sealed record LegacyHighlight
     {
