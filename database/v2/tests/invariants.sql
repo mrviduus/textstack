@@ -5,7 +5,7 @@
 -- Each block raises (non-zero exit) with the offending names. Adding or dropping a table means
 -- editing the expected set below, on purpose: it is ADR-031's table list.
 
--- The table set is exactly ADR-031's 24 + 2 transitional, plus the ETL's ledger (0003, dropped at M6).
+-- The table set is exactly ADR-031's 24 + 2 transitional, plus the ETL's ledger (0003, dropped at M6.5).
 DO $$
 DECLARE missing text; extra text;
 BEGIN
@@ -205,10 +205,34 @@ BEGIN
         ('ck_migration_runs_order', 'CHECK (((finished_at IS NULL) OR (finished_at >= started_at)))'),
         ('ck_migration_runs_validation_failures', 'CHECK ((validation_failures >= 0))'),
         ('ck_migration_runs_succeeded_validated', 'CHECK (((outcome IS DISTINCT FROM ''succeeded''::text) OR ((validation_failures = 0) IS TRUE)))'),
+        ('ck_migration_runs_validated_together', 'CHECK (((validation_failures IS NULL) = (validation IS NULL)))'),
+        ('ck_migration_runs_validated_finished', 'CHECK (((finished_at IS NOT NULL) OR (validation_failures IS NULL)))'),
         ('ck_migration_runs_counts', 'CHECK ((jsonb_typeof(counts) = ''object''::text))'),
         ('ck_migration_runs_validation', 'CHECK ((jsonb_typeof(validation) = ''object''::text))'),
         ('ck_migration_runs_source_dump_sha', 'CHECK ((source_dump_sha ~ ''^[0-9a-f]{64}$''::text))')) x(c, def)
     WHERE pg_get_constraintdef((SELECT oid FROM pg_constraint
                                 WHERE conname = x.c AND conrelid = 'public.migration_runs'::regclass)) IS DISTINCT FROM x.def;
     IF bad IS NOT NULL THEN RAISE EXCEPTION 'migration_runs CHECKs missing or not as defined: %', bad; END IF;
+
+    -- Columns: type, nullability, the server-side start stamp, and the two column COMMENTs.
+    SELECT string_agg(x.c, ', ') INTO bad FROM (VALUES
+        ('id', 'uuid', 'NO'), ('started_at', 'timestamp with time zone', 'NO'),
+        ('finished_at', 'timestamp with time zone', 'YES'), ('outcome', 'text', 'YES'),
+        ('source_dump_sha', 'text', 'YES'), ('counts', 'jsonb', 'NO'), ('validation', 'jsonb', 'YES'),
+        ('validation_failures', 'integer', 'YES')) x(c, t, n)
+    WHERE NOT EXISTS (SELECT FROM information_schema.columns
+                      WHERE table_schema = 'public' AND table_name = 'migration_runs'
+                        AND column_name = x.c AND data_type = x.t AND is_nullable = x.n);
+    IF bad IS NOT NULL THEN RAISE EXCEPTION 'migration_runs columns missing or of the wrong type/nullability: %', bad; END IF;
+
+    IF (SELECT column_default FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'migration_runs' AND column_name = 'started_at') IS DISTINCT FROM 'now()' THEN
+        RAISE EXCEPTION 'migration_runs.started_at does not default to the server''s now()';
+    END IF;
+
+    IF (SELECT col_description(attrelid, attnum) FROM pg_attribute WHERE attrelid = 'public.migration_runs'::regclass AND attname = 'source_dump_sha') IS NULL
+       OR (SELECT col_description(attrelid, attnum) FROM pg_attribute
+           WHERE attrelid = 'public.migration_runs'::regclass AND attname = 'validation_failures') IS NULL THEN
+        RAISE EXCEPTION 'migration_runs column COMMENTs missing (source_dump_sha, validation_failures)';
+    END IF;
 END $$;

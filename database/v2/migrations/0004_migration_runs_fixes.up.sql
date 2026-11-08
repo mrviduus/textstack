@@ -9,8 +9,12 @@
 --          closed), never deletes it. A gate must not read "no failures" out of a NULL or an empty
 --          jsonb (README rule 8: nothing queried lives in JSON), so the result is a column the
 --          database checks. source_dump_sha ties a rehearsal row to the backup it ran on (owner
---          2026-11-07). The writer stamps finished_at = GREATEST(now(), started_at), so
---          ck_migration_runs_order stays and a clock step cannot fail a finish.
+--          2026-11-07). started_at now defaults to the server's now(), and every finish or close
+--          stamps finished_at = GREATEST(now(), started_at), so ck_migration_runs_order stays and
+--          neither a client clock nor a clock step can fail a finish. validation_failures and the
+--          validation report come together, on a finished run only.
+--        Existing rows that break the new CHECKs make this migration fail, on purpose: there is
+--          no truthful backfill for a run's validation (only throwaway test databases have rows).
 -- Issue: https://github.com/mrviduus/textstack/issues/1026
 -- Compatibility: textstack_v2 has no ledger rows anywhere real (prod is at 0002; the etl-v2 CLI is
 --                unreleased). Like every V2 migration, the Api counts this file for readiness: with
@@ -23,10 +27,13 @@
 
 ALTER TABLE public.migration_runs
     ADD COLUMN validation_failures integer,
+    ALTER COLUMN started_at SET DEFAULT now(),
     DROP CONSTRAINT ck_migration_runs_outcome,
     ADD CONSTRAINT ck_migration_runs_outcome CHECK (outcome IN ('succeeded', 'failed', 'interrupted')),
     ADD CONSTRAINT ck_migration_runs_validation_failures CHECK (validation_failures >= 0),
     ADD CONSTRAINT ck_migration_runs_succeeded_validated CHECK (outcome IS DISTINCT FROM 'succeeded' OR (validation_failures = 0) IS TRUE),
+    ADD CONSTRAINT ck_migration_runs_validated_together CHECK ((validation_failures IS NULL) = (validation IS NULL)),
+    ADD CONSTRAINT ck_migration_runs_validated_finished CHECK (finished_at IS NOT NULL OR validation_failures IS NULL),
     ADD CONSTRAINT ck_migration_runs_counts CHECK (jsonb_typeof(counts) = 'object'),
     ADD CONSTRAINT ck_migration_runs_validation CHECK (jsonb_typeof(validation) = 'object'),
     ADD CONSTRAINT ck_migration_runs_source_dump_sha CHECK (source_dump_sha ~ '^[0-9a-f]{64}$');

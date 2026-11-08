@@ -22,7 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
-- **Database** — V2 `etl-v2` run ledger: `0003_migration_runs` (#1131) + `0004_migration_runs_fixes` (interrupted outcome, typed `validation_failures`, SHA-256 `source_dump_sha`, typed jsonb; #1133). Not applied on prod until `make migrate-v2` — [#1026](https://github.com/mrviduus/textstack/issues/1026)
+- **Infra** — `textstack_v2` gains the `etl-v2` run ledger `migration_runs` (`0003` #1131, `0004` #1133); not applied on prod until `make migrate-v2` — infra · [details](docs/changelog-archive/2026-H2.md#2026-11-08-v2-migration-runs-ledger)
 - **Reader** — ADR-032: one V2 reader engine, a pinned fork of foliate-js, for EPUB/MOBI/AZW3/FB2/CBZ/PDF (PDF after a gate on real uploads), paginated with a scrolled option, no server extraction for new formats; ADR-025/029/012/031 amended, implementation #1128 — docs
 - **Docs** — repo root tidied: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` moved to `.github/` (GitHub still detects them); `COPYRIGHT.md` dropped, the README License section already says it — docs
 - **Users** — wave-6 bug report: the Worker passes DI validation in Development (six Api-only services leave `AddApplication`, #1108); device approve with a deleted account's token answers 401 not 500 (#1119); guests can neither mint nor use MCP connect keys, and the web connect panel offers them sign-up through the shared `capabilitiesFor` (#1120); a V2 locator scheme that does not fit its file is refused (`pdf-page` only on PDFs, `epub-cfi` only on EPUB/HTML, `textstack-*` on any; kept locators pass), checked inside the reading-state write SQL (#1122) — backend, web, mobile
