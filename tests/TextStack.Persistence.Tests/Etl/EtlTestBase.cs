@@ -20,12 +20,15 @@ public abstract class EtlTestBase(PostgresFixture legacy, V2PostgresFixture v2) 
 
     protected V2PostgresFixture V2 => v2;
 
-    /// <summary>A validation check that passes: what a real run needs to succeed (it fails closed without one).</summary>
-    protected static readonly EtlV2Step Ok = new("ok", (context, _) =>
+    /// <summary>A validation check that passes: what a real run needs to succeed (it fails closed without one). Counts <c>users</c> on both sides.</summary>
+    protected static readonly EtlV2Step Ok = new("ok", ["users"], ["users"], (context, _) =>
     {
         context.Checks.Add(new("trivial", 0));
         return Task.CompletedTask;
     });
+
+    /// <summary>A step with no check that declares <c>users</c> on both sides: counts without validation.</summary>
+    protected static readonly EtlV2Step CountUsers = new("count-users", ["users"], ["users"], (_, _) => Task.CompletedTask);
 
     /// <summary>A step that throws.</summary>
     protected static readonly EtlV2Step Fail = new("fail", (_, _) => throw new InvalidDataException("boom"));

@@ -21,7 +21,7 @@ public sealed class LibraryFileStore(string root) : ILibraryFileStore
 
     public string CoverKey(Guid userId, Guid bookId, string extension) => $"{BookDir(userId, bookId)}/cover.{extension}";
 
-    private static string BookDir(Guid userId, Guid bookId) => $"{UserDir(userId)}/{bookId}";
+    internal static string BookDir(Guid userId, Guid bookId) => $"{UserDir(userId)}/{bookId}";
 
     private static string UserDir(Guid userId) => $"library/{userId.ToString()[..2]}/{userId}";
 

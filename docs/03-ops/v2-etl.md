@@ -13,7 +13,7 @@ The ETL reads legacy as a SELECT-only role. The read-only connection default
 safeguard; the role is the one that holds when a session switches that default off.
 
 `etl_reader` has: LOGIN, CONNECT on the source database, USAGE on `public`, SELECT on exactly the tables
-etl-v2 reads (the list in the script: `EtlV2.SourceCounts` plus each step's `SourceTables`). It has no ownership, no
+etl-v2 reads (the list in the script: every step's declared `Sources`). It has no ownership, no
 SUPERUSER/CREATEROLE/CREATEDB/REPLICATION/BYPASSRLS, NOINHERIT and no role membership. The application
 role's privileges are not touched.
 
@@ -66,13 +66,40 @@ make etl-v2 ARGS=--dry-run
 
 Exit 1 with `source login … can write (…)` lists what to fix (up to 5 items).
 
-**Not covered by the audit, by decision.** PUBLIC holds both by default, and closing either means
-revoking from PUBLIC, which the application role relies on. So both are reported here, not changed:
-- `TEMP` on the database: temporary tables die with the session and never persist.
+**Not covered by the audit, by decision.** PUBLIC holds both by default, so the audit cannot refuse
+them without refusing every login:
+- `TEMP` on the database: temporary tables die with the session and never persist. Left as is.
 - The large-object functions (`lo_create`, `lo_from_bytea`, …): EXECUTE is granted to PUBLIC. They fail
   in a read-only transaction, which is etl-v2's default; a session that switched that off could create
-  a large object. Closing it means `REVOKE EXECUTE ON FUNCTION lo_create(oid), … FROM PUBLIC`, an owner
-  decision about the application's privileges.
+  a large object. Closed by the preflight below (owner 2026-11-08).
+
+### Preflight (every rehearsal and the cutover)
+
+Before the first `--dry-run`, on the legacy database the run reads, as its owner or a superuser. The
+application stores nothing in large objects, so it loses nothing:
+
+```sql
+-- every large-object function PUBLIC may execute (17 on postgres 16; lo_import/lo_export are superuser-only already)
+DO $$
+DECLARE f regprocedure;
+BEGIN
+  FOR f IN SELECT p.oid::regprocedure FROM pg_proc p
+           WHERE p.pronamespace = 'pg_catalog'::regnamespace AND (p.proname LIKE 'lo\_%' OR p.proname IN ('loread', 'lowrite'))
+             AND has_function_privilege('public', p.oid, 'EXECUTE')
+  LOOP
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC', f);
+  END LOOP;
+END $$;
+-- check: must print 0
+SELECT count(*) FROM pg_proc p
+WHERE p.pronamespace = 'pg_catalog'::regnamespace AND (p.proname LIKE 'lo\_%' OR p.proname IN ('loread', 'lowrite'))
+  AND has_function_privilege('public', p.oid, 'EXECUTE');
+```
+
+Checked 2026-11-08 on the compose image (pgvector pg16): 0 left, and a plain role's `lo_create(0)` is
+`permission denied`. On production the revoke stays after the cutover (legacy is read-only from then on);
+undo it (`GRANT EXECUTE … TO PUBLIC` per function) only if the rollback (plan §5.3 step 8) puts legacy
+back in service and something needs it.
 
 ### Clean up
 
@@ -118,10 +145,16 @@ own process with signals proxied, not inside the serving api. **No merge to `mai
 flight**: a deploy recreates services and may take the run's network or image with it.
 
 A run succeeds only if its steps ran validation checks and every one passed. A real run with no check
-fails closed (`NoValidationChecks`). A dry run writes no gate row, so with 0 checks it exits 0 with its report and warns
-`0 validation checks ran (no mapper steps yet)` on stderr: its exit code stays the audit's verdict. In a
-dry run, steps compute and count what they would write; nothing is written (not even rolled back: a
-rolled-back transaction still advances sequences).
+fails closed (`NoValidationChecks`). A dry run writes no gate row, so with 0 checks it exits 0 with its
+report and warns `0 validation checks ran (no step ran a check)` on stderr. In a dry run, steps compute
+and count what they would write (`writes` in the report: inserted / updated / unchanged per target);
+nothing is written (not even rolled back: a rolled-back transaction still advances sequences). A dry
+run whose checks fail exits 1, and prints the checks (failing ids only), orphans and cleanups on stdout:
+that is the pre-flight's report.
+
+Once any check has failed, the later steps still compute and report, but write nothing. Every write of a
+step runs in one transaction that holds the run's own `migration_runs` row `FOR SHARE` (the fence): a
+run that lost its lock and was closed as `interrupted` by another finds its row closed and writes nothing.
 
 The run holds its advisory lock on one target connection (TCP keepalive on) and checks it is still held
 before every step and before the final ledger write; a lost lock (`lock lost: another run may be
@@ -144,51 +177,99 @@ the second SIGINT). If it does not (a run stuck where no signal reaches it), `do
 A run killed outright leaves its ledger row unfinished; the next real run, once it holds the lock,
 closes it as `interrupted` and lists it in `interruptedRuns`. Nothing is ever deleted.
 
-## 4. M3.3 mappers: catalog pairs, vocabulary, insights, sessions
+## 4. What a run carries (M3.2: users and uploads; M3.3: catalog pairs, vocabulary, insights, sessions)
 
-Steps `catalog`, `vocabulary`, `insights`, `sessions`, `unknown-users`, in that order, after M3.2's
-(`backend/src/Infrastructure/Persistence/Etl/Steps/`). They write with their own inline SQL, not the API
-repositories: those stamp `now()` and move the schedule, and a migrated row keeps its legacy times and
-SRS state; the schema's CHECKs and FKs hold either way.
+Steps, in order: `users` (legacy `users`, `admin_users` → `users`), then `uploads` (`user_books`,
+`user_book_files`, `user_chapters`, upload `highlights`, `user_ingestion_jobs` → `books`, `book_files`,
+`reading_state`, `annotations`, `book_chapters`, `ingestion_jobs`), then M3.3's `catalog`, `vocabulary`,
+`insights`, `sessions` and `unknown-users` (below). Ids are legacy's (an admin with no user keeps its `admin_users` id), so a
+second run over the same source writes nothing and reports the same counts. The steps write with their
+own inline SQL (data-access.md rule 13) in the fenced transaction, not through the API's repositories:
+those stamp `created_at`/`updated_at` with `now()`, refuse a second book with the same bytes and open
+their own transactions. Every CHECK and composite FK of the schema still applies. `book_chapters` is
+written by binary `COPY`.
 
-**One rule for every aggregate.** A planned row is compared with the target row under its id:
-absent → inserted (a dry run counts it: check `<table>: would insert N, unchanged M`); equal → nothing;
-different → a **mismatch**: never overwritten, listed by id in `cleanupActions`, and a failure of
-`<table>.target-matches-source`. No `ON CONFLICT`: a unique key held by another row fails the run. A
-source row the target's CHECK/FK would refuse is **unmappable**: listed by id, a failure of
-`<table>.unmappable`, never carried half. A row whose user (or edition, or insight) is not there is an
-**orphan candidate**: listed by id in `orphanCandidates`, not carried, not a failure, never deleted.
-"Known users" = the target's `users` (a dry run adds the source's: the users step would have written them).
+### Conflict rules
 
-| Aggregate (target) | Id | Conflict / edge rule |
-|---|---|---|
-| Catalog pair (`books`) | `uuid_v5(ns, user ‖ edition)`, ns = `uuid_v5(nil, "textstack-v2")`, names in RFC byte order | Pair = catalog plan §3.4's intent query minus bookmarks (`user_libraries`, `reading_progresses`, catalog `highlights`, `vocabulary_words`, `pending_vocabulary_words`, `word_lookups`, `word_clusters`, `book_insight`, savedbook shelf entries). Row: edition title, first author by credit order, edition language, `origin {"kind":"catalog","editionSlug"}`, `created_at = updated_at` = the pair's first intent; no file, no reading state (D5). Edition gone (dangling shelf entry) or user unknown → orphan. Every column is compared, defaults included |
-| Catalog highlight (`annotations`) | legacy id | Unanchored: text, note, colour, times, `revision = version`; no file, no locator. A highlight with neither edition nor upload (its book was deleted) → orphan. Upload highlights are M3.2's |
-| Vocabulary card (`vocabulary_words`) | the survivor's legacy id | Merge below. Another card already holding the planned `(user, language, word_key)` → reported (`vocabulary_words.key-held-by-another-card`), the card and its examples and reviews not written |
-| Example (`vocabulary_examples`) | `id = operation_id = uuid_v5(ns, legacy card id)` | One per legacy card with a non-blank sentence, on the survivor. Book: the upload's id, or the catalog pair's book; a deleted edition leaves no book but keeps `book_title`. `chapter_key` = the catalog chapter's `COALESCE(slug, 'ch-' ‖ number)`, only with a book. Hash: `VocabularyPayloads.ExampleSha256` over the survivor's `language` + `word_key` |
-| Review (`vocabulary_reviews`) | legacy id; `operation_id = uuid_v5(ns, legacy id)` | On its card's survivor; `client_recorded_at` = `created_at` truncated to ms (stored and hashed: `VocabularyPayloads.ReviewSha256`); `created_at` exact |
-| Insight (`book_insight`) | legacy id | `book_id` = the upload's id or the pair's book. Unmappable: `source` not `mcp`; `review_json` without `chapter_slug` |
-| Review question (`review_question`) | legacy id | As stored, `prompt_hash` verbatim even where today's `OpenThreads.PromptHash` would differ (a legacy hash is kept, never recomputed). Its insight not carried → orphan |
-| Session (`reading_sessions`) | legacy id = `client_session_id` | `book_id` = the upload's id, or the pair's book if the pair is carried; a session-only pair (no intent row), a deleted edition or a deleted upload → `book_id` NULL, still counted; reported (session-only) as an orphan candidate, carried anyway. `deleted_book_sha256` as stored. Unmappable: percent outside 0..1, negative duration/words |
+What a run does when V2 already holds a row of the same key. Never a blanket `ON CONFLICT DO NOTHING`
+(a unit test scans the ETL sources for it).
 
-**Vocabulary case merge (ADR-031 decided item 4).** Group key: `(user, WordKeys.Language(language),
-WordKeys.Of(word))` — trimmed, invariant-lowercased, the API's own functions ("Run", "run" and " RUN "
-in `EN` are one card). Survivor: the higher `total_reviews`, then the newer `updated_at`, then the lower
-id (a full tie is still deterministic). The card is the survivor's row as it was: its spelling,
-translation, definition, schedule (`stage`, `interval_days`, `consecutive_correct`, `next_review_at`,
-`last_reviewed_at`), `created_at`/`updated_at`. Edge cases:
-- **Both cards have reviews**: every review of both moves to the survivor; the schedule stays the
-  survivor's; the loser's schedule is not carried. `vocabulary.review-counts-equal` checks the group's
-  legacy review rows = the survivor's V2 reviews.
-- **Both have sentences**: each becomes its own example on the survivor (with its own book/chapter).
-- **Only the loser has a translation or definition**: dropped with the loser (the survivor's fields only).
-- **Retired**: the survivor's `is_retired` → `retired_at` (its `retired_at`, or `updated_at` when that is
-  null); a loser's retirement is not carried.
-- **Language case** (`en` vs `EN`) merges; a blank word or language after trimming is unmappable.
+| Aggregate (V2 key) | V2 has no row | V2 row equal to the mapping | V2 row differs from the mapping |
+|---|---|---|---|
+| `users` (`id`) | insert | unchanged | **update** every legacy column (M2.2's shadow rows are filled, counted as `updated`, not drift); `role` stays `admin` if V2 has it; `credentials_reset_at` is V2's own, never touched |
+| `users` (`lower(email)`) | — | — | an email V2 holds under **another id**: check `users: email held by another V2 id` fails (`legacyId/v2Id`), nothing overwritten |
+| `books` (`id`) | insert | unchanged | check `books: V2 row differs from its legacy mapping` fails; the V2 row is kept |
+| `book_files` (`id`) | insert | unchanged | same rule (`book_files: …`) |
+| `reading_state` (`user_id, book_id`) | insert | unchanged | same rule (`reading_state: …`) |
+| `annotations` (`id`) | insert | unchanged | same rule (`annotations: …`) |
+| `book_chapters` (`id`, compared by md5 of `html`/`plain_text`) | COPY | unchanged | same rule (`book_chapters: …`) |
+| `ingestion_jobs` (`id`) | insert | unchanged | same rule (`ingestion_jobs: …`) |
+| library bytes (the V2 key) | copied | unchanged (same SHA-256) | check `library_files: V2 key already holds other bytes` fails; the V2 bytes are kept |
 
-**Validation checks** (a real run; they read the target back): `catalog.intent-pairs-complete` (every
-carried pair's book and annotations as mapped), `vocabulary.srs-fields-equal`,
-`vocabulary.review-counts-equal`, `insights.hashes-equal` (canonical-JSON SHA-256 of every mapped column,
-insights and questions), `sessions.seconds-per-user-equal` (all legacy sessions of a known user vs the
-target), `unknown-user-ids` (rows in these eight tables whose owner is no legacy user or admin). A dry run
-registers only the mismatch, unmappable and would-insert checks.
+V2 users with no legacy row are listed in `cleanupActions`; no run deletes them, and they are not a
+failure (owner 2026-11-08). A guest (the identity mirror's leftover, #1094) comes with the `DELETE` a human
+may run (it cascades to that user's V2 rows); a non-guest account comes with none: a human reviews it.
+
+### Mapping, and what fails instead of being guessed
+
+- **Users** (ADR-031 rows 22, 24, item 7): every column; legacy's `''` `google_subject` becomes NULL.
+  An active `admin_users` row matching a user's email case-insensitively makes that user `admin`; with no
+  match it becomes a user (`password_hash`, `role = 'admin'`, tier `Free`). Fails: two legacy emails
+  equal but for case (#1027: no merge rule decided), an **inactive** admin (no rule decided), an
+  admin id held by a user of another email, a tier outside V2's set.
+- **Books** (row 33, items 1, 3): `origin` `{"kind":"upload"}` or `{"kind":"clip","sourceUrl":…}`;
+  `tags`, `description`, `genre`, `published_year` carried; the cover is copied to
+  `library/…/{bookId}/cover.{ext}` (missing on disk: `cover_key` NULL, listed). Fails: a blank title.
+- **Taken-down uploads** (`user_books.takedown_at` set; owner 2026-11-08): the book is carried **hidden**,
+  `books.removed_at = takedown_at` (the library lists only `removed_at IS NULL`); its file row gets
+  `content_removed_at = takedown_at` and `server_storage_key` NULL (the API serves no content without a
+  key). No bytes are copied (file or cover; `cover_key` NULL): legacy keeps them as the rollback, and a
+  null `sha256` is hashed from them read-only. Its chapters are not carried; its reading state,
+  annotations and jobs are. Its anchored annotations are quote-checked against legacy's chapters, as
+  every one is. Each such book is listed in `orphanCandidates`, on a dry and a real run. Not a failure.
+- **Non-ready uploads** (`user_books.status` Processing or Failed; owner 2026-11-08): carried with their
+  bytes as any upload (it is the user's file), and each listed in `cleanupActions` for a human. Not a failure.
+- **Files** (row 35, item 2): `sha256` lowercased; a null one is hashed from the bytes; a file whose bytes
+  are not on disk gets **no row** and its book migrates without a file (listed). `page_count`,
+  `toc_json` move here. Fails: more than one legacy file for a book, format Fb2/Other (V2 takes them only
+  after ADR-032's pending migration), bytes that differ from the recorded `sha256`, a path outside
+  `Storage:RootPath`, a non-positive size or blank name.
+- **Reading state** (items 3, 5): `progress_position_json` → `textstack-position-v1` as-is; `page:<n>` →
+  `pdf-page`; `scroll:<slug>:<px>` alone → `textstack-position-v1` `{chapterSlug, chapterFraction: 0}`
+  (a pixel offset has no chapter length to divide by); `book_fraction` = `progress_percent` (NULL → 0);
+  `completed_at` = `completed_at`, else `read_at` (else `updated_at`) when `is_read`; no frontier. A book
+  with no file row keeps no state (listed: its position resets, as a catalog book's). Fails: progress
+  with no locator V2 can resume from (a percent or a "read" mark alone), `pdf-page` on a non-PDF, a
+  percent outside 0..1.
+- **Annotations** (row 43, item 6): a PDF anchor → `pdf-page` as-is; a reflow anchor → `textstack-anchor-v1`
+  with `chapterId` replaced by `chapterKey`. An anchor whose chapter is gone, or on a book with no file
+  row, is not carried: the annotation is a quotation (listed). A highlight with no book and no edition (a
+  deleted upload's trail) is not carried (listed in `orphanCandidates`). Catalog highlights are M3.3's.
+  Fails: highlight owner ≠ upload owner, an anchor that is not an object, a blank text, a version below 1.
+- **Chapters** (row 34, item 6): `chapter_key = COALESCE(slug, 'ch-' || chapter_number)`, keyed to the
+  book's file; a book with no file row's chapters are not carried (listed). `html` is carried byte for
+  byte: its images keep their legacy `/storage/…` URLs and no image asset is copied (owner 2026-11-08;
+  `book_chapters` is transitional until R8). Fails: a blank key, two chapters of a file with one key.
+- **Ingestion jobs** (row 36): status `0..3` → `queued`/`processing`/`succeeded`/`failed`; `source_format`
+  lowercased (as the V2 worker writes it); keyed to the carried file. A job whose file got no row is not
+  carried (listed). Fails: another status, or a source format outside `epub`/`pdf`/`html`/`fb2`/`unknown`.
+
+`orphanCandidates` and `cleanupActions` carry ids only, never an email or a text.
+
+### Validation (plan §5.2 parts 1–3)
+
+Before the write, on a dry and a real run: `annotations: selected_text not in its chapter's plain_text`
+for every `textstack-anchor-v1` annotation, against legacy's chapters (V2's are their md5 copies, so it
+holds there too; a failure stops the write). After the write, per target: `<table>: parity` (every mapped
+row is in V2, equal to its mapping: count and content, owner included). The quote comparison collapses every whitespace run to one space on both sides
+first, and is otherwise strict: no trim, no case folding (owner 2026-11-08). `users: parity` covers the shadow rows and the admins.
+
+### Files
+
+Reads `Storage:RootPath` (legacy, read only) and `Storage:LibraryRoot` (V2); the two must not nest (#1110).
+Bytes are **copied**, never moved or deleted: legacy is the rollback (plan §5.3 step 8). A copy goes to a
+temp file beside its key, then is renamed into place; an existing key is never overwritten. Bytes are
+copied before the rows are written; a run that fails between leaves bytes no row names, and the worker's
+daily orphan sweep removes them. A dry run reads (and hashes) legacy's bytes and V2's existing ones, and
+writes no file.
+

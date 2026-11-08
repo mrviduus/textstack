@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Infrastructure.Persistence.Etl;
+using Infrastructure.Services;
 
 namespace Api.V2;
 
@@ -41,25 +42,25 @@ public static partial class EtlV2Command
             await error.WriteLineAsync(Usage);
             return 2;
         }
+        // The file roots the api itself uses: legacy's bytes are read there, V2's written there.
+        options = options with { StorageRoot = FileStoreRegistration.StorageRoot(config), LibraryRoot = FileStoreRegistration.LibraryRoot(config) };
         try
         {
             var report = await EtlV2.RunAsync(options, ct: ct);
             await output.WriteLineAsync(JsonSerializer.Serialize(report, Json));
             if (report.Checks.Count == 0)
-                await error.WriteLineAsync("etl-v2: warning: 0 validation checks ran (no mapper steps yet)");
+                await error.WriteLineAsync("etl-v2: warning: 0 validation checks ran (no step ran a check)");
             return 0;
         }
-        catch (EtlV2CanceledException e)
+        catch (EtlV2Exception e)
         {
-            // 130 only when a ledger row records the cancel; before it, an ordinary failure.
-            await error.WriteLineAsync($"etl-v2: {e.Message}");
-            return e.RunId is null ? 1 : 130;
-        }
-        catch (InvalidOperationException e)
-        {
+            // What the steps found (ids only), so a failed dry run is still the pre-flight's report.
+            if (e.Checks.Count + e.OrphanCandidates.Count + e.CleanupActions.Count + e.Writes.Count > 0)
+                await output.WriteLineAsync(JsonSerializer.Serialize(new { e.RunId, e.Checks, e.OrphanCandidates, e.CleanupActions, e.Writes }, Json));
             // The message only: EtlV2 scrubs it, the inner exception it wraps it does not.
             await error.WriteLineAsync($"etl-v2: {e.Message}");
-            return 1;
+            // 130 only when a ledger row records the cancel; before it, an ordinary failure.
+            return e.Canceled && e.RunId is not null ? 130 : 1;
         }
     }
 
