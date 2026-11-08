@@ -118,11 +118,16 @@ own process with signals proxied, not inside the serving api. **No merge to `mai
 flight**: a deploy recreates services and may take the run's network or image with it.
 
 A run succeeds only if its steps ran validation checks and every one passed. A real run with no check
-fails closed (`NoValidationChecks`): until M3.2 adds count parity, every real run ends `failed`, by
-design. A dry run writes no gate row, so with 0 checks it exits 0 with its report and warns
-`0 validation checks ran (no mapper steps yet)` on stderr: its exit code stays the audit's verdict. In a
-dry run, steps compute and count what they would write; nothing is written (not even rolled back: a
-rolled-back transaction still advances sequences).
+fails closed (`NoValidationChecks`). A dry run writes no gate row, so with 0 checks it exits 0 with its
+report and warns `0 validation checks ran (no mapper steps yet)` on stderr. In a dry run, steps compute
+and count what they would write (`writes` in the report: inserted / updated / unchanged per target);
+nothing is written (not even rolled back: a rolled-back transaction still advances sequences). A dry
+run whose checks fail exits 1, and prints the checks (failing ids only), orphans and cleanups on stdout:
+that is the pre-flight's report.
+
+Once any check has failed, the later steps still compute and report, but write nothing. Every write of a
+step runs in one transaction that holds the run's own `migration_runs` row `FOR SHARE` (the fence): a
+run that lost its lock and was closed as `interrupted` by another finds its row closed and writes nothing.
 
 The run holds its advisory lock on one target connection (TCP keepalive on) and checks it is still held
 before every step and before the final ledger write; a lost lock (`lock lost: another run may be
@@ -144,3 +149,83 @@ the second SIGINT). If it does not (a run stuck where no signal reaches it), `do
 
 A run killed outright leaves its ledger row unfinished; the next real run, once it holds the lock,
 closes it as `interrupted` and lists it in `interruptedRuns`. Nothing is ever deleted.
+
+## 4. What a run carries (M3.2: users and uploads)
+
+Steps, in order: `users` (legacy `users`, `admin_users` → `users`), then `uploads` (`user_books`,
+`user_book_files`, `user_chapters`, upload `highlights` → `books`, `book_files`, `reading_state`,
+`annotations`, `book_chapters`). Ids are legacy's (an admin with no user keeps its `admin_users` id), so a
+second run over the same source writes nothing and reports the same counts. The steps write with their
+own inline SQL (data-access.md rule 13) in the fenced transaction, not through the API's repositories:
+those stamp `created_at`/`updated_at` with `now()`, refuse a second book with the same bytes and open
+their own transactions. Every CHECK and composite FK of the schema still applies. `book_chapters` is
+written by binary `COPY`.
+
+### Conflict rules
+
+What a run does when V2 already holds a row of the same key. Never a blanket `ON CONFLICT DO NOTHING`
+(a unit test scans the ETL sources for it).
+
+| Aggregate (V2 key) | V2 has no row | V2 row equal to the mapping | V2 row differs from the mapping |
+|---|---|---|---|
+| `users` (`id`) | insert | unchanged | **update** every legacy column (M2.2's shadow rows are filled, counted as `updated`, not drift); `role` stays `admin` if V2 has it; `credentials_reset_at` is V2's own, never touched |
+| `users` (`lower(email)`) | — | — | an email V2 holds under **another id**: check `users: email held by another V2 id` fails (`legacyId/v2Id`), nothing overwritten |
+| `books` (`id`) | insert | unchanged | check `books: V2 row differs from its legacy mapping` fails; the V2 row is kept |
+| `book_files` (`id`) | insert | unchanged | same rule (`book_files: …`) |
+| `reading_state` (`user_id, book_id`) | insert | unchanged | same rule (`reading_state: …`) |
+| `annotations` (`id`) | insert | unchanged | same rule (`annotations: …`) |
+| `book_chapters` (`id`, compared by md5 of `html`/`plain_text`) | COPY | unchanged | same rule (`book_chapters: …`) |
+| library bytes (the V2 key) | copied | unchanged (same SHA-256) | check `library_files: V2 key already holds other bytes` fails; the V2 bytes are kept |
+
+V2 users with no legacy row (a guest the identity mirror left behind, #1094) are listed in
+`cleanupActions` with the `DELETE` a human may run (it cascades to that user's V2 rows); no run deletes
+them, and they are not a failure.
+
+### Mapping, and what fails instead of being guessed
+
+- **Users** (ADR-031 rows 22, 24, item 7): every column; legacy's `''` `google_subject` becomes NULL.
+  An active `admin_users` row matching a user's email case-insensitively makes that user `admin`; with no
+  match it becomes a user (`password_hash`, `role = 'admin'`, tier `Free`). Fails: two legacy emails
+  equal but for case (#1027: no merge rule decided), an **inactive** admin (no rule decided), an
+  admin id held by a user of another email, a tier outside V2's set.
+- **Books** (row 33, items 1, 3): `origin` `{"kind":"upload"}` or `{"kind":"clip","sourceUrl":…}`;
+  `tags`, `description`, `genre`, `published_year` carried; the cover is copied to
+  `library/…/{bookId}/cover.{ext}` (missing on disk: `cover_key` NULL, listed). Fails: a blank title.
+- **Files** (row 35, item 2): `sha256` lowercased; a null one is hashed from the bytes; a file whose bytes
+  are not on disk gets **no row** and its book migrates without a file (listed). `page_count`,
+  `toc_json` move here. Fails: more than one legacy file for a book, format Fb2/Other (V2 takes them only
+  after ADR-032's pending migration), bytes that differ from the recorded `sha256`, a path outside
+  `Storage:RootPath`, a non-positive size or blank name.
+- **Reading state** (items 3, 5): `progress_position_json` → `textstack-position-v1` as-is; `page:<n>` →
+  `pdf-page`; `scroll:<slug>:<px>` alone → `textstack-position-v1` `{chapterSlug, chapterFraction: 0}`
+  (a pixel offset has no chapter length to divide by); `book_fraction` = `progress_percent` (NULL → 0);
+  `completed_at` = `completed_at`, else `read_at` (else `updated_at`) when `is_read`; no frontier. A book
+  with no file row keeps no state (listed: its position resets, as a catalog book's). Fails: progress
+  with no locator V2 can resume from (a percent or a "read" mark alone), `pdf-page` on a non-PDF, a
+  percent outside 0..1.
+- **Annotations** (row 43, item 6): a PDF anchor → `pdf-page` as-is; a reflow anchor → `textstack-anchor-v1`
+  with `chapterId` replaced by `chapterKey`. An anchor whose chapter is gone, or on a book with no file
+  row, is not carried: the annotation is a quotation (listed). A highlight with no book and no edition (a
+  deleted upload's trail) is not carried (listed in `orphanCandidates`). Catalog highlights are M3.3's.
+  Fails: highlight owner ≠ upload owner, an anchor that is not an object, a blank text, a version below 1.
+- **Chapters** (row 34, item 6): `chapter_key = COALESCE(slug, 'ch-' || chapter_number)`, keyed to the
+  book's file; a book with no file row's chapters are not carried (listed). Fails: a blank key, two
+  chapters of a file with one key.
+
+`orphanCandidates` and `cleanupActions` carry ids only, never an email or a text.
+
+### Validation (plan §5.2 parts 1–3)
+
+After the write, per target: `<table>: parity` (every mapped row is in V2, equal to its mapping: count
+and content), `<table>: ownership` (under its legacy owner), and `annotations: selected_text not in its
+chapter's plain_text` for every `textstack-anchor-v1` annotation (on a dry run, or a run already failed,
+against legacy's chapters). `users: parity` covers the shadow rows and the admins.
+
+### Files
+
+Reads `Storage:RootPath` (legacy, read only) and `Storage:LibraryRoot` (V2); the two must not nest (#1110).
+Bytes are **copied**, never moved or deleted: legacy is the rollback (plan §5.3 step 8). A copy goes to a
+temp file beside its key, then is renamed into place; an existing key is never overwritten. Bytes are
+copied before the rows are written; a run that fails between leaves bytes no row names, and the worker's
+daily orphan sweep removes them. A dry run reads (and hashes) legacy's bytes and V2's existing ones, and
+writes no file.

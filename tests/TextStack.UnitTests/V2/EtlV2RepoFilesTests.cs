@@ -72,4 +72,14 @@ public class EtlV2RepoFilesTests
 
         Assert.Empty(offenders);
     }
+
+    [Fact]
+    public void EtlReaderScript_Grants_EverySourceTableTheStepsDeclare()
+    {
+        // etl_reader can read only what the script grants: a step reading one more table fails on production.
+        var script = File.ReadAllText(Path.Combine(RepoRoot(), "database", "scripts", "etl-reader.sql"));
+        var granted = Regex.Matches(script, @"public\.([a-z_]+)").Select(m => m.Groups[1].Value).ToHashSet();
+
+        Assert.DoesNotContain(Infrastructure.Persistence.Etl.EtlV2.Steps.SelectMany(s => s.Sources), t => !granted.Contains(t));
+    }
 }
