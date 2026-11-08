@@ -1,5 +1,4 @@
 using Application.Vocabulary;
-using Dapper;
 using Domain.Vocabulary;
 
 namespace Infrastructure.Persistence.Etl;
@@ -41,6 +40,11 @@ public static class EtlV2Vocabulary
         FROM vocabulary_words
         """;
 
+    private const string SelectV2WordsById = SelectV2Words + """
+
+        WHERE id = ANY(@ids)
+        """;
+
     private const string InsertWord = """
         INSERT INTO vocabulary_words (id, user_id, language, word, word_key, translation, definition, stage, interval_days, consecutive_correct,
             next_review_at, last_reviewed_at, created_at, updated_at, deleted_at, retired_at, revision)
@@ -51,6 +55,11 @@ public static class EtlV2Vocabulary
     private const string SelectV2Examples = """
         SELECT id, user_id, word_id, book_id, file_id, chapter_key, book_title, sentence, contextual_translation, operation_id, payload_sha256, created_at, deleted_at
         FROM vocabulary_examples
+        """;
+
+    private const string SelectV2ExamplesById = SelectV2Examples + """
+
+        WHERE id = ANY(@ids)
         """;
 
     private const string InsertExample = """
@@ -85,17 +94,7 @@ public static class EtlV2Vocabulary
             ("negative SRS field", w => w.Stage < 0 || w.IntervalDays < 0 || w.ConsecutiveCorrect < 0),
             // Numeric needs a decimal: finite and within its range (a value below its precision becomes 0, fine for a day count).
             ("interval_days not a representable number", w => !double.IsFinite(w.IntervalDays) || Math.Abs(w.IntervalDays) >= (double)decimal.MaxValue),
-            ("its upload belongs to another user", w => w.UserBookId is { } ub && uploadOwner[ub] != w.UserId));
-
-        // No owner CHECK in legacy: a card can name both. The upload is the more specific owner; reported, not silent.
-        // A chapter_id is carried as chapter_key only for an example on its edition's pair; anything else is listed too.
-        foreach (var w in legacyWords.Where(w => w.UserBookId is not null && w.EditionId is not null))
-            context.CleanupActions.Add($"vocabulary_words {w.Id}: both owners set (upload {w.UserBookId}, edition {w.EditionId}); example kept on the upload"
-                + (w.ChapterId is null ? "" : $", catalog chapter {w.ChapterId} not carried as its chapter_key"));
-        foreach (var w in legacyWords.Where(w => w.ChapterId is not null && w.EditionId is null))
-            context.CleanupActions.Add($"vocabulary_words {w.Id}: chapter {w.ChapterId} dropped, the card has no edition; example carried with no chapter_key");
-        foreach (var w in legacyWords.Where(w => w.ChapterId is not null && w.EditionId is not null && w.UserBookId is null && w.ChapterKey is null))
-            context.CleanupActions.Add($"vocabulary_words {w.Id}: chapter {w.ChapterId} is not of its edition; example carried with no chapter_key");
+            EtlV2Rows.ForeignUploadRule<LegacyWord>(uploadOwner, w => w.UserBookId, w => w.UserId));
 
         // legacy card id → the survivor's card
         var cardOf = new Dictionary<Guid, WordRow>();
@@ -110,6 +109,8 @@ public static class EtlV2Vocabulary
                 cardOf[w.Id] = card;
                 if (!string.IsNullOrWhiteSpace(w.Sentence))
                     examples.Add(ExampleOf(card, w));
+                if (OwnerNote(w) is { } note)
+                    context.CleanupActions.Add($"vocabulary_words {w.Id}: {note}");
             }
         }
 
@@ -121,9 +122,10 @@ public static class EtlV2Vocabulary
             ("negative response time or stage", r => r.ResponseTimeMs < 0 || r.StageBefore < 0 || r.StageAfter < 0))
             .Select(r => ReviewOf(cardOf[r.VocabularyWordId], r)).ToList();
 
-        var v2Words = await EtlV2Rows.TargetAsync<WordRow>(context, SelectV2Words, null, ct);
-        var v2Examples = await EtlV2Rows.TargetAsync<ExampleRow>(context, SelectV2Examples, null, ct);
-        var v2Reviews = await EtlV2Rows.TargetAsync<ReviewRow>(context, SelectV2Reviews, null, ct);
+        var (wordsRead, examplesRead, reviewsRead) = (EtlV2Rows.TargetAsync<WordRow>(context, SelectV2Words, null, ct),
+            EtlV2Rows.TargetAsync<ExampleRow>(context, SelectV2Examples, null, ct), EtlV2Rows.TargetAsync<ReviewRow>(context, SelectV2Reviews, null, ct));
+        await Task.WhenAll(wordsRead, examplesRead, reviewsRead);
+        var (v2Words, v2Examples, v2Reviews) = (await wordsRead, await examplesRead, await reviewsRead);
         var wordPlan = EtlV2Rows.Plan(context, "vocabulary_words", words, v2Words, w => w.Id);
         var examplePlan = EtlV2Rows.Plan(context, "vocabulary_examples", examples, v2Examples, e => e.Id);
         var reviewPlan = EtlV2Rows.Plan(context, "vocabulary_reviews", reviews, v2Reviews, r => r.Id);
@@ -132,25 +134,24 @@ public static class EtlV2Vocabulary
         EtlV2Rows.HeldByAnother(context, "vocabulary_examples: (user_id, operation_id)", examples, v2Examples, e => e.Id, e => (e.UserId, e.OperationId));
         EtlV2Rows.HeldByAnother(context, "vocabulary_reviews: (user_id, operation_id)", reviews, v2Reviews, r => r.Id, r => (r.UserId, r.OperationId));
 
-        if (!context.MayWrite)
+        if (!await EtlV2Rows.InsertAsync(context, ct, (InsertWord, wordPlan.New), (InsertExample, examplePlan.New), (InsertReview, reviewPlan.New)))
             return;
-        await using (var tx = await context.BeginWriteAsync(ct))
-        {
-            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertWord, wordPlan.New, tx.Transaction, cancellationToken: ct));
-            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertExample, examplePlan.New, tx.Transaction, cancellationToken: ct));
-            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertReview, reviewPlan.New, tx.Transaction, cancellationToken: ct));
-            await tx.CommitAsync(ct);
-        }
 
-        var reviewsAfter = await EtlV2Rows.TargetAsync<ReviewRow>(context, SelectV2Reviews, null, ct);
-        EtlV2Rows.Verify(context, "vocabulary_words: parity (SRS fields equal)", words, await EtlV2Rows.TargetAsync<WordRow>(context, SelectV2Words, null, ct), w => w.Id);
-        EtlV2Rows.Verify(context, "vocabulary_examples: parity", examples, await EtlV2Rows.TargetAsync<ExampleRow>(context, SelectV2Examples, null, ct), e => e.Id);
-        EtlV2Rows.Verify(context, "vocabulary_reviews: parity", reviews, reviewsAfter, r => r.Id);
+        // Words and examples: only the rows this run wrote are re-read (the rest were equal before the write, and the write
+        // adds only). Reviews: all of them, for the count check.
+        var wordsAfter = EtlV2Rows.TargetAsync<WordRow>(context, SelectV2WordsById, new { ids = wordPlan.New.Select(w => w.Id).ToArray() }, ct);
+        var examplesAfter = EtlV2Rows.TargetAsync<ExampleRow>(context, SelectV2ExamplesById, new { ids = examplePlan.New.Select(e => e.Id).ToArray() }, ct);
+        var reviewsAfter = EtlV2Rows.TargetAsync<ReviewRow>(context, SelectV2Reviews, null, ct);
+        await Task.WhenAll(wordsAfter, examplesAfter, reviewsAfter);
+        EtlV2Rows.Verify(context, "vocabulary_words: parity (SRS fields equal)", wordPlan.New, await wordsAfter, w => w.Id);
+        EtlV2Rows.Verify(context, "vocabulary_examples: parity", examplePlan.New, await examplesAfter, e => e.Id);
+        EtlV2Rows.Verify(context, "vocabulary_reviews: parity", reviews, await reviewsAfter, r => r.Id);
         // From the source rows (every legacy review of the group), not the plan: the survivor's V2 reviews are all of them.
-        var expected = legacyReviews.GroupBy(r => cardOf[r.VocabularyWordId].Id).ToDictionary(g => g.Key, g => g.Count());
-        var actual = reviewsAfter.GroupBy(r => r.WordId).ToDictionary(g => g.Key, g => g.Count());
-        EtlV2Rows.Check(context, "vocabulary: review count differs (legacy reviews of a merged group vs its survivor's V2 reviews)",
-            words.Where(w => expected.GetValueOrDefault(w.Id) != actual.GetValueOrDefault(w.Id)).Select(w => w.Id.ToString()));
+        // Over the cards this run carries: a V2-only card's reviews are its cleanup line's.
+        var carried = words.Select(w => w.Id).ToHashSet();
+        EtlV2Rows.Totals(context, "vocabulary: review count differs (legacy reviews of a merged group vs its survivor's V2 reviews)",
+            legacyReviews.GroupBy(r => cardOf[r.VocabularyWordId].Id).ToDictionary(g => g.Key, g => (long)g.Count()),
+            (await reviewsAfter).Where(r => carried.Contains(r.WordId)).GroupBy(r => r.WordId).ToDictionary(g => g.Key, g => (long)g.Count()));
     }
 
     private static WordRow WordOf(List<LegacyWord> ranked, string language, string key)
@@ -178,6 +179,22 @@ public static class EtlV2Vocabulary
         };
     }
 
+    // The key names a chapter of the card's edition (the join guards it): only on that edition's pair, never on an upload.
+    private static string? ChapterKeyOf(LegacyWord w) => w.UserBookId is null ? w.ChapterKey : null;
+
+    /// <summary>
+    /// What the run reports about a card's owners and chapter, or null. No owner CHECK in legacy: a card can name both
+    /// (the upload is the more specific owner); a chapter_id not carried as chapter_key is listed, never dropped silently.
+    /// </summary>
+    private static string? OwnerNote(LegacyWord w) => (w.UserBookId, w.EditionId) switch
+    {
+        ({ } upload, { } edition) => $"both owners set (upload {upload}, edition {edition}); example kept on the upload"
+            + (w.ChapterId is null ? "" : $", catalog chapter {w.ChapterId} not carried as its chapter_key"),
+        _ when w.ChapterId is null || ChapterKeyOf(w) is not null => null,
+        (_, null) => $"chapter {w.ChapterId} dropped, the card has no edition; example carried with no chapter_key",
+        _ => $"chapter {w.ChapterId} is not of its edition; example carried with no chapter_key",
+    };
+
     private static ExampleRow ExampleOf(WordRow card, LegacyWord w)
     {
         // An upload keeps its id in V2 (M3.2); a catalog book is its pair's. A deleted edition left neither.
@@ -186,8 +203,7 @@ public static class EtlV2Vocabulary
         var example = new VocabularyExample
         {
             BookId = bookId,
-            // The key names a chapter of the edition: only on that edition's pair, never on an upload.
-            ChapterKey = w.UserBookId is null && bookId is not null ? w.ChapterKey : null,
+            ChapterKey = ChapterKeyOf(w),
             BookTitle = w.BookTitle,
             Sentence = w.Sentence!,
         };

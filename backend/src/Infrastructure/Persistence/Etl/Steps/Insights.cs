@@ -1,5 +1,3 @@
-using Dapper;
-
 namespace Infrastructure.Persistence.Etl;
 
 /// <summary>
@@ -52,7 +50,7 @@ public static class EtlV2Insights
         var legacy = EtlV2Rows.Admit(context, "book_insight", await EtlV2Rows.SourceAsync<LegacyInsight>(context, SelectLegacyInsights, null, ct), i => i.Id,
             ("source V2 does not take (only mcp)", i => i.Source != "mcp"),
             ("a review without a chapter", i => i.ReviewJson is not null && i.ChapterSlug is null),
-            ("its upload belongs to another user", i => i.UserBookId is { } ub && uploadOwner[ub] != i.UserId));
+            EtlV2Rows.ForeignUploadRule<LegacyInsight>(uploadOwner, i => i.UserBookId, i => i.UserId));
         // ck_book_insight_target in legacy: exactly one of the two.
         var insights = legacy.Select(i => new InsightRow
         {
@@ -75,25 +73,22 @@ public static class EtlV2Insights
             ("another user's insight", q => carried[q.BookInsightId].UserId != q.UserId),
             ("negative SRS field", q => q.Stage < 0 || q.IntervalDays < 0 || q.ConsecutiveCorrect < 0));
 
-        var v2Insights = await EtlV2Rows.TargetAsync<InsightRow>(context, SelectV2Insights, null, ct);
-        var v2Questions = await EtlV2Rows.TargetAsync<QuestionRow>(context, SelectV2Questions, null, ct);
+        var (insightsRead, questionsRead) = (EtlV2Rows.TargetAsync<InsightRow>(context, SelectV2Insights, null, ct), EtlV2Rows.TargetAsync<QuestionRow>(context, SelectV2Questions, null, ct));
+        await Task.WhenAll(insightsRead, questionsRead);
+        var (v2Insights, v2Questions) = (await insightsRead, await questionsRead);
         var insightPlan = EtlV2Rows.Plan(context, "book_insight", insights, v2Insights, i => i.Id);
         var questionPlan = EtlV2Rows.Plan(context, "review_question", questions, v2Questions, q => q.Id);
         EtlV2Rows.HeldByAnother(context, "book_insight: (user_id, book_id, chapter_slug)", insights, v2Insights, i => i.Id, i => (i.UserId, i.BookId, i.ChapterSlug));
         EtlV2Rows.HeldByAnother(context, "review_question: (user_id, book_insight_id, prompt_hash)", questions, v2Questions, q => q.Id, q => (q.UserId, q.BookInsightId, q.PromptHash));
 
-        if (!context.MayWrite)
+        if (!await EtlV2Rows.InsertAsync(context, ct, (InsertInsight, insightPlan.New), (InsertQuestion, questionPlan.New)))
             return;
-        await using (var tx = await context.BeginWriteAsync(ct))
-        {
-            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertInsight, insightPlan.New, tx.Transaction, cancellationToken: ct));
-            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertQuestion, questionPlan.New, tx.Transaction, cancellationToken: ct));
-            await tx.CommitAsync(ct);
-        }
 
         // Plan §5.2 "insight hashes equal", as every column compared: stricter than a hash of them.
-        EtlV2Rows.Verify(context, "book_insight: parity", insights, await EtlV2Rows.TargetAsync<InsightRow>(context, SelectV2Insights, null, ct), i => i.Id);
-        EtlV2Rows.Verify(context, "review_question: parity", questions, await EtlV2Rows.TargetAsync<QuestionRow>(context, SelectV2Questions, null, ct), q => q.Id);
+        var (insightsAfter, questionsAfter) = (EtlV2Rows.TargetAsync<InsightRow>(context, SelectV2Insights, null, ct), EtlV2Rows.TargetAsync<QuestionRow>(context, SelectV2Questions, null, ct));
+        await Task.WhenAll(insightsAfter, questionsAfter);
+        EtlV2Rows.Verify(context, "book_insight: parity", insights, await insightsAfter, i => i.Id);
+        EtlV2Rows.Verify(context, "review_question: parity", questions, await questionsAfter, q => q.Id);
     }
 
     private sealed record LegacyInsight

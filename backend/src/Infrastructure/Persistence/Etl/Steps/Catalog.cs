@@ -1,5 +1,3 @@
-using Dapper;
-
 namespace Infrastructure.Persistence.Etl;
 
 /// <summary>
@@ -24,7 +22,8 @@ public static class EtlV2Catalog
     // the pair's first intent by immutable creation times only; reading_progresses has none (updated_at moves, and
     // would make a re-run over a newer dump a mismatch), so a progress-only pair takes the edition's created_at. The retired tables (lookups, clusters, pending words, shelves) still select pairs
     // (owner 2026-11-08). Edition columns are NULL for a pair whose edition is gone (a shelf entry has no FK).
-    private const string IntentPairs = """
+    // Internal: M3.4's validate-etl.sql mirrors it.
+    internal const string IntentPairs = """
         WITH intent(user_id, edition_id, at) AS (
             SELECT user_id, edition_id, created_at FROM user_libraries
             UNION ALL SELECT user_id, edition_id, NULL FROM reading_progresses
@@ -53,29 +52,14 @@ public static class EtlV2Catalog
         """;
 
     // The catalog books V2 holds, and any row under a planned id whatever its origin (then a mismatch, not a 23505).
-    private const string SelectV2Books = """
-        SELECT id, user_id, title, author, language, description, genre, published_year, tags, cover_key, origin::text AS origin,
-               checkpoint_saving_enabled, revision, created_at, updated_at, removed_at
-        FROM books
+    private const string SelectV2Books = EtlV2BookRows.SelectBooks + """
+
         WHERE origin->>'kind' = 'catalog' OR id = ANY(@ids)
         """;
 
-    private const string InsertBook = """
-        INSERT INTO books (id, user_id, title, author, language, description, genre, published_year, tags, cover_key, origin,
-                           checkpoint_saving_enabled, revision, created_at, updated_at, removed_at)
-        VALUES (@Id, @UserId, @Title, @Author, @Language, @Description, @Genre, @PublishedYear, @Tags, @CoverKey, CAST(@Origin AS jsonb),
-                @CheckpointSavingEnabled, @Revision, @CreatedAt, @UpdatedAt, @RemovedAt)
-        """;
+    private const string SelectV2Annotations = EtlV2BookRows.SelectAnnotations + """
 
-    private const string SelectV2Annotations = """
-        SELECT id, user_id, book_id, file_id, selected_text, note_text, locator::text AS locator, color, created_at, updated_at, deleted_at, revision
-        FROM annotations
         WHERE book_id IN (SELECT id FROM books WHERE origin->>'kind' = 'catalog') OR id = ANY(@ids)
-        """;
-
-    private const string InsertAnnotation = """
-        INSERT INTO annotations (id, user_id, book_id, file_id, selected_text, note_text, locator, color, created_at, updated_at, deleted_at, revision)
-        VALUES (@Id, @UserId, @BookId, @FileId, @SelectedText, @NoteText, CAST(@Locator AS jsonb), @Color, @CreatedAt, @UpdatedAt, @DeletedAt, @Revision)
         """;
 
     private static async Task RunAsync(EtlV2Context context, CancellationToken ct)
@@ -93,26 +77,23 @@ public static class EtlV2Catalog
         var annotations = EtlV2Rows.Admit(context, "annotations (catalog)",
             (await EtlV2Rows.SourceAsync<LegacyHighlight>(context, SelectLegacyHighlights, null, ct))
                 .Select(h => AnnotationOf(h)).Where(a => bookIds.Contains(a.BookId)), a => a.Id,
-            ("blank text or a version below 1", a => string.IsNullOrWhiteSpace(a.SelectedText) || a.Revision < 1));
+            (EtlV2BookRows.BlankOrUnversioned, a => EtlV2BookRows.IsBlankOrUnversioned(a.SelectedText, a.Revision)));
 
-        var ids = new { ids = books.Select(b => b.Id).ToArray() };
+        var ids = new { ids = bookIds.ToArray() };
         var notes = new { ids = annotations.Select(a => a.Id).ToArray() };
-        var bookPlan = EtlV2Rows.Plan(context, "books (catalog)", books, await EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, ids, ct), b => b.Id);
-        var annotationPlan = EtlV2Rows.Plan(context, "annotations (catalog)", annotations,
-            await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, notes, ct), a => a.Id);
+        var (v2Books, v2Notes) = (EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, ids, ct), EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, notes, ct));
+        await Task.WhenAll(v2Books, v2Notes);
+        var bookPlan = EtlV2Rows.Plan(context, "books (catalog)", books, await v2Books, b => b.Id);
+        var annotationPlan = EtlV2Rows.Plan(context, "annotations (catalog)", annotations, await v2Notes, a => a.Id);
 
-        if (!context.MayWrite)
+        if (!await EtlV2Rows.InsertAsync(context, ct, (EtlV2BookRows.InsertBook, bookPlan.New), (EtlV2BookRows.InsertAnnotation, annotationPlan.New)))
             return;
-        await using (var tx = await context.BeginWriteAsync(ct))
-        {
-            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertBook, bookPlan.New, tx.Transaction, cancellationToken: ct));
-            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertAnnotation, annotationPlan.New, tx.Transaction, cancellationToken: ct));
-            await tx.CommitAsync(ct);
-        }
 
         // Plan §5.2 "completeness per intent pair": a pair is complete when its book and every annotation on it are in V2 as mapped.
-        var booksAfter = EtlV2Rows.Classify(books, await EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, ids, ct), b => b.Id);
-        var notesAfter = EtlV2Rows.Classify(annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, notes, ct), a => a.Id);
+        var (booksRead, notesRead) = (EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, ids, ct), EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, notes, ct));
+        await Task.WhenAll(booksRead, notesRead);
+        var booksAfter = EtlV2Rows.Classify(books, await booksRead, b => b.Id);
+        var notesAfter = EtlV2Rows.Classify(annotations, await notesRead, a => a.Id);
         EtlV2Rows.Check(context, "catalog: intent pair incomplete (its book or an annotation is not in V2 as mapped)",
             booksAfter.New.Concat(booksAfter.Different).Select(b => b.Id)
                 .Concat(notesAfter.New.Concat(notesAfter.Different).Select(a => a.BookId))
@@ -167,42 +148,5 @@ public static class EtlV2Catalog
         public int Revision { get; init; }
         public DateTimeOffset CreatedAt { get; init; }
         public DateTimeOffset UpdatedAt { get; init; }
-    }
-
-    /// <summary>A <c>books</c> row, every column: the defaults a catalog pair leaves (no description, cover, tags) are compared too.</summary>
-    private sealed record BookRow
-    {
-        public Guid Id { get; init; }
-        public Guid UserId { get; init; }
-        public string Title { get; init; } = "";
-        public string? Author { get; init; }
-        public string? Language { get; init; }
-        public string? Description { get; init; }
-        public string? Genre { get; init; }
-        public int? PublishedYear { get; init; }
-        public string[] Tags { get; init; } = [];
-        public string? CoverKey { get; init; }
-        public string Origin { get; init; } = "";
-        public bool CheckpointSavingEnabled { get; init; }
-        public long Revision { get; init; } = 1;
-        public DateTimeOffset CreatedAt { get; init; }
-        public DateTimeOffset UpdatedAt { get; init; }
-        public DateTimeOffset? RemovedAt { get; init; }
-    }
-
-    private sealed record AnnotationRow
-    {
-        public Guid Id { get; init; }
-        public Guid UserId { get; init; }
-        public Guid BookId { get; init; }
-        public Guid? FileId { get; init; }
-        public string SelectedText { get; init; } = "";
-        public string? NoteText { get; init; }
-        public string? Locator { get; init; }
-        public string Color { get; init; } = "";
-        public DateTimeOffset CreatedAt { get; init; }
-        public DateTimeOffset UpdatedAt { get; init; }
-        public DateTimeOffset? DeletedAt { get; init; }
-        public long Revision { get; init; }
     }
 }

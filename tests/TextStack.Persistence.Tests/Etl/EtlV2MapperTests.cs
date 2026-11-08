@@ -149,11 +149,6 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
 
     private Task<T> V2Scalar<T>(EtlV2Options options, string sql, object? args = null) => ScalarAsync<T>(options.Target, sql, args);
 
-    private static Task<EtlV2Exception> FailsAsync(EtlV2Options options) => Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
-
-    /// <summary>The failing ids of the one check named <paramref name="check"/>.</summary>
-    private static IReadOnlyList<string>? Failed(EtlV2Exception error, string check) => Assert.Single(error.Checks, c => c.Name == check).Ids;
-
     [Fact]
     public async Task RunAsync_ProductionShapes_CarriesEveryAggregateAndSucceeds()
     {

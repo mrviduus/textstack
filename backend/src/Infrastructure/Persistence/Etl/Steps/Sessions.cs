@@ -1,5 +1,4 @@
 using Application.Sync;
-using Dapper;
 
 namespace Infrastructure.Persistence.Etl;
 
@@ -44,7 +43,7 @@ public static class EtlV2Sessions
             ("percent outside 0..1", s => !(s.StartPercent is >= 0 and <= 1) || !(s.EndPercent is >= 0 and <= 1)),
             ("negative duration or words", s => s.DurationSeconds < 0 || s.WordsRead < 0),
             ("deleted_book_sha256 is not lowercase hex", s => s.DeletedBookSha256 is { } sha && SyncValidation.Sha256(sha) is not null),
-            ("its upload belongs to another user", s => s.UserBookId is { } ub && uploadOwner[ub] != s.UserId));
+            EtlV2Rows.ForeignUploadRule<LegacySession>(uploadOwner, s => s.UserBookId, s => s.UserId));
         // A report, not a failure (catalog plan §6.2 item 10): the session stays, with no book.
         foreach (var s in admitted.Where(s => s.EditionId is { } e && !pairs.ContainsKey((s.UserId, e))))
             context.OrphanCandidates.Add($"reading_sessions {s.Id}: session-only catalog pair; carried with no book");
@@ -68,23 +67,17 @@ public static class EtlV2Sessions
         var plan = EtlV2Rows.Plan(context, "reading_sessions", sessions, v2, s => s.Id);
         EtlV2Rows.HeldByAnother(context, "reading_sessions: (user_id, client_session_id)", sessions, v2, s => s.Id, s => (s.UserId, s.ClientSessionId));
 
-        if (!context.MayWrite)
+        if (!await EtlV2Rows.InsertAsync(context, ct, (InsertSession, plan.New)))
             return;
-        await using (var tx = await context.BeginWriteAsync(ct))
-        {
-            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertSession, plan.New, tx.Transaction, cancellationToken: ct));
-            await tx.CommitAsync(ct);
-        }
 
         var after = await EtlV2Rows.TargetAsync<SessionRow>(context, SelectV2Sessions, null, ct);
         EtlV2Rows.Verify(context, "reading_sessions: parity", sessions, after, s => s.Id);
         // Per carried user, every legacy session against every V2 one: a session not carried, or one V2 has beyond legacy's,
         // shows here. A V2-only user's sessions are report-only (the plan's cleanup lines), never this failure (owner 2026-11-08).
         var carried = await EtlV2Rows.CarriedUserIdsAsync(context, ct);
-        var expected = legacy.GroupBy(s => s.UserId).ToDictionary(g => g.Key, g => g.Sum(s => (long)s.DurationSeconds));
-        var actual = after.Where(s => carried.Contains(s.UserId)).GroupBy(s => s.UserId).ToDictionary(g => g.Key, g => g.Sum(s => (long)s.DurationSeconds));
-        EtlV2Rows.Check(context, "reading_sessions: seconds per user differ",
-            expected.Keys.Union(actual.Keys).Where(u => expected.GetValueOrDefault(u) != actual.GetValueOrDefault(u)).Select(u => u.ToString()));
+        EtlV2Rows.Totals(context, "reading_sessions: seconds per user differ",
+            legacy.GroupBy(s => s.UserId).ToDictionary(g => g.Key, g => g.Sum(s => (long)s.DurationSeconds)),
+            after.Where(s => carried.Contains(s.UserId)).GroupBy(s => s.UserId).ToDictionary(g => g.Key, g => g.Sum(s => (long)s.DurationSeconds)));
     }
 
     private sealed record LegacySession

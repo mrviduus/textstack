@@ -39,15 +39,9 @@ public static partial class EtlV2Uploads
         """;
 
     // Annotations of catalog pairs' books are the catalog step's (M3.3); a row under a mapped id is read wherever it hangs.
-    private const string SelectV2Annotations = """
-        SELECT id, user_id, book_id, file_id, selected_text, note_text, locator::text AS locator, color, created_at, updated_at, deleted_at, revision
-        FROM annotations
-        WHERE book_id NOT IN (SELECT id FROM books WHERE origin->>'kind' = 'catalog') OR id = ANY(@ids)
-        """;
+    private const string SelectV2Annotations = EtlV2BookRows.SelectAnnotations + """
 
-    private const string InsertAnnotation = """
-        INSERT INTO annotations (id, user_id, book_id, file_id, selected_text, note_text, locator, color, created_at, updated_at, deleted_at, revision)
-        VALUES (@Id, @UserId, @BookId, @FileId, @SelectedText, @NoteText, CAST(@Locator AS jsonb), @Color, @CreatedAt, @UpdatedAt, @DeletedAt, @Revision)
+        WHERE book_id NOT IN (SELECT id FROM books WHERE origin->>'kind' = 'catalog') OR id = ANY(@ids)
         """;
 
     // Plan §5.2 validation part 3: an anchored upload annotation's text is in its chapter's plain_text, legacy's
@@ -108,6 +102,8 @@ public static partial class EtlV2Uploads
         EtlV2Context context, Dictionary<Guid, LegacyBook> books, Dictionary<Guid, FileRow> files, CancellationToken ct)
     {
         var (notOwner, unmappable, invalid, rows) = (new List<string>(), new List<string>(), new List<string>(), new List<AnnotationRow>());
+        // Unlike EtlV2Rows.Admit, a refused row stays in the mapped rows: a dry run's Writes count it as "would insert"
+        // (the run fails on the check before any write). M3.4's report reader must not compare the two dialects' counts.
         foreach (var h in await EtlV2Rows.SourceAsync<LegacyHighlight>(context, SelectLegacyHighlights, null, ct))
         {
             if (h.BookId is not { } bookId)
@@ -121,7 +117,7 @@ public static partial class EtlV2Uploads
                 notOwner.Add(h.Id.ToString());
             if (!h.AnchorIsObject || (file is not null && SyncValidation.FitsFile(Scheme(h.Locator), file.Format, "locator") is not null))
                 unmappable.Add(h.Id.ToString());
-            if (string.IsNullOrWhiteSpace(h.SelectedText) || h.Revision < 1)
+            if (EtlV2BookRows.IsBlankOrUnversioned(h.SelectedText, h.Revision))
                 invalid.Add(h.Id.ToString());
             if (h.AnchorIsObject && (h.Locator is null || file is null))
                 context.OrphanCandidates.Add($"highlights {h.Id}: anchor not carried ({(file is null ? "the book has no file row" : "its chapter is gone")}); carried as a quotation");
@@ -142,7 +138,7 @@ public static partial class EtlV2Uploads
         }
         EtlV2Rows.Check(context, "annotations: highlight owner is not its upload's owner", notOwner);
         EtlV2Rows.Check(context, "annotations: anchor V2 cannot hold", unmappable);
-        EtlV2Rows.Check(context, "annotations: blank text or a version below 1", invalid);
+        EtlV2Rows.Check(context, $"annotations: {EtlV2BookRows.BlankOrUnversioned}", invalid);
         return rows;
     }
 
@@ -184,21 +180,5 @@ public static partial class EtlV2Uploads
         public DateTimeOffset UpdatedAt { get; init; }
         public long Revision { get; init; } = 1;
         public long? ResetRevision { get; init; }
-    }
-
-    private sealed record AnnotationRow
-    {
-        public Guid Id { get; init; }
-        public Guid UserId { get; init; }
-        public Guid BookId { get; init; }
-        public Guid? FileId { get; init; }
-        public string SelectedText { get; init; } = "";
-        public string? NoteText { get; init; }
-        public string? Locator { get; init; }
-        public string Color { get; init; } = "";
-        public DateTimeOffset CreatedAt { get; init; }
-        public DateTimeOffset UpdatedAt { get; init; }
-        public DateTimeOffset? DeletedAt { get; init; }
-        public long Revision { get; init; }
     }
 }

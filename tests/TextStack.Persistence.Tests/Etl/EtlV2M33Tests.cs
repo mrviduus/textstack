@@ -114,11 +114,6 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
         return new EtlV2Options(source, target, dryRun, StorageRoot: Path.Combine(_files, "storage"), LibraryRoot: Path.Combine(_files, "library"));
     }
 
-    private static Task<EtlV2Exception> FailsAsync(EtlV2Options options) => Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
-
-    /// <summary>The failing ids of the one check named <paramref name="check"/>.</summary>
-    private static IReadOnlyList<string>? Failed(EtlV2Exception error, string check) => Assert.Single(error.Checks, c => c.Name == check).Ids;
-
     private async Task<string> DumpAsync(string target) => await ScalarAsync<string>(target, """
         SELECT concat_ws(E'\n',
             (SELECT string_agg(to_jsonb(b)::text, E'\n' ORDER BY id) FROM books b),
@@ -268,9 +263,10 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
 
     [Theory]
     [MemberData(nameof(RetiredIntents))]
-    public async Task RunAsync_IntentOnlyInARetiredTable_PairIsCarried(string intent)
+    [MemberData(nameof(LiveIntents))]
+    public async Task RunAsync_IntentInOneTableOnly_PairIsCarried(string intent)
     {
-        // Owner 2026-11-08 (Q11): lookups, clusters, pending words and shelves still select pairs.
+        // Owner 2026-11-08 (Q11): lookups, clusters, pending words and shelves still select pairs, as the live tables do.
         var options = await NewPairAsync(extra: intent + ";");
 
         await EtlV2.RunAsync(options, ct: Ct);
@@ -292,6 +288,8 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
         Assert.All(second.Writes.Values, w => Assert.Equal(0, w.Inserted + w.Updated));
         Assert.Equal(new EtlV2Writes(0, 0, 4), second.Writes["books (catalog)"]);
         Assert.Equal(before, await DumpAsync(options.Target));
+        // The uploads step skips catalog books and their annotations: else every re-run lists each as "V2 row with no legacy row".
+        Assert.Empty(second.CleanupActions);
     }
 
     [Fact]
@@ -402,33 +400,37 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
             Assert.Equal(key, await ScalarAsync<string>(options.Target, "SELECT chapter_key FROM vocabulary_examples WHERE sentence = 'Run, Forest!'"));
     }
 
-    [Fact]
-    public async Task RunAsync_WordWithBothOwners_ExampleOnTheUploadAndReported()
+    /// <summary>
+    /// A card's owners and chapter vs its example's book and chapter_key: the legacy edit, the example's sentence,
+    /// "book|key" ("-" for none), and the cleanup line the run lists (the chapter is never dropped silently).
+    /// </summary>
+    public static TheoryData<string, string, string, string> ChapterKeys => new()
     {
-        // B2: no owner CHECK in legacy; the upload is the more specific owner, and the run says so. The card's
-        // catalog chapter names a chapter of the edition, not of the upload: no chapter_key on the upload's example.
-        var options = await NewPairAsync(extra: $"UPDATE vocabulary_words SET user_book_id = '{Upload}' WHERE id = '70000000-0000-4000-8000-000000000001';");
-
-        var report = await EtlV2.RunAsync(options, ct: Ct);
-
-        Assert.Equal($"{Upload}|-", await ScalarAsync<string>(options.Target,
-            "SELECT book_id || '|' || coalesce(chapter_key, '-') FROM vocabulary_examples WHERE sentence = 'Run, Forest!'"));
-        Assert.Contains($"vocabulary_words 70000000-0000-4000-8000-000000000001: both owners set (upload {Upload}, edition {CleanCode}); example kept on the upload"
-            + $", catalog chapter {MeaningfulNames} not carried as its chapter_key", report.CleanupActions);
-    }
-
-    [Fact]
-    public async Task RunAsync_ChapterOfAnotherEdition_ExampleCarriedWithNoChapterKeyAndReported()
-    {
+        // B2: no owner CHECK in legacy; the upload is the more specific owner. The card's catalog chapter is the edition's, not the upload's.
+        { $"UPDATE vocabulary_words SET user_book_id = '{Upload}' WHERE id = '70000000-0000-4000-8000-000000000001'", "Run, Forest!", $"{Upload}|-",
+            $"vocabulary_words 70000000-0000-4000-8000-000000000001: both owners set (upload {Upload}, edition {CleanCode}); example kept on the upload, catalog chapter {MeaningfulNames} not carried as its chapter_key" },
         // Legacy ties chapter_id to no edition: a chapter of Clean Code on a Design Patterns card is not that book's chapter.
-        var options = await NewPairAsync(extra: $"UPDATE vocabulary_words SET edition_id = '{DesignPatterns}' WHERE id = '70000000-0000-4000-8000-000000000001';");
+        { $"UPDATE vocabulary_words SET edition_id = '{DesignPatterns}' WHERE id = '70000000-0000-4000-8000-000000000001'", "Run, Forest!", $"{EtlV2Ids.CatalogBook(Alice, DesignPatterns)}|-",
+            $"vocabulary_words 70000000-0000-4000-8000-000000000001: chapter {MeaningfulNames} is not of its edition; example carried with no chapter_key" },
+        // An upload-owned card with a catalog chapter.
+        { $"UPDATE vocabulary_words SET chapter_id = '{MeaningfulNames}' WHERE id = '{RunSurvivor}'", "I run daily.", $"{Upload}|-",
+            $"vocabulary_words {RunSurvivor}: chapter {MeaningfulNames} dropped, the card has no edition; example carried with no chapter_key" },
+        // A chapter with no book at all; V2's ck_vocabulary_examples_chapter_key would abort a key without a book.
+        { "UPDATE vocabulary_words SET edition_id = NULL WHERE id = '70000000-0000-4000-8000-000000000001'", "Run, Forest!", "-|-",
+            $"vocabulary_words 70000000-0000-4000-8000-000000000001: chapter {MeaningfulNames} dropped, the card has no edition; example carried with no chapter_key" },
+    };
+
+    [Theory]
+    [MemberData(nameof(ChapterKeys))]
+    public async Task RunAsync_ChapterNotOfTheExamplesBook_NoChapterKeyAndListed(string sql, string sentence, string bookKey, string line)
+    {
+        var options = await NewPairAsync(extra: sql + ";");
 
         var report = await EtlV2.RunAsync(options, ct: Ct);
 
-        Assert.Equal($"{EtlV2Ids.CatalogBook(Alice, DesignPatterns)}|-", await ScalarAsync<string>(options.Target,
-            "SELECT book_id || '|' || coalesce(chapter_key, '-') FROM vocabulary_examples WHERE sentence = 'Run, Forest!'"));
-        Assert.Contains($"vocabulary_words 70000000-0000-4000-8000-000000000001: chapter {MeaningfulNames} is not of its edition; example carried with no chapter_key",
-            report.CleanupActions);
+        Assert.Equal(bookKey, await ScalarAsync<string>(options.Target,
+            "SELECT coalesce(book_id::text, '-') || '|' || coalesce(chapter_key, '-') FROM vocabulary_examples WHERE sentence = @sentence", new { sentence }));
+        Assert.Contains(line, report.CleanupActions);
     }
 
     [Fact]
@@ -471,18 +473,6 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
         Assert.Equal([Upload.ToString()], Failed(error, "books: V2 row differs from its legacy mapping"));
         Assert.Equal([highlight.ToString()], Failed(error, "annotations: V2 row differs from its legacy mapping"));
         Assert.Null(error.InnerException as Npgsql.PostgresException);
-    }
-
-    [Fact]
-    public async Task RunAsync_UploadOwnedWordWithAChapter_ChapterDroppedAndReported()
-    {
-        var options = await NewPairAsync(extra: $"UPDATE vocabulary_words SET chapter_id = '{MeaningfulNames}' WHERE id = '{RunSurvivor}';");
-
-        var report = await EtlV2.RunAsync(options, ct: Ct);
-
-        Assert.Equal($"{Upload}|-", await ScalarAsync<string>(options.Target,
-            "SELECT book_id || '|' || coalesce(chapter_key, '-') FROM vocabulary_examples WHERE sentence = 'I run daily.'"));
-        Assert.Contains($"vocabulary_words {RunSurvivor}: chapter {MeaningfulNames} dropped, the card has no edition; example carried with no chapter_key", report.CleanupActions);
     }
 
     [Fact]
@@ -564,7 +554,6 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
         // uuid5(NAMESPACE_DNS, "python.org"), the classic check value.
         Assert.Equal(Guid.Parse("886313e1-3b8a-5372-9b90-0c9aee199e5d"),
             EtlV2Ids.V5(Guid.Parse("6ba7b810-9dad-11d1-80b4-00c04fd430c8"), "python.org"u8.ToArray()));
-        Assert.Equal(EtlV2Ids.CatalogBook(Alice, CleanCode), EtlV2Ids.CatalogBook(Alice, CleanCode));
         Assert.NotEqual(EtlV2Ids.CatalogBook(Alice, CleanCode), EtlV2Ids.CatalogBook(CleanCode, Alice));
     }
 
@@ -583,18 +572,6 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
         Assert.Equal(Guid.Parse("1bf10a76-ae74-52e8-9c16-a47a8bfdbae1"), EtlV2Ids.Namespace);
         Assert.Equal(Guid.Parse("a4e4d1c3-613b-5566-884d-a824e9fc9050"), EtlV2Ids.CatalogBook(Alice, CleanCode));
         Assert.Equal(Guid.Parse("f6c8cfa2-7b92-5281-a888-8667e12a9f68"), EtlV2Ids.Operation(RunSurvivor));
-    }
-
-    [Fact]
-    public async Task RunAsync_SecondRun_ReportsNoCleanupForItsOwnRows()
-    {
-        // The uploads step skips catalog books and their annotations: else every re-run lists each as "V2 row with no legacy row".
-        var options = await NewPairAsync();
-        await EtlV2.RunAsync(options, ct: Ct);
-
-        var second = await EtlV2.RunAsync(options, ct: Ct);
-
-        Assert.Empty(second.CleanupActions);
     }
 
     [Fact]
@@ -621,18 +598,6 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
         Assert.Equal("бігти", await ScalarAsync<string>(options.Target, "SELECT translation FROM vocabulary_words WHERE word_key = 'run'"));
     }
 
-    [Fact]
-    public async Task RunAsync_WordWithAChapterButNoBook_ExampleHasNoChapterKey()
-    {
-        // Legacy allows a chapter with no edition (no CHECK); V2's ck_vocabulary_examples_chapter_key would abort a key without a book.
-        var options = await NewPairAsync(extra: "UPDATE vocabulary_words SET edition_id = NULL WHERE id = '70000000-0000-4000-8000-000000000001';");
-
-        await EtlV2.RunAsync(options, ct: Ct);
-
-        Assert.Equal("-|-", await ScalarAsync<string>(options.Target,
-            "SELECT coalesce(book_id::text, '-') || '|' || coalesce(chapter_key, '-') FROM vocabulary_examples WHERE sentence = 'Run, Forest!'"));
-    }
-
     /// <summary>One intent row per live table the fixture never uses as a pair's only intent.</summary>
     public static TheoryData<string> LiveIntents => new()
     {
@@ -644,62 +609,37 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
         $"INSERT INTO book_insight (id, user_id, site_id, edition_id, text, created_at, updated_at) VALUES (gen_random_uuid(), '{Bob}', '{Site}', '{Kobzar}', 'k', '2026-02-09Z', now())",
     };
 
-    [Theory]
-    [MemberData(nameof(LiveIntents))]
-    public async Task RunAsync_IntentOnlyInALiveTable_PairIsCarried(string intent)
-    {
-        var options = await NewPairAsync(extra: intent + ";");
-
-        await EtlV2.RunAsync(options, ct: Ct);
-
-        Assert.Equal("The Kobzar|2026-02-09", await ScalarAsync<string>(options.Target,
-            "SELECT title || '|' || (created_at AT TIME ZONE 'UTC')::date FROM books WHERE id = @id", new { id = EtlV2Ids.CatalogBook(Bob, Kobzar) }));
-    }
-
-    [Fact]
-    public async Task RunAsync_V2BookOfAnotherOriginUnderAPlannedId_NamedMismatchNotACrash()
+    /// <summary>
+    /// A V2 row changed after a first run that the re-run must name: legacy setup SQL (or ""), the V2 edit, the check, its failing id.
+    /// </summary>
+    public static TheoryData<string, string, string, string> Mutations => new()
     {
         // The catalog step reads V2 books by planned id too: a non-catalog row there is a mismatch, not a 23505 on insert.
-        var options = await NewPairAsync();
-        await EtlV2.RunAsync(options, ct: Ct);
-        var book = EtlV2Ids.CatalogBook(Alice, CleanCode);
-        await ExecAsync(options.Target, """UPDATE books SET origin = '{"kind":"upload"}' WHERE id = @book""", new { book });
-
-        var error = await FailsAsync(options);
-
-        Assert.Equal([book.ToString()], Failed(error, "books (catalog): V2 row differs from its legacy mapping"));
-    }
-
-    [Fact]
-    public async Task RunAsync_V2HasAReviewLegacyNeverHad_ReviewCountCheckFails()
-    {
+        { "", $$"""UPDATE books SET origin = '{"kind":"upload"}' WHERE id = '{{EtlV2Ids.CatalogBook(Alice, CleanCode)}}'""",
+            "books (catalog): V2 row differs from its legacy mapping", EtlV2Ids.CatalogBook(Alice, CleanCode).ToString() },
         // To Plan that row is a cleanup line and parity checks only mapped rows: the count check alone sees it.
-        var options = await NewPairAsync();
-        await EtlV2.RunAsync(options, ct: Ct);
-        await ExecAsync(options.Target, """
+        { "", $"""
             INSERT INTO vocabulary_reviews (id, user_id, word_id, operation_id, payload_sha256, review_mode, is_correct, stage_before, stage_after, client_recorded_at)
-            VALUES (gen_random_uuid(), @Alice, @RunSurvivor, gen_random_uuid(), repeat('a', 64), 'flashcard', true, 0, 1, now())
-            """, new { Alice, RunSurvivor });
-
-        var error = await FailsAsync(options);
-
-        Assert.Equal([RunSurvivor.ToString()], Failed(error, "vocabulary: review count differs (legacy reviews of a merged group vs its survivor's V2 reviews)"));
-    }
-
-    [Fact]
-    public async Task RunAsync_V2HasSecondsForAUserWithNoLegacySession_SecondsCheckFails()
-    {
-        // Dave is a legacy user with no session: the per-user sum must cover V2's users, not only legacy's.
-        var options = await NewPairAsync(extra: $"INSERT INTO users (id, email, created_at, is_guest) VALUES ('{Dave}', 'dave@test', '2026-01-01Z', false);");
-        await EtlV2.RunAsync(options, ct: Ct);
-        await ExecAsync(options.Target, """
+            VALUES (gen_random_uuid(), '{Alice}', '{RunSurvivor}', gen_random_uuid(), repeat('a', 64), 'flashcard', true, 0, 1, now())
+            """, "vocabulary: review count differs (legacy reviews of a merged group vs its survivor's V2 reviews)", RunSurvivor.ToString() },
+        // Dave is a legacy user with no session: the per-user sum must cover V2's sessions of a carried user, not only legacy's.
+        { $"INSERT INTO users (id, email, created_at, is_guest) VALUES ('{Dave}', 'dave@test', '2026-01-01Z', false)", $"""
             INSERT INTO reading_sessions (id, user_id, client_session_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent, created_at)
-            VALUES (@Squatter, @Dave, @Squatter, now(), now(), 30, 0, 0, 0, now())
-            """, new { Squatter, Dave });
+            VALUES ('{Squatter}', '{Dave}', '{Squatter}', now(), now(), 30, 0, 0, 0, now())
+            """, "reading_sessions: seconds per user differ", Dave.ToString() },
+    };
+
+    [Theory]
+    [MemberData(nameof(Mutations))]
+    public async Task RunAsync_V2RowChangedAfterARun_ReRunFailsTheNamedCheck(string legacy, string v2, string check, string id)
+    {
+        var options = await NewPairAsync(extra: legacy == "" ? null : legacy + ";");
+        await EtlV2.RunAsync(options, ct: Ct);
+        await ExecAsync(options.Target, v2);
 
         var error = await FailsAsync(options);
 
-        Assert.Equal([Dave.ToString()], Failed(error, "reading_sessions: seconds per user differ"));
+        Assert.Equal([id], Failed(error, check));
     }
 
     /// <summary>A V2 row under another id holding a planned row's secondary key: V2 setup SQL, the check, the failing "row/holder".</summary>
@@ -772,9 +712,10 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
         var owned = (await ScalarAsync<string>(target,
             "SELECT string_agg(table_name, ',') FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'user_id'")).Split(',');
 
-        var written = EtlV2.Steps.Where(s => s != EtlV2UnknownUsers.Step).SelectMany(s => s.Targets).Intersect(owned);
+        var written = EtlV2.Steps.SelectMany(s => s.Targets).Intersect(owned);
 
-        Assert.Equal(written.Order(StringComparer.Ordinal), EtlV2UnknownUsers.Step.Targets.Order(StringComparer.Ordinal));
+        // Every written table with a user_id is checked, and every checked table has one (its query reads user_id).
+        Assert.Equal(written.Order(StringComparer.Ordinal), EtlV2UnknownUsers.Owned());
     }
 
     [Fact]
