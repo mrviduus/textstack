@@ -252,8 +252,8 @@ may run (it cascades to that user's V2 rows); a non-guest account comes with non
   bytes as any upload (it is the user's file), and each listed in `cleanupActions` for a human. Not a failure.
 - **Files** (row 35, item 2): `sha256` lowercased; a null one is hashed from the bytes; a file whose bytes
   are not on disk gets **no row** and its book migrates without a file (listed). `page_count`,
-  `toc_json` move here. Fails: more than one legacy file for a book, format Fb2/Other (V2 takes them only
-  after ADR-032's pending migration), bytes that differ from the recorded `sha256`, a path outside
+  `toc_json` move here. Fails: more than one legacy file for a book, format Other (Fb2 carried as `fb2`
+  since `0005`), bytes that differ from the recorded `sha256`, a path outside
   `Storage:RootPath`, a non-positive size or blank name.
 - **Reading state** (items 3, 5): `progress_position_json` → `textstack-position-v1` as-is; `page:<n>` →
   `pdf-page`; `scroll:<slug>:<px>` alone → `textstack-position-v1` `{chapterSlug, chapterFraction: 0}`

@@ -84,11 +84,12 @@ public static partial class EtlV2Uploads
                 @IsCurrent, @ContentRemovedAt, @CreatedAt)
         """;
 
-    // Legacy BookFormat → book_files.format. Fb2 and Other have no V2 format until ADR-032's migration lands.
+    // Legacy BookFormat → book_files.format (0005 added fb2). Other has no V2 format.
     private static readonly Dictionary<int, string> Formats = new()
     {
         [(int)BookFormat.Epub] = "epub",
         [(int)BookFormat.Pdf] = "pdf",
+        [(int)BookFormat.Fb2] = "fb2",
         [(int)BookFormat.Html] = "html",
     };
 
@@ -241,7 +242,7 @@ public static partial class EtlV2Uploads
         var several = legacy.GroupBy(f => f.BookId).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet();
         // No rule says which of several is current: refused, never guessed.
         EtlV2Rows.Check(context, "book_files: more than one legacy file for a book", several.Select(id => id.ToString()));
-        EtlV2Rows.Check(context, "book_files: format V2 does not take (fb2/other, pending ADR-032's migration)",
+        EtlV2Rows.Check(context, "book_files: format V2 does not take (other)",
             legacy.Where(f => !Formats.ContainsKey(f.Format)).Select(f => f.Id.ToString()));
         EtlV2Rows.Check(context, "book_files: not a positive byte size or a blank name",
             legacy.Where(f => f.ByteSize <= 0 || string.IsNullOrWhiteSpace(f.OriginalName)).Select(f => f.Id.ToString()));
