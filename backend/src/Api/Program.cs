@@ -22,7 +22,8 @@ var builder = WebApplication.CreateBuilder(args);
 // Before Build(): it needs configuration only, and no startup step may touch either database first.
 if (args is ["etl-v2", ..])
 {
-    // The first Ctrl+C cancels the run (ledger: failed, exit 130); a second one terminates the process.
+    // The first Ctrl+C cancels the run (ledger: failed, exit 130); the second is left to the runtime, which
+    // ends the process (checked as PID 1 in the api image; runbook: docker kill if it ever does not).
     using var etlCancel = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) =>
     {

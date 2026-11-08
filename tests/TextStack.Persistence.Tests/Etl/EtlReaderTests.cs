@@ -73,6 +73,23 @@ public sealed class EtlReaderTests(PostgresFixture legacy, V2PostgresFixture v2)
         Assert.False(await ScalarAsync<bool>(admin, "SELECT to_regclass('public.etl_probe') IS NOT NULL OR EXISTS (SELECT FROM pg_namespace WHERE nspname = 'etl_probe')"));
     }
 
+    [Theory]
+    [InlineData("ETL_READER_PASSWORD= ")]
+    [InlineData("")]
+    public async Task ProvisionEtlReader_EmptyOrUnsetPassword_HintNoPasswordChange(string env)
+    {
+        var (admin, reader) = await NewSourcePairAsync();
+        var db = new NpgsqlConnectionStringBuilder(admin).Database;
+
+        var output = await Legacy.Databases.ShellAsync(
+            $"env -u ETL_READER_PASSWORD {env}psql -v ON_ERROR_STOP=1 -U postgres -d '{db}' -f /database/scripts/etl-reader.sql 2>&1");
+
+        Assert.Contains("no password set", output);
+        // Still the password set before: no ALTER ROLE … PASSWORD '' ran.
+        await using var conn = new NpgsqlConnection(reader);
+        await conn.OpenAsync(Ct);
+    }
+
     [Fact]
     public async Task AuditAsync_EtlReader_NoViolations()
     {

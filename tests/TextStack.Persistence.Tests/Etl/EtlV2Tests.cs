@@ -551,19 +551,99 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
         Assert.DoesNotContain(targetPassword, await ScalarAsync<string>(options.Target, "SELECT validation::text FROM migration_runs WHERE outcome = 'failed'"));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task RunAsync_NoValidationCheck_FailsClosed(bool dryRun)
+    [Fact]
+    public async Task RunAsync_NoValidationCheck_FailsClosed()
     {
-        var options = await NewPairAsync(dryRun);
+        var options = await NewPairAsync();
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(options, [], Ct));
 
         Assert.Contains("no validation check ran", error.Message);
-        Assert.Equal(dryRun ? "0" : "1/NoValidationChecks/[]", await ScalarAsync<string>(options.Target, dryRun
-            ? "SELECT count(*)::text FROM migration_runs"
-            : "SELECT validation_failures || '/' || (validation -> 'error' ->> 'type') || '/' || (validation -> 'checks')::text FROM migration_runs WHERE outcome = 'failed'"));
+        Assert.Equal("1/NoValidationChecks/[]", await ScalarAsync<string>(options.Target,
+            "SELECT validation_failures || '/' || (validation -> 'error' ->> 'type') || '/' || (validation -> 'checks')::text FROM migration_runs WHERE outcome = 'failed'"));
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunNoValidationCheck_ReportsZeroChecks()
+    {
+        // A dry run writes no gate row, so 0 checks is reported (the CLI warns), not failed: its exit code stays the audit's.
+        var options = await NewPairAsync(dryRun: true);
+
+        var report = await EtlV2.RunAsync(options, [], Ct);
+
+        Assert.Empty(report.Checks);
+        Assert.Equal(1, report.SourceCounts["users"]);
+        Assert.Equal(0, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM migration_runs"));
+    }
+
+    [Fact]
+    public async Task RunAsync_LockConnectionKilledMidRun_FailsAtNextStepNeverSucceeds()
+    {
+        var options = await NewPairAsync();
+        var kill = new EtlV2Step("kill-lock-session", (_, _) => ExecAsync(options.Target, $"""
+            SELECT pg_terminate_backend(pid) FROM pg_locks
+            WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+              AND classid = ({EtlV2.LockKey}::bigint >> 32)::oid AND objid = ({EtlV2.LockKey}::bigint & 4294967295)::oid AND objsubid = 1
+            """));
+        var reached = false;
+        var after = new EtlV2Step("after", (_, _) => { reached = true; return Task.CompletedTask; });
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(options, [kill, after], Ct));
+
+        Assert.Contains("lock lost: another run may be writing", error.Message);
+        Assert.False(reached);
+        Assert.Equal(0, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM migration_runs WHERE outcome = 'succeeded'"));
+    }
+
+    [Fact]
+    public async Task RunAsync_CancelDuringSuccessFinish_Succeeded()
+    {
+        var options = await NewPairAsync();
+        await SlowLedgerAsync(options.Target, "UPDATE", "NEW.outcome = 'succeeded'");
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+
+        var run = RunAsync(options, [], cts.Token);
+        await WaitForActiveAsync(options.Target, "UPDATE migration_runs");
+        await cts.CancelAsync();
+        var report = await run;
+
+        // The finish committed, so the run is succeeded, Ctrl+C or not.
+        Assert.Equal("succeeded", await ScalarAsync<string>(options.Target, $"SELECT outcome FROM migration_runs WHERE id = '{report.RunId}'"));
+    }
+
+    [Fact]
+    public async Task RunAsync_CancelDuringStartInsert_RecordedOnTheRow()
+    {
+        var options = await NewPairAsync();
+        await SlowLedgerAsync(options.Target, "INSERT", "true");
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+
+        var run = RunAsync(options, [], cts.Token);
+        await WaitForActiveAsync(options.Target, "INSERT INTO migration_runs");
+        await cts.CancelAsync();
+        var error = await Assert.ThrowsAsync<EtlV2CanceledException>(() => run);
+
+        Assert.NotNull(error.RunId);
+        Assert.Equal("failed/OperationCanceledException", await ScalarAsync<string>(options.Target,
+            $"SELECT outcome || '/' || (validation -> 'error' ->> 'type') FROM migration_runs WHERE id = '{error.RunId}'"));
+    }
+
+    /// <summary>A trigger that holds the ledger's <paramref name="operation"/> for a second when <paramref name="when"/>: a window to cancel in.</summary>
+    private static Task SlowLedgerAsync(string target, string operation, string when) => ExecAsync(target, $"""
+        CREATE FUNCTION slow_ledger() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN IF {when} THEN PERFORM pg_sleep(1); END IF; RETURN NEW; END $$;
+        CREATE TRIGGER slow_ledger BEFORE {operation} ON migration_runs FOR EACH ROW EXECUTE FUNCTION slow_ledger();
+        """);
+
+    private static async Task WaitForActiveAsync(string target, string queryPrefix)
+    {
+        for (var waited = 0; waited < 20_000; waited += 20)
+        {
+            if (await ScalarAsync<bool>(target, $"SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND state = 'active' AND query LIKE '{queryPrefix}%')"))
+                return;
+            await Task.Delay(20, Ct);
+        }
+        throw new TimeoutException($"no active `{queryPrefix}` within 20 s");
     }
 
     [Fact]
@@ -671,6 +751,7 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
     [InlineData(false)]
     public async Task MakeEtlV2_ConnectionStringsInEnv_PassedByNameOnly(bool set)
     {
+        var marker = Path.Combine(Path.GetTempPath(), "etl-make-" + Guid.NewGuid().ToString("N"));
         // make -n prints the command make would run: what ps would show of docker compose.
         var make = new System.Diagnostics.ProcessStartInfo("make", "-n etl-v2 ARGS=--dry-run")
         {
@@ -679,8 +760,9 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
         };
         if (set)
         {
-            make.Environment["ConnectionStrings__Default"] = "Host=db;Username=etl_reader;Password=env-s3cret";
-            make.Environment["ConnectionStrings__V2"] = "Host=db;Password=env-s3cret";
+            // A $ in a password must reach docker as text, never be expanded (or run) by make.
+            make.Environment["ConnectionStrings__Default"] = $"Host=db;Username=etl_reader;Password=env-s3cret$(shell touch {marker})";
+            make.Environment["ConnectionStrings__V2"] = $"Host=db;Password=env-s3cret$(shell touch {marker})";
         }
         else
         {
@@ -692,6 +774,7 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
         await process.WaitForExitAsync(Ct);
 
         Assert.DoesNotContain("env-s3cret", command);
+        Assert.False(File.Exists(marker), "make expanded $(shell …) in a connection string");
         // Unset: no bare -e, which would blank the container's own connection strings.
         Assert.Equal(set, command.Contains("-e ConnectionStrings__Default "));
         Assert.Equal(set, command.Contains("-e ConnectionStrings__V2 "));

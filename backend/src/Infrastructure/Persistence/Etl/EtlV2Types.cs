@@ -40,7 +40,8 @@ public sealed class EtlV2Context
 
     /// <summary>
     /// The validation checks the steps ran. Fail closed: a run with none cannot succeed
-    /// (<c>NoValidationChecks</c>), and any failure fails it (<c>ValidationFailed</c>).
+    /// (<c>NoValidationChecks</c>; a dry run, which writes no gate row, reports 0 and passes), and any
+    /// failure fails it (<c>ValidationFailed</c>).
     /// </summary>
     public List<EtlV2Check> Checks { get; } = [];
 

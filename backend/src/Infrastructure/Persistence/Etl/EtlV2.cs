@@ -28,6 +28,17 @@ public static class EtlV2
 
     private const string TryLock = "SELECT pg_try_advisory_lock(@LockKey)";
 
+    // This session still holds etl-v2's lock (a bigint key: classid = high 32 bits, objid = low 32, objsubid = 1).
+    private const string HoldsLock = """
+        SELECT EXISTS (SELECT FROM pg_locks
+            WHERE pid = pg_backend_pid() AND locktype = 'advisory' AND granted
+              AND classid = (@LockKey >> 32)::oid AND objid = (@LockKey & 4294967295)::oid AND objsubid = 1)
+        """;
+
+    // The ledger's own statements run to completion whatever the run's token says (a cancel must never
+    // leave "did it commit?" open), bounded by this instead.
+    private const int LedgerTimeoutSeconds = 60;
+
     private const string UnfinishedRuns = "SELECT id, started_at FROM migration_runs WHERE finished_at IS NULL ORDER BY started_at";
 
     // Only under the lock: an unfinished row then belongs to a run that died. Closed, never deleted.
@@ -133,25 +144,36 @@ public static class EtlV2
         Guid? runId = dryRun ? null : Guid.CreateVersion7();
         if (runId is not null)
             // Autocommit: a run killed from here on leaves this row unfinished, for the next run to close as interrupted.
-            await targetConn.ExecuteAsync(new CommandDefinition(StartRun, new { id = runId, sourceDumpSha = options.SourceDumpSha }, cancellationToken: ct));
+            await targetConn.ExecuteAsync(new CommandDefinition(StartRun, new { id = runId, sourceDumpSha = options.SourceDumpSha },
+                commandTimeout: LedgerTimeoutSeconds, cancellationToken: CancellationToken.None));
 
         var context = new EtlV2Context { DryRun = dryRun, Source = snapshot, Target = targetDb };
         Dictionary<string, long> sourceCounts = [];
         try
         {
+            // Inside the try: a cancel that arrived during the INSERT is recorded on the row it made.
+            ct.ThrowIfCancellationRequested();
             sourceCounts = await CountAsync(sourceConn, SourceCounts, snapshot, ct);
             foreach (var step in steps)
+            {
+                await EnsureLockAsync(targetConn, ct);
                 await step.RunAsync(context, ct);
-            // Fail closed: success means the steps' checks ran and found nothing, never "no check ran".
-            if (context.Checks.Count == 0)
+            }
+            // Fail closed where a gate row is written: success means checks ran and found nothing, never
+            // "no check ran". A dry run writes no gate row; it reports 0 checks (the CLI warns) and passes.
+            if (context.Checks.Count == 0 && !dryRun)
                 throw new EtlV2ValidationException("NoValidationChecks", 1);
             var failures = context.Checks.Sum(c => c.Failures);
             if (failures > 0)
                 throw new EtlV2ValidationException("ValidationFailed", failures);
             var targetCounts = await CountAsync(targetConn, TargetCounts, null, ct);
             if (runId is not null)
+            {
+                await EnsureLockAsync(targetConn, ct);
+                // Past this statement the run is succeeded or failed by what committed, not by a late cancel.
                 await FinishAsync(targetConn, runId.Value, "succeeded", sourceCounts, targetCounts,
-                    new { checks = context.Checks, orphanCandidates = context.OrphanCandidates, cleanupActions = context.CleanupActions }, 0, ct);
+                    new { checks = context.Checks, orphanCandidates = context.OrphanCandidates, cleanupActions = context.CleanupActions }, 0);
+            }
             return new EtlV2Report(runId, dryRun, Redact(source.ConnectionString), Redact(target.ConnectionString), options.SourceDumpSha, interrupted,
                 sourceCounts, targetCounts, context.Checks, context.OrphanCandidates, context.CleanupActions);
         }
@@ -170,7 +192,7 @@ public static class EtlV2
                 };
                 var sqlState = (e as NpgsqlException ?? e.InnerException as NpgsqlException)?.SqlState;
                 await FinishAsync(targetConn, runId.Value, "failed", sourceCounts, null,
-                    new { error = new { type, sqlState }, checks = context.Checks }, failures, CancellationToken.None);
+                    new { error = new { type, sqlState }, checks = context.Checks }, failures);
             }
             catch (Exception)
             {
@@ -182,8 +204,24 @@ public static class EtlV2
         }
     }
 
+    /// <summary>Throws unless the lock connection is alive and still holds etl-v2's lock: without it, another run may be writing.</summary>
+    private static async Task EnsureLockAsync(NpgsqlConnection lockConn, CancellationToken ct)
+    {
+        bool held;
+        try
+        {
+            held = await lockConn.ExecuteScalarAsync<bool>(new CommandDefinition(HoldsLock, new { LockKey }, cancellationToken: ct));
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            throw new InvalidOperationException("lock lost: another run may be writing (the lock connection failed)", e);
+        }
+        if (!held)
+            throw new InvalidOperationException("lock lost: another run may be writing");
+    }
+
     private static async Task FinishAsync(NpgsqlConnection conn, Guid id, string outcome, Dictionary<string, long> source,
-        Dictionary<string, long>? target, object validation, int validationFailures, CancellationToken ct)
+        Dictionary<string, long>? target, object validation, int validationFailures)
     {
         var finished = await conn.ExecuteAsync(new CommandDefinition(FinishRun, new
         {
@@ -192,7 +230,7 @@ public static class EtlV2
             counts = JsonSerializer.Serialize(new { source, target }),
             validation = JsonSerializer.Serialize(validation),
             validationFailures,
-        }, cancellationToken: ct));
+        }, commandTimeout: LedgerTimeoutSeconds, cancellationToken: CancellationToken.None));
         if (finished == 0)
             throw new InvalidOperationException($"run {id} was closed as interrupted by another run; its writes overlapped");
     }
@@ -210,7 +248,8 @@ public static class EtlV2
     // and the run holds its source snapshot open, idle, while it writes the target.
     private static string Session(string connectionString, bool readOnly)
     {
-        var builder = new NpgsqlConnectionStringBuilder(connectionString) { CommandTimeout = 0 };
+        // Keepalive: the lock connection idles through every step; a dead peer must show at the next check.
+        var builder = new NpgsqlConnectionStringBuilder(connectionString) { CommandTimeout = 0, KeepAlive = 30 };
         var options = $"{builder.Options} -c statement_timeout=0 -c idle_in_transaction_session_timeout=0";
         builder.Options = (readOnly ? options + " -c default_transaction_read_only=on" : options).Trim();
         return builder.ConnectionString;

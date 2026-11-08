@@ -117,17 +117,30 @@ unset ConnectionStrings__Default
 own process with signals proxied, not inside the serving api. **No merge to `main` while a run is in
 flight**: a deploy recreates services and may take the run's network or image with it.
 
-A run succeeds only if its steps ran validation checks and every one passed. A run with no check fails
-closed (`NoValidationChecks`): until M3.2 adds count parity, every run ends `failed`, by design. In a dry
-run, steps compute and count what they would write; nothing is written (not even rolled back: a
+A run succeeds only if its steps ran validation checks and every one passed. A real run with no check
+fails closed (`NoValidationChecks`): until M3.2 adds count parity, every real run ends `failed`, by
+design. A dry run writes no gate row, so with 0 checks it exits 0 with its report and warns
+`0 validation checks ran (no mapper steps yet)` on stderr: its exit code stays the audit's verdict. In a
+dry run, steps compute and count what they would write; nothing is written (not even rolled back: a
 rolled-back transaction still advances sequences).
+
+The run holds its advisory lock on one target connection (TCP keepalive on) and checks it is still held
+before every step and before the final ledger write; a lost lock (`lock lost: another run may be
+writing`) aborts the run, which then never reaches `succeeded`. The ledger's own INSERT and finish run
+to completion whatever the cancel says (60 s bound): a run whose success finish committed is
+`succeeded`, even if Ctrl+C arrived during it.
 
 | Exit | Meaning |
 |---|---|
 | 0 | done; the JSON report is on stdout |
 | 1 | refused (same database, source login can write, another run holds the lock), failed (ledger `failed`, incl. `NoValidationChecks`/`ValidationFailed`), or cancelled before its ledger row (`cancelled; nothing recorded`) |
 | 2 | usage: unknown flag, bad `--source-dump-sha` (64 lowercase hex), password on the command line |
-| 130 | cancelled by the first Ctrl+C after its ledger row was written; ledger `failed`, error type `OperationCanceledException`. A second Ctrl+C kills the process: the row stays unfinished and the next run closes it as `interrupted` |
+| 130 | cancelled by the first Ctrl+C after its ledger row was written; ledger `failed`, error type `OperationCanceledException` |
+
+A second Ctrl+C ends the process (checked 2026-11-07: dotnet as PID 1 in the api base image exits 130 on
+the second SIGINT). If it does not (a run stuck where no signal reaches it), `docker ps` and
+`docker kill <the etl-v2 run container>`; the row stays unfinished and the next run closes it as
+`interrupted`.
 
 A run killed outright leaves its ledger row unfinished; the next real run, once it holds the lock,
 closes it as `interrupted` and lists it in `interruptedRuns`. Nothing is ever deleted.

@@ -19,8 +19,14 @@ SELECT 'CREATE ROLE etl_reader' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rol
 
 ALTER ROLE etl_reader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 
+-- Empty counts as unset: never ALTER ROLE … PASSWORD ''.
 \getenv etl_reader_password ETL_READER_PASSWORD
 \if :{?etl_reader_password}
+SELECT :'etl_reader_password' <> '' AS etl_reader_password_set \gset
+\else
+\set etl_reader_password_set false
+\endif
+\if :etl_reader_password_set
 ALTER ROLE etl_reader PASSWORD :'etl_reader_password';
 \else
 \echo 'ETL_READER_PASSWORD is not set: no password set. Run: \\password etl_reader'

@@ -43,6 +43,8 @@ public static class EtlV2Command
         {
             var report = await EtlV2.RunAsync(options, ct: ct);
             await output.WriteLineAsync(JsonSerializer.Serialize(report, Json));
+            if (report.Checks.Count == 0)
+                await error.WriteLineAsync("etl-v2: warning: 0 validation checks ran (no mapper steps yet)");
             return 0;
         }
         catch (EtlV2CanceledException e)
