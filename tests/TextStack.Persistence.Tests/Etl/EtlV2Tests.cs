@@ -113,7 +113,7 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
     }
 
     [Fact]
-    public async Task RunAsync_EarlierRunInterrupted_ReportedKeptAndRetrySucceeds()
+    public async Task RunAsync_EarlierRunInterrupted_ClosedKeptAndRetrySucceeds()
     {
         var options = await NewPairAsync();
         var interrupted = Guid.NewGuid();
@@ -121,9 +121,78 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
 
         var report = await EtlV2.RunAsync(options, [], Ct);
 
-        Assert.Equal(interrupted, Assert.Single(report.UnfinishedRuns).Id);
-        Assert.True(await ScalarAsync<bool>(options.Target, $"SELECT finished_at IS NULL AND outcome IS NULL FROM migration_runs WHERE id = '{interrupted}'"));
+        Assert.Equal(interrupted, Assert.Single(report.InterruptedRuns).Id);
+        Assert.True(await ScalarAsync<bool>(options.Target,
+            $"SELECT outcome = 'interrupted' AND finished_at >= started_at AND validation IS NULL AND validation_failures IS NULL FROM migration_runs WHERE id = '{interrupted}'"));
         Assert.Equal("succeeded", await ScalarAsync<string>(options.Target, $"SELECT outcome FROM migration_runs WHERE id = '{report.RunId}'"));
+        Assert.Equal(2, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM migration_runs"));
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunEarlierRunInterrupted_ReportedNotClosed()
+    {
+        var options = await NewPairAsync(dryRun: true);
+        var interrupted = Guid.NewGuid();
+        await ExecAsync(options.Target, $"INSERT INTO migration_runs (id) VALUES ('{interrupted}')");
+
+        var report = await EtlV2.RunAsync(options, [], Ct);
+
+        Assert.Equal(interrupted, Assert.Single(report.InterruptedRuns).Id);
+        Assert.True(await ScalarAsync<bool>(options.Target, $"SELECT finished_at IS NULL AND outcome IS NULL FROM migration_runs WHERE id = '{interrupted}'"));
+    }
+
+    [Fact]
+    public async Task RunAsync_OwnRowClosedByAnotherRun_FinishThrowsOverlap()
+    {
+        var options = await NewPairAsync();
+        // What a second run does if it ever got the lock while this one still wrote.
+        var close = new EtlV2Step("closed-elsewhere", (_, _) => ExecAsync(options.Target,
+            "UPDATE migration_runs SET outcome = 'interrupted', finished_at = GREATEST(clock_timestamp(), started_at) WHERE finished_at IS NULL"));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(options, [close], Ct));
+
+        Assert.Contains("closed as interrupted by another run; its writes overlapped", error.Message);
+        Assert.Equal("interrupted", await ScalarAsync<string>(options.Target, "SELECT outcome FROM migration_runs"));
+    }
+
+    [Fact]
+    public async Task RunAsync_SourceDumpSha_WrittenToLedger()
+    {
+        var options = await NewPairAsync();
+        var sha = new string('a', 64);
+
+        var report = await EtlV2.RunAsync(options with { SourceDumpSha = sha }, [], Ct);
+
+        Assert.Equal(sha, report.SourceDumpSha);
+        Assert.Equal(sha, await ScalarAsync<string>(options.Target, $"SELECT source_dump_sha FROM migration_runs WHERE id = '{report.RunId}'"));
+    }
+
+    [Fact]
+    public async Task RunAsync_Succeeded_ServerStampsAndZeroValidationFailures()
+    {
+        var options = await NewPairAsync();
+
+        var report = await EtlV2.RunAsync(options, [], Ct);
+
+        Assert.True(await ScalarAsync<bool>(options.Target,
+            $"SELECT validation_failures = 0 AND jsonb_typeof(validation) = 'object' AND finished_at >= started_at AND started_at <= now() FROM migration_runs WHERE id = '{report.RunId}'"));
+    }
+
+    [Fact]
+    public async Task RunAsync_PostgresErrorQuotingRowValue_LedgerKeepsTypeAndSqlStateOnly()
+    {
+        var options = await NewPairAsync();
+        await ExecAsync(options.Source, "UPDATE users SET email = 'jane@example.com'");
+        var cast = new EtlV2Step("cast", (context, ct) => context.Source.Connection!.ExecuteAsync(new CommandDefinition(
+            "SELECT CAST(email AS int) FROM users", transaction: context.Source, cancellationToken: ct)));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(options, [cast], Ct));
+
+        Assert.Contains("jane@example.com", error.Message);
+        var validation = await ScalarAsync<string>(options.Target, "SELECT validation::text FROM migration_runs WHERE outcome = 'failed'");
+        Assert.DoesNotContain("jane", validation);
+        Assert.Equal("""{"error": {"type": "PostgresException", "sqlState": "22P02"}}""", validation);
+        Assert.Equal(1, await ScalarAsync<int>(options.Target, "SELECT validation_failures FROM migration_runs WHERE outcome = 'failed'"));
     }
 
     [Fact]
@@ -135,7 +204,7 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
         var second = await EtlV2.RunAsync(options, [], Ct);
 
         Assert.NotEqual(first.RunId, second.RunId);
-        Assert.Empty(second.UnfinishedRuns);
+        Assert.Empty(second.InterruptedRuns);
         Assert.Equal(first.SourceCounts, second.SourceCounts);
         Assert.Equal(first.TargetCounts, second.TargetCounts);
         Assert.Equal(2, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM migration_runs WHERE outcome = 'succeeded' AND finished_at >= started_at"));
@@ -153,8 +222,8 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(options, [fail], Ct));
 
         Assert.Equal("boom, connected with ***", error.Message);
-        var stored = await ScalarAsync<string>(options.Target, "SELECT validation ->> 'error' FROM migration_runs WHERE outcome = 'failed' AND finished_at IS NOT NULL");
-        Assert.Equal("InvalidDataException: boom, connected with ***", stored);
+        var stored = await ScalarAsync<string>(options.Target, "SELECT validation::text FROM migration_runs WHERE outcome = 'failed' AND finished_at IS NOT NULL");
+        Assert.Equal("""{"error": {"type": "InvalidDataException", "sqlState": null}}""", stored);
     }
 
     [Fact]
@@ -417,8 +486,9 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
 
         var error = await Assert.ThrowsAnyAsync<Exception>(() => EtlV2.RunAsync(options, [step], cts.Token).WaitAsync(TimeSpan.FromSeconds(20), Ct));
 
-        Assert.IsType<InvalidOperationException>(error);
+        Assert.IsType<OperationCanceledException>(error);
         Assert.Equal("failed", await ScalarAsync<string>(options.Target, "SELECT outcome FROM migration_runs"));
+        Assert.Equal("OperationCanceledException", await ScalarAsync<string>(options.Target, "SELECT validation -> 'error' ->> 'type' FROM migration_runs"));
         Assert.NotNull(await EtlV2.RunAsync(options, [], Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct));
     }
 
@@ -472,10 +542,10 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(options with { Target = target }, [fail], Ct));
 
         Assert.Equal("boom ***", error.Message);
-        Assert.Equal("InvalidDataException: boom ***", await ScalarAsync<string>(options.Target, "SELECT validation ->> 'error' FROM migration_runs WHERE outcome = 'failed'"));
+        Assert.DoesNotContain(targetPassword, await ScalarAsync<string>(options.Target, "SELECT validation::text FROM migration_runs WHERE outcome = 'failed'"));
     }
 
-    [Fact(Skip = "BUG: make echoes the etl-v2 recipe, so a password in ARGS is printed; prefix the recipe with @")]
+    [Fact]
     public void Makefile_EtlV2Recipe_NotEchoed()
     {
         var lines = File.ReadAllLines(Path.Combine(PostgresFixture.RepoRoot(), "Makefile"));

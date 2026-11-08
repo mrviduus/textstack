@@ -79,9 +79,10 @@ migrate-v2-drop: migrator-guard
 	$(MIGRATOR_V2) drop $(CONFIRM)
 
 # The ETL legacy -> textstack_v2 (v2-plan §5.2), in the running api container with its connection
-# strings. Not the schema: that is migrate-v2. ARGS=--dry-run reports without writing anything.
+# strings (ConnectionStrings__Default/__V2; never pass them in ARGS). Not the schema: that is migrate-v2.
+# ARGS=--dry-run reports without writing anything. @: the recipe is not echoed.
 etl-v2:
-	docker compose exec -T api dotnet Api.dll etl-v2 $(ARGS)
+	@docker compose exec -T api dotnet Api.dll etl-v2 $(ARGS)
 
 # ============================================================
 # Deployment

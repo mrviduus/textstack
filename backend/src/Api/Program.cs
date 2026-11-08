@@ -22,7 +22,10 @@ var builder = WebApplication.CreateBuilder(args);
 // Before Build(): it needs configuration only, and no startup step may touch either database first.
 if (args is ["etl-v2", ..])
 {
-    Environment.ExitCode = await Api.V2.EtlV2Command.RunAsync(args[1..], builder.Configuration, Console.Out, Console.Error);
+    // Ctrl+C cancels the run (ledger: failed, exit 130) instead of killing it mid-write.
+    using var etlCancel = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; etlCancel.Cancel(); };
+    Environment.ExitCode = await Api.V2.EtlV2Command.RunAsync(args[1..], builder.Configuration, Console.Out, Console.Error, etlCancel.Token);
     return;
 }
 

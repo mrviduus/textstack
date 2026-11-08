@@ -5,8 +5,11 @@ using Npgsql;
 
 namespace Infrastructure.Persistence.Etl;
 
-/// <summary>What <c>etl-v2</c> runs on: connection strings to legacy and <c>textstack_v2</c>, and whether to write.</summary>
-public sealed record EtlV2Options(string Source, string Target, bool DryRun);
+/// <summary>
+/// What <c>etl-v2</c> runs on: connection strings to legacy and <c>textstack_v2</c>, whether to write, and
+/// the SHA-256 of the backup the source was restored from (lowercase hex; the CLI checks it, the ledger's CHECK too).
+/// </summary>
+public sealed record EtlV2Options(string Source, string Target, bool DryRun, string? SourceDumpSha = null);
 
 /// <summary>One mapper (M3.2/M3.3), run in <see cref="EtlV2.Steps"/> order after the run's ledger row is written.</summary>
 public sealed record EtlV2Step(string Name, Func<EtlV2Context, CancellationToken, Task> RunAsync);
@@ -29,15 +32,20 @@ public sealed class EtlV2Context
     public List<string> CleanupActions { get; } = [];
 }
 
-public sealed record EtlV2UnfinishedRun(Guid Id, DateTimeOffset StartedAt);
+public sealed record EtlV2InterruptedRun(Guid Id, DateTimeOffset StartedAt);
 
-/// <summary>What a run did: no <see cref="RunId"/> on a dry run (it writes no ledger row). Connection strings carry no secrets.</summary>
+/// <summary>
+/// What a run did: no <see cref="RunId"/> on a dry run (it writes no ledger row). <see cref="InterruptedRuns"/>:
+/// earlier runs left unfinished, closed as <c>interrupted</c> by this run (a dry run lists them and closes none).
+/// Connection strings carry no secrets.
+/// </summary>
 public sealed record EtlV2Report(
     Guid? RunId,
     bool DryRun,
     string Source,
     string Target,
-    IReadOnlyList<EtlV2UnfinishedRun> UnfinishedRuns,
+    string? SourceDumpSha,
+    IReadOnlyList<EtlV2InterruptedRun> InterruptedRuns,
     IReadOnlyDictionary<string, long> SourceCounts,
     IReadOnlyDictionary<string, long> TargetCounts,
     IReadOnlyList<string> OrphanCandidates,
@@ -68,11 +76,20 @@ public static class EtlV2
 
     private const string UnfinishedRuns = "SELECT id, started_at FROM migration_runs WHERE finished_at IS NULL ORDER BY started_at";
 
-    private const string StartRun = "INSERT INTO migration_runs (id, started_at) VALUES (@id, now())";
+    // Only under the lock: an unfinished row then belongs to a run that died. Closed, never deleted.
+    private const string CloseInterrupted = """
+        UPDATE migration_runs SET outcome = 'interrupted', finished_at = GREATEST(clock_timestamp(), started_at)
+        WHERE finished_at IS NULL
+        RETURNING id, started_at
+        """;
+
+    // started_at is the server's clock_timestamp() (column default), never a client time.
+    private const string StartRun = "INSERT INTO migration_runs (id, source_dump_sha) VALUES (@id, @sourceDumpSha)";
 
     private const string FinishRun = """
         UPDATE migration_runs
-        SET finished_at = now(), outcome = @outcome, counts = CAST(@counts AS jsonb), validation = CAST(@validation AS jsonb)
+        SET finished_at = GREATEST(clock_timestamp(), started_at), outcome = @outcome, counts = CAST(@counts AS jsonb),
+            validation = CAST(@validation AS jsonb), validation_failures = @validationFailures
         WHERE id = @id AND finished_at IS NULL
         """;
 
@@ -117,7 +134,11 @@ public static class EtlV2
         string[] secrets = [.. new[] { source.Password, source.SslPassword, target.Password, target.SslPassword }.Where(s => !string.IsNullOrEmpty(s))!];
         try
         {
-            return await RunCoreAsync(source, target, options.DryRun, steps ?? Steps, secrets, ct);
+            return await RunCoreAsync(source, target, options, steps ?? Steps, secrets, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception e)
         {
@@ -126,9 +147,10 @@ public static class EtlV2
     }
 
     private static async Task<EtlV2Report> RunCoreAsync(
-        NpgsqlConnectionStringBuilder source, NpgsqlConnectionStringBuilder target, bool dryRun,
+        NpgsqlConnectionStringBuilder source, NpgsqlConnectionStringBuilder target, EtlV2Options options,
         IReadOnlyList<EtlV2Step> steps, string[] secrets, CancellationToken ct)
     {
+        var dryRun = options.DryRun;
         // Disposing the data sources closes their connections, which ends the session and with it the lock.
         await using var sourceDb = DataSource.Create(ReadOnly(source.ConnectionString));
         await using var targetDb = new V2DataSource(dryRun ? ReadOnly(target.ConnectionString) : target.ConnectionString);
@@ -143,11 +165,12 @@ public static class EtlV2
         if (!await targetConn.ExecuteScalarAsync<bool>(new CommandDefinition(TryLock, new { LockKey }, cancellationToken: ct)))
             throw new InvalidOperationException($"another etl-v2 run holds the target's advisory lock {LockKey}; wait for it to finish");
 
-        var unfinished = (await targetConn.QueryAsync<EtlV2UnfinishedRun>(new CommandDefinition(UnfinishedRuns, cancellationToken: ct))).AsList();
+        var interrupted = (await targetConn.QueryAsync<EtlV2InterruptedRun>(
+            new CommandDefinition(dryRun ? UnfinishedRuns : CloseInterrupted, cancellationToken: ct))).OrderBy(r => r.StartedAt).ToList();
         Guid? runId = dryRun ? null : Guid.CreateVersion7();
         if (runId is not null)
-            // Autocommit: a run killed from here on leaves this row with finished_at NULL, for the next run to report.
-            await targetConn.ExecuteAsync(new CommandDefinition(StartRun, new { id = runId }, cancellationToken: ct));
+            // Autocommit: a run killed from here on leaves this row unfinished, for the next run to close as interrupted.
+            await targetConn.ExecuteAsync(new CommandDefinition(StartRun, new { id = runId, sourceDumpSha = options.SourceDumpSha }, cancellationToken: ct));
 
         var context = new EtlV2Context { DryRun = dryRun, Source = snapshot, Target = targetDb };
         Dictionary<string, long> sourceCounts = [];
@@ -159,34 +182,43 @@ public static class EtlV2
             var targetCounts = await CountAsync(targetConn, TargetCounts, null, ct);
             if (runId is not null)
                 await FinishAsync(targetConn, runId.Value, "succeeded", sourceCounts, targetCounts,
-                    new { orphanCandidates = context.OrphanCandidates, cleanupActions = context.CleanupActions }, ct);
-            return new EtlV2Report(runId, dryRun, Redact(source.ConnectionString), Redact(target.ConnectionString), unfinished,
+                    new { orphanCandidates = context.OrphanCandidates, cleanupActions = context.CleanupActions }, 0, ct);
+            return new EtlV2Report(runId, dryRun, Redact(source.ConnectionString), Redact(target.ConnectionString), options.SourceDumpSha, interrupted,
                 sourceCounts, targetCounts, context.OrphanCandidates, context.CleanupActions);
         }
         catch (Exception e) when (runId is not null)
         {
             try
             {
+                // Type and SQLSTATE only: a message can quote row values (the caller prints it, scrubbed, to stderr).
+                // validation_failures = 1, the run itself: 0004 writes it with validation or not at all.
+                var type = e is OperationCanceledException ? nameof(OperationCanceledException) : e.GetType().Name;
+                var sqlState = (e as NpgsqlException ?? e.InnerException as NpgsqlException)?.SqlState;
                 await FinishAsync(targetConn, runId.Value, "failed", sourceCounts, null,
-                    new { error = Scrub($"{e.GetType().Name}: {e.Message}", secrets) }, CancellationToken.None);
+                    new { error = new { type, sqlState } }, 1, CancellationToken.None);
             }
             catch (Exception)
             {
-                // The target is gone too: the row stays unfinished and the next run reports it.
+                // The target is gone too (or the row was closed): the next run closes it as interrupted.
             }
             throw;
         }
     }
 
-    private static Task FinishAsync(NpgsqlConnection conn, Guid id, string outcome,
-        Dictionary<string, long> source, Dictionary<string, long>? target, object validation, CancellationToken ct) =>
-        conn.ExecuteAsync(new CommandDefinition(FinishRun, new
+    private static async Task FinishAsync(NpgsqlConnection conn, Guid id, string outcome, Dictionary<string, long> source,
+        Dictionary<string, long>? target, object validation, int validationFailures, CancellationToken ct)
+    {
+        var finished = await conn.ExecuteAsync(new CommandDefinition(FinishRun, new
         {
             id,
             outcome,
             counts = JsonSerializer.Serialize(new { source, target }),
             validation = JsonSerializer.Serialize(validation),
+            validationFailures,
         }, cancellationToken: ct));
+        if (finished == 0)
+            throw new InvalidOperationException($"run {id} was closed as interrupted by another run; its writes overlapped");
+    }
 
     private static async Task<Dictionary<string, long>> CountAsync(NpgsqlConnection conn, string sql, NpgsqlTransaction? tx, CancellationToken ct)
     {

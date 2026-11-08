@@ -111,4 +111,32 @@ public class EtlV2CommandTests
         Assert.DoesNotContain("nt;er", output.ToString() + error.ToString());
         Assert.Empty(output.ToString());
     }
+
+    [Fact]
+    public void Parse_SourceDumpSha_Kept()
+    {
+        var sha = new string('0', 32) + new string('f', 32);
+
+        Assert.Equal(sha, EtlV2Command.Parse(["--source-dump-sha", sha], Config)!.SourceDumpSha);
+    }
+
+    [Theory]
+    [InlineData("ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789")]
+    [InlineData("abc")]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg")]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0")]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n")]
+    public async Task RunAsync_BadSourceDumpSha_Exit2(string sha)
+    {
+        var error = new StringWriter();
+
+        var exit = await EtlV2Command.RunAsync(["--source-dump-sha", sha.Replace("\\n", "\n")], Config, TextWriter.Null, error);
+
+        Assert.Equal(2, exit);
+        Assert.StartsWith("usage: etl-v2", error.ToString());
+    }
+
+    [Fact]
+    public void Parse_SourceDumpShaWithoutValue_Null() =>
+        Assert.Null(EtlV2Command.Parse(["--source-dump-sha"], Config));
 }
