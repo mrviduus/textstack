@@ -78,14 +78,14 @@ migrate-v2-drop: migrator-guard
 	@test -n "$(CONFIRM)" || { echo 'usage: make migrate-v2-drop CONFIRM=<V2_POSTGRES_DB, default textstack_v2> (all its data is lost)'; exit 1; }
 	$(MIGRATOR_V2) drop $(CONFIRM)
 
-# The ETL legacy -> textstack_v2 (v2-plan §5.2), in the running api container. Not the schema: that
-# is migrate-v2. Runbook: docs/03-ops/v2-etl.md. ARGS=--dry-run reports without writing anything.
+# The ETL legacy -> textstack_v2 (v2-plan §5.2), in a one-off container of the api image (its own
+# process, signals proxied; no deploy may recreate it mid-run). Not the schema: that is migrate-v2. Runbook: docs/03-ops/v2-etl.md. ARGS=--dry-run reports without writing anything.
 # Connection strings come from the env, never ARGS (argv is visible in ps; etl-v2 refuses a password
 # there): ConnectionStrings__Default=... ConnectionStrings__V2=... make etl-v2. Each one set is passed
-# by NAME (-e NAME, value read from this env), so it is on no command line; unset, the container's own
+# by NAME (-e NAME, value read from this env), so it is on no command line; unset, the compose file's
 # value stays (a bare -e NAME would blank it). @: the recipe is not echoed.
 etl-v2:
-	@docker compose exec -T $(if $(ConnectionStrings__Default),-e ConnectionStrings__Default) $(if $(ConnectionStrings__V2),-e ConnectionStrings__V2) api dotnet Api.dll etl-v2 $(ARGS)
+	@docker compose run --rm --no-deps -T $(if $(ConnectionStrings__Default),-e ConnectionStrings__Default) $(if $(ConnectionStrings__V2),-e ConnectionStrings__V2) api etl-v2 $(ARGS)
 
 # ============================================================
 # Deployment

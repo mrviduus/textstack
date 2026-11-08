@@ -166,7 +166,20 @@ public class EtlV2CommandTests
         Assert.Contains("ConnectionStrings__Default", error.ToString());
         Assert.Contains("Passfile", error.ToString());
         Assert.DoesNotContain("hunter2", error.ToString());
-        Assert.Null(EtlV2Command.Parse([flag, value], Config));
+    }
+
+    [Fact]
+    public async Task RunAsync_CancelledBeforeLedgerRow_Exit1NothingRecorded()
+    {
+        var error = new StringWriter();
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        var exit = await EtlV2Command.RunAsync(["--dry-run"], Env("Host=127.0.0.1;Port=1"), TextWriter.Null, error, cts.Token);
+
+        // 130 means "a ledger row records the cancel"; before one exists it is an ordinary failure.
+        Assert.Equal(1, exit);
+        Assert.Equal("etl-v2: cancelled; nothing recorded", error.ToString().Trim());
     }
 
     [Fact]

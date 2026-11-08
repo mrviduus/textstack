@@ -6,52 +6,6 @@ using Npgsql;
 namespace Infrastructure.Persistence.Etl;
 
 /// <summary>
-/// What <c>etl-v2</c> runs on: connection strings to legacy and <c>textstack_v2</c>, whether to write, and
-/// the SHA-256 of the backup the source was restored from (lowercase hex; the CLI checks it, the ledger's CHECK too).
-/// </summary>
-public sealed record EtlV2Options(string Source, string Target, bool DryRun, string? SourceDumpSha = null);
-
-/// <summary>One mapper (M3.2/M3.3), run in <see cref="EtlV2.Steps"/> order after the run's ledger row is written.</summary>
-public sealed record EtlV2Step(string Name, Func<EtlV2Context, CancellationToken, Task> RunAsync);
-
-/// <summary>What a step reads from and writes to, and where it reports what it would not do silently.</summary>
-public sealed class EtlV2Context
-{
-    public required bool DryRun { get; init; }
-
-    /// <summary>Legacy, read-only at the connection level, in one REPEATABLE READ snapshot for the whole run.</summary>
-    public required NpgsqlTransaction Source { get; init; }
-
-    /// <summary><c>textstack_v2</c>, for the repositories; read-only in a dry run, so a write there fails instead of landing.</summary>
-    public required V2DataSource Target { get; init; }
-
-    /// <summary>Rows a step found but did not carry or delete: listed, never auto-deleted.</summary>
-    public List<string> OrphanCandidates { get; } = [];
-
-    /// <summary>Cleanups a step would need (a human runs them, never an ordinary retry).</summary>
-    public List<string> CleanupActions { get; } = [];
-}
-
-public sealed record EtlV2InterruptedRun(Guid Id, DateTimeOffset StartedAt);
-
-/// <summary>
-/// What a run did: no <see cref="RunId"/> on a dry run (it writes no ledger row). <see cref="InterruptedRuns"/>:
-/// earlier runs left unfinished, closed as <c>interrupted</c> by this run (a dry run lists them and closes none).
-/// Connection strings carry no secrets.
-/// </summary>
-public sealed record EtlV2Report(
-    Guid? RunId,
-    bool DryRun,
-    string Source,
-    string Target,
-    string? SourceDumpSha,
-    IReadOnlyList<EtlV2InterruptedRun> InterruptedRuns,
-    IReadOnlyDictionary<string, long> SourceCounts,
-    IReadOnlyDictionary<string, long> TargetCounts,
-    IReadOnlyList<string> OrphanCandidates,
-    IReadOnlyList<string> CleanupActions);
-
-/// <summary>
 /// The legacy → <c>textstack_v2</c> ETL (v2-plan §5.2, M3.1 skeleton): identity check, advisory lock,
 /// <c>migration_runs</c> ledger, per-aggregate counts, then the mapper steps. Every failure leaves as an
 /// <see cref="InvalidOperationException"/> whose message carries no password.
@@ -136,9 +90,14 @@ public static class EtlV2
         {
             return await RunCoreAsync(source, target, options, steps ?? Steps, secrets, ct);
         }
-        catch (OperationCanceledException)
+        catch (EtlV2CanceledException)
         {
             throw;
+        }
+        catch (OperationCanceledException e) when (ct.IsCancellationRequested)
+        {
+            // Before the ledger row: nothing to record.
+            throw new EtlV2CanceledException(null, e, ct);
         }
         catch (Exception e)
         {
@@ -152,8 +111,8 @@ public static class EtlV2
     {
         var dryRun = options.DryRun;
         // Disposing the data sources closes their connections, which ends the session and with it the lock.
-        await using var sourceDb = DataSource.Create(ReadOnly(source.ConnectionString));
-        await using var targetDb = new V2DataSource(dryRun ? ReadOnly(target.ConnectionString) : target.ConnectionString);
+        await using var sourceDb = DataSource.Create(Session(source.ConnectionString, readOnly: true));
+        await using var targetDb = new V2DataSource(Session(target.ConnectionString, readOnly: dryRun));
         await using var sourceConn = await sourceDb.OpenConnectionAsync(ct);
         await using var snapshot = await sourceConn.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
         await using var targetConn = await targetDb.OpenConnectionAsync(ct);
@@ -162,10 +121,10 @@ public static class EtlV2
         var targetId = await targetConn.ExecuteScalarAsync<string>(new CommandDefinition(Identity, cancellationToken: ct));
         if (sourceId == targetId)
             throw new InvalidOperationException($"source and target are the same database ({targetId}); etl-v2 reads legacy and writes textstack_v2");
-        var violations = await EtlV2SourceAudit.ViolationsAsync(sourceConn, snapshot, ct);
+        var (login, violations) = await EtlV2SourceAudit.AuditAsync(sourceConn, snapshot, ct);
         if (violations.Count > 0)
             throw new InvalidOperationException(
-                $"source role {source.Username} can write ({string.Join("; ", violations.Take(5))}{(violations.Count > 5 ? $"; and {violations.Count - 5} more" : "")}); read as the SELECT-only etl_reader (docs/03-ops/v2-etl.md)");
+                $"source login {login} can write ({string.Join("; ", violations.Take(5))}{(violations.Count > 5 ? $"; and {violations.Count - 5} more" : "")}); read as the SELECT-only etl_reader (docs/03-ops/v2-etl.md)");
         if (!await targetConn.ExecuteScalarAsync<bool>(new CommandDefinition(TryLock, new { LockKey }, cancellationToken: ct)))
             throw new InvalidOperationException($"another etl-v2 run holds the target's advisory lock {LockKey}; wait for it to finish");
 
@@ -183,28 +142,42 @@ public static class EtlV2
             sourceCounts = await CountAsync(sourceConn, SourceCounts, snapshot, ct);
             foreach (var step in steps)
                 await step.RunAsync(context, ct);
+            // Fail closed: success means the steps' checks ran and found nothing, never "no check ran".
+            if (context.Checks.Count == 0)
+                throw new EtlV2ValidationException("NoValidationChecks", 1);
+            var failures = context.Checks.Sum(c => c.Failures);
+            if (failures > 0)
+                throw new EtlV2ValidationException("ValidationFailed", failures);
             var targetCounts = await CountAsync(targetConn, TargetCounts, null, ct);
             if (runId is not null)
                 await FinishAsync(targetConn, runId.Value, "succeeded", sourceCounts, targetCounts,
-                    new { orphanCandidates = context.OrphanCandidates, cleanupActions = context.CleanupActions }, 0, ct);
+                    new { checks = context.Checks, orphanCandidates = context.OrphanCandidates, cleanupActions = context.CleanupActions }, 0, ct);
             return new EtlV2Report(runId, dryRun, Redact(source.ConnectionString), Redact(target.ConnectionString), options.SourceDumpSha, interrupted,
-                sourceCounts, targetCounts, context.OrphanCandidates, context.CleanupActions);
+                sourceCounts, targetCounts, context.Checks, context.OrphanCandidates, context.CleanupActions);
         }
         catch (Exception e) when (runId is not null)
         {
             try
             {
                 // Type and SQLSTATE only: a message can quote row values (the caller prints it, scrubbed, to stderr).
-                // validation_failures = 1, the run itself: 0004 writes it with validation or not at all.
-                var type = e is OperationCanceledException ? nameof(OperationCanceledException) : e.GetType().Name;
+                // validation_failures: the checks' total when validation ran and failed, else 1 (the run itself);
+                // 0004 writes it with validation or not at all.
+                var (type, failures) = e switch
+                {
+                    EtlV2ValidationException v => (v.Type, v.Failures),
+                    OperationCanceledException => (nameof(OperationCanceledException), 1),
+                    _ => (e.GetType().Name, 1),
+                };
                 var sqlState = (e as NpgsqlException ?? e.InnerException as NpgsqlException)?.SqlState;
                 await FinishAsync(targetConn, runId.Value, "failed", sourceCounts, null,
-                    new { error = new { type, sqlState } }, 1, CancellationToken.None);
+                    new { error = new { type, sqlState }, checks = context.Checks }, failures, CancellationToken.None);
             }
             catch (Exception)
             {
                 // The target is gone too (or the row was closed): the next run closes it as interrupted.
             }
+            if (e is OperationCanceledException && ct.IsCancellationRequested)
+                throw new EtlV2CanceledException(runId, e, ct);
             throw;
         }
     }
@@ -231,16 +204,34 @@ public static class EtlV2
     }
 
     /// <summary>The connection string with every session defaulting to read-only transactions: a write fails with 25006.</summary>
-    public static string ReadOnly(string connectionString)
+    public static string ReadOnly(string connectionString) => Session(connectionString, readOnly: true);
+
+    // No server-side or client-side time limit: production's database defaults statement_timeout to 10 s,
+    // and the run holds its source snapshot open, idle, while it writes the target.
+    private static string Session(string connectionString, bool readOnly)
     {
-        var builder = new NpgsqlConnectionStringBuilder(connectionString);
-        builder.Options = $"{builder.Options} -c default_transaction_read_only=on".Trim();
+        var builder = new NpgsqlConnectionStringBuilder(connectionString) { CommandTimeout = 0 };
+        var options = $"{builder.Options} -c statement_timeout=0 -c idle_in_transaction_session_timeout=0";
+        builder.Options = (readOnly ? options + " -c default_transaction_read_only=on" : options).Trim();
         return builder.ConnectionString;
     }
 
     /// <summary>The connection string without its passwords, for any log, report or error.</summary>
     public static string Redact(string connectionString) =>
         new NpgsqlConnectionStringBuilder(connectionString) { Password = null, SslPassword = null }.ConnectionString;
+
+    /// <summary><see cref="Redact"/>, or a placeholder for a string that does not parse (never the string itself).</summary>
+    public static string RedactOrHide(string connectionString)
+    {
+        try
+        {
+            return Redact(connectionString);
+        }
+        catch (ArgumentException)
+        {
+            return "(not a valid connection string)";
+        }
+    }
 
     private static NpgsqlConnectionStringBuilder Parse(string connectionString, string name)
     {

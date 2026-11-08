@@ -24,6 +24,11 @@ public sealed class PostgresFixture : IAsyncLifetime, IIdentityFixture
 
     public NpgsqlDataSource DataSource { get; private set; } = null!;
 
+    /// <summary>Whole databases of a test's own in this cluster (legacy or V2), copied from migrated templates.</summary>
+    public ScratchDatabases Databases { get; }
+
+    public PostgresFixture() => Databases = new ScratchDatabases(_container);
+
     public async ValueTask InitializeAsync()
     {
         await _container.StartAsync();
@@ -34,17 +39,6 @@ public sealed class PostgresFixture : IAsyncLifetime, IIdentityFixture
         DataSource = Infrastructure.Persistence.DataSource.Create(_container.GetConnectionString());
     }
 
-    /// <summary>A database of its own in this container, built by <c>migrate.sh up</c> like the shared one; its connection string.</summary>
-    public async Task<string> NewDatabaseAsync(string name)
-    {
-        await using (var cmd = DataSource.CreateCommand($"CREATE DATABASE \"{name}\""))
-            await cmd.ExecuteNonQueryAsync();
-        var migrate = await _container.ExecAsync(["sh", "-c", $"PGUSER=postgres PGDATABASE={name} sh /database/migrate.sh up"]);
-        if (migrate.ExitCode != 0)
-            throw new InvalidOperationException($"migrate.sh up failed:\n{migrate.Stdout}\n{migrate.Stderr}");
-        return new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = name }.ConnectionString;
-    }
-
     public const string EtlReaderPassword = "etl-r3ader-pw";
 
     /// <summary>
@@ -53,21 +47,11 @@ public sealed class PostgresFixture : IAsyncLifetime, IIdentityFixture
     /// </summary>
     public async Task<string> ProvisionEtlReaderAsync(string connectionString)
     {
+        // The password from the environment (\getenv), as the runbook passes it; a test container's argv is no secret.
         var db = new NpgsqlConnectionStringBuilder(connectionString).Database;
-        var run = await _container.ExecAsync(["sh", "-c",
-            $"psql -v ON_ERROR_STOP=1 -v etl_reader_password={EtlReaderPassword} -U postgres -d '{db}' -f /database/scripts/etl-reader.sql"]);
-        if (run.ExitCode != 0)
-            throw new InvalidOperationException($"etl-reader.sql failed:\n{run.Stdout}\n{run.Stderr}");
+        await Databases.ShellAsync(
+            $"ETL_READER_PASSWORD={EtlReaderPassword} psql -v ON_ERROR_STOP=1 -U postgres -d '{db}' -f /database/scripts/etl-reader.sql");
         return new NpgsqlConnectionStringBuilder(connectionString) { Username = "etl_reader", Password = EtlReaderPassword }.ConnectionString;
-    }
-
-    /// <summary>A <c>textstack_v2</c> in this (legacy) cluster, by <c>v2/run.sh up</c>: same system id as the legacy databases.</summary>
-    public async Task<string> NewV2DatabaseAsync(string name)
-    {
-        var migrate = await _container.ExecAsync(["sh", "-c", $"PGUSER=postgres PGDATABASE={name} sh /database/v2/run.sh up"]);
-        if (migrate.ExitCode != 0)
-            throw new InvalidOperationException($"run.sh up failed:\n{migrate.Stdout}\n{migrate.Stderr}");
-        return new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = name }.ConnectionString;
     }
 
     public async ValueTask DisposeAsync()

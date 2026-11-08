@@ -45,10 +45,11 @@ public static class EtlV2Command
             await output.WriteLineAsync(JsonSerializer.Serialize(report, Json));
             return 0;
         }
-        catch (OperationCanceledException)
+        catch (EtlV2CanceledException e)
         {
-            await error.WriteLineAsync("etl-v2: cancelled; the run is recorded as failed");
-            return 130;
+            // 130 only when a ledger row records the cancel; before it, an ordinary failure.
+            await error.WriteLineAsync($"etl-v2: {e.Message}");
+            return e.RunId is null ? 1 : 130;
         }
         catch (InvalidOperationException e)
         {
@@ -59,8 +60,8 @@ public static class EtlV2Command
     }
 
     /// <summary>
-    /// The options, or null on an unknown argument, a flag without its value, a bad dump hash, a password in
-    /// a <c>--source</c>/<c>--target</c> value, or no connection string.
+    /// The options, or null on an unknown argument, a flag without its value, a bad dump hash, or no
+    /// connection string. A password on the command line is refused before this, by <see cref="RunAsync"/>.
     /// </summary>
     public static EtlV2Options? Parse(string[] args, IConfiguration config)
     {
@@ -73,10 +74,10 @@ public static class EtlV2Command
                 case "--dry-run":
                     dryRun = true;
                     break;
-                case "--source" when i + 1 < args.Length && !PasswordKey.IsMatch(args[i + 1]):
+                case "--source" when i + 1 < args.Length:
                     source = args[++i];
                     break;
-                case "--target" when i + 1 < args.Length && !PasswordKey.IsMatch(args[i + 1]):
+                case "--target" when i + 1 < args.Length:
                     target = args[++i];
                     break;
                 case "--source-dump-sha" when i + 1 < args.Length && Sha256Hex.IsMatch(args[i + 1]):
