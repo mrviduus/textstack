@@ -107,43 +107,75 @@ public sealed class LibraryRootTests : IDisposable
     }
 
     [Theory]
-    [InlineData("library/ab/abcd/1234/5678.epub")]
-    [InlineData("uploads/abcd/5678/00000.part")]
-    public void AddTextStackFileStores_V2OnLeftoverV2FileUnderStorageRoot_ThrowsWithMoveCommand(string leftover)
+    [InlineData("library/ab/abcd/1234/5678.epub", true)]
+    [InlineData("uploads/abcd/5678/00000.part", true)]
+    [InlineData("library/ab/abcd/1234/5678.epub", false)]
+    [InlineData("library/ab/.hidden", false)]                   // dotfiles count
+    public void AddTextStackFileStores_LeftoverV2FileUnderStorageRoot_RegistersAndWarns(string leftover, bool v2Api)
     {
         WriteLeftover(leftover);
 
-        var e = Assert.Throws<InvalidOperationException>(() => Register(Config(StorageRoot, Path.Combine(_dir, "library"), v2Api: true)));
-        Assert.Contains("mv data/storage/library data/storage/uploads data/library/", e.Message);
-    }
-
-    [Theory]
-    [InlineData("library/ab/abcd/1234/5678.epub")]
-    [InlineData("uploads/abcd/5678/00000.part")]
-    public void AddTextStackFileStores_V2OffLeftoverV2FileUnderStorageRoot_Registers(string leftover)
-    {
-        WriteLeftover(leftover);
-
-        var services = new ServiceCollection().AddTextStackFileStores(Config(StorageRoot, Path.Combine(_dir, "library")));
+        var (services, stderr) = RegisterCapturingStderr(Config(StorageRoot, Path.Combine(_dir, "library"), v2Api));
 
         Assert.Contains(services, d => d.ServiceType == typeof(ILibraryFileStore));
+        Assert.Contains("holds V2 files from before #1110", stderr);
+        Assert.Contains("cp -a data/storage/$d/. data/library/$d/", stderr);
+        Assert.Contains("not recursively", stderr);
+    }
+
+    [Fact]
+    public void AddTextStackFileStores_NoLeftover_NoWarning()
+    {
+        Directory.CreateDirectory(Path.Combine(StorageRoot, "library", "ab"));
+
+        var (_, stderr) = RegisterCapturingStderr(Config(StorageRoot, Path.Combine(_dir, "library"), v2Api: true));
+
+        Assert.DoesNotContain("holds V2 files", stderr);
+        Assert.DoesNotContain("scan incomplete", stderr);
     }
 
     [Fact]
     [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
-    public void AddTextStackFileStores_UnreadableSubdirectory_DoesNotThrow()
+    public void AddTextStackFileStores_UnreadableSubdirectory_RegistersAndWarnsScanIncomplete()
     {
         Assert.SkipWhen(OperatingSystem.IsWindows(), "unix modes");
         var locked = Path.Combine(StorageRoot, "library", "locked");
         Directory.CreateDirectory(locked);
+        File.WriteAllText(Path.Combine(locked, "b.epub"), "x");
         File.SetUnixFileMode(locked, UnixFileMode.None);
         try
         {
-            Register(Config(StorageRoot, Path.Combine(_dir, "library"), v2Api: true));
+            Assert.SkipWhen(CanRead(locked), "running as root: mode 000 is readable");
+            var (services, stderr) = RegisterCapturingStderr(Config(StorageRoot, Path.Combine(_dir, "library"), v2Api: true));
+
+            Assert.Contains(services, d => d.ServiceType == typeof(ILibraryFileStore));
+            Assert.Contains($"scan incomplete: {locked} unreadable", stderr);
         }
         finally
         {
             File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    private static bool CanRead(string dir)
+    {
+        try { _ = Directory.EnumerateFileSystemEntries(dir).Any(); return true; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
+
+    // Tests in one class run one at a time; other classes may write to stderr meanwhile, so assert by content.
+    private static (IServiceCollection Services, string Stderr) RegisterCapturingStderr(IConfiguration config)
+    {
+        var original = Console.Error;
+        using var captured = new StringWriter();
+        Console.SetError(captured);
+        try
+        {
+            return (new ServiceCollection().AddTextStackFileStores(config), captured.ToString());
+        }
+        finally
+        {
+            Console.SetError(original);
         }
     }
 

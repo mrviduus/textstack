@@ -284,37 +284,25 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
     // Soft, like collation, and for the reason the 2026-10-30 outage taught: a V2 database that is
     // behind or down pauses sync (/me/v2 answers 503) and nothing else, so it never changes this
     // probe's status code (#1053). Read from V2Readiness's cache; with the flag off, V2 is not touched.
+    // The one exception is the library volume below (owner decision 2026-11-07).
     components["v2"] = cfg.GetValue<bool>("Features:V2Api") ? await v2.GetAsync() : new { status = "off" };
 
-    // Write probes. A file of its own per request: one shared name raced between concurrent probes,
-    // one request deleting the file another was about to delete (a false "down").
-    async Task<(bool Ok, object Component)> ProbeAsync(string root)
-    {
-        var probe = Path.Combine(root, $".health-probe-{Guid.NewGuid():N}");
-        try
-        {
-            await File.WriteAllTextAsync(probe, started.ToString("O"), ct);
-            return (true, new { status = "ok", path = root });
-        }
-        catch (Exception ex)
-        {
-            return (false, new { status = "down", error = ex.GetType().Name });
-        }
-        finally
-        {
-            try { File.Delete(probe); } catch { /* nothing written, or already gone */ }
-        }
-    }
+    // Write probes, in parallel (FileStoreRegistration.ProbeWriteAsync: a file of its own per call).
+    var storageRoot = Infrastructure.Services.FileStoreRegistration.StorageRoot(cfg);
+    var libraryRoot = Infrastructure.Services.FileStoreRegistration.LibraryRoot(cfg);
+    var probes = await Task.WhenAll(
+        Infrastructure.Services.FileStoreRegistration.ProbeWriteAsync(storageRoot, ct),
+        Infrastructure.Services.FileStoreRegistration.ProbeWriteAsync(libraryRoot, ct));
+    object Probe(string root, string? error) => error is null ? new { status = "ok", path = root } : new { status = "down", error };
 
-    var (storageOk, storage) = await ProbeAsync(Infrastructure.Services.FileStoreRegistration.StorageRoot(cfg));
-    components["storage"] = storage;
-    criticalOk &= storageOk;
+    components["storage"] = Probe(storageRoot, probes[0]);
+    criticalOk &= probes[0] is null;
 
-    // The V2 library's own volume (#1110). With V2 on, an unwritable one fails every V2 upload, so it
-    // is critical; with V2 off nothing writes there, so it is only reported.
-    var (libraryOk, library) = await ProbeAsync(Infrastructure.Services.FileStoreRegistration.LibraryRoot(cfg));
-    components["library"] = library;
-    criticalOk &= libraryOk || !cfg.GetValue<bool>("Features:V2Api");
+    // The V2 library's own volume (#1110). With V2 on, an unwritable one is a 503 despite #1053 (owner
+    // decision 2026-11-07): V2 on without its volume is a broken deploy, every V2 upload fails. With
+    // V2 off nothing writes there, so it is only reported.
+    components["library"] = Probe(libraryRoot, probes[1]);
+    criticalOk &= probes[1] is null || !cfg.GetValue<bool>("Features:V2Api");
 
     try
     {

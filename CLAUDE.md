@@ -85,6 +85,8 @@ dotnet format textstack.sln                  # Backend
 # backfill-pdf-page-counts [--dry-run]   (fills null UserBook.PageCount for PDF uploads)
 
 # Local dev (no Docker)
+# From the repo root; the defaults /storage and /library are container paths. Two siblings, never nested:
+export Storage__RootPath=data/storage Storage__LibraryRoot=data/library
 dotnet run --project backend/src/Api
 dotnet run --project backend/src/Worker
 pnpm -C apps/web dev          # http://localhost:5173

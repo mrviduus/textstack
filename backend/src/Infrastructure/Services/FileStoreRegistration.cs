@@ -22,8 +22,7 @@ public static class FileStoreRegistration
 
     /// <summary>
     /// Registers both stores. Throws when the roots nest or are equal (configuration only). V2 files left
-    /// under the public root fail startup with Features:V2Api on, and only warn with it off: the legacy
-    /// site must not go down for them, and the denylist still keeps them private.
+    /// under the public root, or a part of it that cannot be scanned, only warn.
     /// </summary>
     public static IServiceCollection AddTextStackFileStores(this IServiceCollection services, IConfiguration configuration)
     {
@@ -41,22 +40,78 @@ public static class FileStoreRegistration
             throw new InvalidOperationException(
                 $"Storage:LibraryRoot ({library}) and Storage:RootPath ({storage}) are nested, and /storage serves the root publicly. Make them separate directories, e.g. /library and /storage (#1110).");
 
-        var everything = new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true };
+        // Leftover V2 files under the public root: a warning in both modes, never a crash loop. The
+        // /storage/library|uploads denylist (UserStoragePolicy, nginx) keeps them private meanwhile.
+        // No logger exists yet at registration; stderr reaches `docker compose logs`.
         foreach (var dir in new[] { "library", "uploads" })
         {
-            var leftover = Path.Combine(storage, dir);
-            if (!Directory.Exists(leftover) || !Directory.EnumerateFiles(leftover, "*", everything).Any())
-                continue;
-            var message = $"{leftover} holds V2 files from before #1110, under the public root. Move them once on the host, into an empty data/library: " +
-                "mv data/storage/library data/storage/uploads data/library/ (whichever exist) && make fix-permissions";
-            if (configuration.GetValue<bool>("Features:V2Api"))
-                throw new InvalidOperationException(message);
-            // No logger exists yet at registration; stderr reaches `docker compose logs`.
-            Console.Error.WriteLine("warn: " + message);
+            var (hasFiles, unreadable) = Scan(Path.Combine(storage, dir));
+            if (hasFiles)
+                Console.Error.WriteLine(LeftoverWarning(Path.Combine(storage, dir)));
+            if (unreadable is not null)
+                Console.Error.WriteLine($"warn: V2 leftover scan incomplete: {unreadable} unreadable.");
         }
 
         services.AddSingleton<IFileStorageService>(new LocalFileStorageService(StorageRoot(configuration)));
         services.AddSingleton<ILibraryFileStore>(new LibraryFileStore(LibraryRoot(configuration)));
         return services;
+    }
+
+    /// <summary>The fix, per directory and safe to re-run: copy into data/library/{dir}, then remove.</summary>
+    public static string LeftoverWarning(string leftover) =>
+        $"warn: {leftover} holds V2 files from before #1110, under the public root (404 by the denylist). Move them once on the host: " +
+        "mkdir -p data/library && for d in library uploads; do [ -d data/storage/$d ] && cp -a data/storage/$d/. data/library/$d/ && rm -rf data/storage/$d; done; " +
+        "sudo chown -R 1000:1000 data/library (make fix-permissions chowns data/library itself, not recursively).";
+
+    private static readonly EnumerationOptions Files = new() { AttributesToSkip = 0, IgnoreInaccessible = false };
+
+    // Symlinked directories are not followed: a cycle would never end.
+    private static readonly EnumerationOptions Directories = new() { AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = false };
+
+    /// <summary>Whether <paramref name="dir"/> holds a file at any depth, and the first directory that could not be read.</summary>
+    public static (bool HasFiles, string? Unreadable) Scan(string dir)
+    {
+        if (!Directory.Exists(dir))
+            return (false, null);
+        var pending = new Stack<string>([dir]);
+        string? unreadable = null;
+        while (pending.TryPop(out var current))
+        {
+            try
+            {
+                if (Directory.EnumerateFiles(current, "*", Files).Any())
+                    return (true, unreadable);
+                foreach (var sub in Directory.EnumerateDirectories(current, "*", Directories))
+                    pending.Push(sub);
+            }
+            catch (Exception e) when (e is UnauthorizedAccessException or IOException)
+            {
+                unreadable ??= current;
+            }
+        }
+        return (false, unreadable);
+    }
+
+    /// <summary>
+    /// /health/ready's write probe: null when a file can be written to <paramref name="root"/>, else the
+    /// error's type name. A file of its own per call, deleted in finally: one shared name raced between
+    /// concurrent probes (one deleting the file another was about to delete: a false "down").
+    /// </summary>
+    public static async Task<string?> ProbeWriteAsync(string root, CancellationToken ct)
+    {
+        var probe = Path.Combine(root, $".health-probe-{Guid.NewGuid():N}");
+        try
+        {
+            await File.WriteAllTextAsync(probe, DateTimeOffset.UtcNow.ToString("O"), ct);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex.GetType().Name;
+        }
+        finally
+        {
+            try { File.Delete(probe); } catch { /* nothing written, or already gone */ }
+        }
     }
 }
