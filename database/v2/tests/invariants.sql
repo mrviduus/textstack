@@ -187,29 +187,28 @@ BEGIN
     END IF;
 END $$;
 
--- Migration 0004: the etl-v2 ledger's rules. It is transitional (dropped at M6); a finished run has an
--- outcome, 'interrupted' among them; counts/validation are objects; a succeeded run carries its
--- validation; source_dump_sha is a SHA-256 hex digest; no clock-order CHECK (a clock step back
--- must not fail a finish). The behaviour is pinned by the etl-v2 tests.
+-- Migration 0004: the etl-v2 ledger's rules, each CHECK by its exact definition. Transitional
+-- (dropped at M6.5); a finished run has an outcome, 'interrupted' among them; a succeeded run
+-- validated with 0 failures (a typed column, not jsonb); counts/validation are objects;
+-- source_dump_sha is a SHA-256 hex digest; finished_at never precedes started_at.
 DO $$
 DECLARE bad text;
 BEGIN
-    IF obj_description('public.migration_runs'::regclass, 'pg_class') NOT LIKE 'Transitional. Dropped at M6%' THEN
-        RAISE EXCEPTION 'migration_runs COMMENT lacks its sunset sentence';
+    IF obj_description('public.migration_runs'::regclass, 'pg_class') IS DISTINCT FROM
+       'Transitional. Dropped at M6.5 by a V2 migration, with the legacy database; see ADR-031. Ops module: one etl-v2 run (dry runs write none).' THEN
+        RAISE EXCEPTION 'migration_runs COMMENT is not 0004''s';
     END IF;
 
-    SELECT string_agg(c, ', ') INTO bad FROM (VALUES
-        ('ck_migration_runs_outcome'), ('ck_migration_runs_finished'), ('ck_migration_runs_counts'),
-        ('ck_migration_runs_validation'), ('ck_migration_runs_source_dump_sha')) x(c)
-    WHERE NOT EXISTS (SELECT FROM pg_constraint WHERE conname = x.c AND conrelid = 'public.migration_runs'::regclass);
-    IF bad IS NOT NULL THEN RAISE EXCEPTION 'migration_runs CHECKs missing: %', bad; END IF;
-
-    IF EXISTS (SELECT FROM pg_constraint WHERE conname = 'ck_migration_runs_order') THEN
-        RAISE EXCEPTION 'ck_migration_runs_order is back (a clock step would fail a finish)';
-    END IF;
-
-    IF pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'ck_migration_runs_outcome'))
-       IS DISTINCT FROM 'CHECK ((outcome = ANY (ARRAY[''succeeded''::text, ''failed''::text, ''interrupted''::text])))' THEN
-        RAISE EXCEPTION 'ck_migration_runs_outcome is not outcome IN (succeeded, failed, interrupted)';
-    END IF;
+    SELECT string_agg(x.c, ', ') INTO bad FROM (VALUES
+        ('ck_migration_runs_outcome', 'CHECK ((outcome = ANY (ARRAY[''succeeded''::text, ''failed''::text, ''interrupted''::text])))'),
+        ('ck_migration_runs_finished', 'CHECK (((finished_at IS NULL) = (outcome IS NULL)))'),
+        ('ck_migration_runs_order', 'CHECK (((finished_at IS NULL) OR (finished_at >= started_at)))'),
+        ('ck_migration_runs_validation_failures', 'CHECK ((validation_failures >= 0))'),
+        ('ck_migration_runs_succeeded_validated', 'CHECK (((outcome IS DISTINCT FROM ''succeeded''::text) OR ((validation_failures = 0) IS TRUE)))'),
+        ('ck_migration_runs_counts', 'CHECK ((jsonb_typeof(counts) = ''object''::text))'),
+        ('ck_migration_runs_validation', 'CHECK ((jsonb_typeof(validation) = ''object''::text))'),
+        ('ck_migration_runs_source_dump_sha', 'CHECK ((source_dump_sha ~ ''^[0-9a-f]{64}$''::text))')) x(c, def)
+    WHERE pg_get_constraintdef((SELECT oid FROM pg_constraint
+                                WHERE conname = x.c AND conrelid = 'public.migration_runs'::regclass)) IS DISTINCT FROM x.def;
+    IF bad IS NOT NULL THEN RAISE EXCEPTION 'migration_runs CHECKs missing or not as defined: %', bad; END IF;
 END $$;
