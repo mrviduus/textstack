@@ -43,6 +43,7 @@ GRANT SELECT ON TABLE
     public.user_books,
     public.user_book_files,
     public.user_chapters,
+    public.user_ingestion_jobs,
     public.user_libraries,
     public.highlights,
     public.vocabulary_words,

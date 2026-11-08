@@ -119,7 +119,7 @@ flight**: a deploy recreates services and may take the run's network or image wi
 
 A run succeeds only if its steps ran validation checks and every one passed. A real run with no check
 fails closed (`NoValidationChecks`). A dry run writes no gate row, so with 0 checks it exits 0 with its
-report and warns `0 validation checks ran (no mapper steps yet)` on stderr. In a dry run, steps compute
+report and warns `0 validation checks ran (no step ran a check)` on stderr. In a dry run, steps compute
 and count what they would write (`writes` in the report: inserted / updated / unchanged per target);
 nothing is written (not even rolled back: a rolled-back transaction still advances sequences). A dry
 run whose checks fail exits 1, and prints the checks (failing ids only), orphans and cleanups on stdout:
@@ -153,8 +153,8 @@ closes it as `interrupted` and lists it in `interruptedRuns`. Nothing is ever de
 ## 4. What a run carries (M3.2: users and uploads)
 
 Steps, in order: `users` (legacy `users`, `admin_users` → `users`), then `uploads` (`user_books`,
-`user_book_files`, `user_chapters`, upload `highlights` → `books`, `book_files`, `reading_state`,
-`annotations`, `book_chapters`). Ids are legacy's (an admin with no user keeps its `admin_users` id), so a
+`user_book_files`, `user_chapters`, upload `highlights`, `user_ingestion_jobs` → `books`, `book_files`,
+`reading_state`, `annotations`, `book_chapters`, `ingestion_jobs`). Ids are legacy's (an admin with no user keeps its `admin_users` id), so a
 second run over the same source writes nothing and reports the same counts. The steps write with their
 own inline SQL (data-access.md rule 13) in the fenced transaction, not through the API's repositories:
 those stamp `created_at`/`updated_at` with `now()`, refuse a second book with the same bytes and open
@@ -175,6 +175,7 @@ What a run does when V2 already holds a row of the same key. Never a blanket `ON
 | `reading_state` (`user_id, book_id`) | insert | unchanged | same rule (`reading_state: …`) |
 | `annotations` (`id`) | insert | unchanged | same rule (`annotations: …`) |
 | `book_chapters` (`id`, compared by md5 of `html`/`plain_text`) | COPY | unchanged | same rule (`book_chapters: …`) |
+| `ingestion_jobs` (`id`) | insert | unchanged | same rule (`ingestion_jobs: …`) |
 | library bytes (the V2 key) | copied | unchanged (same SHA-256) | check `library_files: V2 key already holds other bytes` fails; the V2 bytes are kept |
 
 V2 users with no legacy row (a guest the identity mirror left behind, #1094) are listed in
@@ -211,6 +212,9 @@ them, and they are not a failure.
 - **Chapters** (row 34, item 6): `chapter_key = COALESCE(slug, 'ch-' || chapter_number)`, keyed to the
   book's file; a book with no file row's chapters are not carried (listed). Fails: a blank key, two
   chapters of a file with one key.
+- **Ingestion jobs** (row 36): status `0..3` → `queued`/`processing`/`succeeded`/`failed`; `source_format`
+  lowercased (as the V2 worker writes it); keyed to the carried file. A job whose file got no row is not
+  carried (listed). Fails: another status, or a source format outside `epub`/`pdf`/`html`/`fb2`/`unknown`.
 
 `orphanCandidates` and `cleanupActions` carry ids only, never an email or a text.
 

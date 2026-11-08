@@ -9,15 +9,16 @@ namespace Infrastructure.Persistence.Etl;
 /// legacy uploads → V2 (ADR-031 rows 33–35 and 43, decided items 1–3, 5, 6): <c>user_books</c> → <c>books</c>,
 /// <c>user_book_files</c> → <c>book_files</c> with its bytes copied (never moved: legacy stays the rollback),
 /// progress → <c>reading_state</c>, upload highlights → <c>annotations</c>, <c>user_chapters</c> →
-/// <c>book_chapters</c> (COPY). Ids are legacy's, so a re-run converges. Conflict rule for all five: insert
+/// <c>book_chapters</c> (COPY), <c>user_ingestion_jobs</c> → <c>ingestion_jobs</c>. Ids are legacy's, so a re-run
+/// converges. Conflict rule for all six: insert
 /// what V2 lacks, leave what is equal, and a V2 row that differs from its mapping is a failed check
 /// (never overwritten, never skipped). Books and files first, then what hangs on them, in one fenced transaction.
 /// </summary>
 public static partial class EtlV2Uploads
 {
     public static readonly EtlV2Step Step = new("uploads",
-        ["user_books", "user_book_files", "user_chapters", "highlights"],
-        ["books", "book_files", "reading_state", "annotations", "book_chapters"], RunAsync);
+        ["user_books", "user_book_files", "user_chapters", "highlights", "user_ingestion_jobs"],
+        ["books", "book_files", "reading_state", "annotations", "book_chapters", "ingestion_jobs"], RunAsync);
 
     // The resume position, built here so jsonb prints it as the target will (ADR-031 item 5): a stored
     // TextPosition as-is; page:<n> → pdf-page; scroll:<slug>:<px> → its chapter at fraction 0 (px has no
@@ -100,12 +101,14 @@ public static partial class EtlV2Uploads
         var states = MapStates(context, legacyBooks, files);
         var annotations = await MapAnnotationsAsync(context, legacyBooks.ToDictionary(b => b.Id), files, ct);
         var chapters = await MapChaptersAsync(context, files, ct);
+        var jobs = await MapJobsAsync(context, files, ct);
 
         var bookPlan = Plan(context, "books", books, await EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, null, ct), b => b.Id);
         var filePlan = Plan(context, "book_files", files.Values, await EtlV2Rows.TargetAsync<FileRow>(context, SelectV2Files, null, ct), f => f.Id);
         var statePlan = Plan(context, "reading_state", states, await EtlV2Rows.TargetAsync<StateRow>(context, SelectV2States, null, ct), s => (s.UserId, s.BookId));
         var annotationPlan = Plan(context, "annotations", annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct), a => a.Id);
         var chapterPlan = Plan(context, "book_chapters", chapters, await EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2Chapters, null, ct), c => c.Id);
+        var jobPlan = Plan(context, "ingestion_jobs", jobs, await EtlV2Rows.TargetAsync<JobRow>(context, SelectV2Jobs, null, ct), j => j.Id);
         context.Writes["library_files"] = new(bytes.Pending.Count, 0, bytes.Present);
 
         if (!context.MayWrite)
@@ -120,6 +123,7 @@ public static partial class EtlV2Uploads
         {
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertBook, bookPlan.New, tx.Transaction, cancellationToken: ct));
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertFile, filePlan.New, tx.Transaction, cancellationToken: ct));
+            await tx.Connection.ExecuteAsync(new CommandDefinition(InsertJob, jobPlan.New, tx.Transaction, cancellationToken: ct));
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertState, statePlan.New, tx.Transaction, cancellationToken: ct));
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertAnnotation, annotationPlan.New, tx.Transaction, cancellationToken: ct));
             await CopyChaptersAsync(context, tx, chapterPlan.New, ct);
@@ -128,6 +132,7 @@ public static partial class EtlV2Uploads
 
         Verify(context, "books", books, await EtlV2Rows.TargetAsync<BookRow>(context, SelectV2Books, null, ct), b => b.Id, b => b.UserId);
         Verify(context, "book_files", files.Values, await EtlV2Rows.TargetAsync<FileRow>(context, SelectV2Files, null, ct), f => f.Id, f => f.UserId);
+        Verify(context, "ingestion_jobs", jobs, await EtlV2Rows.TargetAsync<JobRow>(context, SelectV2Jobs, null, ct), j => j.Id, j => j.UserId);
         Verify(context, "reading_state", states, await EtlV2Rows.TargetAsync<StateRow>(context, SelectV2States, null, ct), s => (s.UserId, s.BookId), s => s.UserId);
         Verify(context, "annotations", annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct), a => a.Id, a => a.UserId);
         Verify(context, "book_chapters", chapters, await EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2Chapters, null, ct), c => c.Id, c => c.UserId);

@@ -34,6 +34,9 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     private static readonly Guid LostHighlight = Guid.Parse("12000000-0000-0000-0000-000000000004");
     private static readonly Guid Trail = Guid.Parse("12000000-0000-0000-0000-000000000005");
     private static readonly Guid V2OnlyGuest = Guid.Parse("99000000-0000-0000-0000-000000000099");
+    private static readonly Guid EpubJob = Guid.Parse("13000000-0000-0000-0000-000000000001");
+    private static readonly Guid PdfJob = Guid.Parse("13000000-0000-0000-0000-000000000002");
+    private static readonly Guid LostJob = Guid.Parse("13000000-0000-0000-0000-000000000003");
 
     private static readonly byte[] EpubBytes = Encoding.UTF8.GetBytes("PK epub bytes");
     private static readonly byte[] PdfBytes = Encoding.UTF8.GetBytes("%PDF-1.7 bytes");
@@ -118,6 +121,10 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
             INSERT INTO highlights (id, user_id, site_id, anchor_json, color, selected_text, version, created_at, updated_at, deleted_book_sha256, deleted_chapter_slug) VALUES
                 ('{{{Trail}}}', '{{{Carol}}}', '11111111-1111-1111-1111-111111111111', '{"exact":"y"}', 'yellow', 'y', 1,
                  '2025-08-01T10:00:00Z', '2025-08-01T10:00:00Z', '{{{new string('a', 64)}}}', 'gone');
+            INSERT INTO user_ingestion_jobs (id, user_book_id, user_book_file_id, status, attempt_count, error, source_format, created_at, started_at, finished_at) VALUES
+                ('{{{EpubJob}}}', '{{{Epub}}}', '{{{EpubFile}}}', 2, 1, NULL, 'Epub', '2025-04-01T10:00:00Z', '2025-04-01T10:00:01Z', '2025-04-01T10:00:05Z'),
+                ('{{{PdfJob}}}', '{{{Pdf}}}', '{{{PdfFile}}}', 3, 3, 'unreadable', NULL, '2025-05-01T10:00:00Z', NULL, NULL),
+                ('{{{LostJob}}}', '{{{Lost}}}', '{{{LostFile}}}', 0, 0, NULL, NULL, '2025-07-01T10:00:00Z', NULL, NULL);
             """);
         Put($"{Dir(Alice, Epub)}/book.epub", EpubBytes);
         Put($"{Dir(Alice, Epub)}/cover.JPG", CoverBytes);
@@ -200,6 +207,13 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.Contains($"highlights {Trail}: no upload and no edition (a deleted upload's trail); not carried", report.OrphanCandidates);
         Assert.Contains(report.Checks, c => c.Name == "annotations: selected_text not in its chapter's plain_text" && c.Failures == 0);
         Assert.Equal(new EtlV2Writes(4, 0, 0), report.Writes["library_files"]); // three files and a cover
+
+        // Ingestion jobs: int status → text, source format lowercased, keyed to the carried file; the file-less book's reported.
+        Assert.Equal(2, report.TargetCounts["ingestion_jobs"]);
+        Assert.Equal("succeeded/epub/1", await V2Scalar<string>(options,
+            "SELECT status || '/' || source_format || '/' || attempt_count FROM ingestion_jobs WHERE id = @EpubJob AND file_id = @EpubFile AND user_id = @Alice", new { EpubJob, EpubFile, Alice }));
+        Assert.Equal("failed/unreadable", await V2Scalar<string>(options, "SELECT status || '/' || error FROM ingestion_jobs WHERE id = @PdfJob", new { PdfJob }));
+        Assert.Contains($"user_ingestion_jobs {LostJob}: not carried, its file {LostFile} has no book_files row", report.OrphanCandidates);
     }
 
     [Fact]
@@ -369,6 +383,30 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
 
         Assert.Equal([PdfHighlight.ToString()], Assert.Single(error.Checks, c => c.Name == "annotations: highlight owner is not its upload's owner").Ids);
+    }
+
+    [Fact]
+    public async Task RunAsync_IngestionJobStatusUnknown_Fails()
+    {
+        var options = await SeedAsync(dryRun: true);
+        await ExecAsync(options.Source, "UPDATE user_ingestion_jobs SET status = 7 WHERE id = @PdfJob", new { PdfJob });
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+
+        Assert.Equal([PdfJob.ToString()], Assert.Single(error.Checks, c => c.Name == "ingestion_jobs: status or source format V2 does not take").Ids);
+    }
+
+    [Fact]
+    public async Task RunAsync_V2IngestionJobDiffers_MismatchFailsNotOverwritten()
+    {
+        var options = await SeedAsync();
+        await EtlV2.RunAsync(options, ct: Ct);
+        await ExecAsync(options.Target, "UPDATE ingestion_jobs SET attempt_count = 9 WHERE id = @EpubJob", new { EpubJob });
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+
+        Assert.Equal([EpubJob.ToString()], Assert.Single(error.Checks, c => c.Name == "ingestion_jobs: V2 row differs from its legacy mapping").Ids);
+        Assert.Equal(9, await V2Scalar<int>(options, "SELECT attempt_count FROM ingestion_jobs WHERE id = @EpubJob", new { EpubJob }));
     }
 
     [Fact]
