@@ -15,7 +15,7 @@ A second database ([ADR-030](adr/ADR-030-two-databases-one-cutover.md)), created
 `migrator-v2` ([database/v2/](../../database/v2/README.md)). 24 permanent tables + 2 transitional, plus the ETL's ledger `migration_runs` (`0003`/`0004`, dropped at M6.5);
 column truth: [`database/v2/migrations/0000_baseline.up.sql`](../../database/v2/migrations/0000_baseline.up.sql)
 plus the migrations after it, read in order (`0001_sync_protocol_deltas`: ADR-031 "Amended 2026-11-01";
-`0002_identity_and_indexes`: "Amended 2026-11-02"; `0003_migration_runs` + `0004_migration_runs_fixes`: the `etl-v2` run ledger, v2-plan §5.2).
+`0002_identity_and_indexes`: "Amended 2026-11-02"; `0003_migration_runs` + `0004_migration_runs_fixes`: the `etl-v2` run ledger, v2-plan §5.2; `0005_book_formats`: "Amended 2026-11-07").
 What happens to each legacy table (the disposition column) lives in ADR-031, not here. The legacy
 inventory below stays until M6, when this page becomes V2 only.
 
