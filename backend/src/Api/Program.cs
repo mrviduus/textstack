@@ -25,14 +25,23 @@ if (args is ["etl-v2", ..])
     // The first Ctrl+C cancels the run (ledger: failed, exit 130); the second is left to the runtime, which
     // ends the process (checked as PID 1 in the api image; runbook: docker kill if it ever does not).
     using var etlCancel = new CancellationTokenSource();
-    Console.CancelKeyPress += (_, e) =>
+    ConsoleCancelEventHandler onCancel = (_, e) =>
     {
         if (etlCancel.IsCancellationRequested)
             return;
         e.Cancel = true;
         etlCancel.Cancel();
     };
-    Environment.ExitCode = await Api.V2.EtlV2Command.RunAsync(args[1..], builder.Configuration, Console.Out, Console.Error, etlCancel.Token);
+    Console.CancelKeyPress += onCancel;
+    try
+    {
+        Environment.ExitCode = await Api.V2.EtlV2Command.RunAsync(args[1..], builder.Configuration, Console.Out, Console.Error, etlCancel.Token);
+    }
+    finally
+    {
+        // Unhooked before etlCancel is disposed: a late Ctrl+C must not reach a disposed source.
+        Console.CancelKeyPress -= onCancel;
+    }
     return;
 }
 

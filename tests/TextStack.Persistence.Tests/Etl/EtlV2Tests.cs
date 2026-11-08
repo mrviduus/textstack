@@ -5,11 +5,9 @@ using Npgsql;
 namespace TextStack.Persistence.Tests.Etl;
 
 /// <summary>
-/// The <c>etl-v2</c> skeleton on a Testcontainers pair: each test gets its own legacy database (built
-/// by <c>migrate.sh</c>) and its own <c>textstack_v2</c> (by <c>v2/run.sh</c>), so counts and the
-/// ledger are the test's alone.
+/// The <c>etl-v2</c> skeleton on a Testcontainers pair: each test gets its own legacy database and its
+/// own <c>textstack_v2</c> (template copies), so counts and the ledger are the test's alone.
 /// </summary>
-[Collection("etl_reader")]
 public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : EtlTestBase(legacy, v2)
 {
     private async Task<EtlV2Options> NewPairAsync(bool dryRun = false)
@@ -20,7 +18,14 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
         return new EtlV2Options(source, await V2.Databases.NewV2Async(name), dryRun);
     }
 
-
+    /// <summary>A real run of <paramref name="options"/> parked inside its first step (lock held, row written) until released.</summary>
+    private static async Task<(Task<EtlV2Report> Run, TaskCompletionSource Release)> StartHoldingAsync(EtlV2Options options)
+    {
+        var (started, release) = (new TaskCompletionSource(), new TaskCompletionSource());
+        var run = RunAsync(options with { DryRun = false }, [new("hold", async (_, _) => { started.SetResult(); await release.Task; })], Ct);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+        return (run, release);
+    }
 
     [Fact]
     public async Task RunAsync_DryRun_WritesNothing()
@@ -80,23 +85,26 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task RunAsync_AnotherRunInProgress_RefusedFast(bool dryRun)
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task RunAsync_AnotherRunHoldsTheLock_RefusedFastThenFreed(bool otherSource, bool dryRun)
     {
         var options = await NewPairAsync();
-        var (started, release) = (new TaskCompletionSource(), new TaskCompletionSource());
-        var first = RunAsync(options, [new("hold", async (_, _) => { started.SetResult(); await release.Task; })], Ct);
-        await started.Task.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+        var second = options with { DryRun = dryRun, Source = otherSource ? await NewSourceAsync() : options.Source };
+        var (first, release) = await StartHoldingAsync(options);
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            RunAsync(options with { DryRun = dryRun }, [], Ct).WaitAsync(TimeSpan.FromSeconds(10), Ct));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(second, [], Ct).WaitAsync(TimeSpan.FromSeconds(10), Ct));
         release.SetResult();
         var report = await first;
+        var after = await RunAsync(second, [], Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
 
         Assert.Contains("another etl-v2 run", error.Message);
-        Assert.Equal(report.RunId, await ScalarAsync<Guid>(options.Target, "SELECT id FROM migration_runs WHERE outcome = 'succeeded'"));
-        Assert.Equal(1, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM migration_runs"));
+        Assert.Equal(report.RunId, await ScalarAsync<Guid>(options.Target, "SELECT id FROM migration_runs ORDER BY started_at LIMIT 1"));
+        // The refused run wrote no row; the holder's lock is freed once it ends.
+        Assert.Equal(dryRun ? 1 : 2, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM migration_runs"));
+        Assert.Equal(dryRun, after.RunId is null);
     }
 
     [Fact]
@@ -118,14 +126,15 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
     {
         var options = await NewPairAsync();
         var interrupted = Guid.NewGuid();
-        await ExecAsync(options.Target, $"INSERT INTO migration_runs (id, started_at) VALUES ('{interrupted}', now() - interval '1 hour')");
+        await ExecAsync(options.Target, "INSERT INTO migration_runs (id, started_at) VALUES (@interrupted, now() - interval '1 hour')", new { interrupted });
 
         var report = await RunAsync(options, [], Ct);
 
         Assert.Equal(interrupted, Assert.Single(report.InterruptedRuns).Id);
         Assert.True(await ScalarAsync<bool>(options.Target,
-            $"SELECT outcome = 'interrupted' AND finished_at >= started_at AND validation IS NULL AND validation_failures IS NULL FROM migration_runs WHERE id = '{interrupted}'"));
-        Assert.Equal("succeeded", await ScalarAsync<string>(options.Target, $"SELECT outcome FROM migration_runs WHERE id = '{report.RunId}'"));
+            "SELECT outcome = 'interrupted' AND finished_at >= started_at AND validation IS NULL AND validation_failures IS NULL FROM migration_runs WHERE id = @interrupted",
+            new { interrupted }));
+        Assert.Equal("succeeded", await ScalarAsync<string>(options.Target, "SELECT outcome FROM migration_runs WHERE id = @id", new { id = report.RunId }));
         Assert.Equal(2, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM migration_runs"));
     }
 
@@ -134,12 +143,12 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
     {
         var options = await NewPairAsync(dryRun: true);
         var interrupted = Guid.NewGuid();
-        await ExecAsync(options.Target, $"INSERT INTO migration_runs (id) VALUES ('{interrupted}')");
+        await ExecAsync(options.Target, "INSERT INTO migration_runs (id) VALUES (@interrupted)", new { interrupted });
 
         var report = await RunAsync(options, [], Ct);
 
         Assert.Equal(interrupted, Assert.Single(report.InterruptedRuns).Id);
-        Assert.True(await ScalarAsync<bool>(options.Target, $"SELECT finished_at IS NULL AND outcome IS NULL FROM migration_runs WHERE id = '{interrupted}'"));
+        Assert.True(await ScalarAsync<bool>(options.Target, "SELECT finished_at IS NULL AND outcome IS NULL FROM migration_runs WHERE id = @interrupted", new { interrupted }));
     }
 
     [Fact]
@@ -165,7 +174,7 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
         var report = await RunAsync(options with { SourceDumpSha = sha }, [], Ct);
 
         Assert.Equal(sha, report.SourceDumpSha);
-        Assert.Equal(sha, await ScalarAsync<string>(options.Target, $"SELECT source_dump_sha FROM migration_runs WHERE id = '{report.RunId}'"));
+        Assert.Equal(sha, await ScalarAsync<string>(options.Target, "SELECT source_dump_sha FROM migration_runs WHERE id = @id", new { id = report.RunId }));
     }
 
     [Fact]
@@ -176,7 +185,8 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
         var report = await RunAsync(options, [], Ct);
 
         Assert.True(await ScalarAsync<bool>(options.Target,
-            $"SELECT validation_failures = 0 AND jsonb_typeof(validation) = 'object' AND finished_at >= started_at AND started_at <= now() FROM migration_runs WHERE id = '{report.RunId}'"));
+            "SELECT validation_failures = 0 AND jsonb_typeof(validation) = 'object' AND finished_at >= started_at AND started_at <= now() FROM migration_runs WHERE id = @id",
+            new { id = report.RunId }));
     }
 
     [Fact]
@@ -209,8 +219,8 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
         Assert.Equal(first.SourceCounts, second.SourceCounts);
         Assert.Equal(first.TargetCounts, second.TargetCounts);
         Assert.Equal(2, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM migration_runs WHERE outcome = 'succeeded' AND finished_at >= started_at"));
-        Assert.Equal(1, await ScalarAsync<long>(options.Target, $"SELECT (counts -> 'source' ->> 'users')::bigint FROM migration_runs WHERE id = '{second.RunId}'"));
-        Assert.Equal("[]", await ScalarAsync<string>(options.Target, $"SELECT validation ->> 'orphanCandidates' FROM migration_runs WHERE id = '{second.RunId}'"));
+        Assert.Equal(1, await ScalarAsync<long>(options.Target, "SELECT (counts -> 'source' ->> 'users')::bigint FROM migration_runs WHERE id = @id", new { id = second.RunId }));
+        Assert.Equal("[]", await ScalarAsync<string>(options.Target, "SELECT validation ->> 'orphanCandidates' FROM migration_runs WHERE id = @id", new { id = second.RunId }));
     }
 
     [Fact]
@@ -239,10 +249,14 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
         Assert.Equal(new NpgsqlConnectionStringBuilder(options.Target).Database, new NpgsqlConnectionStringBuilder(report.Target).Database);
     }
 
-    [Fact]
-    public void Redact_PasswordAndSslPassword_Stripped()
+    [Theory]
+    [InlineData("Host=db;Database=textstack;Username=app;Password=hunter2;SSL Password=hunter3")]
+    [InlineData("Host=db;Database=textstack;Password='hunter2;x\"y'")]
+    [InlineData("Host=db;Database=textstack;PWD=hunter2")]
+    [InlineData("Host=db;Database=textstack;psw=hunter2")]
+    public void Redact_Passwords_Stripped(string connectionString)
     {
-        var redacted = EtlV2.Redact("Host=db;Database=textstack;Username=app;Password=hunter2;SSL Password=hunter3");
+        var redacted = EtlV2.Redact(connectionString);
 
         Assert.DoesNotContain("hunter", redacted);
         Assert.Contains("Database=textstack", redacted);
@@ -277,12 +291,11 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
     {
         var name = NewName();
         var source = await NewSourceAsync(name);
-        var original = await Legacy.Databases.NewV2Async(name + "_v2");
+        await Legacy.Databases.NewV2Async(name + "_v2");
         NpgsqlConnection.ClearAllPools(); // CREATE DATABASE ... TEMPLATE needs the template free of sessions
         await ExecAsync(source, $"CREATE DATABASE \"{name}_copy\" TEMPLATE \"{name}_v2\"");
-        var copy = new NpgsqlConnectionStringBuilder(original) { Database = name + "_copy" }.ConnectionString;
 
-        var report = await RunAsync(new EtlV2Options(source, copy, DryRun: false), [], Ct);
+        var report = await RunAsync(new EtlV2Options(source, Legacy.Databases.ConnectionString(name + "_copy"), DryRun: false), [], Ct);
 
         Assert.NotNull(report.RunId);
     }
@@ -316,40 +329,14 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
     }
 
     [Fact]
-    public async Task RunAsync_OtherSourceSameTarget_RefusedByTargetLock()
-    {
-        var options = await NewPairAsync();
-        var otherSource = await NewSourceAsync(NewName());
-        var (started, release) = (new TaskCompletionSource(), new TaskCompletionSource());
-        var first = RunAsync(options, [new("hold", async (_, _) => { started.SetResult(); await release.Task; })], Ct);
-        await started.Task.WaitAsync(TimeSpan.FromSeconds(30), Ct);
-
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            RunAsync(options with { Source = otherSource }, [], Ct).WaitAsync(TimeSpan.FromSeconds(10), Ct));
-        release.SetResult();
-        await first;
-
-        Assert.Contains("another etl-v2 run", error.Message);
-    }
-
-    [Fact]
     public async Task RunAsync_NonSuperuserRoles_IdentityAndDryRunWork()
     {
         // Production's roles are not superusers: pg_control_system() and the counts must work without it.
         var options = await NewPairAsync(dryRun: true);
-        const string password = "p'a;s\"s w=rd";
-        string Role(string cs) => new NpgsqlConnectionStringBuilder(cs) { Username = "etl_ro", Password = password }.ConnectionString;
-        foreach (var cs in new[] { options.Source, options.Target })
-        {
-            var db = new NpgsqlConnectionStringBuilder(cs).Database;
-            await ExecAsync(cs, $"""
-                DO $$ BEGIN CREATE ROLE etl_ro LOGIN PASSWORD 'p''a;s"s w=rd'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-                GRANT CONNECT ON DATABASE "{db}" TO etl_ro;
-                GRANT SELECT ON ALL TABLES IN SCHEMA public TO etl_ro;
-                """);
-        }
+        var (_, source) = await NewProbeRoleAsync(options.Source, "GRANT SELECT ON ALL TABLES IN SCHEMA public TO {r}");
+        var (_, target) = await NewProbeRoleAsync(options.Target, "GRANT SELECT ON ALL TABLES IN SCHEMA public TO {r}");
 
-        var report = await RunAsync(options with { Source = Role(options.Source), Target = Role(options.Target) }, [], Ct);
+        var report = await RunAsync(options with { Source = source, Target = target }, [], Ct);
 
         Assert.Equal(1, report.SourceCounts["users"]);
         Assert.DoesNotContain("s w=rd", report.Source + report.Target);
@@ -404,9 +391,8 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
     public async Task RunAsync_DryRunStepFails_NoLedgerRow()
     {
         var options = await NewPairAsync(dryRun: true);
-        var fail = new EtlV2Step("fail", (_, _) => throw new InvalidDataException("boom"));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(options, [fail], Ct));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(options, [Fail], Ct));
 
         Assert.Equal(0, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM migration_runs"));
     }
@@ -435,28 +421,11 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
     public async Task RunAsync_AfterFailedRun_NextRunGetsLock(bool dryRun)
     {
         var options = await NewPairAsync(dryRun);
-        var fail = new EtlV2Step("fail", (_, _) => throw new InvalidDataException("boom"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(options, [fail], Ct));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(options, [Fail], Ct));
 
         var report = await RunAsync(options, [], Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
 
         Assert.Equal(dryRun, report.RunId is null);
-    }
-
-    [Fact]
-    public async Task RunAsync_LockRefused_HolderUnaffectedAndLockFreedAfter()
-    {
-        var options = await NewPairAsync();
-        var (started, release) = (new TaskCompletionSource(), new TaskCompletionSource());
-        var first = RunAsync(options, [new("hold", async (_, _) => { started.SetResult(); await release.Task; })], Ct);
-        await started.Task.WaitAsync(TimeSpan.FromSeconds(30), Ct);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(options, [], Ct));
-        release.SetResult();
-        await first;
-
-        var third = await RunAsync(options, [], Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
-
-        Assert.NotNull(third.RunId);
     }
 
     [Fact]
@@ -466,17 +435,13 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
         var source = await NewSourceAsync(name);
         var migrated = await V2.Databases.NewV2Async(name);
         await ExecAsync(migrated, $"CREATE DATABASE \"{name}_bare\"");
-        var bare = new NpgsqlConnectionStringBuilder(migrated) { Database = name + "_bare" }.ConnectionString;
+        var bare = V2.Databases.ConnectionString(name + "_bare");
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(new EtlV2Options(source, bare, false), [], Ct));
 
         Assert.Contains("migration_runs", error.Message);
-        // Exactly etl-v2's lock on this database: a bigint key is classid = high 32 bits, objid = low 32, objsubid = 1.
-        Assert.False(await ScalarAsync<bool>(bare, $"""
-            SELECT EXISTS (SELECT FROM pg_locks
-                WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
-                  AND classid = ({EtlV2.LockKey}::bigint >> 32)::oid AND objid = ({EtlV2.LockKey}::bigint & 4294967295)::oid AND objsubid = 1)
-            """));
+        Assert.False(await ScalarAsync<bool>(bare,
+            $"SELECT EXISTS (SELECT FROM pg_locks WHERE {EtlV2.LockMatch} AND database = (SELECT oid FROM pg_database WHERE datname = current_database()))"));
     }
 
     [Fact]
@@ -486,7 +451,7 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         var step = new EtlV2Step("slow", async (context, ct) =>
         {
-            cts.Cancel();
+            await cts.CancelAsync();
             await context.Source.Connection!.ExecuteAsync(new CommandDefinition("SELECT pg_sleep(30)", transaction: context.Source, cancellationToken: ct));
         });
 
@@ -513,8 +478,10 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
 
         Assert.Equal(["user_books 42: owner missing"], report.OrphanCandidates);
         Assert.Equal(["DELETE FROM book_files WHERE id = 7"], report.CleanupActions);
-        Assert.Equal("user_books 42: owner missing", await ScalarAsync<string>(options.Target, $"SELECT validation -> 'orphanCandidates' ->> 0 FROM migration_runs WHERE id = '{report.RunId}'"));
-        Assert.Equal("DELETE FROM book_files WHERE id = 7", await ScalarAsync<string>(options.Target, $"SELECT validation -> 'cleanupActions' ->> 0 FROM migration_runs WHERE id = '{report.RunId}'"));
+        Assert.Equal("user_books 42: owner missing", await ScalarAsync<string>(options.Target,
+            "SELECT validation -> 'orphanCandidates' ->> 0 FROM migration_runs WHERE id = @id", new { id = report.RunId }));
+        Assert.Equal("DELETE FROM book_files WHERE id = 7", await ScalarAsync<string>(options.Target,
+            "SELECT validation -> 'cleanupActions' ->> 0 FROM migration_runs WHERE id = @id", new { id = report.RunId }));
         Assert.Equal(1, await ScalarAsync<long>(options.Source, "SELECT count(*) FROM users"));
     }
 
@@ -522,9 +489,8 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
     public async Task RunAsync_FailedRun_LedgerKeepsSourceCountsAndFinishedAt()
     {
         var options = await NewPairAsync();
-        var fail = new EtlV2Step("fail", (_, _) => throw new InvalidDataException("boom"));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(options, [fail], Ct));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(options, [Fail], Ct));
 
         Assert.True(await ScalarAsync<bool>(options.Target,
             "SELECT finished_at IS NOT NULL AND (counts -> 'source' ->> 'users')::bigint = 1 FROM migration_runs WHERE outcome = 'failed'"));
@@ -535,14 +501,8 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
     {
         // The source and target passwords differ, so each one must be on the scrub list on its own.
         var options = await NewPairAsync();
-        const string targetPassword = "tgt-only-s3cret";
-        var db = new NpgsqlConnectionStringBuilder(options.Target).Database;
-        await ExecAsync(options.Target, $"""
-            DO $$ BEGIN CREATE ROLE etl_rw LOGIN PASSWORD '{targetPassword}'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-            GRANT CONNECT ON DATABASE "{db}" TO etl_rw;
-            GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO etl_rw;
-            """);
-        var target = new NpgsqlConnectionStringBuilder(options.Target) { Username = "etl_rw", Password = targetPassword }.ConnectionString;
+        var (_, target) = await NewProbeRoleAsync(options.Target, "GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO {r}");
+        var targetPassword = new NpgsqlConnectionStringBuilder(target).Password!;
         var fail = new EtlV2Step("fail", (_, _) => throw new InvalidDataException($"boom {targetPassword}"));
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(options with { Target = target }, [fail], Ct));
@@ -580,11 +540,8 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
     public async Task RunAsync_LockConnectionKilledMidRun_FailsAtNextStepNeverSucceeds()
     {
         var options = await NewPairAsync();
-        var kill = new EtlV2Step("kill-lock-session", (_, _) => ExecAsync(options.Target, $"""
-            SELECT pg_terminate_backend(pid) FROM pg_locks
-            WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
-              AND classid = ({EtlV2.LockKey}::bigint >> 32)::oid AND objid = ({EtlV2.LockKey}::bigint & 4294967295)::oid AND objsubid = 1
-            """));
+        var kill = new EtlV2Step("kill-lock-session", (_, _) => ExecAsync(options.Target,
+            $"SELECT pg_terminate_backend(pid) FROM pg_locks WHERE {EtlV2.LockMatch} AND database = (SELECT oid FROM pg_database WHERE datname = current_database())"));
         var reached = false;
         var after = new EtlV2Step("after", (_, _) => { reached = true; return Task.CompletedTask; });
 
@@ -608,7 +565,7 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
         var report = await run;
 
         // The finish committed, so the run is succeeded, Ctrl+C or not.
-        Assert.Equal("succeeded", await ScalarAsync<string>(options.Target, $"SELECT outcome FROM migration_runs WHERE id = '{report.RunId}'"));
+        Assert.Equal("succeeded", await ScalarAsync<string>(options.Target, "SELECT outcome FROM migration_runs WHERE id = @id", new { id = report.RunId }));
     }
 
     [Fact]
@@ -625,21 +582,23 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
 
         Assert.NotNull(error.RunId);
         Assert.Equal("failed/OperationCanceledException", await ScalarAsync<string>(options.Target,
-            $"SELECT outcome || '/' || (validation -> 'error' ->> 'type') FROM migration_runs WHERE id = '{error.RunId}'"));
+            "SELECT outcome || '/' || (validation -> 'error' ->> 'type') FROM migration_runs WHERE id = @id", new { id = error.RunId }));
     }
 
     /// <summary>A trigger that holds the ledger's <paramref name="operation"/> for a second when <paramref name="when"/>: a window to cancel in.</summary>
-    private static Task SlowLedgerAsync(string target, string operation, string when) => ExecAsync(target, $"""
+    private Task SlowLedgerAsync(string target, string operation, string when) => ExecAsync(target, $"""
         CREATE FUNCTION slow_ledger() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN IF {when} THEN PERFORM pg_sleep(1); END IF; RETURN NEW; END $$;
         CREATE TRIGGER slow_ledger BEFORE {operation} ON migration_runs FOR EACH ROW EXECUTE FUNCTION slow_ledger();
         """);
 
-    private static async Task WaitForActiveAsync(string target, string queryPrefix)
+    private async Task WaitForActiveAsync(string target, string queryPrefix)
     {
         for (var waited = 0; waited < 20_000; waited += 20)
         {
-            if (await ScalarAsync<bool>(target, $"SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND state = 'active' AND query LIKE '{queryPrefix}%')"))
+            if (await ScalarAsync<bool>(target,
+                    "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND state = 'active' AND query LIKE @queryPrefix || '%')",
+                    new { queryPrefix }))
                 return;
             await Task.Delay(20, Ct);
         }
@@ -673,7 +632,7 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
 
         Assert.Equal([new EtlV2Check("trivial", 0)], report.Checks);
         Assert.Equal("trivial", await ScalarAsync<string>(options.Target,
-            $"SELECT validation -> 'checks' -> 0 ->> 'Name' FROM migration_runs WHERE id = '{report.RunId}' AND validation_failures = 0"));
+            "SELECT validation -> 'checks' -> 0 ->> 'Name' FROM migration_runs WHERE id = @id AND validation_failures = 0", new { id = report.RunId }));
     }
 
     [Fact]
@@ -736,73 +695,4 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2) : E
         Assert.Contains("Username=etl_reader", printed);
         Assert.Contains("(not a valid connection string)", printed);
     }
-
-    [Fact]
-    public void MakeEtlV2_Recipe_NotEchoed()
-    {
-        var lines = File.ReadAllLines(Path.Combine(PostgresFixture.RepoRoot(), "Makefile"));
-        var recipe = lines[Array.IndexOf(lines, "etl-v2:") + 1];
-
-        Assert.StartsWith("\t@", recipe);
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task MakeEtlV2_ConnectionStringsInEnv_PassedByNameOnly(bool set)
-    {
-        var marker = Path.Combine(Path.GetTempPath(), "etl-make-" + Guid.NewGuid().ToString("N"));
-        // make -n prints the command make would run: what ps would show of docker compose.
-        var make = new System.Diagnostics.ProcessStartInfo("make", "-n etl-v2 ARGS=--dry-run")
-        {
-            WorkingDirectory = PostgresFixture.RepoRoot(),
-            RedirectStandardOutput = true,
-        };
-        if (set)
-        {
-            // A $ in a password must reach docker as text, never be expanded (or run) by make.
-            make.Environment["ConnectionStrings__Default"] = $"Host=db;Username=etl_reader;Password=env-s3cret$(shell touch {marker})";
-            make.Environment["ConnectionStrings__V2"] = $"Host=db;Password=env-s3cret$(shell touch {marker})";
-        }
-        else
-        {
-            make.Environment.Remove("ConnectionStrings__Default");
-            make.Environment.Remove("ConnectionStrings__V2");
-        }
-        using var process = System.Diagnostics.Process.Start(make)!;
-        var command = await process.StandardOutput.ReadToEndAsync(Ct);
-        await process.WaitForExitAsync(Ct);
-
-        Assert.DoesNotContain("env-s3cret", command);
-        Assert.False(File.Exists(marker), "make expanded $(shell …) in a connection string");
-        // Unset: no bare -e, which would blank the container's own connection strings.
-        Assert.Equal(set, command.Contains("-e ConnectionStrings__Default "));
-        Assert.Equal(set, command.Contains("-e ConnectionStrings__V2 "));
-        // A one-off container of the api image, not exec into the running one (a deploy would recreate it).
-        Assert.StartsWith("docker compose run --rm --no-deps -T ", command);
-        Assert.Contains(" api etl-v2 --dry-run", command);
-    }
-
-    [Fact]
-    public void EtlSourceFiles_Scanned_NoBlanketOnConflictDoNothing()
-    {
-        // v2-plan §5.2: per-aggregate conflict rules; a blanket DO NOTHING hides a re-run's divergence.
-        var dir = Path.Combine(PostgresFixture.RepoRoot(), "backend", "src", "Infrastructure", "Persistence", "Etl");
-        var offenders = Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories)
-            .Where(f => System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(f), @"ON\s+CONFLICT\s+DO\s+NOTHING", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-            .ToList();
-
-        Assert.Empty(offenders);
-    }
-
-    [Theory]
-    [InlineData("Host=db;Password='hunter2;x\"y'")]
-    [InlineData("Host=db;PWD=hunter2")]
-    [InlineData("Host=db;psw=hunter2")]
-    public void Redact_QuotedOrAliasedPassword_Stripped(string connectionString)
-    {
-        Assert.DoesNotContain("hunter2", EtlV2.Redact(connectionString));
-    }
-
-
 }

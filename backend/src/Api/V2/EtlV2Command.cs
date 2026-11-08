@@ -10,15 +10,17 @@ namespace Api.V2;
 /// those, set by env: argv is visible in ps). Prints the report as JSON; exit 0 done, 1 refused or failed,
 /// 2 usage, 130 cancelled.
 /// </summary>
-public static class EtlV2Command
+public static partial class EtlV2Command
 {
     private const string Usage = "usage: etl-v2 [--dry-run] [--source <connection string>] [--target <connection string>] [--source-dump-sha <64 lowercase hex>]";
 
     // \z, not $: $ also matches before a trailing newline.
-    private static readonly Regex Sha256Hex = new(@"\A[0-9a-f]{64}\z", RegexOptions.Compiled);
+    [GeneratedRegex(@"\A[0-9a-f]{64}\z")]
+    private static partial Regex Sha256Hex();
 
     // Npgsql's password keys and aliases (Password, PWD, PSW, SSL Password), anywhere in the string.
-    private static readonly Regex PasswordKey = new(@"(?:^|;)\s*(?:ssl\s*password|password|pwd|psw)\s*=", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    [GeneratedRegex(@"(?:^|;)\s*(?:ssl\s*password|password|pwd|psw)\s*=", RegexOptions.IgnoreCase)]
+    private static partial Regex PasswordKey();
 
     private const string PasswordInArgv =
         "etl-v2: a password on the command line is visible in ps; set it in ConnectionStrings__Default / ConnectionStrings__V2 "
@@ -28,7 +30,7 @@ public static class EtlV2Command
 
     public static async Task<int> RunAsync(string[] args, IConfiguration config, TextWriter output, TextWriter error, CancellationToken ct = default)
     {
-        if (args.Any(PasswordKey.IsMatch))
+        if (args.Any(PasswordKey().IsMatch))
         {
             await error.WriteLineAsync(PasswordInArgv);
             return 2;
@@ -82,7 +84,7 @@ public static class EtlV2Command
                 case "--target" when i + 1 < args.Length:
                     target = args[++i];
                     break;
-                case "--source-dump-sha" when i + 1 < args.Length && Sha256Hex.IsMatch(args[i + 1]):
+                case "--source-dump-sha" when i + 1 < args.Length && Sha256Hex().IsMatch(args[i + 1]):
                     sourceDumpSha = args[++i];
                     break;
                 default:

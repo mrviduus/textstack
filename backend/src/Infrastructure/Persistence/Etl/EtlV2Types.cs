@@ -12,8 +12,21 @@ public sealed record EtlV2Options(string Source, string Target, bool DryRun, str
 {
     private bool PrintMembers(StringBuilder builder)
     {
-        builder.Append($"Source = {EtlV2.RedactOrHide(Source)}, Target = {EtlV2.RedactOrHide(Target)}, DryRun = {DryRun}, SourceDumpSha = {SourceDumpSha}");
+        builder.Append($"Source = {RedactOrHide(Source)}, Target = {RedactOrHide(Target)}, DryRun = {DryRun}, SourceDumpSha = {SourceDumpSha}");
         return true;
+    }
+
+    // Never the string itself: a placeholder for one that does not parse.
+    private static string RedactOrHide(string connectionString)
+    {
+        try
+        {
+            return EtlV2.Redact(connectionString);
+        }
+        catch (ArgumentException)
+        {
+            return "(not a valid connection string)";
+        }
     }
 }
 
@@ -80,10 +93,18 @@ public sealed class EtlV2CanceledException(Guid? runId, Exception inner, Cancell
 }
 
 /// <summary>The run finished its steps but did not validate: <see cref="Type"/> is the ledger's error type.</summary>
-internal sealed class EtlV2ValidationException(string type, int failures)
-    : Exception(type == "NoValidationChecks" ? "no validation check ran; a run cannot succeed unvalidated" : $"validation found {failures} failure(s)")
+internal sealed class EtlV2ValidationException : Exception
 {
-    public string Type => type;
+    private EtlV2ValidationException(string type, int failures, string message) : base(message) => (Type, Failures) = (type, failures);
 
-    public int Failures => failures;
+    public string Type { get; }
+
+    public int Failures { get; }
+
+    /// <summary>No check ran: 1 failure, the run itself.</summary>
+    public static EtlV2ValidationException NoChecks() =>
+        new("NoValidationChecks", 1, "no validation check ran; a run cannot succeed unvalidated");
+
+    public static EtlV2ValidationException Failed(int failures) =>
+        new("ValidationFailed", failures, $"validation found {failures} failure(s)");
 }

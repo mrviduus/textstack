@@ -36,10 +36,7 @@ public class EtlV2CommandTests
 
     [Fact]
     public void Parse_NoTargetConfigured_Null() =>
-        Assert.Null(EtlV2Command.Parse([], new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["ConnectionStrings:Default"] = "Host=db",
-        }).Build()));
+        Assert.Null(EtlV2Command.Parse([], Env("Host=db", target: null)));
 
     [Fact]
     public async Task RunAsync_BadArguments_UsageAndExit2()
@@ -100,7 +97,6 @@ public class EtlV2CommandTests
     {
         var (output, error) = (new StringWriter(), new StringWriter());
         const string cs = "Host=127.0.0.1;Port=1;Database=x;Username=u;Password=hu'nt;er\"2;Timeout=3";
-
         var quoted = cs.Replace("Password=hu'nt;er\"2", "Password='hu''nt;er\"2'");
 
         var exit = await EtlV2Command.RunAsync(["--dry-run"], Env(quoted, quoted), output, error, TestContext.Current.CancellationToken);
@@ -142,7 +138,7 @@ public class EtlV2CommandTests
         Assert.Null(EtlV2Command.Parse(["--source-dump-sha"], Config));
 
     /// <summary>Connection strings as the env gives them (ConnectionStrings__Default / __V2): the only place a password may be.</summary>
-    private static IConfiguration Env(string source, string target = "Host=db;Database=textstack_v2") =>
+    private static IConfiguration Env(string source, string? target = "Host=db;Database=textstack_v2") =>
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Default"] = source,

@@ -32,26 +32,8 @@ public sealed class PostgresFixture : IAsyncLifetime, IIdentityFixture
     public async ValueTask InitializeAsync()
     {
         await _container.StartAsync();
-        var migrate = await _container.ExecAsync(
-            ["sh", "-c", "PGUSER=postgres PGDATABASE=postgres sh /database/migrate.sh up"]);
-        if (migrate.ExitCode != 0)
-            throw new InvalidOperationException($"migrate.sh up failed:\n{migrate.Stdout}\n{migrate.Stderr}");
-        DataSource = Infrastructure.Persistence.DataSource.Create(_container.GetConnectionString());
-    }
-
-    public const string EtlReaderPassword = "etl-r3ader-pw";
-
-    /// <summary>
-    /// <c>database/scripts/etl-reader.sql</c> run on <paramref name="connectionString"/>'s database, as the
-    /// runbook runs it; the same connection string as <c>etl_reader</c>.
-    /// </summary>
-    public async Task<string> ProvisionEtlReaderAsync(string connectionString)
-    {
-        // The password from the environment (\getenv), as the runbook passes it; a test container's argv is no secret.
-        var db = new NpgsqlConnectionStringBuilder(connectionString).Database;
-        await Databases.ShellAsync(
-            $"ETL_READER_PASSWORD={EtlReaderPassword} psql -v ON_ERROR_STOP=1 -U postgres -d '{db}' -f /database/scripts/etl-reader.sql");
-        return new NpgsqlConnectionStringBuilder(connectionString) { Username = "etl_reader", Password = EtlReaderPassword }.ConnectionString;
+        await Databases.MigrateLegacyAsync("postgres");
+        DataSource = Infrastructure.Persistence.DataSource.Create(Databases.ConnectionString("postgres"));
     }
 
     public async ValueTask DisposeAsync()

@@ -5,35 +5,26 @@ using Npgsql;
 namespace TextStack.Persistence.Tests.Etl;
 
 /// <summary>
-/// The SELECT-only <c>etl_reader</c> (<c>database/scripts/etl-reader.sql</c>) and the privilege audit
-/// etl-v2 runs on its source login, on disposable legacy databases.
+/// The SELECT-only <c>etl_reader</c> (<c>database/scripts/etl-reader.sql</c>, run on the legacy template)
+/// and the privilege audit etl-v2 runs on its source login, on disposable legacy databases.
 /// </summary>
-[Collection("etl_reader")]
 public sealed class EtlReaderTests(PostgresFixture legacy, V2PostgresFixture v2) : EtlTestBase(legacy, v2)
 {
+    private const string ReaderGrants = "GRANT USAGE ON SCHEMA public TO {r}; GRANT SELECT ON users TO {r}";
+
     private async Task<(string Admin, string Reader)> NewSourcePairAsync()
     {
-        var admin = await Legacy.Databases.NewLegacyAsync(NewName());
-        await ExecAsync(admin, "INSERT INTO users (id, email, google_subject, created_at) VALUES (gen_random_uuid(), 'a@test', NULL, now())");
-        return (admin, await Legacy.ProvisionEtlReaderAsync(admin));
+        var pair = await Legacy.Databases.NewLegacyAsync(NewName());
+        await ExecAsync(pair.Admin, "INSERT INTO users (id, email, google_subject, created_at) VALUES (gen_random_uuid(), 'a@test', NULL, now())");
+        return pair;
     }
 
-    /// <summary>A fresh login on the admin's database with etl_reader's grants on users, plus <paramref name="grant"/> ({r}: the role, {db}: the database).</summary>
-    private static async Task<(string Role, string ConnectionString)> NewProbeAsync(string admin, string grant)
+    /// <summary>A login that may INSERT into users, connected as <c>-c role=etl_reader</c>: RESET ROLE would hand its INSERT back.</summary>
+    private async Task<(string Role, string ConnectionString)> NewWriterAsReaderAsync(string admin)
     {
-        var role = "etl_probe_" + Guid.NewGuid().ToString("N")[..12];
-        var db = new NpgsqlConnectionStringBuilder(admin).Database!;
-        await ExecAsync(admin, Fill($"""
-            CREATE ROLE {role} LOGIN PASSWORD 'probe-pw' NOINHERIT;
-            GRANT CONNECT ON DATABASE "{db}" TO {role};
-            GRANT USAGE ON SCHEMA public TO {role};
-            GRANT SELECT ON users TO {role};
-            {grant};
-            """, role, db));
-        return (role, new NpgsqlConnectionStringBuilder(admin) { Username = role, Password = "probe-pw" }.ConnectionString);
+        var (role, writer) = await NewProbeRoleAsync(admin, $"{ReaderGrants}; GRANT INSERT ON users TO {{r}}; GRANT etl_reader TO {{r}}");
+        return (role, new NpgsqlConnectionStringBuilder(writer) { Options = "-c role=etl_reader" }.ConnectionString);
     }
-
-    private static string Fill(string s, string role, string db) => s.Replace("{r}", role).Replace("{db}", db);
 
     [Fact]
     public async Task ProvisionEtlReader_SelectAsReader_Succeeds()
@@ -79,10 +70,8 @@ public sealed class EtlReaderTests(PostgresFixture legacy, V2PostgresFixture v2)
     public async Task ProvisionEtlReader_EmptyOrUnsetPassword_HintNoPasswordChange(string env)
     {
         var (admin, reader) = await NewSourcePairAsync();
-        var db = new NpgsqlConnectionStringBuilder(admin).Database;
 
-        var output = await Legacy.Databases.ShellAsync(
-            $"env -u ETL_READER_PASSWORD {env}psql -v ON_ERROR_STOP=1 -U postgres -d '{db}' -f /database/scripts/etl-reader.sql 2>&1");
+        var output = await Legacy.Databases.ProvisionEtlReaderAsync(new NpgsqlConnectionStringBuilder(admin).Database!, env);
 
         Assert.Contains("no password set", output);
         // Still the password set before: no ALTER ROLE … PASSWORD '' ran.
@@ -109,6 +98,7 @@ public sealed class EtlReaderTests(PostgresFixture legacy, V2PostgresFixture v2)
         Assert.Contains("role attribute SUPERUSER", (await AuditAsync(admin)).Violations);
     }
 
+    // {r}: a fresh login with etl_reader's grants on users; {db}: its database. The SQL adds one way to write.
     [Theory]
     [InlineData("", null)]
     [InlineData("GRANT INSERT ON users TO {r}", "write on users")]
@@ -126,23 +116,22 @@ public sealed class EtlReaderTests(PostgresFixture legacy, V2PostgresFixture v2)
     public async Task AuditAsync_OneWayToWrite_Listed(string grant, string? expected)
     {
         var (admin, _) = await NewSourcePairAsync();
-        var (role, probe) = await NewProbeAsync(admin, grant);
+        var db = new NpgsqlConnectionStringBuilder(admin).Database!;
+        var (role, probe) = await NewProbeRoleAsync(admin, $"{ReaderGrants}; {grant.Replace("{db}", db)}");
 
         var (_, violations) = await AuditAsync(probe);
 
         if (expected is null)
             Assert.Empty(violations);
         else
-            Assert.Contains(Fill(expected, role, new NpgsqlConnectionStringBuilder(admin).Database!), violations);
+            Assert.Contains(expected.Replace("{r}", role).Replace("{db}", db), violations);
     }
 
     [Fact]
     public async Task AuditAsync_WriterLoginRunningAsEtlReader_Violations()
     {
-        // RESET ROLE would hand the session back its login's INSERT: the login is audited, not the current role.
         var (admin, _) = await NewSourcePairAsync();
-        var (role, probe) = await NewProbeAsync(admin, "GRANT INSERT ON users TO {r}; GRANT etl_reader TO {r}");
-        var asReader = new NpgsqlConnectionStringBuilder(probe) { Options = "-c role=etl_reader" }.ConnectionString;
+        var (role, asReader) = await NewWriterAsReaderAsync(admin);
 
         var (login, violations) = await AuditAsync(asReader);
 
@@ -156,9 +145,8 @@ public sealed class EtlReaderTests(PostgresFixture legacy, V2PostgresFixture v2)
     public async Task RunAsync_WriterLoginRunningAsEtlReader_RefusedNamingLogin()
     {
         var (admin, _) = await NewSourcePairAsync();
-        var (role, probe) = await NewProbeAsync(admin, "GRANT INSERT ON users TO {r}; GRANT etl_reader TO {r}");
+        var (role, asReader) = await NewWriterAsReaderAsync(admin);
         var target = await V2.Databases.NewV2Async(NewName());
-        var asReader = new NpgsqlConnectionStringBuilder(probe) { Options = "-c role=etl_reader" }.ConnectionString;
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(new EtlV2Options(asReader, target, DryRun: true), [], Ct));
 
@@ -183,10 +171,11 @@ public sealed class EtlReaderTests(PostgresFixture legacy, V2PostgresFixture v2)
     public async Task RunAsync_PasswordsFromPassfiles_Runs()
     {
         // libpq's pgpass format via Npgsql's Passfile: the password is in neither the string nor argv.
-        var (_, reader) = await NewSourcePairAsync();
+        var (admin, reader) = await NewSourcePairAsync();
         var target = await V2.Databases.NewV2Async(NewName());
         var passfile = Path.Combine(Path.GetTempPath(), "etl-" + Guid.NewGuid().ToString("N") + ".pgpass");
-        await File.WriteAllTextAsync(passfile, $"*:*:*:etl_reader:{PostgresFixture.EtlReaderPassword}\n*:*:*:postgres:postgres\n", Ct);
+        var adminPassword = new NpgsqlConnectionStringBuilder(admin).Password;
+        await File.WriteAllTextAsync(passfile, $"*:*:*:etl_reader:{ScratchDatabases.EtlReaderPassword}\n*:*:*:postgres:{adminPassword}\n", Ct);
         try
         {
             string NoPassword(string cs) => new NpgsqlConnectionStringBuilder(cs) { Password = null, Passfile = passfile }.ConnectionString;

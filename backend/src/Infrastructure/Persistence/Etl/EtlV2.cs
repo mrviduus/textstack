@@ -28,12 +28,12 @@ public static class EtlV2
 
     private const string TryLock = "SELECT pg_try_advisory_lock(@LockKey)";
 
-    // This session still holds etl-v2's lock (a bigint key: classid = high 32 bits, objid = low 32, objsubid = 1).
-    private const string HoldsLock = """
-        SELECT EXISTS (SELECT FROM pg_locks
-            WHERE pid = pg_backend_pid() AND locktype = 'advisory' AND granted
-              AND classid = (@LockKey >> 32)::oid AND objid = (@LockKey & 4294967295)::oid AND objsubid = 1)
-        """;
+    /// <summary>A <c>pg_locks</c> predicate for etl-v2's lock: a bigint key is classid = high 32 bits, objid = low 32, objsubid = 1.</summary>
+    internal static readonly string LockMatch =
+        $"locktype = 'advisory' AND classid = {LockKey >> 32} AND objid = {LockKey & 0xFFFF_FFFF} AND objsubid = 1";
+
+    // This session still holds it.
+    private static readonly string HoldsLock = $"SELECT EXISTS (SELECT FROM pg_locks WHERE pid = pg_backend_pid() AND granted AND {LockMatch})";
 
     // The ledger's own statements run to completion whatever the run's token says (a cancel must never
     // leave "did it commit?" open), bounded by this instead.
@@ -43,9 +43,11 @@ public static class EtlV2
 
     // Only under the lock: an unfinished row then belongs to a run that died. Closed, never deleted.
     private const string CloseInterrupted = """
-        UPDATE migration_runs SET outcome = 'interrupted', finished_at = GREATEST(clock_timestamp(), started_at)
-        WHERE finished_at IS NULL
-        RETURNING id, started_at
+        WITH closed AS (
+            UPDATE migration_runs SET outcome = 'interrupted', finished_at = GREATEST(clock_timestamp(), started_at)
+            WHERE finished_at IS NULL
+            RETURNING id, started_at)
+        SELECT id, started_at FROM closed ORDER BY started_at
         """;
 
     // started_at is the server's clock_timestamp() (column default), never a client time.
@@ -140,9 +142,10 @@ public static class EtlV2
             throw new InvalidOperationException($"another etl-v2 run holds the target's advisory lock {LockKey}; wait for it to finish");
 
         var interrupted = (await targetConn.QueryAsync<EtlV2InterruptedRun>(
-            new CommandDefinition(dryRun ? UnfinishedRuns : CloseInterrupted, cancellationToken: ct))).OrderBy(r => r.StartedAt).ToList();
-        Guid? runId = dryRun ? null : Guid.CreateVersion7();
-        if (runId is not null)
+            new CommandDefinition(dryRun ? UnfinishedRuns : CloseInterrupted, cancellationToken: ct))).AsList();
+        // Written to the ledger only when not a dry run; every branch below is on dryRun.
+        var runId = Guid.CreateVersion7();
+        if (!dryRun)
             // Autocommit: a run killed from here on leaves this row unfinished, for the next run to close as interrupted.
             await targetConn.ExecuteAsync(new CommandDefinition(StartRun, new { id = runId, sourceDumpSha = options.SourceDumpSha },
                 commandTimeout: LedgerTimeoutSeconds, cancellationToken: CancellationToken.None));
@@ -162,22 +165,22 @@ public static class EtlV2
             // Fail closed where a gate row is written: success means checks ran and found nothing, never
             // "no check ran". A dry run writes no gate row; it reports 0 checks (the CLI warns) and passes.
             if (context.Checks.Count == 0 && !dryRun)
-                throw new EtlV2ValidationException("NoValidationChecks", 1);
+                throw EtlV2ValidationException.NoChecks();
             var failures = context.Checks.Sum(c => c.Failures);
             if (failures > 0)
-                throw new EtlV2ValidationException("ValidationFailed", failures);
+                throw EtlV2ValidationException.Failed(failures);
             var targetCounts = await CountAsync(targetConn, TargetCounts, null, ct);
-            if (runId is not null)
+            if (!dryRun)
             {
                 await EnsureLockAsync(targetConn, ct);
                 // Past this statement the run is succeeded or failed by what committed, not by a late cancel.
-                await FinishAsync(targetConn, runId.Value, "succeeded", sourceCounts, targetCounts,
+                await FinishAsync(targetConn, runId, "succeeded", sourceCounts, targetCounts,
                     new { checks = context.Checks, orphanCandidates = context.OrphanCandidates, cleanupActions = context.CleanupActions }, 0);
             }
-            return new EtlV2Report(runId, dryRun, Redact(source.ConnectionString), Redact(target.ConnectionString), options.SourceDumpSha, interrupted,
+            return new EtlV2Report(dryRun ? null : runId, dryRun, Redacted(source), Redacted(target), options.SourceDumpSha, interrupted,
                 sourceCounts, targetCounts, context.Checks, context.OrphanCandidates, context.CleanupActions);
         }
-        catch (Exception e) when (runId is not null)
+        catch (Exception e) when (!dryRun)
         {
             try
             {
@@ -191,7 +194,7 @@ public static class EtlV2
                     _ => (e.GetType().Name, 1),
                 };
                 var sqlState = (e as NpgsqlException ?? e.InnerException as NpgsqlException)?.SqlState;
-                await FinishAsync(targetConn, runId.Value, "failed", sourceCounts, null,
+                await FinishAsync(targetConn, runId, "failed", sourceCounts, null,
                     new { error = new { type, sqlState }, checks = context.Checks }, failures);
             }
             catch (Exception)
@@ -210,7 +213,7 @@ public static class EtlV2
         bool held;
         try
         {
-            held = await lockConn.ExecuteScalarAsync<bool>(new CommandDefinition(HoldsLock, new { LockKey }, cancellationToken: ct));
+            held = await lockConn.ExecuteScalarAsync<bool>(new CommandDefinition(HoldsLock, cancellationToken: ct));
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
@@ -242,7 +245,7 @@ public static class EtlV2
     }
 
     /// <summary>The connection string with every session defaulting to read-only transactions: a write fails with 25006.</summary>
-    public static string ReadOnly(string connectionString) => Session(connectionString, readOnly: true);
+    internal static string ReadOnly(string connectionString) => Session(connectionString, readOnly: true);
 
     // No server-side or client-side time limit: production's database defaults statement_timeout to 10 s,
     // and the run holds its source snapshot open, idle, while it writes the target.
@@ -256,20 +259,14 @@ public static class EtlV2
     }
 
     /// <summary>The connection string without its passwords, for any log, report or error.</summary>
-    public static string Redact(string connectionString) =>
-        new NpgsqlConnectionStringBuilder(connectionString) { Password = null, SslPassword = null }.ConnectionString;
+    public static string Redact(string connectionString) => Redacted(new NpgsqlConnectionStringBuilder(connectionString));
 
-    /// <summary><see cref="Redact"/>, or a placeholder for a string that does not parse (never the string itself).</summary>
-    public static string RedactOrHide(string connectionString)
+    // Clears the builder's passwords in place: only for one the run is done connecting with.
+    private static string Redacted(NpgsqlConnectionStringBuilder builder)
     {
-        try
-        {
-            return Redact(connectionString);
-        }
-        catch (ArgumentException)
-        {
-            return "(not a valid connection string)";
-        }
+        builder.Password = null;
+        builder.SslPassword = null;
+        return builder.ConnectionString;
     }
 
     private static NpgsqlConnectionStringBuilder Parse(string connectionString, string name)
