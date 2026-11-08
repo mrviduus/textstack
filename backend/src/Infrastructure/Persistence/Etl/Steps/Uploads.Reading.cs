@@ -78,8 +78,9 @@ public static partial class EtlV2Uploads
                 unmappable.Add(b.Id.ToString());
                 continue;
             }
-            var fraction = b.BookFraction ?? 0;
-            if (SyncValidation.Fraction(fraction, "book_fraction") is not null)
+            // Shortest round-trip digits, as sessions and vocabulary carry a double (Postgres's ::numeric keeps 15). Negated, so NaN is outside too.
+            var fraction = b.BookFraction is { } percent && percent is >= 0 and <= 1 ? EtlV2Rows.Numeric(percent) : 0;
+            if (b.BookFraction is { } p && !(p is >= 0 and <= 1))
                 outOfRange.Add(b.Id.ToString());
             rows.Add(new StateRow
             {

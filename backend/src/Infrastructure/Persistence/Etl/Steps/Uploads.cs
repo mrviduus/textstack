@@ -49,7 +49,7 @@ public static partial class EtlV2Uploads
                    THEN jsonb_build_object('version', 1, 'scheme', 'textstack-position-v1',
                         'value', jsonb_build_object('chapterSlug', b.progress_chapter_slug, 'chapterFraction', 0))
                END::text AS slug_locator,
-               b.progress_percent::numeric AS book_fraction,
+               b.progress_percent AS book_fraction,
                COALESCE(b.completed_at, CASE WHEN b.is_read THEN COALESCE(b.read_at, b.updated_at) END) AS completed_at,
                COALESCE(b.progress_client_updated_at, b.progress_updated_at, b.updated_at) AS client_recorded_at,
                COALESCE(b.progress_updated_at, b.updated_at) AS state_updated_at,
@@ -419,7 +419,7 @@ public static partial class EtlV2Uploads
         public bool HasProgress { get; init; }
         public string? CurrentLocator { get; init; }
         public string? SlugLocator { get; init; }
-        public decimal? BookFraction { get; init; }
+        public double? BookFraction { get; init; }
         public DateTimeOffset? CompletedAt { get; init; }
         public DateTimeOffset ClientRecordedAt { get; init; }
         public DateTimeOffset StateUpdatedAt { get; init; }

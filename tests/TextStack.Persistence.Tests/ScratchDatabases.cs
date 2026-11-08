@@ -63,16 +63,16 @@ public sealed class ScratchDatabases(PostgreSqlContainer container)
     /// <summary>Runs <paramref name="command"/> in the container (sh -c); its stdout, or a failure with its output.</summary>
     public async Task<string> ShellAsync(string command)
     {
-        var (exitCode, stdout, stderr) = await RunAsync(command);
+        var (exitCode, stdout, stderr) = await RunAsync("sh", "-c", command);
         if (exitCode != 0)
             throw new InvalidOperationException($"`{command}` failed:\n{stdout}\n{stderr}");
         return stdout;
     }
 
-    /// <summary>Runs <paramref name="command"/> in the container (sh -c), whatever its exit code.</summary>
-    public async Task<(long ExitCode, string Stdout, string Stderr)> RunAsync(string command)
+    /// <summary>Runs <paramref name="argv"/> in the container, no shell (nothing to quote), whatever its exit code.</summary>
+    public async Task<(long ExitCode, string Stdout, string Stderr)> RunAsync(params string[] argv)
     {
-        var run = await container.ExecAsync(["sh", "-c", command]);
+        var run = await container.ExecAsync(argv);
         return (run.ExitCode ?? -1, run.Stdout, run.Stderr);
     }
 

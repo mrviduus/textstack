@@ -11,7 +11,7 @@ namespace TextStack.Persistence.Tests.Etl;
 /// interrupted, T2 retry after a failed check, T3 concurrent, T4 idempotent), and <c>database/v2/scripts/validate-etl.sql</c>
 /// run by psql after a real run: green on what the run wrote, red on V2 corrupted afterwards.
 /// </summary>
-public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture v2) : EtlTestBase(legacy, v2), IDisposable
+public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture v2) : EtlTestBase(legacy, v2)
 {
     /// <summary>Flip when ADR-032's pending migration (0005) lets V2 take fb2: the fixture's fb2 upload then migrates and validates.</summary>
     private const bool V2TakesFb2 = false;
@@ -22,10 +22,12 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
 
     private readonly string _files = Path.Combine(Path.GetTempPath(), "etl-v2-whole-run", Guid.NewGuid().ToString("N"));
 
-    public void Dispose()
+    // xunit.v3 calls only DisposeAsync on a class that has both: the temp tree goes here, then the base drops the databases.
+    public override async ValueTask DisposeAsync()
     {
         if (Directory.Exists(_files))
             Directory.Delete(_files, recursive: true);
+        await base.DisposeAsync();
     }
 
     /// <summary>
@@ -59,12 +61,24 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
         : Directory.EnumerateFiles(options.LibraryRoot!, "*", SearchOption.AllDirectories).ToDictionary(
             f => Path.GetRelativePath(options.LibraryRoot!, f), f => Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(f))));
 
-    /// <summary>A clean run's end state: what every scenario below must converge to.</summary>
-    private async Task<(string Dump, Dictionary<string, string> Tree)> CleanAsync()
+    private static readonly Lock CleanGate = new();
+    private static Task<(string Dump, Dictionary<string, string> Tree)>? _clean;
+
+    /// <summary>
+    /// A clean run's end state: what every scenario below must converge to. Deterministic (fixed ids and times), so one run
+    /// serves the class: computed by the first test that asks, kept in memory (its databases and files go with that test).
+    /// </summary>
+    private Task<(string Dump, Dictionary<string, string> Tree)> CleanAsync()
     {
-        var clean = await NewPairAsync();
-        await EtlV2.RunAsync(clean, ct: Ct);
-        return (await DumpAsync(clean), Tree(clean));
+        lock (CleanGate)
+            return _clean ??= RunCleanAsync();
+
+        async Task<(string, Dictionary<string, string>)> RunCleanAsync()
+        {
+            var clean = await NewPairAsync();
+            await EtlV2.RunAsync(clean, ct: Ct);
+            return (await DumpAsync(clean), Tree(clean));
+        }
     }
 
     private Task<string> LedgerAsync(EtlV2Options options) => ScalarAsync<string>(options.Target,
@@ -93,6 +107,12 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
         Assert.Contains(report.OrphanCandidates, o => o.EndsWith(": session-only catalog pair; carried with no book"));
         Assert.Contains(report.OrphanCandidates, o => o.StartsWith("catalog_pairs ") && o.Contains("is gone"));
         Assert.Equal("succeeded", await LedgerAsync(options));
+        // A legacy double percent carries at its shortest round-trip digits, not Postgres's 15-digit ::numeric.
+        Assert.Equal("0.3333333333333333", await ScalarAsync<string>(options.Target, "SELECT book_fraction::text FROM reading_state WHERE book_id = @id",
+            new { id = ProductionShapes.Book(4) }));
+        // "Word1" + NBSP / "en" + U+202F merged into word1's card (.NET's Trim), and its NBSP sentence made no example.
+        Assert.Equal(1, await ScalarAsync<long>(options.Target, $"SELECT count(*) FROM vocabulary_words WHERE user_id = '{ProductionShapes.User(1)}'"));
+        Assert.Equal(0, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM vocabulary_examples WHERE sentence = chr(160)"));
     }
 
     [Fact]
@@ -246,6 +266,9 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
         var (inside, release) = (new TaskCompletionSource(), new TaskCompletionSource());
         var gate = new EtlV2Step("gate", async (_, _) => { inside.SetResult(); await release.Task; });
         var first = EtlV2.RunAsync(options, [EtlV2Users.Step, EtlV2Uploads.Step, gate, .. EtlV2.Steps.Skip(2)], Ct);
+        // A fault in the holder before the gate surfaces now, not as a 60 s timeout.
+        if (await Task.WhenAny(first, inside.Task) == first)
+            await first;
         await inside.Task.WaitAsync(TimeSpan.FromSeconds(60), Ct);
         var midway = await DumpAsync(options);
 
@@ -341,9 +364,10 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
     private Task<(long ExitCode, string Stdout, string Stderr)> ValidateAsync(EtlV2Options options, string? runId = null)
     {
         var (source, target) = (new NpgsqlConnectionStringBuilder(options.Source), new NpgsqlConnectionStringBuilder(options.Target));
-        return V2.Databases.RunAsync(
-            $"PGPASSWORD='{source.Password}' psql -X -A -t -F '|' -d 'host=localhost dbname={source.Database} user={source.Username}' "
-            + $"-v v2='dbname={target.Database} user=postgres'{(runId is null ? "" : $" -v run_id={runId}")} -f {Script}");
+        // argv, no shell: the password travels in the environment, nothing is spliced into a command line.
+        string[] argv = ["env", $"PGPASSWORD={source.Password}", "psql", "-X", "-A", "-t", "-F", "|",
+            "-d", $"host=localhost dbname={source.Database} user={source.Username}", "-v", $"v2=dbname={target.Database} user=postgres", "-f", Script];
+        return V2.Databases.RunAsync(runId is null ? argv : [.. argv[..^2], "-v", $"run_id={runId}", .. argv[^2..]]);
     }
 
     /// <summary>The script's rows: check → (status, details).</summary>
@@ -432,6 +456,8 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
         { "v2", """UPDATE migration_runs SET validation = jsonb_set(validation, '{orphanCandidates}', (SELECT jsonb_agg(o) FROM jsonb_array_elements(validation -> 'orphanCandidates') o WHERE o::text NOT LIKE '%taken down%'))""",
             "report: takedowns (carried hidden, no bytes, no chapters)" },
         { "v2", "INSERT INTO migration_runs (id) VALUES (gen_random_uuid())", "ledger: no run in flight or unclosed" },
+        { "v2", """UPDATE migration_runs SET validation = jsonb_set(validation, '{cleanupActions}', (SELECT COALESCE(jsonb_agg(o), '[]') FROM jsonb_array_elements(validation -> 'cleanupActions') o WHERE o::text NOT LIKE '%V2 guest with no legacy row%'))""",
+            "report: V2 rows with no legacy row (cleanup lines, never deleted)" },
         { "legacy", $"UPDATE users SET name = 'Renamed' WHERE id = '{ProductionShapes.User(5)}'", "users: legacy vs V2 (count, owner, content)" },
         { "legacy", "INSERT INTO users (id, email, google_subject, created_at) VALUES ('a0000000-0000-4000-8000-000000000999', 'late@test.com', NULL, now())", "ledger: source counts = legacy now" },
     };
@@ -472,7 +498,7 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
     [Fact]
     public async Task ValidateEtl_NoV2Connection_RefusesWithUsage()
     {
-        var (exit, _, stderr) = await V2.Databases.RunAsync($"psql -X -U postgres -d postgres -f {Script}");
+        var (exit, _, stderr) = await V2.Databases.RunAsync("psql", "-X", "-U", "postgres", "-d", "postgres", "-f", Script);
 
         Assert.Equal(3, exit);
         Assert.Contains("pass -v v2=", stderr);

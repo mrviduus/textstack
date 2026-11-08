@@ -8,7 +8,7 @@ namespace TextStack.Persistence.Tests.Etl;
 /// another case and one with no user; 102 uploads, epub and pdf mixed, a clip, 2 Failed, a takedown, one whose
 /// bytes are missing, covers, every progress shape; chapters, anchored/PDF/trail highlights, jobs; catalog pairs
 /// from every intent table (retired ones too) plus a dangling shelf entry; vocabulary with case-variant groups and
-/// reviews; insights and review questions; sessions on uploads, on a pair, session-only and bookless. Every id and
+/// reviews (and .NET-only white space); insights and review questions; sessions on uploads, on a pair, session-only and bookless. Every id and
 /// time is fixed, so two databases seeded alike migrate to the same V2 rows.
 /// </summary>
 internal static class ProductionShapes
@@ -194,7 +194,11 @@ internal static class ProductionShapes
             FROM generate_series(5, 20, 5) n, generate_series(2, 4) v
             UNION ALL
             SELECT {{Sql("70000000", "95")}}, {{Sql("a0000000", "9")}}, '{{Site}}'::uuid, 'clean', 'en', NULL, NULL, '{{CleanCode}}'::uuid, '{{MeaningfulNames}}'::uuid, NULL,
-                'Clean code reads well.', 'Clean Code', 0, 0, 0, {{T}}, NULL, 1, 1, {{T}}, {{T}}, false, NULL;
+                'Clean code reads well.', 'Clean Code', 0, 0, 0, {{T}}, NULL, 1, 1, {{T}}, {{T}}, false, NULL
+            UNION ALL
+            -- .NET white space Postgres \s misses: "Word1" + NBSP in "en" + U+202F is word1's case variant (a loser, no reviews); an NBSP sentence is no example
+            SELECT {{Sql("70000000", "16")}}, {{Sql("a0000000", "1")}}, '{{Site}}'::uuid, 'Word1' || chr(160), 'en' || chr(8239), NULL, NULL, NULL, NULL, NULL,
+                chr(160), NULL, 0, 0, 0, {{T}}, NULL, 0, 0, {{T}}, {{T}}, false, NULL;
             INSERT INTO vocabulary_reviews (id, vocabulary_word_id, user_id, site_id, review_mode, is_correct, response_time_ms, stage_before, stage_after, created_at)
             SELECT {{Sql("72000000", "substring(w.id::text, 25)::bigint * 10 + i")}}, w.id, w.user_id, '{{Site}}'::uuid, CASE WHEN i % 2 = 0 THEN 'flashcard' ELSE 'multiple_choice' END,
                 i % 2 = 0, 500 + i, i - 1, i, {{T}} + i * interval '1 hour' + interval '0.123456 second'

@@ -22,9 +22,9 @@
 -- restated here; the persistence tests run this script after a real run and after corrupting V2.
 -- Set names equal the run's Writes names ("books" = uploads, "books (catalog)" = catalog pairs).
 --
--- Known ceilings (ponytail): word keys fold with Postgres lower() and \s trims, etl-v2 with .NET's
--- ToLowerInvariant/Trim, and admin emails with legacy's lower(), etl-v2 with V2's ICU lower() (equal on ASCII
--- and common scripts; a dotted 'İ' could differ). Bytes on disk are not read: a file etl-v2 found missing is
+-- Known ceilings (ponytail): word keys fold with Postgres lower(), etl-v2 with .NET's ToLowerInvariant (white
+-- space is trimmed by .NET's set, see the vocabulary CTE), and admin emails with legacy's lower(), etl-v2 with
+-- V2's ICU lower() (equal on ASCII and common scripts; a dotted 'İ' could differ). Bytes on disk are not read: a file etl-v2 found missing is
 -- taken from the ledger's own orphan list. uuid_v5 is SHA-1 in plain SQL (no pgcrypto/uuid-ossp on either
 -- side): ~15 s per 50k ids on pg16; if production's vocabulary outgrows that, compare op ids by sample.
 
@@ -77,7 +77,7 @@ v5_name(k, ns, name) AS (
     VALUES ('self:ns', '00000000-0000-0000-0000-000000000000'::uuid, convert_to('textstack-v2', 'UTF8')),
            ('self:rfc', '6ba7b810-9dad-11d1-80b4-00c04fd430c8'::uuid, convert_to('python.org', 'UTF8'))
     UNION ALL SELECT 'p' || user_id || edition_id, '1bf10a76-ae74-52e8-9c16-a47a8bfdbae1'::uuid, uuid_send(user_id) || uuid_send(edition_id) FROM pair
-    UNION SELECT 'o' || id, '1bf10a76-ae74-52e8-9c16-a47a8bfdbae1'::uuid, uuid_send(id) FROM vocabulary_words WHERE sentence ~ '\S'
+    UNION SELECT 'o' || id, '1bf10a76-ae74-52e8-9c16-a47a8bfdbae1'::uuid, uuid_send(id) FROM word WHERE has_sentence
     UNION SELECT 'o' || id, '1bf10a76-ae74-52e8-9c16-a47a8bfdbae1'::uuid, uuid_send(id) FROM vocabulary_reviews),
 v5_block(k, b) AS (
     SELECT k, m || '\x80'::bytea || decode(repeat('00', 55 - length(m)), 'hex') || int8send(length(m) * 8)
@@ -133,7 +133,7 @@ s_files AS (
 s_states AS (
     SELECT b.id::text AS k, b.user_id AS u, f.id AS f,
         md5(row(f.id, CASE WHEN pos_loc IS NOT NULL AND NOT (pos_loc ->> 'scheme' = 'pdf-page' AND f.fmt <> 'pdf') THEN pos_loc ELSE slug_loc END,
-            trim_scale(COALESCE(b.progress_percent::numeric, 0)), COALESCE(b.completed_at, CASE WHEN b.is_read THEN COALESCE(b.read_at, b.updated_at) END),
+            trim_scale(COALESCE(b.progress_percent::text::numeric, 0)), COALESCE(b.completed_at, CASE WHEN b.is_read THEN COALESCE(b.read_at, b.updated_at) END),
             COALESCE(b.progress_client_updated_at, b.progress_updated_at, b.updated_at), COALESCE(b.progress_updated_at, b.updated_at))::text) AS h
     FROM user_books b JOIN bf f ON f.user_book_id = b.id,
     LATERAL (SELECT
@@ -182,21 +182,26 @@ s_jobs AS (
             j.attempt_count, j.error, lower(j.source_format), j.created_at, j.started_at, j.finished_at)::text) AS h
     FROM user_ingestion_jobs j JOIN user_books b ON b.id = j.user_book_id JOIN bf f ON f.id = j.user_book_file_id AND f.user_book_id = j.user_book_id),
 -- vocabulary: one card per (user, language, word key); the survivor = most reviews, then newest update, then lowest id.
+-- White space is .NET's (char.IsWhiteSpace: Trim, IsNullOrWhiteSpace), not Postgres \s alone, which misses NBSP, U+202F and the
+-- other Unicode spaces: the class below is \s plus those.
 word AS (
-    SELECT w.*, lower(regexp_replace(w.language, '^\s+|\s+$', '', 'g')) AS lang, lower(regexp_replace(w.word, '^\s+|\s+$', '', 'g')) AS wkey,
-        COALESCE(NULLIF(btrim(c.slug), ''), 'ch-' || c.chapter_number) AS chapter_key,
-        row_number() OVER g AS rnk, first_value(w.id) OVER g AS survivor
-    FROM vocabulary_words w LEFT JOIN chapters c ON c.id = w.chapter_id AND c.edition_id = w.edition_id
-    WINDOW g AS (PARTITION BY w.user_id, lower(regexp_replace(w.language, '^\s+|\s+$', '', 'g')), lower(regexp_replace(w.word, '^\s+|\s+$', '', 'g'))
-                 ORDER BY w.total_reviews DESC, w.updated_at DESC, w.id)),
+    SELECT w.*, row_number() OVER g AS rnk, first_value(w.id) OVER g AS survivor
+    FROM (SELECT w.*, COALESCE(NULLIF(btrim(c.slug), ''), 'ch-' || c.chapter_number) AS chapter_key,
+              lower(regexp_replace(w.language, '^[\s\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\s\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$', '', 'g')) AS lang,
+              lower(regexp_replace(w.word, '^[\s\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\s\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$', '', 'g')) AS wkey,
+              w.sentence ~ '[^\s\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]' AS has_sentence,
+              w.translation ~ '[^\s\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]' AS has_translation,
+              w.definition ~ '[^\s\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]' AS has_definition
+          FROM vocabulary_words w LEFT JOIN chapters c ON c.id = w.chapter_id AND c.edition_id = w.edition_id) w
+    WINDOW g AS (PARTITION BY w.user_id, w.lang, w.wkey ORDER BY w.total_reviews DESC, w.updated_at DESC, w.id)),
 s_words AS (
     SELECT s.id::text AS k, s.user_id AS u,
         md5(row(s.lang, s.word, s.wkey, COALESCE(g.translation, s.translation), COALESCE(g.definition, s.definition), s.stage,
             trim_scale(s.interval_days::text::numeric), s.consecutive_correct, s.next_review_at, s.last_reviewed_at, s.created_at, s.updated_at,
             CASE WHEN s.is_retired THEN COALESCE(s.retired_at, s.updated_at) END)::text) AS h
     FROM word s
-    JOIN (SELECT survivor, (array_agg(translation ORDER BY rnk) FILTER (WHERE translation ~ '\S'))[1] AS translation,
-                 (array_agg(definition ORDER BY rnk) FILTER (WHERE definition ~ '\S'))[1] AS definition
+    JOIN (SELECT survivor, (array_agg(translation ORDER BY rnk) FILTER (WHERE has_translation))[1] AS translation,
+                 (array_agg(definition ORDER BY rnk) FILTER (WHERE has_definition))[1] AS definition
           FROM word GROUP BY survivor) g ON g.survivor = s.id
     WHERE s.rnk = 1),
 s_examples AS (
@@ -205,7 +210,7 @@ s_examples AS (
             o.id, w.created_at)::text) AS h
     FROM word w JOIN v5 o ON o.k = 'o' || w.id
     LEFT JOIN pair_id p ON p.user_id = w.user_id AND p.edition_id = w.edition_id
-    WHERE w.sentence ~ '\S'),
+    WHERE w.has_sentence),
 s_reviews AS (
     SELECT r.id::text AS k, w.user_id AS u,
         md5(row(w.survivor, o.id, r.review_mode, r.is_correct, r.response_time_ms, r.stage_before, r.stage_after,
@@ -493,9 +498,16 @@ results(ord, "check", status, details) AS (
     SELECT 26, 'report: files with no bytes on disk (from the ledger; their chapters, state and jobs not carried)', 'report',
         format('%s file(s)', count(*)) FROM excused
     UNION ALL
-    SELECT 27, 'report: V2 rows with no legacy row (cleanup lines, never deleted)', 'report',
-        format('%s row(s) found, %s cleanup line(s) in the ledger', (SELECT COALESCE(sum(v2_only), 0) FROM per_set),
-            (SELECT count(*) FROM cleanup WHERE line ~ 'with no legacy row'))
+    -- by (table, id): the ledger's key is the row's id, or "(user_id, book_id)" for reading_state (this script keys it by book_id)
+    SELECT 27, 'report: V2 rows with no legacy row (cleanup lines, never deleted)',
+        CASE WHEN sql.ids IS NOT DISTINCT FROM led.ids THEN 'report' ELSE 'FAIL' END,
+        format('%s row(s) found, ledger %s%s', COALESCE(cardinality(sql.ids), 0), COALESCE(cardinality(led.ids), 0),
+            CASE WHEN sql.ids IS DISTINCT FROM led.ids THEN ' (the lists differ)' ELSE '' END)
+    FROM (SELECT array_agg(t || ' ' || k ORDER BY t || ' ' || k) AS ids FROM cmp WHERE verdict = 'v2-only') sql,
+        (SELECT array_agg(x ORDER BY x) AS ids
+         FROM (SELECT m[1] || ' ' || (regexp_match(m[2], '([0-9a-f-]{36})\)?$'))[1] AS x
+               FROM cleanup, LATERAL regexp_match(line, '^(books \(catalog\)|annotations \(catalog\)|[a-z_]+) ([0-9a-f-]{36}|\([^)]*\)): V2 (?:row|guest|account) with no legacy row') m
+               WHERE m IS NOT NULL) l) led
     UNION ALL
     -- per table: count, owner and the mapped columns (parts 1, 2, 4, 5, 6 and insight hashes)
     SELECT 30 + row_number() OVER (ORDER BY t), t || ': legacy vs V2 (count, owner, content)',
