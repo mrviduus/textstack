@@ -49,18 +49,20 @@ public static partial class EtlV2Uploads
         """;
 
     // Plan §5.2 validation part 3: an anchored upload annotation's text is in its chapter's plain_text. On a
-    // written run, what V2 holds; otherwise legacy's (the rows V2 would hold).
+    // written run, what V2 holds; otherwise legacy's (the rows V2 would hold). Owner 2026-11-08: every whitespace
+    // run collapses to one space on both sides before comparing (a selection spans line breaks the text keeps);
+    // otherwise strict (no trim, no case folding).
     private const string QuotesMissingInV2 = """
         SELECT a.id FROM annotations a
         LEFT JOIN book_chapters c ON c.user_id = a.user_id AND c.file_id = a.file_id AND c.chapter_key = a.locator -> 'value' ->> 'chapterKey'
-        WHERE a.id = ANY(@ids) AND (c.id IS NULL OR strpos(c.plain_text, a.selected_text) = 0)
+        WHERE a.id = ANY(@ids) AND (c.id IS NULL OR strpos(regexp_replace(c.plain_text, '\s+', ' ', 'g'), regexp_replace(a.selected_text, '\s+', ' ', 'g')) = 0)
         ORDER BY a.id
         """;
 
     private const string QuotesMissingInLegacy = """
         SELECT h.id FROM highlights h
         LEFT JOIN user_chapters c ON c.id = h.user_chapter_id AND c.user_book_id = h.user_book_id
-        WHERE h.id = ANY(@ids) AND (c.id IS NULL OR strpos(c.plain_text, h.selected_text) = 0)
+        WHERE h.id = ANY(@ids) AND (c.id IS NULL OR strpos(regexp_replace(c.plain_text, '\s+', ' ', 'g'), regexp_replace(h.selected_text, '\s+', ' ', 'g')) = 0)
         ORDER BY h.id
         """;
 

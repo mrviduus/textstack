@@ -74,6 +74,18 @@ public class EtlV2RepoFilesTests
     }
 
     [Fact]
+    public void EtlSourceFiles_Scanned_WriteInlineSqlNotTheApiRepositories()
+    {
+        // Owner 2026-11-08 (v2-plan §5.2): the repositories stamp now() and refuse duplicate bytes; the ETL carries legacy's.
+        var dir = Path.Combine(RepoRoot(), "backend", "src", "Infrastructure", "Persistence", "Etl");
+        var offenders = Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories)
+            .Where(f => Regex.IsMatch(File.ReadAllText(f), @"\w*Repository\b|Persistence\.Repositories"))
+            .ToList();
+
+        Assert.Empty(offenders);
+    }
+
+    [Fact]
     public void EtlReaderScript_Grants_EverySourceTableTheStepsDeclare()
     {
         // etl_reader can read only what the script grants: a step reading one more table fails on production.

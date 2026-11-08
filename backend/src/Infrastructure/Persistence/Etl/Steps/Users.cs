@@ -79,9 +79,12 @@ public static class EtlV2Users
         EtlV2Rows.Check(context, "users: email held by another V2 id", expected.Values.SelectMany(u =>
             v2ByEmail[u.Email.ToLowerInvariant()].Where(holder => holder != u.Id).Select(holder => $"{u.Id}/{holder}")));
 
+        // Owner 2026-11-08: reported only, never deleted. Only a guest gets a ready DELETE; an account is a human's call.
         foreach (var orphan in v2.Values.Where(u => !expected.ContainsKey(u.Id)).OrderBy(u => u.Id))
-            context.CleanupActions.Add($"users {orphan.Id}: V2 {(orphan.IsGuest ? "guest" : "account")} with no legacy row (#1094); "
-                + $"if it is a guest the identity mirror left behind, a human deletes it with its V2 rows: DELETE FROM users WHERE id = '{orphan.Id}'");
+            context.CleanupActions.Add(orphan.IsGuest
+                ? $"users {orphan.Id}: V2 guest with no legacy row (#1094); if the identity mirror left it behind, a human deletes it "
+                    + $"with its V2 rows: DELETE FROM users WHERE id = '{orphan.Id}'"
+                : $"users {orphan.Id}: V2 account with no legacy row; not deleted, a human reviews it");
 
         var plan = EtlV2Rows.Classify(expected.Values, v2.Values, u => u.Id);
         context.Writes["users"] = new(plan.New.Count, plan.Different.Count, plan.Unchanged);

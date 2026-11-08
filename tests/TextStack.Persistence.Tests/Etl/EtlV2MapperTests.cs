@@ -42,6 +42,10 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     private static readonly byte[] PdfBytes = Encoding.UTF8.GetBytes("%PDF-1.7 bytes");
     private static readonly byte[] ClipBytes = Encoding.UTF8.GetBytes("<html>clip</html>");
     private static readonly byte[] CoverBytes = [0xFF, 0xD8, 0xFF, 1, 2, 3];
+    private static readonly byte[] FigureBytes = [0x89, 0x50, 0x4E, 0x47];
+
+    // A chapter image: its legacy URL stays in the html, its bytes are not copied (owner 2026-11-08).
+    private static string Chapter1Html => $"<p>The spice must flow.</p><img src=\"/storage/{Dir(Alice, Epub)}/images/fig.png\">";
 
     private readonly string _files = Path.Combine(Path.GetTempPath(), "etl-v2-tests", Guid.NewGuid().ToString("N"));
 
@@ -102,7 +106,7 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
                 ('{{{ClipFile}}}', '{{{Clip}}}', 'clip.html', '{{{Dir(Bob, Clip)}}}/clip.html', 3, '{{{Sha(ClipBytes)}}}', {{{ClipBytes.Length}}}, '2025-06-01T10:00:00Z'),
                 ('{{{LostFile}}}', '{{{Lost}}}', 'lost.epub', '{{{Dir(Carol, Lost)}}}/book.epub', 0, NULL, 10, '2025-07-01T10:00:00Z');
             INSERT INTO user_chapters (id, user_book_id, chapter_number, title, html, plain_text, word_count, slug, created_at) VALUES
-                ('{{{Chapter1}}}', '{{{Epub}}}', 0, 'One', '<p>The spice must flow.</p>', 'The spice must flow.', 4, 'one', '2025-04-01T10:01:00Z'),
+                ('{{{Chapter1}}}', '{{{Epub}}}', 0, 'One', '{{{Chapter1Html}}}', 'The spice must flow.', 4, 'one', '2025-04-01T10:01:00Z'),
                 ('{{{Chapter2}}}', '{{{Epub}}}', 1, 'Two', '<p>Fear is the mind-killer.</p>', 'Fear is the mind-killer.', 4, NULL, '2025-04-01T10:01:00Z'),
                 ('{{{LostChapter}}}', '{{{Lost}}}', 1, 'Lost one', '<p>x</p>', 'x', 1, 'x', '2025-07-01T10:01:00Z');
             INSERT INTO highlights (id, user_id, site_id, user_book_id, user_chapter_id, anchor_json, color, selected_text, note_text, version, created_at, updated_at) VALUES
@@ -128,6 +132,7 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
             """);
         Put($"{Dir(Alice, Epub)}/book.epub", EpubBytes);
         Put($"{Dir(Alice, Epub)}/cover.JPG", CoverBytes);
+        Put($"{Dir(Alice, Epub)}/images/fig.png", FigureBytes);
         Put($"{Dir(Alice, Pdf)}/book.pdf", PdfBytes);
         Put($"{Dir(Bob, Clip)}/clip.html", ClipBytes);
         // M2.2's shadow row (id, email, guest flag) and a guest the identity mirror left in V2 only.
@@ -138,16 +143,22 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         return new EtlV2Options(source, target, dryRun, StorageRoot: StorageRoot, LibraryRoot: LibraryRoot);
     }
 
+    private Dictionary<string, string> Tree(string root) => Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+        .ToDictionary(f => Path.GetRelativePath(root, f), f => Sha(File.ReadAllBytes(f)));
+
     private Task<T> V2Scalar<T>(EtlV2Options options, string sql, object? args = null) => ScalarAsync<T>(options.Target, sql, args);
 
     [Fact]
     public async Task RunAsync_ProductionShapes_CarriesEveryAggregateAndSucceeds()
     {
         var options = await SeedAsync();
+        var legacyTree = Tree(StorageRoot);
 
         var report = await EtlV2.RunAsync(options, ct: Ct);
 
         Assert.All(report.Checks, c => Assert.Equal(0, c.Failures));
+        // Copied, never moved (owner 2026-11-08): legacy's tree is the rollback, byte for byte.
+        Assert.Equal(legacyTree, Tree(StorageRoot));
         Assert.Equal("succeeded", await V2Scalar<string>(options, "SELECT outcome FROM migration_runs WHERE id = @id", new { id = report.RunId }));
         // Users: three legacy + the admin with no user; the shadow row filled, not counted as drift; the V2-only guest kept.
         Assert.Equal(new EtlV2Writes(3, 1, 0), report.Writes["users"]);
@@ -196,6 +207,9 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.Equal("ch-1|Fear is the mind-killer.", await V2Scalar<string>(options,
             "SELECT chapter_key || '|' || plain_text FROM book_chapters WHERE id = @Chapter2 AND file_id = @EpubFile", new { Chapter2, EpubFile }));
         Assert.Contains($"user_books {Lost}: 1 user_chapters not carried, the book has no file row", report.OrphanCandidates);
+        // Images keep their legacy URLs; no image asset lands in the library (book_chapters is transitional until R8).
+        Assert.Equal(Chapter1Html, await V2Scalar<string>(options, "SELECT html FROM book_chapters WHERE id = @Chapter1", new { Chapter1 }));
+        Assert.DoesNotContain(Directory.EnumerateFiles(LibraryRoot, "*", SearchOption.AllDirectories), f => f.EndsWith(".png"));
 
         // Annotations: chapterId → chapterKey (fallback too), a PDF anchor as-is, the file-less book's as a quotation; the trail reported.
         Assert.Equal(4, report.TargetCounts["annotations"]);
@@ -360,6 +374,58 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
 
         Assert.Equal([Anchored.ToString()], Assert.Single(error.Checks, c => c.Name == "annotations: selected_text not in its chapter's plain_text").Ids);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RunAsync_QuoteDiffersOnlyInWhitespace_Passes(bool dryRun)
+    {
+        // Owner 2026-11-08: whitespace runs collapse on both sides; dry run checks legacy's chapters, a real run V2's.
+        var options = await SeedAsync(dryRun);
+        await ExecAsync(options.Source, "UPDATE user_chapters SET plain_text = E'The spice\\n must  flow.' WHERE id = @Chapter1", new { Chapter1 });
+        await ExecAsync(options.Source, "UPDATE highlights SET selected_text = E'spice must\\t\\nflow' WHERE id = @Anchored", new { Anchored });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Contains(report.Checks, c => c.Name == "annotations: selected_text not in its chapter's plain_text" && c.Failures == 0);
+    }
+
+    [Fact]
+    public async Task RunAsync_QuoteDiffersInCase_FailsOtherwiseStrict()
+    {
+        var options = await SeedAsync(dryRun: true);
+        await ExecAsync(options.Source, "UPDATE highlights SET selected_text = 'Spice' WHERE id = @Anchored", new { Anchored });
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+
+        Assert.Equal([Anchored.ToString()], Assert.Single(error.Checks, c => c.Name == "annotations: selected_text not in its chapter's plain_text").Ids);
+    }
+
+    [Fact]
+    public async Task RunAsync_ReadWithNoReadAt_CompletedAtFallsBackToUpdatedAt()
+    {
+        var options = await SeedAsync();
+        await ExecAsync(options.Source, "UPDATE user_books SET is_read = true, read_at = NULL, completed_at = NULL WHERE id = @Pdf", new { Pdf });
+
+        await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal("2025-05-01 10:00:00", await V2Scalar<string>(options,
+            "SELECT (completed_at AT TIME ZONE 'UTC')::text FROM reading_state WHERE book_id = @Pdf", new { Pdf }));
+    }
+
+    [Fact]
+    public async Task RunAsync_V2OnlyAccount_ReportedWithNoDeleteAndKept()
+    {
+        var options = await SeedAsync();
+        var account = Guid.Parse("98000000-0000-0000-0000-000000000098");
+        await ExecAsync(options.Target, "INSERT INTO users (id, email, is_guest, created_at) VALUES (@account, 'v2only@test.com', false, now())", new { account });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        var action = Assert.Single(report.CleanupActions, a => a.StartsWith($"users {account}:"));
+        Assert.DoesNotContain("DELETE", action);
+        Assert.Equal(1, await V2Scalar<long>(options, "SELECT count(*) FROM users WHERE id = @account", new { account }));
     }
 
     [Fact]

@@ -66,13 +66,40 @@ make etl-v2 ARGS=--dry-run
 
 Exit 1 with `source login … can write (…)` lists what to fix (up to 5 items).
 
-**Not covered by the audit, by decision.** PUBLIC holds both by default, and closing either means
-revoking from PUBLIC, which the application role relies on. So both are reported here, not changed:
-- `TEMP` on the database: temporary tables die with the session and never persist.
+**Not covered by the audit, by decision.** PUBLIC holds both by default, so the audit cannot refuse
+them without refusing every login:
+- `TEMP` on the database: temporary tables die with the session and never persist. Left as is.
 - The large-object functions (`lo_create`, `lo_from_bytea`, …): EXECUTE is granted to PUBLIC. They fail
   in a read-only transaction, which is etl-v2's default; a session that switched that off could create
-  a large object. Closing it means `REVOKE EXECUTE ON FUNCTION lo_create(oid), … FROM PUBLIC`, an owner
-  decision about the application's privileges.
+  a large object. Closed by the preflight below (owner 2026-11-08).
+
+### Preflight (every rehearsal and the cutover)
+
+Before the first `--dry-run`, on the legacy database the run reads, as its owner or a superuser. The
+application stores nothing in large objects, so it loses nothing:
+
+```sql
+-- every large-object function PUBLIC may execute (17 on postgres 16; lo_import/lo_export are superuser-only already)
+DO $$
+DECLARE f regprocedure;
+BEGIN
+  FOR f IN SELECT p.oid::regprocedure FROM pg_proc p
+           WHERE p.pronamespace = 'pg_catalog'::regnamespace AND (p.proname LIKE 'lo\_%' OR p.proname IN ('loread', 'lowrite'))
+             AND has_function_privilege('public', p.oid, 'EXECUTE')
+  LOOP
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC', f);
+  END LOOP;
+END $$;
+-- check: must print 0
+SELECT count(*) FROM pg_proc p
+WHERE p.pronamespace = 'pg_catalog'::regnamespace AND (p.proname LIKE 'lo\_%' OR p.proname IN ('loread', 'lowrite'))
+  AND has_function_privilege('public', p.oid, 'EXECUTE');
+```
+
+Checked 2026-11-08 on the compose image (pgvector pg16): 0 left, and a plain role's `lo_create(0)` is
+`permission denied`. On production the revoke stays after the cutover (legacy is read-only from then on);
+undo it (`GRANT EXECUTE … TO PUBLIC` per function) only if the rollback (plan §5.3 step 8) puts legacy
+back in service and something needs it.
 
 ### Clean up
 
@@ -178,9 +205,9 @@ What a run does when V2 already holds a row of the same key. Never a blanket `ON
 | `ingestion_jobs` (`id`) | insert | unchanged | same rule (`ingestion_jobs: …`) |
 | library bytes (the V2 key) | copied | unchanged (same SHA-256) | check `library_files: V2 key already holds other bytes` fails; the V2 bytes are kept |
 
-V2 users with no legacy row (a guest the identity mirror left behind, #1094) are listed in
-`cleanupActions` with the `DELETE` a human may run (it cascades to that user's V2 rows); no run deletes
-them, and they are not a failure.
+V2 users with no legacy row are listed in `cleanupActions`; no run deletes them, and they are not a
+failure (owner 2026-11-08). A guest (the identity mirror's leftover, #1094) comes with the `DELETE` a human
+may run (it cascades to that user's V2 rows); a non-guest account comes with none: a human reviews it.
 
 ### Mapping, and what fails instead of being guessed
 
@@ -210,8 +237,9 @@ them, and they are not a failure.
   deleted upload's trail) is not carried (listed in `orphanCandidates`). Catalog highlights are M3.3's.
   Fails: highlight owner ≠ upload owner, an anchor that is not an object, a blank text, a version below 1.
 - **Chapters** (row 34, item 6): `chapter_key = COALESCE(slug, 'ch-' || chapter_number)`, keyed to the
-  book's file; a book with no file row's chapters are not carried (listed). Fails: a blank key, two
-  chapters of a file with one key.
+  book's file; a book with no file row's chapters are not carried (listed). `html` is carried byte for
+  byte: its images keep their legacy `/storage/…` URLs and no image asset is copied (owner 2026-11-08;
+  `book_chapters` is transitional until R8). Fails: a blank key, two chapters of a file with one key.
 - **Ingestion jobs** (row 36): status `0..3` → `queued`/`processing`/`succeeded`/`failed`; `source_format`
   lowercased (as the V2 worker writes it); keyed to the carried file. A job whose file got no row is not
   carried (listed). Fails: another status, or a source format outside `epub`/`pdf`/`html`/`fb2`/`unknown`.
@@ -223,7 +251,8 @@ them, and they are not a failure.
 After the write, per target: `<table>: parity` (every mapped row is in V2, equal to its mapping: count
 and content), `<table>: ownership` (under its legacy owner), and `annotations: selected_text not in its
 chapter's plain_text` for every `textstack-anchor-v1` annotation (on a dry run, or a run already failed,
-against legacy's chapters). `users: parity` covers the shadow rows and the admins.
+against legacy's chapters). That comparison collapses every whitespace run to one space on both sides
+first, and is otherwise strict: no trim, no case folding (owner 2026-11-08). `users: parity` covers the shadow rows and the admins.
 
 ### Files
 
