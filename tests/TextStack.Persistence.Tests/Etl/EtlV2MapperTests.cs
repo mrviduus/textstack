@@ -526,6 +526,11 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         "blank-chapter-key" => ($"UPDATE user_chapters SET slug = ' ' WHERE id = '{Chapter2}'", "book_chapters: blank chapter key", [Chapter2.ToString()]),
         "admin-case-twin" => ($"INSERT INTO admin_users (id, email, password_hash, role, is_active, created_at, updated_at) VALUES ('{OpsTwin}', 'Ops@Test.com', 'hash-ops2', 0, true, now(), now())",
             "users: legacy emails equal but for case", [$"{OpsAdmin}/{OpsTwin}"]),
+        // Legacy's own unique indexes forbid these; dropped to stand for a source that drifted from them.
+        "dup-google-subject" => ($"DROP INDEX ix_users_google_subject; UPDATE users SET google_subject = 'google-carol' WHERE id = '{Alice}'",
+            "users: google_subject duplicated in legacy", [$"{Alice}/{Carol}"]),
+        "dup-apple-subject" => ($"DROP INDEX ix_users_apple_subject; UPDATE users SET apple_subject = 'apple-x' WHERE id IN ('{Alice}', '{Carol}')",
+            "users: apple_subject duplicated in legacy", [$"{Alice}/{Carol}"]),
         "job-format" => ($"UPDATE user_ingestion_jobs SET source_format = 'Mobi' WHERE id = '{EpubJob}'", "ingestion_jobs: status or source format V2 does not take", [EpubJob.ToString()]),
         _ => throw new ArgumentOutOfRangeException(nameof(defect)),
     };
@@ -549,6 +554,8 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     [InlineData("blank-chapter-key")]
     [InlineData("job-format")]
     [InlineData("admin-case-twin")]
+    [InlineData("dup-google-subject")]
+    [InlineData("dup-apple-subject")]
     public async Task RunAsync_DryRunLegacyDefect_PreflightFailsTheNamedCheck(string defect)
     {
         // A dry run is the pre-flight: a defect the real run's CHECKs would abort on must fail here, by name and id.

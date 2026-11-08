@@ -80,6 +80,10 @@ public static class EtlV2Users
         // Over every row to write, so two admins with no user (admin_users.email is unique only case-sensitively) count too.
         EtlV2Rows.Check(context, "users: legacy emails equal but for case", expected.Values.GroupBy(u => Fold(u.Email))
             .Where(g => g.Count() > 1).Select(g => string.Join("/", g.Select(u => u.Id))));
+        // V2's partial unique indexes on the subjects (exact, no folding): the second of a pair would abort the insert.
+        foreach (var (column, subject) in new (string, Func<UserRow, string?>)[] { ("google_subject", u => u.GoogleSubject), ("apple_subject", u => u.AppleSubject) })
+            EtlV2Rows.Check(context, $"users: {column} duplicated in legacy", expected.Values.Where(u => subject(u) is not null).GroupBy(subject)
+                .Where(g => g.Count() > 1).Select(g => string.Join("/", g.Select(u => u.Id))));
         foreach (var (id, row) in expected)
             if (v2.TryGetValue(id, out var current) && current.Role == "admin")
                 expected[id] = row with { Role = "admin" };
