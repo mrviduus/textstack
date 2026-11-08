@@ -177,6 +177,25 @@ the second SIGINT). If it does not (a run stuck where no signal reaches it), `do
 A run killed outright leaves its ledger row unfinished; the next real run, once it holds the lock,
 closes it as `interrupted` and lists it in `interruptedRuns`. Nothing is ever deleted.
 
+## 3.1 Validate
+
+After every real run (each rehearsal, and the cutover's run before the flip), re-check it from SQL alone with
+`database/v2/scripts/validate-etl.sql`. It is read-only on both databases; the legacy side may be `etl_reader`.
+It checks the newest `migration_runs` row unless given `run_id`. No password on the command line: a pgpass
+file, or `PGPASSWORD` set by `read -rs` for the session.
+
+```sh
+psql -X -d 'host=db dbname=<legacy db> user=etl_reader' -v v2='host=db dbname=textstack_v2 user=<v2 owner>' \
+  [-v run_id=<uuid>] -f database/v2/scripts/validate-etl.sql
+```
+
+One row per check: `check | status | details`. `ok` holds; `FAIL` is a mismatch (per table: count, owner and
+mapped columns legacy vs V2; the ledger's counts and writes vs now; the invariants of plan §5.2); `report` is a
+report-only category from §4 (takedowns, non-ready uploads, files with no bytes, the deleted-upload trail,
+dangling and session-only pairs, V2-only rows): listed, never a failure, as long as the ledger names the same
+rows the SQL finds (else that row is `FAIL`). Exit 0 = no `FAIL`; exit 3 = `validate-etl: N check(s) FAILED` on
+stderr (or no `-v v2`). A run is accepted only at exit 0 (plan §5.1: three in a row on rehearsals).
+
 ## 4. What a run carries (M3.2: users and uploads; M3.3: catalog pairs, vocabulary, insights, sessions)
 
 Steps, in order: `users` (legacy `users`, `admin_users` → `users`), then `uploads` (`user_books`,
@@ -227,6 +246,8 @@ may run (it cascades to that user's V2 rows); a non-guest account comes with non
   null `sha256` is hashed from them read-only. Its chapters are not carried; its reading state,
   annotations and jobs are. Its anchored annotations are quote-checked against legacy's chapters, as
   every one is. Each such book is listed in `orphanCandidates`, on a dry and a real run. Not a failure.
+  A carried takedown annotation keeps its `textstack-anchor-v1` locator and `file_id` while V2 holds no
+  chapter for that file: anything that later resolves anchors must expect one that names no chapter.
 - **Non-ready uploads** (`user_books.status` Processing or Failed; owner 2026-11-08): carried with their
   bytes as any upload (it is the user's file), and each listed in `cleanupActions` for a human. Not a failure.
 - **Files** (row 35, item 2): `sha256` lowercased; a null one is hashed from the bytes; a file whose bytes

@@ -82,7 +82,7 @@ public abstract class EtlTestBase(PostgresFixture legacy, V2PostgresFixture v2) 
         };
     }
 
-    public async ValueTask DisposeAsync()
+    public virtual async ValueTask DisposeAsync()
     {
         await Task.WhenAll(legacy.Databases.DropAsync(_prefix), v2.Databases.DropAsync(_prefix));
         GC.SuppressFinalize(this);

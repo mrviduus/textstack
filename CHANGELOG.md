@@ -22,6 +22,8 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Infra** — M3.4: `database/v2/scripts/validate-etl.sql` (read-only re-check of a real ETL run from SQL alone) and the whole-run ETL tests T1–T4 — interrupted, retry, concurrent, idempotent — on a fixture mirroring production shapes (#1029) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-11-09-m3-4-validate-etl-t1-t4)
+- **Infra** — `0005_book_formats`: V2 `book_files.format` takes fb2, mobi, azw3, cbz (ADR-031 amended 2026-11-07, ADR-032); the ETL carries legacy's fb2 uploads; the down refuses while any row holds a new format (#1013, owner-approved diff) — infra
 - **Infra** — M3.3: the `etl-v2` mapper steps — catalog pairs → `books` (uuid v5, no file) + unanchored annotations, vocabulary with its case-merge, insights, review questions, sessions, and the unknown-users check (#1028) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-11-08-m3-3-etl-mappers-catalog-vocab)
 - **Infra** — M3.2: the `etl-v2` mapper steps — users/admin → `users`, uploads → `books`/`book_files`/`reading_state`/`annotations`/`book_chapters`/`ingestion_jobs` (fenced writes, per-aggregate named checks, files copied never moved, takedowns carried hidden without bytes, #1027) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-11-08-m3-2-etl-mappers-users-uploads)
 - **Infra** — M3.1: the `etl-v2` CLI skeleton (ledger, ETL lock, read-only audited `etl_reader` source, dry run that writes nothing, fail-closed validation; no mapper steps yet, #1026) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-11-07-m3-1-etl-v2-cli-skeleton)
