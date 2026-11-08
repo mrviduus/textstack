@@ -226,8 +226,8 @@ BEGIN
     IF bad IS NOT NULL THEN RAISE EXCEPTION 'migration_runs columns missing or of the wrong type/nullability: %', bad; END IF;
 
     IF (SELECT column_default FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'migration_runs' AND column_name = 'started_at') IS DISTINCT FROM 'now()' THEN
-        RAISE EXCEPTION 'migration_runs.started_at does not default to the server''s now()';
+        WHERE table_schema = 'public' AND table_name = 'migration_runs' AND column_name = 'started_at') IS DISTINCT FROM 'clock_timestamp()' THEN
+        RAISE EXCEPTION 'migration_runs.started_at does not default to the server''s clock_timestamp()';
     END IF;
 
     IF (SELECT col_description(attrelid, attnum) FROM pg_attribute WHERE attrelid = 'public.migration_runs'::regclass AND attname = 'source_dump_sha') IS NULL
