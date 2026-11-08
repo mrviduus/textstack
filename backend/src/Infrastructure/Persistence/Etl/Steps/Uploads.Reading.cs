@@ -155,7 +155,9 @@ public static partial class EtlV2Uploads
         var missing = written
             ? await EtlV2Rows.TargetAsync<Guid>(context, QuotesMissingInV2, new { ids }, ct)
             : await EtlV2Rows.SourceAsync<Guid>(context, QuotesMissingInLegacy, new { ids }, ct);
-        EtlV2Rows.Check(context, "annotations: selected_text not in its chapter's plain_text", missing.Select(id => id.ToString()));
+        // The gate (legacy's chapters) keeps its name; the verification after the write names V2's.
+        EtlV2Rows.Check(context, written ? "annotations: selected_text not in its V2 chapter's plain_text (after the write)"
+            : "annotations: selected_text not in its chapter's plain_text", missing.Select(id => id.ToString()));
     }
 
     private static string? Scheme(string? locator)

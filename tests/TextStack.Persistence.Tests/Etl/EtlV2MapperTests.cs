@@ -531,6 +531,8 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
             "users: google_subject duplicated in legacy", [$"{Alice}/{Carol}"]),
         "dup-apple-subject" => ($"DROP INDEX ix_users_apple_subject; UPDATE users SET apple_subject = 'apple-x' WHERE id IN ('{Alice}', '{Carol}')",
             "users: apple_subject duplicated in legacy", [$"{Alice}/{Carol}"]),
+        "size-mismatch" => ($"UPDATE user_book_files SET file_size = 999 WHERE id = '{EpubFile}'",
+            "library_files: bytes differ from the recorded file_size (no recorded sha256)", [$"user_book_files {EpubFile}"]),
         "job-format" => ($"UPDATE user_ingestion_jobs SET source_format = 'Mobi' WHERE id = '{EpubJob}'", "ingestion_jobs: status or source format V2 does not take", [EpubJob.ToString()]),
         _ => throw new ArgumentOutOfRangeException(nameof(defect)),
     };
@@ -556,6 +558,7 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     [InlineData("admin-case-twin")]
     [InlineData("dup-google-subject")]
     [InlineData("dup-apple-subject")]
+    [InlineData("size-mismatch")]
     public async Task RunAsync_DryRunLegacyDefect_PreflightFailsTheNamedCheck(string defect)
     {
         // A dry run is the pre-flight: a defect the real run's CHECKs would abort on must fail here, by name and id.
@@ -571,14 +574,17 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.False(Directory.Exists(LibraryRoot));
     }
 
-    [Fact]
-    public async Task RunAsync_EmptyGoogleSubject_CarriedAsNull()
+    [Theory]
+    [InlineData("google_subject")]
+    [InlineData("apple_subject")]
+    public async Task RunAsync_EmptySubject_CarriedAsNull(string column)
     {
         var options = await SeedAsync();
+        await ExecAsync(options.Source, $"UPDATE users SET {column} = '' WHERE id = @Alice", new { Alice });
 
         await EtlV2.RunAsync(options, ct: Ct);
 
-        Assert.True(await V2Scalar<bool>(options, "SELECT google_subject IS NULL FROM users WHERE id = @Alice", new { Alice }));
+        Assert.True(await V2Scalar<bool>(options, $"SELECT {column} IS NULL FROM users WHERE id = @Alice", new { Alice }));
     }
 
     [Fact]
@@ -814,5 +820,72 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
 
         TestJson.AssertSameJson("""{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"two","chapterFraction":0}}""",
             await V2Scalar<string>(options, "SELECT current_locator::text FROM reading_state WHERE book_id = @Epub", new { Epub }));
+    }
+
+    // Second review round (high, #1027).
+
+    [Fact]
+    public async Task RunAsync_ChaptersReExtractedBetweenRuns_SecondaryKeysFailPreflightNothingWritten()
+    {
+        // Re-extraction gives Chapter2 a new id; V2 still holds the old row on the same (file, key) and (file, number).
+        var options = await SeedAsync();
+        await EtlV2.RunAsync(options, ct: Ct);
+        var reExtracted = Guid.Parse("11000000-0000-0000-0000-0000000000f2");
+        await ExecAsync(options.Source, """
+            INSERT INTO user_chapters (id, user_book_id, chapter_number, title, html, plain_text, word_count, slug, created_at)
+                SELECT @reExtracted, user_book_id, -1, title, html, plain_text, word_count, slug, created_at FROM user_chapters WHERE id = @Chapter2;
+            UPDATE highlights SET user_chapter_id = @reExtracted WHERE user_chapter_id = @Chapter2;
+            DELETE FROM user_chapters WHERE id = @Chapter2;
+            UPDATE user_chapters SET chapter_number = 1 WHERE id = @reExtracted;
+            """, new { reExtracted, Chapter2 });
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+
+        Assert.Equal([$"{reExtracted}/{Chapter2}"], Assert.Single(error.Checks, c => c.Name == "book_chapters: (user_id, file_id, chapter_key) held by another V2 id").Ids);
+        Assert.Equal([$"{reExtracted}/{Chapter2}"], Assert.Single(error.Checks, c => c.Name == "book_chapters: (user_id, book_id, file_id, chapter_number) held by another V2 id").Ids);
+        Assert.Contains($"book_chapters {Chapter2}: V2 row with no legacy row; not deleted, a human reviews it", error.CleanupActions);
+        Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM book_chapters WHERE id = @reExtracted", new { reExtracted }));
+    }
+
+    [Fact]
+    public async Task RunAsync_FileReplacedBetweenRuns_CurrentFileKeyFailsPreflight()
+    {
+        var options = await SeedAsync();
+        await EtlV2.RunAsync(options, ct: Ct);
+        var replacement = Guid.Parse("c0000000-0000-0000-0000-0000000000c2");
+        await ExecAsync(options.Source, "UPDATE user_book_files SET id = @replacement WHERE id = @ClipFile",
+            new { replacement, ClipFile });
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+
+        Assert.Equal([$"{replacement}/{ClipFile}"], Assert.Single(error.Checks, c => c.Name == "book_files: (user_id, book_id) current file held by another V2 id").Ids);
+    }
+
+    [Fact]
+    public async Task RunAsync_RealRunQuoteDrift_GateFailsAndWritesNothing()
+    {
+        // The quote gate runs before the write: a commit followed by a failed check would wedge every re-run.
+        var options = await SeedAsync();
+        await ExecAsync(options.Source, "UPDATE highlights SET selected_text = 'melange' WHERE id = @Anchored", new { Anchored });
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, ct: Ct));
+
+        Assert.Equal([Anchored.ToString()], Assert.Single(error.Checks, c => c.Name == "annotations: selected_text not in its chapter's plain_text").Ids);
+        Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM books"));
+        Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM annotations"));
+        Assert.False(Directory.Exists(LibraryRoot));
+    }
+
+    [Fact]
+    public async Task RunAsync_V2OnlyBook_ReportedAsCleanupAndKept()
+    {
+        var options = await SeedAsync();
+        var book = Guid.Parse("9b000000-0000-0000-0000-00000000009b");
+        await ExecAsync(options.Target, """INSERT INTO books (id, user_id, title, origin) VALUES (@book, @Carol, 'V2 only', '{"kind":"upload"}')""", new { book, Carol });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Contains($"books {book}: V2 row with no legacy row; not deleted, a human reviews it", report.CleanupActions);
+        Assert.Equal(1, await V2Scalar<long>(options, "SELECT count(*) FROM books WHERE id = @book", new { book }));
     }
 }

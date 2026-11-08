@@ -17,9 +17,9 @@ public static class EtlV2Users
     private const string Columns =
         "id, email, google_subject, apple_subject, password_hash, name, picture, is_guest, last_active_at, native_language, storage_used_bytes, storage_limit_override_bytes, tier, promoted_at, role, created_at";
 
-    // Legacy's unused '' default for google_subject is no subject: two of them would collide on V2's unique index.
+    // '' is no subject (legacy's unused default for google_subject): carried, it would squat V2's partial unique index.
     private const string SelectLegacyUsers = """
-        SELECT id, email, NULLIF(google_subject, '') AS google_subject, apple_subject, password_hash, name, picture, is_guest,
+        SELECT id, email, NULLIF(google_subject, '') AS google_subject, NULLIF(apple_subject, '') AS apple_subject, password_hash, name, picture, is_guest,
                last_active_at, native_language, storage_used_bytes, storage_limit_override_bytes, tier, promoted_at, 'reader' AS role, created_at
         FROM users
         ORDER BY id
@@ -84,7 +84,7 @@ public static class EtlV2Users
         foreach (var (column, subject) in new (string, Func<UserRow, string?>)[] { ("google_subject", u => u.GoogleSubject), ("apple_subject", u => u.AppleSubject) })
             EtlV2Rows.Check(context, $"users: {column} duplicated in legacy", expected.Values.Where(u => subject(u) is not null).GroupBy(subject)
                 .Where(g => g.Count() > 1).Select(g => string.Join("/", g.Select(u => u.Id))));
-        foreach (var (id, row) in expected)
+        foreach (var (id, row) in expected.ToArray())
             if (v2.TryGetValue(id, out var current) && current.Role == "admin")
                 expected[id] = row with { Role = "admin" };
         EtlV2Rows.Check(context, "users: tier outside V2's set", expected.Values.Where(u => !Tiers.Contains(u.Tier)).Select(u => u.Id.ToString()));

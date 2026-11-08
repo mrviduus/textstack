@@ -26,20 +26,20 @@ public static class FileStoreRegistration
     /// </summary>
     public static IServiceCollection AddTextStackFileStores(this IServiceCollection services, IConfiguration configuration)
     {
-        var storage = AsDirectory(StorageRoot(configuration));
-        var library = AsDirectory(LibraryRoot(configuration));
+        var (storage, library) = (StorageRoot(configuration), LibraryRoot(configuration));
         if (RootsAreNested(storage, library))
             throw new InvalidOperationException(
-                $"Storage:LibraryRoot ({library}) and Storage:RootPath ({storage}) are nested, and /storage serves the root publicly. Make them separate directories, e.g. /library and /storage (#1110).");
+                $"Storage:LibraryRoot ({AsDirectory(library)}) and Storage:RootPath ({AsDirectory(storage)}) are nested, and /storage serves the root publicly. Make them separate directories, e.g. /library and /storage (#1110).");
 
         // Leftover V2 files under the public root: a warning in both modes, never a crash loop. The
         // /storage/library|uploads denylist (UserStoragePolicy, nginx) keeps them private meanwhile.
         // No logger exists yet at registration; stderr reaches `docker compose logs`.
         foreach (var dir in new[] { "library", "uploads" })
         {
-            var (hasFiles, unreadable) = Scan(Path.Combine(storage, dir));
+            var leftover = Path.Combine(Path.GetFullPath(storage), dir);
+            var (hasFiles, unreadable) = Scan(leftover);
             if (hasFiles)
-                Console.Error.WriteLine(LeftoverWarning(Path.Combine(storage, dir)));
+                Console.Error.WriteLine(LeftoverWarning(leftover));
             if (unreadable is not null)
                 Console.Error.WriteLine($"warn: V2 leftover scan incomplete: {unreadable} unreadable.");
         }

@@ -118,18 +118,22 @@ public static partial class EtlV2Uploads
         var v2Chapters = await EtlV2Rows.TargetAsync<ChapterRow>(context, SelectV2Chapters, null, ct);
         ReportStaleTakedowns(context, legacyBooks, v2Books, v2Chapters, bytes);
         var bookPlan = Plan(context, "books", books, v2Books, b => b.Id);
-        var filePlan = Plan(context, "book_files", files.Values, await EtlV2Rows.TargetAsync<FileRow>(context, SelectV2Files, null, ct), f => f.Id);
+        var v2Files = await EtlV2Rows.TargetAsync<FileRow>(context, SelectV2Files, null, ct);
+        var filePlan = Plan(context, "book_files", files.Values, v2Files, f => f.Id);
         var statePlan = Plan(context, "reading_state", states, await EtlV2Rows.TargetAsync<StateRow>(context, SelectV2States, null, ct), s => (s.UserId, s.BookId));
         var annotationPlan = Plan(context, "annotations", annotations, await EtlV2Rows.TargetAsync<AnnotationRow>(context, SelectV2Annotations, null, ct), a => a.Id);
         var chapterPlan = Plan(context, "book_chapters", chapters, v2Chapters, c => c.Id);
+        // V2's secondary unique keys: a new row whose key a stale V2 row holds (legacy re-extracted, a file replaced) would abort with 23505.
+        HeldByAnother(context, "book_files: (user_id, book_id) current file", filePlan.New, v2Files.Where(f => f.IsCurrent), f => f.Id, f => (f.UserId, f.BookId));
+        HeldByAnother(context, "book_chapters: (user_id, file_id, chapter_key)", chapterPlan.New, v2Chapters, c => c.Id, c => (c.UserId, c.FileId, c.ChapterKey));
+        HeldByAnother(context, "book_chapters: (user_id, book_id, file_id, chapter_number)", chapterPlan.New, v2Chapters, c => c.Id, c => (c.UserId, c.BookId, c.FileId, c.ChapterNumber));
         var jobPlan = Plan(context, "ingestion_jobs", jobs, await EtlV2Rows.TargetAsync<JobRow>(context, SelectV2Jobs, null, ct), j => j.Id);
         context.Writes["library_files"] = new(bytes.Pending.Count, 0, bytes.Present);
+        // The gate, on both kinds of run: a failing quote found after the commit would wedge every re-run.
+        await CheckQuotesAsync(context, annotations, takenDown, written: false, ct);
 
         if (!context.MayWrite)
-        {
-            await CheckQuotesAsync(context, annotations, takenDown, written: false, ct);
             return;
-        }
         await using (var tx = await context.BeginWriteAsync(ct))
         {
             // Inside the fence, so a run that lost it copies nothing; bytes before rows, so a row never names a
@@ -180,7 +184,20 @@ public static partial class EtlV2Uploads
         var plan = EtlV2Rows.Classify(expected, actual, key);
         EtlV2Rows.Check(context, $"{table}: V2 row differs from its legacy mapping", plan.Different.Select(r => key(r).ToString()!));
         context.Writes[table] = new(plan.New.Count, 0, plan.Unchanged);
+        // As users: reported only, never deleted.
+        var mapped = expected.Select(key).ToHashSet();
+        foreach (var orphan in actual.Select(key).Where(k => !mapped.Contains(k)).Select(k => k.ToString()!).Order(StringComparer.Ordinal))
+            context.CleanupActions.Add($"{table} {orphan}: V2 row with no legacy row; not deleted, a human reviews it");
         return plan;
+    }
+
+    /// <summary>A new row whose secondary unique key V2 holds under another id: "{key} held by another V2 id", as row/holder.</summary>
+    private static void HeldByAnother<T, TKey>(EtlV2Context context, string key, IEnumerable<T> rows, IEnumerable<T> v2, Func<T, Guid> id, Func<T, TKey> value)
+        where TKey : notnull
+    {
+        var holders = v2.ToLookup(value, id);
+        EtlV2Rows.Check(context, $"{key} held by another V2 id",
+            rows.SelectMany(r => holders[value(r)].Where(holder => holder != id(r)).Select(holder => $"{id(r)}/{holder}")));
     }
 
     /// <summary>After the write: every mapped row is in V2 as mapped (count and content parity), and under its legacy owner.</summary>
@@ -258,7 +275,7 @@ public static partial class EtlV2Uploads
             var takenDown = book.TakedownAt is not null;
             // ADR-031 item 2: null sha256 → hashed from the bytes; no bytes → no row, the book stays without a file.
             // A takedown's bytes are hashed, never copied.
-            if (bytes.Carry($"user_book_files {f.Id}", f.StoragePath, key, f.Sha256, copy: !takenDown) is not { } sha256)
+            if (bytes.Carry($"user_book_files {f.Id}", f.StoragePath, key, f.Sha256, copy: !takenDown, recordedSize: f.ByteSize) is not { } sha256)
             {
                 context.OrphanCandidates.Add($"user_book_files {f.Id}: no bytes on disk; book {book.Id} migrates without a file (ADR-031 item 2)");
                 continue;
@@ -295,6 +312,7 @@ public static partial class EtlV2Uploads
         private readonly List<string> _outside = [];
         private readonly List<string> _wrongHash = [];
         private readonly List<string> _keyTaken = [];
+        private readonly List<string> _wrongSize = [];
 
         public Bytes(EtlV2Context context, bool needed)
         {
@@ -309,7 +327,7 @@ public static partial class EtlV2Uploads
             _storageRoot = FileStoreRegistration.AsDirectory(context.StorageRoot);
             _libraryRoot = Path.GetFullPath(context.LibraryRoot);
             // /storage is served publicly: copied library bytes under it would be too (#1110).
-            if (FileStoreRegistration.RootsAreNested(_storageRoot, _libraryRoot))
+            if (FileStoreRegistration.RootsAreNested(context.StorageRoot, context.LibraryRoot))
                 throw new InvalidOperationException("Storage:LibraryRoot and Storage:RootPath are nested; make them separate directories (#1110)");
             _store = new LibraryFileStore(_libraryRoot);
         }
@@ -320,6 +338,7 @@ public static partial class EtlV2Uploads
             EtlV2Rows.Check(_context, "library_files: legacy path outside Storage:RootPath", _outside);
             EtlV2Rows.Check(_context, "library_files: bytes differ from the recorded sha256", _wrongHash);
             EtlV2Rows.Check(_context, "library_files: V2 key already holds other bytes", _keyTaken);
+            EtlV2Rows.Check(_context, "library_files: bytes differ from the recorded file_size (no recorded sha256)", _wrongSize);
         }
 
         /// <summary>The library's keys; only when there are uploads to carry (the roots were checked).</summary>
@@ -339,7 +358,7 @@ public static partial class EtlV2Uploads
         public int Present { get; private set; }
 
         /// <summary>The bytes' SHA-256 when legacy has them (copy queued, unless V2 holds them already or not <paramref name="copy"/>); null when missing.</summary>
-        public string? Carry(string what, string relativePath, string key, string? recordedSha256, bool copy = true)
+        public string? Carry(string what, string relativePath, string key, string? recordedSha256, bool copy = true, long? recordedSize = null)
         {
             var from = Path.GetFullPath(Path.Combine(_storageRoot, relativePath));
             if (!from.StartsWith(_storageRoot, StringComparison.Ordinal))
@@ -350,14 +369,19 @@ public static partial class EtlV2Uploads
             if (!File.Exists(from))
                 return null;
             var sha256 = Hash(from);
+            var length = new FileInfo(from).Length;
             if (recordedSha256 is not null && recordedSha256 != sha256)
                 _wrongHash.Add(what);
+            // No recorded hash to vouch for them: byte_size is legacy's file_size, so it must be the bytes' length.
+            if (recordedSha256 is null && recordedSize is { } size && size != length)
+                _wrongSize.Add(what);
             if (!copy)
                 return sha256;
             var to = Path.Combine(_libraryRoot, key);
             if (!File.Exists(to))
                 Pending.Add((from, to));
-            else if (Hash(to) == sha256)
+            // Another length is other bytes, no hash needed; an equal one is confirmed by hash.
+            else if (new FileInfo(to).Length == length && Hash(to) == sha256)
                 Present++;
             else
                 _keyTaken.Add(what);
