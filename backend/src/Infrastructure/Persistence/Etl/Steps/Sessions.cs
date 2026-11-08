@@ -11,7 +11,7 @@ namespace Infrastructure.Persistence.Etl;
 /// </summary>
 public static class EtlV2Sessions
 {
-    public static readonly EtlV2Step Step = new("sessions", ["reading_sessions", "user_books", .. EtlV2Catalog.IntentSources], ["reading_sessions"], RunAsync);
+    public static readonly EtlV2Step Step = new("sessions", ["reading_sessions", "user_books", "users", "admin_users", .. EtlV2Catalog.IntentSources], ["reading_sessions"], RunAsync);
 
     private const string SelectLegacySessions = """
         SELECT id, user_id, edition_id, user_book_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent,
@@ -20,6 +20,9 @@ public static class EtlV2Sessions
         """;
 
     private const string SelectUploadOwners = "SELECT id, user_id FROM user_books";
+
+    // The accounts the users step carries.
+    private const string SelectCarriedUsers = "SELECT id FROM users UNION SELECT id FROM admin_users";
 
     private const string SelectV2Sessions = """
         SELECT id, user_id, book_id, client_session_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent,
@@ -79,9 +82,11 @@ public static class EtlV2Sessions
 
         var after = await EtlV2Rows.TargetAsync<SessionRow>(context, SelectV2Sessions, null, ct);
         EtlV2Rows.Verify(context, "reading_sessions: parity", sessions, after, s => s.Id);
-        // Every legacy session against every V2 one, per user: a session not carried, or one V2 has beyond legacy's, shows here.
+        // Per carried user, every legacy session against every V2 one: a session not carried, or one V2 has beyond legacy's,
+        // shows here. A V2-only user's sessions are report-only (the plan's cleanup lines), never this failure (owner 2026-11-08).
+        var carried = (await EtlV2Rows.SourceAsync<Guid>(context, SelectCarriedUsers, null, ct)).ToHashSet();
         var expected = legacy.GroupBy(s => s.UserId).ToDictionary(g => g.Key, g => g.Sum(s => (long)s.DurationSeconds));
-        var actual = after.GroupBy(s => s.UserId).ToDictionary(g => g.Key, g => g.Sum(s => (long)s.DurationSeconds));
+        var actual = after.Where(s => carried.Contains(s.UserId)).GroupBy(s => s.UserId).ToDictionary(g => g.Key, g => g.Sum(s => (long)s.DurationSeconds));
         EtlV2Rows.Check(context, "reading_sessions: seconds per user differ",
             expected.Keys.Union(actual.Keys).Where(u => expected.GetValueOrDefault(u) != actual.GetValueOrDefault(u)).Select(u => u.ToString()));
     }

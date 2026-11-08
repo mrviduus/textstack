@@ -141,7 +141,7 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
         Assert.All(report.Checks, c => Assert.Equal(0, c.Failures));
         string[] named = ["catalog: intent pair incomplete (its book or an annotation is not in V2 as mapped)", "vocabulary_words: parity (SRS fields equal)",
             "vocabulary: review count differs (legacy reviews of a merged group vs its survivor's V2 reviews)", "book_insight: parity", "review_question: parity",
-            "reading_sessions: seconds per user differ", "unknown-user-ids: V2 rows whose owner is no legacy user or admin"];
+            "reading_sessions: seconds per user differ", "unknown-user-ids: V2 rows whose owner is in neither legacy nor V2 users"];
         Assert.All(named, n => Assert.Contains(report.Checks, c => c.Name == n));
         Assert.Equal("succeeded", await ScalarAsync<string>(options.Target, "SELECT outcome FROM migration_runs"));
         var t = options.Target;
@@ -348,18 +348,71 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
     }
 
     [Fact]
-    public async Task RunAsync_V2RowOfNoLegacyUser_UnknownUserCheckFails()
+    public async Task RunAsync_V2OnlyUserWithABookAndASession_SucceedsAndReportsTheirRows()
     {
-        var options = await NewPairAsync(dryRun: true);
-        var stray = Guid.Parse("eeeeeeee-0000-4000-8000-000000000001");
+        // Owner 2026-11-08: a V2-only user is report-only, and so are its rows (unknown-user and seconds checks pass).
+        var options = await NewPairAsync();
+        var (stray, book, session) = (Guid.Parse("eeeeeeee-0000-4000-8000-000000000001"), Guid.NewGuid(), Guid.NewGuid());
         await ExecAsync(options.Target, """
             INSERT INTO users (id, email, created_at) VALUES (@stray, 'stray@test', now());
-            INSERT INTO vocabulary_words (id, user_id, language, word, word_key) VALUES (gen_random_uuid(), @stray, 'en', 'x', 'x');
-            """, new { stray });
+            INSERT INTO books (id, user_id, title, origin) VALUES (@book, @stray, 'Stray', '{"kind":"upload"}');
+            INSERT INTO reading_sessions (id, user_id, client_session_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent, created_at)
+            VALUES (@session, @stray, @session, now(), now(), 30, 0, 0, 0, now());
+            """, new { stray, book, session });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.All(report.Checks, c => Assert.Equal(0, c.Failures));
+        Assert.Contains($"books {book}: V2 row with no legacy row; not deleted, a human reviews it", report.CleanupActions);
+        Assert.Contains($"reading_sessions {session}: V2 row with no legacy row; not deleted, a human reviews it", report.CleanupActions);
+        Assert.Contains(report.CleanupActions, a => a.StartsWith($"users {stray}: V2 account with no legacy row"));
+    }
+
+    [Fact]
+    public async Task RunAsync_V2RowOwnedByAnIdInNeitherDatabase_UnknownUserCheckFails()
+    {
+        var options = await NewPairAsync(dryRun: true);
+        var ghost = Guid.Parse("eeeeeeee-0000-4000-8000-000000000002");
+        // V2's FKs forbid this row; replica mode skips them, to stand for a target that drifted from them.
+        await ExecAsync(options.Target, """
+            SET session_replication_role = replica;
+            INSERT INTO vocabulary_words (id, user_id, language, word, word_key) VALUES (gen_random_uuid(), @ghost, 'en', 'x', 'x');
+            """, new { ghost });
 
         var error = await FailsAsync(options);
 
-        Assert.Equal([$"vocabulary_words/{stray}"], Failed(error, "unknown-user-ids: V2 rows whose owner is no legacy user or admin"));
+        Assert.Equal([$"vocabulary_words/{ghost}"], Failed(error, "unknown-user-ids: V2 rows whose owner is in neither legacy nor V2 users"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_CatalogChapterSlugBlank_ExampleCarriedUnderTheNumberKey(bool dryRun)
+    {
+        // B1: legacy's slug is nullable with no CHECK; '' would break V2's chapter_key CHECK. Recoverable: the number fallback.
+        var options = await NewPairAsync(dryRun, extra: $"UPDATE chapters SET slug = '  ' WHERE id = '{MeaningfulNames}';");
+        var key = "ch-" + await ScalarAsync<int>(options.Source, $"SELECT chapter_number FROM chapters WHERE id = '{MeaningfulNames}'");
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.All(report.Checks, c => Assert.Equal(0, c.Failures));
+        if (dryRun)
+            Assert.Equal(new EtlV2Writes(3, 0, 0), report.Writes["vocabulary_examples"]);
+        else
+            Assert.Equal(key, await ScalarAsync<string>(options.Target, "SELECT chapter_key FROM vocabulary_examples WHERE sentence = 'Run, Forest!'"));
+    }
+
+    [Fact]
+    public async Task RunAsync_WordWithBothOwners_ExampleOnTheUploadAndReported()
+    {
+        // B2: no owner CHECK in legacy; the upload is the more specific owner, and the run says so.
+        var options = await NewPairAsync(extra: $"UPDATE vocabulary_words SET user_book_id = '{Upload}' WHERE id = '70000000-0000-4000-8000-000000000001';");
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal(Upload, await ScalarAsync<Guid>(options.Target, "SELECT book_id FROM vocabulary_examples WHERE sentence = 'Run, Forest!'"));
+        Assert.Contains($"vocabulary_words 70000000-0000-4000-8000-000000000001: both owners set (upload {Upload}, edition {CleanCode}); example kept on the upload",
+            report.CleanupActions);
     }
 
     /// <summary>One legacy defect per row: its SQL, the check it must fail, the failing ids.</summary>
@@ -645,6 +698,6 @@ public sealed class EtlV2M33Tests(PostgresFixture legacy, V2PostgresFixture v2) 
 
         var report = await EtlV2.RunAsync(options, ct: Ct);
 
-        Assert.Equal(0, Assert.Single(report.Checks, c => c.Name == "unknown-user-ids: V2 rows whose owner is no legacy user or admin").Failures);
+        Assert.Equal(0, Assert.Single(report.Checks, c => c.Name == "unknown-user-ids: V2 rows whose owner is in neither legacy nor V2 users").Failures);
     }
 }

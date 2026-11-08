@@ -313,5 +313,10 @@ incomplete` (completeness per intent pair: its book and every annotation as mapp
 parity (SRS fields equal)`, `vocabulary: review count differs` (a group's legacy reviews vs its survivor's V2
 reviews), `book_insight: parity` and `review_question: parity` (insight hashes equal, as every column
 compared), `reading_sessions: parity` and `reading_sessions: seconds per user differ` (all legacy sessions vs
-all V2 ones, per user). On a dry and a real run: `unknown-user-ids` (V2 rows of any table etl-v2 writes whose
-owner is no legacy user or admin; ids `table/user`).
+all V2 ones, per user carried; a V2-only user's sessions are cleanup lines, not this failure). On a dry and a
+real run: `unknown-user-ids` (V2 rows of any table etl-v2 writes whose owner is in neither legacy nor V2 users;
+ids `table/user`). A V2-only user's rows fail nothing: each is a "V2 row with no legacy row" cleanup line,
+report-only like the user (owner 2026-11-08).
+
+A catalog chapter's blank legacy slug falls back to `ch-<number>`, as a null one does. A legacy card with both
+`user_book_id` and `edition_id` keeps its example on the upload and is listed in `cleanupActions`.

@@ -18,10 +18,11 @@ public static class EtlV2Vocabulary
     public static readonly EtlV2Step Step = new("vocabulary", ["vocabulary_words", "vocabulary_reviews", "chapters", "user_books"],
         ["vocabulary_words", "vocabulary_examples", "vocabulary_reviews"], RunAsync);
 
-    // A catalog chapter is named by decided item 6's fallback key.
+    // A catalog chapter is named by decided item 6's fallback key; a blank legacy slug (nullable, no CHECK) falls back
+    // too, since V2's chapter_key CHECK refuses it and the number still names the chapter.
     private const string SelectLegacyWords = """
         SELECT w.id, w.user_id, w.language, w.word, w.translation, w.definition, w.edition_id, w.user_book_id, w.sentence, w.book_title,
-            COALESCE(c.slug, 'ch-' || c.chapter_number) AS chapter_key,
+            COALESCE(NULLIF(btrim(c.slug), ''), 'ch-' || c.chapter_number) AS chapter_key,
             w.stage, w.interval_days, w.consecutive_correct, w.next_review_at, w.last_reviewed_at, w.total_reviews,
             w.created_at, w.updated_at, w.is_retired, w.retired_at
         FROM vocabulary_words w LEFT JOIN chapters c ON c.id = w.chapter_id
@@ -84,6 +85,10 @@ public static class EtlV2Vocabulary
             ("blank word or language", w => WordKeys.Language(w.Language) == "" || WordKeys.Of(w.Word) == ""),
             ("negative SRS field", w => w.Stage < 0 || w.IntervalDays < 0 || w.ConsecutiveCorrect < 0),
             ("its upload belongs to another user", w => w.UserBookId is { } ub && uploadOwner[ub] != w.UserId));
+
+        // No owner CHECK in legacy: a card can name both. The upload is the more specific owner; reported, not silent.
+        foreach (var w in legacyWords.Where(w => w.UserBookId is not null && w.EditionId is not null))
+            context.CleanupActions.Add($"vocabulary_words {w.Id}: both owners set (upload {w.UserBookId}, edition {w.EditionId}); example kept on the upload");
 
         // legacy card id → the survivor's card
         var cardOf = new Dictionary<Guid, WordRow>();
