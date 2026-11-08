@@ -44,6 +44,12 @@ public class V2GateTests
         public void InvalidateCache() { }
     }
 
+    // A writable library root: with V2 on, an unwritable one is a 503 of its own (#1110), and these
+    // tests pin what V2's database does to the status code, nothing else. The default /library is
+    // not writable on a CI runner.
+    private static readonly string LibraryRoot =
+        Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "textstack-v2-gate-library")).FullName;
+
     private static WebApplicationFactory<Api.ApiMarker> Api(bool v2Api, string? v2ConnectionString) =>
         new WebApplicationFactory<Api.ApiMarker>().WithWebHostBuilder(b =>
         {
@@ -53,6 +59,7 @@ public class V2GateTests
             b.UseSetting("Features:V2Api", v2Api ? "true" : "false");
             b.UseSetting("ConnectionStrings:V2", v2ConnectionString);
             b.UseSetting("Storage:RootPath", Path.Combine(Path.GetTempPath(), "textstack-v2-gate"));
+            b.UseSetting("Storage:LibraryRoot", LibraryRoot);
             b.ConfigureTestServices(s =>
             {
                 s.RemoveAll<IHostedService>();
