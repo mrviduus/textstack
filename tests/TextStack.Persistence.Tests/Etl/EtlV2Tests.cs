@@ -455,6 +455,36 @@ public sealed class EtlV2Tests(PostgresFixture legacy, V2PostgresFixture v2)
     }
 
     [Fact]
+    public async Task RunAsync_StepQuotesTargetOnlyPassword_Scrubbed()
+    {
+        // The source and target passwords differ, so each one must be on the scrub list on its own.
+        var options = await NewPairAsync();
+        const string targetPassword = "tgt-only-s3cret";
+        var db = new NpgsqlConnectionStringBuilder(options.Target).Database;
+        await ExecAsync(options.Target, $"""
+            DO $$ BEGIN CREATE ROLE etl_rw LOGIN PASSWORD '{targetPassword}'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+            GRANT CONNECT ON DATABASE "{db}" TO etl_rw;
+            GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO etl_rw;
+            """);
+        var target = new NpgsqlConnectionStringBuilder(options.Target) { Username = "etl_rw", Password = targetPassword }.ConnectionString;
+        var fail = new EtlV2Step("fail", (_, _) => throw new InvalidDataException($"boom {targetPassword}"));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => EtlV2.RunAsync(options with { Target = target }, [fail], Ct));
+
+        Assert.Equal("boom ***", error.Message);
+        Assert.Equal("InvalidDataException: boom ***", await ScalarAsync<string>(options.Target, "SELECT validation ->> 'error' FROM migration_runs WHERE outcome = 'failed'"));
+    }
+
+    [Fact(Skip = "BUG: make echoes the etl-v2 recipe, so a password in ARGS is printed; prefix the recipe with @")]
+    public void Makefile_EtlV2Recipe_NotEchoed()
+    {
+        var lines = File.ReadAllLines(Path.Combine(PostgresFixture.RepoRoot(), "Makefile"));
+        var recipe = lines[Array.IndexOf(lines, "etl-v2:") + 1];
+
+        Assert.StartsWith("\t@", recipe);
+    }
+
+    [Fact]
     public void EtlSources_NoBlanketOnConflictDoNothing()
     {
         // v2-plan §5.2: per-aggregate conflict rules; a blanket DO NOTHING hides a re-run's divergence.
