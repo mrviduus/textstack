@@ -54,9 +54,6 @@ public static class EtlV2Users
 
         var expected = legacy.ToDictionary(u => u.Id);
         var byEmail = legacy.ToLookup(u => u.Email.ToLowerInvariant());
-        // No merge rule is decided for them (#1027): the second of a pair would abort on V2's lower(email) index.
-        EtlV2Rows.Check(context, "users: legacy emails equal but for case",
-            byEmail.Where(g => g.Count() > 1).Select(g => string.Join("/", g.Select(u => u.Id))));
         // An inactive admin is not promoted, and not decided either: refused, never guessed (ADR-031 item 7 covers active ones).
         EtlV2Rows.Check(context, "users: inactive admin_users row (no rule decided)", admins.Where(a => !a.IsActive).Select(a => a.Id.ToString()));
         var adminIdTaken = new List<string>();
@@ -71,6 +68,10 @@ public static class EtlV2Users
                 expected[admin.Id] = new UserRow { Id = admin.Id, Email = admin.Email, PasswordHash = admin.PasswordHash, Role = "admin", CreatedAt = admin.CreatedAt };
         }
         EtlV2Rows.Check(context, "users: admin_users id held by a user of another email", adminIdTaken);
+        // No merge rule is decided for them (#1027): the second of a pair would abort on V2's lower(email) index.
+        // Over every row to write, so two admins with no user (admin_users.email is unique only case-sensitively) count too.
+        EtlV2Rows.Check(context, "users: legacy emails equal but for case", expected.Values.GroupBy(u => u.Email.ToLowerInvariant())
+            .Where(g => g.Count() > 1).Select(g => string.Join("/", g.Select(u => u.Id))));
         foreach (var (id, row) in expected)
             if (v2.TryGetValue(id, out var current) && current.Role == "admin")
                 expected[id] = row with { Role = "admin" };

@@ -17,6 +17,7 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     private static readonly Guid Carol = Guid.Parse("c3000000-0000-0000-0000-000000000003");
     private static readonly Guid OpsAdmin = Guid.Parse("d4000000-0000-0000-0000-000000000004");
     private static readonly Guid AliceAdmin = Guid.Parse("d4000000-0000-0000-0000-000000000005");
+    private static readonly Guid OpsTwin = Guid.Parse("d4000000-0000-0000-0000-000000000006");
     private static readonly Guid Epub = Guid.Parse("e0000000-0000-0000-0000-00000000000e");
     private static readonly Guid EpubFile = Guid.Parse("e0000000-0000-0000-0000-0000000000ef");
     private static readonly Guid Pdf = Guid.Parse("f0000000-0000-0000-0000-00000000000f");
@@ -520,6 +521,8 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         "pdf-anchor-on-epub" => ($"UPDATE highlights SET user_book_id = '{Epub}' WHERE id = '{PdfHighlight}'", "annotations: anchor V2 cannot hold", [PdfHighlight.ToString()]),
         "dup-chapter-key" => ($"UPDATE user_chapters SET slug = 'ch-1' WHERE id = '{Chapter1}'", "book_chapters: two chapters of a file with one key", [$"{Chapter1}/{Chapter2}"]),
         "blank-chapter-key" => ($"UPDATE user_chapters SET slug = ' ' WHERE id = '{Chapter2}'", "book_chapters: blank chapter key", [Chapter2.ToString()]),
+        "admin-case-twin" => ($"INSERT INTO admin_users (id, email, password_hash, role, is_active, created_at, updated_at) VALUES ('{OpsTwin}', 'Ops@Test.com', 'hash-ops2', 0, true, now(), now())",
+            "users: legacy emails equal but for case", [$"{OpsAdmin}/{OpsTwin}"]),
         "job-format" => ($"UPDATE user_ingestion_jobs SET source_format = 'Mobi' WHERE id = '{EpubJob}'", "ingestion_jobs: status or source format V2 does not take", [EpubJob.ToString()]),
         _ => throw new ArgumentOutOfRangeException(nameof(defect)),
     };
@@ -542,6 +545,7 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     [InlineData("dup-chapter-key")]
     [InlineData("blank-chapter-key")]
     [InlineData("job-format")]
+    [InlineData("admin-case-twin")]
     public async Task RunAsync_DryRunLegacyDefect_PreflightFailsTheNamedCheck(string defect)
     {
         // A dry run is the pre-flight: a defect the real run's CHECKs would abort on must fail here, by name and id.
@@ -565,6 +569,21 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         await EtlV2.RunAsync(options, ct: Ct);
 
         Assert.True(await V2Scalar<bool>(options, "SELECT google_subject IS NULL FROM users WHERE id = @Alice", new { Alice }));
+    }
+
+    [Fact]
+    public async Task RunAsync_FenceLostBeforeUploadsWrite_CopiesNoBytes()
+    {
+        // Another run closed this one's ledger row: the uploads step must notice before a byte lands in the library.
+        var options = await SeedAsync();
+        var close = new EtlV2Step("close-run", (_, _) =>
+            ExecAsync(options.Target, "UPDATE migration_runs SET outcome = 'interrupted', finished_at = GREATEST(clock_timestamp(), started_at)"));
+
+        var error = await Assert.ThrowsAsync<EtlV2Exception>(() => EtlV2.RunAsync(options, [EtlV2Users.Step, close, EtlV2Uploads.Step], Ct));
+
+        Assert.Contains("is no longer open in migration_runs", error.Message);
+        Assert.False(Directory.Exists(LibraryRoot));
+        Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM books"));
     }
 
     [Fact]

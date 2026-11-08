@@ -116,11 +116,11 @@ public static partial class EtlV2Uploads
             await CheckQuotesAsync(context, annotations, written: false, ct);
             return;
         }
-        // Bytes before rows: a row never names a key with nothing behind it. A run that fails after this
-        // leaves bytes no row names, which the worker's orphan sweep removes.
-        bytes.CopyPending();
         await using (var tx = await context.BeginWriteAsync(ct))
         {
+            // Inside the fence, so a run that lost it copies nothing; bytes before rows, so a row never names a
+            // key with nothing behind it. A run that fails after this leaves bytes no row names (the worker's orphan sweep).
+            bytes.CopyPending();
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertBook, bookPlan.New, tx.Transaction, cancellationToken: ct));
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertFile, filePlan.New, tx.Transaction, cancellationToken: ct));
             await tx.Connection.ExecuteAsync(new CommandDefinition(InsertJob, jobPlan.New, tx.Transaction, cancellationToken: ct));
