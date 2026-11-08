@@ -562,7 +562,7 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
                 VALUES (@highlight, @Alice, '11111111-1111-1111-1111-111111111111', @edition, '{"exact":"z"}', 'yellow', 'z', 1, now(), now());
             """, new { work, edition, highlight, Alice });
 
-        var report = await EtlV2.RunAsync(options, ct: Ct);
+        var report = await EtlV2.RunAsync(options, [EtlV2Users.Step, EtlV2Uploads.Step], Ct);
 
         Assert.Equal(0, await V2Scalar<long>(options, "SELECT count(*) FROM annotations WHERE id = @highlight", new { highlight }));
         Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(highlight.ToString()));
