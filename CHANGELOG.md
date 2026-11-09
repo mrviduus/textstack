@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Infra** — restore-drill gains an opt-in ETL rehearsal mode (`etl_rehearsal` dispatch input, default off; scheduled drill unchanged): restore → dry run → real run → validate → re-run 0 writes → validate, entirely on a GitHub runner from the R2 backups, with a masked public step summary (toward M3.5 #1030) — infra
 - **Library** — the V2 library feed carries `ingestion`, `chapterCount` and `wordCount` on the file DTO (transitional, dies at M6.4): the shelf is always 2 requests (was 32 on a 30-book cold load), `/chapters` is reader-only, and extraction completion now bumps `books.updated_at` so a feed cursor sees the status change (#1118) — backend, web, mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-09-library-v2-feed-file-summary)
 - **Mobile** — V2 store writes answered after sign-out no longer leak the previous account’s rows (one `whileCurrent` epoch choke point; shared vocabulary takes an injected epoch + cards map, so web reads come back empty too); a sign-out mid highlight save is a quiet drop, not an error toast (#1151) — mobile, web · [details](docs/changelog-archive/2026-H2.md#2026-11-09-mobile-v2-epoch-guard-post-await-writes)
 - **Infra** — #1094 closed by verification: the ETL users mapper already upserts M2.2 shadow rows (landed unannounced in M3.2); pinned by tests (role + credentials_reset_at kept, email-conflict pre-flight, 0-write rerun), runbook §4 documents shadow rows; plus the #1109/#1150 doc nits — backend

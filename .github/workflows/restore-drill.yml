@@ -8,11 +8,25 @@ name: Restore drill (R2 → clean machine)
 # The V2 database (ADR-030, #1043) is restored and row-counted too, when the backup has one.
 #
 # Monthly + on demand. A backup that was never restored is a hope, not a backup.
+#
+# On demand only, `etl_rehearsal: true` then rehearses the legacy → V2 ETL on the restored pair
+# (docs/03-ops/v2-etl.md; M3.5, #1030): dry run → real run → validate-etl → re-run (0 writes) →
+# validate again, all on this runner. The step summary carries timings, counts and check names; ids
+# are masked (public repo: run logs and summaries are public), no text is ever printed.
 
 on:
   schedule:
     - cron: '0 6 1 * *'   # 1st of the month, after the nightly backup
   workflow_dispatch:
+    inputs:
+      etl_rehearsal:
+        description: 'After the drill, rehearse etl-v2 on the restored pair (M3.5)'
+        type: boolean
+        default: false
+      snapshot:
+        description: 'restic id of a /db.sql snapshot (storage and V2 from the same night); empty = latest'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -20,7 +34,8 @@ permissions:
 jobs:
   drill:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # inputs is empty on the schedule: 45.
+    timeout-minutes: ${{ inputs.etl_rehearsal && 150 || 45 }}
     services:
       db:
         # Same image as prod: the schema still creates the `vector` extension.
@@ -42,10 +57,13 @@ jobs:
       PSQL: psql -h 127.0.0.1 -U drill -d drill -v ON_ERROR_STOP=1 -qAt
       RESTORE: /tmp/restore
     steps:
-      # Only for database/v2: run.sh creates the scratch V2 database, the migrations name its tables.
+      # database/v2: run.sh creates the scratch V2 database, the migrations name its tables.
+      # backend: only the ETL rehearsal builds it (a few MB; simpler than a second checkout).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          sparse-checkout: database
+          sparse-checkout: |
+            database
+            backend
           persist-credentials: false
 
       - name: Install restic + psql
@@ -58,7 +76,38 @@ jobs:
         run: |
           restic snapshots --compact
 
+      # A pinned /db.sql snapshot: storage (/backup, sent just before it) and V2 (/db_v2.sql, just after)
+      # are the snapshots of their path closest in time, within 6 h. Unpinned, every step reads latest.
+      - name: Resolve pinned snapshot
+        if: inputs.snapshot
+        env:
+          SNAPSHOT: ${{ inputs.snapshot }}
+        run: |
+          set -euo pipefail
+          [[ "$SNAPSHOT" =~ ^[0-9a-f]{8,64}$ ]] || { echo "::error::snapshot must be a restic id (hex)"; exit 1; }
+          snap=$(restic snapshots --json "$SNAPSHOT")
+          [ "$(jq -r '.[0].paths | index("/db.sql") != null' <<<"$snap")" = true ] \
+            || { echo "::error::$SNAPSHOT is not a /db.sql snapshot"; exit 1; }
+          db_t=$(jq -r '.[0].time' <<<"$snap"); db=$(date -d "$db_t" +%s)
+          # "<seconds apart> <id>" of the snapshot of path $1 closest to the dump; nothing if it has none.
+          closest() {
+            restic snapshots --path "$1" --json | jq -r '.[] | "\(.time) \(.id)"' | while read -r t id; do
+              d=$(( $(date -d "$t" +%s) - db )); echo "${d#-} $id"
+            done | sort -n | head -n 1
+          }
+          read -r fd fid <<<"$(closest /backup)" || true
+          [ -n "${fid:-}" ] && [ "$fd" -le 21600 ] || { echo "::error::no /backup snapshot within 6 h of $SNAPSHOT"; exit 1; }
+          read -r vd vid <<<"$(closest /db_v2.sql)" || true
+          [ -n "${vid:-}" ] && [ "$vd" -le 21600 ] || vid=none
+          v2_t=-; [ "$vid" = none ] || v2_t=$(restic snapshots --json "$vid" | jq -r '.[0].time')
+          echo "db $SNAPSHOT ($db_t), storage $fid, v2 $vid ($v2_t)"
+          # The V2 step checks presence and lag against these, not against the repo's latest snapshots.
+          { echo "DB_SNAP=$SNAPSHOT"; echo "FILES_SNAP=$fid"; echo "V2_SNAP=$vid"
+            echo "DB_SNAP_TIME=$db_t"; echo "V2_SNAP_TIME=$v2_t"; } >> "$GITHUB_ENV"
+
       - name: Restore database (timed)
+        env:
+          ETL_REHEARSAL: ${{ inputs.etl_rehearsal == true }}
         run: |
           set -euo pipefail
           start=$(date +%s)
@@ -68,10 +117,22 @@ jobs:
           # was /backup/db.sql.gz inside the storage snapshot — still restorable, so still checked.
           if restic snapshots --path /db.sql --json | grep -q '"id"'; then
             echo "restoring /db.sql"
-            restic dump --path /db.sql latest /db.sql | $PSQL >/dev/null
+            if [ "$ETL_REHEARSAL" = true ]; then
+              # Hashed on the way in: the ETL rehearsal records it as the run's source_dump_sha. $! is
+              # sha256sum itself, so wait sees its status; the result must be 64 hex characters.
+              mkfifo /tmp/db.fifo
+              sha256sum < /tmp/db.fifo > /tmp/db.sql.sha256.raw & hasher=$!
+              restic dump --path /db.sql "${DB_SNAP:-latest}" /db.sql | tee /tmp/db.fifo | $PSQL >/dev/null
+              wait "$hasher" || { echo "::error::hashing the dump failed"; exit 1; }
+              cut -c1-64 /tmp/db.sql.sha256.raw > /tmp/db.sql.sha256
+              grep -qxE '[0-9a-f]{64}' /tmp/db.sql.sha256 || { echo "::error::the dump's sha256 is not 64 hex characters"; exit 1; }
+              echo "dump sha256 $(cat /tmp/db.sql.sha256)"
+            else
+              restic dump --path /db.sql "${DB_SNAP:-latest}" /db.sql | $PSQL >/dev/null
+            fi
           else
             echo "no /db.sql snapshot yet — restoring /backup/db.sql.gz"
-            restic dump --path /backup latest /backup/db.sql.gz | gunzip | $PSQL >/dev/null
+            restic dump --path /backup "${FILES_SNAP:-latest}" /backup/db.sql.gz | gunzip | $PSQL >/dev/null
           fi
           echo "DB_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
 
@@ -94,7 +155,7 @@ jobs:
         run: |
           set -euo pipefail
           start=$(date +%s)
-          restic restore latest --path /backup --target "$RESTORE"
+          restic restore "${FILES_SNAP:-latest}" --path /backup --target "$RESTORE"
           echo "FILES_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
           echo "storage: $(find "$RESTORE/backup/storage" -type f | wc -l) files, $(du -sh "$RESTORE/backup/storage" | cut -f1)"
 
@@ -136,17 +197,24 @@ jobs:
           # As the Api's binder reads it: True/true, quoted or not.
           flag=off
           grep -qiE '^FEATURES_V2API="?true"?[[:space:]]*$' "$RESTORE/backup/env" && flag=on
-          if ! restic snapshots --path /db_v2.sql --json | grep -q '"id"'; then
+          # Pinned (DB_SNAP_TIME set): the pinned night's V2 snapshot, chosen within 6 h of its dump.
+          where="in R2"; [ -n "${DB_SNAP_TIME:-}" ] && where="within 6 h of the pinned snapshot ${DB_SNAP}"
+          if [ "${V2_SNAP:-}" = none ] || ! restic snapshots --path /db_v2.sql --json | grep -q '"id"'; then
             if [ "$flag" = on ]; then
-              echo "::error::FEATURES_V2API=true in the backed-up .env, but no V2 dump in R2"; exit 1
+              echo "::error::FEATURES_V2API=true in the backed-up .env, but no V2 dump $where"; exit 1
             fi
-            echo "no V2 in this backup (FEATURES_V2API off)"
+            echo "no V2 in this backup (FEATURES_V2API off; none $where)"
             echo "V2_RESULT=no V2 in this backup" >> "$GITHUB_ENV"; exit 0
           fi
           # A nightly V2 dump failing for weeks still leaves an old /db_v2.sql as "latest". Older than the
-          # legacy dump by more than a day: an alarm with the flag on, a warning with it off.
+          # legacy dump by more than a day: an alarm with the flag on, a warning with it off. Pinned: the
+          # pinned pair's own times.
           newest() { restic snapshots --path "$1" --json | grep -o '"time":"[^"]*"' | cut -d'"' -f4 | sort | tail -n 1; }
-          legacy_t=$(newest /db.sql); v2_t=$(newest /db_v2.sql)
+          if [ -n "${DB_SNAP_TIME:-}" ]; then
+            legacy_t=$DB_SNAP_TIME; v2_t=$V2_SNAP_TIME
+          else
+            legacy_t=$(newest /db.sql); v2_t=$(newest /db_v2.sql)
+          fi
           if [ -n "$legacy_t" ]; then
             lag=$(( $(date -d "$legacy_t" +%s) - $(date -d "$v2_t" +%s) ))
             if [ "$lag" -gt 86400 ]; then
@@ -157,7 +225,7 @@ jobs:
           fi
           start=$(date +%s)
           sh database/v2/run.sh create
-          restic dump --path /db_v2.sql latest /db_v2.sql | psql -X -q -v ON_ERROR_STOP=1 >/dev/null
+          restic dump --path /db_v2.sql "${V2_SNAP:-latest}" /db_v2.sql | psql -X -q -v ON_ERROR_STOP=1 >/dev/null
           secs=$(( $(date +%s) - start ))
           n=0
           for v in $(psql -XAt -c "SELECT lpad(version::text, 4, '0') || '_' || name FROM schema_migrations ORDER BY version"); do
@@ -178,3 +246,181 @@ jobs:
           echo "- storage + .env restore: ${FILES_SECONDS}s" >> "$GITHUB_STEP_SUMMARY"
           echo "- V2 database: ${V2_RESULT}" >> "$GITHUB_STEP_SUMMARY"
           echo "DB ${DB_SECONDS}s, files ${FILES_SECONDS}s"
+
+      # ---- ETL rehearsal (M3.5, #1030): on demand only, on the pair restored above ----
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        if: inputs.etl_rehearsal
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 'ETL rehearsal: build the Api (timed)'
+        if: inputs.etl_rehearsal
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          dotnet build backend/src/Api -c Release -o /tmp/api -v quiet -nologo
+          echo "BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      # The runbook's preflight (docs/03-ops/v2-etl.md §1) on the restored legacy copy: the SELECT-only
+      # etl_reader (its password is this throwaway service's, as drill's is), PUBLIC's large-object
+      # EXECUTE revoked. Then V2 at this checkout's head: the restored V2 copy when the backup has one
+      # (the cutover's target), else an empty database; run.sh up creates it either way.
+      - name: 'ETL rehearsal: source role, V2 schema'
+        if: inputs.etl_rehearsal
+        env:
+          ETL_READER_PASSWORD: drill
+        run: |
+          set -euo pipefail
+          $PSQL -f database/scripts/etl-reader.sql
+          $PSQL <<'SQL'
+          DO $$
+          DECLARE f regprocedure;
+          BEGIN
+            FOR f IN SELECT p.oid::regprocedure FROM pg_proc p
+                     WHERE p.pronamespace = 'pg_catalog'::regnamespace AND (p.proname LIKE 'lo\_%' OR p.proname IN ('loread', 'lowrite'))
+                       AND has_function_privilege('public', p.oid, 'EXECUTE')
+            LOOP
+              EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC', f);
+            END LOOP;
+          END $$;
+          SQL
+          PGHOST=127.0.0.1 PGUSER=drill PGDATABASE=textstack_v2 sh database/v2/run.sh up
+          mkdir -p /tmp/library
+
+      # dry run → run → validate (exit 0) → re-run (0 rows inserted/updated in its ledger row) → validate.
+      # The JSON reports and validate's rows stay in files on the runner. Summary and log get timings,
+      # counts, check names and statuses only: every uuid is masked (public repo, public run pages),
+      # report lines are grouped by kind with their numbers folded, nothing prints text or emails.
+      - name: 'ETL rehearsal: dry run, run, validate, re-run, validate (timed)'
+        if: inputs.etl_rehearsal
+        env:
+          # Env, never argv (etl-v2 refuses a password there). The throwaway service's credentials.
+          ConnectionStrings__Default: Host=127.0.0.1;Database=drill;Username=etl_reader;Password=drill
+          ConnectionStrings__V2: Host=127.0.0.1;Database=textstack_v2;Username=drill;Password=drill
+          Storage__RootPath: /tmp/restore/backup/storage
+          Storage__LibraryRoot: /tmp/library
+          # The ETL has no business with the R2 credentials.
+          RESTIC_REPOSITORY: ''
+          RESTIC_PASSWORD: ''
+          AWS_ACCESS_KEY_ID: ''
+          AWS_SECRET_ACCESS_KEY: ''
+        run: |
+          set +e -uo pipefail
+          OUT=/tmp/etl; mkdir -p "$OUT"
+          S="$GITHUB_STEP_SUMMARY"
+          V2PSQL="psql -X -h 127.0.0.1 -U drill -d textstack_v2 -v ON_ERROR_STOP=1 -qAt"
+          UUID='[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+          # Public run page: uuids, emails, paths (a storage key's last segment can be a user's file name,
+          # spaces included: masked up to the next ; or |) and file-name-like tokens never reach the
+          # summary or the log.
+          mask() {
+            sed -E "s/$UUID/<id>/g; s/[^[:space:]|(]+@[^[:space:]|)]+/<email>/g
+                    s#[^[:space:]|]*/[^;|[:cntrl:]]*#<path>#g; s/[^[:space:]|(]+\.[A-Za-z][A-Za-z0-9]{0,4}\b/<file>/g
+                    s/(<id>[ ,;]*){2,}/<id>… /g"
+          }
+          # Phase rows are collected and the table written once, at exit (pass or fail): sections appended
+          # between rows would break GitHub's table.
+          PHASES=()
+          flush() { { echo; echo "#### phases"; echo; echo "| phase | seconds | exit |"; echo "|---|---|---|"; printf '%s\n' "${PHASES[@]}"; } >> "$S"; }
+          trap flush EXIT
+          fail() { echo "::error::$1"; echo -e "\n**FAILED: $1**" >> "$S"; exit 1; }
+          # The restore hashed /db.sql when it restored one (it fails there if hashing failed); none = a
+          # pre-#700 .gz dump, which has no sha to record.
+          sha_arg=(); dump_sha=-
+          if [ -e /tmp/db.sql.sha256 ]; then
+            dump_sha=$(cat /tmp/db.sql.sha256)
+            [[ "$dump_sha" =~ ^[0-9a-f]{64}$ ]] || fail "the restored dump's sha256 is not 64 hex characters"
+            sha_arg=(--source-dump-sha "$dump_sha")
+          fi
+          {
+            echo "### ETL rehearsal"
+            echo "- snapshot: ${DB_SNAP:-latest} (storage ${FILES_SNAP:-latest}, V2 ${V2_SNAP:-latest}); dump sha256 $dump_sha"
+            echo "- build: ${BUILD_SECONDS}s"
+          } >> "$S"
+          # The real run copies the upload bytes into the library: fail now, not on ENOSPC mid-run.
+          # Floor: what the uploads take in the restored storage (all of it, if it has no users/) + 2 GiB.
+          src="$Storage__RootPath/users"; [ -d "$src" ] || src="$Storage__RootPath"
+          need=$(( $(du -sb "$src" | cut -f1) + 2 * 1024 ** 3 ))
+          avail=$(df -B1 --output=avail "$Storage__LibraryRoot" | tail -n 1)
+          df -h / /tmp
+          echo "- disk: need ~$(( need / 1024 ** 2 )) MiB for the library, $(( avail / 1024 ** 2 )) MiB free" >> "$S"
+          [ "$avail" -ge "$need" ] || fail "not enough disk for the library copy: need ~$(( need / 1024 ** 2 )) MiB, $(( avail / 1024 ** 2 )) MiB free"
+          # phase <name> <cmd…>: stdout to $OUT/<name>.out; stderr to a file, masked to the log once the
+          # command has exited (nothing lost to an unwaited process substitution); a timed phase row.
+          phase() {
+            local name=$1 start rc; shift
+            start=$(date +%s)
+            "$@" > "$OUT/$name.out" 2> "$OUT/$name.err"; rc=$?
+            mask < "$OUT/$name.err" >&2
+            PHASES+=("| $name | $(( $(date +%s) - start )) | $rc |")
+            echo "$name: exit $rc"
+            return $rc
+          }
+          etl() { dotnet /tmp/api/Api.dll etl-v2 "$@"; }
+          run_id() { jq -r '.runId // empty' "$OUT/$1.out" 2>/dev/null | grep -xE "$UUID"; }
+          # One run's ledger row, counts and writes per table, failed checks, report lines grouped by kind.
+          report() {
+            local name=$1 f="$OUT/$1.out" id ledger=''
+            jq -e . "$f" >/dev/null 2>&1 || { echo -e "\n#### $name: no JSON report" >> "$S"; return; }
+            id=$(run_id "$name")
+            if [ -n "$id" ]; then
+              # Outside the piped group below: its status is checked and its stderr masked.
+              if ! ledger=$($V2PSQL -F' · ' -c "SELECT 'ledger: ' || COALESCE(outcome, 'unfinished'),
+                  'validation_failures ' || COALESCE(validation_failures::text, '-'),
+                  round(extract(epoch FROM finished_at - started_at)) || 's',
+                  'source_dump_sha ' || COALESCE(left(source_dump_sha, 12), '-')
+                FROM migration_runs WHERE id = '$id'" 2> "$OUT/$name.ledger.err") || [ -z "$ledger" ]; then
+                mask < "$OUT/$name.ledger.err" >&2; fail "$name: cannot read its migration_runs row"
+              fi
+            fi
+            {
+              echo; echo "#### $name"
+              [ -n "$ledger" ] && echo "$ledger"
+              echo; echo "| table | source | target | inserted | updated | unchanged |"; echo "|---|---|---|---|---|---|"
+              jq -r '. as $r | [($r.sourceCounts // {} | keys), ($r.targetCounts // {} | keys), ($r.writes // {} | keys)] | add | unique[]
+                | "| \(.) | \($r.sourceCounts[.] // "-") | \($r.targetCounts[.] // "-") | \($r.writes[.].inserted // "-") | \($r.writes[.].updated // "-") | \($r.writes[.].unchanged // "-") |"' "$f"
+              echo; echo "checks: $(jq '.checks | length' "$f") ran; failed: $(jq -r '[.checks[] | select(.failures > 0) | "\(.name) (\(.failures))"] | if length == 0 then "none" else join("; ") end' "$f")"
+              for k in orphanCandidates cleanupActions; do
+                echo; echo "$k: $(jq ".${k} | length" "$f")"; echo
+                jq -r ".${k}[]" "$f" | mask | sed -E 's/\b[0-9]+\b/<n>/g' | sort | uniq -c | sort -rn | head -n 40 | sed -E 's/^ *([0-9]+) /- \1 × /'
+              done
+            } | mask >> "$S"
+          }
+          # validate-etl as the run's source login; exit 0 = no FAIL row. Rows to the summary, masked.
+          validate() {
+            local name=$1 rc
+            phase "$name" psql -X -qAt -F $'\t' -h 127.0.0.1 -U etl_reader -d drill \
+              -v v2='host=127.0.0.1 dbname=textstack_v2 user=drill' -f database/v2/scripts/validate-etl.sql
+            rc=$?
+            { echo; echo "#### $name (exit $rc)"; echo; echo "| check | status | details |"; echo "|---|---|---|"
+              grep $'\t' "$OUT/$name.out" | mask \
+                | awk -F'\t' '{ d = substr($3, 1, 300); gsub(/\|/, "/", d); printf "| %s | %s | %s |\n", $1, $2, d }'; } >> "$S"
+            return $rc
+          }
+
+          phase dry-run etl --dry-run; rc=$?; report dry-run
+          [ $rc -eq 0 ] || fail "etl-v2 --dry-run exited $rc"
+          phase run etl "${sha_arg[@]}"; rc=$?; report run
+          [ $rc -eq 0 ] || fail "etl-v2 run exited $rc"
+          validate validate || fail "validate-etl after the run failed"
+          phase re-run etl "${sha_arg[@]}"; rc=$?; report re-run
+          [ $rc -eq 0 ] || fail "etl-v2 re-run exited $rc"
+          id=$(run_id re-run)
+          [ -n "$id" ] || fail "the re-run's report names no run id"
+          # Fails closed: every target must carry numeric Inserted and Updated (a renamed key would read as
+          # NULL and sum to 0), the query itself must succeed, and the sum must be 0.
+          counts=$($V2PSQL -F' ' -c "SELECT count(*),
+              count(*) FILTER (WHERE NOT (jsonb_typeof(v) = 'object' AND jsonb_typeof(v -> 'Inserted') = 'number'
+                                          AND jsonb_typeof(v -> 'Updated') = 'number')),
+              COALESCE(sum((v ->> 'Inserted')::bigint + (v ->> 'Updated')::bigint), 0)
+            FROM migration_runs r, jsonb_each(r.validation -> 'writes') e(k, v) WHERE r.id = '$id'" 2> "$OUT/re-run.ledger.err") \
+            || { mask < "$OUT/re-run.ledger.err" >&2; fail "cannot read the re-run's ledger writes"; }
+          read -r n bad w <<<"$counts"
+          echo -e "\nre-run ledger: ${n:-?} targets, ${bad:-?} without Inserted/Updated, ${w:-?} rows inserted or updated" >> "$S"
+          [[ "${n:-}" =~ ^[0-9]+$ && "${bad:-}" =~ ^[0-9]+$ && "${w:-}" =~ ^[0-9]+$ ]] || fail "the re-run's ledger writes are unreadable"
+          [ "$n" -gt 0 ] || fail "the re-run's ledger row has no writes"
+          [ "$bad" -eq 0 ] || fail "$bad ledger write target(s) lack numeric Inserted/Updated"
+          [ "$w" -eq 0 ] || fail "the re-run wrote $w row(s)"
+          validate validate-again || fail "validate-etl after the re-run failed"
+          echo -e "\n**ETL rehearsal passed**: dry run → run → validate exit 0 → re-run 0 writes → validate exit 0" >> "$S"
