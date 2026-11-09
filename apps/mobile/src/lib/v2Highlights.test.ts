@@ -4,7 +4,16 @@ import { initApi } from '@textstack/shared'
 import { fakeApi, feed, conflict } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 import { toPublicHighlight, toV2Write, userBookHighlightsApi, HighlightDeletedError } from './v2Highlights'
 
-vi.mock('./v2', () => ({ onV2: async () => true, v2Book: async () => ({ currentFile: { id: 'f1' } }), v2Store: { annotations: new Map(), pulled: new Set() }, switched: (v2: (...a: unknown[]) => unknown) => v2 }))
+// `whileCurrent` as v2.ts's (its epoch tested in v2.test.ts): `store.reset()` drops what is in flight.
+const store = vi.hoisted(() => ({ annotations: new Map(), pulled: new Set(), epoch: 0, reset() { this.annotations.clear(); this.pulled.clear(); this.epoch++ } }))
+vi.mock('./v2', () => ({
+  onV2: async () => true, v2Book: async () => ({ currentFile: { id: 'f1' } }), v2Store: store, switched: (v2: (...a: unknown[]) => unknown) => v2,
+  whileCurrent: async <T>(work: Promise<T>) => {
+    const started = store.epoch
+    const value = await work.catch((e) => { if (started === store.epoch) throw e; return null })
+    return started === store.epoch ? value : null
+  },
+}))
 
 const row = (locator: V2Annotation['locator']): V2Annotation => ({
   id: 'h1', bookId: 'b1', fileId: 'f1', selectedText: 'hello there', noteText: null, locator, color: 'yellow',
@@ -73,6 +82,38 @@ describe('upload highlights on V2', () => {
     expect(JSON.parse(h.anchorJson)).toMatchObject({ exact: 'hello', chapterId: 'key-2' })
     // The V2 reader's epub-cfi highlight is its quotation here (never converted).
     expect(JSON.parse(toPublicHighlight(row({ version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' })).anchorJson)).toEqual({ exact: 'hello there' })
+  })
+
+  // #1151: a response that outlives a sign-out writes no row into the next account's store.
+  const resetMidCall = async <T>(op: () => Promise<T>, body: unknown) => {
+    initApi({ baseUrl: 'http://api', getAccessToken: async () => 't', onUnauthorized: async () => null })
+    const waiting: Array<() => void> = []
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => {
+      waiting.push(() => resolve({ ok: true, status: 200, text: async () => JSON.stringify(body) }))
+    })))
+    try {
+      const run = op()
+      for (let i = 0; i < 20 && !waiting.length; i++) await new Promise((r) => setTimeout(r, 0))
+      expect(waiting).toHaveLength(1)
+      store.reset()
+      for (const answer of waiting) answer()
+      return await run
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  }
+
+  it('a highlights pull answered after v2Store.reset fills nothing', async () => {
+    const old = row({ version: 1, scheme: 'pdf-page', value: { v: 1, kind: 'pdf', page: 1, rects: [], exact: 'x' } })
+    expect(await resetMidCall(() => userBookHighlightsApi.getUserBookHighlights('b1'), { items: [old], cursor: null, hasMore: false })).toEqual([])
+    expect(store.annotations.size).toBe(0)
+    expect(store.pulled.size).toBe(0)
+  })
+
+  it('a highlight write answered after v2Store.reset is refused and remembers nothing', async () => {
+    const write = { userBookId: 'b1', anchorJson: JSON.stringify({ exact: 'x' }), color: 'y', selectedText: 'x' }
+    await expect(resetMidCall(() => userBookHighlightsApi.createHighlight(write), row(null))).rejects.toThrow(/Signed out/)
+    expect(store.annotations.size).toBe(0)
   })
 
   it('an edit lost to another device\'s delete is reported deleted, not drawn', async () => {

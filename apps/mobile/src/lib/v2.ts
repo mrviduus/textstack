@@ -149,11 +149,17 @@ let epoch = 0
 /**
  * `work`'s answer, or null when the store was reset while it ran (signed out, another account): the
  * caller then writes, maps, fetches and shows nothing of the previous account's under the next one.
+ * A failure is the previous account's too: null, not thrown (#1151 — no 409 handling writes it back).
  */
-async function whileCurrent<T>(work: Promise<T>): Promise<T | null> {
+export async function whileCurrent<T>(work: Promise<T>): Promise<T | null> {
   const started = epoch
-  const value = await work
-  return started === epoch ? value : null
+  try {
+    const value = await work
+    return started === epoch ? value : null
+  } catch (e) {
+    if (started === epoch) throw e
+    return null
+  }
 }
 
 /**
@@ -185,7 +191,8 @@ export async function v2Chapters(b: V2Book): Promise<V2FileChapters> {
   if (!file) return { items: [], ingestion: null }
   const cached = chapters.get(file.id)
   if (cached) return cached
-  const toc = await v2Api.getChapters(b.id, file.id)
+  const toc = await whileCurrent(v2Api.getChapters(b.id, file.id))
+  if (!toc) return { items: [], ingestion: null }
   if (toc.ingestion === 'succeeded') chapters.set(file.id, toc)
   return toc
 }
@@ -305,18 +312,21 @@ export function v2FileUrl(id: string): string {
 
 const NO_PROGRESS: UserBookProgressDto = { chapterSlug: null, locator: null, percent: null, updatedAt: null, positionJson: null, clientUpdatedAt: null }
 
-/** A state read or written: the session's store, and its revision beside the local progress (survives a restart). */
-const remember = (s: V2ReadingState) => {
-  v2Store.states.set(s.bookId, s)
-  return setUserBookV2State(s.bookId, { revision: s.revision, fileId: s.fileId, bookFraction: s.bookFraction })
-}
-
-/** The book's reading state from the server (null: none yet), remembered. */
-async function readState(bookId: string): Promise<V2ReadingState | null> {
-  const s = await v2Api.getReadingState(bookId)
-  if (s) await remember(s)
+/**
+ * A state read or written: the session's store, and its revision beside the local progress (survives
+ * a restart). Null, and nothing written, when the store was reset while `work` ran (#1151).
+ */
+async function remember(work: Promise<V2ReadingState | null>): Promise<V2ReadingState | null> {
+  const s = await whileCurrent(work)
+  if (s) {
+    v2Store.states.set(s.bookId, s)
+    await setUserBookV2State(s.bookId, { revision: s.revision, fileId: s.fileId, bookFraction: s.bookFraction })
+  }
   return s
 }
+
+/** The book's reading state from the server (null: none yet, or signed out meanwhile), remembered. */
+const readState = (bookId: string) => remember(v2Api.getReadingState(bookId))
 
 /** The chapter a stored state resumes in: its own, none for a PDF page, by fraction for an `epub-cfi` (never converted). */
 const resumeChapter = (s: V2ReadingState, toc: V2FileChapters) =>
@@ -343,8 +353,9 @@ export async function readV2Progress(bookId: string): Promise<UserBookProgressDt
 
 /** A lost write takes the server's place: it becomes this device's record, so the next open resumes there. */
 async function adopt(s: V2ReadingState): Promise<UserBookProgressDto> {
-  await remember(s)
-  const p = await toProgress(s)
+  await remember(Promise.resolve(s))
+  const p = await whileCurrent(toProgress(s))
+  if (!p) return NO_PROGRESS // signed out while the chapters loaded: no local record for the next account
   const page = parsePdfPageLocator(p.locator)
   const at = Math.min(Date.parse(s.clientRecordedAt) || Date.now(), Date.now())
   await saveUserBookLocalProgress(s.bookId, {
@@ -367,7 +378,7 @@ export async function completeV2Book(bookId: string): Promise<void> {
   const currentLocator = sameFile ? state.currentLocator : placeToV2Locator({ chapterSlug: first ?? null })
   if (!b.currentFile || !currentLocator) throw new ApiError(409, 'Nothing to mark read yet')
   const now = new Date().toISOString()
-  await remember(await v2Api.putReadingState(bookId, {
+  await remember(v2Api.putReadingState(bookId, {
     expectedRevision: sameFile ? state.revision : null,
     fileId: b.currentFile.id,
     currentLocator,
@@ -380,7 +391,7 @@ export async function completeV2Book(bookId: string): Promise<void> {
 /** Mark unread on V2: a reset clears completion and the frontier; the place stays. */
 export async function uncompleteV2Book(bookId: string): Promise<void> {
   const state = await v2Api.getReadingState(bookId)
-  if (state) await remember(await v2Api.resetReadingState(bookId, state.revision))
+  if (state) await remember(v2Api.resetReadingState(bookId, state.revision))
 }
 
 export interface ProgressWrite extends LegacyPlace {
@@ -416,8 +427,8 @@ export async function saveV2Progress(bookId: string, data: ProgressWrite, retrie
     clientRecordedAt: new Date(Math.min(Date.parse(data.updatedAt ?? '') || now, now)).toISOString(),
   }
   try {
-    await remember(await v2Api.putReadingState(bookId, body))
-    return 'accepted'
+    // Signed out meanwhile: nothing written, and the reader marks nothing synced.
+    return (await remember(v2Api.putReadingState(bookId, body))) ? 'accepted' : 'dropped'
   } catch (e) {
     const err = v2Api.v2ErrorOf(e)
     const current = err?.current as V2ReadingState | null | undefined
@@ -429,8 +440,7 @@ export async function saveV2Progress(bookId: string, data: ProgressWrite, retrie
         }
         return { adopted: await adopt(current) }
       case 'reset':
-        await remember(await v2Api.putReadingState(bookId, { ...body, expectedRevision: current?.revision ?? null }))
-        return 'accepted'
+        return (await remember(v2Api.putReadingState(bookId, { ...body, expectedRevision: current?.revision ?? null }))) ? 'accepted' : 'dropped'
       case 'file_replaced':
         await forgetV2Book(bookId)
         return 'reload'
