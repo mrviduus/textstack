@@ -172,22 +172,22 @@ s_annotations AS (
             CASE WHEN h.anchor_json ->> 'startOffset' ~ '^[0-9]+$' AND h.anchor_json ->> 'endOffset' ~ '^[0-9]+$'
                       AND jsonb_typeof(h.anchor_json -> 'startOffset') = 'number' AND jsonb_typeof(h.anchor_json -> 'endOffset') = 'number'
                  THEN CASE WHEN (h.anchor_json ->> 'endOffset')::numeric BETWEEN (h.anchor_json ->> 'startOffset')::numeric AND 2147483647 THEN '{}'::jsonb END END,
-            (SELECT jsonb_build_object('startOffset', s.pos - 1,
-                                       'endOffset', s.pos - 1 + char_length(substring(substr(c.plain_text, s.pos) FROM '^' || g.grp)))
-             FROM (SELECT array_agg(regexp_replace(regexp_replace(regexp_replace(regexp_replace(COALESCE(u.s, ''),
-                              '\s+(?=[]).,;:!?…}»”’›])', '', 'g'), '([^\w\s])', '\\\1', 'g'), '\\([]).,;:!?…}»”’›])', '\\s*\\\1', 'g'), '\s+', '\\s+', 'g')
-                          ORDER BY u.i) AS p
-                   FROM unnest(ARRAY[h.anchor_json ->> 'prefix', h.anchor_json ->> 'exact', h.anchor_json ->> 'suffix']) WITH ORDINALITY u(s, i)) q,
-                  LATERAL (SELECT COALESCE(substring(q.p[2] FROM '^\\s[+*]'), '') AS lead, regexp_replace(q.p[2], '^\\s[+*]', '') AS rest) r,
-                  LATERAL (SELECT r.lead, regexp_replace(r.rest, '\\s\+$', '') AS grp, COALESCE(substring(r.rest FROM '\\s\+$'), '') AS trail) g,
-                  LATERAL (SELECT CASE WHEN jsonb_typeof(h.anchor_json -> 'exact') = 'string' AND char_length(h.anchor_json ->> 'exact') BETWEEN 1 AND 4000
-                                            AND char_length(COALESCE(h.anchor_json ->> 'prefix', '')) <= 32 AND char_length(COALESCE(h.anchor_json ->> 'suffix', '')) <= 32
-                                       THEN COALESCE(
-                                           NULLIF(regexp_instr(c.plain_text, q.p[1] || g.lead || '(' || g.grp || ')' || g.trail || q.p[3], 1, 1, 0, '', 1), 0),
-                                           NULLIF(regexp_instr(c.plain_text, q.p[1] || g.lead || '(' || g.grp || ')' || g.trail, 1, 1, 0, '', 1), 0),
-                                           NULLIF(regexp_instr(c.plain_text, g.lead || '(' || g.grp || ')' || g.trail || q.p[3], 1, 1, 0, '', 1), 0),
-                                           NULLIF(regexp_instr(c.plain_text, g.lead || '(' || g.grp || ')' || g.trail, 1, 1, 0, '', 1), 0)) END AS pos) s
-             WHERE s.pos IS NOT NULL),
+            CASE WHEN c.plain_text IS NOT NULL
+                      AND jsonb_typeof(h.anchor_json -> 'exact') = 'string' AND char_length(h.anchor_json ->> 'exact') BETWEEN 1 AND 4000
+                      AND jsonb_typeof(h.anchor_json -> 'prefix') = 'string' AND char_length(h.anchor_json ->> 'prefix') <= 32
+                      AND jsonb_typeof(h.anchor_json -> 'suffix') = 'string' AND char_length(h.anchor_json ->> 'suffix') <= 32
+                 THEN (SELECT jsonb_build_object('startOffset', s.pos - 1, 'endOffset', regexp_instr(c.plain_text, t.grp, s.pos, 1, 1) - 1)
+                       FROM (SELECT array_agg(regexp_replace(regexp_replace(regexp_replace(regexp_replace(u.s,
+                                        '\s+(?=[]).,;:!?…}»”’›])', '', 'g'), '([^\w\s])', '\\\1', 'g'), '\\([]).,;:!?…}»”’›])', '\\s*\\\1', 'g'), '\s+', '\\s+', 'g')
+                                    ORDER BY u.i) AS p
+                             FROM unnest(ARRAY[h.anchor_json ->> 'prefix', h.anchor_json ->> 'exact', h.anchor_json ->> 'suffix']) WITH ORDINALITY u(s, i)) q,
+                            LATERAL (SELECT m[2] AS grp, m[1] || '(' || m[2] || ')' || m[3] AS x FROM regexp_match(q.p[2], '^(\\s[+*]|)(.*?)(\\s\+|)$') m) t,
+                            LATERAL (SELECT COALESCE(
+                                CASE WHEN q.p[1] <> '' AND q.p[3] <> '' THEN NULLIF(regexp_instr(c.plain_text, q.p[1] || t.x || q.p[3], 1, 1, 0, '', 1), 0) END,
+                                CASE WHEN q.p[1] <> '' THEN NULLIF(regexp_instr(c.plain_text, q.p[1] || t.x, 1, 1, 0, '', 1), 0) END,
+                                CASE WHEN q.p[3] <> '' THEN NULLIF(regexp_instr(c.plain_text, t.x || q.p[3], 1, 1, 0, '', 1), 0) END,
+                                NULLIF(regexp_instr(c.plain_text, t.x, 1, 1, 0, '', 1), 0)) AS pos) s
+                       WHERE s.pos IS NOT NULL) END,
             '{}') AS offsets
 -- END AnchorOffsets
     ) o),
@@ -466,9 +466,9 @@ quote_missing AS (
                                    regexp_replace(regexp_replace(a.selected_text, '\s+', ' ', 'g'), '\s+(?=[]).,;:!?…}»”’›])', '', 'g')) > 0)),
 -- #1150: what V2's write rule refuses in a carried textstack-anchor-v1 annotation (SyncValidation's), one row per reason, as
 -- etl-v2's AnchorRefusals lists them (its literals, byte for byte): chapterKey a non-blank string of <= 200 UTF-16 units
--- (char_length plus one per astral character), exact 1..4000 code points, prefix/suffix 0..32 (literals: SQL cannot read
--- SyncLimits), int32 offsets >= 0 with end >= start. The quote reason only where etl-v2 looked for the quote (exact and
--- context within those caps). A blank key never reaches V2 in a succeeded run (etl-v2's blank chapter key check).
+-- (char_length plus one per astral character), exact a string of 1..4000 code points, prefix/suffix strings of <= 32
+-- (literals: SQL cannot read SyncLimits), int32 offsets >= 0 with end >= start. The quote reason: offsets missing while
+-- every other rule passes. A blank key never reaches V2 in a succeeded run (etl-v2's blank chapter key check).
 anchor_refusal(id, reason) AS (
     SELECT a.id::text, r.reason FROM annotations a,
         LATERAL (SELECT a.locator -> 'value' AS v) x,
@@ -477,15 +477,14 @@ anchor_refusal(id, reason) AS (
                         jsonb_typeof(x.v -> 'exact') = 'string' AND char_length(x.v ->> 'exact') BETWEEN 1 AND 4000 AS exact_ok,
                         jsonb_typeof(x.v -> 'prefix') = 'string' AND char_length(x.v ->> 'prefix') <= 32
                             AND jsonb_typeof(x.v -> 'suffix') = 'string' AND char_length(x.v ->> 'suffix') <= 32 AS context_ok,
-                        char_length(COALESCE(x.v ->> 'prefix', '')) <= 32 AND char_length(COALESCE(x.v ->> 'suffix', '')) <= 32 AS context_bounded,
-                        COALESCE(CASE WHEN x.v ->> 'startOffset' ~ '^[0-9]+$' AND x.v ->> 'endOffset' ~ '^[0-9]+$'
-                                           AND jsonb_typeof(x.v -> 'startOffset') = 'number' AND jsonb_typeof(x.v -> 'endOffset') = 'number'
-                                      THEN (x.v ->> 'endOffset')::numeric BETWEEN (x.v ->> 'startOffset')::numeric AND 2147483647 END, false) AS offsets_ok) f,
-        LATERAL (SELECT 'chapter key blank or over 200 UTF-16 units' WHERE NOT COALESCE(f.key_ok, false)
-                 UNION ALL SELECT 'exact missing, not a string, empty or over 4000 characters' WHERE NOT COALESCE(f.exact_ok, false)
-                 UNION ALL SELECT 'prefix or suffix missing, not a string or over 32 characters' WHERE NOT COALESCE(f.context_ok, false)
+                        CASE WHEN x.v ->> 'startOffset' ~ '^[0-9]+$' AND x.v ->> 'endOffset' ~ '^[0-9]+$'
+                                  AND jsonb_typeof(x.v -> 'startOffset') = 'number' AND jsonb_typeof(x.v -> 'endOffset') = 'number'
+                             THEN (x.v ->> 'endOffset')::numeric BETWEEN (x.v ->> 'startOffset')::numeric AND 2147483647 END AS offsets_ok) f,
+        LATERAL (SELECT 'chapter key blank or over 200 UTF-16 units' WHERE f.key_ok IS NOT TRUE
+                 UNION ALL SELECT 'exact missing, not a string, empty or over 4000 characters' WHERE f.exact_ok IS NOT TRUE
+                 UNION ALL SELECT 'prefix or suffix missing, not a string or over 32 characters' WHERE f.context_ok IS NOT TRUE
                  UNION ALL SELECT 'quote not in its chapter''s text, no valid offsets'
-                     WHERE NOT f.offsets_ok AND COALESCE(f.exact_ok, false) AND f.context_bounded) r(reason)
+                     WHERE f.offsets_ok IS NOT TRUE AND f.key_ok AND f.exact_ok AND f.context_ok) r(reason)
     WHERE a.locator ->> 'scheme' = 'textstack-anchor-v1' AND a.id::text IN (SELECT k FROM exp WHERE t = 'annotations')),
 review_diff AS (
     SELECT COALESCE(e.key, a.word_id::text) AS id FROM
@@ -566,10 +565,14 @@ results(ord, "check", status, details) AS (
     SELECT 28, 'report: anchors V2 refuses on edit (quote not found, context, exact, chapter key; carried as legacy had it)',
         CASE WHEN sql.ids IS NOT DISTINCT FROM led.ids THEN 'report' ELSE 'FAIL' END,
         format('%s found (quote %s, context %s, exact %s, chapter key %s), ledger %s%s', COALESCE(cardinality(sql.ids), 0),
-            (SELECT count(*) FROM anchor_refusal WHERE reason LIKE 'quote %'), (SELECT count(*) FROM anchor_refusal WHERE reason LIKE 'prefix %'),
-            (SELECT count(*) FROM anchor_refusal WHERE reason LIKE 'exact %'), (SELECT count(*) FROM anchor_refusal WHERE reason LIKE 'chapter key %'),
-            COALESCE(cardinality(led.ids), 0), CASE WHEN sql.ids IS DISTINCT FROM led.ids THEN ' (the lists differ)' ELSE '' END)
-    FROM (SELECT array_agg(id || ' ' || reason ORDER BY id || ' ' || reason) AS ids FROM anchor_refusal) sql,
+            sql.quote, sql.context, sql.exact, sql.chapter_key, COALESCE(cardinality(led.ids), 0),
+            CASE WHEN sql.ids IS DISTINCT FROM led.ids THEN ' (the lists differ)' ELSE '' END)
+    FROM (SELECT array_agg(id || ' ' || reason ORDER BY id || ' ' || reason) AS ids,
+                 count(*) FILTER (WHERE reason = 'quote not in its chapter''s text, no valid offsets') AS quote,
+                 count(*) FILTER (WHERE reason = 'prefix or suffix missing, not a string or over 32 characters') AS context,
+                 count(*) FILTER (WHERE reason = 'exact missing, not a string, empty or over 4000 characters') AS exact,
+                 count(*) FILTER (WHERE reason = 'chapter key blank or over 200 UTF-16 units') AS chapter_key
+          FROM anchor_refusal) sql,
         (SELECT array_agg(id ORDER BY id) AS ids FROM ledger_ids WHERE category = 'refused_anchor') led
     UNION ALL
     -- per table: count, owner and the mapped columns (parts 1, 2, 4, 5, 6 and insight hashes)

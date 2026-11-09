@@ -20,8 +20,7 @@ public static class SyncLimits
     // Annotations: legacy has no cap on highlight text; a selection past this is not a highlight.
     public const int MaxSelectedText = 4000;
 
-    // A text anchor's prefix/suffix, in code points (v2-sync-protocol.md "Transitional locators"); a unit test pins
-    // SyncValidation's own cap to it.
+    // A text anchor's prefix/suffix, in code points.
     public const int MaxContextCodePoints = 32;
 
     // Shares and checkpoints (v2-sync-protocol.md "Shares and checkpoints").

@@ -18,7 +18,6 @@ public static class SyncValidation
 
     private const int MaxTocBytes = 256 * 1024;
     private const int MaxQuoteCodePoints = 64;
-    private const int MaxContextCodePoints = 32;
 
     /// <summary>ADR-019's clock skew: a client time further ahead than this is a broken clock, not an answer.</summary>
     // Checked against the API's clock while the rows are stamped by the database's: fine at 5 minutes.
@@ -267,7 +266,7 @@ public static class SyncValidation
         return null;
     }
 
-    private static bool IsText(JsonElement e, int min, int max) =>
+    public static bool IsText(JsonElement e, int min, int max) =>
         e.ValueKind == JsonValueKind.String && e.GetString()!.EnumerateRunes().Count() is var n && n >= min && n <= max;
 
     // A scroll-only position has no anchor (ADR-031 decided item 5); a position's quote is textPosition.ts's 64.
@@ -286,11 +285,11 @@ public static class SyncValidation
         && anchor.TryGetProperty("suffix", out var suffix) && IsText(suffix, 0, MaxContextCodePoints)
         && IsOffset(anchor, "startOffset", out var start) && IsOffset(anchor, "endOffset", out var end) && end >= start;
 
-    private static bool IsChapterKey(JsonElement value, string member) =>
+    public static bool IsChapterKey(JsonElement value, string member) =>
         value.ValueKind == JsonValueKind.Object && value.TryGetProperty(member, out var key) && key.ValueKind == JsonValueKind.String
         && RequiredText(key.GetString(), member, MaxChapterKey) is null;
 
-    private static bool IsOffset(JsonElement value, string member, out int offset)
+    public static bool IsOffset(JsonElement value, string member, out int offset)
     {
         offset = -1;
         return value.TryGetProperty(member, out var n) && n.ValueKind == JsonValueKind.Number && n.TryGetInt32(out offset) && offset >= 0;

@@ -273,10 +273,11 @@ may run (it cascades to that user's V2 rows); a non-guest account comes with non
   whitespace before closing punctuation is optional); `startOffset` and `endOffset` are where exact's match
   starts and ends in the raw text, from its first to its last non-whitespace character (whitespace at either end
   of exact, and the optional whitespace before a leading closing punctuation, is matched outside the offsets). The
-  tiers are tried in order and stop at the first hit; the end comes from one anchored re-match. They are Postgres character positions, not the protocol's UTF-16 units: past
-  an astral character (an emoji) they run one short per pair. Accepted: offsets are hints the readers re-verify,
-  and the server checks only their shape. Offsets are computed only within V2's own caps (`exact` 1–4000 code
-  points, `prefix`/`suffix` ≤ 32): past them V2 refuses the anchor on edit anyway, and a long quote can pass
+  tiers are tried in order and stop at the first hit (a context tier with an empty side is skipped). They are
+  Postgres character positions, not the protocol's UTF-16 units: past an astral character (an emoji) they run one
+  short per pair. Accepted: offsets are hints the readers re-verify, and the server checks only their shape. The
+  quote is searched only when the anchor passes V2's own text rules (`exact` a string of 1–4000 code points,
+  `prefix`/`suffix` strings ≤ 32): otherwise V2 refuses the anchor on edit anyway, and a long quote can pass
   Postgres's regex size limit (`2201B`, ~8000 whitespace runs) and abort the whole run. Known and accepted: exact
   alone takes the **first** occurrence where the readers score every occurrence by context (the readers re-find
   the quote before using stored offsets); NBSP is not `\s` in the DB locale, as strict as the quote check; there is
@@ -284,13 +285,13 @@ may run (it cascades to that user's V2 rows); a non-guest account comes with non
   text 0.24 s at 300k; the rehearsal shows real timings).
   A carried anchor V2 would refuse on a later edit keeps the anchor as legacy had it and is listed in
   `orphanCandidates`, one line per reason: `highlights <id>: anchor V2 refuses on edit (<reason>); carried as
-  legacy had it`, the reason being `quote not in its chapter's text, no valid offsets` (searched within the caps,
-  not found), `prefix or suffix missing, not a string or over 32 characters` (legacy mobile cut 50 characters of
+  legacy had it`, the reason being `quote not in its chapter's text, no valid offsets` (every other rule passes,
+  so it was searched, and not found), `prefix or suffix missing, not a string or over 32 characters` (legacy mobile cut 50 characters of
   context before #456), `exact missing, not a string, empty or over 4000 characters`, or `chapter key blank or over
   200 UTF-16 units` (legacy slugs are `varchar(255)`). Lengths are code points, as V2 counts them, but the chapter
   key's UTF-16 units. Not a failure: a rehearsal's list sizes the problem. `validate-etl.sql` restates the
-  computation verbatim and reports the same (id, reason) pairs, counted per reason (its caps are literals; C# reads
-  `SyncLimits`, and a unit test pins `SyncValidation`'s context cap to `SyncLimits.MaxContextCodePoints`). An anchor whose chapter is gone, or on a book with no file
+  computation verbatim and reports the same (id, reason) pairs, counted per reason (its caps are literals; C# calls
+  `SyncValidation`'s own predicates). An anchor whose chapter is gone, or on a book with no file
   row, is not carried: the annotation is a quotation (listed). A highlight with no book and no edition (a
   deleted upload's trail) is not carried (listed in `orphanCandidates`). Catalog highlights are M3.3's.
   Fails: highlight owner ≠ upload owner, an anchor that is not an object, a blank text, a version below 1.

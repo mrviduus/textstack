@@ -29,12 +29,12 @@ public static partial class EtlV2Uploads
     /// optional); <c>startOffset</c> = where exact's match starts, <c>endOffset</c> = where it ends. Exact's leading and
     /// trailing whitespace tokens (and the optional whitespace before a leading closing punctuation) sit outside the
     /// captured group, so the offsets span exact's first to last non-whitespace character, never a run before or
-    /// after it. Not found: <c>{}</c>. The four tiers are a COALESCE chain (evaluated until the first hit); the end is
-    /// one anchored re-match of the group at the start found (the group's match from a given start is unique).
-    /// Computed only within V2's own caps (exact 1..4000 code points, prefix/suffix ≤ 32; literals here, as SQL
-    /// cannot read <see cref="SyncLimits"/>): a longer quote can pass Postgres's regex size limit (2201B, ~8000
-    /// whitespace runs) and abort the run, and V2 refuses such an anchor on edit anyway, so it is carried and listed
-    /// instead (<see cref="AnchorRefusals"/>).
+    /// after it. Not found: <c>{}</c>. The tiers are a COALESCE chain (evaluated until the first hit; a context tier
+    /// with an empty side is skipped, being the next tier's pattern); the end is the group's match at the start found.
+    /// Searched only when the anchor passes V2's own text rules (exact a string of 1..4000 code points, prefix/suffix
+    /// strings ≤ 32; literals here, as SQL cannot read <see cref="SyncLimits"/>): a longer quote can pass Postgres's
+    /// regex size limit (2201B, ~8000 whitespace runs) and abort the run, and V2 refuses such an anchor on edit anyway,
+    /// so it is carried and listed instead (<see cref="AnchorRefusals"/>).
     /// ponytail: positions are Postgres characters (code points), not the UTF-16 units of the protocol: past an astral
     /// character they run short by one per pair. Exact alone takes the first occurrence (the readers score every one by
     /// context): the readers re-find the quote before trusting stored offsets. NBSP is not <c>\s</c> in the DB locale,
@@ -47,22 +47,22 @@ public static partial class EtlV2Uploads
             CASE WHEN h.anchor_json ->> 'startOffset' ~ '^[0-9]+$' AND h.anchor_json ->> 'endOffset' ~ '^[0-9]+$'
                       AND jsonb_typeof(h.anchor_json -> 'startOffset') = 'number' AND jsonb_typeof(h.anchor_json -> 'endOffset') = 'number'
                  THEN CASE WHEN (h.anchor_json ->> 'endOffset')::numeric BETWEEN (h.anchor_json ->> 'startOffset')::numeric AND 2147483647 THEN '{}'::jsonb END END,
-            (SELECT jsonb_build_object('startOffset', s.pos - 1,
-                                       'endOffset', s.pos - 1 + char_length(substring(substr(c.plain_text, s.pos) FROM '^' || g.grp)))
-             FROM (SELECT array_agg(regexp_replace(regexp_replace(regexp_replace(regexp_replace(COALESCE(u.s, ''),
-                              '\s+(?=[]).,;:!?…}»”’›])', '', 'g'), '([^\w\s])', '\\\1', 'g'), '\\([]).,;:!?…}»”’›])', '\\s*\\\1', 'g'), '\s+', '\\s+', 'g')
-                          ORDER BY u.i) AS p
-                   FROM unnest(ARRAY[h.anchor_json ->> 'prefix', h.anchor_json ->> 'exact', h.anchor_json ->> 'suffix']) WITH ORDINALITY u(s, i)) q,
-                  LATERAL (SELECT COALESCE(substring(q.p[2] FROM '^\\s[+*]'), '') AS lead, regexp_replace(q.p[2], '^\\s[+*]', '') AS rest) r,
-                  LATERAL (SELECT r.lead, regexp_replace(r.rest, '\\s\+$', '') AS grp, COALESCE(substring(r.rest FROM '\\s\+$'), '') AS trail) g,
-                  LATERAL (SELECT CASE WHEN jsonb_typeof(h.anchor_json -> 'exact') = 'string' AND char_length(h.anchor_json ->> 'exact') BETWEEN 1 AND 4000
-                                            AND char_length(COALESCE(h.anchor_json ->> 'prefix', '')) <= 32 AND char_length(COALESCE(h.anchor_json ->> 'suffix', '')) <= 32
-                                       THEN COALESCE(
-                                           NULLIF(regexp_instr(c.plain_text, q.p[1] || g.lead || '(' || g.grp || ')' || g.trail || q.p[3], 1, 1, 0, '', 1), 0),
-                                           NULLIF(regexp_instr(c.plain_text, q.p[1] || g.lead || '(' || g.grp || ')' || g.trail, 1, 1, 0, '', 1), 0),
-                                           NULLIF(regexp_instr(c.plain_text, g.lead || '(' || g.grp || ')' || g.trail || q.p[3], 1, 1, 0, '', 1), 0),
-                                           NULLIF(regexp_instr(c.plain_text, g.lead || '(' || g.grp || ')' || g.trail, 1, 1, 0, '', 1), 0)) END AS pos) s
-             WHERE s.pos IS NOT NULL),
+            CASE WHEN c.plain_text IS NOT NULL
+                      AND jsonb_typeof(h.anchor_json -> 'exact') = 'string' AND char_length(h.anchor_json ->> 'exact') BETWEEN 1 AND 4000
+                      AND jsonb_typeof(h.anchor_json -> 'prefix') = 'string' AND char_length(h.anchor_json ->> 'prefix') <= 32
+                      AND jsonb_typeof(h.anchor_json -> 'suffix') = 'string' AND char_length(h.anchor_json ->> 'suffix') <= 32
+                 THEN (SELECT jsonb_build_object('startOffset', s.pos - 1, 'endOffset', regexp_instr(c.plain_text, t.grp, s.pos, 1, 1) - 1)
+                       FROM (SELECT array_agg(regexp_replace(regexp_replace(regexp_replace(regexp_replace(u.s,
+                                        '\s+(?=[]).,;:!?…}»”’›])', '', 'g'), '([^\w\s])', '\\\1', 'g'), '\\([]).,;:!?…}»”’›])', '\\s*\\\1', 'g'), '\s+', '\\s+', 'g')
+                                    ORDER BY u.i) AS p
+                             FROM unnest(ARRAY[h.anchor_json ->> 'prefix', h.anchor_json ->> 'exact', h.anchor_json ->> 'suffix']) WITH ORDINALITY u(s, i)) q,
+                            LATERAL (SELECT m[2] AS grp, m[1] || '(' || m[2] || ')' || m[3] AS x FROM regexp_match(q.p[2], '^(\\s[+*]|)(.*?)(\\s\+|)$') m) t,
+                            LATERAL (SELECT COALESCE(
+                                CASE WHEN q.p[1] <> '' AND q.p[3] <> '' THEN NULLIF(regexp_instr(c.plain_text, q.p[1] || t.x || q.p[3], 1, 1, 0, '', 1), 0) END,
+                                CASE WHEN q.p[1] <> '' THEN NULLIF(regexp_instr(c.plain_text, q.p[1] || t.x, 1, 1, 0, '', 1), 0) END,
+                                CASE WHEN q.p[3] <> '' THEN NULLIF(regexp_instr(c.plain_text, t.x || q.p[3], 1, 1, 0, '', 1), 0) END,
+                                NULLIF(regexp_instr(c.plain_text, t.x, 1, 1, 0, '', 1), 0)) AS pos) s
+                       WHERE s.pos IS NOT NULL) END,
             '{}') AS offsets
         """;
 
@@ -208,45 +208,35 @@ public static partial class EtlV2Uploads
 
     private static string? Scheme(string? locator) => locator is null ? null : SyncValidation.SchemeOf(locator);
 
-    // validate-etl.sql's anchor_refusal holds the same literals, byte for byte.
+    // validate-etl.sql's anchor_refusal holds the same literals, byte for byte. Never a ')' in one: the script reads
+    // the reason back from the ledger line with \(([^)]*)\).
     internal const string RefusedQuote = "quote not in its chapter's text, no valid offsets";
     internal const string RefusedContext = "prefix or suffix missing, not a string or over 32 characters";
     internal const string RefusedExact = "exact missing, not a string, empty or over 4000 characters";
     internal const string RefusedChapterKey = "chapter key blank or over 200 UTF-16 units";
 
     /// <summary>
-    /// What V2's write rule (SyncValidation's textstack-anchor-v1 rule: chapterKey non-blank ≤ 200 UTF-16 units, exact
-    /// 1..4000 code points, prefix/suffix 0..32, int32 offsets ≥ 0 with end ≥ start) refuses in a mapped locator, one
-    /// reason each. The quote reason only where <see cref="AnchorOffsets"/> looked for the quote (within the caps) and
-    /// found none. Lengths are counted as SQL's char_length counts them (code points), so validate-etl agrees.
+    /// What V2's write rule refuses in a mapped textstack-anchor-v1 locator, one reason per <see cref="SyncValidation"/>
+    /// predicate. The quote reason: offsets missing while every other rule passes, the case <see cref="AnchorOffsets"/>
+    /// searched (it searches exactly when exact and context pass) and found nothing.
     /// </summary>
     private static IEnumerable<string> AnchorRefusals(string locator)
     {
         using var json = JsonDocument.Parse(locator);
         var value = json.RootElement.GetProperty("value");
-        if (!value.TryGetProperty("chapterKey", out var key) || key.ValueKind != JsonValueKind.String
-            || SyncValidation.RequiredText(key.GetString(), "chapterKey", SyncLimits.MaxChapterKey) is not null)
+        var key = SyncValidation.IsChapterKey(value, "chapterKey");
+        var exact = value.TryGetProperty("exact", out var e) && SyncValidation.IsText(e, 1, SyncLimits.MaxSelectedText);
+        var context = value.TryGetProperty("prefix", out var p) && SyncValidation.IsText(p, 0, SyncLimits.MaxContextCodePoints)
+            && value.TryGetProperty("suffix", out var s) && SyncValidation.IsText(s, 0, SyncLimits.MaxContextCodePoints);
+        var offsets = SyncValidation.IsOffset(value, "startOffset", out var start) && SyncValidation.IsOffset(value, "endOffset", out var end) && end >= start;
+        if (!key)
             yield return RefusedChapterKey;
-        var exact = IsText(value, "exact", 1, SyncLimits.MaxSelectedText);
         if (!exact)
             yield return RefusedExact;
-        if (!IsText(value, "prefix", 0, SyncLimits.MaxContextCodePoints) || !IsText(value, "suffix", 0, SyncLimits.MaxContextCodePoints))
+        if (!context)
             yield return RefusedContext;
-        var offsets = Offset(value, "startOffset") is { } start && Offset(value, "endOffset") is { } end && end >= start;
-        if (!offsets && exact && SqlLength(value, "prefix") <= SyncLimits.MaxContextCodePoints && SqlLength(value, "suffix") <= SyncLimits.MaxContextCodePoints)
+        if (!offsets && key && exact && context)
             yield return RefusedQuote;
-
-        static bool IsText(JsonElement value, string member, int min, int max) =>
-            value.TryGetProperty(member, out var s) && s.ValueKind == JsonValueKind.String && s.GetString()!.EnumerateRunes().Count() is var n && n >= min && n <= max;
-
-        // char_length(COALESCE(value ->> member, '')), as AnchorOffsets bounds it: code points of the string, or of the
-        // member's JSON text as Postgres prints it (the locator is jsonb's own print, so GetRawText is that text).
-        static int SqlLength(JsonElement value, string member) =>
-            !value.TryGetProperty(member, out var s) || s.ValueKind == JsonValueKind.Null ? 0
-            : (s.ValueKind == JsonValueKind.String ? s.GetString()! : s.GetRawText()).EnumerateRunes().Count();
-
-        static int? Offset(JsonElement value, string member) =>
-            value.TryGetProperty(member, out var n) && n.ValueKind == JsonValueKind.Number && n.TryGetInt32(out var i) && i >= 0 ? i : null;
     }
 
     private sealed record LegacyHighlight

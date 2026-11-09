@@ -120,6 +120,10 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
              $"highlights {Highlight(ProductionShapes.AnchorLongChapterKey)}: anchor V2 refuses on edit ({EtlV2Uploads.RefusedChapterKey}); carried as legacy had it"],
             report.OrphanCandidates.Where(o => o.Contains("anchor V2 refuses on edit")));
 
+        // The quote-not-found one is carried as legacy had it, chapterId → chapterKey and no offsets.
+        TestJson.AssertSameJson("""{"version":1,"scheme":"textstack-anchor-v1","value":{"prefix":"The ","exact":"melange","suffix":" flow","chapterKey":"one"}}""",
+            await ScalarAsync<string>(options.Target, "SELECT locator::text FROM annotations WHERE id = @id", new { id = Highlight(ProductionShapes.AnchorQuoteNotFound) }));
+
         static Guid Highlight(int n) => Guid.Parse($"d0000000-0000-4000-8000-{n:D12}");
     }
 

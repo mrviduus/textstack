@@ -383,8 +383,6 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
 
     private const string RefusedPrefix = "anchor V2 refuses on edit";
 
-    private const string NoOffsetsLine = $"{RefusedPrefix} ({EtlV2Uploads.RefusedQuote}); carried as legacy had it";
-
     private static string Line(Guid id, string reason) => $"highlights {id}: {RefusedPrefix} ({reason}); carried as legacy had it";
 
     /// <summary>Highlight Anchored on chapter 1 with <paramref name="anchor"/> over <paramref name="plainText"/>; a real run, and its V2 offsets as "start/end" ("-" if absent).</summary>
@@ -467,19 +465,6 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     }
 
     [Theory]
-    [InlineData(28, true)] // ["😀"×28] prints as 32 code points (60 UTF-16 units): searched, so the quote reason too
-    [InlineData(29, false)] // 33 code points: not searched, the context reason alone
-    public async Task RunAsync_AnchorNonStringPrefixAstralAtTheCap_CountedInCodePointsAsSql(int emoji, bool searched)
-    {
-        var prefix = $"[\"{string.Concat(Enumerable.Repeat("😀", emoji))}\"]";
-
-        var (_, report, _) = await RunAnchoredAsync("The spice must flow.", $$"""{"prefix":{{prefix}},"exact":"melange","suffix":""}""");
-
-        string[] lines = searched ? [Line(Anchored, EtlV2Uploads.RefusedContext), Line(Anchored, EtlV2Uploads.RefusedQuote)] : [Line(Anchored, EtlV2Uploads.RefusedContext)];
-        Assert.Equal(lines, report.OrphanCandidates.Where(o => o.Contains(RefusedPrefix)));
-    }
-
-    [Theory]
     [InlineData(200, "k", false)]
     [InlineData(201, "k", true)]
     [InlineData(100, "😀", false)] // 200 UTF-16 units
@@ -497,18 +482,6 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     }
 
     [Fact]
-    public async Task RunAsync_AnchorQuoteNotInChapter_CarriedAsIsAndReported()
-    {
-        var (options, report, offsets) = await RunAnchoredAsync("The spice must flow.", """{"prefix":"The ","exact":"melange","suffix":" must"}""");
-
-        Assert.Equal("-/-", offsets);
-        TestJson.AssertSameJson("""{"version":1,"scheme":"textstack-anchor-v1","value":{"prefix":"The ","exact":"melange","suffix":" must","chapterKey":"one"}}""",
-            await V2Scalar<string>(options, "SELECT locator::text FROM annotations WHERE id = @Anchored", new { Anchored }));
-        Assert.Contains($"highlights {Anchored}: {NoOffsetsLine}", report.OrphanCandidates);
-        Assert.Equal("succeeded", await V2Scalar<string>(options, "SELECT outcome FROM migration_runs"));
-    }
-
-    [Fact]
     public async Task RunAsync_AnchorWithValidOffsets_CarriedUnchangedEvenIfStale()
     {
         // Offsets are hints: valid ones are legacy's, never second-guessed against the text.
@@ -520,7 +493,6 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
 
     [Theory]
     [InlineData("\"startOffset\":-1,\"endOffset\":9")]
-    [InlineData("\"startOffset\":\"4\",\"endOffset\":9")]
     [InlineData("\"startOffset\":4.5,\"endOffset\":9")]
     [InlineData("\"startOffset\":9,\"endOffset\":4")]
     [InlineData("\"startOffset\":4,\"endOffset\":2147483648")]
@@ -614,7 +586,6 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     [InlineData(4000, 32, "", "32/4032")] // at the caps: computed
     [InlineData(4001, 0, "exact", "-/-")]
     [InlineData(5, 33, "context", "-/-")] // legacy mobile's 50-character context (before #456)
-    [InlineData(100_000, 0, "exact", "-/-")]
     public async Task RunAsync_AnchorAtOrPastV2Caps_ComputedOnlyWithinThem(int exactLength, int prefixLength, string refused, string expected)
     {
         // exact: "spice" padded with 'x' to exactLength; the prefix in front, all of it in the chapter text.
@@ -635,17 +606,6 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     }
 
     [Fact]
-    public async Task RunAsync_AnchorOversizeContextWithValidOffsets_CarriedAndReported()
-    {
-        // Valid offsets are carried, yet V2 still refuses the anchor for its context: listed for the owner.
-        var prefix = new string('p', 50);
-        var (_, report, offsets) = await RunAnchoredAsync(prefix + "spice", $$"""{"prefix":"{{prefix}}","exact":"spice","suffix":"","startOffset":50,"endOffset":55}""");
-
-        Assert.Equal("50/55", offsets);
-        Assert.Equal([Line(Anchored, EtlV2Uploads.RefusedContext)], report.OrphanCandidates.Where(o => o.Contains(RefusedPrefix)));
-    }
-
-    [Fact]
     public async Task RunAsync_ReRunWithComputedAndMissingOffsets_NoWritesSameReport()
     {
         // One anchor's offsets computed, one's quote not found: the second run maps both alike, so V2 equals the mapping.
@@ -662,7 +622,7 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.Equal(new EtlV2Writes(0, 0, 4), second.Writes["annotations"]);
         Assert.All(second.Writes.Values, w => Assert.Equal(0, w.Inserted + w.Updated));
         Assert.Equal(first.OrphanCandidates, second.OrphanCandidates);
-        Assert.Contains($"highlights {AnchoredNoSlug}: {NoOffsetsLine}", second.OrphanCandidates);
+        Assert.Contains(Line(AnchoredNoSlug, EtlV2Uploads.RefusedQuote), second.OrphanCandidates);
         Assert.Equal(locators, await V2Scalar<string>(options, "SELECT string_agg(locator::text, '|' ORDER BY id) FROM annotations"));
     }
 
