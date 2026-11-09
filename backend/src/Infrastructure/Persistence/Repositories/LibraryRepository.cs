@@ -87,7 +87,21 @@ public sealed partial class LibraryRepository(V2DataSource dataSource) : ILibrar
     public async Task<Book?> FindBySha256Async(Guid userId, string sha256, CancellationToken ct) =>
         (await QueryBooksAsync(SelectOldestBySha256, new { userId, sha256 }, null, ct)).SingleOrDefault();
 
-    private const string SelectChanged = FromBooks + """
+    // The feed alone carries the current file's extraction summary (transitional, dropped with book_chapters
+    // at M6.4, #1118): the latest job's status, the chapter count (null at 0) and the summed word counts
+    // (null when no chapter has one), so a shelf needs no /chapters call per book. Appended to the file half.
+    private const string SelectChanged = BookWithCurrentFile + """
+               , (SELECT j.status FROM ingestion_jobs j
+                  WHERE j.user_id = f.user_id AND j.book_id = f.book_id AND j.file_id = f.id
+                  ORDER BY j.created_at DESC, j.id DESC
+                  LIMIT 1) AS ingestion,
+               c.chapter_count, c.word_count
+        FROM books b
+        LEFT JOIN book_files f ON f.user_id = b.user_id AND f.book_id = b.id AND f.is_current
+        LEFT JOIN LATERAL (
+            SELECT NULLIF(count(*), 0)::int AS chapter_count, sum(ch.word_count)::int AS word_count
+            FROM book_chapters ch
+            WHERE ch.user_id = f.user_id AND ch.book_id = f.book_id AND ch.file_id = f.id) c ON true
         WHERE b.user_id = @userId AND (b.updated_at, b.id) > (@since, @afterId)
         ORDER BY b.updated_at, b.id
         LIMIT @limit

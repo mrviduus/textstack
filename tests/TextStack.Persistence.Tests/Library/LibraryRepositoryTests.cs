@@ -1,6 +1,7 @@
 using Application.Library;
 using Dapper;
 using Domain.Library;
+using Domain.Transitional;
 using Infrastructure.Persistence.Repositories;
 using static TextStack.Persistence.Tests.V2PostgresFixture;
 
@@ -264,6 +265,67 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
         Assert.Equal(second.Id, Assert.Single(page).Id);
         Assert.Equal(first.Id, Assert.Single(after).Id);
     }
+
+    [Fact]
+    public async Task ListChangedAsync_ExtractedFile_CarriesLatestJobStatusChapterCountAndWordSum()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var (user, file) = (book.UserId, book.CurrentFile!.Id);
+        var jobs = new IngestionJobRepository(db.DataSource);
+        var failed = await jobs.EnqueueAsync(user, book.Id, file, Ct);
+        await db.ExecAsync("UPDATE ingestion_jobs SET status = 'failed', created_at = now() - interval '1 hour' WHERE id = @id", new { id = failed.Id });
+        var latest = await jobs.EnqueueAsync(user, book.Id, file, Ct);
+        await db.ExecAsync("UPDATE ingestion_jobs SET status = 'succeeded' WHERE id = @id", new { id = latest.Id });
+        await new BookChapterRepository(db.DataSource).ReplaceForFileAsync(user, book.Id, file,
+            [Chapter("one", 1, 120), Chapter("two", 2, null), Chapter("three", 3, 80)], Ct);
+
+        var read = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
+
+        Assert.Equal(("succeeded", (int?)3, (int?)200), (read.Ingestion, read.ChapterCount, read.WordCount));
+    }
+
+    [Fact]
+    public async Task ListChangedAsync_FileNotExtracted_CarriesNullSummary()
+    {
+        var book = await db.NewReaderWithBookAsync();
+
+        var read = Assert.Single(await _repo.ListChangedAsync(book.UserId, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
+
+        Assert.Equal(((string?)null, (int?)null, (int?)null), (read.Ingestion, read.ChapterCount, read.WordCount));
+    }
+
+    [Fact]
+    public async Task ListChangedAsync_ChaptersWithoutWordCounts_CarriesCountAndNullWords()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        await new BookChapterRepository(db.DataSource).ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("one", 1, null)], Ct);
+
+        var read = Assert.Single(await _repo.ListChangedAsync(book.UserId, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
+
+        Assert.Equal(((int?)1, (int?)null), (read.ChapterCount, read.WordCount));
+    }
+
+    [Fact]
+    public async Task GetAsync_ExtractedFile_DoesNotReadTheSummary()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        await new BookChapterRepository(db.DataSource).ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("one", 1, 5)], Ct);
+
+        var read = (await _repo.GetAsync(book.UserId, book.Id, Ct))!.CurrentFile!;
+
+        Assert.Equal(((int?)null, (int?)null), (read.ChapterCount, read.WordCount));
+    }
+
+    private static BookChapter Chapter(string key, int number, int? words) => new()
+    {
+        Id = Guid.NewGuid(),
+        ChapterKey = key,
+        ChapterNumber = number,
+        Title = key,
+        Html = "<p>x</p>",
+        PlainText = "x",
+        WordCount = words,
+    };
 
     [Fact]
     public async Task ListAsync_OwnBooks_ReturnsNotRemovedNewestFirstWithCurrentFiles()

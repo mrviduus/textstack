@@ -32,4 +32,15 @@ public class BookFile
 
     public bool IsCurrent { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+
+    // Transitional (dropped with book_chapters at M6.4, #1118): read by the library feed only, null on every other read.
+
+    /// <summary>The latest extraction job's status; null: none, or not read.</summary>
+    public string? Ingestion { get; set; }
+
+    /// <summary>The extracted chapters; null: none yet, or not read.</summary>
+    public int? ChapterCount { get; set; }
+
+    /// <summary>The chapters' summed word counts; null: no chapter has one, or not read.</summary>
+    public int? WordCount { get; set; }
 }

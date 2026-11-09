@@ -91,15 +91,33 @@ describe('the V2 library', () => {
     expect(calls).toHaveLength(1)
   })
 
-  it("keeps the shelf when one book's chapters call fails: that book has no status, the rest are there", async () => {
-    fakeApi({
-      'GET /me/v2/library/changes': feed(book('b1', 'f1'), book('b2', 'f2')),
+  it("reads the shelf from the two feeds alone: each book's status and counts are its file's (#1118)", async () => {
+    const calls = fakeApi({
+      'GET /me/v2/library/changes': feed(
+        book('ready', 'f1', { currentFile: file('f1', { ingestion: 'succeeded', chapterCount: 3, wordCount: 1200 }) }),
+        book('running', 'f2', { currentFile: file('f2', { ingestion: 'processing' }) }),
+        book('no-bytes', 'f3'),
+        book('no-words', 'f4', { currentFile: file('f4', { ingestion: 'succeeded', chapterCount: 2 }) }),
+      ),
       'GET /me/v2/reading/changes': feed(),
-      'GET /me/v2/books/b1/files/f1/chapters': [conflict('v2_unavailable', {}, 503)],
-      'GET /me/v2/books/b2/files/f2/chapters': [{ status: 200, body: { items: [{ chapterKey: 'one', chapterNumber: 1, title: 'One', wordCount: 10 }], ingestion: 'succeeded' } }],
     })
     const shelf = await getV2UserBooks()
-    expect(shelf.map((b) => [b.id, b.status, b.chapterCount])).toEqual([['b1', 'Failed', 0], ['b2', 'Ready', 1]])
+    expect(shelf.map((b) => [b.id, b.status, b.chapterCount, b.totalWordCount])).toEqual([
+      ['ready', 'Ready', 3, 1200], ['running', 'Processing', 0, null], ['no-bytes', 'Failed', 0, null], ['no-words', 'Ready', 2, null],
+    ])
+    expect(calls.map((c) => c.path.split('?')[0])).toEqual(['/me/v2/library/changes', '/me/v2/reading/changes'])
+  })
+
+  it("resumes an epub-cfi on the shelf by a TOC this tab already read, and asks for none", async () => {
+    const cfi = { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/4!/4)', quote: 'q' }
+    const calls = fakeApi({
+      'GET /me/v2/library/changes': [...feed(book('b1', 'f1')), ...feed(book('b1', 'f1'))],
+      'GET /me/v2/reading/changes': [...feed(state('b1', 1, { currentLocator: cfi })), ...feed(state('b1', 1, { currentLocator: cfi }))],
+    })
+    expect((await getV2UserBooks())[0].progressChapterSlug).toBeNull()
+    v2Store.chapters.set('f1', { items: [{ chapterKey: 'one', chapterNumber: 1, title: 'One', wordCount: 100 }, { chapterKey: 'two', chapterNumber: 2, title: 'Two', wordCount: 100 }], ingestion: 'succeeded' })
+    expect((await getV2UserBooks())[0].progressChapterSlug).toBe('two')
+    expect(calls.some((c) => c.path.includes('/chapters'))).toBe(false)
   })
 
   it('takes a user-book read to V2, with its cover as the API route', async () => {

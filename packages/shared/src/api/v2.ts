@@ -122,6 +122,14 @@ export interface V2BookFile {
   hasContent: boolean
   createdAt: string
   contentRemovedAt: string | null
+  /**
+   * Transitional (dropped with the chapter reader at M6.4, #1118), on the library feed only, absent
+   * when null: the latest extraction's status, the chapter count, the chapters' summed word counts.
+   * A shelf reads these, never `/chapters`.
+   */
+  ingestion?: V2Ingestion
+  chapterCount?: number | null
+  wordCount?: number | null
 }
 
 export interface V2Book {

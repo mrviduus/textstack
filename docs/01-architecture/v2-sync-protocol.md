@@ -97,6 +97,7 @@ server stores them as UTC.
 | `isCurrent` | bool | server | |
 | `hasContent` | bool | server | `server_storage_key IS NOT NULL`: bytes downloadable |
 | `contentRemovedAt` | time | server | the reader stopped syncing this version (`DELETE …/content`): no client uploads its bytes on its own; a deliberate upload clears it (M2.6) |
+| `ingestion`, `chapterCount`, `wordCount` | text, int, int | server | transitional (dropped with `book_chapters` at M6.4, #1118), on the library feed only, absent when null: the latest extraction job's status, the extracted chapters, their summed word counts. An extraction does not bump `books.updated_at`: a full pull sees them change, a cursor resume only with the book's next write |
 | `createdAt` | time | server | |
 
 ### Reading state
