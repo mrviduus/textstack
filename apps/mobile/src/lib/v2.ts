@@ -6,6 +6,7 @@
  * `@textstack/shared` reader/v2Locators.
  */
 import { uuid } from 'expo-modules-core'
+import NetInfo from '@react-native-community/netinfo'
 import {
   v2Api, ApiError, isOfflineError, V2_OFF, clip, chapterAtFraction, placeToV2Locator, v2LocatorToPlace, createSha256, parsePdfPageLocator,
   type V2Book, type V2FileChapters, type V2Annotation, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
@@ -34,19 +35,39 @@ export function startV2Probe(): Promise<V2Switch> {
     (e) => {
       if (e instanceof ApiError && e.status === 401) probe = null
       // Never reached, or V2 paused (503 `v2_unavailable`): asked again after a reconnect. 404 = unmapped, off.
-      else unreached = isOfflineError(e) || (e instanceof ApiError && e.status === 503)
+      else if ((unreached = isOfflineError(e) || (e instanceof ApiError && e.status === 503))) watchReconnect()
       return V2_OFF
     },
   )
   return probe
 }
 
+/** An unreached probe is stale: the next call asks again. */
+function forgetUnreached() {
+  if (!unreached) return
+  unreached = false
+  probe = null
+}
+
+let watching = false
+
+/**
+ * The network coming back marks an unreached probe stale here, inside the NetInfo event (#1141).
+ * Screens learn of a reconnect from a React effect, which runs after this and — children first —
+ * before AuthContext's `reprobeV2AfterReconnect`: without this their calls still read the offline
+ * answer and went legacy. Offline nothing changes: no event, no network wait on the reading path.
+ */
+function watchReconnect() {
+  if (watching) return
+  watching = true
+  NetInfo.addEventListener((s) => {
+    if (s.isInternetReachable ?? s.isConnected) forgetUnreached()
+  })
+}
+
 /** The network is back (AuthContext's reconnect count): a probe that never reached the server asks again. */
 export function reprobeV2AfterReconnect(): Promise<V2Switch> {
-  if (unreached) {
-    unreached = false
-    probe = null
-  }
+  forgetUnreached()
   return startV2Probe()
 }
 
@@ -80,6 +101,7 @@ export const v2Store = {
   reset() {
     for (const cache of [this.books, this.chapters, this.states, this.annotations, this.pulled, this.revisions]) cache.clear()
     v2Api.forgetPulls()
+    pulling = null
   },
 }
 
@@ -88,6 +110,7 @@ export function resetV2ForTests() {
   probe = null
   known = V2_OFF
   unreached = false
+  watching = false
   v2Store.reset()
 }
 
@@ -105,13 +128,22 @@ async function dropReplaced(list: V2Book[]): Promise<void> {
   }
 }
 
-/** The library feed, whole (concurrent callers share one pull, `pullFeed`). */
-export async function pullV2Books(): Promise<V2Book[]> {
-  const { items } = await v2Api.pullFeed<V2Book>('library')
-  books.clear()
-  for (const b of items) books.set(b.id, b)
-  await dropReplaced(items)
-  return items
+let pulling: Promise<V2Book[]> | null = null
+
+/**
+ * The library feed, whole. Concurrent callers share one pull AND its cleanup (#1140): one
+ * `dropReplaced` per pull, never two transactions racing on the connection.
+ */
+export function pullV2Books(): Promise<V2Book[]> {
+  if (pulling) return pulling
+  const pull: Promise<V2Book[]> = (async () => {
+    const { items } = await v2Api.pullFeed<V2Book>('library')
+    books.clear()
+    for (const b of items) books.set(b.id, b)
+    await dropReplaced(items)
+    return items
+  })().finally(() => { if (pulling === pull) pulling = null })
+  return (pulling = pull)
 }
 
 /** A live book of the user's, from the last pull or a fresh one; 404 when there is none. */
@@ -414,7 +446,7 @@ export interface UploadIo {
   open(uri: string): ByteSource
   /** One part's bytes to its route. */
   sendPart(bookId: string, fileId: string, index: number, bytes: Uint8Array): Promise<unknown>
-  /** Hands the JS thread back between chunks: hashing 80 MB in one go freezes the screen. */
+  /** Hands the JS thread back between chunks: hashing 80 MB in one go freezes the screen. Throws `aborted` once cancelled. */
   yieldNow(): Promise<void>
 }
 
@@ -517,7 +549,7 @@ export async function uploadV2Book(
 /**
  * The device's bytes: the picker's copy read through expo-file-system's `FileHandle` (`offset` +
  * `readBytes`), each part a `Uint8Array` body through `fetch` (PDD "File sync upload protocol").
- * `isCancelled` stops before the next part.
+ * `isCancelled` stops before the next part, and before the next hash chunk.
  */
 export function deviceUploadIo(isCancelled: () => boolean): UploadIo {
   return {
@@ -535,9 +567,15 @@ export function deviceUploadIo(isCancelled: () => boolean): UploadIo {
       }
     },
     async sendPart(bookId, fileId, index, bytes) {
-      if (isCancelled()) throw Object.assign(new Error('Upload cancelled'), { aborted: true })
+      if (isCancelled()) throw cancelled()
       return v2Api.putPart(bookId, fileId, index, bytes)
     },
-    yieldNow: () => new Promise((resolve) => setTimeout(resolve, 0)),
+    // Also the hash loop's cancel point (#1143): Cancel stops within one chunk, not after the whole hash.
+    yieldNow: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      if (isCancelled()) throw cancelled()
+    },
   }
 }
+
+const cancelled = () => Object.assign(new Error('Upload cancelled'), { aborted: true })

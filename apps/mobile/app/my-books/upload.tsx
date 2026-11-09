@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native'
 import { useRouter, Stack } from 'expo-router'
 import * as DocumentPicker from 'expo-document-picker'
+import { File } from 'expo-file-system'
 import { formatBytes } from '../../src/lib/formatBytes'
 import { getApiConfig } from '@textstack/shared'
 import { userBooksApi } from '../../src/lib/userBooksApi'
@@ -124,6 +125,8 @@ function UploadScreen() {
     }
     setError(null)
     setUploadProgress(0)
+    // The picker's copy in cache/DocumentPicker/ (#1143): deleted once this upload ends, however it ends.
+    let pickedUri: string | null = null
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: [
@@ -137,6 +140,7 @@ function UploadScreen() {
       if (result.canceled) return
 
       const file = result.assets[0]
+      pickedUri = file.uri
       setFileName(file.name)
       setUploading(true)
 
@@ -147,7 +151,7 @@ function UploadScreen() {
         v2CancelledRef.current = false
         const { bookId, existing } = await uploadV2Book(
           file, v2.maxPartBytes, deviceUploadIo(() => v2CancelledRef.current), setUploadProgress)
-        if (unmountedRef.current) return
+        if (unmountedRef.current || v2CancelledRef.current) return
         if (existing) {
           router.replace(`/my-books/${bookId}`)
           return
@@ -216,6 +220,8 @@ function UploadScreen() {
     } finally {
       if (!unmountedRef.current) setUploading(false)
       xhrRef.current = null
+      // Best-effort: a cleanup failure never fails the upload (the OS clears the cache eventually).
+      if (pickedUri) try { new File(pickedUri).delete() } catch {}
     }
   }
 

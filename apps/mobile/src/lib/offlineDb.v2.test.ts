@@ -21,9 +21,9 @@ function shim(d: DatabaseSync) {
     },
     getFirstAsync: async (sql: string, params: unknown[] = []) => d.prepare(sql).get(...(params.map((p) => (p === undefined ? null : p)) as never[])) ?? null,
     getAllAsync: async (sql: string, params: unknown[] = []) => d.prepare(sql).all(...(params.map((p) => (p === undefined ? null : p)) as never[])),
+    // expo-sqlite's own shape: BEGIN inside the try, so a nested BEGIN's ROLLBACK ends the open transaction.
     withTransactionAsync: async (fn: () => Promise<void>) => {
-      d.exec('BEGIN')
-      try { await fn(); d.exec('COMMIT') } catch (e) { d.exec('ROLLBACK'); throw e }
+      try { d.exec('BEGIN'); await fn(); d.exec('COMMIT') } catch (e) { d.exec('ROLLBACK'); throw e }
     },
   }
 }
@@ -90,6 +90,34 @@ describe('offlineDb on V2 (real SQLite)', () => {
     expect(await m.listCachedUserChapters('b3')).toHaveLength(1)
     // Nothing left to drop: false, so the caller keeps the downloaded original.
     expect(await m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }])).toEqual([])
+  })
+
+  // #1140: two transactions on one connection at once — the second's BEGIN failed and its ROLLBACK ended the first.
+  it('transactions_Concurrent_RunOneAtATimeAndBothCommit', async () => {
+    const m = await coldStart()
+    await m.cacheUserChapter('b1', ch('old', 'f-old'), 1)
+    await m.cacheUserChapter('guest-b', ch('s1', 'guest-f'), 1)
+    await Promise.all([
+      m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }]),
+      m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }]),
+      m.rekeyCachedUserBooks({ 'guest-b': 'acct-b' }, {}),
+    ])
+    expect(await m.listCachedUserChapters('b1')).toHaveLength(0)
+    expect(await m.listCachedUserChapters('acct-b')).toHaveLength(1)
+  })
+
+  // #1142: the download engine hears about rows that changed behind it.
+  it('onCachedUserBooksChanged_DropAndRekey_NotifiesAffectedIdsOnly', async () => {
+    const m = await coldStart()
+    const heard: string[][] = []
+    const off = m.onCachedUserBooksChanged((ids) => heard.push(ids))
+    await m.cacheUserChapter('b1', ch('old', 'f-old'), 1)
+    await m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }])
+    await m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }]) // nothing left: silent
+    await m.rekeyCachedUserBooks({ 'guest-b': 'acct-b' }, {})
+    off()
+    await m.rekeyCachedUserBooks({ 'guest-c': 'acct-c' }, {})
+    expect(heard).toEqual([['b1'], ['guest-b']])
   })
 
   it('refreshCachedUserChapter_LegacyRefreshWithoutFileId_KeepsStoredFileId', async () => {

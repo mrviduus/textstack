@@ -24,7 +24,7 @@ import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
 import { getCachedOriginalUri } from '../../src/lib/originalFileCache'
 import { shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
 import { formatBytes } from '../../src/lib/formatBytes'
-import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached } from '../../src/lib/offlineDb'
+import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached, onCachedUserBooksChanged } from '../../src/lib/offlineDb'
 import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
 import { AddToCollectionSheet } from '../../src/components/library/AddToCollectionSheet'
@@ -209,6 +209,12 @@ export default function UserBookDetailScreen() {
     // `reconnects` so the screen recovers on its own — until now a failed load
     // left it showing a spinner until the reader backed out and came in again.
   }, [id, reconnects, attempt])
+
+  // A V2 file replacement dropped this book's rows behind the screen (#1142): ask SQLite again.
+  useEffect(() => onCachedUserBooksChanged(ids => {
+    if (!id || !ids.includes(id)) return
+    isUserBookFullyCached(id).then(c => { if (!unmountedRef.current) setCached(c) }).catch(() => {})
+  }), [id])
 
   // Re-read the progress when this screen comes back into view.
   //

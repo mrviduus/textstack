@@ -18,6 +18,7 @@ import {
   isUserBookFullyCached,
   getAllCachedUserBooks,
   clearCachedUserBooks,
+  onCachedUserBooksChanged,
   type CachedBookMeta,
   type CachedUserBookMeta,
 } from '../lib/offlineDb'
@@ -179,6 +180,20 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshCachedBooks().catch(err => console.warn('[downloads] initial cache read failed:', err))
   }, [refreshCachedBooks])
+
+  // V2 changes cached uploads behind this context (#1142): a replaced file drops its rows, a guest →
+  // account merge re-keys them. Re-read, and forget a finished download of a book whose rows went
+  // (else "Downloaded — Remove" stays with nothing on the device).
+  useEffect(() => onCachedUserBooksChanged(bookIds => {
+    setDownloads(prev => {
+      const gone = bookIds.filter(id => prev.has(id) && prev.get(id)!.status !== 'downloading')
+      if (gone.length === 0) return prev
+      const next = new Map(prev)
+      for (const id of gone) next.delete(id)
+      return next
+    })
+    refreshCachedBooks().catch(err => console.warn('[downloads] cache re-read failed:', err))
+  }), [refreshCachedBooks])
 
   const updateDownload = useCallback((editionId: string, update: Partial<DownloadInfo>) => {
     setDownloads(prev => {

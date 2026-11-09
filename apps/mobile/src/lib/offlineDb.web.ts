@@ -164,6 +164,10 @@ export async function getAllCachedUserBooks(): Promise<CachedUserBookMeta[]> {
 
 export async function rekeyCachedUserBooks(): Promise<void> {}
 
+export function onCachedUserBooksChanged(_listener: (bookIds: string[]) => void): () => void {
+  return () => {}
+}
+
 export async function clearCachedUserBooks(): Promise<void> {
   /* no-op */
 }

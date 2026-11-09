@@ -128,6 +128,38 @@ async function getDb(): Promise<any> {
   return dbPromise
 }
 
+let txQueue: Promise<unknown> = Promise.resolve()
+
+/**
+ * `withTransactionAsync`, one at a time (#1140). expo-sqlite's is a bare BEGIN/COMMIT on the shared
+ * connection: a second one started while the first is open fails its BEGIN, and its ROLLBACK ends
+ * the first's transaction. `withExclusiveTransactionAsync` is no fix here — it opens a second
+ * connection and, with no busy timeout set, every concurrent write would fail `database is locked`.
+ * ponytail: plain single-statement writes still interleave into an open transaction (committed with
+ * it; lost only if it rolls back on an error) — route them through here if that ever bites.
+ */
+function inTransaction(d: any, task: () => Promise<void>): Promise<void> {
+  const run = txQueue.then(() => d.withTransactionAsync(task))
+  txQueue = run.catch(() => {})
+  return run
+}
+
+type CachedUserBooksListener = (bookIds: string[]) => void
+const cachedUserBooksListeners = new Set<CachedUserBooksListener>()
+
+/**
+ * Cached uploads changed behind the download engine (#1142): a V2 file replacement dropped rows, or
+ * a guest → account merge re-keyed them. `bookIds` are the ids whose rows went (or moved away).
+ */
+export function onCachedUserBooksChanged(listener: CachedUserBooksListener): () => void {
+  cachedUserBooksListeners.add(listener)
+  return () => { cachedUserBooksListeners.delete(listener) }
+}
+
+function notifyCachedUserBooksChanged(bookIds: string[]) {
+  if (bookIds.length > 0) for (const l of cachedUserBooksListeners) l(bookIds)
+}
+
 // ============ CHAPTERS ============
 
 export async function getCachedChapter(
@@ -502,7 +534,7 @@ export async function storeCachedUserChapterStartPages(
 ): Promise<void> {
   const d = await getDb()
   if (!d) return
-  await d.withTransactionAsync(async () => {
+  await inTransaction(d, async () => {
     for (const c of chapters) {
       if (c.sourceStartPage == null) continue
       await d.runAsync(
@@ -591,7 +623,7 @@ export async function dropReplacedUserBookFiles(current: { bookId: string; fileI
   if (!d || current.length === 0) return []
   const currentFile = new Map(current.map(c => [c.bookId, c.fileId]))
   let dropped: string[] = []
-  await d.withTransactionAsync(async () => {
+  await inTransaction(d, async () => {
     const stored = await d.getAllAsync(
       'SELECT DISTINCT book_id, file_id FROM user_chapters WHERE file_id IS NOT NULL UNION SELECT book_id, file_id FROM cached_user_books WHERE file_id IS NOT NULL',
     ) as { book_id: string; file_id: string }[]
@@ -602,6 +634,7 @@ export async function dropReplacedUserBookFiles(current: { bookId: string; fileI
       await d.runAsync('DELETE FROM cached_user_books WHERE book_id = ? AND file_id IS NOT NULL AND file_id <> ?', args)
     }
   })
+  notifyCachedUserBooksChanged(dropped)
   return dropped
 }
 
@@ -635,7 +668,7 @@ export async function clearCachedUserBooks(): Promise<void> {
 export async function rekeyCachedUserBooks(books: Record<string, string>, files: Record<string, string>): Promise<void> {
   const d = await getDb()
   if (!d) return
-  await d.withTransactionAsync(async () => {
+  await inTransaction(d, async () => {
     for (const [from, to] of Object.entries(books)) {
       await d.runAsync(
         'DELETE FROM user_chapters WHERE book_id = ? AND chapter_slug IN (SELECT chapter_slug FROM user_chapters WHERE book_id = ?)',
@@ -650,6 +683,7 @@ export async function rekeyCachedUserBooks(books: Record<string, string>, files:
       await d.runAsync('UPDATE cached_user_books SET file_id = ? WHERE file_id = ?', [to, from])
     }
   })
+  notifyCachedUserBooksChanged(Object.keys(books))
 }
 
 export async function isUserBookFullyCached(bookId: string): Promise<boolean> {
