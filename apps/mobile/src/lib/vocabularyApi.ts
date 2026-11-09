@@ -5,12 +5,13 @@
  */
 import { uuid } from 'expo-modules-core'
 import { vocabularyApi as legacy, createV2Vocabulary, type V2SaveWord } from '@textstack/shared'
-import { switched, v2Book, v2Store } from './v2'
+import { switched, v2Book, v2Store, v2Epoch } from './v2'
 
 const v2 = createV2Vocabulary({
   newId: () => uuid.v4(),
   fileIdOf: async (bookId) => (await v2Book(bookId)).currentFile?.id ?? null,
-  revisions: v2Store.revisions,
+  cards: v2Store.cards,
+  epoch: v2Epoch,
 })
 
 type LegacySave = Parameters<typeof legacy.saveWord>[0]

@@ -23,6 +23,29 @@ export function fakeApi(routes: Record<string, Answer[]>, base = 'http://localho
   return calls
 }
 
+/**
+ * Runs `op` with `reset` (the app's store reset: a sign-out) landing while its requests are in flight
+ * (#1151). Routes as `fakeApi`'s, each matching any URL that contains its path (either client's
+ * base); every request — or, with `hold`, only those to that path — waits until after the reset.
+ */
+export async function resetMidCall<T>(reset: () => void, routes: Record<string, Answer>, op: () => Promise<T>, hold?: string): Promise<T> {
+  const waiting: Array<() => void> = []
+  vi.stubGlobal('fetch', vi.fn((url: string, init: RequestInit = {}) => new Promise((resolve) => {
+    const path = url.split('?')[0]
+    const key = Object.keys(routes).find((k) => k.startsWith(`${init.method ?? 'GET'} `) && path.includes(k.split(' ')[1]))
+    const a = key ? routes[key] : { status: 599 }
+    const answer = () => resolve({ ok: a.status < 300, status: a.status, text: async () => (a.body === undefined ? '' : JSON.stringify(a.body)) })
+    if (hold && !path.includes(hold)) answer()
+    else waiting.push(answer)
+  })))
+  const run = op()
+  for (let i = 0; i < 20 && !waiting.length; i++) await new Promise((r) => setTimeout(r, 0))
+  if (!waiting.length) throw new Error('resetMidCall: no request in flight to reset under')
+  reset()
+  for (const answer of waiting) answer()
+  return run
+}
+
 /** The probe answering V2 on. */
 export const V2_ON = { 'GET /me/v2/status': [{ status: 200, body: { maxPartBytes: 1024 } }] }
 

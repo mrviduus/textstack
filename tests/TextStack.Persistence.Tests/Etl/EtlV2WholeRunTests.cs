@@ -398,6 +398,7 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
         Assert.All(sets, s => Assert.Equal("ok", rows[$"{s}: legacy vs V2 (count, owner, content)"].Status));
         Assert.Equal(("ok", $"legacy {ProductionShapes.Uploads}, v2 {ProductionShapes.Uploads}"), rows["books: legacy vs V2 (count, owner, content)"]);
         Assert.Equal(("ok", $"legacy {ProductionShapes.Uploads} (1 without bytes), v2 {ProductionShapes.Uploads - 1}"), rows["book_files: legacy vs V2 (count, owner, content)"]);
+        // #1094: user 1's shadow row (V2Sql), filled by the run, counts as legacy's row, not drift; the one v2-only is the guest.
         Assert.StartsWith("legacy 31, v2 32 (1 v2-only, report)", rows["users: legacy vs V2 (count, owner, content)"].Details);
         // The report-only categories: listed, and the ledger names the same rows.
         Assert.Equal(("report", "legacy 1, ledger 1"), rows["report: takedowns (carried hidden, no bytes, no chapters)"]);
