@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHash } from 'node:crypto'
 import { initApi } from '@textstack/shared'
-import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, type UploadIo } from './v2'
+import NetInfo from '@react-native-community/netinfo'
+import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, switched, deviceUploadIo, v2Store, getV2UserBooks, type UploadIo } from './v2'
 import { getUserBookLocalProgress, setUserBookV2State, getUserBookV2State } from './progressStorage'
 import { fakeApi as fakeV2, conflict, state, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
-vi.mock('./offlineDb', () => ({ dropReplacedUserBookFiles: async () => [] }))
+const dropReplaced = vi.hoisted(() => ({ runs: 0 }))
+vi.mock('./offlineDb', () => ({ dropReplacedUserBookFiles: async () => { dropReplaced.runs++; return [] } }))
 vi.mock('./originalFileCache', () => ({ deleteOriginal: async () => {} }))
 
 const V2 = 'http://api/me/v2'
@@ -45,6 +47,168 @@ describe('mobile v2', () => {
     expect((await startV2Probe()).enabled).toBe(false) // no retry per call while offline
     fakeApi({ 'GET /status': [{ status: 200, body: { maxPartBytes: 1024 } }] })
     expect(await reprobeV2AfterReconnect()).toEqual({ enabled: true, maxPartBytes: 1024 })
+  })
+
+  // #1141: a screen's reconnect effect runs before AuthContext's re-probe; the NetInfo event already marked the offline answer stale.
+  it('switched after a reconnect asks the probe again instead of answering the offline one', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network request failed') }))
+    expect((await startV2Probe()).enabled).toBe(false)
+    const calls = fakeApi({ 'GET /status': [{ status: 200, body: { maxPartBytes: 1024 } }] })
+    const call = switched(async () => 'v2', async () => 'legacy')
+    ;(NetInfo as unknown as { __emit(s: object): void }).__emit({ isConnected: false, isInternetReachable: false })
+    expect(await call()).toBe('legacy') // still offline: no new probe
+    expect(calls).toHaveLength(0)
+    ;(NetInfo as unknown as { __emit(s: object): void }).__emit({ isConnected: true, isInternetReachable: true })
+    expect(await call()).toBe('v2')
+    expect(calls.map((c) => c.path)).toEqual(['/status'])
+  })
+
+  // #1140: the feed pull is shared, and so is its cleanup — one transaction per pull, not one per caller.
+  it('concurrent library pulls run the replaced-file cleanup once', async () => {
+    dropReplaced.runs = 0
+    const calls = fakeApi({ 'GET /library/changes': [{ status: 200, body: { items: [], cursor: null, hasMore: false } }] })
+    await Promise.all([pullV2Books(), pullV2Books(), pullV2Books()])
+    expect(calls).toHaveLength(1)
+    expect(dropReplaced.runs).toBe(1)
+    await pullV2Books() // the next pull is a new one
+    expect(dropReplaced.runs).toBe(2)
+  })
+
+  // #1140: a failed pull must not be handed to every later caller.
+  it('a failed library pull is not shared with the next pull', async () => {
+    const calls = fakeApi({ 'GET /library/changes': [{ status: 500 }, { status: 200, body: { items: [], cursor: null, hasMore: false } }] })
+    await expect(pullV2Books()).rejects.toBeDefined()
+    expect(await pullV2Books()).toEqual([])
+    expect(calls.filter((c) => c.path === '/library/changes')).toHaveLength(2)
+  })
+
+  // #1140: sign-out mid-pull — the next account's pull is its own, not the previous account's.
+  it('v2Store.reset during a pull starts a fresh pull next', async () => {
+    const calls = fakeApi({ 'GET /library/changes': [{ status: 200, body: { items: [], cursor: null, hasMore: false } }] })
+    const first = pullV2Books()
+    v2Store.reset()
+    await Promise.all([first, pullV2Books()])
+    expect(calls.filter((c) => c.path === '/library/changes')).toHaveLength(2)
+  })
+
+  // #1141: one NetInfo subscription for the app's life, however many probes fail.
+  it('repeated unreached probes subscribe to NetInfo once', async () => {
+    const net = NetInfo as unknown as { __count(): number }
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network request failed') }))
+    const before = net.__count()
+    await startV2Probe()
+    await reprobeV2AfterReconnect()
+    await reprobeV2AfterReconnect()
+    expect(net.__count()).toBe(before + 1)
+  })
+
+  // #1140 review: a pull that outlives a sign-out never fills the next account's store.
+  it('a pull that started before v2Store.reset does not write the store', async () => {
+    let answer!: () => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => {
+      answer = () => resolve({ ok: true, status: 200, text: async () => JSON.stringify({ items: [{ id: 'old-acct-book', currentFile: null }], cursor: null, hasMore: false }) })
+    })))
+    const first = pullV2Books()
+    await Promise.resolve()
+    v2Store.reset()
+    answer()
+    await first
+    expect(v2Store.books.size).toBe(0)
+  })
+
+  // #1140 second review: the shelf of a pull that outlived a sign-out is neither mapped, fetched nor shown.
+  it('getV2UserBooks after v2Store.reset mid-pull returns nothing and fetches no chapters', async () => {
+    const answers: Array<() => void> = []
+    const fetchSpy = vi.fn((url: string) => new Promise((resolve) => {
+      const body = url.includes('/library/') ? { items: [{ id: 'old-acct-book', currentFile: { id: 'f', hasContent: true } }], cursor: null, hasMore: false }
+        : { items: [], cursor: null, hasMore: false }
+      answers.push(() => resolve({ ok: true, status: 200, text: async () => JSON.stringify(body) }))
+    }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const shelf = getV2UserBooks()
+    await new Promise((r) => setTimeout(r, 0))
+    v2Store.reset()
+    for (const a of answers) a()
+    expect(await shelf).toEqual([])
+    expect(fetchSpy.mock.calls.map(([u]) => String(u)).filter((u) => u.includes('/chapters'))).toHaveLength(0)
+  })
+
+  // #1143 second review: Cancel while the last part is in flight never completes the upload.
+  it('a cancel during the last part removes the book instead of completing it', async () => {
+    const calls: Call[] = []
+    vi.stubGlobal('fetch', wrapIds(calls))
+    let cancelled = false
+    const device: UploadIo = {
+      ...deviceUploadIo(() => cancelled),
+      open: () => ({ size: bytes.length, read: (at, n) => bytes.slice(at, at + n), close: () => {} }),
+      sendPart: async () => { cancelled = true }, // the only part: Cancel lands while it is in flight
+    }
+    await expect(uploadV2Book({ uri: 'u', name: 'a.epub' }, 25, device)).rejects.toMatchObject({ aborted: true })
+    expect(calls.some((c) => c.method === 'POST' && c.path.endsWith('/content'))).toBe(false)
+    const put = calls.find((c) => c.method === 'PUT')!
+    expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: put.path })
+  })
+
+  // Test hygiene: the reset drops the NetInfo subscription, so suites never stack listeners.
+  it('resetV2ForTests unsubscribes NetInfo', async () => {
+    const net = NetInfo as unknown as { __count(): number }
+    const before = net.__count()
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network request failed') }))
+    await startV2Probe()
+    expect(net.__count()).toBe(before + 1)
+    resetV2ForTests()
+    expect(net.__count()).toBe(before)
+  })
+
+  // #1141 review: the network came back while a probe was in flight, and that probe then failed offline.
+  it('a probe that fails after an online event mid-flight is asked again', async () => {
+    const net = NetInfo as unknown as { __emit(s: object): void }
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network request failed') }))
+    await startV2Probe() // unreached: NetInfo is watched
+    net.__emit({ isConnected: true, isInternetReachable: true }) // stale: the next call asks again
+    let fail!: () => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((_, reject) => { fail = () => reject(new TypeError('Network request failed')) })))
+    const call = switched(async () => 'v2', async () => 'legacy')
+    const inFlight = call()
+    await Promise.resolve()
+    net.__emit({ isConnected: true, isInternetReachable: true }) // online again while that probe is in flight
+    fail()
+    expect(await inFlight).toBe('legacy')
+    fakeApi({ 'GET /status': [{ status: 200, body: { maxPartBytes: 1024 } }] })
+    expect(await call()).toBe('v2')
+  })
+
+  // #1143 review: a cancel during the re-hash after content_mismatch removes the book it imported.
+  it('a cancel during the content_mismatch re-hash removes the imported book', async () => {
+    const calls: Call[] = []
+    vi.stubGlobal('fetch', wrapIds(calls, [conflict('content_mismatch')]))
+    let hashes = 0
+    const device: UploadIo = {
+      ...io(),
+      yieldNow: async () => {
+        if (calls.some((c) => c.method === 'POST')) hashes++ // only the re-hash, after complete answered
+        if (hashes > 0) throw Object.assign(new Error('Upload cancelled'), { aborted: true })
+      },
+    }
+    await expect(uploadV2Book({ uri: 'u', name: 'a.epub' }, 25, device)).rejects.toMatchObject({ aborted: true })
+    const put = calls.find((c) => c.method === 'PUT')!
+    expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: put.path })
+  })
+
+  // #1143: Cancel during the hash stops within one chunk, before any request.
+  it('a cancel during hashing stops after the current chunk', async () => {
+    const big = new Uint8Array(4 * 1024 * 1024)
+    let reads = 0
+    let cancelled = false
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    const device: UploadIo = {
+      ...deviceUploadIo(() => cancelled),
+      open: () => ({ size: big.length, read: (at, n) => { reads++; cancelled = true; return big.subarray(at, at + n) }, close: () => {} }),
+    }
+    await expect(uploadV2Book({ uri: 'u', name: 'a.epub' }, 10, device)).rejects.toMatchObject({ aborted: true })
+    expect(reads).toBe(1)
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('a write that knows no percent yet keeps the fraction the server holds', async () => {

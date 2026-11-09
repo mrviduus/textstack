@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native'
 import { useRouter, Stack } from 'expo-router'
 import * as DocumentPicker from 'expo-document-picker'
+import { File } from 'expo-file-system'
 import { formatBytes } from '../../src/lib/formatBytes'
 import { getApiConfig } from '@textstack/shared'
 import { userBooksApi } from '../../src/lib/userBooksApi'
@@ -41,9 +42,12 @@ function UploadScreen() {
   const [quota, setQuota] = useState<{ usedBytes: number; limitBytes: number } | null>(null)
   const [ownsRights, setOwnsRights] = useState(false)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
-  const unmountedRef = useRef(false)
-  // V2 parts go one by one through fetch: Cancel stops before the next part (no XHR to abort).
-  const v2CancelledRef = useRef(false)
+  // The upload this screen is running, one token per pick (#1143): Cancel, unmount and the next pick
+  // mark it, and a marked upload never navigates, moves the bar or resets the screen. V2 parts go
+  // one by one through fetch: Cancel stops before the next part or hash chunk (no XHR to abort).
+  // ponytail: a part already in flight finishes (one part's network time); abort it via a fetch
+  // signal if that window matters.
+  const uploadRef = useRef<{ cancelled: boolean } | null>(null)
 
   useEffect(() => {
     // A guest now gets this figure, and it is the truth: their `Guest` tier
@@ -61,8 +65,7 @@ function UploadScreen() {
   // doesn't race the abandoned request (P1-3).
   useEffect(() => {
     return () => {
-      unmountedRef.current = true
-      v2CancelledRef.current = true
+      if (uploadRef.current) uploadRef.current.cancelled = true
       if (xhrRef.current) {
         try { xhrRef.current.abort() } catch {}
         xhrRef.current = null
@@ -107,7 +110,7 @@ function UploadScreen() {
   }
 
   const handleCancel = () => {
-    v2CancelledRef.current = true
+    if (uploadRef.current) uploadRef.current.cancelled = true
     if (xhrRef.current) {
       try { xhrRef.current.abort() } catch {}
       xhrRef.current = null
@@ -124,6 +127,13 @@ function UploadScreen() {
     }
     setError(null)
     setUploadProgress(0)
+    if (uploadRef.current) uploadRef.current.cancelled = true
+    const upload = { cancelled: false }
+    uploadRef.current = upload
+    /** Nobody cancelled, left or superseded this upload. */
+    const live = () => !upload.cancelled
+    // The picker's copy in cache/DocumentPicker/ (#1143): deleted once this upload ends, however it ends.
+    let pickedUri: string | null = null
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: [
@@ -135,8 +145,10 @@ function UploadScreen() {
       })
 
       if (result.canceled) return
-
       const file = result.assets[0]
+      pickedUri = file.uri
+      // Left (or cancelled) while the picker was open: no state, no probe, no hash.
+      if (!live()) return
       setFileName(file.name)
       setUploading(true)
 
@@ -144,10 +156,11 @@ function UploadScreen() {
       // library open that book instead.
       const v2 = await startV2Probe()
       if (v2.enabled) {
-        v2CancelledRef.current = false
         const { bookId, existing } = await uploadV2Book(
-          file, v2.maxPartBytes, deviceUploadIo(() => v2CancelledRef.current), setUploadProgress)
-        if (unmountedRef.current) return
+          file, v2.maxPartBytes, deviceUploadIo(() => upload.cancelled),
+          // A superseded upload's last part never moves the newer upload's bar.
+          p => { if (live()) setUploadProgress(p) })
+        if (!live()) return
         if (existing) {
           router.replace(`/my-books/${bookId}`)
           return
@@ -196,7 +209,7 @@ function UploadScreen() {
         xhr.send(formData)
       })
 
-      if (unmountedRef.current) return
+      if (!live()) return
       // The book the reader just added is the one they are most likely to open
       // next, so fetch it now rather than waiting for the next reconnect. Not
       // awaited: the screen closes immediately, the sweep runs behind it, and
@@ -208,14 +221,19 @@ function UploadScreen() {
       void syncOfflineLibrary().catch(err => console.warn('[auto-download] post-upload sweep failed:', err))
       router.back()
     } catch (e: any) {
-      if (unmountedRef.current) return
+      if (!live()) return
       // Cancellation is an intentional user action — don't show an error
       // banner, just reset state.
       if (e?.aborted) return
       setError(e?.message || 'Upload failed')
     } finally {
-      if (!unmountedRef.current) setUploading(false)
-      xhrRef.current = null
+      // A cancelled one was reset by Cancel; a left one has no screen; a superseded one is not its own.
+      if (live()) {
+        setUploading(false)
+        xhrRef.current = null
+      }
+      // Best-effort: a cleanup failure never fails the upload (the OS clears the cache eventually).
+      if (pickedUri) try { new File(pickedUri).delete() } catch {}
     }
   }
 

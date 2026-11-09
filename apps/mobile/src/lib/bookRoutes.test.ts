@@ -225,7 +225,8 @@ describe('resumeUploadRoute', () => {
   it('QA-007 RES-1: storing start pages is one transaction and skips rows that already have one', () => {
     const db = read('src/lib/offlineDb.ts')
     const fn = db.slice(db.indexOf('export async function storeCachedUserChapterStartPages'), db.indexOf('export async function listCachedUserChapters'))
-    expect(fn).toMatch(/withTransactionAsync/)
+    // One transaction, queued behind any other on the connection (#1140).
+    expect(fn).toMatch(/inTransaction\(d,/)
     expect(fn).toMatch(/AND source_start_page IS NULL/)
     expect(fn).toMatch(/if \(c\.sourceStartPage == null\) continue/)
   })

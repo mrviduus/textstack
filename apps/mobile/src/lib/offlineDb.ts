@@ -1,5 +1,6 @@
 import { Platform } from 'react-native'
 import type { Chapter, ChapterNav, UserBookChapterDto } from '@textstack/shared'
+import { createWriteQueue } from './sessionWrites'
 
 export interface CachedChapter {
   editionId: string
@@ -126,6 +127,35 @@ async function getDb(): Promise<any> {
     })
   }
   return dbPromise
+}
+
+const txQueue = createWriteQueue()
+
+/**
+ * `withTransactionAsync`, one at a time (#1140). expo-sqlite's is a bare BEGIN/COMMIT on the shared
+ * connection: a second one started while the first is open fails its BEGIN, and its ROLLBACK ends
+ * the first's transaction. `withExclusiveTransactionAsync` is no fix here — it opens a second
+ * connection and, with no busy timeout set, every concurrent write would fail `database is locked`.
+ * ponytail: plain single-statement writes still interleave into an open transaction (committed with
+ * it; lost only if it rolls back on an error) — route them through here if that ever bites.
+ */
+const inTransaction = (d: any, task: () => Promise<void>): Promise<void> => txQueue.run(() => d.withTransactionAsync(task))
+
+type CachedUserBooksListener = (bookIds: string[]) => void
+const cachedUserBooksListeners = new Set<CachedUserBooksListener>()
+
+/**
+ * Cached uploads changed behind the download engine (#1142): a V2 file replacement dropped rows, or
+ * a guest → account merge re-keyed them. `bookIds` are the ids whose rows went (or moved away).
+ */
+export function onCachedUserBooksChanged(listener: CachedUserBooksListener): () => void {
+  cachedUserBooksListeners.add(listener)
+  return () => { cachedUserBooksListeners.delete(listener) }
+}
+
+function notifyCachedUserBooksChanged(bookIds: string[]) {
+  // A throwing listener must not fail the write that already committed (nor skip the caller's cleanup).
+  if (bookIds.length > 0) for (const l of cachedUserBooksListeners) try { l(bookIds) } catch (e) { console.warn('[offlineDb] change listener failed:', e) }
 }
 
 // ============ CHAPTERS ============
@@ -502,7 +532,7 @@ export async function storeCachedUserChapterStartPages(
 ): Promise<void> {
   const d = await getDb()
   if (!d) return
-  await d.withTransactionAsync(async () => {
+  await inTransaction(d, async () => {
     for (const c of chapters) {
       if (c.sourceStartPage == null) continue
       await d.runAsync(
@@ -591,7 +621,7 @@ export async function dropReplacedUserBookFiles(current: { bookId: string; fileI
   if (!d || current.length === 0) return []
   const currentFile = new Map(current.map(c => [c.bookId, c.fileId]))
   let dropped: string[] = []
-  await d.withTransactionAsync(async () => {
+  await inTransaction(d, async () => {
     const stored = await d.getAllAsync(
       'SELECT DISTINCT book_id, file_id FROM user_chapters WHERE file_id IS NOT NULL UNION SELECT book_id, file_id FROM cached_user_books WHERE file_id IS NOT NULL',
     ) as { book_id: string; file_id: string }[]
@@ -602,6 +632,7 @@ export async function dropReplacedUserBookFiles(current: { bookId: string; fileI
       await d.runAsync('DELETE FROM cached_user_books WHERE book_id = ? AND file_id IS NOT NULL AND file_id <> ?', args)
     }
   })
+  notifyCachedUserBooksChanged(dropped)
   return dropped
 }
 
@@ -623,8 +654,12 @@ export async function getAllCachedUserBooks(): Promise<CachedUserBookMeta[]> {
 export async function clearCachedUserBooks(): Promise<void> {
   const d = await getDb()
   if (!d) return
-  await d.runAsync('DELETE FROM user_chapters')
-  await d.runAsync('DELETE FROM cached_user_books')
+  // Through the queue (#1140 review): a bare DELETE could join another transaction and be undone by
+  // its rollback — the previous account's text left for the next sign-in.
+  await inTransaction(d, async () => {
+    await d.runAsync('DELETE FROM user_chapters')
+    await d.runAsync('DELETE FROM cached_user_books')
+  })
 }
 
 /**
@@ -635,7 +670,7 @@ export async function clearCachedUserBooks(): Promise<void> {
 export async function rekeyCachedUserBooks(books: Record<string, string>, files: Record<string, string>): Promise<void> {
   const d = await getDb()
   if (!d) return
-  await d.withTransactionAsync(async () => {
+  await inTransaction(d, async () => {
     for (const [from, to] of Object.entries(books)) {
       await d.runAsync(
         'DELETE FROM user_chapters WHERE book_id = ? AND chapter_slug IN (SELECT chapter_slug FROM user_chapters WHERE book_id = ?)',
@@ -650,6 +685,10 @@ export async function rekeyCachedUserBooks(books: Record<string, string>, files:
       await d.runAsync('UPDATE cached_user_books SET file_id = ? WHERE file_id = ?', [to, from])
     }
   })
+  // Old and new ids: one lost rows, the other gained them. The server builds `files` from the same
+  // matched pairs as `books` (AccountMergeRepository), so every re-keyed file's book is in here. An id
+  // with no rows here is a harmless re-read on a rare path.
+  notifyCachedUserBooksChanged(Object.entries(books).flat())
 }
 
 export async function isUserBookFullyCached(bookId: string): Promise<boolean> {
