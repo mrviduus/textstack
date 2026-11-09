@@ -97,7 +97,9 @@ WHERE p.pronamespace = 'pg_catalog'::regnamespace AND (p.proname LIKE 'lo\_%' OR
 ```
 
 Checked 2026-11-08 on the compose image (pgvector pg16): 0 left, and a plain role's `lo_create(0)` is
-`permission denied`. On production the revoke stays after the cutover (legacy is read-only from then on);
+`permission denied`. Run that `lo_create(0)` probe only AFTER the REVOKE: a probe before it
+succeeds and leaves a large object the source audit then refuses (unlink it as a superuser,
+`SELECT lo_unlink(oid) FROM pg_largeobject_metadata`, if that happens). On production the revoke stays after the cutover (legacy is read-only from then on);
 undo it (`GRANT EXECUTE … TO PUBLIC` per function) only if the rollback (plan §5.3 step 8) puts legacy
 back in service and something needs it.
 
@@ -283,7 +285,10 @@ Before the write, on a dry and a real run: `annotations: selected_text not in it
 for every `textstack-anchor-v1` annotation, against legacy's chapters (V2's are their md5 copies, so it
 holds there too; a failure stops the write). After the write, per target: `<table>: parity` (every mapped
 row is in V2, equal to its mapping: count and content, owner included). The quote comparison collapses every whitespace run to one space on both sides
-first, and is otherwise strict: no trim, no case folding (owner 2026-11-08). `users: parity` covers the shadow rows and the admins.
+first (owner 2026-11-08) and drops whitespace before closing punctuation (`. , ; : ! ? …` and `) ] } » ” ’ ›`) on both
+sides (owner 2026-11-09: the first isolated rehearsal on a restored backup failed on one legacy highlight
+differing by a space before a final period, an html→text artifact); otherwise strict: no trim, no case folding.
+`validate-etl.sql` applies the same normalization. `users: parity` covers the shadow rows and the admins.
 
 ### Files
 

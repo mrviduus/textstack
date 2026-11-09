@@ -46,16 +46,17 @@ public static partial class EtlV2Uploads
 
     // Plan §5.2 validation part 3: an anchored upload annotation's text is in its chapter's plain_text, legacy's
     // (V2's are their md5 copies). Owner 2026-11-08: every whitespace run collapses to one space on both sides
-    // before comparing (a selection spans line breaks the text keeps); otherwise strict (no trim, no case
-    // folding). Each chapter is normalized once, however many highlights it holds.
+    // before comparing (a selection spans line breaks the text keeps); owner 2026-11-09: whitespace before closing
+    // punctuation is dropped on both sides too (an html→text artifact, "flow ." vs "flow."); otherwise strict (no
+    // trim, no case folding). Each chapter is normalized once, however many highlights it holds.
     private const string QuotesMissing = """
         WITH h AS (SELECT id, user_book_id, user_chapter_id, selected_text FROM highlights WHERE id = ANY(@ids)),
              c AS MATERIALIZED (
-                 SELECT id, user_book_id, regexp_replace(plain_text, '\s+', ' ', 'g') AS text
+                 SELECT id, user_book_id, regexp_replace(regexp_replace(plain_text, '\s+', ' ', 'g'), '\s+(?=[]).,;:!?…}»”’›])', '', 'g') AS text
                  FROM user_chapters WHERE id IN (SELECT user_chapter_id FROM h))
         SELECT h.id FROM h
         LEFT JOIN c ON c.id = h.user_chapter_id AND c.user_book_id = h.user_book_id
-        WHERE c.id IS NULL OR strpos(c.text, regexp_replace(h.selected_text, '\s+', ' ', 'g')) = 0
+        WHERE c.id IS NULL OR strpos(c.text, regexp_replace(regexp_replace(h.selected_text, '\s+', ' ', 'g'), '\s+(?=[]).,;:!?…}»”’›])', '', 'g')) = 0
         ORDER BY h.id
         """;
 

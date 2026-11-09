@@ -424,7 +424,8 @@ foreign_parent(t, id) AS (
     UNION ALL SELECT 'book_insight', x.id FROM book_insight x JOIN books b ON b.id = x.book_id WHERE b.user_id <> x.user_id
     UNION ALL SELECT 'review_question', x.id FROM review_question x JOIN book_insight i ON i.id = x.book_insight_id WHERE i.user_id <> x.user_id
     UNION ALL SELECT 'reading_sessions', x.id FROM reading_sessions x JOIN books b ON b.id = x.book_id WHERE b.user_id <> x.user_id),
--- part 3: every carried textstack-anchor-v1 annotation's text is in its chapter's plain_text (whitespace runs collapsed, otherwise strict).
+-- part 3: every carried textstack-anchor-v1 annotation's text is in its chapter's plain_text (whitespace runs collapsed, no whitespace before
+-- closing punctuation, otherwise strict; the same normalization as etl-v2's, owner 2026-11-09).
 -- A takedown's chapters are not carried: etl-v2 checked its annotations against legacy's, and so does nothing here.
 quote_missing AS (
     SELECT a.id FROM annotations a
@@ -433,7 +434,8 @@ quote_missing AS (
       AND a.book_id::text NOT IN (SELECT jsonb_array_elements_text(j -> 'takedowns') FROM l)
       AND NOT EXISTS (SELECT FROM book_chapters c
                       WHERE c.file_id = a.file_id AND c.user_id = a.user_id AND c.chapter_key = a.locator -> 'value' ->> 'chapterKey'
-                        AND strpos(regexp_replace(c.plain_text, '\s+', ' ', 'g'), regexp_replace(a.selected_text, '\s+', ' ', 'g')) > 0)),
+                        AND strpos(regexp_replace(regexp_replace(c.plain_text, '\s+', ' ', 'g'), '\s+(?=[]).,;:!?…}»”’›])', '', 'g'),
+                                   regexp_replace(regexp_replace(a.selected_text, '\s+', ' ', 'g'), '\s+(?=[]).,;:!?…}»”’›])', '', 'g')) > 0)),
 review_diff AS (
     SELECT COALESCE(e.key, a.word_id::text) AS id FROM
         (SELECT key, value::bigint AS n FROM l, jsonb_each_text(l.j -> 'review_counts')) e
