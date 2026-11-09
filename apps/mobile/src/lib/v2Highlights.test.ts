@@ -1,10 +1,17 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { V2Annotation } from '@textstack/shared'
-import { initApi } from '@textstack/shared'
-import { fakeApi, feed, conflict } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { initApi, SessionChangedError } from '@textstack/shared'
+import { fakeApi, feed, conflict, resetMidCall as midCall, type Answer } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 import { toPublicHighlight, toV2Write, userBookHighlightsApi, HighlightDeletedError } from './v2Highlights'
+import { v2Store as store } from './v2'
 
-vi.mock('./v2', () => ({ onV2: async () => true, v2Book: async () => ({ currentFile: { id: 'f1' } }), v2Store: { annotations: new Map(), pulled: new Set() }, switched: (v2: (...a: unknown[]) => unknown) => v2 }))
+// The real v2.ts (its store, epoch and `whileCurrent`); only the switch and the book lookup are faked.
+vi.mock('./offlineDb', () => ({ dropReplacedUserBookFiles: async () => [] }))
+vi.mock('./originalFileCache', () => ({ deleteOriginal: async () => {} }))
+vi.mock('./v2', async (importActual) => ({
+  ...(await importActual<typeof import('./v2')>()),
+  onV2: async () => true, v2Book: async () => ({ currentFile: { id: 'f1' } }), switched: (v2: (...a: unknown[]) => unknown) => v2,
+}))
 
 const row = (locator: V2Annotation['locator']): V2Annotation => ({
   id: 'h1', bookId: 'b1', fileId: 'f1', selectedText: 'hello there', noteText: null, locator, color: 'yellow',
@@ -73,6 +80,25 @@ describe('upload highlights on V2', () => {
     expect(JSON.parse(h.anchorJson)).toMatchObject({ exact: 'hello', chapterId: 'key-2' })
     // The V2 reader's epub-cfi highlight is its quotation here (never converted).
     expect(JSON.parse(toPublicHighlight(row({ version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' })).anchorJson)).toEqual({ exact: 'hello there' })
+  })
+
+  // #1151: a response that outlives a sign-out writes no row into the next account's store.
+  const resetMidCall = <T>(op: () => Promise<T>, routes: Record<string, Answer>) => {
+    initApi({ baseUrl: 'http://api', getAccessToken: async () => 't', onUnauthorized: async () => null })
+    return midCall(() => store.reset(), routes, op).finally(() => vi.unstubAllGlobals())
+  }
+
+  it('a highlights pull answered after v2Store.reset fills nothing', async () => {
+    const old = row({ version: 1, scheme: 'pdf-page', value: { v: 1, kind: 'pdf', page: 1, rects: [], exact: 'x' } })
+    expect(await resetMidCall(() => userBookHighlightsApi.getUserBookHighlights('b1'), { 'GET /annotations/changes': feed(old)[0] })).toEqual([])
+    expect(store.annotations.size).toBe(0)
+    expect(store.pulled.size).toBe(0)
+  })
+
+  it('a highlight write answered after v2Store.reset is a silent SessionChangedError and remembers nothing', async () => {
+    const write = { userBookId: 'b1', anchorJson: JSON.stringify({ exact: 'x' }), color: 'y', selectedText: 'x' }
+    await expect(resetMidCall(() => userBookHighlightsApi.createHighlight(write), { 'PUT /annotations/': { status: 200, body: row(null) } })).rejects.toBeInstanceOf(SessionChangedError)
+    expect(store.annotations.size).toBe(0)
   })
 
   it('an edit lost to another device\'s delete is reported deleted, not drawn', async () => {

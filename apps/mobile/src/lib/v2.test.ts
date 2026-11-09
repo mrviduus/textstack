@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHash } from 'node:crypto'
 import { initApi } from '@textstack/shared'
 import NetInfo from '@react-native-community/netinfo'
-import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, switched, deviceUploadIo, v2Store, getV2UserBooks, type UploadIo } from './v2'
+import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, switched, deviceUploadIo, v2Store, getV2UserBooks, v2Chapters, readV2Progress, type UploadIo } from './v2'
+import { vocabularyApi } from './vocabularyApi'
 import { getUserBookLocalProgress, setUserBookV2State, getUserBookV2State } from './progressStorage'
-import { fakeApi as fakeV2, conflict, state, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi as fakeV2, conflict, state, feed, book, resetMidCall as midCall, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 const dropReplaced = vi.hoisted(() => ({ runs: 0 }))
 vi.mock('./offlineDb', () => ({ dropReplacedUserBookFiles: async () => { dropReplaced.runs++; return [] } }))
@@ -12,6 +13,7 @@ vi.mock('./originalFileCache', () => ({ deleteOriginal: async () => {} }))
 
 const V2 = 'http://api/me/v2'
 const fakeApi = (routes: Record<string, Answer[]>) => fakeV2(routes, V2)
+const resetMidCall = <T>(routes: Record<string, Answer>, op: () => Promise<T>, hold?: string) => midCall(() => v2Store.reset(), routes, op, hold)
 
 const bytes = Uint8Array.from({ length: 25 }, (_, i) => i)
 const sha = createHash('sha256').update(bytes).digest('hex')
@@ -131,6 +133,58 @@ describe('mobile v2', () => {
     for (const a of answers) a()
     expect(await shelf).toEqual([])
     expect(fetchSpy.mock.calls.map(([u]) => String(u)).filter((u) => u.includes('/chapters'))).toHaveLength(0)
+  })
+
+  // #1151: per-book writes made after an await drop when the store was reset meanwhile.
+  it('a chapters fetch answered after v2Store.reset caches nothing', async () => {
+    const toc = await resetMidCall({ 'GET /books/b/files/f-ch/chapters': { status: 200, body: { items: [], ingestion: 'succeeded' } } },
+      () => v2Chapters(book('b', 'f-ch') as never))
+    expect(toc).toEqual({ items: [], ingestion: null })
+    expect(v2Store.chapters.size).toBe(0)
+  })
+
+  it('a reading-state read answered after v2Store.reset remembers nothing', async () => {
+    await resetMidCall({ 'GET /books/b-read/reading-state': { status: 200, body: state('b-read', 4) } }, () => readV2Progress('b-read'))
+    expect(v2Store.states.size).toBe(0)
+    expect(await getUserBookV2State('b-read')).toBeNull()
+  })
+
+  it('a reading-state write answered after v2Store.reset remembers nothing and is not marked synced', async () => {
+    await setUserBookV2State('b-save', { revision: 1, fileId: 'f1' })
+    const outcome = await resetMidCall({ 'PUT /books/b-save/reading-state': { status: 200, body: state('b-save', 2) } },
+      () => saveV2Progress('b-save', { chapterSlug: 'k1' }))
+    expect(outcome).toBe('dropped')
+    expect(v2Store.states.size).toBe(0)
+    expect(await getUserBookV2State('b-save')).toEqual({ revision: 1, fileId: 'f1' })
+  })
+
+  it('a write lost (409) after v2Store.reset adopts nothing', async () => {
+    await setUserBookV2State('b-lost', { revision: 1, fileId: 'f1' })
+    const outcome = await resetMidCall({ 'PUT /books/b-lost/reading-state': conflict('stale_revision', { current: state('b-lost', 9) }) },
+      () => saveV2Progress('b-lost', { chapterSlug: 'k1' }))
+    expect(outcome).toBe('dropped')
+    expect(await getUserBookV2State('b-lost')).toEqual({ revision: 1, fileId: 'f1' })
+    expect(await getUserBookLocalProgress('b-lost')).toBeNull()
+  })
+
+  it('an adopt whose chapters load outlives v2Store.reset writes no local record', async () => {
+    await setUserBookV2State('b-adopt', { revision: 1, fileId: 'f1' })
+    // An epub-cfi place resumes by fraction: adopt loads the chapters, and the reset lands there.
+    const current = state('b-adopt', 7, { currentLocator: { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' } })
+    const outcome = await resetMidCall({
+      'PUT /books/b-adopt/reading-state': conflict('stale_revision', { current }),
+      'GET /library/changes': feed(book('b-adopt', 'f1'))[0],
+      'GET /books/b-adopt/files/f1/chapters': { status: 200, body: { items: [], ingestion: 'succeeded' } },
+    }, () => saveV2Progress('b-adopt', { chapterSlug: 'k1' }), '/books/b-adopt/files/f1/chapters')
+    expect(outcome).toEqual({ adopted: expect.objectContaining({ chapterSlug: null, percent: null }) })
+    expect(await getUserBookLocalProgress('b-adopt')).toBeNull()
+  })
+
+  it('a vocabulary read answered after v2Store.reset returns nothing and remembers no card revision', async () => {
+    const queue = await resetMidCall({ 'GET /status': { status: 200, body: { maxPartBytes: 1024 } }, 'GET /vocabulary/due': { status: 200, body: [{ id: 'w-old', revision: 3, examples: [] }] } },
+      () => vocabularyApi.getReviewQueue(10, false), '/vocabulary/due')
+    expect(queue).toEqual({ cards: [], totalDue: 0, weeklyProgress: null }) // the previous account's cards never reach the screen
+    expect(v2Store.cards.size).toBe(0)
   })
 
   // #1143 second review: Cancel while the last part is in flight never completes the upload.

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, MutableRefObject } from 'react'
-import { highlightsApi, isPdfAnchor } from '@textstack/shared'
+import { highlightsApi, isPdfAnchor, SessionChangedError } from '@textstack/shared'
 import type { PublicHighlight, PdfAnchor } from '@textstack/shared'
 import { highlightCache, userBookHighlightCache } from '../lib/readerOfflineCache'
 import { matchesChapter } from '../lib/highlightChapter'
@@ -188,6 +188,7 @@ export function useReaderHighlights({
         }
         return true
       } catch (e) {
+        if (e instanceof SessionChangedError) return false // signed out mid-save: the reader is going
         console.warn('Failed to create highlight:', e)
         return failed()
       }
@@ -216,6 +217,7 @@ export function useReaderHighlights({
           })
         }
       } catch (e) {
+        if (e instanceof SessionChangedError) return
         console.warn('Failed to create PDF highlight:', e)
         showToast({ message: 'Could not add highlight. Try again.', variant: 'error' })
       }
@@ -261,7 +263,7 @@ export function useReaderHighlights({
           })
         }
       } catch (e) {
-        if (deletedElsewhere(e, id)) return
+        if (e instanceof SessionChangedError || deletedElsewhere(e, id)) return
         console.warn('Highlight note save failed:', e)
         showToast({ message: 'Could not save note. Try again.', variant: 'error' })
       }
@@ -298,7 +300,7 @@ export function useReaderHighlights({
           })
         }
       } catch (e) {
-        if (deletedElsewhere(e, id)) return
+        if (e instanceof SessionChangedError || deletedElsewhere(e, id)) return
         console.warn('Highlight color update failed:', e)
         // Rollback paint
         if (original) {
