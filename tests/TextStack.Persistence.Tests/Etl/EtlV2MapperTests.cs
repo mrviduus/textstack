@@ -271,8 +271,9 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     public async Task RunAsync_EmailHeldByAnotherV2Id_PreflightFailsAndNothingIsWritten()
     {
         var options = await SeedAsync();
+        // #1094: an M2.2 shadow row holding Alice's email (case aside) under another id than legacy's.
         var holder = Guid.NewGuid();
-        await ExecAsync(options.Target, "INSERT INTO users (id, email, created_at) VALUES (@holder, 'alice@test.COM', now())", new { holder });
+        await ExecAsync(options.Target, "INSERT INTO users (id, email, is_guest, created_at) VALUES (@holder, 'alice@test.COM', false, now())", new { holder });
 
         var error = await FailsAsync(options);
 
@@ -298,14 +299,29 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
     }
 
     [Fact]
-    public async Task RunAsync_ShadowRowAlreadyAdmin_RoleKept()
+    public async Task RunAsync_ShadowRowAlreadyAdmin_EveryColumnFilledFromLegacyRoleAndResetKept()
     {
+        // #1094: Carol's M2.2 shadow row (id, email, guest flag) under legacy's id; V2 made her admin and reset her credentials.
         var options = await SeedAsync();
-        await ExecAsync(options.Target, "UPDATE users SET role = 'admin' WHERE id = @Carol", new { Carol });
+        await ExecAsync(options.Source, """
+            UPDATE users SET apple_subject = 'apple-carol', password_hash = 'hash-c', picture = 'https://x/c.png', native_language = 'uk',
+                             storage_used_bytes = 42, storage_limit_override_bytes = 1000, promoted_at = '2025-03-02T10:00:00Z',
+                             last_active_at = '2026-10-03T10:00:00Z'
+            WHERE id = @Carol
+            """, new { Carol });
+        await ExecAsync(options.Target, "UPDATE users SET role = 'admin', credentials_reset_at = '2026-11-01T10:00:00Z' WHERE id = @Carol", new { Carol });
+        const string Mapped = """
+            SELECT row(email, NULLIF(google_subject, ''), NULLIF(apple_subject, ''), password_hash, name, picture, is_guest, last_active_at,
+                       native_language, storage_used_bytes, storage_limit_override_bytes, tier, promoted_at, created_at)::text
+            FROM users WHERE id = @Carol
+            """;
 
-        await EtlV2.RunAsync(options, ct: Ct);
+        var report = await EtlV2.RunAsync(options, ct: Ct);
 
-        Assert.Equal("admin/Carol", await V2Scalar<string>(options, "SELECT role || '/' || name FROM users WHERE id = @Carol", new { Carol }));
+        Assert.Equal(new EtlV2Writes(3, 1, 0), report.Writes["users"]); // upserted (counted updated), never drift
+        Assert.Equal(await ScalarAsync<string>(options.Source, Mapped, new { Carol }), await V2Scalar<string>(options, Mapped, new { Carol }));
+        Assert.Equal("admin/2026-11-01", await V2Scalar<string>(options,
+            "SELECT role || '/' || (credentials_reset_at AT TIME ZONE 'UTC')::date FROM users WHERE id = @Carol", new { Carol }));
     }
 
     [Fact]
@@ -515,6 +531,16 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.Equal("-/-", offsets);
         // Disqualified by its exact, not by a failed search: one line, the exact's.
         Assert.Equal([Line(Anchored, EtlV2Uploads.RefusedExact)], report.OrphanCandidates.Where(o => o.Contains(RefusedPrefix)));
+    }
+
+    [Fact]
+    public async Task RunAsync_AnchorExactOnlyWhitespace_SearchedWithAnEmptyGroupEmptySpanNotReported()
+    {
+        // Pinned, not designed: V2 accepts the exact (1..4000 code points), its whitespace sits outside the empty group, so the span is empty at the run's end.
+        var (_, report, offsets) = await RunAnchoredAsync("The spice must flow.", """{"prefix":"The","exact":"  ","suffix":"spice"}""");
+
+        Assert.Equal("4/4", offsets);
+        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(RefusedPrefix));
     }
 
     [Fact]
