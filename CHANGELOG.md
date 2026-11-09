@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Reader** — mobile V2 reflow highlights posted anchors without offsets and every one 400’d; anchors now carry the engine’s offsets, and an edit re-sends the stored locator instead of rebuilding it (found the ETL gap #1150) (#1139) — mobile, web · [details](docs/changelog-archive/2026-H2.md#2026-11-09-reader-mobile-v2-anchors-carry-offsets-edits-echo)
 - **Infra** — the etl-v2 quote check also ignores whitespace before punctuation (owner 2026-11-09, found by the first isolated rehearsal on a restored backup) — backend
 - **Infra** — M3.4: `database/v2/scripts/validate-etl.sql` (read-only re-check of a real ETL run from SQL alone) and the whole-run ETL tests T1–T4 — interrupted, retry, concurrent, idempotent — on a fixture mirroring production shapes (#1029) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-11-09-m3-4-validate-etl-t1-t4)
 - **Infra** — `0005_book_formats`: V2 `book_files.format` takes fb2, mobi, azw3, cbz (ADR-031 amended 2026-11-07, ADR-032); the ETL carries legacy's fb2 uploads; the down refuses while any row holds a new format (#1013, owner-approved diff) — infra
