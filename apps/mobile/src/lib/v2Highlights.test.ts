@@ -26,21 +26,27 @@ describe('upload highlights on V2', () => {
     expect(() => toV2Write({ userBookId: 'b1', userChapterId: 'k', anchorJson: old, color: 'y', selectedText: 'hello there' }, 'f1', null)).toThrow(/startOffset/)
   })
 
-  // A recolor or note edit re-saves the stored locator unchanged (#1139): rebuilding it from the lossy
-  // anchorJson threw for a migrated offset-less anchor (Uploads.Reading.cs SelectLegacyHighlights) and
-  // wiped an epub-cfi one (the V2 reader's) to null.
-  const edited = async (id: string, locator: V2Annotation['locator'], data: { color?: string; noteText?: string | null }) => {
+  // A recolor or note edit re-saves the stored locator and file unchanged (#1139): rebuilding them from
+  // the lossy anchorJson threw for a migrated offset-less anchor (Uploads.Reading.cs
+  // SelectLegacyHighlights) and wiped an epub-cfi one (the V2 reader's) to null.
+  const edited = async (id: string, locator: V2Annotation['locator'], data: Parameters<typeof userBookHighlightsApi.updateHighlight>[1]) => {
     initApi({ baseUrl: 'http://api', getAccessToken: async () => 't', onUnauthorized: async () => null })
     const live = { ...row(locator), id, bookId: `b-${id}` }
     const calls = fakeApi({
       'GET /me/v2/annotations/changes': feed(live),
       [`PUT /me/v2/annotations/${id}`]: [{ status: 200, body: { ...live, revision: 5 } }],
     }, 'http://api')
-    await userBookHighlightsApi.getUserBookHighlights(live.bookId)
-    await userBookHighlightsApi.updateHighlight(id, data)
-    vi.unstubAllGlobals()
-    return calls.find((c) => c.method === 'PUT')!.body
+    try {
+      await userBookHighlightsApi.getUserBookHighlights(live.bookId)
+      await userBookHighlightsApi.updateHighlight(id, data)
+      return calls.find((c) => c.method === 'PUT')!.body
+    } finally {
+      vi.unstubAllGlobals()
+      puts = calls.filter((c) => c.method === 'PUT').length
+    }
   }
+  let puts = 0
+  const cfi = { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' } as const
 
   it('re-saves a migrated offset-less textstack-anchor-v1 row without throwing (#1139 ETL gap)', async () => {
     const locator = { version: 1, scheme: 'textstack-anchor-v1', value: { chapterKey: 'k', prefix: 'p', exact: 'hello there', suffix: 's' } } as const
@@ -48,8 +54,17 @@ describe('upload highlights on V2', () => {
   })
 
   it('a note edit on an epub-cfi row keeps its locator (never null, never converted)', async () => {
-    const locator = { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' } as const
-    expect(await edited('c1', locator, { noteText: 'a note' })).toMatchObject({ noteText: 'a note', fileId: 'f1', locator })
+    expect(await edited('c1', cfi, { noteText: 'a note' })).toMatchObject({ noteText: 'a note', fileId: 'f1', locator: cfi })
+  })
+
+  it('refuses a re-anchor that would write a null locator over an epub-cfi, and sends nothing', async () => {
+    await expect(edited('c2', cfi, { anchorJson: JSON.stringify({ exact: 'hello there' }) })).rejects.toThrow(/cannot be moved/)
+    expect(puts).toBe(0)
+  })
+
+  it('refuses a selectedText change without its anchor (the stored quote would contradict it)', async () => {
+    await expect(edited('t1', cfi, { selectedText: 'other text' })).rejects.toThrow(/needs its anchor/)
+    expect(puts).toBe(0)
   })
 
   it('writes a PDF anchor as pdf-page, and a bare quote with no locator (and no file)', () => {

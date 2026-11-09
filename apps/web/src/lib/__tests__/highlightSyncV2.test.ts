@@ -95,16 +95,50 @@ describe('the V2 highlight sync', () => {
     expect(db.has('gone-id')).toBe(false)
   })
 
-  it('a recolor of a migrated offset-less row re-sends its stored locator unchanged (#1139)', async () => {
+  it('a note edit re-sends the stored locator and file, whatever the anchor key order, after a file replacement (#1139)', async () => {
+    const calls = fakeApi({
+      'GET /me/v2/library/changes': feed(book('b1', 'f2')),   // the file was replaced since the row was made on f1
+      'GET /me/v2/annotations/changes': feed(annotation('n')),
+      'PUT /me/v2/annotations/n': [{ status: 200, body: annotation('n', { revision: 4, noteText: 'note' }) }],
+    } as never)
+    await syncBookHighlights('b1', true)
+    const { chapterId, ...rest } = db.get('n')!.anchor as TextAnchor   // as useHighlightEdit spreads it
+    db.set('n', { ...db.get('n')!, anchor: { chapterId, ...rest }, noteText: 'note', syncStatus: 'pending' })
+
+    await syncBookHighlights('b1', true, undefined, undefined, true)
+
+    expect(calls.find((c) => c.method === 'PUT')?.body).toMatchObject({ noteText: 'note', fileId: 'f1', locator: annotation('n').locator })
+    expect(db.get('n')).toMatchObject({ syncStatus: 'synced', noteText: 'note' })
+  })
+
+  it('an edit V2 refuses as invalid_payload reverts to the server copy and is not retried (#1139)', async () => {
     const migrated = annotation('m', { locator: { version: 1, scheme: 'textstack-anchor-v1', value: { chapterKey: '2-the-woods', prefix: 'before ', exact: 'the quote', suffix: ' after' } } })
-    const calls = routes([migrated], { m: [{ status: 200, body: { ...migrated, revision: 4, color: 'blue' } }] })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const calls = routes([migrated], { m: [conflict('invalid_payload', {}, 400)] })
     await syncBookHighlights('b1', true)
     db.set('m', { ...db.get('m')!, color: 'blue', syncStatus: 'pending' })
 
     await syncBookHighlights('b1', true, undefined, undefined, true)
+    await syncBookHighlights('b1', true, undefined, undefined, true)
 
-    expect(calls.find((c) => c.method === 'PUT')?.body).toMatchObject({ color: 'blue', locator: migrated.locator })
-    expect(db.get('m')).toMatchObject({ syncStatus: 'synced', version: 4 })
+    expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(1)
+    expect(db.get('m')).toMatchObject({ syncStatus: 'synced', color: 'pink', version: 3 })
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('an edit whose new anchor V2 would refuse reverts to the server copy, never deleted (#1139)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const calls = routes([annotation('e')])
+    await syncBookHighlights('b1', true)
+    const bare = { prefix: 'x', exact: 'moved', suffix: 'y', chapterId: '2-the-woods' } as unknown as TextAnchor
+    db.set('e', { ...db.get('e')!, anchor: bare, syncStatus: 'pending' })
+
+    await syncBookHighlights('b1', true, undefined, undefined, true)
+
+    expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(0)
+    expect(db.get('e')).toMatchObject({ syncStatus: 'synced', anchor: text })
+    warn.mockRestore()
   })
 
   it('drops a new highlight whose anchor V2 refuses (no offsets) instead of retrying it forever (#1139)', async () => {

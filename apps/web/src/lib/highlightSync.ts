@@ -372,16 +372,21 @@ export function fromV2Annotation(a: V2Annotation): StoredHighlight | null {
   }
 }
 
+/** JSON with every object's keys sorted: the same anchor whatever order its fields were spread in. */
+const canon = (v: unknown) => JSON.stringify(v, (_k, x) =>
+  x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x)
+
 /**
  * `stored`: the server's row. While the anchor is the one read from it (a note or color edit), its
- * locator goes back unchanged: a migrated anchor may have no offsets, which `anchorToV2Locator` refuses.
+ * locator and file go back unchanged: a migrated anchor may have no offsets, which
+ * `anchorToV2Locator` refuses, and the file may since have been replaced.
  */
 export function toV2Write(h: StoredHighlight, fileId: string | null, expectedRevision: number | null, stored?: V2Annotation): V2AnnotationWrite {
-  const same = stored && JSON.stringify(v2LocatorToAnchor(stored.locator)) === JSON.stringify(h.anchor)
+  const same = stored && canon(v2LocatorToAnchor(stored.locator)) === canon(h.anchor)
   return {
     expectedRevision,
     bookId: h.userBookId!,
-    fileId,
+    fileId: same ? stored.fileId : fileId,
     selectedText: clip(h.selectedText, MAX_SELECTED_TEXT),
     noteText: h.noteText?.trim() ? h.noteText : null,
     locator: same ? stored.locator : anchorToV2Locator(h.anchor),
@@ -424,6 +429,14 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
       for (const h of local) if (!pending.has(h.id) && !serverById.has(h.id)) await deleteHighlightFromDB(h.id)
     }
 
+    // A write V2 refuses (an anchor without offsets, #1139) is refused on every replay: an edit of a
+    // server row reverts to the server's copy, a local-only create is dropped. Never retried.
+    const refused = async (h: StoredHighlight, stored: V2Annotation | undefined, why: unknown) => {
+      console.warn('highlightSync: V2 refuses this highlight write', h.id, why)
+      if (stored) await adopt(stored)
+      else await deleteHighlightFromDB(h.id)
+    }
+
     let changed = false
     for (const h of local.filter((l) => pending.has(l.id))) {
       const stored = serverById.get(h.id)
@@ -436,9 +449,7 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
           try {
             write = toV2Write(h, fileId, stored ? (h.base?.version ?? h.version) : null, stored)
           } catch (e) {
-            // An anchor V2 refuses (no offsets, #1139): the same on every replay, so dropped, not retried.
-            console.warn('highlightSync: dropping a highlight V2 cannot store', h.id, e)
-            await deleteHighlightFromDB(h.id)
+            await refused(h, stored, e)
             changed = true
             continue
           }
@@ -449,6 +460,7 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
         const err = v2Api.v2ErrorOf(e)
         if ((err?.code === 'stale_revision' || err?.code === 'deleted') && err.current) await adopt(err.current as V2Annotation)
         else if (err?.code === 'chapter_not_found' || err?.code === 'not_found') await deleteHighlightFromDB(h.id)
+        else if (err?.code === 'invalid_payload') await refused(h, stored, err)
         else continue // stays pending
         changed = true
       }

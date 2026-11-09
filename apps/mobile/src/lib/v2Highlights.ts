@@ -110,19 +110,24 @@ async function createV2(data: Parameters<typeof highlightsApi.createHighlight>[0
 async function updateV2(id: string, data: UpdateHighlightData): Promise<PublicHighlight> {
   const row = rows.get(id)
   if (!row) throw new Error('Highlight not loaded')
-  const h = toPublicHighlight(row)
-  const write = toV2Write({
-    userBookId: row.bookId,
-    userChapterId: h.userChapterId,
-    anchorJson: data.anchorJson ?? '',
-    color: data.color ?? row.color,
-    selectedText: data.selectedText ?? row.selectedText,
-    noteText: data.noteText === undefined ? row.noteText : data.noteText,
-  }, row.fileId, row.revision)
-  // A note/color edit keeps the stored locator as is: anchorJson is lossy (an epub-cfi reads as a
-  // bare quote, a migrated anchor may have no offsets), so rebuilding from it would break the row.
-  const kept = data.anchorJson === undefined ? { ...write, fileId: row.fileId, locator: row.locator } : write
-  const saved = await v2Api.putAnnotation(id, kept).catch(adopted(id))
+  // The quote and its place change together: a new selectedText on the old locator would contradict it.
+  if (data.selectedText !== undefined && data.anchorJson === undefined) throw new Error('A new selectedText needs its anchor')
+  const color = data.color ?? row.color
+  const noteText = data.noteText === undefined ? row.noteText : data.noteText
+  let write: V2AnnotationWrite
+  if (data.anchorJson === undefined) {
+    // A note/color edit re-sends the stored locator and file as they are: anchorJson is lossy (an
+    // epub-cfi reads as a bare quote, a migrated anchor may have no offsets).
+    write = { expectedRevision: row.revision, bookId: row.bookId, fileId: row.fileId, selectedText: row.selectedText, noteText: noteText?.trim() ? noteText : null, locator: row.locator, color }
+  } else {
+    write = toV2Write({
+      userBookId: row.bookId, userChapterId: toPublicHighlight(row).userChapterId, anchorJson: data.anchorJson,
+      color, selectedText: data.selectedText ?? row.selectedText, noteText,
+    }, row.fileId, row.revision)
+    // Never a null locator over a live one (an epub-cfi has no chapter here to re-anchor in).
+    if (!write.locator && row.locator) throw new Error('This highlight cannot be moved here')
+  }
+  const saved = await v2Api.putAnnotation(id, write).catch(adopted(id))
   return toPublicHighlight(remember(saved))
 }
 
