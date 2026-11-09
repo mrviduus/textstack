@@ -186,6 +186,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   // (else "Downloaded — Remove" stays with nothing on the device).
   useEffect(() => onCachedUserBooksChanged(bookIds => {
     setDownloads(prev => {
+      // One still running lost the meta row it counts into: it would end 'complete' with nothing
+      // fully cached. Cancel it (ends 'cancelled'); the reader downloads the current file again.
+      // Idempotent, so safe in an updater React may call twice.
+      for (const id of bookIds) if (prev.get(id)?.status === 'downloading') cancelledRef.current.add(id)
       const gone = bookIds.filter(id => prev.has(id) && prev.get(id)!.status !== 'downloading')
       if (gone.length === 0) return prev
       const next = new Map(prev)

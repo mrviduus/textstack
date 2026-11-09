@@ -140,10 +140,28 @@ describe('offlineDb on V2 (real SQLite)', () => {
     await m.cacheUserChapter('b1', ch('old', 'f-old'), 1)
     await m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }])
     await m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }]) // nothing left: silent
-    await m.rekeyCachedUserBooks({ 'guest-b': 'acct-b' }, {})
+    await m.cacheUserChapter('guest-b', ch('s1', 'guest-f'), 1)
+    await m.rekeyCachedUserBooks({ 'guest-b': 'acct-b' }, {}) // both ids: one lost rows, one gained them
+    await m.rekeyCachedUserBooks({ 'guest-x': 'acct-x' }, { 'nope-f': 'x-f' }) // nothing matched: silent
+    await m.rekeyCachedUserBooks({}, { 'guest-f': 'acct-f' }) // file-only: the book that holds the file
     off()
+    await m.cacheUserChapter('guest-c', ch('s1', 'guest-g'), 1)
     await m.rekeyCachedUserBooks({ 'guest-c': 'acct-c' }, {})
-    expect(heard).toEqual([['b1'], ['guest-b']])
+    expect(heard).toEqual([['b1'], ['guest-b', 'acct-b'], ['acct-b']])
+  })
+
+  // #1140 review: the sign-out wipe queues behind an open transaction, so that one's rollback cannot undo it.
+  it('clearCachedUserBooks_DuringAFailingTransaction_StillWipes', async () => {
+    const m = await coldStart()
+    await m.cacheUserChapter('guest-b', ch('s1', 'guest-f'), 1)
+    await m.cacheUserChapter('b2', ch('s1', 'f2'), 1)
+    db.exec("CREATE TRIGGER no_update BEFORE UPDATE ON user_chapters BEGIN SELECT RAISE(ABORT, 'boom'); END")
+    const failing = m.rekeyCachedUserBooks({ 'guest-b': 'acct-b' }, {})
+    const wipe = m.clearCachedUserBooks()
+    await expect(failing).rejects.toThrow('boom')
+    await wipe
+    db.exec('DROP TRIGGER no_update')
+    expect(db.prepare('SELECT count(*) AS n FROM user_chapters').get()).toEqual({ n: 0 })
   })
 
   // A throwing listener never fails the committed drop (the caller still deletes the originals).

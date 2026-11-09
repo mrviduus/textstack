@@ -15,6 +15,8 @@ describe('#1142 — cached uploads changed by V2 reach the download state', () =
     expect(start).toBeGreaterThan(-1)
     const body = ctx.slice(start, ctx.indexOf('}), [refreshCachedBooks])', start))
     expect(body).toContain("status !== 'downloading'")
+    // A download still running for a dropped book is cancelled, not left to end 'complete' (#1142 review).
+    expect(body).toContain("if (prev.get(id)?.status === 'downloading') cancelledRef.current.add(id)")
     expect(body).toContain('next.delete(id)')
     expect(body).toContain('refreshCachedBooks()')
   })
@@ -32,7 +34,15 @@ describe('#1143 — the upload screen honours Cancel and drops the picker copy',
     expect(upload).not.toContain('v2CancelledRef')
     expect(upload).toContain('const live = () => uploadRef.current === upload && !upload.cancelled && !unmountedRef.current')
     expect(upload).toContain('deviceUploadIo(() => upload.cancelled)')
-    expect(upload.match(/if \(!live\(\)\) return/g)).toHaveLength(3)
+    expect(upload.match(/if \(!live\(\)\) return/g)).toHaveLength(4)
+  })
+
+  it('an upload left while the picker was open does nothing, and keeps its copy for deletion', () => {
+    expect(upload).toMatch(/pickedUri = file\.uri\s*\/\/[^\n]*\n\s*if \(!live\(\)\) return\s*setFileName/)
+  })
+
+  it('a superseded upload never moves the progress bar', () => {
+    expect(upload).toContain('p => { if (live()) setUploadProgress(p) }')
   })
 
   it('only the current upload resets the screen in finally', () => {

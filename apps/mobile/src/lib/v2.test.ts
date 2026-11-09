@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHash } from 'node:crypto'
 import { initApi } from '@textstack/shared'
 import NetInfo from '@react-native-community/netinfo'
-import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, switched, deviceUploadIo, v2Store, type UploadIo } from './v2'
+import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, switched, deviceUploadIo, v2Store, getV2UserBooks, type UploadIo } from './v2'
 import { getUserBookLocalProgress, setUserBookV2State, getUserBookV2State } from './progressStorage'
 import { fakeApi as fakeV2, conflict, state, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
@@ -114,6 +114,50 @@ describe('mobile v2', () => {
     answer()
     await first
     expect(v2Store.books.size).toBe(0)
+  })
+
+  // #1140 second review: the shelf of a pull that outlived a sign-out is neither mapped, fetched nor shown.
+  it('getV2UserBooks after v2Store.reset mid-pull returns nothing and fetches no chapters', async () => {
+    const answers: Array<() => void> = []
+    const fetchSpy = vi.fn((url: string) => new Promise((resolve) => {
+      const body = url.includes('/library/') ? { items: [{ id: 'old-acct-book', currentFile: { id: 'f', hasContent: true } }], cursor: null, hasMore: false }
+        : { items: [], cursor: null, hasMore: false }
+      answers.push(() => resolve({ ok: true, status: 200, text: async () => JSON.stringify(body) }))
+    }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const shelf = getV2UserBooks()
+    await new Promise((r) => setTimeout(r, 0))
+    v2Store.reset()
+    for (const a of answers) a()
+    expect(await shelf).toEqual([])
+    expect(fetchSpy.mock.calls.map(([u]) => String(u)).filter((u) => u.includes('/chapters'))).toHaveLength(0)
+  })
+
+  // #1143 second review: Cancel while the last part is in flight never completes the upload.
+  it('a cancel during the last part removes the book instead of completing it', async () => {
+    const calls: Call[] = []
+    vi.stubGlobal('fetch', wrapIds(calls))
+    let cancelled = false
+    const device: UploadIo = {
+      ...deviceUploadIo(() => cancelled),
+      open: () => ({ size: bytes.length, read: (at, n) => bytes.slice(at, at + n), close: () => {} }),
+      sendPart: async () => { cancelled = true }, // the only part: Cancel lands while it is in flight
+    }
+    await expect(uploadV2Book({ uri: 'u', name: 'a.epub' }, 25, device)).rejects.toMatchObject({ aborted: true })
+    expect(calls.some((c) => c.method === 'POST' && c.path.endsWith('/content'))).toBe(false)
+    const put = calls.find((c) => c.method === 'PUT')!
+    expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: put.path })
+  })
+
+  // Test hygiene: the reset drops the NetInfo subscription, so suites never stack listeners.
+  it('resetV2ForTests unsubscribes NetInfo', async () => {
+    const net = NetInfo as unknown as { __count(): number }
+    const before = net.__count()
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network request failed') }))
+    await startV2Probe()
+    expect(net.__count()).toBe(before + 1)
+    resetV2ForTests()
+    expect(net.__count()).toBe(before)
   })
 
   // #1141 review: the network came back while a probe was in flight, and that probe then failed offline.

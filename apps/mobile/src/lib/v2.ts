@@ -55,7 +55,8 @@ function forgetUnreached() {
   probe = null
 }
 
-let watching = false
+/** The NetInfo subscription, once one probe went unreached (kept for the app's life). */
+let unwatch: (() => void) | null = null
 /** Online events seen: a probe in flight across one is not left stale when it then fails. */
 let onlineEvents = 0
 
@@ -66,9 +67,8 @@ let onlineEvents = 0
  * answer and went legacy. Offline nothing changes: no event, no network wait on the reading path.
  */
 function watchReconnect() {
-  if (watching) return
-  watching = true
-  NetInfo.addEventListener((s) => {
+  if (unwatch) return
+  unwatch = NetInfo.addEventListener((s) => {
     if (!(s.isInternetReachable ?? s.isConnected)) return
     onlineEvents++
     forgetUnreached()
@@ -121,7 +121,8 @@ export function resetV2ForTests() {
   probe = null
   known = V2_OFF
   unreached = false
-  watching = false
+  unwatch?.()
+  unwatch = null
   v2Store.reset()
 }
 
@@ -152,7 +153,7 @@ export function pullV2Books(): Promise<V2Book[]> {
   const started = epoch
   const pull: Promise<V2Book[]> = (async () => {
     const { items } = await v2Api.pullFeed<V2Book>('library')
-    if (started !== epoch) return items // signed out (or another account) meanwhile: not this store's
+    if (started !== epoch) return [] // signed out (or another account) meanwhile: not this account's books
     books.clear()
     for (const b of items) books.set(b.id, b)
     await dropReplaced(items)
@@ -206,7 +207,9 @@ const totalWords = (toc: V2FileChapters) =>
 export async function getV2UserBooks(): Promise<UserBookDto[]> {
   const started = epoch
   const [list, reading] = await Promise.all([pullV2Books(), v2Api.pullFeed<V2ReadingState>('reading')])
-  if (started === epoch) for (const s of reading.items) v2Store.states.set(s.bookId, s)
+  // Signed out (or another account) meanwhile: nothing of the previous account's is mapped, fetched or shown.
+  if (started !== epoch) return []
+  for (const s of reading.items) v2Store.states.set(s.bookId, s)
   const stateOf = v2Store.states
   return Promise.all(list.filter((b) => !b.removedAt).map(async (b): Promise<UserBookDto> => {
     // One failing call (content removed, a 503) costs that book its status, never the shelf.
@@ -544,6 +547,8 @@ export async function uploadV2Book(
     for (let retried = false; ; retried = true) {
       try {
         await sendAll()
+        // A cancel while the last part was in flight: never complete it (the cancel point throws `aborted`).
+        await io.yieldNow()
       } catch (e) {
         await dropIfCancelled(e)
         throw quota(e)

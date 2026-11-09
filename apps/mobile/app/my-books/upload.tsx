@@ -146,9 +146,10 @@ function UploadScreen() {
       })
 
       if (result.canceled) return
-
       const file = result.assets[0]
       pickedUri = file.uri
+      // Left (or cancelled) while the picker was open: no state, no probe, no hash.
+      if (!live()) return
       setFileName(file.name)
       setUploading(true)
 
@@ -157,7 +158,9 @@ function UploadScreen() {
       const v2 = await startV2Probe()
       if (v2.enabled) {
         const { bookId, existing } = await uploadV2Book(
-          file, v2.maxPartBytes, deviceUploadIo(() => upload.cancelled), setUploadProgress)
+          file, v2.maxPartBytes, deviceUploadIo(() => upload.cancelled),
+          // A superseded upload's last part never moves the newer upload's bar.
+          p => { if (live()) setUploadProgress(p) })
         if (!live()) return
         if (existing) {
           router.replace(`/my-books/${bookId}`)

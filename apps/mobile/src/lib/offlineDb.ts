@@ -657,8 +657,12 @@ export async function getAllCachedUserBooks(): Promise<CachedUserBookMeta[]> {
 export async function clearCachedUserBooks(): Promise<void> {
   const d = await getDb()
   if (!d) return
-  await d.runAsync('DELETE FROM user_chapters')
-  await d.runAsync('DELETE FROM cached_user_books')
+  // Through the queue (#1140 review): a bare DELETE could join another transaction and be undone by
+  // its rollback — the previous account's text left for the next sign-in.
+  await inTransaction(d, async () => {
+    await d.runAsync('DELETE FROM user_chapters')
+    await d.runAsync('DELETE FROM cached_user_books')
+  })
 }
 
 /**
@@ -669,22 +673,32 @@ export async function clearCachedUserBooks(): Promise<void> {
 export async function rekeyCachedUserBooks(books: Record<string, string>, files: Record<string, string>): Promise<void> {
   const d = await getDb()
   if (!d) return
+  // The books whose rows changed, under either id: the old one lost them, the new one gained them.
+  const changed = new Set<string>()
+  const n = (r: { changes: number }) => r.changes
   await inTransaction(d, async () => {
     for (const [from, to] of Object.entries(books)) {
-      await d.runAsync(
-        'DELETE FROM user_chapters WHERE book_id = ? AND chapter_slug IN (SELECT chapter_slug FROM user_chapters WHERE book_id = ?)',
-        [from, to],
-      )
-      await d.runAsync('DELETE FROM cached_user_books WHERE book_id = ? AND EXISTS (SELECT 1 FROM cached_user_books WHERE book_id = ?)', [from, to])
-      await d.runAsync('UPDATE user_chapters SET book_id = ? WHERE book_id = ?', [to, from])
-      await d.runAsync('UPDATE cached_user_books SET book_id = ? WHERE book_id = ?', [to, from])
+      const moved =
+        n(await d.runAsync(
+          'DELETE FROM user_chapters WHERE book_id = ? AND chapter_slug IN (SELECT chapter_slug FROM user_chapters WHERE book_id = ?)',
+          [from, to],
+        ))
+        + n(await d.runAsync('DELETE FROM cached_user_books WHERE book_id = ? AND EXISTS (SELECT 1 FROM cached_user_books WHERE book_id = ?)', [from, to]))
+        + n(await d.runAsync('UPDATE user_chapters SET book_id = ? WHERE book_id = ?', [to, from]))
+        + n(await d.runAsync('UPDATE cached_user_books SET book_id = ? WHERE book_id = ?', [to, from]))
+      if (moved > 0) changed.add(from).add(to)
     }
     for (const [from, to] of Object.entries(files)) {
-      await d.runAsync('UPDATE user_chapters SET file_id = ? WHERE file_id = ?', [to, from])
-      await d.runAsync('UPDATE cached_user_books SET file_id = ? WHERE file_id = ?', [to, from])
+      const moved = n(await d.runAsync('UPDATE user_chapters SET file_id = ? WHERE file_id = ?', [to, from]))
+        + n(await d.runAsync('UPDATE cached_user_books SET file_id = ? WHERE file_id = ?', [to, from]))
+      if (moved === 0) continue
+      const owners = await d.getAllAsync(
+        'SELECT book_id FROM user_chapters WHERE file_id = ? UNION SELECT book_id FROM cached_user_books WHERE file_id = ?', [to, to],
+      ) as { book_id: string }[]
+      for (const r of owners) changed.add(r.book_id)
     }
   })
-  notifyCachedUserBooksChanged(Object.keys(books))
+  notifyCachedUserBooksChanged([...changed])
 }
 
 export async function isUserBookFullyCached(bookId: string): Promise<boolean> {
