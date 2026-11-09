@@ -13,6 +13,7 @@ import {
   type V2WriteOutcome, type UserBookProgressDto, type LegacyPlace, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse,
 } from '@textstack/shared'
 import { dropReplacedUserBookFiles } from './offlineDb'
+import { createSingleFlight } from './singleFlight'
 import { deleteOriginal } from './originalFileCache'
 import { getUserBookV2State, setUserBookV2State, saveUserBookLocalProgress } from './progressStorage'
 
@@ -111,7 +112,7 @@ export const v2Store = {
   reset() {
     for (const cache of [this.books, this.chapters, this.states, this.annotations, this.pulled, this.revisions]) cache.clear()
     v2Api.forgetPulls()
-    pulling = null
+    pullFlight = createSingleFlight()
     epoch++
   },
 }
@@ -140,26 +141,35 @@ async function dropReplaced(list: V2Book[]): Promise<void> {
   }
 }
 
-let pulling: Promise<V2Book[]> | null = null
-/** Bumped by `v2Store.reset()`: a pull that started before it never writes into the next account's store. */
+/** Recreated by `v2Store.reset()`: the next account never joins the previous one's pull. */
+let pullFlight = createSingleFlight<V2Book[]>()
+/** Bumped by `v2Store.reset()`. */
 let epoch = 0
+
+/**
+ * `work`'s answer, or null when the store was reset while it ran (signed out, another account): the
+ * caller then writes, maps, fetches and shows nothing of the previous account's under the next one.
+ */
+async function whileCurrent<T>(work: Promise<T>): Promise<T | null> {
+  const started = epoch
+  const value = await work
+  return started === epoch ? value : null
+}
 
 /**
  * The library feed, whole. Concurrent callers share one pull AND its cleanup (#1140): one
  * `dropReplaced` per pull, never two transactions racing on the connection.
  */
 export function pullV2Books(): Promise<V2Book[]> {
-  if (pulling) return pulling
-  const started = epoch
-  const pull: Promise<V2Book[]> = (async () => {
-    const { items } = await v2Api.pullFeed<V2Book>('library')
-    if (started !== epoch) return [] // signed out (or another account) meanwhile: not this account's books
+  return pullFlight.run(async () => {
+    const feed = await whileCurrent(v2Api.pullFeed<V2Book>('library'))
+    if (!feed) return []
+    const { items } = feed
     books.clear()
     for (const b of items) books.set(b.id, b)
     await dropReplaced(items)
     return items
-  })().finally(() => { if (pulling === pull) pulling = null })
-  return (pulling = pull)
+  })
 }
 
 /** A live book of the user's, from the last pull or a fresh one; 404 when there is none. */
@@ -205,10 +215,9 @@ const totalWords = (toc: V2FileChapters) =>
  * either); one chapters call per book per load, for status and counts.
  */
 export async function getV2UserBooks(): Promise<UserBookDto[]> {
-  const started = epoch
-  const [list, reading] = await Promise.all([pullV2Books(), v2Api.pullFeed<V2ReadingState>('reading')])
-  // Signed out (or another account) meanwhile: nothing of the previous account's is mapped, fetched or shown.
-  if (started !== epoch) return []
+  const pulled = await whileCurrent(Promise.all([pullV2Books(), v2Api.pullFeed<V2ReadingState>('reading')]))
+  if (!pulled) return []
+  const [list, reading] = pulled
   for (const s of reading.items) v2Store.states.set(s.bookId, s)
   const stateOf = v2Store.states
   return Promise.all(list.filter((b) => !b.removedAt).map(async (b): Promise<UserBookDto> => {
@@ -496,20 +505,22 @@ export async function uploadV2Book(
   onProgress?: (percent: number) => void,
 ): Promise<{ bookId: string; existing: boolean }> {
   const source = io.open(file.uri)
+  // The book this upload made (not found, not another device's). Cancelled at any cancel point before
+  // its content completed, it would sit on the shelf as Failed with no action on V2 (no retry), so it
+  // goes; picking the file again starts afresh.
+  let imported: string | null = null
   try {
     const format = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'epub'
     const sha256 = await sha256Of(source, io.yieldNow)
     // The same bytes already in the library open that book — or, when another device imported it
     // without its bytes, this upload sends them to that book's file.
     let target = await v2Api.findBySha256(sha256)
-    // This upload made the book (not found, not another device's): a cancel before its bytes removes it.
-    let imported = false
     if (!target) {
       const id = uuid.v4()
       const title = clip(file.name.replace(/\.(epub|pdf)$/i, '').trim() || file.name, 500)
       try {
         target = await v2Api.importBook(id, { title, file: { id: uuid.v4(), sha256, byteSize: source.size, originalName: clip(file.name, 500), format } })
-        imported = true
+        imported = target.id
       } catch (e) {
         const err = v2Api.v2ErrorOf(e)
         if (err?.code !== 'duplicate_file') throw e
@@ -533,11 +544,6 @@ export async function uploadV2Book(
         onProgress?.(((i + 1) / partCount) * 100)
       }
     }
-    // Cancelled: a book whose content never completed would sit on the shelf as Failed with no action
-    // on V2 (no retry), so the one this upload imported goes. Picking the file again starts afresh.
-    const dropIfCancelled = async (e: unknown) => {
-      if ((e as { aborted?: boolean }).aborted && imported) await v2Api.removeBook(bookId).catch(() => {})
-    }
     const quota = (e: unknown) => {
       const err = v2Api.v2ErrorOf(e)
       return err?.code === 'quota_exceeded' ? new V2UploadError('quota_exceeded', err.current as { used: number; limit: number }) : e
@@ -550,7 +556,6 @@ export async function uploadV2Book(
         // A cancel while the last part was in flight: never complete it (the cancel point throws `aborted`).
         await io.yieldNow()
       } catch (e) {
-        await dropIfCancelled(e)
         throw quota(e)
       }
       try {
@@ -560,14 +565,14 @@ export async function uploadV2Book(
         const err = v2Api.v2ErrorOf(e)
         if (err?.code === 'quota_exceeded') throw quota(e)
         const again = !retried && (err?.code === 'incomplete_upload'
-          || (err?.code === 'content_mismatch' && (await sha256Of(source, io.yieldNow).catch(async (abort) => {
-            await dropIfCancelled(abort) // a cancel during the re-hash: never completed, same as a cancelled send
-            throw abort
-          })) === sha256))
+          || (err?.code === 'content_mismatch' && (await sha256Of(source, io.yieldNow)) === sha256))
         if (again) continue
         throw err?.code === 'content_mismatch' ? new V2UploadError('content_mismatch') : e
       }
     }
+  } catch (e) {
+    if ((e as { aborted?: boolean }).aborted && imported) await v2Api.removeBook(imported).catch(() => {})
+    throw e
   } finally {
     source.close()
   }

@@ -186,18 +186,24 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   // (else "Downloaded — Remove" stays with nothing on the device).
   useEffect(() => onCachedUserBooksChanged(bookIds => {
     setDownloads(prev => {
-      // One still running lost the meta row it counts into: it would end 'complete' with nothing
-      // fully cached. Cancel it (ends 'cancelled'); the reader downloads the current file again.
-      // Idempotent, so safe in an updater React may call twice.
-      for (const id of bookIds) if (prev.get(id)?.status === 'downloading') cancelledRef.current.add(id)
-      const gone = bookIds.filter(id => prev.has(id) && prev.get(id)!.status !== 'downloading')
-      if (gone.length === 0) return prev
-      const next = new Map(prev)
-      for (const id of gone) next.delete(id)
+      let next = prev
+      for (const id of bookIds) {
+        const status = prev.get(id)?.status
+        if (!status) continue
+        // One still running lost the meta row it counts into: it would end 'complete' with nothing
+        // fully cached. Cancel it (ends 'cancelled'); the reader downloads the current file again.
+        // In the updater because only it sees the current map; idempotent if React calls it twice.
+        if (status === 'downloading') cancelledRef.current.add(id)
+        else {
+          if (next === prev) next = new Map(prev)
+          next.delete(id)
+        }
+      }
       return next
     })
-    refreshCachedBooks().catch(err => console.warn('[downloads] cache re-read failed:', err))
-  }), [refreshCachedBooks])
+    // Only the uploads: the catalog list is not this event's.
+    getAllCachedUserBooks().then(setCachedUserBooks).catch(err => console.warn('[downloads] cache re-read failed:', err))
+  }), [])
 
   const updateDownload = useCallback((editionId: string, update: Partial<DownloadInfo>) => {
     setDownloads(prev => {

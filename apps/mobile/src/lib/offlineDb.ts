@@ -1,5 +1,6 @@
 import { Platform } from 'react-native'
 import type { Chapter, ChapterNav, UserBookChapterDto } from '@textstack/shared'
+import { createWriteQueue } from './sessionWrites'
 
 export interface CachedChapter {
   editionId: string
@@ -128,7 +129,7 @@ async function getDb(): Promise<any> {
   return dbPromise
 }
 
-let txQueue: Promise<unknown> = Promise.resolve()
+const txQueue = createWriteQueue()
 
 /**
  * `withTransactionAsync`, one at a time (#1140). expo-sqlite's is a bare BEGIN/COMMIT on the shared
@@ -138,11 +139,7 @@ let txQueue: Promise<unknown> = Promise.resolve()
  * ponytail: plain single-statement writes still interleave into an open transaction (committed with
  * it; lost only if it rolls back on an error) — route them through here if that ever bites.
  */
-function inTransaction(d: any, task: () => Promise<void>): Promise<void> {
-  const run = txQueue.then(() => d.withTransactionAsync(task))
-  txQueue = run.catch(() => {})
-  return run
-}
+const inTransaction = (d: any, task: () => Promise<void>): Promise<void> => txQueue.run(() => d.withTransactionAsync(task))
 
 type CachedUserBooksListener = (bookIds: string[]) => void
 const cachedUserBooksListeners = new Set<CachedUserBooksListener>()
@@ -673,32 +670,25 @@ export async function clearCachedUserBooks(): Promise<void> {
 export async function rekeyCachedUserBooks(books: Record<string, string>, files: Record<string, string>): Promise<void> {
   const d = await getDb()
   if (!d) return
-  // The books whose rows changed, under either id: the old one lost them, the new one gained them.
-  const changed = new Set<string>()
-  const n = (r: { changes: number }) => r.changes
   await inTransaction(d, async () => {
     for (const [from, to] of Object.entries(books)) {
-      const moved =
-        n(await d.runAsync(
-          'DELETE FROM user_chapters WHERE book_id = ? AND chapter_slug IN (SELECT chapter_slug FROM user_chapters WHERE book_id = ?)',
-          [from, to],
-        ))
-        + n(await d.runAsync('DELETE FROM cached_user_books WHERE book_id = ? AND EXISTS (SELECT 1 FROM cached_user_books WHERE book_id = ?)', [from, to]))
-        + n(await d.runAsync('UPDATE user_chapters SET book_id = ? WHERE book_id = ?', [to, from]))
-        + n(await d.runAsync('UPDATE cached_user_books SET book_id = ? WHERE book_id = ?', [to, from]))
-      if (moved > 0) changed.add(from).add(to)
+      await d.runAsync(
+        'DELETE FROM user_chapters WHERE book_id = ? AND chapter_slug IN (SELECT chapter_slug FROM user_chapters WHERE book_id = ?)',
+        [from, to],
+      )
+      await d.runAsync('DELETE FROM cached_user_books WHERE book_id = ? AND EXISTS (SELECT 1 FROM cached_user_books WHERE book_id = ?)', [from, to])
+      await d.runAsync('UPDATE user_chapters SET book_id = ? WHERE book_id = ?', [to, from])
+      await d.runAsync('UPDATE cached_user_books SET book_id = ? WHERE book_id = ?', [to, from])
     }
     for (const [from, to] of Object.entries(files)) {
-      const moved = n(await d.runAsync('UPDATE user_chapters SET file_id = ? WHERE file_id = ?', [to, from]))
-        + n(await d.runAsync('UPDATE cached_user_books SET file_id = ? WHERE file_id = ?', [to, from]))
-      if (moved === 0) continue
-      const owners = await d.getAllAsync(
-        'SELECT book_id FROM user_chapters WHERE file_id = ? UNION SELECT book_id FROM cached_user_books WHERE file_id = ?', [to, to],
-      ) as { book_id: string }[]
-      for (const r of owners) changed.add(r.book_id)
+      await d.runAsync('UPDATE user_chapters SET file_id = ? WHERE file_id = ?', [to, from])
+      await d.runAsync('UPDATE cached_user_books SET file_id = ? WHERE file_id = ?', [to, from])
     }
   })
-  notifyCachedUserBooksChanged([...changed])
+  // Old and new ids: one lost rows, the other gained them. The server builds `files` from the same
+  // matched pairs as `books` (AccountMergeRepository), so every re-keyed file's book is in here. An id
+  // with no rows here is a harmless re-read on a rare path.
+  notifyCachedUserBooksChanged(Object.entries(books).flat())
 }
 
 export async function isUserBookFullyCached(bookId: string): Promise<boolean> {

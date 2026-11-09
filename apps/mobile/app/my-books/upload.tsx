@@ -42,9 +42,8 @@ function UploadScreen() {
   const [quota, setQuota] = useState<{ usedBytes: number; limitBytes: number } | null>(null)
   const [ownsRights, setOwnsRights] = useState(false)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
-  const unmountedRef = useRef(false)
-  // The upload this screen is running, one token per pick (#1143): Cancel marks it, and an older
-  // upload that is still finishing never navigates or resets the screen of a newer one. V2 parts go
+  // The upload this screen is running, one token per pick (#1143): Cancel, unmount and the next pick
+  // mark it, and a marked upload never navigates, moves the bar or resets the screen. V2 parts go
   // one by one through fetch: Cancel stops before the next part or hash chunk (no XHR to abort).
   // ponytail: a part already in flight finishes (one part's network time); abort it via a fetch
   // signal if that window matters.
@@ -66,7 +65,6 @@ function UploadScreen() {
   // doesn't race the abandoned request (P1-3).
   useEffect(() => {
     return () => {
-      unmountedRef.current = true
       if (uploadRef.current) uploadRef.current.cancelled = true
       if (xhrRef.current) {
         try { xhrRef.current.abort() } catch {}
@@ -129,10 +127,11 @@ function UploadScreen() {
     }
     setError(null)
     setUploadProgress(0)
+    if (uploadRef.current) uploadRef.current.cancelled = true
     const upload = { cancelled: false }
     uploadRef.current = upload
-    /** This upload is still the screen's, and nobody cancelled it. */
-    const live = () => uploadRef.current === upload && !upload.cancelled && !unmountedRef.current
+    /** Nobody cancelled, left or superseded this upload. */
+    const live = () => !upload.cancelled
     // The picker's copy in cache/DocumentPicker/ (#1143): deleted once this upload ends, however it ends.
     let pickedUri: string | null = null
     try {
@@ -228,9 +227,9 @@ function UploadScreen() {
       if (e?.aborted) return
       setError(e?.message || 'Upload failed')
     } finally {
-      // A superseded upload leaves the screen to the one running now.
-      if (uploadRef.current === upload) {
-        if (!unmountedRef.current) setUploading(false)
+      // A cancelled one was reset by Cancel; a left one has no screen; a superseded one is not its own.
+      if (live()) {
+        setUploading(false)
         xhrRef.current = null
       }
       // Best-effort: a cleanup failure never fails the upload (the OS clears the cache eventually).

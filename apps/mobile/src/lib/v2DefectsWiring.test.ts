@@ -13,12 +13,11 @@ describe('#1142 — cached uploads changed by V2 reach the download state', () =
     const ctx = read('src/context/DownloadContext.tsx')
     const start = ctx.indexOf('useEffect(() => onCachedUserBooksChanged(')
     expect(start).toBeGreaterThan(-1)
-    const body = ctx.slice(start, ctx.indexOf('}), [refreshCachedBooks])', start))
-    expect(body).toContain("status !== 'downloading'")
+    const body = ctx.slice(start, ctx.indexOf('}), [])', start))
     // A download still running for a dropped book is cancelled, not left to end 'complete' (#1142 review).
-    expect(body).toContain("if (prev.get(id)?.status === 'downloading') cancelledRef.current.add(id)")
+    expect(body).toContain("if (status === 'downloading') cancelledRef.current.add(id)")
     expect(body).toContain('next.delete(id)')
-    expect(body).toContain('refreshCachedBooks()')
+    expect(body).toContain('getAllCachedUserBooks().then(setCachedUserBooks)')
   })
 
   it('the book page asks SQLite again when its own rows changed', () => {
@@ -32,7 +31,9 @@ describe('#1143 — the upload screen honours Cancel and drops the picker copy',
 
   it('each pick has its own cancel token; a cancelled or superseded upload never navigates', () => {
     expect(upload).not.toContain('v2CancelledRef')
-    expect(upload).toContain('const live = () => uploadRef.current === upload && !upload.cancelled && !unmountedRef.current')
+    // The next pick marks the previous one, so one flag answers for Cancel, unmount and superseded.
+    expect(upload).toMatch(/if \(uploadRef\.current\) uploadRef\.current\.cancelled = true\s*const upload = \{ cancelled: false \}\s*uploadRef\.current = upload/)
+    expect(upload).toContain('const live = () => !upload.cancelled')
     expect(upload).toContain('deviceUploadIo(() => upload.cancelled)')
     expect(upload.match(/if \(!live\(\)\) return/g)).toHaveLength(4)
   })
@@ -47,7 +48,7 @@ describe('#1143 — the upload screen honours Cancel and drops the picker copy',
 
   it('only the current upload resets the screen in finally', () => {
     const fin = upload.slice(upload.lastIndexOf('} finally {'))
-    expect(fin).toMatch(/if \(uploadRef\.current === upload\) \{\s*if \(!unmountedRef\.current\) setUploading\(false\)\s*xhrRef\.current = null/)
+    expect(fin).toMatch(/if \(live\(\)\) \{\s*setUploading\(false\)\s*xhrRef\.current = null/)
   })
 
   it('the picker copy is deleted in finally, best-effort', () => {
