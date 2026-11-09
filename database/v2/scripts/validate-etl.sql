@@ -12,7 +12,7 @@
 --   ok      the check holds;
 --   FAIL    a mismatch: psql then exits 3 ("validate-etl: N check(s) FAILED");
 --   report  a report-only category (runbook §4): V2-only rows, takedowns, non-ready uploads, files with
---           no bytes on disk, session-only pairs, dangling shelf entries. Listed, never a failure, as
+--           no bytes on disk, session-only pairs, dangling shelf entries, anchors without valid offsets. Listed, never a failure, as
 --           long as the ledger names the same rows SQL finds.
 -- Exit 0 = every check ok or report.
 --
@@ -159,13 +159,32 @@ s_annotations AS (
                 WHEN jsonb_typeof(h.anchor_json) <> 'object' THEN NULL
                 WHEN h.anchor_json ->> 'kind' = 'pdf' THEN jsonb_build_object('version', 1, 'scheme', 'pdf-page', 'value', h.anchor_json)
                 WHEN c.id IS NOT NULL THEN jsonb_build_object('version', 1, 'scheme', 'textstack-anchor-v1',
-                    'value', (h.anchor_json - 'chapterId') || jsonb_build_object('chapterKey', COALESCE(c.slug, 'ch-' || c.chapter_number)))
+                    'value', (h.anchor_json - 'chapterId') || o.offsets || jsonb_build_object('chapterKey', COALESCE(c.slug, 'ch-' || c.chapter_number)))
             END::text
         END AS l,
         md5(row(h.user_book_id, h.selected_text, h.note_text, h.color, h.created_at, h.updated_at, h.version)::text) AS h
     FROM highlights h JOIN user_books b ON b.id = h.user_book_id
     LEFT JOIN bf f ON f.user_book_id = h.user_book_id
-    LEFT JOIN user_chapters c ON c.id = h.user_chapter_id AND c.user_book_id = h.user_book_id),
+    LEFT JOIN user_chapters c ON c.id = h.user_chapter_id AND c.user_book_id = h.user_book_id
+    CROSS JOIN LATERAL (
+-- BEGIN AnchorOffsets (verbatim EtlV2Uploads.AnchorOffsets, #1150; a test asserts they are equal)
+        SELECT COALESCE(
+            CASE WHEN h.anchor_json ->> 'startOffset' ~ '^[0-9]+$' AND h.anchor_json ->> 'endOffset' ~ '^[0-9]+$'
+                      AND jsonb_typeof(h.anchor_json -> 'startOffset') = 'number' AND jsonb_typeof(h.anchor_json -> 'endOffset') = 'number'
+                 THEN CASE WHEN (h.anchor_json ->> 'endOffset')::numeric BETWEEN (h.anchor_json ->> 'startOffset')::numeric AND 2147483647 THEN '{}'::jsonb END END,
+            (SELECT jsonb_build_object('startOffset', regexp_instr(c.plain_text, t.pat, 1, 1, 0, '', 1) - 1,
+                                       'endOffset', regexp_instr(c.plain_text, t.pat, 1, 1, 1, '', 1) - 1)
+             FROM (SELECT array_agg(regexp_replace(regexp_replace(regexp_replace(regexp_replace(COALESCE(u.s, ''),
+                              '\s+(?=[]).,;:!?…}»”’›])', '', 'g'), '([^\w\s])', '\\\1', 'g'), '\\([]).,;:!?…}»”’›])', '\\s*\\\1', 'g'), '\s+', '\\s+', 'g')
+                          ORDER BY u.i) AS p
+                   FROM unnest(ARRAY[h.anchor_json ->> 'prefix', h.anchor_json ->> 'exact', h.anchor_json ->> 'suffix']) WITH ORDINALITY u(s, i)) q,
+                  LATERAL (VALUES (1, q.p[1] || '(' || q.p[2] || ')' || q.p[3]), (2, q.p[1] || '(' || q.p[2] || ')'),
+                                  (3, '(' || q.p[2] || ')' || q.p[3]), (4, '(' || q.p[2] || ')')) t(n, pat)
+             WHERE jsonb_typeof(h.anchor_json -> 'exact') = 'string' AND h.anchor_json ->> 'exact' <> '' AND c.plain_text ~ t.pat
+             ORDER BY t.n LIMIT 1),
+            '{}') AS offsets
+-- END AnchorOffsets
+    ) o),
 s_catalog_annotations AS (
     SELECT h.id::text AS k, h.user_id AS u,
         md5(row(p.book_id, h.selected_text, h.note_text, h.color, h.created_at, h.updated_at, h.version, true)::text) AS h
@@ -391,7 +410,9 @@ ledger_ids(category, id) AS (
     UNION ALL SELECT 'trail', (regexp_match(line, '^highlights (\S+): no upload and no edition'))[1] FROM orphan WHERE line ~ '^highlights \S+: no upload and no edition'
     UNION ALL SELECT 'dangling', (regexp_match(line, '^catalog_pairs (\S+): edition \S+ is gone'))[1] FROM orphan WHERE line ~ '^catalog_pairs \S+: edition \S+ is gone'
     UNION ALL SELECT 'session_only', (regexp_match(line, '^reading_sessions (\S+): session-only catalog pair'))[1] FROM orphan WHERE line ~ '^reading_sessions \S+: session-only catalog pair'
-    UNION ALL SELECT 'not_ready', (regexp_match(line, '^user_books (\S+): legacy status'))[1] FROM cleanup WHERE line ~ '^user_books \S+: legacy status'),
+    UNION ALL SELECT 'not_ready', (regexp_match(line, '^user_books (\S+): legacy status'))[1] FROM cleanup WHERE line ~ '^user_books \S+: legacy status'
+    UNION ALL SELECT 'no_offsets', (regexp_match(line, '^highlights (\S+): anchor quote not in its chapter''s text'))[1] FROM orphan
+        WHERE line ~ '^highlights \S+: anchor quote not in its chapter''s text'),
 category(ord, category, label) AS (VALUES
     (1, 'takedowns', 'takedowns (carried hidden, no bytes, no chapters)'), (2, 'not_ready', 'non-ready uploads (Processing/Failed, carried)'),
     (3, 'trail', 'deleted-upload highlight trail (not carried)'), (4, 'dangling', 'catalog pairs whose edition is gone (not carried)'),
@@ -510,6 +531,19 @@ results(ord, "check", status, details) AS (
          FROM (SELECT m[1] || ' ' || (regexp_match(m[2], '([0-9a-f-]{36})\)?$'))[1] AS x
                FROM cleanup, LATERAL regexp_match(line, '^(books \(catalog\)|annotations \(catalog\)|[a-z_]+) ([0-9a-f-]{36}|\([^)]*\)): V2 (?:row|guest|account) with no legacy row') m
                WHERE m IS NOT NULL) l) led
+    UNION ALL
+    -- #1150: a carried textstack-anchor-v1 annotation whose offsets V2's write rule refuses (integers >= 0, int32, end >= start):
+    -- etl-v2 found no quote to compute them from and listed it. Report-only, as long as the ledger names the same rows.
+    SELECT 28, 'report: anchors without valid offsets (quote not in its chapter''s text; carried as legacy had it)',
+        CASE WHEN sql.ids IS NOT DISTINCT FROM led.ids THEN 'report' ELSE 'FAIL' END,
+        format('%s annotation(s) found, ledger %s%s', COALESCE(cardinality(sql.ids), 0), COALESCE(cardinality(led.ids), 0),
+            CASE WHEN sql.ids IS DISTINCT FROM led.ids THEN ' (the lists differ)' ELSE '' END)
+    FROM (SELECT array_agg(a.id::text ORDER BY a.id::text) AS ids FROM annotations a, LATERAL (SELECT a.locator -> 'value' AS v) x
+          WHERE a.locator ->> 'scheme' = 'textstack-anchor-v1' AND a.id::text IN (SELECT k FROM exp WHERE t = 'annotations')
+            AND NOT COALESCE(CASE WHEN x.v ->> 'startOffset' ~ '^[0-9]+$' AND x.v ->> 'endOffset' ~ '^[0-9]+$'
+                                       AND jsonb_typeof(x.v -> 'startOffset') = 'number' AND jsonb_typeof(x.v -> 'endOffset') = 'number'
+                                  THEN (x.v ->> 'endOffset')::numeric BETWEEN (x.v ->> 'startOffset')::numeric AND 2147483647 END, false)) sql,
+        (SELECT array_agg(id ORDER BY id) AS ids FROM ledger_ids WHERE category = 'no_offsets') led
     UNION ALL
     -- per table: count, owner and the mapped columns (parts 1, 2, 4, 5, 6 and insight hashes)
     SELECT 30 + row_number() OVER (ORDER BY t), t || ': legacy vs V2 (count, owner, content)',

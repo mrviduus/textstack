@@ -379,6 +379,135 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.Contains(report.Checks, c => c.Name == "annotations: selected_text not in its chapter's plain_text" && c.Failures == 0);
     }
 
+    // ---------------------------------------------------------------- #1150: anchor offsets
+
+    private const string NoOffsetsLine = "anchor quote not in its chapter's text; carried without valid offsets (V2 refuses an edit of it as is)";
+
+    /// <summary>Highlight Anchored on chapter 1 with <paramref name="anchor"/> over <paramref name="plainText"/>; a real run, and its V2 offsets as "start/end" ("-" if absent).</summary>
+    private async Task<(EtlV2Options Options, EtlV2Report Report, string Offsets)> RunAnchoredAsync(string plainText, string anchor)
+    {
+        var options = await SeedAsync();
+        await ExecAsync(options.Source, "UPDATE user_chapters SET plain_text = @plainText WHERE id = @Chapter1", new { plainText, Chapter1 });
+        await ExecAsync(options.Source, "UPDATE highlights SET anchor_json = CAST(@anchor AS jsonb) WHERE id = @Anchored", new { anchor, Anchored });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.All(report.Checks, c => Assert.Equal(0, c.Failures));
+        return (options, report, await V2Scalar<string>(options,
+            "SELECT COALESCE(locator -> 'value' ->> 'startOffset', '-') || '/' || COALESCE(locator -> 'value' ->> 'endOffset', '-') FROM annotations WHERE id = @Anchored",
+            new { Anchored }));
+    }
+
+    [Fact]
+    public async Task RunAsync_AnchorWithoutOffsets_OffsetsComputedAtTheExactsPosition()
+    {
+        // The mobile shape: {prefix, exact, suffix}, no offsets (crossAppAnchors.test.ts).
+        var (_, report, offsets) = await RunAnchoredAsync("The spice must flow.", """{"prefix":"The ","exact":"spice","suffix":" must"}""");
+
+        Assert.Equal("4/9", offsets);
+        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(NoOffsetsLine));
+    }
+
+    [Theory]
+    [InlineData("The ", " must", "19/24")] // both sides pick the second occurrence
+    [InlineData("The ", " gone", "19/24")] // prefix alone
+    [InlineData("lost ", " must", "19/24")] // suffix alone
+    [InlineData("lost ", " gone", "0/5")] // no context matches: the first occurrence
+    public async Task RunAsync_AnchorQuoteRepeated_ContextPicksTheOccurrence(string prefix, string suffix, string expected)
+    {
+        var anchor = $$"""{"prefix":"{{prefix}}","exact":"spice","suffix":"{{suffix}}"}""";
+
+        var (_, _, offsets) = await RunAnchoredAsync("spice is rare. The spice must flow.", anchor);
+
+        Assert.Equal(expected, offsets);
+    }
+
+    [Fact]
+    public async Task RunAsync_AnchorQuoteDiffersInWhitespaceAndPunctuationSpace_OffsetsSpanTheTextsMatch()
+    {
+        // The quote check's normalization (owner 2026-11-08/09); the offsets are the raw text's: "must  flow ." is 11..23.
+        var (_, _, offsets) = await RunAnchoredAsync("The spice\n must  flow .", """{"prefix":"spice ","exact":"must flow.","suffix":""}""");
+
+        Assert.Equal("11/23", offsets);
+    }
+
+    [Fact]
+    public async Task RunAsync_AnchorQuoteHoldsRegexMetacharacters_MatchedLiterally()
+    {
+        var (_, _, offsets) = await RunAnchoredAsync("The (spice)* must [flow]? $1 \\d.", """{"prefix":"The ","exact":"(spice)* must [flow]? $1 \\d","suffix":"."}""");
+
+        Assert.Equal("4/31", offsets);
+    }
+
+    [Fact]
+    public async Task RunAsync_AnchorQuoteAtSelectedTextsCap_Computed()
+    {
+        // A 4000-character quote, punctuation and whitespace throughout: the pattern compiles and matches.
+        var exact = string.Concat(Enumerable.Repeat("spice, must flow! ", 222)).TrimEnd();
+        var anchor = $$"""{"prefix":"The ","exact":"{{exact}}","suffix":" end"}""";
+
+        var (_, _, offsets) = await RunAnchoredAsync($"The {exact.Replace(" ", "\n ")} end", anchor);
+
+        Assert.Equal($"4/{4 + exact.Replace(" ", "\n ").Length}", offsets);
+    }
+
+    [Fact]
+    public async Task RunAsync_AnchorQuoteNotInChapter_CarriedAsIsAndReported()
+    {
+        var (options, report, offsets) = await RunAnchoredAsync("The spice must flow.", """{"prefix":"The ","exact":"melange","suffix":" must"}""");
+
+        Assert.Equal("-/-", offsets);
+        TestJson.AssertSameJson("""{"version":1,"scheme":"textstack-anchor-v1","value":{"prefix":"The ","exact":"melange","suffix":" must","chapterKey":"one"}}""",
+            await V2Scalar<string>(options, "SELECT locator::text FROM annotations WHERE id = @Anchored", new { Anchored }));
+        Assert.Contains($"highlights {Anchored}: {NoOffsetsLine}", report.OrphanCandidates);
+        Assert.Equal("succeeded", await V2Scalar<string>(options, "SELECT outcome FROM migration_runs"));
+    }
+
+    [Fact]
+    public async Task RunAsync_AnchorWithValidOffsets_CarriedUnchangedEvenIfStale()
+    {
+        // Offsets are hints: valid ones are legacy's, never second-guessed against the text.
+        var (_, report, offsets) = await RunAnchoredAsync("The spice must flow.", """{"prefix":"The ","exact":"spice","suffix":" must","startOffset":100,"endOffset":100}""");
+
+        Assert.Equal("100/100", offsets);
+        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(NoOffsetsLine));
+    }
+
+    [Theory]
+    [InlineData("\"startOffset\":-1,\"endOffset\":9")]
+    [InlineData("\"startOffset\":\"4\",\"endOffset\":9")]
+    [InlineData("\"startOffset\":4.5,\"endOffset\":9")]
+    [InlineData("\"startOffset\":9,\"endOffset\":4")]
+    [InlineData("\"startOffset\":4,\"endOffset\":2147483648")]
+    [InlineData("\"startOffset\":4")]
+    public async Task RunAsync_AnchorWithInvalidOffsets_Recomputed(string offsetMembers)
+    {
+        var (_, _, offsets) = await RunAnchoredAsync("The spice must flow.", $$"""{"prefix":"The ","exact":"spice","suffix":" must",{{offsetMembers}}}""");
+
+        Assert.Equal("4/9", offsets);
+    }
+
+    [Fact]
+    public async Task RunAsync_ReRunWithComputedAndMissingOffsets_NoWritesSameReport()
+    {
+        // One anchor's offsets computed, one's quote not found: the second run maps both alike, so V2 equals the mapping.
+        var options = await SeedAsync();
+        await ExecAsync(options.Source, """
+            UPDATE highlights SET anchor_json = '{"prefix":"The ","exact":"spice","suffix":" must"}' WHERE id = @Anchored;
+            UPDATE highlights SET anchor_json = '{"prefix":"","exact":"melange","suffix":""}' WHERE id = @AnchoredNoSlug;
+            """, new { Anchored, AnchoredNoSlug });
+        var first = await EtlV2.RunAsync(options, ct: Ct);
+        var locators = await V2Scalar<string>(options, "SELECT string_agg(locator::text, '|' ORDER BY id) FROM annotations");
+
+        var second = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal(new EtlV2Writes(0, 0, 4), second.Writes["annotations"]);
+        Assert.All(second.Writes.Values, w => Assert.Equal(0, w.Inserted + w.Updated));
+        Assert.Equal(first.OrphanCandidates, second.OrphanCandidates);
+        Assert.Contains($"highlights {AnchoredNoSlug}: {NoOffsetsLine}", second.OrphanCandidates);
+        Assert.Equal(locators, await V2Scalar<string>(options, "SELECT string_agg(locator::text, '|' ORDER BY id) FROM annotations"));
+    }
+
     [Fact]
     public async Task RunAsync_ReadWithNoReadAt_CompletedAtFallsBackToUpdatedAt()
     {

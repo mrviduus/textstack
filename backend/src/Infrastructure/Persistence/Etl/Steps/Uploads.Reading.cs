@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Application.Sync;
 
 namespace Infrastructure.Persistence.Etl;
@@ -18,9 +19,39 @@ public static partial class EtlV2Uploads
                 @CompletedAt, @ClientRecordedAt, @UpdatedAt, @Revision, @ResetRevision)
         """;
 
+    /// <summary>
+    /// #1150: a reflow anchor's <c>startOffset</c>/<c>endOffset</c> as a jsonb object to merge over it (over
+    /// <c>h.anchor_json</c>, against chapter <c>c</c>). Valid integer offsets (V2's <c>IsOffset</c>, <c>end ≥ start</c>):
+    /// <c>{}</c>, carried as they are. Else computed from <c>c.plain_text</c>: the first match of prefix+exact+suffix, then
+    /// prefix+exact, exact+suffix, exact alone (the readers' <c>findWithContext</c> order), each part matched under the
+    /// quote check's normalization (any whitespace run matches any run; whitespace before closing punctuation is
+    /// optional); <c>startOffset</c> = where exact's match starts, <c>endOffset</c> = where it ends. Not found: <c>{}</c>.
+    /// ponytail: positions are Postgres characters (code points), not the UTF-16 units of the protocol: past an astral
+    /// character they run short by one per pair. Offsets are hints (clients re-verify; the server checks only the shape).
+    /// validate-etl.sql restates it verbatim (a test asserts so).
+    /// </summary>
+    internal const string AnchorOffsets = """
+        SELECT COALESCE(
+            CASE WHEN h.anchor_json ->> 'startOffset' ~ '^[0-9]+$' AND h.anchor_json ->> 'endOffset' ~ '^[0-9]+$'
+                      AND jsonb_typeof(h.anchor_json -> 'startOffset') = 'number' AND jsonb_typeof(h.anchor_json -> 'endOffset') = 'number'
+                 THEN CASE WHEN (h.anchor_json ->> 'endOffset')::numeric BETWEEN (h.anchor_json ->> 'startOffset')::numeric AND 2147483647 THEN '{}'::jsonb END END,
+            (SELECT jsonb_build_object('startOffset', regexp_instr(c.plain_text, t.pat, 1, 1, 0, '', 1) - 1,
+                                       'endOffset', regexp_instr(c.plain_text, t.pat, 1, 1, 1, '', 1) - 1)
+             FROM (SELECT array_agg(regexp_replace(regexp_replace(regexp_replace(regexp_replace(COALESCE(u.s, ''),
+                              '\s+(?=[]).,;:!?…}»”’›])', '', 'g'), '([^\w\s])', '\\\1', 'g'), '\\([]).,;:!?…}»”’›])', '\\s*\\\1', 'g'), '\s+', '\\s+', 'g')
+                          ORDER BY u.i) AS p
+                   FROM unnest(ARRAY[h.anchor_json ->> 'prefix', h.anchor_json ->> 'exact', h.anchor_json ->> 'suffix']) WITH ORDINALITY u(s, i)) q,
+                  LATERAL (VALUES (1, q.p[1] || '(' || q.p[2] || ')' || q.p[3]), (2, q.p[1] || '(' || q.p[2] || ')'),
+                                  (3, '(' || q.p[2] || ')' || q.p[3]), (4, '(' || q.p[2] || ')')) t(n, pat)
+             WHERE jsonb_typeof(h.anchor_json -> 'exact') = 'string' AND h.anchor_json ->> 'exact' <> '' AND c.plain_text ~ t.pat
+             ORDER BY t.n LIMIT 1),
+            '{}') AS offsets
+        """;
+
     // Upload highlights, and the ones with no book at all (a deleted upload's trail); catalog ones are M3.3's.
     // The locator, built here so jsonb prints it as the target will: a PDF anchor as-is; a reflow anchor with
-    // chapterId replaced by its chapter's key (ADR-031 item 6); a reflow anchor whose chapter is gone has none.
+    // chapterId replaced by its chapter's key (ADR-031 item 6) and its offsets as AnchorOffsets gives them;
+    // a reflow anchor whose chapter is gone has none.
     private const string SelectLegacyHighlights = """
         SELECT h.id, h.user_id, h.user_book_id AS book_id, h.selected_text, h.note_text, h.color, h.version AS revision, h.created_at, h.updated_at,
                jsonb_typeof(h.anchor_json) = 'object' AS anchor_is_object,
@@ -30,10 +61,13 @@ public static partial class EtlV2Uploads
                        THEN jsonb_build_object('version', 1, 'scheme', 'pdf-page', 'value', h.anchor_json)
                    WHEN c.id IS NOT NULL
                        THEN jsonb_build_object('version', 1, 'scheme', 'textstack-anchor-v1',
-                            'value', (h.anchor_json - 'chapterId') || jsonb_build_object('chapterKey', COALESCE(c.slug, 'ch-' || c.chapter_number)))
+                            'value', (h.anchor_json - 'chapterId') || o.offsets || jsonb_build_object('chapterKey', COALESCE(c.slug, 'ch-' || c.chapter_number)))
                END::text AS locator
         FROM highlights h
         LEFT JOIN user_chapters c ON c.id = h.user_chapter_id AND c.user_book_id = h.user_book_id
+        CROSS JOIN LATERAL (
+        """ + AnchorOffsets + """
+        ) o
         WHERE h.user_book_id IS NOT NULL OR h.edition_id IS NULL
         ORDER BY h.id
         """;
@@ -123,6 +157,8 @@ public static partial class EtlV2Uploads
                 invalid.Add(h.Id.ToString());
             if (h.AnchorIsObject && (h.Locator is null || file is null))
                 context.OrphanCandidates.Add($"highlights {h.Id}: anchor not carried ({(file is null ? "the book has no file row" : "its chapter is gone")}); carried as a quotation");
+            if (file is not null && Scheme(h.Locator) == "textstack-anchor-v1" && !HasOffsets(h.Locator!))
+                context.OrphanCandidates.Add($"highlights {h.Id}: anchor quote not in its chapter's text; carried without valid offsets (V2 refuses an edit of it as is)");
             rows.Add(new AnnotationRow
             {
                 Id = h.Id,
@@ -152,6 +188,17 @@ public static partial class EtlV2Uploads
     }
 
     private static string? Scheme(string? locator) => locator is null ? null : SyncValidation.SchemeOf(locator);
+
+    // SyncValidation's offset rule (integers ≥ 0, int32, end ≥ start), read off a mapped textstack-anchor-v1 locator.
+    private static bool HasOffsets(string locator)
+    {
+        using var json = JsonDocument.Parse(locator);
+        var value = json.RootElement.GetProperty("value");
+        return Offset(value, "startOffset") is { } start && Offset(value, "endOffset") is { } end && end >= start;
+
+        static int? Offset(JsonElement value, string member) =>
+            value.TryGetProperty(member, out var n) && n.ValueKind == JsonValueKind.Number && n.TryGetInt32(out var i) && i >= 0 ? i : null;
+    }
 
     private sealed record LegacyHighlight
     {

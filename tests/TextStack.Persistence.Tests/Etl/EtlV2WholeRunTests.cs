@@ -109,6 +109,12 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
         // "Word1" + NBSP / "en" + U+202F merged into word1's card (.NET's Trim), and its NBSP sentence made no example.
         Assert.Equal(1, await ScalarAsync<long>(options.Target, $"SELECT count(*) FROM vocabulary_words WHERE user_id = '{ProductionShapes.User(1)}'"));
         Assert.Equal(0, await ScalarAsync<long>(options.Target, "SELECT count(*) FROM vocabulary_examples WHERE sentence = chr(160)"));
+        // #1150: a mobile anchor's offsets computed over "Chapter 1 of book 13. The spice\n must  flow." (exact's match spans the line break).
+        Assert.Equal("26/37", await ScalarAsync<string>(options.Target,
+            "SELECT (locator -> 'value' ->> 'startOffset') || '/' || (locator -> 'value' ->> 'endOffset') FROM annotations WHERE id = @id",
+            new { id = Guid.Parse("d0000000-0000-4000-8000-000000000013") }));
+        Assert.Contains($"highlights {Guid.Parse($"d0000000-0000-4000-8000-{ProductionShapes.AnchorQuoteNotFound:D12}")}: anchor quote not in its chapter's text; carried without valid offsets (V2 refuses an edit of it as is)",
+            report.OrphanCandidates);
     }
 
     [Fact]
@@ -389,6 +395,7 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
         Assert.Equal(("report", "legacy 2, ledger 2"), rows["report: deleted-upload highlight trail (not carried)"]);
         Assert.Equal(("report", "legacy 1, ledger 1"), rows["report: catalog pairs whose edition is gone (not carried)"]);
         Assert.Equal(("report", "legacy 1, ledger 1"), rows["report: session-only catalog pairs (carried with no book)"]);
+        Assert.Equal(("report", "1 annotation(s) found, ledger 1"), rows[NoOffsetsRow]);
         Assert.Equal("ok", rows["uuid_v5: SQL derivation = EtlV2Ids (self-test vectors)"].Status);
         Assert.Equal("ok", rows["ledger: writes = rows mapped, per target"].Status);
     }
@@ -413,6 +420,8 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
         Assert.Equal("report", row.Status);
         Assert.StartsWith("4 row(s) found", row.Details);
     }
+
+    private const string NoOffsetsRow = "report: anchors without valid offsets (quote not in its chapter's text; carried as legacy had it)";
 
     /// <summary>A change to V2 (or legacy, or the ledger) after a real run, and a check validate-etl.sql must fail on it.</summary>
     public static TheoryData<string, string, string> Corruptions => new()
@@ -448,6 +457,10 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
         { "v2", "INSERT INTO migration_runs (id) VALUES (gen_random_uuid())", "ledger: no run in flight or unclosed" },
         { "v2", """UPDATE migration_runs SET validation = jsonb_set(validation, '{cleanupActions}', (SELECT COALESCE(jsonb_agg(o), '[]') FROM jsonb_array_elements(validation -> 'cleanupActions') o WHERE o::text NOT LIKE '%V2 guest with no legacy row%'))""",
             "report: V2 rows with no legacy row (cleanup lines, never deleted)" },
+        // #1150: an anchor V2 holds without offsets that the ledger does not list (and one listed that V2 holds with offsets).
+        { "v2", $"UPDATE annotations SET locator = locator #- '{{value,startOffset}}' WHERE id = '{Guid.Parse("d0000000-0000-4000-8000-000000000001")}'", NoOffsetsRow },
+        { "v2", $"UPDATE annotations SET locator = jsonb_set(jsonb_set(locator, '{{value,startOffset}}', '0'), '{{value,endOffset}}', '1') WHERE id = '{Guid.Parse($"d0000000-0000-4000-8000-{ProductionShapes.AnchorQuoteNotFound:D12}")}'",
+            NoOffsetsRow },
         { "legacy", $"UPDATE users SET name = 'Renamed' WHERE id = '{ProductionShapes.User(5)}'", "users: legacy vs V2 (count, owner, content)" },
         { "legacy", "INSERT INTO users (id, email, google_subject, created_at) VALUES ('a0000000-0000-4000-8000-000000000999', 'late@test.com', NULL, now())", "ledger: source counts = legacy now" },
     };
@@ -503,6 +516,19 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
 
         Assert.True(block.Success, "the IntentPairs block markers are gone");
         Assert.Equal(Normalize(EtlV2Catalog.IntentPairs), Normalize(block.Groups["q"].Value));
+
+        static string Normalize(string sql) => Regex.Replace(sql, @"\s+", " ").Trim();
+    }
+
+    [Fact]
+    public void ValidateEtl_AnchorOffsets_IsUploadsAnchorOffsetsVerbatim()
+    {
+        // The script restates the uploads step's offset computation (#1150): a change to one without the other fails here.
+        var script = File.ReadAllText(Path.Combine(PostgresFixture.RepoRoot(), "database/v2/scripts/validate-etl.sql"));
+        var block = Regex.Match(script, @"-- BEGIN AnchorOffsets[^\n]*\n(?<q>.*?)\n-- END AnchorOffsets", RegexOptions.Singleline);
+
+        Assert.True(block.Success, "the AnchorOffsets block markers are gone");
+        Assert.Equal(Normalize(EtlV2Uploads.AnchorOffsets), Normalize(block.Groups["q"].Value));
 
         static string Normalize(string sql) => Regex.Replace(sql, @"\s+", " ").Trim();
     }

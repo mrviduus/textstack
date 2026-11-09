@@ -194,7 +194,7 @@ psql -X -d 'host=db dbname=<legacy db> user=etl_reader' -v v2='host=db dbname=te
 One row per check: `check | status | details`. `ok` holds; `FAIL` is a mismatch (per table: count, owner and
 mapped columns legacy vs V2; the ledger's counts and writes vs now; the invariants of plan §5.2); `report` is a
 report-only category from §4 (takedowns, non-ready uploads, files with no bytes, the deleted-upload trail,
-dangling and session-only pairs, V2-only rows): listed, never a failure, as long as the ledger names the same
+dangling and session-only pairs, V2-only rows, anchors without valid offsets): listed, never a failure, as long as the ledger names the same
 rows the SQL finds (else that row is `FAIL`). Exit 0 = no `FAIL`; exit 3 = `validate-etl: N check(s) FAILED` on
 stderr (or no `-v v2`). A run is accepted only at exit 0 (plan §5.1: three in a row on rehearsals).
 
@@ -265,7 +265,18 @@ may run (it cascades to that user's V2 rows); a non-guest account comes with non
   with no locator V2 can resume from (a percent or a "read" mark alone), `pdf-page` on a non-PDF, a
   percent outside 0..1.
 - **Annotations** (row 43, item 6): a PDF anchor → `pdf-page` as-is; a reflow anchor → `textstack-anchor-v1`
-  with `chapterId` replaced by `chapterKey`. An anchor whose chapter is gone, or on a book with no file
+  with `chapterId` replaced by `chapterKey`. Its `startOffset`/`endOffset` (#1150): valid ones (integers ≥ 0,
+  int32, `endOffset ≥ startOffset`, V2's write rule) are carried as-is, never checked against the text; missing
+  or invalid ones (legacy mobile anchors are `{prefix, exact, suffix}` only) are computed from the chapter's
+  `plain_text`: the first match of prefix+exact+suffix, else prefix+exact, else exact+suffix, else exact alone
+  (the readers' order), each matched under the quote check's normalization (a whitespace run matches any run;
+  whitespace before closing punctuation is optional); `startOffset` and `endOffset` are where exact's match
+  starts and ends in the raw text. They are Postgres character positions, not the protocol's UTF-16 units: past
+  an astral character (an emoji) they run one short per pair. Accepted: offsets are hints the readers re-verify,
+  and the server checks only their shape. An anchor whose quote is not found keeps the anchor as legacy had it
+  (no valid offsets, so V2 refuses an edit of it until the reader re-anchors it) and is listed in
+  `orphanCandidates` (`highlights <id>: anchor quote not in its chapter's text; …`). Not a failure. `validate-etl.sql`
+  restates the computation verbatim and reports the same list. An anchor whose chapter is gone, or on a book with no file
   row, is not carried: the annotation is a quotation (listed). A highlight with no book and no edition (a
   deleted upload's trail) is not carried (listed in `orphanCandidates`). Catalog highlights are M3.3's.
   Fails: highlight owner ≠ upload owner, an anchor that is not an object, a blank text, a version below 1.
