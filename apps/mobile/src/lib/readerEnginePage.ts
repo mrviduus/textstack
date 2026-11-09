@@ -168,9 +168,10 @@ engine.on('hold', () => post({ type: 'wordEngage' }))   // the haptic, before th
 engine.on('selection', (s) => {
   token++
   if (!s) return post({ type: 'selection', text: '' })
-  const q = s.locator.text!
-  // mode 'tap' = a held word: RN always opens the WordCard for it. The anchor is the old bridge's shape.
-  post({ type: 'selection', mode: s.source === 'hold' ? 'tap' : 'drag', text: s.text, sentence: s.sentence, anchor: { prefix: q.before, exact: q.highlight, suffix: q.after }, tooLong: s.tooLong, token })
+  const q = s.locator.text!, at = s.locator.locations.charOffset!
+  // mode 'tap' = a held word: RN always opens the WordCard for it. The anchor is web's (locatorToAnchor):
+  // offsets are [start, end) of the chapter text, which a V2 textstack-anchor-v1 requires (#1139).
+  post({ type: 'selection', mode: s.source === 'hold' ? 'tap' : 'drag', text: s.text, sentence: s.sentence, anchor: { prefix: q.before, exact: q.highlight, suffix: q.after, startOffset: at, endOffset: at + s.text.length }, tooLong: s.tooLong, token })
 })
 // markOnly (E47): only the held mark goes, before RN paints the text as a highlight; a failed save keeps the selection.
 page.__tsClearSelection = (t, markOnly) => { if (typeof t !== 'number' || t === token) engine.clearSelection({ markOnly: !!markOnly }) }

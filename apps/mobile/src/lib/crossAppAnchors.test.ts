@@ -35,7 +35,7 @@ const FIXTURES = join(__dirname, '../../../../packages/shared/src/reader/__fixtu
 const UPDATE = process.env.UPDATE_ANCHOR_FIXTURES === '1'
 const read = (f: string): AnchorFixtureFile => JSON.parse(readFileSync(join(FIXTURES, f), 'utf8'))
 
-type Anchor = { prefix: string; exact: string; suffix: string }
+type Anchor = { prefix: string; exact: string; suffix: string; startOffset: number; endOffset: number }
 type Reader = EnginePage & {
   /** The anchor the page posts for the selection `range`, once it settles. */
   anchorFor(range: Range): Promise<Anchor | null>
@@ -129,20 +129,21 @@ describe("mobile anchor creator (the engine page's selection message)", () => {
       const el = chapterEl(r)
       const anchor = (await r.anchorFor(rangeAt(r, el, caseStart(el.textContent!, c), c.exact.length)))!
       expect(anchor.exact).toBe(c.exact)
-      // The shape mobile posts: no chapterId and no offsets — the row's columns carry the chapter.
-      expect(Object.keys(anchor).sort()).toEqual(['exact', 'prefix', 'suffix'])
+      // The shape mobile posts: web's offsets (a V2 textstack-anchor-v1 needs them, #1139), no
+      // chapterId — the row's columns carry the chapter.
+      expect(Object.keys(anchor).sort()).toEqual(['endOffset', 'exact', 'prefix', 'startOffset', 'suffix'])
       generated[c.name] = anchor
       if (!UPDATE) expect(anchor).toEqual(read('mobile.json')[c.name])
     })
   }
 
   it('quotes the same context as the web for every selection', () => {
-    // Both cut prefix/suffix from the chapter text, so the only difference
-    // left is the fields mobile does not send (offsets, chapterId).
+    // Both cut prefix/suffix and offsets from the chapter text, so the only difference
+    // left is the field mobile does not send (chapterId).
     const web = read('web.json')
     for (const c of ANCHOR_CASES) {
-      const { prefix, exact, suffix } = web[c.name]
-      expect(generated[c.name], c.name).toEqual({ prefix, exact, suffix })
+      const { prefix, exact, suffix, startOffset, endOffset } = web[c.name]
+      expect(generated[c.name], c.name).toEqual({ prefix, exact, suffix, startOffset, endOffset })
     }
   })
 

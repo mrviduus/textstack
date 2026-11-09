@@ -21,6 +21,11 @@ describe('upload highlights on V2', () => {
     })
   })
 
+  it('refuses a reflow anchor without offsets instead of sending an invalid locator (#1139)', () => {
+    const old = JSON.stringify({ prefix: 'p', exact: 'hello there', suffix: 's' })   // the page's shape before #1139
+    expect(() => toV2Write({ userBookId: 'b1', userChapterId: 'k', anchorJson: old, color: 'y', selectedText: 'hello there' }, 'f1', null)).toThrow(/startOffset/)
+  })
+
   it('writes a PDF anchor as pdf-page, and a bare quote with no locator (and no file)', () => {
     const pdf = { v: 1, kind: 'pdf', page: 3, rects: [{ x: 0.1, y: 0.1, w: 0.2, h: 0.02 }], exact: 'x' }
     expect(toV2Write({ userBookId: 'b1', anchorJson: JSON.stringify(pdf), color: 'y', selectedText: 'x' }, 'f1', 2).locator)

@@ -49,10 +49,14 @@ export function v2LocatorToPlace(locator: V2Locator): { chapterSlug: string | nu
 /**
  * A highlight's anchor as its V2 locator: a reflow `TextAnchor` is `textstack-anchor-v1` naming the
  * chapter key it was made in (its `chapterId` on V2); a PDF one is `pdf-page`, the `PdfAnchor` as
- * stored. `exact` is cut as `selectedText` is.
+ * stored. `exact` is cut as `selectedText` is. Throws on an anchor without a `startOffset` (one
+ * parsed from an old `{prefix, exact, suffix}` JSON): the server refuses it (#1139), so never send it.
  */
 export function anchorToV2Locator(anchor: (TextAnchor & { chapterId: string }) | PdfAnchor): V2Locator {
   if (isPdfAnchor(anchor)) return { version: 1, scheme: 'pdf-page', value: anchor }
+  if (!Number.isInteger(anchor.startOffset) || anchor.startOffset < 0) {
+    throw new Error('A textstack-anchor-v1 needs an integer startOffset >= 0')
+  }
   const exact = clip(anchor.exact, MAX_SELECTED_TEXT)
   return {
     version: 1,
