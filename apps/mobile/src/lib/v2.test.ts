@@ -5,7 +5,7 @@ import NetInfo from '@react-native-community/netinfo'
 import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, switched, deviceUploadIo, v2Store, getV2UserBooks, v2Chapters, readV2Progress, type UploadIo } from './v2'
 import { vocabularyApi } from './vocabularyApi'
 import { getUserBookLocalProgress, setUserBookV2State, getUserBookV2State } from './progressStorage'
-import { fakeApi as fakeV2, conflict, state, feed, book, resetMidCall as midCall, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi as fakeV2, conflict, state, feed, book, file, resetMidCall as midCall, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 const dropReplaced = vi.hoisted(() => ({ runs: 0 }))
 vi.mock('./offlineDb', () => ({ dropReplacedUserBookFiles: async () => { dropReplaced.runs++; return [] } }))
@@ -133,6 +133,36 @@ describe('mobile v2', () => {
     for (const a of answers) a()
     expect(await shelf).toEqual([])
     expect(fetchSpy.mock.calls.map(([u]) => String(u)).filter((u) => u.includes('/chapters'))).toHaveLength(0)
+  })
+
+  // #1118: the shelf is the two feeds; each book's status and counts are its file's, no /chapters call.
+  it('getV2UserBooks_FeedCarriesSummary_MapsFourShapesWithTwoPullsOnly', async () => {
+    const calls = fakeApi({
+      'GET /library/changes': feed(
+        book('ready', 'f1', { currentFile: file('f1', { ingestion: 'succeeded', chapterCount: 3, wordCount: 1200 }) }),
+        book('running', 'f2', { currentFile: file('f2', { ingestion: 'processing' }) }),
+        book('no-bytes', 'f3'),
+        book('no-words', 'f4', { currentFile: file('f4', { ingestion: 'succeeded', chapterCount: 2 }) }),
+      ),
+      'GET /reading/changes': feed(),
+    })
+    const shelf = await getV2UserBooks()
+    expect(shelf.map((b) => [b.id, b.status, b.chapterCount, b.totalWordCount])).toEqual([
+      ['ready', 'Ready', 3, 1200], ['running', 'Processing', 0, null], ['no-bytes', 'Failed', 0, null], ['no-words', 'Ready', 2, null],
+    ])
+    expect(calls.map((c) => c.path.split('?')[0]).sort()).toEqual(['/library/changes', '/reading/changes'])
+  })
+
+  it('getV2UserBooks_EpubCfiState_ResumesOnlyFromAnAlreadyReadToc', async () => {
+    const cfi = { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/4!/4)', quote: 'q' }
+    const calls = fakeApi({
+      'GET /library/changes': [...feed(book('b1', 'f1')), ...feed(book('b1', 'f1'))],
+      'GET /reading/changes': [...feed(state('b1', 1, { currentLocator: cfi })), ...feed(state('b1', 1, { currentLocator: cfi }))],
+    })
+    expect((await getV2UserBooks())[0].progressChapterSlug).toBeNull()
+    v2Store.chapters.set('f1', { items: [{ chapterKey: 'one', chapterNumber: 1, title: 'One', wordCount: 100 }, { chapterKey: 'two', chapterNumber: 2, title: 'Two', wordCount: 100 }], ingestion: 'succeeded' })
+    expect((await getV2UserBooks())[0].progressChapterSlug).toBe('two')
+    expect(calls.some((c) => c.path.includes('/chapters'))).toBe(false)
   })
 
   // #1151: per-book writes made after an await drop when the store was reset meanwhile.

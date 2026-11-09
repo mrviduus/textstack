@@ -9,7 +9,7 @@ import { uuid } from 'expo-modules-core'
 import NetInfo from '@react-native-community/netinfo'
 import {
   v2Api, ApiError, isOfflineError, V2_OFF, clip, chapterAtFraction, placeToV2Locator, v2LocatorToPlace, createSha256, parsePdfPageLocator,
-  type V2Book, type V2FileChapters, type V2Annotation, type V2Word, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
+  type V2Book, type V2FileChapters, type V2Ingestion, type V2Annotation, type V2Word, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
   type V2WriteOutcome, type UserBookProgressDto, type LegacyPlace, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse,
 } from '@textstack/shared'
 import { dropReplacedUserBookFiles } from './offlineDb'
@@ -209,9 +209,9 @@ async function forgetV2Book(id: string) {
   await setUserBookV2State(id, null)
 }
 
-function status(toc: V2FileChapters): string {
-  if (toc.ingestion === 'queued' || toc.ingestion === 'processing') return 'Processing'
-  return toc.ingestion === 'succeeded' ? 'Ready' : 'Failed'
+function status(ingestion: V2Ingestion | undefined): string {
+  if (ingestion === 'queued' || ingestion === 'processing') return 'Processing'
+  return ingestion === 'succeeded' ? 'Ready' : 'Failed'
 }
 
 const isPdf = (b: V2Book) => b.currentFile?.format === 'pdf' && b.currentFile.hasContent
@@ -220,9 +220,9 @@ const totalWords = (toc: V2FileChapters) =>
   toc.items.some((c) => c.wordCount != null) ? toc.items.reduce((s, c) => s + (c.wordCount ?? 0), 0) : null
 
 /**
- * The uploads list: live books only, each with its status and the reader's place.
- * ponytail: no cover on V2 (the cover route needs a Bearer an <Image> does not send; no cover upload
- * either); one chapters call per book per load, for status and counts.
+ * The uploads list: live books only, each with its status and the reader's place — two feed pulls,
+ * no per-book call: the feed's file carries the extraction summary (#1118); `/chapters` is the reader's.
+ * ponytail: no cover on V2 (the cover route needs a Bearer an <Image> does not send; no cover upload either).
  */
 export async function getV2UserBooks(): Promise<UserBookDto[]> {
   const pulled = await whileCurrent(Promise.all([pullV2Books(), v2Api.pullFeed<V2ReadingState>('reading')]), ([, reading]) => {
@@ -231,10 +231,11 @@ export async function getV2UserBooks(): Promise<UserBookDto[]> {
   if (!pulled) return []
   const [list] = pulled
   const stateOf = v2Store.states
-  return Promise.all(list.filter((b) => !b.removedAt).map(async (b): Promise<UserBookDto> => {
-    // One failing call (content removed, a 503) costs that book its status, never the shelf.
-    const toc = await v2Chapters(b).catch((): V2FileChapters => ({ items: [], ingestion: null }))
+  return list.filter((b) => !b.removedAt).map((b): UserBookDto => {
+    const file = b.currentFile
     const state = stateOf.get(b.id)
+    // ponytail: an epub-cfi state resolves its chapter only from a TOC this session already read (the book page, the reader); else no "Continue" until then.
+    const toc: V2FileChapters = (file && chapters.get(file.id)) || { items: [], ingestion: null }
     return {
       id: b.id,
       title: b.title,
@@ -242,9 +243,9 @@ export async function getV2UserBooks(): Promise<UserBookDto[]> {
       language: b.language ?? 'en',
       coverPath: null,
       genre: b.genre,
-      totalWordCount: totalWords(toc),
-      status: status(toc),
-      chapterCount: toc.items.length,
+      totalWordCount: file?.wordCount ?? null,
+      status: status(file?.ingestion),
+      chapterCount: file?.chapterCount ?? 0,
       createdAt: b.createdAt,
       completedAt: state?.completedAt ?? null,
       errorMessage: null,
@@ -255,7 +256,7 @@ export async function getV2UserBooks(): Promise<UserBookDto[]> {
       progressClientUpdatedAt: state?.clientRecordedAt ?? null,
       hasOriginalPdf: isPdf(b),
     }
-  }))
+  })
 }
 
 /** The book page and the reader's book: the chapter list is the current file's. */
@@ -273,7 +274,7 @@ export async function getV2UserBook(id: string): Promise<UserBookDetailResponse>
     genre: b.genre,
     publishedYear: b.publishedYear,
     totalWordCount: totalWords(toc),
-    status: status(toc),
+    status: status(toc.ingestion),
     errorMessage: null,
     // The chapter key is the chapter's id and slug on V2: highlights and vocabulary name it.
     chapters: toc.items.map((c) => ({ id: c.chapterKey, chapterNumber: c.chapterNumber, slug: c.chapterKey, title: c.title, wordCount: c.wordCount })),
