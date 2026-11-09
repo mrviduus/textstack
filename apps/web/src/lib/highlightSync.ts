@@ -372,24 +372,19 @@ export function fromV2Annotation(a: V2Annotation): StoredHighlight | null {
   }
 }
 
-/** JSON with every object's keys sorted: the same anchor whatever order its fields were spread in. */
-const canon = (v: unknown) => JSON.stringify(v, (_k, x) =>
-  x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x)
-
 /**
- * `stored`: the server's row. While the anchor is the one read from it (a note or color edit), its
- * locator and file go back unchanged: a migrated anchor may have no offsets, which
- * `anchorToV2Locator` refuses, and the file may since have been replaced.
+ * `stored`: the server's row. An edit never moves a highlight (a note or a color), so its locator and
+ * file go back unchanged: a migrated anchor may have no offsets, which `anchorToV2Locator` refuses,
+ * and the file may since have been replaced.
  */
 export function toV2Write(h: StoredHighlight, fileId: string | null, expectedRevision: number | null, stored?: V2Annotation): V2AnnotationWrite {
-  const same = stored && canon(v2LocatorToAnchor(stored.locator)) === canon(h.anchor)
   return {
     expectedRevision,
     bookId: h.userBookId!,
-    fileId: same ? stored.fileId : fileId,
+    fileId: stored ? stored.fileId : fileId,
     selectedText: clip(h.selectedText, MAX_SELECTED_TEXT),
     noteText: h.noteText?.trim() ? h.noteText : null,
-    locator: same ? stored.locator : anchorToV2Locator(h.anchor),
+    locator: stored ? stored.locator : anchorToV2Locator(h.anchor),
     color: h.color,
   }
 }
@@ -445,15 +440,9 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
           if (h.deleted && stored && !stored.deletedAt) await adopt(await v2Api.deleteAnnotation(h.id))
           else await deleteHighlightFromDB(h.id)
         } else {
-          let write: V2AnnotationWrite
-          try {
-            write = toV2Write(h, fileId, stored ? (h.base?.version ?? h.version) : null, stored)
-          } catch (e) {
-            await refused(h, stored, e)
-            changed = true
-            continue
-          }
-          await adopt(await v2Api.putAnnotation(h.id, write))
+          let write: V2AnnotationWrite | undefined
+          try { write = toV2Write(h, fileId, stored ? (h.base?.version ?? h.version) : null, stored) } catch (e) { await refused(h, stored, e) }
+          if (write) await adopt(await v2Api.putAnnotation(h.id, write))
         }
         changed = true
       } catch (e) {

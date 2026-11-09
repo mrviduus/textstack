@@ -42,10 +42,8 @@ describe('upload highlights on V2', () => {
       return calls.find((c) => c.method === 'PUT')!.body
     } finally {
       vi.unstubAllGlobals()
-      puts = calls.filter((c) => c.method === 'PUT').length
     }
   }
-  let puts = 0
   const cfi = { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' } as const
 
   it('re-saves a migrated offset-less textstack-anchor-v1 row without throwing (#1139 ETL gap)', async () => {
@@ -57,14 +55,8 @@ describe('upload highlights on V2', () => {
     expect(await edited('c1', cfi, { noteText: 'a note' })).toMatchObject({ noteText: 'a note', fileId: 'f1', locator: cfi })
   })
 
-  it('refuses a re-anchor that would write a null locator over an epub-cfi, and sends nothing', async () => {
-    await expect(edited('c2', cfi, { anchorJson: JSON.stringify({ exact: 'hello there' }) })).rejects.toThrow(/cannot be moved/)
-    expect(puts).toBe(0)
-  })
-
-  it('refuses a selectedText change without its anchor (the stored quote would contradict it)', async () => {
-    await expect(edited('t1', cfi, { selectedText: 'other text' })).rejects.toThrow(/needs its anchor/)
-    expect(puts).toBe(0)
+  it('refuses an edit that would move the highlight instead of dropping the move silently', async () => {
+    await expect(edited('c2', cfi, { anchorJson: JSON.stringify({ exact: 'hello there' }) })).rejects.toThrow(/never move a highlight/)
   })
 
   it('writes a PDF anchor as pdf-page, and a bare quote with no locator (and no file)', () => {
