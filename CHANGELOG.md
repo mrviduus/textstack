@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Infra** — restore-drill gains an opt-in ETL rehearsal mode (`etl_rehearsal` dispatch input, default off; scheduled drill unchanged): restore → dry run → real run → validate → re-run 0 writes → validate, entirely on a GitHub runner from the R2 backups, with a masked public step summary (toward M3.5 #1030) — infra
 - **Infra** — the ETL computes `startOffset`/`endOffset` for legacy offset-less highlight anchors (within V2’s own caps; quote search with the #1148 normalization); every anchor V2 would refuse on edit is named in the report with its reason (#1150) — backend · [details](docs/changelog-archive/2026-H2.md#2026-11-09-infra-the-etl-computes-offsets-for-legacy-offset-)
 - **Reader** — mobile V2 reflow highlights posted anchors without offsets and every one 400’d; anchors now carry the engine’s offsets, and an edit re-sends the stored locator instead of rebuilding it (found the ETL gap #1150) (#1139) — mobile, web · [details](docs/changelog-archive/2026-H2.md#2026-11-09-reader-mobile-v2-anchors-carry-offsets-edits-echo)
 - **Mobile** — the four V2 client defects from the 2026-11-08 emulator pass: concurrent-transaction collision, stale V2 probe at reconnect, stale shelf download state, Cancel ignored during upload hashing (#1140–#1143) — mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-09-mobile-v2-client-defects-from-the-emulator-pass-1)
