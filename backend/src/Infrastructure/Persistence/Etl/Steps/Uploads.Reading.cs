@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Application.Sync;
+using Contracts.V2;
 
 namespace Infrastructure.Persistence.Etl;
 
@@ -26,9 +27,15 @@ public static partial class EtlV2Uploads
     /// prefix+exact, exact+suffix, exact alone (the readers' <c>findWithContext</c> order), each part matched under the
     /// quote check's normalization (any whitespace run matches any run; whitespace before closing punctuation is
     /// optional); <c>startOffset</c> = where exact's match starts, <c>endOffset</c> = where it ends. Not found: <c>{}</c>.
+    /// Computed only within V2's own caps (exact 1..4000 code points, prefix/suffix ≤ 32): a longer quote can pass
+    /// Postgres's regex size limit (2201B, ~8000 whitespace runs) and abort the run, and V2 refuses such an anchor on
+    /// edit anyway, so it is carried and listed instead (<see cref="AnchorRefusals"/>).
     /// ponytail: positions are Postgres characters (code points), not the UTF-16 units of the protocol: past an astral
-    /// character they run short by one per pair. Offsets are hints (clients re-verify; the server checks only the shape).
-    /// validate-etl.sql restates it verbatim (a test asserts so).
+    /// character they run short by one per pair. Exact alone takes the first occurrence (the readers score every one by
+    /// context): the readers re-find the quote before trusting stored offsets. NBSP is not <c>\s</c> in the DB locale,
+    /// as strict as the quote check. No per-row timeout: a 4000-character quote at the end of 500k of repeated text
+    /// took ~39 s, realistic text 0.24 s at 300k; the rehearsal shows real timings. Offsets are hints (clients
+    /// re-verify; the server checks only the shape). validate-etl.sql restates it verbatim (a test asserts so).
     /// </summary>
     internal const string AnchorOffsets = """
         SELECT COALESCE(
@@ -43,7 +50,9 @@ public static partial class EtlV2Uploads
                    FROM unnest(ARRAY[h.anchor_json ->> 'prefix', h.anchor_json ->> 'exact', h.anchor_json ->> 'suffix']) WITH ORDINALITY u(s, i)) q,
                   LATERAL (VALUES (1, q.p[1] || '(' || q.p[2] || ')' || q.p[3]), (2, q.p[1] || '(' || q.p[2] || ')'),
                                   (3, '(' || q.p[2] || ')' || q.p[3]), (4, '(' || q.p[2] || ')')) t(n, pat)
-             WHERE jsonb_typeof(h.anchor_json -> 'exact') = 'string' AND h.anchor_json ->> 'exact' <> '' AND c.plain_text ~ t.pat
+             WHERE CASE WHEN jsonb_typeof(h.anchor_json -> 'exact') = 'string' AND char_length(h.anchor_json ->> 'exact') BETWEEN 1 AND 4000
+                             AND char_length(COALESCE(h.anchor_json ->> 'prefix', '')) <= 32 AND char_length(COALESCE(h.anchor_json ->> 'suffix', '')) <= 32
+                        THEN c.plain_text ~ t.pat END
              ORDER BY t.n LIMIT 1),
             '{}') AS offsets
         """;
@@ -157,8 +166,9 @@ public static partial class EtlV2Uploads
                 invalid.Add(h.Id.ToString());
             if (h.AnchorIsObject && (h.Locator is null || file is null))
                 context.OrphanCandidates.Add($"highlights {h.Id}: anchor not carried ({(file is null ? "the book has no file row" : "its chapter is gone")}); carried as a quotation");
-            if (file is not null && Scheme(h.Locator) == "textstack-anchor-v1" && !HasOffsets(h.Locator!))
-                context.OrphanCandidates.Add($"highlights {h.Id}: anchor quote not in its chapter's text; carried without valid offsets (V2 refuses an edit of it as is)");
+            if (file is not null && Scheme(h.Locator) == "textstack-anchor-v1")
+                foreach (var reason in AnchorRefusals(h.Locator!))
+                    context.OrphanCandidates.Add($"highlights {h.Id}: anchor V2 refuses on edit ({reason}); carried as legacy had it");
             rows.Add(new AnnotationRow
             {
                 Id = h.Id,
@@ -189,12 +199,35 @@ public static partial class EtlV2Uploads
 
     private static string? Scheme(string? locator) => locator is null ? null : SyncValidation.SchemeOf(locator);
 
-    // SyncValidation's offset rule (integers ≥ 0, int32, end ≥ start), read off a mapped textstack-anchor-v1 locator.
-    private static bool HasOffsets(string locator)
+    internal const string RefusedQuote = "quote not in its chapter's text, no valid offsets";
+    internal const string RefusedContext = "prefix or suffix missing or over 32 characters";
+    internal const string RefusedExact = "exact missing, empty or over 4000 characters";
+
+    /// <summary>
+    /// What V2's write rule (SyncValidation.IsTextAnchor: exact 1..4000 code points, prefix/suffix 0..32, int32 offsets
+    /// ≥ 0 with end ≥ start) refuses in a mapped textstack-anchor-v1 locator, one reason each. The quote reason only where
+    /// <see cref="AnchorOffsets"/> looked for the quote (within the caps) and found none.
+    /// </summary>
+    private static IEnumerable<string> AnchorRefusals(string locator)
     {
         using var json = JsonDocument.Parse(locator);
         var value = json.RootElement.GetProperty("value");
-        return Offset(value, "startOffset") is { } start && Offset(value, "endOffset") is { } end && end >= start;
+        var exact = IsText(value, "exact", 1, SyncLimits.MaxSelectedText);
+        if (!exact)
+            yield return RefusedExact;
+        if (!IsText(value, "prefix", 0, 32) || !IsText(value, "suffix", 0, 32))
+            yield return RefusedContext;
+        var offsets = Offset(value, "startOffset") is { } start && Offset(value, "endOffset") is { } end && end >= start;
+        if (!offsets && exact && SqlLength(value, "prefix") <= 32 && SqlLength(value, "suffix") <= 32)
+            yield return RefusedQuote;
+
+        static bool IsText(JsonElement value, string member, int min, int max) =>
+            value.TryGetProperty(member, out var s) && s.ValueKind == JsonValueKind.String && s.GetString()!.EnumerateRunes().Count() is var n && n >= min && n <= max;
+
+        // char_length(COALESCE(value ->> member, '')), as AnchorOffsets bounds it.
+        static int SqlLength(JsonElement value, string member) =>
+            !value.TryGetProperty(member, out var s) || s.ValueKind == JsonValueKind.Null ? 0
+            : s.ValueKind == JsonValueKind.String ? s.GetString()!.EnumerateRunes().Count() : s.GetRawText().Length;
 
         static int? Offset(JsonElement value, string member) =>
             value.TryGetProperty(member, out var n) && n.ValueKind == JsonValueKind.Number && n.TryGetInt32(out var i) && i >= 0 ? i : null;

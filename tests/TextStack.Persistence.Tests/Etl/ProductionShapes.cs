@@ -30,6 +30,9 @@ internal static class ProductionShapes
     /// </summary>
     public const int AnchorQuoteNotFound = 17;
 
+    /// <summary>#1150: an anchor with legacy mobile's pre-#456 50-character prefix (valid offsets): carried, reported.</summary>
+    public const int AnchorLongContext = 25;
+
     public const int Users = 30, Guests = 5;
 
     public const string Site = "11111111-1111-1111-1111-111111111111";
@@ -148,7 +151,7 @@ internal static class ProductionShapes
             SELECT {{Sql("d0000000", "n")}}, {{owner}}, '{{Site}}'::uuid, {{b}},
                 CASE WHEN n % 2 = 1 THEN {{Sql("c0000000", "n * 10 + 1")}} END,
                 CASE WHEN n % 2 = 1
-                    THEN jsonb_build_object('prefix', 'The ', 'exact', CASE WHEN n = {{AnchorQuoteNotFound}} THEN 'melange' ELSE 'spice must' END, 'suffix', ' flow',
+                    THEN jsonb_build_object('prefix', CASE WHEN n = {{AnchorLongContext}} THEN repeat('x', 46) || 'The ' ELSE 'The ' END, 'exact', CASE WHEN n = {{AnchorQuoteNotFound}} THEN 'melange' ELSE 'spice must' END, 'suffix', ' flow',
                                             'chapterId', {{Sql("c0000000", "n * 10 + 1")}})
                          || CASE WHEN n % 8 = 5 OR n = {{AnchorQuoteNotFound}} THEN '{}' ELSE '{"startOffset":4,"endOffset":14}' END::jsonb
                     ELSE '{"v":1,"kind":"pdf","page":2,"rects":[{"x":0.1,"y":0.2,"w":0.3,"h":0.04}],"exact":"torque"}'::jsonb END,

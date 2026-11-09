@@ -194,7 +194,7 @@ psql -X -d 'host=db dbname=<legacy db> user=etl_reader' -v v2='host=db dbname=te
 One row per check: `check | status | details`. `ok` holds; `FAIL` is a mismatch (per table: count, owner and
 mapped columns legacy vs V2; the ledger's counts and writes vs now; the invariants of plan §5.2); `report` is a
 report-only category from §4 (takedowns, non-ready uploads, files with no bytes, the deleted-upload trail,
-dangling and session-only pairs, V2-only rows, anchors without valid offsets): listed, never a failure, as long as the ledger names the same
+dangling and session-only pairs, V2-only rows, anchors V2 refuses on edit, counted per reason): listed, never a failure, as long as the ledger names the same
 rows the SQL finds (else that row is `FAIL`). Exit 0 = no `FAIL`; exit 3 = `validate-etl: N check(s) FAILED` on
 stderr (or no `-v v2`). A run is accepted only at exit 0 (plan §5.1: three in a row on rehearsals).
 
@@ -273,10 +273,20 @@ may run (it cascades to that user's V2 rows); a non-guest account comes with non
   whitespace before closing punctuation is optional); `startOffset` and `endOffset` are where exact's match
   starts and ends in the raw text. They are Postgres character positions, not the protocol's UTF-16 units: past
   an astral character (an emoji) they run one short per pair. Accepted: offsets are hints the readers re-verify,
-  and the server checks only their shape. An anchor whose quote is not found keeps the anchor as legacy had it
-  (no valid offsets, so V2 refuses an edit of it until the reader re-anchors it) and is listed in
-  `orphanCandidates` (`highlights <id>: anchor quote not in its chapter's text; …`). Not a failure. `validate-etl.sql`
-  restates the computation verbatim and reports the same list. An anchor whose chapter is gone, or on a book with no file
+  and the server checks only their shape. Offsets are computed only within V2's own caps (`exact` 1–4000 code
+  points, `prefix`/`suffix` ≤ 32): past them V2 refuses the anchor on edit anyway, and a long quote can pass
+  Postgres's regex size limit (`2201B`, ~8000 whitespace runs) and abort the whole run. Known and accepted: exact
+  alone takes the **first** occurrence where the readers score every occurrence by context (the readers re-find
+  the quote before using stored offsets); NBSP is not `\s` in the DB locale, as strict as the quote check; there is
+  no per-row timeout (a 4000-character quote at the end of 500k characters of repeated text took ~39 s, realistic
+  text 0.24 s at 300k; the rehearsal shows real timings).
+  A carried anchor V2 would refuse on a later edit keeps the anchor as legacy had it and is listed in
+  `orphanCandidates`, one line per reason: `highlights <id>: anchor V2 refuses on edit (<reason>); carried as
+  legacy had it`, the reason being `quote not in its chapter's text, no valid offsets` (searched within the caps,
+  not found), `prefix or suffix missing or over 32 characters` (legacy mobile cut 50 characters of context before
+  #456) or `exact missing, empty or over 4000 characters`. Not a failure: a rehearsal's list sizes the problem.
+  `validate-etl.sql` restates the computation verbatim and reports the same (id, reason) pairs, counted per
+  reason. An anchor whose chapter is gone, or on a book with no file
   row, is not carried: the annotation is a quotation (listed). A highlight with no book and no edition (a
   deleted upload's trail) is not carried (listed in `orphanCandidates`). Catalog highlights are M3.3's.
   Fails: highlight owner ≠ upload owner, an anchor that is not an object, a blank text, a version below 1.

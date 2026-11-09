@@ -12,7 +12,7 @@
 --   ok      the check holds;
 --   FAIL    a mismatch: psql then exits 3 ("validate-etl: N check(s) FAILED");
 --   report  a report-only category (runbook §4): V2-only rows, takedowns, non-ready uploads, files with
---           no bytes on disk, session-only pairs, dangling shelf entries, anchors without valid offsets. Listed, never a failure, as
+--           no bytes on disk, session-only pairs, dangling shelf entries, anchors V2 refuses on edit. Listed, never a failure, as
 --           long as the ledger names the same rows SQL finds.
 -- Exit 0 = every check ok or report.
 --
@@ -180,7 +180,9 @@ s_annotations AS (
                    FROM unnest(ARRAY[h.anchor_json ->> 'prefix', h.anchor_json ->> 'exact', h.anchor_json ->> 'suffix']) WITH ORDINALITY u(s, i)) q,
                   LATERAL (VALUES (1, q.p[1] || '(' || q.p[2] || ')' || q.p[3]), (2, q.p[1] || '(' || q.p[2] || ')'),
                                   (3, '(' || q.p[2] || ')' || q.p[3]), (4, '(' || q.p[2] || ')')) t(n, pat)
-             WHERE jsonb_typeof(h.anchor_json -> 'exact') = 'string' AND h.anchor_json ->> 'exact' <> '' AND c.plain_text ~ t.pat
+             WHERE CASE WHEN jsonb_typeof(h.anchor_json -> 'exact') = 'string' AND char_length(h.anchor_json ->> 'exact') BETWEEN 1 AND 4000
+                             AND char_length(COALESCE(h.anchor_json ->> 'prefix', '')) <= 32 AND char_length(COALESCE(h.anchor_json ->> 'suffix', '')) <= 32
+                        THEN c.plain_text ~ t.pat END
              ORDER BY t.n LIMIT 1),
             '{}') AS offsets
 -- END AnchorOffsets
@@ -411,8 +413,9 @@ ledger_ids(category, id) AS (
     UNION ALL SELECT 'dangling', (regexp_match(line, '^catalog_pairs (\S+): edition \S+ is gone'))[1] FROM orphan WHERE line ~ '^catalog_pairs \S+: edition \S+ is gone'
     UNION ALL SELECT 'session_only', (regexp_match(line, '^reading_sessions (\S+): session-only catalog pair'))[1] FROM orphan WHERE line ~ '^reading_sessions \S+: session-only catalog pair'
     UNION ALL SELECT 'not_ready', (regexp_match(line, '^user_books (\S+): legacy status'))[1] FROM cleanup WHERE line ~ '^user_books \S+: legacy status'
-    UNION ALL SELECT 'no_offsets', (regexp_match(line, '^highlights (\S+): anchor quote not in its chapter''s text'))[1] FROM orphan
-        WHERE line ~ '^highlights \S+: anchor quote not in its chapter''s text'),
+    -- one line per (annotation, reason): kept as "<id> <reason>"
+    UNION ALL SELECT 'refused_anchor', m[1] || ' ' || m[2] FROM orphan, LATERAL regexp_match(line, '^highlights (\S+): anchor V2 refuses on edit \(([^)]*)\)') m
+        WHERE m IS NOT NULL),
 category(ord, category, label) AS (VALUES
     (1, 'takedowns', 'takedowns (carried hidden, no bytes, no chapters)'), (2, 'not_ready', 'non-ready uploads (Processing/Failed, carried)'),
     (3, 'trail', 'deleted-upload highlight trail (not carried)'), (4, 'dangling', 'catalog pairs whose edition is gone (not carried)'),
@@ -457,6 +460,24 @@ quote_missing AS (
                       WHERE c.file_id = a.file_id AND c.user_id = a.user_id AND c.chapter_key = a.locator -> 'value' ->> 'chapterKey'
                         AND strpos(regexp_replace(regexp_replace(c.plain_text, '\s+', ' ', 'g'), '\s+(?=[]).,;:!?…}»”’›])', '', 'g'),
                                    regexp_replace(regexp_replace(a.selected_text, '\s+', ' ', 'g'), '\s+(?=[]).,;:!?…}»”’›])', '', 'g')) > 0)),
+-- #1150: what V2's write rule refuses in a carried textstack-anchor-v1 annotation (SyncValidation.IsTextAnchor), one row per
+-- reason, as etl-v2's AnchorRefusals lists them: exact 1..4000 code points, prefix/suffix 0..32, int32 offsets >= 0 with
+-- end >= start. The quote reason only where etl-v2 looked for the quote (exact and context within those caps).
+anchor_refusal(k) AS (
+    SELECT a.id::text || ' ' || r.reason FROM annotations a,
+        LATERAL (SELECT a.locator -> 'value' AS v) x,
+        LATERAL (SELECT jsonb_typeof(x.v -> 'exact') = 'string' AND char_length(x.v ->> 'exact') BETWEEN 1 AND 4000 AS exact_ok,
+                        jsonb_typeof(x.v -> 'prefix') = 'string' AND char_length(x.v ->> 'prefix') <= 32
+                            AND jsonb_typeof(x.v -> 'suffix') = 'string' AND char_length(x.v ->> 'suffix') <= 32 AS context_ok,
+                        char_length(COALESCE(x.v ->> 'prefix', '')) <= 32 AND char_length(COALESCE(x.v ->> 'suffix', '')) <= 32 AS context_bounded,
+                        COALESCE(CASE WHEN x.v ->> 'startOffset' ~ '^[0-9]+$' AND x.v ->> 'endOffset' ~ '^[0-9]+$'
+                                           AND jsonb_typeof(x.v -> 'startOffset') = 'number' AND jsonb_typeof(x.v -> 'endOffset') = 'number'
+                                      THEN (x.v ->> 'endOffset')::numeric BETWEEN (x.v ->> 'startOffset')::numeric AND 2147483647 END, false) AS offsets_ok) f,
+        LATERAL (SELECT 'exact missing, empty or over 4000 characters' WHERE NOT COALESCE(f.exact_ok, false)
+                 UNION ALL SELECT 'prefix or suffix missing or over 32 characters' WHERE NOT COALESCE(f.context_ok, false)
+                 UNION ALL SELECT 'quote not in its chapter''s text, no valid offsets'
+                     WHERE NOT f.offsets_ok AND COALESCE(f.exact_ok, false) AND f.context_bounded) r(reason)
+    WHERE a.locator ->> 'scheme' = 'textstack-anchor-v1' AND a.id::text IN (SELECT k FROM exp WHERE t = 'annotations')),
 review_diff AS (
     SELECT COALESCE(e.key, a.word_id::text) AS id FROM
         (SELECT key, value::bigint AS n FROM l, jsonb_each_text(l.j -> 'review_counts')) e
@@ -532,18 +553,15 @@ results(ord, "check", status, details) AS (
                FROM cleanup, LATERAL regexp_match(line, '^(books \(catalog\)|annotations \(catalog\)|[a-z_]+) ([0-9a-f-]{36}|\([^)]*\)): V2 (?:row|guest|account) with no legacy row') m
                WHERE m IS NOT NULL) l) led
     UNION ALL
-    -- #1150: a carried textstack-anchor-v1 annotation whose offsets V2's write rule refuses (integers >= 0, int32, end >= start):
-    -- etl-v2 found no quote to compute them from and listed it. Report-only, as long as the ledger names the same rows.
-    SELECT 28, 'report: anchors without valid offsets (quote not in its chapter''s text; carried as legacy had it)',
+    -- #1150: carried anchors V2 refuses on edit (anchor_refusal), by reason; report-only, as long as the ledger names the same (id, reason) pairs.
+    SELECT 28, 'report: anchors V2 refuses on edit (quote not found, oversize context, unusable exact; carried as legacy had it)',
         CASE WHEN sql.ids IS NOT DISTINCT FROM led.ids THEN 'report' ELSE 'FAIL' END,
-        format('%s annotation(s) found, ledger %s%s', COALESCE(cardinality(sql.ids), 0), COALESCE(cardinality(led.ids), 0),
+        format('%s found (quote %s, context %s, exact %s), ledger %s%s', COALESCE(cardinality(sql.ids), 0),
+            (SELECT count(*) FROM anchor_refusal WHERE k LIKE '% quote %'), (SELECT count(*) FROM anchor_refusal WHERE k LIKE '% prefix %'),
+            (SELECT count(*) FROM anchor_refusal WHERE k LIKE '% exact %'), COALESCE(cardinality(led.ids), 0),
             CASE WHEN sql.ids IS DISTINCT FROM led.ids THEN ' (the lists differ)' ELSE '' END)
-    FROM (SELECT array_agg(a.id::text ORDER BY a.id::text) AS ids FROM annotations a, LATERAL (SELECT a.locator -> 'value' AS v) x
-          WHERE a.locator ->> 'scheme' = 'textstack-anchor-v1' AND a.id::text IN (SELECT k FROM exp WHERE t = 'annotations')
-            AND NOT COALESCE(CASE WHEN x.v ->> 'startOffset' ~ '^[0-9]+$' AND x.v ->> 'endOffset' ~ '^[0-9]+$'
-                                       AND jsonb_typeof(x.v -> 'startOffset') = 'number' AND jsonb_typeof(x.v -> 'endOffset') = 'number'
-                                  THEN (x.v ->> 'endOffset')::numeric BETWEEN (x.v ->> 'startOffset')::numeric AND 2147483647 END, false)) sql,
-        (SELECT array_agg(id ORDER BY id) AS ids FROM ledger_ids WHERE category = 'no_offsets') led
+    FROM (SELECT array_agg(k ORDER BY k) AS ids FROM anchor_refusal) sql,
+        (SELECT array_agg(id ORDER BY id) AS ids FROM ledger_ids WHERE category = 'refused_anchor') led
     UNION ALL
     -- per table: count, owner and the mapped columns (parts 1, 2, 4, 5, 6 and insight hashes)
     SELECT 30 + row_number() OVER (ORDER BY t), t || ': legacy vs V2 (count, owner, content)',

@@ -381,7 +381,11 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
 
     // ---------------------------------------------------------------- #1150: anchor offsets
 
-    private const string NoOffsetsLine = "anchor quote not in its chapter's text; carried without valid offsets (V2 refuses an edit of it as is)";
+    private const string RefusedPrefix = "anchor V2 refuses on edit";
+
+    private const string NoOffsetsLine = $"{RefusedPrefix} ({EtlV2Uploads.RefusedQuote}); carried as legacy had it";
+
+    private static string Line(Guid id, string reason) => $"highlights {id}: {RefusedPrefix} ({reason}); carried as legacy had it";
 
     /// <summary>Highlight Anchored on chapter 1 with <paramref name="anchor"/> over <paramref name="plainText"/>; a real run, and its V2 offsets as "start/end" ("-" if absent).</summary>
     private async Task<(EtlV2Options Options, EtlV2Report Report, string Offsets)> RunAnchoredAsync(string plainText, string anchor)
@@ -405,7 +409,7 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         var (_, report, offsets) = await RunAnchoredAsync("The spice must flow.", """{"prefix":"The ","exact":"spice","suffix":" must"}""");
 
         Assert.Equal("4/9", offsets);
-        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(NoOffsetsLine));
+        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(RefusedPrefix));
     }
 
     [Theory]
@@ -470,7 +474,7 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         var (_, report, offsets) = await RunAnchoredAsync("The spice must flow.", """{"prefix":"The ","exact":"spice","suffix":" must","startOffset":100,"endOffset":100}""");
 
         Assert.Equal("100/100", offsets);
-        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(NoOffsetsLine));
+        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(RefusedPrefix));
     }
 
     [Theory]
@@ -496,7 +500,8 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         var (_, report, offsets) = await RunAnchoredAsync("The spice must flow. 5", anchor);
 
         Assert.Equal("-/-", offsets);
-        Assert.Contains($"highlights {Anchored}: {NoOffsetsLine}", report.OrphanCandidates);
+        // Disqualified by its exact, not by a failed search: one line, the exact's.
+        Assert.Equal([Line(Anchored, EtlV2Uploads.RefusedExact)], report.OrphanCandidates.Where(o => o.Contains(RefusedPrefix)));
     }
 
     [Fact]
@@ -536,7 +541,7 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.Equal("number/number", await V2Scalar<string>(options,
             "SELECT jsonb_typeof(locator -> 'value' -> 'startOffset') || '/' || jsonb_typeof(locator -> 'value' -> 'endOffset') FROM annotations WHERE id = @Anchored",
             new { Anchored }));
-        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(NoOffsetsLine));
+        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(RefusedPrefix));
     }
 
     [Theory]
@@ -549,16 +554,54 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         var (_, report, offsets) = await RunAnchoredAsync("The spice must flow.", $$"""{"prefix":"The ","exact":"spice","suffix":" must",{{offsetMembers}}}""");
 
         Assert.Equal(expected, offsets);
-        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(NoOffsetsLine));
+        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(RefusedPrefix));
     }
 
-    [Fact(Skip = "#1150 defect: an exact past ~8000 whitespace runs makes Postgres refuse the pattern (2201B, regular expression is too complex) and the whole run aborts; legacy has no cap on anchor exact")]
+    [Fact]
     public async Task RunAsync_AnchorQuoteBeyondRegexLimit_RunSucceedsAndReports()
     {
+        // Past ~8000 whitespace runs Postgres refuses the pattern (2201B); past V2's 4000 no pattern is built.
         var exact = string.Concat(Enumerable.Repeat("spice ", 9000)).TrimEnd();
 
-        // RunAnchoredAsync asserts the run's checks: today it throws first (PostgresException 2201B).
-        await RunAnchoredAsync(exact, $$"""{"prefix":"","exact":"{{exact}}","suffix":""}""");
+        var (_, report, offsets) = await RunAnchoredAsync(exact, $$"""{"prefix":"","exact":"{{exact}}","suffix":""}""");
+
+        Assert.Equal("-/-", offsets);
+        Assert.Equal([Line(Anchored, EtlV2Uploads.RefusedExact)], report.OrphanCandidates.Where(o => o.Contains(RefusedPrefix)));
+    }
+
+    [Theory]
+    [InlineData(4000, 32, "", "32/4032")] // at the caps: computed
+    [InlineData(4001, 0, "exact", "-/-")]
+    [InlineData(5, 33, "context", "-/-")] // legacy mobile's 50-character context (before #456)
+    [InlineData(100_000, 0, "exact", "-/-")]
+    public async Task RunAsync_AnchorAtOrPastV2Caps_ComputedOnlyWithinThem(int exactLength, int prefixLength, string refused, string expected)
+    {
+        // exact: "spice" padded with 'x' to exactLength; the prefix in front, all of it in the chapter text.
+        var exact = "spice" + new string('x', exactLength - 5);
+        var prefix = new string('p', prefixLength);
+        var anchor = $$"""{"prefix":"{{prefix}}","exact":"{{exact}}","suffix":""}""";
+
+        var (_, report, offsets) = await RunAnchoredAsync(prefix + exact, anchor);
+
+        Assert.Equal(expected, offsets);
+        string[] lines = refused switch
+        {
+            "exact" => [Line(Anchored, EtlV2Uploads.RefusedExact)],
+            "context" => [Line(Anchored, EtlV2Uploads.RefusedContext)],
+            _ => [],
+        };
+        Assert.Equal(lines, report.OrphanCandidates.Where(o => o.Contains(RefusedPrefix)));
+    }
+
+    [Fact]
+    public async Task RunAsync_AnchorOversizeContextWithValidOffsets_CarriedAndReported()
+    {
+        // Valid offsets are carried, yet V2 still refuses the anchor for its context: listed for the owner.
+        var prefix = new string('p', 50);
+        var (_, report, offsets) = await RunAnchoredAsync(prefix + "spice", $$"""{"prefix":"{{prefix}}","exact":"spice","suffix":"","startOffset":50,"endOffset":55}""");
+
+        Assert.Equal("50/55", offsets);
+        Assert.Equal([Line(Anchored, EtlV2Uploads.RefusedContext)], report.OrphanCandidates.Where(o => o.Contains(RefusedPrefix)));
     }
 
     [Fact]
