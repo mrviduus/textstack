@@ -106,6 +106,32 @@ describe('offlineDb on V2 (real SQLite)', () => {
     expect(await m.listCachedUserChapters('acct-b')).toHaveLength(1)
   })
 
+  // #1140: a failed transaction releases the queue; else every later one rejects with its error.
+  it('transactions_OneFails_NextStillRuns', async () => {
+    const m = await coldStart()
+    await m.cacheUserChapter('b1', ch('old', 'f-old'), 1)
+    await m.cacheUserChapter('guest-b', ch('s1', 'guest-f'), 1)
+    db.exec("CREATE TRIGGER no_delete BEFORE DELETE ON user_chapters BEGIN SELECT RAISE(ABORT, 'boom'); END")
+    await expect(m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }])).rejects.toThrow('boom')
+    db.exec('DROP TRIGGER no_delete')
+    expect(await m.listCachedUserChapters('b1')).toHaveLength(1) // rolled back
+    await m.rekeyCachedUserBooks({ 'guest-b': 'acct-b' }, {})
+    expect(await m.listCachedUserChapters('acct-b')).toHaveLength(1)
+  })
+
+  // #1142: listeners run after COMMIT, so a re-read never sees rows a rollback could still bring back.
+  it('onCachedUserBooksChanged_Drop_NotifiesAfterCommit', async () => {
+    const m = await coldStart()
+    await m.cacheUserChapter('b1', ch('old', 'f-old'), 1)
+    let inTx: boolean | null = null
+    const off = m.onCachedUserBooksChanged(() => {
+      try { db.exec('BEGIN'); db.exec('ROLLBACK'); inTx = false } catch { inTx = true }
+    })
+    await m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }])
+    off()
+    expect(inTx).toBe(false)
+  })
+
   // #1142: the download engine hears about rows that changed behind it.
   it('onCachedUserBooksChanged_DropAndRekey_NotifiesAffectedIdsOnly', async () => {
     const m = await coldStart()

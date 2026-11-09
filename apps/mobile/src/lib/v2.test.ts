@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHash } from 'node:crypto'
 import { initApi } from '@textstack/shared'
 import NetInfo from '@react-native-community/netinfo'
-import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, switched, deviceUploadIo, type UploadIo } from './v2'
+import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, switched, deviceUploadIo, v2Store, type UploadIo } from './v2'
 import { getUserBookLocalProgress, setUserBookV2State, getUserBookV2State } from './progressStorage'
 import { fakeApi as fakeV2, conflict, state, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
@@ -72,6 +72,34 @@ describe('mobile v2', () => {
     expect(dropReplaced.runs).toBe(1)
     await pullV2Books() // the next pull is a new one
     expect(dropReplaced.runs).toBe(2)
+  })
+
+  // #1140: a failed pull must not be handed to every later caller.
+  it('a failed library pull is not shared with the next pull', async () => {
+    const calls = fakeApi({ 'GET /library/changes': [{ status: 500 }, { status: 200, body: { items: [], cursor: null, hasMore: false } }] })
+    await expect(pullV2Books()).rejects.toBeDefined()
+    expect(await pullV2Books()).toEqual([])
+    expect(calls.filter((c) => c.path === '/library/changes')).toHaveLength(2)
+  })
+
+  // #1140: sign-out mid-pull — the next account's pull is its own, not the previous account's.
+  it('v2Store.reset during a pull starts a fresh pull next', async () => {
+    const calls = fakeApi({ 'GET /library/changes': [{ status: 200, body: { items: [], cursor: null, hasMore: false } }] })
+    const first = pullV2Books()
+    v2Store.reset()
+    await Promise.all([first, pullV2Books()])
+    expect(calls.filter((c) => c.path === '/library/changes')).toHaveLength(2)
+  })
+
+  // #1141: one NetInfo subscription for the app's life, however many probes fail.
+  it('repeated unreached probes subscribe to NetInfo once', async () => {
+    const net = NetInfo as unknown as { __count(): number }
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network request failed') }))
+    const before = net.__count()
+    await startV2Probe()
+    await reprobeV2AfterReconnect()
+    await reprobeV2AfterReconnect()
+    expect(net.__count()).toBe(before + 1)
   })
 
   // #1143: Cancel during the hash stops within one chunk, before any request.

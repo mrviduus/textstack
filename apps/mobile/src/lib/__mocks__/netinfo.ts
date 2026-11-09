@@ -13,6 +13,7 @@ const NetInfo = {
     return () => { listeners.delete(l) }
   },
   fetch: async (): Promise<State> => ({ isConnected: true, isInternetReachable: true }),
+  __count: () => listeners.size,
   __emit(s: State) {
     for (const l of listeners) l(s)
   },
