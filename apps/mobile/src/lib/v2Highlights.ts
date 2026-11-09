@@ -54,6 +54,9 @@ export function toPublicHighlight(a: V2Annotation): PublicHighlight {
   }
 }
 
+/** A blank note is no note. */
+const note = (text?: string | null) => (text?.trim() ? text : null)
+
 /** The write for a row: the reader's anchor as a V2 locator (none for a bare `{exact}`). */
 export function toV2Write(
   h: { userBookId: string; userChapterId?: string | null; anchorJson: string; color: string; selectedText: string; noteText?: string | null },
@@ -68,7 +71,7 @@ export function toV2Write(
     bookId: h.userBookId,
     fileId: drawable ? fileId : null,
     selectedText: clip(h.selectedText, MAX_SELECTED_TEXT),
-    noteText: h.noteText?.trim() ? h.noteText : null,
+    noteText: note(h.noteText),
     locator: drawable ? anchorToV2Locator(isPdfAnchor(anchor!) ? anchor! : { ...anchor!, chapterId: h.userChapterId! }) : null,
     color: h.color,
   }
@@ -110,15 +113,13 @@ async function createV2(data: Parameters<typeof highlightsApi.createHighlight>[0
 async function updateV2(id: string, data: UpdateHighlightData): Promise<PublicHighlight> {
   const row = rows.get(id)
   if (!row) throw new Error('Highlight not loaded')
-  const h = toPublicHighlight(row)
-  const write = toV2Write({
-    userBookId: row.bookId,
-    userChapterId: h.userChapterId,
-    anchorJson: data.anchorJson ?? h.anchorJson,
-    color: data.color ?? row.color,
-    selectedText: data.selectedText ?? row.selectedText,
-    noteText: data.noteText === undefined ? row.noteText : data.noteText,
-  }, row.fileId, row.revision)
+  // An edit is a note or a color: the stored locator and file go back as they are (anchorJson is
+  // lossy: an epub-cfi reads as a bare quote). Never silently drop a move.
+  if (data.anchorJson !== undefined || data.selectedText !== undefined) throw new Error('V2 edits never move a highlight')
+  const write: V2AnnotationWrite = {
+    expectedRevision: row.revision, bookId: row.bookId, fileId: row.fileId, selectedText: row.selectedText, locator: row.locator,
+    color: data.color ?? row.color, noteText: note(data.noteText === undefined ? row.noteText : data.noteText),
+  }
   const saved = await v2Api.putAnnotation(id, write).catch(adopted(id))
   return toPublicHighlight(remember(saved))
 }

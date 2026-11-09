@@ -1,5 +1,5 @@
-import { describe, it, expect, afterAll, vi } from 'vitest'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { describe, it, expect, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openEnginePage, SETTLED_MS, type EnginePage } from '../test/enginePage'
 import {
@@ -23,8 +23,9 @@ import {
  * — not a copy of either. What a highlight resolved to is read off the Range the engine measures
  * to draw it.
  *
- * Fixtures: packages/shared/src/reader/__fixtures__/anchors/. Regenerate
- * mobile.json with UPDATE_ANCHOR_FIXTURES=1.
+ * Fixtures: packages/shared/src/reader/__fixtures__/anchors/. What the page posts since #1139 is
+ * web.json's anchor without its chapterId (asserted below), so it has no file of its own. mobile.json
+ * is frozen: the phone's offset-less shape before #1139, still in stored rows, still resolved below.
  *
  * Not covered here: which chapter a highlight is painted in. The WebView holds
  * one chapter and paints whatever RN hands it; the gate is `matchesChapter` in
@@ -32,10 +33,9 @@ import {
  */
 
 const FIXTURES = join(__dirname, '../../../../packages/shared/src/reader/__fixtures__/anchors')
-const UPDATE = process.env.UPDATE_ANCHOR_FIXTURES === '1'
 const read = (f: string): AnchorFixtureFile => JSON.parse(readFileSync(join(FIXTURES, f), 'utf8'))
 
-type Anchor = { prefix: string; exact: string; suffix: string }
+type Anchor = { prefix: string; exact: string; suffix: string; startOffset: number; endOffset: number }
 type Reader = EnginePage & {
   /** The anchor the page posts for the selection `range`, once it settles. */
   anchorFor(range: Range): Promise<Anchor | null>
@@ -124,34 +124,30 @@ const generated: AnchorFixtureFile = {}
 
 describe("mobile anchor creator (the engine page's selection message)", () => {
   for (const c of ANCHOR_CASES) {
-    it(`${c.name}: anchor matches the frozen mobile fixture`, async () => {
+    it(`${c.name}: posts the quote with its offsets`, async () => {
       const r = await reader(chapterById(c.chapter))
       const el = chapterEl(r)
       const anchor = (await r.anchorFor(rangeAt(r, el, caseStart(el.textContent!, c), c.exact.length)))!
       expect(anchor.exact).toBe(c.exact)
-      // The shape mobile posts: no chapterId and no offsets — the row's columns carry the chapter.
-      expect(Object.keys(anchor).sort()).toEqual(['exact', 'prefix', 'suffix'])
+      // The shape mobile posts: web's offsets (a V2 textstack-anchor-v1 needs them, #1139), no
+      // chapterId — the row's columns carry the chapter.
+      expect(Object.keys(anchor).sort()).toEqual(['endOffset', 'exact', 'prefix', 'startOffset', 'suffix'])
       generated[c.name] = anchor
-      if (!UPDATE) expect(anchor).toEqual(read('mobile.json')[c.name])
     })
   }
 
   it('quotes the same context as the web for every selection', () => {
-    // Both cut prefix/suffix from the chapter text, so the only difference
-    // left is the fields mobile does not send (offsets, chapterId).
+    // Both cut prefix/suffix and offsets from the chapter text, so the only difference
+    // left is the field mobile does not send (chapterId).
     const web = read('web.json')
     for (const c of ANCHOR_CASES) {
-      const { prefix, exact, suffix } = web[c.name]
-      expect(generated[c.name], c.name).toEqual({ prefix, exact, suffix })
+      const { prefix, exact, suffix, startOffset, endOffset } = web[c.name]
+      expect(generated[c.name], c.name).toEqual({ prefix, exact, suffix, startOffset, endOffset })
     }
   })
 
   // A Selection serialized like innerText (newlines at paragraph breaks) never reaches the anchor: the
   // engine cuts `exact` from its chapter text by offsets (E20); `across-paragraphs` above pins the result.
-
-  afterAll(() => {
-    if (UPDATE) writeFileSync(join(FIXTURES, 'mobile.json'), JSON.stringify(generated, null, 2) + '\n')
-  })
 })
 
 describe("mobile resolver (the engine page's renderHighlight)", () => {
