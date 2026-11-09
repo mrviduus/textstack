@@ -58,6 +58,16 @@ describe('#1143 — the upload screen honours Cancel and drops the picker copy',
   })
 })
 
+// #1151: a highlight save dropped by a sign-out (SessionChangedError, v2Highlights.test) is silent in the reader.
+describe('#1151 — a sign-out mid-save says nothing', () => {
+  it('useReaderHighlights swallows SessionChangedError on create, PDF create and edits', () => {
+    const hook = read('src/hooks/useReaderHighlights.ts')
+    expect(hook).toContain("if (e instanceof SessionChangedError) return false // signed out mid-save")
+    expect(hook).toContain("if (e instanceof SessionChangedError) return\n")
+    expect(hook).toContain("if (e instanceof SessionChangedError) return true // signed out mid-edit")
+  })
+})
+
 // #1151 (what hid #1139): the selection's anchor is typed, so an offset-less one is a tsc error, not a 400.
 // ponytail: the WebView message itself is JSON (`any`); this binds every TS-side producer and consumer.
 describe('#1139 — the selection anchor carries its offsets', () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { initApi } from './client'
 import { createV2Vocabulary } from './v2Vocabulary'
+import { SessionChangedError } from './v2'
 import { forgetPulls } from './v2'
 import { fakeApi, card } from './__tests__/fakeV2Api'
 
@@ -47,5 +48,28 @@ describe('the shared V2 vocabulary', () => {
     expect(revisions.size).toBe(0)
     await v.getV2ReviewQueue(10) // a call started in the new epoch remembers
     expect(revisions.get('w1')).toBe(3)
+  })
+
+  it('a practice answer after the epoch moved never reports a card seen before it', async () => {
+    let epoch = 0
+    fakeApi({ 'GET /me/v2/vocabulary/due': [{ status: 200, body: [card('w1', { stage: 2, intervalDays: 3 })] }] }, API)
+    const v = createV2Vocabulary({ newId: () => 'id', fileIdOf: async () => null, revisions: new Map(), epoch: () => epoch })
+    await v.getV2ReviewQueue(10)
+    epoch++
+    expect(await v.submitV2Review({ wordId: 'w1', isCorrect: true, responseTimeMs: 1, isPractice: true })).toMatchObject({ previousStage: 0, nextIntervalDays: 0 })
+  })
+
+  // A read before the write (the card's revision) answered after the epoch moved: the write is never sent.
+  it.each([
+    ['a restore', (v: ReturnType<typeof createV2Vocabulary>) => v.restoreV2Word('w1')],
+    ['an edit', (v: ReturnType<typeof createV2Vocabulary>) => v.updateV2Word('w1', { translation: 'x' })],
+  ])('%s whose card read outlives the epoch sends nothing', async (_, op) => {
+    let epoch = 0
+    const calls = fakeApi({ 'GET /me/v2/vocabulary/words/w1': [{ status: 200, body: card('w1', { revision: 3 }) }] }, API)
+    const fetchOf = globalThis.fetch as unknown as (...a: unknown[]) => Promise<unknown>
+    vi.stubGlobal('fetch', async (...a: unknown[]) => { const r = await fetchOf(...a); epoch++; return r })
+    const v = createV2Vocabulary({ newId: () => 'id', fileIdOf: async () => null, revisions: new Map(), epoch: () => epoch })
+    await expect(op(v)).rejects.toBeInstanceOf(SessionChangedError)
+    expect(calls.map((c) => c.method)).toEqual(['GET'])
   })
 })

@@ -319,11 +319,14 @@ const NO_PROGRESS: UserBookProgressDto = { chapterSlug: null, locator: null, per
  * a restart). Null, and nothing written, when the store was reset while `work` ran (#1151).
  */
 async function remember(work: Promise<V2ReadingState | null>): Promise<V2ReadingState | null> {
+  const started = epoch
   const s = await whileCurrent(work)
-  if (s) {
-    v2Store.states.set(s.bookId, s)
-    await setUserBookV2State(s.bookId, { revision: s.revision, fileId: s.fileId, bookFraction: s.bookFraction })
-  }
+  // Again here, right before the writes: a reset can land between whileCurrent's answer and this line.
+  if (!s || started !== epoch) return null
+  v2Store.states.set(s.bookId, s)
+  // ponytail: the setItem itself can still land after the sign-out wipe (clearAllLocalProgress is
+  // fire-and-forget); serialize V2 state writes with the wipe if that window ever shows.
+  await setUserBookV2State(s.bookId, { revision: s.revision, fileId: s.fileId, bookFraction: s.bookFraction })
   return s
 }
 
@@ -355,11 +358,14 @@ export async function readV2Progress(bookId: string): Promise<UserBookProgressDt
 
 /** A lost write takes the server's place: it becomes this device's record, so the next open resumes there. */
 async function adopt(s: V2ReadingState): Promise<UserBookProgressDto> {
+  const started = epoch
   await remember(Promise.resolve(s))
   const p = await whileCurrent(toProgress(s))
-  if (!p) return NO_PROGRESS // signed out while the chapters loaded: no local record for the next account
+  // Signed out meanwhile: no local record for the next account. Checked right before the write.
+  if (!p || started !== epoch) return NO_PROGRESS
   const page = parsePdfPageLocator(p.locator)
   const at = Math.min(Date.parse(s.clientRecordedAt) || Date.now(), Date.now())
+  // ponytail: as in remember(), the write itself can still race the sign-out wipe.
   await saveUserBookLocalProgress(s.bookId, {
     bookPercent: s.bookFraction,
     updatedAt: at,

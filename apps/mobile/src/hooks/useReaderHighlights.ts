@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, MutableRefObject } from 'react'
-import { highlightsApi, isPdfAnchor } from '@textstack/shared'
+import { highlightsApi, isPdfAnchor, SessionChangedError } from '@textstack/shared'
 import type { PublicHighlight, PdfAnchor } from '@textstack/shared'
 import { highlightCache, userBookHighlightCache } from '../lib/readerOfflineCache'
 import { matchesChapter } from '../lib/highlightChapter'
@@ -188,6 +188,7 @@ export function useReaderHighlights({
         }
         return true
       } catch (e) {
+        if (e instanceof SessionChangedError) return false // signed out mid-save: the reader is going
         console.warn('Failed to create highlight:', e)
         return failed()
       }
@@ -216,6 +217,7 @@ export function useReaderHighlights({
           })
         }
       } catch (e) {
+        if (e instanceof SessionChangedError) return
         console.warn('Failed to create PDF highlight:', e)
         showToast({ message: 'Could not add highlight. Try again.', variant: 'error' })
       }
@@ -239,8 +241,9 @@ export function useReaderHighlights({
     }
   }, [currentBookId, cache, injectJs, user?.id, bumpHighlights, original, pushPdf])
 
-  /** V2: an edit lost to another device's delete removes the highlight rather than keep it drawn. */
+  /** V2: an edit lost to another device's delete removes the highlight rather than keep it drawn; one dropped by a sign-out is silent. */
   const deletedElsewhere = useCallback((e: unknown, id: string) => {
+    if (e instanceof SessionChangedError) return true // signed out mid-edit: nothing to say
     if (!(e instanceof HighlightDeletedError)) return false
     dropLocal(id)
     showToast({ message: e.message, variant: 'info' })

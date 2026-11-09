@@ -1,18 +1,16 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { V2Annotation } from '@textstack/shared'
-import { initApi } from '@textstack/shared'
+import { initApi, SessionChangedError } from '@textstack/shared'
 import { fakeApi, feed, conflict } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 import { toPublicHighlight, toV2Write, userBookHighlightsApi, HighlightDeletedError } from './v2Highlights'
+import { v2Store as store } from './v2'
 
-// `whileCurrent` as v2.ts's (its epoch tested in v2.test.ts): `store.reset()` drops what is in flight.
-const store = vi.hoisted(() => ({ annotations: new Map(), pulled: new Set(), epoch: 0, reset() { this.annotations.clear(); this.pulled.clear(); this.epoch++ } }))
-vi.mock('./v2', () => ({
-  onV2: async () => true, v2Book: async () => ({ currentFile: { id: 'f1' } }), v2Store: store, switched: (v2: (...a: unknown[]) => unknown) => v2,
-  whileCurrent: async <T>(work: Promise<T>) => {
-    const started = store.epoch
-    const value = await work.catch((e) => { if (started === store.epoch) throw e; return null })
-    return started === store.epoch ? value : null
-  },
+// The real v2.ts (its store, epoch and `whileCurrent`); only the switch and the book lookup are faked.
+vi.mock('./offlineDb', () => ({ dropReplacedUserBookFiles: async () => [] }))
+vi.mock('./originalFileCache', () => ({ deleteOriginal: async () => {} }))
+vi.mock('./v2', async (importActual) => ({
+  ...(await importActual<typeof import('./v2')>()),
+  onV2: async () => true, v2Book: async () => ({ currentFile: { id: 'f1' } }), switched: (v2: (...a: unknown[]) => unknown) => v2,
 }))
 
 const row = (locator: V2Annotation['locator']): V2Annotation => ({
@@ -110,9 +108,9 @@ describe('upload highlights on V2', () => {
     expect(store.pulled.size).toBe(0)
   })
 
-  it('a highlight write answered after v2Store.reset is refused and remembers nothing', async () => {
+  it('a highlight write answered after v2Store.reset is a silent SessionChangedError and remembers nothing', async () => {
     const write = { userBookId: 'b1', anchorJson: JSON.stringify({ exact: 'x' }), color: 'y', selectedText: 'x' }
-    await expect(resetMidCall(() => userBookHighlightsApi.createHighlight(write), row(null))).rejects.toThrow(/Signed out/)
+    await expect(resetMidCall(() => userBookHighlightsApi.createHighlight(write), row(null))).rejects.toBeInstanceOf(SessionChangedError)
     expect(store.annotations.size).toBe(0)
   })
 

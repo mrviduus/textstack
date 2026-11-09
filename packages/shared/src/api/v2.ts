@@ -373,6 +373,16 @@ export interface V2Chapter extends V2ChapterHeading {
 
 // ---- Errors -------------------------------------------------------------------------------------
 
+/**
+ * A V2 call dropped because the app's store was reset mid-call (sign-out, another account, #1151):
+ * nothing was sent or remembered for the next account. A caller says nothing about it.
+ */
+export class SessionChangedError extends Error {
+  constructor() {
+    super('Signed out before the change was saved')
+  }
+}
+
 /** The V2 body of a failed call, or null (network failure, or not a V2 answer). */
 export function v2ErrorOf(e: unknown): V2Error | null {
   if (!(e instanceof ApiError)) return null

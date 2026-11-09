@@ -179,9 +179,10 @@ describe('mobile v2', () => {
     expect(await getUserBookLocalProgress('b-adopt')).toBeNull()
   })
 
-  it('a vocabulary answer after v2Store.reset remembers no card revision', async () => {
-    await resetMidCall({ 'GET /status': { status: 200, body: { maxPartBytes: 1024 } }, 'GET /vocabulary/due': { status: 200, body: [{ id: 'w-old', revision: 3, examples: [] }] } },
+  it('a vocabulary read answered after v2Store.reset returns nothing and remembers no card revision', async () => {
+    const queue = await resetMidCall({ 'GET /status': { status: 200, body: { maxPartBytes: 1024 } }, 'GET /vocabulary/due': { status: 200, body: [{ id: 'w-old', revision: 3, examples: [] }] } },
       () => vocabularyApi.getReviewQueue(10, false), '/vocabulary/due')
+    expect(queue).toEqual({ cards: [], totalDue: 0, weeklyProgress: null }) // the previous account's cards never reach the screen
     expect(v2Store.revisions.size).toBe(0)
   })
 

@@ -9,7 +9,7 @@
  */
 import { uuid } from 'expo-modules-core'
 import {
-  v2Api, highlightsApi, isPdfAnchor, anchorToV2Locator, v2LocatorToAnchor, clip, MAX_SELECTED_TEXT,
+  v2Api, highlightsApi, SessionChangedError, isPdfAnchor, anchorToV2Locator, v2LocatorToAnchor, clip, MAX_SELECTED_TEXT,
   type PublicHighlight, type UpdateHighlightData, type V2Annotation, type V2AnnotationWrite, type TextAnchor, type PdfAnchor,
 } from '@textstack/shared'
 import { switched, v2Book, v2Store, whileCurrent } from './v2'
@@ -90,10 +90,10 @@ function adopted(id: string) {
   }
 }
 
-/** A write, remembered; refused when the store was reset while it ran (#1151). */
+/** A write, remembered; `SessionChangedError` (the reader says nothing) when the store was reset while it ran (#1151). */
 async function save(id: string, write: V2AnnotationWrite): Promise<PublicHighlight> {
   const saved = await whileCurrent(v2Api.putAnnotation(id, write).catch(adopted(id)))
-  if (!saved) throw new Error('Signed out before the highlight was saved')
+  if (!saved) throw new SessionChangedError()
   return toPublicHighlight(remember(saved))
 }
 
