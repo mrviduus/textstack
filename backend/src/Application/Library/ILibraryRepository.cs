@@ -37,8 +37,8 @@ public interface ILibraryRepository
     /// The user's books changed after <c>(since, afterId)</c>, removed ones included, ordered by
     /// <c>(updated_at, id)</c>, each with its current file: one page of the library feed. Transitional
     /// (M6.4, #1118): only here does the file carry <see cref="BookFile.Ingestion"/>, <see cref="BookFile.ChapterCount"/>
-    /// and <see cref="BookFile.WordCount"/>. An extraction does not bump <c>updated_at</c>: a client that pulls from a
-    /// cursor sees them change only with the book's next write; a full pull always sees them.
+    /// and <see cref="BookFile.WordCount"/>. Every job status write bumps <c>updated_at</c> (not <c>revision</c>), so the
+    /// book re-enters a pull from an earlier cursor.
     /// </summary>
     Task<IReadOnlyList<Book>> ListChangedAsync(Guid userId, DateTimeOffset since, Guid afterId, int limit, CancellationToken ct);
 

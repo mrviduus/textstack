@@ -8,8 +8,9 @@
 import { uuid } from 'expo-modules-core'
 import NetInfo from '@react-native-community/netinfo'
 import {
-  v2Api, ApiError, isOfflineError, V2_OFF, clip, chapterAtFraction, placeToV2Locator, v2LocatorToPlace, createSha256, parsePdfPageLocator,
-  type V2Book, type V2FileChapters, type V2Ingestion, type V2Annotation, type V2Word, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
+  v2Api, ApiError, isOfflineError, V2_OFF, clip, placeToV2Locator, v2LocatorToPlace, createSha256, parsePdfPageLocator,
+  ingestionStatus, shelfFileSummary, resumeChapterOf,
+  type V2Book, type V2FileChapters, type V2Annotation, type V2Word, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
   type V2WriteOutcome, type UserBookProgressDto, type LegacyPlace, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse,
 } from '@textstack/shared'
 import { dropReplacedUserBookFiles } from './offlineDb'
@@ -209,11 +210,6 @@ async function forgetV2Book(id: string) {
   await setUserBookV2State(id, null)
 }
 
-function status(ingestion: V2Ingestion | undefined): string {
-  if (ingestion === 'queued' || ingestion === 'processing') return 'Processing'
-  return ingestion === 'succeeded' ? 'Ready' : 'Failed'
-}
-
 const isPdf = (b: V2Book) => b.currentFile?.format === 'pdf' && b.currentFile.hasContent
 
 const totalWords = (toc: V2FileChapters) =>
@@ -234,8 +230,6 @@ export async function getV2UserBooks(): Promise<UserBookDto[]> {
   return list.filter((b) => !b.removedAt).map((b): UserBookDto => {
     const file = b.currentFile
     const state = stateOf.get(b.id)
-    // ponytail: an epub-cfi state resolves its chapter only from a TOC this session already read (the book page, the reader); else no "Continue" until then.
-    const toc: V2FileChapters = (file && chapters.get(file.id)) || { items: [], ingestion: null }
     return {
       id: b.id,
       title: b.title,
@@ -243,15 +237,13 @@ export async function getV2UserBooks(): Promise<UserBookDto[]> {
       language: b.language ?? 'en',
       coverPath: null,
       genre: b.genre,
-      totalWordCount: file?.wordCount ?? null,
-      status: status(file?.ingestion),
-      chapterCount: file?.chapterCount ?? 0,
+      ...shelfFileSummary(file),
       createdAt: b.createdAt,
       completedAt: state?.completedAt ?? null,
       errorMessage: null,
       progressPercent: state ? state.bookFraction : null,
       progressUpdatedAt: state?.updatedAt ?? null,
-      progressChapterSlug: state ? resumeChapter(state, toc) : null,
+      progressChapterSlug: state ? resumeChapterOf(state, file ? chapters.get(file.id)?.items : undefined) : null,
       progressLocator: state?.currentLocator.scheme === 'pdf-page' ? `page:${(state.currentLocator.value as { page: number }).page}` : null,
       progressClientUpdatedAt: state?.clientRecordedAt ?? null,
       hasOriginalPdf: isPdf(b),
@@ -274,7 +266,7 @@ export async function getV2UserBook(id: string): Promise<UserBookDetailResponse>
     genre: b.genre,
     publishedYear: b.publishedYear,
     totalWordCount: totalWords(toc),
-    status: status(toc.ingestion),
+    status: ingestionStatus(toc.ingestion),
     errorMessage: null,
     // The chapter key is the chapter's id and slug on V2: highlights and vocabulary name it.
     chapters: toc.items.map((c) => ({ id: c.chapterKey, chapterNumber: c.chapterNumber, slug: c.chapterKey, title: c.title, wordCount: c.wordCount })),
@@ -332,16 +324,12 @@ const remember = (work: Promise<V2ReadingState | null>) => whileCurrent(work, (s
 /** The book's reading state from the server (null: none yet, or signed out meanwhile), remembered. */
 const readState = (bookId: string) => remember(v2Api.getReadingState(bookId))
 
-/** The chapter a stored state resumes in: its own, none for a PDF page, by fraction for an `epub-cfi` (never converted). */
-const resumeChapter = (s: V2ReadingState, toc: V2FileChapters) =>
-  v2LocatorToPlace(s.currentLocator)?.chapterSlug ?? (s.currentLocator.scheme === 'pdf-page' ? null : chapterAtFraction(toc.items, s.bookFraction))
-
 /** A V2 state as the legacy progress row. An `epub-cfi` (the V2 reader's) resumes by fraction. */
 async function toProgress(s: V2ReadingState): Promise<UserBookProgressDto> {
   const place = v2LocatorToPlace(s.currentLocator)
   const toc = place ? { items: [], ingestion: null } : await v2Chapters(await v2Book(s.bookId))
   return {
-    chapterSlug: resumeChapter(s, toc),
+    chapterSlug: resumeChapterOf(s, toc.items),
     locator: place?.locator ?? null,
     percent: s.bookFraction,
     updatedAt: s.updatedAt,

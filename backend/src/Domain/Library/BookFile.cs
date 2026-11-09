@@ -33,7 +33,8 @@ public class BookFile
     public bool IsCurrent { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 
-    // Transitional (dropped with book_chapters at M6.4, #1118): read by the library feed only, null on every other read.
+    // Transitional (dropped with book_chapters at M6.4, #1118). Only the library feed query fills these:
+    // null also means "not loaded by this query", so never read them off any other read.
 
     /// <summary>The latest extraction job's status; null: none, or not read.</summary>
     public string? Ingestion { get; set; }

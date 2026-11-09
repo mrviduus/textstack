@@ -29,17 +29,12 @@ public sealed partial class LibraryRepository(V2DataSource dataSource) : ILibrar
                f.server_storage_key, f.content_removed_at, f.is_current, f.created_at
 
         """;
-    private const string FromBooks = BookWithCurrentFile + """
-        FROM books b
-        LEFT JOIN book_files f ON f.user_id = b.user_id AND f.book_id = b.id AND f.is_current
-
-        """;
+    private const string JoinCurrentFile = "LEFT JOIN book_files f ON f.user_id = b.user_id AND f.book_id = b.id AND f.is_current\n";
+    private const string BooksJoinCurrentFile = "FROM books b\n" + JoinCurrentFile;
+    private const string FromBooks = BookWithCurrentFile + BooksJoinCurrentFile;
 
     // The same over a CTE b that RETURNING {BookColumns} from a write: the row this write produced.
-    private const string FromWrittenBook = BookWithCurrentFile + """
-        FROM b
-        LEFT JOIN book_files f ON f.user_id = b.user_id AND f.book_id = b.id AND f.is_current
-        """;
+    private const string FromWrittenBook = BookWithCurrentFile + "FROM b\n" + JoinCurrentFile;
 
     private const string SelectLiveBooks = FromBooks + """
         WHERE b.user_id = @userId AND b.removed_at IS NULL
@@ -90,14 +85,14 @@ public sealed partial class LibraryRepository(V2DataSource dataSource) : ILibrar
     // The feed alone carries the current file's extraction summary (transitional, dropped with book_chapters
     // at M6.4, #1118): the latest job's status, the chapter count (null at 0) and the summed word counts
     // (null when no chapter has one), so a shelf needs no /chapters call per book. Appended to the file half.
-    private const string SelectChanged = BookWithCurrentFile + """
+    // Every job status write bumps the book's updated_at (IngestionJobRepository), so a cursor pull sees them change.
+    private const string SelectChanged = BookWithCurrentFile + $"""
                , (SELECT j.status FROM ingestion_jobs j
-                  WHERE j.user_id = f.user_id AND j.book_id = f.book_id AND j.file_id = f.id
-                  ORDER BY j.created_at DESC, j.id DESC
-                  LIMIT 1) AS ingestion,
+                  WHERE (j.user_id, j.book_id, j.file_id) = (f.user_id, f.book_id, f.id)
+                  {IngestionJobRepository.LatestFirst}) AS ingestion,
                c.chapter_count, c.word_count
-        FROM books b
-        LEFT JOIN book_files f ON f.user_id = b.user_id AND f.book_id = b.id AND f.is_current
+
+        """ + BooksJoinCurrentFile + """
         LEFT JOIN LATERAL (
             SELECT NULLIF(count(*), 0)::int AS chapter_count, sum(ch.word_count)::int AS word_count
             FROM book_chapters ch

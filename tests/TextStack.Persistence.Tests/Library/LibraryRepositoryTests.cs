@@ -267,6 +267,21 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ListChangedAsync_JobFinishedAfterACursor_BookReentersThePullWithTheNewStatusAndSameRevision()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var jobs = new IngestionJobRepository(db.DataSource);
+        var job = await jobs.EnqueueAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct);
+        await db.ExecAsync("UPDATE ingestion_jobs SET status = 'processing', attempt_count = 1 WHERE id = @id", new { id = job.Id });
+        var before = Assert.Single(await _repo.ListChangedAsync(book.UserId, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
+
+        Assert.True(await jobs.SucceedAsync(job.Id, 1, "epub", Ct));
+
+        var after = Assert.Single(await _repo.ListChangedAsync(book.UserId, before.UpdatedAt, before.Id, 10, Ct));
+        Assert.Equal(("succeeded", before.Revision), (after.CurrentFile!.Ingestion, after.Revision));
+    }
+
+    [Fact]
     public async Task ListChangedAsync_ExtractedFile_CarriesLatestJobStatusChapterCountAndWordSum()
     {
         var book = await db.NewReaderWithBookAsync();
