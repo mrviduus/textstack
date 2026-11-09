@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { saveWord, updateWord, getReviewQueue, submitReview, restoreWord, deleteAllWords } from '../vocabulary'
-import { startV2Probe, resetV2ForTests } from '../v2'
-import { fakeApi, V2_ON, feed, card, conflict } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { startV2Probe, resetV2ForTests, v2Store } from '../v2'
+import { fakeApi, V2_ON, feed, card, conflict, resetMidCall } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -115,5 +115,15 @@ describe('vocabulary edits and review on V2', () => {
 
     expect(await deleteAllWords()).toEqual({ deleted: 2 })
     expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual(['/me/v2/vocabulary/words/w1', '/me/v2/vocabulary/words/w2'])
+  })
+})
+
+describe('a sign-out mid-call (#1151)', () => {
+  it('a review queue answered after v2Store.reset returns nothing and remembers no card', async () => {
+    fakeApi({ ...V2_ON })
+    await startV2Probe()
+    const queue = await resetMidCall(() => v2Store.reset(), { 'GET /vocabulary/due': { status: 200, body: [card('w1')] } }, () => getReviewQueue(10))
+    expect(queue).toMatchObject({ cards: [], totalDue: 0 })
+    expect(v2Store.cards.size).toBe(0)
   })
 })

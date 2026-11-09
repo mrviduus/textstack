@@ -30,10 +30,18 @@ public sealed record BookDto(
     string[] Tags, bool CheckpointSavingEnabled, bool HasCover, long Revision,
     DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? RemovedAt, BookFileDto? CurrentFile);
 
-/// <summary><see cref="ContentRemovedAt"/>: the reader stopped syncing this version, so no client uploads its bytes on its own.</summary>
+/// <summary>
+/// <see cref="ContentRemovedAt"/>: the reader stopped syncing this version, so no client uploads its bytes on its own.
+/// Transitional (dropped with <c>book_chapters</c> at M6.4, #1118), on the library feed only and absent when null:
+/// <see cref="Ingestion"/> is the latest extraction job's status (as <see cref="FileChaptersDto.Ingestion"/>),
+/// <see cref="ChapterCount"/> the extracted chapters, <see cref="WordCount"/> their summed word counts.
+/// </summary>
 public sealed record BookFileDto(
     Guid Id, string Sha256, long ByteSize, string OriginalName, string Format, int? PageCount, [property: JsonConverter(typeof(RawJsonConverter))] string? Toc,
-    bool IsCurrent, bool HasContent, DateTimeOffset CreatedAt, DateTimeOffset? ContentRemovedAt);
+    bool IsCurrent, bool HasContent, DateTimeOffset CreatedAt, DateTimeOffset? ContentRemovedAt,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Ingestion = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ChapterCount = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? WordCount = null);
 
 /// <summary>A part stored: its index and its size in bytes.</summary>
 public sealed record UploadedPartDto(int Index, long Size);

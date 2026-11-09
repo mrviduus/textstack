@@ -47,6 +47,27 @@ public class V2FeedEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixture>
     }
 
     [Fact]
+    public async Task LibraryChanges_ExtractedFile_CarriesIngestionChapterCountAndWordCountAsChaptersSays()
+    {
+        v2.Require();
+        var guest = await v2.NewGuestAsync();
+        var (book, file, keys) = await v2.ImportWithChaptersAsync(guest, "One", "Two", "Three");
+        var bare = await v2.ImportAsync(guest);
+        var toc = await v2.SendAsync(guest, HttpMethod.Get, $"/me/v2/books/{book}/files/{file}/chapters");
+        var words = toc.Body.GetProperty("items").EnumerateArray()
+            .Select(c => c.GetProperty("wordCount")).Where(w => w.ValueKind == JsonValueKind.Number).Sum(w => w.GetInt32());
+
+        var rows = (await PullAsync(guest, "library")).Rows;
+        var extracted = rows.Single(r => r.GetProperty("id").GetGuid() == book).GetProperty("currentFile");
+        var notExtracted = rows.Single(r => r.GetProperty("id").GetGuid() == bare.Book).GetProperty("currentFile");
+
+        Assert.Equal(("succeeded", keys.Count, words), (extracted.GetProperty("ingestion").GetString(),
+            extracted.GetProperty("chapterCount").GetInt32(), extracted.GetProperty("wordCount").GetInt32()));
+        Assert.False(notExtracted.TryGetProperty("ingestion", out _) || notExtracted.TryGetProperty("chapterCount", out _)
+            || notExtracted.TryGetProperty("wordCount", out _));
+    }
+
+    [Fact]
     public async Task ReadingChanges_PagedByCursor_HasEachBooksState()
     {
         v2.Require();

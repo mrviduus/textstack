@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { TextAnchor } from '@textstack/shared'
 
 export type Selection = {
   text: string
   sentence: string
-  anchor?: any
+  /** The page's anchor, offsets included: V2 refuses a `textstack-anchor-v1` without them (#1139). */
+  anchor?: TextAnchor | null
   selectionId: number
   /** 'tap' = single-finger tap that always shows WordCard. 'drag' = native long-press / drag
    * selection; routed by content (single word → WordCard, multi → SelectionActionBar). */
@@ -74,7 +76,7 @@ export function useReaderSelection({ flushVocabMap }: Options) {
    * itself — WordCard's auto-dismiss timer keys off it.
    */
   const openSelection = useCallback(
-    (payload: { text: string; sentence?: string; anchor?: any; mode?: 'tap' | 'drag'; tooLong?: boolean; token?: number } | null): void => {
+    (payload: { text: string; sentence?: string; anchor?: TextAnchor | null; mode?: 'tap' | 'drag'; tooLong?: boolean; token?: number } | null): void => {
       if (!payload || !payload.text) {
         if (__DEV__) console.log('[diag] setSelection NULL (empty-data branch)')
         setSelection(null)

@@ -218,7 +218,7 @@ What a run does when V2 already holds a row of the same key. Never a blanket `ON
 | Aggregate (V2 key) | V2 has no row | V2 row equal to the mapping | V2 row differs from the mapping |
 |---|---|---|---|
 | `users` (`id`) | insert | unchanged | **update** every legacy column (M2.2's shadow rows are filled, counted as `updated`, not drift); `role` stays `admin` if V2 has it; `credentials_reset_at` is V2's own, never touched |
-| `users` (`lower(email)`) | — | — | an email V2 holds under **another id**: check `users: email held by another V2 id` fails (`legacyId/v2Id`), nothing overwritten |
+| `users` (`lower(email)`) | — | — | an email V2 holds under **another id** (a shadow or mirror row of another account, a case variant, a deleted account's reused email): check `users: email held by another V2 id` fails (`legacyId/v2Id`) on a dry and a real run, before any write; nothing overwritten, a human resolves the pair and reruns |
 | `books` (`id`) | insert | unchanged | check `books: V2 row differs from its legacy mapping` fails; the V2 row is kept |
 | `book_files` (`id`) | insert | unchanged | same rule (`book_files: …`) |
 | `reading_state` (`user_id, book_id`) | insert | unchanged | same rule (`reading_state: …`) |
@@ -226,6 +226,12 @@ What a run does when V2 already holds a row of the same key. Never a blanket `ON
 | `book_chapters` (`id`, compared by md5 of `html`/`plain_text`) | COPY | unchanged | same rule (`book_chapters: …`) |
 | `ingestion_jobs` (`id`) | insert | unchanged | same rule (`ingestion_jobs: …`) |
 | library bytes (the V2 key) | copied | unchanged (same SHA-256) | check `library_files: V2 key already holds other bytes` fails; the V2 bytes are kept |
+
+Shadow rows (#1094): until M2.5 moves auth to V2, the `/me/v2` group creates a V2 `users` row for the
+session user (`id`, `email`, `is_guest`, `created_at`; same id as legacy), so production's `textstack_v2`
+already holds users before the first run. The upsert fills them from legacy; `users: parity` and
+`validate-etl.sql`'s users set count them as legacy's rows (its hash leaves `role` out), and a rerun
+counts them `unchanged` (0 writes). Same rule for `google_subject`/`apple_subject` held by another id.
 
 V2 users with no legacy row are listed in `cleanupActions`; no run deletes them, and they are not a
 failure (owner 2026-11-08). A guest (the identity mirror's leftover, #1094) comes with the `DELETE` a human
@@ -291,14 +297,17 @@ may run (it cascades to that user's V2 rows); a non-guest account comes with non
   200 UTF-16 units` (legacy slugs are `varchar(255)`). Lengths are code points, as V2 counts them, but the chapter
   key's UTF-16 units. Not a failure: a rehearsal's list sizes the problem. `validate-etl.sql` restates the
   computation verbatim and reports the same (id, reason) pairs, counted per reason (its caps are literals; C# calls
-  `SyncValidation`'s own predicates). An anchor whose chapter is gone, or on a book with no file
+  `SyncValidation`'s own predicates). Accepted: an `exact` of only whitespace passes V2's rules, so it is searched
+  with an empty group and gets an empty span (`startOffset = endOffset`, at the end of the matched whitespace run),
+  and it is not listed. An anchor whose chapter is gone, or on a book with no file
   row, is not carried: the annotation is a quotation (listed). A highlight with no book and no edition (a
   deleted upload's trail) is not carried (listed in `orphanCandidates`). Catalog highlights are M3.3's.
   Fails: highlight owner ≠ upload owner, an anchor that is not an object, a blank text, a version below 1.
 - **Chapters** (row 34, item 6): `chapter_key = COALESCE(slug, 'ch-' || chapter_number)`, keyed to the
   book's file; a book with no file row's chapters are not carried (listed). `html` is carried byte for
-  byte: its images keep their legacy `/storage/…` URLs and no image asset is copied (owner 2026-11-08;
-  `book_chapters` is transitional until R8). Fails: a blank key, two chapters of a file with one key.
+  byte: its images keep their legacy URLs and no image asset is copied (owner 2026-11-08). For an upload these
+  are `/api/me/books/{bookId}/assets/{assetId}` (the worker's `UserIngestionService` rewrites them so);
+  `/storage/…` is the catalog's path, not an upload's (`book_chapters` is transitional until R8). Fails: a blank key, two chapters of a file with one key.
 - **Ingestion jobs** (row 36): status `0..3` → `queued`/`processing`/`succeeded`/`failed`; `source_format`
   lowercased (as the V2 worker writes it); keyed to the carried file. A job whose file got no row is not
   carried (listed). Fails: another status, or a source format outside `epub`/`pdf`/`html`/`fb2`/`unknown`.

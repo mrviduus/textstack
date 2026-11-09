@@ -11,6 +11,8 @@
  * with {@link v2ErrorOf}. A 503 `v2_unavailable` means "sync paused": keep local data, try later.
  */
 import { authFetch, ApiError, buildQuery, getApiConfig, jsonBody } from './client'
+import { v2LocatorToPlace } from '../reader/v2Locators'
+import { chapterAtFraction } from '../reader/bookProgress'
 
 const V2 = '/me/v2'
 
@@ -122,6 +124,14 @@ export interface V2BookFile {
   hasContent: boolean
   createdAt: string
   contentRemovedAt: string | null
+  /**
+   * Transitional (dropped with the chapter reader at M6.4, #1118), on the library feed only, absent
+   * when null: the latest extraction's status, the chapter count, the chapters' summed word counts.
+   * A shelf reads these, never `/chapters`.
+   */
+  ingestion?: V2Ingestion
+  chapterCount?: number | null
+  wordCount?: number | null
 }
 
 export interface V2Book {
@@ -371,7 +381,46 @@ export interface V2Chapter extends V2ChapterHeading {
   next: V2ChapterHeading | null
 }
 
+// ---- The uploads shelf (transitional, #1118) ----------------------------------------------------
+
+/** An extraction's status as the legacy book status: queued and processing are one state to a reader. */
+export function ingestionStatus(ingestion: V2Ingestion | undefined): 'Processing' | 'Ready' | 'Failed' {
+  if (ingestion === 'queued' || ingestion === 'processing') return 'Processing'
+  return ingestion === 'succeeded' ? 'Ready' : 'Failed'
+}
+
+/** A shelf row's status and counts, from the library feed's file alone: a shelf never calls `/chapters`. */
+export const shelfFileSummary = (file: V2BookFile | null | undefined) => ({
+  status: ingestionStatus(file?.ingestion),
+  chapterCount: file?.chapterCount ?? 0,
+  totalWordCount: file?.wordCount ?? null,
+})
+
+/**
+ * The chapter a reading state resumes in: its own; none for a PDF page; for an `epub-cfi`, by
+ * fraction over `toc`. The reader passes the file's TOC; a shelf only a TOC it already read (the
+ * book page, the reader) — it calls no `/chapters`.
+ * ponytail: so on the shelf an `epub-cfi` row without one gets no chapter, no "Continue" until the book is opened.
+ * Nobody hits it today: no shipped reader writes `epub-cfi` (the transitional readers write
+ * `textstack-position-v1` / `pdf-page`); it becomes real when the V2 reader does (R5) — then put the
+ * chapter on the feed or fetch the TOC for those rows only.
+ */
+export function resumeChapterOf(state: V2ReadingState, toc: V2ChapterHeading[] | undefined): string | null {
+  const place = v2LocatorToPlace(state.currentLocator)
+  return place ? place.chapterSlug : chapterAtFraction(toc ?? [], state.bookFraction)
+}
+
 // ---- Errors -------------------------------------------------------------------------------------
+
+/**
+ * A V2 call dropped because the app's store was reset mid-call (sign-out, another account, #1151):
+ * nothing was sent or remembered for the next account. A caller says nothing about it.
+ */
+export class SessionChangedError extends Error {
+  constructor() {
+    super('Signed out before the change was saved')
+  }
+}
 
 /** The V2 body of a failed call, or null (network failure, or not a V2 answer). */
 export function v2ErrorOf(e: unknown): V2Error | null {

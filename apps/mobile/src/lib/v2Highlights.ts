@@ -9,10 +9,10 @@
  */
 import { uuid } from 'expo-modules-core'
 import {
-  v2Api, highlightsApi, isPdfAnchor, anchorToV2Locator, v2LocatorToAnchor, clip, MAX_SELECTED_TEXT,
+  v2Api, highlightsApi, SessionChangedError, isPdfAnchor, anchorToV2Locator, v2LocatorToAnchor, clip, MAX_SELECTED_TEXT,
   type PublicHighlight, type UpdateHighlightData, type V2Annotation, type V2AnnotationWrite, type TextAnchor, type PdfAnchor,
 } from '@textstack/shared'
-import { switched, v2Book, v2Store } from './v2'
+import { switched, v2Book, v2Store, whileCurrent } from './v2'
 
 // The rows last pulled or written, by id (an edit is a full write on the revision it read), and the
 // books pulled since they were opened: in the session's V2 store, emptied on sign-out.
@@ -90,13 +90,22 @@ function adopted(id: string) {
   }
 }
 
+/** A write, remembered; `SessionChangedError` (the reader says nothing) when the store was reset while it ran (#1151). */
+async function save(id: string, write: V2AnnotationWrite): Promise<PublicHighlight> {
+  const saved = await whileCurrent(v2Api.putAnnotation(id, write).catch(adopted(id)), remember)
+  if (!saved) throw new SessionChangedError()
+  return toPublicHighlight(saved)
+}
+
 /** The book's live highlights: the feed pulled once per book open, then answered from the store. */
 async function listV2(bookId: string): Promise<PublicHighlight[]> {
   if (!pulled.has(bookId)) {
     // ponytail: the feed is per user, filtered here; a per-book list when one exists.
-    const { items } = await v2Api.pullAll<V2Annotation>('annotations')
-    for (const a of items) remember(a)
-    pulled.add(bookId)
+    const feed = await whileCurrent(v2Api.pullAll<V2Annotation>('annotations'), ({ items }) => {
+      for (const a of items) remember(a)
+      pulled.add(bookId)
+    })
+    if (!feed) return [] // signed out meanwhile (#1151)
   }
   return [...rows.values()].filter((a) => a.bookId === bookId && !a.deletedAt).map(toPublicHighlight)
 }
@@ -106,8 +115,7 @@ async function createV2(data: Parameters<typeof highlightsApi.createHighlight>[0
   const fileId = (await v2Book(bookId)).currentFile?.id ?? null
   const id = uuid.v4()
   const write = toV2Write({ ...data, userBookId: bookId }, fileId, null)
-  const saved = await v2Api.putAnnotation(id, write).catch(adopted(id))
-  return toPublicHighlight(remember(saved))
+  return save(id, write)
 }
 
 async function updateV2(id: string, data: UpdateHighlightData): Promise<PublicHighlight> {
@@ -120,8 +128,7 @@ async function updateV2(id: string, data: UpdateHighlightData): Promise<PublicHi
     expectedRevision: row.revision, bookId: row.bookId, fileId: row.fileId, selectedText: row.selectedText, locator: row.locator,
     color: data.color ?? row.color, noteText: note(data.noteText === undefined ? row.noteText : data.noteText),
   }
-  const saved = await v2Api.putAnnotation(id, write).catch(adopted(id))
-  return toPublicHighlight(remember(saved))
+  return save(id, write)
 }
 
 async function deleteV2(id: string): Promise<void> {
