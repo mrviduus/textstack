@@ -92,19 +92,20 @@ function adopted(id: string) {
 
 /** A write, remembered; `SessionChangedError` (the reader says nothing) when the store was reset while it ran (#1151). */
 async function save(id: string, write: V2AnnotationWrite): Promise<PublicHighlight> {
-  const saved = await whileCurrent(v2Api.putAnnotation(id, write).catch(adopted(id)))
+  const saved = await whileCurrent(v2Api.putAnnotation(id, write).catch(adopted(id)), remember)
   if (!saved) throw new SessionChangedError()
-  return toPublicHighlight(remember(saved))
+  return toPublicHighlight(saved)
 }
 
 /** The book's live highlights: the feed pulled once per book open, then answered from the store. */
 async function listV2(bookId: string): Promise<PublicHighlight[]> {
   if (!pulled.has(bookId)) {
     // ponytail: the feed is per user, filtered here; a per-book list when one exists.
-    const feed = await whileCurrent(v2Api.pullAll<V2Annotation>('annotations'))
+    const feed = await whileCurrent(v2Api.pullAll<V2Annotation>('annotations'), ({ items }) => {
+      for (const a of items) remember(a)
+      pulled.add(bookId)
+    })
     if (!feed) return [] // signed out meanwhile (#1151)
-    for (const a of feed.items) remember(a)
-    pulled.add(bookId)
   }
   return [...rows.values()].filter((a) => a.bookId === bookId && !a.deletedAt).map(toPublicHighlight)
 }

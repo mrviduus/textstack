@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { V2Annotation } from '@textstack/shared'
 import { initApi, SessionChangedError } from '@textstack/shared'
-import { fakeApi, feed, conflict } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi, feed, conflict, resetMidCall as midCall, type Answer } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 import { toPublicHighlight, toV2Write, userBookHighlightsApi, HighlightDeletedError } from './v2Highlights'
 import { v2Store as store } from './v2'
 
@@ -83,34 +83,21 @@ describe('upload highlights on V2', () => {
   })
 
   // #1151: a response that outlives a sign-out writes no row into the next account's store.
-  const resetMidCall = async <T>(op: () => Promise<T>, body: unknown) => {
+  const resetMidCall = <T>(op: () => Promise<T>, routes: Record<string, Answer>) => {
     initApi({ baseUrl: 'http://api', getAccessToken: async () => 't', onUnauthorized: async () => null })
-    const waiting: Array<() => void> = []
-    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => {
-      waiting.push(() => resolve({ ok: true, status: 200, text: async () => JSON.stringify(body) }))
-    })))
-    try {
-      const run = op()
-      for (let i = 0; i < 20 && !waiting.length; i++) await new Promise((r) => setTimeout(r, 0))
-      expect(waiting).toHaveLength(1)
-      store.reset()
-      for (const answer of waiting) answer()
-      return await run
-    } finally {
-      vi.unstubAllGlobals()
-    }
+    return midCall(() => store.reset(), routes, op).finally(() => vi.unstubAllGlobals())
   }
 
   it('a highlights pull answered after v2Store.reset fills nothing', async () => {
     const old = row({ version: 1, scheme: 'pdf-page', value: { v: 1, kind: 'pdf', page: 1, rects: [], exact: 'x' } })
-    expect(await resetMidCall(() => userBookHighlightsApi.getUserBookHighlights('b1'), { items: [old], cursor: null, hasMore: false })).toEqual([])
+    expect(await resetMidCall(() => userBookHighlightsApi.getUserBookHighlights('b1'), { 'GET /annotations/changes': feed(old)[0] })).toEqual([])
     expect(store.annotations.size).toBe(0)
     expect(store.pulled.size).toBe(0)
   })
 
   it('a highlight write answered after v2Store.reset is a silent SessionChangedError and remembers nothing', async () => {
     const write = { userBookId: 'b1', anchorJson: JSON.stringify({ exact: 'x' }), color: 'y', selectedText: 'x' }
-    await expect(resetMidCall(() => userBookHighlightsApi.createHighlight(write), row(null))).rejects.toBeInstanceOf(SessionChangedError)
+    await expect(resetMidCall(() => userBookHighlightsApi.createHighlight(write), { 'PUT /annotations/': { status: 200, body: row(null) } })).rejects.toBeInstanceOf(SessionChangedError)
     expect(store.annotations.size).toBe(0)
   })
 

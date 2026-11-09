@@ -5,7 +5,7 @@ import NetInfo from '@react-native-community/netinfo'
 import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, switched, deviceUploadIo, v2Store, getV2UserBooks, v2Chapters, readV2Progress, type UploadIo } from './v2'
 import { vocabularyApi } from './vocabularyApi'
 import { getUserBookLocalProgress, setUserBookV2State, getUserBookV2State } from './progressStorage'
-import { fakeApi as fakeV2, conflict, state, feed, book, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi as fakeV2, conflict, state, feed, book, resetMidCall as midCall, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 const dropReplaced = vi.hoisted(() => ({ runs: 0 }))
 vi.mock('./offlineDb', () => ({ dropReplacedUserBookFiles: async () => { dropReplaced.runs++; return [] } }))
@@ -13,6 +13,7 @@ vi.mock('./originalFileCache', () => ({ deleteOriginal: async () => {} }))
 
 const V2 = 'http://api/me/v2'
 const fakeApi = (routes: Record<string, Answer[]>) => fakeV2(routes, V2)
+const resetMidCall = <T>(routes: Record<string, Answer>, op: () => Promise<T>, hold?: string) => midCall(() => v2Store.reset(), routes, op, hold)
 
 const bytes = Uint8Array.from({ length: 25 }, (_, i) => i)
 const sha = createHash('sha256').update(bytes).digest('hex')
@@ -183,7 +184,7 @@ describe('mobile v2', () => {
     const queue = await resetMidCall({ 'GET /status': { status: 200, body: { maxPartBytes: 1024 } }, 'GET /vocabulary/due': { status: 200, body: [{ id: 'w-old', revision: 3, examples: [] }] } },
       () => vocabularyApi.getReviewQueue(10, false), '/vocabulary/due')
     expect(queue).toEqual({ cards: [], totalDue: 0, weeklyProgress: null }) // the previous account's cards never reach the screen
-    expect(v2Store.revisions.size).toBe(0)
+    expect(v2Store.cards.size).toBe(0)
   })
 
   // #1143 second review: Cancel while the last part is in flight never completes the upload.
@@ -361,27 +362,6 @@ describe('mobile v2', () => {
     expect(await getUserBookV2State('b1')).toBeNull()
   })
 })
-
-/**
- * Runs `op` with `v2Store.reset()` landing while its requests are in flight: each request (or only the
- * one at path `hold`) waits until after the reset, then answers its route.
- */
-async function resetMidCall<T>(routes: Record<string, Answer>, op: () => Promise<T>, hold?: string): Promise<T> {
-  const waiting: Array<() => void> = []
-  vi.stubGlobal('fetch', vi.fn((url: string, init: RequestInit = {}) => new Promise((resolve) => {
-    const path = url.replace(V2, '').split('?')[0]
-    const a = routes[`${init.method ?? 'GET'} ${path}`] ?? { status: 599 }
-    const answer = () => resolve({ ok: a.status < 300, status: a.status, text: async () => JSON.stringify(a.body ?? null) })
-    if (hold && path !== hold) answer()
-    else waiting.push(answer)
-  })))
-  const run = op()
-  for (let i = 0; i < 20 && !waiting.length; i++) await new Promise((r) => setTimeout(r, 0))
-  expect(waiting.length).toBeGreaterThan(0)
-  v2Store.reset()
-  for (const answer of waiting) answer()
-  return run
-}
 
 /**
  * The upload mints its own book and file ids; this fake answers every import, part and complete

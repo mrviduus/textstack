@@ -8,7 +8,7 @@
 import {
   type V2WriteOutcome,
   v2Api, ApiError, V2_OFF, clip, chapterAtFraction, placeToV2Locator, v2LocatorToPlace,
-  type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2Annotation,
+  type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2Annotation, type V2Word,
   type V2ReadingStateWrite, type V2Switch, type LegacyPlace,
 } from '@textstack/shared'
 import { API_BASE } from './client'
@@ -61,15 +61,15 @@ export const v2Store = {
   chapters: new Map<string, V2FileChapters>(),
   /** Per book: the reading-state revision last read or written, and its file. */
   states: new Map<string, { revision: number | null; fileId: string; bookFraction: number }>(),
-  /** Per word: the card revision last read. */
-  revisions: new Map<string, number>(),
+  /** The vocabulary cards last read or written, by id (the shared V2 vocabulary's). */
+  cards: new Map<string, V2Word>(),
   /** The annotations as last pulled or written, by id; and the books pulled at least once. */
   annotations: new Map<string, V2Annotation>(),
   pulled: new Set<string>(),
   /** Bumped by `reset()`: the shared vocabulary drops a card answered after it (#1151); this file's own post-await writes do not check it yet (#1155). */
   epoch: 0,
   reset() {
-    for (const cache of [this.books, this.chapters, this.states, this.revisions, this.annotations, this.pulled]) cache.clear()
+    for (const cache of [this.books, this.chapters, this.states, this.cards, this.annotations, this.pulled]) cache.clear()
     v2Api.forgetPulls()
     this.epoch++
   },

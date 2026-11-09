@@ -10,7 +10,7 @@ const {
 } = createV2Vocabulary({
   newId: () => crypto.randomUUID(),
   fileIdOf: async (bookId) => (await v2Book(bookId)).currentFile?.id ?? null,
-  revisions: v2Store.revisions,
+  cards: v2Store.cards,
   epoch: () => v2Store.epoch,
 })
 

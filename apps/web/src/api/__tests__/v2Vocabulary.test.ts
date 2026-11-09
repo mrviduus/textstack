@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { saveWord, updateWord, getReviewQueue, submitReview, restoreWord, deleteAllWords } from '../vocabulary'
 import { startV2Probe, resetV2ForTests, v2Store } from '../v2'
-import { fakeApi, V2_ON, feed, card, conflict } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi, V2_ON, feed, card, conflict, resetMidCall } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -119,18 +119,11 @@ describe('vocabulary edits and review on V2', () => {
 })
 
 describe('a sign-out mid-call (#1151)', () => {
-  it('a review queue answered after v2Store.reset remembers no revision', async () => {
+  it('a review queue answered after v2Store.reset returns nothing and remembers no card', async () => {
     fakeApi({ ...V2_ON })
     await startV2Probe()
-    let answer!: () => void
-    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => {
-      answer = () => resolve({ ok: true, status: 200, text: async () => JSON.stringify([card('w1')]) })
-    })))
-    const queue = getReviewQueue(10)
-    for (let i = 0; i < 20 && !answer; i++) await new Promise((r) => setTimeout(r, 0))
-    v2Store.reset()
-    answer()
-    await queue
-    expect(v2Store.revisions.size).toBe(0)
+    const queue = await resetMidCall(() => v2Store.reset(), { 'GET /vocabulary/due': { status: 200, body: [card('w1')] } }, () => getReviewQueue(10))
+    expect(queue).toMatchObject({ cards: [], totalDue: 0 })
+    expect(v2Store.cards.size).toBe(0)
   })
 })

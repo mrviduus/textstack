@@ -9,7 +9,7 @@ import { uuid } from 'expo-modules-core'
 import NetInfo from '@react-native-community/netinfo'
 import {
   v2Api, ApiError, isOfflineError, V2_OFF, clip, chapterAtFraction, placeToV2Locator, v2LocatorToPlace, createSha256, parsePdfPageLocator,
-  type V2Book, type V2FileChapters, type V2Annotation, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
+  type V2Book, type V2FileChapters, type V2Annotation, type V2Word, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
   type V2WriteOutcome, type UserBookProgressDto, type LegacyPlace, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse,
 } from '@textstack/shared'
 import { dropReplacedUserBookFiles } from './offlineDb'
@@ -107,10 +107,10 @@ export const v2Store = {
   /** Upload highlights as last pulled or written, by id, and the books pulled since they were opened. */
   annotations: new Map<string, V2Annotation>(),
   pulled: new Set<string>(),
-  /** Per word: the card revision last read (the shared V2 vocabulary). */
-  revisions: new Map<string, number>(),
+  /** The vocabulary cards last read or written, by id (the shared V2 vocabulary's). */
+  cards: new Map<string, V2Word>(),
   reset() {
-    for (const cache of [this.books, this.chapters, this.states, this.annotations, this.pulled, this.revisions]) cache.clear()
+    for (const cache of [this.books, this.chapters, this.states, this.annotations, this.pulled, this.cards]) cache.clear()
     v2Api.forgetPulls()
     pullFlight = createSingleFlight()
     epoch++
@@ -152,12 +152,15 @@ export const v2Epoch = () => epoch
  * `work`'s answer, or null when the store was reset while it ran (signed out, another account): the
  * caller then writes, maps, fetches and shows nothing of the previous account's under the next one.
  * A failure is the previous account's too: null, not thrown (#1151 — no 409 handling writes it back).
+ * `keep` writes the answer away in the same tick as the check, so no reset lands between the two.
  */
-export async function whileCurrent<T>(work: Promise<T>): Promise<T | null> {
+export async function whileCurrent<T>(work: Promise<T>, keep?: (value: T) => unknown): Promise<T | null> {
   const started = epoch
   try {
     const value = await work
-    return started === epoch ? value : null
+    if (started !== epoch) return null
+    await keep?.(value)
+    return value
   } catch (e) {
     if (started === epoch) throw e
     return null
@@ -170,13 +173,13 @@ export async function whileCurrent<T>(work: Promise<T>): Promise<T | null> {
  */
 export function pullV2Books(): Promise<V2Book[]> {
   return pullFlight.run(async () => {
-    const feed = await whileCurrent(v2Api.pullFeed<V2Book>('library'))
+    const feed = await whileCurrent(v2Api.pullFeed<V2Book>('library'), ({ items }) => {
+      books.clear()
+      for (const b of items) books.set(b.id, b)
+    })
     if (!feed) return []
-    const { items } = feed
-    books.clear()
-    for (const b of items) books.set(b.id, b)
-    await dropReplaced(items)
-    return items
+    await dropReplaced(feed.items)
+    return feed.items
   })
 }
 
@@ -193,10 +196,8 @@ export async function v2Chapters(b: V2Book): Promise<V2FileChapters> {
   if (!file) return { items: [], ingestion: null }
   const cached = chapters.get(file.id)
   if (cached) return cached
-  const toc = await whileCurrent(v2Api.getChapters(b.id, file.id))
-  if (!toc) return { items: [], ingestion: null }
-  if (toc.ingestion === 'succeeded') chapters.set(file.id, toc)
-  return toc
+  const toc = await whileCurrent(v2Api.getChapters(b.id, file.id), (t) => t.ingestion === 'succeeded' && chapters.set(file.id, t))
+  return toc ?? { items: [], ingestion: null }
 }
 
 /** Forget what was known of a book: its file changed (`file_replaced` / `unknown_file`). */
@@ -224,10 +225,11 @@ const totalWords = (toc: V2FileChapters) =>
  * either); one chapters call per book per load, for status and counts.
  */
 export async function getV2UserBooks(): Promise<UserBookDto[]> {
-  const pulled = await whileCurrent(Promise.all([pullV2Books(), v2Api.pullFeed<V2ReadingState>('reading')]))
+  const pulled = await whileCurrent(Promise.all([pullV2Books(), v2Api.pullFeed<V2ReadingState>('reading')]), ([, reading]) => {
+    for (const s of reading.items) v2Store.states.set(s.bookId, s)
+  })
   if (!pulled) return []
-  const [list, reading] = pulled
-  for (const s of reading.items) v2Store.states.set(s.bookId, s)
+  const [list] = pulled
   const stateOf = v2Store.states
   return Promise.all(list.filter((b) => !b.removedAt).map(async (b): Promise<UserBookDto> => {
     // One failing call (content removed, a 503) costs that book its status, never the shelf.
@@ -318,17 +320,13 @@ const NO_PROGRESS: UserBookProgressDto = { chapterSlug: null, locator: null, per
  * A state read or written: the session's store, and its revision beside the local progress (survives
  * a restart). Null, and nothing written, when the store was reset while `work` ran (#1151).
  */
-async function remember(work: Promise<V2ReadingState | null>): Promise<V2ReadingState | null> {
-  const started = epoch
-  const s = await whileCurrent(work)
-  // Again here, right before the writes: a reset can land between whileCurrent's answer and this line.
-  if (!s || started !== epoch) return null
+const remember = (work: Promise<V2ReadingState | null>) => whileCurrent(work, (s) => {
+  if (!s) return
   v2Store.states.set(s.bookId, s)
-  // ponytail: the setItem itself can still land after the sign-out wipe (clearAllLocalProgress is
-  // fire-and-forget); serialize V2 state writes with the wipe if that window ever shows.
-  await setUserBookV2State(s.bookId, { revision: s.revision, fileId: s.fileId, bookFraction: s.bookFraction })
-  return s
-}
+  // ponytail: started in the checked tick, but the setItem itself can still land after the sign-out
+  // wipe (clearAllLocalProgress is fire-and-forget); serialize V2 state writes with the wipe if that shows.
+  return setUserBookV2State(s.bookId, { revision: s.revision, fileId: s.fileId, bookFraction: s.bookFraction })
+})
 
 /** The book's reading state from the server (null: none yet, or signed out meanwhile), remembered. */
 const readState = (bookId: string) => remember(v2Api.getReadingState(bookId))
@@ -358,23 +356,21 @@ export async function readV2Progress(bookId: string): Promise<UserBookProgressDt
 
 /** A lost write takes the server's place: it becomes this device's record, so the next open resumes there. */
 async function adopt(s: V2ReadingState): Promise<UserBookProgressDto> {
-  const started = epoch
-  await remember(Promise.resolve(s))
-  const p = await whileCurrent(toProgress(s))
-  // Signed out meanwhile: no local record for the next account. Checked right before the write.
-  if (!p || started !== epoch) return NO_PROGRESS
-  const page = parsePdfPageLocator(p.locator)
-  const at = Math.min(Date.parse(s.clientRecordedAt) || Date.now(), Date.now())
-  // ponytail: as in remember(), the write itself can still race the sign-out wipe.
-  await saveUserBookLocalProgress(s.bookId, {
-    bookPercent: s.bookFraction,
-    updatedAt: at,
-    synced: true,
-    chapterSlug: p.chapterSlug,
-    positionJson: p.positionJson ?? undefined,
-    ...(page != null && { page }),
+  // Signed out meanwhile (here or while the chapters load): no local record for the next account.
+  if (!(await remember(Promise.resolve(s)))) return NO_PROGRESS
+  const p = await whileCurrent(toProgress(s), (p) => {
+    const page = parsePdfPageLocator(p.locator)
+    const at = Math.min(Date.parse(s.clientRecordedAt) || Date.now(), Date.now())
+    return saveUserBookLocalProgress(s.bookId, {
+      bookPercent: s.bookFraction,
+      updatedAt: at,
+      synced: true,
+      chapterSlug: p.chapterSlug,
+      positionJson: p.positionJson ?? undefined,
+      ...(page != null && { page }),
+    })
   })
-  return p
+  return p ?? NO_PROGRESS
 }
 
 /** Mark read on V2: the state as it stands (or the book's start), with `completedAt` — web's rule. */

@@ -241,9 +241,8 @@ export function useReaderHighlights({
     }
   }, [currentBookId, cache, injectJs, user?.id, bumpHighlights, original, pushPdf])
 
-  /** V2: an edit lost to another device's delete removes the highlight rather than keep it drawn; one dropped by a sign-out is silent. */
+  /** V2: an edit lost to another device's delete removes the highlight rather than keep it drawn. */
   const deletedElsewhere = useCallback((e: unknown, id: string) => {
-    if (e instanceof SessionChangedError) return true // signed out mid-edit: nothing to say
     if (!(e instanceof HighlightDeletedError)) return false
     dropLocal(id)
     showToast({ message: e.message, variant: 'info' })
@@ -264,7 +263,7 @@ export function useReaderHighlights({
           })
         }
       } catch (e) {
-        if (deletedElsewhere(e, id)) return
+        if (e instanceof SessionChangedError || deletedElsewhere(e, id)) return
         console.warn('Highlight note save failed:', e)
         showToast({ message: 'Could not save note. Try again.', variant: 'error' })
       }
@@ -301,7 +300,7 @@ export function useReaderHighlights({
           })
         }
       } catch (e) {
-        if (deletedElsewhere(e, id)) return
+        if (e instanceof SessionChangedError || deletedElsewhere(e, id)) return
         console.warn('Highlight color update failed:', e)
         // Rollback paint
         if (original) {

@@ -15,13 +15,13 @@ export interface V2VocabularyPlatform {
   newId(): string
   /** The book's current file id, or null (unknown, or no file). */
   fileIdOf(bookId: string): Promise<string | null>
-  /** Per word: the card revision last read — the session's store, emptied with it. */
-  revisions: Map<string, number>
+  /** The cards last read or written, by id (a revision to write on; a practice answer's card) — the session's store, emptied with it. */
+  cards: Map<string, V2Word>
   /**
-   * The app's store epoch, bumped when `revisions` is emptied (sign-out, another account). A card
-   * answered after a bump is not remembered (#1151). Absent: never bumped.
+   * The app's store epoch, bumped when `cards` is emptied (sign-out, another account). A call that
+   * outlives a bump remembers, writes and returns nothing of the previous account's (#1151).
    */
-  epoch?: () => number
+  epoch: () => number
 }
 
 export interface V2SaveWord {
@@ -69,34 +69,24 @@ const nullable = (text: string | null | undefined, max: number) => (text?.trim()
 const response = (outcome: 'srs' | 'deleted', w: V2Word): SaveWordResponseDto =>
   ({ outcome, word: toVocabWord(w), pendingId: null, lookupId: null, tapsRemaining: null, reason: null })
 
-export function createV2Vocabulary({ newId, fileIdOf, revisions, epoch = () => 0 }: V2VocabularyPlatform) {
-  // The cards last seen, by id: a practice answer reports the card as it stands. Emptied lazily
-  // once the epoch moves, as `revisions` is by the app.
-  const seen = new Map<string, V2Word>()
-  let seenIn = epoch()
-  const seenNow = () => {
-    if (seenIn !== epoch()) {
-      seen.clear()
-      seenIn = epoch()
-    }
-    return seen
-  }
+export function createV2Vocabulary({ newId, fileIdOf, cards, epoch }: V2VocabularyPlatform) {
   /**
-   * One call's view of the session: `remember` caches a card read or written, and `check` refuses a
-   * server write (`SessionChangedError`), only while the epoch is the one the call started in.
+   * One call's view of the session: `remember` caches a card, `check` refuses a server write
+   * (`SessionChangedError`) and `stale` empties a read, once the epoch moved since the call started.
    */
-  const session = (started = epoch()) => ({
-    remember: (w: V2Word) => {
-      if (epoch() === started) {
-        revisions.set(w.id, w.revision)
-        seenNow().set(w.id, w)
-      }
-      return w
-    },
-    check: () => {
-      if (epoch() !== started) throw new v2Api.SessionChangedError()
-    },
-  })
+  const session = (started = epoch()) => {
+    const stale = () => epoch() !== started
+    return {
+      stale,
+      remember: (w: V2Word) => {
+        if (!stale()) cards.set(w.id, w)
+        return w
+      },
+      check: () => {
+        if (stale()) throw new v2Api.SessionChangedError()
+      },
+    }
+  }
 
   /** Every live card. ponytail: a full pull per list, no local store (R6). */
   const liveWords = async ({ remember } = session()) => (await v2Api.pullFeed<V2Word>('vocabulary')).items.filter((w) => !w.deletedAt).map(remember)
@@ -138,14 +128,14 @@ export function createV2Vocabulary({ newId, fileIdOf, revisions, epoch = () => 0
   /** Bring a deleted card back, on the revision its tombstone carried. */
   async function restoreV2Word(id: string): Promise<VocabularyWordDto> {
     const { remember, check } = session()
-    const revision = revisions.get(id) ?? remember(await v2Api.getWord(id)).revision
+    const revision = cards.get(id)?.revision ?? remember(await v2Api.getWord(id)).revision
     check()
     return toVocabWord(remember(await v2Api.restoreWord(id, revision)))
   }
 
   async function deleteV2Word(id: string): Promise<void> {
     await v2Api.deleteWord(id)
-    revisions.delete(id)
+    cards.delete(id)
   }
 
   /** "Delete all" as one DELETE per live card. ponytail: per-item requests; a bulk route if libraries grow. */
@@ -161,7 +151,10 @@ export function createV2Vocabulary({ newId, fileIdOf, revisions, epoch = () => 0
 
   /** The list page's query, applied to the full pull: stage ('0', '1,2,3'), search, sort, paging. */
   async function getV2Words(params?: { stage?: string; search?: string; sort?: string; limit?: number; offset?: number }): Promise<{ total: number; items: VocabularyWordDto[] }> {
-    let items = (await liveWords()).map(toVocabWord)
+    const s = session()
+    const live = await liveWords(s)
+    if (s.stale()) return { total: 0, items: [] }
+    let items = live.map(toVocabWord)
     if (params?.stage) {
       const stages = params.stage.split(',').map(Number)
       items = items.filter((w) => stages.includes(w.stage))
@@ -179,7 +172,9 @@ export function createV2Vocabulary({ newId, fileIdOf, revisions, epoch = () => 0
   }
 
   async function getV2ReaderVocab(): Promise<{ id: string; word: string; stage: number; translation?: string }[]> {
-    return (await liveWords()).map((w) => ({ id: w.id, word: w.word, stage: w.stage, translation: w.translation ?? undefined }))
+    const s = session()
+    const live = await liveWords(s)
+    return s.stale() ? [] : live.map((w) => ({ id: w.id, word: w.word, stage: w.stage, translation: w.translation ?? undefined }))
   }
 
   /** An edit on the revision last read; lost to another device's edit, it is decided again on what that card holds. */
@@ -195,7 +190,7 @@ export function createV2Vocabulary({ newId, fileIdOf, revisions, epoch = () => 0
       // TR-2: an automatic fill never replaces a translation — checked against every card it would land on.
       if (data.onlyIfEmpty && card?.translation) return toVocabWord(card)
       try {
-        return toVocabWord(remember(await patch(card?.revision ?? revisions.get(id) ?? remember(await v2Api.getWord(id)).revision)))
+        return toVocabWord(remember(await patch(card?.revision ?? cards.get(id)?.revision ?? remember(await v2Api.getWord(id)).revision)))
       } catch (e) {
         const err = v2Api.v2ErrorOf(e)
         if (retried || err?.code !== 'stale_revision' || !err.current) throw e
@@ -218,6 +213,7 @@ export function createV2Vocabulary({ newId, fileIdOf, revisions, epoch = () => 0
         .sort((a, b) => a.nextReviewAt.localeCompare(b.nextReviewAt))
         .slice(0, limit ?? 20)
     }
+    if (s.stale()) return { cards: [], totalDue: 0, weeklyProgress: null }
     return {
       cards: due.map((w) => ({
         wordId: w.id, word: w.word, translation: w.translation, definition: w.definition,
@@ -238,7 +234,7 @@ export function createV2Vocabulary({ newId, fileIdOf, revisions, epoch = () => 0
   async function submitV2Review(data: { wordId: string; isCorrect: boolean; responseTimeMs: number; reviewMode?: string; operationId?: string; isPractice?: boolean }): Promise<SubmitReviewResponse> {
     const { remember } = session()
     if (data.isPractice) {
-      const w = seenNow().get(data.wordId)
+      const w = cards.get(data.wordId)
       return {
         wordId: data.wordId, previousStage: w?.stage ?? 0, newStage: w?.stage ?? 0, stageChanged: false,
         nextIntervalDays: w?.intervalDays ?? 0, nextReviewAt: w?.nextReviewAt ?? new Date().toISOString(), totalReviews: 0, correctReviews: 0,

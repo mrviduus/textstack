@@ -60,11 +60,8 @@ describe('#1143 — the upload screen honours Cancel and drops the picker copy',
 
 // #1151: a highlight save dropped by a sign-out (SessionChangedError, v2Highlights.test) is silent in the reader.
 describe('#1151 — a sign-out mid-save says nothing', () => {
-  it('useReaderHighlights swallows SessionChangedError on create, PDF create and edits', () => {
-    const hook = read('src/hooks/useReaderHighlights.ts')
-    expect(hook).toContain("if (e instanceof SessionChangedError) return false // signed out mid-save")
-    expect(hook).toContain("if (e instanceof SessionChangedError) return\n")
-    expect(hook).toContain("if (e instanceof SessionChangedError) return true // signed out mid-edit")
+  it('useReaderHighlights swallows SessionChangedError on create, PDF create, note and color', () => {
+    expect(read('src/hooks/useReaderHighlights.ts').match(/instanceof SessionChangedError/g)).toHaveLength(4)
   })
 })
 
