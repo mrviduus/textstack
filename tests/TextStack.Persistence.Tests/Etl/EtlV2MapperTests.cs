@@ -455,6 +455,47 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.Equal($"4/{4 + exact.Replace(" ", "\n ").Length}", offsets);
     }
 
+    [Theory]
+    [InlineData("flow", ".spice", "flow .spice", "5/11")] // leading closing punctuation: its optional whitespace stays outside
+    [InlineData("flow", " spice", "flow   spice", "7/12")] // leading whitespace over a longer run: the offsets start at the word
+    [InlineData("", "spice ", "spice   must", "0/5")] // trailing whitespace: the offsets end at the word
+    public async Task RunAsync_AnchorQuoteEdgedByWhitespaceOrPunctuation_OffsetsSpanItsNonWhitespace(string prefix, string exact, string text, string expected)
+    {
+        var (_, _, offsets) = await RunAnchoredAsync(text, $$"""{"prefix":"{{prefix}}","exact":"{{exact}}","suffix":""}""");
+
+        Assert.Equal(expected, offsets);
+    }
+
+    [Theory]
+    [InlineData(28, true)] // ["😀"×28] prints as 32 code points (60 UTF-16 units): searched, so the quote reason too
+    [InlineData(29, false)] // 33 code points: not searched, the context reason alone
+    public async Task RunAsync_AnchorNonStringPrefixAstralAtTheCap_CountedInCodePointsAsSql(int emoji, bool searched)
+    {
+        var prefix = $"[\"{string.Concat(Enumerable.Repeat("😀", emoji))}\"]";
+
+        var (_, report, _) = await RunAnchoredAsync("The spice must flow.", $$"""{"prefix":{{prefix}},"exact":"melange","suffix":""}""");
+
+        string[] lines = searched ? [Line(Anchored, EtlV2Uploads.RefusedContext), Line(Anchored, EtlV2Uploads.RefusedQuote)] : [Line(Anchored, EtlV2Uploads.RefusedContext)];
+        Assert.Equal(lines, report.OrphanCandidates.Where(o => o.Contains(RefusedPrefix)));
+    }
+
+    [Theory]
+    [InlineData(200, "k", false)]
+    [InlineData(201, "k", true)]
+    [InlineData(100, "😀", false)] // 200 UTF-16 units
+    [InlineData(101, "😀", true)] // 101 code points but 202 UTF-16 units: V2 counts units
+    public async Task RunAsync_AnchorChapterKeyAtV2Cap_ReportedPastIt(int count, string unit, bool refused)
+    {
+        var options = await SeedAsync();
+        await ExecAsync(options.Source, "UPDATE user_chapters SET slug = repeat(@unit, @count) WHERE id = @Chapter1", new { unit, count, Chapter1 });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Equal(refused ? [Line(Anchored, EtlV2Uploads.RefusedChapterKey)] : [], report.OrphanCandidates.Where(o => o.Contains(RefusedPrefix)));
+        Assert.Equal("4/9", await V2Scalar<string>(options,
+            "SELECT (locator -> 'value' ->> 'startOffset') || '/' || (locator -> 'value' ->> 'endOffset') FROM annotations WHERE id = @Anchored", new { Anchored }));
+    }
+
     [Fact]
     public async Task RunAsync_AnchorQuoteNotInChapter_CarriedAsIsAndReported()
     {

@@ -33,6 +33,12 @@ internal static class ProductionShapes
     /// <summary>#1150: an anchor with legacy mobile's pre-#456 50-character prefix (valid offsets): carried, reported.</summary>
     public const int AnchorLongContext = 25;
 
+    /// <summary>#1150: an anchor with an empty exact (valid offsets): carried, reported.</summary>
+    public const int AnchorEmptyExact = 33;
+
+    /// <summary>#1150: chapter 1's slug is 201 characters, so its anchor's chapterKey is past V2's 200: carried, reported.</summary>
+    public const int AnchorLongChapterKey = 41;
+
     public const int Users = 30, Guests = 5;
 
     public const string Site = "11111111-1111-1111-1111-111111111111";
@@ -141,7 +147,7 @@ internal static class ProductionShapes
             SELECT {{Sql("c0000000", "n * 10 + k")}}, {{b}}, k - 1, 'Chapter ' || k,
                 '<p>Chapter ' || k || ' of book ' || n || '. The spice must flow.</p><img src="/storage/x.png">',
                 'Chapter ' || k || E' of book ' || n || CASE WHEN n = {{QuoteSpaceBeforePeriod}} AND k = 1 THEN E'. The spice\n must  flow .' ELSE E'. The spice\n must  flow.' END, 8,
-                CASE WHEN n % 2 = 0 AND n <> {{Clip}} THEN 'p' || k WHEN k = 1 THEN 'one' END,
+                CASE WHEN n % 2 = 0 AND n <> {{Clip}} THEN 'p' || k WHEN k = 1 AND n = {{AnchorLongChapterKey}} THEN repeat('k', 201) WHEN k = 1 THEN 'one' END,
                 CASE WHEN n % 2 = 0 THEN 1 END, CASE WHEN n % 2 = 0 THEN 5 END, {{T}} + n * interval '1 hour' + interval '1 minute'
             FROM generate_series(1, {{books}}) n, generate_series(1, 2) k
             WHERE k = 1 OR (n % 2 = 1 AND n <> {{Clip}});
@@ -151,7 +157,7 @@ internal static class ProductionShapes
             SELECT {{Sql("d0000000", "n")}}, {{owner}}, '{{Site}}'::uuid, {{b}},
                 CASE WHEN n % 2 = 1 THEN {{Sql("c0000000", "n * 10 + 1")}} END,
                 CASE WHEN n % 2 = 1
-                    THEN jsonb_build_object('prefix', CASE WHEN n = {{AnchorLongContext}} THEN repeat('x', 46) || 'The ' ELSE 'The ' END, 'exact', CASE WHEN n = {{AnchorQuoteNotFound}} THEN 'melange' ELSE 'spice must' END, 'suffix', ' flow',
+                    THEN jsonb_build_object('prefix', CASE WHEN n = {{AnchorLongContext}} THEN repeat('x', 46) || 'The ' ELSE 'The ' END, 'exact', CASE WHEN n = {{AnchorQuoteNotFound}} THEN 'melange' WHEN n = {{AnchorEmptyExact}} THEN '' ELSE 'spice must' END, 'suffix', ' flow',
                                             'chapterId', {{Sql("c0000000", "n * 10 + 1")}})
                          || CASE WHEN n % 8 = 5 OR n = {{AnchorQuoteNotFound}} THEN '{}' ELSE '{"startOffset":4,"endOffset":14}' END::jsonb
                     ELSE '{"v":1,"kind":"pdf","page":2,"rects":[{"x":0.1,"y":0.2,"w":0.3,"h":0.04}],"exact":"torque"}'::jsonb END,

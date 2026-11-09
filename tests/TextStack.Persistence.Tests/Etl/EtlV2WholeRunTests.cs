@@ -115,7 +115,9 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
             new { id = Guid.Parse("d0000000-0000-4000-8000-000000000013") }));
         Assert.Equal(
             [$"highlights {Highlight(ProductionShapes.AnchorQuoteNotFound)}: anchor V2 refuses on edit ({EtlV2Uploads.RefusedQuote}); carried as legacy had it",
-             $"highlights {Highlight(ProductionShapes.AnchorLongContext)}: anchor V2 refuses on edit ({EtlV2Uploads.RefusedContext}); carried as legacy had it"],
+             $"highlights {Highlight(ProductionShapes.AnchorLongContext)}: anchor V2 refuses on edit ({EtlV2Uploads.RefusedContext}); carried as legacy had it",
+             $"highlights {Highlight(ProductionShapes.AnchorEmptyExact)}: anchor V2 refuses on edit ({EtlV2Uploads.RefusedExact}); carried as legacy had it",
+             $"highlights {Highlight(ProductionShapes.AnchorLongChapterKey)}: anchor V2 refuses on edit ({EtlV2Uploads.RefusedChapterKey}); carried as legacy had it"],
             report.OrphanCandidates.Where(o => o.Contains("anchor V2 refuses on edit")));
 
         static Guid Highlight(int n) => Guid.Parse($"d0000000-0000-4000-8000-{n:D12}");
@@ -399,7 +401,7 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
         Assert.Equal(("report", "legacy 2, ledger 2"), rows["report: deleted-upload highlight trail (not carried)"]);
         Assert.Equal(("report", "legacy 1, ledger 1"), rows["report: catalog pairs whose edition is gone (not carried)"]);
         Assert.Equal(("report", "legacy 1, ledger 1"), rows["report: session-only catalog pairs (carried with no book)"]);
-        Assert.Equal(("report", "2 found (quote 1, context 1, exact 0), ledger 2"), rows[NoOffsetsRow]);
+        Assert.Equal(("report", "4 found (quote 1, context 1, exact 1, chapter key 1), ledger 4"), rows[NoOffsetsRow]);
         Assert.Equal("ok", rows["uuid_v5: SQL derivation = EtlV2Ids (self-test vectors)"].Status);
         Assert.Equal("ok", rows["ledger: writes = rows mapped, per target"].Status);
     }
@@ -425,7 +427,7 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
         Assert.StartsWith("4 row(s) found", row.Details);
     }
 
-    private const string NoOffsetsRow = "report: anchors V2 refuses on edit (quote not found, oversize context, unusable exact; carried as legacy had it)";
+    private const string NoOffsetsRow = "report: anchors V2 refuses on edit (quote not found, context, exact, chapter key; carried as legacy had it)";
 
     /// <summary>A change to V2 (or legacy, or the ledger) after a real run, and a check validate-etl.sql must fail on it.</summary>
     public static TheoryData<string, string, string> Corruptions => new()
@@ -464,6 +466,9 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
         // #1150: an anchor V2 holds without offsets that the ledger does not list (and one listed that V2 holds with offsets).
         { "v2", $"UPDATE annotations SET locator = locator #- '{{value,startOffset}}' WHERE id = '{Guid.Parse("d0000000-0000-4000-8000-000000000001")}'", NoOffsetsRow },
         { "v2", $"UPDATE annotations SET locator = jsonb_set(locator, '{{value,suffix}}', to_jsonb(repeat('s', 33))) WHERE id = '{Guid.Parse("d0000000-0000-4000-8000-000000000001")}'", NoOffsetsRow },
+        { "v2", $"UPDATE annotations SET locator = jsonb_set(locator, '{{value,exact}}', '\"\"') WHERE id = '{Guid.Parse("d0000000-0000-4000-8000-000000000001")}'", NoOffsetsRow },
+        // 101 astral characters: 101 code points, 202 UTF-16 units (V2's chapterKey cap counts units).
+        { "v2", $"UPDATE annotations SET locator = jsonb_set(locator, '{{value,chapterKey}}', to_jsonb(repeat(U&'\\+01F600', 101))) WHERE id = '{Guid.Parse("d0000000-0000-4000-8000-000000000001")}'", NoOffsetsRow },
         { "v2", $"UPDATE annotations SET locator = jsonb_set(jsonb_set(locator, '{{value,startOffset}}', '0'), '{{value,endOffset}}', '1') WHERE id = '{Guid.Parse($"d0000000-0000-4000-8000-{ProductionShapes.AnchorQuoteNotFound:D12}")}'",
             NoOffsetsRow },
         { "legacy", $"UPDATE users SET name = 'Renamed' WHERE id = '{ProductionShapes.User(5)}'", "users: legacy vs V2 (count, owner, content)" },

@@ -172,18 +172,22 @@ s_annotations AS (
             CASE WHEN h.anchor_json ->> 'startOffset' ~ '^[0-9]+$' AND h.anchor_json ->> 'endOffset' ~ '^[0-9]+$'
                       AND jsonb_typeof(h.anchor_json -> 'startOffset') = 'number' AND jsonb_typeof(h.anchor_json -> 'endOffset') = 'number'
                  THEN CASE WHEN (h.anchor_json ->> 'endOffset')::numeric BETWEEN (h.anchor_json ->> 'startOffset')::numeric AND 2147483647 THEN '{}'::jsonb END END,
-            (SELECT jsonb_build_object('startOffset', regexp_instr(c.plain_text, t.pat, 1, 1, 0, '', 1) - 1,
-                                       'endOffset', regexp_instr(c.plain_text, t.pat, 1, 1, 1, '', 1) - 1)
+            (SELECT jsonb_build_object('startOffset', s.pos - 1,
+                                       'endOffset', s.pos - 1 + char_length(substring(substr(c.plain_text, s.pos) FROM '^' || g.grp)))
              FROM (SELECT array_agg(regexp_replace(regexp_replace(regexp_replace(regexp_replace(COALESCE(u.s, ''),
                               '\s+(?=[]).,;:!?…}»”’›])', '', 'g'), '([^\w\s])', '\\\1', 'g'), '\\([]).,;:!?…}»”’›])', '\\s*\\\1', 'g'), '\s+', '\\s+', 'g')
                           ORDER BY u.i) AS p
                    FROM unnest(ARRAY[h.anchor_json ->> 'prefix', h.anchor_json ->> 'exact', h.anchor_json ->> 'suffix']) WITH ORDINALITY u(s, i)) q,
-                  LATERAL (VALUES (1, q.p[1] || '(' || q.p[2] || ')' || q.p[3]), (2, q.p[1] || '(' || q.p[2] || ')'),
-                                  (3, '(' || q.p[2] || ')' || q.p[3]), (4, '(' || q.p[2] || ')')) t(n, pat)
-             WHERE CASE WHEN jsonb_typeof(h.anchor_json -> 'exact') = 'string' AND char_length(h.anchor_json ->> 'exact') BETWEEN 1 AND 4000
-                             AND char_length(COALESCE(h.anchor_json ->> 'prefix', '')) <= 32 AND char_length(COALESCE(h.anchor_json ->> 'suffix', '')) <= 32
-                        THEN c.plain_text ~ t.pat END
-             ORDER BY t.n LIMIT 1),
+                  LATERAL (SELECT COALESCE(substring(q.p[2] FROM '^\\s[+*]'), '') AS lead, regexp_replace(q.p[2], '^\\s[+*]', '') AS rest) r,
+                  LATERAL (SELECT r.lead, regexp_replace(r.rest, '\\s\+$', '') AS grp, COALESCE(substring(r.rest FROM '\\s\+$'), '') AS trail) g,
+                  LATERAL (SELECT CASE WHEN jsonb_typeof(h.anchor_json -> 'exact') = 'string' AND char_length(h.anchor_json ->> 'exact') BETWEEN 1 AND 4000
+                                            AND char_length(COALESCE(h.anchor_json ->> 'prefix', '')) <= 32 AND char_length(COALESCE(h.anchor_json ->> 'suffix', '')) <= 32
+                                       THEN COALESCE(
+                                           NULLIF(regexp_instr(c.plain_text, q.p[1] || g.lead || '(' || g.grp || ')' || g.trail || q.p[3], 1, 1, 0, '', 1), 0),
+                                           NULLIF(regexp_instr(c.plain_text, q.p[1] || g.lead || '(' || g.grp || ')' || g.trail, 1, 1, 0, '', 1), 0),
+                                           NULLIF(regexp_instr(c.plain_text, g.lead || '(' || g.grp || ')' || g.trail || q.p[3], 1, 1, 0, '', 1), 0),
+                                           NULLIF(regexp_instr(c.plain_text, g.lead || '(' || g.grp || ')' || g.trail, 1, 1, 0, '', 1), 0)) END AS pos) s
+             WHERE s.pos IS NOT NULL),
             '{}') AS offsets
 -- END AnchorOffsets
     ) o),
@@ -460,21 +464,26 @@ quote_missing AS (
                       WHERE c.file_id = a.file_id AND c.user_id = a.user_id AND c.chapter_key = a.locator -> 'value' ->> 'chapterKey'
                         AND strpos(regexp_replace(regexp_replace(c.plain_text, '\s+', ' ', 'g'), '\s+(?=[]).,;:!?…}»”’›])', '', 'g'),
                                    regexp_replace(regexp_replace(a.selected_text, '\s+', ' ', 'g'), '\s+(?=[]).,;:!?…}»”’›])', '', 'g')) > 0)),
--- #1150: what V2's write rule refuses in a carried textstack-anchor-v1 annotation (SyncValidation.IsTextAnchor), one row per
--- reason, as etl-v2's AnchorRefusals lists them: exact 1..4000 code points, prefix/suffix 0..32, int32 offsets >= 0 with
--- end >= start. The quote reason only where etl-v2 looked for the quote (exact and context within those caps).
-anchor_refusal(k) AS (
-    SELECT a.id::text || ' ' || r.reason FROM annotations a,
+-- #1150: what V2's write rule refuses in a carried textstack-anchor-v1 annotation (SyncValidation's), one row per reason, as
+-- etl-v2's AnchorRefusals lists them (its literals, byte for byte): chapterKey a non-blank string of <= 200 UTF-16 units
+-- (char_length plus one per astral character), exact 1..4000 code points, prefix/suffix 0..32 (literals: SQL cannot read
+-- SyncLimits), int32 offsets >= 0 with end >= start. The quote reason only where etl-v2 looked for the quote (exact and
+-- context within those caps). A blank key never reaches V2 in a succeeded run (etl-v2's blank chapter key check).
+anchor_refusal(id, reason) AS (
+    SELECT a.id::text, r.reason FROM annotations a,
         LATERAL (SELECT a.locator -> 'value' AS v) x,
-        LATERAL (SELECT jsonb_typeof(x.v -> 'exact') = 'string' AND char_length(x.v ->> 'exact') BETWEEN 1 AND 4000 AS exact_ok,
+        LATERAL (SELECT jsonb_typeof(x.v -> 'chapterKey') = 'string' AND x.v ->> 'chapterKey' ~ '\S'
+                            AND char_length(x.v ->> 'chapterKey') + char_length(regexp_replace(x.v ->> 'chapterKey', '[^\U00010000-\U0010FFFF]', '', 'g')) <= 200 AS key_ok,
+                        jsonb_typeof(x.v -> 'exact') = 'string' AND char_length(x.v ->> 'exact') BETWEEN 1 AND 4000 AS exact_ok,
                         jsonb_typeof(x.v -> 'prefix') = 'string' AND char_length(x.v ->> 'prefix') <= 32
                             AND jsonb_typeof(x.v -> 'suffix') = 'string' AND char_length(x.v ->> 'suffix') <= 32 AS context_ok,
                         char_length(COALESCE(x.v ->> 'prefix', '')) <= 32 AND char_length(COALESCE(x.v ->> 'suffix', '')) <= 32 AS context_bounded,
                         COALESCE(CASE WHEN x.v ->> 'startOffset' ~ '^[0-9]+$' AND x.v ->> 'endOffset' ~ '^[0-9]+$'
                                            AND jsonb_typeof(x.v -> 'startOffset') = 'number' AND jsonb_typeof(x.v -> 'endOffset') = 'number'
                                       THEN (x.v ->> 'endOffset')::numeric BETWEEN (x.v ->> 'startOffset')::numeric AND 2147483647 END, false) AS offsets_ok) f,
-        LATERAL (SELECT 'exact missing, empty or over 4000 characters' WHERE NOT COALESCE(f.exact_ok, false)
-                 UNION ALL SELECT 'prefix or suffix missing or over 32 characters' WHERE NOT COALESCE(f.context_ok, false)
+        LATERAL (SELECT 'chapter key blank or over 200 UTF-16 units' WHERE NOT COALESCE(f.key_ok, false)
+                 UNION ALL SELECT 'exact missing, not a string, empty or over 4000 characters' WHERE NOT COALESCE(f.exact_ok, false)
+                 UNION ALL SELECT 'prefix or suffix missing, not a string or over 32 characters' WHERE NOT COALESCE(f.context_ok, false)
                  UNION ALL SELECT 'quote not in its chapter''s text, no valid offsets'
                      WHERE NOT f.offsets_ok AND COALESCE(f.exact_ok, false) AND f.context_bounded) r(reason)
     WHERE a.locator ->> 'scheme' = 'textstack-anchor-v1' AND a.id::text IN (SELECT k FROM exp WHERE t = 'annotations')),
@@ -554,13 +563,13 @@ results(ord, "check", status, details) AS (
                WHERE m IS NOT NULL) l) led
     UNION ALL
     -- #1150: carried anchors V2 refuses on edit (anchor_refusal), by reason; report-only, as long as the ledger names the same (id, reason) pairs.
-    SELECT 28, 'report: anchors V2 refuses on edit (quote not found, oversize context, unusable exact; carried as legacy had it)',
+    SELECT 28, 'report: anchors V2 refuses on edit (quote not found, context, exact, chapter key; carried as legacy had it)',
         CASE WHEN sql.ids IS NOT DISTINCT FROM led.ids THEN 'report' ELSE 'FAIL' END,
-        format('%s found (quote %s, context %s, exact %s), ledger %s%s', COALESCE(cardinality(sql.ids), 0),
-            (SELECT count(*) FROM anchor_refusal WHERE k LIKE '% quote %'), (SELECT count(*) FROM anchor_refusal WHERE k LIKE '% prefix %'),
-            (SELECT count(*) FROM anchor_refusal WHERE k LIKE '% exact %'), COALESCE(cardinality(led.ids), 0),
-            CASE WHEN sql.ids IS DISTINCT FROM led.ids THEN ' (the lists differ)' ELSE '' END)
-    FROM (SELECT array_agg(k ORDER BY k) AS ids FROM anchor_refusal) sql,
+        format('%s found (quote %s, context %s, exact %s, chapter key %s), ledger %s%s', COALESCE(cardinality(sql.ids), 0),
+            (SELECT count(*) FROM anchor_refusal WHERE reason LIKE 'quote %'), (SELECT count(*) FROM anchor_refusal WHERE reason LIKE 'prefix %'),
+            (SELECT count(*) FROM anchor_refusal WHERE reason LIKE 'exact %'), (SELECT count(*) FROM anchor_refusal WHERE reason LIKE 'chapter key %'),
+            COALESCE(cardinality(led.ids), 0), CASE WHEN sql.ids IS DISTINCT FROM led.ids THEN ' (the lists differ)' ELSE '' END)
+    FROM (SELECT array_agg(id || ' ' || reason ORDER BY id || ' ' || reason) AS ids FROM anchor_refusal) sql,
         (SELECT array_agg(id ORDER BY id) AS ids FROM ledger_ids WHERE category = 'refused_anchor') led
     UNION ALL
     -- per table: count, owner and the mapped columns (parts 1, 2, 4, 5, 6 and insight hashes)

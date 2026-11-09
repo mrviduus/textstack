@@ -124,6 +124,18 @@ public class SyncValidationTests
         return JsonSerializer.Serialize(members);
     }
 
+    [Theory]
+    [InlineData("prefix")]
+    [InlineData("suffix")]
+    public void Locator_TextAnchorContextAtSyncLimitsCap_PassesAndOneMoreRefused(string member)
+    {
+        // etl-v2 (#1150) reads the context cap from SyncLimits; SyncValidation keeps its own: pinned equal, in code points.
+        var atCap = string.Concat(Enumerable.Repeat("😀", MaxContextCodePoints));
+
+        Assert.Null(TextAnchorWith(With(TextAnchor, member, JsonSerializer.Serialize(atCap))));
+        Assert.Equal("locator", FieldOf(TextAnchorWith(With(TextAnchor, member, JsonSerializer.Serialize(atCap + "x")))));
+    }
+
     [Fact]
     public void Locator_LegacyTextPositionAsSerialized_Passes() => Assert.Null(TextPositionWith(TextPosition));
 
