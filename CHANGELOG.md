@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Mobile** — the four V2 client defects from the 2026-11-08 emulator pass: concurrent-transaction collision, stale V2 probe at reconnect, stale shelf download state, Cancel ignored during upload hashing (#1140–#1143) — mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-09-mobile-v2-client-defects-from-the-emulator-pass-1)
 - **Infra** — the etl-v2 quote check also ignores whitespace before punctuation (owner 2026-11-09, found by the first isolated rehearsal on a restored backup) — backend
 - **Infra** — M3.4: `database/v2/scripts/validate-etl.sql` (read-only re-check of a real ETL run from SQL alone) and the whole-run ETL tests T1–T4 — interrupted, retry, concurrent, idempotent — on a fixture mirroring production shapes (#1029) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-11-09-m3-4-validate-etl-t1-t4)
 - **Infra** — `0005_book_formats`: V2 `book_files.format` takes fb2, mobi, azw3, cbz (ADR-031 amended 2026-11-07, ADR-032); the ETL carries legacy's fb2 uploads; the down refuses while any row holds a new format (#1013, owner-approved diff) — infra
