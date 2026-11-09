@@ -36,6 +36,11 @@ export default defineConfig({
         find: '@react-native-async-storage/async-storage',
         replacement: resolve(__dirname, 'src/lib/__mocks__/async-storage.ts'),
       },
+      // NetInfo pulls in react-native; the mock lets a test fire a reconnect.
+      {
+        find: '@react-native-community/netinfo',
+        replacement: resolve(__dirname, 'src/lib/__mocks__/netinfo.ts'),
+      },
       // expo-modules-core ships untranspiled TS; the code under test only reaches its `uuid`.
       {
         find: 'expo-modules-core',

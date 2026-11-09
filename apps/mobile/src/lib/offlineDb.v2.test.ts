@@ -21,9 +21,9 @@ function shim(d: DatabaseSync) {
     },
     getFirstAsync: async (sql: string, params: unknown[] = []) => d.prepare(sql).get(...(params.map((p) => (p === undefined ? null : p)) as never[])) ?? null,
     getAllAsync: async (sql: string, params: unknown[] = []) => d.prepare(sql).all(...(params.map((p) => (p === undefined ? null : p)) as never[])),
+    // expo-sqlite's own shape: BEGIN inside the try, so a nested BEGIN's ROLLBACK ends the open transaction.
     withTransactionAsync: async (fn: () => Promise<void>) => {
-      d.exec('BEGIN')
-      try { await fn(); d.exec('COMMIT') } catch (e) { d.exec('ROLLBACK'); throw e }
+      try { d.exec('BEGIN'); await fn(); d.exec('COMMIT') } catch (e) { d.exec('ROLLBACK'); throw e }
     },
   }
 }
@@ -90,6 +90,86 @@ describe('offlineDb on V2 (real SQLite)', () => {
     expect(await m.listCachedUserChapters('b3')).toHaveLength(1)
     // Nothing left to drop: false, so the caller keeps the downloaded original.
     expect(await m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }])).toEqual([])
+  })
+
+  // #1140: two transactions on one connection at once — the second's BEGIN failed and its ROLLBACK ended the first.
+  it('transactions_Concurrent_RunOneAtATimeAndBothCommit', async () => {
+    const m = await coldStart()
+    await m.cacheUserChapter('b1', ch('old', 'f-old'), 1)
+    await m.cacheUserChapter('guest-b', ch('s1', 'guest-f'), 1)
+    await Promise.all([
+      m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }]),
+      m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }]),
+      m.rekeyCachedUserBooks({ 'guest-b': 'acct-b' }, {}),
+    ])
+    expect(await m.listCachedUserChapters('b1')).toHaveLength(0)
+    expect(await m.listCachedUserChapters('acct-b')).toHaveLength(1)
+  })
+
+  // #1140: a failed transaction releases the queue; else every later one rejects with its error.
+  it('transactions_OneFails_NextStillRuns', async () => {
+    const m = await coldStart()
+    await m.cacheUserChapter('b1', ch('old', 'f-old'), 1)
+    await m.cacheUserChapter('guest-b', ch('s1', 'guest-f'), 1)
+    db.exec("CREATE TRIGGER no_delete BEFORE DELETE ON user_chapters BEGIN SELECT RAISE(ABORT, 'boom'); END")
+    await expect(m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }])).rejects.toThrow('boom')
+    db.exec('DROP TRIGGER no_delete')
+    expect(await m.listCachedUserChapters('b1')).toHaveLength(1) // rolled back
+    await m.rekeyCachedUserBooks({ 'guest-b': 'acct-b' }, {})
+    expect(await m.listCachedUserChapters('acct-b')).toHaveLength(1)
+  })
+
+  // #1142: listeners run after COMMIT, so a re-read never sees rows a rollback could still bring back.
+  it('onCachedUserBooksChanged_Drop_NotifiesAfterCommit', async () => {
+    const m = await coldStart()
+    await m.cacheUserChapter('b1', ch('old', 'f-old'), 1)
+    let inTx: boolean | null = null
+    const off = m.onCachedUserBooksChanged(() => {
+      try { db.exec('BEGIN'); db.exec('ROLLBACK'); inTx = false } catch { inTx = true }
+    })
+    await m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }])
+    off()
+    expect(inTx).toBe(false)
+  })
+
+  // #1142: the download engine hears about rows that changed behind it.
+  it('onCachedUserBooksChanged_DropAndRekey_NotifiesAffectedIdsOnly', async () => {
+    const m = await coldStart()
+    const heard: string[][] = []
+    const off = m.onCachedUserBooksChanged((ids) => heard.push(ids))
+    await m.cacheUserChapter('b1', ch('old', 'f-old'), 1)
+    await m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }])
+    await m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }]) // nothing left: silent
+    await m.cacheUserChapter('guest-b', ch('s1', 'guest-f'), 1)
+    await m.rekeyCachedUserBooks({ 'guest-b': 'acct-b' }, { 'guest-f': 'acct-f' }) // both ids: one lost rows, one gained them
+    await m.rekeyCachedUserBooks({}, {}) // no books in the map: silent
+    off()
+    await m.cacheUserChapter('guest-c', ch('s1', 'guest-g'), 1)
+    await m.rekeyCachedUserBooks({ 'guest-c': 'acct-c' }, {})
+    expect(heard).toEqual([['b1'], ['guest-b', 'acct-b']])
+  })
+
+  // #1140 review: the sign-out wipe queues behind an open transaction, so that one's rollback cannot undo it.
+  it('clearCachedUserBooks_DuringAFailingTransaction_StillWipes', async () => {
+    const m = await coldStart()
+    await m.cacheUserChapter('guest-b', ch('s1', 'guest-f'), 1)
+    await m.cacheUserChapter('b2', ch('s1', 'f2'), 1)
+    db.exec("CREATE TRIGGER no_update BEFORE UPDATE ON user_chapters BEGIN SELECT RAISE(ABORT, 'boom'); END")
+    const failing = m.rekeyCachedUserBooks({ 'guest-b': 'acct-b' }, {})
+    const wipe = m.clearCachedUserBooks()
+    await expect(failing).rejects.toThrow('boom')
+    await wipe
+    db.exec('DROP TRIGGER no_update')
+    expect(db.prepare('SELECT count(*) AS n FROM user_chapters').get()).toEqual({ n: 0 })
+  })
+
+  // A throwing listener never fails the committed drop (the caller still deletes the originals).
+  it('onCachedUserBooksChanged_ListenerThrows_DropStillResolves', async () => {
+    const m = await coldStart()
+    const off = m.onCachedUserBooksChanged(() => { throw new Error('boom') })
+    await m.cacheUserChapter('b1', ch('old', 'f-old'), 1)
+    await expect(m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }])).resolves.toEqual(['b1'])
+    off()
   })
 
   it('refreshCachedUserChapter_LegacyRefreshWithoutFileId_KeepsStoredFileId', async () => {
