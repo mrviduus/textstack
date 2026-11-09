@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import web from '../../shared/src/reader/__fixtures__/anchors/web.json'
 import mobile from '../../shared/src/reader/__fixtures__/anchors/mobile.json'
+import mobileOffsets from '../../shared/src/reader/__fixtures__/anchors/mobile-offsets.json'
 import mcp from '../../shared/src/reader/__fixtures__/anchors/mcp.json'
 import positions from '../../shared/src/reader/__fixtures__/stored/positions.json'
 import pdf from '../../shared/src/reader/__fixtures__/stored/pdf.json'
@@ -22,7 +23,7 @@ import {
 const rows = (file: Record<string, unknown>) => Object.entries(file).map(([name, v]) => [name, JSON.stringify(v)] as const)
 
 describe('TextAnchor ↔ Locator', () => {
-  for (const [producer, file] of [['web', web], ['mobile', mobile], ['mcp', mcp]] as const) {
+  for (const [producer, file] of [['web', web], ['mobile', mobile], ['mobile-offsets', mobileOffsets], ['mcp', mcp]] as const) {
     for (const [name, json] of rows(file)) {
       it(`${producer}/${name}: round-trips byte-identically`, () => {
         expect(locatorToAnchor(anchorToLocator(json, 'chapter-one'))).toBe(json)

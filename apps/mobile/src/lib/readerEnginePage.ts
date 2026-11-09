@@ -6,7 +6,7 @@
 // Slices 3–4 (PR B): selection, word hold, highlights, vocab, images and links, on the same protocol.
 import type { EngineEvents, Locator } from '../../../../packages/reader-engine/src/api'
 import { createEngine } from '../../../../packages/reader-engine/src/engine'
-import { locatorToPosition, positionToLocator } from '../../../../packages/reader-engine/src/mappers'
+import { locatorToAnchor, locatorToPosition, positionToLocator } from '../../../../packages/reader-engine/src/mappers'
 import { HIGHLIGHT_BG as HL, VOCAB_STAGE_COLORS as STAGE } from './readerColors'
 
 type Page = Window & {
@@ -168,10 +168,10 @@ engine.on('hold', () => post({ type: 'wordEngage' }))   // the haptic, before th
 engine.on('selection', (s) => {
   token++
   if (!s) return post({ type: 'selection', text: '' })
-  const q = s.locator.text!, at = s.locator.locations.charOffset!
-  // mode 'tap' = a held word: RN always opens the WordCard for it. The anchor is web's (locatorToAnchor):
-  // offsets are [start, end) of the chapter text, which a V2 textstack-anchor-v1 requires (#1139).
-  post({ type: 'selection', mode: s.source === 'hold' ? 'tap' : 'drag', text: s.text, sentence: s.sentence, anchor: { prefix: q.before, exact: q.highlight, suffix: q.after, startOffset: at, endOffset: at + s.text.length }, tooLong: s.tooLong, token })
+  // mode 'tap' = a held word: RN always opens the WordCard for it. The anchor is web's (locatorToAnchor),
+  // with the offsets a V2 textstack-anchor-v1 requires (#1139); without a charOffset, the quote alone.
+  const anchor = locatorToAnchor(s.locator)
+  post({ type: 'selection', mode: s.source === 'hold' ? 'tap' : 'drag', text: s.text, sentence: s.sentence, anchor: anchor && JSON.parse(anchor), tooLong: s.tooLong, token })
 })
 // markOnly (E47): only the held mark goes, before RN paints the text as a highlight; a failed save keeps the selection.
 page.__tsClearSelection = (t, markOnly) => { if (typeof t !== 'number' || t === token) engine.clearSelection({ markOnly: !!markOnly }) }

@@ -372,14 +372,19 @@ export function fromV2Annotation(a: V2Annotation): StoredHighlight | null {
   }
 }
 
-export function toV2Write(h: StoredHighlight, fileId: string | null, expectedRevision: number | null): V2AnnotationWrite {
+/**
+ * `stored`: the server's row. While the anchor is the one read from it (a note or color edit), its
+ * locator goes back unchanged: a migrated anchor may have no offsets, which `anchorToV2Locator` refuses.
+ */
+export function toV2Write(h: StoredHighlight, fileId: string | null, expectedRevision: number | null, stored?: V2Annotation): V2AnnotationWrite {
+  const same = stored && JSON.stringify(v2LocatorToAnchor(stored.locator)) === JSON.stringify(h.anchor)
   return {
     expectedRevision,
     bookId: h.userBookId!,
     fileId,
     selectedText: clip(h.selectedText, MAX_SELECTED_TEXT),
     noteText: h.noteText?.trim() ? h.noteText : null,
-    locator: anchorToV2Locator(h.anchor),
+    locator: same ? stored.locator : anchorToV2Locator(h.anchor),
     color: h.color,
   }
 }
@@ -427,7 +432,17 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
           if (h.deleted && stored && !stored.deletedAt) await adopt(await v2Api.deleteAnnotation(h.id))
           else await deleteHighlightFromDB(h.id)
         } else {
-          await adopt(await v2Api.putAnnotation(h.id, toV2Write(h, fileId, stored ? (h.base?.version ?? h.version) : null)))
+          let write: V2AnnotationWrite
+          try {
+            write = toV2Write(h, fileId, stored ? (h.base?.version ?? h.version) : null, stored)
+          } catch (e) {
+            // An anchor V2 refuses (no offsets, #1139): the same on every replay, so dropped, not retried.
+            console.warn('highlightSync: dropping a highlight V2 cannot store', h.id, e)
+            await deleteHighlightFromDB(h.id)
+            changed = true
+            continue
+          }
+          await adopt(await v2Api.putAnnotation(h.id, write))
         }
         changed = true
       } catch (e) {

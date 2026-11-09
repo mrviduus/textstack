@@ -114,12 +114,15 @@ async function updateV2(id: string, data: UpdateHighlightData): Promise<PublicHi
   const write = toV2Write({
     userBookId: row.bookId,
     userChapterId: h.userChapterId,
-    anchorJson: data.anchorJson ?? h.anchorJson,
+    anchorJson: data.anchorJson ?? '',
     color: data.color ?? row.color,
     selectedText: data.selectedText ?? row.selectedText,
     noteText: data.noteText === undefined ? row.noteText : data.noteText,
   }, row.fileId, row.revision)
-  const saved = await v2Api.putAnnotation(id, write).catch(adopted(id))
+  // A note/color edit keeps the stored locator as is: anchorJson is lossy (an epub-cfi reads as a
+  // bare quote, a migrated anchor may have no offsets), so rebuilding from it would break the row.
+  const kept = data.anchorJson === undefined ? { ...write, fileId: row.fileId, locator: row.locator } : write
+  const saved = await v2Api.putAnnotation(id, kept).catch(adopted(id))
   return toPublicHighlight(remember(saved))
 }
 

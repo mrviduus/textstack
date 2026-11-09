@@ -24,7 +24,8 @@ import {
  * to draw it.
  *
  * Fixtures: packages/shared/src/reader/__fixtures__/anchors/. Regenerate
- * mobile.json with UPDATE_ANCHOR_FIXTURES=1.
+ * mobile-offsets.json (what the page posts since #1139) with UPDATE_ANCHOR_FIXTURES=1. mobile.json
+ * is frozen: the phone's offset-less shape before #1139, still in stored rows, still resolved below.
  *
  * Not covered here: which chapter a highlight is painted in. The WebView holds
  * one chapter and paints whatever RN hands it; the gate is `matchesChapter` in
@@ -133,7 +134,7 @@ describe("mobile anchor creator (the engine page's selection message)", () => {
       // chapterId — the row's columns carry the chapter.
       expect(Object.keys(anchor).sort()).toEqual(['endOffset', 'exact', 'prefix', 'startOffset', 'suffix'])
       generated[c.name] = anchor
-      if (!UPDATE) expect(anchor).toEqual(read('mobile.json')[c.name])
+      if (!UPDATE) expect(anchor).toEqual(read('mobile-offsets.json')[c.name])
     })
   }
 
@@ -151,7 +152,7 @@ describe("mobile anchor creator (the engine page's selection message)", () => {
   // engine cuts `exact` from its chapter text by offsets (E20); `across-paragraphs` above pins the result.
 
   afterAll(() => {
-    if (UPDATE) writeFileSync(join(FIXTURES, 'mobile.json'), JSON.stringify(generated, null, 2) + '\n')
+    if (UPDATE) writeFileSync(join(FIXTURES, 'mobile-offsets.json'), JSON.stringify(generated, null, 2) + '\n')
   })
 })
 
@@ -161,6 +162,7 @@ describe("mobile resolver (the engine page's renderHighlight)", () => {
   it.each([
     ['web.json', 'inline-tags'],
     ['mobile.json', 'inline-tags'],
+    ['mobile-offsets.json', 'inline-tags'],
     ['mcp.json', 'inline-tags'],
     ['mcp.json', 'nbsp-as-space'],   // a producer-only row: quoted with a plain space
   ])('%s %s: resolves to the selected text', async (file, name) => {
@@ -181,7 +183,7 @@ describe("mobile resolver (the engine page's renderHighlight)", () => {
       const text = r.root.textContent!
       const first = text.indexOf('said the word again')
       const second = text.indexOf('said the word again', first + 1)
-      for (const file of ['web.json', 'mobile.json']) {
+      for (const file of ['web.json', 'mobile.json', 'mobile-offsets.json']) {
         const fx = read(file)
         expect(r.resolve(fx[firstCase])?.offset, file).toBe(first)
         expect(r.resolve(fx[secondCase])?.offset, file).toBe(second)

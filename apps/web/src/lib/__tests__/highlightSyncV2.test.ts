@@ -95,6 +95,32 @@ describe('the V2 highlight sync', () => {
     expect(db.has('gone-id')).toBe(false)
   })
 
+  it('a recolor of a migrated offset-less row re-sends its stored locator unchanged (#1139)', async () => {
+    const migrated = annotation('m', { locator: { version: 1, scheme: 'textstack-anchor-v1', value: { chapterKey: '2-the-woods', prefix: 'before ', exact: 'the quote', suffix: ' after' } } })
+    const calls = routes([migrated], { m: [{ status: 200, body: { ...migrated, revision: 4, color: 'blue' } }] })
+    await syncBookHighlights('b1', true)
+    db.set('m', { ...db.get('m')!, color: 'blue', syncStatus: 'pending' })
+
+    await syncBookHighlights('b1', true, undefined, undefined, true)
+
+    expect(calls.find((c) => c.method === 'PUT')?.body).toMatchObject({ color: 'blue', locator: migrated.locator })
+    expect(db.get('m')).toMatchObject({ syncStatus: 'synced', version: 4 })
+  })
+
+  it('drops a new highlight whose anchor V2 refuses (no offsets) instead of retrying it forever (#1139)', async () => {
+    const bare = { prefix: 'before ', exact: 'the quote', suffix: ' after', chapterId: '2-the-woods' } as unknown as TextAnchor
+    db.set('bad', local('bad', { anchor: bare }))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const calls = routes([])
+
+    await syncBookHighlights('b1', true)
+
+    expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(0)
+    expect(db.has('bad')).toBe(false)
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
   it('pushes without pulling the feed again once the book was pulled', async () => {
     const calls = routes([], { h: [{ status: 201, body: annotation('h', { revision: 1 }) }] })
     await syncBookHighlights('b1', true)

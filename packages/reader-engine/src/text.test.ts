@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import web from '../../shared/src/reader/__fixtures__/anchors/web.json'
 import mobile from '../../shared/src/reader/__fixtures__/anchors/mobile.json'
+import mobileOffsets from '../../shared/src/reader/__fixtures__/anchors/mobile-offsets.json'
 import mcp from '../../shared/src/reader/__fixtures__/anchors/mcp.json'
 import { ANCHOR_CASES, PRODUCER_ONLY_CASES, caseStart, chapterById } from '../../shared/src/reader/__fixtures__/anchors/chapters'
 import { anchorToLocator } from './mappers'
@@ -65,7 +66,7 @@ describe('rangeToLocator: a selection becomes a TextQuoteSelector', () => {
 
 describe('rangeAt: an offset back to a Range', () => {
   // Every producer's frozen anchor: the ladder finds the offset, the Range covers the passage.
-  for (const [producer, file] of [['web', web], ['mobile', mobile], ['mcp', mcp]] as const) {
+  for (const [producer, file] of [['web', web], ['mobile', mobile], ['mobile-offsets', mobileOffsets], ['mcp', mcp]] as const) {
     for (const [name, anchor] of Object.entries(file as Fixture)) {
       it(`T3 ${producer}/${name}`, () => {
         const c = ANCHOR_CASES.find((x) => x.name === name)

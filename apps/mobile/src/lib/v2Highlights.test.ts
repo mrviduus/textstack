@@ -26,12 +26,30 @@ describe('upload highlights on V2', () => {
     expect(() => toV2Write({ userBookId: 'b1', userChapterId: 'k', anchorJson: old, color: 'y', selectedText: 'hello there' }, 'f1', null)).toThrow(/startOffset/)
   })
 
-  // Known gap (#1139): the M3 ETL carries a legacy phone anchor ({prefix, exact, suffix}, no offsets) as-is
-  // into textstack-anchor-v1 (Uploads.Reading.cs SelectLegacyHighlights). Re-saving that row (a recolor) must
-  // still produce a write; today toV2Write throws. `it.fails` flips red once fixed: drop `.fails` then.
-  it.fails('re-saves a migrated offset-less textstack-anchor-v1 row without throwing (#1139 ETL gap)', () => {
-    const h = toPublicHighlight(row({ version: 1, scheme: 'textstack-anchor-v1', value: { chapterKey: 'k', prefix: 'p', exact: 'hello there', suffix: 's' } }))
-    expect(() => toV2Write({ ...h, userBookId: 'b1', color: 'blue' }, 'f1', 4)).not.toThrow()
+  // A recolor or note edit re-saves the stored locator unchanged (#1139): rebuilding it from the lossy
+  // anchorJson threw for a migrated offset-less anchor (Uploads.Reading.cs SelectLegacyHighlights) and
+  // wiped an epub-cfi one (the V2 reader's) to null.
+  const edited = async (id: string, locator: V2Annotation['locator'], data: { color?: string; noteText?: string | null }) => {
+    initApi({ baseUrl: 'http://api', getAccessToken: async () => 't', onUnauthorized: async () => null })
+    const live = { ...row(locator), id, bookId: `b-${id}` }
+    const calls = fakeApi({
+      'GET /me/v2/annotations/changes': feed(live),
+      [`PUT /me/v2/annotations/${id}`]: [{ status: 200, body: { ...live, revision: 5 } }],
+    }, 'http://api')
+    await userBookHighlightsApi.getUserBookHighlights(live.bookId)
+    await userBookHighlightsApi.updateHighlight(id, data)
+    vi.unstubAllGlobals()
+    return calls.find((c) => c.method === 'PUT')!.body
+  }
+
+  it('re-saves a migrated offset-less textstack-anchor-v1 row without throwing (#1139 ETL gap)', async () => {
+    const locator = { version: 1, scheme: 'textstack-anchor-v1', value: { chapterKey: 'k', prefix: 'p', exact: 'hello there', suffix: 's' } } as const
+    expect(await edited('m1', locator, { color: 'blue' })).toMatchObject({ color: 'blue', fileId: 'f1', expectedRevision: 4, locator })
+  })
+
+  it('a note edit on an epub-cfi row keeps its locator (never null, never converted)', async () => {
+    const locator = { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' } as const
+    expect(await edited('c1', locator, { noteText: 'a note' })).toMatchObject({ noteText: 'a note', fileId: 'f1', locator })
   })
 
   it('writes a PDF anchor as pdf-page, and a bare quote with no locator (and no file)', () => {

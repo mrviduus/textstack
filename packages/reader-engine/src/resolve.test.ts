@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import web from '../../shared/src/reader/__fixtures__/anchors/web.json'
 import mobile from '../../shared/src/reader/__fixtures__/anchors/mobile.json'
+import mobileOffsets from '../../shared/src/reader/__fixtures__/anchors/mobile-offsets.json'
 import mcp from '../../shared/src/reader/__fixtures__/anchors/mcp.json'
 import { ANCHOR_CASES, PRODUCER_ONLY_CASES, caseStart, chapterById } from '../../shared/src/reader/__fixtures__/anchors/chapters'
 import type { Locator } from './api'
@@ -81,7 +82,7 @@ describe('L7 charOffset only breaks a tie (ADR-025 spike finding)', () => {
   // offset-less phone anchor became under the old tie-break) and with none: a context-unique match
   // always wins. The old resolver failed `repeated-second` and `edge-repeat-end` here.
   const chapterText = (id: string) => chapterById(id).html.replace(/<[^>]+>/g, '')
-  for (const [producer, file] of [['web', web], ['mobile', mobile], ['mcp', mcp]] as const) {
+  for (const [producer, file] of [['web', web], ['mobile', mobile], ['mobile-offsets', mobileOffsets], ['mcp', mcp]] as const) {
     for (const [name, anchor] of Object.entries(file)) {
       const c = ANCHOR_CASES.find((x) => x.name === name)
       const text = chapterText(c?.chapter ?? ANCHOR_CASES[0].chapter)
