@@ -11,6 +11,7 @@ const {
   newId: () => crypto.randomUUID(),
   fileIdOf: async (bookId) => (await v2Book(bookId)).currentFile?.id ?? null,
   revisions: v2Store.revisions,
+  epoch: () => v2Store.epoch,
 })
 
 // --- Types ---

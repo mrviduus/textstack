@@ -17,6 +17,11 @@ export interface V2VocabularyPlatform {
   fileIdOf(bookId: string): Promise<string | null>
   /** Per word: the card revision last read — the session's store, emptied with it. */
   revisions: Map<string, number>
+  /**
+   * The app's store epoch, bumped when `revisions` is emptied (sign-out, another account). A card
+   * answered after a bump is not remembered (#1151). Absent: never bumped.
+   */
+  epoch?: () => number
 }
 
 export interface V2SaveWord {
@@ -64,17 +69,20 @@ const nullable = (text: string | null | undefined, max: number) => (text?.trim()
 const response = (outcome: 'srs' | 'deleted', w: V2Word): SaveWordResponseDto =>
   ({ outcome, word: toVocabWord(w), pendingId: null, lookupId: null, tapsRemaining: null, reason: null })
 
-export function createV2Vocabulary({ newId, fileIdOf, revisions }: V2VocabularyPlatform) {
+export function createV2Vocabulary({ newId, fileIdOf, revisions, epoch = () => 0 }: V2VocabularyPlatform) {
   // The cards last seen, by id: a practice answer reports the card as it stands.
   const seen = new Map<string, V2Word>()
-  const remember = (w: V2Word) => {
-    revisions.set(w.id, w.revision)
-    seen.set(w.id, w)
+  /** Remembers a card read or written — only while the epoch is the one at the call's start. */
+  const rememberer = (started = epoch()) => (w: V2Word) => {
+    if (epoch() === started) {
+      revisions.set(w.id, w.revision)
+      seen.set(w.id, w)
+    }
     return w
   }
 
   /** Every live card. ponytail: a full pull per list, no local store (R6). */
-  const liveWords = async () => (await v2Api.pullFeed<V2Word>('vocabulary')).items.filter((w) => !w.deletedAt).map(remember)
+  const liveWords = async (remember = rememberer()) => (await v2Api.pullFeed<V2Word>('vocabulary')).items.filter((w) => !w.deletedAt).map(remember)
 
   /**
    * A save from the reader: one card by key (an existing one keeps its id and comes back), plus the
@@ -82,6 +90,7 @@ export function createV2Vocabulary({ newId, fileIdOf, revisions }: V2VocabularyP
    * with the tombstone, and `restoreV2Word` brings it back.
    */
   async function saveV2Word(data: V2SaveWord): Promise<SaveWordResponseDto> {
+    const remember = rememberer()
     const sentence = nullable(data.sentence, 1000)
     const bookId = data.userBookId ?? null
     const fileId = bookId ? await fileIdOf(bookId).catch(() => null) : null
@@ -110,6 +119,7 @@ export function createV2Vocabulary({ newId, fileIdOf, revisions }: V2VocabularyP
 
   /** Bring a deleted card back, on the revision its tombstone carried. */
   async function restoreV2Word(id: string): Promise<VocabularyWordDto> {
+    const remember = rememberer()
     const revision = revisions.get(id) ?? remember(await v2Api.getWord(id)).revision
     return toVocabWord(remember(await v2Api.restoreWord(id, revision)))
   }
@@ -151,6 +161,7 @@ export function createV2Vocabulary({ newId, fileIdOf, revisions }: V2VocabularyP
 
   /** An edit on the revision last read; lost to another device's edit, it is decided again on what that card holds. */
   async function updateV2Word(id: string, data: { translation?: string | null; definition?: string | null; onlyIfEmpty?: boolean }): Promise<VocabularyWordDto> {
+    const remember = rememberer()
     const patch = (expectedRevision: number) => v2Api.patchWord(id, {
       expectedRevision,
       ...(data.translation !== undefined && { translation: nullable(data.translation, 500) }),
@@ -176,10 +187,11 @@ export function createV2Vocabulary({ newId, fileIdOf, revisions }: V2VocabularyP
    * distractors, a server feature V2 does not have (ADR-031 D6); the fallback sorts the full pull.
    */
   async function getV2ReviewQueue(limit?: number, includeAll?: boolean): Promise<{ cards: ReviewCardDto[]; totalDue: number; weeklyProgress: WeeklyProgressDto | null }> {
+    const remember = rememberer()
     let due = (await v2Api.getDue(limit)).map(remember)
     const totalDue = due.length
     if (!due.length && includeAll) {
-      due = (await liveWords()).filter((w) => !w.retiredAt)
+      due = (await liveWords(remember)).filter((w) => !w.retiredAt)
         .sort((a, b) => a.nextReviewAt.localeCompare(b.nextReviewAt))
         .slice(0, limit ?? 20)
     }
@@ -201,6 +213,7 @@ export function createV2Vocabulary({ newId, fileIdOf, revisions }: V2VocabularyP
    * card's schedule (legacy's practice leaves it alone) — and reports the card unchanged.
    */
   async function submitV2Review(data: { wordId: string; isCorrect: boolean; responseTimeMs: number; reviewMode?: string; operationId?: string; isPractice?: boolean }): Promise<SubmitReviewResponse> {
+    const remember = rememberer()
     if (data.isPractice) {
       const w = seen.get(data.wordId)
       return {

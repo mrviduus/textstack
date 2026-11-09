@@ -33,4 +33,19 @@ describe('the shared V2 vocabulary', () => {
     expect(review).toMatchObject({ previousStage: 2, newStage: 3, stageChanged: true })
     expect(calls.filter((c) => c.method === 'POST').map((c) => c.body.operationId)).toEqual(['op-1'])
   })
+
+  // #1151: a card answered after the app's store epoch moved (sign-out) is not remembered.
+  it('remembers no revision for a card answered after the injected epoch moved', async () => {
+    let epoch = 0
+    const revisions = new Map<string, number>()
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      if (epoch === 0) epoch++ // the sign-out lands while the first request is in flight
+      return { ok: true, status: 200, text: async () => JSON.stringify([card('w1', { revision: 3 })]) }
+    }))
+    const v = createV2Vocabulary({ newId: () => 'id', fileIdOf: async () => null, revisions, epoch: () => epoch })
+    await v.getV2ReviewQueue(10)
+    expect(revisions.size).toBe(0)
+    await v.getV2ReviewQueue(10) // a call started in the new epoch remembers
+    expect(revisions.get('w1')).toBe(3)
+  })
 })

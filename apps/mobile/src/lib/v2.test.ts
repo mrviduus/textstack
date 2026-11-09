@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { initApi } from '@textstack/shared'
 import NetInfo from '@react-native-community/netinfo'
 import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, switched, deviceUploadIo, v2Store, getV2UserBooks, v2Chapters, readV2Progress, type UploadIo } from './v2'
+import { vocabularyApi } from './vocabularyApi'
 import { getUserBookLocalProgress, setUserBookV2State, getUserBookV2State } from './progressStorage'
 import { fakeApi as fakeV2, conflict, state, feed, book, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
@@ -176,6 +177,12 @@ describe('mobile v2', () => {
     }, () => saveV2Progress('b-adopt', { chapterSlug: 'k1' }), '/books/b-adopt/files/f1/chapters')
     expect(outcome).toEqual({ adopted: expect.objectContaining({ chapterSlug: null, percent: null }) })
     expect(await getUserBookLocalProgress('b-adopt')).toBeNull()
+  })
+
+  it('a vocabulary answer after v2Store.reset remembers no card revision', async () => {
+    await resetMidCall({ 'GET /status': { status: 200, body: { maxPartBytes: 1024 } }, 'GET /vocabulary/due': { status: 200, body: [{ id: 'w-old', revision: 3, examples: [] }] } },
+      () => vocabularyApi.getReviewQueue(10, false), '/vocabulary/due')
+    expect(v2Store.revisions.size).toBe(0)
   })
 
   // #1143 second review: Cancel while the last part is in flight never completes the upload.

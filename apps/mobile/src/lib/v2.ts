@@ -145,6 +145,8 @@ async function dropReplaced(list: V2Book[]): Promise<void> {
 let pullFlight = createSingleFlight<V2Book[]>()
 /** Bumped by `v2Store.reset()`. */
 let epoch = 0
+/** For the shared V2 vocabulary: it drops a card answered after a reset (#1151). */
+export const v2Epoch = () => epoch
 
 /**
  * `work`'s answer, or null when the store was reset while it ran (signed out, another account): the

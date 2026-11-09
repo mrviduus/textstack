@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { saveWord, updateWord, getReviewQueue, submitReview, restoreWord, deleteAllWords } from '../vocabulary'
-import { startV2Probe, resetV2ForTests } from '../v2'
+import { startV2Probe, resetV2ForTests, v2Store } from '../v2'
 import { fakeApi, V2_ON, feed, card, conflict } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 afterEach(() => {
@@ -115,5 +115,22 @@ describe('vocabulary edits and review on V2', () => {
 
     expect(await deleteAllWords()).toEqual({ deleted: 2 })
     expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual(['/me/v2/vocabulary/words/w1', '/me/v2/vocabulary/words/w2'])
+  })
+})
+
+describe('a sign-out mid-call (#1151)', () => {
+  it('a review queue answered after v2Store.reset remembers no revision', async () => {
+    fakeApi({ ...V2_ON })
+    await startV2Probe()
+    let answer!: () => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => {
+      answer = () => resolve({ ok: true, status: 200, text: async () => JSON.stringify([card('w1')]) })
+    })))
+    const queue = getReviewQueue(10)
+    for (let i = 0; i < 20 && !answer; i++) await new Promise((r) => setTimeout(r, 0))
+    v2Store.reset()
+    answer()
+    await queue
+    expect(v2Store.revisions.size).toBe(0)
   })
 })

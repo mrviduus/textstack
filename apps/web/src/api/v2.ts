@@ -66,9 +66,12 @@ export const v2Store = {
   /** The annotations as last pulled or written, by id; and the books pulled at least once. */
   annotations: new Map<string, V2Annotation>(),
   pulled: new Set<string>(),
+  /** Bumped by `reset()`: the shared vocabulary drops a card answered after it (#1151). */
+  epoch: 0,
   reset() {
     for (const cache of [this.books, this.chapters, this.states, this.revisions, this.annotations, this.pulled]) cache.clear()
     v2Api.forgetPulls()
+    this.epoch++
   },
 }
 
