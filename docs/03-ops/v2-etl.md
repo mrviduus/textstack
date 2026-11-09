@@ -297,14 +297,17 @@ may run (it cascades to that user's V2 rows); a non-guest account comes with non
   200 UTF-16 units` (legacy slugs are `varchar(255)`). Lengths are code points, as V2 counts them, but the chapter
   key's UTF-16 units. Not a failure: a rehearsal's list sizes the problem. `validate-etl.sql` restates the
   computation verbatim and reports the same (id, reason) pairs, counted per reason (its caps are literals; C# calls
-  `SyncValidation`'s own predicates). An anchor whose chapter is gone, or on a book with no file
+  `SyncValidation`'s own predicates). Accepted: an `exact` of only whitespace passes V2's rules, so it is searched
+  with an empty group and gets an empty span (`startOffset = endOffset`, at the end of the matched whitespace run),
+  and it is not listed. An anchor whose chapter is gone, or on a book with no file
   row, is not carried: the annotation is a quotation (listed). A highlight with no book and no edition (a
   deleted upload's trail) is not carried (listed in `orphanCandidates`). Catalog highlights are M3.3's.
   Fails: highlight owner ≠ upload owner, an anchor that is not an object, a blank text, a version below 1.
 - **Chapters** (row 34, item 6): `chapter_key = COALESCE(slug, 'ch-' || chapter_number)`, keyed to the
   book's file; a book with no file row's chapters are not carried (listed). `html` is carried byte for
-  byte: its images keep their legacy `/storage/…` URLs and no image asset is copied (owner 2026-11-08;
-  `book_chapters` is transitional until R8). Fails: a blank key, two chapters of a file with one key.
+  byte: its images keep their legacy URLs and no image asset is copied (owner 2026-11-08). For an upload these
+  are `/api/me/books/{bookId}/assets/{assetId}` (the worker's `UserIngestionService` rewrites them so);
+  `/storage/…` is the catalog's path, not an upload's (`book_chapters` is transitional until R8). Fails: a blank key, two chapters of a file with one key.
 - **Ingestion jobs** (row 36): status `0..3` → `queued`/`processing`/`succeeded`/`failed`; `source_format`
   lowercased (as the V2 worker writes it); keyed to the carried file. A job whose file got no row is not
   carried (listed). Fails: another status, or a source format outside `epub`/`pdf`/`html`/`fb2`/`unknown`.
