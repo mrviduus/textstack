@@ -7,7 +7,7 @@
  */
 import {
   type V2WriteOutcome,
-  v2Api, ApiError, V2_OFF, clip, chapterAtFraction, placeToV2Locator, v2LocatorToPlace,
+  v2Api, ApiError, V2_OFF, clip, ingestionStatus, shelfFileSummary, resumeChapterOf, placeToV2Locator, v2LocatorToPlace,
   type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2Annotation, type V2Word,
   type V2ReadingStateWrite, type V2Switch, type LegacyPlace,
 } from '@textstack/shared'
@@ -121,18 +121,13 @@ export function forgetV2Book(id: string) {
   v2Store.states.delete(id)
 }
 
-function status(toc: V2FileChapters): UserBook['status'] {
-  if (toc.ingestion === 'queued' || toc.ingestion === 'processing') return 'Processing'
-  return toc.ingestion === 'succeeded' ? 'Ready' : 'Failed'
-}
-
 const isPdf = (b: V2Book) => b.currentFile?.format === 'pdf' && b.currentFile.hasContent
 
 const totalWords = (toc: V2FileChapters) =>
   toc.items.some((c) => c.wordCount != null) ? toc.items.reduce((s, c) => s + (c.wordCount ?? 0), 0) : null
 
 /** The fields the shelf row and the book page share. */
-function baseBook(b: V2Book, toc: V2FileChapters) {
+function baseBook(b: V2Book) {
   return {
     id: b.id,
     title: b.title,
@@ -142,39 +137,29 @@ function baseBook(b: V2Book, toc: V2FileChapters) {
     description: b.description,
     coverPath: b.hasCover ? v2Api.coverUrl(b.id, b.updatedAt) : null,
     genre: b.genre,
-    status: status(toc),
     errorMessage: null,
-    totalWordCount: totalWords(toc),
     createdAt: b.createdAt,
     hasOriginalPdf: isPdf(b),
   }
 }
 
-/** The chapter a stored state resumes in: its own; none for a PDF page; by fraction for an epub-cfi. */
-function resumeChapter(state: V2ReadingState, toc: V2FileChapters): string | null {
-  const place = v2LocatorToPlace(state.currentLocator)
-  return place ? place.chapterSlug : chapterAtFraction(toc.items, state.bookFraction)
-}
-
-/** The uploads shelf: live books only, each with its status and the reader's place. */
+/**
+ * The uploads shelf: live books only, each with its status and the reader's place — two feed pulls,
+ * no per-book call: the feed's file carries the extraction summary (#1118); `/chapters` is the reader's.
+ */
 export async function getV2UserBooks(): Promise<UserBook[]> {
   const [list, reading] = await Promise.all([pullV2Books(), pullFeed<V2ReadingState>('reading')])
   const stateOf = new Map(reading.items.map((s) => [s.bookId, s]))
-  const live = list.filter((b) => !b.removedAt)
-  // ponytail: one chapters call per book per load (status + chapter count); a status on the feed if libraries grow.
-  // One failing call (content removed, a 503) costs that book its status, never the shelf.
-  const tocs = await Promise.allSettled(live.map(v2Chapters))
-  return live.map((b, i): UserBook => {
-    const settledToc = tocs[i]
-    const toc: V2FileChapters = settledToc.status === 'fulfilled' ? settledToc.value : { items: [], ingestion: null }
+  return list.filter((b) => !b.removedAt).map((b): UserBook => {
+    const file = b.currentFile
     const state = stateOf.get(b.id)
     return {
-      ...baseBook(b, toc),
-      chapterCount: toc.items.length,
+      ...baseBook(b),
+      ...shelfFileSummary(file),
       completedAt: state?.completedAt ?? null,
       progressPercent: state ? state.bookFraction : null,
       progressUpdatedAt: state?.updatedAt ?? null,
-      progressChapterSlug: state ? resumeChapter(state, toc) : null,
+      progressChapterSlug: state ? resumeChapterOf(state, file ? v2Store.chapters.get(file.id)?.items : undefined) : null,
       tags: b.tags,
     }
   })
@@ -186,7 +171,9 @@ export async function getV2UserBook(id: string): Promise<UserBookDetail> {
   // ponytail: one reading-state read per book open for `completedAt`; the library feed could carry it (#1118).
   const [toc, state] = await Promise.all([v2Chapters(b), v2Api.getReadingState(id).catch(() => null)])
   return {
-    ...baseBook(b, toc),
+    ...baseBook(b),
+    status: ingestionStatus(toc.ingestion),
+    totalWordCount: totalWords(toc),
     publishedYear: b.publishedYear,
     // The chapter key is the chapter's id and slug on V2: highlights and vocabulary name it.
     chapters: toc.items.map((c) => ({ id: c.chapterKey, chapterNumber: c.chapterNumber, slug: c.chapterKey, title: c.title, wordCount: c.wordCount })),
@@ -227,7 +214,7 @@ const remember = (s: V2ReadingState) => v2Store.states.set(s.bookId, { revision:
 /** A V2 state as the legacy progress row the reader restores from. */
 async function toProgress(s: V2ReadingState): Promise<UserBookProgress> {
   const place = v2LocatorToPlace(s.currentLocator)
-  const chapterSlug = place ? place.chapterSlug : chapterAtFraction((await v2Chapters(await v2Book(s.bookId))).items, s.bookFraction)
+  const chapterSlug = resumeChapterOf(s, place ? [] : (await v2Chapters(await v2Book(s.bookId))).items)
   return {
     chapterSlug,
     locator: place?.locator ?? null,

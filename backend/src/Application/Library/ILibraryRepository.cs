@@ -35,7 +35,10 @@ public interface ILibraryRepository
 
     /// <summary>
     /// The user's books changed after <c>(since, afterId)</c>, removed ones included, ordered by
-    /// <c>(updated_at, id)</c>, each with its current file: one page of the library feed.
+    /// <c>(updated_at, id)</c>, each with its current file: one page of the library feed. Transitional
+    /// (M6.4, #1118): only here does the file carry <see cref="BookFile.Ingestion"/>, <see cref="BookFile.ChapterCount"/>
+    /// and <see cref="BookFile.WordCount"/>. Every job status write bumps <c>updated_at</c> (not <c>revision</c>), so the
+    /// book re-enters a pull from an earlier cursor.
     /// </summary>
     Task<IReadOnlyList<Book>> ListChangedAsync(Guid userId, DateTimeOffset since, Guid afterId, int limit, CancellationToken ct);
 

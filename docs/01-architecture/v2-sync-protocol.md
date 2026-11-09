@@ -97,6 +97,7 @@ server stores them as UTC.
 | `isCurrent` | bool | server | |
 | `hasContent` | bool | server | `server_storage_key IS NOT NULL`: bytes downloadable |
 | `contentRemovedAt` | time | server | the reader stopped syncing this version (`DELETE …/content`): no client uploads its bytes on its own; a deliberate upload clears it (M2.6) |
+| `ingestion`, `chapterCount`, `wordCount` | text, int, int | server | transitional (dropped with `book_chapters` at M6.4, #1118), on the library feed only, absent when null: the latest extraction job's status, the extracted chapters, their summed word counts. Every extraction job status write (queued, claimed, finished, failed, cancelled, requeued) bumps `books.updated_at` (not `revision`), so the book re-enters a cursor pull |
 | `createdAt` | time | server | |
 
 ### Reading state
@@ -858,7 +859,7 @@ metadata import is M2.2's, only the bytes are M2.6's. #1067 (explicit V2 transac
    M2.4**), `UpdateMetadataAsync` (revision-guarded, owner decision 5),
    `ListChangedAsync(userId, since, afterId, limit)` (removed books included). **Every** library write
    bumps `books.updated_at` — attach and checkpoint-saving too, or `hasContent` never reaches other
-   devices.
+   devices; so does every transitional extraction job status write (#1118), or the feed's `ingestion` never does.
 - **5.** **Done 2026-11-01** (M2.2) — `IReadingStateRepository.ListChangedAsync(userId, since, afterId, limit)`;
    the replace-time delete moves here with the shared transaction (#1067).
 

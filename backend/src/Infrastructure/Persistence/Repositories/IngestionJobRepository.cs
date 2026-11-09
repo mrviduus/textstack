@@ -18,10 +18,28 @@ public sealed class IngestionJobRepository(V2DataSource dataSource) : IIngestion
 
     private const string Eligible = $"(status = 'queued' OR ({Stuck}))";
 
+    // Every status write moves its book's feed watermark (books.updated_at; revision, the edit
+    // counter, untouched) in the same statement: the library feed carries the latest job's status
+    // (#1118), so a cursor pull must see the book again. Follows a CTE j holding the written jobs.
+    private const string TouchBooks = """
+        , touched AS (
+            UPDATE books b SET updated_at = now()
+            FROM j WHERE b.user_id = j.user_id AND b.id = j.book_id)
+
+        """;
+
+    /// <summary>
+    /// "The file's latest job": the one rule the feed's <c>ingestion</c> and <see cref="GetLatestForFileAsync"/>
+    /// share. Follows <c>FROM ingestion_jobs j WHERE …</c> naming one file.
+    /// </summary>
+    internal const string LatestFirst = "ORDER BY j.created_at DESC, j.id DESC LIMIT 1";
+
     private const string InsertJob = $"""
-        INSERT INTO ingestion_jobs (id, user_id, book_id, file_id, status, attempt_count, created_at)
-        VALUES (gen_random_uuid(), @userId, @bookId, @fileId, 'queued', 0, now())
-        RETURNING {Columns}
+        WITH j AS (
+            INSERT INTO ingestion_jobs (id, user_id, book_id, file_id, status, attempt_count, created_at)
+            VALUES (gen_random_uuid(), @userId, @bookId, @fileId, 'queued', 0, now())
+            RETURNING {Columns})
+        {TouchBooks}SELECT {Columns} FROM j
         """;
 
     public async Task<FileIngestionJob> EnqueueAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
@@ -31,10 +49,9 @@ public sealed class IngestionJobRepository(V2DataSource dataSource) : IIngestion
     }
 
     private const string SelectLatestForFile = $"""
-        SELECT {Columns} FROM ingestion_jobs
-        WHERE user_id = @userId AND book_id = @bookId AND file_id = @fileId
-        ORDER BY created_at DESC, id DESC
-        LIMIT 1
+        SELECT {Columns} FROM ingestion_jobs j
+        WHERE (j.user_id, j.book_id, j.file_id) = (@userId, @bookId, @fileId)
+        {LatestFirst}
         """;
 
     public async Task<FileIngestionJob?> GetLatestForFileAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
@@ -43,27 +60,32 @@ public sealed class IngestionJobRepository(V2DataSource dataSource) : IIngestion
         return await conn.QuerySingleOrDefaultAsync<FileIngestionJob>(new CommandDefinition(SelectLatestForFile, new { userId, bookId, fileId }, cancellationToken: ct));
     }
 
-    private const string CancelActive = """
-        UPDATE ingestion_jobs SET status = 'failed', error = 'Cancelled by user', finished_at = now()
-        WHERE user_id = @userId AND book_id = @bookId AND status IN ('queued', 'processing')
+    private const string CancelActive = $"""
+        WITH j AS (
+            UPDATE ingestion_jobs SET status = 'failed', error = 'Cancelled by user', finished_at = now()
+            WHERE user_id = @userId AND book_id = @bookId AND status IN ('queued', 'processing')
+            RETURNING user_id, book_id)
+        {TouchBooks}SELECT count(*) FROM j
         """;
 
     public async Task<bool> CancelActiveAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(CancelActive, new { userId, bookId }, cancellationToken: ct)) > 0;
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(CancelActive, new { userId, bookId }, cancellationToken: ct)) > 0;
     }
 
     // SKIP LOCKED: a second claimer passes over a row the first is claiming instead of waiting for it.
     private const string ClaimNext = $"""
-        UPDATE ingestion_jobs SET status = 'processing', started_at = now(), attempt_count = attempt_count + 1
-        WHERE id = (
-            SELECT id FROM ingestion_jobs
-            WHERE attempt_count < @maxAttempts AND {Eligible}
-            ORDER BY created_at, id
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED)
-        RETURNING {Columns}
+        WITH j AS (
+            UPDATE ingestion_jobs SET status = 'processing', started_at = now(), attempt_count = attempt_count + 1
+            WHERE id = (
+                SELECT id FROM ingestion_jobs
+                WHERE attempt_count < @maxAttempts AND {Eligible}
+                ORDER BY created_at, id
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED)
+            RETURNING {Columns})
+        {TouchBooks}SELECT {Columns} FROM j
         """;
 
     public async Task<FileIngestionJob?> ClaimNextAsync(int maxAttempts, TimeSpan stuckAfter, CancellationToken ct)
@@ -77,44 +99,55 @@ public sealed class IngestionJobRepository(V2DataSource dataSource) : IIngestion
     private const string ClaimedByThisRun = "id = @jobId AND status = 'processing' AND attempt_count = @claimedAttempt";
 
     private const string Succeed = $"""
-        UPDATE ingestion_jobs SET status = 'succeeded', error = NULL, source_format = @sourceFormat, finished_at = now()
-        WHERE {ClaimedByThisRun}
+        WITH j AS (
+            UPDATE ingestion_jobs SET status = 'succeeded', error = NULL, source_format = @sourceFormat, finished_at = now()
+            WHERE {ClaimedByThisRun}
+            RETURNING user_id, book_id)
+        {TouchBooks}SELECT count(*) FROM j
         """;
 
     public async Task<bool> SucceedAsync(Guid jobId, int claimedAttempt, string? sourceFormat, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(Succeed, new { jobId, claimedAttempt, sourceFormat }, cancellationToken: ct)) > 0;
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(Succeed, new { jobId, claimedAttempt, sourceFormat }, cancellationToken: ct)) > 0;
     }
 
     private const string Fail = $"""
-        UPDATE ingestion_jobs SET status = 'failed', error = @error, source_format = COALESCE(@sourceFormat, source_format), finished_at = now()
-        WHERE {ClaimedByThisRun}
+        WITH j AS (
+            UPDATE ingestion_jobs SET status = 'failed', error = @error, source_format = COALESCE(@sourceFormat, source_format), finished_at = now()
+            WHERE {ClaimedByThisRun}
+            RETURNING user_id, book_id)
+        {TouchBooks}SELECT count(*) FROM j
         """;
 
     public async Task<bool> FailAsync(Guid jobId, int claimedAttempt, string error, string? sourceFormat, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(Fail, new { jobId, claimedAttempt, error, sourceFormat }, cancellationToken: ct)) > 0;
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(Fail, new { jobId, claimedAttempt, error, sourceFormat }, cancellationToken: ct)) > 0;
     }
 
     private const string ReturnToQueue = $"""
-        UPDATE ingestion_jobs SET status = 'queued', attempt_count = @claimedAttempt - 1, started_at = NULL
-        WHERE {ClaimedByThisRun}
+        WITH j AS (
+            UPDATE ingestion_jobs SET status = 'queued', attempt_count = @claimedAttempt - 1, started_at = NULL
+            WHERE {ClaimedByThisRun}
+            RETURNING user_id, book_id)
+        {TouchBooks}SELECT count(*) FROM j
         """;
 
     public async Task<bool> ReturnToQueueAsync(Guid jobId, int claimedAttempt, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(ReturnToQueue, new { jobId, claimedAttempt }, cancellationToken: ct)) > 0;
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(ReturnToQueue, new { jobId, claimedAttempt }, cancellationToken: ct)) > 0;
     }
 
     // Without this, a job that crashed its worker on every attempt stays "processing" forever:
     // the claim skips it.
     private const string FailExhausted = $"""
-        UPDATE ingestion_jobs SET status = 'failed', error = @error, finished_at = now()
-        WHERE attempt_count >= @maxAttempts AND {Eligible}
-        RETURNING {Columns}
+        WITH j AS (
+            UPDATE ingestion_jobs SET status = 'failed', error = @error, finished_at = now()
+            WHERE attempt_count >= @maxAttempts AND {Eligible}
+            RETURNING {Columns})
+        {TouchBooks}SELECT {Columns} FROM j
         """;
 
     public async Task<IReadOnlyList<FileIngestionJob>> FailExhaustedAsync(
