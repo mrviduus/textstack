@@ -6,12 +6,14 @@
  * `@textstack/shared` reader/v2Locators.
  */
 import { uuid } from 'expo-modules-core'
+import NetInfo from '@react-native-community/netinfo'
 import {
   v2Api, ApiError, isOfflineError, V2_OFF, clip, chapterAtFraction, placeToV2Locator, v2LocatorToPlace, createSha256, parsePdfPageLocator,
   type V2Book, type V2FileChapters, type V2Annotation, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
   type V2WriteOutcome, type UserBookProgressDto, type LegacyPlace, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse,
 } from '@textstack/shared'
 import { dropReplacedUserBookFiles } from './offlineDb'
+import { createSingleFlight } from './singleFlight'
 import { deleteOriginal } from './originalFileCache'
 import { getUserBookV2State, setUserBookV2State, saveUserBookLocalProgress } from './progressStorage'
 
@@ -29,24 +31,54 @@ let unreached = false
  * session (AuthContext) and by the first call that needs the answer, whichever comes first.
  */
 export function startV2Probe(): Promise<V2Switch> {
-  probe ??= v2Api.getStatus().then(
+  if (probe) return probe
+  const seen = onlineEvents
+  probe = v2Api.getStatus().then(
     (s) => (known = { enabled: true, maxPartBytes: s.maxPartBytes }),
     (e) => {
       if (e instanceof ApiError && e.status === 401) probe = null
       // Never reached, or V2 paused (503 `v2_unavailable`): asked again after a reconnect. 404 = unmapped, off.
-      else unreached = isOfflineError(e) || (e instanceof ApiError && e.status === 503)
+      else if ((unreached = isOfflineError(e) || (e instanceof ApiError && e.status === 503))) {
+        watchReconnect()
+        // The network came back while this one was in flight: that reconnect is spent, so ask again now.
+        if (onlineEvents !== seen) forgetUnreached()
+      }
       return V2_OFF
     },
   )
   return probe
 }
 
+/** An unreached probe is stale: the next call asks again. */
+function forgetUnreached() {
+  if (!unreached) return
+  unreached = false
+  probe = null
+}
+
+/** The NetInfo subscription, once one probe went unreached (kept for the app's life). */
+let unwatch: (() => void) | null = null
+/** Online events seen: a probe in flight across one is not left stale when it then fails. */
+let onlineEvents = 0
+
+/**
+ * The network coming back marks an unreached probe stale here, inside the NetInfo event (#1141).
+ * Screens learn of a reconnect from a React effect, which runs after this and — children first —
+ * before AuthContext's `reprobeV2AfterReconnect`: without this their calls still read the offline
+ * answer and went legacy. Offline nothing changes: no event, no network wait on the reading path.
+ */
+function watchReconnect() {
+  if (unwatch) return
+  unwatch = NetInfo.addEventListener((s) => {
+    if (!(s.isInternetReachable ?? s.isConnected)) return
+    onlineEvents++
+    forgetUnreached()
+  })
+}
+
 /** The network is back (AuthContext's reconnect count): a probe that never reached the server asks again. */
 export function reprobeV2AfterReconnect(): Promise<V2Switch> {
-  if (unreached) {
-    unreached = false
-    probe = null
-  }
+  forgetUnreached()
   return startV2Probe()
 }
 
@@ -80,6 +112,8 @@ export const v2Store = {
   reset() {
     for (const cache of [this.books, this.chapters, this.states, this.annotations, this.pulled, this.revisions]) cache.clear()
     v2Api.forgetPulls()
+    pullFlight = createSingleFlight()
+    epoch++
   },
 }
 
@@ -88,6 +122,8 @@ export function resetV2ForTests() {
   probe = null
   known = V2_OFF
   unreached = false
+  unwatch?.()
+  unwatch = null
   v2Store.reset()
 }
 
@@ -105,13 +141,35 @@ async function dropReplaced(list: V2Book[]): Promise<void> {
   }
 }
 
-/** The library feed, whole (concurrent callers share one pull, `pullFeed`). */
-export async function pullV2Books(): Promise<V2Book[]> {
-  const { items } = await v2Api.pullFeed<V2Book>('library')
-  books.clear()
-  for (const b of items) books.set(b.id, b)
-  await dropReplaced(items)
-  return items
+/** Recreated by `v2Store.reset()`: the next account never joins the previous one's pull. */
+let pullFlight = createSingleFlight<V2Book[]>()
+/** Bumped by `v2Store.reset()`. */
+let epoch = 0
+
+/**
+ * `work`'s answer, or null when the store was reset while it ran (signed out, another account): the
+ * caller then writes, maps, fetches and shows nothing of the previous account's under the next one.
+ */
+async function whileCurrent<T>(work: Promise<T>): Promise<T | null> {
+  const started = epoch
+  const value = await work
+  return started === epoch ? value : null
+}
+
+/**
+ * The library feed, whole. Concurrent callers share one pull AND its cleanup (#1140): one
+ * `dropReplaced` per pull, never two transactions racing on the connection.
+ */
+export function pullV2Books(): Promise<V2Book[]> {
+  return pullFlight.run(async () => {
+    const feed = await whileCurrent(v2Api.pullFeed<V2Book>('library'))
+    if (!feed) return []
+    const { items } = feed
+    books.clear()
+    for (const b of items) books.set(b.id, b)
+    await dropReplaced(items)
+    return items
+  })
 }
 
 /** A live book of the user's, from the last pull or a fresh one; 404 when there is none. */
@@ -157,7 +215,9 @@ const totalWords = (toc: V2FileChapters) =>
  * either); one chapters call per book per load, for status and counts.
  */
 export async function getV2UserBooks(): Promise<UserBookDto[]> {
-  const [list, reading] = await Promise.all([pullV2Books(), v2Api.pullFeed<V2ReadingState>('reading')])
+  const pulled = await whileCurrent(Promise.all([pullV2Books(), v2Api.pullFeed<V2ReadingState>('reading')]))
+  if (!pulled) return []
+  const [list, reading] = pulled
   for (const s of reading.items) v2Store.states.set(s.bookId, s)
   const stateOf = v2Store.states
   return Promise.all(list.filter((b) => !b.removedAt).map(async (b): Promise<UserBookDto> => {
@@ -414,7 +474,7 @@ export interface UploadIo {
   open(uri: string): ByteSource
   /** One part's bytes to its route. */
   sendPart(bookId: string, fileId: string, index: number, bytes: Uint8Array): Promise<unknown>
-  /** Hands the JS thread back between chunks: hashing 80 MB in one go freezes the screen. */
+  /** Hands the JS thread back between chunks: hashing 80 MB in one go freezes the screen. Throws `aborted` once cancelled. */
   yieldNow(): Promise<void>
 }
 
@@ -445,20 +505,22 @@ export async function uploadV2Book(
   onProgress?: (percent: number) => void,
 ): Promise<{ bookId: string; existing: boolean }> {
   const source = io.open(file.uri)
+  // The book this upload made (not found, not another device's). Cancelled at any cancel point before
+  // its content completed, it would sit on the shelf as Failed with no action on V2 (no retry), so it
+  // goes; picking the file again starts afresh.
+  let imported: string | null = null
   try {
     const format = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'epub'
     const sha256 = await sha256Of(source, io.yieldNow)
     // The same bytes already in the library open that book — or, when another device imported it
     // without its bytes, this upload sends them to that book's file.
     let target = await v2Api.findBySha256(sha256)
-    // This upload made the book (not found, not another device's): a cancel before its bytes removes it.
-    let imported = false
     if (!target) {
       const id = uuid.v4()
       const title = clip(file.name.replace(/\.(epub|pdf)$/i, '').trim() || file.name, 500)
       try {
         target = await v2Api.importBook(id, { title, file: { id: uuid.v4(), sha256, byteSize: source.size, originalName: clip(file.name, 500), format } })
-        imported = true
+        imported = target.id
       } catch (e) {
         const err = v2Api.v2ErrorOf(e)
         if (err?.code !== 'duplicate_file') throw e
@@ -491,10 +553,9 @@ export async function uploadV2Book(
     for (let retried = false; ; retried = true) {
       try {
         await sendAll()
+        // A cancel while the last part was in flight: never complete it (the cancel point throws `aborted`).
+        await io.yieldNow()
       } catch (e) {
-        // Cancelled: a book without bytes would sit on the shelf as Failed with no action on V2 (no
-        // retry), so the one this upload imported goes. Picking the file again starts afresh.
-        if ((e as { aborted?: boolean }).aborted && imported) await v2Api.removeBook(bookId).catch(() => {})
         throw quota(e)
       }
       try {
@@ -509,6 +570,9 @@ export async function uploadV2Book(
         throw err?.code === 'content_mismatch' ? new V2UploadError('content_mismatch') : e
       }
     }
+  } catch (e) {
+    if ((e as { aborted?: boolean }).aborted && imported) await v2Api.removeBook(imported).catch(() => {})
+    throw e
   } finally {
     source.close()
   }
@@ -517,7 +581,7 @@ export async function uploadV2Book(
 /**
  * The device's bytes: the picker's copy read through expo-file-system's `FileHandle` (`offset` +
  * `readBytes`), each part a `Uint8Array` body through `fetch` (PDD "File sync upload protocol").
- * `isCancelled` stops before the next part.
+ * `isCancelled` stops before the next part, and before the next hash chunk.
  */
 export function deviceUploadIo(isCancelled: () => boolean): UploadIo {
   return {
@@ -535,9 +599,15 @@ export function deviceUploadIo(isCancelled: () => boolean): UploadIo {
       }
     },
     async sendPart(bookId, fileId, index, bytes) {
-      if (isCancelled()) throw Object.assign(new Error('Upload cancelled'), { aborted: true })
+      if (isCancelled()) throw cancelled()
       return v2Api.putPart(bookId, fileId, index, bytes)
     },
-    yieldNow: () => new Promise((resolve) => setTimeout(resolve, 0)),
+    // Also the hash loop's cancel point (#1143): Cancel stops within one chunk, not after the whole hash.
+    yieldNow: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      if (isCancelled()) throw cancelled()
+    },
   }
 }
+
+const cancelled = () => Object.assign(new Error('Upload cancelled'), { aborted: true })
