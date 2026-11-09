@@ -26,6 +26,14 @@ describe('upload highlights on V2', () => {
     expect(() => toV2Write({ userBookId: 'b1', userChapterId: 'k', anchorJson: old, color: 'y', selectedText: 'hello there' }, 'f1', null)).toThrow(/startOffset/)
   })
 
+  // Known gap (#1139): the M3 ETL carries a legacy phone anchor ({prefix, exact, suffix}, no offsets) as-is
+  // into textstack-anchor-v1 (Uploads.Reading.cs SelectLegacyHighlights). Re-saving that row (a recolor) must
+  // still produce a write; today toV2Write throws. `it.fails` flips red once fixed: drop `.fails` then.
+  it.fails('re-saves a migrated offset-less textstack-anchor-v1 row without throwing (#1139 ETL gap)', () => {
+    const h = toPublicHighlight(row({ version: 1, scheme: 'textstack-anchor-v1', value: { chapterKey: 'k', prefix: 'p', exact: 'hello there', suffix: 's' } }))
+    expect(() => toV2Write({ ...h, userBookId: 'b1', color: 'blue' }, 'f1', 4)).not.toThrow()
+  })
+
   it('writes a PDF anchor as pdf-page, and a bare quote with no locator (and no file)', () => {
     const pdf = { v: 1, kind: 'pdf', page: 3, rects: [{ x: 0.1, y: 0.1, w: 0.2, h: 0.02 }], exact: 'x' }
     expect(toV2Write({ userBookId: 'b1', anchorJson: JSON.stringify(pdf), color: 'y', selectedText: 'x' }, 'f1', 2).locator)

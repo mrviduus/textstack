@@ -63,6 +63,10 @@ describe('a highlight anchor on V2', () => {
     expect(() => anchorToV2Locator({ ...text, startOffset: 1.5 })).toThrow(/startOffset/)
   })
 
+  it('accepts a selection at the chapter start: startOffset 0 is an offset, not a missing one (#1139)', () => {
+    expect(anchorToV2Locator({ ...text, prefix: '', startOffset: 0, endOffset: 9 }).value).toMatchObject({ startOffset: 0, endOffset: 9 })
+  })
+
   it('cuts its quote to the selection cap, the end offset following', () => {
     const exact = 'a'.repeat(4001)
     const value = anchorToV2Locator({ ...text, exact }).value as { exact: string; endOffset: number }
