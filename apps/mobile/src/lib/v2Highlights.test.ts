@@ -21,6 +21,44 @@ describe('upload highlights on V2', () => {
     })
   })
 
+  it('refuses a reflow anchor without offsets instead of sending an invalid locator (#1139)', () => {
+    const old = JSON.stringify({ prefix: 'p', exact: 'hello there', suffix: 's' })   // the page's shape before #1139
+    expect(() => toV2Write({ userBookId: 'b1', userChapterId: 'k', anchorJson: old, color: 'y', selectedText: 'hello there' }, 'f1', null)).toThrow(/startOffset/)
+  })
+
+  // A recolor or note edit re-saves the stored locator and file unchanged (#1139): rebuilding them from
+  // the lossy anchorJson threw for a migrated offset-less anchor (Uploads.Reading.cs
+  // SelectLegacyHighlights) and wiped an epub-cfi one (the V2 reader's) to null.
+  const edited = async (id: string, locator: V2Annotation['locator'], data: Parameters<typeof userBookHighlightsApi.updateHighlight>[1]) => {
+    initApi({ baseUrl: 'http://api', getAccessToken: async () => 't', onUnauthorized: async () => null })
+    const live = { ...row(locator), id, bookId: `b-${id}` }
+    const calls = fakeApi({
+      'GET /me/v2/annotations/changes': feed(live),
+      [`PUT /me/v2/annotations/${id}`]: [{ status: 200, body: { ...live, revision: 5 } }],
+    }, 'http://api')
+    try {
+      await userBookHighlightsApi.getUserBookHighlights(live.bookId)
+      await userBookHighlightsApi.updateHighlight(id, data)
+      return calls.find((c) => c.method === 'PUT')!.body
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  }
+  const cfi = { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' } as const
+
+  it('re-saves a migrated offset-less textstack-anchor-v1 row without throwing (#1139 ETL gap)', async () => {
+    const locator = { version: 1, scheme: 'textstack-anchor-v1', value: { chapterKey: 'k', prefix: 'p', exact: 'hello there', suffix: 's' } } as const
+    expect(await edited('m1', locator, { color: 'blue' })).toMatchObject({ color: 'blue', fileId: 'f1', expectedRevision: 4, locator })
+  })
+
+  it('a note edit on an epub-cfi row keeps its locator (never null, never converted)', async () => {
+    expect(await edited('c1', cfi, { noteText: 'a note' })).toMatchObject({ noteText: 'a note', fileId: 'f1', locator: cfi })
+  })
+
+  it('refuses an edit that would move the highlight instead of dropping the move silently', async () => {
+    await expect(edited('c2', cfi, { anchorJson: JSON.stringify({ exact: 'hello there' }) })).rejects.toThrow(/never move a highlight/)
+  })
+
   it('writes a PDF anchor as pdf-page, and a bare quote with no locator (and no file)', () => {
     const pdf = { v: 1, kind: 'pdf', page: 3, rects: [{ x: 0.1, y: 0.1, w: 0.2, h: 0.02 }], exact: 'x' }
     expect(toV2Write({ userBookId: 'b1', anchorJson: JSON.stringify(pdf), color: 'y', selectedText: 'x' }, 'f1', 2).locator)

@@ -97,6 +97,9 @@ describe('the engine page: selection and words (Phase 3 slice 3)', () => {
     expect(engage).toMatchObject({ type: 'wordEngage' })
     expect(sel).toMatchObject({ type: 'selection', mode: 'tap', text: 'counted', sentence: SENTENCE, tooLong: false })
     expect(sel.anchor).toMatchObject({ exact: 'counted', prefix: expect.stringMatching(/The keeper $/), suffix: expect.stringMatching(/^ the ships/) })
+    // #1139: a V2 textstack-anchor-v1 needs real offsets — [start, end) of the chapter text, as web's.
+    const { startOffset, endOffset } = sel.anchor as { startOffset: number; endOffset: number }
+    expect(page.w.document.getElementById('ts-root')!.textContent!.slice(startOffset, endOffset)).toBe('counted')
     expect(typeof sel.token).toBe('number')
   })
 

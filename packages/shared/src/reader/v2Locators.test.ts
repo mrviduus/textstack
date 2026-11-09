@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { placeToV2Locator, v2LocatorToPlace, anchorToV2Locator, v2LocatorToAnchor } from './v2Locators'
-import { clip } from './textAnchor'
+import { clip, type TextAnchor } from './textAnchor'
 import { chapterAtFraction } from './bookProgress'
 
 const position = { v: 1, chapterSlug: 'two', anchor: { prefix: 'a', exact: 'quote', suffix: 'b', startOffset: 3, endOffset: 8 }, charOffset: 3, chapterFraction: 0.4 }
@@ -51,6 +51,20 @@ describe('a highlight anchor on V2', () => {
   it('is nothing for an epub-cfi or no locator', () => {
     expect(v2LocatorToAnchor({ version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/4!/4)' })).toBeNull()
     expect(v2LocatorToAnchor(null)).toBeNull()
+  })
+
+  it('always carries numeric offsets; an anchor without a startOffset throws instead of sending null (#1139)', () => {
+    const value = anchorToV2Locator(text).value as { startOffset: unknown; endOffset: unknown }
+    expect([typeof value.startOffset, typeof value.endOffset]).toEqual(['number', 'number'])
+    // The phone's old {prefix, exact, suffix}: endOffset was NaN → JSON null → 400 invalid_payload.
+    const bare = { prefix: 'before ', exact: 'the quote', suffix: ' after', chapterId: 'k' } as unknown as TextAnchor & { chapterId: string }
+    expect(() => anchorToV2Locator(bare)).toThrow(/startOffset/)
+    expect(() => anchorToV2Locator({ ...text, startOffset: -1 })).toThrow(/startOffset/)
+    expect(() => anchorToV2Locator({ ...text, startOffset: 1.5 })).toThrow(/startOffset/)
+  })
+
+  it('accepts a selection at the chapter start: startOffset 0 is an offset, not a missing one (#1139)', () => {
+    expect(anchorToV2Locator({ ...text, prefix: '', startOffset: 0, endOffset: 9 }).value).toMatchObject({ startOffset: 0, endOffset: 9 })
   })
 
   it('cuts its quote to the selection cap, the end offset following', () => {
