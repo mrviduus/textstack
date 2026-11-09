@@ -487,6 +487,80 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.Equal("4/9", offsets);
     }
 
+    [Theory]
+    [InlineData("""{"prefix":"The ","exact":"","suffix":" must"}""")] // empty exact: a pattern of "()" would match at 0
+    [InlineData("""{"prefix":"The ","exact":5,"suffix":" must"}""")] // not a string
+    [InlineData("""{"prefix":"The ","suffix":" must"}""")] // no exact at all
+    public async Task RunAsync_AnchorWithNoUsableExact_CarriedWithoutOffsetsAndReported(string anchor)
+    {
+        var (_, report, offsets) = await RunAnchoredAsync("The spice must flow. 5", anchor);
+
+        Assert.Equal("-/-", offsets);
+        Assert.Contains($"highlights {Anchored}: {NoOffsetsLine}", report.OrphanCandidates);
+    }
+
+    [Fact]
+    public async Task RunAsync_AnchorSuffixOverlapsExact_OffsetsAreExactsGroupNotTheWholeMatch()
+    {
+        // prefix+exact+suffix matches "spice aaa" whole; offsets are exact's group (6..8), as the readers' index + prefix.length.
+        var (_, _, offsets) = await RunAnchoredAsync("spice aaa", """{"prefix":"spice ","exact":"aa","suffix":"a"}""");
+
+        Assert.Equal("6/8", offsets);
+    }
+
+    [Fact]
+    public async Task RunAsync_AnchorQuoteHoldsBackslashBeforeClosingPunctuation_MatchedLiterally()
+    {
+        // The escape step doubles a backslash; the punctuation step must not read its second half as escaping ")".
+        var (_, _, offsets) = await RunAnchoredAsync("The spice \\) must \\\\.", """{"prefix":"The ","exact":"spice \\) must \\\\.","suffix":""}""");
+
+        Assert.Equal("4/21", offsets);
+    }
+
+    [Fact]
+    public async Task RunAsync_AnchorQuoteHasSpaceBeforePunctuationTextHasNone_OffsetsSpanTheTextsMatch()
+    {
+        // The other direction of the quote check's rule: the quote's "flow ." finds the text's "flow.".
+        var (_, _, offsets) = await RunAnchoredAsync("The spice must flow.", """{"prefix":"spice ","exact":"must flow .","suffix":""}""");
+
+        Assert.Equal("10/20", offsets);
+    }
+
+    [Fact]
+    public async Task RunAsync_AnchorWithStringOffsets_RecomputedAsNumbers()
+    {
+        // "4"/"9" read as text look valid; V2 wants JSON numbers, so they are recomputed (not carried and reported).
+        var (options, report, offsets) = await RunAnchoredAsync("The spice must flow.", """{"prefix":"The ","exact":"spice","suffix":" must","startOffset":"4","endOffset":"9"}""");
+
+        Assert.Equal("4/9", offsets);
+        Assert.Equal("number/number", await V2Scalar<string>(options,
+            "SELECT jsonb_typeof(locator -> 'value' -> 'startOffset') || '/' || jsonb_typeof(locator -> 'value' -> 'endOffset') FROM annotations WHERE id = @Anchored",
+            new { Anchored }));
+        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(NoOffsetsLine));
+    }
+
+    [Theory]
+    [InlineData("\"startOffset\":-0,\"endOffset\":9", "0/9")] // jsonb prints -0 as 0: an integer, carried
+    [InlineData("\"startOffset\":4e0,\"endOffset\":1e1", "4/10")] // jsonb prints 4e0 as 4: carried
+    [InlineData("\"startOffset\":4.0,\"endOffset\":9", "4/9")] // "4.0" is no int32 to V2: recomputed
+    [InlineData("\"startOffset\":9,\"endOffset\":10", "9/10")] // compared as numbers, not text ("10" < "9")
+    public async Task RunAsync_AnchorOffsetsNumberForms_ValidityAsV2ReadsThem(string offsetMembers, string expected)
+    {
+        var (_, report, offsets) = await RunAnchoredAsync("The spice must flow.", $$"""{"prefix":"The ","exact":"spice","suffix":" must",{{offsetMembers}}}""");
+
+        Assert.Equal(expected, offsets);
+        Assert.DoesNotContain(report.OrphanCandidates, o => o.Contains(NoOffsetsLine));
+    }
+
+    [Fact(Skip = "#1150 defect: an exact past ~8000 whitespace runs makes Postgres refuse the pattern (2201B, regular expression is too complex) and the whole run aborts; legacy has no cap on anchor exact")]
+    public async Task RunAsync_AnchorQuoteBeyondRegexLimit_RunSucceedsAndReports()
+    {
+        var exact = string.Concat(Enumerable.Repeat("spice ", 9000)).TrimEnd();
+
+        // RunAnchoredAsync asserts the run's checks: today it throws first (PostgresException 2201B).
+        await RunAnchoredAsync(exact, $$"""{"prefix":"","exact":"{{exact}}","suffix":""}""");
+    }
+
     [Fact]
     public async Task RunAsync_ReRunWithComputedAndMissingOffsets_NoWritesSameReport()
     {
