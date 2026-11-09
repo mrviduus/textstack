@@ -364,6 +364,21 @@ public sealed class EtlV2MapperTests(PostgresFixture legacy, V2PostgresFixture v
         Assert.Contains(report.Checks, c => c.Name == "annotations: selected_text not in its chapter's plain_text" && c.Failures == 0);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RunAsync_QuoteDiffersOnlyInSpaceBeforePunctuation_Passes(bool dryRun)
+    {
+        // Owner 2026-11-09: whitespace before closing punctuation drops on both sides (an html→text artifact).
+        var options = await SeedAsync(dryRun);
+        await ExecAsync(options.Source, "UPDATE user_chapters SET plain_text = E'The spice\\n must  flow . Said he ,\\n“twice ”!' WHERE id = @Chapter1", new { Chapter1 });
+        await ExecAsync(options.Source, "UPDATE highlights SET selected_text = E'must flow. Said he, “twice” !' WHERE id = @Anchored", new { Anchored });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+
+        Assert.Contains(report.Checks, c => c.Name == "annotations: selected_text not in its chapter's plain_text" && c.Failures == 0);
+    }
+
     [Fact]
     public async Task RunAsync_ReadWithNoReadAt_CompletedAtFallsBackToUpdatedAt()
     {

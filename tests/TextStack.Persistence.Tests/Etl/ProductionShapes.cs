@@ -21,6 +21,9 @@ internal static class ProductionShapes
     /// <summary>Taken down (carried hidden), Failed ×2 (carried, listed), bytes missing on disk (no file row).</summary>
     public const int TakenDown = 9, FailedA = 7, FailedB = 8, NoBytes = 10, Clip = 101;
 
+    /// <summary>An anchored highlight ("must flow.") whose chapter text reads "must  flow ." (owner 2026-11-09).</summary>
+    public const int QuoteSpaceBeforePeriod = 5;
+
     public const int Users = 30, Guests = 5;
 
     public const string Site = "11111111-1111-1111-1111-111111111111";
@@ -128,19 +131,20 @@ internal static class ProductionShapes
             INSERT INTO user_chapters (id, user_book_id, chapter_number, title, html, plain_text, word_count, slug, source_start_page, source_end_page, created_at)
             SELECT {{Sql("c0000000", "n * 10 + k")}}, {{b}}, k - 1, 'Chapter ' || k,
                 '<p>Chapter ' || k || ' of book ' || n || '. The spice must flow.</p><img src="/storage/x.png">',
-                'Chapter ' || k || E' of book ' || n || E'. The spice\n must  flow.', 8,
+                'Chapter ' || k || E' of book ' || n || CASE WHEN n = {{QuoteSpaceBeforePeriod}} AND k = 1 THEN E'. The spice\n must  flow .' ELSE E'. The spice\n must  flow.' END, 8,
                 CASE WHEN n % 2 = 0 AND n <> {{Clip}} THEN 'p' || k WHEN k = 1 THEN 'one' END,
                 CASE WHEN n % 2 = 0 THEN 1 END, CASE WHEN n % 2 = 0 THEN 5 END, {{T}} + n * interval '1 hour' + interval '1 minute'
             FROM generate_series(1, {{books}}) n, generate_series(1, 2) k
             WHERE k = 1 OR (n % 2 = 1 AND n <> {{Clip}});
-            -- highlights: anchored on chapter 1 of every fourth epub (whitespace differs from the text), PDF ones, a deleted upload's trail
+            -- highlights: anchored on chapter 1 of every fourth epub (whitespace differs from the text; book QuoteSpaceBeforePeriod's
+            -- text has a space before its final period, owner 2026-11-09), PDF ones, a deleted upload's trail
             INSERT INTO highlights (id, user_id, site_id, user_book_id, user_chapter_id, anchor_json, color, selected_text, note_text, version, created_at, updated_at)
             SELECT {{Sql("d0000000", "n")}}, {{owner}}, '{{Site}}'::uuid, {{b}},
                 CASE WHEN n % 2 = 1 THEN {{Sql("c0000000", "n * 10 + 1")}} END,
                 CASE WHEN n % 2 = 1
                     THEN jsonb_build_object('prefix', 'The ', 'exact', 'spice must', 'suffix', ' flow', 'startOffset', 4, 'endOffset', 14, 'chapterId', {{Sql("c0000000", "n * 10 + 1")}})
                     ELSE '{"v":1,"kind":"pdf","page":2,"rects":[{"x":0.1,"y":0.2,"w":0.3,"h":0.04}],"exact":"torque"}'::jsonb END,
-                'yellow', CASE WHEN n % 2 = 1 THEN E'spice\tmust' ELSE 'torque' END, CASE WHEN n % 3 = 0 THEN 'note ' || n END, 1 + n % 3,
+                'yellow', CASE WHEN n = {{QuoteSpaceBeforePeriod}} THEN 'must flow.' WHEN n % 2 = 1 THEN E'spice\tmust' ELSE 'torque' END, CASE WHEN n % 3 = 0 THEN 'note ' || n END, 1 + n % 3,
                 {{T}} + n * interval '2 hour', {{T}} + n * interval '3 hour'
             FROM generate_series(1, {{books}}) n WHERE (n % 4 = 1 AND n <> {{Clip}}) OR n % 6 = 0;
             INSERT INTO highlights (id, user_id, site_id, anchor_json, color, selected_text, version, created_at, updated_at, deleted_book_sha256, deleted_chapter_slug)
