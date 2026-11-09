@@ -24,6 +24,21 @@ internal static class ProductionShapes
     /// <summary>An anchored highlight ("must flow.") whose chapter text reads "must  flow ." (owner 2026-11-09).</summary>
     public const int QuoteSpaceBeforePeriod = 5;
 
+    /// <summary>
+    /// #1150: the anchored highlights of every n % 8 = 5 book are mobile-shaped (no offsets; etl-v2 computes them); book
+    /// AnchorQuoteNotFound's also quotes text its chapter lacks (carried without offsets, reported).
+    /// </summary>
+    public const int AnchorQuoteNotFound = 17;
+
+    /// <summary>#1150: an anchor with legacy mobile's pre-#456 50-character prefix (valid offsets): carried, reported.</summary>
+    public const int AnchorLongContext = 25;
+
+    /// <summary>#1150: an anchor with an empty exact (valid offsets): carried, reported.</summary>
+    public const int AnchorEmptyExact = 33;
+
+    /// <summary>#1150: chapter 1's slug is 201 characters, so its anchor's chapterKey is past V2's 200: carried, reported.</summary>
+    public const int AnchorLongChapterKey = 41;
+
     public const int Users = 30, Guests = 5;
 
     public const string Site = "11111111-1111-1111-1111-111111111111";
@@ -132,17 +147,19 @@ internal static class ProductionShapes
             SELECT {{Sql("c0000000", "n * 10 + k")}}, {{b}}, k - 1, 'Chapter ' || k,
                 '<p>Chapter ' || k || ' of book ' || n || '. The spice must flow.</p><img src="/storage/x.png">',
                 'Chapter ' || k || E' of book ' || n || CASE WHEN n = {{QuoteSpaceBeforePeriod}} AND k = 1 THEN E'. The spice\n must  flow .' ELSE E'. The spice\n must  flow.' END, 8,
-                CASE WHEN n % 2 = 0 AND n <> {{Clip}} THEN 'p' || k WHEN k = 1 THEN 'one' END,
+                CASE WHEN n % 2 = 0 AND n <> {{Clip}} THEN 'p' || k WHEN k = 1 AND n = {{AnchorLongChapterKey}} THEN repeat('k', 201) WHEN k = 1 THEN 'one' END,
                 CASE WHEN n % 2 = 0 THEN 1 END, CASE WHEN n % 2 = 0 THEN 5 END, {{T}} + n * interval '1 hour' + interval '1 minute'
             FROM generate_series(1, {{books}}) n, generate_series(1, 2) k
             WHERE k = 1 OR (n % 2 = 1 AND n <> {{Clip}});
             -- highlights: anchored on chapter 1 of every fourth epub (whitespace differs from the text; book QuoteSpaceBeforePeriod's
-            -- text has a space before its final period, owner 2026-11-09), PDF ones, a deleted upload's trail
+            -- text has a space before its final period, owner 2026-11-09; some offset-less, #1150), PDF ones, a deleted upload's trail
             INSERT INTO highlights (id, user_id, site_id, user_book_id, user_chapter_id, anchor_json, color, selected_text, note_text, version, created_at, updated_at)
             SELECT {{Sql("d0000000", "n")}}, {{owner}}, '{{Site}}'::uuid, {{b}},
                 CASE WHEN n % 2 = 1 THEN {{Sql("c0000000", "n * 10 + 1")}} END,
                 CASE WHEN n % 2 = 1
-                    THEN jsonb_build_object('prefix', 'The ', 'exact', 'spice must', 'suffix', ' flow', 'startOffset', 4, 'endOffset', 14, 'chapterId', {{Sql("c0000000", "n * 10 + 1")}})
+                    THEN jsonb_build_object('prefix', CASE WHEN n = {{AnchorLongContext}} THEN repeat('x', 46) || 'The ' ELSE 'The ' END, 'exact', CASE WHEN n = {{AnchorQuoteNotFound}} THEN 'melange' WHEN n = {{AnchorEmptyExact}} THEN '' ELSE 'spice must' END, 'suffix', ' flow',
+                                            'chapterId', {{Sql("c0000000", "n * 10 + 1")}})
+                         || CASE WHEN n % 8 = 5 OR n = {{AnchorQuoteNotFound}} THEN '{}' ELSE '{"startOffset":4,"endOffset":14}' END::jsonb
                     ELSE '{"v":1,"kind":"pdf","page":2,"rects":[{"x":0.1,"y":0.2,"w":0.3,"h":0.04}],"exact":"torque"}'::jsonb END,
                 'yellow', CASE WHEN n = {{QuoteSpaceBeforePeriod}} THEN 'must flow.' WHEN n % 2 = 1 THEN E'spice\tmust' ELSE 'torque' END, CASE WHEN n % 3 = 0 THEN 'note ' || n END, 1 + n % 3,
                 {{T}} + n * interval '2 hour', {{T}} + n * interval '3 hour'
