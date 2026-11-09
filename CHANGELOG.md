@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Infra** — the ETL computes `startOffset`/`endOffset` for legacy offset-less highlight anchors (within V2’s own caps; quote search with the #1148 normalization); every anchor V2 would refuse on edit is named in the report with its reason (#1150) — backend · [details](docs/changelog-archive/2026-H2.md#2026-11-09-infra-the-etl-computes-offsets-for-legacy-offset-)
 - **Infra** — the etl-v2 quote check also ignores whitespace before punctuation (owner 2026-11-09, found by the first isolated rehearsal on a restored backup) — backend
 - **Infra** — M3.4: `database/v2/scripts/validate-etl.sql` (read-only re-check of a real ETL run from SQL alone) and the whole-run ETL tests T1–T4 — interrupted, retry, concurrent, idempotent — on a fixture mirroring production shapes (#1029) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-11-09-m3-4-validate-etl-t1-t4)
 - **Infra** — `0005_book_formats`: V2 `book_files.format` takes fb2, mobi, azw3, cbz (ADR-031 amended 2026-11-07, ADR-032); the ETL carries legacy's fb2 uploads; the down refuses while any row holds a new format (#1013, owner-approved diff) — infra
