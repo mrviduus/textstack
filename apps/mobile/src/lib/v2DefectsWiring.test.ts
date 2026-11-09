@@ -28,8 +28,16 @@ describe('#1142 — cached uploads changed by V2 reach the download state', () =
 describe('#1143 — the upload screen honours Cancel and drops the picker copy', () => {
   const upload = read('app/my-books/upload.tsx')
 
-  it('a cancelled V2 upload never navigates', () => {
-    expect(upload).toContain('if (unmountedRef.current || v2CancelledRef.current) return')
+  it('each pick has its own cancel token; a cancelled or superseded upload never navigates', () => {
+    expect(upload).not.toContain('v2CancelledRef')
+    expect(upload).toContain('const live = () => uploadRef.current === upload && !upload.cancelled && !unmountedRef.current')
+    expect(upload).toContain('deviceUploadIo(() => upload.cancelled)')
+    expect(upload.match(/if \(!live\(\)\) return/g)).toHaveLength(3)
+  })
+
+  it('only the current upload resets the screen in finally', () => {
+    const fin = upload.slice(upload.lastIndexOf('} finally {'))
+    expect(fin).toMatch(/if \(uploadRef\.current === upload\) \{\s*if \(!unmountedRef\.current\) setUploading\(false\)\s*xhrRef\.current = null/)
   })
 
   it('the picker copy is deleted in finally, best-effort', () => {

@@ -157,7 +157,8 @@ export function onCachedUserBooksChanged(listener: CachedUserBooksListener): () 
 }
 
 function notifyCachedUserBooksChanged(bookIds: string[]) {
-  if (bookIds.length > 0) for (const l of cachedUserBooksListeners) l(bookIds)
+  // A throwing listener must not fail the write that already committed (nor skip the caller's cleanup).
+  if (bookIds.length > 0) for (const l of cachedUserBooksListeners) try { l(bookIds) } catch (e) { console.warn('[offlineDb] change listener failed:', e) }
 }
 
 // ============ CHAPTERS ============

@@ -146,6 +146,15 @@ describe('offlineDb on V2 (real SQLite)', () => {
     expect(heard).toEqual([['b1'], ['guest-b']])
   })
 
+  // A throwing listener never fails the committed drop (the caller still deletes the originals).
+  it('onCachedUserBooksChanged_ListenerThrows_DropStillResolves', async () => {
+    const m = await coldStart()
+    const off = m.onCachedUserBooksChanged(() => { throw new Error('boom') })
+    await m.cacheUserChapter('b1', ch('old', 'f-old'), 1)
+    await expect(m.dropReplacedUserBookFiles([{ bookId: 'b1', fileId: 'f-cur' }])).resolves.toEqual(['b1'])
+    off()
+  })
+
   it('refreshCachedUserChapter_LegacyRefreshWithoutFileId_KeepsStoredFileId', async () => {
     const m = await coldStart()
     await m.cacheUserChapter('b1', ch('s', 'f1'), 1)

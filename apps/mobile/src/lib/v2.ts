@@ -30,12 +30,18 @@ let unreached = false
  * session (AuthContext) and by the first call that needs the answer, whichever comes first.
  */
 export function startV2Probe(): Promise<V2Switch> {
-  probe ??= v2Api.getStatus().then(
+  if (probe) return probe
+  const seen = onlineEvents
+  probe = v2Api.getStatus().then(
     (s) => (known = { enabled: true, maxPartBytes: s.maxPartBytes }),
     (e) => {
       if (e instanceof ApiError && e.status === 401) probe = null
       // Never reached, or V2 paused (503 `v2_unavailable`): asked again after a reconnect. 404 = unmapped, off.
-      else if ((unreached = isOfflineError(e) || (e instanceof ApiError && e.status === 503))) watchReconnect()
+      else if ((unreached = isOfflineError(e) || (e instanceof ApiError && e.status === 503))) {
+        watchReconnect()
+        // The network came back while this one was in flight: that reconnect is spent, so ask again now.
+        if (onlineEvents !== seen) forgetUnreached()
+      }
       return V2_OFF
     },
   )
@@ -50,6 +56,8 @@ function forgetUnreached() {
 }
 
 let watching = false
+/** Online events seen: a probe in flight across one is not left stale when it then fails. */
+let onlineEvents = 0
 
 /**
  * The network coming back marks an unreached probe stale here, inside the NetInfo event (#1141).
@@ -61,7 +69,9 @@ function watchReconnect() {
   if (watching) return
   watching = true
   NetInfo.addEventListener((s) => {
-    if (s.isInternetReachable ?? s.isConnected) forgetUnreached()
+    if (!(s.isInternetReachable ?? s.isConnected)) return
+    onlineEvents++
+    forgetUnreached()
   })
 }
 
@@ -102,6 +112,7 @@ export const v2Store = {
     for (const cache of [this.books, this.chapters, this.states, this.annotations, this.pulled, this.revisions]) cache.clear()
     v2Api.forgetPulls()
     pulling = null
+    epoch++
   },
 }
 
@@ -129,6 +140,8 @@ async function dropReplaced(list: V2Book[]): Promise<void> {
 }
 
 let pulling: Promise<V2Book[]> | null = null
+/** Bumped by `v2Store.reset()`: a pull that started before it never writes into the next account's store. */
+let epoch = 0
 
 /**
  * The library feed, whole. Concurrent callers share one pull AND its cleanup (#1140): one
@@ -136,8 +149,10 @@ let pulling: Promise<V2Book[]> | null = null
  */
 export function pullV2Books(): Promise<V2Book[]> {
   if (pulling) return pulling
+  const started = epoch
   const pull: Promise<V2Book[]> = (async () => {
     const { items } = await v2Api.pullFeed<V2Book>('library')
+    if (started !== epoch) return items // signed out (or another account) meanwhile: not this store's
     books.clear()
     for (const b of items) books.set(b.id, b)
     await dropReplaced(items)
@@ -189,8 +204,9 @@ const totalWords = (toc: V2FileChapters) =>
  * either); one chapters call per book per load, for status and counts.
  */
 export async function getV2UserBooks(): Promise<UserBookDto[]> {
+  const started = epoch
   const [list, reading] = await Promise.all([pullV2Books(), v2Api.pullFeed<V2ReadingState>('reading')])
-  for (const s of reading.items) v2Store.states.set(s.bookId, s)
+  if (started === epoch) for (const s of reading.items) v2Store.states.set(s.bookId, s)
   const stateOf = v2Store.states
   return Promise.all(list.filter((b) => !b.removedAt).map(async (b): Promise<UserBookDto> => {
     // One failing call (content removed, a 503) costs that book its status, never the shelf.
@@ -514,6 +530,11 @@ export async function uploadV2Book(
         onProgress?.(((i + 1) / partCount) * 100)
       }
     }
+    // Cancelled: a book whose content never completed would sit on the shelf as Failed with no action
+    // on V2 (no retry), so the one this upload imported goes. Picking the file again starts afresh.
+    const dropIfCancelled = async (e: unknown) => {
+      if ((e as { aborted?: boolean }).aborted && imported) await v2Api.removeBook(bookId).catch(() => {})
+    }
     const quota = (e: unknown) => {
       const err = v2Api.v2ErrorOf(e)
       return err?.code === 'quota_exceeded' ? new V2UploadError('quota_exceeded', err.current as { used: number; limit: number }) : e
@@ -524,9 +545,7 @@ export async function uploadV2Book(
       try {
         await sendAll()
       } catch (e) {
-        // Cancelled: a book without bytes would sit on the shelf as Failed with no action on V2 (no
-        // retry), so the one this upload imported goes. Picking the file again starts afresh.
-        if ((e as { aborted?: boolean }).aborted && imported) await v2Api.removeBook(bookId).catch(() => {})
+        await dropIfCancelled(e)
         throw quota(e)
       }
       try {
@@ -536,7 +555,10 @@ export async function uploadV2Book(
         const err = v2Api.v2ErrorOf(e)
         if (err?.code === 'quota_exceeded') throw quota(e)
         const again = !retried && (err?.code === 'incomplete_upload'
-          || (err?.code === 'content_mismatch' && (await sha256Of(source, io.yieldNow)) === sha256))
+          || (err?.code === 'content_mismatch' && (await sha256Of(source, io.yieldNow).catch(async (abort) => {
+            await dropIfCancelled(abort) // a cancel during the re-hash: never completed, same as a cancelled send
+            throw abort
+          })) === sha256))
         if (again) continue
         throw err?.code === 'content_mismatch' ? new V2UploadError('content_mismatch') : e
       }

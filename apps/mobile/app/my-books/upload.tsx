@@ -43,8 +43,12 @@ function UploadScreen() {
   const [ownsRights, setOwnsRights] = useState(false)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
   const unmountedRef = useRef(false)
-  // V2 parts go one by one through fetch: Cancel stops before the next part (no XHR to abort).
-  const v2CancelledRef = useRef(false)
+  // The upload this screen is running, one token per pick (#1143): Cancel marks it, and an older
+  // upload that is still finishing never navigates or resets the screen of a newer one. V2 parts go
+  // one by one through fetch: Cancel stops before the next part or hash chunk (no XHR to abort).
+  // ponytail: a part already in flight finishes (one part's network time); abort it via a fetch
+  // signal if that window matters.
+  const uploadRef = useRef<{ cancelled: boolean } | null>(null)
 
   useEffect(() => {
     // A guest now gets this figure, and it is the truth: their `Guest` tier
@@ -63,7 +67,7 @@ function UploadScreen() {
   useEffect(() => {
     return () => {
       unmountedRef.current = true
-      v2CancelledRef.current = true
+      if (uploadRef.current) uploadRef.current.cancelled = true
       if (xhrRef.current) {
         try { xhrRef.current.abort() } catch {}
         xhrRef.current = null
@@ -108,7 +112,7 @@ function UploadScreen() {
   }
 
   const handleCancel = () => {
-    v2CancelledRef.current = true
+    if (uploadRef.current) uploadRef.current.cancelled = true
     if (xhrRef.current) {
       try { xhrRef.current.abort() } catch {}
       xhrRef.current = null
@@ -125,6 +129,10 @@ function UploadScreen() {
     }
     setError(null)
     setUploadProgress(0)
+    const upload = { cancelled: false }
+    uploadRef.current = upload
+    /** This upload is still the screen's, and nobody cancelled it. */
+    const live = () => uploadRef.current === upload && !upload.cancelled && !unmountedRef.current
     // The picker's copy in cache/DocumentPicker/ (#1143): deleted once this upload ends, however it ends.
     let pickedUri: string | null = null
     try {
@@ -148,10 +156,9 @@ function UploadScreen() {
       // library open that book instead.
       const v2 = await startV2Probe()
       if (v2.enabled) {
-        v2CancelledRef.current = false
         const { bookId, existing } = await uploadV2Book(
-          file, v2.maxPartBytes, deviceUploadIo(() => v2CancelledRef.current), setUploadProgress)
-        if (unmountedRef.current || v2CancelledRef.current) return
+          file, v2.maxPartBytes, deviceUploadIo(() => upload.cancelled), setUploadProgress)
+        if (!live()) return
         if (existing) {
           router.replace(`/my-books/${bookId}`)
           return
@@ -200,7 +207,7 @@ function UploadScreen() {
         xhr.send(formData)
       })
 
-      if (unmountedRef.current) return
+      if (!live()) return
       // The book the reader just added is the one they are most likely to open
       // next, so fetch it now rather than waiting for the next reconnect. Not
       // awaited: the screen closes immediately, the sweep runs behind it, and
@@ -212,14 +219,17 @@ function UploadScreen() {
       void syncOfflineLibrary().catch(err => console.warn('[auto-download] post-upload sweep failed:', err))
       router.back()
     } catch (e: any) {
-      if (unmountedRef.current) return
+      if (!live()) return
       // Cancellation is an intentional user action — don't show an error
       // banner, just reset state.
       if (e?.aborted) return
       setError(e?.message || 'Upload failed')
     } finally {
-      if (!unmountedRef.current) setUploading(false)
-      xhrRef.current = null
+      // A superseded upload leaves the screen to the one running now.
+      if (uploadRef.current === upload) {
+        if (!unmountedRef.current) setUploading(false)
+        xhrRef.current = null
+      }
       // Best-effort: a cleanup failure never fails the upload (the OS clears the cache eventually).
       if (pickedUri) try { new File(pickedUri).delete() } catch {}
     }

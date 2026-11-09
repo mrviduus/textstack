@@ -102,6 +102,55 @@ describe('mobile v2', () => {
     expect(net.__count()).toBe(before + 1)
   })
 
+  // #1140 review: a pull that outlives a sign-out never fills the next account's store.
+  it('a pull that started before v2Store.reset does not write the store', async () => {
+    let answer!: () => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => {
+      answer = () => resolve({ ok: true, status: 200, text: async () => JSON.stringify({ items: [{ id: 'old-acct-book', currentFile: null }], cursor: null, hasMore: false }) })
+    })))
+    const first = pullV2Books()
+    await Promise.resolve()
+    v2Store.reset()
+    answer()
+    await first
+    expect(v2Store.books.size).toBe(0)
+  })
+
+  // #1141 review: the network came back while a probe was in flight, and that probe then failed offline.
+  it('a probe that fails after an online event mid-flight is asked again', async () => {
+    const net = NetInfo as unknown as { __emit(s: object): void }
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network request failed') }))
+    await startV2Probe() // unreached: NetInfo is watched
+    net.__emit({ isConnected: true, isInternetReachable: true }) // stale: the next call asks again
+    let fail!: () => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((_, reject) => { fail = () => reject(new TypeError('Network request failed')) })))
+    const call = switched(async () => 'v2', async () => 'legacy')
+    const inFlight = call()
+    await Promise.resolve()
+    net.__emit({ isConnected: true, isInternetReachable: true }) // online again while that probe is in flight
+    fail()
+    expect(await inFlight).toBe('legacy')
+    fakeApi({ 'GET /status': [{ status: 200, body: { maxPartBytes: 1024 } }] })
+    expect(await call()).toBe('v2')
+  })
+
+  // #1143 review: a cancel during the re-hash after content_mismatch removes the book it imported.
+  it('a cancel during the content_mismatch re-hash removes the imported book', async () => {
+    const calls: Call[] = []
+    vi.stubGlobal('fetch', wrapIds(calls, [conflict('content_mismatch')]))
+    let hashes = 0
+    const device: UploadIo = {
+      ...io(),
+      yieldNow: async () => {
+        if (calls.some((c) => c.method === 'POST')) hashes++ // only the re-hash, after complete answered
+        if (hashes > 0) throw Object.assign(new Error('Upload cancelled'), { aborted: true })
+      },
+    }
+    await expect(uploadV2Book({ uri: 'u', name: 'a.epub' }, 25, device)).rejects.toMatchObject({ aborted: true })
+    const put = calls.find((c) => c.method === 'PUT')!
+    expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: put.path })
+  })
+
   // #1143: Cancel during the hash stops within one chunk, before any request.
   it('a cancel during hashing stops after the current chunk', async () => {
     const big = new Uint8Array(4 * 1024 * 1024)
