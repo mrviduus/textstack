@@ -691,6 +691,18 @@ export async function rekeyCachedUserBooks(books: Record<string, string>, files:
   notifyCachedUserBooksChanged(Object.entries(books).flat())
 }
 
+/** Any local rows for this upload: a meta row, or chapters the reader cached while reading online
+ *  with no meta row (#1174). A server-deleted book offers "Remove download" on this. */
+export async function hasAnyUserBookCache(bookId: string): Promise<boolean> {
+  const d = await getDb()
+  if (!d) return false
+  const row = await d.getFirstAsync(
+    'SELECT 1 FROM cached_user_books WHERE book_id = ? UNION ALL SELECT 1 FROM user_chapters WHERE book_id = ? LIMIT 1',
+    [bookId, bookId],
+  )
+  return row != null
+}
+
 export async function isUserBookFullyCached(bookId: string): Promise<boolean> {
   const meta = await getCachedUserBookMeta(bookId)
   if (!meta) return false

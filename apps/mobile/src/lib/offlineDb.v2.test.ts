@@ -215,4 +215,17 @@ describe('offlineDb on V2 (real SQLite)', () => {
     ])
     expect(db.prepare("SELECT count(*) AS n FROM cached_user_books WHERE book_id IN ('guest-b', 'acct-b')").get()).toEqual({ n: 1 })
   })
+
+  // #1174: a server-deleted book offers "Remove download" for a partial copy too.
+  it('hasAnyUserBookCache_MetaOnlyChaptersOnlyNeither', async () => {
+    const m = await coldStart()
+    await m.setCachedUserBookMeta(meta('meta-only', null))
+    await m.cacheUserChapter('chapters-only', ch('s1', null), 1) // read online, never downloaded: no meta row
+    expect(await m.getCachedUserBookMeta('chapters-only')).toBeNull()
+    expect(await m.hasAnyUserBookCache('meta-only')).toBe(true)
+    expect(await m.hasAnyUserBookCache('chapters-only')).toBe(true)
+    expect(await m.hasAnyUserBookCache('neither')).toBe(false)
+    await m.deleteCachedUserBook('chapters-only')
+    expect(await m.hasAnyUserBookCache('chapters-only')).toBe(false)
+  })
 })
