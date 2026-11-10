@@ -10,7 +10,8 @@ import { tokenizeVocabWords } from '../../../../../packages/shared/src/text/voca
 import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
 import { mergeOverlay } from './overlays.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
-import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256Yielding, uuidV4, withHighlight, withPosition } from './store.mjs'
+import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { uuidV4 } from './uuid.mjs'
 import { openableHref, sentenceOf } from './tap.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
@@ -271,14 +272,25 @@ async function restoreInto(json) {
   return result
 }
 
+/**
+ * SyncLimits.MaxSelectedText (backend/src/Contracts/V2/SyncLimits.cs), checked in UTF-16 units by
+ * SyncValidation.Text: a longer selection could never sync.
+ */
+const MAX_SELECTED_TEXT = 4000
+
 /** The last non-empty selection as a highlight: CFI + selection (+ its ≤64-code-point quote) + 30 chars of context, saved. */
 function highlightSelection() {
   const s = lastSelection
   if (!s || s.range.collapsed) return null
   // Before `restored` there is nothing to add to, and saving now would overwrite the stored entry.
   if (!entry) return log('warn', 'highlightSelection ignored: the stored entry is not restored yet')
-  const loc = rangeToLocator(s.doc.body, s.range, String(s.index))
   const selectedText = s.range.toString()
+  // An image-only selection has no text: withHighlight would drop it, and the page would draw and
+  // announce a highlight that was never stored.
+  if (!selectedText) return log('warn', 'highlightSelection ignored: the selection has no text')
+  // Refused, not cut: a cut selectedText no longer reads as the text at the CFI, so it would never restore.
+  if (selectedText.length > MAX_SELECTED_TEXT) return log('warn', `highlightSelection ignored: over ${MAX_SELECTED_TEXT} characters`)
+  const loc = rangeToLocator(s.doc.body, s.range, String(s.index))
   const h = {
     id: uuidV4(), cfi: view.getCFI(s.index, s.range), index: s.index,
     quote: quoteOf(selectedText), selectedText, prefix: loc?.text?.before ?? '', suffix: loc?.text?.after ?? '', color: 'yellow', at: Date.now(),

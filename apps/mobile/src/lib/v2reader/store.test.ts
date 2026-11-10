@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256, sha256Yielding, uuidV4, withHighlight, withPosition } from './store.mjs'
+import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { uuidV4 } from './uuid.mjs'
 
 const book = { sha256: 'ab'.repeat(32), size: 1234, name: 'a.epub' }
 const pos = { cfi: 'epubcfi(/6/8!/4/2/1:5)', quote: 'Alice was beginning', index: 3, fraction: 0.1, at: 1 }

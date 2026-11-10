@@ -108,7 +108,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 |---|---|
 | `openUrl(url, name)` | Reads the retained EPUB by XHR (`file://…`) and opens it. Answers `opened` or `open-failed`. A second call supersedes the first, which then answers nothing. |
 | `restore(json \| null)` | The answer to `opened`: the JSON last sent in `store` for that `book.sha256`, or null. |
-| `highlightSelection()` | The last non-empty selection becomes a highlight; sends `store` and `highlighted`. |
+| `highlightSelection()` | The last non-empty selection becomes a highlight; sends `store` and `highlighted`. A selection with no text (an image) or over 4000 UTF-16 units (`SyncLimits.MaxSelectedText`) is ignored with a `warn` log. |
 | `goTo(target)` | CFI, href or section index. Queued behind the previous navigation. |
 | `section(±1)`, `next()`, `prev()` | Section / page step, queued. |
 | `font(delta)` | Font size ±px, clamped 12–32; returns the new size. No-op before `opened`. |

@@ -1,7 +1,7 @@
 // V2 local library (pure; the host does the file I/O). One entry per imported file:
 // { id, sha256, size, title, author, originalName, importedAt, openedAt }. `id` is the local book id;
 // `sha256` is the file identity (the retained copy is books/<sha256>.epub, reader data is keyed by it).
-import { uuidV4 } from './store.mjs'
+import { uuidV4 } from './uuid.mjs'
 
 export const LIBRARY_VERSION = 1
 

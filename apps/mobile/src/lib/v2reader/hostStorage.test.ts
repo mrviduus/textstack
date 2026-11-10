@@ -86,14 +86,14 @@ describe('v2 host storage', () => {
 
   it('addOpened_TwoConcurrentImports_BothLand', async () => {
     const { files } = memoryFiles()
-    const storage = createV2Storage(files)
+    const storage = createV2Storage(files, randomUUID)
     await Promise.all([storage.addOpened(book(SHA_A), null), storage.addOpened(book(SHA_B), null)])
     expect((await storage.books()).map((b) => b.sha256)).toEqual([SHA_A_KEY, SHA_B])
   })
 
   it('addOpened_SameBytesInUpperCase_ExistingEntryAndStagedCopyDropped', async () => {
     const { files, data } = memoryFiles()
-    const storage = createV2Storage(files)
+    const storage = createV2Storage(files, randomUUID)
     data.set('staging/1.epub', 'bytes')
     await storage.addOpened(book(SHA_A_KEY), 'staging/1.epub')
     data.set('staging/2.epub', 'bytes')
@@ -106,7 +106,7 @@ describe('v2 host storage', () => {
     const { files, data, ops } = memoryFiles()
     data.set(`books/${SHA_A_KEY}.epub`, 'retained')
     data.set('staging/1.epub', 'staged')
-    const { books } = await createV2Storage(files).addOpened(book(SHA_A_KEY), 'staging/1.epub')
+    const { books } = await createV2Storage(files, randomUUID).addOpened(book(SHA_A_KEY), 'staging/1.epub')
     expect(books.map((b) => b.sha256)).toEqual([SHA_A_KEY])
     expect(data.get(`books/${SHA_A_KEY}.epub`)).toBe('retained')
     expect(data.has('staging/1.epub')).toBe(false)
@@ -119,7 +119,7 @@ describe('v2 host storage', () => {
     data.set('library.json', 'old')
     data.set('staging/1.epub', 'staged')
     failOn(m, 'write', 'ENOSPC', { name: 'library.json.tmp' })
-    await expect(createV2Storage(files).addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('ENOSPC')
+    await expect(createV2Storage(files, randomUUID).addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('ENOSPC')
     expect([...data]).toEqual([['library.json', 'old']])
   })
 
@@ -129,7 +129,7 @@ describe('v2 host storage', () => {
     data.set(`books/${SHA_A_KEY}.epub`, 'retained')
     data.set('staging/1.epub', 'staged')
     failOn(m, 'write', 'ENOSPC')
-    await expect(createV2Storage(files).addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('ENOSPC')
+    await expect(createV2Storage(files, randomUUID).addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('ENOSPC')
     expect([...data]).toEqual([[`books/${SHA_A_KEY}.epub`, 'retained']])
   })
 
@@ -138,7 +138,7 @@ describe('v2 host storage', () => {
     const { files, data } = m
     data.set('staging/1.epub', 's')
     failOn(m, 'move', 'EIO', { name: 'library.json.tmp' })
-    const storage = createV2Storage(files)
+    const storage = createV2Storage(files, randomUUID)
     await expect(storage.addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('EIO')
     // No library.json: readRecovering reads the complete tmp, which lists the book, so its file stays.
     expect((await storage.books()).map((b) => b.sha256)).toEqual([SHA_A_KEY])
@@ -155,7 +155,7 @@ describe('v2 host storage', () => {
       if (from === 'library.json.tmp') { data.delete(to); throw new Error('rename failed') }
       return move(from, to)
     }
-    const storage = createV2Storage(files)
+    const storage = createV2Storage(files, randomUUID)
     await expect(storage.addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('rename failed')
     expect((await storage.books()).map((b) => b.sha256)).toEqual([SHA_A_KEY])
     expect(data.has(`books/${SHA_A_KEY}.epub`)).toBe(true)
@@ -167,7 +167,7 @@ describe('v2 host storage', () => {
     data.set('staging/1.epub', 'x')
     data.set('staging/2.epub', 'x')
     failOn(m, 'write', 'ENOSPC', { name: 'library.json.tmp', once: true })
-    const storage = createV2Storage(files)
+    const storage = createV2Storage(files, randomUUID)
     const [first, second] = await Promise.allSettled([storage.addOpened(book(SHA_A_KEY), 'staging/1.epub'), storage.addOpened(book(SHA_A_KEY), 'staging/2.epub')])
     expect([first.status, second.status]).toEqual(['rejected', 'fulfilled'])
     expect(await storage.books()).toHaveLength(1)
@@ -178,7 +178,7 @@ describe('v2 host storage', () => {
     const { files, data } = memoryFiles()
     data.set('staging/1.epub', 'x')
     data.set('staging/2.epub', 'x')
-    const storage = createV2Storage(files)
+    const storage = createV2Storage(files, randomUUID)
     await Promise.all([storage.addOpened(book(SHA_A_KEY), 'staging/1.epub'), storage.addOpened(book(SHA_A), 'staging/2.epub')])
     expect(await storage.books()).toHaveLength(1)
     expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${SHA_A_KEY}.epub`])
@@ -188,7 +188,7 @@ describe('v2 host storage', () => {
     const m = memoryFiles()
     const { files, data } = m
     failOn(m, 'move', 'disk', { once: true })
-    const storage = createV2Storage(files)
+    const storage = createV2Storage(files, randomUUID)
     const first = storage.writeStore(SHA_B, 'one')
     const second = storage.writeStore(SHA_B, 'two')
     await expect(first).rejects.toThrow('disk')
@@ -198,7 +198,7 @@ describe('v2 host storage', () => {
 
   it('writeStore_HostileKey_RejectsAndWritesNothing', async () => {
     const { files, ops } = memoryFiles()
-    const storage = createV2Storage(files)
+    const storage = createV2Storage(files, randomUUID)
     await expect(storage.writeStore('../../x', '{}')).rejects.toThrow('not a sha256')
     await expect(storage.addOpened(book('../x'), null)).rejects.toThrow('not a sha256')
     expect(ops).toEqual([])
@@ -207,7 +207,7 @@ describe('v2 host storage', () => {
   it('readStore_QueuedBehindAWrite_ReadsTheNewValue', async () => {
     const { files, data } = memoryFiles()
     data.set(`store/${SHA_B}.json`, 'old')
-    const storage = createV2Storage(files)
+    const storage = createV2Storage(files, randomUUID)
     const write = storage.writeStore(SHA_B, 'new')
     expect(await storage.readStore(SHA_B)).toBe('new')
     await write
@@ -215,7 +215,7 @@ describe('v2 host storage', () => {
 
   it('writeStore_UpperCaseKey_ReadBackUnderLowerCaseVerbatim', async () => {
     const { files, data } = memoryFiles()
-    const storage = createV2Storage(files)
+    const storage = createV2Storage(files, randomUUID)
     await storage.writeStore(SHA_A, '{"v":1, "kept":"as sent"}')
     expect(data.get(`store/${SHA_A_KEY}.json`)).toBe('{"v":1, "kept":"as sent"}')
     expect(await storage.readStore(SHA_A_KEY)).toBe('{"v":1, "kept":"as sent"}')

@@ -189,7 +189,7 @@ fraction`, `clientRecordedAt = at`.
 | `expectedRevision` | int64 \| null | yes (may be null) | null = create |
 | `bookId` | uuid | yes | |
 | `fileId` | uuid | if `locator` | **any** version of this book, current or not: a highlight made offline in a superseded version is still valid provenance |
-| `selectedText` | string | yes | non-blank, ≤ 4000 (`SyncLimits.MaxSelectedText`; legacy had no cap); the full selection (the page's `quote`) |
+| `selectedText` | string | yes | non-blank, ≤ 4000 (`SyncLimits.MaxSelectedText`; legacy had no cap); the full selection (the page's `selectedText`; the page refuses a highlight over the cap). The page's `quote` is only its first ≤64 code points, for `locator.quote` |
 | `noteText` | string | no | |
 | `locator` | locator | no | `epub-cfi`: `value` = CFI, optional `quote` (≤64 code points), optional `prefix`/`suffix` (≤32 code points each; the page's 30-char context) as sibling keys — opaque to the server |
 | `color` | string | yes | default `yellow`; not enumerated server-side |
@@ -955,14 +955,16 @@ Annotations and vocabulary (M1.3, schema comments):
 
 Clients and legacy (R2, R6, STATUS):
 
-- **Client ids are not UUIDs**: `library.mjs` `randomId()` = `lb_<base36>`, `page.mjs` highlight id =
-  `h<base36 ms>` (two highlights in one ms collide). ADR-031 rule 3 needs v4 UUIDs; R6 must mint them.
-- **Position quote cut by UTF-16 units**: `page.mjs:173` `.slice(0, 64)` can split a surrogate pair;
-  the lone half is not valid UTF-8, so the stored quote changes and resume reports a mismatch. Cut by
-  code points.
-- **Highlight `quote` is the full selection** (`page.mjs:276`), but `locator.quote` is capped at 64
+- **Fixed (#1078, 2026-11-10): client ids are not UUIDs**: `library.mjs` `randomId()` = `lb_<base36>`, `page.mjs` highlight id =
+  `h<base36 ms>` (two highlights in one ms collide). ADR-031 rule 3 needs v4 UUIDs. Now `uuid.mjs` `uuidV4()`
+  (getRandomValues) on the page and the web host, Expo's `uuid.v4` on the RN host.
+- **Fixed (#1078, 2026-11-10): position quote cut by UTF-16 units**: `page.mjs:173` `.slice(0, 64)` can split a surrogate pair;
+  the lone half is not valid UTF-8, so the stored quote changes and resume reports a mismatch. Now cut by
+  code points (`store.mjs` `quoteOf`).
+- **Fixed (#1078, 2026-11-10): highlight `quote` is the full selection** (`page.mjs:276`), but `locator.quote` is capped at 64
   (`is_locator`): the selection belongs in `selectedText`. Prefix/suffix have no home in ADR-031; this
-  PDD puts them in the envelope as opaque siblings (ADR-031 should say so).
+  PDD puts them in the envelope as opaque siblings (ADR-031 says so, amended 2026-11-10). Now the
+  page stores `selectedText` (full selection, refused over 4000) beside a ≤64-code-point `quote`.
 - **STATUS "Mobile chunked upload: RN cannot slice an opaque `file://`"** is stale for app-owned files:
   expo-file-system 57 `File.open()` → `FileHandle.offset` + `readBytes`. Still true for a picker's
   `content://` URI, which V2 copies to staging first anyway.

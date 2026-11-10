@@ -17,18 +17,6 @@ export function emptyEntry(book) {
 /** The first ≤64 code points: a UTF-16 cut can split a surrogate pair, whose lone half has no UTF-8 form. */
 export const quoteOf = (text) => /^[\s\S]{0,64}/u.exec(text)[0]
 
-/**
- * A v4 UUID (ADR-031 rule 3: client ids, never renumbered) from getRandomValues: crypto.randomUUID needs
- * a secure context, which the page at origin "null" may not be. Hermes has no `crypto`: the RN host
- * passes Expo's uuid instead.
- */
-export function uuidV4() {
-  const b = crypto.getRandomValues(new Uint8Array(16))
-  b[6] = (b[6] & 0x0f) | 0x40
-  b[8] = (b[8] & 0x3f) | 0x80
-  return [...b].map((x) => x.toString(16).padStart(2, '0')).join('').replace(/^(.{8})(.{4})(.{4})(.{4})/, '$1-$2-$3-$4-')
-}
-
 /** A position or highlight this code can act on: a CFI and the text that was there. */
 const isQuoted = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && typeof x.quote === 'string' && x.quote.length > 0
 /** A highlight's `selectedText` is optional (older entries), but when present it is what restore compares. */
