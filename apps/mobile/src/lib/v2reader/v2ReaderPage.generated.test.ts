@@ -68,8 +68,11 @@ describe('v2ReaderPageHtml', () => {
     const html = v2ReaderPageHtml(NONCE)
     // A view that never rendered throws from close(); the next open must still work.
     expect(html).toMatch(/try \{\s*prev == null \? void 0 : prev\.close\(\);\s*\} catch/)
-    // The dying view's late relocate is dropped: the listener answers only the current view (#1168).
-    expect(html).toMatch(/if \(target !== view\) return;\s*post\(\{\s*type: "relocate"/)
+    // #1168, in this order: the new view and an empty overlay map are current BEFORE the old view closes
+    // (it still fires events then), and the old view leaves the DOM.
+    expect(html).toMatch(/const prev = view;\s*view = document\.createElement\("foliate-view"\);\s*overlays\.clear\(\);\s*try \{\s*prev == null \? void 0 : prev\.close\(\);[\s\S]{0,200}?\}\s*prev == null \? void 0 : prev\.remove\(\);/)
+    // The dying view's late relocate is dropped: the listener answers only the current view, by the event's target.
+    expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+, target \}\) => \{\s*(var [^;]*;\s*)?if \(target !== view\) return;\s*post\(\{\s*type: "relocate"/)
     // restoring is cleared however restore ends, or the page saves nothing for the rest of the session.
     expect(html).toMatch(/\} finally \{[\s\S]{0,200}?restoring = false;/)
     // The renderer exists only after view.open() resolved.
