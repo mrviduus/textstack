@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 // ponytail: deep imports of apps/mobile source. The page and its library live there until the engine's home
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
 import { v2ReaderPageHtml } from '../../../../mobile/src/lib/v2reader/v2ReaderPage.generated'
 import { addOpened, emptyLibrary, parseLibrary, type LibraryEntry } from '../../../../mobile/src/lib/v2reader/library.mjs'
+import { nonceFromUuid } from '../../../../mobile/src/lib/v2reader/hostStorage'
 
 /**
  * The V2 reader page (ADR-029) on the web, dev server only (R5, #1037): a second host for the page the
@@ -33,8 +34,8 @@ function writeItem(key: string, value: string) {
 
 const readLibrary = () => parseLibrary(readItem(LIBRARY_KEY) ?? '') ?? emptyLibrary()
 
-/** 18 random bytes as hex: v2ReaderPageHtml wants base64/hex of 16+ chars, fresh per load. */
-const freshNonce = () => Array.from(crypto.getRandomValues(new Uint8Array(18)), (b) => b.toString(16).padStart(2, '0')).join('')
+/** The mobile host's nonce, from the browser's CSPRNG: fresh per load, as v2ReaderPageHtml requires. */
+const freshNonce = () => nonceFromUuid(crypto.randomUUID())
 
 /**
  * Stands in for react-native-webview inside the iframe, under the page's own nonce so its CSP admits it.
@@ -61,17 +62,20 @@ function withHostShim(html: string, nonce: string): string {
   return shimmed
 }
 
-/** The open in flight: `name` is unique per pick and echoed in `opened`/`open-failed`, so a superseded answer is dropped. */
-type Opening = { name: string; originalName: string }
+/**
+ * The open in flight: `name` is unique per pick and echoed in `opened`/`open-failed`, so a superseded
+ * answer is dropped. `bytes` until the page has been handed them (it may not be `ready` yet).
+ */
+type Opening = { name: string; originalName: string; bytes?: ArrayBuffer }
 
 export default function V2ReaderDevPage() {
   const frame = useRef<HTMLIFrameElement>(null)
-  const [nonce] = useState(freshNonce)
-  const srcDoc = useMemo(() => withHostShim(v2ReaderPageHtml(nonce), nonce), [nonce])
+  const [srcDoc] = useState(() => {
+    const nonce = freshNonce()
+    return withHostShim(v2ReaderPageHtml(nonce), nonce)
+  })
   const ready = useRef(false)
   const opening = useRef<Opening | null>(null)
-  /** Picked bytes the page has not been handed yet (it may not be `ready`). */
-  const pending = useRef<ArrayBuffer | null>(null)
   const picks = useRef(0)
   const [books, setBooks] = useState<LibraryEntry[]>(() => readLibrary().books)
   const [heading, setHeading] = useState('Pick an EPUB')
@@ -79,12 +83,13 @@ export default function V2ReaderDevPage() {
   const [restored, setRestored] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  const call = (name: string, ...args: unknown[]) => frame.current?.contentWindow?.postMessage({ call: name, args }, location.origin)
+  const call = (name: string, args: unknown[] = [], transfer: Transferable[] = []) =>
+    frame.current?.contentWindow?.postMessage({ call: name, args }, location.origin, transfer)
   const flushOpen = () => {
-    const bytes = pending.current
-    if (!ready.current || !bytes || !opening.current) return
-    pending.current = null
-    frame.current?.contentWindow?.postMessage({ call: 'openBytes', args: [bytes, opening.current.name] }, location.origin, [bytes])
+    const o = opening.current
+    if (!ready.current || !o?.bytes) return
+    call('openBytes', [o.bytes, o.name], [o.bytes])
+    o.bytes = undefined
   }
 
   const pick = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -96,9 +101,7 @@ export default function V2ReaderDevPage() {
     setHeading(`Opening ${file.name}`)
     setStatus('')
     setRestored('')
-    const bytes = await file.arrayBuffer()
-    opening.current = { name: `${++picks.current}/${file.name}`, originalName: file.name }
-    pending.current = bytes
+    opening.current = { name: `${++picks.current}/${file.name}`, originalName: file.name, bytes: await file.arrayBuffer() }
     flushOpen()
   }
 
@@ -117,7 +120,7 @@ export default function V2ReaderDevPage() {
         case 'opened': {
           const current = answered(m.book?.name)
           if (!current) return
-          call('restore', readItem(storeKey(m.book.sha256)))
+          call('restore', [readItem(storeKey(m.book.sha256))])
           setHeading([m.title || current.originalName, m.author].filter(Boolean).join(' — '))
           const { lib } = addOpened(readLibrary(), { ...m.book, title: m.title, author: m.author, originalName: current.originalName })
           writeItem(LIBRARY_KEY, JSON.stringify(lib))
@@ -128,7 +131,9 @@ export default function V2ReaderDevPage() {
           const current = answered(m.name)
           if (!current) return
           setError(`cannot open ${current.originalName}: ${m.error}`)
-          // The previous book's view still reports a last relocate while the page tears it down.
+          // The previous book's view still reports a last relocate while the page tears it down. Root cause:
+          // page.mjs's old view posts `relocate` during close() (mobile has the same gap); page-side fix
+          // (an `e.target !== view` guard) is filed as its own issue.
           setStatus('')
           opening.current = null
           return
@@ -144,7 +149,7 @@ export default function V2ReaderDevPage() {
           return
         case 'word':
           // Dev stub: no translation service here; the label proves the word → showTranslation round trip.
-          call('showTranslation', m.cfi, m.index, `dev: ${m.word}`)
+          call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
           return
         case 'openLink':
           if (/^https?:\/\//i.test(m.href)) window.open(m.href, '_blank', 'noopener,noreferrer')
@@ -177,7 +182,7 @@ export default function V2ReaderDevPage() {
           only script barrier (README "Sandbox"). A book script past it would reach this origin's localStorage
           AND its /api session cookie: more than Android's file:// exposes. Bounded only by main.tsx keeping
           the route on the dev server. */}
-      <iframe ref={frame} key={nonce} title="V2 reader" sandbox="allow-scripts allow-same-origin" srcDoc={srcDoc} style={{ flex: 1, border: '1px solid #ccc' }} />
+      <iframe ref={frame} title="V2 reader" sandbox="allow-scripts allow-same-origin" srcDoc={srcDoc} style={{ flex: 1, border: '1px solid #ccc' }} />
     </main>
   )
 }
