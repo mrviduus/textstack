@@ -43,8 +43,8 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   the fix it was 1–5 per 6 loads in Chromium, hundreds on Android).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. PDF/MOBI/FB2/CBZ/TTS/search are stubbed out.
-- **Size:** 236,666 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
-  not apply; this page's own budget is `BUDGET` in `build.mjs`, raised only by a deliberate PR.
+- **Size:** the script (unminified) is at most `BUDGET` characters in `build.mjs`: that constant is the one
+  source for the number. Reader-engine's 64 KB budget does not apply; `BUDGET` is raised only by a deliberate PR.
 - `BUDGET` is a tripwire by design, not a ceiling: it equals the committed size, so any growth fails `--check`
   until the PR that grows the page says so.
 - **Licences** stay in the output (`legalComments: 'inline'`): foliate-js MIT © John Factotum; zip.js BSD-3-Clause.

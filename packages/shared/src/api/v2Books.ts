@@ -189,10 +189,11 @@ export function createV2Books({ books, chapters, epoch, keepState, forgetState, 
     const reset = resetSince()
     const b = await v2Book(bookId)
     const state = await v2Api.getReadingState(bookId)
-    const first = (await v2Chapters(b)).items[0]?.chapterKey
+    const sameFile = state && state.fileId === b.currentFile?.id
+    // The book's start only when there is no place on this file: a TOC fetch never fails a mark-read that needs none.
+    const first = sameFile ? null : (await v2Chapters(b)).items[0]?.chapterKey
     // Signed out meanwhile: no write under the next account, and no 'nothing to mark' from its empty store.
     if (reset()) return 'dropped'
-    const sameFile = state && state.fileId === b.currentFile?.id
     const currentLocator = sameFile ? state.currentLocator : placeToV2Locator({ chapterSlug: first ?? null })
     if (!b.currentFile || !currentLocator) throw new ApiError(409, 'Nothing to mark read yet')
     const now = new Date().toISOString()

@@ -7,7 +7,7 @@
  * (`createV2Books`, `uploadV2File`, #1121); this file caches, maps and gives them its IO.
  */
 import {
-  v2Api, ApiError, V2_OFF, ingestionStatus, shelfFileSummary, resumeChapterOf, placeToV2Locator, createV2Books, uploadV2File, V2UploadError,
+  v2Api, ApiError, V2_OFF, ingestionStatus, shelfFileSummary, resumeChapterOf, placeToV2Locator, createV2Books, uploadV2File, V2UploadError, mb,
   type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2Annotation, type V2Word,
   type V2ReadingStateWrite, type V2Switch, type ProgressWrite,
 } from '@textstack/shared'
@@ -102,7 +102,7 @@ const v2 = createV2Books({
   },
 })
 export const {
-  resetSince, whileCurrent, pullV2Books, v2Book, v2Chapters, forgetV2Book, removeV2Book, v2FileUrl,
+  resetSince, whileCurrent, pullV2Books, v2Book, v2Chapters, removeV2Book, v2FileUrl,
   saveV2Progress, completeV2Book, uncompleteV2Book,
 } = v2
 const { rememberState, toProgress } = v2
@@ -226,8 +226,8 @@ export function v2ProgressBody(bookId: string, data: ProgressWrite): V2ReadingSt
     currentLocator,
     // No percent yet (the chapter list has not loaded): the fraction last read, never 0 over it.
     bookFraction: Math.min(1, Math.max(0, data.percent ?? known?.bookFraction ?? 0)),
-    // The client's clock as the write was made; it is already this device's now, so within MAX_CLIENT_SKEW_MS of it.
-    clientRecordedAt: data.updatedAt ?? new Date().toISOString(),
+    // The client's clock as the write was made, never later than now (MAX_CLIENT_SKEW_MS is the server's bound; as mobile).
+    clientRecordedAt: new Date(Math.min(Date.parse(data.updatedAt ?? '') || Date.now(), Date.now())).toISOString(),
   }
 }
 
@@ -239,13 +239,11 @@ export const rememberV2State = (answer: Promise<V2ReadingState | null>) => remem
 
 // ---- Upload -------------------------------------------------------------------------------------
 
-const megabytes = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
-
 /** The reader-facing message of a failed V2 upload; null when the error is not one of these. */
 export function v2UploadMessage(err: unknown, t: (key: string, vars?: Record<string, string | number>) => string): string | null {
   if (!(err instanceof V2UploadError)) return null
   if (err.code === 'content_mismatch') return t('upload.v2.contentMismatch')
-  return t('upload.v2.quotaExceeded', { used: megabytes(err.quota?.used ?? 0), limit: megabytes(err.quota?.limit ?? 0) })
+  return t('upload.v2.quotaExceeded', { used: mb(err.quota?.used ?? 0), limit: mb(err.quota?.limit ?? 0) })
 }
 
 /** Lowercase hex SHA-256 of the file: the browser's own digest, the whole file in memory (≤ 500 MB). */

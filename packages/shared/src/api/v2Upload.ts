@@ -7,6 +7,9 @@ import * as v2Api from './v2'
 import type { V2Book } from './v2'
 import { clip } from '../reader/textAnchor'
 
+/** Bytes as whole megabytes, for a quota message. */
+export const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
+
 /** A V2 upload the reader must hear about; `code` picks the message. */
 export class V2UploadError extends Error {
   constructor(readonly code: 'content_mismatch' | 'quota_exceeded', readonly quota?: { used: number; limit: number }) {
@@ -15,8 +18,6 @@ export class V2UploadError extends Error {
       : `Not enough storage: ${mb(quota?.used ?? 0)} of ${mb(quota?.limit ?? 0)} used.`)
   }
 }
-
-const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
 
 /** One part: bytes `[start, end)` of the file, to `index` of `partCount`. */
 export interface V2UploadPart {
@@ -86,7 +87,7 @@ export async function uploadV2File(file: { name: string; size: number }, maxPart
     await sendBytes(file.size, sha256, bookId, fileId, maxPartBytes, io)
     return { bookId, format, found, sent: true }
   } catch (e) {
-    if ((e as { aborted?: boolean }).aborted && imported) await v2Api.removeBook(imported).catch(() => {})
+    if ((e as { aborted?: boolean } | null)?.aborted && imported) await v2Api.removeBook(imported).catch(() => {})
     throw e
   }
 }
