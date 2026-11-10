@@ -4,7 +4,7 @@ import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import NetInfo from '@react-native-community/netinfo'
-import { currentReviewChapter, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural, bookPages } from '@textstack/shared'
+import { ApiError, currentReviewChapter, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural, bookPages } from '@textstack/shared'
 import { v2Offers } from '@textstack/shared'
 import { useV2 } from '../../src/context/AuthContext'
 import { userBooksApi } from '../../src/lib/userBooksApi'
@@ -136,7 +136,7 @@ export default function UserBookDetailScreen() {
   const v2 = useV2()
   const [book, setBook] = useState<UserBookDetailResponse | null>(null)
   const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<'offline' | 'failed' | null>(null)
+  const [loadError, setLoadError] = useState<'offline' | 'failed' | 'notfound' | null>(null)
   const [attempt, setAttempt] = useState(0)
   const reconnects = useReconnectCount()
   const [savedProgress, setSavedProgress] = useState<{ chapterSlug: string | null; percent: number | null; locator: string | null } | null>(null)
@@ -186,6 +186,18 @@ export default function UserBookDetailScreen() {
           console.warn('isUserBookFullyCached failed:', err)
         }
       } catch (e) {
+        // Confirmed 404: the upload was deleted on the server (#1164). Say so
+        // instead of presenting the cached copy as live. The local bytes stay.
+        if (e instanceof ApiError && e.status === 404) {
+          console.warn('User book not found:', e)
+          const onDevice = await isUserBookFullyCached(id).catch(() => false)
+          if (unmountedRef.current) return
+          setBook(null)
+          setOfflineMode(false)
+          setCached(onDevice)
+          setLoadError('notfound')
+          return
+        }
         logLoadError('Failed to load user book:', e)
         if (unmountedRef.current) return
         // Unreachable server, but the book may be on the device. Render the
@@ -296,6 +308,12 @@ export default function UserBookDetailScreen() {
         if (stillProcessing === pollProcessing && stillEnriching === pollEnriching) scheduleNext()
       } catch (err) {
         if (cancelled || unmountedRef.current) return
+        // Deleted on the server mid-poll (#1164): stop polling a book that is gone.
+        if (err instanceof ApiError && err.status === 404) {
+          setBook(null)
+          setLoadError('notfound')
+          return
+        }
         consecutiveFailures += 1
         console.warn(`Poll ${consecutiveFailures} failed for user book ${id}:`, err)
         if (pollProcessing && consecutiveFailures === FAILURE_TOAST_THRESHOLD) {
@@ -456,12 +474,26 @@ export default function UserBookDetailScreen() {
       <>
         <Stack.Screen options={{ headerShown: true, title: '' }} />
         <View style={[styles.container, { backgroundColor: colors.background }]}>
+          {/* 'notfound' keeps Retry: V2's v2Book can synthesize a 404 when a store
+              reset lands mid-pull, so "not found" is not always final. */}
           <EmptyState
-            icon={loadError === 'offline' ? 'cloud-offline-outline' : 'alert-circle-outline'}
-            title={loadError === 'offline' ? t('library.offline.title') : t('library.loadFailed.title')}
-            subtitle={loadError === 'offline' ? t('library.offline.body') : t('library.loadFailed.body')}
+            icon={loadError === 'notfound' ? 'help-circle-outline' : loadError === 'offline' ? 'cloud-offline-outline' : 'alert-circle-outline'}
+            title={loadError === 'notfound' ? t('myBooks.deleted.title') : loadError === 'offline' ? t('library.offline.title') : t('library.loadFailed.title')}
+            subtitle={loadError === 'notfound'
+              ? (cached ? t('myBooks.deleted.body') : t('myBooks.deleted.bodyNoCopy'))
+              : loadError === 'offline' ? t('library.offline.body') : t('library.loadFailed.body')}
             buttonLabel={t('common.retry')}
             onButtonPress={() => { setLoading(true); setAttempt(a => a + 1) }}
+            // The book page is gone, so this is the only way left to free its bytes.
+            secondaryLabel={loadError === 'notfound' && cached ? t('myBooks.deleted.removeDownload') : undefined}
+            onSecondaryPress={() => {
+              removeUserBookDownload(id!)
+                .then(() => { setCached(false); router.back() })
+                .catch(err => {
+                  console.warn('Removing the local copy of a deleted book failed:', err)
+                  showToast({ message: "Couldn't remove the download. Try again.", variant: 'error', duration: 2600 })
+                })
+            }}
           />
         </View>
       </>
