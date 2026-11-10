@@ -185,7 +185,7 @@ export default function UserBookDetailScreen() {
           console.warn('isUserBookFullyCached failed:', err)
         }
       } catch (e) {
-        console.error('Failed to load user book:', e)
+        ;(isOfflineError(e) ? console.warn : console.error)('Failed to load user book:', e)
         if (unmountedRef.current) return
         // Unreachable server, but the book may be on the device. Render the
         // downloaded copy rather than the "couldn't load" screen — this is the

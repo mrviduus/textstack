@@ -3,7 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Share } from 'rea
 import { Image } from 'expo-image'
 import { useFocusEffect, useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { createBooksApi, currentReviewChapter, formatBookPercent, getStorageUrl, plural, readingProgressApi, resumeChapterSlug, storedBookPercent } from '@textstack/shared'
+import { createBooksApi, currentReviewChapter, formatBookPercent, getStorageUrl, isOfflineError, plural, readingProgressApi, resumeChapterSlug, storedBookPercent } from '@textstack/shared'
 import type { BookDetail } from '@textstack/shared'
 import { useDownload } from '../../src/context/DownloadContext'
 import { useAuth } from '../../src/context/AuthContext'
@@ -123,7 +123,7 @@ export default function BookDetailScreen() {
       })
       .catch(async (e) => {
         if (cancelled) return
-        console.error('Failed to load book:', e)
+        ;(isOfflineError(e) ? console.warn : console.error)('Failed to load book:', e)
         const status: number | undefined = e?.status
         // Confirmed 404 → stop; the book really doesn't exist server-side.
         if (status === 404) {

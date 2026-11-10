@@ -112,8 +112,9 @@ export default function LibraryScreen() {
       setProgressMap(map)
     } catch (e) {
       if (myGen !== loadGenRef.current) return
-      console.error('Library load error:', e)
       const offline = isOfflineError(e)
+      // Offline is an expected state, not a bug: a red LogBox for it masks real errors.
+      ;(offline ? console.warn : console.error)('Library load error:', e)
       setLoadError(offline ? 'offline' : 'failed')
       // Offline: fall back to what is genuinely on the device. A downloaded book
       // — catalog or upload — carries its title and cover in SQLite, the same

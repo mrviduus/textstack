@@ -139,7 +139,7 @@ export default function DiscoverScreen() {
       setCatalogError(null)
     }).catch(e => {
       if (cancelled) return
-      console.error('Catalog fetch failed:', e)
+      ;(isOfflineError(e) ? console.warn : console.error)('Catalog fetch failed:', e)
       // Was `setCatalogOffline(isOfflineError(e))`, so a 500 set it to FALSE and
       // Discover rendered blank with no message at all — three sections gated on
       // their own data, all empty, nothing to explain it.
@@ -199,7 +199,7 @@ export default function DiscoverScreen() {
       saveRecent(q)
     } catch (e) {
       if (gen !== searchGenRef.current) return
-      console.error('Search failed:', e)
+      ;(isOfflineError(e) ? console.warn : console.error)('Search failed:', e)
       // A search that never reached the server rendered as "No results for
       // harry" — which reads as a claim about the catalog, not about the
       // connection, and sends the reader off to doubt their spelling.
