@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { isUuid } from '@textstack/shared'
-import { createV2Storage, nonceFromUuid, readRecovering, sha256Key, writeAtomically, type V2Files } from './hostStorage'
+import { createV2Storage, nonceFromUuid, readRecovering, sha256Key, type V2Files } from './hostStorage'
 import { createLocalLibrary } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated'
@@ -17,7 +17,6 @@ function memoryFiles() {
   const tick = () => new Promise((r) => setTimeout(r, 0))
   const files: V2Files = {
     async read(name) { await tick(); return data.get(name) ?? null },
-    async write(name, text) { ops.push(`write ${name}`); await tick(); data.set(name, text) },
     async move(from, to) {
       ops.push(`move ${from} ${to}`)
       await tick()
@@ -32,56 +31,12 @@ function memoryFiles() {
   return { files, data, ops }
 }
 
-/** `op` on `name` (from-name for a move; any name if omitted) rejects with `error`, once or always. A
- *  failing write first leaves the empty file ENOSPC does. */
-function failOn(m: ReturnType<typeof memoryFiles>, op: 'write' | 'move', error: string, { name, once = false }: { name?: string; once?: boolean } = {}) {
-  const real = m.files[op]
-  let armed = true
-  m.files[op] = async (a: string, b: string) => {
-    if (!armed || (name !== undefined && a !== name)) return real(a, b)
-    if (once) armed = false
-    if (op === 'write') m.data.set(a, '')
-    throw new Error(error)
-  }
-}
-
 const SHA_A = 'AB'.repeat(32)
 const SHA_A_KEY = SHA_A.toLowerCase()
 const SHA_B = 'cd'.repeat(32)
 const book = (sha256: string) => ({ sha256, size: 10, title: 'T', author: '', originalName: 'b.epub' })
 
 describe('v2 host storage', () => {
-  it('writeAtomically_AnyWrite_WritesTmpThenMovesItOverTheTarget', async () => {
-    const { files, data, ops } = memoryFiles()
-    await writeAtomically(files, 'library.json', '{}')
-    expect(ops).toEqual(['write library.json.tmp', 'move library.json.tmp library.json'])
-    expect([...data]).toEqual([['library.json', '{}']])
-  })
-
-  it('writeAtomically_WriteFails_RemovesTheTmpAndRethrows', async () => {
-    const m = memoryFiles()
-    failOn(m, 'write', 'ENOSPC')
-    await expect(writeAtomically(m.files, 'library.json', '{}')).rejects.toThrow('ENOSPC')
-    expect([...m.data.keys()]).toEqual([])
-  })
-
-  it('writeAtomically_WriteAndTmpRemovalBothFail_TheWriteErrorPropagates', async () => {
-    const m = memoryFiles()
-    failOn(m, 'write', 'ENOSPC')
-    m.files.remove = () => { throw new Error('remove failed') }
-    await expect(writeAtomically(m.files, 'library.json', '{}')).rejects.toThrow('ENOSPC')
-  })
-
-  it('writeAtomically_MoveFails_KeepsTheCompleteTmpAndTheTarget', async () => {
-    const m = memoryFiles()
-    const { files, data } = m
-    data.set('x.json', 'old')
-    failOn(m, 'move', 'EIO')
-    await expect(writeAtomically(files, 'x.json', 'new')).rejects.toThrow('EIO')
-    expect(data.get('x.json.tmp')).toBe('new')
-    expect(data.get('x.json')).toBe('old')
-  })
-
   it('readRecovering_TargetMissing_ReadsTheTmp_TargetPresent_TargetWins', async () => {
     const { files, data } = memoryFiles()
     data.set('store/x.json.tmp', 'new')
@@ -268,6 +223,25 @@ describe('v2 host storage', () => {
       // A page that still held the old ids saves them back: same CFI + text is the stored highlight.
       await s.writeStore(SHA_A, oldEntry)
       expect(JSON.parse((await s.readStore(SHA_A))!).highlights).toHaveLength(2)
+    })
+
+    it('importLegacy_FailsOnceBookOpenedMeanwhile_RetriedHighlightsKeptOwnPositionKept', async () => {
+      const m = memoryFiles()
+      m.data.set('library.json', oldLibrary('lb_1'))
+      m.data.set(`store/${SHA_A_KEY}.json`, oldEntry)
+      const { storage: s, lib, data } = storage(m)
+      const real = lib.importLegacy
+      let failures = 1
+      lib.importLegacy = (...args) => (failures-- > 0 ? Promise.reject(new Error('SQLITE_BUSY')) : real(...args))
+      // The import fails; the reader still opens the book (a new row) and reads on.
+      await s.addOpened(book(SHA_A), null)
+      expect(data.has(`store/${SHA_A_KEY}.json`)).toBe(true)
+      await s.writeStore(SHA_A, entry({ position: { ...pos, fraction: 0.9 }, highlights: [] }))
+      // The next call retries: the existing row keeps its own position and gains the legacy highlights.
+      const back = JSON.parse((await s.readStore(SHA_A))!)
+      expect(back.position.fraction).toBe(0.9)
+      expect(back.highlights).toHaveLength(2)
+      expect(data.has(`store/${SHA_A_KEY}.json`)).toBe(false)
     })
   })
 

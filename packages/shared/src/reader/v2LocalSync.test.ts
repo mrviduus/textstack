@@ -129,6 +129,8 @@ describe('v2LocalSync', () => {
     })
     it('decideServerState_NewerOpenNotRestored_Adopt', () => {
       expect(decideServerState({ local, localFileId: 'f', server: state(), reader: { restoreApplied: false, moved: false, index: 6 }, now })).toBe('adopt')
+      // Before `restored` the host has no spine index yet: still adopt, never prompt.
+      expect(decideServerState({ local, localFileId: 'f', server: state(), reader: { restoreApplied: false, moved: false, index: null }, now })).toBe('adopt')
     })
     it('decideServerState_NewerRestoredNotMovedSameSpine_Move', () => {
       expect(decideServerState({ local, localFileId: 'f', server: state(), reader: { restoreApplied: true, moved: false, index: 6 }, now })).toBe('move')

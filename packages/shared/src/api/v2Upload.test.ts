@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { initApi } from './client'
-import { uploadV2File } from './v2Upload'
+import { formatOfName, uploadV2File, V2UploadNotOnServer } from './v2Upload'
 import type { Call } from './__tests__/fakeV2Api'
 
 const API = 'http://api'
@@ -35,5 +35,28 @@ describe('the shared V2 upload', () => {
     routes(calls)
     await expect(uploadV2File({ name: 'a.epub', size: 3 }, 3, io(() => Promise.reject(null)))).rejects.toBeNull()
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+  })
+
+  it('uploadV2File_KnownBookNotOnTheServer_ThrowsAndImportsNothing', async () => {
+    const calls: Call[] = []
+    routes(calls)
+    const known = { bookId: 'b1', fileId: 'f1' }
+    await expect(uploadV2File({ name: 'a.epub', size: 3 }, 3, { ...io(async () => {}), known })).rejects.toBeInstanceOf(V2UploadNotOnServer)
+    expect(calls.map((c) => c.method)).toEqual(['GET'])
+  })
+
+  it('uploadV2File_FormatGivenOrByExtension_SentOnTheImport', async () => {
+    const bodies: { file: { format: string } }[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
+      if (init.method === 'PUT' && !url.includes('/parts/')) bodies.push(JSON.parse(String(init.body)))
+      const status = url.includes('/by-sha256/') ? 404 : 200
+      return { ok: status < 300, status, text: async () => (status === 404 ? '' : '{}') }
+    }))
+    await uploadV2File({ name: 'a.epub', size: 3, format: 'mobi' }, 3, io(async () => {}))
+    await uploadV2File({ name: 'b.FB2', size: 3 }, 3, io(async () => {}))
+    expect(bodies.map((b) => b.file.format)).toEqual(['mobi', 'fb2'])
+    expect(formatOfName('x.fbz')).toBe('fb2')
+    expect(formatOfName('x.pdf')).toBe('pdf')
+    expect(formatOfName('x.bin')).toBe('epub')
   })
 })

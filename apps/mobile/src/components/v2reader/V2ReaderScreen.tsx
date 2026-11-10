@@ -6,13 +6,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File, Paths } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import type { OpenReader, PagePosition } from '@textstack/shared'
+import type { OpenReader, PagePosition, V2ClientFormat } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
 import { deviceUploadIo, sha256Of, uploadV2Book } from '../../lib/v2'
 import { bookFile, createV2Storage, nonceFromUuid, type LibraryBook, type V2Files, type V2Storage } from '../../lib/v2reader/hostStorage'
-import { deviceLocalLibrary, type BookRow, type PositionAction } from '../../lib/v2reader/localLibrary'
+import { deviceLocalLibrary } from '../../lib/v2reader/deviceLibrary'
+import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
 import { downloadV2Book, syncV2Library, type SyncHost } from '../../lib/v2reader/sync'
 import { v2ReaderPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
 
@@ -38,7 +39,6 @@ function deviceFiles(): V2Files {
       const file = v2File(name)
       return file.exists ? file.text() : null
     },
-    write: async (name, text) => v2File(name).write(text),
     move: (from, to) => v2File(from).move(v2File(to), { overwrite: true }),
     exists: (name) => v2File(name).exists,
     remove: (name) => {
@@ -52,9 +52,18 @@ function deviceFiles(): V2Files {
 let storage: V2Storage | null = null
 const v2Storage = () => (storage ??= createV2Storage(deviceFiles(), uuid.v4, deviceLocalLibrary()))
 
-/** File sync (opt-in): the retained copy's bytes through the shared upload sequence. */
+/**
+ * File sync (opt-in): the retained copy's bytes through the shared upload sequence, with the format
+ * the page reported (the retained name always ends `.epub`) and to the book's KNOWN server ids only.
+ */
 const uploadRetained: SyncHost['upload'] = async (b: BookRow, maxPartBytes, cancelled) => {
-  await uploadV2Book({ uri: v2File(bookFile(b.sha256!)).uri, name: b.original_name }, maxPartBytes, deviceUploadIo(cancelled))
+  await uploadV2Book(
+    { uri: v2File(bookFile(b.sha256!)).uri, name: b.original_name, format: (b.format ?? undefined) as V2ClientFormat | undefined },
+    maxPartBytes,
+    deviceUploadIo(cancelled),
+    undefined,
+    { bookId: b.id, fileId: b.server_file_id! },
+  )
 }
 
 /** Download on demand: into staging, checked against the sha256, then the retained copy (`staging/` is cleared on start). */
@@ -188,7 +197,14 @@ function V2Reader() {
   const toggleFileSync = () => {
     const next = !fileSync
     setFileSync(next)
-    deviceLocalLibrary().setFileSync(next).then(() => next && sync.current(), fail('settings'))
+    deviceLocalLibrary().setFileSync(next).then(
+      () => next && sync.current(),
+      (e) => {
+        // The setting did not land: the toggle shows what is stored, and the reader is told.
+        setFileSync(!next)
+        fail('file sync setting', setError)(e)
+      },
+    )
   }
 
   /** A book only the server has: fetched on demand, then opened. */

@@ -12,7 +12,7 @@ import {
   v2Api, ApiError, isOfflineError, V2_OFF, placeToV2Locator, createSha256, parsePdfPageLocator,
   ingestionStatus, shelfFileSummary, resumeChapterOf, createV2Books, uploadV2File, V2UploadError,
   type V2Book, type V2FileChapters, type V2Annotation, type V2Word, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
-  type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse,
+  type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse, type V2ClientFormat,
 } from '@textstack/shared'
 
 export { V2UploadError }
@@ -349,16 +349,19 @@ export async function sha256Of(source: ByteSource, yieldNow: () => Promise<void>
  * these bytes). ponytail: progress moves per part.
  */
 export async function uploadV2Book(
-  file: { uri: string; name: string },
+  file: { uri: string; name: string; format?: V2ClientFormat },
   maxPartBytes: number,
   io: UploadIo,
   onProgress?: (percent: number) => void,
+  /** A synced local book (R6 file sync): its bytes go to its current file only, never a new import. */
+  known?: { bookId: string; fileId: string },
 ): Promise<{ bookId: string; existing: boolean }> {
   const source = io.open(file.uri)
   try {
     // RN fetch sends a typed-array body as base64 over the bridge: an 80 MB part would peak near
     // 200 MB of JS memory on Hermes, so a part is at most 8 MB whatever the server takes.
-    const { bookId, sent } = await uploadV2File({ name: file.name, size: source.size }, Math.min(Math.max(1, maxPartBytes), MAX_DEVICE_PART_BYTES), {
+    const { bookId, sent } = await uploadV2File({ name: file.name, size: source.size, format: file.format }, Math.min(Math.max(1, maxPartBytes), MAX_DEVICE_PART_BYTES), {
+      known,
       newId: () => uuid.v4(),
       hash: () => sha256Of(source, io.yieldNow),
       sendPart: async ({ bookId, fileId, index, partCount, start, end }) => {

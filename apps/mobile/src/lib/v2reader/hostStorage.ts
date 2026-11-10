@@ -30,13 +30,13 @@ export interface LocalLibrary {
   addOpened(b: { sha256: string; size: number; title: string; author: string; originalName: string; format: string | null }, newId: () => string): Promise<string>
   readEntry(sha256: string): Promise<string | null>
   writeEntry(sha256: string, json: string, newId: () => string): Promise<void>
-  importLegacy(books: LibraryEntry[], storeOf: Map<string, string>, newId: () => string): Promise<boolean>
+  /** Resolves to the sha256s whose store entries the rows now hold. */
+  importLegacy(books: LibraryEntry[], storeOf: Map<string, string>, newId: () => string): Promise<string[]>
 }
 
 /** The file operations this needs, by name relative to the v2 root: expo-file-system on a device. */
 export interface V2Files {
   read(name: string): Promise<string | null>
-  write(name: string, text: string): Promise<void>
   /** Overwrites `to`. */
   move(from: string, to: string): Promise<void>
   exists(name: string): boolean
@@ -59,19 +59,9 @@ export function nonceFromUuid(uuid: string): string {
 }
 
 /**
- * Write `name.tmp`, then move it over `name`. expo-file-system's overwriting move deletes the target
- * before renaming: a kill between the two leaves only the complete tmp, which `readRecovering` reads.
- * A kill after the tmp write but before that delete leaves the old target beside a complete tmp; the
- * old target wins and that save is lost, which is acceptable because its caller never saw it succeed.
+ * R2 wrote its JSON as `name.tmp` moved over `name`: the target when it exists (a tmp beside it is
+ * ignored, finished or not), else the tmp — a kill mid-move left only that.
  */
-export async function writeAtomically(files: V2Files, name: string, text: string): Promise<void> {
-  const tmp = `${name}.tmp`
-  // A failed write leaves a partial tmp (dropped); a failed move keeps it, maybe the one complete copy.
-  await files.write(tmp, text).catch((e) => { try { files.remove(tmp) } catch { /* best effort */ } throw e })
-  await files.move(tmp, name)
-}
-
-/** The target when it exists (a tmp beside it is ignored, finished or not), else the tmp. */
 export async function readRecovering(files: V2Files, name: string): Promise<string | null> {
   return (await files.read(name)) ?? (await files.read(`${name}.tmp`))
 }
@@ -91,7 +81,11 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
   // throw out of the message handler.
   const queue = createWriteQueue()
   let migrated: Promise<void> | null = null
-  const migrate = () => (migrated ??= queue.run(() => importJsonLibrary(files, lib, newId)).catch((e) => console.warn('[v2] JSON library import failed:', e)))
+  // A failed import is not kept: the next call tries again (reading goes on meanwhile).
+  const migrate = () => (migrated ??= queue.run(() => importJsonLibrary(files, lib, newId)).catch((e) => {
+    console.warn('[v2] JSON library import failed:', e)
+    migrated = null
+  }))
   const afterMigration = <T>(fn: () => Promise<T>) => migrate().then(fn)
 
   return {
@@ -130,7 +124,10 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
   }
 }
 
-/** R2's JSON library into the local library, then its files deleted (best effort: the import is flagged done). */
+/**
+ * R2's JSON library into the local library, then the files of the entries it now holds deleted
+ * (best effort: the import is flagged done), library.json last.
+ */
 async function importJsonLibrary(files: V2Files, lib: LocalLibrary, newId: () => string) {
   const parsed = parseLibrary((await readRecovering(files, 'library.json')) ?? '')
   if (!parsed) return
@@ -142,8 +139,8 @@ async function importJsonLibrary(files: V2Files, lib: LocalLibrary, newId: () =>
     const json = await readRecovering(files, `store/${b.sha256}.json`)
     if (json) stores.set(b.sha256, json)
   }
-  await lib.importLegacy(books, stores, newId)
-  for (const name of ['library.json', ...books.map((b) => `store/${b.sha256}.json`)]) {
+  const held = await lib.importLegacy(books, stores, newId)
+  for (const name of [...held.map((sha) => `store/${sha}.json`), 'library.json']) {
     for (const f of [name, `${name}.tmp`]) try { files.remove(f) } catch { /* best effort */ }
   }
 }

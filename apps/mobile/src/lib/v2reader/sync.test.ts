@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { initApi, type OpenReader } from '@textstack/shared'
+import { initApi, V2UploadNotOnServer, type OpenReader } from '@textstack/shared'
 import { resetV2ForTests, v2Store, V2UploadError } from '../v2'
 import { createLocalLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
@@ -218,11 +218,9 @@ describe('V2 local library sync (R6)', () => {
       expect(await lib.outbox()).toEqual([])
     })
 
-    // BUG (QA #1038): any un-coded failure of one entry (a 500 from a CHECK the validation missed, a
-    // second id_conflict, duplicate_file without `current`) ends the pass, and the outbox is read in
-    // the same order every pass: every later entry starves until that one stops failing. `.fails`
-    // until a per-entry skip/backoff lands; then drop it.
-    it.fails('push_OnePoisonedBookEntry_LaterEntriesStillPushed', async () => {
+    // QA #1038: an un-coded failure of one entry (a 500 from a CHECK the validation missed) used to
+    // end the pass, and the fixed outbox order starved every later entry. Each entry is now isolated.
+    it('push_OnePoisonedBookEntry_LaterEntriesStillPushed', async () => {
       const { lib, bookId } = await seeded()
       const SHA2 = 'cd'.repeat(32)
       const other = await lib.addOpened({ sha256: SHA2, size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
@@ -510,10 +508,9 @@ describe('V2 local library sync (R6)', () => {
       expect(urls.find((u) => u.includes('/library/changes'))).toContain('cursor=c1')
     })
 
-    // BUG (QA #1038): the rows and the cursor are queued as two jobs; when the page's transaction
-    // fails (SQLITE_FULL, a row the schema refuses) the cursor job still commits, so the next pull
-    // starts past rows that never landed: that window is lost for good. `.fails` until fixed.
-    it.fails('pull_PageFailsToApply_CursorNotAdvanced', async () => {
+    // QA #1038: the rows and the cursor were two queue jobs, so a page that failed to apply still
+    // advanced the cursor and its rows were skipped for good. Now one transaction.
+    it('pull_PageFailsToApply_CursorNotAdvanced', async () => {
       const lib = createLocalLibrary(memoryDb())
       const bad = { ...serverBook('aaaaaaaa-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000002'), title: null } // title NOT NULL
       fakeApi({ 'GET /library/changes': [ok({ items: [bad], cursor: 'c1', hasMore: false })] })
@@ -708,6 +705,106 @@ describe('V2 local library sync (R6)', () => {
       expect(await syncV2Library(lib, host({ upload }))).toBe('done')
       expect(upload).toHaveBeenCalledTimes(1)
       expect(await lib.book(bookId)).toMatchObject({ has_content: 0 })
+    })
+
+    it('fileSync_ServerBookNotTheOneKnown_NoUploadMarkedBookPushedAgain', async () => {
+      const { lib, bookId } = await synced()
+      await lib.setFileSync(true)
+      fakeApi({})
+      const upload = vi.fn(async () => { throw new V2UploadNotOnServer(bookId) })
+      await syncV2Library(lib, host({ upload }))
+      expect(await lib.book(bookId)).toMatchObject({ has_content: 0, server_file_id: null })
+      expect((await lib.outbox()).map((o) => o.kind)).toEqual(['book'])
+    })
+  })
+
+  describe('review round 1 (#1038)', () => {
+    const sid = 'aaaaaaaa-0000-4000-8000-000000000001'
+    const sfid = 'aaaaaaaa-0000-4000-8000-000000000002'
+
+    it('readEntry_PickedFileIsAPulledBookNotImportedHere_RestoresTheAccountsPosition', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({
+        'GET /library/changes': feed(serverBook(sid, sfid, {}, { hasContent: true })),
+        'GET /reading/changes': feed(serverState(sid, sfid, 3, { bookFraction: 0.66 })),
+      })
+      await syncV2Library(lib, host())
+      // The page opens the picked bytes and asks for its entry before addOpened adopts the row.
+      expect((await restoredEntry(lib)).position).toMatchObject({ cfi: CFI, fraction: 0.66 })
+      expect(await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)).toBe(sid)
+      expect((await restoredEntry(lib)).position).toMatchObject({ fraction: 0.66 })
+    })
+
+    it('invalidPayload_BookParked_ChildrenNeverReAskForIt_UntilTheBookChanges', async () => {
+      const { lib, bookId } = await seeded()
+      const calls = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [conflict('invalid_payload', { field: 'title' }, 400)],
+      })
+      for (let i = 0; i < 3; i++) await syncV2Library(lib, host())
+      expect(writes(calls)).toEqual([`PUT /books/${bookId}`])
+      expect((await lib.outbox()).map((o) => o.kind)).toEqual(['state', 'annotation'])
+      expect(await lib.blocked(bookId)).toBe(true)
+      // The page reports another format for it: sent again.
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'mobi' }, newId)
+      expect(await lib.blocked(bookId)).toBe(false)
+      expect((await lib.outbox()).map((o) => o.kind)).toEqual(['book', 'state', 'annotation'])
+    })
+
+    it('singleFlight_TriggerDuringAPass_OneMorePassAfterIt', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      const calls = fakeApi({})
+      const first = syncV2Library(lib, host())
+      const second = syncV2Library(lib, host())
+      expect(await first).toBe('done')
+      expect(await second).toBe('done')
+      expect(calls.filter((c) => c.path === '/library/changes')).toHaveLength(2)
+    })
+
+    it('singleFlight_NewSessionJoinsADroppedPass_ItsOwnPassRuns', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      let release: () => void = () => {}
+      let held = false
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+        const path = url.replace(V2, '').split('?')[0]
+        const body = path === '/status' ? { maxPartBytes: 1024 } : { items: [], cursor: null, hasMore: false }
+        if (path === '/library/changes' && !held) {
+          held = true
+          await new Promise<void>((r) => { release = r })
+        }
+        return { ok: true, status: 200, text: async () => JSON.stringify(body) }
+      }))
+      const old = syncV2Library(lib, host())
+      for (let i = 0; i < 20 && !held; i++) await new Promise((r) => setTimeout(r, 0))
+      v2Store.reset() // signed out; another session asks for a sync while the old pass is in flight
+      const fresh = syncV2Library(lib, host({ userId: 'u2' }))
+      release()
+      expect(await fresh).toBe('done')
+      expect(await old).toBe('done') // both callers see the last pass's result
+      expect(await AsyncStorage.getItem(ACCOUNT_KEY)).toBe('u2')
+    })
+
+    it('download_BytesAnotherBookHereHolds_NoSecondLocalCopy', async () => {
+      const { lib } = await synced()
+      fakeApi({ 'GET /library/changes': feed(serverBook(sid, sfid, {}, { hasContent: true })) })
+      await syncV2Library(lib, host())
+      expect((await lib.books()).map((b) => b.local)).toEqual([true])
+      const io = { fetch: vi.fn(async () => 'staging/x.epub'), retain: vi.fn(async () => {}) }
+      expect(await downloadV2Book(lib, sid, io)).toBe(false)
+      expect(io.fetch).not.toHaveBeenCalled()
+    })
+
+    it('account_AdoptCommittedButHintNotWritten_NextPassForgetsNothing', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.adoptAccount({ [bookId]: 'acct-book' }, { [fileId]: 'acct-file' }, 'acct') // the hint write then failed
+      expect(await AsyncStorage.getItem(ACCOUNT_KEY)).toBe('u1')
+      fakeApi({})
+      await syncV2Library(lib, host({ userId: 'acct' }))
+      expect(await lib.state('acct-book')).toMatchObject({ revision: 1 })
+      expect(await AsyncStorage.getItem(ACCOUNT_KEY)).toBe('acct')
+      // A replay of the same adopt changes nothing.
+      await lib.adoptAccount({ [bookId]: 'acct-book' }, { [fileId]: 'acct-file' }, 'acct')
+      expect(await lib.book('acct-book')).toMatchObject({ file_id: 'acct-file' })
     })
   })
 })

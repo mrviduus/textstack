@@ -158,7 +158,8 @@ export function decideServerState(o: {
   if (!theirs || o.server.fileId !== o.localFileId) return 'keep'
   const local = o.local?.at != null ? { updatedAt: o.local.at } : null
   if (!serverProvablyNewer(local, { clientUpdatedAt: o.server.clientRecordedAt }, o.now)) return 'keep'
-  if (!o.reader) return 'adopt'
+  // Nothing restored yet: adopt, whatever spine item is on screen (none is reported before `restored`).
+  if (!o.reader || !o.reader.restoreApplied) return 'adopt'
   return decideNewerPosition({
     sameChapter: o.reader.index != null && o.reader.index === theirs.index,
     restoreApplied: o.reader.restoreApplied,

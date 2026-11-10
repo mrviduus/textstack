@@ -10,14 +10,14 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
-  v2Api, clip, highlightWrite, isOfflineError, ownAnnotationWrite, ownStateWrite, positionWrite,
-  type OpenReader, type PageHighlight, type V2Annotation, type V2Book, type V2BookFile, type V2FileWrite, type V2MergeMap, type V2ReadingState,
+  v2Api, clip, highlightWrite, isOfflineError, ownAnnotationWrite, ownStateWrite, positionWrite, V2UploadNotOnServer,
+  type OpenReader, type PageHighlight, type V2Annotation, type V2Book, type V2BookFile, type V2ClientFormat, type V2MergeMap, type V2ReadingState,
 } from '@textstack/shared'
 import { onV2, resetSince, startV2Probe, whileCurrent, V2UploadError } from '../v2'
-import { createSingleFlight } from '../singleFlight'
-import { deviceLocalLibrary, FEEDS, type BookRow, type LocalLibrary, type OutboxItem, type PositionAction } from './localLibrary'
+import { deviceLocalLibrary } from './deviceLibrary'
+import { FEEDS, type BookRow, type LocalLibrary, type OutboxItem, type PositionAction } from './localLibrary'
 
-/** The account the local library last synced with (AsyncStorage: readable without opening the database). */
+/** The identity the local library last synced with, as a hint readable without opening the database (its `meta` holds the truth). */
 export const ACCOUNT_KEY = 'v2local.account'
 
 export interface SyncHost {
@@ -28,11 +28,12 @@ export interface SyncHost {
   reader(bookId: string): OpenReader | null
   /** What a pulled or lost-to position owes the open reader (go there, or ask). */
   onPosition?(a: PositionAction): void
-  /** Sends a local book's bytes (file sync on); `cancelled` turns true once the session changed. */
+  /**
+   * Sends a local book's bytes (file sync on) to its KNOWN server book and file only — never an
+   * import under new ids (`V2UploadNotOnServer` then); `cancelled` turns true once the session changed.
+   */
   upload?(book: BookRow, maxPartBytes: number, cancelled: () => boolean): Promise<void>
 }
-
-type V2FileFormat = V2FileWrite['format']
 
 export type SyncResult = 'off' | 'done' | 'dropped' | 'failed'
 
@@ -53,10 +54,33 @@ function checked<T>(reset: Reset, write: () => Promise<T>): Promise<T> {
   return write()
 }
 
-const flight = createSingleFlight<SyncResult>()
+/** An error that ends the pass (no point pushing the rest): offline, or V2 paused (503 `v2_unavailable`). */
+const endsPass = (e: unknown) => e === DROPPED || isOfflineError(e) || (e as { status?: number } | null)?.status === 503
 
-/** One sync pass; concurrent callers share the one in flight. */
-export const syncV2Library = (lib: LocalLibrary, host: SyncHost): Promise<SyncResult> => flight.run(() => pass(lib, host))
+let running: Promise<SyncResult> | null = null
+let next: { lib: LocalLibrary; host: SyncHost } | null = null
+
+/**
+ * One sync pass at a time. A trigger while one runs (a save after its outbox snapshot, a new
+ * session joining a pass of the old one that ends dropped) is not folded into it: it asks for one
+ * more pass, with the latest caller's host, when the running one ends. Callers get the last pass's result.
+ */
+export function syncV2Library(lib: LocalLibrary, host: SyncHost): Promise<SyncResult> {
+  next = { lib, host }
+  return (running ??= (async () => {
+    let result: SyncResult = 'done'
+    try {
+      while (next) {
+        const asked = next
+        next = null
+        result = await pass(asked.lib, asked.host)
+      }
+      return result
+    } finally {
+      running = null
+    }
+  })())
+}
 
 async function pass(lib: LocalLibrary, host: SyncHost): Promise<SyncResult> {
   const reset = resetSince()
@@ -64,12 +88,23 @@ async function pass(lib: LocalLibrary, host: SyncHost): Promise<SyncResult> {
     if (!(await onV2())) return 'off'
     await account(lib, host.userId, reset)
     await pull(lib, host, reset)
+    let failed = false
     // Kind by kind, the outbox read again each time: a book push can re-key the ids its children name.
+    // Each entry on its own: one that keeps failing is skipped (logged), never starving the rest.
     for (const [kind, push] of [['book', pushBook], ['state', pushState], ['annotation', pushAnnotation]] as const) {
-      for (const item of await lib.outbox()) if (item.kind === kind) await push(lib, host, reset, item)
+      for (const item of await lib.outbox()) {
+        if (item.kind !== kind) continue
+        try {
+          await push(lib, host, reset, item)
+        } catch (e) {
+          if (endsPass(e) || reset()) throw e
+          console.warn(`[v2 sync] ${item.kind} ${item.target} not pushed, retried next pass:`, e)
+          failed = true
+        }
+      }
     }
     await fileSync(lib, host, reset)
-    return 'done'
+    return failed ? 'failed' : 'done'
   } catch (e) {
     if (e === DROPPED || reset()) return 'dropped'
     console.warn('[v2 sync] pass ended:', e)
@@ -79,24 +114,28 @@ async function pass(lib: LocalLibrary, host: SyncHost): Promise<SyncResult> {
 
 /**
  * Another identity than the one this library last synced with: what the server told that one is
- * forgotten (`forgetServerState`; a guest → account sign-in moved it first, `adoptV2LocalAccount`).
+ * forgotten (`forgetServerState`). The database's record decides; the AsyncStorage hint only
+ * spares a read, and is repaired when the two disagree (a guest → account adopt that committed
+ * its transaction but not the hint).
  */
 async function account(lib: LocalLibrary, userId: string, reset: Reset) {
-  const last = await AsyncStorage.getItem(ACCOUNT_KEY)
-  if (last === userId) return
-  if (last) await checked(reset, () => lib.forgetServerState())
+  const hint = await AsyncStorage.getItem(ACCOUNT_KEY)
+  if (hint === userId) return
+  const last = (await lib.account()) ?? hint
+  if (last && last !== userId) await checked(reset, () => lib.forgetServerState(userId))
+  else if (!last) await checked(reset, () => lib.setAccount(userId))
   await checked(reset, () => AsyncStorage.setItem(ACCOUNT_KEY, userId))
 }
 
 /**
  * PDD "Guest → account merge", the local library's part (AuthContext, after `applyV2MergeMap`): a
- * guest's library becomes the account's — ids re-keyed by the merge map, every cursor cleared (the
- * next pull is full), the outbox kept. Nothing to do when the library never synced as that guest.
+ * guest's library becomes the account's — ids re-keyed by the merge map, every cursor cleared, the
+ * identity recorded, in one transaction; the outbox kept. Nothing to do when the library never
+ * synced as that guest. Safe to replay: the re-key is idempotent.
  */
 export async function adoptV2LocalAccount(guestId: string, accountId: string, merge?: V2MergeMap, lib: () => LocalLibrary = deviceLocalLibrary) {
   if ((await AsyncStorage.getItem(ACCOUNT_KEY)) !== guestId) return
-  if (merge) await lib().rekey(merge.books ?? {}, merge.files ?? {})
-  await lib().clearCursors()
+  await lib().adoptAccount(merge?.books ?? {}, merge?.files ?? {}, accountId)
   await AsyncStorage.setItem(ACCOUNT_KEY, accountId)
 }
 
@@ -105,13 +144,11 @@ async function pull(lib: LocalLibrary, host: SyncHost, reset: Reset) {
     const cursor = await lib.cursor(feed)
     let owed: PositionAction[] = []
     await current(reset, v2Api.pullAll<unknown>(feed, cursor), async ({ items, cursor: next }) => {
-      // Both queued in this tick: the rows and their cursor land together, before any later wipe.
-      const applied = feed === 'library' ? lib.applyBooks(items as V2Book[])
-        : feed === 'reading' ? lib.applyStates(items as V2ReadingState[], host.reader)
-          : lib.applyAnnotations(items as V2Annotation[])
-      const saved = lib.setCursor(feed, next)
-      owed = (await applied) ?? []
-      await saved
+      // Queued in this tick, and the cursor written in the same transaction as the page's rows: a
+      // page that fails to land leaves the cursor where it was, so it is pulled again.
+      if (feed === 'library') await lib.applyBooks(items as V2Book[], next)
+      else if (feed === 'reading') owed = await lib.applyStates(items as V2ReadingState[], host.reader, next)
+      else await lib.applyAnnotations(items as V2Annotation[], next)
     })
     owe(host, reset, owed)
   }
@@ -121,19 +158,26 @@ const owe = (host: SyncHost, reset: Reset, owed: PositionAction[] | void) => {
   if (!reset()) for (const o of owed ?? []) host.onPosition?.(o)
 }
 
+/** A refusal no retry can change: the book is parked (it and its children unsent) until it changes. Logged once. */
+async function park(lib: LocalLibrary, reset: Reset, item: OutboxItem, why: string) {
+  console.warn(`[v2 sync] book ${item.target} refused (${why}): parked until it changes`)
+  await checked(reset, () => Promise.all([lib.block(item.target, why), lib.done(item)]))
+}
+
 /** PDD "File sync upload protocol" steps 1–2, metadata only: sha256 first, then the import. */
 async function pushBook(lib: LocalLibrary, host: SyncHost, reset: Reset, item: OutboxItem, retried = false): Promise<void> {
   const b = await lib.book(item.target)
   if (!b || b.imported_at == null || !b.sha256 || !b.file_id || b.size == null) return void (await checked(reset, () => lib.done(item)))
   // The format comes from the page's `opened`: a book imported from R2's JSON waits for its next open.
   if (!b.format) return
+  if (await lib.blocked(b.id)) return void (await checked(reset, () => lib.done(item)))
   const found = await current(reset, v2Api.findBySha256(b.sha256))
   if (found) return void (await checked(reset, () => lib.adoptServerBook(b.id, found)))
   try {
     await current(reset, v2Api.importBook(b.id, {
       title: clip(b.title, 500),
       author: b.author || null,
-      file: { id: b.file_id, sha256: b.sha256, byteSize: b.size, originalName: clip(b.original_name, 500), format: b.format as V2FileFormat },
+      file: { id: b.file_id, sha256: b.sha256, byteSize: b.size, originalName: clip(b.original_name, 500), format: b.format as V2ClientFormat },
     }), (server) => lib.adoptServerBook(b.id, server))
   } catch (e) {
     const err = v2Api.v2ErrorOf(e)
@@ -141,23 +185,27 @@ async function pushBook(lib: LocalLibrary, host: SyncHost, reset: Reset, item: O
       case 'duplicate_file':
         // Another book of the user's has these bytes: it is this book (PDD: re-key as for a merge map).
         if (err.current) return void (await checked(reset, () => lib.adoptServerBook(b.id, err.current as V2Book)))
-        throw e
+        return park(lib, reset, item, 'duplicate_file without the book')
       case 'id_conflict': {
-        if (retried) throw e
+        if (retried) return park(lib, reset, item, 'id_conflict twice')
         const id = await checked(reset, () => lib.rekeyBook(b.id, host.newId))
         return pushBook(lib, host, reset, { ...item, target: id }, true)
       }
       case 'invalid_payload':
-        console.warn('[v2 sync] book refused:', err.field, err.message)
-        return void (await checked(reset, () => lib.done(item)))
+        return park(lib, reset, item, `invalid_payload ${err.field ?? ''}: ${err.message}`)
       default:
         throw e
     }
   }
 }
 
-/** The book is not (or no longer) on the server as this device knows it: push it first, keep the child queued. */
-const bookFirst = (lib: LocalLibrary, reset: Reset, bookId: string) => checked(reset, () => lib.enqueue('book', bookId))
+/**
+ * The book is not (or no longer) on the server as this device knows it: push it first, keep the
+ * child queued. A parked book is not asked for again: its children wait for it to change.
+ */
+const bookFirst = async (lib: LocalLibrary, reset: Reset, bookId: string) => {
+  if (!(await lib.blocked(bookId))) await checked(reset, () => lib.enqueue('book', bookId))
+}
 
 /**
  * PDD "Reading state" + "The revision rule": the position on this device's file, `expectedRevision`
@@ -243,7 +291,10 @@ async function pushAnnotation(lib: LocalLibrary, host: SyncHost, reset: Reset, i
       case 'deleted':
         return void (await checked(reset, () => Promise.all([cur ? lib.setAnnotation(cur) : null, lib.done(item)])))
       case 'id_conflict': {
-        if (retried) throw e
+        if (retried) {
+          console.warn(`[v2 sync] annotation ${a.id} refused (id_conflict twice): kept on the device only`)
+          return void (await checked(reset, () => lib.done(item)))
+        }
         const id = await checked(reset, () => lib.rekeyAnnotation(a.id, host.newId))
         return pushAnnotation(lib, host, reset, { ...item, target: id }, true)
       }
@@ -276,6 +327,13 @@ async function fileSync(lib: LocalLibrary, host: SyncHost, reset: Reset) {
       await checked(reset, () => lib.setHasContent(b.id))
     } catch (e) {
       if (e === DROPPED || reset() || isOfflineError(e)) throw e
+      if (e instanceof V2UploadNotOnServer) {
+        // The server's copy of this book is not the one this device knows: push the book again
+        // (sha256 first pairs it, or imports it under this device's ids), then its bytes.
+        await checked(reset, () => lib.setServerFile(b.id, null))
+        await bookFirst(lib, reset, b.id)
+        continue
+      }
       console.warn('[v2 sync] upload failed:', b.id, e)
       if (e instanceof V2UploadError && e.code === 'quota_exceeded') return
     }
@@ -295,11 +353,12 @@ export async function downloadV2Book(lib: LocalLibrary, bookId: string, io: {
   const b = await lib.book(bookId)
   if (!b?.server_file_id || !b.server_sha256 || !b.has_content || b.imported_at != null) return false
   const sha = b.server_sha256
+  // Bytes another book here already holds: never a second local copy (books_sha256 is UNIQUE).
+  if (await lib.hasLocalBytes(sha)) return false
   try {
     const staged = await current(reset, io.fetch(v2Api.contentUrl(b.id, b.server_file_id), sha))
     await checked(reset, () => io.retain(staged, sha))
-    await checked(reset, () => lib.markDownloaded(b.id))
-    return true
+    return await checked(reset, () => lib.markDownloaded(b.id))
   } catch (e) {
     if (e === DROPPED) return false
     throw e
