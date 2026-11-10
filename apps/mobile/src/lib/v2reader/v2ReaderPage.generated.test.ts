@@ -49,7 +49,7 @@ describe('v2ReaderPageHtml', () => {
 
   it('bundle_PatchedPaginatorGuardAndPaginatedDefault_NoTestOnlyCode', () => {
     const html = v2ReaderPageHtml(NONCE)
-    // patches/0001: Paginator.render() returns while the current view's document has no body yet.
+    // Fork commit d73682a (was patches/0001): Paginator.render() returns while the current view's document has no body yet.
     expect(html).toContain('if (!((_b = (_a = this.#view) == null ? void 0 : _a.document) == null ? void 0 : _b.body)) return;')
     expect(html).toContain('var flow = "paginated";')
     expect(html).not.toContain('reproRenderDuringLoad')
