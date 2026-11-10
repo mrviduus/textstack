@@ -6,8 +6,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File, Paths } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
+import type { OpenReader, PagePosition } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
+import { useAuth } from '../../context/AuthContext'
+import { APP_HEADERS, freshAccessToken } from '../../lib/api'
+import { deviceUploadIo, sha256Of, uploadV2Book } from '../../lib/v2'
 import { bookFile, createV2Storage, nonceFromUuid, type LibraryBook, type V2Files, type V2Storage } from '../../lib/v2reader/hostStorage'
+import { deviceLocalLibrary, type BookRow, type PositionAction } from '../../lib/v2reader/localLibrary'
+import { downloadV2Book, syncV2Library, type SyncHost } from '../../lib/v2reader/sync'
 import { v2ReaderPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
 
 /**
@@ -44,7 +50,32 @@ function deviceFiles(): V2Files {
 
 // One storage for the process, so every read and write goes through its one queue.
 let storage: V2Storage | null = null
-const v2Storage = () => (storage ??= createV2Storage(deviceFiles(), uuid.v4))
+const v2Storage = () => (storage ??= createV2Storage(deviceFiles(), uuid.v4, deviceLocalLibrary()))
+
+/** File sync (opt-in): the retained copy's bytes through the shared upload sequence. */
+const uploadRetained: SyncHost['upload'] = async (b: BookRow, maxPartBytes, cancelled) => {
+  await uploadV2Book({ uri: v2File(bookFile(b.sha256!)).uri, name: b.original_name }, maxPartBytes, deviceUploadIo(cancelled))
+}
+
+/** Download on demand: into staging, checked against the sha256, then the retained copy (`staging/` is cleared on start). */
+const downloadIo = {
+  async fetch(url: string, sha256: string) {
+    const token = await freshAccessToken()
+    const staged = `staging/dl-${Date.now()}.epub`
+    const file = await File.downloadFileAsync(url, v2File(staged), { headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }, idempotent: true })
+    const source = deviceUploadIo(() => false).open(file.uri)
+    const actual = await sha256Of(source, () => new Promise((r) => setTimeout(r, 0))).finally(() => source.close())
+    if (actual !== sha256) {
+      file.delete()
+      throw new Error('downloaded bytes do not match the book')
+    }
+    return staged
+  },
+  retain: async (staged: string, sha256: string) => v2File(staged).move(v2File(bookFile(sha256)), { overwrite: true }),
+}
+
+/** A sync pass is asked for this long after the last save (the reading path never waits for it). */
+const SYNC_AFTER_SAVE_MS = 10_000
 
 /** The reader's layout, a per-user setting (#1128): paginated unless the reader chose scrolled. No legacy preference is migrated. */
 type Flow = 'paginated' | 'scrolled'
@@ -104,17 +135,82 @@ function V2Reader() {
   /** The book open at the last renderer crash: one that crashes it twice is not reopened again. */
   const crashedFile = useRef<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** A newer position from another device the reader is asked about (ADR-019 `prompt`). */
+  const [offer, setOffer] = useState<PagePosition | null>(null)
+  const [fileSync, setFileSync] = useState(false)
+  const { user } = useAuth()
+  const userId = user?.id ?? null
+  /** The open book as ADR-019 sees it (R6): restored yet, the first CFI after the restore, the one now. */
+  const reading = useRef({ bookId: null as string | null, restored: false, baseline: null as string | null, cfi: null as string | null, index: null as number | null })
 
   const call = (js: string) => webView.current?.injectJavaScript(`${js};true`)
+  const refreshBooks = () => v2Storage().books().then(setBooks, fail('library', setError))
   useEffect(() => {
-    v2Storage().books().then(setBooks, fail('library', setError))
+    refreshBooks()
+    deviceLocalLibrary().fileSync().then(setFileSync, fail('settings'))
   }, [])
+
+  /** A programmatic move: the next relocate is the new baseline, not the reader moving. */
+  const goTo = (p: PagePosition) => {
+    reading.current.baseline = null
+    call(`window.__fol.goTo(${JSON.stringify(p.cfi)})`)
+  }
+
+  // Opportunistic sync (R6): with a session (a guest's too), on open, after saves, never on the reading path.
+  const sync = useRef(() => {})
+  sync.current = () => {
+    if (!userId) return
+    syncV2Library(deviceLocalLibrary(), {
+      userId,
+      newId: uuid.v4,
+      reader: (bookId): OpenReader | null => {
+        const r = reading.current
+        return r.bookId === bookId ? { restoreApplied: r.restored, moved: r.baseline != null && r.cfi !== r.baseline, index: r.index } : null
+      },
+      onPosition: (a: PositionAction) => {
+        if (reading.current.bookId !== a.bookId) return
+        if (a.action === 'prompt') setOffer(a.position)
+        else goTo(a.position)
+      },
+      upload: uploadRetained,
+    }).then(refreshBooks, fail('sync'))
+  }
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const syncSoon = () => {
+    clearTimeout(syncTimer.current)
+    syncTimer.current = setTimeout(() => sync.current(), SYNC_AFTER_SAVE_MS)
+  }
+  useEffect(() => {
+    sync.current()
+    return () => clearTimeout(syncTimer.current)
+  }, [userId])
+
+  const toggleFileSync = () => {
+    const next = !fileSync
+    setFileSync(next)
+    deviceLocalLibrary().setFileSync(next).then(() => next && sync.current(), fail('settings'))
+  }
+
+  /** A book only the server has: fetched on demand, then opened. */
+  const download = (b: LibraryBook) => {
+    setError(null)
+    downloadV2Book(deviceLocalLibrary(), b.id, downloadIo).then(
+      async (ok) => {
+        if (!ok) return
+        await refreshBooks()
+        open({ file: bookFile(b.sha256), name: b.originalName })
+      },
+      fail('download', setError),
+    )
+  }
 
   const open = (target: Opening) => {
     // The page answers nothing for an open it has superseded, so a staged file left behind is dropped here.
     const previous = opening.current
     if (previous && isStaged(previous.file) && previous.file !== target.file) v2Storage().dropStaged(previous.file).catch(fail('drop'))
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
+    reading.current = { bookId: null, restored: false, baseline: null, cfi: null, index: null }
+    setOffer(null)
     setError(null)
     setProgress.current('')
     if (ready.current) call(`window.__fol.openUrl(${JSON.stringify(v2File(target.file).uri)}, ${JSON.stringify(target.file)})`)
@@ -141,7 +237,7 @@ function V2Reader() {
     }
   }
 
-  const onOpened = async (current: Opening, m: { book: { sha256: string; size: number }; title: string; author: string }) => {
+  const onOpened = async (current: Opening, m: { book: { sha256: string; size: number }; format?: string; title: string; author: string }) => {
     const s = v2Storage()
     // A reload or a new pick can replace this open during any await; then this answer stops there.
     const superseded = () => opening.current !== current
@@ -149,8 +245,8 @@ function V2Reader() {
     if (superseded()) return
     call(`window.__fol.restore(${JSON.stringify(stored)})`)
     setHeading([m.title || current.name, m.author].filter(Boolean).join(' — '))
-    const { retained, books } = await s.addOpened(
-      { ...m.book, title: m.title, author: m.author, originalName: current.name },
+    const { retained, bookId, books } = await s.addOpened(
+      { ...m.book, title: m.title, author: m.author, originalName: current.name, format: m.format ?? null },
       isStaged(current.file) ? current.file : null,
     ).catch((e) => {
       // The staged path is gone once addOpened moved or dropped it: a reload must not reopen it.
@@ -159,7 +255,10 @@ function V2Reader() {
     })
     setBooks(books)
     // From here on this book is the retained copy: a reloaded page reopens that, not the moved staging file.
-    if (!superseded()) opening.current = { ...current, file: retained }
+    if (superseded()) return
+    opening.current = { ...current, file: retained }
+    reading.current.bookId = bookId
+    sync.current()
   }
 
   const onMessage = (event: WebViewMessageEvent) => {
@@ -195,12 +294,19 @@ function V2Reader() {
       }
       case 'restored':
         console.log('[v2] restored', JSON.stringify(m))
+        reading.current.restored = true
+        reading.current.baseline = null
         setProgress.current(`restore: ${m.position}`)
         return
       case 'store':
-        v2Storage().writeStore(m.key, m.json).catch(fail('store', setError))
+        v2Storage().writeStore(m.key, m.json).then(syncSoon, fail('store', setError))
         return
       case 'relocate':
+        if (reading.current.restored) {
+          reading.current.baseline ??= m.cfi ?? null
+          reading.current.cfi = m.cfi ?? null
+          reading.current.index = m.index ?? null
+        }
         setProgress.current(`${Math.round((m.fraction ?? 0) * 100)}% · section ${(m.index ?? 0) + 1}/${m.sections ?? '?'}${m.toc ? ` · ${m.toc}` : ''}`)
         return
       case 'word':
@@ -257,15 +363,27 @@ function V2Reader() {
         <Pressable onPress={() => call('window.__fol.prev()')} style={button}><Text style={styles.buttonText}>‹</Text></Pressable>
         <Pressable onPress={() => call('window.__fol.next()')} style={button}><Text style={styles.buttonText}>›</Text></Pressable>
         <Pressable onPress={toggleFlow} disabled={!flow || !reflowable} style={[button, (!flow || !reflowable) && styles.disabled]}><Text style={styles.buttonText}>{flow === 'paginated' ? 'Scrolled' : 'Paginated'}</Text></Pressable>
+        {userId && (
+          <Pressable onPress={toggleFileSync} style={button}><Text style={styles.buttonText}>{fileSync ? 'Files: sync' : 'Files: local'}</Text></Pressable>
+        )}
       </View>
       <Text style={[styles.heading, { color: colors.text }]} numberOfLines={1}>{heading}</Text>
       <ProgressLine setter={setProgress} color={colors.textSecondary} />
       {error && <Text style={[styles.meta, { color: colors.error }]}>{error}</Text>}
+      {offer && (
+        <Pressable onPress={() => { goTo(offer); setOffer(null) }} style={styles.offer}>
+          <Text style={[styles.meta, { color: colors.primary }]}>Read further on another device ({Math.round((offer.fraction ?? 0) * 100)}%): go there</Text>
+        </Pressable>
+      )}
       {books.length > 0 && (
         <ScrollView horizontal style={styles.books} contentContainerStyle={styles.booksRow}>
           {books.map((b) => (
-            <Pressable key={b.id} onPress={() => open({ file: bookFile(b.sha256), name: b.originalName })} style={[styles.book, { borderColor: colors.border }]}>
-              <Text numberOfLines={1} style={[styles.meta, { color: colors.textSecondary }]}>{b.title}</Text>
+            <Pressable
+              key={b.id}
+              onPress={() => (b.local ? open({ file: bookFile(b.sha256), name: b.originalName }) : download(b))}
+              style={[styles.book, { borderColor: colors.border }]}
+            >
+              <Text numberOfLines={1} style={[styles.meta, { color: colors.textSecondary }]}>{b.local ? b.title : `↓ ${b.title}`}</Text>
             </Pressable>
           ))}
         </ScrollView>
@@ -297,6 +415,7 @@ const styles = StyleSheet.create({
   button: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 6 },
   buttonText: { color: '#fff', fontWeight: '600' },
   disabled: { opacity: 0.4 },
+  offer: { paddingHorizontal: 8, paddingVertical: 4 },
   heading: { paddingHorizontal: 8, fontSize: 15, fontWeight: '600' },
   meta: { paddingHorizontal: 8, fontSize: 12 },
   books: { flexGrow: 0, paddingVertical: 4 },
