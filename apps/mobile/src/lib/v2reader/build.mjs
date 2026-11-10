@@ -17,8 +17,10 @@ import { NONCE, formatsJs, html } from './carrier.mjs'
 // Pinned by SHA on our fork (ADR-032): upstream 78914aef (2026-05-01, no releases, unstable API)
 // + our patches as real commits. MIT © John Factotum. A bump is a PR that re-runs every ADR-029
 // Decision 6 check.
-const FOLIATE_REPO = 'https://github.com/mrviduus/foliate-js.git'
-const FOLIATE_SHA = 'd73682a48a0779ca989f25074386784602437fbf'   // branch textstack-pin: 78914aef + 0001 paginator render-while-loading
+// EXPERIMENTAL (#1182, branch exp/1182-fork-eval, never merged): V2_FOLIATE_REPO / V2_FOLIATE_SHA let the
+// build use a local-only commit (V2_FOLIATE_REPO=<path of .vendor/foliate-js>). Not a pin change.
+const FOLIATE_REPO = process.env.V2_FOLIATE_REPO ?? 'https://github.com/mrviduus/foliate-js.git'
+const FOLIATE_SHA = process.env.V2_FOLIATE_SHA ?? 'd73682a48a0779ca989f25074386784602437fbf'   // branch textstack-pin: 78914aef + 0001 paginator render-while-loading
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // reader-engine's 64 KB budget.
