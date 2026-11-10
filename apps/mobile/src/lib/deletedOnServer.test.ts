@@ -92,9 +92,12 @@ describe('#1174 wiring', () => {
     expect(body).toContain('if (live()) setLoading(false)')
   })
 
-  it('library: the offline fallback keeps a tombstoned book listed (its screen offers Remove); no online clear', () => {
+  it('library: offline, a tombstoned book stays listed but as a failed row that says so; no online clear', () => {
     const lib = read('app/(tabs)/library.tsx')
-    expect(lib).not.toContain('deletedOnServer')
+    expect(lib).toContain("status: deleted.has(c.bookId) ? 'Failed' : 'Ready',")
+    expect(lib).toContain("errorMessage: deleted.has(c.bookId) ? t('myBooks.deleted.title') : null,")
+    expect(lib).not.toContain('clearDeletedOnServer')
+    expect(lib).not.toContain('.filter(b => !deleted')
   })
 
   it('removing the download clears the mark', () => {

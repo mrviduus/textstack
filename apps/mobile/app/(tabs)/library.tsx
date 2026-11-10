@@ -21,6 +21,7 @@ import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { getAllCachedBooks, getAllCachedUserBooks } from '../../src/lib/offlineDb'
 import { getAllUserBookLocalProgress, type UserBookProgressWithPercent } from '../../src/lib/progressStorage'
+import { listDeletedOnServer } from '../../src/lib/deletedOnServer'
 import { FirstBookState } from '../../src/components/library/FirstBookState'
 import { LibraryViewSheet, type LibrarySource } from '../../src/components/library/LibraryViewSheet'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
@@ -126,14 +127,16 @@ export default function LibraryScreen() {
           // Both libraries, from the device. Uploads could not be cached at all
           // until they became downloadable, so an offline reader's own books —
           // the ones this product is mostly about — were the half missing here.
-          const [cached, cachedUploads, localProgress] = await Promise.all([
+          const [cached, cachedUploads, localProgress, deleted] = await Promise.all([
             getAllCachedBooks(),
             getAllCachedUserBooks(),
             getAllUserBookLocalProgress().catch(() => new Map<string, UserBookProgressWithPercent>()),
+            listDeletedOnServer(),
           ])
           if (myGen !== loadGenRef.current) return
-          // A server-deleted book (#1174) stays listed: its screen is the only
-          // place that says so and offers to remove the download.
+          // A server-deleted book (#1174) stays listed, because its screen is the
+          // only place that offers to remove the download — but as a failed row
+          // that says so, not as a live book: no Continue straight into the reader.
           setUserBooks(prev => (prev.length > 0 ? prev : cachedUploads.map(c => ({
             id: c.bookId,
             title: c.title,
@@ -143,11 +146,11 @@ export default function LibraryScreen() {
             genre: null,
             totalWordCount: c.totalWordCount,
             // A cached copy only ever exists for a book that finished processing.
-            status: 'Ready',
+            status: deleted.has(c.bookId) ? 'Failed' : 'Ready',
             chapterCount: c.totalChapters,
             createdAt: new Date(c.cachedAt).toISOString(),
             completedAt: null,
-            errorMessage: null,
+            errorMessage: deleted.has(c.bookId) ? t('myBooks.deleted.title') : null,
             progressPercent: localProgress.get(c.bookId)?.bookPercent ?? null,
             progressUpdatedAt: localProgress.get(c.bookId)
               ? new Date(localProgress.get(c.bookId)!.updatedAt).toISOString()
