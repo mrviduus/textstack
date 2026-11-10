@@ -19,8 +19,12 @@ export interface LibraryBook {
   openedAt: number
   /** False: not imported here; the server holds its bytes (sync.ts `downloadV2Book`). */
   local: boolean
-  /** Why the server refused it for good (parked: it and its children are not sent); null otherwise. */
-  blocked: string | null
+  /**
+   * Why it is not synced, shown with "Try again" (localLibrary `unpark`): the park reason (the book
+   * and its children are not sent), or a fixed one when only some of its changes stopped being
+   * retried; null otherwise.
+   */
+  notSynced: string | null
 }
 
 /**

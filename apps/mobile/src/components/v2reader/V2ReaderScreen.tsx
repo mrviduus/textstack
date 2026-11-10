@@ -224,7 +224,7 @@ function V2Reader() {
     )
   }
 
-  /** A parked book's "Try again": sent again with its children, then a pass. */
+  /** "Try again" on a book not synced: a parked one sent again, its stopped changes retried, then a pass. */
   const unpark = (b: LibraryBook) => {
     setError(null)
     deviceLocalLibrary().unpark(b.id).then(() => sync.current(), fail('unpark', setError))
@@ -410,9 +410,9 @@ function V2Reader() {
               style={[styles.book, { borderColor: colors.border }]}
             >
               <Text numberOfLines={1} style={[styles.meta, { color: colors.textSecondary }]}>{b.local ? b.title : `↓ ${b.title}`}</Text>
-              {b.blocked && (
+              {b.notSynced && (
                 <>
-                  <Text numberOfLines={2} style={[styles.meta, { color: colors.error }]}>Not synced: {b.blocked}</Text>
+                  <Text numberOfLines={2} style={[styles.meta, { color: colors.error }]}>Not synced: {b.notSynced}</Text>
                   <Pressable onPress={() => unpark(b)}>
                     <Text style={[styles.meta, { color: colors.primary }]}>Try again</Text>
                   </Pressable>

@@ -672,14 +672,20 @@ entry leaves the outbox on 2xx or on a code whose action is "drop"; on 5xx/netwo
 backoff. `ponytail:` per-item requests; a batch endpoint when a first sync of hundreds of words
 measurably hurts.
 
-Backoff (#1186) is a per-entry count, not a timer (passes are rare): every other failure of an entry
-counts against it; offline, 503 `v2_unavailable` and a session change end the pass and count
-nothing. After `MAX_FAILURES` (5, mobile `sync.ts`) in a row a book entry is **parked** (`blocked`
-holds "failed N times, last: …"), as for a refusal; a state or annotation entry is **kept, never
-dropped**, but skipped. A parked book's children stay queued and cost no request. The count resets
-when the row is saved again (a save landing mid-push is a new gen, not counted), on an identity
-change, and on **unpark**: the reader's "Try again" clears `blocked`, queues the book and retries its
-children from zero. A merge-map re-key keeps counts and parks.
+Backoff (#1186) is a per-entry count, not a timer (passes are rare). Only entry-specific failures
+count — a 5xx other than 503, a local error, and a child's `unknown_file` / `book_not_found` (the
+book is pushed first; a server that keeps saying so is not asked forever). A failing pull, offline,
+any 503 (`v2_unavailable` or not: the server is down) and a session change end the pass and count
+nothing. After `MAX_FAILURES` (5, mobile `localLibrary.ts`) in a row a book entry is **parked**
+(`blocked` holds "failed N times, last: <server message, clipped; a local error's name only>"), as
+for a refusal — only if that entry was not queued again meanwhile; a state or annotation entry is
+**kept, never dropped**, but skipped (a skipped annotation also keeps shadowing the server's newer
+version of it until retried). A parked book's children stay queued and cost no request. The library
+shows a book as not synced when it is parked or any of its children is skipped, with **"Try again"**:
+a parked book is unparked and queued; one not parked is not re-sent (a queued entry of it becomes a
+fresh attempt); its children are retried from zero either way. The count also resets when the row is
+saved again (a save landing mid-push is a new gen, not counted) and on an identity change, which
+queues every book whose park it clears. A merge-map re-key keeps counts and parks.
 
 ## Guest → account merge
 
