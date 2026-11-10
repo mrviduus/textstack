@@ -9,6 +9,7 @@ import type { SearchResult, Edition, Author } from '@textstack/shared'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
 import { fonts } from '../../src/theme/typography'
+import { logLoadError } from '../../src/lib/logLoadError'
 import { SkeletonLoader, BookGridSkeleton } from '../../src/components/ui/SkeletonLoader'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { useReconnectCount } from '../../src/hooks/useOnline'
@@ -139,7 +140,7 @@ export default function DiscoverScreen() {
       setCatalogError(null)
     }).catch(e => {
       if (cancelled) return
-      ;(isOfflineError(e) ? console.warn : console.error)('Catalog fetch failed:', e)
+      logLoadError('Catalog fetch failed:', e)
       // Was `setCatalogOffline(isOfflineError(e))`, so a 500 set it to FALSE and
       // Discover rendered blank with no message at all — three sections gated on
       // their own data, all empty, nothing to explain it.
@@ -199,7 +200,7 @@ export default function DiscoverScreen() {
       saveRecent(q)
     } catch (e) {
       if (gen !== searchGenRef.current) return
-      ;(isOfflineError(e) ? console.warn : console.error)('Search failed:', e)
+      logLoadError('Search failed:', e)
       // A search that never reached the server rendered as "No results for
       // harry" — which reads as a claim about the catalog, not about the
       // connection, and sends the reader off to doubt their spelling.

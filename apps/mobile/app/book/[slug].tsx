@@ -3,7 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Share } from 'rea
 import { Image } from 'expo-image'
 import { useFocusEffect, useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { createBooksApi, currentReviewChapter, formatBookPercent, getStorageUrl, isOfflineError, plural, readingProgressApi, resumeChapterSlug, storedBookPercent } from '@textstack/shared'
+import { createBooksApi, currentReviewChapter, formatBookPercent, getStorageUrl, plural, readingProgressApi, resumeChapterSlug, storedBookPercent } from '@textstack/shared'
 import type { BookDetail } from '@textstack/shared'
 import { useDownload } from '../../src/context/DownloadContext'
 import { useAuth } from '../../src/context/AuthContext'
@@ -24,6 +24,7 @@ import {
 } from '../../src/lib/offlineDb'
 import { getLocalProgress } from '../../src/lib/progressStorage'
 import { downloadAndSave } from '../../src/lib/downloadAndSave'
+import { logLoadError } from '../../src/lib/logLoadError'
 import { useBookLibrary } from '../../src/hooks/useBookLibrary'
 import { fonts } from '../../src/theme/typography'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
@@ -123,13 +124,14 @@ export default function BookDetailScreen() {
       })
       .catch(async (e) => {
         if (cancelled) return
-        ;(isOfflineError(e) ? console.warn : console.error)('Failed to load book:', e)
         const status: number | undefined = e?.status
         // Confirmed 404 → stop; the book really doesn't exist server-side.
         if (status === 404) {
+          console.warn('Book not found:', e)
           setFetchError('notfound')
           return
         }
+        logLoadError('Failed to load book:', e)
         // Network / transient server failure — try to rehydrate from the
         // offline cache so a fully downloaded book stays usable while the
         // device is offline (R-4). `slug` in cache is the edition slug so

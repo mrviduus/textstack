@@ -7,6 +7,7 @@ import {
   libraryApi, readingProgressApi, isOfflineError, plural,
 } from '@textstack/shared'
 import { userBooksApi } from '../../src/lib/userBooksApi'
+import { logLoadError } from '../../src/lib/logLoadError'
 import {
   collectionsApi, buildLibraryEntries, filterEntries, countEntries, sortEntries, entryTitle, entryAuthor,
   type UserLibraryItem, type UserBookDto, type ReadingProgressDto,
@@ -112,9 +113,8 @@ export default function LibraryScreen() {
       setProgressMap(map)
     } catch (e) {
       if (myGen !== loadGenRef.current) return
+      logLoadError('Library load error:', e)
       const offline = isOfflineError(e)
-      // Offline is an expected state, not a bug: a red LogBox for it masks real errors.
-      ;(offline ? console.warn : console.error)('Library load error:', e)
       setLoadError(offline ? 'offline' : 'failed')
       // Offline: fall back to what is genuinely on the device. A downloaded book
       // — catalog or upload — carries its title and cover in SQLite, the same

@@ -8,6 +8,7 @@ import { currentReviewChapter, getStorageUrl, storedBookPercent, formatBookPerce
 import { v2Offers } from '@textstack/shared'
 import { useV2 } from '../../src/context/AuthContext'
 import { userBooksApi } from '../../src/lib/userBooksApi'
+import { logLoadError } from '../../src/lib/logLoadError'
 import type { UserBookDetailResponse } from '@textstack/shared'
 import { enrichUserBook } from '../../src/lib/api'
 import { useTheme } from '../../src/context/ThemeContext'
@@ -185,7 +186,7 @@ export default function UserBookDetailScreen() {
           console.warn('isUserBookFullyCached failed:', err)
         }
       } catch (e) {
-        ;(isOfflineError(e) ? console.warn : console.error)('Failed to load user book:', e)
+        logLoadError('Failed to load user book:', e)
         if (unmountedRef.current) return
         // Unreachable server, but the book may be on the device. Render the
         // downloaded copy rather than the "couldn't load" screen — this is the
