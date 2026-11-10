@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { emptyEntry, entryFor, foldText, sha1, sha256, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { uuidV4 } from './uuid.mjs'
 
 const book = { sha256: 'ab'.repeat(32), size: 1234, name: 'a.epub' }
 const pos = { cfi: 'epubcfi(/6/8!/4/2/1:5)', quote: 'Alice was beginning', index: 3, fraction: 0.1, at: 1 }
@@ -124,5 +125,48 @@ describe('v2 reader store', () => {
   it('foldText_EmptyAndWhitespaceOnly_FoldToEmpty', () => {
     expect(foldText('')).toBe('')
     expect(foldText(' \n\t\u00A0\u00AD')).toBe('')
+  })
+
+  it('quoteOf_SurrogatePairAtTheUtf16Cut_KeepsThePairAndCountsCodePoints', () => {
+    // 63 ASCII + an emoji: a UTF-16 slice(0, 64) keeps only the emoji's high surrogate.
+    const text = `${'a'.repeat(63)}\u{1F600}tail`
+    expect(text.slice(0, 64)).toMatch(/[\uD800-\uDBFF]$/)
+    expect(quoteOf(text)).toBe(`${'a'.repeat(63)}\u{1F600}`)
+    // 64 CJK Extension B characters: 128 UTF-16 units, 64 code points, none of them split.
+    const cjk = '\u{20000}'.repeat(70)
+    expect([...quoteOf(cjk)]).toHaveLength(64)
+    expect(new TextDecoder().decode(new TextEncoder().encode(quoteOf(cjk)))).toBe('\u{20000}'.repeat(64))
+  })
+
+  it('quoteOf_ShortOrMultiline_WholeTextUpTo64CodePoints', () => {
+    expect(quoteOf('')).toBe('')
+    expect(quoteOf('one\ntwo')).toBe('one\ntwo')
+    expect(quoteOf('x'.repeat(100))).toBe('x'.repeat(64))
+  })
+
+  it('uuidV4_ManyCalls_UniqueLowercaseV4Shape', () => {
+    const ids = new Set(Array.from({ length: 1000 }, uuidV4))
+    expect(ids.size).toBe(1000)
+    for (const id of ids) expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  })
+
+  it('entryFor_HighlightWithSelectedText_RoundTripsBothFields', () => {
+    const h = { ...hl, id: uuidV4(), quote: quoteOf('y'.repeat(200)), selectedText: 'y'.repeat(200) }
+    const back = entryFor(JSON.stringify(withHighlight(emptyEntry(book), h)), book)
+    expect(back?.highlights).toEqual([h])
+    expect(back?.highlights[0].quote).toHaveLength(64)
+  })
+
+  it('entryFor_PreSelectedTextHighlight_StillRestored', () => {
+    // Before #1078 the whole selection was the quote and there was no selectedText (ADR-031 M2.7a: transitional).
+    const old = { ...hl, id: 'hmabc123', quote: 'z'.repeat(200) }
+    expect(entryFor(JSON.stringify({ ...emptyEntry(book), highlights: [old] }), book)?.highlights).toEqual([old])
+  })
+
+  it('entryFor_SelectedTextNotANonEmptyString_HighlightDropped', () => {
+    // ' \n ' too: the server refuses whitespace-only selections (SyncValidation.RequiredText).
+    const bad = [{ ...hl, selectedText: '' }, { ...hl, selectedText: ' \n ' }, { ...hl, selectedText: 7 }, { ...hl, selectedText: null }]
+    expect(entryFor(JSON.stringify({ ...emptyEntry(book), highlights: [...bad, hl] }), book)?.highlights).toEqual([hl])
+    expect(withHighlight(emptyEntry(book), bad[1]).highlights).toEqual([])
   })
 })

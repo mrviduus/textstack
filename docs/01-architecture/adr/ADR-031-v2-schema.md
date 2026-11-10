@@ -122,6 +122,14 @@ writer produces them. They are accepted on V2 writes from the transitional reade
 `quote` on `epub-cfi` (added 2026-10-30) resolves ADR-029's contradiction 1: its position model
 verifies a 64-character quote at the CFI, which the envelope as first written could not store.
 
+`prefix`/`suffix` on `epub-cfi` (amended 2026-11-10, [#1078](https://github.com/mrviduus/textstack/issues/1078)):
+an annotation's `epub-cfi` locator may carry the V2 reader's selection context as optional sibling
+keys, `prefix` and `suffix` (≤32 code points each), opaque to the server (`is_locator` accepts extra
+keys). The full selection is the annotation's `selected_text`, never `quote`: `quote` is the first ≤64
+**code points** at the CFI, cut on a code-point boundary (a lone surrogate has no UTF-8 form). Ids the
+reader mints (local books, highlights) are v4 UUIDs (rule 3). Wire rules:
+[v2-sync-protocol.md](../v2-sync-protocol.md) "Annotations".
+
 ## Decision — disposition of every legacy table
 
 Numbering and rows (2026-10-26) from [data-model.md](../data-model.md). "Archived" = in the cutover
