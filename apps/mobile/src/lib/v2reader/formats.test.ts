@@ -141,6 +141,8 @@ describe('zipFormat', () => {
   it.skipIf(!existsSync(resolve(__dirname, '.vendor/foliate-js/comic-book.js')))('upperCaseExtensions_RoutedCbz_AndTheComicReaderKeepsEveryPage', async () => {
     const names = ['P01.JPG', 'p02.png', 'P03.Png']
     expect(zipFormat(names)).toBe('cbz')
+    // @ts-ignore — .vendor/ is the build-time clone (gitignored); CI's typecheck runs without it, and
+    // the skipIf above keeps the test itself from running there.
     const { makeComicBook } = await import('./.vendor/foliate-js/comic-book.js')
     const book = makeComicBook({ entries: names.map((n) => ({ filename: comicName(n) })), loadBlob: async () => null, getSize: () => 0 }, { name: '' })
     expect(book.sections.map((s: { id: string }) => s.id)).toEqual(names.map(comicName))
