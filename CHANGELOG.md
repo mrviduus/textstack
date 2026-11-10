@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Mobile** — offline load failures log warn, not error: one `logLoadError` helper on the four load screens; a 404 on the book page logs as the handled state it is (#1156) — mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-09-mobile-offline-load-failures-log-warn-not-error)
 - **Infra** — restore-drill gains an opt-in ETL rehearsal mode (`etl_rehearsal` dispatch input, default off; scheduled drill unchanged): restore → dry run → real run → validate → re-run 0 writes → validate, entirely on a GitHub runner from the R2 backups, with a masked public step summary (toward M3.5 #1030) — infra
 - **Library** — the V2 library feed carries `ingestion`, `chapterCount` and `wordCount` on the file DTO (transitional, dies at M6.4): the shelf is always 2 requests (was 32 on a 30-book cold load), `/chapters` is reader-only, and extraction completion now bumps `books.updated_at` so a feed cursor sees the status change (#1118) — backend, web, mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-09-library-v2-feed-file-summary)
 - **Mobile** — V2 store writes answered after sign-out no longer leak the previous account’s rows (one `whileCurrent` epoch choke point; shared vocabulary takes an injected epoch + cards map, so web reads come back empty too); a sign-out mid highlight save is a quiet drop, not an error toast (#1151) — mobile, web · [details](docs/changelog-archive/2026-H2.md#2026-11-09-mobile-v2-epoch-guard-post-await-writes)
