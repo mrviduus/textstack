@@ -404,6 +404,75 @@ describe('V2 local library sync (R6)', () => {
         expect(writes(calls)).toEqual([])
         expect(await lib.outbox()).toEqual([])
       })
+
+      // #1187 QA
+      it('fractionPosition_RealMoveSavedWhileItsDropIsInFlight_MoveStillPushed', async () => {
+        const { lib, bookId, fileId } = await synced()
+        await lib.writeEntry(SHA, entry({ fraction: 0.7, at: NOW - 2000 }), newId)
+        expect((await lib.outbox()).map((o) => o.kind)).toEqual(['state'])
+        // The reader moves after the push read the fraction-only row and before it drops the entry.
+        const moved = { ...pos, fraction: 0.72, at: NOW - 1000 }
+        const racing: LocalLibrary = { ...lib, state: async (id: string) => { const st = await lib.state(id); await lib.writeEntry(SHA, entry(moved), newId); return st } }
+        const first = fakeApi({})
+        await syncV2Library(racing, host())
+        expect(writes(first)).toEqual([])
+        expect((await lib.outbox()).map((o) => o.kind)).toEqual(['state'])
+        const next = fakeApi({ [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 2))] })
+        await syncV2Library(lib, host())
+        expect(next.find((c) => c.method === 'PUT')?.body).toMatchObject({ expectedRevision: 1, bookFraction: 0.72, currentLocator: { scheme: 'epub-cfi', value: CFI } })
+        expect(await lib.outbox()).toEqual([])
+      })
+
+      it('pull_TransitionalPromptedOnce_SameRevisionPulledAgain_NoSecondPrompt', async () => {
+        const { lib, bookId, fileId } = await synced()
+        const reader = () => ({ restoreApplied: true, moved: false, index: 6 })
+        fakeApi({ 'GET /reading/changes': feed(transitional(bookId, fileId, 3, NOW - 1000)) })
+        const h = host({ reader })
+        await syncV2Library(lib, h)
+        expect(h.owed.map((o) => o.action)).toEqual(['prompt'])
+        const calls = fakeApi({ 'GET /reading/changes': feed(transitional(bookId, fileId, 3, NOW - 1000)) })
+        const again = host({ reader })
+        await syncV2Library(lib, again)
+        expect(again.owed).toEqual([])
+        expect(writes(calls)).toEqual([])
+      })
+
+      it('pull_TransitionalForABookNotImported_ImportedLater_RestoredByFractionNothingPushed', async () => {
+        const lib = createLocalLibrary(memoryDb())
+        const sid = 'aaaaaaaa-0000-4000-8000-000000000001'
+        const sfid = 'aaaaaaaa-0000-4000-8000-000000000002'
+        const at = NOW - 1000
+        fakeApi({ 'GET /library/changes': feed(serverBook(sid, sfid, {}, { hasContent: true })), 'GET /reading/changes': feed(transitional(sid, sfid, 3, at)) })
+        const h = host()
+        await syncV2Library(lib, h)
+        expect(h.owed).toEqual([])
+        expect((await restoredEntry(lib)).position).toEqual({ fraction: 0.7, at })
+        expect(await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)).toBe(sid)
+        const restored = (await restoredEntry(lib)).position
+        expect(restored).toEqual({ fraction: 0.7, at })
+        await lib.writeEntry(SHA, entry(restored, []), newId)
+        expect(await lib.outbox()).toEqual([])
+        const calls = fakeApi({ 'GET /reading/changes': feed(transitional(sid, sfid, 3, at)) })
+        await syncV2Library(lib, host({ reader: () => ({ restoreApplied: true, moved: false, index: 1 }) }))
+        expect(writes(calls)).toEqual([])
+      })
+
+      it('fractionPosition_MergeMapReKeyThenAnotherIdentity_KeptHereNeverPushed', async () => {
+        const { lib, bookId, fileId } = await synced()
+        const at = NOW - 1000
+        fakeApi({ 'GET /reading/changes': feed(transitional(bookId, fileId, 3, at)) })
+        await syncV2Library(lib, host())
+        await adoptV2LocalAccount('u1', 'acct', { books: { [bookId]: 'acct-book' }, files: { [fileId]: 'acct-file' } }, () => lib)
+        expect((await restoredEntry(lib)).position).toEqual({ fraction: 0.7, at })
+        expect(await lib.state('acct-book')).toMatchObject({ revision: 3, revision_file_id: 'acct-file' })
+        let calls = fakeApi({})
+        await syncV2Library(lib, host({ userId: 'acct' }))
+        expect(writes(calls)).toEqual([])
+        calls = fakeApi({})
+        await syncV2Library(lib, host({ userId: 'someone-else' }))
+        expect((await restoredEntry(lib)).position).toEqual({ fraction: 0.7, at })
+        expect(writes(calls).filter((w) => w.endsWith('/reading-state'))).toEqual([])
+      })
     })
 
     it('cbzPosition_NoQuote_NeverSent', async () => {

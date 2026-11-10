@@ -75,6 +75,18 @@ describe('v2LocalSync', () => {
     expect(positionWrite({ quote: 'q', fraction: 0.7, at: 1 }, 'f', 3)).toBeNull()
   })
 
+  it('statePosition_TransitionalFractionAtEitherEnd_KeptJustOutside_Null', () => {
+    // #1187 QA: [0, 1] is closed; anything past it, or not a finite number, is no position.
+    const other = { version: 1, scheme: 'textstack-position-v1', value: { chapterSlug: 'x' } } as const
+    for (const bookFraction of [0, 1]) expect(statePosition(state({ currentLocator: other, bookFraction }))).toMatchObject({ fraction: bookFraction })
+    for (const bookFraction of [1.0000001, -Number.MIN_VALUE, Infinity, -Infinity, '0.5' as unknown as number, undefined as unknown as number]) {
+      expect(statePosition(state({ currentLocator: other, bookFraction })), String(bookFraction)).toBeNull()
+    }
+    // The pdf-page exclusion holds at the ends too, and a fraction-only answer never carries a cfi.
+    expect(statePosition(state({ currentLocator: { version: 1, scheme: 'pdf-page', value: 3 }, bookFraction: 0 }))).toBeNull()
+    expect(Object.keys(statePosition(state({ currentLocator: other }))!).sort()).toEqual(['at', 'fraction'])
+  })
+
   it('syncableText_OverCapOrWhitespace_NeverSynced_OldEntryUsesQuote', () => {
     expect(syncableText(hl({ selectedText: 'x'.repeat(4001) }))).toBeNull()
     expect(syncableText(hl({ selectedText: ' \n\t' }))).toBeNull()
@@ -161,6 +173,10 @@ describe('v2LocalSync', () => {
         // No spine index to call it the same chapter: a restored local CFI position is asked about, never replaced.
         expect(decideServerState({ local, localFileId: 'f', server: transitional(), reader: { restoreApplied: true, moved: false, index: 6 }, now })).toBe('prompt')
         expect(decideServerState({ local, localFileId: 'f', server: transitional(), reader: { restoreApplied: true, moved: true, index: null }, now })).toBe('prompt')
+      })
+      it('decideServerState_TransitionalNewerReaderWithoutIndex_PromptNotAMissingIndexMatch', () => {
+        // #1187 QA: no spine index on either side is not "the same chapter" (null vs undefined).
+        expect(decideServerState({ local, localFileId: 'f', server: transitional(), reader: { restoreApplied: true, moved: false, index: null }, now })).toBe('prompt')
       })
     })
     it('decideServerState_NewerBookNotOpen_Adopt', () => {

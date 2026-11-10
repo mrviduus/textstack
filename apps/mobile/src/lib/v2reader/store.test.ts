@@ -64,6 +64,17 @@ describe('v2 reader store', () => {
     expect(isFractional({ fraction: Infinity })).toBe(false)
   })
 
+  it('isFractional_StaleCfiBesideAFraction_NotFractionOnly_PositionDropped', () => {
+    // #1187 QA: a cfi without its quote next to a fraction is neither shape; never restored by fraction
+    // while ignoring the cfi, never by a CFI that cannot be checked.
+    for (const bad of [{ fraction: 0.5, cfi: 'epubcfi(/6/4!/4/2)' }, { fraction: 0.5, cfi: null }, { fraction: 0.5, cfi: '' }, { fraction: 1.0000001 }, { fraction: -Infinity }]) {
+      expect(isFractional(bad), JSON.stringify(bad)).toBe(false)
+      expect(entryFor(JSON.stringify({ ...withPosition(emptyEntry(book), pos), position: bad }), book)?.position, JSON.stringify(bad)).toBeNull()
+    }
+    // A move cannot be replaced by one of those either.
+    expect(withPosition(withPosition(emptyEntry(book), pos), { fraction: 0.5, cfi: 'epubcfi(/6/4!/4/2)' }).position).toEqual(pos)
+  })
+
   it('withPosition_WithoutCfiOrQuote_KeepsThePreviousOne', () => {
     const e = withPosition(emptyEntry(book), pos)
     expect(withPosition(e, { ...pos, quote: '' }).position).toEqual(pos)
