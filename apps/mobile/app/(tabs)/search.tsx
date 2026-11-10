@@ -105,7 +105,7 @@ export default function DiscoverScreen() {
   // search box with no explanation. Empty and
   // unreachable are different states and now look different.
   const [catalogError, setCatalogError] = useState<'offline' | 'failed' | null>(null)
-  const [searchOffline, setSearchOffline] = useState(false)
+  const [searchError, setSearchError] = useState<'offline' | 'failed' | null>(null)
   const reconnects = useReconnectCount()
   // Bumped by the banner's retry, so a reader who does not want to wait for
   // NetInfo can ask again.
@@ -195,7 +195,7 @@ export default function DiscoverScreen() {
       // flight. Without this, a slow response for "har" would overwrite
       // the results for "harry" that arrived first.
       if (gen !== searchGenRef.current) return
-      setSearchOffline(false)
+      setSearchError(null)
       setResults(items)
       saveRecent(q)
     } catch (e) {
@@ -203,8 +203,11 @@ export default function DiscoverScreen() {
       logLoadError('Search failed:', e)
       // A search that never reached the server rendered as "No results for
       // harry" — which reads as a claim about the catalog, not about the
-      // connection, and sends the reader off to doubt their spelling.
-      setSearchOffline(isOfflineError(e))
+      // connection, and sends the reader off to doubt their spelling. A server
+      // failure made the same claim (#1163), so it gets its own arm. Clear the
+      // previous query's results, or they render under the failed one.
+      setResults([])
+      setSearchError(isOfflineError(e) ? 'offline' : 'failed')
     } finally {
       if (gen === searchGenRef.current) setLoading(false)
     }
@@ -329,11 +332,11 @@ export default function DiscoverScreen() {
           ))}
         </View>
       ) : results.length === 0 && searched ? (
-        searchOffline ? (
+        searchError ? (
           <EmptyState
-            icon="cloud-offline-outline"
-            title={t('search.offline.title')}
-            subtitle={t('search.offline.body')}
+            icon={searchError === 'offline' ? 'cloud-offline-outline' : 'alert-circle-outline'}
+            title={searchError === 'offline' ? t('search.offline.title') : t('search.failed.title')}
+            subtitle={searchError === 'offline' ? t('search.offline.body') : t('search.failed.body')}
             buttonLabel={t('common.retry')}
             onButtonPress={() => doSearch(query)}
           />
