@@ -368,6 +368,49 @@ describe('an answer that outlives a sign-out (v2Store.reset, #1155)', () => {
     expect(v2Store.states.size).toBe(0)
   })
 
+  const cfi = { currentLocator: { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/4!/4)', quote: 'q' } }
+  const readState = (answer: { status: number; body?: unknown }) => ({ 'GET /me/v2/books/b1/reading-state': answer })
+
+  it('answers a read that lands after the reset as no answer, not as no state', async () => {
+    expect(await resetMidCall(() => v2Store.reset(), readState({ status: 404 }), () => readV2Progress('b1'))).toBeUndefined()
+  })
+
+  it('answers a read of no state with no reset as no state', async () => {
+    asFake(readState({ status: 404 }))
+    expect(await readV2Progress('b1')).toBeNull()
+  })
+
+  it('answers no place when the reset lands while a read resolves its chapter', async () => {
+    const routes = { ...library, ...chapters, ...readState({ status: 200, body: state('b1', 1, cfi) }) }
+    expect(await resetMidCall(() => v2Store.reset(), routes, () => readV2Progress('b1'), '/chapters')).toBeUndefined()
+  })
+
+  it("adopts no server place when the reset lands while a lost write resolves the server's chapter", async () => {
+    const lost = { 'PUT /me/v2/books/b1/reading-state': conflict('stale_revision', { current: state('b1', 5, cfi) }) }
+    expect(await resetMidCall(() => v2Store.reset(), { ...library, ...chapters, ...lost }, () => saveV2Progress('b1', write), '/chapters')).toBe('dropped')
+  })
+
+  it('marks no book read when the reset lands before its write is answered', async () => {
+    const routes = { ...library, ...chapters, ...readState({ status: 200, body: state('b1', 4) }), ...put }
+    expect(await resetMidCall(() => v2Store.reset(), routes, () => completeV2Book('b1'), '/chapters')).toBe('dropped')
+    expect(v2Store.states.size).toBe(0)
+  })
+
+  it('marks a book read with no reset', async () => {
+    asFake({ ...library, ...chapters, ...readState({ status: 200, body: state('b1', 4) }), ...put })
+    expect(await completeV2Book('b1')).toBe('done')
+  })
+
+  it('marks no book unread when its reset is answered after the sign-out', async () => {
+    const routes = { ...readState({ status: 200, body: state('b1', 4) }), 'POST /me/v2/books/b1/reading-state/reset': { status: 200, body: state('b1', 5) } }
+    expect(await resetMidCall(() => v2Store.reset(), routes, () => uncompleteV2Book('b1'), '/reading-state/reset')).toBe('dropped')
+  })
+
+  it('marks a book unread with no reset', async () => {
+    asFake({ ...readState({ status: 200, body: state('b1', 4) }), 'POST /me/v2/books/b1/reading-state/reset': { status: 200, body: state('b1', 5) } })
+    expect(await uncompleteV2Book('b1')).toBe('done')
+  })
+
   it('remembers no revision from a keepalive answer that lands after the reset', async () => {
     let land!: (s: never) => void
     const answer = rememberV2State(new Promise((r) => { land = r }))

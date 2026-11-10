@@ -85,10 +85,11 @@ export function resetSince(): () => boolean {
  * `work`'s answer, or null when the store was reset while it ran: nothing of the previous account's
  * lands in the next one's store (#1155, mobile's twin #1151). A failure that outlived the reset is
  * the previous account's too: null, not thrown, so no 409 handling writes it back. `keep` writes
- * the answer away in the same tick as the check, so no reset lands between the two.
+ * the answer away in the same tick as the check, so no reset lands between the two. `reset` is
+ * taken when the caller started, when awaits before `work` belong to the same call.
+ * Web's copy of mobile's guard; one shared copy is #1121.
  */
-export async function whileCurrent<T>(work: Promise<T>, keep?: (value: T) => unknown): Promise<T | null> {
-  const reset = resetSince()
+export async function whileCurrent<T>(work: Promise<T>, keep?: (value: T) => unknown, reset = resetSince()): Promise<T | null> {
   try {
     const value = await work
     if (reset()) return null
@@ -250,13 +251,24 @@ async function toProgress(s: V2ReadingState): Promise<UserBookProgress> {
   }
 }
 
-/** The reader's read: null = no state yet, undefined = no answer (as `readUserBookProgress`). */
+/**
+ * The reader's read: null = no state yet, undefined = no answer (as `readUserBookProgress`) — also
+ * when the store was reset meanwhile: the answer was the previous account's.
+ */
 export async function readV2Progress(bookId: string, signal?: AbortSignal): Promise<UserBookProgress | null | undefined> {
+  const reset = resetSince()
   try {
-    const s = await whileCurrent(v2Api.getReadingState(bookId, signal), (s) => (s ? remember(s) : v2Store.states.delete(bookId)))
-    return s && (await toProgress(s))
+    const s = await v2Api.getReadingState(bookId, signal)
+    if (reset()) return undefined
+    if (!s) {
+      v2Store.states.delete(bookId)
+      return null
+    }
+    remember(s)
+    const progress = await toProgress(s)
+    return reset() ? undefined : progress
   } catch (e) {
-    return e instanceof ApiError && e.status === 404 ? null : undefined
+    return !reset() && e instanceof ApiError && e.status === 404 ? null : undefined
   }
 }
 
@@ -300,12 +312,14 @@ export type { V2WriteOutcome } from '@textstack/shared'
  * fraction). Anything else throws: the caller keeps the write for its next save.
  */
 export async function saveV2Progress(bookId: string, data: ProgressWrite, retried = false): Promise<V2WriteOutcome> {
+  const reset = resetSince()
   if (!v2Store.books.has(bookId)) await v2Book(bookId)
   const body = v2ProgressBody(bookId, data)
   if (!body) return 'dropped'
   try {
-    return (await whileCurrent(v2Api.putReadingState(bookId, body), remember)) ? 'accepted' : 'dropped'
+    return (await whileCurrent(v2Api.putReadingState(bookId, body), remember, reset)) ? 'accepted' : 'dropped'
   } catch (e) {
+    // Only reached with no reset so far: whileCurrent swallows a failure that outlived one.
     const err = v2Api.v2ErrorOf(e)
     const current = err?.current as V2ReadingState | null | undefined
     switch (err?.code) {
@@ -315,10 +329,11 @@ export async function saveV2Progress(bookId: string, data: ProgressWrite, retrie
           return 'dropped'
         }
         remember(current)
-        return { adopted: await toProgress(current) }
+        const adopted = await toProgress(current)
+        return reset() ? 'dropped' : { adopted }
       case 'reset':
         if (current) remember(current)
-        return (await whileCurrent(v2Api.putReadingState(bookId, { ...body, expectedRevision: current?.revision ?? null }), remember)) ? 'accepted' : 'dropped'
+        return (await whileCurrent(v2Api.putReadingState(bookId, { ...body, expectedRevision: current?.revision ?? null }), remember, reset)) ? 'accepted' : 'dropped'
       case 'file_replaced':
         forgetV2Book(bookId)
         return 'reload'
@@ -340,28 +355,35 @@ export async function saveV2Progress(bookId: string, data: ProgressWrite, retrie
 /** A keepalive write's answer (null: not landed) is the new revision, unless the store was reset meanwhile. */
 export const rememberV2State = (answer: Promise<V2ReadingState | null>) => whileCurrent(answer, (s) => s && remember(s))
 
+/** 'dropped': the store was reset meanwhile, the caller shows no change. */
+export type V2MarkOutcome = 'done' | 'dropped'
+
 /** Mark read on V2: the state as it stands (or the book's start), at the end, with `completedAt`. */
-export async function completeV2Book(bookId: string): Promise<void> {
+export async function completeV2Book(bookId: string): Promise<V2MarkOutcome> {
+  const reset = resetSince()
   const b = await v2Book(bookId)
   const state = await v2Api.getReadingState(bookId)
   const first = (await v2Chapters(b)).items[0]?.chapterKey
   const sameFile = state && state.fileId === b.currentFile?.id
   const currentLocator = sameFile ? state.currentLocator : placeToV2Locator({ chapterSlug: first ?? null })
   if (!b.currentFile || !currentLocator) throw new ApiError(409, 'Nothing to mark read yet')
-  await whileCurrent(v2Api.putReadingState(bookId, {
+  const written = await whileCurrent(v2Api.putReadingState(bookId, {
     expectedRevision: sameFile ? state.revision : null,
     fileId: b.currentFile.id,
     currentLocator,
     bookFraction: sameFile ? state.bookFraction : 0,
     completedAt: new Date().toISOString(),
     clientRecordedAt: new Date().toISOString(),
-  }), remember)
+  }), remember, reset)
+  return written ? 'done' : 'dropped'
 }
 
 /** Mark unread on V2: a reset clears completion and the frontier, the place stays (PDD rule 5). */
-export async function uncompleteV2Book(bookId: string): Promise<void> {
+export async function uncompleteV2Book(bookId: string): Promise<V2MarkOutcome> {
+  const reset = resetSince()
   const state = await v2Api.getReadingState(bookId)
-  if (state) await whileCurrent(v2Api.resetReadingState(bookId, state.revision), remember)
+  if (!state) return reset() ? 'dropped' : 'done'
+  return (await whileCurrent(v2Api.resetReadingState(bookId, state.revision), remember, reset)) ? 'done' : 'dropped'
 }
 
 // ---- Upload -------------------------------------------------------------------------------------
