@@ -27,6 +27,7 @@ export interface LibraryBook {
  */
 export interface LocalLibrary {
   books(): Promise<LibraryBook[]>
+  hasLocalBytes(sha256: string): Promise<boolean>
   addOpened(b: { sha256: string; size: number; title: string; author: string; originalName: string; format: string | null }, newId: () => string): Promise<string>
   readEntry(sha256: string): Promise<string | null>
   writeEntry(sha256: string, json: string, newId: () => string): Promise<void>
@@ -109,7 +110,7 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
           const bookId = await lib.addOpened({ ...book, sha256, format: book.format ?? null }, newId)
           return { retained, bookId, books: await lib.books() }
         } catch (e) {
-          const listed = moved && (await lib.books().then((l) => l.some((b) => b.local && b.sha256 === sha256), () => true))
+          const listed = moved && (await lib.hasLocalBytes(sha256).catch(() => true))
           if (moved && !listed) try { files.remove(retained) } catch { /* best effort; rethrow the real error */ }
           throw e
         }

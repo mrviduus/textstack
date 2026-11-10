@@ -269,8 +269,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         v2Store.reset()
         if (merge) await applyV2MergeMap(merge)
         // The V2 local library a guest synced becomes the account's (R6): ids re-keyed, full pull next.
-        // A failure never blocks sign-in; it is safe to leave: the re-key and the identity commit
-        // together, and the next sync pass trusts the database's identity over the hint.
+        // A failure never blocks sign-in and is logged: the re-key and the identity commit together
+        // in one transaction, so a failed adopt leaves the rows as they were.
         if (previous?.isGuest) {
           await adoptV2LocalAccount(previous.id, userData.id, merge).catch((e) => console.warn('[v2] local library not moved to the account:', e))
         }

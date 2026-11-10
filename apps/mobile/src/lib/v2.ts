@@ -353,17 +353,21 @@ export async function uploadV2Book(
   maxPartBytes: number,
   io: UploadIo,
   onProgress?: (percent: number) => void,
-  /** A synced local book (R6 file sync): its bytes go to its current file only, never a new import. */
-  known?: { bookId: string; fileId: string },
+  /**
+   * A synced local book (R6 file sync): its bytes go to its current file only, never a new import.
+   * Its retained copy is named by its sha256, so the hash is not recomputed (the server's sha256
+   * check on complete is the backstop).
+   */
+  target?: { bookId: string; fileId: string; sha256: string },
 ): Promise<{ bookId: string; existing: boolean }> {
   const source = io.open(file.uri)
   try {
     // RN fetch sends a typed-array body as base64 over the bridge: an 80 MB part would peak near
     // 200 MB of JS memory on Hermes, so a part is at most 8 MB whatever the server takes.
     const { bookId, sent } = await uploadV2File({ name: file.name, size: source.size, format: file.format }, Math.min(Math.max(1, maxPartBytes), MAX_DEVICE_PART_BYTES), {
-      known,
+      known: target && { bookId: target.bookId, fileId: target.fileId },
       newId: () => uuid.v4(),
-      hash: () => sha256Of(source, io.yieldNow),
+      hash: () => (target ? Promise.resolve(target.sha256) : sha256Of(source, io.yieldNow)),
       sendPart: async ({ bookId, fileId, index, partCount, start, end }) => {
         await io.sendPart(bookId, fileId, index, source.read(start, end - start))
         onProgress?.(((index + 1) / partCount) * 100)

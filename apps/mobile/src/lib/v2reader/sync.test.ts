@@ -5,16 +5,16 @@
  * `whileCurrent` epoch guard), plus the pull merges, id re-keying, opt-in file sync and download.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { initApi, V2UploadNotOnServer, type OpenReader } from '@textstack/shared'
 import { resetV2ForTests, v2Store, V2UploadError } from '../v2'
 import { createLocalLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
-import { ACCOUNT_KEY, adoptV2LocalAccount, downloadV2Book, syncV2Library, type SyncHost } from './sync'
+import { adoptV2LocalAccount, downloadV2Book, syncV2Library, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, conflict, feed, resetMidCall, type Answer, type Call,
 } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
+vi.mock('react-native', () => ({ Platform: { OS: 'android' } }))
 vi.mock('../offlineDb', () => ({ dropReplacedUserBookFiles: async () => [] }))
 vi.mock('../originalFileCache', () => ({ deleteOriginal: async () => {} }))
 
@@ -85,7 +85,6 @@ describe('V2 local library sync (R6)', () => {
     resetV2ForTests()
     n = 0
     initApi({ baseUrl: 'http://api', getAccessToken: async () => 't', onUnauthorized: async () => null })
-    await AsyncStorage.removeItem(ACCOUNT_KEY)
   })
   afterEach(() => vi.unstubAllGlobals())
 
@@ -655,7 +654,7 @@ describe('V2 local library sync (R6)', () => {
         [`PUT /books/${bookId}`]: [{ status: 502 }],
       })
       await syncV2Library(lib, host({ userId: 'u2' }))
-      expect(await AsyncStorage.getItem(ACCOUNT_KEY)).toBe('u2')
+      expect(await lib.account()).toBe('u2')
       expect((await lib.books()).map((b) => b.id)).toEqual([bookId])
       expect(await lib.state(bookId)).toMatchObject({ revision: null })
       expect((await restoredEntry(lib)).position.fraction).toBe(0.8)
@@ -666,15 +665,17 @@ describe('V2 local library sync (R6)', () => {
 
     it('guestSignsIn_MergeMapRekeysTheLibraryCursorsClearedNoForget', async () => {
       const { lib, bookId, fileId } = await synced()
-      await lib.setCursor('library', 'c1')
+      fakeApi({ 'GET /library/changes': [ok({ items: [], cursor: 'c1', hasMore: false })] })
+      await syncV2Library(lib, host())
+      expect(await lib.cursor('library')).toBe('c1')
       await adoptV2LocalAccount('u1', 'acct', { books: { [bookId]: 'acct-book' }, files: { [fileId]: 'acct-file' } }, () => lib)
-      expect(await AsyncStorage.getItem(ACCOUNT_KEY)).toBe('acct')
+      expect(await lib.account()).toBe('acct')
       expect(await lib.book('acct-book')).toMatchObject({ file_id: 'acct-file', server_file_id: 'acct-file' })
       expect(await lib.state('acct-book')).toMatchObject({ revision: 1, revision_file_id: 'acct-file' })
       expect(await lib.annotation(HL)).toMatchObject({ book_id: 'acct-book', file_id: 'acct-file' })
       expect(await lib.cursor('library')).toBeNull()
       await adoptV2LocalAccount('someone-else', 'x', undefined, () => lib)
-      expect(await AsyncStorage.getItem(ACCOUNT_KEY)).toBe('acct')
+      expect(await lib.account()).toBe('acct')
     })
   })
 
@@ -744,10 +745,10 @@ describe('V2 local library sync (R6)', () => {
       for (let i = 0; i < 3; i++) await syncV2Library(lib, host())
       expect(writes(calls)).toEqual([`PUT /books/${bookId}`])
       expect((await lib.outbox()).map((o) => o.kind)).toEqual(['state', 'annotation'])
-      expect(await lib.blocked(bookId)).toBe(true)
+      expect((await lib.book(bookId))?.blocked).toBeTruthy()
       // The page reports another format for it: sent again.
       await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'mobi' }, newId)
-      expect(await lib.blocked(bookId)).toBe(false)
+      expect((await lib.book(bookId))?.blocked).toBeNull()
       expect((await lib.outbox()).map((o) => o.kind)).toEqual(['book', 'state', 'annotation'])
     })
 
@@ -781,7 +782,7 @@ describe('V2 local library sync (R6)', () => {
       release()
       expect(await fresh).toBe('done')
       expect(await old).toBe('done') // both callers see the last pass's result
-      expect(await AsyncStorage.getItem(ACCOUNT_KEY)).toBe('u2')
+      expect(await lib.account()).toBe('u2')
     })
 
     it('download_BytesAnotherBookHereHolds_NoSecondLocalCopy', async () => {
@@ -794,17 +795,37 @@ describe('V2 local library sync (R6)', () => {
       expect(io.fetch).not.toHaveBeenCalled()
     })
 
-    it('account_AdoptCommittedButHintNotWritten_NextPassForgetsNothing', async () => {
+    it('adoptAccount_ThenItsPass_ForgetsNothing_ReplayChangesNothing', async () => {
       const { lib, bookId, fileId } = await synced()
-      await lib.adoptAccount({ [bookId]: 'acct-book' }, { [fileId]: 'acct-file' }, 'acct') // the hint write then failed
-      expect(await AsyncStorage.getItem(ACCOUNT_KEY)).toBe('u1')
+      expect(await lib.adoptAccount('u1', { [bookId]: 'acct-book' }, { [fileId]: 'acct-file' }, 'acct')).toBe(true)
       fakeApi({})
       await syncV2Library(lib, host({ userId: 'acct' }))
       expect(await lib.state('acct-book')).toMatchObject({ revision: 1 })
-      expect(await AsyncStorage.getItem(ACCOUNT_KEY)).toBe('acct')
-      // A replay of the same adopt changes nothing.
-      await lib.adoptAccount({ [bookId]: 'acct-book' }, { [fileId]: 'acct-file' }, 'acct')
+      // A replay (the identity already moved) changes nothing.
+      expect(await lib.adoptAccount('u1', { [bookId]: 'acct-book' }, { [fileId]: 'acct-file' }, 'acct')).toBe(false)
       expect(await lib.book('acct-book')).toMatchObject({ file_id: 'acct-file' })
+    })
+
+    it('pull_SecondPageFailsToLand_FirstPageAndItsCursorKept', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      const bad = { ...serverBook('bbbbbbbb-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000002', {}, { sha256: 'ef'.repeat(32) }), title: null }
+      fakeApi({
+        'GET /library/changes': [
+          ok({ items: [serverBook(sid, sfid, {}, { hasContent: true })], cursor: 'p1', hasMore: true }),
+          ok({ items: [bad], cursor: 'p2', hasMore: false }),
+        ],
+      })
+      expect(await syncV2Library(lib, host())).toBe('failed')
+      expect(await lib.cursor('library')).toBe('p1')
+      expect((await lib.books()).map((b) => b.id)).toEqual([sid])
+    })
+
+    it('park_SurvivesAMergeMapReKey', async () => {
+      const { lib, bookId, fileId } = await seeded()
+      await lib.setAccount('u1')
+      await lib.block(bookId, 'invalid_payload')
+      await lib.adoptAccount('u1', { [bookId]: 'acct-book' }, { [fileId]: 'acct-file' }, 'acct')
+      expect(await lib.book('acct-book')).toMatchObject({ blocked: 'invalid_payload' })
     })
   })
 })

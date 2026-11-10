@@ -62,7 +62,7 @@ const uploadRetained: SyncHost['upload'] = async (b: BookRow, maxPartBytes, canc
     maxPartBytes,
     deviceUploadIo(cancelled),
     undefined,
-    { bookId: b.id, fileId: b.server_file_id! },
+    { bookId: b.id, fileId: b.server_file_id!, sha256: b.sha256! },
   )
 }
 
