@@ -20,12 +20,6 @@ const TIMEOUT_MS = 15000
 
 const failures = []
 const check = (ok, what) => { console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}`); if (!ok) failures.push(what) }
-/**
- * A known, open bug (as vitest's it.fails): reported while it reproduces, a failure once it no longer does
- * (update the check). `racy`: the repro depends on timing, so a run that misses it only says so.
- */
-const known = (reproduces, what, racy = false) => (reproduces ? console.log(`  KNOWN ${what}`)
-  : racy ? console.log(`  (not reproduced this run, timing) ${what}`) : check(false, `no longer reproduces, turn it into a check: ${what}`))
 
 const dir = mkdtempSync(resolve(tmpdir(), 'ts-v2-formats-'))
 const browser = await chromium.launch({ args: ['--allow-file-access-from-files'] })
@@ -284,32 +278,49 @@ try {
   check(!messages.slice(alive).some((x) => x.type === 'telemetry'), 'and its telemetry session was not ended by them')
   for (const x of messages) if (x.type === 'log' && x.level === 'error' && !/^open: /.test(x.msg)) check(false, `page error: ${x.msg.split('\n')[0]}`)
 
-  // KNOWN (#1187 QA): a re-layout right after a fraction landing — the WebView resized (the host's offer
-  // banner or error line appearing above it, rotation) — relocates at another CFI and saves it: the
-  // server's transitional locator is rewritten by opening the book (I1). Font and flow do the same.
+  // A re-layout right after a fraction landing — the WebView resized (the host's offer banner or error
+  // line appearing above it, rotation), a font or flow change — is not the reader moving: it saves no CFI
+  // over the server's transitional locator (I1). The first real move after it does save one (I5).
   // After the page-error sweep: the resize logs a benign ResizeObserver error.
-  console.log('resize after a fraction landing')
-  m = await open('tsformat.fb2', byFraction({ fraction: 0.9, at: 1 }))
-  await settle()
-  from = messages.length
-  await page.setViewportSize({ width: 500, height: 400 })
-  await settle()
-  const relayout = messages.slice(from).filter((x) => x.type === 'store').map((x) => JSON.parse(x.json).position)
-  known(relayout.some((p) => p.cfi), `a resize after a fraction landing saves a CFI (${JSON.stringify(relayout.at(-1))})`)
-  await page.setViewportSize({ width: 1280, height: 720 })
+  console.log('re-layout after a fraction landing')
+  const storesFrom = (from) => messages.slice(from).filter((x) => x.type === 'store').map((x) => JSON.parse(x.json).position)
+  for (const [what, relayout, restore] of [
+    ['a resize', () => page.setViewportSize({ width: 500, height: 400 }), () => page.setViewportSize({ width: 1280, height: 720 })],
+    ['a font change', () => call('window.__fol.font(6)'), () => call('window.__fol.font(-6)')],
+    ['a flow switch', () => call('window.__fol.flow("scrolled")'), () => call('window.__fol.flow("paginated")')],
+  ]) {
+    m = await open('tsformat.fb2', byFraction({ fraction: 0.9, at: 1 }))
+    await settle()
+    from = messages.length
+    await relayout()
+    await settle()
+    const relaid = messages.slice(from).filter((x) => x.type === 'relocate').length
+    check(relaid > 0 && storesFrom(from).length === 0, `${what} after a fraction landing relocates (${relaid}) but saves nothing (${JSON.stringify(storesFrom(from))})`)
+    // Back, not forward: scrolled at 0.9 the section's end can already be on screen, with no next to go to.
+    from = messages.length
+    call('window.__fol.prev()')
+    const turned = await storeFrom(from, `a store after a page turn following ${what}`)
+    check(turned?.position?.cfi?.startsWith('epubcfi('), `and the page turn after ${what} saves a CFI`)
+    await restore()
+    await settle()
+  }
 
-  // KNOWN (#1187 QA; not new: a CFI goTo does the same): a goTo still loading its section when another
-  // book opens never settles, and the page's one navigation chain waits on it for good — the next book
-  // never answers `restored` for a stored position and never turns or saves. A host goTo (a sync adopt,
-  // a taken offer) followed by a book switch. Last on this page: the chain stays wedged.
+  // A goTo still loading its section when another book opens never settles on the closed view; the next
+  // book starts a navigation chain of its own, so it still restores, turns and saves (and the stale goTo
+  // never moves it). A host goTo (a sync adopt, a taken offer) followed by a book switch.
   console.log('goTo across an open')
   m = await open('tsformat.fb2')
   from = messages.length
   await call(`window.__fol.goTo({ fraction: 0.8, at: 5 }); window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, 'tsformat.epub')).href)}, 'tsformat.epub')`)
-  const wedged = await waitFor(from, (x) => x.type === 'opened', 'the next book opened')
-  call(`window.__fol.restore(${JSON.stringify(JSON.stringify({ v: 1, book: wedged.book, highlights: [], position: { fraction: 0.5, at: 1 } }))})`).catch(() => {})
+  const next = await waitFor(from, (x) => x.type === 'opened', 'the next book opened')
+  // Not awaited: on a wedged chain restore never settles, and the check must fail, not hang.
+  call(`window.__fol.restore(${JSON.stringify(JSON.stringify({ v: 1, book: next.book, highlights: [], position: { fraction: 0.5, at: 1 } }))})`).catch(() => {})
   const answered = await waitFor(from, (x) => x.type === 'restored', 'restored after a goTo across an open').catch(() => null)
-  known(!answered, 'a goTo in flight across openUrl wedges the next book: no `restored`, no turns, no saves', true)
+  check(answered?.position === 'restored by fraction', `a goTo in flight across openUrl does not hold up the next book (${answered?.position})`)
+  check(!messages.slice(from).some((x) => x.type === 'store' && x.key !== next.book.sha256), 'nothing is saved for the previous book after the switch')
+  from = messages.length
+  call('window.__fol.next()')
+  check(!!(await waitFor(from, (x) => x.type === 'store' && x.key === next.book.sha256, 'a store after the switch').catch(() => null)), 'and the next book turns and saves')
 
   // The 5-minute boundary, on a page with a fake clock: the session ends by its own timer (no next open),
   // a switch inside the window counts, a switch after it does not and sends nothing more.

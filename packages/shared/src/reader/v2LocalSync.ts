@@ -156,7 +156,8 @@ export interface OpenReader {
  * ADR-019 rule 5 re-keyed by CFI + spine index. `keep`: the local position stays (the server's is
  * not provably newer, is on another file version, or is a scheme this page cannot restore) and the
  * next write goes on the server's revision. Otherwise the newer-check's action: `adopt` (nothing
- * restored yet, or the book is not open), `move` (restored, not moved since, same spine item),
+ * restored yet, or the book is not open), `move` (restored, not moved since, same spine item or a
+ * local fraction-only position),
  * `prompt` (moved, or another spine item: never yank a reader who moved).
  */
 export function decideServerState(o: {
@@ -173,8 +174,10 @@ export function decideServerState(o: {
   // Nothing restored yet: adopt, whatever spine item is on screen (none is reported before `restored`).
   if (!o.reader || !o.reader.restoreApplied) return 'adopt'
   return decideNewerPosition({
-    // A fraction-only position has no spine index: never the same chapter, so a restored reader is asked.
-    sameChapter: o.reader.index != null && o.reader.index === theirs.index,
+    // A local fraction-only position: the reader has not moved since a fraction landing, so nothing of
+    // theirs is lost by a silent move. A server fraction-only one has no spine index: a restored reader
+    // on a local CFI is asked.
+    sameChapter: (o.local != null && o.local.cfi === undefined) || (o.reader.index != null && o.reader.index === theirs.index),
     restoreApplied: o.reader.restoreApplied,
     readerMoved: o.reader.moved,
   })

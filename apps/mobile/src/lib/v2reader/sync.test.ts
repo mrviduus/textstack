@@ -371,6 +371,21 @@ describe('V2 local library sync (R6)', () => {
         expect(again.owed).toEqual([])
       })
 
+      it('pull_NewerStateWhileUnmovedOnAFractionLanding_MovedSilentlyNoWrite', async () => {
+        // Landed by fraction at rev 3, not moved since: rev 4 from another device moves the reader, no prompt.
+        const { lib, bookId, fileId } = await synced()
+        fakeApi({ 'GET /reading/changes': feed(transitional(bookId, fileId, 3, NOW - 2000)) })
+        await syncV2Library(lib, host())
+        await lib.writeEntry(SHA, entry((await restoredEntry(lib)).position), newId)
+        const calls = fakeApi({ 'GET /reading/changes': feed({ ...transitional(bookId, fileId, 4, NOW - 1000), bookFraction: 0.8 }) })
+        const h = host({ reader: () => ({ restoreApplied: true, moved: false, index: 1 }) })
+        await syncV2Library(lib, h)
+        expect(h.owed).toEqual([expect.objectContaining({ action: 'move', position: { fraction: 0.8, at: NOW - 1000 } })])
+        expect((await restoredEntry(lib)).position).toEqual({ fraction: 0.8, at: NOW - 1000 })
+        expect(writes(calls)).toEqual([])
+        expect(await lib.outbox()).toEqual([])
+      })
+
       it('pull_TransitionalNewerReaderRestored_PromptLocalCfiKept', async () => {
         const { lib, bookId, fileId } = await synced()
         fakeApi({ 'GET /reading/changes': feed(transitional(bookId, fileId, 3, NOW - 1000)) })

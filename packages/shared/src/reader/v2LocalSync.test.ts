@@ -178,6 +178,18 @@ describe('v2LocalSync', () => {
         // #1187 QA: no spine index on either side is not "the same chapter" (null vs undefined).
         expect(decideServerState({ local, localFileId: 'f', server: transitional(), reader: { restoreApplied: true, moved: false, index: null }, now })).toBe('prompt')
       })
+      it('decideServerState_LocalFractionOnlyReaderNotMoved_MoveSilently', () => {
+        // The reader has not moved since a fraction landing: nothing of theirs to lose, so no prompt.
+        const landed = { fraction: 0.7, at: pos.at }
+        for (const server of [transitional(), state()]) {
+          expect(decideServerState({ local: landed, localFileId: 'f', server, reader: { restoreApplied: true, moved: false, index: 1 }, now })).toBe('move')
+          expect(decideServerState({ local: landed, localFileId: 'f', server, reader: { restoreApplied: true, moved: false, index: null }, now })).toBe('move')
+          // Moved since: asked, as for a CFI.
+          expect(decideServerState({ local: landed, localFileId: 'f', server, reader: { restoreApplied: true, moved: true, index: 1 }, now })).toBe('prompt')
+        }
+        // Not newer: kept.
+        expect(decideServerState({ local: { fraction: 0.7, at: now }, localFileId: 'f', server: transitional(), reader: { restoreApplied: true, moved: false, index: 1 }, now })).toBe('keep')
+      })
     })
     it('decideServerState_NewerBookNotOpen_Adopt', () => {
       expect(decideServerState({ local, localFileId: 'f', server: state(), reader: null, now })).toBe('adopt')
