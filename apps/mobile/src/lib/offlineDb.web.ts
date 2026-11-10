@@ -172,6 +172,10 @@ export async function clearCachedUserBooks(): Promise<void> {
   /* no-op */
 }
 
+export async function hasAnyUserBookCache(): Promise<boolean> {
+  return false
+}
+
 export async function isUserBookFullyCached(): Promise<boolean> {
   return false
 }

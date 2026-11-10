@@ -28,6 +28,7 @@ import { chooseAutoDownloads, chooseOrphanedDownloads, mayAutoDownload } from '.
 import { offlineStorageBytes } from '../lib/deviceStorage'
 import { listStoredOriginalIds } from '../lib/originalFileCache'
 import { declineDownload, listDeclinedDownloads, undeclineDownload } from '../lib/declinedDownloads'
+import { clearDeletedOnServer } from '../lib/deletedOnServer'
 import { AppState } from 'react-native'
 import NetInfo from '@react-native-community/netinfo'
 import { CACHE_BUDGET_BYTES, isOutOfSpaceError } from '../lib/originalFilePolicy'
@@ -591,6 +592,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     // book on the next Wi-Fi and brings it straight back, along with the space
     // the reader had just freed.
     await declineDownload(bookId)
+    // Nothing of it left on the device, so nothing left to warn about (#1174).
+    await clearDeletedOnServer([bookId])
     forgetDownload(bookId)
     await refreshCachedBooks()
   }, [forgetDownload, refreshCachedBooks])

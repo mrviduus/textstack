@@ -25,7 +25,8 @@ import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
 import { getCachedOriginalUri } from '../../src/lib/originalFileCache'
 import { shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
 import { formatBytes } from '../../src/lib/formatBytes'
-import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached, onCachedUserBooksChanged } from '../../src/lib/offlineDb'
+import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached, hasAnyUserBookCache, onCachedUserBooksChanged } from '../../src/lib/offlineDb'
+import { markDeletedOnServer, clearDeletedOnServer, isDeletedOnServer, failedLoadView } from '../../src/lib/deletedOnServer'
 import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
 import { AddToCollectionSheet } from '../../src/components/library/AddToCollectionSheet'
@@ -149,6 +150,9 @@ export default function UserBookDetailScreen() {
   // Is the whole book on the device? Answered from SQLite rather than from the
   // download map, which is in-memory and empty after an app restart.
   const [cached, setCached] = useState(false)
+  /** Any local rows at all, partial download included: what "Remove download"
+   *  on a server-deleted book offers to free (#1174). */
+  const [anyLocalCopy, setAnyLocalCopy] = useState(false)
   /** Rendering the cached copy because the server could not be reached. */
   const [offlineMode, setOfflineMode] = useState(false)
   /** …and that cached copy is a PDF's extracted text. */
@@ -180,6 +184,8 @@ export default function UserBookDetailScreen() {
         if (p) setSavedProgress({ chapterSlug: p.chapterSlug, percent: p.percent, locator: p.locator ?? null })
         setLoadError(null)
         setOfflineMode(false)
+        // The server has it: an earlier 404 was V2's synthesized one, or stale.
+        clearDeletedOnServer([id]).catch(() => {})
         try {
           setCached(await isUserBookFullyCached(id))
         } catch (err) {
@@ -188,24 +194,31 @@ export default function UserBookDetailScreen() {
       } catch (e) {
         // Confirmed 404: the upload was deleted on the server (#1164). Say so
         // instead of presenting the cached copy as live. The local bytes stay.
-        if (e instanceof ApiError && e.status === 404) {
+        // Remembered (#1174), so a later load that fails offline does not bring
+        // the cached copy back as current.
+        const notFound = e instanceof ApiError && e.status === 404
+        if (notFound) {
           console.warn('User book not found:', e)
-          const onDevice = await isUserBookFullyCached(id).catch(() => false)
-          if (unmountedRef.current) return
-          setBook(null)
-          setOfflineMode(false)
-          setCached(onDevice)
-          setLoadError('notfound')
-          return
+          await markDeletedOnServer(id)
+        } else {
+          logLoadError('Failed to load user book:', e)
         }
-        logLoadError('Failed to load user book:', e)
         if (unmountedRef.current) return
+        const tombstoned = !notFound && await isDeletedOnServer(id)
         // Unreachable server, but the book may be on the device. Render the
         // downloaded copy rather than the "couldn't load" screen — this is the
         // whole point of having downloaded it.
-        const rehydrated = await rehydrateFromCache(id)
+        const rehydrated = notFound || tombstoned ? null : await rehydrateFromCache(id)
         if (unmountedRef.current) return
-        if (rehydrated) {
+        const view = failedLoadView({ notFound, tombstoned, hasCopy: rehydrated !== null, offline: isOfflineError(e) })
+        if (view === 'notfound') {
+          const onDevice = await hasAnyUserBookCache(id).catch(() => false)
+          if (unmountedRef.current) return
+          setBook(null)
+          setOfflineMode(false)
+          setAnyLocalCopy(onDevice)
+          setLoadError('notfound')
+        } else if (rehydrated) {
           setBook(rehydrated.book)
           setSavedProgress(rehydrated.progress)
           setCached(true)
@@ -213,7 +226,7 @@ export default function UserBookDetailScreen() {
           setCachedIsPdf(rehydrated.isPdf)
           setLoadError(null)
         } else {
-          setLoadError(isOfflineError(e) ? 'offline' : 'failed')
+          setLoadError(view === 'offline' ? 'offline' : 'failed')
         }
       } finally {
         if (!unmountedRef.current) setLoading(false)
@@ -310,7 +323,11 @@ export default function UserBookDetailScreen() {
         if (cancelled || unmountedRef.current) return
         // Deleted on the server mid-poll (#1164): stop polling a book that is gone.
         if (err instanceof ApiError && err.status === 404) {
+          await markDeletedOnServer(id)
+          const onDevice = await hasAnyUserBookCache(id).catch(() => false)
+          if (cancelled || unmountedRef.current) return
           setBook(null)
+          setAnyLocalCopy(onDevice)
           setLoadError('notfound')
           return
         }
@@ -480,15 +497,15 @@ export default function UserBookDetailScreen() {
             icon={loadError === 'notfound' ? 'help-circle-outline' : loadError === 'offline' ? 'cloud-offline-outline' : 'alert-circle-outline'}
             title={loadError === 'notfound' ? t('myBooks.deleted.title') : loadError === 'offline' ? t('library.offline.title') : t('library.loadFailed.title')}
             subtitle={loadError === 'notfound'
-              ? (cached ? t('myBooks.deleted.body') : t('myBooks.deleted.bodyNoCopy'))
+              ? (anyLocalCopy ? t('myBooks.deleted.body') : t('myBooks.deleted.bodyNoCopy'))
               : loadError === 'offline' ? t('library.offline.body') : t('library.loadFailed.body')}
             buttonLabel={t('common.retry')}
             onButtonPress={() => { setLoading(true); setAttempt(a => a + 1) }}
             // The book page is gone, so this is the only way left to free its bytes.
-            secondaryLabel={loadError === 'notfound' && cached ? t('myBooks.deleted.removeDownload') : undefined}
+            secondaryLabel={loadError === 'notfound' && anyLocalCopy ? t('myBooks.deleted.removeDownload') : undefined}
             onSecondaryPress={() => {
               removeUserBookDownload(id!)
-                .then(() => { setCached(false); router.back() })
+                .then(() => { setCached(false); setAnyLocalCopy(false); router.back() })
                 .catch(err => {
                   console.warn('Removing the local copy of a deleted book failed:', err)
                   showToast({ message: "Couldn't remove the download. Try again.", variant: 'error', duration: 2600 })

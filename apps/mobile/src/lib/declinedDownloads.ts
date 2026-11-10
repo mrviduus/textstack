@@ -13,24 +13,29 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
  */
 const KEY = 'offline:declined'
 
-async function read(): Promise<Set<string>> {
+/** An AsyncStorage id set, shared with `deletedOnServer.ts`. */
+export async function readIdSet(key: string): Promise<Set<string>> {
   try {
-    const raw = await AsyncStorage.getItem(KEY)
+    const raw = await AsyncStorage.getItem(key)
     const parsed = raw ? JSON.parse(raw) : null
     return new Set(Array.isArray(parsed) ? (parsed as string[]) : [])
   } catch {
-    // A corrupt list costs one unwanted re-download, not correctness.
+    // A corrupt list reads as empty: here one unwanted re-download, for a
+    // tombstone one book shown as live again until its next 404.
     return new Set()
   }
 }
 
-async function write(ids: Set<string>): Promise<void> {
+export async function writeIdSet(key: string, ids: Set<string>): Promise<void> {
   try {
-    await AsyncStorage.setItem(KEY, JSON.stringify([...ids]))
+    await AsyncStorage.setItem(key, JSON.stringify([...ids]))
   } catch (err) {
-    console.warn('[declined] could not record:', err)
+    console.warn(`[${key}] could not record:`, err)
   }
 }
+
+const read = () => readIdSet(KEY)
+const write = (ids: Set<string>) => writeIdSet(KEY, ids)
 
 export async function listDeclinedDownloads(): Promise<Set<string>> {
   return read()
