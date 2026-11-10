@@ -672,6 +672,15 @@ entry leaves the outbox on 2xx or on a code whose action is "drop"; on 5xx/netwo
 backoff. `ponytail:` per-item requests; a batch endpoint when a first sync of hundreds of words
 measurably hurts.
 
+Backoff (#1186) is a per-entry count, not a timer (passes are rare): every other failure of an entry
+counts against it; offline, 503 `v2_unavailable` and a session change end the pass and count
+nothing. After `MAX_FAILURES` (5, mobile `sync.ts`) in a row a book entry is **parked** (`blocked`
+holds "failed N times, last: …"), as for a refusal; a state or annotation entry is **kept, never
+dropped**, but skipped. A parked book's children stay queued and cost no request. The count resets
+when the row is saved again (a save landing mid-push is a new gen, not counted), on an identity
+change, and on **unpark**: the reader's "Try again" clears `blocked`, queues the book and retries its
+children from zero. A merge-map re-key keeps counts and parks.
+
 ## Guest → account merge
 
 Server-side, in one transaction at sign-in (M2.5), as a cross-user system operation with its own name

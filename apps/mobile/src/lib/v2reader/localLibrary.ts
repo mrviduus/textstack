@@ -15,7 +15,8 @@
  *   outbox         what still has to be pushed: (kind, target), kind 'book' | 'state' | 'annotation',
  *                  pushed in that order (PDD "Push"). Coalescing: the payload is read from the row at
  *                  push time, so one entry per row; `gen` grows on every re-queue, so a push only
- *                  clears the entry it read (a save landing mid-push stays queued)
+ *                  clears the entry it read (a save landing mid-push stays queued); `failures` counts
+                  transient failures of that gen (a re-queue resets it; sync.ts `MAX_FAILURES`)
  *   meta           cursors per feed, the file-sync setting, the identity these rows synced with
  *
  * One serial queue runs every read and write (one connection: a read inside another job's open
@@ -76,12 +77,13 @@ const SCHEMA = `
     kind TEXT NOT NULL,
     target TEXT NOT NULL,
     gen INTEGER NOT NULL DEFAULT 1,
+    failures INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (kind, target)
   );
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 `
 /** Columns added after a dev build created the table; the duplicate-column error is the check (as offlineDb). */
-const ADDED_COLUMNS = ['ALTER TABLE books ADD COLUMN blocked TEXT']
+const ADDED_COLUMNS = ['ALTER TABLE books ADD COLUMN blocked TEXT', 'ALTER TABLE outbox ADD COLUMN failures INTEGER NOT NULL DEFAULT 0']
 
 export interface BookRow {
   id: string
@@ -123,7 +125,8 @@ export interface AnnotationRow {
 }
 
 export type OutboxKind = 'book' | 'state' | 'annotation'
-export interface OutboxItem { kind: OutboxKind; target: string; gen: number }
+/** `failures`: transient push failures of this `gen` in a row (sync.ts `MAX_FAILURES`). */
+export interface OutboxItem { kind: OutboxKind; target: string; gen: number; failures: number }
 
 /** A host action the sync owes the open reader: go to `position` (`adopt`/`move`) or ask (`prompt`). */
 export interface PositionAction {
@@ -188,8 +191,21 @@ export function createLocalLibrary(db: Db) {
   const stateOf = (bookId: string) => one<StateRow>('SELECT * FROM reading_state WHERE book_id = ?', [bookId])
   const annotationById = (id: string) => one<AnnotationRow>('SELECT * FROM annotations WHERE id = ?', [id])
   const queued = async (kind: OutboxKind, target: string) => !!(await one('SELECT 1 FROM outbox WHERE kind = ? AND target = ?', [kind, target]))
+  /** A fresh save is a fresh attempt: a new gen, its failure count reset. */
   const enqueue = (kind: OutboxKind, target: string) =>
-    run('INSERT INTO outbox (kind, target) VALUES (?, ?) ON CONFLICT (kind, target) DO UPDATE SET gen = gen + 1', [kind, target])
+    run('INSERT INTO outbox (kind, target) VALUES (?, ?) ON CONFLICT (kind, target) DO UPDATE SET gen = gen + 1, failures = 0', [kind, target])
+  /** A book's queued children (state, annotations) retried from zero. */
+  const resetChildren = (bookId: string) => run(
+    `UPDATE outbox SET failures = 0 WHERE (kind = 'state' AND target = ?)
+       OR (kind = 'annotation' AND target IN (SELECT id FROM annotations WHERE book_id = ?))`,
+    [bookId, bookId],
+  )
+  /** A parked book is sent again: unparked, queued, and its children retried from zero. */
+  const unblock = async (bookId: string) => {
+    await run('UPDATE books SET blocked = NULL WHERE id = ?', [bookId])
+    await enqueue('book', bookId)
+    await resetChildren(bookId)
+  }
   const dequeue = (kind: OutboxKind, target: string) => run('DELETE FROM outbox WHERE kind = ? AND target = ?', [kind, target])
   const getMeta = async (key: string) => (await one<{ value: string }>('SELECT value FROM meta WHERE key = ?', [key]))?.value ?? null
   const setMeta = (key: string, value: string | null) =>
@@ -306,7 +322,7 @@ export function createLocalLibrary(db: Db) {
         return {
           id: b.id, title: b.title, author: b.author, originalName: b.original_name,
           sha256: (local ? b.sha256 : b.server_sha256)!, size: (local ? b.size : b.server_size)!,
-          importedAt: b.imported_at ?? 0, openedAt: b.opened_at ?? 0, local,
+          importedAt: b.imported_at ?? 0, openedAt: b.opened_at ?? 0, local, blocked: b.blocked,
         }
       })
     }),
@@ -325,10 +341,7 @@ export function createLocalLibrary(db: Db) {
         const existing = await bookBySha(b.sha256)
         if (existing) {
           await run('UPDATE books SET opened_at = ?, format = COALESCE(?, format) WHERE id = ?', [now, b.format, existing.id])
-          if (existing.blocked && b.format && b.format !== existing.format) {
-            await run('UPDATE books SET blocked = NULL WHERE id = ?', [existing.id])
-            await enqueue('book', existing.id)
-          }
+          if (existing.blocked && b.format && b.format !== existing.format) await unblock(existing.id)
           return existing.id
         }
         const pulled = await one<BookRow>('SELECT * FROM books WHERE imported_at IS NULL AND server_sha256 = ? AND server_size = ?', [b.sha256, b.size])
@@ -407,11 +420,19 @@ export function createLocalLibrary(db: Db) {
 
     /** The queue in push order; one kind's entries in queue order. */
     outbox: (kind?: OutboxKind) => job(() => (kind
-      ? all<OutboxItem>('SELECT kind, target, gen FROM outbox WHERE kind = ? ORDER BY rowid', [kind])
-      : all<OutboxItem>(`SELECT kind, target, gen FROM outbox ORDER BY CASE kind WHEN 'book' THEN 0 WHEN 'state' THEN 1 ELSE 2 END, rowid`))),
+      ? all<OutboxItem>('SELECT kind, target, gen, failures FROM outbox WHERE kind = ? ORDER BY rowid', [kind])
+      : all<OutboxItem>(`SELECT kind, target, gen, failures FROM outbox ORDER BY CASE kind WHEN 'book' THEN 0 WHEN 'state' THEN 1 ELSE 2 END, rowid`))),
     /** The entry leaves the outbox only if it was not queued again since it was read. */
     done: (item: OutboxItem) => job(() => run('DELETE FROM outbox WHERE kind = ? AND target = ? AND gen = ?', [item.kind, item.target, item.gen])),
-    enqueue: (kind: OutboxKind, target: string) => job(() => enqueue(kind, target)),
+    /** One more transient failure, counted only against the gen that failed (a save mid-push starts from zero). */
+    failed: (item: OutboxItem) => job(() => run('UPDATE outbox SET failures = failures + 1 WHERE kind = ? AND target = ? AND gen = ?', [item.kind, item.target, item.gen])),
+    /**
+     * A child asks for its book: queued if it is not. An entry already queued keeps its gen and its
+     * failure count (asking again every pass must not reset the count that parks a failing book).
+     */
+    queueBook: (id: string) => job(() => run(`INSERT INTO outbox (kind, target) VALUES ('book', ?) ON CONFLICT (kind, target) DO NOTHING`, [id])),
+    /** The reader's "Try again" on a parked book (PDD "Outbox"): sent again, its children retried from zero. */
+    unpark: (bookId: string) => tx(() => unblock(bookId)),
     book: (id: string) => job(() => bookById(id)),
     state: (bookId: string) => job(() => stateOf(bookId)),
     annotation: (id: string) => job(() => annotationById(id)),
@@ -578,7 +599,7 @@ export function createLocalLibrary(db: Db) {
     /**
      * Another identity syncs this device now (sign-out, then another session): what the server told
      * the previous one goes — pulled books not imported here, others' highlights, revisions, server
-     * files, parks, cursors — and the new identity is recorded. This device's own books, positions,
+     * files, parks, failure counts, cursors — and the new identity is recorded. This device's own books, positions,
      * highlights and queued writes stay: nothing unpushed is dropped (owner decision 3; #1070).
      */
     forgetServerState: (userId: string) => tx(async () => {
@@ -589,6 +610,7 @@ export function createLocalLibrary(db: Db) {
       await run('UPDATE books SET server_file_id = NULL, server_sha256 = NULL, server_size = NULL, server_format = NULL, has_content = 0, content_removed = 0, removed_at = NULL, blocked = NULL')
       await run('UPDATE reading_state SET revision = NULL, revision_file_id = NULL')
       await run('UPDATE annotations SET revision = NULL')
+      await run('UPDATE outbox SET failures = 0')
       await clearCursors()
     }),
   }

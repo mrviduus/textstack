@@ -65,7 +65,7 @@ describe('v2 host storage', () => {
     expect(books.map((b) => b.id)).toEqual([bookId])
     expect(opened).toBe(bookId)
     expect(await lib.book(bookId)).toMatchObject({ file_id: fileId, format: 'mobi', sha256: SHA_B })
-    expect(await lib.outbox()).toEqual([{ kind: 'book', target: bookId, gen: 1 }])
+    expect(await lib.outbox()).toEqual([{ kind: 'book', target: bookId, gen: 1, failures: 0 }])
   })
 
   it('addOpened_SameBytesInUpperCase_ExistingEntryAndStagedCopyDropped', async () => {

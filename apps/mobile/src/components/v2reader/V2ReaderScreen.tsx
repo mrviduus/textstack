@@ -224,6 +224,12 @@ function V2Reader() {
     )
   }
 
+  /** A parked book's "Try again": sent again with its children, then a pass. */
+  const unpark = (b: LibraryBook) => {
+    setError(null)
+    deviceLocalLibrary().unpark(b.id).then(() => sync.current(), fail('unpark', setError))
+  }
+
   const open = (target: Opening) => {
     // The page answers nothing for an open it has superseded, so a staged file left behind is dropped here.
     const previous = opening.current
@@ -404,6 +410,14 @@ function V2Reader() {
               style={[styles.book, { borderColor: colors.border }]}
             >
               <Text numberOfLines={1} style={[styles.meta, { color: colors.textSecondary }]}>{b.local ? b.title : `↓ ${b.title}`}</Text>
+              {b.blocked && (
+                <>
+                  <Text numberOfLines={2} style={[styles.meta, { color: colors.error }]}>Not synced: {b.blocked}</Text>
+                  <Pressable onPress={() => unpark(b)}>
+                    <Text style={[styles.meta, { color: colors.primary }]}>Try again</Text>
+                  </Pressable>
+                </>
+              )}
             </Pressable>
           ))}
         </ScrollView>

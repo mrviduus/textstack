@@ -4,7 +4,8 @@
  * from their cursors, page by page, push the outbox kind by kind (books → states → annotations),
  * then — only with file sync on — send the bytes the server lacks. Opportunistic: the reading path
  * never waits for it. Offline or 503 `v2_unavailable` ends the pass; any other failure of one
- * outbox entry skips that entry only. Nothing local is lost; every write is idempotent by client id
+ * outbox entry skips that entry only, and counts against it: after `MAX_FAILURES` in a row a book is
+ * parked, a state or annotation kept but no longer retried until it changes. Nothing local is lost; every write is idempotent by client id
  * or revision, so the next pass retries what is left. Every answer lands only while the session
  * that asked is current: the shared `whileCurrent` epoch guard (#1151, #1155), and a write after a
  * caught 409 checks the same epoch first.
@@ -58,6 +59,28 @@ const drop = async (lib: LocalLibrary, reset: Reset, item: OutboxItem) => void (
 /** An error that ends the pass (no point pushing the rest): offline, or V2 paused (503 `v2_unavailable`). */
 const endsPass = (e: unknown) => e === DROPPED || isOfflineError(e) || (e as { status?: number } | null)?.status === 503
 
+/**
+ * Transient failures of one entry (same gen, passes that ran) before it stops being retried: a book
+ * is parked, a child kept and skipped until it is saved again, the identity changes or its book is
+ * unparked (PDD "Outbox").
+ * ponytail: a count, no time-based backoff — passes are rare (open, a save, a toggle). Add a
+ * `next_at` column with exponential delay if passes ever run on a timer.
+ */
+export const MAX_FAILURES = 5
+
+/** One more transient failure of `item`: logged, counted; at the limit the entry stops being retried (logged once). */
+async function failedOnce(lib: LocalLibrary, reset: Reset, item: OutboxItem, e: unknown) {
+  const n = item.failures + 1
+  const last = clip(String((e as Error | null)?.message ?? e), 120)
+  if (n < MAX_FAILURES) {
+    console.warn(`[v2 sync] ${item.kind} ${item.target} not pushed (${n}/${MAX_FAILURES}), retried next pass:`, last)
+    return void (await checked(reset, () => lib.failed(item)))
+  }
+  if (item.kind === 'book') return park(lib, reset, item, `failed ${n} times, last: ${last}`)
+  console.warn(`[v2 sync] ${item.kind} ${item.target} failed ${n} times (last: ${last}): kept on the device, not retried until it changes`)
+  await checked(reset, () => lib.failed(item))
+}
+
 let running: Promise<SyncResult> | null = null
 let next: { lib: LocalLibrary; host: SyncHost } | null = null
 
@@ -93,15 +116,17 @@ async function pass(lib: LocalLibrary, host: SyncHost): Promise<SyncResult> {
     for (const feed of FEEDS) await pull(lib, host, reset, feed)
     let failed = false
     // Kind by kind, the outbox read again each time: a book push can re-key the ids its children name.
-    // Each entry on its own: one that keeps failing is skipped (logged), never starving the rest.
+    // Each entry on its own: one that keeps failing is counted and, at the limit, stops being retried,
+    // never starving the rest. Errors that end the pass say nothing about the entry: not counted.
     for (const [kind, push] of PUSHES) {
       for (const item of await lib.outbox(kind)) {
+        if (item.failures >= MAX_FAILURES) continue
         try {
           await push(lib, host, reset, item)
         } catch (e) {
           if (endsPass(e) || reset()) throw e
-          console.warn(`[v2 sync] ${item.kind} ${item.target} not pushed, retried next pass:`, e)
           failed = true
+          await failedOnce(lib, reset, item, e)
         }
       }
     }
@@ -207,7 +232,7 @@ async function pushedBook(lib: LocalLibrary, reset: Reset, b: BookRow): Promise<
 }
 
 const bookFirst = async (lib: LocalLibrary, reset: Reset, b: BookRow) => {
-  if (!b.blocked) await checked(reset, () => lib.enqueue('book', b.id))
+  if (!b.blocked) await checked(reset, () => lib.queueBook(b.id))
 }
 
 /**

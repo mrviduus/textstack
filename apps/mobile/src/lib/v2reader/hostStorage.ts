@@ -19,6 +19,8 @@ export interface LibraryBook {
   openedAt: number
   /** False: not imported here; the server holds its bytes (sync.ts `downloadV2Book`). */
   local: boolean
+  /** Why the server refused it for good (parked: it and its children are not sent); null otherwise. */
+  blocked: string | null
 }
 
 /**
