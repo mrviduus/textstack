@@ -131,9 +131,8 @@ export default function V2ReaderDevPage() {
           const current = answered(m.name)
           if (!current) return
           setError(`cannot open ${current.originalName}: ${m.error}`)
-          // The previous book's view still reports a last relocate while the page tears it down. Root cause:
-          // page.mjs's old view posts `relocate` during close() (mobile has the same gap); page-side fix
-          // (an `e.target !== view` guard) is filed as its own issue.
+          // The old book may still post a relocate until the page takes up this open (file read +
+          // messages in flight); a failure must not leave it standing after pick() cleared it (#1168).
           setStatus('')
           opening.current = null
           return

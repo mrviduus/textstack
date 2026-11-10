@@ -153,8 +153,10 @@ const firstAuthor = (m) => { const a = [].concat(m?.author ?? [])[0]; return a?.
 async function open(bytes, name, mine) {
   // Nothing of the previous book may land on this one; its entry is gone with the next line.
   saves.cancel()
-  book = { sha256: await sha256Yielding(bytes), size: bytes.length, name }
+  const sha256 = await sha256Yielding(bytes)
+  // Checked BEFORE book is assigned: a superseded open must not re-key the current book's saves (#1168).
   if (mine !== openSeq) return false
+  book = { sha256, size: bytes.length, name }
   entry = null
   restoring = true
   lastSelection = null
@@ -167,6 +169,9 @@ async function open(bytes, name, mine) {
   document.body.append(view)
   view.addEventListener('load', onLoad)
   view.addEventListener('relocate', ({ detail: d }) => {
+    // Each view's listeners carry the seq of the open that made them: once a newer open has taken
+    // over, a dying view's events — close() still fires relocate — are dropped, not posted (#1168).
+    if (mine !== openSeq) return
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
     if (restoring || !entry || !d.range) return
     // The visible range's start: its CFI and the text there, to verify the CFI on restore.
@@ -175,6 +180,7 @@ async function open(bytes, name, mine) {
     persist(400)
   })
   view.addEventListener('create-overlay', ({ detail: { index } }) => {
+    if (mine !== openSeq) return
     for (const a of overlays.values()) if (a.index === index) view.addAnnotation(a)
   })
   view.addEventListener('draw-annotation', ({ detail: { draw, annotation: a, range } }) => {
@@ -299,6 +305,8 @@ window.__fol = {
   // The retained file, read by the page itself (file:// origin + allowFileAccessFromFileURLs): no book
   // bytes cross the bridge. `open-failed`: unreadable, or not an EPUB; the host must not keep it.
   openUrl: (url, name) => {
+    // The seq turns over in openFor, once the bytes are in hand: a failed READ leaves the previous
+    // book open, and its view must keep reporting and saving as if nothing happened (#1168).
     const x = new XMLHttpRequest()
     x.responseType = 'arraybuffer'
     x.onload = () => ((x.status === 0 || x.status === 200) && x.response

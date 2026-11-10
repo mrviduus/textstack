@@ -57,6 +57,18 @@ test.describe('V2 reader dev route @v2-reader-dev', () => {
     await expect(status(page)).not.toHaveText(before ?? '')
   })
 
+  // #1168: the still-open book relocates during the new pick's file read; neither those nor the dying
+  // view's teardown events may leave the previous book's position standing beside the failure.
+  test('a failed open after a book shows no position of the previous book', async ({ page }) => {
+    await openFixture(page)
+    const before = await status(page).textContent()
+    await page.getByRole('button', { name: 'Next ›' }).click()
+    await expect(status(page)).not.toHaveText(before ?? '')
+    await page.getByLabel('Pick EPUB').setInputFiles({ name: 'broken.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('not a zip') })
+    await expect(page.getByRole('alert')).toContainText('cannot open broken.epub')
+    await expect(status(page)).toHaveText('')
+  })
+
   test('after a reload, reopening the file restores the position from localStorage', async ({ page }) => {
     await openFixture(page)
     const start = await status(page).textContent()
