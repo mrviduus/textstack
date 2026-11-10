@@ -24,7 +24,7 @@ import { isCacheChapterKey, highlightChapterKey, chapterForHighlight } from './t
 import {
   v2Api, clip, anchorToV2Locator, v2LocatorToAnchor, MAX_SELECTED_TEXT, type V2Annotation, type V2AnnotationWrite,
 } from '@textstack/shared'
-import { onV2, v2Book, pullFeed, v2Store } from '../api/v2'
+import { onV2, v2Book, pullFeed, v2Store, resetSince, whileCurrent } from '../api/v2'
 
 export type ChapterRef = { id: string; identifier: string }
 
@@ -399,13 +399,18 @@ export function toV2Write(h: StoredHighlight, fileId: string | null, expectedRev
  */
 async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false): Promise<boolean> {
   const cancelled = () => ui?.isCancelled() ?? false
+  // Signed out (or another account) mid-sync: the rest of this sync is the previous account's (#1155).
+  const reset = resetSince()
   try {
     const fileId = (await v2Book(bookId)).currentFile?.id ?? null
     const pull = !pushOnly || !v2Store.pulled.has(bookId)
     if (pull) {
       // ponytail: the feed is per user, filtered here; a per-book list when one exists.
-      for (const a of (await pullFeed<V2Annotation>('annotations')).items) v2Store.annotations.set(a.id, a)
-      v2Store.pulled.add(bookId)
+      const feed = await whileCurrent(pullFeed<V2Annotation>('annotations'), ({ items }) => {
+        for (const a of items) v2Store.annotations.set(a.id, a)
+        v2Store.pulled.add(bookId)
+      }, reset)
+      if (!feed) return false
     }
     if (cancelled()) return false
     const server = [...v2Store.annotations.values()].filter((a) => a.bookId === bookId)
@@ -413,15 +418,25 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
     const local = await getHighlightsForUserBook(bookId)
     const pending = new Set(local.filter((h) => h.syncStatus === 'pending').map((h) => h.id))
 
+    // Every local write below goes through adopt or forget, and every request waits for live():
+    // after a reset none happens, and the throw ends the sync (the outer catch).
+    const live = () => {
+      if (reset()) throw new v2Api.SessionChangedError()
+    }
+    const forget = (id: string) => {
+      live()
+      return deleteHighlightFromDB(id)
+    }
     const adopt = async (a: V2Annotation) => {
+      live()
       v2Store.annotations.set(a.id, a)
       const row = a.deletedAt ? null : fromV2Annotation(a)
       if (row) await saveHighlight(row)
-      else await deleteHighlightFromDB(a.id)
+      else await forget(a.id)
     }
     if (pull) {
       for (const a of server) if (!pending.has(a.id)) await adopt(a)
-      for (const h of local) if (!pending.has(h.id) && !serverById.has(h.id)) await deleteHighlightFromDB(h.id)
+      for (const h of local) if (!pending.has(h.id) && !serverById.has(h.id)) await forget(h.id)
     }
 
     // A write V2 refuses (an anchor without offsets, #1139) is refused on every replay: an edit of a
@@ -429,16 +444,18 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
     const refused = async (h: StoredHighlight, stored: V2Annotation | undefined, why: unknown) => {
       console.warn('highlightSync: V2 refuses this highlight write', h.id, why)
       if (stored) await adopt(stored)
-      else await deleteHighlightFromDB(h.id)
+      else await forget(h.id)
     }
 
     let changed = false
     for (const h of local.filter((l) => pending.has(l.id))) {
+      // A reset during the last row's local write: this row's request would go out under the next account.
+      live()
       const stored = serverById.get(h.id)
       try {
         if (h.deleted || stored?.deletedAt) {
           if (h.deleted && stored && !stored.deletedAt) await adopt(await v2Api.deleteAnnotation(h.id))
-          else await deleteHighlightFromDB(h.id)
+          else await forget(h.id)
         } else {
           let write: V2AnnotationWrite | undefined
           try { write = toV2Write(h, fileId, stored ? (h.base?.version ?? h.version) : null, stored) } catch (e) { await refused(h, stored, e) }
@@ -448,7 +465,7 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
       } catch (e) {
         const err = v2Api.v2ErrorOf(e)
         if ((err?.code === 'stale_revision' || err?.code === 'deleted') && err.current) await adopt(err.current as V2Annotation)
-        else if (err?.code === 'chapter_not_found' || err?.code === 'not_found') await deleteHighlightFromDB(h.id)
+        else if (err?.code === 'chapter_not_found' || err?.code === 'not_found') await forget(h.id)
         else if (err?.code === 'invalid_payload') await refused(h, stored, err)
         else continue // stays pending
         changed = true
@@ -460,7 +477,7 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
       ui?.onVisible(visible.sort((a, b) => b.createdAt - a.createdAt))
     }
   } catch {
-    // Server unavailable (or V2 paused, 503): keep local data.
+    // Server unavailable (or V2 paused, 503), or signed out meanwhile: keep local data.
   }
   return false
 }

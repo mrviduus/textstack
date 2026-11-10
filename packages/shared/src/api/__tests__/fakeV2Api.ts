@@ -23,6 +23,9 @@ export function fakeApi(routes: Record<string, Answer[]>, base = 'http://localho
   return calls
 }
 
+/** `fakeApi` with one answer per route. */
+export const asFake = (routes: Record<string, Answer>) => fakeApi(Object.fromEntries(Object.entries(routes).map(([k, a]) => [k, [a]])))
+
 /**
  * Runs `op` with `reset` (the app's store reset: a sign-out) landing while its requests are in flight
  * (#1151). Routes as `fakeApi`'s, each matching any URL that contains its path (either client's

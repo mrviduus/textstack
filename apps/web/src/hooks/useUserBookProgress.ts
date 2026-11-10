@@ -204,12 +204,8 @@ export function useUserBookProgress(bookId: string) {
       return
     }
     // A 409 here is left to the next write, which reads the answer and applies the revision rule.
-    keepalivePut(v2Api.readingStateUrl(id), JSON.stringify(body))
-      .then(async (res) => {
-        if (!res.ok) return
-        rememberV2State(await res.json())
-        ack()
-      })
+    rememberV2State(keepalivePut(v2Api.readingStateUrl(id), JSON.stringify(body)).then((res) => (res.ok ? res.json() : null)))
+      .then((s) => { if (s) ack() })
       .catch((err) => console.warn('[progress] userbook flush save failed', err))
   }, [])
 

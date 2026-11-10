@@ -416,7 +416,7 @@ export function UserBookDetailPage() {
             {isReady && !book.completedAt && (!v2.enabled || book.chapters.length > 0) && (
               <button
                 onClick={async () => {
-                  await markUserBookComplete(book.id)
+                  if ((await markUserBookComplete(book.id)) === 'dropped') return
                   setBook({ ...book, completedAt: new Date().toISOString() })
                 }}
                 className="user-book-detail__mark-btn"
@@ -428,7 +428,7 @@ export function UserBookDetailPage() {
             {isReady && book.completedAt && (
               <button
                 onClick={async () => {
-                  await unmarkUserBookComplete(book.id)
+                  if ((await unmarkUserBookComplete(book.id)) === 'dropped') return
                   setBook({ ...book, completedAt: null })
                 }}
                 className="user-book-detail__mark-btn"

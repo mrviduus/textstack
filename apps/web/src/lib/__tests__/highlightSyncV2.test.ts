@@ -2,19 +2,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { V2Annotation } from '@textstack/shared'
 import type { StoredHighlight, TextAnchor } from '../offlineDb'
 
-// IndexedDB as a map: what the sync reads and writes.
+// IndexedDB as a map: what the sync reads and writes; `duringDelete` runs inside a delete's await.
 const db = new Map<string, StoredHighlight>()
+let duringDelete: (() => void) | undefined
 vi.mock('../offlineDb', () => ({
   getHighlightsForEdition: async () => [],
   getHighlightsForUserBook: async (bookId: string) => [...db.values()].filter((h) => h.userBookId === bookId),
   getAllStoredHighlights: async () => [...db.values()],
   saveHighlight: async (h: StoredHighlight) => { db.set(h.id, h) },
-  deleteHighlight: async (id: string) => { db.delete(id) },
+  deleteHighlight: async (id: string) => { db.delete(id); duringDelete?.() },
 }))
 
 import { fromV2Annotation, toV2Write, syncBookHighlights } from '../highlightSync'
-import { startV2Probe, resetV2ForTests } from '../../api/v2'
-import { fakeApi, V2_ON, book, feed, conflict } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { startV2Probe, resetV2ForTests, v2Store } from '../../api/v2'
+import { fakeApi, asFake, V2_ON, book, feed, conflict, resetMidCall, type Answer } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 const text: TextAnchor = { prefix: 'before ', exact: 'the quote', suffix: ' after', startOffset: 7, endOffset: 16, chapterId: '2-the-woods' }
 
@@ -150,5 +151,95 @@ describe('the V2 highlight sync', () => {
 
     expect(calls.filter((c) => c.path === '/me/v2/annotations/changes')).toHaveLength(1)
     expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(1)
+  })
+})
+
+describe('a highlight sync that outlives a sign-out (v2Store.reset, #1155)', () => {
+  beforeEach(async () => {
+    db.clear()
+    duringDelete = undefined
+    fakeApi(V2_ON)
+    await startV2Probe()
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    resetV2ForTests()
+  })
+
+  const pulls = { 'GET /me/v2/library/changes': feed(book('b1', 'f1'))[0], 'GET /me/v2/annotations/changes': feed(annotation('a1'))[0] }
+  const syncUnderReset = (routes: Record<string, Answer>, hold: string, ui?: Parameters<typeof syncBookHighlights>[2]) =>
+    resetMidCall(() => v2Store.reset(), routes, () => syncBookHighlights('b1', true, ui), hold)
+  const library = feed(book('b1', 'f1'))[0]
+
+  it('keeps no annotations from a feed answered after the reset', async () => {
+    await syncUnderReset(pulls, '/annotations/changes')
+    expect(v2Store.annotations.size).toBe(0)
+    expect(v2Store.pulled.size).toBe(0)
+  })
+
+  it('keeps every synced local highlight when the feed is answered after the reset', async () => {
+    db.set('mine', local('mine', { syncStatus: 'synced' }))
+    await syncUnderReset(pulls, '/annotations/changes')
+    expect(db.has('mine')).toBe(true)
+  })
+
+  it('hands the reader no highlights from a feed answered after the reset', async () => {
+    const onVisible = vi.fn()
+    await syncUnderReset(pulls, '/annotations/changes', { isCancelled: () => false, onVisible, onReplaced: vi.fn() })
+    expect(onVisible).not.toHaveBeenCalled()
+  })
+
+  it("keeps no annotations when the reset lands during the book's lookup", async () => {
+    await syncUnderReset(pulls, '/library/changes')
+    expect(v2Store.annotations.size).toBe(0)
+  })
+
+  it('stops pruning local highlights when the reset lands during a delete', async () => {
+    db.set('r1', local('r1', { syncStatus: 'synced' }))
+    db.set('r2', local('r2', { syncStatus: 'synced' }))
+    asFake({ 'GET /me/v2/library/changes': library, 'GET /me/v2/annotations/changes': feed()[0] })
+    duringDelete = () => v2Store.reset()
+    await syncBookHighlights('b1', true)
+    expect([...db.keys()]).toEqual(['r2'])
+  })
+
+  it("sends no write once the reset landed during the previous row's local delete", async () => {
+    db.set('x', local('x', { deleted: true }))
+    db.set('new', local('new'))
+    const calls = asFake({
+      'GET /me/v2/library/changes': library,
+      'GET /me/v2/annotations/changes': feed()[0],
+      'PUT /me/v2/annotations/new': { status: 201, body: annotation('new', { revision: 1 }) },
+    })
+    duringDelete = () => v2Store.reset()
+    await syncBookHighlights('b1', true)
+    expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(0)
+  })
+
+  it('keeps the annotations of a feed answered with no reset', async () => {
+    asFake(pulls)
+    await syncBookHighlights('b1', true)
+    expect([...v2Store.annotations.keys()]).toEqual(['a1'])
+  })
+
+  it('adopts no write answered after the reset: the highlight stays pending', async () => {
+    db.set('new', local('new'))
+    await syncUnderReset({ ...pulls, 'PUT /me/v2/annotations/new': { status: 201, body: annotation('new', { revision: 1 }) } }, '/annotations/new')
+    expect(v2Store.annotations.has('new')).toBe(false)
+    expect(db.get('new')).toMatchObject({ syncStatus: 'pending' })
+  })
+
+  it('adopts a write answered with no reset', async () => {
+    db.set('new', local('new'))
+    asFake({ ...pulls, 'PUT /me/v2/annotations/new': { status: 201, body: annotation('new', { revision: 1 }) } })
+    await syncBookHighlights('b1', true)
+    expect(v2Store.annotations.has('new')).toBe(true)
+    expect(db.get('new')).toMatchObject({ syncStatus: 'synced' })
+  })
+
+  it('keeps a highlight whose write failed after the reset (a 404 there is not this account\'s answer)', async () => {
+    db.set('gone', local('gone'))
+    await syncUnderReset({ ...pulls, 'PUT /me/v2/annotations/gone': conflict('not_found', {}, 404) }, '/annotations/gone')
+    expect(db.get('gone')).toMatchObject({ syncStatus: 'pending' })
   })
 })

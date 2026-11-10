@@ -20,14 +20,15 @@ export function useBookActions(book: UserBook, opts: Options = {}) {
 
   const run = useCallback(async (
     kind: 'mark' | 'retry' | 'cancel' | 'delete',
-    fn: () => Promise<void>,
+    fn: () => Promise<unknown>,
     after?: () => void,
   ) => {
     if (pending) return
     setPending(kind)
     setError(null)
     try {
-      await fn()
+      // Signed out meanwhile: the write never landed, nothing to refresh.
+      if ((await fn()) === 'dropped') return
       // Any user-book mutation also affects the cached shelves (recently
       // added / continue reading / quick reads). Broadcast both so every
       // consumer (LibraryPage, sidebar counts, shelves cache) refreshes.
