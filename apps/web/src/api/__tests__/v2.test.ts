@@ -3,9 +3,9 @@ import {
   startV2Probe, v2Status, onV2, resetV2ForTests, uploadV2Book, V2UploadError, saveV2Progress, readV2Progress,
   pullV2Books, getV2UserBooks, getV2UserBook, v2Store, completeV2Book, uncompleteV2Book, v2Chapters, rememberV2State,
 } from '../v2'
-import { getUserBook, getUserBooks, saveUserBookProgress, getUserBookFileUrl, getUserBookBookmarks } from '../userBooks'
+import { getUserBook, getUserBooks, saveUserBookProgress, getUserBookFileUrl, getUserBookBookmarks, bulkFinishUserBooks } from '../userBooks'
 import { getWords } from '../vocabulary'
-import { fakeApi, V2_ON, book, file, feed, conflict, state, position, resetMidCall } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi, asFake, V2_ON, book, file, feed, conflict, state, position, resetMidCall, type Answer } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -326,11 +326,16 @@ describe('an answer that outlives a sign-out (v2Store.reset, #1155)', () => {
   const chapters = { 'GET /me/v2/books/b1/files/f1/chapters': { status: 200, body: { items: [], ingestion: 'succeeded' } } }
   const put = { 'PUT /me/v2/books/b1/reading-state': { status: 200, body: state('b1', 1) } }
   const write = { chapterSlug: 'two', percent: 0.5, positionJson: JSON.stringify(position) }
-  const asFake = (routes: Record<string, { status: number; body?: unknown }>) =>
-    fakeApi(Object.fromEntries(Object.entries(routes).map(([k, a]) => [k, [a]])))
+  const underReset = <T>(routes: Record<string, Answer>, op: () => Promise<T>, hold?: string) =>
+    resetMidCall(() => v2Store.reset(), routes, op, hold)
+  /** Every request answers an empty chapter list, and the one to `path` resets the store first: a sign-out mid-call. */
+  const resetOn = (path: string) => vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.includes(path)) v2Store.reset()
+    return { ok: true, status: 200, text: async () => JSON.stringify({ items: [], ingestion: null }) }
+  }))
 
   it('keeps no books from a library pull answered after the reset', async () => {
-    await resetMidCall(() => v2Store.reset(), library, () => pullV2Books())
+    await underReset(library, () => pullV2Books())
     expect(v2Store.books.size).toBe(0)
   })
 
@@ -341,7 +346,7 @@ describe('an answer that outlives a sign-out (v2Store.reset, #1155)', () => {
   })
 
   it('caches no chapters answered after the reset', async () => {
-    await resetMidCall(() => v2Store.reset(), chapters, () => v2Chapters(book('b1', 'f1') as never))
+    await underReset(chapters, () => v2Chapters(book('b1', 'f1') as never))
     expect(v2Store.chapters.size).toBe(0)
   })
 
@@ -352,7 +357,7 @@ describe('an answer that outlives a sign-out (v2Store.reset, #1155)', () => {
   })
 
   it('drops a reading-state write answered after the reset, remembering no revision', async () => {
-    expect(await resetMidCall(() => v2Store.reset(), { ...library, ...put }, () => saveV2Progress('b1', write), '/reading-state')).toBe('dropped')
+    expect(await underReset({ ...library, ...put }, () => saveV2Progress('b1', write), '/reading-state')).toBe('dropped')
     expect(v2Store.states.size).toBe(0)
   })
 
@@ -364,15 +369,15 @@ describe('an answer that outlives a sign-out (v2Store.reset, #1155)', () => {
 
   it("adopts no server place from a conflict answered after the reset", async () => {
     const lost = { 'PUT /me/v2/books/b1/reading-state': conflict('stale_revision', { current: state('b1', 5) }) }
-    expect(await resetMidCall(() => v2Store.reset(), { ...library, ...lost }, () => saveV2Progress('b1', write), '/reading-state')).toBe('dropped')
+    expect(await underReset({ ...library, ...lost }, () => saveV2Progress('b1', write), '/reading-state')).toBe('dropped')
     expect(v2Store.states.size).toBe(0)
   })
 
   const cfi = { currentLocator: { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/4!/4)', quote: 'q' } }
-  const readState = (answer: { status: number; body?: unknown }) => ({ 'GET /me/v2/books/b1/reading-state': answer })
+  const readState = (answer: Answer) => ({ 'GET /me/v2/books/b1/reading-state': answer })
 
   it('answers a read that lands after the reset as no answer, not as no state', async () => {
-    expect(await resetMidCall(() => v2Store.reset(), readState({ status: 404 }), () => readV2Progress('b1'))).toBeUndefined()
+    expect(await underReset(readState({ status: 404 }), () => readV2Progress('b1'))).toBeUndefined()
   })
 
   it('answers a read of no state with no reset as no state', async () => {
@@ -382,18 +387,23 @@ describe('an answer that outlives a sign-out (v2Store.reset, #1155)', () => {
 
   it('answers no place when the reset lands while a read resolves its chapter', async () => {
     const routes = { ...library, ...chapters, ...readState({ status: 200, body: state('b1', 1, cfi) }) }
-    expect(await resetMidCall(() => v2Store.reset(), routes, () => readV2Progress('b1'), '/chapters')).toBeUndefined()
+    expect(await underReset(routes, () => readV2Progress('b1'), '/chapters')).toBeUndefined()
   })
 
   it("adopts no server place when the reset lands while a lost write resolves the server's chapter", async () => {
     const lost = { 'PUT /me/v2/books/b1/reading-state': conflict('stale_revision', { current: state('b1', 5, cfi) }) }
-    expect(await resetMidCall(() => v2Store.reset(), { ...library, ...chapters, ...lost }, () => saveV2Progress('b1', write), '/chapters')).toBe('dropped')
+    expect(await underReset({ ...library, ...chapters, ...lost }, () => saveV2Progress('b1', write), '/chapters')).toBe('dropped')
   })
 
-  it('marks no book read when the reset lands before its write is answered', async () => {
+  it('sends no mark-read write once the reset landed', async () => {
     const routes = { ...library, ...chapters, ...readState({ status: 200, body: state('b1', 4) }), ...put }
-    expect(await resetMidCall(() => v2Store.reset(), routes, () => completeV2Book('b1'), '/chapters')).toBe('dropped')
-    expect(v2Store.states.size).toBe(0)
+    expect(await underReset(routes, () => completeV2Book('b1'), '/chapters')).toBe('dropped')
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false)
+  })
+
+  it("answers a mark-read whose chapters land after the reset as dropped, not as 'nothing to mark'", async () => {
+    const empty = { 'GET /me/v2/books/b1/files/f1/chapters': { status: 200, body: { items: [], ingestion: null } } }
+    expect(await underReset({ ...library, ...empty, ...readState({ status: 404 }) }, () => completeV2Book('b1'), '/chapters')).toBe('dropped')
   })
 
   it('marks a book read with no reset', async () => {
@@ -403,7 +413,22 @@ describe('an answer that outlives a sign-out (v2Store.reset, #1155)', () => {
 
   it('marks no book unread when its reset is answered after the sign-out', async () => {
     const routes = { ...readState({ status: 200, body: state('b1', 4) }), 'POST /me/v2/books/b1/reading-state/reset': { status: 200, body: state('b1', 5) } }
-    expect(await resetMidCall(() => v2Store.reset(), routes, () => uncompleteV2Book('b1'), '/reading-state/reset')).toBe('dropped')
+    expect(await underReset(routes, () => uncompleteV2Book('b1'), '/reading-state/reset')).toBe('dropped')
+  })
+
+  it('sends no mark-unread write once the reset landed during the state read', async () => {
+    resetOn('/reading-state')
+    expect(await uncompleteV2Book('b1')).toBe('dropped')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails every book left in a bulk mark-read once one was dropped', async () => {
+    asFake({ 'GET /me/v2/library/changes': feed(book('b1', 'f1'), book('b2', 'f2'))[0] })
+    await pullV2Books()
+    resetOn('/reading-state')
+    expect(await bulkFinishUserBooks(['b1', 'b2'], true)).toEqual({
+      succeeded: [], failed: [{ id: 'b1', reason: 'dropped' }, { id: 'b2', reason: 'dropped' }],
+    })
   })
 
   it('marks a book unread with no reset', async () => {

@@ -364,6 +364,8 @@ export async function completeV2Book(bookId: string): Promise<V2MarkOutcome> {
   const b = await v2Book(bookId)
   const state = await v2Api.getReadingState(bookId)
   const first = (await v2Chapters(b)).items[0]?.chapterKey
+  // Signed out meanwhile: no write under the next account, and no 'nothing to mark' from its empty store.
+  if (reset()) return 'dropped'
   const sameFile = state && state.fileId === b.currentFile?.id
   const currentLocator = sameFile ? state.currentLocator : placeToV2Locator({ chapterSlug: first ?? null })
   if (!b.currentFile || !currentLocator) throw new ApiError(409, 'Nothing to mark read yet')
@@ -382,7 +384,8 @@ export async function completeV2Book(bookId: string): Promise<V2MarkOutcome> {
 export async function uncompleteV2Book(bookId: string): Promise<V2MarkOutcome> {
   const reset = resetSince()
   const state = await v2Api.getReadingState(bookId)
-  if (!state) return reset() ? 'dropped' : 'done'
+  if (reset()) return 'dropped'
+  if (!state) return 'done'
   return (await whileCurrent(v2Api.resetReadingState(bookId, state.revision), remember, reset)) ? 'done' : 'dropped'
 }
 

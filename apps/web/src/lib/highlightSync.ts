@@ -409,7 +409,7 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
       const feed = await whileCurrent(pullFeed<V2Annotation>('annotations'), ({ items }) => {
         for (const a of items) v2Store.annotations.set(a.id, a)
         v2Store.pulled.add(bookId)
-      })
+      }, reset)
       if (!feed) return false
     }
     if (cancelled()) return false
@@ -418,14 +418,17 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
     const local = await getHighlightsForUserBook(bookId)
     const pending = new Set(local.filter((h) => h.syncStatus === 'pending').map((h) => h.id))
 
-    // Every local write below goes through adopt or forget: after a reset neither writes, and the
-    // throw ends the sync (the outer catch).
-    const forget = (id: string) => {
+    // Every local write below goes through adopt or forget, and every request waits for live():
+    // after a reset none happens, and the throw ends the sync (the outer catch).
+    const live = () => {
       if (reset()) throw new v2Api.SessionChangedError()
+    }
+    const forget = (id: string) => {
+      live()
       return deleteHighlightFromDB(id)
     }
     const adopt = async (a: V2Annotation) => {
-      if (reset()) throw new v2Api.SessionChangedError()
+      live()
       v2Store.annotations.set(a.id, a)
       const row = a.deletedAt ? null : fromV2Annotation(a)
       if (row) await saveHighlight(row)
@@ -447,7 +450,7 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
     let changed = false
     for (const h of local.filter((l) => pending.has(l.id))) {
       // A reset during the last row's local write: this row's request would go out under the next account.
-      if (reset()) return false
+      live()
       const stored = serverById.get(h.id)
       try {
         if (h.deleted || stored?.deletedAt) {

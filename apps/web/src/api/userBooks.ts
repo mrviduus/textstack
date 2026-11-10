@@ -391,10 +391,14 @@ export interface BulkResult {
 /** A bulk action on V2: one request per book (no bulk routes), the legacy result shape. */
 async function eachV2(ids: string[], action: (id: string) => Promise<unknown>): Promise<BulkResult> {
   const result: BulkResult = { succeeded: [], failed: [] }
-  for (const id of ids) {
+  for (const [i, id] of ids.entries()) {
     try {
-      if ((await action(id)) === 'dropped') result.failed.push({ id, reason: 'dropped' })
-      else result.succeeded.push(id)
+      if ((await action(id)) === 'dropped') {
+        // Signed out meanwhile: every write left would be dropped too.
+        result.failed.push(...ids.slice(i).map((rest) => ({ id: rest, reason: 'dropped' })))
+        break
+      }
+      result.succeeded.push(id)
     } catch (e) {
       result.failed.push({ id, reason: e instanceof Error ? e.message : 'failed' })
     }
