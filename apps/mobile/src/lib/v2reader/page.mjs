@@ -14,7 +14,7 @@ import { createSaveScheduler } from './saveScheduler.mjs'
 import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 import { openableHref, sentenceOf } from './tap.mjs'
-import { comicName, fb2AsUtf8, isTextual, sniffFormat, withoutKf8, zipFormat } from './formats.mjs'
+import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, withoutKf8, zipFormat } from './formats.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
 const log = (level, msg) => post({ type: 'log', level, msg })
@@ -188,13 +188,18 @@ async function makeBookFor(bytes, name, kind) {
     // foliate keeps lower-case extensions only (`001.JPG` would be no page): each entry is also known by
     // comicName, and the comic reader sees only that. The reader titles a book by its file name; the
     // host's is a path, and the host falls back to its own.
+    // Each name once (a zip may repeat one: two pages with one id would restore to the first), and each
+    // page blob typed by its extension: the reader asks for none, and an untyped SVG is no image.
     for (const e of entries) if (!map.has(comicName(e.filename))) map.set(comicName(e.filename), e)
-    const comic = { ...loader, entries: entries.map((e) => ({ filename: comicName(e.filename) })) }
+    const names = [...new Set(entries.map((e) => comicName(e.filename)))]
+    const comic = { ...loader, entries: names.map((filename) => ({ filename })), loadBlob: (n, type) => loader.loadBlob(n, type ?? imageType(n)) }
     return { format: 'cbz', book: formatModule('cbz').makeComicBook(comic, { name: '' }) }
   }
   // FBZ: the FB2 inside.
   const fb2 = entries.find((e) => e.filename.toLowerCase().endsWith('.fb2'))
-  return { format: 'fb2', book: await fb2Of(new Uint8Array(await (await loader.loadBlob(fb2.filename)).arrayBuffer())) }
+  const inner = new Uint8Array(await (await loader.loadBlob(fb2.filename)).arrayBuffer())
+  checkFb2(inner)   // throws UnsupportedBook: custom entities (sniffFormat checks a plain FB2 the same way)
+  return { format: 'fb2', book: await fb2Of(inner) }
 }
 
 /** Removes a book's `<meta http-equiv="refresh">` from `doc` (it navigates the section frame away; CSP does not cover it). */

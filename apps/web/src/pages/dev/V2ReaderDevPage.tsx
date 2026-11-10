@@ -86,6 +86,8 @@ export default function V2ReaderDevPage() {
   const flowRef = useRef(flow)
   /** CBZ is images only: no highlight (the page refuses it too). */
   const [textual, setTextual] = useState(true)
+  /** False for a fixed-layout book (CBZ): flow changes nothing there. */
+  const [reflowable, setReflowable] = useState(true)
   const [status, setStatus] = useState('')
   const [restored, setRestored] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -131,6 +133,7 @@ export default function V2ReaderDevPage() {
           if (!current) return
           call('restore', [readItem(storeKey(m.book.sha256))])
           setTextual(m.textual !== false)
+          setReflowable(m.reflowable !== false)
           setHeading([m.title || current.originalName, m.author].filter(Boolean).join(' — '))
           const { lib } = addOpened(readLibrary(), { ...m.book, title: m.title, author: m.author, originalName: current.originalName })
           writeItem(LIBRARY_KEY, JSON.stringify(lib))
@@ -190,7 +193,7 @@ export default function V2ReaderDevPage() {
         <button onClick={() => call('prev')}>‹ Prev</button>
         <button onClick={() => call('next')}>Next ›</button>
         {textual && <button onClick={() => call('highlightSelection')}>Highlight</button>}
-        <button onClick={toggleFlow}>{flow === 'paginated' ? 'Scrolled' : 'Paginated'}</button>
+        <button onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? 'Scrolled' : 'Paginated'}</button>
       </div>
       <strong data-testid="v2-heading">{heading}</strong>
       <span data-testid="v2-status">{status}</span>

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fb2, mobi, png } from './fixtures.mjs'
-import { isTextual, mobiEncryption, sniffFormat, zipFormat } from './formats.mjs'
+import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, mobiHeader, sniffFormat, withoutKf8, zipFormat } from './formats.mjs'
 
 const bytes = (b: Buffer | string) => new Uint8Array(Buffer.from(b))
 const html = '<html><body><p>Text</p></body></html>'
@@ -51,15 +51,69 @@ describe('sniffFormat', () => {
   })
 })
 
-describe('mobiEncryption', () => {
-  it('readsRecordZerosPalmDocFlag', () => {
-    expect(mobiEncryption(bytes(mobi('T', html)))).toBe(0)
-    expect(mobiEncryption(bytes(mobi('T', html, { encryption: 2 })))).toBe(2)
+describe('mobiHeader', () => {
+  it('readsRecordZerosPalmDocFlagAndVersion', () => {
+    expect(mobiHeader(bytes(mobi('T', html)))).toEqual({ encryption: 0, version: 6, boundaries: [] })
+    expect(mobiHeader(bytes(mobi('T', html, { encryption: 2 }))).encryption).toBe(2)
+    expect(mobiHeader(bytes(mobi('T', html, { version: 8 }))).version).toBe(8)
   })
 
-  it('recordZeroPastTheEnd_ReadsAsNone_LeftToTheParser', () => {
-    const b = bytes(mobi('T', html)).slice(0, 90)
-    expect(mobiEncryption(b)).toBe(0)
+  it('truncated_RefusedAsDamaged_NeverAsDrm', () => {
+    // 78–81 bytes used to read the PDB name as the DRM flag.
+    for (const n of [68, 78, 81, 90, 200]) {
+      const b = bytes(mobi('T'.repeat(31), html, { encryption: 0 })).slice(0, n)
+      expect(() => sniffFormat(b), String(n)).toThrow(/truncated or damaged/)
+    }
+  })
+
+  it('kf8_RefusedUntilTheForkIsFixed', () => {
+    expect(() => sniffFormat(bytes(mobi('T', html, { version: 8 })))).toThrow(/AZW3 \(KF8\) is not supported yet/)
+  })
+
+  it('combo_ReadAsItsMobi6Half_EveryBoundaryCleared', () => {
+    const b = bytes(mobi('T', html, { boundary: 1 }))
+    expect(sniffFormat(b)).toBe('mobi')
+    const [at] = mobiHeader(b).boundaries
+    expect([...b.subarray(at, at + 4)]).toEqual([0, 0, 0, 1])
+    withoutKf8(b)
+    expect([...b.subarray(at, at + 4)]).toEqual([0xff, 0xff, 0xff, 0xff])
+  })
+})
+
+describe('fb2', () => {
+  const book = fb2('T', '<section><p>Ünïcode</p></section>')
+
+  it('utf16_EitherOrderWithOrWithoutBom_SniffedAndReencodedAsUtf8', () => {
+    const le = Buffer.from(`﻿${book.replace('utf-8', 'UTF-16')}`, 'utf16le')
+    const be = Buffer.from(le).swap16()
+    for (const b of [le, be, le.subarray(2)]) {
+      expect(sniffFormat(bytes(b))).toBe('fb2')
+      const text = new TextDecoder().decode(fb2AsUtf8(bytes(b)))
+      expect(text).toContain('<?xml version="1.0" encoding="utf-8"?>')
+      expect(text).toContain('Ünïcode')
+    }
+    expect(fb2AsUtf8(bytes(book))).toEqual(bytes(book))
+  })
+
+  it('rootWithin4KiB_Fb2', () => {
+    expect(sniffFormat(bytes(fb2('T', '<section/>', `<!-- ${'x'.repeat(3500)} -->`)))).toBe('fb2')
+  })
+
+  it('anyDeclaredEntity_RefusedBeforeParsing', () => {
+    for (const d of ['<!ENTITY e "x">', '<!ENTITY x SYSTEM "http://evil/x">', '<!ENTITY % p "x">'])
+      expect(() => sniffFormat(bytes(fb2('T', '<section/>', `<!DOCTYPE FictionBook [${d}]>`))), d).toThrow(/custom entities/)
+    expect(() => checkFb2(bytes(fb2('T', '<section/>', '<!DOCTYPE FictionBook [<!ENTITY e "x">]>')))).toThrow(/custom entities/)
+    expect(() => checkFb2(bytes(book))).not.toThrow()
+  })
+})
+
+describe('comic pages', () => {
+  it('comicName_LowerCasesOnlyTheExtension', () => {
+    expect(['P01.JPG', 'Dir.X/p02.Png', 'p03.png', 'noext'].map(comicName)).toEqual(['P01.jpg', 'Dir.X/p02.png', 'p03.png', 'noext'])
+  })
+
+  it('imageType_ByExtension_SvgTyped', () => {
+    expect(['a.svg', 'b.JPG', 'c.webp', 'd.txt'].map(imageType)).toEqual(['image/svg+xml', 'image/jpeg', 'image/webp', ''])
   })
 })
 
@@ -82,14 +136,14 @@ describe('zipFormat', () => {
 
   // The router and the fork's comic reader must agree on what a page is: a zip routed `cbz` whose pages the
   // reader then filters out opens as `open-failed` ("No supported image files"), or with pages missing.
-  // KNOWN BUG (QA #1128): IMAGE is case-insensitive, comic-book.js matches lower-case extensions only.
-  // `it.fails` holds while they disagree; it turns red once they agree, then make it a plain `it`.
-  it.skipIf(!existsSync(resolve(__dirname, '.vendor/foliate-js/comic-book.js'))).fails('upperCaseExtensions_RoutedCbz_AndTheComicReaderKeepsEveryPage', async () => {
+  // IMAGE is case-insensitive and comic-book.js matches lower-case extensions only, so the page hands the
+  // comic reader comicName's (QA #1128; was `it.fails`). formats.check opens a real upper-case CBZ.
+  it.skipIf(!existsSync(resolve(__dirname, '.vendor/foliate-js/comic-book.js')))('upperCaseExtensions_RoutedCbz_AndTheComicReaderKeepsEveryPage', async () => {
     const names = ['P01.JPG', 'p02.png', 'P03.Png']
     expect(zipFormat(names)).toBe('cbz')
     const { makeComicBook } = await import('./.vendor/foliate-js/comic-book.js')
-    const book = makeComicBook({ entries: names.map((filename) => ({ filename })), loadBlob: async () => null, getSize: () => 0 }, { name: '' })
-    expect(book.sections.map((s: { id: string }) => s.id)).toEqual(names)
+    const book = makeComicBook({ entries: names.map((n) => ({ filename: comicName(n) })), loadBlob: async () => null, getSize: () => 0 }, { name: '' })
+    expect(book.sections.map((s: { id: string }) => s.id)).toEqual(names.map(comicName))
   })
 })
 

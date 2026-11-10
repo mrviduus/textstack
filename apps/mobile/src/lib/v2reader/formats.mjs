@@ -31,9 +31,27 @@ export function sniffFormat(bytes) {
     if (h.version >= 8) throw new UnsupportedBook('AZW3 (KF8) is not supported yet')
     return 'mobi'
   }
-  // FB2 is XML: its root element near the start. NULs dropped, so UTF-16 (either order) matches too.
-  if (/<FictionBook[\s>]/.test(ascii(bytes, 0, FB2_WINDOW).replace(/\0/g, ''))) return 'fb2'
+  if (fb2Root(bytes) >= 0) {
+    checkFb2(bytes)
+    return 'fb2'
+  }
   throw new UnsupportedBook('not a book this reader opens (EPUB, MOBI, FB2, CBZ)')
+}
+
+/** The first FB2_WINDOW bytes as text, NULs dropped so UTF-16 (either order) reads like ASCII. */
+const fb2Head = (bytes) => ascii(bytes, 0, FB2_WINDOW).replace(/\0/g, '')
+/** Where the FB2 root element starts in fb2Head, or -1. */
+const fb2Root = (bytes) => fb2Head(bytes).search(/<FictionBook[\s>]/)
+
+/**
+ * An FB2 the XML parser may be handed: its root near the start and no entity declared before it. A flat
+ * entity referenced tens of thousands of times hangs or kills the renderer (Blink stops only nested
+ * expansion); real FB2 files declare none. Also called for the FB2 inside an FBZ.
+ */
+export function checkFb2(bytes) {
+  const root = fb2Root(bytes)
+  if (root < 0) throw new UnsupportedBook('not a book this reader opens (EPUB, MOBI, FB2, CBZ)')
+  if (/<!ENTITY/i.test(fb2Head(bytes).slice(0, root))) throw new UnsupportedBook('unsupported FB2: custom entities')
 }
 
 /**
@@ -97,6 +115,10 @@ export function zipFormat(names) {
  * The page's loader answers both spellings.
  */
 export const comicName = (n) => n.replace(/\.[^./]+$/, (ext) => ext.toLowerCase())
+
+const IMAGE_TYPES = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp', svg: 'image/svg+xml', jxl: 'image/jxl', avif: 'image/avif' }
+/** A comic page's MIME type by its extension ('' if unknown): an SVG blob without one is no image. */
+export const imageType = (n) => IMAGE_TYPES[/\.(\w+)$/.exec(n)?.[1].toLowerCase()] ?? ''
 
 /** Formats with text: word tap, selection, highlights and translation. A comic book is images only. */
 export const isTextual = (format) => format !== 'cbz'

@@ -126,10 +126,9 @@ export const hostileVectors = (evil, siblings) => {
     ['link-tap', 'request', null, { body: `<p><a data-ts-click="" href="${at('link-tap')}">external link</a></p>` }],
     // FB2 (#1128): foliate rebuilds its sections from whitelisted elements, so no script, style, frame or
     // meta of the book survives; what does is an image or link address. `fb2` is section markup.
+    // (An FB2 declaring any entity, external or not, is refused before parsing: formats.mjs checkFb2,
+    // covered by formats.check.mjs.)
     ['fb2-image', 'request', 'img-src', { fb2: `<image l:href="${at('fb2-image', '.png')}"/>` }],
-    // An external entity: Blink's XML parser never fetches one (no directive involved, a blind spot that
-    // holds the line if it ever starts to).
-    ['fb2-xxe', 'request', null, { fb2: '<p>&xxe;</p>', fb2Doctype: `<!ENTITY xxe SYSTEM "${at('fb2-xxe')}">` }],
   ]
 }
 
@@ -168,8 +167,7 @@ export function writeHostileMobi(out, siblings = LOCAL, evil = EVIL) {
 /** The FB2 vectors in one section; its id survives foliate's conversion, so the check can tell the book's frame. */
 export function writeHostileFb2(out, evil = EVIL) {
   const rows = hostileVectors(evil, LOCAL).filter((r) => formatsOf(r).includes('fb2')).map(([, , , v]) => v)
-  const doctype = `<!DOCTYPE FictionBook [${rows.map((v) => v.fb2Doctype ?? '').join('')}]>`
-  writeFileSync(out, fb2('tshostile', `<section id="ts-hostile"><title><p>Hostile</p></title><p>${para}</p>${rows.map((v) => v.fb2).join('\n')}<p>${para}</p></section>`, doctype))
+  writeFileSync(out, fb2('tshostile', `<section id="ts-hostile"><title><p>Hostile</p></title><p>${para}</p>${rows.map((v) => v.fb2).join('\n')}<p>${para}</p></section>`))
   return out
 }
 
@@ -179,15 +177,31 @@ export function writeHostileFb2(out, evil = EVIL) {
 /**
  * A MOBI6 file: PDB header, record 0 (PalmDOC header, uncompressed, + a 232-byte MOBI header, UTF-8,
  * no EXTH, no NCX), then the text in 4096-byte records. `encryption` 2 is Mobipocket DRM: the header
- * flag alone, which is all the page reads before it refuses. KF8/AZW3 shares this container and flag.
+ * flag alone, which is all the page reads before it refuses. KF8/AZW3 shares this container and flag:
+ * `version` 8 is the header of one (nothing else of KF8 is written: the page refuses it on the header).
+ * `boundary` adds an EXTH with record 121, the KF8 half of a MOBI/KF8 combo (here a record that is none).
+ * @param {string} title
+ * @param {string} html
+ * @param {{ encryption?: number, version?: number, boundary?: number }} [options]
  */
-export function mobi(title, html, { encryption = 0 } = {}) {
+export function mobi(title, html, { encryption = 0, version = 6, boundary } = {}) {
   const text = Buffer.from(html, 'utf8')
   const SIZE = 4096
   const records = []
   for (let at = 0; at < text.length; at += SIZE) records.push(text.subarray(at, at + SIZE))
+  const exth = boundary === undefined ? Buffer.alloc(0) : Buffer.alloc(24)
+  if (exth.length) {
+    exth.write('EXTH', 0, 'latin1')
+    exth.writeUInt32BE(24, 4)
+    exth.writeUInt32BE(1, 8)
+    exth.writeUInt32BE(121, 12)
+    exth.writeUInt32BE(12, 16)
+    exth.writeUInt32BE(boundary, 20)
+  }
   const name = Buffer.from(title, 'utf8')
-  const r0 = Buffer.alloc(248 + name.length + 4)
+  const r0 = Buffer.alloc(248 + exth.length + name.length + 4)
+  exth.copy(r0, 248)
+  if (exth.length) r0.writeUInt32BE(0x40, 128)  // EXTH present
   r0.writeUInt16BE(1, 0)                        // compression: none
   r0.writeUInt32BE(text.length, 4)
   r0.writeUInt16BE(records.length, 8)
@@ -198,14 +212,14 @@ export function mobi(title, html, { encryption = 0 } = {}) {
   r0.writeUInt32BE(2, 24)                       // type: book
   r0.writeUInt32BE(65001, 28)                   // UTF-8
   r0.writeUInt32BE(0x1128, 32)                  // uid
-  r0.writeUInt32BE(6, 36)                       // version 6 (not KF8)
+  r0.writeUInt32BE(version, 36)                 // 6: MOBI6; 8: KF8
   r0.writeUInt32BE(records.length + 1, 80)      // first non-text record
-  r0.writeUInt32BE(248, 84)                     // full title: offset, length
+  r0.writeUInt32BE(248 + exth.length, 84)       // full title: offset, length
   r0.writeUInt32BE(name.length, 88)
   r0.writeUInt32BE(9, 92)                       // locale: English
   r0.writeUInt32BE(records.length + 1, 108)     // first resource: there are none
   r0.writeUInt32BE(0xffffffff, 244)             // no NCX index
-  name.copy(r0, 248)
+  name.copy(r0, 248 + exth.length)
   const all = [r0, ...records]
   const pdb = Buffer.alloc(78 + all.length * 8 + 2)
   pdb.write(title.slice(0, 31), 0, 'latin1')
@@ -270,7 +284,13 @@ export function writeFormatFixtures(dir) {
   writeFileSync(resolve(dir, 'tsformat.fb2'), book)
   zipFiles(resolve(dir, 'tsformat.fbz'), { 'book.fb2': book })
   zipFiles(resolve(dir, 'tsformat.cbz'), { 'p01.png': png(60, 80, [200, 40, 40]), 'p02.png': png(60, 80, [40, 40, 200]) })
-  return ['tsformat.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz']
+  // Upper-case extensions (foliate keeps only lower case) and an SVG page (an image only when typed).
+  zipFiles(resolve(dir, 'tsupper.cbz'), { 'P01.PNG': png(60, 80, [40, 200, 40]), 'P02.SVG': '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="80"><rect width="60" height="80" fill="#c84"/></svg>' })
+  // UTF-16LE with a BOM, declared as such: foliate decodes UTF-8 first, the page re-encodes it.
+  writeFileSync(resolve(dir, 'tsutf16.fb2'), Buffer.from(`﻿${book.replace('encoding="utf-8"', 'encoding="UTF-16"')}`, 'utf16le'))
+  writeFileSync(resolve(dir, 'tskf8.mobi'), mobi('TS KF8', html, { version: 8 }))
+  writeFileSync(resolve(dir, 'tscombo.mobi'), mobi('TS COMBO', html, { boundary: 1 }))
+  return ['tsformat.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

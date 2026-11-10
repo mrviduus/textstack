@@ -27,7 +27,9 @@ const FOLIATE_SHA = 'd73682a48a0779ca989f25074386784602437fbf'   // branch texts
 // +5602 (#1128): routing by content (formats.mjs), the format-reader runner, CBZ without text features
 // and with a `page` position, MOBI6 refresh strip, flow() validation and the reader-flow telemetry.
 // Excludes the carried format readers below (their strings sit ahead of this script).
-const BUDGET = 243532
+// +3136 (#1128 review): sniff before teardown, KF8 refused / combo read as MOBI6, truncated MOBI, UTF-16
+// FB2 re-encoded, FB2 entities refused, CBZ names/types/dedupe, flow() not a switch on a fixed layout.
+const BUDGET = 246668
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
@@ -121,7 +123,7 @@ const html = (js) => `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${CSP}">
 <style>html,body{margin:0;height:100%;background:#fbf8f3;color:#1f1b16}foliate-view{display:block;height:100%}</style>
-</head><body><script nonce="${NONCE}">${js.replace(/<\/script/gi, '<\\/script')}</script></body></html>`
+</head><body><script nonce="${NONCE}">${js.replace(/<\/(script)/gi, '<\\/$1')}</script></body></html>`
 
 const js = await bundle('page.mjs')
 const chunks = Object.fromEntries(await Promise.all(Object.entries(FORMATS).map(async ([k, src]) => [k, await bundle(src)])))
@@ -151,8 +153,9 @@ if (process.argv.includes('--check')) {
     console.error(`[check:v2-reader] the page script is ${js.length} chars, over its ${BUDGET} budget (build.mjs BUDGET, ADR-029).`)
     failed = true
   }
-  for (const [k, v] of Object.entries(chunks)) if (v.length > FORMAT_BUDGET[k]) {
-    console.error(`[check:v2-reader] the ${k} reader is ${v.length} chars, over its ${FORMAT_BUDGET[k]} budget (build.mjs FORMAT_BUDGET).`)
+  // A reader with no budget fails too: `undefined` would let any size through.
+  for (const [k, v] of Object.entries(chunks)) if (!(v.length <= FORMAT_BUDGET[k])) {
+    console.error(`[check:v2-reader] the ${k} reader is ${v.length} chars, over its ${FORMAT_BUDGET[k] ?? 'missing'} budget (build.mjs FORMAT_BUDGET).`)
     failed = true
   }
   if ((existsSync(out) ? readFileSync(out, 'utf8') : null) !== content) {

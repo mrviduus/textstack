@@ -60,8 +60,10 @@ describe('v2ReaderPageHtml', () => {
   it('bundle_OpenCancelsPendingSaves_AndNoHighlightBeforeRestored', () => {
     const html = v2ReaderPageHtml(NONCE)
     // The call sites of the two data-loss guards; the scheduler itself is unit-tested.
-    expect(html).toMatch(/async function open\(bytes, name, mine\) \{(\s*var [^;]*;)?\s*saves\.cancel\(\);/)
-    expect(html).toMatch(/function openFor\(bytes, name\) \{\s*const mine = \+\+openSeq;/)
+    expect(html).toMatch(/async function open\(bytes, name, kind, mine\) \{(\s*var [^;]*;)?\s*saves\.cancel\(\);/)
+    // #1128: the format is sniffed (and a refusal answered) BEFORE the seq turns over, so a refused
+    // file leaves the open book reading and saving, like a failed read (#1168).
+    expect(html).toMatch(/function openFor\(bytes, name\) \{\s*let kind;\s*try \{\s*kind = sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*const mine = \+\+openSeq;\s*return open\(bytes, name, kind, mine\)/)
     expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,200}?if \(!entry\) return log\("warn"/)
   })
 

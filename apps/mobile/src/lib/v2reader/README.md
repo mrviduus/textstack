@@ -8,7 +8,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | File | What |
 |---|---|
 | `page.mjs` | Runs in the WebView. The whole adapter: routing a file to its reader, our EPUB loader (SHA-1 for obfuscated fonts), the format-reader runner, the navigation queue, word tap, translation label, highlights, save/restore by CFI + quote, `meta refresh` stripped, flow + its telemetry. |
-| `formats.mjs` | Which reader a file goes to, from its bytes (pure): zip → EPUB/FBZ/CBZ by entry names, `BOOKMOBI` → MOBI/KF8 (DRM flag refused), FB2 root, PDF/KFX/unknown refused. |
+| `formats.mjs` | Which reader a file goes to, from its bytes (pure): zip → EPUB/FBZ/CBZ by entry names, `BOOKMOBI` → MOBI (DRM, KF8, truncated refused; combo → MOBI6 half), FB2 root (UTF-16 re-encoded, entities refused), PDF/KFX/unknown refused; CBZ page names and types. |
 | `store.mjs` | Reader data shape (v1), one entry per book **file** (SHA-256 + size); the quote fold; pure-JS SHA-256 / SHA-1. |
 | `tap.mjs` | What a tap hands the host: the word's sentence (reader-engine's `sentenceAround`) and an external link, only if `http(s)`. |
 | `saveScheduler.mjs` | The debounced `store` message: key and payload are fixed when the save is asked for, so a save can never land on the next book. |
@@ -20,7 +20,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `build.mjs` | Pinned fork clone → esbuild IIFE (+ one per format reader) → `v2ReaderPage.generated.ts`. |
 | `v2ReaderPage.generated.ts` | **Generated, committed.** `v2ReaderPageHtml(nonce)`. Never edit by hand. |
 | `repro.mjs` | Test-only entry: the page + `__fol.reproRenderDuringLoad` (the reproducer behind the fork's paginator fix). |
-| `fixtures.mjs` | Writes crafted books to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated), `tshostile.epub` (one row of `hostileVectors` per sandbox vector; `.mobi`/`.fb2` twins are written by the check), and `tsformat.{epub,mobi,fb2,fbz,cbz}` + `tsdrm.mobi`, every byte written by the file itself (MOBI6 by hand: PDB + PalmDOC + MOBI header). Needs `zip`. |
+| `fixtures.mjs` | Writes crafted books to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated), `tshostile.epub` (one row of `hostileVectors` per sandbox vector; `.mobi`/`.fb2` twins are written by the check), and `tsformat.{epub,mobi,fb2,fbz,cbz}`, `tsdrm.mobi`, `tskf8.mobi`, `tscombo.mobi`, `tsupper.cbz`, `tsutf16.fb2`, every byte written by the file itself (MOBI6 by hand: PDB + PalmDOC + MOBI header). Needs `zip`. |
 | `sandbox.check.mjs` | The hostile-book check (see Sandbox). |
 | `formats.check.mjs` | The format check (see Formats): one small book per format through the committed page in Chromium. |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
@@ -47,7 +47,7 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. view.js's own format imports, PDF, TTS and search are
   stubbed out of the page; MOBI/FB2/CBZ come in as format readers (Formats).
-- **Size:** 243,532 characters of page script (unminified) + the format readers (`FORMAT_BUDGET`: mobi 51,784,
+- **Size:** 246,668 characters of page script (unminified) + the format readers (`FORMAT_BUDGET`: mobi 51,784,
   fb2 11,417, cbz 2,030), ~326 KB generated file. Reader-engine's 64 KB budget does
   not apply; this page's own budget is `BUDGET` in `build.mjs`, raised only by a deliberate PR.
 - `BUDGET` is a tripwire by design, not a ceiling: it equals the committed size, so any growth fails `--check`
@@ -64,9 +64,10 @@ the Android host stages and retains every format as `*.epub`, the web host opens
 | Format | Detected by | Reader | Text features |
 |---|---|---|---|
 | EPUB | zip with `META-INF/container.xml` | the page's own (`EPUB` + our SHA-1) | all |
-| MOBI, AZW3 (KF8) | `BOOKMOBI` at byte 60 | fork `mobi.js` + `vendor/fflate.js` | all |
-| FB2 / FBZ | `<FictionBook` in the first KiB / zip with a `.fb2` | fork `fb2.js` | all |
+| MOBI (MOBI6; a MOBI/KF8 combo as its MOBI6 half) | `BOOKMOBI` at byte 60, header version < 8 | fork `mobi.js` + `vendor/fflate.js` | all |
+| FB2 / FBZ | `<FictionBook` in the first 4 KiB (UTF-8 or UTF-16) / zip with a `.fb2` | fork `fb2.js` | all |
 | CBZ | zip with images, no container, no `.fb2` | fork `comic-book.js` (fixed layout) | **none** |
+| AZW3 (KF8) | `BOOKMOBI`, header version ≥ 8 | refused: "AZW3 (KF8) is not supported yet" | — |
 | PDF, KFX, other | `%PDF-`, `\xeaDRMION\xee`, anything else | refused with `open-failed` | — |
 
 - **Loaded only when needed.** Each format reader is its own esbuild IIFE, carried in the page's one script as a
@@ -78,18 +79,38 @@ the Android host stages and retains every format as `*.epub`, the web host opens
   refused, and widening any directive is an ADR-029 change. A nonce'd inline script is admitted whoever inserts it;
   the nonce is fresh per load and no book script can run to read it. The strings are parsed with the page (cheap);
   only their evaluation is deferred.
-- **DRM:** a MOBI/AZW3 whose PalmDOC `encryption` is non-zero, and any KFX, answer `open-failed` with
-  "…DRM-protected…". EPUB DRM is not detected here (foliate fails on the encrypted content).
+- **A refusal touches nothing.** `sniffFormat` runs before the open book is closed or the open seq turns over
+  (like a failed read, #1168): a PDF, DRM, KF8, entity-declaring FB2 or unknown file answers `open-failed` and the
+  book on screen keeps reading, saving and its telemetry session. (An FBZ's inner FB2 is checked only once the
+  zip is read, inside the open: that refusal does replace the book.)
+- **DRM:** a MOBI whose PalmDOC `encryption` is non-zero, and any KFX, answer `open-failed` with
+  "…DRM-protected…". A `BOOKMOBI` too short for its record 0 is "truncated or damaged", never DRM. EPUB DRM is
+  not detected here (foliate fails on the encrypted content).
+- **KF8 (AZW3) is refused** at this pin (d73682a). The fork's KF8 reader is unverified (no KF8 fixture; one needs
+  SKEL/FRAG/INDX records) and has a confirmed bug: `mobi.js` `KF8.loadResourceBlob` builds
+  `new Blob([newData], { newType })` — the option is `type`, so every CSS/image/font/SVG resource blob is untyped
+  (SVG images will not render). Its section HTML also bypasses `transformTarget`, the page's refresh-meta strip.
+  A combo file (MOBI6 record 0 + an EXTH 121 KF8 boundary) is read as its MOBI6 half: the page sets the boundary
+  to 0xffffffff in its copy of the bytes (after hashing), which foliate reads as "no KF8".
+- **FB2 encodings and entities:** foliate decodes FB2 as UTF-8 before reading its declaration, so the page
+  re-encodes a UTF-16 file (BOM or not, either order) to UTF-8 first. Any `<!ENTITY` before the root is refused
+  before parsing ("unsupported FB2: custom entities"): a flat entity referenced tens of thousands of times hangs
+  the page and kills the renderer at larger counts (Blink stops only *nested* expansion), and real FB2 files
+  declare none.
 - **CBZ** is images only: every tap is a `tap` (no `word`), no selection is kept, `highlightSelection()` and
   `showTranslation()` are ignored, `opened.textual` is `false` so the host hides them. Its position is saved
   **without a quote** (there is no text at any CFI): `{ cfi, page, index, fraction, at }`, `page` = the image's
-  entry name, checked on restore (`store.mjs`). How the server stores such a position is open.
-- **Refresh metas:** EPUB and KF8 sections pass through `transformTarget`; MOBI6 has none, so the page wraps its
+  entry name, checked on restore (`store.mjs`). How the server stores such a position is open. Page names are
+  handed to foliate with lower-case extensions (`comicName`: it keeps `.jpg`, never `.JPG`), each name once, and
+  each page blob is typed by its extension (an untyped SVG is no image). `opened.reflowable` is `false`: `flow()`
+  changes nothing on a fixed layout, is not counted as a switch, and the hosts disable their toggle.
+- **Refresh metas:** EPUB sections pass through `transformTarget`; MOBI6 has none, so the page wraps its
   `createDocument`. FB2 and CBZ sections are rebuilt by foliate from whitelisted elements / one `<img>`.
 - **Hostile input:** every reader runs inside the same page and CSP. The sandbox check opens a hostile MOBI (the
-  EPUB's HTML vectors) and FB2 (an external image, an external entity) beside the EPUB; the format check opens a
-  billion-laughs FB2 (Blink's XML parser stops the expansion; the page answers in ms). Not covered: zip bombs (a
-  CBZ/EPUB entry is inflated whole when shown: a memory DoS inside the WebView, as for EPUB today).
+  EPUB's HTML vectors) and FB2 (an external image) beside the EPUB; the format check refuses a nested
+  (billion-laughs), a flat (×30k) and an external-entity FB2 before parsing. Not covered, accepted: zip bombs (a
+  CBZ/EPUB entry is inflated whole when shown, an FBZ's `.fb2` whole at open: a memory DoS inside the WebView, as
+  for EPUB today). The Android host stops reopening a book after its second renderer crash.
 
 ```bash
 pnpm -C apps/web check:v2-reader-formats   # needs Chromium (playwright install chromium)
@@ -164,7 +185,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `type` | Fields | Host does |
 |---|---|---|
 | `ready` | — | may call `openUrl` |
-| `opened` | `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`), `textual` (false: hide highlight, translation, vocabulary), `title`, `author` (either may be `''`), `sections`, `toc [{label, href}]` | calls `restore` with the stored JSON for `book.sha256` |
+| `opened` | `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`), `textual` (false: hide highlight, translation, vocabulary), `reflowable` (false: disable the flow toggle), `title`, `author` (either may be `''`), `sections`, `toc [{label, href}]` | calls `restore` with the stored JSON for `book.sha256` |
 | `open-failed` | `name`, `error` (shown as is: unreadable, unsupported format, PDF, DRM) | must not keep the file |
 | `restored` | `found`, `rejected`, `position` (`none` / `restored` / `quote mismatch, stayed at start` / `page not found, stayed at start` (CBZ) / `navigation failed, stayed at start`), `highlights [{id, status}]` | — |
 | `store` | `key` (= `book.sha256`), `json` | keeps `json` under `key`, verbatim |

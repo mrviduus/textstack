@@ -113,7 +113,13 @@ try {
   const stored = await waitFor(from, (x) => x.type === 'store', 'a store after the page turn')
   const position = JSON.parse(stored.json).position
   check(position?.page === 'p02.png' && !('quote' in position) && position.cfi.startsWith('epubcfi('), `the page turn saved page 2 by its entry name, no quote (${JSON.stringify(position)})`)
+  check(m.reflowable === false, 'opened.reflowable is false for a CBZ (hosts disable the flow toggle)')
+  // flow() on a fixed layout changes nothing, so it is no switch.
+  call('window.__fol.flow("scrolled")')
   m = await open('tsformat.cbz', stored.json)
+  const cbzTel = messages.slice(m.from).find((x) => x.type === 'telemetry')
+  check(cbzTel?.format === 'cbz' && cbzTel.switchedInFirst5Min === false, `a flow() on a CBZ is not reported as a switch: ${JSON.stringify(cbzTel)}`)
+  call('window.__fol.flow("paginated")')
   check(m.restored.position === 'restored', `reopened, the saved page is restored (${m.restored.position})`)
   const at = await waitFor(m.from, (x) => x.type === 'relocate' && x.index === 1, 'relocate to page 2').catch(() => null)
   check(!!at, 'and the view shows page 2')
@@ -128,17 +134,42 @@ try {
   m = await open('tsformat.fb2', JSON.stringify({ v: 1, book: m.book, highlights: [], position: { cfi: textCfi, page: 'p02.png', index: 0, fraction: 0, at: 1 } }))
   check(m.restored.position === 'quote mismatch, stayed at start', `a page position on a textual book is not applied (${m.restored.position})`)
 
+  console.log('more shapes')
+  m = await open('tsupper.cbz')
+  check(m.type === 'open-failed' ? false : m.format === 'cbz' && m.sections === 2, `a CBZ with upper-case extensions keeps every page (${m.sections ?? m.error})`)
+  check(await shown(() => document.querySelector('img')?.naturalWidth === 60), 'its first page image is rendered')
+  call('window.__fol.next()')
+  check(await shown(async () => {
+    const img = document.querySelector('img')
+    return img?.naturalWidth === 60 && (await (await fetch(img.src)).blob()).type === 'image/svg+xml'
+  }), 'its SVG page is rendered as an image (typed image/svg+xml)')
+  m = await open('tsutf16.fb2')
+  check(m.type === 'opened' && m.format === 'fb2' && m.title === 'TS FB2', `a UTF-16 FB2 opens (${m.title ?? m.error})`)
+  check(await showsText(), 'its text is rendered')
+  m = await open('tscombo.mobi')
+  check(m.type === 'opened' && m.format === 'mobi' && m.title === 'TS COMBO', `a MOBI/KF8 combo opens as its MOBI6 half (${m.title ?? m.error})`)
+  check(await showsText(), 'its text is rendered')
+
   console.log('refused')
-  m = await open('tsdrm.mobi')
-  check(m.type === 'open-failed' && /DRM/.test(m.error), `a DRM-flagged MOBI is refused: ${m.error}`)
-  // Billion laughs: Blink's XML parser stops entity amplification; the page must answer either way, not hang.
+  // A refusal leaves the open book as it was: it keeps relocating and saving (no seq turnover, no session end).
+  m = await open('tsformat.epub')
+  const alive = messages.length
+  for (const [file, error] of [['tsdrm.mobi', /DRM/], ['tskf8.mobi', /AZW3 \(KF8\) is not supported yet/], ['tsformat.pdf', /PDF is not supported yet/]]) {
+    const r = await open(file)
+    check(r.type === 'open-failed' && error.test(r.error), `${file} is refused: ${r.error}`)
+  }
+  // Entities, flat or nested: refused before the XML parser sees them (a flat one ×30k hangs the page).
   const lol = ['<!ENTITY l0 "lol">', ...Array.from({ length: 9 }, (_, i) => `<!ENTITY l${i + 1} "${`&l${i};`.repeat(10)}">`)].join('')
   writeFileSync(resolve(dir, 'tsbomb.fb2'), fb2('TS bomb', '<section><p>&l9;</p></section>', `<!DOCTYPE FictionBook [${lol}]>`))
-  const t0 = Date.now()
-  m = await open('tsbomb.fb2').catch((e) => ({ type: 'hung', error: e.message }))
-  check(m.type !== 'hung', `an entity-bomb FB2 answers (${m.type}${m.error ? `: ${m.error}` : ''}, ${Date.now() - t0} ms)`)
-  m = await open('tsformat.pdf')
-  check(m.type === 'open-failed' && /PDF/.test(m.error), `a PDF is refused (its gate is a later slice): ${m.error}`)
+  writeFileSync(resolve(dir, 'tsflat.fb2'), fb2('TS flat', `<section><p>${'&e;'.repeat(30000)}</p></section>`, `<!DOCTYPE FictionBook [<!ENTITY e "${'x'.repeat(800)}">]>`))
+  writeFileSync(resolve(dir, 'tsxxe.fb2'), fb2('TS xxe', '<section><p>&x;</p></section>', '<!DOCTYPE FictionBook [<!ENTITY x SYSTEM "file:///etc/passwd">]>'))
+  for (const file of ['tsbomb.fb2', 'tsflat.fb2', 'tsxxe.fb2']) {
+    const r = await open(file).catch((e) => ({ type: 'hung', error: e.message }))
+    check(r.type === 'open-failed' && /custom entities/.test(r.error), `${file} is refused before parsing: ${r.error}`)
+  }
+  call('window.__fol.next()')
+  check(!!(await waitFor(alive, (x) => x.type === 'store', 'a store after the refusals').catch(() => null)), 'the EPUB open before the refusals still turns and saves')
+  check(!messages.slice(alive).some((x) => x.type === 'telemetry'), 'and its telemetry session was not ended by them')
   for (const x of messages) if (x.type === 'log' && x.level === 'error' && !/^open: /.test(x.msg)) check(false, `page error: ${x.msg.split('\n')[0]}`)
 
   // The 5-minute boundary, on a page with a fake clock: the session ends by its own timer (no next open),
