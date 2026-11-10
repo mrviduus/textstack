@@ -4,8 +4,8 @@
  * from their cursors, page by page, push the outbox kind by kind (books → states → annotations),
  * then — only with file sync on — send the bytes the server lacks. Opportunistic: the reading path
  * never waits for it. Offline or 503 `v2_unavailable` ends the pass; any other failure of one
- * outbox entry skips that entry only, and counts against it: after `MAX_FAILURES` in a row a book is
- * parked, a state or annotation kept but no longer retried until it changes. Nothing local is lost; every write is idempotent by client id
+ * outbox entry skips that entry only, and counts against it: after `MAX_FAILURES` it is kept but no
+ * longer retried until it changes, "Try again", or the next session. Nothing local is lost; every write is idempotent by client id
  * or revision, so the next pass retries what is left. Every answer lands only while the session
  * that asked is current: the shared `whileCurrent` epoch guard (#1151, #1155), and a write after a
  * caught 409 checks the same epoch first.
@@ -32,6 +32,8 @@ export interface SyncHost {
    * import under new ids (`V2UploadNotOnServer` then); `cancelled` turns true once the session changed.
    */
   upload?(book: BookRow, maxPartBytes: number, cancelled: () => boolean): Promise<void>
+  /** A session's first pass (screen mounted, another user): every failure count reset first (`retryAll`). */
+  retryFailed?: boolean
 }
 
 export type SyncResult = 'off' | 'done' | 'dropped' | 'failed'
@@ -58,7 +60,8 @@ const drop = async (lib: LocalLibrary, reset: Reset, item: OutboxItem) => void (
 
 /**
  * An error that ends the pass (no point pushing the rest), counted against no entry: offline, or the
- * server down — any 503, `v2_unavailable` or not (counting it would park a whole library in an outage).
+ * server down — any 503, `v2_unavailable` or not. Known limit: one entry answered 503 (or failing at
+ * fetch level) ends the pass for the entries after it too.
  */
 const endsPass = (e: unknown) => e === DROPPED || isOfflineError(e) || (e as { status?: number } | null)?.status === 503
 
@@ -68,19 +71,21 @@ export { MAX_FAILURES }
  * An error as a park reason or a log line, without user content: the server's message (clipped) for
  * an answer; only the name for a local error (a corrupt row's SyntaxError can quote book text).
  */
-const brief = (e: unknown) => (e instanceof ApiError ? clip(e.message, 120) : (e as Error | null)?.name ?? 'Error')
+function brief(e: unknown): string {
+  if (!(e instanceof ApiError)) return (e as Error | null)?.name ?? 'Error'
+  const code = v2Api.v2ErrorOf(e)?.code
+  return `${e.status}${code ? ` ${code}` : ''}: ${clip(e.message, 120)}`
+}
 
-/** One more transient failure of `item`: logged, counted; at the limit the entry stops being retried (logged once). */
+/**
+ * One more failed attempt of `item`, counted against its gen; logged from the row's count (a save
+ * or "Try again" meanwhile changed it): once at the limit, the entry is kept and no longer retried.
+ */
 async function failedOnce(lib: LocalLibrary, reset: Reset, item: OutboxItem, e: unknown) {
-  const n = item.failures + 1
-  const last = brief(e)
-  if (n < MAX_FAILURES) {
-    console.warn(`[v2 sync] ${item.kind} ${item.target} not pushed (${n}/${MAX_FAILURES}), retried next pass:`, last)
-    return void (await checked(reset, () => lib.failed(item)))
-  }
-  if (item.kind === 'book') return park(lib, reset, item, `failed ${n} times, last: ${last}`)
-  console.warn(`[v2 sync] ${item.kind} ${item.target} failed ${n} times (last: ${last}): kept on the device, not retried until it changes`)
-  await checked(reset, () => lib.failed(item))
+  const n = await checked(reset, () => lib.failed(item))
+  if (n === null) return // queued again meanwhile: a fresh attempt, nothing counted
+  if (n < MAX_FAILURES) console.warn(`[v2 sync] ${item.kind} ${item.target} not pushed (${n}/${MAX_FAILURES}), retried next pass:`, brief(e))
+  else console.warn(`[v2 sync] ${item.kind} ${item.target} failed ${n} times (last: ${brief(e)}): kept on the device, not retried until it changes, "Try again" or the next session`)
 }
 
 let running: Promise<SyncResult> | null = null
@@ -92,7 +97,8 @@ let next: { lib: LocalLibrary; host: SyncHost } | null = null
  * more pass, with the latest caller's host, when the running one ends. Callers get the last pass's result.
  */
 export function syncV2Library(lib: LocalLibrary, host: SyncHost): Promise<SyncResult> {
-  next = { lib, host }
+  // A session's first pass asked while another waits is not lost to a later plain trigger.
+  next = { lib, host: { ...host, retryFailed: host.retryFailed || next?.host.retryFailed } }
   return (running ??= (async () => {
     let result: SyncResult = 'done'
     try {
@@ -115,14 +121,14 @@ async function pass(lib: LocalLibrary, host: SyncHost): Promise<SyncResult> {
   try {
     if (!(await onV2())) return 'off'
     await account(lib, host.userId, reset)
+    if (host.retryFailed) await checked(reset, () => lib.retryAll())
     for (const feed of FEEDS) await pull(lib, host, reset, feed)
     let failed = false
     // Kind by kind, the outbox read again each time: a book push can re-key the ids its children name.
-    // Each entry on its own: one that keeps failing is counted and, at the limit, stops being retried,
+    // Each entry on its own: one that keeps failing is counted and, at the limit, no longer read (`due`),
     // never starving the rest. Errors that end the pass say nothing about the entry: not counted.
     for (const [kind, push] of PUSHES) {
-      for (const item of await lib.outbox(kind)) {
-        if (item.failures >= MAX_FAILURES) continue
+      for (const item of await lib.due(kind)) {
         try {
           await push(lib, host, reset, item)
         } catch (e) {
@@ -146,6 +152,16 @@ async function account(lib: LocalLibrary, userId: string, reset: Reset) {
   const last = await lib.account()
   if (last === userId) return
   await checked(reset, () => (last ? lib.forgetServerState(userId) : lib.setAccount(userId)))
+}
+
+/**
+ * "Try again" on a book not synced: its counts reset (a parked book unparked), the list refreshed at
+ * once — with no session there is no pass to refresh it — then a pass.
+ */
+export async function tryAgainV2Book(lib: LocalLibrary, bookId: string, refresh: () => Promise<unknown>, sync: () => void) {
+  await lib.unpark(bookId)
+  await refresh()
+  sync()
 }
 
 /**
@@ -184,8 +200,8 @@ const owe = (host: SyncHost, reset: Reset, owed: PositionAction[]) => {
 }
 
 /**
- * A refusal no retry can change, or too many failures: the book is parked (it and its children
- * unsent) until it changes or "Try again" — unless it was queued again meanwhile. Logged once.
+ * A refusal no retry can change: the book is parked (it and its children unsent) until it changes,
+ * "Try again" or the server turns out to hold it — unless it was queued again meanwhile. Logged once.
  */
 async function park(lib: LocalLibrary, reset: Reset, item: OutboxItem, why: string) {
   if (await checked(reset, () => lib.park(item, why))) console.warn(`[v2 sync] book ${item.target} refused (${why}): parked until it changes`)
@@ -219,7 +235,7 @@ async function pushBook(lib: LocalLibrary, host: SyncHost, reset: Reset, item: O
         return pushBook(lib, host, reset, item, true)
       }
       case 'invalid_payload':
-        return park(lib, reset, item, `invalid_payload ${clip(err.field ?? '', 40)}: ${brief(e)}`)
+        return park(lib, reset, item, `${brief(e)}${err.field ? ` (${clip(err.field, 40)})` : ''}`)
       default:
         throw e
     }
@@ -242,17 +258,17 @@ const bookFirst = async (lib: LocalLibrary, reset: Reset, b: BookRow) => {
 
 /**
  * A child write's answer every child kind treats alike: `unknown_file` / `book_not_found` push the
- * book first (the child stays queued, and `e` is rethrown so it counts: a server that keeps saying so
- * after the book is re-adopted stops being asked after MAX_FAILURES); `chapter_not_found` /
- * `invalid_payload` drop it, logged. False when the code is not one of those.
+ * book first and answer false, so the caller throws and the attempt counts (the child stays queued;
+ * a server that keeps saying so after the book is re-adopted stops being asked after MAX_FAILURES);
+ * `chapter_not_found` / `invalid_payload` drop it, logged. False for any other code too.
  */
-async function refusedChild(lib: LocalLibrary, reset: Reset, item: OutboxItem, b: BookRow, err: { code: string; field?: string } | null, e: unknown): Promise<boolean> {
+async function refusedChild(lib: LocalLibrary, reset: Reset, item: OutboxItem, b: BookRow, err: { code: string; field?: string } | null): Promise<boolean> {
   switch (err?.code) {
     case 'unknown_file':
     case 'book_not_found':
       await checked(reset, () => lib.setServerFile(b.id, null))
       await bookFirst(lib, reset, b)
-      throw e
+      return false
     case 'chapter_not_found':
     case 'invalid_payload':
       console.warn(`[v2 sync] ${item.kind} refused:`, err.code, err.field ?? '')
@@ -288,7 +304,11 @@ async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: 
   } catch (e) {
     const err = v2Api.v2ErrorOf(e)
     const cur = (err?.current ?? null) as V2ReadingState | null
-    const again = () => (retried ? undefined : pushState(lib, host, reset, item, true))
+    // The one in-pass retry; a second conflict leaves the entry queued and counts as a failed attempt.
+    const again = () => {
+      if (retried) throw e
+      return pushState(lib, host, reset, item, true)
+    }
     switch (err?.code) {
       case 'stale_revision': {
         if (cur && ownStateWrite(cur, write)) return void (await checked(reset, () => landed(cur)))
@@ -306,7 +326,7 @@ async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: 
       case 'file_replaced':
         return void (await checked(reset, () => Promise.all([lib.setServerFile(b.id, (err.currentFile ?? null) as V2BookFile | null), lib.done(item)])))
       default:
-        if (!(await refusedChild(lib, reset, item, b, err, e))) throw e
+        if (!(await refusedChild(lib, reset, item, b, err))) throw e
     }
   }
 }
@@ -351,7 +371,7 @@ async function pushAnnotation(lib: LocalLibrary, host: SyncHost, reset: Reset, i
         return pushAnnotation(lib, host, reset, item, true)
       }
       default:
-        if (!(await refusedChild(lib, reset, item, b, err, e))) throw e
+        if (!(await refusedChild(lib, reset, item, b, err))) throw e
     }
   }
 }

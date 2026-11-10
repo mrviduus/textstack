@@ -14,7 +14,7 @@ import { deviceUploadIo, sha256Of, uploadV2Book } from '../../lib/v2'
 import { bookFile, createV2Storage, nonceFromUuid, type LibraryBook, type V2Files, type V2Storage } from '../../lib/v2reader/hostStorage'
 import { deviceLocalLibrary } from '../../lib/v2reader/deviceLibrary'
 import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
-import { downloadV2Book, syncV2Library, type SyncHost } from '../../lib/v2reader/sync'
+import { downloadV2Book, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
 import { v2ReaderPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
 
 /**
@@ -170,11 +170,12 @@ function V2Reader() {
   }
 
   // Opportunistic sync (R6): with a session (a guest's too), on open, after saves, never on the reading path.
-  const sync = useRef(() => {})
-  sync.current = () => {
+  const sync = useRef((_retryFailed?: boolean) => {})
+  sync.current = (retryFailed = false) => {
     if (!userId) return
     syncV2Library(deviceLocalLibrary(), {
       userId,
+      retryFailed,
       newId: uuid.v4,
       reader: (bookId): OpenReader | null => {
         const r = reading.current
@@ -193,8 +194,9 @@ function V2Reader() {
     clearTimeout(syncTimer.current)
     syncTimer.current = setTimeout(() => sync.current(), SYNC_AFTER_SAVE_MS)
   }
+  // A session's first pass retries every entry that stopped being retried (an outage heals on the next launch).
   useEffect(() => {
-    sync.current()
+    sync.current(true)
     return () => clearTimeout(syncTimer.current)
   }, [userId])
 
@@ -224,10 +226,10 @@ function V2Reader() {
     )
   }
 
-  /** "Try again" on a book not synced: a parked one sent again, its stopped changes retried, then a pass. */
+  /** "Try again" on a book not synced (sync.ts `tryAgainV2Book`). */
   const unpark = (b: LibraryBook) => {
     setError(null)
-    deviceLocalLibrary().unpark(b.id).then(() => sync.current(), fail('unpark', setError))
+    tryAgainV2Book(deviceLocalLibrary(), b.id, refreshBooks, () => sync.current()).catch(fail('unpark', setError))
   }
 
   const open = (target: Opening) => {

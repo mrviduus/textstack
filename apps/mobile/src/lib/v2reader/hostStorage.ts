@@ -21,7 +21,7 @@ export interface LibraryBook {
   local: boolean
   /**
    * Why it is not synced, shown with "Try again" (localLibrary `unpark`): the park reason (the book
-   * and its children are not sent), or a fixed one when only some of its changes stopped being
+   * and its children are not sent), or a fixed one when its entry or a child's stopped being
    * retried; null otherwise.
    */
   notSynced: string | null

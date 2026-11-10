@@ -88,19 +88,17 @@ const ADDED_COLUMNS = ['ALTER TABLE books ADD COLUMN blocked TEXT', 'ALTER TABLE
 const isDuplicateColumn = (e: unknown) => /duplicate column name/i.test(String((e as Error | null)?.message ?? e))
 
 /**
- * Transient failures of one entry (same gen, passes that ran) before it stops being retried: a book
- * is parked, a child kept and skipped until it is saved again, the identity changes or "Try again"
- * (PDD "Outbox"; counted by sync.ts).
- * ponytail: a count, no time-based backoff — passes are rare (open, a save, a toggle). Add a
- * `next_at` column with exponential delay if passes ever run on a timer.
+ * Failed attempts of one entry (same gen; every error that does not end the pass) before it stops
+ * being retried: kept in the outbox, skipped until it is saved again, "Try again", the identity
+ * changes or the next session (every count resets on a session's first pass: `retryAll`). PDD "Outbox".
+ * ponytail: a per-session count, no time-based backoff, though a pass runs ~10 s after every save. Add
+ * a `next_at` column with exponential delay if per-session retries prove too chatty.
  */
 export const MAX_FAILURES = 5
-/** A book's reason when only some of its children stopped being retried: fixed, no error text. */
-export const CHILDREN_NOT_SYNCED = 'some changes not synced'
-/** A book's queued children that stopped being retried (SQL; `books.id` in scope). */
-const STUCK_CHILD = `EXISTS (SELECT 1 FROM outbox o WHERE o.failures >= ${MAX_FAILURES} AND (
-    (o.kind = 'state' AND o.target = books.id)
-    OR (o.kind = 'annotation' AND o.target IN (SELECT a.id FROM annotations a WHERE a.book_id = books.id))))`
+/** A book's not-synced text when its entry or a child's stopped being retried: fixed, no error text. */
+export const CHANGES_NOT_SYNCED = 'some changes not synced'
+/** The book an outbox entry belongs to (its own entry, its state, its annotation): the one definition. */
+const BOOK_OF = `CASE outbox.kind WHEN 'annotation' THEN (SELECT a.book_id FROM annotations a WHERE a.id = outbox.target) ELSE outbox.target END`
 
 export interface BookRow {
   id: string
@@ -214,25 +212,16 @@ export function createLocalLibrary(db: Db) {
   /** A fresh save is a fresh attempt: a new gen, its failure count reset. */
   const enqueue = (kind: OutboxKind, target: string) =>
     run('INSERT INTO outbox (kind, target) VALUES (?, ?) ON CONFLICT (kind, target) DO UPDATE SET gen = gen + 1, failures = 0', [kind, target])
-  /** A book's queued children (state, annotations) retried from zero. */
-  const resetChildren = (bookId: string) => run(
-    `UPDATE outbox SET failures = 0 WHERE (kind = 'state' AND target = ?)
-       OR (kind = 'annotation' AND target IN (SELECT id FROM annotations WHERE book_id = ?))`,
-    [bookId, bookId],
-  )
   /**
-   * "Try again": a parked book is unparked and queued; one not parked is not re-sent, but an entry it
-   * already has is a fresh attempt (new gen: a push of the old one in flight neither counts nor parks
-   * it). Its children are retried from zero either way.
+   * "Try again": a parked book is unparked and queued (one not parked is not re-sent); every queued
+   * entry of it (its own, its state, its annotations) is retried from zero.
    */
   const unblock = async (bookId: string) => {
     if ((await bookById(bookId))?.blocked) {
       await run('UPDATE books SET blocked = NULL WHERE id = ?', [bookId])
       await enqueue('book', bookId)
-    } else {
-      await run(`UPDATE outbox SET gen = gen + 1, failures = 0 WHERE kind = 'book' AND target = ?`, [bookId])
     }
-    await resetChildren(bookId)
+    await run(`UPDATE outbox SET failures = 0 WHERE ${BOOK_OF} = ?`, [bookId])
   }
   const dequeue = (kind: OutboxKind, target: string) => run('DELETE FROM outbox WHERE kind = ? AND target = ?', [kind, target])
   const getMeta = async (key: string) => (await one<{ value: string }>('SELECT value FROM meta WHERE key = ?', [key]))?.value ?? null
@@ -240,9 +229,12 @@ export function createLocalLibrary(db: Db) {
     value === null ? run('DELETE FROM meta WHERE key = ?', [key]) : run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [key, value])
   const clearCursors = () => run(`DELETE FROM meta WHERE key LIKE 'cursor:%'`)
 
-  /** The server's book onto its row: current file, removal, title and author (the server's metadata wins). */
+  /**
+   * The server's book onto its row: current file, removal, title and author (the server's metadata
+   * wins). The server holds this book, so a park (a refusal of its import) no longer stands.
+   */
   const setServer = (b: V2Book) => run(
-    `UPDATE books SET ${SERVER_FILE}, content_removed = ?, removed_at = ?, title = ?, author = ? WHERE id = ?`,
+    `UPDATE books SET ${SERVER_FILE}, content_removed = ?, removed_at = ?, title = ?, author = ?, blocked = NULL WHERE id = ?`,
     [...serverFile(b.currentFile), b.currentFile?.contentRemovedAt ? 1 : 0, b.removedAt, b.title, b.author ?? '', b.id],
   )
 
@@ -339,8 +331,9 @@ export function createLocalLibrary(db: Db) {
 
     /** Books on this device, in import order, then the server's that can be downloaded (bytes not already here). */
     books: (): Promise<LibraryBook[]> => job(async () => {
-      const rows = await all<BookRow & { stuck: number }>(
-        `SELECT *, ${STUCK_CHILD} AS stuck FROM books WHERE imported_at IS NOT NULL
+      const stuck = new Set((await all<{ id: string }>(`SELECT ${BOOK_OF} AS id FROM outbox WHERE failures >= ? GROUP BY 1`, [MAX_FAILURES])).map((r) => r.id))
+      const rows = await all<BookRow>(
+        `SELECT * FROM books WHERE imported_at IS NOT NULL
            OR (removed_at IS NULL AND has_content = 1 AND content_removed = 0 AND server_sha256 IS NOT NULL
                AND NOT EXISTS (SELECT 1 FROM books l WHERE l.sha256 = books.server_sha256))
          ORDER BY imported_at IS NULL, imported_at, rowid`,
@@ -351,7 +344,7 @@ export function createLocalLibrary(db: Db) {
           id: b.id, title: b.title, author: b.author, originalName: b.original_name,
           sha256: (local ? b.sha256 : b.server_sha256)!, size: (local ? b.size : b.server_size)!,
           importedAt: b.imported_at ?? 0, openedAt: b.opened_at ?? 0, local,
-          notSynced: b.blocked ?? (b.stuck ? CHILDREN_NOT_SYNCED : null),
+          notSynced: b.blocked ?? (stuck.has(b.id) ? CHANGES_NOT_SYNCED : null),
         }
       })
     }),
@@ -451,18 +444,35 @@ export function createLocalLibrary(db: Db) {
     outbox: (kind?: OutboxKind) => job(() => (kind
       ? all<OutboxItem>('SELECT kind, target, gen, failures FROM outbox WHERE kind = ? ORDER BY rowid', [kind])
       : all<OutboxItem>(`SELECT kind, target, gen, failures FROM outbox ORDER BY CASE kind WHEN 'book' THEN 0 WHEN 'state' THEN 1 ELSE 2 END, rowid`))),
+    /**
+     * What a pass pushes, one kind in queue order: entries still retried (under MAX_FAILURES) whose book
+     * is not parked — a stuck entry or a parked book's child costs no read at all.
+     */
+    due: (kind: OutboxKind) => job(() => all<OutboxItem>(
+      `SELECT kind, target, gen, failures FROM outbox WHERE kind = ? AND failures < ?
+         AND NOT EXISTS (SELECT 1 FROM books b WHERE b.id = ${BOOK_OF} AND b.blocked IS NOT NULL) ORDER BY rowid`,
+      [kind, MAX_FAILURES],
+    )),
+    /** A session's first pass: every entry retried again (an outage heals itself on the next launch). */
+    retryAll: () => job(() => run('UPDATE outbox SET failures = 0 WHERE failures > 0')),
     /** The entry leaves the outbox only if it was not queued again since it was read. */
     done: (item: OutboxItem) => job(() => run('DELETE FROM outbox WHERE kind = ? AND target = ? AND gen = ?', [item.kind, item.target, item.gen])),
-    /** One more transient failure, counted only against the gen that failed (a save mid-push starts from zero). */
-    failed: (item: OutboxItem) => job(() => run('UPDATE outbox SET failures = failures + 1 WHERE kind = ? AND target = ? AND gen = ?', [item.kind, item.target, item.gen])),
+    /**
+     * One more failed attempt, counted only against the gen that failed: the row's count now, or null
+     * when it was queued again meanwhile (a save mid-push starts from zero).
+     */
+    failed: (item: OutboxItem) => job(async () => (await one<{ failures: number }>(
+      'UPDATE outbox SET failures = failures + 1 WHERE kind = ? AND target = ? AND gen = ? RETURNING failures', [item.kind, item.target, item.gen],
+    ))?.failures ?? null),
     /**
      * A child asks for its book: queued if it is not. An entry already queued keeps its gen and its
      * failure count (asking again every pass must not reset the count that parks a failing book).
      */
     queueBook: (id: string) => job(() => run(`INSERT INTO outbox (kind, target) VALUES ('book', ?) ON CONFLICT (kind, target) DO NOTHING`, [id])),
     /**
-     * A failing book entry parked for good — only while it is the entry that failed (`gen`): a newer
-     * one (re-queued or "Try again" mid-push) is left to its own attempts. True when it parked.
+     * A book the server refused for good (`invalid_payload` and kin) is parked: neither it nor its
+     * children are sent until it changes, "Try again", or the server turns out to hold it. Only while
+     * the refused entry is current (`gen`): a newer one is left to its own attempt. True when it parked.
      */
     park: (item: OutboxItem, reason: string) => tx(async () => {
       if (!(await one('SELECT 1 FROM outbox WHERE kind = ? AND target = ? AND gen = ?', [item.kind, item.target, item.gen]))) return false
@@ -508,9 +518,6 @@ export function createLocalLibrary(db: Db) {
       await setMeta('account', accountId)
       return true
     }),
-
-    /** A book the server refused for good (`invalid_payload` and kin): neither it nor its children are sent until it changes. */
-    block: (bookId: string, reason: string) => job(() => run('UPDATE books SET blocked = ? WHERE id = ?', [reason, bookId])),
 
     setServerFile: (bookId: string, f: V2BookFile | null) => job(() => run(`UPDATE books SET ${SERVER_FILE} WHERE id = ?`, [...serverFile(f), bookId])),
 
@@ -647,8 +654,7 @@ export function createLocalLibrary(db: Db) {
       await run(`DELETE FROM annotations WHERE mine = 0 AND id NOT IN (SELECT target FROM outbox WHERE kind = 'annotation')`)
       await run('DELETE FROM reading_state WHERE book_id NOT IN (SELECT id FROM books)')
       // A park's entry is gone (deleted when it parked): the new identity is sent every book it clears.
-      await run(`INSERT INTO outbox (kind, target) SELECT 'book', id FROM books WHERE blocked IS NOT NULL
-                 ON CONFLICT (kind, target) DO UPDATE SET gen = gen + 1`)
+      for (const { id } of await all<{ id: string }>('SELECT id FROM books WHERE blocked IS NOT NULL')) await enqueue('book', id)
       await run('UPDATE books SET server_file_id = NULL, server_sha256 = NULL, server_size = NULL, server_format = NULL, has_content = 0, content_removed = 0, removed_at = NULL, blocked = NULL')
       await run('UPDATE reading_state SET revision = NULL, revision_file_id = NULL')
       await run('UPDATE annotations SET revision = NULL')
