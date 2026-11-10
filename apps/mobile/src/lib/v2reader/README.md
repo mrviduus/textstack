@@ -16,10 +16,9 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `library.d.mts` | Hand-written types for `library.mjs` (apps/web type-checks it without `allowJs`); a change to one must update the other. |
 | `hostStorage.ts` | The host's files under `<documents>/v2/` (R2): staging, retained `books/<sha256>.epub`, `library.json`, `store/<sha256>.json`; tmp-then-move writes, one queue for reads and writes, lower-cased keys. |
 | `*.test.ts` | Unit tests (mobile vitest) for the pure modules and hostStorage. |
-| `patches/*.patch` | Our changes to foliate-js, applied in order on every build. |
-| `build.mjs` | Pinned clone → patches → esbuild IIFE → `v2ReaderPage.generated.ts`. |
+| `build.mjs` | Pinned fork clone → esbuild IIFE → `v2ReaderPage.generated.ts`. |
 | `v2ReaderPage.generated.ts` | **Generated, committed.** `v2ReaderPageHtml(nonce)`. Never edit by hand. |
-| `repro.mjs` | Test-only entry: the page + `__fol.reproRenderDuringLoad` (the reproducer behind patch 0001). |
+| `repro.mjs` | Test-only entry: the page + `__fol.reproRenderDuringLoad` (the reproducer behind the fork's paginator fix). |
 | `fixtures.mjs` | Writes crafted EPUBs to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated) and `tshostile.epub` (one row of `hostileVectors` per sandbox vector). Needs `zip`. |
 | `sandbox.check.mjs` | The hostile-book check (see Sandbox). |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
@@ -32,15 +31,16 @@ pnpm -C apps/web check:v2-reader     # CI: exit 1 if it is stale or over budget
 node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.repro.html (test only)
 ```
 
-- **foliate-js** `https://github.com/johnfactotum/foliate-js` @ `78914aef4466eb960965702401634c2cb348e9b1`
-  (2026-05-01), cloned into the gitignored `.vendor/`. Every build checks out the pin, resets the tree
-  (`git checkout -- .`) and applies `patches/*.patch`; an untracked file in that tree fails the build by name (delete
-  `.vendor/` to rebuild from the pin); a patch that no longer applies fails the build. A bump is a PR
-  that re-runs every ADR-029 Decision 6 check. Needs network (CI clones it too).
-- **Patch** `0001-paginator-render-while-loading.patch`: `Paginator.render()` returns while the current view has no
-  `body` yet (a resize or attribute change during a section load threw). Offer it upstream; drop it on the bump
-  that fixes it. Reproduce with the `--repro` page: `await __fol.reproRenderDuringLoad(20)` → `errors: 0` (without
-  the patch it was 1–5 per 6 loads in Chromium, hundreds on Android).
+- **foliate-js fork** `https://github.com/mrviduus/foliate-js` @ `d73682a48a0779ca989f25074386784602437fbf`
+  (branch `textstack-pin` = upstream `78914aef` 2026-05-01 + our commits, ADR-032), cloned into the gitignored
+  `.vendor/`. Every build checks out the pin and resets the tree (`git checkout -- .`); an untracked file in
+  that tree fails the build by name (delete `.vendor/` to rebuild from the pin). A bump is a PR that re-runs
+  every ADR-029 Decision 6 check. Needs network (CI clones it too).
+- **Fork commit** `d73682a` (was `patches/0001-paginator-render-while-loading.patch`): `Paginator.render()`
+  returns while the current view has no `body` yet (a resize or attribute change during a section load threw).
+  Offer it upstream; drop it on the bump that fixes it. Reproduce with the `--repro` page:
+  `await __fol.reproRenderDuringLoad(20)` → `errors: 0` (without
+  the fix it was 1–5 per 6 loads in Chromium, hundreds on Android).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. PDF/MOBI/FB2/CBZ/TTS/search are stubbed out.
 - **Size:** 236,666 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does

@@ -1,5 +1,5 @@
 // Test-only entry (`node build.mjs --repro`): the reader page plus `__fol.reproRenderDuringLoad`, the
-// reproducer behind patches/0001. Never in v2ReaderPage.generated.ts.
+// reproducer behind the fork's paginator render-while-loading fix. Never in v2ReaderPage.generated.ts.
 //
 // foliate makes the new view current before its iframe has loaded; a Paginator render in that window
 // (here `max-inline-size`, which calls render() synchronously; in the wild a resize) styles a

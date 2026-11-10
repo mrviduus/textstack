@@ -1,4 +1,4 @@
-// Builds the V2 reader page (ADR-029): pinned foliate-js + patches/ + page.mjs → one IIFE inlined into an
+// Builds the V2 reader page (ADR-029): pinned foliate-js fork + page.mjs → one IIFE inlined into an
 // HTML string under the book-sandbox CSP → v2ReaderPage.generated.ts (committed).
 //
 //   node build.mjs           write v2ReaderPage.generated.ts   (pnpm -C apps/web build:v2-reader)
@@ -6,20 +6,21 @@
 //   node build.mjs --repro   also write .vendor/v2ReaderPage.repro.html: the page + repro.mjs (test only)
 import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// Pinned by SHA: upstream has no releases and calls its API unstable. MIT © John Factotum.
-// A bump is a PR that re-runs every ADR-029 Decision 6 check.
-const FOLIATE_REPO = 'https://github.com/johnfactotum/foliate-js.git'
-const FOLIATE_SHA = '78914aef4466eb960965702401634c2cb348e9b1'   // 2026-05-01
+// Pinned by SHA on our fork (ADR-032): upstream 78914aef (2026-05-01, no releases, unstable API)
+// + our patches as real commits. MIT © John Factotum. A bump is a PR that re-runs every ADR-029
+// Decision 6 check.
+const FOLIATE_REPO = 'https://github.com/mrviduus/foliate-js.git'
+const FOLIATE_SHA = 'd73682a48a0779ca989f25074386784602437fbf'   // branch textstack-pin: 78914aef + 0001 paginator render-while-loading
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // reader-engine's 64 KB budget.
 // +319 (M2.7a, #1112): notInSurrogatePair, so a quote or its context never carries a lone surrogate V2 refuses.
-const BUDGET = 236985
+const BUDGET = 237076
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'v2ReaderPage.generated.ts')
@@ -27,9 +28,10 @@ const vendor = resolve(here, '.vendor/foliate-js')
 const git = (...args) => execFileSync('git', ['-C', vendor, ...args], { stdio: 'inherit' })
 
 if (!existsSync(vendor)) execFileSync('git', ['clone', '-q', FOLIATE_REPO, vendor], { stdio: 'inherit' })
-git('fetch', '-q', 'origin', FOLIATE_SHA)
-// The patched tree is dropped BEFORE the checkout: last build's patches are local modifications, and
-// a checkout onto a different SHA refuses to overwrite them — which is what a bump used to hit.
+// Fetch by URL, not remote name: a .vendor/ cloned before the fork switch still has upstream as origin.
+git('fetch', '-q', FOLIATE_REPO, FOLIATE_SHA)
+// Local modifications (e.g. from the old build-time patching) are dropped BEFORE the checkout:
+// a checkout onto a different SHA refuses to overwrite them.
 git('checkout', '-q', '--', '.')
 git('checkout', '-q', '--detach', FOLIATE_SHA)
 // An untracked file could be bundled into the page. Deleting it would silently eat someone's experiment,
@@ -39,10 +41,6 @@ if (untracked.length) {
   console.error(`[v2-reader] untracked files in ${vendor}:\n  ${untracked.join('\n  ')}\nThey could end up in the page. Delete .vendor/ to rebuild from the pin.`)
   process.exit(1)
 }
-// Every patch, in order, on every build: one that no longer applies fails here.
-const patches = readdirSync(resolve(here, 'patches')).filter((f) => f.endsWith('.patch')).sort()
-for (const p of patches) git('apply', '--whitespace=nowarn', resolve(here, 'patches', p))
-
 // esbuild is the one the mobile engine bundle already uses (apps/web): no new dependency. Resolved from
 // apps/web and version-checked, because the root has another copy — building with it produces a
 // different bundle from the committed one, which reads as drift and is not.
@@ -101,8 +99,8 @@ const content = `// AUTO-GENERATED — do not edit.
 // Source: apps/mobile/src/lib/v2reader/page.mjs (+ store.mjs), built by build.mjs beside it.
 // Regenerate: pnpm -C apps/web build:v2-reader
 //
-// foliate-js ${FOLIATE_SHA} (MIT © John Factotum; bundled zip.js BSD-3-Clause),
-// patched with ${patches.join(', ')}.
+// foliate-js fork ${FOLIATE_SHA} (mrviduus/foliate-js, branch textstack-pin:
+// upstream 78914aef + our commits; MIT © John Factotum; bundled zip.js BSD-3-Clause).
 
 /* eslint-disable */
 /* prettier-ignore */
