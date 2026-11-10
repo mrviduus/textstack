@@ -43,7 +43,7 @@ function deviceFiles(): V2Files {
 
 // One storage for the process, so every read and write goes through its one queue.
 let storage: V2Storage | null = null
-const v2Storage = () => (storage ??= createV2Storage(deviceFiles()))
+const v2Storage = () => (storage ??= createV2Storage(deviceFiles(), uuid.v4))
 
 /** Expo's uuid v4 is the platform CSPRNG (java.util.UUID.randomUUID → SecureRandom). */
 const freshNonce = () => nonceFromUuid(uuid.v4())
