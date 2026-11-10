@@ -136,7 +136,7 @@ export default function UserBookDetailScreen() {
   const v2 = useV2()
   const [book, setBook] = useState<UserBookDetailResponse | null>(null)
   const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<'offline' | 'failed' | null>(null)
+  const [loadError, setLoadError] = useState<'offline' | 'failed' | 'notfound' | null>(null)
   const [attempt, setAttempt] = useState(0)
   const reconnects = useReconnectCount()
   const [savedProgress, setSavedProgress] = useState<{ chapterSlug: string | null; percent: number | null; locator: string | null } | null>(null)
@@ -186,6 +186,16 @@ export default function UserBookDetailScreen() {
           console.warn('isUserBookFullyCached failed:', err)
         }
       } catch (e) {
+        // Confirmed 404: the upload was deleted on the server (#1164). Say so
+        // instead of presenting the cached copy as live. The local bytes stay.
+        if ((e as { status?: number })?.status === 404) {
+          console.warn('User book not found:', e)
+          if (unmountedRef.current) return
+          setBook(null)
+          setOfflineMode(false)
+          setLoadError('notfound')
+          return
+        }
         logLoadError('Failed to load user book:', e)
         if (unmountedRef.current) return
         // Unreachable server, but the book may be on the device. Render the
@@ -443,6 +453,17 @@ export default function UserBookDetailScreen() {
     } finally {
       setFileBusy(false)
     }
+  }
+
+  if (!loading && !book && loadError === 'notfound') {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: true, title: '' }} />
+        <View style={[styles.container, { backgroundColor: colors.background }]}>
+          <EmptyState icon="help-circle-outline" title={t('bookDetail.notFound')} subtitle={t('bookDetail.notFoundDesc')} />
+        </View>
+      </>
+    )
   }
 
   // A failed load used to land here and STAY here: `book` stays null, `loading`
