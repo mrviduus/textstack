@@ -160,18 +160,17 @@ async function open(bytes, name, mine) {
   entry = null
   restoring = true
   lastSelection = null
-  // The new view goes up before the old one is torn down; close() still fires `relocate` on the dying
-  // view, and its listeners carry a stale `mine`, so every event of a superseded book is dropped (#1168).
-  const prev = view
-  view = document.createElement('foliate-view')
-  overlays.clear()
   // A view that never rendered a section (a spine of linear="no", a book that failed to open) throws
   // from close(); letting that through would wedge the page and fail this good book instead.
-  try { prev?.close() } catch (e) { log('warn', `closing the previous book: ${e?.message ?? e}`) }
-  prev?.remove()
+  try { view?.close() } catch (e) { log('warn', `closing the previous book: ${e?.message ?? e}`) }
+  view?.remove()
+  overlays.clear()
+  view = document.createElement('foliate-view')
   document.body.append(view)
   view.addEventListener('load', onLoad)
   view.addEventListener('relocate', ({ detail: d }) => {
+    // Each view's listeners carry the seq of the open that made them: once a newer open has taken
+    // over, a dying view's events — close() still fires relocate — are dropped, not posted (#1168).
     if (mine !== openSeq) return
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
     if (restoring || !entry || !d.range) return
@@ -294,7 +293,8 @@ function highlightSelection() {
 const openFailed = (name, error) => post({ type: 'open-failed', name, error })
 
 /** One `opened` or one `open-failed` per call — unless a newer openUrl took over, and then neither. */
-function openFor(bytes, name, mine) {
+function openFor(bytes, name) {
+  const mine = ++openSeq
   return open(bytes, name, mine).catch((e) => {
     log('error', `open: ${e?.stack ?? e}`)
     if (mine === openSeq) openFailed(name, String(e?.message ?? e).slice(0, 200))
@@ -305,17 +305,14 @@ window.__fol = {
   // The retained file, read by the page itself (file:// origin + allowFileAccessFromFileURLs): no book
   // bytes cross the bridge. `open-failed`: unreadable, or not an EPUB; the host must not keep it.
   openUrl: (url, name) => {
-    // The seq turns over HERE, not when the bytes arrive: the previous book is superseded the moment
-    // the host asks for a new one, and its view's events go stale with it (#1168).
-    const mine = ++openSeq
+    // The seq turns over in openFor, once the bytes are in hand: a failed READ leaves the previous
+    // book open, and its view must keep reporting and saving as if nothing happened (#1168).
     const x = new XMLHttpRequest()
     x.responseType = 'arraybuffer'
-    x.onload = () => {
-      if (mine !== openSeq) return
-      if ((x.status === 0 || x.status === 200) && x.response) openFor(new Uint8Array(x.response), name, mine)
-      else openFailed(name, `cannot read the file (status ${x.status})`)
-    }
-    x.onerror = () => { if (mine === openSeq) openFailed(name, 'cannot read the file') }
+    x.onload = () => ((x.status === 0 || x.status === 200) && x.response
+      ? openFor(new Uint8Array(x.response), name)
+      : openFailed(name, `cannot read the file (status ${x.status})`))
+    x.onerror = () => openFailed(name, 'cannot read the file')
     x.open('GET', url)
     x.send()
   },
