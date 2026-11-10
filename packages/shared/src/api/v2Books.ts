@@ -69,12 +69,16 @@ export function createV2Books({ books, chapters, epoch, keepState, forgetState, 
   const rememberState = (work: Promise<V2ReadingState | null>, reset?: () => boolean) =>
     whileCurrent(work, (s) => (s ? keepState(s) : undefined), reset)
 
+  /** Pulls whose books were kept: `v2Book` tells a completed pull from one a reset dropped. */
+  let keptPulls = 0
+
   /** The library feed, whole; the books are kept only when no reset landed while it was pulled. */
   function pullV2Books(): Promise<V2Book[]> {
     const pull = async () => {
       const feed = await whileCurrent(v2Api.pullFeed<V2Book>('library'), ({ items }) => {
         books.clear()
         for (const b of items) books.set(b.id, b)
+        keptPulls++
       })
       if (!feed) return []
       await afterPull?.(feed.items)
@@ -83,9 +87,19 @@ export function createV2Books({ books, chapters, epoch, keepState, forgetState, 
     return pullFlight ? pullFlight(pull) : pull()
   }
 
-  /** A live book of the user's, from the last pull or a fresh one; 404 when there is none. */
+  /**
+   * A live book of the user's, from the last pull or a fresh one; 404 only when a completed pull
+   * lacks it. A pull a store reset dropped proves nothing (#1174: clients remember a 404 as
+   * "deleted"), so that is a retryable 503.
+   */
   async function v2Book(id: string): Promise<V2Book> {
-    const b = books.get(id) ?? (await pullV2Books(), books.get(id))
+    let b = books.get(id)
+    if (!b) {
+      const before = keptPulls
+      await pullV2Books()
+      if (keptPulls === before) throw new ApiError(503, 'Library pull interrupted, retry')
+      b = books.get(id)
+    }
     if (!b || b.removedAt) throw new ApiError(404, 'Book not found')
     return b
   }

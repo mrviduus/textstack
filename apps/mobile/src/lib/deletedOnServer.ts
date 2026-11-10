@@ -5,9 +5,8 @@ import { readIdSet, rekeyIds, updateIdSet } from './declinedDownloads'
  * record the next offline moment (library tab, a reload that fails as offline) shows the cached
  * copy as a live book again.
  *
- * A mark, not a deletion: the bytes stay until the reader removes them (#1164). And not final —
- * V2 can synthesize a 404 when a store reset cuts a pull short (`v2Book`), so any later successful
- * load of the book, or the book in an online library list, clears it.
+ * A mark, not a deletion: the bytes stay until the reader removes them (#1164). And not final: a
+ * later successful load of the book clears it, as do Remove download and the orphan sweep.
  */
 const KEY = 'offline:deletedOnServer'
 
@@ -35,8 +34,9 @@ export async function rekeyDeletedOnServer(books: Record<string, string>): Promi
 }
 
 /**
- * What the book screen shows when `getUserBook` failed. A confirmed 404, or any failure for a book
- * the server already said is gone, is `notfound`; otherwise the cached copy if there is one.
+ * What the book screen shows when `getUserBook` failed. A confirmed 404 is `notfound`; so is a book
+ * the server already said is gone while offline. Online, a tombstoned book's other failures (500,
+ * 401) say `failed` so Retry can find out, never the cached copy as live.
  */
 export function failedLoadView(input: {
   notFound: boolean
@@ -44,7 +44,8 @@ export function failedLoadView(input: {
   hasCopy: boolean
   offline: boolean
 }): 'notfound' | 'cached' | 'offline' | 'failed' {
-  if (input.notFound || input.tombstoned) return 'notfound'
+  if (input.notFound) return 'notfound'
+  if (input.tombstoned) return input.offline ? 'notfound' : 'failed'
   if (input.hasCopy) return 'cached'
   return input.offline ? 'offline' : 'failed'
 }

@@ -746,6 +746,8 @@ const PROCESSING_RECHECK_LIMIT = 25
             // decline, and an entry for a dead id would sit in that list for the
             // life of the install.
             await undeclineDownload(id)
+            // Same for the server-deleted mark (#1174): nothing left to warn about.
+            await clearDeletedOnServer([id])
             forgetDownload(id)
           } catch (err) {
             console.warn(`[auto-download] could not remove orphaned ${id}:`, err)

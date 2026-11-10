@@ -68,6 +68,18 @@ describe('the shared V2 book client', () => {
     expect(books.size).toBe(0)
   })
 
+  // #1174: a 404 is remembered as "deleted on the server", so a dropped pull must not answer one.
+  it('v2Book_ResetMidPull_RetryableNot404', async () => {
+    const c = client()
+    const run = resetMidCall(reset, { 'GET /me/v2/library/changes': feed(book('b1', 'f1'))[0] }, () => c.v2Book('b1'))
+    await expect(run).rejects.toMatchObject({ status: 503 })
+  })
+
+  it('v2Book_CompletedPullWithoutTheBook_404', async () => {
+    fakeApi({ 'GET /me/v2/library/changes': feed(book('other', 'f1')) }, API)
+    await expect(client().v2Book('b1')).rejects.toMatchObject({ status: 404 })
+  })
+
   it('saveV2Progress_StaleRevision_KeepsTheAdoptedPlace', async () => {
     const current = state('b1', 5, { currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 9 } } })
     fakeApi({ 'PUT /me/v2/books/b1/reading-state': [conflict('stale_revision', { current })] }, API)

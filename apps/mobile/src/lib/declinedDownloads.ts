@@ -46,7 +46,8 @@ export function updateIdSet(key: string, change: (ids: Set<string>) => Set<strin
     const next = change(await readIdSet(key))
     if (next) await writeIdSet(key, next)
   })
-  queue.set(key, run)
+  // The queue keeps a settled copy: one throwing update must not reject every later one on this key.
+  queue.set(key, run.catch(() => {}))
   return run
 }
 

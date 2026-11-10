@@ -22,7 +22,7 @@ import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { shareOriginalFile } from '../../src/lib/shareOriginal'
 import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
-import { getCachedOriginalUri } from '../../src/lib/originalFileCache'
+import { getCachedOriginalUri, listStoredOriginalIds } from '../../src/lib/originalFileCache'
 import { shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
 import { formatBytes } from '../../src/lib/formatBytes'
 import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached, hasAnyUserBookCache, onCachedUserBooksChanged } from '../../src/lib/offlineDb'
@@ -85,6 +85,16 @@ async function rehydrateFromCache(bookId: string): Promise<{
   }
 }
 
+
+/** Anything of this upload left on the device (#1174): SQLite rows, partial included, or the stored
+ *  original file alone. What "Remove download" on a server-deleted book offers to free. */
+async function hasLocalLeftovers(bookId: string): Promise<boolean> {
+  const [rows, originals] = await Promise.all([
+    hasAnyUserBookCache(bookId).catch(() => false),
+    listStoredOriginalIds(),
+  ])
+  return rows || originals.has(bookId)
+}
 
 /**
  * One question before a large download on a metered connection.
@@ -168,6 +178,10 @@ export default function UserBookDetailScreen() {
 
   useEffect(() => {
     if (!id) return
+    // A newer run (reconnect, Retry) supersedes this one: it must not overwrite that run's state,
+    // nor record an answer that is no longer the latest.
+    let stale = false
+    const live = () => !stale && !unmountedRef.current
     ;(async () => {
       try {
         const [b, p] = await Promise.all([
@@ -179,15 +193,16 @@ export default function UserBookDetailScreen() {
             return null
           }),
         ])
-        if (unmountedRef.current) return
+        if (!live()) return
         setBook(b)
         if (p) setSavedProgress({ chapterSlug: p.chapterSlug, percent: p.percent, locator: p.locator ?? null })
         setLoadError(null)
         setOfflineMode(false)
-        // The server has it: an earlier 404 was V2's synthesized one, or stale.
+        // The server has it, so an earlier 404 no longer holds (#1174).
         clearDeletedOnServer([id]).catch(() => {})
         try {
-          setCached(await isUserBookFullyCached(id))
+          const c = await isUserBookFullyCached(id)
+          if (live()) setCached(c)
         } catch (err) {
           console.warn('isUserBookFullyCached failed:', err)
         }
@@ -197,41 +212,45 @@ export default function UserBookDetailScreen() {
         // Remembered (#1174), so a later load that fails offline does not bring
         // the cached copy back as current.
         const notFound = e instanceof ApiError && e.status === 404
-        if (notFound) {
-          console.warn('User book not found:', e)
-          await markDeletedOnServer(id)
-        } else {
-          logLoadError('Failed to load user book:', e)
-        }
-        if (unmountedRef.current) return
+        if (notFound) console.warn('User book not found:', e)
+        else logLoadError('Failed to load user book:', e)
+        if (!live()) return
+        if (notFound) await markDeletedOnServer(id)
         const tombstoned = !notFound && await isDeletedOnServer(id)
+        if (!live()) return
         // Unreachable server, but the book may be on the device. Render the
         // downloaded copy rather than the "couldn't load" screen — this is the
         // whole point of having downloaded it.
         const rehydrated = notFound || tombstoned ? null : await rehydrateFromCache(id)
-        if (unmountedRef.current) return
+        if (!live()) return
         const view = failedLoadView({ notFound, tombstoned, hasCopy: rehydrated !== null, offline: isOfflineError(e) })
-        if (view === 'notfound') {
-          const onDevice = await hasAnyUserBookCache(id).catch(() => false)
-          if (unmountedRef.current) return
-          setBook(null)
-          setOfflineMode(false)
-          setAnyLocalCopy(onDevice)
-          setLoadError('notfound')
-        } else if (rehydrated) {
-          setBook(rehydrated.book)
-          setSavedProgress(rehydrated.progress)
-          setCached(true)
-          setOfflineMode(true)
-          setCachedIsPdf(rehydrated.isPdf)
-          setLoadError(null)
-        } else {
-          setLoadError(view === 'offline' ? 'offline' : 'failed')
+        switch (view) {
+          case 'notfound': {
+            const onDevice = await hasLocalLeftovers(id)
+            if (!live()) return
+            setBook(null)
+            setOfflineMode(false)
+            setAnyLocalCopy(onDevice)
+            setLoadError('notfound')
+            break
+          }
+          case 'cached':
+            setBook(rehydrated!.book)
+            setSavedProgress(rehydrated!.progress)
+            setCached(true)
+            setOfflineMode(true)
+            setCachedIsPdf(rehydrated!.isPdf)
+            setLoadError(null)
+            break
+          case 'offline':
+          case 'failed':
+            setLoadError(view)
         }
       } finally {
-        if (!unmountedRef.current) setLoading(false)
+        if (live()) setLoading(false)
       }
     })()
+    return () => { stale = true }
     // `reconnects` so the screen recovers on its own — until now a failed load
     // left it showing a spinner until the reader backed out and came in again.
   }, [id, reconnects, attempt])
@@ -240,6 +259,7 @@ export default function UserBookDetailScreen() {
   useEffect(() => onCachedUserBooksChanged(ids => {
     if (!id || !ids.includes(id)) return
     isUserBookFullyCached(id).then(c => { if (!unmountedRef.current) setCached(c) }).catch(() => {})
+    hasLocalLeftovers(id).then(c => { if (!unmountedRef.current) setAnyLocalCopy(c) })
   }), [id])
 
   // Re-read the progress when this screen comes back into view.
@@ -324,7 +344,7 @@ export default function UserBookDetailScreen() {
         // Deleted on the server mid-poll (#1164): stop polling a book that is gone.
         if (err instanceof ApiError && err.status === 404) {
           await markDeletedOnServer(id)
-          const onDevice = await hasAnyUserBookCache(id).catch(() => false)
+          const onDevice = await hasLocalLeftovers(id)
           if (cancelled || unmountedRef.current) return
           setBook(null)
           setAnyLocalCopy(onDevice)
@@ -491,8 +511,8 @@ export default function UserBookDetailScreen() {
       <>
         <Stack.Screen options={{ headerShown: true, title: '' }} />
         <View style={[styles.container, { backgroundColor: colors.background }]}>
-          {/* 'notfound' keeps Retry: V2's v2Book can synthesize a 404 when a store
-              reset lands mid-pull, so "not found" is not always final. */}
+          {/* 'notfound' keeps Retry: offline it can rest on an earlier 404, which
+              a successful load undoes. */}
           <EmptyState
             icon={loadError === 'notfound' ? 'help-circle-outline' : loadError === 'offline' ? 'cloud-offline-outline' : 'alert-circle-outline'}
             title={loadError === 'notfound' ? t('myBooks.deleted.title') : loadError === 'offline' ? t('library.offline.title') : t('library.loadFailed.title')}
