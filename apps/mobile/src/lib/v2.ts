@@ -190,7 +190,7 @@ const v2 = createV2Books({
   },
 })
 export const {
-  whileCurrent, pullV2Books, v2Book, v2Chapters, removeV2Book, v2FileUrl, saveV2Progress, completeV2Book, uncompleteV2Book,
+  resetSince, whileCurrent, pullV2Books, v2Book, v2Chapters, removeV2Book, v2FileUrl, saveV2Progress, completeV2Book, uncompleteV2Book,
 } = v2
 const { rememberState: remember, toProgress } = v2
 

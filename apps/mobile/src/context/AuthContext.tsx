@@ -18,6 +18,7 @@ import { useReconnectCount } from '../hooks/useOnline'
 import { clearReaderCache } from '../lib/readerOfflineCache'
 import { reprobeV2AfterReconnect, v2Store } from '../lib/v2'
 import { applyV2MergeMap } from '../lib/v2Merge'
+import { adoptV2LocalAccount } from '../lib/v2reader/sync'
 
 // Lazy import so the Google module isn't pulled on platforms / contexts
 // that don't ship it (e.g. Expo Go web preview, where this package may
@@ -264,8 +265,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await SecureStore.setItemAsync('refresh_token', refreshToken)
         await SecureStore.setItemAsync('user', JSON.stringify(userData))
         // Another account's V2 cache must not answer this one; a merged guest's ids move first.
+        const previous = userRef.current
         v2Store.reset()
         if (merge) await applyV2MergeMap(merge)
+        // The V2 local library a guest synced becomes the account's (R6): ids re-keyed, full pull next.
+        if (previous?.isGuest) await adoptV2LocalAccount(previous.id, userData.id, merge).catch(() => {})
         // Fresh session — allow the next terminal auth failure to fire
         // again (the latch is one-shot per session).
         resetAuthFailureLatch()
