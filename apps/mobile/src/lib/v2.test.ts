@@ -206,7 +206,8 @@ describe('mobile v2', () => {
       'GET /library/changes': feed(book('b-adopt', 'f1'))[0],
       'GET /books/b-adopt/files/f1/chapters': { status: 200, body: { items: [], ingestion: 'succeeded' } },
     }, () => saveV2Progress('b-adopt', { chapterSlug: 'k1' }), '/books/b-adopt/files/f1/chapters')
-    expect(outcome).toEqual({ adopted: expect.objectContaining({ chapterSlug: null, percent: null }) })
+    // Web's answer since the shared fold (#1121): no place is adopted for the next account.
+    expect(outcome).toBe('dropped')
     expect(await getUserBookLocalProgress('b-adopt')).toBeNull()
   })
 
