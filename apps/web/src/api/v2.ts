@@ -66,13 +66,38 @@ export const v2Store = {
   /** The annotations as last pulled or written, by id; and the books pulled at least once. */
   annotations: new Map<string, V2Annotation>(),
   pulled: new Set<string>(),
-  /** Bumped by `reset()`: the shared vocabulary drops a card answered after it (#1151); this file's own post-await writes do not check it yet (#1155). */
+  /** Bumped by `reset()`: an answer that outlived it is the previous account's (`whileCurrent`). */
   epoch: 0,
   reset() {
     for (const cache of [this.books, this.chapters, this.states, this.cards, this.annotations, this.pulled]) cache.clear()
     v2Api.forgetPulls()
     this.epoch++
   },
+}
+
+/** Taken at a call's start: whether `v2Store.reset()` ran since (signed out, another account). */
+export function resetSince(): () => boolean {
+  const started = v2Store.epoch
+  return () => v2Store.epoch !== started
+}
+
+/**
+ * `work`'s answer, or null when the store was reset while it ran: nothing of the previous account's
+ * lands in the next one's store (#1155, mobile's twin #1151). A failure that outlived the reset is
+ * the previous account's too: null, not thrown, so no 409 handling writes it back. `keep` writes
+ * the answer away in the same tick as the check, so no reset lands between the two.
+ */
+export async function whileCurrent<T>(work: Promise<T>, keep?: (value: T) => unknown): Promise<T | null> {
+  const reset = resetSince()
+  try {
+    const value = await work
+    if (reset()) return null
+    await keep?.(value)
+    return value
+  } catch (e) {
+    if (!reset()) throw e
+    return null
+  }
 }
 
 /** Tests only: a fresh app start (no probe, no session settled, an empty cache). */
@@ -89,10 +114,11 @@ export const pullFeed = v2Api.pullFeed
 // ---- Library ------------------------------------------------------------------------------------
 
 export async function pullV2Books(): Promise<V2Book[]> {
-  const { items } = await pullFeed<V2Book>('library')
-  v2Store.books.clear()
-  for (const b of items) v2Store.books.set(b.id, b)
-  return items
+  const feed = await whileCurrent(pullFeed<V2Book>('library'), ({ items }) => {
+    v2Store.books.clear()
+    for (const b of items) v2Store.books.set(b.id, b)
+  })
+  return feed?.items ?? []
 }
 
 /** A live book of the user's, from the last pull or a fresh one; 404 when there is none. */
@@ -108,9 +134,8 @@ export async function v2Chapters(b: V2Book): Promise<V2FileChapters> {
   if (!file) return { items: [], ingestion: null }
   const cached = v2Store.chapters.get(file.id)
   if (cached) return cached
-  const toc = await v2Api.getChapters(b.id, file.id)
-  if (toc.ingestion === 'succeeded') v2Store.chapters.set(file.id, toc)
-  return toc
+  const toc = await whileCurrent(v2Api.getChapters(b.id, file.id), (t) => t.ingestion === 'succeeded' && v2Store.chapters.set(file.id, t))
+  return toc ?? { items: [], ingestion: null }
 }
 
 /** Forget what was cached for a book: its file changed (`file_replaced` / `unknown_file`). */
@@ -228,13 +253,8 @@ async function toProgress(s: V2ReadingState): Promise<UserBookProgress> {
 /** The reader's read: null = no state yet, undefined = no answer (as `readUserBookProgress`). */
 export async function readV2Progress(bookId: string, signal?: AbortSignal): Promise<UserBookProgress | null | undefined> {
   try {
-    const s = await v2Api.getReadingState(bookId, signal)
-    if (!s) {
-      v2Store.states.delete(bookId)
-      return null
-    }
-    remember(s)
-    return await toProgress(s)
+    const s = await whileCurrent(v2Api.getReadingState(bookId, signal), (s) => (s ? remember(s) : v2Store.states.delete(bookId)))
+    return s && (await toProgress(s))
   } catch (e) {
     return e instanceof ApiError && e.status === 404 ? null : undefined
   }
@@ -284,8 +304,7 @@ export async function saveV2Progress(bookId: string, data: ProgressWrite, retrie
   const body = v2ProgressBody(bookId, data)
   if (!body) return 'dropped'
   try {
-    remember(await v2Api.putReadingState(bookId, body))
-    return 'accepted'
+    return (await whileCurrent(v2Api.putReadingState(bookId, body), remember)) ? 'accepted' : 'dropped'
   } catch (e) {
     const err = v2Api.v2ErrorOf(e)
     const current = err?.current as V2ReadingState | null | undefined
@@ -299,8 +318,7 @@ export async function saveV2Progress(bookId: string, data: ProgressWrite, retrie
         return { adopted: await toProgress(current) }
       case 'reset':
         if (current) remember(current)
-        remember(await v2Api.putReadingState(bookId, { ...body, expectedRevision: current?.revision ?? null }))
-        return 'accepted'
+        return (await whileCurrent(v2Api.putReadingState(bookId, { ...body, expectedRevision: current?.revision ?? null }), remember)) ? 'accepted' : 'dropped'
       case 'file_replaced':
         forgetV2Book(bookId)
         return 'reload'
@@ -319,8 +337,8 @@ export async function saveV2Progress(bookId: string, data: ProgressWrite, retrie
   }
 }
 
-/** After a keepalive write landed: its answer is the new revision. */
-export const rememberV2State = (s: V2ReadingState) => remember(s)
+/** A keepalive write's answer (null: not landed) is the new revision, unless the store was reset meanwhile. */
+export const rememberV2State = (answer: Promise<V2ReadingState | null>) => whileCurrent(answer, (s) => s && remember(s))
 
 /** Mark read on V2: the state as it stands (or the book's start), at the end, with `completedAt`. */
 export async function completeV2Book(bookId: string): Promise<void> {
@@ -330,20 +348,20 @@ export async function completeV2Book(bookId: string): Promise<void> {
   const sameFile = state && state.fileId === b.currentFile?.id
   const currentLocator = sameFile ? state.currentLocator : placeToV2Locator({ chapterSlug: first ?? null })
   if (!b.currentFile || !currentLocator) throw new ApiError(409, 'Nothing to mark read yet')
-  remember(await v2Api.putReadingState(bookId, {
+  await whileCurrent(v2Api.putReadingState(bookId, {
     expectedRevision: sameFile ? state.revision : null,
     fileId: b.currentFile.id,
     currentLocator,
     bookFraction: sameFile ? state.bookFraction : 0,
     completedAt: new Date().toISOString(),
     clientRecordedAt: new Date().toISOString(),
-  }))
+  }), remember)
 }
 
 /** Mark unread on V2: a reset clears completion and the frontier, the place stays (PDD rule 5). */
 export async function uncompleteV2Book(bookId: string): Promise<void> {
   const state = await v2Api.getReadingState(bookId)
-  if (state) remember(await v2Api.resetReadingState(bookId, state.revision))
+  if (state) await whileCurrent(v2Api.resetReadingState(bookId, state.revision), remember)
 }
 
 // ---- Upload -------------------------------------------------------------------------------------

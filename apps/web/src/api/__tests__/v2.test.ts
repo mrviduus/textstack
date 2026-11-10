@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   startV2Probe, v2Status, onV2, resetV2ForTests, uploadV2Book, V2UploadError, saveV2Progress, readV2Progress,
-  pullV2Books, getV2UserBooks, getV2UserBook, v2Store, completeV2Book, uncompleteV2Book,
+  pullV2Books, getV2UserBooks, getV2UserBook, v2Store, completeV2Book, uncompleteV2Book, v2Chapters, rememberV2State,
 } from '../v2'
 import { getUserBook, getUserBooks, saveUserBookProgress, getUserBookFileUrl, getUserBookBookmarks } from '../userBooks'
 import { getWords } from '../vocabulary'
-import { fakeApi, V2_ON, book, file, feed, conflict, state, position } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi, V2_ON, book, file, feed, conflict, state, position, resetMidCall } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -313,5 +313,66 @@ describe('the V2 reading state', () => {
     await uncompleteV2Book('b1')
     expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ expectedRevision: 4, fileId: 'f1', completedAt: expect.any(String), currentLocator: { value: position } })
     expect(calls.find((c) => c.method === 'POST')!.body).toEqual({ expectedRevision: 4 })
+  })
+})
+
+describe('an answer that outlives a sign-out (v2Store.reset, #1155)', () => {
+  beforeEach(async () => {
+    fakeApi(V2_ON)
+    await startV2Probe()
+  })
+
+  const library = { 'GET /me/v2/library/changes': feed(book('b1', 'f1'))[0] }
+  const chapters = { 'GET /me/v2/books/b1/files/f1/chapters': { status: 200, body: { items: [], ingestion: 'succeeded' } } }
+  const put = { 'PUT /me/v2/books/b1/reading-state': { status: 200, body: state('b1', 1) } }
+  const write = { chapterSlug: 'two', percent: 0.5, positionJson: JSON.stringify(position) }
+  const asFake = (routes: Record<string, { status: number; body?: unknown }>) =>
+    fakeApi(Object.fromEntries(Object.entries(routes).map(([k, a]) => [k, [a]])))
+
+  it('keeps no books from a library pull answered after the reset', async () => {
+    await resetMidCall(() => v2Store.reset(), library, () => pullV2Books())
+    expect(v2Store.books.size).toBe(0)
+  })
+
+  it('keeps the books of a library pull answered with no reset', async () => {
+    asFake(library)
+    await pullV2Books()
+    expect([...v2Store.books.keys()]).toEqual(['b1'])
+  })
+
+  it('caches no chapters answered after the reset', async () => {
+    await resetMidCall(() => v2Store.reset(), chapters, () => v2Chapters(book('b1', 'f1') as never))
+    expect(v2Store.chapters.size).toBe(0)
+  })
+
+  it('caches the chapters answered with no reset', async () => {
+    asFake(chapters)
+    await v2Chapters(book('b1', 'f1') as never)
+    expect([...v2Store.chapters.keys()]).toEqual(['f1'])
+  })
+
+  it('drops a reading-state write answered after the reset, remembering no revision', async () => {
+    expect(await resetMidCall(() => v2Store.reset(), { ...library, ...put }, () => saveV2Progress('b1', write), '/reading-state')).toBe('dropped')
+    expect(v2Store.states.size).toBe(0)
+  })
+
+  it('remembers the revision of a reading-state write answered with no reset', async () => {
+    asFake({ ...library, ...put })
+    expect(await saveV2Progress('b1', write)).toBe('accepted')
+    expect(v2Store.states.get('b1')).toMatchObject({ revision: 1 })
+  })
+
+  it('remembers no revision from a keepalive answer that lands after the reset', async () => {
+    let land!: (s: never) => void
+    const answer = rememberV2State(new Promise((r) => { land = r }))
+    v2Store.reset()
+    land(state('b1', 1) as never)
+    expect(await answer).toBeNull()
+    expect(v2Store.states.size).toBe(0)
+  })
+
+  it('remembers the revision of a keepalive answer with no reset', async () => {
+    await rememberV2State(Promise.resolve(state('b1', 1) as never))
+    expect(v2Store.states.get('b1')).toMatchObject({ revision: 1 })
   })
 })
