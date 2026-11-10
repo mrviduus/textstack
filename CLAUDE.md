@@ -14,6 +14,15 @@ Free book library w/ Kindle-like reader. Upload EPUB/PDF → parse → SEO pages
 
 **CI/CD**: Push to `main` → auto-deploy (no SSG rebuild). SSG is frozen (#992: no nightly rebuild); rebuild on demand via the admin panel, `make rebuild-ssg`, or a manual deploy with `rebuild_ssg`.
 
+## V2 program (active)
+
+The project is mid-migration to **V2**: two databases, one cutover ([ADR-030](docs/01-architecture/adr/ADR-030-two-databases-one-cutover.md), plan [`docs/01-architecture/v2-plan.md`](docs/01-architecture/v2-plan.md), umbrella #1013). The public SEO catalog retires at the end (#992 decision; M6).
+
+- **`textstack_v2`** is a second Postgres DB beside the legacy one: own SQL ledger (`make migrate-v2`), Dapper repositories, `/me/v2/*` endpoints behind `Features:V2Api` — **off in production**, on in CI/dev. The legacy path must never depend on V2 being up.
+- **ETL** legacy → V2: `etl-v2` CLI, built, validated, rehearsed on real backups (M3 done). Cutover (M5) and legacy retirement (M6, drops EF Core + catalog) are not executed yet.
+- **V2 reader** ([ADR-029](docs/01-architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/01-architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `apps/mobile/src/lib/v2reader/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android dev route (`__DEV__`) and web `/dev/reader-v2` (dev server only; prod bundle byte-identical, asserted on build). Own README in `apps/mobile/src/lib/v2reader/`. Replaces `packages/reader-engine` only at R8 — until then the engine rules below still hold.
+- **Work runs in waves**: kickoff files `.claude/wave-<N>-prompt.md` (pipeline, quality bar, standing rules); current state in [`docs/STATUS.md`](docs/STATUS.md) and #1013 checkboxes. Locator schemes and roles: ADR-031.
+
 ## Where to write things down
 
 Four files, four jobs — plus GitHub issues for open items. Putting a write-up in the wrong one is how `CHANGELOG.md` reached 1804 lines.
