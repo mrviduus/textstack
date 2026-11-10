@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+// ponytail: deep imports of apps/mobile source. The page and its library live there until the engine's home
+// is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
 import { v2ReaderPageHtml } from '../../../../mobile/src/lib/v2reader/v2ReaderPage.generated'
-import { addOpened, emptyLibrary, parseLibrary } from '../../../../mobile/src/lib/v2reader/library.mjs'
+import { addOpened, emptyLibrary, parseLibrary, type LibraryEntry } from '../../../../mobile/src/lib/v2reader/library.mjs'
 
 /**
  * The V2 reader page (ADR-029) on the web, dev server only (R5, #1037): a second host for the page the
@@ -29,7 +31,6 @@ function writeItem(key: string, value: string) {
   }
 }
 
-type LibraryBook = { id: string; title: string; author: string; originalName: string }
 const readLibrary = () => parseLibrary(readItem(LIBRARY_KEY) ?? '') ?? emptyLibrary()
 
 /** 18 random bytes as hex: v2ReaderPageHtml wants base64/hex of 16+ chars, fresh per load. */
@@ -45,16 +46,20 @@ const hostShim = (parentOrigin: string) => `
 window.ReactNativeWebView = { postMessage: (json) => parent.postMessage(json, ${JSON.stringify(parentOrigin)}) };
 let bookUrl = null;
 addEventListener('message', (e) => {
-  if (e.source !== parent) return;
+  if (e.source !== parent || !Array.isArray(e.data?.args)) return;
   const { call, args } = e.data;
-  if (call !== 'openBytes') return window.__fol[call](...args);
+  if (call !== 'openBytes') return Object.hasOwn(window.__fol, call) && window.__fol[call](...args);
   if (bookUrl) URL.revokeObjectURL(bookUrl);
   bookUrl = URL.createObjectURL(new Blob([args[0]]));
   window.__fol.openUrl(bookUrl, args[1]);
 });`
 
-const withHostShim = (html: string, nonce: string) =>
-  html.replace('<body>', `<body><script nonce="${nonce}">${hostShim(location.origin)}</script>`)
+/** Throws rather than load a page no message can reach: without the shim it would sit at "Pick an EPUB" forever. */
+function withHostShim(html: string, nonce: string): string {
+  const shimmed = html.replace('<body>', `<body><script nonce="${nonce}">${hostShim(location.origin)}</script>`)
+  if (shimmed === html) throw new Error('V2 reader dev route: no <body> in the generated page to put the host shim in')
+  return shimmed
+}
 
 /** The open in flight: `name` is unique per pick and echoed in `opened`/`open-failed`, so a superseded answer is dropped. */
 type Opening = { name: string; originalName: string }
@@ -68,7 +73,7 @@ export default function V2ReaderDevPage() {
   /** Picked bytes the page has not been handed yet (it may not be `ready`). */
   const pending = useRef<ArrayBuffer | null>(null)
   const picks = useRef(0)
-  const [books, setBooks] = useState<LibraryBook[]>(() => readLibrary().books)
+  const [books, setBooks] = useState<LibraryEntry[]>(() => readLibrary().books)
   const [heading, setHeading] = useState('Pick an EPUB')
   const [status, setStatus] = useState('')
   const [restored, setRestored] = useState('')
@@ -86,7 +91,11 @@ export default function V2ReaderDevPage() {
     const file = e.target.files?.[0]
     e.target.value = '' // the same file can be picked again
     if (!file) return
+    // Nothing of the previous book may stay on screen beside this one's answer (or its error).
     setError(null)
+    setHeading(`Opening ${file.name}`)
+    setStatus('')
+    setRestored('')
     const bytes = await file.arrayBuffer()
     opening.current = { name: `${++picks.current}/${file.name}`, originalName: file.name }
     pending.current = bytes
@@ -119,6 +128,8 @@ export default function V2ReaderDevPage() {
           const current = answered(m.name)
           if (!current) return
           setError(`cannot open ${current.originalName}: ${m.error}`)
+          // The previous book's view still reports a last relocate while the page tears it down.
+          setStatus('')
           opening.current = null
           return
         }
@@ -162,8 +173,10 @@ export default function V2ReaderDevPage() {
         {books.map((b) => <li key={b.id}>{b.title}</li>)}
       </ul>
       {/* allow-same-origin is required: foliate reads its section frames' documents, and under an opaque
-          origin every nested frame gets its own. So the page shares this dev origin, as it shares file://
-          on Android; the page CSP stays the only script barrier (README "Sandbox"). */}
+          origin every nested frame gets its own. So the page shares this dev origin, and the page CSP is the
+          only script barrier (README "Sandbox"). A book script past it would reach this origin's localStorage
+          AND its /api session cookie: more than Android's file:// exposes. Bounded only by main.tsx keeping
+          the route on the dev server. */}
       <iframe ref={frame} key={nonce} title="V2 reader" sandbox="allow-scripts allow-same-origin" srcDoc={srcDoc} style={{ flex: 1, border: '1px solid #ccc' }} />
     </main>
   )

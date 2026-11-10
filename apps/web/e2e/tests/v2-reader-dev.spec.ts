@@ -4,8 +4,8 @@ import { test, expect, type Page } from '@playwright/test'
 
 // @v2-reader-dev — the V2 reader page on the web dev route (R5, #1037): /dev/reader-v2 hosts the
 // foliate page in an iframe, the EPUB comes from a file input, everything persists in localStorage.
-// The route exists on the dev server only (`pnpm dev`, the local webServer); CI serves the production
-// build, where it must be absent, so this suite skips there.
+// The route exists on the dev server only (`pnpm dev`, the local webServer); the production build (CI,
+// `pnpm preview`) must not have it, so the suite skips wherever the route is not served.
 //
 // Content: the 3-chapter v2-sync fixture (50 paragraphs per chapter), so a chapter spans many pages.
 
@@ -36,10 +36,13 @@ async function openFixture(page: Page) {
 }
 
 test.describe('V2 reader dev route @v2-reader-dev', () => {
+  // The cheap first gate; the probe below covers any other server without the route (e.g. a local preview).
   test.skip(!!process.env.CI, 'dev server only: CI serves the production build, which has no /dev route')
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/dev/reader-v2')
+    const served = await page.getByLabel('Pick EPUB').waitFor({ timeout: 10_000 }).then(() => true, () => false)
+    test.skip(!served, 'this server does not serve /dev/reader-v2: run the suite against the dev server (pnpm dev)')
   })
 
   test('a picked EPUB renders its first section', async ({ page }) => {
