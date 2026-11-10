@@ -247,7 +247,7 @@ async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: 
   if (!b) return
   // Replaced on another device: no write on this file can land (rule 6).
   if (b.server_file_id !== b.file_id) return drop(lib, reset, item)
-  const write = positionWrite(JSON.parse(st.position), b.file_id!, st.revision_file_id === b.file_id ? st.revision : null)
+  const write = positionWrite(JSON.parse(st.position), b.file_id!, st.revision_file_id === b.file_id ? st.revision : null, Date.now(), b.format)
   // A CBZ page has no quote: no position the server takes yet (PDD "CBZ positions: open question").
   // (A fraction-only position, #1187, is never queued: localLibrary.applyEntry.)
   if (!write) return drop(lib, reset, item)

@@ -32,10 +32,12 @@ describe('v2ReaderPageHtml', () => {
   })
 
   it('twoLoads_DifferentNonces_EachCarriesOnlyItsOwn', () => {
-    const a = v2ReaderPageHtml('A'.repeat(24))
-    const b = v2ReaderPageHtml('B'.repeat(24))
-    expect(a).not.toContain('B'.repeat(24))
-    expect(b).not.toContain('A'.repeat(24))
+    // Not runs of one letter: pdf.js carries base64 data with long runs of 'A'.
+    const [na, nb] = ['Qa1Qa1'.repeat(4), 'Zb2Zb2'.repeat(4)]
+    const a = v2ReaderPageHtml(na)
+    const b = v2ReaderPageHtml(nb)
+    expect(a).not.toContain(nb)
+    expect(b).not.toContain(na)
   })
 
   it('csp_MatchesAdr029Decision4_AndPrecedesTheOnlyScript', () => {
@@ -64,7 +66,7 @@ describe('v2ReaderPageHtml', () => {
     // #1128: the format is sniffed (and a refusal answered) BEFORE the seq turns over, so a refused
     // file leaves the open book reading and saving, like a failed read (#1168).
     expect(html).toMatch(/function openFor\(bytes, name\) \{\s*let kind;\s*try \{\s*kind = sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*const mine = \+\+openSeq;\s*return open\(bytes, name, kind, mine\)/)
-    expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,200}?if \(!entry\) return log\("warn"/)
+    expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,400}?if \(!entry\) return log\("warn"/)
   })
 
   it('bundle_EveryStateChangeGuarded_SoOneBadBookCannotWedgeThePage', () => {
@@ -94,15 +96,15 @@ describe('v2ReaderPageHtml', () => {
     // #1128: MOBI, FB2 and CBZ ride ahead of the page in its one script, as strings with no raw `<`
     // (nothing in them can end or bend the script element), and are run by page.mjs on first use
     // through a script element carrying the page's own nonce: no CSP directive is widened.
-    const carried = html.match(/<script nonce="[^"]+">(var __TS_FORMATS = \{mobi: "[^"\\]*(?:\\.[^"\\]*)*",\nfb2: "[^"\\]*(?:\\.[^"\\]*)*",\ncbz: "[^"\\]*(?:\\.[^"\\]*)*"\};\n)/)?.[1]
+    const carried = html.match(/<script nonce="[^"]+">(var __TS_FORMATS = \{mobi: "[^"\\]*(?:\\.[^"\\]*)*",\nfb2: "[^"\\]*(?:\\.[^"\\]*)*",\ncbz: "[^"\\]*(?:\\.[^"\\]*)*",\npdf: "[^"\\]*(?:\\.[^"\\]*)*",\npdfcmaps: "[^"\\]*(?:\\.[^"\\]*)*"\};\n)/)?.[1]
     expect(carried).toBeDefined()
     expect(carried).not.toContain('<')
-    for (const k of ['mobi', 'fb2', 'cbz']) expect(carried).toContain(`window.__tsFormats.${k} = {`)
+    for (const k of ['mobi', 'fb2', 'cbz', 'pdf']) expect(carried).toContain(`window.__tsFormats.${k} = {`)
     expect(html).toMatch(/var NONCE = \(\w+ = document\.currentScript\) == null \? void 0 : \w+\.nonce;/)
     expect(html).toMatch(/(\w+)\.nonce = NONCE;\s*\1\.textContent = /)
     // A comic book has no text: its frames post only `tap`, and a translation is never drawn on it.
     expect(html).toMatch(/function onLoad\(\{ detail: \{ doc, index \} \}\) \{\s*if \(!textual\) return doc\.addEventListener\("click", \(\) => post\(\{ type: "tap" \}\)\);/)
-    expect(html).toMatch(/showTranslation: \(cfi, index, \w+\) => view && textual && annotate\(/)
+    expect(html).toMatch(/showTranslation: \(cfi, index, \w+\) => view && textual && format !== "pdf" && annotate\(/)
     // The page bundle itself carries none of them: view.js's own imports stay stubbed.
     const page = html.slice(html.indexOf(carried!) + carried!.length)
     expect(page).not.toContain('.vendor/foliate-js/mobi.js')
@@ -115,7 +117,8 @@ describe('v2ReaderPageHtml', () => {
     // #1078: v4 UUID ids from getRandomValues (no randomUUID: needs a secure context), quotes cut by
     // code points, the full selection in selectedText and restore comparing it (old entries: quote).
     expect(html).toContain('crypto.getRandomValues(new Uint8Array(16))')
-    expect(html).not.toContain('randomUUID')
+    // The page's own script: pdf.js (a carried reader) checks for randomUUID and falls back.
+    expect(html.slice(html.indexOf('"};\n'))).not.toContain('randomUUID')
     expect(html).toMatch(/return textual \? \{ \.\.\.\w+, quote: quoteOf\(\w+\.range\.toString\(\)/)
     expect(html).toMatch(/id: uuidV4\(\),[\s\S]{0,120}?quote: quoteOf\(selectedText\),\s*selectedText,/)
     expect(html).toMatch(/const ok = foldText\(\w+\) === foldText\((\w+)\.selectedText \?\? \1\.quote\);/)

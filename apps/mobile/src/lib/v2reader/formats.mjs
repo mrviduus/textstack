@@ -10,13 +10,14 @@ const u16 = (b, at) => (b[at] << 8) | b[at + 1]
 const FB2_WINDOW = 4096
 
 /**
- * The container: `zip` (EPUB, CBZ, FBZ — told apart by `zipFormat`), `mobi` (MOBI6, or the MOBI6 half of a
+ * The container: `zip` (EPUB, CBZ, FBZ — told apart by `zipFormat`), `pdf`, `mobi` (MOBI6, or the MOBI6 half of a
  * MOBI/KF8 combo), `fb2`; throws, with the message the host shows (`open-failed`), for what this page does not read or refuses. Cheap and
  * pure: the page calls it before it touches the open book, so a refusal leaves that book as it was.
  */
 export function sniffFormat(bytes) {
   if (bytes.length >= 4 && u32(bytes, 0) === 0x504b0304) return 'zip'
-  if (ascii(bytes, 0, 5) === '%PDF-') throw new Error('PDF is not supported yet')
+  // pdf.js, like other readers, takes a header anywhere in the first KiB (junk before it is common).
+  if (ascii(bytes, 0, 1024).includes('%PDF-')) return 'pdf'
   // KFX: Amazon's newer format, DRM-wrapped as a rule ("\xeaDRMION\xee"); foliate has no reader for it.
   if (ascii(bytes, 0, 8) === '\xeaDRMION\xee') throw new Error('this Kindle book is DRM-protected (KFX) and cannot be opened')
   if (ascii(bytes, 60, 68) === 'BOOKMOBI') {

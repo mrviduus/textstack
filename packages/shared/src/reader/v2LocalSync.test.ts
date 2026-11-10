@@ -47,9 +47,32 @@ describe('v2LocalSync', () => {
     expect(positionWrite({ cfi: CFI, page: 'p1.jpg', index: 0, fraction: 0, at: 1 }, 'f', null)).toBeNull()
   })
 
-  it('statePosition_RoundTripsAPositionWrite_PdfPageNull', () => {
+  it('statePosition_RoundTripsAPositionWrite_MalformedPdfPageNull', () => {
     expect(statePosition(state())).toMatchObject({ cfi: CFI, quote: pos.quote, index: 6, fraction: 0.41 })
-    expect(statePosition(state({ currentLocator: { version: 1, scheme: 'pdf-page', value: 3 } }))).toBeNull()
+    // pdf-page's value is `{"page":N}`, N a 1-based int (ADR-031): any other shape is no position.
+    for (const value of [3, { page: 0 }, { page: 1.5 }, { page: '3' }, null, {}])
+      expect(statePosition(state({ currentLocator: { version: 1, scheme: 'pdf-page', value } })), JSON.stringify(value)).toBeNull()
+  })
+
+  it('positionWrite_PdfPage_PdfPageLocatorOnAPdfOnly', () => {
+    const page = { page: 12, index: 11, fraction: 0.3, at: Date.parse('2026-11-10T10:00:00Z') }
+    expect(positionWrite(page, 'f', 2, Date.parse('2026-11-10T12:00:00Z'), 'pdf')).toEqual({
+      expectedRevision: 2, fileId: 'f', bookFraction: 0.3, clientRecordedAt: '2026-11-10T10:00:00.000Z',
+      currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 12 } },
+    })
+    // Scheme fits the file (PDD): never pdf-page on another format or an unknown one, never epub-cfi on a pdf.
+    for (const format of ['epub', 'mobi', 'cbz', null]) expect(positionWrite(page, 'f', 2, Date.now(), format), String(format)).toBeNull()
+    expect(positionWrite(pos, 'f', 2, Date.now(), 'pdf')).toBeNull()
+    // A CBZ page (entry name beside a CFI) or a page number beside a CFI is no PDF page.
+    expect(positionWrite({ cfi: CFI, page: 'p1.jpg', index: 0, fraction: 0, at: 1 }, 'f', null, Date.now(), 'pdf')).toBeNull()
+    expect(positionWrite({ cfi: CFI, page: 3, fraction: 0, at: 1 }, 'f', null, Date.now(), 'pdf')).toBeNull()
+    expect(positionWrite({ page: 0, fraction: 0, at: 1 }, 'f', null, Date.now(), 'pdf')).toBeNull()
+  })
+
+  it('statePosition_PdfPage_RoundTripsWithIndexPageMinusOne', () => {
+    const w = positionWrite({ page: 7, index: 6, fraction: 0.5, at: 1 }, 'f', null, Date.now(), 'pdf')!
+    expect(statePosition(state({ currentLocator: w.currentLocator, bookFraction: w.bookFraction })))
+      .toEqual({ page: 7, index: 6, fraction: 0.5, at: Date.parse('2026-11-10T11:00:00.000Z') })
   })
 
   it('statePosition_TransitionalScheme_FractionOnlyPosition', () => {

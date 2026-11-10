@@ -12,7 +12,7 @@ import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
 import { mergeOverlay } from './overlays.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
 import { isFractionOnly } from '../../../../../packages/shared/src/reader/fractionPosition'
-import { emptyEntry, entryFor, foldText, isPosition, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { emptyEntry, entryFor, foldText, isPdfPage, isPosition, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 import { openableHref, sentenceOf } from './tap.mjs'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, withoutKf8, zipFormat } from './formats.mjs'
@@ -181,7 +181,7 @@ function arrivedAt(index) {
 async function land(target) {
   const resolved = await (isFractionOnly(target)
     ? (target.fraction === 0 ? view.goToTextStart() : view.goTo({ fraction: target.fraction }))
-    : view.goTo(isPosition(target) ? target.cfi : target))
+    : view.goTo(isPdfPage(target) ? target.page - 1 : isPosition(target) ? target.cfi : target))
   return !!resolved && arrivedAt(resolved.index)
 }
 
@@ -193,6 +193,8 @@ async function land(target) {
  * EPUB: foliate's fixed-layout renderer reports none), so such a book saves no position at all.
  */
 function positionOf(d) {
+  // A PDF page: `pdf-page` (ADR-032 Decision 7), the section index + 1. Never a CFI.
+  if (d && format === 'pdf') return Number.isInteger(d.section?.current) ? { page: d.section.current + 1, index: d.section.current, fraction: d.fraction, at: Date.now() } : null
   if (!d || (textual && !d.range)) return null
   const at = { cfi: d.cfi, index: d.section?.current, fraction: d.fraction, at: Date.now() }
   return textual ? { ...at, quote: quoteOf(d.range.toString().replace(/^\s+/, '')) } : { ...at, page: String(view.book.sections[at.index]?.id ?? '') }
@@ -238,6 +240,17 @@ function formatModule(name) {
  */
 async function makeBookFor(bytes, name, kind) {
   // `kind` is sniffFormat's, taken before the open book was touched (openFor).
+  if (kind === 'pdf') {
+    // pdf.js runs on the main thread (build.mjs FORMATS.pdf): no Worker, no wasm (CSP has no
+    // 'wasm-unsafe-eval'), nothing fetched: cMaps come from the page's own chunk (PdfCMaps), standard-font
+    // data not at all (system fonts).
+    const { makePDF, css } = formatModule('pdf')
+    const book = await makePDF(new File([bytes], name), { css, params: { useWasm: false, CMapReaderFactory: PdfCMaps } })
+    // One page per screen, never foliate's two-page spreads: within a spread a page step or goTo shows the
+    // other page without a relocate, so the saved page would be the spread's first.
+    book.rendition.spread = 'none'
+    return { format: 'pdf', book }
+  }
   if (kind === 'mobi') {
     const { MOBI, unzlibSync } = formatModule('mobi')
     // A MOBI/KF8 combo is read as its MOBI6 half: KF8 is refused (formats.mjs).
@@ -276,6 +289,18 @@ async function makeBookFor(bytes, name, kind) {
   const inner = new Uint8Array(await (await loader.loadBlob(fb2.filename)).arrayBuffer())
   checkFb2(inner)   // throws: custom entities (sniffFormat checks a plain FB2 the same way)
   return { format: 'fb2', book: await fb2Of(inner) }
+}
+
+/**
+ * pdf.js's predefined cMaps from the page's own carried chunk (build.mjs `pdfcmaps`), run the first time a
+ * PDF names one: a CJK font without them draws a blank page and extracts no text.
+ */
+class PdfCMaps {
+  async fetch({ name }) {
+    const b64 = formatModule('pdfcmaps')[name]
+    if (!b64) throw new Error('unknown CMap')
+    return { cMapData: Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), isCompressed: true }
+  }
 }
 
 /** Removes a book's `<meta http-equiv="refresh">` from `doc` (it navigates the section frame away; CSP does not cover it). */
@@ -437,7 +462,17 @@ async function restoreInto(json, stale) {
     if (ok) annotate({ value: h.cfi, index, hl: { id: h.id } })
   }
   const p = entry.position
-  if (isFractionOnly(p)) {
+  if (p && !isFractionOnly(p) && (format === 'pdf') !== isPdfPage(p)) {
+    // The scheme fits the file (v2-sync-protocol.md): a page number only on a PDF, a CFI never on one.
+    result.position = 'wrong position kind, stayed at start'
+  } else if (p && format === 'pdf') {
+    if (p.page > view.book.sections.length) result.position = 'page not found, stayed at start'
+    else {
+      const arrived = await land(p)
+      if (stale()) return result
+      result.position = arrived ? 'restored' : 'navigation failed, stayed at start'
+    }
+  } else if (isFractionOnly(p)) {
     // A transitional server locator (#1187): no CFI and no quote to check, only where in the book.
     // Approximate (the legacy fraction counts words, foliate's bytes). Fraction 0 (never read on the other
     // device) is the text start init already shows: no navigation. The entry keeps the fraction until
@@ -480,6 +515,8 @@ const MAX_SELECTED_TEXT = 4000
 /** The last non-empty selection as a highlight: CFI + selection (+ its ≤64-code-point quote) + 30 chars of context, saved. */
 function highlightSelection() {
   if (!textual) return log('warn', 'highlightSelection ignored: this book has no text')
+  // A PDF highlight is a `pdf-page` PdfAnchor (page + rects), not a CFI: not built yet (#1128 S5).
+  if (format === 'pdf') return log('warn', 'highlightSelection ignored: PDF highlights are not supported yet')
   const s = lastSelection
   if (!s || s.range.collapsed) return null
   // Before `restored` there is nothing to add to, and saving now would overwrite the stored entry.
@@ -581,7 +618,8 @@ window.__fol = {
     view?.renderer?.setAttribute('flow', f)
   },
   /** The host answers a `word` with its translation; drawn above that word. Not on an image-only book. */
-  showTranslation: (cfi, index, text) => view && textual && annotate({ value: cfi, index, gloss: text }),
+  // Not on a PDF: foliate's fixed-layout renderer has no overlayer to draw on (#1128 S5).
+  showTranslation: (cfi, index, text) => view && textual && format !== 'pdf' && annotate({ value: cfi, index, gloss: text }),
 }
 
 post({ type: 'ready' })

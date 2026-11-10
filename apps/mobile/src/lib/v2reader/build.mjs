@@ -8,7 +8,7 @@
 //   node build.mjs --repro   also write .vendor/v2ReaderPage.repro.html: the page + repro.mjs (test only)
 import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,8 +17,14 @@ import { NONCE, formatsJs, html } from './carrier.mjs'
 // Pinned by SHA on our fork (ADR-032): upstream 78914aef (2026-05-01, no releases, unstable API)
 // + our patches as real commits. MIT © John Factotum. A bump is a PR that re-runs every ADR-029
 // Decision 6 check.
-const FOLIATE_REPO = 'https://github.com/mrviduus/foliate-js.git'
-const FOLIATE_SHA = 'd73682a48a0779ca989f25074386784602437fbf'   // branch textstack-pin: 78914aef + 0001 paginator render-while-loading
+// V2_FOLIATE_REPO / V2_FOLIATE_SHA: experiments only (a local commit of the .vendor clone); the
+// defaults are the pin. A SHA must be the full 40 characters.
+const FOLIATE_REPO = process.env.V2_FOLIATE_REPO || 'https://github.com/mrviduus/foliate-js.git'
+const FOLIATE_SHA = process.env.V2_FOLIATE_SHA || 'd73682a48a0779ca989f25074386784602437fbf'   // branch textstack-pin: 78914aef + 0001 paginator render-while-loading
+if (!/^[0-9a-f]{40}$/.test(FOLIATE_SHA)) {
+  console.error(`[v2-reader] V2_FOLIATE_SHA must be a full 40-character SHA, got ${FOLIATE_SHA}`)
+  process.exit(1)
+}
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // reader-engine's 64 KB budget.
@@ -42,11 +48,17 @@ const FOLIATE_SHA = 'd73682a48a0779ca989f25074386784602437fbf'   // branch texts
 // +773 (#1187 round 3): one host-move guard (restore + non-chosen goTo save and echo nothing), restore
 // as one navigation slot, restore only for a view that answered `opened`, one position builder,
 // fixed-layout arrival by spread.
-const BUDGET = 249670
+// +1756 (#1128 S5, experimental): PDF routed to the pdf reader, `pdf-page` positions (page = section
+// index + 1) saved and restored, the scheme-fits-file guard on restore, PDF highlight/translation refused,
+// the lazy cMap reader.
+const BUDGET = 251426
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
-const FORMAT_BUDGET = { mobi: 51784, fb2: 11417, cbz: 2030 }
+// pdf = fork pdf.js + pdf.js v5.5.207 (pdf.mjs + pdf.worker.mjs, run on the page's main thread) + its
+// two layer stylesheets (#1128 S5, experimental; 1613594 if minified). pdfcmaps = pdf.js's 168 predefined
+// cMaps as base64, run only when a PDF names one.
+const FORMAT_BUDGET = { mobi: 51784, fb2: 11417, cbz: 2030, pdf: 3179382, pdfcmaps: 1559883 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'v2ReaderPage.generated.ts')
@@ -100,6 +112,18 @@ window.__tsFormats.mobi = { MOBI, unzlibSync }`,
 window.__tsFormats.fb2 = { makeFB2 }`,
   cbz: `import { makeComicBook } from './.vendor/foliate-js/comic-book.js'
 window.__tsFormats.cbz = { makeComicBook }`,
+  // The worker first: it sets globalThis.pdfjsWorker, so pdf.js runs it on the main thread ("fake
+  // worker") and never asks for a Worker (no worker-src, no blob: script in the CSP).
+  pdf: `import './.vendor/foliate-js/vendor/pdfjs/pdf.worker.mjs'
+import { makePDF } from './.vendor/foliate-js/pdf.js'
+import text from './.vendor/foliate-js/vendor/pdfjs/text_layer_builder.css'
+import annotation from './.vendor/foliate-js/vendor/pdfjs/annotation_layer_builder.css'
+window.__tsFormats.pdf = { makePDF, css: text + '\\n' + annotation }`,
+  // pdf.js's predefined cMaps (Adobe, BSD-3-Clause), base64 by name: run only when a PDF's font names one
+  // (CJK text) — nothing outside the file is fetched, so they ride in the page like a format reader.
+  pdfcmaps: `/*! ${readFileSync(resolve(vendor, 'vendor/pdfjs/cmaps/LICENSE'), 'utf8').replace(/\*\//g, '* /')} */
+window.__tsFormats.pdfcmaps = ${JSON.stringify(Object.fromEntries(readdirSync(resolve(vendor, 'vendor/pdfjs/cmaps')).filter((f) => f.endsWith('.bcmap')).sort()
+    .map((f) => [f.slice(0, -'.bcmap'.length), readFileSync(resolve(vendor, 'vendor/pdfjs/cmaps', f)).toString('base64')])))}`,
 }
 
 const bundle = async (entry) => (await build({
@@ -117,6 +141,10 @@ const bundle = async (entry) => (await build({
   legalComments: 'inline',
   // The page stubs the format modules out; a format reader is exactly one of them.
   plugins: entry.endsWith('.mjs') ? [stubFormats] : [],
+  // The PDF reader carries pdf.js's layer stylesheets as strings.
+  loader: { '.css': 'text' },
+  // pdf.js references import.meta.url only on paths the page never takes (Node, wasm decoders).
+  logLevel: 'error',
 })).outputFiles[0].text
 
 // The HTML shell, its CSP and nonce placeholder, and the format-reader carrier: carrier.mjs.
@@ -129,7 +157,7 @@ const content = `// AUTO-GENERATED — do not edit.
 // Source: apps/mobile/src/lib/v2reader/page.mjs (+ store.mjs), built by build.mjs beside it.
 // Regenerate: pnpm -C apps/web build:v2-reader
 //
-// foliate-js fork ${FOLIATE_SHA} (mrviduus/foliate-js, branch textstack-pin:
+// foliate-js fork ${FOLIATE_SHA}${process.env.V2_FOLIATE_SHA ? ' (EXPERIMENTAL override, not the pin)' : ''} (mrviduus/foliate-js, branch textstack-pin:
 // upstream 78914aef + our commits; MIT © John Factotum; bundled zip.js BSD-3-Clause).
 
 /* eslint-disable */
