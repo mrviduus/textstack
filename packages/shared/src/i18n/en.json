@@ -322,6 +322,14 @@
       "body": "Something went wrong on our side. Your books are safe."
     }
   },
+  "myBooks": {
+    "deleted": {
+      "title": "This book was deleted",
+      "body": "It was deleted from your account on the server. The downloaded copy is still on this device.",
+      "bodyNoCopy": "It was deleted from your account on the server.",
+      "removeDownload": "Remove download from this device"
+    }
+  },
   "addMenu": {
     "title": "Add to library",
     "uploadFile": "Upload file",
@@ -419,6 +427,10 @@
       "catalog": "You're offline — the catalog needs a connection. Your downloaded books are in Library.",
       "title": "You're offline",
       "body": "Search needs a connection. Your downloaded books are in Library."
+    },
+    "failed": {
+      "title": "Search failed",
+      "body": "Something went wrong on our side. Try again."
     }
   },
   "privacy": {
