@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fb2, mobi, png } from './fixtures.mjs'
@@ -66,8 +66,13 @@ describe('mobiHeader', () => {
     }
   })
 
-  it('kf8_RefusedUntilTheForkIsFixed', () => {
-    expect(() => sniffFormat(bytes(mobi('T', html, { version: 8 })))).toThrow(/AZW3 \(KF8\) is not supported yet/)
+  // EXPERIMENTAL (#1182): KF8 goes to the fork's MOBI/KF8 reader (exp/kf8-fixes only).
+  it('kf8_WithIndexes_GoesToTheMobiReader', () => {
+    expect(sniffFormat(new Uint8Array(readFileSync(new URL('./synthetic/tssynthetic-kf8.azw3', import.meta.url))))).toBe('mobi')
+  })
+
+  it('kf8_HeaderOnly_RefusedAsDamaged', () => {
+    expect(() => sniffFormat(bytes(mobi('T', html, { version: 8 })))).toThrow(/truncated or damaged/)
   })
 
   it('combo_ReadAsItsMobi6Half_EveryBoundaryCleared', () => {

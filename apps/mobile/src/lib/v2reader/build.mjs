@@ -20,7 +20,8 @@ import { NONCE, formatsJs, html } from './carrier.mjs'
 // EXPERIMENTAL (#1182, branch exp/1182-fork-eval, never merged): V2_FOLIATE_REPO / V2_FOLIATE_SHA let the
 // build use a local-only commit (V2_FOLIATE_REPO=<path of .vendor/foliate-js>). Not a pin change.
 const FOLIATE_REPO = process.env.V2_FOLIATE_REPO ?? 'https://github.com/mrviduus/foliate-js.git'
-const FOLIATE_SHA = process.env.V2_FOLIATE_SHA ?? 'd73682a48a0779ca989f25074386784602437fbf'   // branch textstack-pin: 78914aef + 0001 paginator render-while-loading
+// EXPERIMENTAL default: local-only fork commit exp/kf8-fixes (textstack-pin + 3 KF8/view commits); needs V2_FOLIATE_REPO.
+const FOLIATE_SHA = process.env.V2_FOLIATE_SHA ?? '51a0d2e44b49e10451d2c891ea32696b1e15a749'
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // reader-engine's 64 KB budget.

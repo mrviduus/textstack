@@ -5,6 +5,7 @@
 //   node --experimental-strip-types sandbox.check.mjs                    real CSP, then every mutation
 //   node --experimental-strip-types sandbox.check.mjs --mutate=<name>    one mutated run; exits 1
 //   (pnpm -C apps/web check:v2-reader-sandbox; once: pnpm -C apps/web exec playwright install chromium)
+import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -67,6 +68,12 @@ const SIBLINGS = {
 // One hostile book per format the page reads (#1128); each carries the vectors fixtures.mjs `formatsOf`
 // gives it. CBZ has no book markup to carry: foliate wraps each image in its own two-line page.
 const BOOKS = { epub: 'tshostile.epub', mobi: 'tshostile.mobi', fb2: 'tshostile.fb2' }
+// EXPERIMENTAL (#1182): V2_SANDBOX_KF8=1 also opens the hostile EPUB converted to AZW3 by Calibre's ebook-convert
+// (carrying the EPUB's vectors, as far as the conversion keeps them). Its mutation misses are reported, not failed:
+// a vector Calibre dropped cannot be caught.
+const KF8 = process.env.V2_SANDBOX_KF8 === '1'
+if (KF8) BOOKS.kf8 = 'tshostile.azw3'
+const vectorFormat = (format) => (format === 'kf8' ? 'epub' : format)
 
 // The run in progress: what the deadline prints, and where the server writes.
 let vectors = []
@@ -264,11 +271,12 @@ try {
   writeHostileEpub(resolve(dir, BOOKS.epub), siblings, evil.url)
   writeHostileMobi(resolve(dir, BOOKS.mobi), siblings, evil.url)
   writeHostileFb2(resolve(dir, BOOKS.fb2), evil.url)
+  if (KF8) execFileSync('ebook-convert', [resolve(dir, BOOKS.epub), resolve(dir, BOOKS.kf8)], { stdio: 'ignore' })
   const all = hostileVectors(evil.url, siblings)
 
   for (const directive of only ? [only] : [null, ...Object.keys(MUTATIONS)]) {
     for (const [format, file] of Object.entries(BOOKS)) {
-      vectors = all.filter((row) => formatsOf(row).includes(format))
+      vectors = all.filter((row) => formatsOf(row).includes(vectorFormat(format)))
       const escapes = vectors.filter(([, , stops]) => stops === directive).map(([name]) => name)
       // A mutation this book carries nothing for has nothing to show in it.
       if (directive && !escapes.length && !only) continue
@@ -281,7 +289,7 @@ try {
         report(false)
         const missed = escapes.filter((v) => !result.escaped.has(v))
         console.log(`  → ${missed.length ? `NOT CAUGHT: ${missed.join(', ')} — the check cannot see this directive go` : 'caught: the check fails, as it must'}`)
-        failed ||= missed.length > 0
+        failed ||= missed.length > 0 && format !== 'kf8'
       }
     }
   }

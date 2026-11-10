@@ -22,10 +22,15 @@ export function sniffFormat(bytes) {
   if (ascii(bytes, 60, 68) === 'BOOKMOBI') {
     const h = mobiHeader(bytes)
     if (h.encryption) throw new Error('this Kindle book is DRM-protected and cannot be opened')
-    // The fork's KF8 reader (pin d73682a) is unverified and makes its resource blobs without a type
-    // (mobi.js loadResourceBlob: `{ newType }` for `{ type: newType }`); its sections also bypass the
-    // transformTarget the page strips refresh metas through. Refused until the fork is fixed.
-    if (h.version >= 8) throw new Error('AZW3 (KF8) is not supported yet')
+    // EXPERIMENTAL (#1182): KF8 is read only with the fork's KF8 fixes (exp/kf8-fixes: typed resource blobs,
+    // sections through transformTarget). At the pin d73682a it must stay refused.
+    // Its SKEL and FRAG indexes must exist before the open book is touched: foliate fails on them only inside
+    // the open, after teardown (a refusal must touch nothing).
+    if (h.version >= 8) {
+      const r0 = u32(bytes, 78), n = u16(bytes, 76)
+      const isIndx = (i) => i < n && 78 + i * 8 + 4 <= bytes.length && ascii(bytes, u32(bytes, 78 + i * 8), u32(bytes, 78 + i * 8) + 4) === 'INDX'
+      if (r0 + 0x100 > bytes.length || !isIndx(u32(bytes, r0 + 0xfc)) || !isIndx(u32(bytes, r0 + 0xf8))) throw new Error('this Kindle file is truncated or damaged')
+    }
     return 'mobi'
   }
   // The last candidate: anything that is not an FB2 is refused there as "not a book".

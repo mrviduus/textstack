@@ -6,7 +6,7 @@
 //
 //   node --experimental-strip-types formats.check.mjs      (pnpm -C apps/web check:v2-reader-formats)
 import { randomBytes } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
@@ -150,11 +150,20 @@ try {
   check(m.type === 'opened' && m.format === 'mobi' && m.title === 'TS COMBO', `a MOBI/KF8 combo opens as its MOBI6 half (${m.title ?? m.error})`)
   check(await showsText(), 'its text is rendered')
 
+  // EXPERIMENTAL (#1182): the SYNTHETIC Calibre-made AZW3 (synthetic/, kf8fixture.mjs) opens through the fork's KF8 reader.
+  console.log('kf8 (synthetic)')
+  copyFileSync(resolve(here, 'synthetic/tssynthetic-kf8.azw3'), resolve(dir, 'tssynthetic-kf8.azw3'))
+  m = await open('tssynthetic-kf8.azw3')
+  check(m.type === 'opened' && m.format === 'mobi' && m.sections === 3 && m.toc.length === 3, `a synthetic AZW3 opens: 3 sections, 3 TOC entries (${m.sections ?? m.error})`)
+  check(await shown(() => document.body?.innerText.includes('Kestrel lanterns')), 'its first section is rendered')
+  check(await shown(async () => { const i = document.querySelector('img.badge'); return !!i && i.naturalWidth === 80 && (await (await fetch(i.src)).blob()).type === 'image/svg+xml' }), 'its SVG image renders, typed image/svg+xml')
+
   console.log('refused')
   // A refusal leaves the open book as it was: it keeps relocating and saving (no seq turnover, no session end).
   m = await open('tsformat.epub')
   const alive = messages.length
-  for (const [file, error] of [['tsdrm.mobi', /DRM/], ['tskf8.mobi', /AZW3 \(KF8\) is not supported yet/], ['tsformat.pdf', /PDF is not supported yet/]]) {
+  // EXPERIMENTAL (#1182): KF8 is read; a header-only one (no SKEL/FRAG index) is refused as damaged.
+  for (const [file, error] of [['tsdrm.mobi', /DRM/], ['tskf8.mobi', /truncated or damaged/], ['tsformat.pdf', /PDF is not supported yet/]]) {
     const r = await open(file)
     check(r.type === 'open-failed' && error.test(r.error), `${file} is refused: ${r.error}`)
   }
