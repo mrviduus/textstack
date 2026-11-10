@@ -1,8 +1,8 @@
 // The format check (#1128): the committed page, in Chromium as file:// (the dev route's origin), opens one
 // small book per format (fixtures.mjs writeFormatFixtures) and must answer as README "Formats" says:
 // each format reader runs only when its first book opens, CBZ has no text features and still saves and
-// restores its page, a DRM-flagged MOBI and a PDF are refused, and flow() switches the live view and is
-// reported once per book in `telemetry`.
+// restores its page, a fraction-only position (#1187) restores without saving, a DRM-flagged MOBI and a
+// PDF are refused, and flow() switches the live view and is reported once per book in `telemetry`.
 //
 //   node --experimental-strip-types formats.check.mjs      (pnpm -C apps/web check:v2-reader-formats)
 import { randomBytes } from 'node:crypto'
@@ -133,6 +133,33 @@ try {
   const textCfi = (await waitFor(m.from, (x) => x.type === 'relocate' && x.cfi, 'a relocate with a CFI')).cfi
   m = await open('tsformat.fb2', JSON.stringify({ v: 1, book: m.book, highlights: [], position: { cfi: textCfi, page: 'p02.png', index: 0, fraction: 0, at: 1 } }))
   check(m.restored.position === 'quote mismatch, stayed at start', `a page position on a textual book is not applied (${m.restored.position})`)
+
+  // A fraction-only position (a transitional server locator, #1187): restored by fraction, and nothing
+  // saved until the reader moves (the server's locator is not rewritten by opening the book).
+  console.log('fraction')
+  const fb2Book = m.book
+  const byFraction = (position) => JSON.stringify({ v: 1, book: fb2Book, highlights: [], position })
+  m = await open('tsformat.fb2', byFraction({ fraction: 0.9, at: 1 }))
+  check(m.restored.position === 'restored by fraction', `a fraction-only position is restored (${m.restored.position})`)
+  const far = await waitFor(m.from, (x) => x.type === 'relocate' && x.index === 1 && x.fraction > 0.5, 'relocate near the end').catch(() => null)
+  check(!!far, `and the view is past the start (${JSON.stringify(messages.filter((x) => x.type === 'relocate').at(-1))})`)
+  // foliate relocates at the landed place again after `restored`: those relocates must not save either.
+  await page.waitForTimeout(1500)
+  check(!messages.slice(m.from).some((x) => x.type === 'store'), 'restoring by fraction saves nothing')
+  from = messages.length
+  call('window.__fol.goTo({ fraction: 0.05, at: 2 })')
+  const quietStore = await waitFor(from, (x) => x.type === 'store', 'a store after a fraction goTo').catch(() => null)
+  const quietPos = quietStore && JSON.parse(quietStore.json).position
+  check(quietPos?.fraction === 0.05 && !('cfi' in quietPos), `a fraction goTo saves the fraction-only position, no CFI (${JSON.stringify(quietPos)})`)
+  from = messages.length
+  call('window.__fol.next()')
+  const moved = await waitFor(from, (x) => x.type === 'store', 'a store after the reader moves').catch(() => null)
+  check(JSON.parse(moved?.json ?? '{}').position?.cfi?.startsWith('epubcfi('), 'the reader moving saves a CFI position')
+  m = await open('tsformat.fb2', byFraction({ fraction: 2, at: 1 }))
+  check(m.restored.rejected === false && m.restored.position === 'none', `a fraction outside [0, 1] is not applied (${m.restored.position})`)
+  from = messages.length
+  call('window.__fol.next()')
+  check(!!(await waitFor(from, (x) => x.type === 'store', 'a store after a refused fraction').catch(() => null)), 'and the book still turns and saves')
 
   console.log('more shapes')
   m = await open('tsupper.cbz')

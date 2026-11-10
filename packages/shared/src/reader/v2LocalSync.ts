@@ -2,7 +2,8 @@
  * The V2 reader's local data as sync payloads, and back (R6, #1038; PDD v2-sync-protocol.md
  * "Reading state", "Annotations", "The revision rule"). Pure: the mobile local library and sync
  * client use it, and a web host will. The page's shapes are `store.mjs`'s: a position
- * `{cfi, quote, index, fraction, at}` (a CBZ one has `page` instead of `quote`) and a highlight
+ * `{cfi, quote, index, fraction, at}` (a CBZ one has `page` instead of `quote`; one from a transitional
+ * locator is `{fraction, at}` alone, #1187) and a highlight
  * `{id, cfi, index, quote, selectedText, prefix, suffix, color, at}`.
  */
 import type { V2Annotation, V2AnnotationWrite, V2Locator, V2ReadingState, V2ReadingStateWrite } from '../api/v2'
@@ -10,7 +11,8 @@ import { decideNewerPosition, serverProvablyNewer, type NewerPositionAction } fr
 import { MAX_SELECTED_TEXT } from './v2Locators'
 
 export interface PagePosition {
-  cfi: string
+  /** Absent on a fraction-only position (a transitional server locator): restored by `fraction`, never pushed. */
+  cfi?: string
   quote?: string
   page?: string
   index?: number
@@ -62,10 +64,11 @@ export function syncableText(h: PageHighlight): string | null {
 /**
  * The page position as a reading-state write (PDD: `epub-cfi` with its `quote`, `bookFraction`,
  * `clientRecordedAt` clamped to now). Null for a position without a quote: a CBZ page has no text,
- * and the server refuses an `epub-cfi` position without one (PDD "CBZ positions: open question").
+ * and the server refuses an `epub-cfi` position without one (PDD "CBZ positions: open question"). Null
+ * too for a fraction-only position: the server's transitional locator is never rewritten as a CFI.
  */
 export function positionWrite(p: PagePosition, fileId: string, expectedRevision: number | null, now = Date.now()): V2ReadingStateWrite | null {
-  if (!p.quote || !p.cfi.startsWith('epubcfi(')) return null
+  if (!p.quote || !p.cfi?.startsWith('epubcfi(')) return null
   return {
     expectedRevision,
     fileId,
@@ -75,11 +78,20 @@ export function positionWrite(p: PagePosition, fileId: string, expectedRevision:
   }
 }
 
-/** A server reading state as the page's position; null for one the V2 page cannot restore (another scheme). */
+/**
+ * A server reading state as the page's position. An `epub-cfi` one with its quote is restored by CFI;
+ * a transitional `textstack-*` one (or an `epub-cfi` without a quote) by its `bookFraction` alone
+ * (PDD "Transitional locators", #1187): approximate, never converted to a CFI. Null for `pdf-page`
+ * and for a state without a fraction in [0, 1].
+ */
 export function statePosition(s: V2ReadingState): PagePosition | null {
   const l = s.currentLocator
-  if (l.scheme !== 'epub-cfi' || typeof l.value !== 'string' || !l.quote) return null
-  return { cfi: l.value, quote: l.quote, index: spineIndexOf(l.value) ?? undefined, fraction: s.bookFraction, at: Date.parse(s.clientRecordedAt) }
+  const at = Date.parse(s.clientRecordedAt)
+  if (l.scheme === 'epub-cfi' && typeof l.value === 'string' && l.quote) {
+    return { cfi: l.value, quote: l.quote, index: spineIndexOf(l.value) ?? undefined, fraction: s.bookFraction, at }
+  }
+  const f = s.bookFraction
+  return l.scheme !== 'pdf-page' && typeof f === 'number' && f >= 0 && f <= 1 ? { fraction: f, at } : null
 }
 
 /** The page highlight as an annotation write; null when its text may not be synced (`syncableText`). */
@@ -161,6 +173,7 @@ export function decideServerState(o: {
   // Nothing restored yet: adopt, whatever spine item is on screen (none is reported before `restored`).
   if (!o.reader || !o.reader.restoreApplied) return 'adopt'
   return decideNewerPosition({
+    // A fraction-only position has no spine index: never the same chapter, so a restored reader is asked.
     sameChapter: o.reader.index != null && o.reader.index === theirs.index,
     restoreApplied: o.reader.restoreApplied,
     readerMoved: o.reader.moved,

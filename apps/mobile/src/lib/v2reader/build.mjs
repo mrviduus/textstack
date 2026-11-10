@@ -32,7 +32,9 @@ const FOLIATE_SHA = 'd73682a48a0779ca989f25074386784602437fbf'   // branch texts
 // FB2 re-encoded, FB2 entities refused, CBZ names/types/dedupe, flow() not a switch on a fixed layout.
 // −418 (#1128 simplify): no UnsupportedBook class, one FB2 head decode, one image-extension list, slimmer
 // telemetry session, CBZ aliasing in one loop.
-const BUDGET = 246250
+// +1353 (#1187): a fraction-only position (transitional server locator) restored and gone to by
+// fraction, with no save until the reader moves away from where it landed.
+const BUDGET = 247603
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

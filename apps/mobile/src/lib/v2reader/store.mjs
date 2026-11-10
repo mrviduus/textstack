@@ -4,7 +4,7 @@
 export const STORE_VERSION = 1
 
 /**
- * { v, book: { sha256, size, name }, position: null | { cfi, quote, index, fraction, at } | { cfi, page, index, fraction, at },
+ * { v, book: { sha256, size, name }, position: null | { cfi, quote, index, fraction, at } | { cfi, page, index, fraction, at } | { fraction, at },
  *   highlights: [{ id, cfi, index, quote, selectedText, prefix, suffix, color, at }] }
  * `quote` is the first ≤64 code points at the CFI (the epub-cfi locator's `quote`, ADR-031); a
  * highlight's full selection is `selectedText`. A highlight stored before #1078 has only `quote`,
@@ -24,7 +24,13 @@ const isQuoted = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(
  * image's entry name in the archive, checked on restore instead; `cfi` is foliate's section CFI.
  */
 const isPaged = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && x.quote === undefined && typeof x.page === 'string' && x.page.length > 0
-const isPosition = (x) => isQuoted(x) || isPaged(x)
+/**
+ * A server position in a transitional `textstack-*` scheme (#1187): no CFI, only the book fraction in
+ * [0, 1]. Restored approximately and never saved by the page until the reader moves.
+ */
+export const isFractional = (x) => typeof x?.fraction === 'number' && x.fraction >= 0 && x.fraction <= 1
+  && x.cfi === undefined && x.quote === undefined && x.page === undefined
+const isPosition = (x) => isQuoted(x) || isPaged(x) || isFractional(x)
 /** A highlight's `selectedText` is optional (older entries), but when present it is what restore compares. */
 const isHighlight = (h) => isQuoted(h) && (h.selectedText === undefined || (typeof h.selectedText === 'string' && h.selectedText.trim().length > 0))
 

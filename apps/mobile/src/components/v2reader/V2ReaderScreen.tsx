@@ -162,7 +162,8 @@ function V2Reader() {
   /** A programmatic move: the next relocate is the new baseline, not the reader moving. */
   const goTo = (p: PagePosition) => {
     reading.current.baseline = null
-    call(`window.__fol.goTo(${JSON.stringify(p.cfi)})`)
+    // A fraction-only position (a transitional server locator, #1187) goes as is: the page lands it quietly.
+    call(`window.__fol.goTo(${JSON.stringify(p.cfi ?? p)})`)
   }
 
   // Opportunistic sync (R6): with a session (a guest's too), on open, after saves, never on the reading path.

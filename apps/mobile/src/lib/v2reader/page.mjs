@@ -11,7 +11,7 @@ import { tokenizeVocabWords } from '../../../../../packages/shared/src/text/voca
 import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
 import { mergeOverlay } from './overlays.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
-import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { emptyEntry, entryFor, foldText, isFractional, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 import { openableHref, sentenceOf } from './tap.mjs'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, withoutKf8, zipFormat } from './formats.mjs'
@@ -33,6 +33,13 @@ const overlays = new Map()
 let book = null
 let entry = null
 let restoring = false
+/**
+ * A fraction-only position (#1187) is landing (`quiet`), or has landed at `heldCfi`: foliate relocates
+ * there again after the landing, and none of that is the reader moving, so nothing is saved until a
+ * relocate elsewhere.
+ */
+let quiet = false
+let heldCfi = null
 let lastSelection = null
 /** The open that is allowed to finish: a second openUrl makes the first one give up silently. */
 let openSeq = 0
@@ -240,6 +247,7 @@ async function open(bytes, name, kind, mine) {
   book = { sha256, size: bytes.length, name }
   entry = null
   restoring = true
+  heldCfi = null
   lastSelection = null
   // A view that never rendered a section (a spine of linear="no", a book that failed to open) throws
   // from close(); letting that through would wedge the page and fail this good book instead.
@@ -254,7 +262,9 @@ async function open(bytes, name, kind, mine) {
     // over, a dying view's events — close() still fires relocate — are dropped, not posted (#1168).
     if (mine !== openSeq) return
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
-    if (restoring || !entry || (textual && !d.range)) return
+    if (restoring || quiet || !entry || (textual && !d.range)) return
+    if (heldCfi === d.cfi) return
+    heldCfi = null
     // The visible range's start: its CFI and the text there, to verify the CFI on restore. An image
     // page has no text and so no quote: its entry name in the archive (`page`) is what restore checks.
     const at = { cfi: d.cfi, index: d.section?.current, fraction: d.fraction, at: Date.now() }
@@ -350,7 +360,14 @@ async function restoreInto(json) {
     if (ok) annotate({ value: h.cfi, index, hl: { id: h.id } })
   }
   const p = entry.position
-  if (p && !textual) {
+  if (isFractional(p)) {
+    // A transitional server locator (#1187): no CFI and no quote to check, only where in the book.
+    // Approximate (the legacy fraction counts words, foliate's bytes); nothing is saved until the reader moves.
+    // foliate's goTo answers what it resolved, nothing when it failed.
+    const resolved = await navigate(() => view.goTo({ fraction: p.fraction }))
+    heldCfi = view.lastLocation?.cfi ?? null
+    result.position = resolved ? 'restored by fraction' : 'navigation failed, stayed at start'
+  } else if (p && !textual) {
     // An image page: the stored entry name must still be a page of this book.
     const index = p.page ? view.book.sections.findIndex((s) => String(s.id) === p.page) : -1
     if (index < 0) result.position = 'page not found, stayed at start'
@@ -438,7 +455,17 @@ window.__fol = {
   },
   restore: (json) => restore(json).catch((e) => log('error', `restore: ${e?.stack ?? e}`)),
   highlightSelection,
-  goTo: (target) => navigate(() => view?.goTo(target)),
+  // A fraction-only position (a host adopting a transitional server locator, #1187) lands quietly and is
+  // saved as itself: the server's locator is not rewritten as a CFI by a move nobody made, and a taken
+  // offer still replaces the reader's older place on the host.
+  goTo: (target) => (isFractional(target)
+    ? navigate(async () => {
+      quiet = true
+      try { await view?.goTo({ fraction: target.fraction }) } finally { quiet = false }
+      heldCfi = view?.lastLocation?.cfi ?? null
+      if (entry) { entry = withPosition(entry, target); persist() }
+    })
+    : navigate(() => view?.goTo(target))),
   // The target is read once the previous navigation has landed: two quick taps move two sections.
   section: (delta) => navigate(() => {
     if (!view?.book) return

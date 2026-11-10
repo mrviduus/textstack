@@ -47,9 +47,32 @@ describe('v2LocalSync', () => {
     expect(positionWrite({ cfi: CFI, page: 'p1.jpg', index: 0, fraction: 0, at: 1 }, 'f', null)).toBeNull()
   })
 
-  it('statePosition_RoundTripsAPositionWrite_OtherSchemeNull', () => {
+  it('statePosition_RoundTripsAPositionWrite_PdfPageNull', () => {
     expect(statePosition(state())).toMatchObject({ cfi: CFI, quote: pos.quote, index: 6, fraction: 0.41 })
-    expect(statePosition(state({ currentLocator: { version: 1, scheme: 'textstack-position-v1', value: { chapterSlug: 'x' } } }))).toBeNull()
+    expect(statePosition(state({ currentLocator: { version: 1, scheme: 'pdf-page', value: 3 } }))).toBeNull()
+  })
+
+  it('statePosition_TransitionalScheme_FractionOnlyPosition', () => {
+    // #1187: nobody converts a textstack-* locator to a CFI; the page resumes from bookFraction.
+    const at = Date.parse('2026-11-10T11:00:00.000Z')
+    for (const scheme of ['textstack-position-v1', 'textstack-anchor-v1'] as const) {
+      expect(statePosition(state({ currentLocator: { version: 1, scheme, value: { chapterSlug: 'x' } }, bookFraction: 0.7 }))).toEqual({ fraction: 0.7, at })
+    }
+    // An epub-cfi without its quote cannot be verified at the CFI: by fraction too.
+    expect(statePosition(state({ currentLocator: { version: 1, scheme: 'epub-cfi', value: CFI } }))).toEqual({ fraction: 0.41, at })
+  })
+
+  it('statePosition_TransitionalSchemeFractionOutOfRangeOrMissing_Null', () => {
+    const other = { version: 1, scheme: 'textstack-position-v1', value: {} } as const
+    for (const bookFraction of [-0.01, 1.5, NaN, null as unknown as number]) {
+      expect(statePosition(state({ currentLocator: other, bookFraction })), String(bookFraction)).toBeNull()
+    }
+  })
+
+  it('positionWrite_FractionOnlyPosition_NeverPushed', () => {
+    // A position without a CFI is never sent as epub-cfi: the server's transitional locator stays.
+    expect(positionWrite({ fraction: 0.7, at: 1 }, 'f', 3)).toBeNull()
+    expect(positionWrite({ quote: 'q', fraction: 0.7, at: 1 }, 'f', 3)).toBeNull()
   })
 
   it('syncableText_OverCapOrWhitespace_NeverSynced_OldEntryUsesQuote', () => {
@@ -121,7 +144,24 @@ describe('v2LocalSync', () => {
     })
     it('decideServerState_OtherFileOrScheme_Keep', () => {
       expect(decideServerState({ local, localFileId: 'g', server: state(), reader: null, now })).toBe('keep')
-      expect(decideServerState({ local, localFileId: 'f', server: state({ currentLocator: { version: 1, scheme: 'textstack-position-v1', value: {} } }), reader: null, now })).toBe('keep')
+      expect(decideServerState({ local, localFileId: 'f', server: state({ currentLocator: { version: 1, scheme: 'pdf-page', value: 3 } }), reader: null, now })).toBe('keep')
+    })
+    describe('a transitional textstack-* state (fraction-only, #1187)', () => {
+      const transitional = (extra: Partial<V2ReadingState> = {}) =>
+        state({ currentLocator: { version: 1, scheme: 'textstack-position-v1', value: { chapterSlug: 'x' } }, bookFraction: 0.7, ...extra })
+      it('decideServerState_TransitionalNotNewerThanLocalCfi_Keep', () => {
+        expect(decideServerState({ local: { ...pos, at: now }, localFileId: 'f', server: transitional(), reader: { restoreApplied: true, moved: false, index: 6 }, now })).toBe('keep')
+        expect(decideServerState({ local, localFileId: 'g', server: transitional(), reader: null, now })).toBe('keep')
+      })
+      it('decideServerState_TransitionalNewerNotOpenOrNotRestored_Adopt', () => {
+        expect(decideServerState({ local, localFileId: 'f', server: transitional(), reader: null, now })).toBe('adopt')
+        expect(decideServerState({ local: null, localFileId: 'f', server: transitional(), reader: { restoreApplied: false, moved: false, index: null }, now })).toBe('adopt')
+      })
+      it('decideServerState_TransitionalNewerReaderRestored_PromptNeverSilentMove', () => {
+        // No spine index to call it the same chapter: a restored local CFI position is asked about, never replaced.
+        expect(decideServerState({ local, localFileId: 'f', server: transitional(), reader: { restoreApplied: true, moved: false, index: 6 }, now })).toBe('prompt')
+        expect(decideServerState({ local, localFileId: 'f', server: transitional(), reader: { restoreApplied: true, moved: true, index: null }, now })).toBe('prompt')
+      })
     })
     it('decideServerState_NewerBookNotOpen_Adopt', () => {
       expect(decideServerState({ local, localFileId: 'f', server: state(), reader: null, now })).toBe('adopt')
