@@ -159,10 +159,14 @@ function V2Reader() {
     deviceLocalLibrary().fileSync().then(setFileSync, fail('settings'))
   }, [])
 
-  /** A programmatic move: the next relocate is the new baseline, not the reader moving. */
-  const goTo = (p: PagePosition) => {
+  /**
+   * A programmatic move: the next relocate is the new baseline, not the reader moving. The whole position
+   * goes (README, `goTo`): not `chosen` (a sync adopt or move, already stored here) the page saves
+   * nothing and takes it as its own; `chosen` (the reader took an offer) it saves where it landed.
+   */
+  const goTo = (p: PagePosition, chosen = false) => {
     reading.current.baseline = null
-    call(`window.__fol.goTo(${JSON.stringify(p.cfi)})`)
+    call(`window.__fol.goTo(${JSON.stringify(p)}, ${chosen})`)
   }
 
   // Opportunistic sync (R6): with a session (a guest's too), on open, after saves, never on the reading path.
@@ -387,7 +391,7 @@ function V2Reader() {
       <ProgressLine setter={setProgress} color={colors.textSecondary} />
       {error && <Text style={[styles.meta, { color: colors.error }]}>{error}</Text>}
       {offer && (
-        <Pressable onPress={() => { goTo(offer); setOffer(null) }} style={styles.offer}>
+        <Pressable onPress={() => { goTo(offer, true); setOffer(null) }} style={styles.offer}>
           <Text style={[styles.meta, { color: colors.primary }]}>Read further on another device ({Math.round((offer.fraction ?? 0) * 100)}%): go there</Text>
         </Pressable>
       )}

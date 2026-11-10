@@ -249,6 +249,7 @@ async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: 
   if (b.server_file_id !== b.file_id) return drop(lib, reset, item)
   const write = positionWrite(JSON.parse(st.position), b.file_id!, st.revision_file_id === b.file_id ? st.revision : null)
   // A CBZ page has no quote: no position the server takes yet (PDD "CBZ positions: open question").
+  // (A fraction-only position, #1187, is never queued: localLibrary.applyEntry.)
   if (!write) return drop(lib, reset, item)
   const landed = (s: V2ReadingState) => Promise.all([lib.setStateRevision(b.id, s.revision, s.fileId), lib.done(item)])
   try {

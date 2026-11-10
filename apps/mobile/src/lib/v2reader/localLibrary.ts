@@ -24,7 +24,7 @@
  */
 import { createWriteQueue } from '../sessionWrites'
 import {
-  annotationHighlight, decideServerState, isUuid, sameJson, statePosition, syncableText,
+  annotationHighlight, decideServerState, isFractionOnly, isUuid, sameJson, statePosition, syncableText,
   type OpenReader, type PageHighlight, type PagePosition, type V2Annotation, type V2Book, type V2BookFile, type V2ReadingState,
 } from '@textstack/shared'
 import { entryFor, quoteOf, STORE_VERSION } from './store.mjs'
@@ -263,7 +263,8 @@ export function createLocalLibrary(db: Db) {
            ON CONFLICT (book_id) DO UPDATE SET position = excluded.position, file_id = excluded.file_id`,
           [book.id, JSON.stringify(entry.position), file],
         )
-        await enqueue('state', book.id)
+        // A fraction-only position (#1187) is the server's own transitional locator: never pushed, never queued.
+        if (!isFractionOnly(entry.position)) await enqueue('state', book.id)
       }
     }
     const rows = await all<Pick<AnnotationRow, 'id' | 'highlight' | 'deleted_at'>>('SELECT id, highlight, deleted_at FROM annotations WHERE book_id = ?', [book.id])

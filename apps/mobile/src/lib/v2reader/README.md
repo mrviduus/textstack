@@ -177,9 +177,9 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | Call | Does |
 |---|---|
 | `openUrl(url, name)` | Reads the retained book by XHR (`file://…`) and opens it, whatever its format (Formats). Answers `opened` or `open-failed`. A second call supersedes the first, which then answers nothing. |
-| `restore(json \| null)` | The answer to `opened`: the JSON last sent in `store` for that `book.sha256`, or null. |
+| `restore(json \| null)` | The answer to `opened`: the JSON last sent in `store` for that `book.sha256`, or null. Its position may be fraction-only, `{ fraction, at }` (a transitional `textstack-*` server locator, #1187). Ignored (a `warn`) unless the open that answered `opened` is still the latest one: not while another open of the page is under way. Takes its slot in the navigation queue when called: a `goTo` sent after it runs after it. |
 | `highlightSelection()` | The last non-empty selection becomes a highlight; sends `store` and `highlighted`. Ignored on a CBZ. A selection with no text (an image) or over 4000 UTF-16 units (`SyncLimits.MaxSelectedText`) is ignored with a `warn` log. |
-| `goTo(target)` | CFI, href or section index. Queued behind the previous navigation. |
+| `goTo(target, chosen = false)` | A position as stored (CFI + quote, CBZ page, or fraction-only `{ fraction, at }` with 0 the text start), a CFI, an href or a section index; an object that is no valid position is ignored with a `warn`. Queued behind the previous navigation; an open supersedes every queued or in-flight one. Not `chosen` (the host moving the view: a sync adopt or move): nothing is saved and no `store` is sent, the host already holds that position; a position target becomes the entry's own. `chosen` (the reader's own choice: a taken offer): the place it landed on is saved (one `store`), built exactly as a relocate's save. One that did not arrive changes nothing and logs a `warn`. |
 | `section(±1)`, `next()`, `prev()` | Section / page step, queued. |
 | `font(delta)` | Font size ±px, clamped 12–32; returns the new size. No-op before `opened`. |
 | `flow('paginated' \| 'scrolled')` | foliate layout; default `paginated` (ADR-029 Decision 1). Switches the open book in place (no reload, position kept). Before `opened` it sets what the next open uses: hosts send the reader's stored setting right after `ready`. Anything else is ignored with a `warn`. |
@@ -192,7 +192,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `ready` | — | may call `openUrl` |
 | `opened` | `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`), `textual` (false: hide highlight, translation, vocabulary), `reflowable` (false: disable the flow toggle), `title`, `author` (either may be `''`), `sections`, `toc [{label, href}]` | calls `restore` with the stored JSON for `book.sha256` |
 | `open-failed` | `name`, `error` (shown as is: unreadable, unsupported format, PDF, DRM) | must not keep the file |
-| `restored` | `found`, `rejected`, `position` (`none` / `restored` / `quote mismatch, stayed at start` / `page not found, stayed at start` (CBZ) / `navigation failed, stayed at start`), `highlights [{id, status}]` | — |
+| `restored` | `found`, `rejected`, `position` (`none` / `restored` / `restored by fraction` / `quote mismatch, stayed at start` / `page not found, stayed at start` (CBZ) / `navigation failed, stayed at start`), `highlights [{id, status}]` | — |
 | `store` | `key` (= `book.sha256`), `json` | keeps `json` under `key`, verbatim |
 | `relocate` | `index`, `sections`, `fraction`, `toc`, `cfi` | progress UI |
 | `word` | `index`, `word`, `sentence`, `cfi`, `rect {x, y, w, h}` (host viewport) | translates, then `showTranslation` |
@@ -204,7 +204,22 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 
 A stored position or highlight is applied only while the text at its CFI still reads as its saved quote
 (`foldText`; a highlight compares its `selectedText`, or its `quote` if stored before #1078); otherwise it is reported in `restored` and left out, never drawn elsewhere. Stored items with no
-quote at all are dropped when the entry is read. `highlightSelection()` before `restored` is ignored with a
+quote at all are dropped when the entry is read. A fraction-only position (#1187) has no CFI or quote to
+check: it lands approximately (the legacy fraction counts words, foliate's bytes); fraction 0 (never read
+on the other device) is not navigated to at all, the text start `opened` already shows. A fraction that
+did not arrive (foliate's goTo resolves with its target either way, so the renderer is asked) is reported
+as `navigation failed, stayed at start`. One outside [0, 1] is dropped when the entry is read.
+
+**The save rule** (any book, any restore): a `relocate` saves the position only when the reader moved —
+foliate's reason for it is not `'anchor'` (re-laying the page out: a resize, a `font` or `flow` change)
+AND its CFI differs from the previous relocate's (foliate relocates again where it already is: after a
+landing, and the snap of every touchend) AND the host is not moving the view (from `openUrl` until its
+restore has run, and during a non-`chosen` `goTo`). So opening a book, a restore and a sync adopt or
+move never save (nor rewrite the server's transitional locator as a CFI); the first page turn, swipe,
+scroll, `next`/`prev`/`section` or followed link does, and so does coming back to the landed place after
+one. A text book whose pages carry no text position (a pre-paginated EPUB: foliate's fixed-layout
+renderer reports no range) saves no position at all, a taken offer included. For a fixed-layout book a
+target in the spread already shown counts as arrived (foliate shows it without a relocate). `highlightSelection()` before `restored` is ignored with a
 `log` of level `warn`: there is no entry to add to yet, and saving then would overwrite the stored one.
 
 ## Host responsibilities

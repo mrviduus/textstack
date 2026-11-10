@@ -32,7 +32,17 @@ const FOLIATE_SHA = 'd73682a48a0779ca989f25074386784602437fbf'   // branch texts
 // FB2 re-encoded, FB2 entities refused, CBZ names/types/dedupe, flow() not a switch on a fixed layout.
 // −418 (#1128 simplify): no UnsupportedBook class, one FB2 head decode, one image-extension list, slimmer
 // telemetry session, CBZ aliasing in one loop.
-const BUDGET = 246250
+// +1353 (#1187): a fraction-only position (transitional server locator) restored and gone to by
+// fraction, with no save until the reader moves away from where it landed.
+// +651 (#1187 QA): the hold kept through a re-layout (the renderer's relocate reason), a fresh navigation
+// chain per open (a goTo in flight no longer wedges the next book); `quiet` dropped.
+// +643 (#1187 round 2): one save rule (reason + previous CFI) for every relocate, a taken fraction offer
+// saved as a CFI, arrival checked for every fraction navigation, fraction 0 = text start, calls bound to
+// the view (viewSeq) instead of the open seq; the fraction predicate now comes from packages/shared.
+// +773 (#1187 round 3): one host-move guard (restore + non-chosen goTo save and echo nothing), restore
+// as one navigation slot, restore only for a view that answered `opened`, one position builder,
+// fixed-layout arrival by spread.
+const BUDGET = 249670
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

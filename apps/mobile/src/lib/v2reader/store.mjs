@@ -1,10 +1,12 @@
 // V2 reader data (ADR-029): one entry per book FILE (its SHA-256 + size). The page owns the shape; the
 // host only keeps the JSON it is sent. An entry for other bytes, or a shape this code does not know, is
 // not applied. Pure: page.mjs and the tests import it.
+import { isFractionOnly } from '../../../../../packages/shared/src/reader/fractionPosition'
+
 export const STORE_VERSION = 1
 
 /**
- * { v, book: { sha256, size, name }, position: null | { cfi, quote, index, fraction, at } | { cfi, page, index, fraction, at },
+ * { v, book: { sha256, size, name }, position: null | { cfi, quote, index, fraction, at } | { cfi, page, index, fraction, at } | { fraction, at },
  *   highlights: [{ id, cfi, index, quote, selectedText, prefix, suffix, color, at }] }
  * `quote` is the first ≤64 code points at the CFI (the epub-cfi locator's `quote`, ADR-031); a
  * highlight's full selection is `selectedText`. A highlight stored before #1078 has only `quote`,
@@ -24,7 +26,8 @@ const isQuoted = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(
  * image's entry name in the archive, checked on restore instead; `cfi` is foliate's section CFI.
  */
 const isPaged = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && x.quote === undefined && typeof x.page === 'string' && x.page.length > 0
-const isPosition = (x) => isQuoted(x) || isPaged(x)
+/** A transitional server position by book fraction alone (#1187): the shared predicate, one definition. */
+export const isPosition = (x) => isQuoted(x) || isPaged(x) || isFractionOnly(x)
 /** A highlight's `selectedText` is optional (older entries), but when present it is what restore compares. */
 const isHighlight = (h) => isQuoted(h) && (h.selectedText === undefined || (typeof h.selectedText === 'string' && h.selectedText.trim().length > 0))
 
