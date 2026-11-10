@@ -91,6 +91,28 @@ describe('v2LocalSync', () => {
     expect(sameJson({ a: 1, b: undefined }, { a: 1 })).toBe(true)
   })
 
+  it('ownWrite_AnotherDevicesWriteDiffersInOneField_NotOwn', () => {
+    // Too loose here = a real conflict taken as success: this device's write silently dropped.
+    const sent = positionWrite(pos, 'f', null)!
+    expect(ownStateWrite(state({ clientRecordedAt: sent.clientRecordedAt }), sent)).toBe(true)
+    expect(ownStateWrite(state({ clientRecordedAt: '2026-11-10T10:00:00.001Z' }), sent)).toBe(false)
+    expect(ownStateWrite(state({ clientRecordedAt: sent.clientRecordedAt, fileId: 'g' }), sent)).toBe(false)
+    expect(ownStateWrite(state({ clientRecordedAt: sent.clientRecordedAt, currentLocator: { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/14!/4/2/9:0)', quote: pos.quote } }), sent)).toBe(false)
+    const w = highlightWrite(hl(), 'b', 'f', null)!
+    const a = { id: 'x', bookId: 'b', fileId: 'f', selectedText: w.selectedText, noteText: null, locator: { ...w.locator! }, color: 'yellow', createdAt: '', updatedAt: '', deletedAt: null, revision: 1 }
+    expect(ownAnnotationWrite({ ...a, selectedText: 'bright cold day' }, w)).toBe(false)
+    expect(ownAnnotationWrite({ ...a, fileId: 'g' }, w)).toBe(false)
+  })
+
+  it('syncableText_ExactlyAtTheCap_Synced', () => {
+    expect(syncableText(hl({ selectedText: 'x'.repeat(4000) }))).toHaveLength(4000)
+  })
+
+  it('isUuid_UuidInsideAnotherId_NotAUuid', () => {
+    expect(isUuid('lb_0b6a2c1e-1111-4222-8333-444455556666')).toBe(false)
+    expect(isUuid('0b6a2c1e-1111-4222-8333-444455556666x')).toBe(false)
+  })
+
   describe('decideServerState (ADR-019 rule 5 by CFI + spine index)', () => {
     const local = { ...pos } // 10:00; the server's is 11:00
     const now = Date.parse('2026-11-10T12:00:00Z')
