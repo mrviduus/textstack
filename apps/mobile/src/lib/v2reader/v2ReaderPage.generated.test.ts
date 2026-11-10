@@ -68,6 +68,12 @@ describe('v2ReaderPageHtml', () => {
     const html = v2ReaderPageHtml(NONCE)
     // A view that never rendered throws from close(); the next open must still work.
     expect(html).toMatch(/try \{\s*view == null \? void 0 : view\.close\(\);\s*\} catch/)
+    // A superseded book's events are dropped: each view's listeners carry the open seq that made
+    // them, and openFor turns the seq over before the dying view's close() fires relocate (#1168).
+    expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+ \}\) => \{\s*(var [^;]*;\s*)?if \(mine !== openSeq\) return;\s*post\(\{\s*type: "relocate"/)
+    expect(html).toMatch(/view\.addEventListener\("create-overlay", [\s\S]{0,80}?if \(mine !== openSeq\) return;/)
+    // A superseded open must not re-key the current book's saves: the seq check precedes the assignment.
+    expect(html).toMatch(/if \(mine !== openSeq\) return false;\s*book = \{ sha256/)
     // restoring is cleared however restore ends, or the page saves nothing for the rest of the session.
     expect(html).toMatch(/\} finally \{[\s\S]{0,200}?restoring = false;/)
     // The renderer exists only after view.open() resolved.
