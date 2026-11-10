@@ -396,8 +396,9 @@ describe('an answer that outlives a sign-out (v2Store.reset, #1155)', () => {
   })
 
   it('sends no mark-read write once the reset landed', async () => {
-    const routes = { ...library, ...chapters, ...readState({ status: 200, body: state('b1', 4) }), ...put }
-    expect(await underReset(routes, () => completeV2Book('b1'), '/chapters')).toBe('dropped')
+    // Its state is on the current file, so no TOC is read (#1121 review): the reset lands on the state read.
+    const routes = { ...library, ...readState({ status: 200, body: state('b1', 4) }), ...put }
+    expect(await underReset(routes, () => completeV2Book('b1'), '/reading-state')).toBe('dropped')
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false)
   })
 

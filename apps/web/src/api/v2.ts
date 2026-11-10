@@ -3,13 +3,13 @@
  * side of the user-book API — library, upload, the transitional chapter reader, reading state —
  * mapped onto the legacy shapes the pages already render, so `api/userBooks.ts` switches per call
  * and no consumer changes. Wire calls are `@textstack/shared`'s `v2Api`; the place and anchor
- * mappings are shared (`v2Locators`); this file only caches, maps and sequences.
+ * mappings are shared (`v2Locators`), and so are the book client and the upload sequence
+ * (`createV2Books`, `uploadV2File`, #1121); this file caches, maps and gives them its IO.
  */
 import {
-  type V2WriteOutcome,
-  v2Api, ApiError, V2_OFF, clip, ingestionStatus, shelfFileSummary, resumeChapterOf, placeToV2Locator, v2LocatorToPlace,
+  v2Api, ApiError, V2_OFF, ingestionStatus, shelfFileSummary, resumeChapterOf, placeToV2Locator, createV2Books, uploadV2File, V2UploadError, mb,
   type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2Annotation, type V2Word,
-  type V2ReadingStateWrite, type V2Switch, type LegacyPlace,
+  type V2ReadingStateWrite, type V2Switch, type ProgressWrite,
 } from '@textstack/shared'
 import { API_BASE } from './client'
 import { settleV2Session, v2SessionSettled, rearmV2Session } from '../lib/v2Session'
@@ -75,32 +75,6 @@ export const v2Store = {
   },
 }
 
-/** Taken at a call's start: whether `v2Store.reset()` ran since (signed out, another account). */
-export function resetSince(): () => boolean {
-  const started = v2Store.epoch
-  return () => v2Store.epoch !== started
-}
-
-/**
- * `work`'s answer, or null when the store was reset while it ran: nothing of the previous account's
- * lands in the next one's store (#1155, mobile's twin #1151). A failure that outlived the reset is
- * the previous account's too: null, not thrown, so no 409 handling writes it back. `keep` writes
- * the answer away in the same tick as the check, so no reset lands between the two. `reset` is
- * taken when the caller started, when awaits before `work` belong to the same call.
- * Web's copy of mobile's guard; one shared copy is #1121.
- */
-export async function whileCurrent<T>(work: Promise<T>, keep?: (value: T) => unknown, reset = resetSince()): Promise<T | null> {
-  try {
-    const value = await work
-    if (reset()) return null
-    await keep?.(value)
-    return value
-  } catch (e) {
-    if (!reset()) throw e
-    return null
-  }
-}
-
 /** Tests only: a fresh app start (no probe, no session settled, an empty cache). */
 export function resetV2ForTests() {
   probe = null
@@ -112,40 +86,28 @@ export function resetV2ForTests() {
 /** A full pull of a feed, shared by every caller while one is in flight (`@textstack/shared`). */
 export const pullFeed = v2Api.pullFeed
 
+const remember = (s: V2ReadingState) => v2Store.states.set(s.bookId, { revision: s.revision, fileId: s.fileId, bookFraction: s.bookFraction })
+
+/** The shared V2 book client (`@textstack/shared` v2Books) on this tab's store; `whileCurrent` is its epoch guard (#1155). */
+const v2 = createV2Books({
+  books: v2Store.books,
+  chapters: v2Store.chapters,
+  epoch: () => v2Store.epoch,
+  keepState: remember,
+  forgetState: (id) => v2Store.states.delete(id),
+  // The book first, so the body names its current file.
+  progressBody: async (bookId, data) => {
+    if (!v2Store.books.has(bookId)) await v2Book(bookId)
+    return v2ProgressBody(bookId, data)
+  },
+})
+export const {
+  resetSince, whileCurrent, pullV2Books, v2Book, v2Chapters, removeV2Book, v2FileUrl,
+  saveV2Progress, completeV2Book, uncompleteV2Book,
+} = v2
+const { rememberState, toProgress } = v2
+
 // ---- Library ------------------------------------------------------------------------------------
-
-export async function pullV2Books(): Promise<V2Book[]> {
-  const feed = await whileCurrent(pullFeed<V2Book>('library'), ({ items }) => {
-    v2Store.books.clear()
-    for (const b of items) v2Store.books.set(b.id, b)
-  })
-  return feed?.items ?? []
-}
-
-/** A live book of the user's, from the last pull or a fresh one; 404 when there is none. */
-export async function v2Book(id: string): Promise<V2Book> {
-  const b = v2Store.books.get(id) ?? (await pullV2Books(), v2Store.books.get(id))
-  if (!b || b.removedAt) throw new ApiError(404, 'Book not found')
-  return b
-}
-
-/** The current file's table of contents and extraction status (empty when it has no bytes). */
-export async function v2Chapters(b: V2Book): Promise<V2FileChapters> {
-  const file = b.currentFile
-  if (!file) return { items: [], ingestion: null }
-  const cached = v2Store.chapters.get(file.id)
-  if (cached) return cached
-  const toc = await whileCurrent(v2Api.getChapters(b.id, file.id), (t) => t.ingestion === 'succeeded' && v2Store.chapters.set(file.id, t))
-  return toc ?? { items: [], ingestion: null }
-}
-
-/** Forget what was cached for a book: its file changed (`file_replaced` / `unknown_file`). */
-export function forgetV2Book(id: string) {
-  const file = v2Store.books.get(id)?.currentFile
-  if (file) v2Store.chapters.delete(file.id)
-  v2Store.books.delete(id)
-  v2Store.states.delete(id)
-}
 
 const isPdf = (b: V2Book) => b.currentFile?.format === 'pdf' && b.currentFile.hasContent
 
@@ -222,34 +184,7 @@ export async function getV2UserBookChapter(bookId: string, chapterKey: string): 
   }
 }
 
-export async function removeV2Book(id: string): Promise<void> {
-  await v2Api.removeBook(id)
-  forgetV2Book(id)
-}
-
-/** The original PDF, Range-capable; '' until the book is known (the reader loads it first). */
-export function v2FileUrl(id: string): string {
-  const file = v2Store.books.get(id)?.currentFile
-  return file ? v2Api.contentUrl(id, file.id) : ''
-}
-
 // ---- Reading state ------------------------------------------------------------------------------
-
-const remember = (s: V2ReadingState) => v2Store.states.set(s.bookId, { revision: s.revision, fileId: s.fileId, bookFraction: s.bookFraction })
-
-/** A V2 state as the legacy progress row the reader restores from. */
-async function toProgress(s: V2ReadingState): Promise<UserBookProgress> {
-  const place = v2LocatorToPlace(s.currentLocator)
-  const chapterSlug = resumeChapterOf(s, place ? [] : (await v2Chapters(await v2Book(s.bookId))).items)
-  return {
-    chapterSlug,
-    locator: place?.locator ?? null,
-    percent: s.bookFraction,
-    updatedAt: s.updatedAt,
-    positionJson: place?.positionJson ?? null,
-    clientUpdatedAt: s.clientRecordedAt,
-  }
-}
 
 /**
  * The reader's read: null = no state yet, undefined = no answer (as `readUserBookProgress`) — also
@@ -272,11 +207,6 @@ export async function readV2Progress(bookId: string, signal?: AbortSignal): Prom
   }
 }
 
-export interface ProgressWrite extends LegacyPlace {
-  percent?: number
-  updatedAt?: string
-}
-
 /**
  * The PUT body for a write, synchronously (the keepalive flush); null when the book is not known
  * yet. On the book's current file: a state read on a superseded version is not written to again
@@ -296,115 +226,24 @@ export function v2ProgressBody(bookId: string, data: ProgressWrite): V2ReadingSt
     currentLocator,
     // No percent yet (the chapter list has not loaded): the fraction last read, never 0 over it.
     bookFraction: Math.min(1, Math.max(0, data.percent ?? known?.bookFraction ?? 0)),
-    // The client's clock as the write was made; it is already this device's now, so within MAX_CLIENT_SKEW_MS of it.
-    clientRecordedAt: data.updatedAt ?? new Date().toISOString(),
+    // The client's clock as the write was made, never later than now (MAX_CLIENT_SKEW_MS is the server's bound; as mobile).
+    clientRecordedAt: new Date(Math.min(Date.parse(data.updatedAt ?? '') || Date.now(), Date.now())).toISOString(),
   }
 }
 
-export type { V2WriteOutcome } from '@textstack/shared'
-
-/**
- * One reading-state write under the revision rule. Lost (409): `stale_revision` adopts the server's
- * row (a lost write takes the server's place); `reset` writes this place again on the new revision;
- * `file_replaced` asks for a reload; `unknown_file` refetches the book and writes once more;
- * `chapter_not_found` drops the write — while the file is still extracting it is sent again later,
- * after that its chapter keys changed (the TOC is fetched again; the reader resumes from the
- * fraction). Anything else throws: the caller keeps the write for its next save.
- */
-export async function saveV2Progress(bookId: string, data: ProgressWrite, retried = false): Promise<V2WriteOutcome> {
-  const reset = resetSince()
-  if (!v2Store.books.has(bookId)) await v2Book(bookId)
-  const body = v2ProgressBody(bookId, data)
-  if (!body) return 'dropped'
-  try {
-    return (await whileCurrent(v2Api.putReadingState(bookId, body), remember, reset)) ? 'accepted' : 'dropped'
-  } catch (e) {
-    // Only reached with no reset so far: whileCurrent swallows a failure that outlived one.
-    const err = v2Api.v2ErrorOf(e)
-    const current = err?.current as V2ReadingState | null | undefined
-    switch (err?.code) {
-      case 'stale_revision':
-        if (!current) {
-          v2Store.states.delete(bookId)
-          return 'dropped'
-        }
-        remember(current)
-        const adopted = await toProgress(current)
-        return reset() ? 'dropped' : { adopted }
-      case 'reset':
-        if (current) remember(current)
-        return (await whileCurrent(v2Api.putReadingState(bookId, { ...body, expectedRevision: current?.revision ?? null }), remember, reset)) ? 'accepted' : 'dropped'
-      case 'file_replaced':
-        forgetV2Book(bookId)
-        return 'reload'
-      case 'unknown_file':
-        // The book's file is not the one we named: fetch the book again and write once more.
-        forgetV2Book(bookId)
-        return retried ? 'dropped' : saveV2Progress(bookId, data, true)
-      case 'chapter_not_found': {
-        const file = v2Store.books.get(bookId)?.currentFile
-        if (file) v2Store.chapters.delete(file.id)
-        return 'dropped'
-      }
-      default:
-        throw e
-    }
-  }
-}
+export type { V2WriteOutcome, V2MarkOutcome, ProgressWrite } from '@textstack/shared'
+export { V2UploadError }
 
 /** A keepalive write's answer (null: not landed) is the new revision, unless the store was reset meanwhile. */
-export const rememberV2State = (answer: Promise<V2ReadingState | null>) => whileCurrent(answer, (s) => s && remember(s))
-
-/** 'dropped': the store was reset meanwhile, the caller shows no change. */
-export type V2MarkOutcome = 'done' | 'dropped'
-
-/** Mark read on V2: the state as it stands (or the book's start), at the end, with `completedAt`. */
-export async function completeV2Book(bookId: string): Promise<V2MarkOutcome> {
-  const reset = resetSince()
-  const b = await v2Book(bookId)
-  const state = await v2Api.getReadingState(bookId)
-  const first = (await v2Chapters(b)).items[0]?.chapterKey
-  // Signed out meanwhile: no write under the next account, and no 'nothing to mark' from its empty store.
-  if (reset()) return 'dropped'
-  const sameFile = state && state.fileId === b.currentFile?.id
-  const currentLocator = sameFile ? state.currentLocator : placeToV2Locator({ chapterSlug: first ?? null })
-  if (!b.currentFile || !currentLocator) throw new ApiError(409, 'Nothing to mark read yet')
-  const written = await whileCurrent(v2Api.putReadingState(bookId, {
-    expectedRevision: sameFile ? state.revision : null,
-    fileId: b.currentFile.id,
-    currentLocator,
-    bookFraction: sameFile ? state.bookFraction : 0,
-    completedAt: new Date().toISOString(),
-    clientRecordedAt: new Date().toISOString(),
-  }), remember, reset)
-  return written ? 'done' : 'dropped'
-}
-
-/** Mark unread on V2: a reset clears completion and the frontier, the place stays (PDD rule 5). */
-export async function uncompleteV2Book(bookId: string): Promise<V2MarkOutcome> {
-  const reset = resetSince()
-  const state = await v2Api.getReadingState(bookId)
-  if (reset()) return 'dropped'
-  if (!state) return 'done'
-  return (await whileCurrent(v2Api.resetReadingState(bookId, state.revision), remember, reset)) ? 'done' : 'dropped'
-}
+export const rememberV2State = (answer: Promise<V2ReadingState | null>) => rememberState(answer)
 
 // ---- Upload -------------------------------------------------------------------------------------
-
-/** A V2 upload the reader must hear about; `code` picks the message (`upload.v2.*`). */
-export class V2UploadError extends Error {
-  constructor(readonly code: 'content_mismatch' | 'quota_exceeded', readonly quota?: { used: number; limit: number }) {
-    super(code)
-  }
-}
-
-const megabytes = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
 
 /** The reader-facing message of a failed V2 upload; null when the error is not one of these. */
 export function v2UploadMessage(err: unknown, t: (key: string, vars?: Record<string, string | number>) => string): string | null {
   if (!(err instanceof V2UploadError)) return null
   if (err.code === 'content_mismatch') return t('upload.v2.contentMismatch')
-  return t('upload.v2.quotaExceeded', { used: megabytes(err.quota?.used ?? 0), limit: megabytes(err.quota?.limit ?? 0) })
+  return t('upload.v2.quotaExceeded', { used: mb(err.quota?.used ?? 0), limit: mb(err.quota?.limit ?? 0) })
 }
 
 /** Lowercase hex SHA-256 of the file: the browser's own digest, the whole file in memory (≤ 500 MB). */
@@ -416,11 +255,8 @@ export async function sha256Hex(file: Blob): Promise<string> {
 type SendPart = (url: string, part: Blob, onLoaded: (loaded: number) => void) => Promise<unknown>
 
 /**
- * An upload on V2 (PDD "File sync upload protocol"): hash, look the bytes up, import the metadata,
- * send the parts, complete. The same bytes already in the library open that book (`existing`), its bytes sent first if it has none.
- * `content_mismatch` re-hashes (same hash: send again once; changed: tell the reader);
- * `incomplete_upload` re-sends every part once; `quota_exceeded` carries `used/limit`. `sendPart` is the XHR sender with its progress and retry.
- * ponytail: no cover (`PUT /cover` needs an EPUB parse on the client), the title is the file name.
+ * An upload on V2: the shared sequence (`@textstack/shared` v2Upload) over this tab's IO — the
+ * browser's digest, `Blob.slice` parts through `sendPart` (the XHR sender with its progress and retry).
  */
 export async function uploadV2Book(
   file: File,
@@ -428,61 +264,13 @@ export async function uploadV2Book(
   sendPart: SendPart,
   onProgress?: (percent: number) => void,
 ): Promise<UploadResponse & { existing?: boolean }> {
-  const format = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'epub'
-  const sha256 = await sha256Hex(file)
-  // The same bytes already in the library: open that book. If its bytes never arrived (an earlier
-  // upload broke after the import), this upload sends them to it, then opens it.
-  const reuse = async (b: V2Book) => {
-    const fileId = b.currentFile?.id
-    if (fileId && !b.currentFile!.hasContent) await sendBytes(file, sha256, b.id, fileId, maxPartBytes, sendPart, onProgress)
-    return { userBookId: b.id, jobId: '', status: 'existing', existing: true, hasOriginalPdf: b.currentFile?.format === 'pdf' }
-  }
-  const existing = await v2Api.findBySha256(sha256)
-  if (existing) return reuse(existing)
-
-  const bookId = crypto.randomUUID()
-  const fileId = crypto.randomUUID()
-  const title = clip(file.name.replace(/\.(epub|pdf)$/i, '').trim() || file.name, 500)
-  try {
-    await v2Api.importBook(bookId, { title, file: { id: fileId, sha256, byteSize: file.size, originalName: clip(file.name, 500), format } })
-  } catch (e) {
-    const err = v2Api.v2ErrorOf(e)
-    if (err?.code === 'duplicate_file') return reuse(err.current as V2Book)
-    throw e
-  }
-  await sendBytes(file, sha256, bookId, fileId, maxPartBytes, sendPart, onProgress)
-  return { userBookId: bookId, jobId: '', status: 'Processing', hasOriginalPdf: format === 'pdf' }
-}
-
-/** The parts, then the complete, with the retries `uploadV2Book` names. */
-async function sendBytes(
-  file: File, sha256: string, bookId: string, fileId: string, maxPartBytes: number,
-  sendPart: SendPart, onProgress?: (percent: number) => void,
-): Promise<void> {
-  const partBytes = Math.max(1, maxPartBytes)
-  const partCount = Math.max(1, Math.ceil(file.size / partBytes))
-  const sendAll = async () => {
-    for (let i = 0; i < partCount; i++) {
-      const start = i * partBytes
-      await sendPart(`${API_BASE}${v2Api.partPath(bookId, fileId, i)}`, file.slice(start, start + partBytes),
-        (loaded) => onProgress?.(((start + loaded) / file.size) * 100))
-    }
-  }
-  // One second round: every part again after `incomplete_upload` (a part went missing), or after
-  // `content_mismatch` when the file still hashes the same (the bytes broke in flight). A file that
-  // changed while it was read is the reader's to pick again.
-  for (let retried = false; ; retried = true) {
-    await sendAll()
-    try {
-      await v2Api.completeContent(bookId, fileId, partCount)
-      break
-    } catch (e) {
-      const err = v2Api.v2ErrorOf(e)
-      if (err?.code === 'quota_exceeded') throw new V2UploadError('quota_exceeded', err.current as { used: number; limit: number })
-      const again = !retried && (err?.code === 'incomplete_upload'
-        || (err?.code === 'content_mismatch' && (await sha256Hex(file)) === sha256))
-      if (again) continue
-      throw err?.code === 'content_mismatch' ? new V2UploadError('content_mismatch') : e
-    }
-  }
+  const { bookId, format, found } = await uploadV2File(file, maxPartBytes, {
+    newId: () => crypto.randomUUID(),
+    hash: () => sha256Hex(file),
+    sendPart: ({ bookId, fileId, index, start, end }) => sendPart(`${API_BASE}${v2Api.partPath(bookId, fileId, index)}`, file.slice(start, end),
+      (loaded) => onProgress?.(((start + loaded) / file.size) * 100)),
+  })
+  return found
+    ? { userBookId: bookId, jobId: '', status: 'existing', existing: true, hasOriginalPdf: found.currentFile?.format === 'pdf' }
+    : { userBookId: bookId, jobId: '', status: 'Processing', hasOriginalPdf: format === 'pdf' }
 }

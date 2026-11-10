@@ -48,9 +48,9 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. view.js's own format imports, PDF, TTS and search are
   stubbed out of the page; MOBI/FB2/CBZ come in as format readers (Formats).
-- **Size:** 246,250 characters of page script (unminified) + the format readers (`FORMAT_BUDGET`: mobi 51,784,
-  fb2 11,417, cbz 2,030), ~326 KB generated file. Reader-engine's 64 KB budget does
-  not apply; this page's own budget is `BUDGET` in `build.mjs`, raised only by a deliberate PR.
+- **Size:** the page script (unminified) is at most `BUDGET` characters in `build.mjs`, and each format reader
+  at most its `FORMAT_BUDGET` entry: those constants are the one source for the numbers. Reader-engine's 64 KB
+  budget does not apply; a budget is raised only by a deliberate PR.
 - `BUDGET` is a tripwire by design, not a ceiling: it equals the committed size, so any growth fails `--check`
   until the PR that grows the page says so.
 - **Licences** stay in the output (`legalComments: 'inline'`): foliate-js MIT © John Factotum; zip.js BSD-3-Clause.
