@@ -57,11 +57,12 @@ origin to book content, so it cannot inherit the production reader's safety argu
    envelope had no field for the prototype's quote check — resolved: ADR-031 `epub-cfi` carries
    `quote` since 2026-10-30), with the fraction beside it because CFIs do not sort. The schemes are defined in ADR-031 §"Locator
    schemes"; this ADR does not redefine them.
-2. **Pin, patch, attribute.** foliate-js is pinned by commit SHA, not a branch or tag. The bundle is
-   built from that SHA with every `patches/*.patch` applied on every build; a patch that no longer
-   applies fails the build. A bump is a PR that re-runs every check in Decision 6. Each patch is
-   offered upstream; dropping it after an upstream fix is part of the next bump. Licence notices are
-   kept in the output (`legalComments: 'inline'`). Notices this bundle carries:
+2. **Pin, patch, attribute.** foliate-js is pinned by commit SHA, not a branch or tag. Since ADR-032
+   (consumed 2026-11-10) the pin is a commit on our fork `mrviduus/foliate-js` (branch `textstack-pin` =
+   the upstream SHA + our fixes as real commits); build-time `patches/*.patch` application is gone. A
+   bump is a PR that re-runs every check in Decision 6. Each fix is offered upstream; dropping it after
+   an upstream fix is part of the next bump. Licence notices are kept in the output
+   (`legalComments: 'inline'`). Notices this bundle carries:
    - foliate-js — MIT, © John Factotum
    - zip.js (bundled by foliate-js) — BSD-3-Clause
 3. **The reader page is a build artifact.** esbuild IIFE → committed `v2ReaderPage.generated.ts`
