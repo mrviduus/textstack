@@ -153,13 +153,15 @@ const firstAuthor = (m) => { const a = [].concat(m?.author ?? [])[0]; return a?.
 async function open(bytes, name, mine) {
   // Nothing of the previous book may land on this one; its entry is gone with the next line.
   saves.cancel()
-  book = { sha256: await sha256Yielding(bytes), size: bytes.length, name }
+  const sha256 = await sha256Yielding(bytes)
+  // Checked BEFORE book is assigned: a superseded open must not re-key the current book's saves (#1168).
   if (mine !== openSeq) return false
+  book = { sha256, size: bytes.length, name }
   entry = null
   restoring = true
   lastSelection = null
-  // The new view becomes current before the old one is torn down: close() still fires `relocate` on
-  // the dying view, and the listener below drops events whose target is no longer `view` (#1168).
+  // The new view goes up before the old one is torn down; close() still fires `relocate` on the dying
+  // view, and its listeners carry a stale `mine`, so every event of a superseded book is dropped (#1168).
   const prev = view
   view = document.createElement('foliate-view')
   overlays.clear()
@@ -169,8 +171,8 @@ async function open(bytes, name, mine) {
   prev?.remove()
   document.body.append(view)
   view.addEventListener('load', onLoad)
-  view.addEventListener('relocate', ({ detail: d, target }) => {
-    if (target !== view) return
+  view.addEventListener('relocate', ({ detail: d }) => {
+    if (mine !== openSeq) return
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
     if (restoring || !entry || !d.range) return
     // The visible range's start: its CFI and the text there, to verify the CFI on restore.
@@ -179,6 +181,7 @@ async function open(bytes, name, mine) {
     persist(400)
   })
   view.addEventListener('create-overlay', ({ detail: { index } }) => {
+    if (mine !== openSeq) return
     for (const a of overlays.values()) if (a.index === index) view.addAnnotation(a)
   })
   view.addEventListener('draw-annotation', ({ detail: { draw, annotation: a, range } }) => {
@@ -291,8 +294,7 @@ function highlightSelection() {
 const openFailed = (name, error) => post({ type: 'open-failed', name, error })
 
 /** One `opened` or one `open-failed` per call — unless a newer openUrl took over, and then neither. */
-function openFor(bytes, name) {
-  const mine = ++openSeq
+function openFor(bytes, name, mine) {
   return open(bytes, name, mine).catch((e) => {
     log('error', `open: ${e?.stack ?? e}`)
     if (mine === openSeq) openFailed(name, String(e?.message ?? e).slice(0, 200))
@@ -303,12 +305,17 @@ window.__fol = {
   // The retained file, read by the page itself (file:// origin + allowFileAccessFromFileURLs): no book
   // bytes cross the bridge. `open-failed`: unreadable, or not an EPUB; the host must not keep it.
   openUrl: (url, name) => {
+    // The seq turns over HERE, not when the bytes arrive: the previous book is superseded the moment
+    // the host asks for a new one, and its view's events go stale with it (#1168).
+    const mine = ++openSeq
     const x = new XMLHttpRequest()
     x.responseType = 'arraybuffer'
-    x.onload = () => ((x.status === 0 || x.status === 200) && x.response
-      ? openFor(new Uint8Array(x.response), name)
-      : openFailed(name, `cannot read the file (status ${x.status})`))
-    x.onerror = () => openFailed(name, 'cannot read the file')
+    x.onload = () => {
+      if (mine !== openSeq) return
+      if ((x.status === 0 || x.status === 200) && x.response) openFor(new Uint8Array(x.response), name, mine)
+      else openFailed(name, `cannot read the file (status ${x.status})`)
+    }
+    x.onerror = () => { if (mine === openSeq) openFailed(name, 'cannot read the file') }
     x.open('GET', url)
     x.send()
   },

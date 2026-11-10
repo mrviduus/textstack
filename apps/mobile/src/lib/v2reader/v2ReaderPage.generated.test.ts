@@ -60,7 +60,7 @@ describe('v2ReaderPageHtml', () => {
     const html = v2ReaderPageHtml(NONCE)
     // The call sites of the two data-loss guards; the scheduler itself is unit-tested.
     expect(html).toMatch(/async function open\(bytes, name, mine\) \{(\s*var [^;]*;)?\s*saves\.cancel\(\);/)
-    expect(html).toMatch(/function openFor\(bytes, name\) \{\s*const mine = \+\+openSeq;/)
+    expect(html).toMatch(/function openFor\(bytes, name, mine\) \{\s*return open\(bytes, name, mine\)/)
     expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,200}?if \(!entry\) return log\("warn"/)
   })
 
@@ -71,8 +71,13 @@ describe('v2ReaderPageHtml', () => {
     // #1168, in this order: the new view and an empty overlay map are current BEFORE the old view closes
     // (it still fires events then), and the old view leaves the DOM.
     expect(html).toMatch(/const prev = view;\s*view = document\.createElement\("foliate-view"\);\s*overlays\.clear\(\);\s*try \{\s*prev == null \? void 0 : prev\.close\(\);[\s\S]{0,200}?\}\s*prev == null \? void 0 : prev\.remove\(\);/)
-    // The dying view's late relocate is dropped: the listener answers only the current view, by the event's target.
-    expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+, target \}\) => \{\s*(var [^;]*;\s*)?if \(target !== view\) return;\s*post\(\{\s*type: "relocate"/)
+    // A superseded book's events are dropped: each view's listeners carry the open seq that made them,
+    // and the seq turns over at openUrl — before the bytes are even read — not at the view swap (#1168).
+    expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+ \}\) => \{\s*(var [^;]*;\s*)?if \(mine !== openSeq\) return;\s*post\(\{\s*type: "relocate"/)
+    expect(html).toMatch(/view\.addEventListener\("create-overlay", [\s\S]{0,80}?if \(mine !== openSeq\) return;/)
+    expect(html).toMatch(/openUrl: \(url, name\) => \{\s*(var [^;]*;\s*)?const mine = \+\+openSeq;/)
+    // A superseded open must not re-key the current book's saves: the seq check precedes the assignment.
+    expect(html).toMatch(/if \(mine !== openSeq\) return false;\s*book = \{ sha256/)
     // restoring is cleared however restore ends, or the page saves nothing for the rest of the session.
     expect(html).toMatch(/\} finally \{[\s\S]{0,200}?restoring = false;/)
     // The renderer exists only after view.open() resolved.

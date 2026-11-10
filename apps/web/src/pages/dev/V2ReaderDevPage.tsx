@@ -131,6 +131,9 @@ export default function V2ReaderDevPage() {
           const current = answered(m.name)
           if (!current) return
           setError(`cannot open ${current.originalName}: ${m.error}`)
+          // A relocate posted before the page learned of this open (the file-read window) may land
+          // after pick() cleared the status; a failure must not leave it standing (#1168).
+          setStatus('')
           opening.current = null
           return
         }

@@ -163,6 +163,9 @@ function V2Reader() {
         if (isStaged(current.file)) v2Storage().dropStaged(current.file).catch(fail('drop'))
         opening.current = null
         setError(`cannot open ${current.name}: ${m.error}`)
+        // A relocate posted before the page learned of this open (the file-read window) may land
+        // after open() cleared the progress; a failure must not leave it standing (#1168).
+        setProgress.current('')
         return
       }
       case 'restored':
