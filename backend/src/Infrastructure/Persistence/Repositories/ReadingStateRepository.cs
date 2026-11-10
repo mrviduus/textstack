@@ -36,13 +36,13 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
     private const string FrontierChapterExists =
         "(CAST(@FrontierKey AS text) IS NULL OR EXISTS (SELECT FROM book_chapters c WHERE c.user_id = @userId AND c.file_id = @FileId AND c.chapter_key = @FrontierKey))";
 
-    // A locator's scheme fits its file (#1122): pdf-page only on a PDF, epub-cfi only on an EPUB or HTML;
+    // A locator's scheme fits its file (#1122): pdf-page only on a PDF, epub-cfi on any other format;
     // textstack-* on any (its guard is the chapter check). SyncValidation.FitsFile names a loss to these.
     private const string CurrentFitsFile =
-        "(CASE CAST(@CurrentLocator AS jsonb) ->> 'scheme' WHEN 'pdf-page' THEN f.format = 'pdf' WHEN 'epub-cfi' THEN f.format IN ('epub', 'html') ELSE true END)";
+        "(CASE CAST(@CurrentLocator AS jsonb) ->> 'scheme' WHEN 'pdf-page' THEN f.format = 'pdf' WHEN 'epub-cfi' THEN f.format <> 'pdf' ELSE true END)";
 
     private const string FrontierFitsFile =
-        "(CASE CAST(@FrontierLocator AS jsonb) ->> 'scheme' WHEN 'pdf-page' THEN f.format = 'pdf' WHEN 'epub-cfi' THEN f.format IN ('epub', 'html') ELSE true END)";
+        "(CASE CAST(@FrontierLocator AS jsonb) ->> 'scheme' WHEN 'pdf-page' THEN f.format = 'pdf' WHEN 'epub-cfi' THEN f.format <> 'pdf' ELSE true END)";
 
     // A first write may only start on the book's current file; ON CONFLICT turns "someone wrote
     // first" into no row returned. Selecting the file by user also makes another user's ids a loss.
