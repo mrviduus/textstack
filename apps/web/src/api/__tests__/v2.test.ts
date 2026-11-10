@@ -362,6 +362,12 @@ describe('an answer that outlives a sign-out (v2Store.reset, #1155)', () => {
     expect(v2Store.states.get('b1')).toMatchObject({ revision: 1 })
   })
 
+  it("adopts no server place from a conflict answered after the reset", async () => {
+    const lost = { 'PUT /me/v2/books/b1/reading-state': conflict('stale_revision', { current: state('b1', 5) }) }
+    expect(await resetMidCall(() => v2Store.reset(), { ...library, ...lost }, () => saveV2Progress('b1', write), '/reading-state')).toBe('dropped')
+    expect(v2Store.states.size).toBe(0)
+  })
+
   it('remembers no revision from a keepalive answer that lands after the reset', async () => {
     let land!: (s: never) => void
     const answer = rememberV2State(new Promise((r) => { land = r }))
