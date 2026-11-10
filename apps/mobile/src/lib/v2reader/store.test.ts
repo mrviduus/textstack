@@ -44,6 +44,9 @@ describe('v2 reader store', () => {
     // Neither half-shape passes: an empty page, or a page beside a quote.
     expect(withPosition(emptyEntry(book), { ...paged, page: '' }).position).toBeNull()
     expect(withPosition(emptyEntry(book), { ...paged, quote: '' }).position).toBeNull()
+    // Nor a page without a CFI foliate can resolve, or with a non-string page.
+    for (const bad of [{ ...paged, cfi: '/6/4' }, { ...paged, cfi: undefined }, { ...paged, page: 2 }])
+      expect(entryFor(JSON.stringify({ ...e, position: bad }), book)?.position, JSON.stringify(bad)).toBeNull()
   })
 
   it('withPosition_WithoutCfiOrQuote_KeepsThePreviousOne', () => {

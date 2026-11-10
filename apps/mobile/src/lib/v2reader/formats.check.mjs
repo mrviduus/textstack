@@ -118,6 +118,16 @@ try {
   const at = await waitFor(m.from, (x) => x.type === 'relocate' && x.index === 1, 'relocate to page 2').catch(() => null)
   check(!!at, 'and the view shows page 2')
 
+  // Positions of the other shape: neither is applied (store.mjs keeps both shapes; restore tells them apart).
+  const cbzBook = m.book
+  m = await open('tsformat.cbz', JSON.stringify({ v: 1, book: cbzBook, highlights: [], position: { cfi: 'epubcfi(/6/4)', quote: 'Paragraph', index: 1, fraction: 1, at: 1 } }))
+  check(m.restored.position === 'page not found, stayed at start', `a quoted position on a CBZ is not applied (${m.restored.position})`)
+  m = await open('tsformat.fb2')
+  // A CFI that does point at text (the book's own first relocate), so only the missing quote can refuse it.
+  const textCfi = (await waitFor(m.from, (x) => x.type === 'relocate' && x.cfi, 'a relocate with a CFI')).cfi
+  m = await open('tsformat.fb2', JSON.stringify({ v: 1, book: m.book, highlights: [], position: { cfi: textCfi, page: 'p02.png', index: 0, fraction: 0, at: 1 } }))
+  check(m.restored.position === 'quote mismatch, stayed at start', `a page position on a textual book is not applied (${m.restored.position})`)
+
   console.log('refused')
   m = await open('tsdrm.mobi')
   check(m.type === 'open-failed' && /DRM/.test(m.error), `a DRM-flagged MOBI is refused: ${m.error}`)
@@ -130,6 +140,51 @@ try {
   m = await open('tsformat.pdf')
   check(m.type === 'open-failed' && /PDF/.test(m.error), `a PDF is refused (its gate is a later slice): ${m.error}`)
   for (const x of messages) if (x.type === 'log' && x.level === 'error' && !/^open: /.test(x.msg)) check(false, `page error: ${x.msg.split('\n')[0]}`)
+
+  // The 5-minute boundary, on a page with a fake clock: the session ends by its own timer (no next open),
+  // a switch inside the window counts, a switch after it does not and sends nothing more.
+  console.log('telemetry clock')
+  const timed = await browser.newPage()
+  const sent = []
+  await timed.clock.install()
+  await timed.exposeFunction('__toHost', (json) => sent.push(JSON.parse(json)))
+  await timed.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
+  await timed.goto(pathToFileURL(resolve(dir, 'page.html')).href)
+  const until = async (match, what) => {
+    for (const t0 = Date.now(); Date.now() - t0 < TIMEOUT_MS; await new Promise((ok) => setTimeout(ok, 50))) { const x = sent.find(match); if (x) return x }
+    throw new Error(`timed out waiting for ${what}`)
+  }
+  const openTimed = async (file) => {
+    const from = sent.length
+    await timed.evaluate((u) => window.__fol.openUrl(u, 'timed'), pathToFileURL(resolve(dir, file)).href)
+    // foliate's own timers run on the fake clock too: keep it moving in small steps until the book opens.
+    for (const t0 = Date.now(); !sent.slice(from).some((x) => x.type === 'opened') && Date.now() - t0 < TIMEOUT_MS;) await timed.clock.runFor(50)
+    return sent.slice(from).find((x) => x.type === 'opened')
+  }
+  const telemetry = () => sent.filter((x) => x.type === 'telemetry')
+  await until((x) => x.type === 'ready', 'ready (timed)')
+  check(!!(await openTimed('tsformat.fb2')), 'opened under the fake clock')
+  await timed.clock.runFor(4 * 60 * 1000 + 59 * 1000)
+  check(telemetry().length === 0, 'nothing is sent before 5 minutes')
+  await timed.evaluate(() => window.__fol.flow('scrolled'))
+  await timed.clock.runFor(2000)
+  check(telemetry().length === 1 && telemetry()[0].switchedInFirst5Min === true && telemetry()[0].mode === 'scrolled',
+    `a switch at 4:59 counts, the timer sends it at 5:00: ${JSON.stringify(telemetry())}`)
+  check(!!(await openTimed('tsformat.fb2')), 'the same book reopened')
+  await timed.clock.runFor(5 * 60 * 1000 + 1000)
+  await timed.evaluate(() => window.__fol.flow('paginated'))
+  await timed.clock.runFor(1000)
+  check(telemetry().length === 2 && telemetry()[1].switchedInFirst5Min === false && telemetry()[1].mode === 'scrolled',
+    `a switch after 5:00 is not counted and sends nothing more: ${JSON.stringify(telemetry())}`)
+  // A late timer (a backgrounded WebView throttles them): the clock passes 5:00 without the timer firing,
+  // and a switch then is still not counted.
+  check(!!(await openTimed('tsformat.fb2')), 'reopened for a late timer')
+  await timed.clock.setSystemTime(await timed.evaluate(() => Date.now()) + 6 * 60 * 1000)
+  await timed.evaluate(() => window.__fol.flow('scrolled'))
+  // setSystemTime moves Date only; the timer is still 5 minutes of ticks away.
+  await timed.clock.runFor(5 * 60 * 1000 + 1000)
+  check(telemetry().length === 3 && telemetry()[2].switchedInFirst5Min === false,
+    `a switch past 5:00 before the late timer fires is not counted: ${JSON.stringify(telemetry().at(-1))}`)
 } catch (e) {
   check(false, String(e?.message ?? e))
 } finally {

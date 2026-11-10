@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fb2, mobi, png } from './fixtures.mjs'
 import { isTextual, mobiEncryption, sniffFormat, zipFormat } from './formats.mjs'
@@ -26,12 +28,25 @@ describe('sniffFormat', () => {
     expect(sniffFormat(bytes(`﻿${fb2('T', '<section><p>p</p></section>')}`))).toBe('fb2')
   })
 
+  it('fb2_RootNearTheEndOfTheFirstKiB_StillFb2', () => {
+    const book = fb2('T', '<section><p>p</p></section>', `<!-- ${'x'.repeat(900)} -->`)
+    expect(book.indexOf('<FictionBook')).toBeGreaterThan(900)
+    expect(book.indexOf('<FictionBook')).toBeLessThan(1024 - 13)
+    expect(sniffFormat(bytes(book))).toBe('fb2')
+  })
+
+  it('mobiMagicOneByteOff_NotMobi', () => {
+    const b = bytes(mobi('T', html))
+    b[60] = 'b'.charCodeAt(0)
+    expect(() => sniffFormat(b)).toThrow(/not a book this reader opens/)
+  })
+
   it('pdf_RefusedForNow', () => {
     expect(() => sniffFormat(bytes('%PDF-1.7\n'))).toThrow(/PDF is not supported yet/)
   })
 
   it('unknownOrEmpty_Refused', () => {
-    for (const b of ['', 'plain text', '<html><body>FictionBook</body></html>', png(1, 1, [0, 0, 0])])
+    for (const b of ['', 'plain text', '<html><body>FictionBook</body></html>', '<FictionBookmark/>', png(1, 1, [0, 0, 0])])
       expect(() => sniffFormat(bytes(b))).toThrow(/not a book this reader opens/)
   })
 })
@@ -63,6 +78,18 @@ describe('zipFormat', () => {
 
   it('nothingReadable_Refused', () => {
     expect(() => zipFormat(['readme.txt'])).toThrow(/no book in it/)
+  })
+
+  // The router and the fork's comic reader must agree on what a page is: a zip routed `cbz` whose pages the
+  // reader then filters out opens as `open-failed` ("No supported image files"), or with pages missing.
+  // KNOWN BUG (QA #1128): IMAGE is case-insensitive, comic-book.js matches lower-case extensions only.
+  // `it.fails` holds while they disagree; it turns red once they agree, then make it a plain `it`.
+  it.skipIf(!existsSync(resolve(__dirname, '.vendor/foliate-js/comic-book.js'))).fails('upperCaseExtensions_RoutedCbz_AndTheComicReaderKeepsEveryPage', async () => {
+    const names = ['P01.JPG', 'p02.png', 'P03.Png']
+    expect(zipFormat(names)).toBe('cbz')
+    const { makeComicBook } = await import('./.vendor/foliate-js/comic-book.js')
+    const book = makeComicBook({ entries: names.map((filename) => ({ filename })), loadBlob: async () => null, getSize: () => 0 }, { name: '' })
+    expect(book.sections.map((s: { id: string }) => s.id)).toEqual(names)
   })
 })
 

@@ -97,6 +97,9 @@ describe('v2ReaderPageHtml', () => {
     for (const k of ['mobi', 'fb2', 'cbz']) expect(carried).toContain(`window.__tsFormats.${k} = {`)
     expect(html).toMatch(/var NONCE = \(\w+ = document\.currentScript\) == null \? void 0 : \w+\.nonce;/)
     expect(html).toMatch(/(\w+)\.nonce = NONCE;\s*\1\.textContent = /)
+    // A comic book has no text: its frames post only `tap`, and a translation is never drawn on it.
+    expect(html).toMatch(/function onLoad\(\{ detail: \{ doc, index \} \}\) \{\s*if \(!textual\) return doc\.addEventListener\("click", \(\) => post\(\{ type: "tap" \}\)\);/)
+    expect(html).toMatch(/showTranslation: \(cfi, index, \w+\) => view && textual && annotate\(/)
     // The page bundle itself carries none of them: view.js's own imports stay stubbed.
     const page = html.slice(html.indexOf(carried!) + carried!.length)
     expect(page).not.toContain('.vendor/foliate-js/mobi.js')
