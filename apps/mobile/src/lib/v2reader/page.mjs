@@ -14,7 +14,7 @@ import { createSaveScheduler } from './saveScheduler.mjs'
 import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 import { openableHref, sentenceOf } from './tap.mjs'
-import { isTextual, sniffFormat, zipFormat } from './formats.mjs'
+import { comicName, fb2AsUtf8, isTextual, sniffFormat, withoutKf8, zipFormat } from './formats.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
 const log = (level, msg) => post({ type: 'log', level, msg })
@@ -164,16 +164,17 @@ function formatModule(name) {
  * foliate's default is crypto.subtle, missing at origin "null", so IDPF-obfuscated fonts would not
  * decode there. MOBI/AZW3, FB2 and CBZ go to the fork's own readers. An adapter, not a patch.
  */
-async function makeBookFor(bytes, name) {
-  const file = new File([bytes], name)
-  const kind = sniffFormat(bytes)   // throws UnsupportedBook: PDF, DRM, unknown
+async function makeBookFor(bytes, name, kind) {
+  // `kind` is sniffFormat's, taken before the open book was touched (openFor).
   if (kind === 'mobi') {
     const { MOBI, unzlibSync } = formatModule('mobi')
-    return { format: 'mobi', book: await new MOBI({ unzlib: unzlibSync }).open(file) }
+    // A MOBI/KF8 combo is read as its MOBI6 half: KF8 is refused (formats.mjs).
+    return { format: 'mobi', book: await new MOBI({ unzlib: unzlibSync }).open(new File([withoutKf8(bytes)], name)) }
   }
-  if (kind === 'fb2') return { format: 'fb2', book: await formatModule('fb2').makeFB2(file) }
+  const fb2Of = (b) => formatModule('fb2').makeFB2(new Blob([fb2AsUtf8(b)]))
+  if (kind === 'fb2') return { format: 'fb2', book: await fb2Of(bytes) }
   configure({ useWebWorkers: false })
-  const entries = await new ZipReader(new BlobReader(file)).getEntries()
+  const entries = await new ZipReader(new BlobReader(new Blob([bytes]))).getEntries()
   const map = new Map(entries.map((e) => [e.filename, e]))
   const loader = {
     entries,
@@ -183,11 +184,17 @@ async function makeBookFor(bytes, name) {
   }
   const zipped = zipFormat([...map.keys()])
   if (zipped === 'epub') return { format: 'epub', book: await new EPUB({ ...loader, sha1: async (str) => sha1(str) }).init() }
-  // The comic reader titles a book by its file name; the host's is a path, and the host falls back to its own.
-  if (zipped === 'cbz') return { format: 'cbz', book: formatModule('cbz').makeComicBook(loader, { name: '' }) }
+  if (zipped === 'cbz') {
+    // foliate keeps lower-case extensions only (`001.JPG` would be no page): each entry is also known by
+    // comicName, and the comic reader sees only that. The reader titles a book by its file name; the
+    // host's is a path, and the host falls back to its own.
+    for (const e of entries) if (!map.has(comicName(e.filename))) map.set(comicName(e.filename), e)
+    const comic = { ...loader, entries: entries.map((e) => ({ filename: comicName(e.filename) })) }
+    return { format: 'cbz', book: formatModule('cbz').makeComicBook(comic, { name: '' }) }
+  }
   // FBZ: the FB2 inside.
   const fb2 = entries.find((e) => e.filename.toLowerCase().endsWith('.fb2'))
-  return { format: 'fb2', book: await formatModule('fb2').makeFB2(await loader.loadBlob(fb2.filename)) }
+  return { format: 'fb2', book: await fb2Of(new Uint8Array(await (await loader.loadBlob(fb2.filename)).arrayBuffer())) }
 }
 
 /** Removes a book's `<meta http-equiv="refresh">` from `doc` (it navigates the section frame away; CSP does not cover it). */
@@ -214,7 +221,7 @@ function endSession() {
 const text = (v) => (typeof v === 'string' ? v : v && typeof v === 'object' ? String(Object.values(v)[0] ?? '') : '')
 const firstAuthor = (m) => { const a = [].concat(m?.author ?? [])[0]; return a?.name ?? a }
 
-async function open(bytes, name, mine) {
+async function open(bytes, name, kind, mine) {
   // Nothing of the previous book may land on this one; its entry is gone with the next line.
   saves.cancel()
   const sha256 = await sha256Yielding(bytes)
@@ -260,14 +267,15 @@ async function open(bytes, name, mine) {
     if (href) post({ type: 'openLink', href })
     else log('warn', `link not opened, not http(s): ${String(e.detail.a.getAttribute('href')).slice(0, 80)}`)
   })
-  const made = await makeBookFor(bytes, name)
+  const made = await makeBookFor(bytes, name, kind)
   if (mine !== openSeq) return false
   format = made.format
   textual = isTextual(format)
   // A book's <meta http-equiv="refresh"> is dropped before its section renders. Parsed every time,
-  // never pre-matched on the source text: `&#x72;efresh` spells it past a text match. EPUB and KF8
-  // hand each section through transformTarget; MOBI6 has none, so its section documents are cleaned
-  // where they are made. FB2 and CBZ sections are built by foliate from whitelisted elements only.
+  // never pre-matched on the source text: `&#x72;efresh` spells it past a text match. EPUB hands each
+  // section through transformTarget; MOBI6 has none, so its section documents are cleaned where they
+  // are made. (KF8's sections bypass its transformTarget: one reason KF8 is refused, formats.mjs.) FB2
+  // and CBZ sections are built by foliate from whitelisted elements only.
   const nb = made.book
   if (nb.transformTarget) nb.transformTarget.addEventListener('data', ({ detail }) => {
     if (!/html/.test(detail.type)) return
@@ -291,7 +299,8 @@ async function open(bytes, name, mine) {
   const { book: b } = view
   session = { format, at: Date.now(), switched: false, timer: setTimeout(endSession, SESSION_MS) }
   post({
-    type: 'opened', book, format, textual,
+    // reflowable: false for a fixed-layout book (CBZ, a pre-paginated EPUB), where flow() changes nothing.
+    type: 'opened', book, format, textual, reflowable: !view.isFixedLayout,
     // Either may be missing, a string, or a language map ({ en: … }); the host falls back to the file name.
     title: text(b.metadata?.title), author: text(firstAuthor(b.metadata)),
     sections: b.sections.length, toc: flat(b.toc ?? []),
@@ -392,8 +401,12 @@ const openFailed = (name, error) => post({ type: 'open-failed', name, error })
 
 /** One `opened` or one `open-failed` per call — unless a newer openUrl took over, and then neither. */
 function openFor(bytes, name) {
+  // Refused before anything is touched: a PDF picked by mistake, a DRM book or an unknown file leaves
+  // the open book reading, reporting and saving, like a failed read (#1168). No seq turnover, no session end.
+  let kind
+  try { kind = sniffFormat(bytes) } catch (e) { return openFailed(name, String(e?.message ?? e).slice(0, 200)) }
   const mine = ++openSeq
-  return open(bytes, name, mine).catch((e) => {
+  return open(bytes, name, kind, mine).catch((e) => {
     log('error', `open: ${e?.stack ?? e}`)
     if (mine === openSeq) openFailed(name, String(e?.message ?? e).slice(0, 200))
   })
@@ -431,7 +444,9 @@ window.__fol = {
   // only sets what the next open uses.
   flow: (f) => {
     if (f !== 'paginated' && f !== 'scrolled') return log('warn', `flow ignored: ${String(f).slice(0, 20)}`)
-    if (session && f !== flow && Date.now() - session.at < SESSION_MS) session.switched = true
+    // A fixed-layout book (CBZ) has no flow to switch: the setting is kept for the next book, but no
+    // switch is reported for one that changed nothing.
+    if (session && f !== flow && view && !view.isFixedLayout && Date.now() - session.at < SESSION_MS) session.switched = true
     flow = f
     view?.renderer?.setAttribute('flow', f)
   },
