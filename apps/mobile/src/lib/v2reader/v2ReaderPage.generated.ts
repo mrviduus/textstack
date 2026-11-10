@@ -2,8 +2,8 @@
 // Source: apps/mobile/src/lib/v2reader/page.mjs (+ store.mjs), built by build.mjs beside it.
 // Regenerate: pnpm -C apps/web build:v2-reader
 //
-// foliate-js 78914aef4466eb960965702401634c2cb348e9b1 (MIT © John Factotum; bundled zip.js BSD-3-Clause),
-// patched with 0001-paginator-render-while-loading.patch.
+// foliate-js fork d73682a48a0779ca989f25074386784602437fbf (mrviduus/foliate-js, branch textstack-pin:
+// upstream 78914aef + our commits; MIT © John Factotum; bundled zip.js BSD-3-Clause).
 
 /* eslint-disable */
 /* prettier-ignore */
