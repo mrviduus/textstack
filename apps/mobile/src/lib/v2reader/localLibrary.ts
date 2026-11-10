@@ -461,9 +461,12 @@ export function createLocalLibrary(db: Db) {
      * One more failed attempt, counted only against the gen that failed: the row's count now, or null
      * when it was queued again meanwhile (a save mid-push starts from zero).
      */
-    failed: (item: OutboxItem) => job(async () => (await one<{ failures: number }>(
-      'UPDATE outbox SET failures = failures + 1 WHERE kind = ? AND target = ? AND gen = ? RETURNING failures', [item.kind, item.target, item.gen],
-    ))?.failures ?? null),
+    failed: (item: OutboxItem) => job(async () => {
+      // Two statements in one queue job, not RETURNING: that needs SQLite 3.35, unverified on devices.
+      const key = [item.kind, item.target, item.gen]
+      await run('UPDATE outbox SET failures = failures + 1 WHERE kind = ? AND target = ? AND gen = ?', key)
+      return (await one<{ failures: number }>('SELECT failures FROM outbox WHERE kind = ? AND target = ? AND gen = ?', key))?.failures ?? null
+    }),
     /**
      * A child asks for its book: queued if it is not. An entry already queued keeps its gen and its
      * failure count (asking again every pass must not reset the count that parks a failing book).
