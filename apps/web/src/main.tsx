@@ -8,13 +8,20 @@ import { initSentry } from './lib/sentry'
 
 initSentry()   // no VITE_SENTRY_DSN: a no-op; else @sentry/react loads in its own chunk
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </React.StrictMode>,
-)
+// The V2 reader on the dev server only (R5, #1037), outside the app and its providers. A production
+// build inlines DEV as false and drops this branch with its import: the bundle is the same as without it.
+if (import.meta.env.DEV && location.pathname === '/dev/reader-v2') {
+  import('./pages/dev/V2ReaderDevPage').then(({ default: V2ReaderDevPage }) =>
+    ReactDOM.createRoot(document.getElementById('root')!).render(<V2ReaderDevPage />))
+} else {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </React.StrictMode>,
+  )
+}
 
 // Evict expired offline caches once, off the first-paint path. Never allowed to break the app.
 setTimeout(() => {
