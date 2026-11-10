@@ -91,7 +91,7 @@ server stores them as UTC.
 | `sha256` | string | yes | `^[0-9a-f]{64}$`; uppercase is **400**, not lowered: the client keys local files by it |
 | `byteSize` | int64 | yes | > 0; with `sha256` it identifies the bytes (`library.mjs` dedupes on both) |
 | `originalName` | string | yes | display name only, never a device path (#1069: today's R2 host passes a path as `name`) |
-| `format` | string | yes | `epub` \| `pdf` from clients; `html` is server-only (clips) |
+| `format` | string | yes | `epub` \| `pdf` \| `mobi` \| `azw3` \| `fb2` \| `cbz` from clients, lowercase (ADR-032, #1128); `html` is server-only (clips) |
 | `pageCount` | int | no | PDF |
 | `toc` | json array | no | opaque, ≤ 256 KB |
 | `isCurrent` | bool | server | |
@@ -121,6 +121,15 @@ reader's `textstack-position-v1` and `textstack-anchor-v1` from the transitional
 reader (M2.7a, owner decision 2026-11-02, #1112). Only `epub-cfi` carries `quote`.
 `pdf-page` values: a position is `{"page":N}` (1-based int); an annotation is the legacy `PdfAnchor`
 `{"page":N,"rects":[{"x":…,"y":…,"w":…,"h":…}],"exact":"…"}` (page-relative, unscaled numbers).
+
+**Scheme fits the file** (#1122, #1128; `SyncValidation.FitsFile`, and `ReadingStateRepository`'s
+write SQL): `pdf-page` only on a `pdf`; `epub-cfi` on every other format (`epub`, `html`, `mobi`,
+`azw3`, `fb2`, `cbz`), never on a `pdf`; `textstack-*` on any (its guard is the chapter check).
+
+**CBZ positions: open question (#1128).** `epub-cfi` fits a `cbz`, but an `epub-cfi` reading
+position **must** carry a 1–64 code-point `quote`, and an image-only CBZ has no text at any CFI. So
+no CBZ reading position validates today. The server rule is deliberately unchanged until the
+client slice decides what a CBZ position carries (a quote-less CFI, a page scheme, or other).
 
 **Transitional locators (until R8).** The two `textstack-*` schemes, as `textPosition.ts` and
 `textAnchor.ts` serialize them; members a value does not name pass, as on `epub-cfi` (the serialized
