@@ -418,16 +418,22 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
     const local = await getHighlightsForUserBook(bookId)
     const pending = new Set(local.filter((h) => h.syncStatus === 'pending').map((h) => h.id))
 
+    // Every local write below goes through adopt or forget: after a reset neither writes, and the
+    // throw ends the sync (the outer catch).
+    const forget = (id: string) => {
+      if (reset()) throw new v2Api.SessionChangedError()
+      return deleteHighlightFromDB(id)
+    }
     const adopt = async (a: V2Annotation) => {
       if (reset()) throw new v2Api.SessionChangedError()
       v2Store.annotations.set(a.id, a)
       const row = a.deletedAt ? null : fromV2Annotation(a)
       if (row) await saveHighlight(row)
-      else await deleteHighlightFromDB(a.id)
+      else await forget(a.id)
     }
     if (pull) {
       for (const a of server) if (!pending.has(a.id)) await adopt(a)
-      for (const h of local) if (!pending.has(h.id) && !serverById.has(h.id)) await deleteHighlightFromDB(h.id)
+      for (const h of local) if (!pending.has(h.id) && !serverById.has(h.id)) await forget(h.id)
     }
 
     // A write V2 refuses (an anchor without offsets, #1139) is refused on every replay: an edit of a
@@ -435,16 +441,18 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
     const refused = async (h: StoredHighlight, stored: V2Annotation | undefined, why: unknown) => {
       console.warn('highlightSync: V2 refuses this highlight write', h.id, why)
       if (stored) await adopt(stored)
-      else await deleteHighlightFromDB(h.id)
+      else await forget(h.id)
     }
 
     let changed = false
     for (const h of local.filter((l) => pending.has(l.id))) {
+      // A reset during the last row's local write: this row's request would go out under the next account.
+      if (reset()) return false
       const stored = serverById.get(h.id)
       try {
         if (h.deleted || stored?.deletedAt) {
           if (h.deleted && stored && !stored.deletedAt) await adopt(await v2Api.deleteAnnotation(h.id))
-          else await deleteHighlightFromDB(h.id)
+          else await forget(h.id)
         } else {
           let write: V2AnnotationWrite | undefined
           try { write = toV2Write(h, fileId, stored ? (h.base?.version ?? h.version) : null, stored) } catch (e) { await refused(h, stored, e) }
@@ -452,10 +460,9 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
         }
         changed = true
       } catch (e) {
-        if (reset()) return false
         const err = v2Api.v2ErrorOf(e)
         if ((err?.code === 'stale_revision' || err?.code === 'deleted') && err.current) await adopt(err.current as V2Annotation)
-        else if (err?.code === 'chapter_not_found' || err?.code === 'not_found') await deleteHighlightFromDB(h.id)
+        else if (err?.code === 'chapter_not_found' || err?.code === 'not_found') await forget(h.id)
         else if (err?.code === 'invalid_payload') await refused(h, stored, err)
         else continue // stays pending
         changed = true
