@@ -2,21 +2,12 @@
 // <documents>/v2/:
 //   staging/<n>.epub      a picked file until the page has opened it
 //   books/<sha256>.epub   the retained copy; identical bytes are kept once
-//   library.json          library.mjs's shape
-//   store/<sha256>.json   the page's `store` payload for that file, verbatim
+//   library.json, store/  R2's JSON library: imported into the local library once, then deleted
+// Books, positions and highlights live in SQLite (localLibrary.ts, R6); only file bytes are files.
 import { createWriteQueue } from '../sessionWrites'
-import { addOpened, emptyLibrary, parseLibrary } from './library.mjs'
+import { parseLibrary, type LibraryEntry } from './library.mjs'
 
-/** The file operations this needs, by name relative to the v2 root: expo-file-system on a device. */
-export interface V2Files {
-  read(name: string): Promise<string | null>
-  write(name: string, text: string): Promise<void>
-  /** Overwrites `to`. */
-  move(from: string, to: string): Promise<void>
-  exists(name: string): boolean
-  remove(name: string): void
-}
-
+/** What the dev route lists: a book on this device, or one the server holds bytes for (download). */
 export interface LibraryBook {
   id: string
   sha256: string
@@ -26,6 +17,31 @@ export interface LibraryBook {
   originalName: string
   importedAt: number
   openedAt: number
+  /** False: not imported here; the server holds its bytes (sync.ts `downloadV2Book`). */
+  local: boolean
+}
+
+/**
+ * The rows this storage keeps (localLibrary.ts, R6). Structural, not imported: apps/web type-checks
+ * this file (its dev page takes `nonceFromUuid`) without allowJs, and the library reads store.mjs.
+ */
+export interface LocalLibrary {
+  books(): Promise<LibraryBook[]>
+  hasLocalBytes(sha256: string): Promise<boolean>
+  addOpened(b: { sha256: string; size: number; title: string; author: string; originalName: string; format: string | null }, newId: () => string): Promise<string>
+  readEntry(sha256: string): Promise<string | null>
+  writeEntry(sha256: string, json: string, newId: () => string): Promise<void>
+  /** Resolves to the sha256s whose store entries the rows now hold. */
+  importLegacy(books: LibraryEntry[], storeOf: Map<string, string>, newId: () => string): Promise<string[]>
+}
+
+/** The file operations this needs, by name relative to the v2 root: expo-file-system on a device. */
+export interface V2Files {
+  read(name: string): Promise<string | null>
+  /** Overwrites `to`. */
+  move(from: string, to: string): Promise<void>
+  exists(name: string): boolean
+  remove(name: string): void
 }
 
 /** The page's `sha256()` emits lower case and every lookup compares bytes, so a key is lower-cased
@@ -44,19 +60,9 @@ export function nonceFromUuid(uuid: string): string {
 }
 
 /**
- * Write `name.tmp`, then move it over `name`. expo-file-system's overwriting move deletes the target
- * before renaming: a kill between the two leaves only the complete tmp, which `readRecovering` reads.
- * A kill after the tmp write but before that delete leaves the old target beside a complete tmp; the
- * old target wins and that save is lost, which is acceptable because its caller never saw it succeed.
+ * R2 wrote its JSON as `name.tmp` moved over `name`: the target when it exists (a tmp beside it is
+ * ignored, finished or not), else the tmp — a kill mid-move left only that.
  */
-export async function writeAtomically(files: V2Files, name: string, text: string): Promise<void> {
-  const tmp = `${name}.tmp`
-  // A failed write leaves a partial tmp (dropped); a failed move keeps it, maybe the one complete copy.
-  await files.write(tmp, text).catch((e) => { try { files.remove(tmp) } catch { /* best effort */ } throw e })
-  await files.move(tmp, name)
-}
-
-/** The target when it exists (a tmp beside it is ignored, finished or not), else the tmp. */
 export async function readRecovering(files: V2Files, name: string): Promise<string | null> {
   return (await files.read(name)) ?? (await files.read(`${name}.tmp`))
 }
@@ -64,55 +70,79 @@ export async function readRecovering(files: V2Files, name: string): Promise<stri
 /** The retained copy of the file with this (already normalised) sha256. */
 export const bookFile = (sha256: string) => `books/${sha256}.epub`
 
-/** `newId` mints a new book's v4 UUID. Required: library.mjs's default needs `crypto`, which Hermes lacks (the RN host passes Expo's). */
-export function createV2Storage(files: V2Files, newId: () => string) {
-  // ponytail: one in-process queue for every read and write: two imports read-modify-write
-  // library.json in turn, two saves of one key never share a .tmp, and no read lands between a
-  // move's delete and rename. Does not cover a second process or a second storage instance;
-  // per-file queues if work ever waits visibly. sha256Key runs inside each job, so a bad key from
-  // the page is that job's rejection, never a throw out of the message handler.
+/**
+ * The host's storage: the files here, the rows in the local library (localLibrary.ts, R6). `newId`
+ * mints v4 UUIDs (library.mjs's default needs `crypto`, which Hermes lacks: the RN host passes Expo's).
+ * The first call imports R2's JSON library (library.json + store/<sha256>.json) into the rows, once,
+ * then deletes those files; a failed import is logged and tried again on the next start.
+ */
+export function createV2Storage(files: V2Files, newId: () => string, lib: LocalLibrary) {
+  // ponytail: one in-process queue for the file side (two imports of the same bytes move one copy).
+  // sha256Key runs inside each job, so a bad key from the page is that job's rejection, never a
+  // throw out of the message handler.
   const queue = createWriteQueue()
-  const readLibrary = async () => parseLibrary((await readRecovering(files, 'library.json')) ?? '') ?? emptyLibrary()
+  let migrated: Promise<void> | null = null
+  // A failed import is not kept: the next call tries again (reading goes on meanwhile).
+  const migrate = () => (migrated ??= queue.run(() => importJsonLibrary(files, lib, newId)).catch((e) => {
+    console.warn('[v2] JSON library import failed:', e)
+    migrated = null
+  }))
+  const afterMigration = <T>(fn: () => Promise<T>) => migrate().then(fn)
 
   return {
-    books: (): Promise<LibraryBook[]> => queue.run(async () => (await readLibrary()).books),
+    books: (): Promise<LibraryBook[]> => afterMigration(() => lib.books()),
 
     /**
-     * The opened file into the library; resolves to the retained file and the library's books. A
-     * staged file becomes the retained copy unless those bytes are already retained. The copy lands
-     * before the entry, so a kill between the two leaves a file that the next import of the same
-     * bytes adopts, never an entry without its file. On an error after this call's move, the copy
-     * stays only if the library (as `books()` would read it) lists those bytes: a complete
-     * library.json.tmp beside a missing target does, an old target that survived a failed move does
-     * not, and an unreadable library keeps the copy. So a failed import leaves no retained copy the
-     * library does not list. The page keeps the book open and may still save its `store` payload; a
-     * later import of the same bytes reuses it.
+     * The opened file into the library; resolves to the retained file, the book's id and the
+     * library's books. A staged file becomes the retained copy unless those bytes are already
+     * retained. The copy lands before the row, so a kill between the two leaves a file that the next
+     * import of the same bytes adopts, never a row without its file. A failed row write removes the
+     * copy this call moved unless the library lists those bytes (the transaction left no row naming it).
      */
-    addOpened: (book: { sha256: string; size: number; title: string; author: string; originalName: string }, staged: string | null) =>
-      queue.run(async () => {
+    addOpened: (book: { sha256: string; size: number; title: string; author: string; originalName: string; format?: string | null }, staged: string | null) =>
+      afterMigration(() => queue.run(async () => {
         const sha256 = sha256Key(book.sha256)
         const retained = bookFile(sha256)
         const moved = staged !== null && !files.exists(retained)
         if (moved) await files.move(staged, retained)
         else if (staged) files.remove(staged)
         try {
-          const { lib } = addOpened(await readLibrary(), { ...book, sha256 }, Date.now(), newId)
-          await writeAtomically(files, 'library.json', JSON.stringify(lib))
-          return { retained, books: lib.books as LibraryBook[] }
+          const bookId = await lib.addOpened({ ...book, sha256, format: book.format ?? null }, newId)
+          return { retained, bookId, books: await lib.books() }
         } catch (e) {
-          // Keep the copy whenever the library lists it, so never an entry without its file.
-          const listed = moved && (await readLibrary().then((l) => (l.books as LibraryBook[]).some((b) => b.sha256 === sha256), () => true))
+          const listed = moved && (await lib.hasLocalBytes(sha256).catch(() => true))
           if (moved && !listed) try { files.remove(retained) } catch { /* best effort; rethrow the real error */ }
           throw e
         }
-      }),
+      })),
 
     /** A staged file the page could not open: README "open-failed — must not keep the file". */
     dropStaged: (staged: string) => queue.run(async () => files.remove(staged)),
 
-    readStore: (key: string) => queue.run(() => readRecovering(files, `store/${sha256Key(key)}.json`)),
+    readStore: (key: string) => afterMigration(() => lib.readEntry(sha256Key(key))),
 
-    writeStore: (key: string, json: string) => queue.run(() => writeAtomically(files, `store/${sha256Key(key)}.json`, json)),
+    writeStore: (key: string, json: string) => afterMigration(() => lib.writeEntry(sha256Key(key), json, newId)),
+  }
+}
+
+/**
+ * R2's JSON library into the local library, then the files of the entries it now holds deleted
+ * (best effort: the import is flagged done), library.json last.
+ */
+async function importJsonLibrary(files: V2Files, lib: LocalLibrary, newId: () => string) {
+  const parsed = parseLibrary((await readRecovering(files, 'library.json')) ?? '')
+  if (!parsed) return
+  const books = (parsed.books as LibraryEntry[]).flatMap((b) => {
+    try { return [{ ...b, sha256: sha256Key(b.sha256) }] } catch { return [] }
+  })
+  const stores = new Map<string, string>()
+  for (const b of books) {
+    const json = await readRecovering(files, `store/${b.sha256}.json`)
+    if (json) stores.set(b.sha256, json)
+  }
+  const held = await lib.importLegacy(books, stores, newId)
+  for (const name of [...held.map((sha) => `store/${sha}.json`), 'library.json']) {
+    for (const f of [name, `${name}.tmp`]) try { files.remove(f) } catch { /* best effort */ }
   }
 }
 

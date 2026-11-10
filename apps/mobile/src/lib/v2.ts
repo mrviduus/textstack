@@ -12,7 +12,7 @@ import {
   v2Api, ApiError, isOfflineError, V2_OFF, placeToV2Locator, createSha256, parsePdfPageLocator,
   ingestionStatus, shelfFileSummary, resumeChapterOf, createV2Books, uploadV2File, V2UploadError,
   type V2Book, type V2FileChapters, type V2Annotation, type V2Word, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
-  type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse,
+  type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse, type V2ClientFormat,
 } from '@textstack/shared'
 
 export { V2UploadError }
@@ -190,7 +190,7 @@ const v2 = createV2Books({
   },
 })
 export const {
-  whileCurrent, pullV2Books, v2Book, v2Chapters, removeV2Book, v2FileUrl, saveV2Progress, completeV2Book, uncompleteV2Book,
+  resetSince, whileCurrent, pullV2Books, v2Book, v2Chapters, removeV2Book, v2FileUrl, saveV2Progress, completeV2Book, uncompleteV2Book,
 } = v2
 const { rememberState: remember, toProgress } = v2
 
@@ -349,18 +349,25 @@ export async function sha256Of(source: ByteSource, yieldNow: () => Promise<void>
  * these bytes). ponytail: progress moves per part.
  */
 export async function uploadV2Book(
-  file: { uri: string; name: string },
+  file: { uri: string; name: string; format?: V2ClientFormat },
   maxPartBytes: number,
   io: UploadIo,
   onProgress?: (percent: number) => void,
+  /**
+   * A synced local book (R6 file sync): its bytes go to its current file only, never a new import.
+   * Its retained copy is named by its sha256, so the hash is not recomputed (the server's sha256
+   * check on complete is the backstop).
+   */
+  target?: { bookId: string; fileId: string; sha256: string },
 ): Promise<{ bookId: string; existing: boolean }> {
   const source = io.open(file.uri)
   try {
     // RN fetch sends a typed-array body as base64 over the bridge: an 80 MB part would peak near
     // 200 MB of JS memory on Hermes, so a part is at most 8 MB whatever the server takes.
-    const { bookId, sent } = await uploadV2File({ name: file.name, size: source.size }, Math.min(Math.max(1, maxPartBytes), MAX_DEVICE_PART_BYTES), {
+    const { bookId, sent } = await uploadV2File({ name: file.name, size: source.size, format: file.format }, Math.min(Math.max(1, maxPartBytes), MAX_DEVICE_PART_BYTES), {
+      known: target && { bookId: target.bookId, fileId: target.fileId },
       newId: () => uuid.v4(),
-      hash: () => sha256Of(source, io.yieldNow),
+      hash: () => (target ? Promise.resolve(target.sha256) : sha256Of(source, io.yieldNow)),
       sendPart: async ({ bookId, fileId, index, partCount, start, end }) => {
         await io.sendPart(bookId, fileId, index, source.read(start, end - start))
         onProgress?.(((index + 1) / partCount) * 100)

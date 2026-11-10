@@ -4,7 +4,7 @@
  * part's send (XHR + `Blob.slice` on web, `readBytes` + fetch on mobile) and the progress it shows.
  */
 import * as v2Api from './v2'
-import type { V2Book } from './v2'
+import type { V2Book, V2FileWrite } from './v2'
 import { clip } from '../reader/textAnchor'
 
 /** Bytes as whole megabytes, for a quota message. */
@@ -17,6 +17,26 @@ export class V2UploadError extends Error {
       ? 'The file changed while it was uploading. Pick it again.'
       : `Not enough storage: ${mb(quota?.used ?? 0)} of ${mb(quota?.limit ?? 0)} used.`)
   }
+}
+
+/**
+ * A known book's bytes asked for, but the server does not hold that book's current file (removed,
+ * replaced, or never pushed): nothing was imported. The caller pushes the book again first.
+ */
+export class V2UploadNotOnServer extends Error {
+  constructor(readonly bookId: string) {
+    super('The book is not on the server as this device knows it')
+  }
+}
+
+export type V2ClientFormat = V2FileWrite['format']
+const FORMATS: readonly string[] = ['epub', 'pdf', 'mobi', 'azw3', 'fb2', 'cbz']
+
+/** A file's format by its extension (`.fbz` is an FB2); anything else is sent as `epub`, as before. */
+export function formatOfName(name: string): V2ClientFormat {
+  const ext = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase() ?? ''
+  if (ext === 'fbz') return 'fb2'
+  return (FORMATS.includes(ext) ? ext : 'epub') as V2ClientFormat
 }
 
 /** One part: bytes `[start, end)` of the file, to `index` of `partCount`. */
@@ -37,11 +57,16 @@ export interface V2UploadIo {
   sendPart(part: V2UploadPart): Promise<unknown>
   /** The last cancel point before the complete (mobile): it throws `aborted` once cancelled. */
   beforeComplete?(): Promise<void>
+  /**
+   * The book these bytes already are on the server (a synced local book, R6 file sync): only its
+   * current file takes them, never an import under new ids (`V2UploadNotOnServer` instead).
+   */
+  known?: { bookId: string; fileId: string }
 }
 
 export interface V2UploadResult {
   bookId: string
-  format: 'epub' | 'pdf'
+  format: V2ClientFormat
   /** The book that already had these bytes (by sha256, or the import's `duplicate_file`); null when imported. */
   found: V2Book | null
   /** Whether this upload sent the bytes: a new book, or a found one whose bytes never arrived. */
@@ -56,18 +81,19 @@ export interface V2UploadResult {
  * upload imported: on V2 a book without bytes has no retry.
  * ponytail: no cover (`PUT /cover` needs an EPUB parse on the client), the title is the file name.
  */
-export async function uploadV2File(file: { name: string; size: number }, maxPartBytes: number, io: V2UploadIo): Promise<V2UploadResult> {
-  const format = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'epub'
+export async function uploadV2File(file: { name: string; size: number; format?: V2ClientFormat }, maxPartBytes: number, io: V2UploadIo): Promise<V2UploadResult> {
+  const format = file.format ?? formatOfName(file.name)
   let imported: string | null = null
   try {
     const sha256 = await io.hash()
     let found = await v2Api.findBySha256(sha256)
+    if (io.known && (found?.id !== io.known.bookId || found.currentFile?.id !== io.known.fileId)) throw new V2UploadNotOnServer(io.known.bookId)
     let bookId = ''
     let fileId = ''
     if (!found) {
       bookId = io.newId()
       fileId = io.newId()
-      const title = clip(file.name.replace(/\.(epub|pdf)$/i, '').trim() || file.name, 500)
+      const title = clip(file.name.replace(/\.[a-z0-9]+$/i, '').trim() || file.name, 500)
       try {
         await v2Api.importBook(bookId, { title, file: { id: fileId, sha256, byteSize: file.size, originalName: clip(file.name, 500), format } })
         imported = bookId

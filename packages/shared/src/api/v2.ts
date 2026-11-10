@@ -158,7 +158,8 @@ export interface V2FileWrite {
   sha256: string
   byteSize: number
   originalName: string
-  format: 'epub' | 'pdf'
+  /** PDD "File version": what clients send, lowercase (ADR-032, #1128). */
+  format: 'epub' | 'pdf' | 'mobi' | 'azw3' | 'fb2' | 'cbz'
   pageCount?: number | null
   toc?: unknown
 }
