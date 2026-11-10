@@ -158,15 +158,19 @@ async function open(bytes, name, mine) {
   entry = null
   restoring = true
   lastSelection = null
+  // The new view becomes current before the old one is torn down: close() still fires `relocate` on
+  // the dying view, and the listener below drops events whose target is no longer `view` (#1168).
+  const prev = view
+  view = document.createElement('foliate-view')
+  overlays.clear()
   // A view that never rendered a section (a spine of linear="no", a book that failed to open) throws
   // from close(); letting that through would wedge the page and fail this good book instead.
-  try { view?.close() } catch (e) { log('warn', `closing the previous book: ${e?.message ?? e}`) }
-  view?.remove()
-  overlays.clear()
-  view = document.createElement('foliate-view')
+  try { prev?.close() } catch (e) { log('warn', `closing the previous book: ${e?.message ?? e}`) }
+  prev?.remove()
   document.body.append(view)
   view.addEventListener('load', onLoad)
-  view.addEventListener('relocate', ({ detail: d }) => {
+  view.addEventListener('relocate', ({ detail: d, target }) => {
+    if (target !== view) return
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
     if (restoring || !entry || !d.range) return
     // The visible range's start: its CFI and the text there, to verify the CFI on restore.

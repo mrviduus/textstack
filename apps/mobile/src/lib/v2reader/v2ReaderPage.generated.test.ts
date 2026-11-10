@@ -67,7 +67,9 @@ describe('v2ReaderPageHtml', () => {
   it('bundle_EveryStateChangeGuarded_SoOneBadBookCannotWedgeThePage', () => {
     const html = v2ReaderPageHtml(NONCE)
     // A view that never rendered throws from close(); the next open must still work.
-    expect(html).toMatch(/try \{\s*view == null \? void 0 : view\.close\(\);\s*\} catch/)
+    expect(html).toMatch(/try \{\s*prev == null \? void 0 : prev\.close\(\);\s*\} catch/)
+    // The dying view's late relocate is dropped: the listener answers only the current view (#1168).
+    expect(html).toMatch(/if \(target !== view\) return;\s*post\(\{\s*type: "relocate"/)
     // restoring is cleared however restore ends, or the page saves nothing for the rest of the session.
     expect(html).toMatch(/\} finally \{[\s\S]{0,200}?restoring = false;/)
     // The renderer exists only after view.open() resolved.
