@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Mobile** — honest error states: a Discover search failure says "Search failed" with Retry instead of claiming "No results" (#1163), and a server-deleted upload shows a retryable deleted state with an optional remove-download action instead of silently rendering the cached copy as live (#1164) — mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-10-mobile-honest-error-states-search-deleted-upload)
 - **Reader** — the V2 reader page drops a superseded book's events: per-view listeners carry their open's seq, a superseded open no longer re-keys the current book's saves, and both hosts clear the status line on open-failed (#1168) — mobile, web · [details](docs/changelog-archive/2026-H2.md#2026-11-10-reader-v2-page-drops-superseded-book-events)
 - **Reader** — the V2 reader page builds from the foliate-js fork pin (`mrviduus/foliate-js@d73682a`, branch `textstack-pin` = upstream `78914aef` + patch 0001 as a commit); build-time patching removed, bundle byte-identical (#1128, ADR-032) — mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-10-reader-v2-reader-page-builds-from-the-foliate-fork-pin)
 - **Docs** — CLAUDE.md gains a "V2 program (active)" section: the migration, the flag, the reader track and wave flow were invisible to fresh sessions — docs
