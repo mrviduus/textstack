@@ -4,7 +4,7 @@ import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import NetInfo from '@react-native-community/netinfo'
-import { currentReviewChapter, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural, bookPages } from '@textstack/shared'
+import { ApiError, currentReviewChapter, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural, bookPages } from '@textstack/shared'
 import { v2Offers } from '@textstack/shared'
 import { useV2 } from '../../src/context/AuthContext'
 import { userBooksApi } from '../../src/lib/userBooksApi'
@@ -188,11 +188,13 @@ export default function UserBookDetailScreen() {
       } catch (e) {
         // Confirmed 404: the upload was deleted on the server (#1164). Say so
         // instead of presenting the cached copy as live. The local bytes stay.
-        if ((e as { status?: number })?.status === 404) {
+        if (e instanceof ApiError && e.status === 404) {
           console.warn('User book not found:', e)
+          const onDevice = await isUserBookFullyCached(id).catch(() => false)
           if (unmountedRef.current) return
           setBook(null)
           setOfflineMode(false)
+          setCached(onDevice)
           setLoadError('notfound')
           return
         }
@@ -306,6 +308,12 @@ export default function UserBookDetailScreen() {
         if (stillProcessing === pollProcessing && stillEnriching === pollEnriching) scheduleNext()
       } catch (err) {
         if (cancelled || unmountedRef.current) return
+        // Deleted on the server mid-poll (#1164): stop polling a book that is gone.
+        if (err instanceof ApiError && err.status === 404) {
+          setBook(null)
+          setLoadError('notfound')
+          return
+        }
         consecutiveFailures += 1
         console.warn(`Poll ${consecutiveFailures} failed for user book ${id}:`, err)
         if (pollProcessing && consecutiveFailures === FAILURE_TOAST_THRESHOLD) {
@@ -460,7 +468,25 @@ export default function UserBookDetailScreen() {
       <>
         <Stack.Screen options={{ headerShown: true, title: '' }} />
         <View style={[styles.container, { backgroundColor: colors.background }]}>
-          <EmptyState icon="help-circle-outline" title={t('bookDetail.notFound')} subtitle={t('bookDetail.notFoundDesc')} />
+          {/* Retryable: V2's v2Book can synthesize a 404 when a store reset lands
+              mid-pull, so "not found" is not always final. */}
+          <EmptyState
+            icon="help-circle-outline"
+            title={t('myBooks.deleted.title')}
+            subtitle={cached ? t('myBooks.deleted.body') : t('myBooks.deleted.bodyNoCopy')}
+            buttonLabel={t('common.retry')}
+            onButtonPress={() => { setLoading(true); setAttempt(a => a + 1) }}
+            // The book page is gone, so this is the only way left to free its bytes.
+            secondaryLabel={cached ? t('myBooks.deleted.removeDownload') : undefined}
+            onSecondaryPress={cached ? () => {
+              removeUserBookDownload(id!)
+                .then(() => { setCached(false); router.back() })
+                .catch(err => {
+                  console.warn('Removing the local copy of a deleted book failed:', err)
+                  showToast({ message: "Couldn't remove the download. Try again.", variant: 'error', duration: 2600 })
+                })
+            } : undefined}
+          />
         </View>
       </>
     )

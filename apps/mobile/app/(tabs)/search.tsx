@@ -219,7 +219,7 @@ export default function DiscoverScreen() {
   // native language mid-session (P1-1).
   useEffect(() => {
     if (debouncedQuery.length >= 2) doSearch(debouncedQuery)
-    else if (debouncedQuery.length === 0 && searched) {
+    else if (debouncedQuery.length < 2 && searched) {
       setResults([])
       setSearched(false)
     }
@@ -338,7 +338,7 @@ export default function DiscoverScreen() {
             title={searchError === 'offline' ? t('search.offline.title') : t('search.failed.title')}
             subtitle={searchError === 'offline' ? t('search.offline.body') : t('search.failed.body')}
             buttonLabel={t('common.retry')}
-            onButtonPress={() => doSearch(query)}
+            onButtonPress={() => doSearch(query.trim())}
           />
         ) : (
           <EmptyState
