@@ -5,8 +5,9 @@ Repo `/Users/vasylvdovychenko/projects/textstack/refactor/textstack`, branch `ma
 offsets), #1157 (#1094 pinned by tests), #1159 (#1151 epoch guards + shared vocab), #1160 (#1118 feed file
 summary), #1158 (restore-drill ETL rehearsal mode). All merged and deployed; prod `/health/ready` 200,
 `v2: off`. **M3.5 rehearsals #2 and #3 passed** on GitHub runners (latest + pinned `318e2aef` nightly; reports
-on #1030) — owner acceptance owed. Same shape as waves 3–8 (`.claude/wave-8-prompt.md`: pipeline, quality bar,
-standing rules). **Ask once per wave whether "merge what passed code review" stands** (waves 4–8: granted).
+on #1030) — accepted by the owner 2026-11-09: **M3.5 done**. Owner also decided 2026-11-09: #1117 closed
+(B — no V2 bookmarks until R5/R6), #1109 closed (transitional images wait for R5). Same shape as waves 3–8
+(`.claude/wave-8-prompt.md`: pipeline, quality bar, standing rules). **Ask once per wave whether "merge what passed code review" stands** (waves 4–8: granted).
 
 ## Where wave 8 ended
 
@@ -35,9 +36,8 @@ standing rules). **Ask once per wave whether "merge what passed code review" sta
 
 ## Still owed by the owner
 
-M3.5 acceptance (3 rehearsals passed — accept + pick the dump-archive location outside restic retention);
-cutover date; #1117 decision (brief on the issue, recommend B: bookmarks wait for R5/R6); #1109 decision
-(recommend leave until R5, close as "waits for R5"); the WebView ≥ 117 screen; the true-hardware device rows
+The dump-archive location outside restic retention (M3.5 accepted 2026-11-09; needed before the production
+ETL); cutover date; the WebView ≥ 117 screen; the true-hardware device rows
 (#1152/#1153 PR checklists + R4); Apple verification review before M5; `make migrate-v2` on prod; the 2 Failed
 uploads' fate at cutover; Dependabot; Play Console items.
 
