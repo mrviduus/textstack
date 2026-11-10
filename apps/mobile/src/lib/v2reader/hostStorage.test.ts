@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { isUuid } from '@textstack/shared'
 import { createV2Storage, nonceFromUuid, readRecovering, sha256Key, writeAtomically, type V2Files } from './hostStorage'
+import { createLocalLibrary } from './localLibrary'
+import { memoryDb } from './sqliteShim'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated'
+
+const CFI = 'epubcfi(/6/14!/4/2/1:0)'
+const pos = { cfi: CFI, quote: 'It was a bright cold day', index: 6, fraction: 0.41, at: 1000 }
+const entry = (e: { position: unknown; highlights: unknown[] }) => JSON.stringify({ v: 1, book: { sha256: 'ab'.repeat(32), size: 10, name: 'b.epub' }, ...e })
 
 /** In-memory files that log every operation and yield between steps, as the native calls do. */
 function memoryFiles() {
@@ -84,151 +91,184 @@ describe('v2 host storage', () => {
     expect(await readRecovering(files, 'store/x.json')).toBe('old')
   })
 
+  const storage = (m = memoryFiles(), newId: () => string = randomUUID) => {
+    const lib = createLocalLibrary(memoryDb())
+    return { ...m, lib, storage: createV2Storage(m.files, newId, lib) }
+  }
+
   it('addOpened_TwoConcurrentImports_BothLand', async () => {
-    const { files } = memoryFiles()
-    const storage = createV2Storage(files, randomUUID)
-    await Promise.all([storage.addOpened(book(SHA_A), null), storage.addOpened(book(SHA_B), null)])
-    expect((await storage.books()).map((b) => b.sha256)).toEqual([SHA_A_KEY, SHA_B])
+    const { storage: s } = storage()
+    await Promise.all([s.addOpened(book(SHA_A), null), s.addOpened(book(SHA_B), null)])
+    expect((await s.books()).map((b) => b.sha256)).toEqual([SHA_A_KEY, SHA_B])
   })
 
-  it('addOpened_NewBook_IdFromTheGivenNewIdNotLibraryDefault', async () => {
-    // Hermes has no crypto: library.mjs's default uuidV4 would throw there, so the host's newId must be the one used.
-    const { files } = memoryFiles()
-    // @ts-expect-error newId is required
-    expect(() => createV2Storage(files)).toBeTypeOf('function')
-    const id = randomUUID()
-    const { books } = await createV2Storage(files, () => id).addOpened(book(SHA_B), null)
-    expect(books.map((b) => b.id)).toEqual([id])
+  it('addOpened_NewBook_IdFromTheGivenNewId_UuidBookAndFile', async () => {
+    const ids = [randomUUID(), randomUUID()]
+    const { storage: s, lib } = storage(memoryFiles(), () => ids.shift()!)
+    const [bookId, fileId] = ids
+    const { books, bookId: opened } = await s.addOpened({ ...book(SHA_B), format: 'mobi' }, null)
+    expect(books.map((b) => b.id)).toEqual([bookId])
+    expect(opened).toBe(bookId)
+    expect(await lib.book(bookId)).toMatchObject({ file_id: fileId, format: 'mobi', sha256: SHA_B })
+    expect(await lib.outbox()).toEqual([{ kind: 'book', target: bookId, gen: 1 }])
   })
 
   it('addOpened_SameBytesInUpperCase_ExistingEntryAndStagedCopyDropped', async () => {
-    const { files, data } = memoryFiles()
-    const storage = createV2Storage(files, randomUUID)
+    const { storage: s, data } = storage()
     data.set('staging/1.epub', 'bytes')
-    await storage.addOpened(book(SHA_A_KEY), 'staging/1.epub')
+    await s.addOpened(book(SHA_A_KEY), 'staging/1.epub')
     data.set('staging/2.epub', 'bytes')
-    const { books } = await storage.addOpened(book(SHA_A), 'staging/2.epub')
+    const { books } = await s.addOpened(book(SHA_A), 'staging/2.epub')
     expect(books).toHaveLength(1)
     expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${SHA_A_KEY}.epub`])
   })
 
   it('addOpened_BytesAlreadyRetained_AdoptsTheFileAndDropsTheStagedCopy', async () => {
-    const { files, data, ops } = memoryFiles()
-    data.set(`books/${SHA_A_KEY}.epub`, 'retained')
-    data.set('staging/1.epub', 'staged')
-    const { books } = await createV2Storage(files, randomUUID).addOpened(book(SHA_A_KEY), 'staging/1.epub')
+    const m = memoryFiles()
+    m.data.set(`books/${SHA_A_KEY}.epub`, 'retained')
+    m.data.set('staging/1.epub', 'staged')
+    const { storage: s, data, ops } = storage(m)
+    const { books } = await s.addOpened(book(SHA_A_KEY), 'staging/1.epub')
     expect(books.map((b) => b.sha256)).toEqual([SHA_A_KEY])
     expect(data.get(`books/${SHA_A_KEY}.epub`)).toBe('retained')
     expect(data.has('staging/1.epub')).toBe(false)
     expect(ops.some((o) => o.startsWith('move staging/'))).toBe(false)
   })
 
-  it('addOpened_LibraryWriteFailsAfterTheMove_RemovesTheRetainedCopyAndRethrows', async () => {
-    const m = memoryFiles()
-    const { files, data } = m
-    data.set('library.json', 'old')
+  it('addOpened_RowWriteFailsAfterTheMove_RemovesTheRetainedCopyAndRethrows', async () => {
+    const { storage: s, data, lib } = storage()
     data.set('staging/1.epub', 'staged')
-    failOn(m, 'write', 'ENOSPC', { name: 'library.json.tmp' })
-    await expect(createV2Storage(files, randomUUID).addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('ENOSPC')
-    expect([...data]).toEqual([['library.json', 'old']])
+    lib.addOpened = async () => { throw new Error('SQLITE_FULL') }
+    await expect(s.addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('SQLITE_FULL')
+    expect([...data.keys()]).toEqual([])
   })
 
-  it('addOpened_LibraryWriteFailsForAnAdoptedCopy_KeepsTheCopy', async () => {
+  it('addOpened_RowWriteFailsForAnAdoptedCopy_KeepsTheCopy', async () => {
     const m = memoryFiles()
-    const { files, data } = m
-    data.set(`books/${SHA_A_KEY}.epub`, 'retained')
-    data.set('staging/1.epub', 'staged')
-    failOn(m, 'write', 'ENOSPC')
-    await expect(createV2Storage(files, randomUUID).addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('ENOSPC')
+    m.data.set(`books/${SHA_A_KEY}.epub`, 'retained')
+    m.data.set('staging/1.epub', 'staged')
+    const { storage: s, data, lib } = storage(m)
+    lib.addOpened = async () => { throw new Error('SQLITE_FULL') }
+    await expect(s.addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('SQLITE_FULL')
     expect([...data]).toEqual([[`books/${SHA_A_KEY}.epub`, 'retained']])
   })
 
-  it('addOpened_FirstImportLibraryMoveFails_KeepsTheCopyTheRecoveredEntryNames', async () => {
-    const m = memoryFiles()
-    const { files, data } = m
-    data.set('staging/1.epub', 's')
-    failOn(m, 'move', 'EIO', { name: 'library.json.tmp' })
-    const storage = createV2Storage(files, randomUUID)
-    await expect(storage.addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('EIO')
-    // No library.json: readRecovering reads the complete tmp, which lists the book, so its file stays.
-    expect((await storage.books()).map((b) => b.sha256)).toEqual([SHA_A_KEY])
-    expect(data.has(`books/${SHA_A_KEY}.epub`)).toBe(true)
-  })
-
-  it('addOpened_LibraryMoveDeletesTheTargetThenFails_KeepsTheCopyTheRecoveredEntryNames', async () => {
-    const { files, data } = memoryFiles()
-    data.set('library.json', JSON.stringify({ v: 1, books: [] }))
-    data.set('staging/1.epub', 's')
-    const move = files.move
-    // expo-file-system's overwriting move: the target is deleted before the rename, which then fails.
-    files.move = async (from, to) => {
-      if (from === 'library.json.tmp') { data.delete(to); throw new Error('rename failed') }
-      return move(from, to)
-    }
-    const storage = createV2Storage(files, randomUUID)
-    await expect(storage.addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('rename failed')
-    expect((await storage.books()).map((b) => b.sha256)).toEqual([SHA_A_KEY])
-    expect(data.has(`books/${SHA_A_KEY}.epub`)).toBe(true)
-  })
-
-  it('addOpened_FirstFailsSecondAdoptsSameBytes_OneCopyOneEntry', async () => {
-    const m = memoryFiles()
-    const { files, data } = m
-    data.set('staging/1.epub', 'x')
-    data.set('staging/2.epub', 'x')
-    failOn(m, 'write', 'ENOSPC', { name: 'library.json.tmp', once: true })
-    const storage = createV2Storage(files, randomUUID)
-    const [first, second] = await Promise.allSettled([storage.addOpened(book(SHA_A_KEY), 'staging/1.epub'), storage.addOpened(book(SHA_A_KEY), 'staging/2.epub')])
-    expect([first.status, second.status]).toEqual(['rejected', 'fulfilled'])
-    expect(await storage.books()).toHaveLength(1)
-    expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${SHA_A_KEY}.epub`])
-  })
-
   it('addOpened_SameBytesConcurrently_OneEntryOneFile', async () => {
-    const { files, data } = memoryFiles()
-    data.set('staging/1.epub', 'x')
-    data.set('staging/2.epub', 'x')
-    const storage = createV2Storage(files, randomUUID)
-    await Promise.all([storage.addOpened(book(SHA_A_KEY), 'staging/1.epub'), storage.addOpened(book(SHA_A), 'staging/2.epub')])
-    expect(await storage.books()).toHaveLength(1)
-    expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${SHA_A_KEY}.epub`])
-  })
-
-  it('writeStore_FailedWrite_RejectsToItsCallerAndTheNextWriteRuns', async () => {
     const m = memoryFiles()
-    const { files, data } = m
-    failOn(m, 'move', 'disk', { once: true })
-    const storage = createV2Storage(files, randomUUID)
-    const first = storage.writeStore(SHA_B, 'one')
-    const second = storage.writeStore(SHA_B, 'two')
-    await expect(first).rejects.toThrow('disk')
-    await second
-    expect(data.get(`store/${SHA_B}.json`)).toBe('two')
+    m.data.set('staging/1.epub', 'x')
+    m.data.set('staging/2.epub', 'x')
+    const { storage: s, data } = storage(m)
+    await Promise.all([s.addOpened(book(SHA_A_KEY), 'staging/1.epub'), s.addOpened(book(SHA_A), 'staging/2.epub')])
+    expect(await s.books()).toHaveLength(1)
+    expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${SHA_A_KEY}.epub`])
   })
 
   it('writeStore_HostileKey_RejectsAndWritesNothing', async () => {
-    const { files, ops } = memoryFiles()
-    const storage = createV2Storage(files, randomUUID)
-    await expect(storage.writeStore('../../x', '{}')).rejects.toThrow('not a sha256')
-    await expect(storage.addOpened(book('../x'), null)).rejects.toThrow('not a sha256')
+    const { storage: s, ops } = storage()
+    await expect(s.writeStore('../../x', '{}')).rejects.toThrow('not a sha256')
+    await expect(s.addOpened(book('../x'), null)).rejects.toThrow('not a sha256')
     expect(ops).toEqual([])
   })
 
-  it('readStore_QueuedBehindAWrite_ReadsTheNewValue', async () => {
-    const { files, data } = memoryFiles()
-    data.set(`store/${SHA_B}.json`, 'old')
-    const storage = createV2Storage(files, randomUUID)
-    const write = storage.writeStore(SHA_B, 'new')
-    expect(await storage.readStore(SHA_B)).toBe('new')
-    await write
+  it('writeStore_NotThisBooksEntry_Rejects', async () => {
+    const { storage: s } = storage()
+    await s.addOpened(book(SHA_B), null)
+    await expect(s.writeStore(SHA_B, JSON.stringify({ v: 1, book: { sha256: SHA_A_KEY, size: 10 }, position: null, highlights: [] }))).rejects.toThrow('not an entry')
+    await expect(s.writeStore(SHA_A, JSON.stringify({ v: 1, book: { sha256: SHA_A_KEY, size: 10 }, position: null, highlights: [] }))).rejects.toThrow('not an entry')
   })
 
-  it('writeStore_UpperCaseKey_ReadBackUnderLowerCaseVerbatim', async () => {
-    const { files, data } = memoryFiles()
-    const storage = createV2Storage(files, randomUUID)
-    await storage.writeStore(SHA_A, '{"v":1, "kept":"as sent"}')
-    expect(data.get(`store/${SHA_A_KEY}.json`)).toBe('{"v":1, "kept":"as sent"}')
-    expect(await storage.readStore(SHA_A_KEY)).toBe('{"v":1, "kept":"as sent"}')
+  it('writeStore_PositionAndHighlight_ReadBackAsTheEntryAndQueued', async () => {
+    const { storage: s, lib } = storage()
+    const { bookId } = await s.addOpened(book(SHA_A), null)
+    const h = { id: randomUUID(), cfi: CFI, index: 6, quote: 'bright', selectedText: 'bright cold', prefix: '', suffix: '', color: 'yellow', at: 1 }
+    await s.writeStore(SHA_A, entry({ position: pos, highlights: [h] }))
+    const back = JSON.parse((await s.readStore(SHA_A_KEY))!)
+    expect(back).toMatchObject({ v: 1, book: { sha256: SHA_A_KEY, size: 10 }, position: pos, highlights: [h] })
+    expect((await lib.outbox()).map((o) => `${o.kind}:${o.target}`)).toEqual([`book:${bookId}`, `state:${bookId}`, `annotation:${h.id}`])
+    // The same entry again changes nothing; a moved position re-queues the state (gen 2).
+    await s.writeStore(SHA_A, entry({ position: pos, highlights: [h] }))
+    await s.writeStore(SHA_A, entry({ position: { ...pos, fraction: 0.5 }, highlights: [h] }))
+    expect((await lib.outbox()).find((o) => o.kind === 'state')?.gen).toBe(2)
+    expect((await lib.outbox()).find((o) => o.kind === 'annotation')?.gen).toBe(1)
+  })
+
+  it('writeStore_OverCapOrBlankSelection_KeptLocalNeverQueued', async () => {
+    const { storage: s, lib } = storage()
+    await s.addOpened(book(SHA_A), null)
+    const long = { id: randomUUID(), cfi: CFI, index: 6, quote: 'x', selectedText: 'x'.repeat(4001), color: 'yellow', at: 1 }
+    await s.writeStore(SHA_A, entry({ position: null, highlights: [long] }))
+    expect(JSON.parse((await s.readStore(SHA_A))!).highlights).toHaveLength(1)
+    expect((await lib.outbox()).filter((o) => o.kind === 'annotation')).toEqual([])
+  })
+
+  it('readingPath_NoNetworkNoAccount_OpenSaveRestoreAnswerFromSqlite', async () => {
+    const fetch = vi.fn(async () => { throw new TypeError('Network request failed') })
+    vi.stubGlobal('fetch', fetch)
+    try {
+      const { storage: s } = storage()
+      await s.addOpened(book(SHA_A), null)
+      await s.writeStore(SHA_A, entry({ position: pos, highlights: [] }))
+      expect(JSON.parse((await s.readStore(SHA_A))!).position).toEqual(pos)
+      expect(fetch).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('readStore_NoSuchBook_Null', async () => {
+    expect(await storage().storage.readStore(SHA_B)).toBeNull()
+  })
+
+  describe('R2 JSON library import (id remap, #1078)', () => {
+    const oldLibrary = (id: string) => JSON.stringify({ v: 1, books: [{ id, sha256: SHA_A, size: 10, title: 'Old', author: 'A', originalName: 'old.epub', importedAt: 5, openedAt: 6 }] })
+    const oldEntry = JSON.stringify({
+      v: 1, book: { sha256: SHA_A_KEY, size: 10, name: 'old.epub' }, position: pos,
+      highlights: [
+        { id: 'hlx9q2', cfi: CFI, index: 6, quote: 'the whole old selection', prefix: '', suffix: '', color: 'yellow', at: 1 },
+        { id: 'hlx9q3', cfi: CFI, index: 6, quote: 'x'.repeat(4001), prefix: '', suffix: '', color: 'yellow', at: 2 },
+      ],
+    })
+
+    it('importLegacy_LbAndHIds_RemappedToUuidsBeforeAnyUpload_FilesDeleted', async () => {
+      const m = memoryFiles()
+      m.data.set('library.json', oldLibrary('lb_k3j2h1'))
+      m.data.set(`store/${SHA_A_KEY}.json`, oldEntry)
+      const { storage: s, lib, data } = storage(m)
+      const [b] = await s.books()
+      expect(isUuid(b.id)).toBe(true)
+      expect(b).toMatchObject({ title: 'Old', originalName: 'old.epub', importedAt: 5, local: true })
+      const back = JSON.parse((await s.readStore(SHA_A))!)
+      expect(back.position).toEqual(pos)
+      expect(back.highlights.map((h: { id: string }) => isUuid(h.id))).toEqual([true, true])
+      // Pre-#1078: quote held the whole selection; now selectedText does, quote is its ≤64-code-point start.
+      expect(back.highlights[0]).toMatchObject({ selectedText: 'the whole old selection', quote: 'the whole old selection' })
+      expect(back.highlights[1].quote).toHaveLength(64)
+      // The over-cap one stays on the device, unqueued.
+      expect((await lib.outbox()).map((o) => o.kind)).toEqual(['book', 'state', 'annotation'])
+      expect([...data.keys()].filter((k) => k.endsWith('.json'))).toEqual([])
+    })
+
+    it('importLegacy_UuidBookId_Kept_SecondStartImportsNothing', async () => {
+      const id = randomUUID()
+      const m = memoryFiles()
+      m.data.set('library.json', oldLibrary(id))
+      const db = memoryDb()
+      const lib = createLocalLibrary(db)
+      expect((await createV2Storage(m.files, randomUUID, lib).books()).map((b) => b.id)).toEqual([id])
+      m.data.set('library.json', oldLibrary('lb_again'))
+      expect((await createV2Storage(m.files, randomUUID, lib).books()).map((b) => b.id)).toEqual([id])
+    })
+
+    it('importLegacy_PageResendsOldHId_SameHighlightNotDuplicated', async () => {
+      const m = memoryFiles()
+      m.data.set('library.json', oldLibrary('lb_1'))
+      m.data.set(`store/${SHA_A_KEY}.json`, oldEntry)
+      const { storage: s } = storage(m)
+      await s.books()
+      // A page that still held the old ids saves them back: same CFI + text is the stored highlight.
+      await s.writeStore(SHA_A, oldEntry)
+      expect(JSON.parse((await s.readStore(SHA_A))!).highlights).toHaveLength(2)
+    })
   })
 
   it('sha256Key_NotSixtyFourHex_Throws', () => {

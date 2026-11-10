@@ -1,0 +1,543 @@
+/**
+ * The V2 local library (R6, #1038; plan §8 row R6): one SQLite database, `textstack-v2` (never the
+ * legacy `textstack-offline`), holding the V2 reader's books, reading state and highlights, keyed
+ * by client v4 UUIDs (ADR-031 rule 3), plus the sync outbox and cursors. File bytes stay files
+ * (`books/<sha256>.epub`, hostStorage.ts). The reading path reads only this: no network, no account.
+ *
+ * Tables:
+ *   books          one row per book: the copy on this device (`file_id`, `sha256`, …; null when not
+ *                  imported here) and the server's current file as last seen (`server_*`; null when
+ *                  the server has not seen the book)
+ *   reading_state  per book: the page's position JSON and the server revision this device last saw
+ *   annotations    the page's highlight JSON per id, its file version, revision and tombstone; `mine`
+ *                  = made on this device
+ *   outbox         what still has to be pushed: (kind, target), kind 'book' | 'state' | 'annotation',
+ *                  pushed in that order (PDD "Push"). Coalescing: the payload is read from the row at
+ *                  push time, so one entry per row; `gen` grows on every re-queue, so a push only
+ *                  clears the entry it read (a save landing mid-push stays queued)
+ *   meta           cursors per feed, the file-sync setting
+ *
+ * One serial queue runs every read and write (one connection: a read inside another job's open
+ * transaction would see its uncommitted rows). A job is queued when its function is called, so a
+ * write started in the tick an epoch was checked lands before a later sign-out's wipe.
+ */
+import { createWriteQueue } from '../sessionWrites'
+import {
+  annotationHighlight, decideServerState, isUuid, sameJson, statePosition, syncableText,
+  type OpenReader, type PageHighlight, type PagePosition, type V2Annotation, type V2Book, type V2BookFile, type V2ReadingState,
+} from '@textstack/shared'
+import { entryFor, quoteOf, STORE_VERSION } from './store.mjs'
+import type { LibraryBook } from './hostStorage'
+import type { LibraryEntry } from './library.mjs'
+
+/** The expo-sqlite surface this needs (node:sqlite behind a shim in tests). */
+export interface Db {
+  execAsync(sql: string): Promise<void>
+  runAsync(sql: string, params?: unknown[]): Promise<unknown>
+  getFirstAsync<T>(sql: string, params?: unknown[]): Promise<T | null>
+  getAllAsync<T>(sql: string, params?: unknown[]): Promise<T[]>
+  withTransactionAsync(fn: () => Promise<void>): Promise<void>
+}
+
+const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS books (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    author TEXT NOT NULL DEFAULT '',
+    original_name TEXT NOT NULL,
+    file_id TEXT, sha256 TEXT, size INTEGER, format TEXT,
+    imported_at INTEGER, opened_at INTEGER,
+    server_file_id TEXT, server_sha256 TEXT, server_size INTEGER, server_format TEXT,
+    has_content INTEGER NOT NULL DEFAULT 0,
+    content_removed INTEGER NOT NULL DEFAULT 0,
+    removed_at TEXT
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS books_sha256 ON books (sha256);
+  CREATE TABLE IF NOT EXISTS reading_state (
+    book_id TEXT PRIMARY KEY,
+    position TEXT,
+    file_id TEXT,
+    revision INTEGER,
+    revision_file_id TEXT
+  );
+  CREATE TABLE IF NOT EXISTS annotations (
+    id TEXT PRIMARY KEY,
+    book_id TEXT NOT NULL,
+    file_id TEXT,
+    highlight TEXT NOT NULL,
+    revision INTEGER,
+    deleted_at TEXT,
+    mine INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS annotations_book ON annotations (book_id);
+  CREATE TABLE IF NOT EXISTS outbox (
+    kind TEXT NOT NULL,
+    target TEXT NOT NULL,
+    gen INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (kind, target)
+  );
+  CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+`
+
+export interface BookRow {
+  id: string
+  title: string
+  author: string
+  original_name: string
+  file_id: string | null
+  sha256: string | null
+  size: number | null
+  format: string | null
+  imported_at: number | null
+  opened_at: number | null
+  server_file_id: string | null
+  server_sha256: string | null
+  server_size: number | null
+  server_format: string | null
+  has_content: number
+  content_removed: number
+  removed_at: string | null
+}
+
+export interface StateRow {
+  book_id: string
+  position: string | null
+  file_id: string | null
+  revision: number | null
+  revision_file_id: string | null
+}
+
+export interface AnnotationRow {
+  id: string
+  book_id: string
+  file_id: string | null
+  highlight: string
+  revision: number | null
+  deleted_at: string | null
+  mine: number
+}
+
+export type OutboxKind = 'book' | 'state' | 'annotation'
+export interface OutboxItem { kind: OutboxKind; target: string; gen: number }
+
+/** A host action the sync owes the open reader: go to `position` (`adopt`/`move`) or ask (`prompt`). */
+export interface PositionAction {
+  bookId: string
+  action: 'adopt' | 'move' | 'prompt'
+  position: PagePosition
+}
+
+export const FEEDS = ['library', 'reading', 'annotations'] as const
+export type LocalFeed = (typeof FEEDS)[number]
+
+const parse = <T>(json: string | null): T | null => {
+  if (!json) return null
+  try { return JSON.parse(json) as T } catch { return null }
+}
+
+/** An old (#1078-less) highlight: `quote` held the whole selection; now `selectedText` does and `quote` is its start. */
+function normalised(h: PageHighlight): PageHighlight {
+  return h.selectedText === undefined ? { ...h, selectedText: h.quote, quote: quoteOf(h.quote) } : h
+}
+
+export function createLocalLibrary(db: Db) {
+  const queue = createWriteQueue()
+  let ready: Promise<void> | null = null
+  /** A job on the one queue; the schema runs before the first. */
+  const job = <T>(fn: () => Promise<T>): Promise<T> => queue.run(async () => {
+    await (ready ??= db.execAsync(SCHEMA).catch((e) => { ready = null; throw e }))
+    return fn()
+  })
+  const tx = <T>(fn: () => Promise<T>): Promise<T> => job(async () => {
+    let out!: T
+    await db.withTransactionAsync(async () => { out = await fn() })
+    return out
+  })
+
+  const run = (sql: string, params: unknown[] = []) => db.runAsync(sql, params)
+  const one = <T>(sql: string, params: unknown[] = []) => db.getFirstAsync<T>(sql, params)
+  const all = <T>(sql: string, params: unknown[] = []) => db.getAllAsync<T>(sql, params)
+
+  const bookById = (id: string) => one<BookRow>('SELECT * FROM books WHERE id = ?', [id])
+  const bookBySha = (sha256: string) => one<BookRow>('SELECT * FROM books WHERE sha256 = ?', [sha256])
+  const stateOf = (bookId: string) => one<StateRow>('SELECT * FROM reading_state WHERE book_id = ?', [bookId])
+  const annotationById = (id: string) => one<AnnotationRow>('SELECT * FROM annotations WHERE id = ?', [id])
+  const queued = async (kind: OutboxKind, target: string) => !!(await one('SELECT 1 FROM outbox WHERE kind = ? AND target = ?', [kind, target]))
+  const enqueue = (kind: OutboxKind, target: string) =>
+    run('INSERT INTO outbox (kind, target) VALUES (?, ?) ON CONFLICT (kind, target) DO UPDATE SET gen = gen + 1', [kind, target])
+  const dequeue = (kind: OutboxKind, target: string) => run('DELETE FROM outbox WHERE kind = ? AND target = ?', [kind, target])
+  const getMeta = async (key: string) => (await one<{ value: string }>('SELECT value FROM meta WHERE key = ?', [key]))?.value ?? null
+  const setMeta = (key: string, value: string | null) =>
+    value === null ? run('DELETE FROM meta WHERE key = ?', [key]) : run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [key, value])
+
+  /** The server's current file onto a book row (null file: a catalog book, nothing to read here). */
+  const setServer = (id: string, f: V2BookFile | null, removedAt: string | null) => run(
+    `UPDATE books SET server_file_id = ?, server_sha256 = ?, server_size = ?, server_format = ?, has_content = ?, content_removed = ?, removed_at = ? WHERE id = ?`,
+    [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0, f?.contentRemovedAt ? 1 : 0, removedAt, id],
+  )
+
+  /**
+   * Book and file ids re-keyed everywhere they are named: a merge map, `duplicate_file`, an adopt by
+   * sha256, `id_conflict` (PDD "Conflict codes"). A row already under the new id (a server-only copy
+   * of the same book) is replaced by the re-keyed one.
+   */
+  async function rekeyIn(books: Record<string, string>, files: Record<string, string>) {
+    for (const [from, to] of Object.entries(books)) {
+      if (from === to) continue
+      await run('UPDATE OR REPLACE books SET id = ? WHERE id = ?', [to, from])
+      await run('UPDATE OR REPLACE reading_state SET book_id = ? WHERE book_id = ?', [to, from])
+      await run('UPDATE annotations SET book_id = ? WHERE book_id = ?', [to, from])
+      await run(`UPDATE OR REPLACE outbox SET target = ? WHERE target = ? AND kind IN ('book', 'state')`, [to, from])
+    }
+    for (const [from, to] of Object.entries(files)) {
+      if (from === to) continue
+      for (const [table, col] of [['books', 'file_id'], ['books', 'server_file_id'], ['reading_state', 'file_id'], ['reading_state', 'revision_file_id'], ['annotations', 'file_id']]) {
+        await run(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`, [to, from])
+      }
+    }
+  }
+
+  /**
+   * The page's entry into rows: a changed position queues a state write; a highlight new or changed
+   * queues its annotation (only when its text may sync). A tombstoned highlight stays deleted (a
+   * tombstone wins over every edit). A highlight under an id this device does not know — a pre-#1078
+   * `h…` id, or one re-keyed after `id_conflict` while the page still holds the old one — is the
+   * stored highlight at the same CFI with the same text when there is one, else a new v4 id.
+   */
+  async function applyEntry(book: BookRow, entry: { position: PagePosition | null; highlights: PageHighlight[] }, newId: () => string) {
+    if (entry.position) {
+      const st = await stateOf(book.id)
+      if (!sameJson(parse(st?.position ?? null), entry.position)) {
+        await run(
+          `INSERT INTO reading_state (book_id, position, file_id) VALUES (?, ?, ?)
+           ON CONFLICT (book_id) DO UPDATE SET position = excluded.position, file_id = excluded.file_id`,
+          [book.id, JSON.stringify(entry.position), book.file_id],
+        )
+        await enqueue('state', book.id)
+      }
+    }
+    for (const raw of entry.highlights) {
+      let h = normalised(raw)
+      let row = isUuid(h.id) ? await annotationById(h.id) : null
+      if (!row) {
+        const rows = await all<AnnotationRow>('SELECT * FROM annotations WHERE book_id = ? AND deleted_at IS NULL', [book.id])
+        const twin = rows.find((r) => {
+          const x = parse<PageHighlight>(r.highlight)
+          return x?.cfi === h.cfi && (x.selectedText ?? x.quote) === h.selectedText
+        })
+        if (twin) continue
+        if (!isUuid(h.id)) h = { ...h, id: newId() }
+      }
+      if (row?.deleted_at) continue
+      if (row && sameJson(parse(row.highlight), h)) continue
+      if (row) await run('UPDATE annotations SET highlight = ? WHERE id = ?', [JSON.stringify(h), h.id])
+      else await run('INSERT INTO annotations (id, book_id, file_id, highlight, mine) VALUES (?, ?, ?, ?, 1)', [h.id, book.id, book.file_id, JSON.stringify(h)])
+      if (syncableText(h)) await enqueue('annotation', h.id)
+    }
+  }
+
+  return {
+    // ---- The reading path (hostStorage) ----------------------------------------------------------
+
+    /** Books on this device, in import order, then the server's that can be downloaded. */
+    books: (): Promise<LibraryBook[]> => job(async () => {
+      const rows = await all<BookRow>(
+        `SELECT * FROM books WHERE imported_at IS NOT NULL
+           OR (removed_at IS NULL AND has_content = 1 AND content_removed = 0 AND server_sha256 IS NOT NULL)
+         ORDER BY imported_at IS NULL, imported_at, rowid`,
+      )
+      return rows.map((b) => {
+        const local = b.imported_at != null
+        return {
+          id: b.id, title: b.title, author: b.author, originalName: b.original_name,
+          sha256: (local ? b.sha256 : b.server_sha256)!, size: (local ? b.size : b.server_size)!,
+          importedAt: b.imported_at ?? 0, openedAt: b.opened_at ?? 0, local,
+        }
+      })
+    }),
+
+    /**
+     * The opened file as a book: identical bytes are the existing book (its format learned if it was
+     * not known); bytes a pulled book has (Story B4: imported on another device) become that book with
+     * its ids; else a new book with new v4 ids, queued for the server.
+     */
+    addOpened: (b: { sha256: string; size: number; title: string; author: string; originalName: string; format: string | null }, newId: () => string, now = Date.now()) =>
+      tx(async () => {
+        const existing = await bookBySha(b.sha256)
+        if (existing) {
+          await run('UPDATE books SET opened_at = ?, format = COALESCE(?, format) WHERE id = ?', [now, b.format, existing.id])
+          return existing.id
+        }
+        const pulled = await one<BookRow>('SELECT * FROM books WHERE imported_at IS NULL AND server_sha256 = ? AND server_size = ?', [b.sha256, b.size])
+        if (pulled) {
+          await run('UPDATE books SET file_id = server_file_id, sha256 = ?, size = ?, format = ?, imported_at = ?, opened_at = ? WHERE id = ?',
+            [b.sha256, b.size, b.format ?? pulled.server_format, now, now, pulled.id])
+          return pulled.id
+        }
+        const id = newId()
+        await run('INSERT INTO books (id, title, author, original_name, file_id, sha256, size, format, imported_at, opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+          id, b.title.trim() || b.originalName.replace(/\.[a-z0-9]+$/i, ''), b.author.trim(), b.originalName, newId(), b.sha256, b.size, b.format, now, now,
+        ])
+        await enqueue('book', id)
+        return id
+      }),
+
+    /** The page's entry for these bytes, rebuilt from the rows (null: no such book). Only highlights drawn in this file version. */
+    readEntry: (sha256: string): Promise<string | null> => job(async () => {
+      const book = await bookBySha(sha256)
+      if (!book) return null
+      const st = await stateOf(book.id)
+      const rows = await all<AnnotationRow>('SELECT highlight FROM annotations WHERE book_id = ? AND file_id = ? AND deleted_at IS NULL ORDER BY rowid', [book.id, book.file_id])
+      return JSON.stringify({
+        v: STORE_VERSION,
+        book: { sha256, size: book.size, name: book.original_name },
+        position: st?.file_id === book.file_id ? parse(st.position) : null,
+        highlights: rows.map((r) => parse<PageHighlight>(r.highlight)).filter(Boolean),
+      })
+    }),
+
+    /** The page's `store` payload: rejected when it is not an entry for a book with these bytes. */
+    writeEntry: (sha256: string, json: string, newId: () => string) => tx(async () => {
+      const book = await bookBySha(sha256)
+      const entry = book && entryFor(json, { sha256, size: book.size })
+      if (!book || !entry) throw new Error(`not an entry for a library book: ${sha256}`)
+      await applyEntry(book, entry, newId)
+    }),
+
+    /**
+     * R2's JSON library (library.json + store/<sha256>.json) into the rows, once. Ids that are not
+     * UUIDs (`lb_…` books, `h…` highlights, pre-#1078) get new v4 ids here, before anything is
+     * uploaded. A store entry with no library book is not imported (it was never listed either).
+     */
+    importLegacy: (books: LibraryEntry[], storeOf: Map<string, string>, newId: () => string) => tx(async () => {
+      if (await getMeta('legacy_imported')) return false
+      for (const b of books) {
+        if (await bookBySha(b.sha256)) continue
+        const id = isUuid(b.id) ? b.id : newId()
+        await run('INSERT INTO books (id, title, author, original_name, file_id, sha256, size, imported_at, opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [id, b.title, b.author ?? '', b.originalName, newId(), b.sha256, b.size, b.importedAt, b.openedAt])
+        await enqueue('book', id)
+        const json = storeOf.get(b.sha256)
+        const entry = json ? entryFor(json, { sha256: b.sha256, size: b.size }) : null
+        if (entry) await applyEntry((await bookById(id))!, entry, newId)
+      }
+      await setMeta('legacy_imported', '1')
+      return true
+    }),
+
+    /** The server is to have this book's bytes copy here too (`downloadV2Book` landed the file). */
+    markDownloaded: (bookId: string, now = Date.now()) => job(() => run(
+      'UPDATE books SET file_id = server_file_id, sha256 = server_sha256, size = server_size, format = server_format, imported_at = ? WHERE id = ? AND imported_at IS NULL',
+      [now, bookId],
+    )),
+
+    // ---- The sync client (sync.ts) ---------------------------------------------------------------
+
+    outbox: () => job(() => all<OutboxItem>(
+      `SELECT kind, target, gen FROM outbox ORDER BY CASE kind WHEN 'book' THEN 0 WHEN 'state' THEN 1 ELSE 2 END, rowid`,
+    )),
+    /** The entry leaves the outbox only if it was not queued again since it was read. */
+    done: (item: OutboxItem) => job(() => run('DELETE FROM outbox WHERE kind = ? AND target = ? AND gen = ?', [item.kind, item.target, item.gen])),
+    enqueue: (kind: OutboxKind, target: string) => job(() => enqueue(kind, target)),
+    book: (id: string) => job(() => bookById(id)),
+    state: (bookId: string) => job(() => stateOf(bookId)),
+    annotation: (id: string) => job(() => annotationById(id)),
+
+    /** The server's book for a local one (import answer, `duplicate_file`, an adopt by sha256): its ids win. */
+    adoptServerBook: (localId: string, server: V2Book) => tx(async () => {
+      const local = await bookById(localId)
+      if (!local) return
+      const files: Record<string, string> = {}
+      if (local.file_id && server.currentFile && local.sha256 === server.currentFile.sha256) files[local.file_id] = server.currentFile.id
+      await rekeyIn({ [localId]: server.id }, files)
+      await setServer(server.id, server.currentFile, server.removedAt)
+      await dequeue('book', server.id)
+    }),
+
+    /** `id_conflict` on import: the id is someone else's; mint new book and file ids. */
+    rekeyBook: (localId: string, newId: () => string) => tx(async () => {
+      const local = await bookById(localId)
+      if (!local) return localId
+      const id = newId()
+      await rekeyIn({ [localId]: id }, local.file_id ? { [local.file_id]: newId() } : {})
+      return id
+    }),
+
+    /** The guest → account merge map (PDD "What the client sees"). */
+    rekey: (books: Record<string, string>, files: Record<string, string>) => tx(() => rekeyIn(books, files)),
+
+    setServerFile: (bookId: string, f: V2BookFile | null) => job(() =>
+      run(`UPDATE books SET server_file_id = ?, server_sha256 = ?, server_size = ?, server_format = ?, has_content = ? WHERE id = ?`,
+        [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0, bookId])),
+
+    setHasContent: (bookId: string) => job(() => run('UPDATE books SET has_content = 1 WHERE id = ?', [bookId])),
+
+    /** A reading-state write landed or lost to a row we keep ours over: the revision the next write names. */
+    setStateRevision: (bookId: string, revision: number | null, fileId: string | null) => job(() => run(
+      `INSERT INTO reading_state (book_id, revision, revision_file_id) VALUES (?, ?, ?)
+       ON CONFLICT (book_id) DO UPDATE SET revision = excluded.revision, revision_file_id = excluded.revision_file_id`,
+      [bookId, revision, fileId],
+    )),
+
+    /** An annotation as the server holds it (accepted, own write, kept server's, tombstone). */
+    setAnnotation: (a: V2Annotation) => tx(async () => {
+      const h = annotationHighlight(a)
+      if (a.deletedAt) await run('UPDATE annotations SET revision = ?, deleted_at = ? WHERE id = ?', [a.revision, a.deletedAt, a.id])
+      else if (h) await run('UPDATE annotations SET revision = ?, highlight = ?, file_id = ? WHERE id = ?', [a.revision, JSON.stringify(h), a.fileId, a.id])
+      else await run('UPDATE annotations SET revision = ? WHERE id = ?', [a.revision, a.id])
+    }),
+
+    setAnnotationRevision: (id: string, revision: number) => job(() => run('UPDATE annotations SET revision = ? WHERE id = ?', [revision, id])),
+
+    /** `id_conflict` on an annotation create: a new v4 id for it, here and in the outbox. */
+    rekeyAnnotation: (id: string, newId: () => string) => tx(async () => {
+      const row = await annotationById(id)
+      if (!row) return id
+      const to = newId()
+      const h = { ...parse<PageHighlight>(row.highlight)!, id: to }
+      await run('UPDATE annotations SET id = ?, highlight = ? WHERE id = ?', [to, JSON.stringify(h), id])
+      await run(`UPDATE outbox SET target = ? WHERE kind = 'annotation' AND target = ?`, [to, id])
+      return to
+    }),
+
+    /**
+     * A library feed page: a pulled book is the local one with the same id; a local book never pushed
+     * with the same bytes takes the server's ids (PDD "sha256 first"); anything else is kept as a book
+     * not imported here. Removed books keep their local copy (owner decision 11: removal is a hide).
+     */
+    applyBooks: (items: V2Book[]) => tx(async () => {
+      for (const b of items) {
+        const f = b.currentFile
+        let row = await bookById(b.id)
+        if (!row && f) {
+          const twin = await one<BookRow>('SELECT * FROM books WHERE sha256 = ? AND server_file_id IS NULL', [f.sha256])
+          if (twin) {
+            await rekeyIn({ [twin.id]: b.id }, twin.file_id ? { [twin.file_id]: f.id } : {})
+            await dequeue('book', b.id)
+            row = await bookById(b.id)
+          }
+        }
+        if (!row) {
+          if (b.removedAt) continue
+          await run('INSERT INTO books (id, title, author, original_name) VALUES (?, ?, ?, ?)', [b.id, b.title, b.author ?? '', f?.originalName ?? b.title])
+        } else {
+          await run('UPDATE books SET title = ?, author = ? WHERE id = ?', [b.title, b.author ?? '', b.id])
+        }
+        await setServer(b.id, f, b.removedAt)
+      }
+    }),
+
+    /**
+     * A reading feed page. A row this device already has (same revision and file) changes nothing. A
+     * book not imported here takes the server's position (it restores once the bytes are here).
+     * Otherwise `decideServerState` (ADR-019 by CFI + spine index): `keep` takes the revision only,
+     * `adopt`/`move` take the position and drop the queued write, `prompt` takes the revision and
+     * keeps the reader's place queued. Returns what the open reader is owed.
+     */
+    applyStates: (items: V2ReadingState[], reader: (bookId: string) => OpenReader | null) => tx(async () => {
+      const owed: PositionAction[] = []
+      for (const s of items) {
+        const book = await bookById(s.bookId)
+        if (!book) continue
+        const st = await stateOf(s.bookId)
+        if (st?.revision === s.revision && st.revision_file_id === s.fileId) continue
+        const position = statePosition(s)
+        const setAll = () => run(
+          `INSERT INTO reading_state (book_id, position, file_id, revision, revision_file_id) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (book_id) DO UPDATE SET position = excluded.position, file_id = excluded.file_id, revision = excluded.revision, revision_file_id = excluded.revision_file_id`,
+          [s.bookId, JSON.stringify(position), s.fileId, s.revision, s.fileId],
+        )
+        const setRevision = () => run(
+          `INSERT INTO reading_state (book_id, revision, revision_file_id) VALUES (?, ?, ?)
+           ON CONFLICT (book_id) DO UPDATE SET revision = excluded.revision, revision_file_id = excluded.revision_file_id`,
+          [s.bookId, s.revision, s.fileId],
+        )
+        if (book.imported_at == null) {
+          await (position ? setAll() : setRevision())
+          continue
+        }
+        const local = st?.file_id === book.file_id ? parse<PagePosition>(st?.position ?? null) : null
+        const action = decideServerState({ local, localFileId: book.file_id, server: s, reader: reader(s.bookId) })
+        if (action === 'keep' || action === 'prompt') await setRevision()
+        else {
+          await setAll()
+          await dequeue('state', s.bookId)
+        }
+        if (action !== 'keep' && position) owed.push({ bookId: s.bookId, action, position })
+      }
+      return owed
+    }),
+
+    /**
+     * An annotations feed page: a tombstone always wins (deleted here, its queued edit dropped); a row
+     * with a queued local edit is left for the push to resolve (`stale_revision`); otherwise the
+     * server's row replaces the local copy. One the page cannot draw (no `epub-cfi`) is not kept.
+     */
+    applyAnnotations: (items: V2Annotation[]) => tx(async () => {
+      for (const a of items) {
+        const row = await annotationById(a.id)
+        if (a.deletedAt) {
+          if (row) await run('UPDATE annotations SET deleted_at = ?, revision = ? WHERE id = ?', [a.deletedAt, a.revision, a.id])
+          await dequeue('annotation', a.id)
+          continue
+        }
+        if (await queued('annotation', a.id)) continue
+        const h = annotationHighlight(a)
+        if (!h) continue
+        if (row) await run('UPDATE annotations SET highlight = ?, file_id = ?, revision = ? WHERE id = ?', [JSON.stringify(h), a.fileId, a.revision, a.id])
+        else await run('INSERT INTO annotations (id, book_id, file_id, highlight, revision) VALUES (?, ?, ?, ?, ?)', [a.id, a.bookId, a.fileId, JSON.stringify(h), a.revision])
+      }
+    }),
+
+    cursor: (feed: LocalFeed) => job(() => getMeta(`cursor:${feed}`)),
+    setCursor: (feed: LocalFeed, cursor: string | null) => job(() => setMeta(`cursor:${feed}`, cursor)),
+    /** Every cursor dropped: the next pull is a full one (after a merge, PDD "What the client sees"). */
+    clearCursors: () => tx(async () => { for (const f of FEEDS) await setMeta(`cursor:${f}`, null) }),
+
+    /** File sync (Story B5): off unless the reader turned it on. */
+    fileSync: () => job(async () => (await getMeta('file_sync')) === '1'),
+    setFileSync: (on: boolean) => job(() => setMeta('file_sync', on ? '1' : null)),
+
+    /** Books whose bytes the server lacks and may take: on this device, pushed, current there, not stopped (`contentRemovedAt`). */
+    uploadable: () => job(() => all<BookRow>(
+      `SELECT * FROM books WHERE imported_at IS NOT NULL AND server_file_id = file_id AND has_content = 0 AND content_removed = 0 AND removed_at IS NULL`,
+    )),
+
+    /**
+     * Another identity syncs this device now (sign-out, then another session): what the server told
+     * the previous one goes — pulled books not imported here, others' highlights, revisions, server
+     * files, cursors. This device's own books, positions, highlights and queued writes stay: nothing
+     * unpushed is dropped (owner decision 3; the warn-and-wipe is #1070).
+     */
+    forgetServerState: () => tx(async () => {
+      await run('DELETE FROM books WHERE imported_at IS NULL')
+      await run(`DELETE FROM annotations WHERE mine = 0 AND id NOT IN (SELECT target FROM outbox WHERE kind = 'annotation')`)
+      await run('DELETE FROM reading_state WHERE book_id NOT IN (SELECT id FROM books)')
+      await run('UPDATE books SET server_file_id = NULL, server_sha256 = NULL, server_size = NULL, server_format = NULL, has_content = 0, content_removed = 0, removed_at = NULL')
+      await run('UPDATE reading_state SET revision = NULL, revision_file_id = NULL')
+      await run('UPDATE annotations SET revision = NULL')
+      for (const f of FEEDS) await setMeta(`cursor:${f}`, null)
+    }),
+  }
+}
+
+export type LocalLibrary = ReturnType<typeof createLocalLibrary>
+
+let device: LocalLibrary | null = null
+
+/** The device's library, opened on first use (expo-sqlite, required here so no other bundle loads it). */
+export function deviceLocalLibrary(): LocalLibrary {
+  if (!device) {
+    const SQLite = require('expo-sqlite') as typeof import('expo-sqlite')
+    const opened = SQLite.openDatabaseAsync('textstack-v2')
+    const later = <K extends keyof Db>(k: K) => (async (...args: unknown[]) => ((await opened) as any)[k](...args)) as Db[K]
+    device = createLocalLibrary({
+      execAsync: later('execAsync'),
+      runAsync: later('runAsync'),
+      getFirstAsync: later('getFirstAsync'),
+      getAllAsync: later('getAllAsync'),
+      withTransactionAsync: later('withTransactionAsync'),
+    })
+  }
+  return device
+}
