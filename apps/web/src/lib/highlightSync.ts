@@ -24,7 +24,7 @@ import { isCacheChapterKey, highlightChapterKey, chapterForHighlight } from './t
 import {
   v2Api, clip, anchorToV2Locator, v2LocatorToAnchor, MAX_SELECTED_TEXT, type V2Annotation, type V2AnnotationWrite,
 } from '@textstack/shared'
-import { onV2, v2Book, pullFeed, v2Store } from '../api/v2'
+import { onV2, v2Book, pullFeed, v2Store, resetSince, whileCurrent } from '../api/v2'
 
 export type ChapterRef = { id: string; identifier: string }
 
@@ -399,13 +399,18 @@ export function toV2Write(h: StoredHighlight, fileId: string | null, expectedRev
  */
 async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false): Promise<boolean> {
   const cancelled = () => ui?.isCancelled() ?? false
+  // Signed out (or another account) mid-sync: the rest of this sync is the previous account's (#1155).
+  const reset = resetSince()
   try {
     const fileId = (await v2Book(bookId)).currentFile?.id ?? null
     const pull = !pushOnly || !v2Store.pulled.has(bookId)
     if (pull) {
       // ponytail: the feed is per user, filtered here; a per-book list when one exists.
-      for (const a of (await pullFeed<V2Annotation>('annotations')).items) v2Store.annotations.set(a.id, a)
-      v2Store.pulled.add(bookId)
+      const feed = await whileCurrent(pullFeed<V2Annotation>('annotations'), ({ items }) => {
+        for (const a of items) v2Store.annotations.set(a.id, a)
+        v2Store.pulled.add(bookId)
+      })
+      if (!feed) return false
     }
     if (cancelled()) return false
     const server = [...v2Store.annotations.values()].filter((a) => a.bookId === bookId)
@@ -414,6 +419,7 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
     const pending = new Set(local.filter((h) => h.syncStatus === 'pending').map((h) => h.id))
 
     const adopt = async (a: V2Annotation) => {
+      if (reset()) throw new v2Api.SessionChangedError()
       v2Store.annotations.set(a.id, a)
       const row = a.deletedAt ? null : fromV2Annotation(a)
       if (row) await saveHighlight(row)
@@ -446,6 +452,7 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
         }
         changed = true
       } catch (e) {
+        if (reset()) return false
         const err = v2Api.v2ErrorOf(e)
         if ((err?.code === 'stale_revision' || err?.code === 'deleted') && err.current) await adopt(err.current as V2Annotation)
         else if (err?.code === 'chapter_not_found' || err?.code === 'not_found') await deleteHighlightFromDB(h.id)
@@ -460,7 +467,7 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
       ui?.onVisible(visible.sort((a, b) => b.createdAt - a.createdAt))
     }
   } catch {
-    // Server unavailable (or V2 paused, 503): keep local data.
+    // Server unavailable (or V2 paused, 503), or signed out meanwhile: keep local data.
   }
   return false
 }
