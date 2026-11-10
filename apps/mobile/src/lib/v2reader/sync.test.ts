@@ -371,8 +371,9 @@ describe('V2 local library sync (R6)', () => {
         expect(again.owed).toEqual([])
       })
 
-      it('pull_NewerStateWhileUnmovedOnAFractionLanding_MovedSilentlyNoWrite', async () => {
-        // Landed by fraction at rev 3, not moved since: rev 4 from another device moves the reader, no prompt.
+      it('pull_NewerStateWhileUnmovedOnAFractionLanding_PromptedNoWrite', async () => {
+        // Landed by fraction at rev 3, not moved since: rev 4 from another device is offered, never a silent move
+        // (#1187 round 3: the host's moved flag is not guard enough). The landing stays here.
         const { lib, bookId, fileId } = await synced()
         fakeApi({ 'GET /reading/changes': feed(transitional(bookId, fileId, 3, NOW - 2000)) })
         await syncV2Library(lib, host())
@@ -380,8 +381,9 @@ describe('V2 local library sync (R6)', () => {
         const calls = fakeApi({ 'GET /reading/changes': feed({ ...transitional(bookId, fileId, 4, NOW - 1000), bookFraction: 0.8 }) })
         const h = host({ reader: () => ({ restoreApplied: true, moved: false, index: 1 }) })
         await syncV2Library(lib, h)
-        expect(h.owed).toEqual([expect.objectContaining({ action: 'move', position: { fraction: 0.8, at: NOW - 1000 } })])
-        expect((await restoredEntry(lib)).position).toEqual({ fraction: 0.8, at: NOW - 1000 })
+        expect(h.owed).toEqual([expect.objectContaining({ action: 'prompt', position: { fraction: 0.8, at: NOW - 1000 } })])
+        expect((await restoredEntry(lib)).position).toEqual({ fraction: 0.7, at: NOW - 2000 })
+        expect(await lib.state(bookId)).toMatchObject({ revision: 4 })
         expect(writes(calls)).toEqual([])
         expect(await lib.outbox()).toEqual([])
       })

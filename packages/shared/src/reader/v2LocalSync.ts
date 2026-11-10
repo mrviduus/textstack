@@ -79,11 +79,13 @@ export function positionWrite(p: PagePosition, fileId: string, expectedRevision:
   }
 }
 
+const FRACTION_SCHEMES = new Set<string>(['textstack-position-v1', 'textstack-anchor-v1', 'epub-cfi'])
+
 /**
  * A server reading state as the page's position. An `epub-cfi` one with its quote is restored by CFI;
  * a transitional `textstack-*` one (or an `epub-cfi` without a quote) by its `bookFraction` alone
- * (PDD "Transitional locators", #1187): approximate, never converted to a CFI. Null for `pdf-page`
- * and for a state without a fraction in [0, 1].
+ * (PDD "Transitional locators", #1187): approximate, never converted to a CFI. Null for any other
+ * scheme (`pdf-page`, an unknown one) and for a state without a fraction in [0, 1].
  */
 export function statePosition(s: V2ReadingState): PagePosition | null {
   const l = s.currentLocator
@@ -91,8 +93,10 @@ export function statePosition(s: V2ReadingState): PagePosition | null {
   if (l.scheme === 'epub-cfi' && typeof l.value === 'string' && l.quote) {
     return { cfi: l.value, quote: l.quote, index: spineIndexOf(l.value) ?? undefined, fraction: s.bookFraction, at }
   }
+  // An allowlist: the transitional schemes and an unverifiable epub-cfi. Any other (pdf-page, a scheme
+  // this build does not know) is no position here, so `keep`.
   const p = { fraction: s.bookFraction, at }
-  return l.scheme !== 'pdf-page' && isFractionOnly(p) ? p : null
+  return FRACTION_SCHEMES.has(l.scheme) && isFractionOnly(p) ? p : null
 }
 
 /** The page highlight as an annotation write; null when its text may not be synced (`syncableText`). */
@@ -157,8 +161,7 @@ export interface OpenReader {
  * ADR-019 rule 5 re-keyed by CFI + spine index. `keep`: the local position stays (the server's is
  * not provably newer, is on another file version, or is a scheme this page cannot restore) and the
  * next write goes on the server's revision. Otherwise the newer-check's action: `adopt` (nothing
- * restored yet, or the book is not open), `move` (restored, not moved since, same spine item or a
- * local fraction-only position),
+ * restored yet, or the book is not open), `move` (restored, not moved since, same spine item),
  * `prompt` (moved, or another spine item: never yank a reader who moved).
  */
 export function decideServerState(o: {
@@ -175,10 +178,8 @@ export function decideServerState(o: {
   // Nothing restored yet: adopt, whatever spine item is on screen (none is reported before `restored`).
   if (!o.reader || !o.reader.restoreApplied) return 'adopt'
   return decideNewerPosition({
-    // A local fraction-only position: the reader has not moved since a fraction landing, so nothing of
-    // theirs is lost by a silent move. A server fraction-only one has no spine index: a restored reader
-    // on a local CFI is asked.
-    sameChapter: isFractionOnly(o.local) || (o.reader.index != null && o.reader.index === theirs.index),
+    // A fraction-only position, local or the server's, has no spine index: a restored reader is asked.
+    sameChapter: o.reader.index != null && o.reader.index === theirs.index,
     restoreApplied: o.reader.restoreApplied,
     readerMoved: o.reader.moved,
   })

@@ -75,6 +75,13 @@ describe('v2LocalSync', () => {
     expect(positionWrite({ quote: 'q', fraction: 0.7, at: 1 }, 'f', 3)).toBeNull()
   })
 
+  it('statePosition_UnknownSchemeWithAValidFraction_Null', () => {
+    // An allowlist, not "anything but pdf-page": a scheme this build does not know is kept, as before #1187.
+    const unknown = { version: 1, scheme: 'textstack-future-v9', value: {} } as unknown as V2ReadingState['currentLocator']
+    expect(statePosition(state({ currentLocator: unknown, bookFraction: 0.5 }))).toBeNull()
+    expect(decideServerState({ local: null, localFileId: 'f', server: state({ currentLocator: unknown, bookFraction: 0.5 }), reader: null })).toBe('keep')
+  })
+
   it('statePosition_TransitionalFractionAtEitherEnd_KeptJustOutside_Null', () => {
     // #1187 QA: [0, 1] is closed; anything past it, or not a finite number, is no position.
     const other = { version: 1, scheme: 'textstack-position-v1', value: { chapterSlug: 'x' } } as const
@@ -178,16 +185,15 @@ describe('v2LocalSync', () => {
         // #1187 QA: no spine index on either side is not "the same chapter" (null vs undefined).
         expect(decideServerState({ local, localFileId: 'f', server: transitional(), reader: { restoreApplied: true, moved: false, index: null }, now })).toBe('prompt')
       })
-      it('decideServerState_LocalFractionOnlyReaderNotMoved_MoveSilently', () => {
-        // The reader has not moved since a fraction landing: nothing of theirs to lose, so no prompt.
+      it('decideServerState_LocalFractionOnlyReaderNotMoved_PromptNotSilentMove', () => {
+        // #1187 round 3: the host's moved flag alone is no guard against a silent move (a fraction-0
+        // restore emits no trailing relocate, so the first page turn becomes the baseline): asked.
         const landed = { fraction: 0.7, at: pos.at }
         for (const server of [transitional(), state()]) {
-          expect(decideServerState({ local: landed, localFileId: 'f', server, reader: { restoreApplied: true, moved: false, index: 1 }, now })).toBe('move')
-          expect(decideServerState({ local: landed, localFileId: 'f', server, reader: { restoreApplied: true, moved: false, index: null }, now })).toBe('move')
-          // Moved since: asked, as for a CFI.
-          expect(decideServerState({ local: landed, localFileId: 'f', server, reader: { restoreApplied: true, moved: true, index: 1 }, now })).toBe('prompt')
+          for (const index of [1, null]) {
+            expect(decideServerState({ local: landed, localFileId: 'f', server, reader: { restoreApplied: true, moved: false, index }, now })).toBe('prompt')
+          }
         }
-        // Not newer: kept.
         expect(decideServerState({ local: { fraction: 0.7, at: now }, localFileId: 'f', server: transitional(), reader: { restoreApplied: true, moved: false, index: 1 }, now })).toBe('keep')
       })
     })

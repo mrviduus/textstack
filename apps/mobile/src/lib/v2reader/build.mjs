@@ -39,7 +39,10 @@ const FOLIATE_SHA = 'd73682a48a0779ca989f25074386784602437fbf'   // branch texts
 // +643 (#1187 round 2): one save rule (reason + previous CFI) for every relocate, a taken fraction offer
 // saved as a CFI, arrival checked for every fraction navigation, fraction 0 = text start, calls bound to
 // the view (viewSeq) instead of the open seq; the fraction predicate now comes from packages/shared.
-const BUDGET = 248897
+// +773 (#1187 round 3): one host-move guard (restore + non-chosen goTo save and echo nothing), restore
+// as one navigation slot, restore only for a view that answered `opened`, one position builder,
+// fixed-layout arrival by spread.
+const BUDGET = 249670
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

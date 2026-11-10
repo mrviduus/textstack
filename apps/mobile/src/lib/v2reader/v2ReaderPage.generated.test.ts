@@ -78,8 +78,8 @@ describe('v2ReaderPageHtml', () => {
     // A superseded open must not re-key the current book's saves: the seq check precedes the assignment.
     // (#1128: the previous book's telemetry session ends there too, before the new book is assigned.)
     expect(html).toMatch(/if \(mine !== openSeq\) return false;\s*endSession\(\);\s*book = \{ sha256/)
-    // restoring is cleared however restore ends, or the page saves nothing for the rest of the session.
-    expect(html).toMatch(/\} finally \{[\s\S]{0,200}?restoring = false;/)
+    // The host-move guard is cleared however restore ends, or the page saves nothing for the rest of the session.
+    expect(html).toMatch(/\} finally \{[\s\S]{0,200}?hostMoving = false;/)
     // The renderer exists only after view.open() resolved.
     // The renderer exists only after view.open() resolved; the fixed-layout one (CBZ) has no setStyles (#1128).
     expect(html).toMatch(/view\.renderer\) == null \? void 0 : (\w+)\.setStyles\) == null \? void 0 : \w+\.call\(\1, css\(\)\)/)

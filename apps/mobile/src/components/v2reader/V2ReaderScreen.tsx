@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File, Paths } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { isFractionOnly, type OpenReader, type PagePosition, type V2ClientFormat } from '@textstack/shared'
+import type { OpenReader, PagePosition, V2ClientFormat } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
@@ -160,13 +160,13 @@ function V2Reader() {
   }, [])
 
   /**
-   * A programmatic move: the next relocate is the new baseline, not the reader moving. `chosen`: the
-   * reader took an offer. A fraction-only position (a transitional server locator, #1187) goes as is:
-   * the page saves it as a CFI where it lands only when chosen (README, `goTo`).
+   * A programmatic move: the next relocate is the new baseline, not the reader moving. The whole position
+   * goes (README, `goTo`): not `chosen` (a sync adopt or move, already stored here) the page saves
+   * nothing and takes it as its own; `chosen` (the reader took an offer) it saves where it landed.
    */
   const goTo = (p: PagePosition, chosen = false) => {
     reading.current.baseline = null
-    call(`window.__fol.goTo(${JSON.stringify(isFractionOnly(p) ? p : p.cfi)}, ${chosen})`)
+    call(`window.__fol.goTo(${JSON.stringify(p)}, ${chosen})`)
   }
 
   // Opportunistic sync (R6): with a session (a guest's too), on open, after saves, never on the reading path.

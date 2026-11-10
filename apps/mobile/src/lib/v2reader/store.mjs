@@ -27,7 +27,7 @@ const isQuoted = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(
  */
 const isPaged = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && x.quote === undefined && typeof x.page === 'string' && x.page.length > 0
 /** A transitional server position by book fraction alone (#1187): the shared predicate, one definition. */
-const isPosition = (x) => isQuoted(x) || isPaged(x) || isFractionOnly(x)
+export const isPosition = (x) => isQuoted(x) || isPaged(x) || isFractionOnly(x)
 /** A highlight's `selectedText` is optional (older entries), but when present it is what restore compares. */
 const isHighlight = (h) => isQuoted(h) && (h.selectedText === undefined || (typeof h.selectedText === 'string' && h.selectedText.trim().length > 0))
 

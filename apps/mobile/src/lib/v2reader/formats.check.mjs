@@ -139,6 +139,18 @@ try {
   console.log('fraction')
   const fb2Book = m.book
   const byFraction = (position) => JSON.stringify({ v: 1, book: fb2Book, highlights: [], position })
+  const settle = () => page.waitForTimeout(1200)
+  const lastRelocate = (from) => messages.slice(from).filter((x) => x.type === 'relocate').at(-1)
+  const storeFrom = (from, what) => waitFor(from, (x) => x.type === 'store', what).then((s) => JSON.parse(s.json)).catch(() => null)
+  const storesFrom = (from) => messages.slice(from).filter((x) => x.type === 'store').map((x) => JSON.parse(x.json).position)
+  /** The entry as the page holds it: a highlight on the shown page saves it whole. */
+  const heldEntry = async () => {
+    await call(`(() => { const c = document.querySelector('foliate-view').renderer.getContents()[0]; c.doc.getSelection().selectAllChildren(c.doc.querySelector('p')) })()`)
+    await page.waitForTimeout(150)
+    const from = messages.length
+    call('window.__fol.highlightSelection()')
+    return storeFrom(from, 'a store after a highlight')
+  }
   m = await open('tsformat.fb2', byFraction({ fraction: 0.9, at: 1 }))
   check(m.restored.position === 'restored by fraction', `a fraction-only position is restored (${m.restored.position})`)
   const far = await waitFor(m.from, (x) => x.type === 'relocate' && x.index === 1 && x.fraction > 0.5, 'relocate near the end').catch(() => null)
@@ -146,11 +158,13 @@ try {
   // foliate relocates at the landed place again after `restored`: those relocates must not save either.
   await page.waitForTimeout(1500)
   check(!messages.slice(m.from).some((x) => x.type === 'store'), 'restoring by fraction saves nothing')
+  // A host goTo (not chosen: a sync adopt or move) saves nothing, and the page takes its position as its own.
   from = messages.length
   call('window.__fol.goTo({ fraction: 0.05, at: 2 })')
-  const quietStore = await waitFor(from, (x) => x.type === 'store', 'a store after a fraction goTo').catch(() => null)
-  const quietPos = quietStore && JSON.parse(quietStore.json).position
-  check(quietPos?.fraction === 0.05 && !('cfi' in quietPos), `a fraction goTo saves the fraction-only position, no CFI (${JSON.stringify(quietPos)})`)
+  await settle()
+  check(storesFrom(from).length === 0, `a host fraction goTo saves nothing (${JSON.stringify(storesFrom(from))})`)
+  const quietPos = (await heldEntry())?.position
+  check(quietPos?.fraction === 0.05 && !('cfi' in quietPos), `and the page holds its fraction-only position, no CFI (${JSON.stringify(quietPos)})`)
   from = messages.length
   call('window.__fol.next()')
   const moved = await waitFor(from, (x) => x.type === 'store', 'a store after the reader moves').catch(() => null)
@@ -163,9 +177,6 @@ try {
 
   // After a fraction landing (#1187 QA): the save rule holds the landing, and nothing more.
   console.log('fraction hold')
-  const settle = () => page.waitForTimeout(1200)
-  const lastRelocate = (from) => messages.slice(from).filter((x) => x.type === 'relocate').at(-1)
-  const storeFrom = (from, what) => waitFor(from, (x) => x.type === 'store', what).then((s) => JSON.parse(s.json)).catch(() => null)
   for (const fraction of [0, 1]) {
     m = await open('tsformat.fb2', byFraction({ fraction, at: 1 }))
     await settle()
@@ -186,30 +197,38 @@ try {
   call('window.__fol.prev()')
   const back = await storeFrom(from, 'a store after moving back to the landing')
   check(back?.position?.cfi === held, `moving back onto the landed CFI saves it (${back?.position?.cfi} vs ${held})`)
-  // The hold does not outlive its book: reopened at the start, a host goTo to that same CFI saves it.
-  m = await open('tsformat.fb2', byFraction({ fraction: 0.9, at: 1 }))
-  await settle()
+  // A host CFI goTo (round 3): saves nothing; the next real page turn saves a CFI from the new place.
+  // Chosen (a taken offer), the same CFI goTo saves where it landed.
   m = await open('tsformat.fb2')
   await settle()
   from = messages.length
   call(`window.__fol.goTo(${JSON.stringify(held)})`)
-  const reopened = await storeFrom(from, 'a store after a CFI goTo in a reopened book')
-  check(reopened?.position?.cfi === held, `a reopened book's move onto the previous landing's CFI is saved (${reopened?.position?.cfi})`)
-  // A fraction goTo saves once: foliate's relocates at the landing afterwards save nothing more.
+  await settle()
+  check(storesFrom(from).length === 0 && lastRelocate(from)?.index === 1, `a host CFI goTo moves the view and saves nothing (${JSON.stringify(storesFrom(from))})`)
+  from = messages.length
+  call('window.__fol.prev()')
+  const fromThere = await storeFrom(from, 'a store after a page turn following a host CFI goTo')
+  check(fromThere?.position?.cfi?.startsWith('epubcfi(/6/4') && fromThere.position.index === 1, `and the next page turn saves a CFI from the new place (${fromThere?.position?.cfi})`)
+  m = await open('tsformat.fb2')
+  await settle()
+  from = messages.length
+  call(`window.__fol.goTo(${JSON.stringify(held)}, true)`)
+  const reopened = await storeFrom(from, 'a store after a chosen CFI goTo in a reopened book')
+  check(reopened?.position?.cfi === held, `a chosen CFI goTo saves the place it landed on (${reopened?.position?.cfi})`)
+  // A host fraction goTo saves nothing, now or after foliate's relocates at the landing.
   from = messages.length
   call('window.__fol.goTo({ fraction: 0.5, at: 3 })')
-  const once = await storeFrom(from, 'a store after a fraction goTo')
   await settle()
-  const stores = messages.slice(from).filter((x) => x.type === 'store')
-  check(once?.position?.fraction === 0.5 && stores.length === 1, `a fraction goTo saves its position once, then nothing (${stores.length} stores)`)
+  check(storesFrom(from).length === 0, `a host fraction goTo saves nothing, then nothing (${storesFrom(from).length} stores)`)
   // The same right after `restored` (a host's sync adopt at open): the opening layout still relocates,
-  // at the landing, after the goTo has settled; none of that may save a CFI over the fraction.
+  // at the landing, after the goTo has settled; none of that may save, and the page holds the fraction.
   m = await open('tsformat.fb2')
   from = messages.length
   call('window.__fol.goTo({ fraction: 0.9, at: 6 })')
   await settle()
-  const early = messages.slice(from).filter((x) => x.type === 'store').map((x) => JSON.parse(x.json).position)
-  check(early.length > 0 && early.every((p) => p.fraction === 0.9 && !('cfi' in p)), `a fraction goTo right after restored saves only the fraction (${JSON.stringify(early)})`)
+  check(storesFrom(from).length === 0, `a host fraction goTo right after restored saves nothing (${JSON.stringify(storesFrom(from))})`)
+  const early = (await heldEntry())?.position
+  check(early?.fraction === 0.9 && !('cfi' in early), `and the page holds the fraction (${JSON.stringify(early)})`)
 
   // Highlights on an entry whose position is fraction-only: drawn, and kept by every later save.
   const hl = await call(`(() => {
@@ -223,8 +242,8 @@ try {
   check(m.restored.position === 'restored by fraction' && m.restored.highlights[0]?.status === 'restored', `a fraction-only entry's highlight is restored (${JSON.stringify(m.restored.highlights)})`)
   from = messages.length
   call('window.__fol.goTo({ fraction: 0.2, at: 4 })')
-  const withHl = await storeFrom(from, 'a store after a fraction goTo with a highlight')
-  check(withHl?.highlights?.[0]?.id === hl.id && withHl.position.fraction === 0.2, 'a fraction goTo keeps the highlight')
+  await settle()
+  check(storesFrom(from).length === 0, 'a host fraction goTo on an entry with a highlight saves nothing')
   from = messages.length
   call('window.__fol.next()')
   const movedHl = await storeFrom(from, 'a store after a move with a highlight')
@@ -282,7 +301,6 @@ try {
   // over the server's transitional locator (I1). The first real move after it does save one (I5).
   // (The resize logs a benign ResizeObserver error: the page-error sweep at the end lets that one through.)
   console.log('re-layout after a fraction landing')
-  const storesFrom = (from) => messages.slice(from).filter((x) => x.type === 'store').map((x) => JSON.parse(x.json).position)
   for (const [what, relayout, restore] of [
     ['a resize', () => page.setViewportSize({ width: 500, height: 400 }), () => page.setViewportSize({ width: 1280, height: 720 })],
     ['a font change', () => call('window.__fol.font(6)'), () => call('window.__fol.font(-6)')],
@@ -401,8 +419,8 @@ try {
   await settle()
   from = messages.length
   call('window.__fol.goTo({ fraction: 0, at: 9 })')
-  const zero = await storeFrom(from, 'a store after a fraction 0 goTo')
-  check(lastRelocate(from)?.index === 1 && zero?.position?.fraction === 0 && !('cfi' in zero.position), `a fraction 0 goTo goes to the text start (section ${lastRelocate(from)?.index})`)
+  await settle()
+  check(lastRelocate(from)?.index === 1 && storesFrom(from).length === 0, `a fraction 0 goTo goes to the text start, saving nothing (section ${lastRelocate(from)?.index})`)
 
   // The stale-call window: the next book's openUrl has turned the open seq over while its bytes are still
   // hashing, and the previous view still shows. A `next` queued on that view and a `restore` for it, made
@@ -448,6 +466,81 @@ try {
   check(own?.found === false && own.position === 'none', `the next book answers its own restore (${JSON.stringify(own)})`)
   call('window.__fol.next()')
   check(!!(await waitFor(from, (x) => x.type === 'store' && x.key === nextBook.book.sha256, 'a store on the next book').catch(() => null)), 'and then turns and saves')
+
+  // Restore takes its slot in the navigation queue when called (round 3): a host goTo sent while the
+  // restore still checks its quotes runs after it and wins: the view ends where the goTo went, and the
+  // page holds the goTo's position, not the restored one.
+  console.log('restore then goTo')
+  m = await open('tsformat.fb2')
+  await settle()
+  from = messages.length
+  call('window.__fol.next()')
+  const startEntry = await waitFor(from, (x) => x.type === 'store', 'a store at the start').then((x) => x.json)
+  from = messages.length
+  await call(`window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, 'tsformat.fb2')).href)}, 'tsformat.fb2')`)
+  await waitFor(from, (x) => x.type === 'opened', 'opened for restore then goTo')
+  await call(`window.__fol.restore(${JSON.stringify(startEntry)}); window.__fol.goTo({ fraction: 0.9, at: 10 }); 0`)
+  const restoredFirst = await waitFor(from, (x) => x.type === 'restored', 'restored before the goTo')
+  await settle()
+  const ended = lastRelocate(from)
+  check(restoredFirst.position === 'restored' && ended?.index === 1 && ended.fraction > 0.5 && storesFrom(from).length === 0,
+    `a goTo sent during a restore lands last and nothing is saved (${restoredFirst.position}, section ${ended?.index}, ${ended?.fraction})`)
+  const won = (await heldEntry())?.position
+  check(won?.fraction === 0.9 && !('cfi' in won), `and the page holds the goTo's position (${JSON.stringify(won)})`)
+
+  // A restore for a view still opening (round 3): the same file opened twice, the host answering the
+  // first `opened` while the second open builds its view. Refused, so the second view's text-start
+  // relocate is never saved over the stored place. Deterministic: the second view's open is held.
+  console.log('restore during an open')
+  m = await open('tsformat.fb2')
+  await settle()
+  const fb2Entry = byFraction({ fraction: 0.9, at: 1 })
+  await call(`(() => {
+    const C = customElements.get('foliate-view'), open = C.prototype.open
+    const held = new Promise((ok) => { window.__releaseOpen = ok })
+    C.prototype.open = async function (b) { C.prototype.open = open; window.__inOpen = true; await held; return open.call(this, b) }
+  })()`)
+  from = messages.length
+  await call(`window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, 'tsformat.fb2')).href)}, 'tsformat.fb2')`)
+  for (const t0 = Date.now(); !(await call('!!window.__inOpen')) && Date.now() - t0 < TIMEOUT_MS;) await page.waitForTimeout(20)
+  await call(`window.__fol.restore(${JSON.stringify(fb2Entry)}); window.__releaseOpen(); 0`)
+  await waitFor(from, (x) => x.type === 'opened', 'the second open answered')
+  await settle()
+  check(!messages.slice(from).some((x) => x.type === 'restored') && storesFrom(from).length === 0,
+    `a restore for a view still opening is refused: no answer, nothing saved (${JSON.stringify(storesFrom(from))})`)
+  from = messages.length
+  call(`window.__fol.restore(${JSON.stringify(fb2Entry)})`).catch(() => {})
+  check((await waitFor(from, (x) => x.type === 'restored', 'the second open restored'))?.position === 'restored by fraction', 'and the opened view takes its own restore')
+
+  // A taken offer saves what a relocate would save (round 3, one builder). A pre-paginated EPUB has text
+  // but no range from foliate's fixed-layout renderer: nothing to save, and nothing throws.
+  console.log('fixed layout')
+  m = await open('tsfixed.epub')
+  check(m.type === 'opened' && m.reflowable === false && m.textual === true, `a pre-paginated EPUB opens fixed-layout, textual (${m.reflowable}, ${m.textual}${m.error ? `, ${m.error}` : ''})`)
+  m = await open('tsfixed.epub', entryOf(m.book, null))
+  from = messages.length
+  call('window.__fol.goTo({ fraction: 0.9, at: 11 }, true)')
+  await waitFor(from, (x) => x.type === 'log' && /nothing to save here/.test(x.msg), 'nothing to save on a pre-paginated EPUB').catch(() => null)
+  await settle()
+  check(storesFrom(from).length === 0 && messages.slice(from).some((x) => x.type === 'log' && /nothing to save here/.test(x.msg)),
+    'a taken offer on a pre-paginated EPUB saves nothing and says so')
+  m = await open('tsformat.cbz', entryOf(cbzBook, null))
+  from = messages.length
+  call('window.__fol.goTo({ fraction: 0.9, at: 12 }, true)')
+  const cbzTaken = await storeFrom(from, 'a store after a taken offer on a CBZ')
+  check(cbzTaken?.position?.page === 'p02.png' && !('quote' in cbzTaken.position), `a taken offer on a CBZ saves its page, as a page turn does (${JSON.stringify(cbzTaken?.position)})`)
+  // Arrival on a fixed layout: a target in the spread already shown emits no relocate, and is arrived.
+  m = await open('tsthree.cbz')
+  m = await open('tsthree.cbz', entryOf(m.book, null))
+  const paired = await call(`(() => { const v = document.querySelector('foliate-view'), r = v.renderer, s = v.book.sections; return r.getSpreadOf(s[1]).index === r.getSpreadOf(s[2]).index })()`)
+  check(paired, 'tsthree.cbz pairs its 2nd and 3rd pages in one spread')
+  call('window.__fol.goTo(1)')
+  await settle()
+  from = messages.length
+  call('window.__fol.goTo(2, true)')
+  await settle()
+  check(!messages.slice(from).some((x) => x.type === 'log' && /did not land/.test(x.msg)) && storesFrom(from).length === 1,
+    `a taken goTo to the other page of the shown spread arrives and saves (${JSON.stringify(storesFrom(from))})`)
 
   // Every page error on this page, last so that every block above is covered. One benign message is let
   // through by its exact text: Chromium's ResizeObserver loop notice, from the resize above.

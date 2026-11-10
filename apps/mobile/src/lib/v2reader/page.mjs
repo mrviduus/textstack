@@ -12,7 +12,7 @@ import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
 import { mergeOverlay } from './overlays.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
 import { isFractionOnly } from '../../../../../packages/shared/src/reader/fractionPosition'
-import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { emptyEntry, entryFor, foldText, isPosition, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 import { openableHref, sentenceOf } from './tap.mjs'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, withoutKf8, zipFormat } from './formats.mjs'
@@ -33,7 +33,12 @@ const overlays = new Map()
 /** This file's identity and its entry. No save until the stored one is restored. */
 let book = null
 let entry = null
-let restoring = false
+/**
+ * The host is moving the view: from `open` until its restore has run, and during a host `goTo` (a sync
+ * adopt or move). Its relocates save nothing and nothing is echoed back: the host already holds that
+ * position (`applyStates` stored it before calling). Only the reader moving saves.
+ */
+let hostMoving = false
 /**
  * The save rule: a relocate saves the position only when the reader moved — its renderer `reason` is not
  * 'anchor' (foliate re-laying the page out: a resize, a font or flow change) AND its CFI differs from the
@@ -47,8 +52,6 @@ let lastCfi = null
  * listener); drop it once the fork's view.js #onRelocate forwards `reason` in its detail (#1182 pin bump).
  */
 let rendererReason
-/** A fraction-only navigation (#1187) is landing: its relocates save nothing, its caller decides. */
-let landing = false
 let lastSelection = null
 /** The open that is allowed to finish: a second openUrl makes the first one give up silently. */
 let openSeq = 0
@@ -58,6 +61,8 @@ let openSeq = 0
  * it never runs on a view it was not made for. While `openSeq !== viewSeq` a newer open is on its way.
  */
 let viewSeq = 0
+/** The view that finished opening (`opened` posted): a restore is for that view only. */
+let readySeq = 0
 const saves = createSaveScheduler(post)
 
 // Our reader's own look: generous line-height leaves room above a word for its label.
@@ -159,22 +164,36 @@ const navigate = (fn) => {
 /**
  * foliate's goTo resolves with the target it resolved, arrived or not (a locked paginator, a section that
  * failed to load): the renderer is asked whether that section is on screen. A fixed-layout renderer's
- * contents carry no index, so its last location is asked instead.
+ * contents carry no index, and a target in the spread already shown emits no relocate, so it is asked
+ * whether the target's spread is the one shown.
  */
-const arrivedAt = (index) => (view.isFixedLayout
-  ? view.lastLocation?.section?.current === index
-  : !!view.renderer?.getContents?.().some((c) => c.index === index))
+function arrivedAt(index) {
+  const r = view.renderer
+  if (!view.isFixedLayout) return !!r?.getContents?.().some((c) => c.index === index)
+  const spreadOf = (i) => r?.getSpreadOf?.(view.book.sections[i])?.index
+  return spreadOf(index) != null && spreadOf(index) === spreadOf(r.index)
+}
 
-/** A book fraction (#1187): 0 is the text start (not a cover before it). Whether the view arrived. */
-async function landFraction(fraction) {
-  const resolved = await (fraction === 0 ? view.goToTextStart() : view.goTo({ fraction }))
+/**
+ * Goes to a goTo target or a stored position and answers whether the view arrived. A fraction-only one
+ * (#1187) by its fraction, 0 being the text start (not a cover before it); any other position by its CFI.
+ */
+async function land(target) {
+  const resolved = await (isFractionOnly(target)
+    ? (target.fraction === 0 ? view.goToTextStart() : view.goTo({ fraction: target.fraction }))
+    : view.goTo(isPosition(target) ? target.cfi : target))
   return !!resolved && arrivedAt(resolved.index)
 }
 
-/** The place a relocate (or `view.lastLocation`) shows, as the entry's position. */
-function positionAt(d) {
-  // The visible range's start: its CFI and the text there, to verify the CFI on restore. An image
-  // page has no text and so no quote: its entry name in the archive (`page`) is what restore checks.
+/**
+ * The place a relocate (or `view.lastLocation`) shows, as the entry's position: the one builder for
+ * every save. The visible range's start: its CFI and the text there, to verify the CFI on restore. An
+ * image page has no text and so no quote: its entry name in the archive (`page`) is what restore checks.
+ * Null where there is nothing to build from: a text book's location without a range (a pre-paginated
+ * EPUB: foliate's fixed-layout renderer reports none), so such a book saves no position at all.
+ */
+function positionOf(d) {
+  if (!d || (textual && !d.range)) return null
   const at = { cfi: d.cfi, index: d.section?.current, fraction: d.fraction, at: Date.now() }
   return textual ? { ...at, quote: quoteOf(d.range.toString().replace(/^\s+/, '')) } : { ...at, page: String(view.book.sections[at.index]?.id ?? '') }
 }
@@ -292,10 +311,9 @@ async function open(bytes, name, kind, mine) {
   endSession()
   book = { sha256, size: bytes.length, name }
   entry = null
-  restoring = true
+  hostMoving = true
   lastCfi = null
   rendererReason = undefined
-  landing = false
   viewSeq = mine
   navigating = Promise.resolve()
   lastSelection = null
@@ -314,8 +332,9 @@ async function open(bytes, name, kind, mine) {
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
     const moved = rendererReason !== 'anchor' && d.cfi !== lastCfi
     lastCfi = d.cfi
-    if (!moved || restoring || landing || !entry || (textual && !d.range)) return
-    entry = withPosition(entry, positionAt(d))
+    const position = moved && !hostMoving && entry ? positionOf(d) : null
+    if (!position) return
+    entry = withPosition(entry, position)
     persist(400)
   })
   view.addEventListener('create-overlay', ({ detail: { index } }) => {
@@ -365,6 +384,7 @@ async function open(bytes, name, kind, mine) {
   if (mine !== openSeq) return false
   const { book: b } = view
   session = { at: Date.now(), switched: false, timer: setTimeout(endSession, SESSION_MS) }
+  readySeq = mine
   post({
     // reflowable: false for a fixed-layout book (CBZ, a pre-paginated EPUB), where flow() changes nothing.
     type: 'opened', book, format, textual, reflowable: !view.isFixedLayout,
@@ -386,16 +406,21 @@ async function textAt(cfi) {
  * The host's stored entry for this file (or null). A CFI is used only while the text there is still
  * the saved quote; otherwise that item is reported and left out, never drawn somewhere else.
  */
-async function restore(json) {
-  if (!book) return log('warn', 'restore ignored: no book is open')
+function restore(json) {
+  // Only for the view that answered `opened` and is still the latest open: not a view still opening
+  // (a restore meant for an earlier `opened` of the same file), not one a newer openUrl is replacing.
+  if (!book || readySeq !== viewSeq || openSeq !== viewSeq) return log('warn', 'restore ignored: no book is ready for it')
   const mine = viewSeq
-  try {
-    return await restoreInto(json, () => mine !== viewSeq)
-  } finally {
-    // Whatever happened, the page saves again: a restore that threw used to silence every save. Not
-    // for a view opened since: that one is still restoring.
-    if (mine === viewSeq) restoring = false
-  }
+  // One slot of the navigation chain, taken when called: a host goTo made meanwhile runs after it and wins.
+  return navigate(async () => {
+    try {
+      return await restoreInto(json, () => mine !== viewSeq)
+    } finally {
+      // Whatever happened, the page saves again: a restore that threw used to silence every save. Not
+      // for a view opened since: that one is still restoring.
+      if (mine === viewSeq) hostMoving = false
+    }
+  })
 }
 
 /** `stale()`: another view took over during an await; nothing more is done or answered for this one. */
@@ -417,7 +442,7 @@ async function restoreInto(json, stale) {
     // Approximate (the legacy fraction counts words, foliate's bytes). Fraction 0 (never read on the other
     // device) is the text start init already shows: no navigation. The entry keeps the fraction until
     // the reader moves (the save rule).
-    const arrived = p.fraction === 0 || (await navigate(() => landFraction(p.fraction)))
+    const arrived = p.fraction === 0 || (await land(p))
     if (stale()) return result
     result.position = arrived ? 'restored by fraction' : 'navigation failed, stayed at start'
   } else if (p && !textual) {
@@ -425,7 +450,7 @@ async function restoreInto(json, stale) {
     const index = p.page ? view.book.sections.findIndex((s) => String(s.id) === p.page) : -1
     if (index < 0) result.position = 'page not found, stayed at start'
     else {
-      await navigate(() => view.goTo(index))
+      await view.goTo(index)
       if (stale()) return result
       result.position = arrivedAt(index) ? 'restored' : 'navigation failed, stayed at start'
     }
@@ -435,7 +460,7 @@ async function restoreInto(json, stale) {
     // (A `page` position has no quote: it cannot be verified on a book with text.)
     if (!text || !p.quote ||!foldText(text).startsWith(foldText(p.quote))) result.position = 'quote mismatch, stayed at start'
     else {
-      await navigate(() => view.goTo(p.cfi))
+      await view.goTo(p.cfi)
       if (stale()) return result
       result.position = arrivedAt(index) ? 'restored' : 'navigation failed, stayed at start'
     }
@@ -509,25 +534,31 @@ window.__fol = {
     x.open('GET', url)
     x.send()
   },
-  restore: (json) => restore(json).catch((e) => log('error', `restore: ${e?.stack ?? e}`)),
+  restore: (json) => restore(json)?.catch((e) => log('error', `restore: ${e?.stack ?? e}`)),
   highlightSelection,
-  // A fraction-only position (a transitional server locator, #1187). Moved to by the host (`chosen`
-  // false: a sync adopt or move) it lands and becomes the entry's position as itself: the server's
-  // locator is not rewritten as a CFI by a move nobody made. `chosen` (the reader took an offer): the
-  // place it landed on is saved as a CFI position, like a taken CFI offer. Not arrived: nothing changes.
-  goTo: (target, chosen = false) => (isFractionOnly(target)
-    ? navigate(async () => {
-      if (!view?.book) return
-      const mine = viewSeq
-      landing = true
-      let arrived = false
-      try { arrived = await landFraction(target.fraction) } finally { if (mine === viewSeq) landing = false }
-      if (mine !== viewSeq || !entry) return
-      if (!arrived) return log('warn', 'goTo: the fraction did not land, position kept')
-      entry = withPosition(entry, chosen ? positionAt(view.lastLocation) : target)
-      persist()
-    })
-    : navigate(() => view?.goTo(target))),
+  // A position (as stored: CFI, page or fraction-only, #1187), a CFI, an href or a section index. Not
+  // `chosen` (the host moving the view: a sync adopt or move) nothing is saved or echoed back, the host
+  // already holds that position; a position becomes the entry's own, so a later save (a highlight) does
+  // not write the old place back. `chosen` (the reader's own choice: a taken offer) the place it landed
+  // on is saved, built as a relocate's save is. Not arrived: nothing changes.
+  goTo: (target, chosen = false) => navigate(async () => {
+    if (!view?.book) return
+    if (target && typeof target === 'object' && !isPosition(target)) return log('warn', 'goTo ignored: not a position')
+    const mine = viewSeq
+    hostMoving = true
+    let arrived = false
+    try { arrived = await land(target) } finally { if (mine === viewSeq) hostMoving = !entry }
+    if (mine !== viewSeq || !entry) return
+    if (!arrived) return log('warn', 'goTo: the target did not land, position kept')
+    if (!chosen) {
+      if (isPosition(target)) entry = withPosition(entry, target)
+      return
+    }
+    const landed = positionOf(view.lastLocation)
+    if (!landed) return log('warn', 'goTo: nothing to save here (no text position)')
+    entry = withPosition(entry, landed)
+    persist()
+  }),
   // The target is read once the previous navigation has landed: two quick taps move two sections.
   section: (delta) => navigate(() => {
     if (!view?.book) return
