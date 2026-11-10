@@ -463,35 +463,6 @@ export default function UserBookDetailScreen() {
     }
   }
 
-  if (!loading && !book && loadError === 'notfound') {
-    return (
-      <>
-        <Stack.Screen options={{ headerShown: true, title: '' }} />
-        <View style={[styles.container, { backgroundColor: colors.background }]}>
-          {/* Retryable: V2's v2Book can synthesize a 404 when a store reset lands
-              mid-pull, so "not found" is not always final. */}
-          <EmptyState
-            icon="help-circle-outline"
-            title={t('myBooks.deleted.title')}
-            subtitle={cached ? t('myBooks.deleted.body') : t('myBooks.deleted.bodyNoCopy')}
-            buttonLabel={t('common.retry')}
-            onButtonPress={() => { setLoading(true); setAttempt(a => a + 1) }}
-            // The book page is gone, so this is the only way left to free its bytes.
-            secondaryLabel={cached ? t('myBooks.deleted.removeDownload') : undefined}
-            onSecondaryPress={cached ? () => {
-              removeUserBookDownload(id!)
-                .then(() => { setCached(false); router.back() })
-                .catch(err => {
-                  console.warn('Removing the local copy of a deleted book failed:', err)
-                  showToast({ message: "Couldn't remove the download. Try again.", variant: 'error', duration: 2600 })
-                })
-            } : undefined}
-          />
-        </View>
-      </>
-    )
-  }
-
   // A failed load used to land here and STAY here: `book` stays null, `loading`
   // goes false, and this branch returns a spinner forever — no header, no
   // message, no retry. It is also the only return in this file without a
@@ -503,12 +474,26 @@ export default function UserBookDetailScreen() {
       <>
         <Stack.Screen options={{ headerShown: true, title: '' }} />
         <View style={[styles.container, { backgroundColor: colors.background }]}>
+          {/* 'notfound' keeps Retry: V2's v2Book can synthesize a 404 when a store
+              reset lands mid-pull, so "not found" is not always final. */}
           <EmptyState
-            icon={loadError === 'offline' ? 'cloud-offline-outline' : 'alert-circle-outline'}
-            title={loadError === 'offline' ? t('library.offline.title') : t('library.loadFailed.title')}
-            subtitle={loadError === 'offline' ? t('library.offline.body') : t('library.loadFailed.body')}
+            icon={loadError === 'notfound' ? 'help-circle-outline' : loadError === 'offline' ? 'cloud-offline-outline' : 'alert-circle-outline'}
+            title={loadError === 'notfound' ? t('myBooks.deleted.title') : loadError === 'offline' ? t('library.offline.title') : t('library.loadFailed.title')}
+            subtitle={loadError === 'notfound'
+              ? (cached ? t('myBooks.deleted.body') : t('myBooks.deleted.bodyNoCopy'))
+              : loadError === 'offline' ? t('library.offline.body') : t('library.loadFailed.body')}
             buttonLabel={t('common.retry')}
             onButtonPress={() => { setLoading(true); setAttempt(a => a + 1) }}
+            // The book page is gone, so this is the only way left to free its bytes.
+            secondaryLabel={loadError === 'notfound' && cached ? t('myBooks.deleted.removeDownload') : undefined}
+            onSecondaryPress={() => {
+              removeUserBookDownload(id!)
+                .then(() => { setCached(false); router.back() })
+                .catch(err => {
+                  console.warn('Removing the local copy of a deleted book failed:', err)
+                  showToast({ message: "Couldn't remove the download. Try again.", variant: 'error', duration: 2600 })
+                })
+            }}
           />
         </View>
       </>
