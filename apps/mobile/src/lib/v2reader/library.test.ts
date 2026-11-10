@@ -4,6 +4,12 @@ import { addOpened, emptyLibrary, parseLibrary, touch } from './library.mjs'
 const book = { sha256: 'ab'.repeat(32), size: 1234, title: 'Alice', author: 'Carroll', originalName: 'alice.epub' }
 
 describe('v2 local library', () => {
+  it('parseLibrary_MalformedRows_DroppedAndValidRowsKept', () => {
+    const good = addOpened(emptyLibrary(), book, 1, () => 'id1').lib.books[0]
+    const lib = parseLibrary(JSON.stringify({ v: 1, books: [null, 7, { id: 'x' }, { id: 'y', title: 3 }, good] }))
+    expect(lib?.books).toEqual([good])
+  })
+
   it('addOpened_NewFile_AddsOneEntry', () => {
     const { lib, entry, existing } = addOpened(emptyLibrary(), book, 1, () => 'id1')
     expect(existing).toBe(false)

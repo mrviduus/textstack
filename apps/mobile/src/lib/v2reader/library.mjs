@@ -3,10 +3,13 @@
 // `sha256` is the file identity (the retained copy is books/<sha256>.epub, reader data is keyed by it).
 export const LIBRARY_VERSION = 1
 
+/** A row a host can list: one bad row is dropped, never allowed to break the rest of the library. */
+const isBook = (b) => typeof b?.id === 'string' && typeof b.title === 'string'
+
 export function parseLibrary(json) {
   try {
     const l = JSON.parse(json)
-    if (l?.v === LIBRARY_VERSION && Array.isArray(l.books)) return l
+    if (l?.v === LIBRARY_VERSION && Array.isArray(l.books)) return { ...l, books: l.books.filter(isBook) }
   } catch {}
   return null
 }
