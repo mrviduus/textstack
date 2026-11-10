@@ -59,9 +59,38 @@ public class SyncValidationTests
     [Theory]
     [InlineData(0L, "epub", "file.byteSize")]
     [InlineData(10L, "html", "file.format")]
-    [InlineData(10L, "mobi", "file.format")]
+    [InlineData(10L, "docx", "file.format")]
+    [InlineData(10L, "MOBI", "file.format")]
     public void File_ZeroBytesOrAServerOnlyFormat_IsRefused(long byteSize, string format, string field) =>
         Assert.Equal(field, FieldOf(File("file.", Book(byteSize: byteSize, format: format))));
+
+    // #1128: every format the reader opens (ADR-032) is a client upload; lowercase only, as the CHECK.
+    [Theory]
+    [InlineData("epub")]
+    [InlineData("pdf")]
+    [InlineData("mobi")]
+    [InlineData("azw3")]
+    [InlineData("fb2")]
+    [InlineData("cbz")]
+    public void File_AReaderFormat_Passes(string format) =>
+        Assert.Null(File("file.", Book(format: format, name: "book." + format)));
+
+    // #1128: pdf-page only on a PDF; epub-cfi on every other format, never on a PDF; textstack-* anywhere.
+    [Theory]
+    [InlineData("pdf-page", "pdf", true)]
+    [InlineData("pdf-page", "epub", false)]
+    [InlineData("pdf-page", "mobi", false)]
+    [InlineData("epub-cfi", "pdf", false)]
+    [InlineData("epub-cfi", "epub", true)]
+    [InlineData("epub-cfi", "html", true)]
+    [InlineData("epub-cfi", "mobi", true)]
+    [InlineData("epub-cfi", "azw3", true)]
+    [InlineData("epub-cfi", "fb2", true)]
+    [InlineData("epub-cfi", "cbz", true)]
+    [InlineData("textstack-position-v1", "pdf", true)]
+    [InlineData("textstack-anchor-v1", "cbz", true)]
+    public void FitsFile_SchemeOnFormat_FitsOrIsRefused(string scheme, string format, bool fits) =>
+        Assert.Equal(fits, FitsFile(scheme, format, "locator") is null);
 
     [Fact]
     public void File_TocThatIsNotAnArray_IsRefused() =>

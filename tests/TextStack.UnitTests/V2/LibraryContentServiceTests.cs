@@ -225,10 +225,16 @@ public class LibraryContentServiceTests
         _jobs.Verify(j => j.EnqueueAsync(User, BookId, FileId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    [Fact]
-    public async Task CompleteAsync_AttachedHtml_QueuesNoExtraction()
+    // #1128: extraction stays EPUB/PDF only (ADR-032 decided 5); the new formats are read on the device.
+    [Theory]
+    [InlineData("html")]
+    [InlineData("mobi")]
+    [InlineData("azw3")]
+    [InlineData("fb2")]
+    [InlineData("cbz")]
+    public async Task CompleteAsync_AttachedNonExtractedFormat_QueuesNoExtraction(string format)
     {
-        Attaches(new ContentAttachment(AttachOutcome.Attached, new BookFile { Id = FileId, UserId = User, BookId = BookId, Format = "html" }));
+        Attaches(new ContentAttachment(AttachOutcome.Attached, new BookFile { Id = FileId, UserId = User, BookId = BookId, Format = format }));
 
         await CompleteAsync();
 
@@ -283,6 +289,10 @@ public class LibraryContentServiceTests
     [InlineData("epub", "application/epub+zip")]
     [InlineData("pdf", "application/pdf")]
     [InlineData("html", "text/html")]
+    [InlineData("mobi", "application/x-mobipocket-ebook")]
+    [InlineData("azw3", "application/vnd.amazon.mobi8-ebook")]
+    [InlineData("fb2", "application/x-fictionbook+xml")]
+    [InlineData("cbz", "application/vnd.comicbook+zip")]
     public async Task ReadAsync_Stored_IsTheBytesWithTheFormatsContentType(string format, string contentType)
     {
         _file.ServerStorageKey = Key;

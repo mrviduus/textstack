@@ -215,6 +215,10 @@ public sealed class LibraryContentService(
     {
         "epub" => "application/epub+zip",
         "pdf" => "application/pdf",
+        "mobi" => "application/x-mobipocket-ebook",
+        "azw3" => "application/vnd.amazon.mobi8-ebook",
+        "fb2" => "application/x-fictionbook+xml",
+        "cbz" => "application/vnd.comicbook+zip",
         _ => "text/html",
     };
 

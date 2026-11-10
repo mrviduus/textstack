@@ -73,6 +73,23 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         Assert.False((await _repo.AdvanceAsync(user, pdf.Id, Locating(file, Cfi(4), 0.4m), 2, default, Ct)).Accepted);
     }
 
+    // #1128: foliate addresses every non-PDF format by CFI (ADR-032); pdf-page stays PDF-only.
+    [Theory]
+    [InlineData("mobi")]
+    [InlineData("azw3")]
+    [InlineData("fb2")]
+    [InlineData("cbz")]
+    public async Task AdvanceAsync_OnAFoliateFormat_EpubCfiWinsAndPdfPageLoses(string format)
+    {
+        var user = await db.NewReaderAsync();
+        var imported = new Domain.Library.Book { Id = Guid.NewGuid(), Title = "A " + format };
+        var book = (await _library.ImportAsync(user, imported, V2PostgresFixture.NewFile(user, imported.Id, format: format), Ct)).Book!;
+        var file = book.CurrentFile!.Id;
+
+        Assert.False((await _repo.AdvanceAsync(user, book.Id, Locating(file, PdfPage), null, default, Ct)).Accepted);
+        Assert.True((await _repo.AdvanceAsync(user, book.Id, At(file, 1), null, default, Ct)).Accepted);
+    }
+
     [Fact]
     public async Task AdvanceAsync_FirstWriteOnAChapterTheFileLacks_LosesAndOnItsChapterWins()
     {

@@ -37,7 +37,8 @@ public static class SyncValidation
         ?? Sha256(file!.Sha256, prefix + "sha256")
         ?? (file.ByteSize > 0 ? null : SyncResult.Invalid(prefix + "byteSize", "byteSize must be positive."))
         ?? RequiredText(file.OriginalName, prefix + "originalName")
-        ?? (file.Format is "epub" or "pdf" ? null : SyncResult.Invalid(prefix + "format", "format must be epub or pdf."))
+        ?? (file.Format is "epub" or "pdf" or "mobi" or "azw3" or "fb2" or "cbz" ? null
+            : SyncResult.Invalid(prefix + "format", "format must be epub, pdf, mobi, azw3, fb2 or cbz."))
         ?? (file.Toc is null ? null : Toc(file.Toc, prefix + "toc"));
 
     // The size first, on the raw text that is also what gets stored; only then the walk.
@@ -238,13 +239,13 @@ public static class SyncValidation
 
     /// <summary>
     /// A locator's scheme fits the file it is written in (#1122): <c>pdf-page</c> only on a <c>pdf</c>, <c>epub-cfi</c>
-    /// only on an <c>epub</c> or <c>html</c>. <c>textstack-*</c> fits any: the transitional reader writes it on PDFs
+    /// on any other format (foliate's CFI addresses epub, html, mobi, azw3, fb2 and cbz alike, ADR-032). <c>textstack-*</c> fits any: the transitional reader writes it on PDFs
     /// too (reflow), and its real guard is the chapter check. <c>ReadingStateRepository</c>'s write asks the same in SQL.
     /// </summary>
     public static SyncResult? FitsFile(string? scheme, string format, string field) => scheme switch
     {
         "pdf-page" when format != "pdf" => Misfit(scheme, format, field),
-        "epub-cfi" when format is not ("epub" or "html") => Misfit(scheme, format, field),
+        "epub-cfi" when format == "pdf" => Misfit(scheme, format, field),
         _ => null,
     };
 
