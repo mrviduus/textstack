@@ -10,7 +10,7 @@ import { tokenizeVocabWords } from '../../../../../packages/shared/src/text/voca
 import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
 import { mergeOverlay } from './overlays.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
-import { emptyEntry, entryFor, foldText, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256Yielding, uuidV4, withHighlight, withPosition } from './store.mjs'
 import { openableHref, sentenceOf } from './tap.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
@@ -175,7 +175,7 @@ async function open(bytes, name, mine) {
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
     if (restoring || !entry || !d.range) return
     // The visible range's start: its CFI and the text there, to verify the CFI on restore.
-    const quote = d.range.toString().replace(/^\s+/, '').slice(0, 64)
+    const quote = quoteOf(d.range.toString().replace(/^\s+/, ''))
     entry = withPosition(entry, { cfi: d.cfi, quote, index: d.section?.current, fraction: d.fraction, at: Date.now() })
     persist(400)
   })
@@ -251,7 +251,8 @@ async function restoreInto(json) {
   const result = { found: !!stored, rejected: !!json && !stored, position: 'none', highlights: [] }
   for (const h of entry.highlights) {
     const { index, text } = await textAt(h.cfi).catch(() => ({ text: '' }))
-    const ok = foldText(text) === foldText(h.quote)
+    // An entry written before selectedText (#1078) kept the whole selection in quote.
+    const ok = foldText(text) === foldText(h.selectedText ?? h.quote)
     result.highlights.push({ id: h.id, status: ok ? 'restored' : 'quote mismatch, not drawn' })
     if (ok) annotate({ value: h.cfi, index, hl: { id: h.id } })
   }
@@ -270,23 +271,24 @@ async function restoreInto(json) {
   return result
 }
 
-/** The last non-empty selection as a highlight: CFI + quote + 30 chars of context, saved. */
+/** The last non-empty selection as a highlight: CFI + selection (+ its ≤64-code-point quote) + 30 chars of context, saved. */
 function highlightSelection() {
   const s = lastSelection
   if (!s || s.range.collapsed) return null
   // Before `restored` there is nothing to add to, and saving now would overwrite the stored entry.
   if (!entry) return log('warn', 'highlightSelection ignored: the stored entry is not restored yet')
   const loc = rangeToLocator(s.doc.body, s.range, String(s.index))
+  const selectedText = s.range.toString()
   const h = {
-    id: `h${Date.now().toString(36)}`, cfi: view.getCFI(s.index, s.range), index: s.index,
-    quote: s.range.toString(), prefix: loc?.text?.before ?? '', suffix: loc?.text?.after ?? '', color: 'yellow', at: Date.now(),
+    id: uuidV4(), cfi: view.getCFI(s.index, s.range), index: s.index,
+    quote: quoteOf(selectedText), selectedText, prefix: loc?.text?.before ?? '', suffix: loc?.text?.after ?? '', color: 'yellow', at: Date.now(),
   }
   entry = withHighlight(entry, h)
   persist()
   annotate({ value: h.cfi, index: s.index, hl: { id: h.id } })
   s.doc.getSelection().removeAllRanges()
   lastSelection = null
-  post({ type: 'highlighted', id: h.id, cfi: h.cfi, quote: h.quote })
+  post({ type: 'highlighted', id: h.id, cfi: h.cfi, quote: h.quote, selectedText })
   return h
 }
 

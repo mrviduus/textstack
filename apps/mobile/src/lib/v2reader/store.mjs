@@ -3,13 +3,36 @@
 // not applied. Pure: page.mjs and the tests import it.
 export const STORE_VERSION = 1
 
-/** { v, book: { sha256, size, name }, position: null | { cfi, quote, index, fraction, at }, highlights: [] } */
+/**
+ * { v, book: { sha256, size, name }, position: null | { cfi, quote, index, fraction, at },
+ *   highlights: [{ id, cfi, index, quote, selectedText, prefix, suffix, color, at }] }
+ * `quote` is the first ≤64 code points at the CFI (the epub-cfi locator's `quote`, ADR-031); a
+ * highlight's full selection is `selectedText`. A highlight stored before #1078 has only `quote`,
+ * which then holds the full selection.
+ */
 export function emptyEntry(book) {
   return { v: STORE_VERSION, book, position: null, highlights: [] }
 }
 
+/** The first ≤64 code points: a UTF-16 cut can split a surrogate pair, whose lone half has no UTF-8 form. */
+export const quoteOf = (text) => /^[\s\S]{0,64}/u.exec(text)[0]
+
+/**
+ * A v4 UUID (ADR-031 rule 3: client ids, never renumbered) from getRandomValues: crypto.randomUUID needs
+ * a secure context, which the page at origin "null" may not be. Hermes has no `crypto`: the RN host
+ * passes Expo's uuid instead.
+ */
+export function uuidV4() {
+  const b = crypto.getRandomValues(new Uint8Array(16))
+  b[6] = (b[6] & 0x0f) | 0x40
+  b[8] = (b[8] & 0x3f) | 0x80
+  return [...b].map((x) => x.toString(16).padStart(2, '0')).join('').replace(/^(.{8})(.{4})(.{4})(.{4})/, '$1-$2-$3-$4-')
+}
+
 /** A position or highlight this code can act on: a CFI and the text that was there. */
 const isQuoted = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && typeof x.quote === 'string' && x.quote.length > 0
+/** A highlight's `selectedText` is optional (older entries), but when present it is what restore compares. */
+const isHighlight = (h) => isQuoted(h) && (h.selectedText === undefined || (typeof h.selectedText === 'string' && h.selectedText.length > 0))
 
 /** The stored entry for this file, or null (missing, corrupt, another version, other bytes). */
 export function entryFor(json, book) {
@@ -19,12 +42,12 @@ export function entryFor(json, book) {
   if (!Array.isArray(e.highlights)) return null
   // Only items this code can use. A stored highlight or position without its quote would throw on
   // restore, and a page that throws there never finishes restoring and never saves again.
-  return { ...e, position: isQuoted(e.position) ? e.position : null, highlights: e.highlights.filter(isQuoted) }
+  return { ...e, position: isQuoted(e.position) ? e.position : null, highlights: e.highlights.filter(isHighlight) }
 }
 
 export const withPosition = (e, p) => (isQuoted(p) ? { ...e, position: p } : e)
 /** Same id replaces (a re-anchored highlight), otherwise appends. */
-export const withHighlight = (e, h) => (isQuoted(h) && h.id ? { ...e, highlights: [...e.highlights.filter((x) => x.id !== h.id), h] } : e)
+export const withHighlight = (e, h) => (isHighlight(h) && h.id ? { ...e, highlights: [...e.highlights.filter((x) => x.id !== h.id), h] } : e)
 
 /**
  * Text without whitespace (NBSP and block breaks included) or soft hyphens, with curly quotes, primes,

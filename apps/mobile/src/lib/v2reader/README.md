@@ -127,12 +127,12 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `relocate` | `index`, `sections`, `fraction`, `toc`, `cfi` | progress UI |
 | `word` | `index`, `word`, `sentence`, `cfi`, `rect {x, y, w, h}` (host viewport) | translates, then `showTranslation` |
 | `tap` | — | a tap not on a word (chrome toggle) |
-| `highlighted` | `id`, `cfi`, `quote` | — |
+| `highlighted` | `id` (v4 UUID), `cfi`, `quote` (first ≤64 code points), `selectedText` (the full selection) | — |
 | `openLink` | `href` | the page forwards only `http(s)` links and the host allowlists again before opening: a stated rule, not an accident. Any other scheme is dropped with a `warn` log (`mailto:`/`tel:` noted on #1069); the page never navigates |
 | `log` | `level`, `msg` | `error`: window errors and a failed open or restore. `warn`: a call that was ignored (a highlight or a restore before the book is ready) and a previous book that would not close. foliate logs its own navigation failures to the console, not here — a position that did not land is reported in `restored` instead. |
 
 A stored position or highlight is applied only while the text at its CFI still reads as its saved quote
-(`foldText`); otherwise it is reported in `restored` and left out, never drawn elsewhere. Stored items with no
+(`foldText`; a highlight compares its `selectedText`, or its `quote` if stored before #1078); otherwise it is reported in `restored` and left out, never drawn elsewhere. Stored items with no
 quote at all are dropped when the entry is read. `highlightSelection()` before `restored` is ignored with a
 `log` of level `warn`: there is no entry to add to yet, and saving then would overwrite the stored one.
 

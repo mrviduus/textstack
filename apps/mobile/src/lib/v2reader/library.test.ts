@@ -68,9 +68,15 @@ describe('v2 local library', () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
   })
 
-  it('addOpened_DefaultId_PrefixedAndUnique', () => {
+  it('addOpened_DefaultId_UniqueV4Uuid', () => {
+    // ADR-031 rule 3: the client mints the id and the server never renumbers it.
     const ids = new Set(Array.from({ length: 50 }, () => addOpened(emptyLibrary(), book).entry.id))
     expect(ids.size).toBe(50)
-    for (const id of ids) expect(id).toMatch(/^lb_[0-9a-z]+$/)
+    for (const id of ids) expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  })
+
+  it('parseLibrary_PreUuidId_StillListed', () => {
+    const old = { ...addOpened(emptyLibrary(), book, 1).entry, id: 'lb_mabc123xyz' }
+    expect(parseLibrary(JSON.stringify({ v: 1, books: [old] }))?.books).toEqual([old])
   })
 })

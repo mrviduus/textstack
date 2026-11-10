@@ -64,7 +64,8 @@ export async function readRecovering(files: V2Files, name: string): Promise<stri
 /** The retained copy of the file with this (already normalised) sha256. */
 export const bookFile = (sha256: string) => `books/${sha256}.epub`
 
-export function createV2Storage(files: V2Files) {
+/** `newId` mints a new book's v4 UUID; the default needs `crypto`, which Hermes lacks (the RN host passes Expo's). */
+export function createV2Storage(files: V2Files, newId?: () => string) {
   // ponytail: one in-process queue for every read and write: two imports read-modify-write
   // library.json in turn, two saves of one key never share a .tmp, and no read lands between a
   // move's delete and rename. Does not cover a second process or a second storage instance;
@@ -95,7 +96,7 @@ export function createV2Storage(files: V2Files) {
         if (moved) await files.move(staged, retained)
         else if (staged) files.remove(staged)
         try {
-          const { lib } = addOpened(await readLibrary(), { ...book, sha256 })
+          const { lib } = addOpened(await readLibrary(), { ...book, sha256 }, Date.now(), newId)
           await writeAtomically(files, 'library.json', JSON.stringify(lib))
           return { retained, books: lib.books as LibraryBook[] }
         } catch (e) {
