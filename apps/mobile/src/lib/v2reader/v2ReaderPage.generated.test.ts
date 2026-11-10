@@ -97,6 +97,6 @@ describe('v2ReaderPageHtml', () => {
     // A selection with no text, or one the server would refuse (SyncLimits.MaxSelectedText), is not
     // stored, and nothing is drawn or announced for it.
     expect(html).toContain('var MAX_SELECTED_TEXT = 4e3;')
-    expect(html).toMatch(/const selectedText = \w+\.range\.toString\(\);\s*if \(!selectedText\) return log\("warn"[^;]*;\s*if \(selectedText\.length > MAX_SELECTED_TEXT\) return log\("warn"/)
+    expect(html).toMatch(/const selectedText = \w+\.range\.toString\(\);\s*if \(!selectedText\.trim\(\)\) return log\("warn"[^;]*;\s*if \(selectedText\.length > MAX_SELECTED_TEXT\) return log\("warn"/)
   })
 })

@@ -20,7 +20,7 @@ export const quoteOf = (text) => /^[\s\S]{0,64}/u.exec(text)[0]
 /** A position or highlight this code can act on: a CFI and the text that was there. */
 const isQuoted = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && typeof x.quote === 'string' && x.quote.length > 0
 /** A highlight's `selectedText` is optional (older entries), but when present it is what restore compares. */
-const isHighlight = (h) => isQuoted(h) && (h.selectedText === undefined || (typeof h.selectedText === 'string' && h.selectedText.length > 0))
+const isHighlight = (h) => isQuoted(h) && (h.selectedText === undefined || (typeof h.selectedText === 'string' && h.selectedText.trim().length > 0))
 
 /** The stored entry for this file, or null (missing, corrupt, another version, other bytes). */
 export function entryFor(json, book) {

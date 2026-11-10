@@ -285,9 +285,9 @@ function highlightSelection() {
   // Before `restored` there is nothing to add to, and saving now would overwrite the stored entry.
   if (!entry) return log('warn', 'highlightSelection ignored: the stored entry is not restored yet')
   const selectedText = s.range.toString()
-  // An image-only selection has no text: withHighlight would drop it, and the page would draw and
-  // announce a highlight that was never stored.
-  if (!selectedText) return log('warn', 'highlightSelection ignored: the selection has no text')
+  // An image-only or whitespace-only selection (a paragraph break) has no text: the server refuses
+  // it (SyncValidation.RequiredText), and the page would draw a highlight that can never sync.
+  if (!selectedText.trim()) return log('warn', 'highlightSelection ignored: the selection has no text')
   // Refused, not cut: a cut selectedText no longer reads as the text at the CFI, so it would never restore.
   if (selectedText.length > MAX_SELECTED_TEXT) return log('warn', `highlightSelection ignored: over ${MAX_SELECTED_TEXT} characters`)
   const loc = rangeToLocator(s.doc.body, s.range, String(s.index))

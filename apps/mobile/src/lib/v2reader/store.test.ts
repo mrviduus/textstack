@@ -164,7 +164,8 @@ describe('v2 reader store', () => {
   })
 
   it('entryFor_SelectedTextNotANonEmptyString_HighlightDropped', () => {
-    const bad = [{ ...hl, selectedText: '' }, { ...hl, selectedText: 7 }, { ...hl, selectedText: null }]
+    // ' \n ' too: the server refuses whitespace-only selections (SyncValidation.RequiredText).
+    const bad = [{ ...hl, selectedText: '' }, { ...hl, selectedText: ' \n ' }, { ...hl, selectedText: 7 }, { ...hl, selectedText: null }]
     expect(entryFor(JSON.stringify({ ...emptyEntry(book), highlights: [...bad, hl] }), book)?.highlights).toEqual([hl])
     expect(withHighlight(emptyEntry(book), bad[1]).highlights).toEqual([])
   })
