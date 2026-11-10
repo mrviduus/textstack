@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File, Paths } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import type { OpenReader, PagePosition, V2ClientFormat } from '@textstack/shared'
+import { isFractionOnly, type OpenReader, type PagePosition, type V2ClientFormat } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
@@ -159,11 +159,14 @@ function V2Reader() {
     deviceLocalLibrary().fileSync().then(setFileSync, fail('settings'))
   }, [])
 
-  /** A programmatic move: the next relocate is the new baseline, not the reader moving. */
-  const goTo = (p: PagePosition) => {
+  /**
+   * A programmatic move: the next relocate is the new baseline, not the reader moving. `chosen`: the
+   * reader took an offer. A fraction-only position (a transitional server locator, #1187) goes as is:
+   * the page saves it as a CFI where it lands only when chosen (README, `goTo`).
+   */
+  const goTo = (p: PagePosition, chosen = false) => {
     reading.current.baseline = null
-    // A fraction-only position (a transitional server locator, #1187) goes as is: the page lands it quietly.
-    call(`window.__fol.goTo(${JSON.stringify(p.cfi ?? p)})`)
+    call(`window.__fol.goTo(${JSON.stringify(isFractionOnly(p) ? p : p.cfi)}, ${chosen})`)
   }
 
   // Opportunistic sync (R6): with a session (a guest's too), on open, after saves, never on the reading path.
@@ -388,7 +391,7 @@ function V2Reader() {
       <ProgressLine setter={setProgress} color={colors.textSecondary} />
       {error && <Text style={[styles.meta, { color: colors.error }]}>{error}</Text>}
       {offer && (
-        <Pressable onPress={() => { goTo(offer); setOffer(null) }} style={styles.offer}>
+        <Pressable onPress={() => { goTo(offer, true); setOffer(null) }} style={styles.offer}>
           <Text style={[styles.meta, { color: colors.primary }]}>Read further on another device ({Math.round((offer.fraction ?? 0) * 100)}%): go there</Text>
         </Pressable>
       )}

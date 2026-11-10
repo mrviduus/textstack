@@ -270,7 +270,7 @@ function zipFiles(out, files) {
 
 const prose = (n) => Array.from({ length: n }, (_, i) => `Paragraph ${i + 1}. ${para}`)
 
-/** tsformat.epub, tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages). */
+/** tscover.epub (a non-linear cover first), tsformat.epub, tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages). */
 export function writeFormatFixtures(dir) {
   epub(resolve(dir, 'tsformat.epub'), 'TS EPUB', {
     files: { 's1.xhtml': xhtml('', `<h1>Chapter One</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}`) },
@@ -290,7 +290,13 @@ export function writeFormatFixtures(dir) {
   writeFileSync(resolve(dir, 'tsutf16.fb2'), Buffer.from(`﻿${book.replace('encoding="utf-8"', 'encoding="UTF-16"')}`, 'utf16le'))
   writeFileSync(resolve(dir, 'tskf8.mobi'), mobi('TS KF8', html, { version: 8 }))
   writeFileSync(resolve(dir, 'tscombo.mobi'), mobi('TS COMBO', html, { boundary: 1 }))
-  return ['tsformat.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
+  // A non-linear cover first (#1187): the text start is section 1, fraction 0 is section 0.
+  epub(resolve(dir, 'tscover.epub'), 'TS COVER', {
+    files: { 'c.xhtml': xhtml('', '<h1>Cover</h1>'), 's1.xhtml': xhtml('', `<h1>Chapter One</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}`) },
+    manifest: '<item id="c" href="c.xhtml" media-type="application/xhtml+xml"/><item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/>',
+    spine: '<itemref idref="c" linear="no"/><itemref idref="s1"/>',
+  })
+  return ['tscover.epub', 'tsformat.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -1,6 +1,8 @@
 // V2 reader data (ADR-029): one entry per book FILE (its SHA-256 + size). The page owns the shape; the
 // host only keeps the JSON it is sent. An entry for other bytes, or a shape this code does not know, is
 // not applied. Pure: page.mjs and the tests import it.
+import { isFractionOnly } from '../../../../../packages/shared/src/reader/fractionPosition'
+
 export const STORE_VERSION = 1
 
 /**
@@ -24,13 +26,8 @@ const isQuoted = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(
  * image's entry name in the archive, checked on restore instead; `cfi` is foliate's section CFI.
  */
 const isPaged = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && x.quote === undefined && typeof x.page === 'string' && x.page.length > 0
-/**
- * A server position in a transitional `textstack-*` scheme (#1187): no CFI, only the book fraction in
- * [0, 1]. Restored approximately and never saved by the page until the reader moves.
- */
-export const isFractional = (x) => typeof x?.fraction === 'number' && x.fraction >= 0 && x.fraction <= 1
-  && x.cfi === undefined && x.quote === undefined && x.page === undefined
-const isPosition = (x) => isQuoted(x) || isPaged(x) || isFractional(x)
+/** A transitional server position by book fraction alone (#1187): the shared predicate, one definition. */
+const isPosition = (x) => isQuoted(x) || isPaged(x) || isFractionOnly(x)
 /** A highlight's `selectedText` is optional (older entries), but when present it is what restore compares. */
 const isHighlight = (h) => isQuoted(h) && (h.selectedText === undefined || (typeof h.selectedText === 'string' && h.selectedText.trim().length > 0))
 

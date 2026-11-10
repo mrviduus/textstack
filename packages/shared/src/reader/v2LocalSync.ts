@@ -7,6 +7,7 @@
  * `{id, cfi, index, quote, selectedText, prefix, suffix, color, at}`.
  */
 import type { V2Annotation, V2AnnotationWrite, V2Locator, V2ReadingState, V2ReadingStateWrite } from '../api/v2'
+import { isFractionOnly } from './fractionPosition'
 import { decideNewerPosition, serverProvablyNewer, type NewerPositionAction } from './newerPosition'
 import { MAX_SELECTED_TEXT } from './v2Locators'
 
@@ -90,8 +91,8 @@ export function statePosition(s: V2ReadingState): PagePosition | null {
   if (l.scheme === 'epub-cfi' && typeof l.value === 'string' && l.quote) {
     return { cfi: l.value, quote: l.quote, index: spineIndexOf(l.value) ?? undefined, fraction: s.bookFraction, at }
   }
-  const f = s.bookFraction
-  return l.scheme !== 'pdf-page' && typeof f === 'number' && f >= 0 && f <= 1 ? { fraction: f, at } : null
+  const p = { fraction: s.bookFraction, at }
+  return l.scheme !== 'pdf-page' && isFractionOnly(p) ? p : null
 }
 
 /** The page highlight as an annotation write; null when its text may not be synced (`syncableText`). */
@@ -177,7 +178,7 @@ export function decideServerState(o: {
     // A local fraction-only position: the reader has not moved since a fraction landing, so nothing of
     // theirs is lost by a silent move. A server fraction-only one has no spine index: a restored reader
     // on a local CFI is asked.
-    sameChapter: (o.local != null && o.local.cfi === undefined) || (o.reader.index != null && o.reader.index === theirs.index),
+    sameChapter: isFractionOnly(o.local) || (o.reader.index != null && o.reader.index === theirs.index),
     restoreApplied: o.reader.restoreApplied,
     readerMoved: o.reader.moved,
   })

@@ -161,7 +161,7 @@ try {
   call('window.__fol.next()')
   check(!!(await waitFor(from, (x) => x.type === 'store', 'a store after a refused fraction').catch(() => null)), 'and the book still turns and saves')
 
-  // The hold after a fraction landing (#1187 QA): what it holds, and that it holds nothing more.
+  // After a fraction landing (#1187 QA): the save rule holds the landing, and nothing more.
   console.log('fraction hold')
   const settle = () => page.waitForTimeout(1200)
   const lastRelocate = (from) => messages.slice(from).filter((x) => x.type === 'relocate').at(-1)
@@ -276,12 +276,11 @@ try {
   call('window.__fol.next()')
   check(!!(await waitFor(alive, (x) => x.type === 'store', 'a store after the refusals').catch(() => null)), 'the EPUB open before the refusals still turns and saves')
   check(!messages.slice(alive).some((x) => x.type === 'telemetry'), 'and its telemetry session was not ended by them')
-  for (const x of messages) if (x.type === 'log' && x.level === 'error' && !/^open: /.test(x.msg)) check(false, `page error: ${x.msg.split('\n')[0]}`)
 
   // A re-layout right after a fraction landing — the WebView resized (the host's offer banner or error
   // line appearing above it, rotation), a font or flow change — is not the reader moving: it saves no CFI
   // over the server's transitional locator (I1). The first real move after it does save one (I5).
-  // After the page-error sweep: the resize logs a benign ResizeObserver error.
+  // (The resize logs a benign ResizeObserver error: the page-error sweep at the end lets that one through.)
   console.log('re-layout after a fraction landing')
   const storesFrom = (from) => messages.slice(from).filter((x) => x.type === 'store').map((x) => JSON.parse(x.json).position)
   for (const [what, relayout, restore] of [
@@ -321,6 +320,139 @@ try {
   from = messages.length
   call('window.__fol.next()')
   check(!!(await waitFor(from, (x) => x.type === 'store' && x.key === next.book.sha256, 'a store after the switch').catch(() => null)), 'and the next book turns and saves')
+
+  // The save rule (#1187 round 2): a relocate saves only when it is not a re-layout ('anchor') and its CFI
+  // differs from the previous relocate's. A tap ends in foliate's touchend 'snap', a relocate where the
+  // view already is: no move, so no save, after a re-layout moved the anchor too.
+  console.log('save rule')
+  const cdp = await page.context().newCDPSession(page)
+  const tap = async () => {
+    const at = { x: 640, y: 360 }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [at] })
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  }
+  const entryOf = (b, position) => JSON.stringify({ v: 1, book: b, highlights: [], position })
+  m = await open('tsformat.fb2', byFraction({ fraction: 0.9, at: 1 }))
+  await settle()
+  await call('window.__fol.font(4)')
+  await settle()
+  from = messages.length
+  await tap()
+  await settle()
+  check(messages.slice(from).some((x) => x.type === 'relocate') && storesFrom(from).length === 0,
+    `a tap after a fraction landing and a font change relocates (snap) but saves nothing (${JSON.stringify(storesFrom(from))})`)
+  await call('window.__fol.font(-4)')
+  // A CFI restore: opening the book re-stamps nothing; only a real page turn saves.
+  const cfiEntry = moved.json
+  m = await open('tsformat.fb2', cfiEntry)
+  await settle()
+  await tap()
+  await settle()
+  check(m.restored.position === 'restored' && storesFrom(m.from).length === 0, `a CFI restore, settled and tapped, saves nothing (${m.restored.position}, ${JSON.stringify(storesFrom(m.from))})`)
+  from = messages.length
+  call('window.__fol.next()')
+  const turnedCfi = await storeFrom(from, 'a store after a page turn on a CFI restore')
+  check(turnedCfi?.position?.cfi?.startsWith('epubcfi('), 'and its first page turn saves a CFI')
+
+  // A taken offer (goTo chosen): the place the fraction landed on is saved as a CFI position, once.
+  console.log('taken offer')
+  m = await open('tsformat.fb2')
+  await settle()
+  from = messages.length
+  call('window.__fol.goTo({ fraction: 0.6, at: 7 }, true)')
+  const taken = await storeFrom(from, 'a store after a taken fraction offer')
+  await settle()
+  const landedAt = lastRelocate(from)
+  check(taken?.position?.cfi === landedAt?.cfi && taken.position.quote && taken.position.index === landedAt.index && storesFrom(from).length === 1,
+    `a taken fraction offer saves the landed place as a CFI, once (${JSON.stringify(taken?.position)} vs ${landedAt?.cfi})`)
+
+  // Arrival (#1187 round 2): foliate's goTo resolves with what it resolved, arrived or not. A view that
+  // does not get there (here: a goTo that resolves section 1 and stays put) changes nothing and says so.
+  console.log('fraction not arrived')
+  const stuck = `document.querySelector('foliate-view').goTo = async () => ({ index: 1 })`
+  m = await open('tsformat.fb2')
+  await settle()
+  await call(stuck)
+  from = messages.length
+  call('window.__fol.goTo({ fraction: 0.9, at: 8 }, true)')
+  await waitFor(from, (x) => x.type === 'log' && /did not land/.test(x.msg), 'a not-landed warn')
+  await settle()
+  check(storesFrom(from).length === 0, 'a taken fraction offer that did not arrive saves nothing')
+  from = messages.length
+  await call(`window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, 'tsformat.fb2')).href)}, 'tsformat.fb2')`)
+  await waitFor(from, (x) => x.type === 'opened', 'opened for a not-arrived restore')
+  await call(stuck)
+  call(`window.__fol.restore(${JSON.stringify(byFraction({ fraction: 0.9, at: 1 }))})`).catch(() => {})
+  const notArrived = await waitFor(from, (x) => x.type === 'restored', 'restored, not arrived')
+  await settle()
+  check(notArrived.position === 'navigation failed, stayed at start' && storesFrom(from).length === 0,
+    `a fraction restore that did not arrive says so and saves nothing (${notArrived.position})`)
+
+  // Fraction 0 (never read on the other device): the text start init showed, not the cover before it.
+  console.log('fraction 0')
+  m = await open('tscover.epub')
+  const coverBook = m.book
+  check(lastRelocate(m.from)?.index === 1, `a book with a non-linear cover first opens at its text start (section ${lastRelocate(m.from)?.index})`)
+  m = await open('tscover.epub', entryOf(coverBook, { fraction: 0, at: 1 }))
+  await settle()
+  check(m.restored.position === 'restored by fraction' && lastRelocate(m.from)?.index === 1 && storesFrom(m.from).length === 0,
+    `fraction 0 restores at the text start, not the cover, saving nothing (${m.restored.position}, section ${lastRelocate(m.from)?.index})`)
+  call('window.__fol.next()')
+  await settle()
+  from = messages.length
+  call('window.__fol.goTo({ fraction: 0, at: 9 })')
+  const zero = await storeFrom(from, 'a store after a fraction 0 goTo')
+  check(lastRelocate(from)?.index === 1 && zero?.position?.fraction === 0 && !('cfi' in zero.position), `a fraction 0 goTo goes to the text start (section ${lastRelocate(from)?.index})`)
+
+  // The stale-call window: the next book's openUrl has turned the open seq over while its bytes are still
+  // hashing, and the previous view still shows. A `next` queued on that view and a `restore` for it, made
+  // in the window, never run on or answer for the next book. Deterministic: the previous view's goTo is
+  // held, and the next book's file read is released by the check, in the same turn as the two calls.
+  console.log('stale-call window')
+  m = await open('tsformat.fb2')
+  const previousBook = m.book
+  await settle()
+  await call(`(() => {
+    const v = document.querySelector('foliate-view')
+    const held = new Promise((ok) => { window.__releasePrevious = ok })
+    v.goTo = () => held.then(() => undefined)
+    const send = XMLHttpRequest.prototype.send
+    XMLHttpRequest.prototype.send = function () {
+      XMLHttpRequest.prototype.send = send
+      const x = this, load = x.onload
+      x.onload = () => { window.__loadNext = () => load.call(x) }
+      return send.call(x)
+    }
+  })()`)
+  // Held: the previous view's chain is busy from here on (not awaited: it settles only on release).
+  call('window.__fol.section(1)').catch(() => {})
+  from = messages.length
+  await call(`window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, 'tsformat.epub')).href)}, 'tsformat.epub')`)
+  for (const t0 = Date.now(); !(await call('!!window.__loadNext')) && Date.now() - t0 < TIMEOUT_MS;) await page.waitForTimeout(20)
+  // restore(null) needs no navigation: it would answer while the next book still hashes, were it allowed to.
+  await call(`window.__loadNext(); window.__fol.next(); window.__fol.restore(null); window.__fol.restore(${JSON.stringify(entryOf(previousBook, { fraction: 0.9, at: 1 }))}); 0`)
+  const nextBook = await waitFor(from, (x) => x.type === 'opened', 'the next book opened after the window')
+  const afterOpened = messages.length
+  await call('window.__releasePrevious()')
+  await settle()
+  check(!messages.slice(from).some((x) => x.type === 'restored'), 'a restore made in the window answers nothing')
+  check(!messages.slice(afterOpened).some((x) => x.type === 'relocate'), 'a next queued in the window never moves the next book')
+  // The next book is still restoring: a turn before its own restore saves nothing.
+  from = messages.length
+  call('window.__fol.next()')
+  await settle()
+  check(storesFrom(from).length === 0, 'the next book saves nothing before its own restore (the stale restore did not end it)')
+  from = messages.length
+  call('window.__fol.restore(null)').catch(() => {})
+  const own = await waitFor(from, (x) => x.type === 'restored', 'the next book restored').catch(() => null)
+  check(own?.found === false && own.position === 'none', `the next book answers its own restore (${JSON.stringify(own)})`)
+  call('window.__fol.next()')
+  check(!!(await waitFor(from, (x) => x.type === 'store' && x.key === nextBook.book.sha256, 'a store on the next book').catch(() => null)), 'and then turns and saves')
+
+  // Every page error on this page, last so that every block above is covered. One benign message is let
+  // through by its exact text: Chromium's ResizeObserver loop notice, from the resize above.
+  const BENIGN = 'ResizeObserver loop completed with undelivered notifications.'
+  for (const x of messages) if (x.type === 'log' && x.level === 'error' && !/^open: /.test(x.msg) && x.msg !== BENIGN) check(false, `page error: ${x.msg.split('\n')[0]}`)
 
   // The 5-minute boundary, on a page with a fake clock: the session ends by its own timer (no next open),
   // a switch inside the window counts, a switch after it does not and sends nothing more.

@@ -84,8 +84,9 @@ describe('v2ReaderPageHtml', () => {
     // The renderer exists only after view.open() resolved; the fixed-layout one (CBZ) has no setStyles (#1128).
     expect(html).toMatch(/view\.renderer\) == null \? void 0 : (\w+)\.setStyles\) == null \? void 0 : \w+\.call\(\1, css\(\)\)/)
     expect(html).toMatch(/\((\w+) = \((\w+) = view\.renderer\)\.setStyles\) == null \? void 0 : \1\.call\(\2, css\(\)\)/)
-    // A position is reported restored only if the renderer really shows that section.
-    expect(html).toContain('result.position = landed ? "restored" : "navigation failed, stayed at start"')
+    // A position is reported restored only if the renderer really shows that section, a fraction's too (#1187).
+    expect(html).toContain('result.position = arrivedAt(index) ? "restored" : "navigation failed, stayed at start"')
+    expect(html).toContain('return !!resolved && arrivedAt(resolved.index)')
   })
 
   it('formatReaders_CarriedAsEscapedStrings_RunOnlyUnderThePageNonce', () => {
@@ -115,7 +116,7 @@ describe('v2ReaderPageHtml', () => {
     // code points, the full selection in selectedText and restore comparing it (old entries: quote).
     expect(html).toContain('crypto.getRandomValues(new Uint8Array(16))')
     expect(html).not.toContain('randomUUID')
-    expect(html).toMatch(/const quote = textual \? quoteOf\(\w+\.range\.toString\(\)/)
+    expect(html).toMatch(/return textual \? \{ \.\.\.\w+, quote: quoteOf\(\w+\.range\.toString\(\)/)
     expect(html).toMatch(/id: uuidV4\(\),[\s\S]{0,120}?quote: quoteOf\(selectedText\),\s*selectedText,/)
     expect(html).toMatch(/const ok = foldText\(\w+\) === foldText\((\w+)\.selectedText \?\? \1\.quote\);/)
     expect(html).not.toMatch(/\.slice\(0, 64\)/)

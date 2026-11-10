@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { emptyEntry, entryFor, foldText, isFractional, quoteOf, sha1, sha256, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { isFractionOnly } from '../../../../../packages/shared/src/reader/fractionPosition'
+import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 
 const book = { sha256: 'ab'.repeat(32), size: 1234, name: 'a.epub' }
@@ -55,20 +56,20 @@ describe('v2 reader store', () => {
     const e = withPosition(emptyEntry(book), byFraction)
     expect(e.position).toEqual(byFraction)
     expect(entryFor(JSON.stringify(e), book)?.position).toEqual(byFraction)
-    for (const f of [0, 1]) expect(isFractional({ fraction: f })).toBe(true)
+    for (const f of [0, 1]) expect(isFractionOnly({ fraction: f })).toBe(true)
     // Outside [0, 1], not a number, or beside a quote or page (a half-shape of the other two): refused.
     for (const bad of [{ fraction: -0.1 }, { fraction: 1.01 }, { fraction: '0.5' }, { fraction: null }, { fraction: 0.5, quote: 'x' }, { fraction: 0.5, page: 'p.png' }, {}])
       expect(entryFor(JSON.stringify({ ...e, position: bad }), book)?.position, JSON.stringify(bad)).toBeNull()
-    expect(isFractional(null)).toBe(false)
-    expect(isFractional({ fraction: NaN })).toBe(false)
-    expect(isFractional({ fraction: Infinity })).toBe(false)
+    expect(isFractionOnly(null)).toBe(false)
+    expect(isFractionOnly({ fraction: NaN })).toBe(false)
+    expect(isFractionOnly({ fraction: Infinity })).toBe(false)
   })
 
-  it('isFractional_StaleCfiBesideAFraction_NotFractionOnly_PositionDropped', () => {
+  it('isFractionOnly_StaleCfiBesideAFraction_NotFractionOnly_PositionDropped', () => {
     // #1187 QA: a cfi without its quote next to a fraction is neither shape; never restored by fraction
     // while ignoring the cfi, never by a CFI that cannot be checked.
     for (const bad of [{ fraction: 0.5, cfi: 'epubcfi(/6/4!/4/2)' }, { fraction: 0.5, cfi: null }, { fraction: 0.5, cfi: '' }, { fraction: 1.0000001 }, { fraction: -Infinity }]) {
-      expect(isFractional(bad), JSON.stringify(bad)).toBe(false)
+      expect(isFractionOnly(bad), JSON.stringify(bad)).toBe(false)
       expect(entryFor(JSON.stringify({ ...withPosition(emptyEntry(book), pos), position: bad }), book)?.position, JSON.stringify(bad)).toBeNull()
     }
     // A move cannot be replaced by one of those either.

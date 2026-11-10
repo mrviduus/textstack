@@ -179,7 +179,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `openUrl(url, name)` | Reads the retained book by XHR (`file://…`) and opens it, whatever its format (Formats). Answers `opened` or `open-failed`. A second call supersedes the first, which then answers nothing. |
 | `restore(json \| null)` | The answer to `opened`: the JSON last sent in `store` for that `book.sha256`, or null. Its position may be fraction-only, `{ fraction, at }` (a transitional `textstack-*` server locator, #1187). |
 | `highlightSelection()` | The last non-empty selection becomes a highlight; sends `store` and `highlighted`. Ignored on a CBZ. A selection with no text (an image) or over 4000 UTF-16 units (`SyncLimits.MaxSelectedText`) is ignored with a `warn` log. |
-| `goTo(target)` | CFI, href, section index, or a fraction-only position `{ fraction, at }` (fraction in [0, 1]). Queued behind the previous navigation. A fraction-only one becomes the entry's position (one `store` with it) and is then held (below). An open supersedes every queued or in-flight navigation: the new book starts a chain of its own. |
+| `goTo(target, chosen = false)` | CFI, href, section index, or a fraction-only position `{ fraction, at }` (fraction in [0, 1]; 0 is the text start, not a cover before it). Queued behind the previous navigation; an open supersedes every queued or in-flight one (the new book starts a chain of its own). A fraction-only target: not `chosen` (a sync adopt or move) it becomes the entry's position as itself (one `store` with it, never pushed); `chosen` (the reader took an offer) the place it landed on is saved as a CFI position (one `store`), like a taken CFI offer. One that did not arrive changes nothing and logs a `warn`. `chosen` changes nothing for any other target. |
 | `section(±1)`, `next()`, `prev()` | Section / page step, queued. |
 | `font(delta)` | Font size ±px, clamped 12–32; returns the new size. No-op before `opened`. |
 | `flow('paginated' \| 'scrolled')` | foliate layout; default `paginated` (ADR-029 Decision 1). Switches the open book in place (no reload, position kept). Before `opened` it sets what the next open uses: hosts send the reader's stored setting right after `ready`. Anything else is ignored with a `warn`. |
@@ -205,12 +205,18 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 A stored position or highlight is applied only while the text at its CFI still reads as its saved quote
 (`foldText`; a highlight compares its `selectedText`, or its `quote` if stored before #1078); otherwise it is reported in `restored` and left out, never drawn elsewhere. Stored items with no
 quote at all are dropped when the entry is read. A fraction-only position (#1187) has no CFI or quote to
-check: it lands approximately (the legacy fraction counts words, foliate's bytes) and is then held: no
-position is saved until the reader moves (a page turn, swipe, scroll, `next`/`prev`/`section`, a `goTo`,
-a followed link). A relocate at the landed CFI or one foliate makes to re-lay the page out (its renderer's
-`reason` `'anchor'`: a resize, a `font` or `flow` change) is not a move, so opening a book never
-rewrites the server's transitional locator as a CFI. The first move releases the hold; coming back to the
-landed place after it is saved like any other move. One outside [0, 1] is dropped when the entry is read. `highlightSelection()` before `restored` is ignored with a
+check: it lands approximately (the legacy fraction counts words, foliate's bytes); fraction 0 (never read
+on the other device) is not navigated to at all, the text start `opened` already shows. A fraction that
+did not arrive (foliate's goTo resolves with its target either way, so the renderer is asked) is reported
+as `navigation failed, stayed at start`. One outside [0, 1] is dropped when the entry is read.
+
+**The save rule** (any book, any restore): a `relocate` saves the position only when the reader moved —
+foliate's reason for it is not `'anchor'` (re-laying the page out: a resize, a `font` or `flow` change)
+AND its CFI differs from the previous relocate's (foliate relocates again where it already is: after a
+landing, and the snap of every touchend). Nothing is saved before `restored`. So opening a book never
+re-saves its place (nor rewrites the server's transitional locator as a CFI); the first page turn,
+swipe, scroll, `next`/`prev`/`section`, `goTo` or followed link does, and so does coming back to the
+landed place after one. `highlightSelection()` before `restored` is ignored with a
 `log` of level `warn`: there is no entry to add to yet, and saving then would overwrite the stored one.
 
 ## Host responsibilities

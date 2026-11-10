@@ -406,32 +406,35 @@ describe('V2 local library sync (R6)', () => {
         expect(await lib.state(bookId)).toMatchObject({ revision: 3 })
       })
 
-      it('fractionPosition_OfferTakenAndSaved_NeverSentQueueDrained', async () => {
-        // A prompt taken: the page lands the fraction and saves it over the reader's older CFI place.
+      it('fractionOffer_PromptThenTaken_LandedCfiPushedOnTheCurrentRevision', async () => {
+        // The reader took the offer: the page landed the fraction and saved the place it landed on as a
+        // CFI (goTo chosen). That is a move of theirs: pushed on the revision the prompt took.
         const { lib, bookId, fileId } = await synced()
         fakeApi({ 'GET /reading/changes': feed(transitional(bookId, fileId, 3, NOW - 1000)) })
         const h = host({ reader: () => ({ restoreApplied: true, moved: true, index: 6 }) })
         await syncV2Library(lib, h)
-        await lib.writeEntry(SHA, entry(h.owed[0].position), newId)
+        expect(h.owed.map((o) => o.action)).toEqual(['prompt'])
+        const landed = { cfi: 'epubcfi(/6/20!/4/2/1:0)', quote: 'where it landed', index: 9, fraction: 0.7, at: NOW }
+        await lib.writeEntry(SHA, entry(landed), newId)
         expect((await lib.outbox()).map((o) => o.kind)).toEqual(['state'])
-        const calls = fakeApi({})
+        const calls = fakeApi({ [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 4))] })
         await syncV2Library(lib, host())
-        expect(writes(calls)).toEqual([])
+        expect(calls.find((c) => c.method === 'PUT')?.body).toMatchObject({
+          expectedRevision: 3, bookFraction: 0.7, currentLocator: { scheme: 'epub-cfi', value: landed.cfi, quote: landed.quote },
+        })
         expect(await lib.outbox()).toEqual([])
       })
 
-      // #1187 QA
-      it('fractionPosition_RealMoveSavedWhileItsDropIsInFlight_MoveStillPushed', async () => {
+      it('fractionPosition_SavedByThePage_NothingQueued_RealMoveThenPushed', async () => {
+        // A position positionWrite can only refuse is never queued (#1187 round 2), not queued and dropped.
         const { lib, bookId, fileId } = await synced()
         await lib.writeEntry(SHA, entry({ fraction: 0.7, at: NOW - 2000 }), newId)
-        expect((await lib.outbox()).map((o) => o.kind)).toEqual(['state'])
-        // The reader moves after the push read the fraction-only row and before it drops the entry.
-        const moved = { ...pos, fraction: 0.72, at: NOW - 1000 }
-        const racing: LocalLibrary = { ...lib, state: async (id: string) => { const st = await lib.state(id); await lib.writeEntry(SHA, entry(moved), newId); return st } }
-        const first = fakeApi({})
-        await syncV2Library(racing, host())
-        expect(writes(first)).toEqual([])
-        expect((await lib.outbox()).map((o) => o.kind)).toEqual(['state'])
+        expect(await lib.outbox()).toEqual([])
+        expect((await restoredEntry(lib)).position).toEqual({ fraction: 0.7, at: NOW - 2000 })
+        const quiet = fakeApi({})
+        await syncV2Library(lib, host())
+        expect(writes(quiet)).toEqual([])
+        await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.72, at: NOW - 1000 }), newId)
         const next = fakeApi({ [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 2))] })
         await syncV2Library(lib, host())
         expect(next.find((c) => c.method === 'PUT')?.body).toMatchObject({ expectedRevision: 1, bookFraction: 0.72, currentLocator: { scheme: 'epub-cfi', value: CFI } })
