@@ -190,15 +190,19 @@ async function makeBookFor(bytes, name, kind) {
     // host's is a path, and the host falls back to its own.
     // Each name once (a zip may repeat one: two pages with one id would restore to the first), and each
     // page blob typed by its extension: the reader asks for none, and an untyped SVG is no image.
-    for (const e of entries) if (!map.has(comicName(e.filename))) map.set(comicName(e.filename), e)
-    const names = [...new Set(entries.map((e) => comicName(e.filename)))]
-    const comic = { ...loader, entries: names.map((filename) => ({ filename })), loadBlob: (n, type) => loader.loadBlob(n, type ?? imageType(n)) }
+    const names = new Set()
+    for (const e of entries) {
+      const n = comicName(e.filename)
+      if (!map.has(n)) map.set(n, e)
+      names.add(n)
+    }
+    const comic = { ...loader, entries: [...names].map((filename) => ({ filename })), loadBlob: (n, type) => loader.loadBlob(n, type ?? imageType(n)) }
     return { format: 'cbz', book: formatModule('cbz').makeComicBook(comic, { name: '' }) }
   }
   // FBZ: the FB2 inside.
   const fb2 = entries.find((e) => e.filename.toLowerCase().endsWith('.fb2'))
   const inner = new Uint8Array(await (await loader.loadBlob(fb2.filename)).arrayBuffer())
-  checkFb2(inner)   // throws UnsupportedBook: custom entities (sniffFormat checks a plain FB2 the same way)
+  checkFb2(inner)   // throws: custom entities (sniffFormat checks a plain FB2 the same way)
   return { format: 'fb2', book: await fb2Of(inner) }
 }
 
@@ -219,7 +223,7 @@ let session = null
 function endSession() {
   if (!session) return
   clearTimeout(session.timer)
-  post({ type: 'telemetry', event: 'reader-flow', mode: flow, format: session.format, switchedInFirst5Min: session.switched })
+  post({ type: 'telemetry', event: 'reader-flow', mode: flow, format, switchedInFirst5Min: session.switched })
   session = null
 }
 
@@ -302,7 +306,7 @@ async function open(bytes, name, kind, mine) {
   await view.init({ showTextStart: true })
   if (mine !== openSeq) return false
   const { book: b } = view
-  session = { format, at: Date.now(), switched: false, timer: setTimeout(endSession, SESSION_MS) }
+  session = { at: Date.now(), switched: false, timer: setTimeout(endSession, SESSION_MS) }
   post({
     // reflowable: false for a fixed-layout book (CBZ, a pre-paginated EPUB), where flow() changes nothing.
     type: 'opened', book, format, textual, reflowable: !view.isFixedLayout,
@@ -450,8 +454,9 @@ window.__fol = {
   flow: (f) => {
     if (f !== 'paginated' && f !== 'scrolled') return log('warn', `flow ignored: ${String(f).slice(0, 20)}`)
     // A fixed-layout book (CBZ) has no flow to switch: the setting is kept for the next book, but no
-    // switch is reported for one that changed nothing.
-    if (session && f !== flow && view && !view.isFixedLayout && Date.now() - session.at < SESSION_MS) session.switched = true
+    // switch is reported for one that changed nothing. The clock is read, not only the timer: a throttled
+    // WebView can fire it late, and a switch past 5:00 must not count (formats.check, late timer).
+    if (session && f !== flow && !view.isFixedLayout && Date.now() - session.at < SESSION_MS) session.switched = true
     flow = f
     view?.renderer?.setAttribute('flow', f)
   },

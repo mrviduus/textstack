@@ -1,21 +1,12 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { Script, runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
+import { formatsJs, html } from './carrier.mjs'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated'
 
-// #1128 QA: the format readers ride in the page's one <script> as strings (build.mjs `formatsJs`), and the
-// whole page goes through `html()`. build.mjs runs a build on import, so the two routines are taken from its
-// source as written: a rename or reshape fails here loudly instead of leaving the vectors untested.
-const src = readFileSync(resolve(__dirname, 'build.mjs'), 'utf8')
-const formatsJsSrc = src.match(/^const formatsJs = .*$/m)?.[0]
-const htmlSrc = src.match(/^const html = \(js\) => `[\s\S]*?<\/html>`$/m)?.[0]
+// #1128 QA: the format readers ride in the page's one <script> as strings (`formatsJs`), and the
+// whole page goes through `html()`: both from carrier.mjs, the module build.mjs writes the page with.
 const NONCE = 'q7Rk2mW9xLpA4vBn8cZt0g=='
-const { formatsJs, html } = new Function('CSP', 'NONCE', `${formatsJsSrc}\n${htmlSrc}\nreturn { formatsJs, html }`)("default-src 'none'", NONCE) as {
-  formatsJs: (chunks: Record<string, string>) => string
-  html: (js: string) => string
-}
 
 /** The page's script elements as an HTML parser sees them (DOMParser: no script runs). */
 const scriptsOf = (page: string) => [...new DOMParser().parseFromString(page, 'text/html').querySelectorAll('script')].map((s) => s.textContent ?? '')
@@ -27,12 +18,7 @@ const VECTORS = [
   '\ud800', '\udfff', '\u0000', '\r\n', '</style>', '</body></html>', '<\\/script>',
 ]
 
-describe('formatsJs (build.mjs)', () => {
-  it('sourceFound_TheEscapeRoutinesAreTheOnesBuildMjsRuns', () => {
-    expect(formatsJsSrc).toContain("replace(/</g, '\\\\u003c')")
-    expect(htmlSrc).toContain('<script nonce="${NONCE}">')
-  })
-
+describe('formatsJs + html (carrier.mjs)', () => {
   it('hostileVectors_NeverEndOrBendTheScriptElement_AndRoundTripExactly', () => {
     for (const v of VECTORS) {
       const chunk = `window.__tsFormats.x = ${JSON.stringify(v)}; // ${v}`

@@ -12,6 +12,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { NONCE, formatsJs, html } from './carrier.mjs'
 
 // Pinned by SHA on our fork (ADR-032): upstream 78914aef (2026-05-01, no releases, unstable API)
 // + our patches as real commits. MIT © John Factotum. A bump is a PR that re-runs every ADR-029
@@ -29,7 +30,9 @@ const FOLIATE_SHA = 'd73682a48a0779ca989f25074386784602437fbf'   // branch texts
 // Excludes the carried format readers below (their strings sit ahead of this script).
 // +3136 (#1128 review): sniff before teardown, KF8 refused / combo read as MOBI6, truncated MOBI, UTF-16
 // FB2 re-encoded, FB2 entities refused, CBZ names/types/dedupe, flow() not a switch on a fixed layout.
-const BUDGET = 246668
+// −418 (#1128 simplify): no UnsupportedBook class, one FB2 head decode, one image-extension list, slimmer
+// telemetry session, CBZ aliasing in one loop.
+const BUDGET = 246250
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
@@ -106,24 +109,7 @@ const bundle = async (entry) => (await build({
   plugins: entry.endsWith('.mjs') ? [stubFormats] : [],
 })).outputFiles[0].text
 
-// The CSP is the book sandbox (ADR-029 Decision 4): sections are blob: documents that inherit this
-// policy, so a book's own <script> (no nonce) cannot run, while foliate's iframes still need
-// allow-scripts. default-src 'none' + blob:/data: only: nothing a book references outside its zip is
-// fetched. connect-src file: is the host's retained EPUB, read by our own (nonce) script.
-// The nonce is a placeholder, never a value: a fixed nonce in a public repo is one a book can carry.
-// v2ReaderPageHtml(nonce) fills it per load.
-const NONCE = '__V2_READER_NONCE__'
-const CSP = [`default-src 'none'`, `script-src 'nonce-${NONCE}'`, `style-src blob: 'unsafe-inline'`, `img-src blob: data:`,
-  `font-src blob: data:`, `media-src blob: data:`, `frame-src blob:`, `connect-src blob: data: file:`, `form-action 'none'`, `base-uri 'none'`].join('; ')
-// The format readers as one JS object of strings, ahead of the page in its one script: never run until
-// page.mjs runs one under the page's own nonce. `<` is escaped in each string, so no `</script` or
-// `<!--` in a reader can end or bend the script element it travels in.
-const formatsJs = (chunks) => `var __TS_FORMATS = {${Object.entries(chunks).map(([k, v]) => `${k}: ${JSON.stringify(v).replace(/</g, '\\u003c')}`).join(',\n')}};\n`
-const html = (js) => `<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta http-equiv="Content-Security-Policy" content="${CSP}">
-<style>html,body{margin:0;height:100%;background:#fbf8f3;color:#1f1b16}foliate-view{display:block;height:100%}</style>
-</head><body><script nonce="${NONCE}">${js.replace(/<\/(script)/gi, '<\\/$1')}</script></body></html>`
+// The HTML shell, its CSP and nonce placeholder, and the format-reader carrier: carrier.mjs.
 
 const js = await bundle('page.mjs')
 const chunks = Object.fromEntries(await Promise.all(Object.entries(FORMATS).map(async ([k, src]) => [k, await bundle(src)])))

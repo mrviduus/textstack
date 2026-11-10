@@ -6,42 +6,32 @@ const ascii = (bytes, from, to) => String.fromCharCode(...bytes.subarray(from, M
 const u32 = (b, at) => ((b[at] << 24) | (b[at + 1] << 16) | (b[at + 2] << 8) | b[at + 3]) >>> 0
 const u16 = (b, at) => (b[at] << 8) | b[at + 1]
 
-/** A refusal the host shows as is (`open-failed`'s `error`). */
-export class UnsupportedBook extends Error {}
-
 /** Bytes searched for the FB2 root: room for a declaration, a long comment or a doctype before it. */
 const FB2_WINDOW = 4096
 
 /**
  * The container: `zip` (EPUB, CBZ, FBZ — told apart by `zipFormat`), `mobi` (MOBI6, or the MOBI6 half of a
- * MOBI/KF8 combo), `fb2`; throws UnsupportedBook for what this page does not read or refuses. Cheap and
+ * MOBI/KF8 combo), `fb2`; throws, with the message the host shows (`open-failed`), for what this page does not read or refuses. Cheap and
  * pure: the page calls it before it touches the open book, so a refusal leaves that book as it was.
  */
 export function sniffFormat(bytes) {
   if (bytes.length >= 4 && u32(bytes, 0) === 0x504b0304) return 'zip'
-  if (ascii(bytes, 0, 5) === '%PDF-') throw new UnsupportedBook('PDF is not supported yet')
+  if (ascii(bytes, 0, 5) === '%PDF-') throw new Error('PDF is not supported yet')
   // KFX: Amazon's newer format, DRM-wrapped as a rule ("\xeaDRMION\xee"); foliate has no reader for it.
-  if (ascii(bytes, 0, 8) === '\xeaDRMION\xee') throw new UnsupportedBook('this Kindle book is DRM-protected (KFX) and cannot be opened')
+  if (ascii(bytes, 0, 8) === '\xeaDRMION\xee') throw new Error('this Kindle book is DRM-protected (KFX) and cannot be opened')
   if (ascii(bytes, 60, 68) === 'BOOKMOBI') {
     const h = mobiHeader(bytes)
-    if (h.encryption) throw new UnsupportedBook('this Kindle book is DRM-protected and cannot be opened')
+    if (h.encryption) throw new Error('this Kindle book is DRM-protected and cannot be opened')
     // The fork's KF8 reader (pin d73682a) is unverified and makes its resource blobs without a type
     // (mobi.js loadResourceBlob: `{ newType }` for `{ type: newType }`); its sections also bypass the
     // transformTarget the page strips refresh metas through. Refused until the fork is fixed.
-    if (h.version >= 8) throw new UnsupportedBook('AZW3 (KF8) is not supported yet')
+    if (h.version >= 8) throw new Error('AZW3 (KF8) is not supported yet')
     return 'mobi'
   }
-  if (fb2Root(bytes) >= 0) {
-    checkFb2(bytes)
-    return 'fb2'
-  }
-  throw new UnsupportedBook('not a book this reader opens (EPUB, MOBI, FB2, CBZ)')
+  // The last candidate: anything that is not an FB2 is refused there as "not a book".
+  checkFb2(bytes)
+  return 'fb2'
 }
-
-/** The first FB2_WINDOW bytes as text, NULs dropped so UTF-16 (either order) reads like ASCII. */
-const fb2Head = (bytes) => ascii(bytes, 0, FB2_WINDOW).replace(/\0/g, '')
-/** Where the FB2 root element starts in fb2Head, or -1. */
-const fb2Root = (bytes) => fb2Head(bytes).search(/<FictionBook[\s>]/)
 
 /**
  * An FB2 the XML parser may be handed: its root near the start and no entity declared before it. A flat
@@ -49,18 +39,20 @@ const fb2Root = (bytes) => fb2Head(bytes).search(/<FictionBook[\s>]/)
  * expansion); real FB2 files declare none. Also called for the FB2 inside an FBZ.
  */
 export function checkFb2(bytes) {
-  const root = fb2Root(bytes)
-  if (root < 0) throw new UnsupportedBook('not a book this reader opens (EPUB, MOBI, FB2, CBZ)')
-  if (/<!ENTITY/i.test(fb2Head(bytes).slice(0, root))) throw new UnsupportedBook('unsupported FB2: custom entities')
+  // The first FB2_WINDOW bytes as text, NULs dropped so UTF-16 (either order) reads like ASCII.
+  const head = ascii(bytes, 0, FB2_WINDOW).replace(/\0/g, '')
+  const root = head.search(/<FictionBook[\s>]/)
+  if (root < 0) throw new Error('not a book this reader opens (EPUB, MOBI, FB2, CBZ)')
+  if (/<!ENTITY/i.test(head.slice(0, root))) throw new Error('unsupported FB2: custom entities')
 }
 
 /**
  * Record 0 of a PDB `BOOKMOBI`: its PalmDOC `encryption` (0 none, 1 old Mobipocket, 2 Mobipocket DRM), the
  * MOBI header `version` (8 = KF8), and where each EXTH 121 (the KF8 boundary of a MOBI/KF8 combo) keeps
- * its value. Throws UnsupportedBook for a file too short to hold what is read: truncated, not DRM.
+ * its value. Throws for a file too short to hold what is read: truncated, not DRM.
  */
 export function mobiHeader(bytes) {
-  const damaged = () => new UnsupportedBook('this Kindle file is truncated or damaged')
+  const damaged = () => new Error('this Kindle file is truncated or damaged')
   if (bytes.length < 86) throw damaged()
   const r0 = u32(bytes, 78)
   if (r0 + 248 > bytes.length || ascii(bytes, r0 + 16, r0 + 20) !== 'MOBI') throw damaged()
@@ -100,14 +92,12 @@ export function fb2AsUtf8(bytes) {
   return new TextEncoder().encode(text)
 }
 
-const IMAGE = /\.(jpe?g|png|gif|bmp|webp|svg|jxl|avif)$/i
-
 /** A zip's format by its entry names: OCF container → EPUB; an .fb2 inside → FBZ; images → CBZ (foliate's rules, by content). */
 export function zipFormat(names) {
   if (names.includes('META-INF/container.xml')) return 'epub'
   if (names.some((n) => n.toLowerCase().endsWith('.fb2'))) return 'fbz'
-  if (names.some((n) => IMAGE.test(n))) return 'cbz'
-  throw new UnsupportedBook('a zip with no book in it (no EPUB container, FB2 or images)')
+  if (names.some(imageType)) return 'cbz'
+  throw new Error('a zip with no book in it (no EPUB container, FB2 or images)')
 }
 
 /**

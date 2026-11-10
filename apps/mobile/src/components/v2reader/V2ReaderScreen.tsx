@@ -49,7 +49,12 @@ const v2Storage = () => (storage ??= createV2Storage(deviceFiles(), uuid.v4))
 /** The reader's layout, a per-user setting (#1128): paginated unless the reader chose scrolled. No legacy preference is migrated. */
 type Flow = 'paginated' | 'scrolled'
 const FLOW_KEY = 'v2reader.flow'
-const readFlow = (): Promise<Flow> => AsyncStorage.getItem(FLOW_KEY).then((f) => (f === 'scrolled' ? 'scrolled' : 'paginated'), () => 'paginated')
+/**
+ * The reader's choice, read once for the process (like v2Storage) and replaced by every toggle: each page
+ * load applies it before its first open, so the setting is never counted as a switch.
+ */
+let flowChoice: Promise<Flow> | null = null
+const storedFlow = () => (flowChoice ??= AsyncStorage.getItem(FLOW_KEY).then((f) => (f === 'scrolled' ? 'scrolled' : 'paginated'), () => 'paginated'))
 
 /** Expo's uuid v4 is the platform CSPRNG (java.util.UUID.randomUUID → SecureRandom). */
 const freshNonce = () => nonceFromUuid(uuid.v4())
@@ -91,22 +96,13 @@ function V2Reader() {
   const setProgress = useRef<(text: string) => void>(() => {})
   const [books, setBooks] = useState<LibraryBook[]>([])
   const [heading, setHeading] = useState('Pick a book')
-  const [flow, setFlow] = useState<Flow>('paginated')
-  // The reader's choice, current at every moment: the stored one once read, unless a toggle came first.
-  const flowRef = useRef<Flow>('paginated')
-  const toggled = useRef(false)
-  // Read ONCE (a useRef initializer would run AsyncStorage on every render); every page load waits for it
-  // and then applies flowRef before its first open, so the setting is never counted as a switch.
-  const flowLoaded = useRef<Promise<void> | null>(null)
-  flowLoaded.current ??= readFlow().then((f) => {
-    if (toggled.current) return
-    flowRef.current = f
-    setFlow(f)
-  })
+  // null until the stored choice is read: the toggle is off until then, so no toggle can race the read.
+  const [flow, setFlow] = useState<Flow | null>(null)
+  useEffect(() => { storedFlow().then(setFlow) }, [])
   /** False for a fixed-layout book (CBZ): flow changes nothing there, so the toggle is off. */
   const [reflowable, setReflowable] = useState(true)
-  /** Renderer crashes of the book being opened: a book that kills the renderer must not reopen forever. */
-  const crashes = useRef<{ file: string; count: number } | null>(null)
+  /** The book open at the last renderer crash: one that crashes it twice is not reopened again. */
+  const crashedFile = useRef<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const call = (js: string) => webView.current?.injectJavaScript(`${js};true`)
@@ -172,10 +168,9 @@ function V2Reader() {
     if (!m || typeof m !== 'object') return
     switch (m.type) {
       case 'ready':
-        // The layout goes in first: injected calls run in order, so the open below uses it. flowRef is read
-        // when the setting has loaded, so a toggle made meanwhile is the one applied.
-        flowLoaded.current!.then(() => {
-          call(`window.__fol.flow(${JSON.stringify(flowRef.current)})`)
+        // The layout goes in first: injected calls run in order, so the open below uses it.
+        storedFlow().then((f) => {
+          call(`window.__fol.flow(${JSON.stringify(f)})`)
           ready.current = true
           if (opening.current) open(opening.current)
         })
@@ -226,27 +221,25 @@ function V2Reader() {
   }
 
   const toggleFlow = () => {
-    const next: Flow = flowRef.current === 'paginated' ? 'scrolled' : 'paginated'
-    toggled.current = true
-    flowRef.current = next
+    if (!flow) return
+    const next: Flow = flow === 'paginated' ? 'scrolled' : 'paginated'
     setFlow(next)
+    flowChoice = Promise.resolve(next)
     AsyncStorage.setItem(FLOW_KEY, next).catch(fail('flow'))
     // The live view switches in place: no reload, the position stays (README, flow). Before `ready`
-    // the pending ready handler applies flowRef instead.
+    // the pending ready handler applies storedFlow() instead.
     if (ready.current) call(`window.__fol.flow(${JSON.stringify(next)})`)
   }
 
   // A page that is gone is a new load: a new nonce, and the open starts again from `ready`. The second
   // crash while the same book is open stops that: it is not reopened, and the reader is told why.
-  const MAX_CRASHES = 2
   const reload = useCallback(() => {
     ready.current = false
     const o = opening.current
     if (o) {
-      const count = crashes.current?.file === o.file ? crashes.current.count + 1 : 1
-      crashes.current = { file: o.file, count }
-      if (count >= MAX_CRASHES) {
-        crashes.current = null
+      const again = crashedFile.current === o.file
+      crashedFile.current = again ? null : o.file
+      if (again) {
         opening.current = null
         if (isStaged(o.file)) v2Storage().dropStaged(o.file).catch(fail('drop'))
         setProgress.current('')
@@ -263,7 +256,7 @@ function V2Reader() {
         <Pressable onPress={pick} style={button}><Text style={styles.buttonText}>Pick book</Text></Pressable>
         <Pressable onPress={() => call('window.__fol.prev()')} style={button}><Text style={styles.buttonText}>‹</Text></Pressable>
         <Pressable onPress={() => call('window.__fol.next()')} style={button}><Text style={styles.buttonText}>›</Text></Pressable>
-        <Pressable onPress={toggleFlow} disabled={!reflowable} style={[button, !reflowable && styles.disabled]}><Text style={styles.buttonText}>{flow === 'paginated' ? 'Scrolled' : 'Paginated'}</Text></Pressable>
+        <Pressable onPress={toggleFlow} disabled={!flow || !reflowable} style={[button, (!flow || !reflowable) && styles.disabled]}><Text style={styles.buttonText}>{flow === 'paginated' ? 'Scrolled' : 'Paginated'}</Text></Pressable>
       </View>
       <Text style={[styles.heading, { color: colors.text }]} numberOfLines={1}>{heading}</Text>
       <ProgressLine setter={setProgress} color={colors.textSecondary} />

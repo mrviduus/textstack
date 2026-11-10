@@ -136,7 +136,7 @@ describe('zipFormat', () => {
 
   // The router and the fork's comic reader must agree on what a page is: a zip routed `cbz` whose pages the
   // reader then filters out opens as `open-failed` ("No supported image files"), or with pages missing.
-  // IMAGE is case-insensitive and comic-book.js matches lower-case extensions only, so the page hands the
+  // zipFormat is case-insensitive and comic-book.js matches lower-case extensions only, so the page hands the
   // comic reader comicName's (QA #1128; was `it.fails`). formats.check opens a real upper-case CBZ.
   it.skipIf(!existsSync(resolve(__dirname, '.vendor/foliate-js/comic-book.js')))('upperCaseExtensions_RoutedCbz_AndTheComicReaderKeepsEveryPage', async () => {
     const names = ['P01.JPG', 'p02.png', 'P03.Png']

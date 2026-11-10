@@ -18,6 +18,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `hostStorage.ts` | The host's files under `<documents>/v2/` (R2): staging, retained `books/<sha256>.epub`, `library.json`, `store/<sha256>.json`; tmp-then-move writes, one queue for reads and writes, lower-cased keys. |
 | `*.test.ts` | Unit tests (mobile vitest) for the pure modules and hostStorage. |
 | `build.mjs` | Pinned fork clone → esbuild IIFE (+ one per format reader) → `v2ReaderPage.generated.ts`. |
+| `carrier.mjs` | The page shell (pure): CSP, nonce placeholder, `formatsJs` (readers as escaped strings), `html`. Tested by `carrier.test.ts`. |
 | `v2ReaderPage.generated.ts` | **Generated, committed.** `v2ReaderPageHtml(nonce)`. Never edit by hand. |
 | `repro.mjs` | Test-only entry: the page + `__fol.reproRenderDuringLoad` (the reproducer behind the fork's paginator fix). |
 | `fixtures.mjs` | Writes crafted books to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated), `tshostile.epub` (one row of `hostileVectors` per sandbox vector; `.mobi`/`.fb2` twins are written by the check), and `tsformat.{epub,mobi,fb2,fbz,cbz}`, `tsdrm.mobi`, `tskf8.mobi`, `tscombo.mobi`, `tsupper.cbz`, `tsutf16.fb2`, every byte written by the file itself (MOBI6 by hand: PDB + PalmDOC + MOBI header). Needs `zip`. |
@@ -47,7 +48,7 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. view.js's own format imports, PDF, TTS and search are
   stubbed out of the page; MOBI/FB2/CBZ come in as format readers (Formats).
-- **Size:** 246,668 characters of page script (unminified) + the format readers (`FORMAT_BUDGET`: mobi 51,784,
+- **Size:** 246,250 characters of page script (unminified) + the format readers (`FORMAT_BUDGET`: mobi 51,784,
   fb2 11,417, cbz 2,030), ~326 KB generated file. Reader-engine's 64 KB budget does
   not apply; this page's own budget is `BUDGET` in `build.mjs`, raised only by a deliberate PR.
 - `BUDGET` is a tripwire by design, not a ceiling: it equals the committed size, so any growth fails `--check`
