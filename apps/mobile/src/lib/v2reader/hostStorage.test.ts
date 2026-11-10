@@ -91,6 +91,16 @@ describe('v2 host storage', () => {
     expect((await storage.books()).map((b) => b.sha256)).toEqual([SHA_A_KEY, SHA_B])
   })
 
+  it('addOpened_NewBook_IdFromTheGivenNewIdNotLibraryDefault', async () => {
+    // Hermes has no crypto: library.mjs's default uuidV4 would throw there, so the host's newId must be the one used.
+    const { files } = memoryFiles()
+    // @ts-expect-error newId is required
+    expect(() => createV2Storage(files)).toBeTypeOf('function')
+    const id = randomUUID()
+    const { books } = await createV2Storage(files, () => id).addOpened(book(SHA_B), null)
+    expect(books.map((b) => b.id)).toEqual([id])
+  })
+
   it('addOpened_SameBytesInUpperCase_ExistingEntryAndStagedCopyDropped', async () => {
     const { files, data } = memoryFiles()
     const storage = createV2Storage(files, randomUUID)

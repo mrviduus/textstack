@@ -92,6 +92,8 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toMatch(/id: uuidV4\(\),[\s\S]{0,120}?quote: quoteOf\(selectedText\),\s*selectedText,/)
     expect(html).toMatch(/const ok = foldText\(\w+\) === foldText\((\w+)\.selectedText \?\? \1\.quote\);/)
     expect(html).not.toMatch(/\.slice\(0, 64\)/)
+    // The `highlighted` message carries the full selection (README protocol table).
+    expect(html).toMatch(/type: "highlighted", id: \w+\.id, cfi: \w+\.cfi, quote: \w+\.quote, selectedText \}/)
     // A selection with no text, or one the server would refuse (SyncLimits.MaxSelectedText), is not
     // stored, and nothing is drawn or announced for it.
     expect(html).toContain('var MAX_SELECTED_TEXT = 4e3;')
