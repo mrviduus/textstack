@@ -34,32 +34,42 @@ export async function writeIdSet(key: string, ids: Set<string>): Promise<void> {
   }
 }
 
-const read = () => readIdSet(KEY)
-const write = (ids: Set<string>) => writeIdSet(KEY, ids)
+const queue = new Map<string, Promise<void>>()
+
+/**
+ * Read-modify-write of one id set, one caller at a time per key: two overlapping updates would
+ * otherwise both read the old set and the later write would drop the earlier one (#1174).
+ * `change` returns the new set, or null to write nothing.
+ */
+export function updateIdSet(key: string, change: (ids: Set<string>) => Set<string> | null): Promise<void> {
+  const run = (queue.get(key) ?? Promise.resolve()).then(async () => {
+    const next = change(await readIdSet(key))
+    if (next) await writeIdSet(key, next)
+  })
+  queue.set(key, run)
+  return run
+}
 
 export async function listDeclinedDownloads(): Promise<Set<string>> {
-  return read()
+  return readIdSet(KEY)
 }
 
 /** The reader removed this download. Stop fetching it automatically. */
 export async function declineDownload(bookId: string): Promise<void> {
-  const ids = await read()
-  if (ids.has(bookId)) return
-  ids.add(bookId)
-  await write(ids)
+  await updateIdSet(KEY, ids => (ids.has(bookId) ? null : ids.add(bookId)))
 }
 
 /** The reader asked for it again — by pressing Download, which is as clear a
  *  statement as removing it was. */
 export async function undeclineDownload(bookId: string): Promise<void> {
-  const ids = await read()
-  if (!ids.delete(bookId)) return
-  await write(ids)
+  await updateIdSet(KEY, ids => (ids.delete(bookId) ? ids : null))
 }
+
+/** A guest's ids become the account's (V2 merge map); null when none of them is in the set. */
+export const rekeyIds = (books: Record<string, string>) => (ids: Set<string>) =>
+  [...ids].some(id => books[id]) ? new Set([...ids].map(id => books[id] ?? id)) : null
 
 /** V2 guest → account merge: a declined guest book stays declined under the account's id. */
 export async function rekeyDeclinedDownloads(books: Record<string, string>): Promise<void> {
-  const ids = await read()
-  if (![...ids].some(id => books[id])) return
-  await write(new Set([...ids].map(id => books[id] ?? id)))
+  await updateIdSet(KEY, rekeyIds(books))
 }

@@ -1,4 +1,4 @@
-import { readIdSet, writeIdSet } from './declinedDownloads'
+import { readIdSet, rekeyIds, updateIdSet } from './declinedDownloads'
 
 /**
  * Uploads the server answered 404 for (#1174). The detail screen learns it once, online; without a
@@ -20,25 +20,18 @@ export async function isDeletedOnServer(bookId: string): Promise<boolean> {
 }
 
 export async function markDeletedOnServer(bookId: string): Promise<void> {
-  const ids = await readIdSet(KEY)
-  if (ids.has(bookId)) return
-  ids.add(bookId)
-  await writeIdSet(KEY, ids)
+  await updateIdSet(KEY, ids => (ids.has(bookId) ? null : ids.add(bookId)))
 }
 
 /** The server showed these books again, or the reader removed the local copy. */
 export async function clearDeletedOnServer(bookIds: string[]): Promise<void> {
-  const ids = await readIdSet(KEY)
   // filter, not some: every id must be deleted, not just the first hit.
-  if (bookIds.filter(id => ids.delete(id)).length === 0) return
-  await writeIdSet(KEY, ids)
+  await updateIdSet(KEY, ids => (bookIds.filter(id => ids.delete(id)).length > 0 ? ids : null))
 }
 
 /** V2 guest → account merge: same re-key as declined downloads. */
 export async function rekeyDeletedOnServer(books: Record<string, string>): Promise<void> {
-  const ids = await readIdSet(KEY)
-  if (![...ids].some(id => books[id])) return
-  await writeIdSet(KEY, new Set([...ids].map(id => books[id] ?? id)))
+  await updateIdSet(KEY, rekeyIds(books))
 }
 
 /**

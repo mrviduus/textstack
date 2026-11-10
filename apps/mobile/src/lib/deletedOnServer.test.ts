@@ -136,14 +136,14 @@ describe('#1174 QA — id-set writes', () => {
  * book screen's fire-and-forget clear both run on reconnect, beside the 404 mark — one update is lost.
  */
 describe('#1174 QA — concurrent updates (bug repros)', () => {
-  it.fails('concurrentMarkAndClear_BothApplied', async () => {
+  it('concurrentMarkAndClear_BothApplied', async () => {
     await markDeletedOnServer('a')
     // Library lists `a` again (clears it) while the book screen marks `b` after a 404.
     await Promise.all([clearDeletedOnServer(['a']), markDeletedOnServer('b')])
     expect(await listDeletedOnServer()).toEqual(new Set(['b']))
   })
 
-  it.fails('concurrentMarks_BothKept', async () => {
+  it('concurrentMarks_BothKept', async () => {
     await Promise.all([markDeletedOnServer('a'), markDeletedOnServer('b')])
     expect(await listDeletedOnServer()).toEqual(new Set(['a', 'b']))
   })
