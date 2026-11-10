@@ -50,7 +50,8 @@ describe('v2ReaderPageHtml', () => {
   it('bundle_PatchedPaginatorGuardAndPaginatedDefault_NoTestOnlyCode', () => {
     const html = v2ReaderPageHtml(NONCE)
     // Fork commit d73682a (was patches/0001): Paginator.render() returns while the current view's document has no body yet.
-    expect(html).toContain('if (!((_b = (_a = this.#view) == null ? void 0 : _a.document) == null ? void 0 : _b.body)) return;')
+    // esbuild's temporaries are renamed as the bundle grows (_a → _a2): matched by shape, not by name.
+    expect(html).toMatch(/if \(!\(\((\w+) = \((\w+) = this\.#view\) == null \? void 0 : \2\.document\) == null \? void 0 : \1\.body\)\) return;/)
     expect(html).toContain('var flow = "paginated";')
     expect(html).not.toContain('reproRenderDuringLoad')
     expect(html).not.toContain('currentView')
@@ -73,13 +74,34 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+ \}\) => \{\s*(var [^;]*;\s*)?if \(mine !== openSeq\) return;\s*post\(\{\s*type: "relocate"/)
     expect(html).toMatch(/view\.addEventListener\("create-overlay", [\s\S]{0,80}?if \(mine !== openSeq\) return;/)
     // A superseded open must not re-key the current book's saves: the seq check precedes the assignment.
-    expect(html).toMatch(/if \(mine !== openSeq\) return false;\s*book = \{ sha256/)
+    // (#1128: the previous book's telemetry session ends there too, before the new book is assigned.)
+    expect(html).toMatch(/if \(mine !== openSeq\) return false;\s*endSession\(\);\s*book = \{ sha256/)
     // restoring is cleared however restore ends, or the page saves nothing for the rest of the session.
     expect(html).toMatch(/\} finally \{[\s\S]{0,200}?restoring = false;/)
     // The renderer exists only after view.open() resolved.
-    expect(html).toMatch(/view\.renderer\) == null \? void 0 : _a\.setStyles/)
+    // The renderer exists only after view.open() resolved; the fixed-layout one (CBZ) has no setStyles (#1128).
+    expect(html).toMatch(/view\.renderer\) == null \? void 0 : (\w+)\.setStyles\) == null \? void 0 : \w+\.call\(\1, css\(\)\)/)
+    expect(html).toMatch(/\((\w+) = \((\w+) = view\.renderer\)\.setStyles\) == null \? void 0 : \1\.call\(\2, css\(\)\)/)
     // A position is reported restored only if the renderer really shows that section.
     expect(html).toContain('result.position = landed ? "restored" : "navigation failed, stayed at start"')
+  })
+
+  it('formatReaders_CarriedAsEscapedStrings_RunOnlyUnderThePageNonce', () => {
+    const html = v2ReaderPageHtml(NONCE)
+    // #1128: MOBI, FB2 and CBZ ride ahead of the page in its one script, as strings with no raw `<`
+    // (nothing in them can end or bend the script element), and are run by page.mjs on first use
+    // through a script element carrying the page's own nonce: no CSP directive is widened.
+    const carried = html.match(/<script nonce="[^"]+">(var __TS_FORMATS = \{mobi: "[^"\\]*(?:\\.[^"\\]*)*",\nfb2: "[^"\\]*(?:\\.[^"\\]*)*",\ncbz: "[^"\\]*(?:\\.[^"\\]*)*"\};\n)/)?.[1]
+    expect(carried).toBeDefined()
+    expect(carried).not.toContain('<')
+    for (const k of ['mobi', 'fb2', 'cbz']) expect(carried).toContain(`window.__tsFormats.${k} = {`)
+    expect(html).toMatch(/var NONCE = \(\w+ = document\.currentScript\) == null \? void 0 : \w+\.nonce;/)
+    expect(html).toMatch(/(\w+)\.nonce = NONCE;\s*\1\.textContent = /)
+    // The page bundle itself carries none of them: view.js's own imports stay stubbed.
+    const page = html.slice(html.indexOf(carried!) + carried!.length)
+    expect(page).not.toContain('.vendor/foliate-js/mobi.js')
+    expect(page).not.toContain('.vendor/foliate-js/fb2.js')
+    expect(page).not.toContain('.vendor/foliate-js/comic-book.js')
   })
 
   it('bundle_SyncPrereqs_UuidIdsCodePointQuotesSelectedText', () => {
@@ -88,7 +110,7 @@ describe('v2ReaderPageHtml', () => {
     // code points, the full selection in selectedText and restore comparing it (old entries: quote).
     expect(html).toContain('crypto.getRandomValues(new Uint8Array(16))')
     expect(html).not.toContain('randomUUID')
-    expect(html).toMatch(/const quote = quoteOf\(\w+\.range\.toString\(\)/)
+    expect(html).toMatch(/const quote = textual \? quoteOf\(\w+\.range\.toString\(\)/)
     expect(html).toMatch(/id: uuidV4\(\),[\s\S]{0,120}?quote: quoteOf\(selectedText\),\s*selectedText,/)
     expect(html).toMatch(/const ok = foldText\(\w+\) === foldText\((\w+)\.selectedText \?\? \1\.quote\);/)
     expect(html).not.toMatch(/\.slice\(0, 64\)/)

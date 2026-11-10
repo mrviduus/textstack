@@ -1,5 +1,7 @@
 // Builds the V2 reader page (ADR-029): pinned foliate-js fork + page.mjs → one IIFE inlined into an
-// HTML string under the book-sandbox CSP → v2ReaderPage.generated.ts (committed).
+// HTML string under the book-sandbox CSP → v2ReaderPage.generated.ts (committed). The MOBI, FB2 and
+// CBZ readers are IIFEs of their own, carried as strings and run only when a book of that format opens
+// (README, Formats).
 //
 //   node build.mjs           write v2ReaderPage.generated.ts   (pnpm -C apps/web build:v2-reader)
 //   node build.mjs --check   exit 1 if the committed file differs or the page outgrew its budget (CI)
@@ -20,9 +22,16 @@ const FOLIATE_SHA = 'd73682a48a0779ca989f25074386784602437fbf'   // branch texts
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // reader-engine's 64 KB budget.
 // +319 (M2.7a, #1112): notInSurrogatePair, so a quote or its context never carries a lone surrogate V2 refuses.
-// +840 (#1078): v4 UUID ids from getRandomValues, quotes cut by code points, selectedText beside quote,
+// +854 (#1078): v4 UUID ids from getRandomValues, quotes cut by code points, selectedText beside quote,
 // highlights refused with no text or over SyncLimits.MaxSelectedText.
-const BUDGET = 237930
+// +5602 (#1128): routing by content (formats.mjs), the format-reader runner, CBZ without text features
+// and with a `page` position, MOBI6 refresh strip, flow() validation and the reader-flow telemetry.
+// Excludes the carried format readers below (their strings sit ahead of this script).
+const BUDGET = 243532
+// The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
+// as a string in the page and run only when a book of that format opens. EPUB is the page itself.
+// mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
+const FORMAT_BUDGET = { mobi: 51784, fb2: 11417, cbz: 2030 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'v2ReaderPage.generated.ts')
@@ -55,8 +64,9 @@ if (minor(version) !== minor(wanted)) {
   process.exit(1)
 }
 
-// view.js's makeBook lazily imports every format; this page opens EPUB only, so the other formats
-// (and pdf.js, ~1 MB), TTS and search are stubbed out instead of shipped.
+// view.js's makeBook lazily imports every format. The page never calls it (page.mjs routes a file
+// itself), so its imports are stubbed out of the page: MOBI/FB2/CBZ come in as FORMATS below, and
+// pdf.js (~1 MB), TTS and search not at all.
 const stubFormats = {
   name: 'stub-formats',
   setup(b) {
@@ -65,8 +75,20 @@ const stubFormats = {
   },
 }
 
+// Each format reader: what page.mjs needs from the fork, registered on window.__tsFormats when run.
+// Imports resolve against this directory (the stdin entry has no file of its own).
+const FORMATS = {
+  mobi: `import { MOBI } from './.vendor/foliate-js/mobi.js'
+import { unzlibSync } from './.vendor/foliate-js/vendor/fflate.js'
+window.__tsFormats.mobi = { MOBI, unzlibSync }`,
+  fb2: `import { makeFB2 } from './.vendor/foliate-js/fb2.js'
+window.__tsFormats.fb2 = { makeFB2 }`,
+  cbz: `import { makeComicBook } from './.vendor/foliate-js/comic-book.js'
+window.__tsFormats.cbz = { makeComicBook }`,
+}
+
 const bundle = async (entry) => (await build({
-  entryPoints: [resolve(here, entry)],
+  ...(entry.endsWith('.mjs') ? { entryPoints: [resolve(here, entry)] } : { stdin: { contents: entry, resolveDir: here, sourcefile: 'format.mjs' } }),
   // Fixed, because esbuild writes source paths into the bundle relative to it: the output must not
   // depend on where the script was run from.
   absWorkingDir: here,
@@ -78,7 +100,8 @@ const bundle = async (entry) => (await build({
   write: false,
   minify: false,
   legalComments: 'inline',
-  plugins: [stubFormats],
+  // The page stubs the format modules out; a format reader is exactly one of them.
+  plugins: entry.endsWith('.mjs') ? [stubFormats] : [],
 })).outputFiles[0].text
 
 // The CSP is the book sandbox (ADR-029 Decision 4): sections are blob: documents that inherit this
@@ -90,6 +113,10 @@ const bundle = async (entry) => (await build({
 const NONCE = '__V2_READER_NONCE__'
 const CSP = [`default-src 'none'`, `script-src 'nonce-${NONCE}'`, `style-src blob: 'unsafe-inline'`, `img-src blob: data:`,
   `font-src blob: data:`, `media-src blob: data:`, `frame-src blob:`, `connect-src blob: data: file:`, `form-action 'none'`, `base-uri 'none'`].join('; ')
+// The format readers as one JS object of strings, ahead of the page in its one script: never run until
+// page.mjs runs one under the page's own nonce. `<` is escaped in each string, so no `</script` or
+// `<!--` in a reader can end or bend the script element it travels in.
+const formatsJs = (chunks) => `var __TS_FORMATS = {${Object.entries(chunks).map(([k, v]) => `${k}: ${JSON.stringify(v).replace(/</g, '\\u003c')}`).join(',\n')}};\n`
 const html = (js) => `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${CSP}">
@@ -97,6 +124,9 @@ const html = (js) => `<!doctype html><html><head><meta charset="utf-8">
 </head><body><script nonce="${NONCE}">${js.replace(/<\/script/gi, '<\\/script')}</script></body></html>`
 
 const js = await bundle('page.mjs')
+const chunks = Object.fromEntries(await Promise.all(Object.entries(FORMATS).map(async ([k, src]) => [k, await bundle(src)])))
+const page = formatsJs(chunks) + js
+const sizes = Object.entries(chunks).map(([k, v]) => `${k} ${v.length}`).join(', ')
 const content = `// AUTO-GENERATED — do not edit.
 // Source: apps/mobile/src/lib/v2reader/page.mjs (+ store.mjs), built by build.mjs beside it.
 // Regenerate: pnpm -C apps/web build:v2-reader
@@ -106,7 +136,7 @@ const content = `// AUTO-GENERATED — do not edit.
 
 /* eslint-disable */
 /* prettier-ignore */
-const PAGE_HTML = ${JSON.stringify(html(js))}
+const PAGE_HTML = ${JSON.stringify(html(page))}
 
 /** The page with \`nonce\` in its CSP and script tag. A fresh random nonce per load, base64 or hex, >= 16 chars. */
 export function v2ReaderPageHtml(nonce: string): string {
@@ -121,19 +151,23 @@ if (process.argv.includes('--check')) {
     console.error(`[check:v2-reader] the page script is ${js.length} chars, over its ${BUDGET} budget (build.mjs BUDGET, ADR-029).`)
     failed = true
   }
+  for (const [k, v] of Object.entries(chunks)) if (v.length > FORMAT_BUDGET[k]) {
+    console.error(`[check:v2-reader] the ${k} reader is ${v.length} chars, over its ${FORMAT_BUDGET[k]} budget (build.mjs FORMAT_BUDGET).`)
+    failed = true
+  }
   if ((existsSync(out) ? readFileSync(out, 'utf8') : null) !== content) {
     console.error(`[check:v2-reader] ${out} is out of date. Run: pnpm -C apps/web build:v2-reader`)
     failed = true
   }
   if (failed) process.exit(1)
-  console.log(`[check:v2-reader] ${out} is up to date (${js.length} chars).`)
+  console.log(`[check:v2-reader] ${out} is up to date (${js.length} chars; formats: ${sizes}).`)
 } else {
   writeFileSync(out, content)
-  console.log(`wrote ${out} (${js.length} chars script, foliate-js ${FOLIATE_SHA.slice(0, 8)})`)
+  console.log(`wrote ${out} (${js.length} chars script; formats: ${sizes}; foliate-js ${FOLIATE_SHA.slice(0, 8)})`)
 }
 
 if (process.argv.includes('--repro')) {
   const repro = resolve(here, '.vendor/v2ReaderPage.repro.html')
-  writeFileSync(repro, html(await bundle('repro.mjs')).split(NONCE).join(randomBytes(18).toString('base64')))
+  writeFileSync(repro, html(formatsJs(chunks) + await bundle('repro.mjs')).split(NONCE).join(randomBytes(18).toString('base64')))
   console.log(`wrote ${repro} (test only)`)
 }

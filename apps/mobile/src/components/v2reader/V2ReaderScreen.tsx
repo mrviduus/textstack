@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObjec
 import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File, Paths } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
@@ -45,6 +46,11 @@ function deviceFiles(): V2Files {
 let storage: V2Storage | null = null
 const v2Storage = () => (storage ??= createV2Storage(deviceFiles(), uuid.v4))
 
+/** The reader's layout, a per-user setting (#1128): paginated unless the reader chose scrolled. No legacy preference is migrated. */
+type Flow = 'paginated' | 'scrolled'
+const FLOW_KEY = 'v2reader.flow'
+const readFlow = (): Promise<Flow> => AsyncStorage.getItem(FLOW_KEY).then((f) => (f === 'scrolled' ? 'scrolled' : 'paginated'), () => 'paginated')
+
 /** Expo's uuid v4 is the platform CSPRNG (java.util.UUID.randomUUID → SecureRandom). */
 const freshNonce = () => nonceFromUuid(uuid.v4())
 
@@ -84,7 +90,11 @@ function V2Reader() {
   const opening = useRef<Opening | null>(null)
   const setProgress = useRef<(text: string) => void>(() => {})
   const [books, setBooks] = useState<LibraryBook[]>([])
-  const [heading, setHeading] = useState('Pick an EPUB')
+  const [heading, setHeading] = useState('Pick a book')
+  const [flow, setFlow] = useState<Flow>('paginated')
+  // Read once; every page load applies it before its first open, so it is never counted as a switch.
+  const storedFlow = useRef(readFlow())
+  useEffect(() => { storedFlow.current.then(setFlow) }, [])
   const [error, setError] = useState<string | null>(null)
 
   const call = (js: string) => webView.current?.injectJavaScript(`${js};true`)
@@ -111,7 +121,8 @@ function V2Reader() {
 
   const pick = async () => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({ type: ['application/epub+zip', 'application/octet-stream'], copyToCacheDirectory: true })
+      // Any file: the page tells the format by its bytes (EPUB, MOBI/AZW3, FB2, CBZ) and refuses the rest.
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true })
       if (result.canceled) return
       const asset = result.assets[0]
       const staged = `staging/${Date.now()}.epub`
@@ -149,8 +160,12 @@ function V2Reader() {
     if (!m || typeof m !== 'object') return
     switch (m.type) {
       case 'ready':
-        ready.current = true
-        if (opening.current) open(opening.current)
+        // The stored layout goes in first: injected calls run in order, so the open below uses it.
+        storedFlow.current.then((f) => {
+          call(`window.__fol.flow(${JSON.stringify(f)})`)
+          ready.current = true
+          if (opening.current) open(opening.current)
+        })
         return
       case 'opened': {
         const current = answered(m.book?.name)
@@ -185,9 +200,23 @@ function V2Reader() {
       case 'openLink':
         if (/^https?:\/\//i.test(m.href)) Linking.openURL(m.href).catch(fail('openLink'))
         return
+      case 'telemetry':
+        // TODO(#1128): the app has no analytics pipeline yet (lib/sentry.ts: no telemetry is sent);
+        // this event plugs in where one lands, after the Play Data Safety list is reviewed for it.
+        console.log('[v2] telemetry', JSON.stringify(m))
+        return
       case 'log':
         console.log(`[v2 page] ${m.level}: ${m.msg}`)
     }
+  }
+
+  const toggleFlow = () => {
+    const next: Flow = flow === 'paginated' ? 'scrolled' : 'paginated'
+    setFlow(next)
+    storedFlow.current = Promise.resolve(next)
+    AsyncStorage.setItem(FLOW_KEY, next).catch(fail('flow'))
+    // The live view switches in place: no reload, the position stays (README, flow).
+    if (ready.current) call(`window.__fol.flow(${JSON.stringify(next)})`)
   }
 
   // A page that is gone is a new load: a new nonce, and the open starts again from `ready`.
@@ -197,9 +226,10 @@ function V2Reader() {
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={styles.bar}>
-        <Pressable onPress={pick} style={button}><Text style={styles.buttonText}>Pick EPUB</Text></Pressable>
+        <Pressable onPress={pick} style={button}><Text style={styles.buttonText}>Pick book</Text></Pressable>
         <Pressable onPress={() => call('window.__fol.prev()')} style={button}><Text style={styles.buttonText}>‹</Text></Pressable>
         <Pressable onPress={() => call('window.__fol.next()')} style={button}><Text style={styles.buttonText}>›</Text></Pressable>
+        <Pressable onPress={toggleFlow} style={button}><Text style={styles.buttonText}>{flow === 'paginated' ? 'Scrolled' : 'Paginated'}</Text></Pressable>
       </View>
       <Text style={[styles.heading, { color: colors.text }]} numberOfLines={1}>{heading}</Text>
       <ProgressLine setter={setProgress} color={colors.textSecondary} />

@@ -12,7 +12,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { hostileVectors, writeHostileEpub } from './fixtures.mjs'
+import { formatsOf, hostileVectors, writeHostileEpub, writeHostileFb2, writeHostileMobi } from './fixtures.mjs'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -64,6 +64,10 @@ const SIBLINGS = {
   'secret.png': Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64'),
 }
 
+// One hostile book per format the page reads (#1128); each carries the vectors fixtures.mjs `formatsOf`
+// gives it. CBZ has no book markup to carry: foliate wraps each image in its own two-line page.
+const BOOKS = { epub: 'tshostile.epub', mobi: 'tshostile.mobi', fb2: 'tshostile.fb2' }
+
 // The run in progress: what the deadline prints, and where the server writes.
 let vectors = []
 let title = ''
@@ -111,14 +115,14 @@ async function step(what, call) {
 }
 
 /** Opens the hostile book under its own CSP or `mutate(csp)`, in a fresh context (its own cache: no prefetch carries over). */
-async function run(browser, evil, dir, mutate) {
+async function run(browser, evil, dir, file, mutate) {
   let html = v2ReaderPageHtml(randomBytes(18).toString('base64'))
   if (mutate) html = html.replace(/(Content-Security-Policy" content=")([^"]*)/, (_, a, csp) => a + mutate(csp))
   writeFileSync(resolve(dir, 'page.html'), html)
   result = { escaped: new Set(), blocked: new Set(), errors: new Set() }
   const context = await browser.newContext()
   try {
-    await openHostile(await context.newPage(), evil.url, dir)
+    await openHostile(await context.newPage(), evil.url, dir, file)
   } catch (e) {
     result.errors.add(`run: ${e.message.split('\n')[0]}`)
   } finally {
@@ -126,7 +130,7 @@ async function run(browser, evil, dir, mutate) {
   }
 }
 
-async function openHostile(page, evil, dir) {
+async function openHostile(page, evil, dir, file) {
   const { escaped, blocked, errors } = result
   const messages = []
   page.on('pageerror', (e) => errors.add(`pageerror: ${e.message}`))
@@ -146,7 +150,7 @@ async function openHostile(page, evil, dir) {
     throw new Error(`timed out waiting for ${what}`)
   }
   await waitFor((m) => m.type === 'ready', 'ready')
-  await bounded(page.evaluate((url) => window.__fol.openUrl(url, 'tshostile.epub'), pathToFileURL(resolve(dir, 'tshostile.epub')).href), 'openUrl')
+  await bounded(page.evaluate(({ url, name }) => window.__fol.openUrl(url, name), { url: pathToFileURL(resolve(dir, file)).href, name: file }), 'openUrl')
   const opened = await waitFor((m) => m.type === 'opened' || m.type === 'open-failed', 'opened')
   if (opened.type === 'open-failed') throw new Error(`open-failed: ${opened.error}`)
 
@@ -179,7 +183,7 @@ async function openHostile(page, evil, dir) {
   // openLink goes to the OS opener: a scheme the book chose is a vector that got through (#1066).
   for (const m of messages) if (m.type === 'openLink' && !/^https?:/.test(m.href)) escaped.add(m.href.startsWith('javascript:') ? 'javascript-url' : `openLink ${m.href.slice(0, 40)}`)
   // The clicks must have reached the book, or the click vectors were never tried.
-  if (!messages.some((m) => m.type === 'openLink' && m.href === `${evil}/link-tap`)) errors.add('no openLink for link-tap: the clicks did not reach the book')
+  if (vectors.some(([name]) => name === 'link-tap') && !messages.some((m) => m.type === 'openLink' && m.href === `${evil}/link-tap`)) errors.add('no openLink for link-tap: the clicks did not reach the book')
 }
 
 /** Waits until requests, frames, marks and CSP reports stop changing (see SETTLE_*). */
@@ -257,21 +261,28 @@ try {
   browser = await chromium.launch({ args: ['--allow-file-access-from-files'] })
   for (const [name, data] of Object.entries(SIBLINGS)) writeFileSync(resolve(dir, name), data)
   const siblings = pathToFileURL(dir).href
-  writeHostileEpub(resolve(dir, 'tshostile.epub'), siblings, evil.url)
-  vectors = hostileVectors(evil.url, siblings)
+  writeHostileEpub(resolve(dir, BOOKS.epub), siblings, evil.url)
+  writeHostileMobi(resolve(dir, BOOKS.mobi), siblings, evil.url)
+  writeHostileFb2(resolve(dir, BOOKS.fb2), evil.url)
+  const all = hostileVectors(evil.url, siblings)
 
   for (const directive of only ? [only] : [null, ...Object.keys(MUTATIONS)]) {
-    const escapes = vectors.filter(([, , stops]) => stops === directive).map(([name]) => name)
-    title = directive ? `mutation ${directive}: must catch ${escapes.join(', ')}` : 'real CSP: every vector must be blocked'
-    await run(browser, evil, dir, directive && MUTATIONS[directive])
-    if (!directive || only) {
-      report(true)
-      failed ||= !passes(result)
-    } else {
-      report(false)
-      const missed = escapes.filter((v) => !result.escaped.has(v))
-      console.log(`  → ${missed.length ? `NOT CAUGHT: ${missed.join(', ')} — the check cannot see this directive go` : 'caught: the check fails, as it must'}`)
-      failed ||= missed.length > 0
+    for (const [format, file] of Object.entries(BOOKS)) {
+      vectors = all.filter((row) => formatsOf(row).includes(format))
+      const escapes = vectors.filter(([, , stops]) => stops === directive).map(([name]) => name)
+      // A mutation this book carries nothing for has nothing to show in it.
+      if (directive && !escapes.length && !only) continue
+      title = `${file}, ${directive ? `mutation ${directive}: must catch ${escapes.join(', ')}` : 'real CSP: every vector must be blocked'}`
+      await run(browser, evil, dir, file, directive && MUTATIONS[directive])
+      if (!directive || only) {
+        report(true)
+        failed ||= !passes(result)
+      } else {
+        report(false)
+        const missed = escapes.filter((v) => !result.escaped.has(v))
+        console.log(`  → ${missed.length ? `NOT CAUGHT: ${missed.join(', ')} — the check cannot see this directive go` : 'caught: the check fails, as it must'}`)
+        failed ||= missed.length > 0
+      }
     }
   }
 } finally {

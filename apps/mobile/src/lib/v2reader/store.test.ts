@@ -35,6 +35,17 @@ describe('v2 reader store', () => {
     expect(e.highlights[0].cfi).toBe('epubcfi(/6/8!/4/4,/1:0,/1:9)')
   })
 
+  it('imageBookPosition_PageInsteadOfQuote_KeptAndReadBack', () => {
+    // CBZ (#1128): no text at any CFI, so no quote; the image's entry name is what restore checks.
+    const paged = { cfi: 'epubcfi(/6/4)', page: 'p02.png', index: 1, fraction: 1, at: 1 }
+    const e = withPosition(emptyEntry(book), paged)
+    expect(e.position).toEqual(paged)
+    expect(entryFor(JSON.stringify(e), book)?.position).toEqual(paged)
+    // Neither half-shape passes: an empty page, or a page beside a quote.
+    expect(withPosition(emptyEntry(book), { ...paged, page: '' }).position).toBeNull()
+    expect(withPosition(emptyEntry(book), { ...paged, quote: '' }).position).toBeNull()
+  })
+
   it('withPosition_WithoutCfiOrQuote_KeepsThePreviousOne', () => {
     const e = withPosition(emptyEntry(book), pos)
     expect(withPosition(e, { ...pos, quote: '' }).position).toEqual(pos)
