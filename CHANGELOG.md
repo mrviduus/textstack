@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Library** — one copy of the V2 client: book/progress mapping, the revision-rule switch and the upload sequencer fold into `packages/shared` factories with injected IO; mobile adopts web's stronger epoch rules (call-start epoch on save/adopt, marks answer `'done' | 'dropped'`), web gains mobile's clock clamp on `clientRecordedAt` (#1121) — web, mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-10-library-one-copy-of-the-v2-client)
 - **Reader** — the V2 reader page drops a superseded book's events: per-view listeners carry their open's seq, a superseded open no longer re-keys the current book's saves, and both hosts clear the status line on open-failed (#1168) — mobile, web · [details](docs/changelog-archive/2026-H2.md#2026-11-10-reader-v2-page-drops-superseded-book-events)
 - **Reader** — the V2 reader page builds from the foliate-js fork pin (`mrviduus/foliate-js@d73682a`, branch `textstack-pin` = upstream `78914aef` + patch 0001 as a commit); build-time patching removed, bundle byte-identical (#1128, ADR-032) — mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-10-reader-v2-reader-page-builds-from-the-foliate-fork-pin)
 - **Docs** — CLAUDE.md gains a "V2 program (active)" section: the migration, the flag, the reader track and wave flow were invisible to fresh sessions — docs
