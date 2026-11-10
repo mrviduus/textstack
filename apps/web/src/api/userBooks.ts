@@ -4,7 +4,7 @@ import { trackBookUploaded } from '../lib/analytics'
 import { refreshToken } from './auth'
 import {
   onV2, v2Status, v2Enabled, getV2UserBooks, getV2UserBook, getV2UserBookChapter, removeV2Book, v2FileUrl,
-  readV2Progress, saveV2Progress, uploadV2Book, V2UploadError, completeV2Book, uncompleteV2Book, type V2WriteOutcome,
+  readV2Progress, saveV2Progress, uploadV2Book, V2UploadError, completeV2Book, uncompleteV2Book, type V2WriteOutcome, type V2MarkOutcome,
 } from './v2'
 
 export interface UserBook {
@@ -298,14 +298,16 @@ export async function cancelUserBook(id: string): Promise<void> {
   await authFetch<void>(`/me/books/${id}/cancel`, { method: 'POST' })
 }
 
-export async function markUserBookComplete(id: string): Promise<void> {
+export async function markUserBookComplete(id: string): Promise<V2MarkOutcome> {
   if (await onV2()) return completeV2Book(id)
   await authFetch<void>(`/me/books/${id}/complete`, { method: 'POST' })
+  return 'done'
 }
 
-export async function unmarkUserBookComplete(id: string): Promise<void> {
+export async function unmarkUserBookComplete(id: string): Promise<V2MarkOutcome> {
   if (await onV2()) return uncompleteV2Book(id)
   await authFetch<void>(`/me/books/${id}/complete`, { method: 'DELETE' })
+  return 'done'
 }
 
 export async function getStorageQuota(): Promise<StorageQuota> {
@@ -387,11 +389,15 @@ export interface BulkResult {
 }
 
 /** A bulk action on V2: one request per book (no bulk routes), the legacy result shape. */
-async function eachV2(ids: string[], action: (id: string) => Promise<void>): Promise<BulkResult> {
+async function eachV2(ids: string[], action: (id: string) => Promise<unknown>): Promise<BulkResult> {
   const result: BulkResult = { succeeded: [], failed: [] }
-  for (const id of ids) {
+  for (const [i, id] of ids.entries()) {
     try {
-      await action(id)
+      if ((await action(id)) === 'dropped') {
+        // Signed out meanwhile: every write left would be dropped too.
+        result.failed.push(...ids.slice(i).map((rest) => ({ id: rest, reason: 'dropped' })))
+        break
+      }
       result.succeeded.push(id)
     } catch (e) {
       result.failed.push({ id, reason: e instanceof Error ? e.message : 'failed' })
