@@ -1,5 +1,6 @@
 // The V2 reader page (ADR-029), bundled alone by build.mjs into v2ReaderPage.generated.ts and run in
-// the reader's WebView. foliate-js parses AND renders a local EPUB; this file adds word tap → host, the
+// the reader's WebView. foliate-js parses AND renders a local EPUB, MOBI/AZW3, FB2 or CBZ (#1128: the
+// last three's readers run only when such a book opens, see formatModule); this file adds word tap → host, the
 // translation drawn above the word, and the reader data (position + highlights by CFI and quote, one
 // entry per book file). The host ↔ page message contract is in README.md.
 import './.vendor/foliate-js/view.js'
@@ -13,6 +14,7 @@ import { createSaveScheduler } from './saveScheduler.mjs'
 import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 import { openableHref, sentenceOf } from './tap.mjs'
+import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, withoutKf8, zipFormat } from './formats.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
 const log = (level, msg) => post({ type: 'log', level, msg })
@@ -22,6 +24,9 @@ addEventListener('unhandledrejection', (e) => log('error', String(e.reason?.stac
 let view = null
 let fontPx = 18
 let flow = 'paginated'   // ADR-029 Decision 1
+/** The open book's format (formats.mjs) and whether it has text: a comic book has no words to tap, select or translate. */
+let format = null
+let textual = true
 /** cfi → what is drawn over it; re-added when a section's overlayer is recreated (chapter navigation). */
 const overlays = new Map()
 /** This file's identity and its entry. No save until the stored one is restored. */
@@ -102,6 +107,8 @@ function onTap(doc, index, e) {
 }
 
 function onLoad({ detail: { doc, index } }) {
+  // Images only: every tap is a chrome toggle, and nothing is kept for a highlight.
+  if (!textual) return doc.addEventListener('click', () => post({ type: 'tap' }))
   doc.addEventListener('click', (e) => onTap(doc, index, e))
   // Kept, not read on demand: tapping a host button may clear the WebView's selection first.
   doc.addEventListener('selectionchange', () => {
@@ -134,29 +141,102 @@ function annotate(patch) {
 }
 
 /**
- * view.js's makeBook for EPUB, plus a SHA-1: foliate's default is crypto.subtle, missing at origin
- * "null", so IDPF-obfuscated fonts would not decode there. An adapter, not a patch.
+ * A format reader the page carries as text (build.mjs FORMATS), run on first use under the page's own
+ * nonce: the CSP admits a nonce'd inline script whoever inserts it and nothing else, so no directive
+ * is widened for it (README, Formats). The reader registers itself on window.__tsFormats.
  */
-async function makeEpub(file) {
+const NONCE = document.currentScript?.nonce
+const formats = (window.__tsFormats = {})
+function formatModule(name) {
+  if (!formats[name]) {
+    const s = document.createElement('script')
+    s.nonce = NONCE
+    s.textContent = self.__TS_FORMATS?.[name] ?? ''
+    document.head.append(s)
+    s.remove()
+  }
+  if (!formats[name]) throw new Error(`the ${name} reader did not load`)
+  return formats[name]
+}
+
+/**
+ * view.js's makeBook, routed by content (formats.mjs), not by file name. EPUB keeps our own SHA-1:
+ * foliate's default is crypto.subtle, missing at origin "null", so IDPF-obfuscated fonts would not
+ * decode there. MOBI/AZW3, FB2 and CBZ go to the fork's own readers. An adapter, not a patch.
+ */
+async function makeBookFor(bytes, name, kind) {
+  // `kind` is sniffFormat's, taken before the open book was touched (openFor).
+  if (kind === 'mobi') {
+    const { MOBI, unzlibSync } = formatModule('mobi')
+    // A MOBI/KF8 combo is read as its MOBI6 half: KF8 is refused (formats.mjs).
+    return { format: 'mobi', book: await new MOBI({ unzlib: unzlibSync }).open(new File([withoutKf8(bytes)], name)) }
+  }
+  const fb2Of = (b) => formatModule('fb2').makeFB2(new Blob([fb2AsUtf8(b)]))
+  if (kind === 'fb2') return { format: 'fb2', book: await fb2Of(bytes) }
   configure({ useWebWorkers: false })
-  const map = new Map((await new ZipReader(new BlobReader(file)).getEntries()).map((e) => [e.filename, e]))
-  return new EPUB({
+  const entries = await new ZipReader(new BlobReader(new Blob([bytes]))).getEntries()
+  const map = new Map(entries.map((e) => [e.filename, e]))
+  const loader = {
+    entries,
     loadText: (n) => map.get(n)?.getData(new TextWriter()) ?? null,
     loadBlob: (n, type) => map.get(n)?.getData(new BlobWriter(type)) ?? null,
     getSize: (n) => map.get(n)?.uncompressedSize ?? 0,
-    sha1: async (str) => sha1(str),
-  }).init()
+  }
+  const zipped = zipFormat([...map.keys()])
+  if (zipped === 'epub') return { format: 'epub', book: await new EPUB({ ...loader, sha1: async (str) => sha1(str) }).init() }
+  if (zipped === 'cbz') {
+    // foliate keeps lower-case extensions only (`001.JPG` would be no page): each entry is also known by
+    // comicName, and the comic reader sees only that. The reader titles a book by its file name; the
+    // host's is a path, and the host falls back to its own.
+    // Each name once (a zip may repeat one: two pages with one id would restore to the first), and each
+    // page blob typed by its extension: the reader asks for none, and an untyped SVG is no image.
+    const names = new Set()
+    for (const e of entries) {
+      const n = comicName(e.filename)
+      if (!map.has(n)) map.set(n, e)
+      names.add(n)
+    }
+    const comic = { ...loader, entries: [...names].map((filename) => ({ filename })), loadBlob: (n, type) => loader.loadBlob(n, type ?? imageType(n)) }
+    return { format: 'cbz', book: formatModule('cbz').makeComicBook(comic, { name: '' }) }
+  }
+  // FBZ: the FB2 inside.
+  const fb2 = entries.find((e) => e.filename.toLowerCase().endsWith('.fb2'))
+  const inner = new Uint8Array(await (await loader.loadBlob(fb2.filename)).arrayBuffer())
+  checkFb2(inner)   // throws: custom entities (sniffFormat checks a plain FB2 the same way)
+  return { format: 'fb2', book: await fb2Of(inner) }
+}
+
+/** Removes a book's `<meta http-equiv="refresh">` from `doc` (it navigates the section frame away; CSP does not cover it). */
+function dropRefresh(doc) {
+  const refresh = [...doc.querySelectorAll('meta[http-equiv]')].filter((m) => /refresh/i.test(m.getAttribute('http-equiv')))
+  refresh.forEach((m) => m.remove())
+  return refresh.length > 0
+}
+
+/**
+ * One `telemetry` message per opened book (#1128): the layout in use 5 minutes in (or when the next
+ * book opens first) and whether the reader switched it within those 5 minutes. A host's flow() before
+ * `opened` is its stored setting, not a switch.
+ */
+const SESSION_MS = 5 * 60 * 1000
+let session = null
+function endSession() {
+  if (!session) return
+  clearTimeout(session.timer)
+  post({ type: 'telemetry', event: 'reader-flow', mode: flow, format, switchedInFirst5Min: session.switched })
+  session = null
 }
 
 const text = (v) => (typeof v === 'string' ? v : v && typeof v === 'object' ? String(Object.values(v)[0] ?? '') : '')
 const firstAuthor = (m) => { const a = [].concat(m?.author ?? [])[0]; return a?.name ?? a }
 
-async function open(bytes, name, mine) {
+async function open(bytes, name, kind, mine) {
   // Nothing of the previous book may land on this one; its entry is gone with the next line.
   saves.cancel()
   const sha256 = await sha256Yielding(bytes)
   // Checked BEFORE book is assigned: a superseded open must not re-key the current book's saves (#1168).
   if (mine !== openSeq) return false
+  endSession()
   book = { sha256, size: bytes.length, name }
   entry = null
   restoring = true
@@ -174,10 +254,12 @@ async function open(bytes, name, mine) {
     // over, a dying view's events — close() still fires relocate — are dropped, not posted (#1168).
     if (mine !== openSeq) return
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
-    if (restoring || !entry || !d.range) return
-    // The visible range's start: its CFI and the text there, to verify the CFI on restore.
-    const quote = quoteOf(d.range.toString().replace(/^\s+/, ''))
-    entry = withPosition(entry, { cfi: d.cfi, quote, index: d.section?.current, fraction: d.fraction, at: Date.now() })
+    if (restoring || !entry || (textual && !d.range)) return
+    // The visible range's start: its CFI and the text there, to verify the CFI on restore. An image
+    // page has no text and so no quote: its entry name in the archive (`page`) is what restore checks.
+    const at = { cfi: d.cfi, index: d.section?.current, fraction: d.fraction, at: Date.now() }
+    const quote = textual ? quoteOf(d.range.toString().replace(/^\s+/, '')) : null
+    entry = withPosition(entry, textual ? { ...at, quote } : { ...at, page: String(view.book.sections[at.index]?.id ?? '') })
     persist(400)
   })
   view.addEventListener('create-overlay', ({ detail: { index } }) => {
@@ -194,30 +276,40 @@ async function open(bytes, name, mine) {
     if (href) post({ type: 'openLink', href })
     else log('warn', `link not opened, not http(s): ${String(e.detail.a.getAttribute('href')).slice(0, 80)}`)
   })
-  const epub = await makeEpub(new File([bytes], name, { type: 'application/epub+zip' }))
+  const made = await makeBookFor(bytes, name, kind)
   if (mine !== openSeq) return false
-  await view.open(epub)
-  // A book's <meta http-equiv="refresh"> navigates its own section frame away; CSP does not cover it.
-  // Parsed every time, never pre-matched on the source text: `&#x72;efresh` spells it past a text match.
-  view.book.transformTarget?.addEventListener('data', ({ detail }) => {
+  format = made.format
+  textual = isTextual(format)
+  // A book's <meta http-equiv="refresh"> is dropped before its section renders. Parsed every time,
+  // never pre-matched on the source text: `&#x72;efresh` spells it past a text match. EPUB hands each
+  // section through transformTarget; MOBI6 has none, so its section documents are cleaned where they
+  // are made. (KF8's sections bypass its transformTarget: one reason KF8 is refused, formats.mjs.) FB2
+  // and CBZ sections are built by foliate from whitelisted elements only.
+  const nb = made.book
+  if (nb.transformTarget) nb.transformTarget.addEventListener('data', ({ detail }) => {
     if (!/html/.test(detail.type)) return
     detail.data = Promise.resolve(detail.data).then((str) => {
       if (typeof str !== 'string') return str
       const doc = new DOMParser().parseFromString(str, detail.type)
-      const refresh = [...doc.querySelectorAll('meta[http-equiv]')].filter((m) => /refresh/i.test(m.getAttribute('http-equiv')))
-      if (!refresh.length) return str
-      refresh.forEach((m) => m.remove())
-      return new XMLSerializer().serializeToString(doc)
+      return dropRefresh(doc) ? new XMLSerializer().serializeToString(doc) : str
     })
   })
+  else if (typeof nb.createDocument === 'function') {
+    const make = nb.createDocument.bind(nb)
+    nb.createDocument = async (section) => { const doc = await make(section); dropRefresh(doc); return doc }
+  }
+  await view.open(nb)
   view.renderer.setAttribute('flow', flow)
   view.renderer.setAttribute('margin', '24px')
-  view.renderer.setStyles(css())
+  // The fixed-layout renderer (CBZ, a pre-paginated EPUB) has no styles to set.
+  view.renderer.setStyles?.(css())
   await view.init({ showTextStart: true })
   if (mine !== openSeq) return false
   const { book: b } = view
+  session = { at: Date.now(), switched: false, timer: setTimeout(endSession, SESSION_MS) }
   post({
-    type: 'opened', book,
+    // reflowable: false for a fixed-layout book (CBZ, a pre-paginated EPUB), where flow() changes nothing.
+    type: 'opened', book, format, textual, reflowable: !view.isFixedLayout,
     // Either may be missing, a string, or a language map ({ en: … }); the host falls back to the file name.
     title: text(b.metadata?.title), author: text(firstAuthor(b.metadata)),
     sections: b.sections.length, toc: flat(b.toc ?? []),
@@ -258,9 +350,18 @@ async function restoreInto(json) {
     if (ok) annotate({ value: h.cfi, index, hl: { id: h.id } })
   }
   const p = entry.position
-  if (p) {
+  if (p && !textual) {
+    // An image page: the stored entry name must still be a page of this book.
+    const index = p.page ? view.book.sections.findIndex((s) => String(s.id) === p.page) : -1
+    if (index < 0) result.position = 'page not found, stayed at start'
+    else {
+      await navigate(() => view.goTo(index))
+      result.position = view.lastLocation?.section?.current === index ? 'restored' : 'navigation failed, stayed at start'
+    }
+  } else if (p) {
     const { index, text } = await textAt(p.cfi).catch(() => ({ text: '' }))
-    if (!text || !foldText(text).startsWith(foldText(p.quote))) result.position = 'quote mismatch, stayed at start'
+    // (A `page` position has no quote: it cannot be verified on a book with text.)
+    if (!text || !p.quote ||!foldText(text).startsWith(foldText(p.quote))) result.position = 'quote mismatch, stayed at start'
     else {
       await navigate(() => view.goTo(p.cfi))
       // goTo reports nothing when it fails, so the renderer is asked where the book actually is.
@@ -280,6 +381,7 @@ const MAX_SELECTED_TEXT = 4000
 
 /** The last non-empty selection as a highlight: CFI + selection (+ its ≤64-code-point quote) + 30 chars of context, saved. */
 function highlightSelection() {
+  if (!textual) return log('warn', 'highlightSelection ignored: this book has no text')
   const s = lastSelection
   if (!s || s.range.collapsed) return null
   // Before `restored` there is nothing to add to, and saving now would overwrite the stored entry.
@@ -308,8 +410,12 @@ const openFailed = (name, error) => post({ type: 'open-failed', name, error })
 
 /** One `opened` or one `open-failed` per call — unless a newer openUrl took over, and then neither. */
 function openFor(bytes, name) {
+  // Refused before anything is touched: a PDF picked by mistake, a DRM book or an unknown file leaves
+  // the open book reading, reporting and saving, like a failed read (#1168). No seq turnover, no session end.
+  let kind
+  try { kind = sniffFormat(bytes) } catch (e) { return openFailed(name, String(e?.message ?? e).slice(0, 200)) }
   const mine = ++openSeq
-  return open(bytes, name, mine).catch((e) => {
+  return open(bytes, name, kind, mine).catch((e) => {
     log('error', `open: ${e?.stack ?? e}`)
     if (mine === openSeq) openFailed(name, String(e?.message ?? e).slice(0, 200))
   })
@@ -317,7 +423,7 @@ function openFor(bytes, name) {
 
 window.__fol = {
   // The retained file, read by the page itself (file:// origin + allowFileAccessFromFileURLs): no book
-  // bytes cross the bridge. `open-failed`: unreadable, or not an EPUB; the host must not keep it.
+  // bytes cross the bridge. `open-failed`: unreadable, not a book this page reads, or DRM-protected; the host must not keep it.
   openUrl: (url, name) => {
     // The seq turns over in openFor, once the bytes are in hand: a failed READ leaves the previous
     // book open, and its view must keep reporting and saving as if nothing happened (#1168).
@@ -342,10 +448,20 @@ window.__fol = {
   next: () => navigate(() => view?.next()),
   prev: () => navigate(() => view?.prev()),
   // The renderer exists only once view.open() has resolved: both are no-ops between openUrl and opened.
-  font: (delta) => { fontPx = Math.max(12, Math.min(32, fontPx + delta)); view?.renderer?.setStyles(css()); return fontPx },
-  flow: (f) => { flow = f; view?.renderer?.setAttribute('flow', f) },
-  /** The host answers a `word` with its translation; drawn above that word. */
-  showTranslation: (cfi, index, text) => view && annotate({ value: cfi, index, gloss: text }),
+  font: (delta) => { fontPx = Math.max(12, Math.min(32, fontPx + delta)); view?.renderer?.setStyles?.(css()); return fontPx },
+  // Switches the live view: foliate re-renders on the attribute, no reload (#1128). Before `opened` it
+  // only sets what the next open uses.
+  flow: (f) => {
+    if (f !== 'paginated' && f !== 'scrolled') return log('warn', `flow ignored: ${String(f).slice(0, 20)}`)
+    // A fixed-layout book (CBZ) has no flow to switch: the setting is kept for the next book, but no
+    // switch is reported for one that changed nothing. The clock is read, not only the timer: a throttled
+    // WebView can fire it late, and a switch past 5:00 must not count (formats.check, late timer).
+    if (session && f !== flow && !view.isFixedLayout && Date.now() - session.at < SESSION_MS) session.switched = true
+    flow = f
+    view?.renderer?.setAttribute('flow', f)
+  },
+  /** The host answers a `word` with its translation; drawn above that word. Not on an image-only book. */
+  showTranslation: (cfi, index, text) => view && textual && annotate({ value: cfi, index, gloss: text }),
 }
 
 post({ type: 'ready' })

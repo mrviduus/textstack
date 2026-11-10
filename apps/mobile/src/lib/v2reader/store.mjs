@@ -4,7 +4,7 @@
 export const STORE_VERSION = 1
 
 /**
- * { v, book: { sha256, size, name }, position: null | { cfi, quote, index, fraction, at },
+ * { v, book: { sha256, size, name }, position: null | { cfi, quote, index, fraction, at } | { cfi, page, index, fraction, at },
  *   highlights: [{ id, cfi, index, quote, selectedText, prefix, suffix, color, at }] }
  * `quote` is the first ≤64 code points at the CFI (the epub-cfi locator's `quote`, ADR-031); a
  * highlight's full selection is `selectedText`. A highlight stored before #1078 has only `quote`,
@@ -19,6 +19,12 @@ export const quoteOf = (text) => /^[\s\S]{0,64}/u.exec(text)[0]
 
 /** A position or highlight this code can act on: a CFI and the text that was there. */
 const isQuoted = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && typeof x.quote === 'string' && x.quote.length > 0
+/**
+ * An image-only book's position (CBZ, #1128): there is no text at any CFI, so no quote. `page` is the
+ * image's entry name in the archive, checked on restore instead; `cfi` is foliate's section CFI.
+ */
+const isPaged = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && x.quote === undefined && typeof x.page === 'string' && x.page.length > 0
+const isPosition = (x) => isQuoted(x) || isPaged(x)
 /** A highlight's `selectedText` is optional (older entries), but when present it is what restore compares. */
 const isHighlight = (h) => isQuoted(h) && (h.selectedText === undefined || (typeof h.selectedText === 'string' && h.selectedText.trim().length > 0))
 
@@ -30,10 +36,10 @@ export function entryFor(json, book) {
   if (!Array.isArray(e.highlights)) return null
   // Only items this code can use. A stored highlight or position without its quote would throw on
   // restore, and a page that throws there never finishes restoring and never saves again.
-  return { ...e, position: isQuoted(e.position) ? e.position : null, highlights: e.highlights.filter(isHighlight) }
+  return { ...e, position: isPosition(e.position) ? e.position : null, highlights: e.highlights.filter(isHighlight) }
 }
 
-export const withPosition = (e, p) => (isQuoted(p) ? { ...e, position: p } : e)
+export const withPosition = (e, p) => (isPosition(p) ? { ...e, position: p } : e)
 /** Same id replaces (a re-anchored highlight), otherwise appends. */
 export const withHighlight = (e, h) => (isHighlight(h) && h.id ? { ...e, highlights: [...e.highlights.filter((x) => x.id !== h.id), h] } : e)
 

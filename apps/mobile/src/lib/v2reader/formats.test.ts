@@ -1,0 +1,155 @@
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { fb2, mobi, png } from './fixtures.mjs'
+import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, mobiHeader, sniffFormat, withoutKf8, zipFormat } from './formats.mjs'
+
+const bytes = (b: Buffer | string) => new Uint8Array(Buffer.from(b))
+const html = '<html><body><p>Text</p></body></html>'
+
+describe('sniffFormat', () => {
+  it('zip_ByLocalFileHeader', () => {
+    expect(sniffFormat(bytes(Buffer.from('504b0304140000', 'hex')))).toBe('zip')
+  })
+
+  it('mobi_ByPdbTypeAndCreator', () => {
+    expect(sniffFormat(bytes(mobi('T', html)))).toBe('mobi')
+  })
+
+  it('mobiWithDrmFlag_RefusedAsDrm', () => {
+    for (const encryption of [1, 2]) expect(() => sniffFormat(bytes(mobi('T', html, { encryption })))).toThrow(/DRM-protected/)
+  })
+
+  it('kfx_RefusedAsDrm', () => {
+    expect(() => sniffFormat(bytes(Buffer.concat([Buffer.from([0xea]), Buffer.from('DRMION'), Buffer.from([0xee]), Buffer.alloc(100)])))).toThrow(/DRM-protected \(KFX\)/)
+  })
+
+  it('fb2_ByRootElement_AfterBomAndDeclaration', () => {
+    expect(sniffFormat(bytes(`﻿${fb2('T', '<section><p>p</p></section>')}`))).toBe('fb2')
+  })
+
+  it('fb2_RootNearTheEndOfTheFirstKiB_StillFb2', () => {
+    const book = fb2('T', '<section><p>p</p></section>', `<!-- ${'x'.repeat(900)} -->`)
+    expect(book.indexOf('<FictionBook')).toBeGreaterThan(900)
+    expect(book.indexOf('<FictionBook')).toBeLessThan(1024 - 13)
+    expect(sniffFormat(bytes(book))).toBe('fb2')
+  })
+
+  it('mobiMagicOneByteOff_NotMobi', () => {
+    const b = bytes(mobi('T', html))
+    b[60] = 'b'.charCodeAt(0)
+    expect(() => sniffFormat(b)).toThrow(/not a book this reader opens/)
+  })
+
+  it('pdf_RefusedForNow', () => {
+    expect(() => sniffFormat(bytes('%PDF-1.7\n'))).toThrow(/PDF is not supported yet/)
+  })
+
+  it('unknownOrEmpty_Refused', () => {
+    for (const b of ['', 'plain text', '<html><body>FictionBook</body></html>', '<FictionBookmark/>', png(1, 1, [0, 0, 0])])
+      expect(() => sniffFormat(bytes(b))).toThrow(/not a book this reader opens/)
+  })
+})
+
+describe('mobiHeader', () => {
+  it('readsRecordZerosPalmDocFlagAndVersion', () => {
+    expect(mobiHeader(bytes(mobi('T', html)))).toEqual({ encryption: 0, version: 6, boundaries: [] })
+    expect(mobiHeader(bytes(mobi('T', html, { encryption: 2 }))).encryption).toBe(2)
+    expect(mobiHeader(bytes(mobi('T', html, { version: 8 }))).version).toBe(8)
+  })
+
+  it('truncated_RefusedAsDamaged_NeverAsDrm', () => {
+    // 78–81 bytes used to read the PDB name as the DRM flag.
+    for (const n of [68, 78, 81, 90, 200]) {
+      const b = bytes(mobi('T'.repeat(31), html, { encryption: 0 })).slice(0, n)
+      expect(() => sniffFormat(b), String(n)).toThrow(/truncated or damaged/)
+    }
+  })
+
+  it('kf8_RefusedUntilTheForkIsFixed', () => {
+    expect(() => sniffFormat(bytes(mobi('T', html, { version: 8 })))).toThrow(/AZW3 \(KF8\) is not supported yet/)
+  })
+
+  it('combo_ReadAsItsMobi6Half_EveryBoundaryCleared', () => {
+    const b = bytes(mobi('T', html, { boundary: 1 }))
+    expect(sniffFormat(b)).toBe('mobi')
+    const [at] = mobiHeader(b).boundaries
+    expect([...b.subarray(at, at + 4)]).toEqual([0, 0, 0, 1])
+    withoutKf8(b)
+    expect([...b.subarray(at, at + 4)]).toEqual([0xff, 0xff, 0xff, 0xff])
+  })
+})
+
+describe('fb2', () => {
+  const book = fb2('T', '<section><p>Ünïcode</p></section>')
+
+  it('utf16_EitherOrderWithOrWithoutBom_SniffedAndReencodedAsUtf8', () => {
+    const le = Buffer.from(`﻿${book.replace('utf-8', 'UTF-16')}`, 'utf16le')
+    const be = Buffer.from(le).swap16()
+    for (const b of [le, be, le.subarray(2)]) {
+      expect(sniffFormat(bytes(b))).toBe('fb2')
+      const text = new TextDecoder().decode(fb2AsUtf8(bytes(b)))
+      expect(text).toContain('<?xml version="1.0" encoding="utf-8"?>')
+      expect(text).toContain('Ünïcode')
+    }
+    expect(fb2AsUtf8(bytes(book))).toEqual(bytes(book))
+  })
+
+  it('rootWithin4KiB_Fb2', () => {
+    expect(sniffFormat(bytes(fb2('T', '<section/>', `<!-- ${'x'.repeat(3500)} -->`)))).toBe('fb2')
+  })
+
+  it('anyDeclaredEntity_RefusedBeforeParsing', () => {
+    for (const d of ['<!ENTITY e "x">', '<!ENTITY x SYSTEM "http://evil/x">', '<!ENTITY % p "x">'])
+      expect(() => sniffFormat(bytes(fb2('T', '<section/>', `<!DOCTYPE FictionBook [${d}]>`))), d).toThrow(/custom entities/)
+    expect(() => checkFb2(bytes(fb2('T', '<section/>', '<!DOCTYPE FictionBook [<!ENTITY e "x">]>')))).toThrow(/custom entities/)
+    expect(() => checkFb2(bytes(book))).not.toThrow()
+  })
+})
+
+describe('comic pages', () => {
+  it('comicName_LowerCasesOnlyTheExtension', () => {
+    expect(['P01.JPG', 'Dir.X/p02.Png', 'p03.png', 'noext'].map(comicName)).toEqual(['P01.jpg', 'Dir.X/p02.png', 'p03.png', 'noext'])
+  })
+
+  it('imageType_ByExtension_SvgTyped', () => {
+    expect(['a.svg', 'b.JPG', 'c.webp', 'd.txt'].map(imageType)).toEqual(['image/svg+xml', 'image/jpeg', 'image/webp', ''])
+  })
+})
+
+describe('zipFormat', () => {
+  it('ocfContainer_Epub_EvenWithImages', () => {
+    expect(zipFormat(['mimetype', 'META-INF/container.xml', 'OEBPS/cover.png'])).toBe('epub')
+  })
+
+  it('fb2Inside_Fbz', () => {
+    expect(zipFormat(['Book.FB2'])).toBe('fbz')
+  })
+
+  it('imagesOnly_Cbz', () => {
+    expect(zipFormat(['ComicInfo.xml', '001.jpg', '002.webp'])).toBe('cbz')
+  })
+
+  it('nothingReadable_Refused', () => {
+    expect(() => zipFormat(['readme.txt'])).toThrow(/no book in it/)
+  })
+
+  // The router and the fork's comic reader must agree on what a page is: a zip routed `cbz` whose pages the
+  // reader then filters out opens as `open-failed` ("No supported image files"), or with pages missing.
+  // zipFormat is case-insensitive and comic-book.js matches lower-case extensions only, so the page hands the
+  // comic reader comicName's (QA #1128; was `it.fails`). formats.check opens a real upper-case CBZ.
+  it.skipIf(!existsSync(resolve(__dirname, '.vendor/foliate-js/comic-book.js')))('upperCaseExtensions_RoutedCbz_AndTheComicReaderKeepsEveryPage', async () => {
+    const names = ['P01.JPG', 'p02.png', 'P03.Png']
+    expect(zipFormat(names)).toBe('cbz')
+    const { makeComicBook } = await import('./.vendor/foliate-js/comic-book.js')
+    const book = makeComicBook({ entries: names.map((n) => ({ filename: comicName(n) })), loadBlob: async () => null, getSize: () => 0 }, { name: '' })
+    expect(book.sections.map((s: { id: string }) => s.id)).toEqual(names.map(comicName))
+  })
+})
+
+describe('isTextual', () => {
+  it('onlyComicBooksHaveNoText', () => {
+    expect(['epub', 'mobi', 'fb2'].map(isTextual)).toEqual([true, true, true])
+    expect(isTextual('cbz')).toBe(false)
+  })
+})

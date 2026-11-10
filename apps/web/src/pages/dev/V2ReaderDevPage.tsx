@@ -15,6 +15,9 @@ import { nonceFromUuid } from '../../../../mobile/src/lib/v2reader/hostStorage'
 
 const LIBRARY_KEY = 'v2reader:library'
 const storeKey = (sha256: string) => `v2reader:store:${sha256}`
+/** The reader's layout, a per-user setting (#1128): paginated unless the reader chose scrolled. */
+const FLOW_KEY = 'v2reader:flow'
+type Flow = 'paginated' | 'scrolled'
 
 // A full, disabled or cleared localStorage costs the dev data, never the open book.
 function readItem(key: string): string | null {
@@ -78,7 +81,13 @@ export default function V2ReaderDevPage() {
   const opening = useRef<Opening | null>(null)
   const picks = useRef(0)
   const [books, setBooks] = useState<LibraryEntry[]>(() => readLibrary().books)
-  const [heading, setHeading] = useState('Pick an EPUB')
+  const [heading, setHeading] = useState('Pick a book')
+  const [flow, setFlow] = useState<Flow>(() => (readItem(FLOW_KEY) === 'scrolled' ? 'scrolled' : 'paginated'))
+  const flowRef = useRef(flow)
+  /** CBZ is images only: no highlight (the page refuses it too). */
+  const [textual, setTextual] = useState(true)
+  /** False for a fixed-layout book (CBZ): flow changes nothing there. */
+  const [reflowable, setReflowable] = useState(true)
   const [status, setStatus] = useState('')
   const [restored, setRestored] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -114,6 +123,8 @@ export default function V2ReaderDevPage() {
       try { m = JSON.parse(e.data) } catch { return }
       switch (m?.type) {
         case 'ready':
+          // The stored layout before the first open: messages arrive in order, and a setting is not a switch.
+          call('flow', [flowRef.current])
           ready.current = true
           flushOpen()
           return
@@ -121,6 +132,8 @@ export default function V2ReaderDevPage() {
           const current = answered(m.book?.name)
           if (!current) return
           call('restore', [readItem(storeKey(m.book.sha256))])
+          setTextual(m.textual !== false)
+          setReflowable(m.reflowable !== false)
           setHeading([m.title || current.originalName, m.author].filter(Boolean).join(' — '))
           const { lib } = addOpened(readLibrary(), { ...m.book, title: m.title, author: m.author, originalName: current.originalName })
           writeItem(LIBRARY_KEY, JSON.stringify(lib))
@@ -153,6 +166,10 @@ export default function V2ReaderDevPage() {
         case 'openLink':
           if (/^https?:\/\//i.test(m.href)) window.open(m.href, '_blank', 'noopener,noreferrer')
           return
+        case 'telemetry':
+          // Dev route: logged only; the event is defined by the page (README, telemetry).
+          console.log('[v2] telemetry', JSON.stringify(m))
+          return
         case 'log':
           console.log(`[v2 page] ${m.level}: ${m.msg}`)
       }
@@ -161,13 +178,22 @@ export default function V2ReaderDevPage() {
     return () => removeEventListener('message', onMessage)
   }, [])
 
+  const toggleFlow = () => {
+    const next: Flow = flow === 'paginated' ? 'scrolled' : 'paginated'
+    setFlow(next)
+    flowRef.current = next
+    writeItem(FLOW_KEY, next)
+    if (ready.current) call('flow', [next])
+  }
+
   return (
     <main style={{ display: 'flex', flexDirection: 'column', height: '100vh', padding: 8, boxSizing: 'border-box', gap: 4 }}>
       <div style={{ display: 'flex', gap: 8 }}>
-        <input type="file" accept=".epub,application/epub+zip" onChange={pick} aria-label="Pick EPUB" />
+        <input type="file" accept=".epub,.mobi,.azw3,.azw,.fb2,.fbz,.cbz,application/epub+zip" onChange={pick} aria-label="Pick EPUB" />
         <button onClick={() => call('prev')}>‹ Prev</button>
         <button onClick={() => call('next')}>Next ›</button>
-        <button onClick={() => call('highlightSelection')}>Highlight</button>
+        {textual && <button onClick={() => call('highlightSelection')}>Highlight</button>}
+        <button onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? 'Scrolled' : 'Paginated'}</button>
       </div>
       <strong data-testid="v2-heading">{heading}</strong>
       <span data-testid="v2-status">{status}</span>
