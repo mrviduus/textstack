@@ -80,6 +80,26 @@ describe('the shared V2 book client', () => {
     await expect(client().v2Book('b1')).rejects.toMatchObject({ status: 404 })
   })
 
+  // A caller joining a single flight after its keep step, while afterPull still runs, shares a kept pull.
+  it('v2Book_JoinsFlightAfterKeepBeforeAfterPull_404Not503', async () => {
+    fakeApi({ 'GET /me/v2/library/changes': feed(book('other', 'f1')) }, API)
+    let current: Promise<V2Book[]> | null = null
+    const pullFlight = (pull: () => Promise<V2Book[]>) => (current ??= pull().finally(() => { current = null }))
+    let release!: () => void
+    let entered!: () => void
+    const inAfterPull = new Promise<void>((r) => { entered = r })
+    const afterPull = vi.fn(() => { entered(); return new Promise<void>((r) => { release = r }) })
+    const c = client({ pullFlight, afterPull })
+
+    const first = c.pullV2Books()
+    await inAfterPull // the books are kept; afterPull has not resolved
+    const joined = c.v2Book('b1')
+    release()
+    await first
+    await expect(joined).rejects.toMatchObject({ status: 404 })
+    expect(afterPull).toHaveBeenCalledTimes(1) // it joined, it did not pull again
+  })
+
   it('saveV2Progress_StaleRevision_KeepsTheAdoptedPlace', async () => {
     const current = state('b1', 5, { currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 9 } } })
     fakeApi({ 'PUT /me/v2/books/b1/reading-state': [conflict('stale_revision', { current })] }, API)

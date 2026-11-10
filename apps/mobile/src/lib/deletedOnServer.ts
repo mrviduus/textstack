@@ -6,7 +6,9 @@ import { readIdSet, rekeyIds, updateIdSet } from './declinedDownloads'
  * copy as a live book again.
  *
  * A mark, not a deletion: the bytes stay until the reader removes them (#1164). And not final: a
- * later successful load of the book clears it, as do Remove download and the orphan sweep.
+ * later successful load of the book or an online library list that has it clears it, as do Remove
+ * download and the orphan sweep. Known source of a false mark: with the V2 probe answering off, the
+ * legacy `/me/books/{id}` 404s for a V2-only book; the next online library load heals it.
  */
 const KEY = 'offline:deletedOnServer'
 
@@ -14,8 +16,11 @@ export async function listDeletedOnServer(): Promise<Set<string>> {
   return readIdSet(KEY)
 }
 
+/** Queued behind pending marks and clears, so it never reads a mark a clear has already been asked to drop. */
 export async function isDeletedOnServer(bookId: string): Promise<boolean> {
-  return (await readIdSet(KEY)).has(bookId)
+  let has = false
+  await updateIdSet(KEY, ids => { has = ids.has(bookId); return null })
+  return has
 }
 
 export async function markDeletedOnServer(bookId: string): Promise<void> {

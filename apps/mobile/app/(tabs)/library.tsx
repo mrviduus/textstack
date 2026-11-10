@@ -21,7 +21,7 @@ import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { getAllCachedBooks, getAllCachedUserBooks } from '../../src/lib/offlineDb'
 import { getAllUserBookLocalProgress, type UserBookProgressWithPercent } from '../../src/lib/progressStorage'
-import { listDeletedOnServer } from '../../src/lib/deletedOnServer'
+import { clearDeletedOnServer, listDeletedOnServer } from '../../src/lib/deletedOnServer'
 import { FirstBookState } from '../../src/components/library/FirstBookState'
 import { LibraryViewSheet, type LibrarySource } from '../../src/components/library/LibraryViewSheet'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
@@ -109,6 +109,11 @@ export default function LibraryScreen() {
       setLibrary(lib)
       setUserBooks(books)
       setLoadError(null)
+      // Listed by the server, so not deleted: a false mark (V2 store reset, legacy fallback) heals on
+      // any online load; a live book hidden offline is the worse failure (#1174). Accepted race: a list
+      // that predates a recorded 404 un-marks a deleted book, which then shows offline again until its
+      // screen next sees the 404.
+      clearDeletedOnServer(books.map(b => b.id)).catch(() => {})
       const map: Record<string, ReadingProgressDto> = {}
       for (const p of progress) map[p.editionId] = p
       setProgressMap(map)
@@ -134,9 +139,10 @@ export default function LibraryScreen() {
             listDeletedOnServer(),
           ])
           if (myGen !== loadGenRef.current) return
-          // A server-deleted book (#1174) stays listed, because its screen is the
-          // only place that offers to remove the download — but as a failed row
-          // that says so, not as a live book: no Continue straight into the reader.
+          // A server-deleted book (#1174) is not offered offline, from the device
+          // list or from `prev` (a book marked during this session), so it has no
+          // Continue pill either. Known residue: hidden here, its bytes are freed
+          // only from the not-found screen at 404 time or by the orphan sweep.
           setUserBooks(prev => (prev.length > 0 ? prev : cachedUploads.map(c => ({
             id: c.bookId,
             title: c.title,
@@ -146,11 +152,11 @@ export default function LibraryScreen() {
             genre: null,
             totalWordCount: c.totalWordCount,
             // A cached copy only ever exists for a book that finished processing.
-            status: deleted.has(c.bookId) ? 'Failed' : 'Ready',
+            status: 'Ready',
             chapterCount: c.totalChapters,
             createdAt: new Date(c.cachedAt).toISOString(),
             completedAt: null,
-            errorMessage: deleted.has(c.bookId) ? t('myBooks.deleted.title') : null,
+            errorMessage: null,
             progressPercent: localProgress.get(c.bookId)?.bookPercent ?? null,
             progressUpdatedAt: localProgress.get(c.bookId)
               ? new Date(localProgress.get(c.bookId)!.updatedAt).toISOString()
@@ -158,7 +164,7 @@ export default function LibraryScreen() {
             progressChapterSlug: localProgress.get(c.bookId)?.chapterSlug ?? null,
             // False whatever the upload was: offline it reads as text (ADR-012).
             hasOriginalPdf: false,
-          }))))
+          }))).filter(b => !deleted.has(b.id)))
           setLibrary(prev => (prev.length > 0 ? prev : cached.map(c => ({
             editionId: c.editionId,
             slug: c.slug,

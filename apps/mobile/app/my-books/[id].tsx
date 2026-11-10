@@ -215,7 +215,10 @@ export default function UserBookDetailScreen() {
         if (notFound) console.warn('User book not found:', e)
         else logLoadError('Failed to load user book:', e)
         if (!live()) return
-        if (notFound) await markDeletedOnServer(id)
+        // Marked only when something on this device would otherwise show as live (#1174).
+        const onDevice = notFound && await hasLocalLeftovers(id)
+        if (!live()) return
+        if (onDevice) await markDeletedOnServer(id)
         const tombstoned = !notFound && await isDeletedOnServer(id)
         if (!live()) return
         // Unreachable server, but the book may be on the device. Render the
@@ -226,11 +229,11 @@ export default function UserBookDetailScreen() {
         const view = failedLoadView({ notFound, tombstoned, hasCopy: rehydrated !== null, offline: isOfflineError(e) })
         switch (view) {
           case 'notfound': {
-            const onDevice = await hasLocalLeftovers(id)
+            const leftovers = notFound ? onDevice : await hasLocalLeftovers(id)
             if (!live()) return
             setBook(null)
             setOfflineMode(false)
-            setAnyLocalCopy(onDevice)
+            setAnyLocalCopy(leftovers)
             setLoadError('notfound')
             break
           }
@@ -343,8 +346,8 @@ export default function UserBookDetailScreen() {
         if (cancelled || unmountedRef.current) return
         // Deleted on the server mid-poll (#1164): stop polling a book that is gone.
         if (err instanceof ApiError && err.status === 404) {
-          await markDeletedOnServer(id)
           const onDevice = await hasLocalLeftovers(id)
+          if (onDevice) await markDeletedOnServer(id)
           if (cancelled || unmountedRef.current) return
           setBook(null)
           setAnyLocalCopy(onDevice)
@@ -525,7 +528,7 @@ export default function UserBookDetailScreen() {
             secondaryLabel={loadError === 'notfound' && anyLocalCopy ? t('myBooks.deleted.removeDownload') : undefined}
             onSecondaryPress={() => {
               removeUserBookDownload(id!)
-                .then(() => { setCached(false); setAnyLocalCopy(false); router.back() })
+                .then(() => { setAnyLocalCopy(false); router.back() })
                 .catch(err => {
                   console.warn('Removing the local copy of a deleted book failed:', err)
                   showToast({ message: "Couldn't remove the download. Try again.", variant: 'error', duration: 2600 })
