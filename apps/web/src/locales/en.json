@@ -121,6 +121,18 @@
         "q": "Is there a mobile app?",
         "a": "Yes. The Android app is on Google Play: same books and saved words, and it reads offline. There is no iOS app yet; on an iPhone, TextStack works in the browser."
       },
+      "installAndroid": {
+        "q": "How do I install the Android app?",
+        "a": "On your Android phone, open Google Play, search for TextStack and tap Install. The \"Android app\" link at the bottom of this page opens the same listing. Sign in with your account to see your books and saved words."
+      },
+      "connectAssistant": {
+        "q": "How do I connect my AI assistant?",
+        "a": "Open \"AI assistants\" at the bottom of this page and sign in. Create a key and paste it into your assistant once, following the steps on that page. The assistant can then read the books you upload and save conclusions back to them. You can revoke the key at any time."
+      },
+      "deleteAccount": {
+        "q": "How do I delete my account?",
+        "a": "Sign in, open the user menu in the top-right corner and choose \"Edit profile\". In the \"Danger zone\" section select \"Delete account\" and type DELETE to confirm. In the Android app, open the Profile tab and choose \"Delete account\". Deletion is immediate and cannot be undone."
+      },
       "vsFriends": {
         "q": "How is TextStack different from Kindle or LingQ?",
         "a": "TextStack combines the reading experience of Kindle with the language-learning tools of LingQ — and it is free. Tap-to-translate, SRS flashcards, built-in text-to-speech, offline reading, and detailed statistics, all in one clean reader."
