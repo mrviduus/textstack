@@ -65,7 +65,7 @@ if (!appFrameSrc.split(' ').includes("'self'")) { console.error("the app CSP has
 
 // The reader's nginx locations (textstack.app server), as text: what they send must be what the handler sends.
 const frameLocation = conf.match(/\n {4}location = \/reader-v2\/frame\.html \{\n([\s\S]*?)\n {4}\}/)?.[1] ?? ''
-const scriptLocation = conf.match(/\n {4}location ~ (\^\/reader-v2\/page\S*) \{\n([\s\S]*?)\n {4}\}/)
+const scriptLocation = conf.match(/\n {4}location ~ "(\^\/reader-v2\/page[^"]*)" \{\n([\s\S]*?)\n {4}\}/)
 
 const { shell: SHELL, script: SCRIPT, scriptPath: SCRIPT_PATH } = v2ReaderFrameFiles()
 /** Must change the text it is given: a transform that no longer matches would make its row test nothing. */
