@@ -1,0 +1,28 @@
+# Sections of the release notes deploy.yml generates for every deploy (#1220).
+# Every PR carries one area label from the list below; pr-labels.yml fails a PR
+# without one, and reads its allowed labels from this file, so add an area here only.
+# A PR with two area labels lands in the first matching section.
+changelog:
+  exclude:
+    labels: [dependencies]
+    authors: [dependabot]
+  categories:
+    - title: Reader
+      labels: [reader]
+    - title: Mobile
+      labels: [mobile]
+    - title: Library
+      labels: [library]
+    - title: Vocabulary
+      labels: [vocabulary]
+    - title: AI & MCP
+      labels: [ai]
+    - title: Data
+      labels: [data]
+    - title: Ops
+      labels: [ops]
+    - title: Docs
+      labels: [documentation]
+    # Nothing silently disappears: a PR merged without an area label still shows up.
+    - title: Other
+      labels: ["*"]
