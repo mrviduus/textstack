@@ -15,7 +15,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `overlays.mjs` | What is drawn over a range. foliate keys an overlay by its CFI, so a highlight and a word's translation over the same range are one overlay carrying both. |
 | `library.mjs` | V2 local library (pure): identical bytes → the existing entry, never a duplicate or reset. |
 | `library.d.mts` | Hand-written types for `library.mjs` (apps/web type-checks it without `allowJs`); a change to one must update the other. |
-| `hostStorage.ts` | The host's files under `<documents>/v2/` (R2): staging, retained `books/<sha256>.epub`; lower-cased keys. The `store` payload goes to the local library; R2's `library.json` + `store/<sha256>.json` are imported into it once (non-UUID ids remapped), then deleted; an unreadable `library.json` falls back to its `.tmp`, and when neither parses both are renamed `.corrupt-<ms>` with a warning, never deleted or written over (#1081). |
+| `hostStorage.ts` | The host's files under `<documents>/v2/` (R2): staging, retained `books/<sha256>.epub`; lower-cased keys. The `store` payload goes to the local library; R2's `library.json` + `store/<sha256>.json` are imported into it once (non-UUID ids remapped), then deleted; `library.json` and each store entry fall back to their `.tmp` when the target does not parse, and when neither parses both are renamed `.corrupt-<ms>` with a warning, never deleted or written over (#1081). |
 | `localLibrary.ts` | R6 (#1038): SQLite database `textstack-v2` — `books`, `reading_state`, `annotations` (the page's position/highlight JSON per row, keyed by client v4 UUIDs), `outbox` (one coalescing entry per row, `gen` per re-queue, `failures` per gen: any entry kept and skipped after N, reset every session and by "Try again" = `unpark`, #1186), `meta` (cursors, file-sync setting). The page's entry is rebuilt from rows on `restore` and split into rows on `store`, through `@textstack/shared`'s `v2PageEntry` (the web host's mapping too, #1226); the entry's shape and checks are `v2PageStore.ts` there (`store.mjs` re-exports them). |
 | `sync.ts` | R6: the sync client to `/me/v2/*` (PDD v2-sync-protocol.md): pull the library/reading/annotations feeds by cursor, push the outbox in order, opt-in file sync (shared `uploadV2File`), download on demand; conflicts per the PDD's codes, reading state by ADR-019 re-keyed on CFI + spine index; every answer under the shared `whileCurrent` epoch guard. |
 | `deviceLibrary.ts` / `.web.ts` | The device's library over expo-sqlite (a failed open is retried, never cached); the web twin keeps expo-sqlite out of the web bundle. |
@@ -35,7 +35,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `prodCsp.check.mjs` | The production-CSP gate (CI): shell + script under the app CSP read from nginx; the refused variants; nginx's reader locations against the handler's headers. |
 | `openTracker.mjs` (+ `.d.mts`) | Pure, both hosts: which page answer belongs to which open — the open in flight, a book the page kept on screen while a newer open failed, a stale `restored` (dropped). |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
-| `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `NotReadableError`, `SQLITE_FULL`) as one human message, anything else as is (#1080 item 6). |
+| `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
 
 ## Build
@@ -363,17 +363,21 @@ target in the spread already shown counts as arrived (foliate shows it without a
   MiB, capped at `OPENED_CAP_MS` 180 s. The R4 gate opened 87 MB in ~7 s on the emulator (~12 MB/s); the rule
   allows ~1 MB/s. A newer open restarts it.
 - A missed deadline is an alert with Retry; a late `ready`/`opened` clears it (slow, not dead). Retry is a new page
-  load. Android reopens the open in flight from its file. Web: bytes still held (no `ready` yet) open on the new
+  load. Android reopens the open in flight from its file, and gives an open up after `OPENED_OVERDUE_LIMIT` (2)
+  overdues in a row (dropped with its staged file, the reader told, as a book that crashes the reader). Web: bytes still held (no `ready` yet) open on the new
   frame's `ready`; bytes the old frame took are gone, so the host asks its route for the book again (`onReload`;
   the dev route has none: pick again).
 - Web production route states (`V2ReaderPage.tsx`): downloading (percent from `Content-Length`, never past 99 %
-  before the bytes are in; no header: "Loading the book…"), opening (`Opening <name>`), open-failed (the page's
-  message), and a failed load by cause: 401 session ended, 404 book or file gone (no Retry: it cannot help), offline,
+  before the bytes are in; no header: "Loading the book…"; no byte for `DOWNLOAD_STALL_MS` 30 s: a stalled-download
+  alert with Retry; aborted on unmount, Retry or another book), opening (`Opening <name>`), open-failed (the page's
+  message), and a failed load by cause: 401 session ended, 404 book or file gone (no Retry: it cannot help; said only
+  after a fresh library pull still gives a 404 or no file, since `v2Book` answers from the session's copy), offline
+  (a failed body read only; an allocation or other failure keeps its own message),
   503 `v2_unavailable` and anything else (Retry). A failed open shows no title (#1168): web blank, Android
   "Pick a book".
 - Android (#1080 item 6): the open's error line (pick, download, open-failed, import, crash) is apart from the
   other one (library, settings, sync, saves), so a later `store` failure never overwrites why a book did not open; a
-  full disk reads as one human message (`hostErrors.ts`). The update screen for a WebView older than 117 is #1228;
+  full disk reads as one human message and `NotReadableError` as "could not be read" (`hostErrors.ts`; raw text logged). The update screen for a WebView older than 117 is #1228;
   this `ready` deadline is its backstop.
 - Errors are `role="alert"` (web) / `accessibilityRole="alert"` with a polite live region (Android); Retry is a button.
 
