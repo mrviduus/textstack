@@ -50,20 +50,26 @@ async function uploadFixture(page: Page): Promise<string> {
   return id
 }
 
-/** The page's `restored` answers, as the host's window receives them (the host shows none on this route). */
-async function collectRestored(page: Page) {
+interface PageMessages {
+  restored: { position: string }[]
+  /** The page's saved entries: a highlight drawn by `addHighlights` is in every one after it. */
+  store: { json: string }[]
+}
+
+/** The page's `restored` and `store` messages, as the host's window receives them (the host shows neither here). */
+async function collectPageMessages(page: Page) {
   await page.addInitScript(() => {
     if (window.top !== window) return
-    const w = window as unknown as { __restored: unknown[] }
-    w.__restored = []
+    const w = window as unknown as { __page: Record<string, unknown[]> }
+    w.__page = { restored: [], store: [] }
     addEventListener('message', (e) => {
       try {
         const m = typeof e.data === 'string' ? JSON.parse(e.data) : null
-        if (m?.type === 'restored') w.__restored.push(m)
+        if (m?.type === 'restored' || m?.type === 'store') w.__page[m.type].push(m)
       } catch { /* not the page's */ }
     })
   })
-  return () => page.evaluate(() => (window as unknown as { __restored: { position: string; highlights: { id: string; status: string }[] }[] }).__restored)
+  return () => page.evaluate(() => (window as unknown as { __page: PageMessages }).__page)
 }
 
 const email = (tag: string) => `e2e-${tag}-${Date.now()}-${test.info().repeatEachIndex}@textstack.app`
@@ -101,12 +107,12 @@ test.describe('V2 reader page @v2', () => {
   })
 
   // #1226: position and highlights on /me/v2 through the shared client, not in this browser's storage.
-  test('the place survives a reload, and a highlight is seen from a second browser context', async ({ browser }) => {
+  test('readV2Sync_ReloadThenASecondBrowserContext_SamePlaceAndTheHighlightDrawn', async ({ browser }) => {
     const who = email('v2rs')
     const context = await v2Context(browser, who)
     const page = await context.newPage()
     const bookId = await uploadFixture(page)
-    const restored = await collectRestored(page)
+    const messages = await collectPageMessages(page)
     await page.goto(`/en/library/my/${bookId}/read-v2`)
     await expectOpened(page)
 
@@ -121,7 +127,7 @@ test.describe('V2 reader page @v2', () => {
 
     await page.reload()
     await expect(page.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
-    await expect.poll(async () => (await restored()).at(-1)?.position, { timeout: 15_000 }).toBe('restored')
+    await expect.poll(async () => (await messages()).restored.at(-1)?.position, { timeout: 15_000 }).toBe('restored')
     await expect(status(page)).toHaveText(place ?? '')
 
     // Highlight: a selection in the section on screen, written as an epub-cfi annotation.
@@ -145,12 +151,19 @@ test.describe('V2 reader page @v2', () => {
     const { id } = (await answer.json()) as { id: string }
     await expect(page.getByTestId('v2-not-saved')).toHaveCount(0)
 
-    // Another browser, same account: the highlight comes back from the server and is drawn.
+    // Another browser, same account: the highlight comes back from the server and is drawn (addHighlights checks its
+    // text there); the page's next save (a page turn) carries it, written by nothing (the server already holds it).
     const other = await v2Context(browser, who)
     const second = await other.newPage()
-    const restoredThere = await collectRestored(second)
+    const there = await collectPageMessages(second)
     await second.goto(`/en/library/my/${bookId}/read-v2`)
-    await expect.poll(async () => (await restoredThere()).at(-1)?.highlights ?? [], { timeout: 20_000 }).toContainEqual({ id, status: 'restored' })
+    await expect.poll(async () => (await there()).restored.at(-1)?.position, { timeout: 20_000 }).toBe('restored')
+    const annotationPut = second.waitForRequest((r) => r.method() === 'PUT' && r.url().includes('/me/v2/annotations/'), { timeout: 3_000 }).then(() => true, () => false)
+    await expect.poll(async () => {
+      await second.getByRole('button', { name: 'Next ›' }).click()
+      return (await there()).store.some((m) => (JSON.parse(m.json).highlights as { id: string }[]).some((h) => h.id === id))
+    }, { timeout: 20_000 }).toBe(true)
+    expect(await annotationPut, 'the drawn highlight is not written back').toBe(false)
     await other.close()
     await context.close()
   })

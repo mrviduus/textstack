@@ -466,7 +466,8 @@
     "frameFailed": "The reader page did not load: no ready from {{path}} in {{seconds}} s.",
     "loadFailed": "Could not load the book: {{error}}",
     "noFile": "This book has no file to read yet.",
-    "notSaved": "Not saved yet: your place and highlights are saved again as you read."
+    "notSaved": "Not saved yet: your place and highlights are saved again as you read.",
+    "reopen": "This book changed on another device: reopen it to keep saving your place and highlights."
   },
   "library": {
     "continue": "Continue",

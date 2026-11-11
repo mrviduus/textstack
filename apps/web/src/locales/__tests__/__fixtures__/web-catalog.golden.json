@@ -985,6 +985,7 @@
   "v2Reader.pick": "Pick a book",
   "v2Reader.position": "{{percent}}% · section {{index}}/{{sections}}",
   "v2Reader.prev": "‹ Prev",
+  "v2Reader.reopen": "This book changed on another device: reopen it to keep saving your place and highlights.",
   "v2Reader.restore": "restore: {{state}}",
   "v2Reader.scrolled": "Scrolled",
   "vocabulary.banner.budgetReached": "Weekly goal reached. See you next week!",

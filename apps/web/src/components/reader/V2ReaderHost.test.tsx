@@ -59,9 +59,9 @@ describe('V2ReaderHost', () => {
     expect(posted).toEqual([])
   })
 
-  it('opened_RestoresFromTheLocalStore_AndShowsTheTitle', () => {
+  it('devRoute_Opened_RestoresFromTheLocalStore_AndShowsTheTitle', () => {
     localStorage.setItem('v2reader:store:aa', '{"v":1}')
-    const { onOpened } = mount(book())
+    const { onOpened } = mount(book(), { dev: true })
     fromPage({ type: 'ready' })
     fromPage(opened('1/a.epub'))
     expect(posted[posted.length - 1]).toEqual({ call: 'restore', args: ['{"v":1}'] })
@@ -78,10 +78,26 @@ describe('V2ReaderHost', () => {
     expect(screen.getByTestId('v2-heading')).toHaveTextContent('Opening b.epub')
   })
 
-  it('store_WritesTheLocalStore', () => {
-    mount()
+  it('devRoute_Store_WritesTheLocalStore', () => {
+    mount(null, { dev: true })
     fromPage({ type: 'store', key: 'bb', json: '{"x":1}' })
     expect(localStorage.getItem('v2reader:store:bb')).toBe('{"x":1}')
+  })
+
+  it('prodRoute_AfterAFailedOpen_StoreNeverReachesLocalStorage', () => {
+    mount(book('broken.epub'))
+    fromPage({ type: 'ready' })
+    fromPage({ type: 'open-failed', name: '1/broken.epub', error: 'not a zip' })
+    fromPage({ type: 'store', key: 'bb', json: '{"x":1}' })
+    expect(localStorage.length).toBe(0)
+  })
+
+  it('prodRoute_BookWithoutASyncTarget_RestoreNull_NotTheLocalStore', () => {
+    localStorage.setItem('v2reader:store:aa', '{"v":1}')
+    mount(book())
+    fromPage({ type: 'ready' })
+    fromPage(opened('1/a.epub'))
+    expect(posted[posted.length - 1]).toEqual({ call: 'restore', args: [null] })
   })
 
   it('openFailed_ShowsAnAlert_AndClearsThePosition', () => {

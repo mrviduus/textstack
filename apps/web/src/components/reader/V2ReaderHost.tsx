@@ -10,9 +10,10 @@ import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTa
  * The V2 reader page (ADR-029) on the web: one host for the dev route (/dev/reader-v2, a picked file) and the
  * production route (/:lang/library/my/:id/read-v2, the V2 file's bytes), #1225. It drives the contract the
  * Android host drives (apps/mobile/src/lib/v2reader/README.md): ready → openBytes → opened → restore → restored,
- * then store / relocate / word / openLink. Reader data (position, highlights): on the server for a book with a
- * `sync` target (the production route, #1226: lib/v2ReaderSync.ts), in localStorage on the dev route. The
- * layout is a localStorage setting on both.
+ * then store / relocate / word / openLink. Reader data (position, highlights): in localStorage on the dev route
+ * (`dev`) only; on the production route on the server, for a book with a `sync` target (#1226:
+ * lib/v2ReaderSync.ts; its one local exception, a CBZ page position, is named there). The layout is a
+ * localStorage setting on both.
  */
 
 /**
@@ -81,7 +82,7 @@ interface Props {
   idleHeading?: string
   /** How long the frame may take to send `ready`. */
   readyDeadlineMs?: number
-  /** The dev route's debug aids: the `restore:` line and a stub translation label on a tapped word. */
+  /** The dev route: reader data in localStorage, the `restore:` line and a stub translation label on a tapped word. */
   dev?: boolean
 }
 
@@ -107,7 +108,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [restored, setRestored] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [frameFailed, setFrameFailed] = useState(false)
-  /** The open book's server sync (null: none, or the dev route's localStorage); one per take, closed on the next. */
+  /** The open book's server sync (null: none, or the dev route); one per take, closed (after a last write) on the next. */
   const sync = useRef<V2ReaderSync | null>(null)
   const [saveStatus, setSaveStatus] = useState<V2SaveStatus>('saved')
 
@@ -143,21 +144,34 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     /** The page's book is `take.open`'s (openTracker.mjs: the open in flight, or a book the page kept on screen). */
     const takeOpened = ({ open: current, opened: m }: Take<Opening, V2OpenedMessage>) => {
       opening.current = current
-      sync.current?.close()
+      // The previous take's last writes go out first; a reopen of the same book reads after them.
+      const previous = sync.current?.close()
       sync.current = null
       setSaveStatus('saved')
       const target = current.sync
-      if (!target) call('restore', [readItem(storeKey(m.book.sha256))])
+      if (dev) call('restore', [readItem(storeKey(m.book.sha256))])
+      else if (!target) call('restore', [null])
       else if (target.sha256.toLowerCase() !== m.book.sha256) {
         // Bytes that are not the server file's: nothing of that book's data is theirs, and nothing is saved.
         console.warn(`[v2] opened bytes ${m.book.sha256} are not file ${target.fileId}: not synced`)
         setSaveStatus('unsaved')
         call('restore', [null])
       } else {
-        const s = createV2ReaderSync(target, { onStatus: setSaveStatus })
+        const s = createV2ReaderSync(target, {
+          onStatus: setSaveStatus,
+          // The server's place, adopted (a late read, nothing restored from it): not the reader's choice, not saved back.
+          onPosition: (p) => call('goTo', [p]),
+          after: previous,
+        })
         sync.current = s
-        // Only while this take is the open one: a later take closed `s`, and its restore is no answer here.
-        void s.restore().then((json) => { if (sync.current === s) call('restore', [json]) })
+        // Only while this take is the open one: a later take closed `s`, and its answers are none of this book's.
+        void s.restore().then(async (json) => {
+          if (sync.current !== s) return
+          // The position first; the highlights when their pull lands, drawn without moving the reader.
+          call('restore', [json])
+          const list = await s.restoreHighlights()
+          if (sync.current === s && list.length) call('addHighlights', [list])
+        })
       }
       setAnnotatable(m.annotatable !== false)
       setReflowable(m.reflowable !== false)
@@ -199,10 +213,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           setRestored(t('v2Reader.restore', { state: String(m.position) }))
           return
         case 'store':
-          // The production route never keeps reader data in this browser: the server only (a store for
-          // another book than the synced one is a previous open's, dropped).
-          if (sync.current) { if (m.key === sync.current.sha256) sync.current.store(m.json) }
-          else if (!opening.current?.sync) writeItem(storeKey(m.key), m.json)
+          // Keyed on the route: the production route never keeps reader data in this browser (the server
+          // only; a store for another book than the synced one is a previous open's, dropped).
+          if (dev) writeItem(storeKey(m.key), m.json)
+          else if (sync.current && m.key === sync.current.sha256) sync.current.store(m.json)
           return
         case 'relocate':
           // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
@@ -236,7 +250,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       removeEventListener('message', onMessage)
       document.removeEventListener('visibilitychange', onVisibility)
       removeEventListener('pagehide', onPageHide)
-      sync.current?.close()
+      // Leaving the route (SPA navigation): the session's last pass still writes what is unsaved.
+      void sync.current?.close()
       sync.current = null
     }
   }, [])
@@ -260,7 +275,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       </div>
       <strong data-testid="v2-heading">{heading || idleHeading}</strong>
       <span data-testid="v2-status">{status}</span>
-      {saveStatus === 'unsaved' && <span role="status" data-testid="v2-not-saved">{t('v2Reader.notSaved')}</span>}
+      {saveStatus !== 'saved' && (
+        <span role="status" data-testid="v2-not-saved">{t(saveStatus === 'reopen' ? 'v2Reader.reopen' : 'v2Reader.notSaved')}</span>
+      )}
       {dev && <span data-testid="v2-restore">{restored}</span>}
       {(frameFailed || error) && (
         <span role="alert">

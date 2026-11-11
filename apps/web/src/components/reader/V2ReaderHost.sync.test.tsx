@@ -9,7 +9,11 @@ import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
 interface FakeSync {
   target: V2SyncTarget
   onStatus(s: V2SaveStatus): void
+  onPosition?(p: unknown): void
+  after?: Promise<unknown>
   answer(json: string | null): void
+  answerHighlights(list: unknown[]): void
+  restoreHighlights: ReturnType<typeof vi.fn>
   sha256: string
   restore: ReturnType<typeof vi.fn>
   store: ReturnType<typeof vi.fn>
@@ -19,12 +23,16 @@ interface FakeSync {
 }
 const sessions: FakeSync[] = []
 vi.mock('../../lib/v2ReaderSync', () => ({
-  createV2ReaderSync: (target: V2SyncTarget, o: { onStatus(s: V2SaveStatus): void }) => {
+  createV2ReaderSync: (target: V2SyncTarget, o: { onStatus(s: V2SaveStatus): void; onPosition?(p: unknown): void; after?: Promise<unknown> }) => {
     let answer!: (json: string | null) => void
+    let answerHighlights!: (list: unknown[]) => void
     const restored = new Promise<string | null>((ok) => { answer = ok })
+    const highlights = new Promise<unknown[]>((ok) => { answerHighlights = ok })
+    const closed = Promise.resolve()
     const s: FakeSync = {
-      target, onStatus: o.onStatus, answer, sha256: target.sha256,
-      restore: vi.fn(() => restored), store: vi.fn(), flush: vi.fn(async () => {}), flushKeepalive: vi.fn(), close: vi.fn(),
+      target, onStatus: o.onStatus, onPosition: o.onPosition, after: o.after, answer, answerHighlights, sha256: target.sha256,
+      restore: vi.fn(() => restored), restoreHighlights: vi.fn(() => highlights),
+      store: vi.fn(), flush: vi.fn(async () => {}), flushKeepalive: vi.fn(), close: vi.fn(() => closed),
     }
     sessions.push(s)
     return s
@@ -131,5 +139,61 @@ describe('V2ReaderHost, server sync', () => {
     expect(sessions[0].flushKeepalive).toHaveBeenCalledTimes(1)
     unmount()
     expect(sessions[0].close).toHaveBeenCalled()
+  })
+
+  it('highlights_AfterTheRestore_DrawnWhenTheirPullLands', async () => {
+    const { open } = mount()
+    fromPage({ type: 'ready' })
+    open(synced('b1', SHA('a')))
+    fromPage(opened('1/b1.epub', SHA('a')))
+    sessions[0].answer('{"v":1}')
+    await flushAll()
+    expect(posted.some((m) => m.call === 'addHighlights')).toBe(false)
+    sessions[0].answerHighlights([{ id: 'h' }])
+    await flushAll()
+    expect(posted.filter((m) => m.call === 'restore' || m.call === 'addHighlights').map((m) => m.call)).toEqual(['restore', 'addHighlights'])
+    expect(posted[posted.length - 1].args).toEqual([[{ id: 'h' }]])
+  })
+
+  it('highlightsOfASupersededTake_NotDrawn', async () => {
+    const { open } = mount()
+    fromPage({ type: 'ready' })
+    open(synced('b1', SHA('a')))
+    fromPage(opened('1/b1.epub', SHA('a')))
+    sessions[0].answer('{"v":1}')
+    await flushAll()
+    open(synced('b2', SHA('b')))
+    fromPage(opened('2/b2.epub', SHA('b')))
+    sessions[0].answerHighlights([{ id: 'h' }])
+    await flushAll()
+    expect(posted.some((m) => m.call === 'addHighlights')).toBe(false)
+  })
+
+  it('reopenOfTheSameBook_TheNewSessionWaitsForTheOldOnesClose', () => {
+    const { open } = mount()
+    fromPage({ type: 'ready' })
+    open(synced('b1', SHA('a')))
+    fromPage(opened('1/b1.epub', SHA('a')))
+    open(synced('b1', SHA('a')))
+    fromPage(opened('2/b1.epub', SHA('a')))
+    expect(sessions[1].after).toBe(sessions[0].close.mock.results[0].value)
+  })
+
+  it('serverPlaceAdopted_GoToNotChosen', () => {
+    const { open } = mount()
+    fromPage({ type: 'ready' })
+    open(synced('b1', SHA('a')))
+    fromPage(opened('1/b1.epub', SHA('a')))
+    sessions[0].onPosition?.({ cfi: 'epubcfi(/6/4)' })
+    expect(posted[posted.length - 1]).toEqual({ call: 'goTo', args: [{ cfi: 'epubcfi(/6/4)' }] })
+  })
+
+  it('reopenStatus_ItsOwnMessage', () => {
+    const { open } = mount()
+    fromPage({ type: 'ready' })
+    open(synced('b1', SHA('a')))
+    fromPage(opened('1/b1.epub', SHA('a')))
+    act(() => sessions[0].onStatus('reopen'))
+    expect(screen.getByTestId('v2-not-saved')).toHaveTextContent('reopen it')
   })
 })
