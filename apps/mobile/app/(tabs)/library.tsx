@@ -7,6 +7,7 @@ import {
   libraryApi, readingProgressApi, isOfflineError, plural,
 } from '@textstack/shared'
 import { userBooksApi } from '../../src/lib/userBooksApi'
+import { v2Epoch } from '../../src/lib/v2'
 import { logLoadError } from '../../src/lib/logLoadError'
 import {
   collectionsApi, buildLibraryEntries, filterEntries, countEntries, sortEntries, entryTitle, entryAuthor,
@@ -97,8 +98,10 @@ export default function LibraryScreen() {
   useEffect(() => () => { loadGenRef.current = -1 }, [])
 
   const loadData = useCallback(async () => {
-    if (!isAuthenticated) { setLoading(false); return }
+    // Bumped before the session check: a sign-out supersedes a load still in flight (#1191).
     const myGen = ++loadGenRef.current
+    if (!isAuthenticated) { setLoading(false); return }
+    const epoch = v2Epoch()
     try {
       const [lib, progress, books] = await Promise.all([
         libraryApi.getLibrary(),
@@ -119,6 +122,9 @@ export default function LibraryScreen() {
       setProgressMap(map)
     } catch (e) {
       if (myGen !== loadGenRef.current) return
+      // The V2 store was reset mid-load (account switch, guest → account): the list is the new
+      // account's to fetch, not a failure to show (#1191).
+      if (v2Epoch() !== epoch) return void loadData()
       logLoadError('Library load error:', e)
       const offline = isOfflineError(e)
       setLoadError(offline ? 'offline' : 'failed')

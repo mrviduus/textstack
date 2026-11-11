@@ -29,6 +29,7 @@ import { offlineStorageBytes } from '../lib/deviceStorage'
 import { listStoredOriginalIds } from '../lib/originalFileCache'
 import { declineDownload, listDeclinedDownloads, undeclineDownload } from '../lib/declinedDownloads'
 import { clearDeletedOnServer } from '../lib/deletedOnServer'
+import { v2Epoch } from '../lib/v2'
 import { AppState } from 'react-native'
 import NetInfo from '@react-native-community/netinfo'
 import { CACHE_BUDGET_BYTES, isOutOfSpaceError } from '../lib/originalFilePolicy'
@@ -707,12 +708,28 @@ const PROCESSING_RECHECK_LIMIT = 25
         // reader's OWN library, which the server caps at a tier's worth of
         // uploads, not the 1,498-edition catalogue. If that stops being true
         // the fix is a page size here, not a second downloader.
-        const [books, metas, storedOriginals, declined] = await Promise.all([
-          userBooksApi.getUserBooks(),
-          getAllCachedUserBooks(),
-          listStoredOriginalIds(),
-          listDeclinedDownloads(),
-        ])
+        // A V2 store reset (account switch, guest → account re-key) during or after the listing makes
+        // it the previous account's: deleting by it removes the new account's downloads (#1191). Read
+        // again instead; the per-id check below covers a reset that lands mid-delete.
+        const epoch = v2Epoch()
+        const resetSince = () => v2Epoch() !== epoch
+        let listed
+        try {
+          listed = await Promise.all([
+            userBooksApi.getUserBooks(),
+            getAllCachedUserBooks(),
+            listStoredOriginalIds(),
+            listDeclinedDownloads(),
+          ])
+        } catch (err) {
+          if (!resetSince()) throw err
+          listed = null
+        }
+        if (!listed || resetSince()) {
+          autoRerunRef.current = true
+          continue
+        }
+        const [books, metas, storedOriginals, declined] = listed
         // "Cached" has to mean the whole book. Chapters alone satisfied it
         // before, so a PDF whose original had failed or been evicted counted as
         // done — and offline it would open as text with the figures stripped,
@@ -735,6 +752,7 @@ const PROCESSING_RECHECK_LIMIT = 25
           new Set(books.map(b => b.id)),
         )
         for (const id of orphans) {
+          if (resetSince()) { autoRerunRef.current = true; break }
           try {
             // Cancel first, the same order `removeUserBookDownload` uses: a
             // download still running would otherwise have its rows deleted and

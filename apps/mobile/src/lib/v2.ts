@@ -231,7 +231,9 @@ export async function getV2UserBooks(): Promise<UserBookDto[]> {
   const pulled = await whileCurrent(Promise.all([pullV2Books(), v2Api.pullFeed<V2ReadingState>('reading')]), ([, reading]) => {
     for (const s of reading.items) v2Store.states.set(s.bookId, s)
   })
-  if (!pulled) return []
+  // A pull a store reset dropped is no answer, not an empty library: the orphan sweep deletes every
+  // download missing from a listing (#1191). Retryable 503, the same rule as `v2Book` (#1174).
+  if (!pulled) throw new ApiError(503, 'Library pull interrupted, retry')
   const [list] = pulled
   const stateOf = v2Store.states
   return list.filter((b) => !b.removedAt).map((b): UserBookDto => {

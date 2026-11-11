@@ -9,6 +9,27 @@ import type { Selection } from '../hooks/useReaderSelection'
  */
 const read = (file: string) => readFileSync(resolve(__dirname, '../..', file), 'utf8')
 
+describe('#1191 — a V2 store reset never lets a listing delete downloads', () => {
+  it('the orphan sweep re-lists after a reset during or after the listing, and stops deleting on one', () => {
+    const ctx = read('src/context/DownloadContext.tsx')
+    const listing = ctx.indexOf('const epoch = v2Epoch()')
+    const orphans = ctx.indexOf('chooseOrphanedDownloads(', listing)
+    expect(listing).toBeGreaterThan(-1)
+    const before = ctx.slice(listing, orphans)
+    expect(before).toContain('if (!resetSince()) throw err')
+    expect(before).toContain('if (!listed || resetSince()) {')
+    expect(before).toContain('autoRerunRef.current = true')
+    const loop = ctx.slice(orphans, ctx.indexOf('deleteCachedUserBook(id)', orphans))
+    expect(loop).toContain('if (resetSince()) { autoRerunRef.current = true; break }')
+  })
+
+  it('the library screen re-loads instead of failing when a reset dropped its load, and a sign-out supersedes it', () => {
+    const lib = read('app/(tabs)/library.tsx')
+    expect(lib.indexOf('const myGen = ++loadGenRef.current')).toBeLessThan(lib.indexOf('if (!isAuthenticated) { setLoading(false); return }'))
+    expect(lib).toContain('if (v2Epoch() !== epoch) return void loadData()')
+  })
+})
+
 describe('#1142 — cached uploads changed by V2 reach the download state', () => {
   it('DownloadContext re-reads SQLite and forgets finished downloads of the affected books', () => {
     const ctx = read('src/context/DownloadContext.tsx')
