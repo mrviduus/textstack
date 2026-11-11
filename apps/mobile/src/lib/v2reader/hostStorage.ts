@@ -5,6 +5,7 @@
 //   library.json, store/  R2's JSON library: imported into the local library once, then deleted
 // Books, positions and highlights live in SQLite (localLibrary.ts, R6); only file bytes are files.
 import { createWriteQueue } from '../sessionWrites'
+import { entryFor } from '@textstack/shared'
 import { parseLibrary, type LibraryEntry } from './library.mjs'
 
 /** What the dev route lists: a book on this device, or one the server holds bytes for (download). */
@@ -67,11 +68,29 @@ export function nonceFromUuid(uuid: string): string {
 }
 
 /**
- * R2 wrote its JSON as `name.tmp` moved over `name`: the target when it exists (a tmp beside it is
- * ignored, finished or not), else the tmp — a kill mid-move left only that.
+ * R2 wrote its JSON as `name.tmp` moved over `name`: the target when it exists and passes `ok` (a tmp
+ * beside it is ignored then, finished or not), else the tmp if it passes — a kill mid-move left only that,
+ * a kill mid-write a target that does not parse (#1081).
  */
-export async function readRecovering(files: V2Files, name: string): Promise<string | null> {
-  return (await files.read(name)) ?? (await files.read(`${name}.tmp`))
+export async function readRecovering(files: V2Files, name: string, ok: (text: string) => boolean = () => true): Promise<string | null> {
+  for (const n of [name, `${name}.tmp`]) {
+    const text = await files.read(n)
+    if (text !== null && ok(text)) return text
+  }
+  return null
+}
+
+/**
+ * `readRecovering`, and when neither file passes, both kept aside (`<name>.corrupt-<ms>`) with a warning:
+ * never deleted, never written over, not read again on every start (#1081).
+ */
+async function readOrKeepAside(files: V2Files, name: string, ok: (text: string) => boolean): Promise<string | null> {
+  const text = await readRecovering(files, name, ok)
+  if (text !== null) return text
+  const aside = [name, `${name}.tmp`].filter((n) => files.exists(n)).map((n) => [n, `${n}.corrupt-${Date.now()}`])
+  for (const [from, to] of aside) await files.move(from, to)
+  if (aside.length) console.warn(`[v2] R2 ${name} unreadable, not imported; kept aside as ${aside.map(([, to]) => to).join(', ')}`)
+  return null
 }
 
 /** The retained copy of the file with this (already normalised) sha256. */
@@ -136,29 +155,23 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
  * R2's JSON library into the local library, then the files of the entries it now holds deleted
  * (best effort: the import is flagged done), library.json last.
  *
- * #1081: the target is read first, the tmp beside it when the target does not parse (a kill mid-write). When
- * neither parses, both are kept aside (`<name>.corrupt-<ms>`) and the import says so: never deleted, never
- * written over, and not read again on every start. Nothing has written library.json since R6.
+ * #1081: library.json and every store entry are read by `readOrKeepAside` (the tmp when the target does not
+ * parse; neither: both kept aside before the import deletes what it holds). Nothing has written these since R6.
  */
 async function importJsonLibrary(files: V2Files, lib: LocalLibrary, newId: () => string) {
-  const names = ['library.json', 'library.json.tmp']
-  const texts = await Promise.all(names.map((n) => files.read(n)))
-  const parsed = parseLibrary(texts[0] ?? '') ?? parseLibrary(texts[1] ?? '')
-  if (!parsed) {
-    const aside = names.filter((_, i) => texts[i] !== null).map((n) => [n, `${n}.corrupt-${Date.now()}`])
-    for (const [from, to] of aside) await files.move(from, to)
-    if (aside.length) console.warn(`[v2] R2 library unreadable, not imported; kept aside as ${aside.map(([, to]) => to).join(', ')}`)
-    return
-  }
+  const text = await readOrKeepAside(files, 'library.json', (t) => parseLibrary(t) !== null)
+  if (text === null) return
+  const parsed = parseLibrary(text)!
   const books = (parsed.books as LibraryEntry[]).flatMap((b) => {
     try { return [{ ...b, sha256: sha256Key(b.sha256) }] } catch { return [] }
   })
   const stores = new Map<string, string>()
   for (const b of books) {
-    const json = await readRecovering(files, `store/${b.sha256}.json`)
+    const json = await readOrKeepAside(files, `store/${b.sha256}.json`, (t) => entryFor(t, b) !== null)
     if (json) stores.set(b.sha256, json)
   }
   const held = await lib.importLegacy(books, stores, newId)
+  // An unreadable entry is no longer under its name (kept aside above): nothing of it is deleted here.
   for (const name of [...held.map((sha) => `store/${sha}.json`), 'library.json']) {
     for (const f of [name, `${name}.tmp`]) try { files.remove(f) } catch { /* best effort */ }
   }

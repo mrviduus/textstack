@@ -44,6 +44,9 @@ describe('v2 host storage', () => {
     data.set('store/x.json', 'old')
     // Even a complete tmp loses to an existing target: a save killed before its move is lost.
     expect(await readRecovering(files, 'store/x.json')).toBe('old')
+    // With a check (#1081): a target that fails it is passed over for the tmp; neither passing is null.
+    expect(await readRecovering(files, 'store/x.json', (t) => t === 'new')).toBe('new')
+    expect(await readRecovering(files, 'store/x.json', () => false)).toBeNull()
   })
 
   const storage = (m = memoryFiles(), newId: () => string = randomUUID) => {
@@ -273,6 +276,34 @@ describe('v2 host storage', () => {
       const before = m.ops.length
       await createV2Storage(m.files, randomUUID, createLocalLibrary(memoryDb())).books()
       expect(m.ops.slice(before)).toEqual([])
+      warn.mockRestore()
+    })
+
+    const library = JSON.stringify({ v: 1, books: [{ id: randomUUID(), sha256: SHA_A_KEY, size: 10, title: 'Old', author: 'A', originalName: 'old.epub', importedAt: 5, openedAt: 6 }] })
+    const storeEntry = JSON.stringify({ v: 1, book: { sha256: SHA_A_KEY, size: 10, name: 'old.epub' }, position: pos, highlights: [] })
+
+    it('storeEntry_CorruptTarget_AValidTmpBeside_TheTmpImported', async () => {
+      const m = memoryFiles()
+      m.data.set('library.json', library)
+      m.data.set(`store/${SHA_A_KEY}.json`, '{"v":1,"book":')
+      m.data.set(`store/${SHA_A_KEY}.json.tmp`, storeEntry)
+      const { storage: s } = storage(m)
+      await s.books()
+      expect(JSON.parse((await s.readStore(SHA_A))!).position).toEqual(pos)
+      expect([...m.data.keys()].filter((k) => k.startsWith('store/'))).toEqual([])
+    })
+
+    it('storeEntry_NeitherParses_KeptAsideNeverDeleted_TheBookStillImported', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const m = memoryFiles()
+      m.data.set('library.json', library)
+      m.data.set(`store/${SHA_A_KEY}.json`, 'garbage')
+      const { storage: s } = storage(m)
+      expect((await s.books()).map((b) => b.title)).toEqual(['Old'])
+      const aside = [...m.data.keys()].filter((k) => k.startsWith('store/'))
+      expect(aside.map((k) => k.replace(/\d+$/, 'N'))).toEqual([`store/${SHA_A_KEY}.json.corrupt-N`])
+      expect(m.data.get(aside[0])).toBe('garbage')
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('kept aside'))
       warn.mockRestore()
     })
 
