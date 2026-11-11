@@ -24,7 +24,7 @@ public sealed record V2State(
 /// <summary>
 /// Is <c>textstack_v2</c> there and migrated to this build (#1053)? Read by the V2 endpoint filter and
 /// by <c>/health/ready</c>'s soft <c>v2</c> component, never at startup: if this fails at 03:00 only
-/// sync pauses (docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md). The answer is cached
+/// sync pauses (docs/internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md). The answer is cached
 /// for <see cref="Ttl"/>, so neither a burst of requests nor the probe opens a V2 connection each;
 /// concurrent callers share one check, and <see cref="Invalidate"/> drops it when a request saw V2 fail.
 /// Without <c>ConnectionStrings:V2</c> it answers <see cref="V2State.Unconfigured"/> without a connection.

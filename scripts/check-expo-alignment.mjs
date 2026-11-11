@@ -10,7 +10,7 @@
 // pull request went red because expo 57.0.26 appeared overnight, on code nobody had touched. The
 // fix it asks for is a patch bump of expo-updates and expo-router, which moves the native runtime
 // fingerprint: every installed app stops receiving OTA updates until a new store build ships. And
-// the policy (deps-refresh.yml, docs/changelog-archive/2026-H2.md "one proposal twice a year") is
+// the policy (deps-refresh.yml, docs/internal/changelog-archive/2026-H2.md "one proposal twice a year") is
 // that Expo moves on a planned native release, never because a patch appeared.
 //
 // So, three outcomes:

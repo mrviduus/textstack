@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Contracts.ChapterReview;
 
 // Chapter review — the reader's own assistant reviews one chapter over MCP and the result comes home
-// as structure. Spec: docs/05-features/chapter-review.md; storage: ADR-016.
+// as structure. Spec: docs/internal/features/chapter-review.md; storage: ADR-016.
 
 // ── stored review (book_insight.review_json; also GET /me/insights → Review) ──────────────────────
 

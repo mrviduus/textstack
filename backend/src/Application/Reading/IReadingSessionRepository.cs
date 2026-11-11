@@ -5,7 +5,7 @@ namespace Application.Reading;
 
 /// <summary>
 /// The V2 reading sessions (table <c>reading_sessions</c>, ADR-031), push only. Scoped to
-/// <c>userId</c> (docs/01-architecture/data-access.md rule 7).
+/// <c>userId</c> (docs/architecture/data-access.md rule 7).
 /// </summary>
 public interface IReadingSessionRepository
 {

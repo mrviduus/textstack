@@ -22,7 +22,7 @@ set -eu
 # and every text index is sorted by rules nothing uses any more, silently. That is not theoretical
 # — the legacy cluster has been in that state since its own initdb, which is why it could not
 # create this database at all until 2026-10-30
-# (docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md, #1056).
+# (docs/internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md, #1056).
 #
 # ICU's version travels with the image, which is pinned by digest and which Dependabot no longer
 # bumps, and `und` (the root locale) orders text exactly as the glibc `en_US.utf8` it replaces —

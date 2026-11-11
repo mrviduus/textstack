@@ -1,4 +1,4 @@
-/* Chapter review (docs/05-features/chapter-review.md §12): the action at the end of each chapter row,
+/* Chapter review (docs/internal/features/chapter-review.md §12): the action at the end of each chapter row,
    the connect dialog, and the summary page. */
 
 .book-chapters__row { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--color-border); }

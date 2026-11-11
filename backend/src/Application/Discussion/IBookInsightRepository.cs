@@ -8,7 +8,7 @@ namespace Application.Discussion;
 /// legacy <c>Application.Common.Interfaces.IInsightRepository</c> at M2.4 (plan §6, "re-point"): that
 /// port keeps serving the legacy table until its callers move, and is deleted then; a different name,
 /// so the files bridging the two can import both. Every method is scoped to <c>userId</c>
-/// (docs/01-architecture/data-access.md rule 7).
+/// (docs/architecture/data-access.md rule 7).
 /// <para>No transaction parameter yet: the legacy review save composes with the review questions in
 /// one transaction; on V2 that composition is M2.4's use case and adds <c>NpgsqlTransaction? tx</c>
 /// (#1067).</para>

@@ -82,7 +82,7 @@ services:
   # Behind a profile, and nothing depends on it, ever. A migrator that cannot reach or create
   # textstack_v2 is a V2 problem, not a reason for the site to be down — and on 2026-10-30 it was
   # exactly that: `up -d` waited for this service, it exited 1, and api and worker never started
-  # (docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md). `compose run` and
+  # (docs/internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md). `compose run` and
   # `compose up migrator-v2` enable the profile themselves, so `make migrate-v2*` is unaffected.
   # The gate is the api's V2Readiness: a V2 schema that is behind answers 503 on /me/v2/* only (#1053).
   migrator-v2:

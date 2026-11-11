@@ -6,7 +6,7 @@ allowed-tools: Bash, Read, Edit, Write
 
 # /changelog — the PR is the changelog
 
-Since #1220 nobody writes changelog lines. `CHANGELOG.md` and `docs/changelog-archive/` are frozen:
+Since #1220 nobody writes changelog lines. `CHANGELOG.md` and `docs/internal/changelog-archive/` are frozen:
 never add to them.
 
 - **The record** is the merged PRs: title = one scannable line, one area label (its section),
@@ -22,8 +22,8 @@ never add to them.
 |---|---|
 | Any merged change | The PR: title, one area label, description = the write-up |
 | Reader-visible change | Nothing now; `/changelog-week` proposes it for the page |
-| It broke production | Postmortem in `docs/incidents/` (copy `_TEMPLATE.md`), plus a row in its README |
-| It changed a load-bearing decision | ADR in `docs/01-architecture/adr/` |
+| It broke production | Postmortem in `docs/internal/incidents/` (copy `_TEMPLATE.md`), plus a row in its README |
+| It changed a load-bearing decision | ADR in `docs/architecture/adr/` |
 | It finished, or created, open work | `docs/STATUS.md`, and one GitHub issue per open item |
 
 ## Play Store "What's new"

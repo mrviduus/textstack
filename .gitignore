@@ -130,6 +130,14 @@ docs/marketing/linkedin-routine/
 docs/marketing/x-routine/
 docs/seo/
 docs/fixes/
+# same local files after the docs/ reorganisation (#1237)
+docs/internal/marketing/campaign-tracker.md
+docs/internal/marketing/ih-launch-draft.md
+docs/internal/marketing/ih-warmup-comments.md
+docs/internal/marketing/linkedin-routine/
+docs/internal/marketing/x-routine/
+docs/internal/seo/
+docs/internal/fixes/
 
 # Build / release artifact packages
 textstack-*-submission-package.*
@@ -163,6 +171,7 @@ packages/*/pnpm-workspace.yaml
 # keeping; the PNGs are 8-10 MB per pass in a public repo. Two passes worth are
 # already tracked (10 MB, commit 17e5a46b) — left alone rather than rewritten.
 docs/qa/screens/
+docs/internal/qa/screens/
 
 # Real books used as local-only extraction fixtures (copyrighted — never commit; tests skip without them)
 tests/TextStack.Extraction.Tests/Fixtures/KMK Optometry OSCE E-Workbook.pdf

@@ -6,7 +6,7 @@ namespace TextStack.IntegrationTests;
 
 /// <summary>
 /// <c>/me/chapter-review</c> and <c>/me/review-questions</c> — the chapter review round trip
-/// (docs/05-features/chapter-review.md). What is asserted here lives in Postgres and the endpoint
+/// (docs/internal/features/chapter-review.md). What is asserted here lives in Postgres and the endpoint
 /// wiring: the spoiler gate against real progress rows, the insight upsert, the jsonb review, the
 /// question sync by prompt and the cascade on delete. The rules themselves are unit-tested.
 ///

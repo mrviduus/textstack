@@ -16,7 +16,7 @@ reports, and PRs are welcome.
 ## Running locally
 
 See [README: Run locally](../README.md#run-locally). For day-to-day dev, tests,
-migrations, mobile and lint see [local-dev.md](../docs/03-ops/local-dev.md) and
+migrations, mobile and lint see [local-dev.md](../docs/start/run-locally.md) and
 [CLAUDE.md](../CLAUDE.md).
 
 ## Before sending a PR
@@ -91,7 +91,7 @@ apps/
   mobile/         # Mobile app (Expo)
 ```
 
-Deeper detail: [docs/01-architecture/](../docs/01-architecture/).
+Deeper detail: [docs/architecture/](../docs/architecture/).
 
 ## Contributor License Agreement
 

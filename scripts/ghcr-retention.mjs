@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 //
 // GHCR retention for the seven images.yml publishes (ghcr.io/<owner>/textstack-<svc>:<full sha>).
-// Run by .github/workflows/ghcr-retention.yml; see docs/01-architecture/delivery.md.
+// Run by .github/workflows/ghcr-retention.yml; see docs/architecture/delivery.md.
 //
 // Per package, a version is KEPT if any of these holds:
 //   deployed  — a tag is the SHA of one of the last DEPLOYS successful deploy.yml runs, or of

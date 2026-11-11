@@ -5,7 +5,7 @@ namespace TextStack.UnitTests;
 /// <summary>
 /// The error code is the Sentry fingerprint and throttle key for provider failures. Grouped by
 /// exception type instead, a retired model joined an old invalid_api_key issue and alerted nobody
-/// (docs/incidents/2026-10-24-translation-down-on-a-retired-model.md) — so the two must differ.
+/// (docs/internal/incidents/2026-10-24-translation-down-on-a-retired-model.md) — so the two must differ.
 /// </summary>
 public class LlmFailureAlarmTests
 {
