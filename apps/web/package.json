@@ -22,7 +22,8 @@
     "check:mobile-pdf": "node scripts/check-mobile-pdf.mjs",
     "check:v2-reader": "node ../mobile/src/lib/v2reader/build.mjs --check",
     "check:v2-reader-sandbox": "node --experimental-strip-types ../mobile/src/lib/v2reader/sandbox.check.mjs",
-    "check:v2-reader-formats": "node --experimental-strip-types ../mobile/src/lib/v2reader/formats.check.mjs"
+    "check:v2-reader-formats": "node --experimental-strip-types ../mobile/src/lib/v2reader/formats.check.mjs",
+    "check:v2-reader-prod-csp": "node --experimental-strip-types ../mobile/src/lib/v2reader/prodCsp.check.mjs"
   },
   "dependencies": {
     "@sentry/node": "catalog:",
