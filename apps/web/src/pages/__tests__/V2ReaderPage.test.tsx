@@ -183,6 +183,8 @@ describe('V2ReaderPage', () => {
     act(() => { vi.advanceTimersByTime(DOWNLOAD_STALL_MS - 1000) })
     act(() => d.progress(100, 1000))
     act(() => { vi.advanceTimersByTime(DOWNLOAD_STALL_MS - 1000) })
+    await act(async () => {}) // a stall would have rejected by now
+    expect(d.signal!.aborted).toBe(false)
     expect(screen.queryByRole('alert')).toBeNull()
     act(() => { vi.advanceTimersByTime(1000) })
     expect(await screen.findByRole('alert')).toHaveTextContent(`The download stopped: nothing arrived for ${DOWNLOAD_STALL_MS / 1000} s.`)
