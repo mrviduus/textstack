@@ -1,4 +1,4 @@
-.android-tester {
+.android-app-banner {
   position: fixed;
   left: 0;
   right: 0;
@@ -11,7 +11,7 @@
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
 }
 
-.android-tester__inner {
+.android-app-banner__inner {
   max-width: 1080px;
   margin: 0 auto;
   display: flex;
@@ -20,7 +20,7 @@
   flex-wrap: wrap;
 }
 
-.android-tester__text {
+.android-app-banner__text {
   flex: 1;
   min-width: 260px;
   font-size: 13px;
@@ -28,23 +28,23 @@
   color: var(--color-text, #222);
 }
 
-.android-tester__text strong {
+.android-app-banner__text strong {
   display: block;
   margin-bottom: 4px;
   font-size: 14px;
 }
 
-.android-tester__text p {
+.android-app-banner__text p {
   margin: 0;
 }
 
-.android-tester__actions {
+.android-app-banner__actions {
   display: flex;
   gap: 8px;
   flex-shrink: 0;
 }
 
-.android-tester__btn {
+.android-app-banner__btn {
   padding: 8px 16px;
   border-radius: 8px;
   font-size: 13px;
@@ -58,26 +58,26 @@
   justify-content: center;
 }
 
-.android-tester__btn:hover {
+.android-app-banner__btn:hover {
   opacity: 0.85;
 }
 
-.android-tester__btn--primary {
+.android-app-banner__btn--primary {
   background: var(--color-brand, #c4704b);
   color: #fff;
 }
 
-.android-tester__btn--secondary {
+.android-app-banner__btn--secondary {
   background: transparent;
   color: var(--color-text, #222);
   border-color: var(--color-border, #d0d0d0);
 }
 
 @media (max-width: 600px) {
-  .android-tester__actions {
+  .android-app-banner__actions {
     width: 100%;
   }
-  .android-tester__btn {
+  .android-app-banner__btn {
     flex: 1;
   }
 }

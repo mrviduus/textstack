@@ -119,7 +119,7 @@
       },
       "mobileApp": {
         "q": "Is there a mobile app?",
-        "a": "A mobile app for iOS and Android is in active development and coming soon. In the meantime, TextStack works great on mobile browsers."
+        "a": "Yes. The Android app is on Google Play: same books and saved words, and it reads offline. There is no iOS app yet; on an iPhone, TextStack works in the browser."
       },
       "vsFriends": {
         "q": "How is TextStack different from Kindle or LingQ?",
@@ -155,14 +155,13 @@
     "accept": "Accept all",
     "reject": "Reject analytics"
   },
-  "androidBeta": {
+  "androidApp": {
     "title": "Read on your phone?",
-    "body": "The Android app is in closed testing — same books, same saved words, offline. Join, keep it installed, and read. That is the whole job.",
-    "join": "Join the test",
+    "body": "The TextStack app for Android: same books, same saved words, reads offline.",
+    "open": "Get the app",
     "dismiss": "Not now",
-    "badgeLabel": "Android app",
-    "badgeAction": "Join the beta",
-    "badgeNote": "In closed testing — open to anyone with an Android phone."
+    "badgeLabel": "Get it on",
+    "badgeAction": "Google Play"
   },
   "reader": {
     "openError": {
@@ -352,7 +351,15 @@
     "deleteAccount": "Delete Account",
     "authors": "Authors",
     "sitemap": "Sitemap",
-    "changelog": "What's new"
+    "changelog": "What's new",
+    "colRead": "Read",
+    "colApp": "App",
+    "colProject": "Project",
+    "colLegal": "Legal",
+    "android": "Android app",
+    "ai": "AI assistants",
+    "about": "About",
+    "developers": "Developers"
   },
   "sitemap": {
     "title": "Sitemap",

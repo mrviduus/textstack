@@ -633,11 +633,33 @@
   margin: 0 0 48px;
 }
 
-.site-footer__links {
+/* Four link columns (Read, App, Project, Legal); two per row on phones. */
+.site-footer__columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 32px 24px;
+}
+
+@media (min-width: 768px) {
+  .site-footer__columns {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.site-footer__col {
   display: flex;
-  justify-content: center;
-  gap: 48px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.site-footer__heading {
+  margin: 0 0 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text);
 }
 
 .site-footer__link {
@@ -652,8 +674,7 @@
   color: var(--color-text);
 }
 
-/* Android beta badge — shaped like a store badge (icon + two-line lockup) so it
-   reads as one at a glance, but says what it actually is. */
+/* Google Play badge — store-badge shape (icon + two-line lockup), drawn with theme tokens. */
 .site-footer__android {
   margin-top: 48px;
   display: flex;
@@ -704,13 +725,6 @@
 .site-footer__android-action {
   font-size: 16px;
   font-weight: 600;
-}
-
-.site-footer__android-note {
-  margin: 0;
-  font-size: 12px;
-  color: var(--color-text-secondary);
-  text-align: center;
 }
 
 .site-footer__bottom {

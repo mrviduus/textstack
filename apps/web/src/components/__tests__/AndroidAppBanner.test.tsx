@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { AndroidTesterBanner } from '../AndroidTesterBanner'
+import { AndroidAppBanner } from '../AndroidAppBanner'
 
 vi.mock('../../hooks/useTranslation', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
@@ -17,14 +17,14 @@ function setUserAgent(ua: string) {
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <AndroidTesterBanner />
+      <AndroidAppBanner />
     </MemoryRouter>,
   )
 }
 
-const shown = () => screen.queryByText('androidBeta.title') !== null
+const shown = () => screen.queryByText('androidApp.title') !== null
 
-describe('AndroidTesterBanner', () => {
+describe('AndroidAppBanner', () => {
   beforeEach(() => {
     localStorage.clear()
     setUserAgent(ANDROID)
