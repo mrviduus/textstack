@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Docs** — wave 12 close: STATUS, recommended answers in the R8 audit, wave-13 prompt — docs
 - **Reader** — two legacy reader fixes: the web contents list numbers chapters by their place (was `chapterNumber + 1`), mobile TTS sends the book's language (a `uk`/`de` book was read by an English voice) — web, mobile
 - **Infra** — CI: the best-effort Playwright deps step is capped at 1 min (the 3-min cap cost every V2-reader run 193 s while the apt mirror stayed slow) — infra
 - **Mobile** — sign-out clears the declined-downloads and deleted-on-server id sets with the account's cached uploads (#1192) — mobile

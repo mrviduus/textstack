@@ -197,6 +197,20 @@ The V2 work should not reproduce these; whether to fix them in the legacy reader
 6. `textstack-anchor-v1` annotations (#1195) and the CBZ position rule (#1188).
 7. Fix the §3 legacy defects in the legacy readers now, or let R8 delete them?
 
+### Recommended answers (2026-11-11)
+
+Given to the owner the same day; the owner answered "ok, do it" to the list. They are the working
+defaults for wave 13. A wave that builds on one of them names it in its brief, so the owner can still
+say no before code depends on it.
+
+1. Bookmarks: in. Cheap on V2, and readers expect them.
+2. In-book search: in, late (wave D). foliate has it; it is only stubbed out of our build.
+3. Tap zones: in, since paginated is the default. No volume keys.
+4. iOS: after R8.
+5. Stats widget and exit prompt: dropped. Reviewed-highlight marks: kept.
+6. #1195: list `textstack-anchor-v1` annotations as quotations. #1188: sync the CBZ position by entry name.
+7. Legacy defects: the web TOC number and the mobile TTS voice fixed now (#1213); R8 deletes the rest.
+
 ## 7. Sizing
 
 | Wave | Work | Depends on |
