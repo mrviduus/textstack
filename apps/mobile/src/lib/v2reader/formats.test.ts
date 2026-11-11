@@ -46,8 +46,43 @@ describe('sniffFormat', () => {
     expect(() => sniffFormat(b)).toThrow(/not a book this reader opens/)
   })
 
-  it('pdf_RefusedForNow', () => {
-    expect(() => sniffFormat(bytes('%PDF-1.7\n'))).toThrow(/PDF is not supported yet/)
+  it('pdf_ByHeaderInTheFirstKiB', () => {
+    // #1128 S5: read by pdf.js; junk before the header is common, past the first KiB it is no PDF.
+    expect(sniffFormat(bytes('%PDF-1.7\n'))).toBe('pdf')
+    expect(sniffFormat(bytes(`${' '.repeat(1019)}%PDF-1.4\n`))).toBe('pdf')
+    expect(() => sniffFormat(bytes(`${' '.repeat(1020)}%PDF-1.4\n`))).toThrow(/not a book this reader opens/)
+  })
+
+  it('pdfMarkerInTheFirstKiBOfAZipMobiOrKfx_StillThatFormat', () => {
+    // #1128 S5 QA: the PDF sniff is a substring search, so it must run after every format told by its own
+    // magic: a zip (an EPUB whose first entry is named so), a PDB whose name says so, a KFX.
+    expect(sniffFormat(bytes(Buffer.concat([Buffer.from('504b0304140000', 'hex'), Buffer.from('%PDF-1.4 entry.xhtml')])))).toBe('zip')
+    const named = bytes(mobi('%PDF-1.4 in the title', html))
+    expect(Buffer.from(named.subarray(0, 1024)).toString('latin1')).toContain('%PDF-')
+    expect(sniffFormat(named)).toBe('mobi')
+    expect(() => sniffFormat(bytes(Buffer.concat([Buffer.from([0xea]), Buffer.from('DRMION'), Buffer.from([0xee]), Buffer.from('%PDF-1.4')])))).toThrow(/DRM-protected \(KFX\)/)
+  })
+
+  // QA #1128 S5 (fixed): markup is never a PDF, whatever its first KiB quotes; junk before a real header still is.
+  it('fb2QuotingThePdfMarkerInItsFirstKiB_StillFb2', () => {
+    const book = fb2('About %PDF-1.4 headers', '<section><p>p</p></section>')
+    expect(book.indexOf('%PDF-')).toBeLessThan(1024)
+    expect(sniffFormat(bytes(book))).toBe('fb2')
+    expect(sniffFormat(bytes(`﻿  ${book}`))).toBe('fb2')
+    expect(() => sniffFormat(bytes('<html><body>%PDF-1.4</body></html>'))).toThrow(/not a book this reader opens/)
+    expect(sniffFormat(bytes(`${'\x41'.repeat(900)}%PDF-1.4\n`))).toBe('pdf')
+    expect(sniffFormat(bytes(`\n\n%PDF-1.7\n`))).toBe('pdf')
+  })
+
+  it('pdfAfterAnHtmlWarningOrDoctype_PdfUnlessTheFileIsAnHtmlPage', () => {
+    // S5 review: junk before the header may start with `<` (a server's PHP warning); an HTML page quoting it is no PDF.
+    expect(sniffFormat(bytes('<br />\n<b>Warning</b>: something in x.php on line 3<br />\n%PDF-1.4\n'))).toBe('pdf')
+    expect(() => sniffFormat(bytes('<!DOCTYPE html><title>%PDF-1.4</title>'))).toThrow(/not a book this reader opens/)
+    expect(() => sniffFormat(bytes('<HTML lang="en"><body>%PDF-1.4</body></HTML>'))).toThrow(/not a book this reader opens/)
+    // An FB2 whose root comes after a long comment (past the first KiB) and that quotes the marker early.
+    const late = fb2('Late root', '<section><p>p</p></section>').replace('<FictionBook', `<!-- %PDF-1.4 ${'x'.repeat(1500)} --><FictionBook`)
+    expect(late.indexOf('<FictionBook')).toBeGreaterThan(1024)
+    expect(sniffFormat(bytes(late))).toBe('fb2')
   })
 
   it('unknownOrEmpty_Refused', () => {

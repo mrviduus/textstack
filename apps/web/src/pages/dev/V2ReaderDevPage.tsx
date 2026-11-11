@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { v2ReaderPageHtml } from '../../../../mobile/src/lib/v2reader/v2ReaderPage.generated'
 import { addOpened, emptyLibrary, parseLibrary, type LibraryEntry } from '../../../../mobile/src/lib/v2reader/library.mjs'
 import { nonceFromUuid } from '../../../../mobile/src/lib/v2reader/hostStorage'
+import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reader/openTracker.mjs'
 
 /**
  * The V2 reader page (ADR-029) on the web, dev server only (R5, #1037): a second host for the page the
@@ -79,13 +80,15 @@ export default function V2ReaderDevPage() {
   })
   const ready = useRef(false)
   const opening = useRef<Opening | null>(null)
+  /** Which page answer belongs to which open (openTracker.mjs): a book kept on screen, a stale `restored`. */
+  const [tracker] = useState(() => createOpenTracker<Opening>())
   const picks = useRef(0)
   const [books, setBooks] = useState<LibraryEntry[]>(() => readLibrary().books)
   const [heading, setHeading] = useState('Pick a book')
   const [flow, setFlow] = useState<Flow>(() => (readItem(FLOW_KEY) === 'scrolled' ? 'scrolled' : 'paginated'))
   const flowRef = useRef(flow)
-  /** CBZ is images only: no highlight (the page refuses it too). */
-  const [textual, setTextual] = useState(true)
+  /** `opened.annotatable`: false on a CBZ (images only) and a PDF (no highlights yet): no highlight button (the page refuses it too). */
+  const [annotatable, setAnnotatable] = useState(true)
   /** False for a fixed-layout book (CBZ): flow changes nothing there. */
   const [reflowable, setReflowable] = useState(true)
   const [status, setStatus] = useState('')
@@ -111,12 +114,22 @@ export default function V2ReaderDevPage() {
     setStatus('')
     setRestored('')
     opening.current = { name: `${++picks.current}/${file.name}`, originalName: file.name, bytes: await file.arrayBuffer() }
+    tracker.open(opening.current.name, opening.current)
     flushOpen()
   }
 
   useEffect(() => {
-    /** The open this answer belongs to, or null when a later pick has replaced it. */
-    const answered = (name: unknown) => (opening.current && opening.current.name === name ? opening.current : null)
+    /** The page's book is `t.open`'s (openTracker.mjs: the open in flight, or a book the page kept on screen). */
+    const takeOpened = ({ open: current, opened: m }: Take<Opening, any>) => {
+      opening.current = current
+      call('restore', [readItem(storeKey(m.book.sha256))])
+      setAnnotatable(m.annotatable !== false)
+      setReflowable(m.reflowable !== false)
+      setHeading([m.title || current.originalName, m.author].filter(Boolean).join(' — '))
+      const { lib } = addOpened(readLibrary(), { ...m.book, title: m.title, author: m.author, originalName: current.originalName })
+      writeItem(LIBRARY_KEY, JSON.stringify(lib))
+      setBooks(lib.books)
+    }
     const onMessage = (e: MessageEvent) => {
       if (e.source !== frame.current?.contentWindow || typeof e.data !== 'string') return
       let m: any
@@ -129,28 +142,25 @@ export default function V2ReaderDevPage() {
           flushOpen()
           return
         case 'opened': {
-          const current = answered(m.book?.name)
-          if (!current) return
-          call('restore', [readItem(storeKey(m.book.sha256))])
-          setTextual(m.textual !== false)
-          setReflowable(m.reflowable !== false)
-          setHeading([m.title || current.originalName, m.author].filter(Boolean).join(' — '))
-          const { lib } = addOpened(readLibrary(), { ...m.book, title: m.title, author: m.author, originalName: current.originalName })
-          writeItem(LIBRARY_KEY, JSON.stringify(lib))
-          setBooks(lib.books)
+          const t = tracker.opened(m)
+          if (t) takeOpened(t)
           return
         }
         case 'open-failed': {
-          const current = answered(m.name)
-          if (!current) return
-          setError(`cannot open ${current.originalName}: ${m.error}`)
+          const f = tracker.failed(m.name)
+          if (!f) return
+          setError(`cannot open ${f.failed.originalName}: ${m.error}`)
           // The old book may still post a relocate until the page takes up this open (file read +
           // messages in flight); a failure must not leave it standing after pick() cleared it (#1168).
           setStatus('')
           opening.current = null
+          // The page kept a book on screen that answered meanwhile: it is the one read now.
+          if (f.take) takeOpened(f.take)
           return
         }
         case 'restored':
+          // Only for the book taken last: a stale answer must not show another book as restored.
+          if (!tracker.restored(m)) return
           setRestored(`restore: ${m.position}`)
           return
         case 'store':
@@ -161,7 +171,8 @@ export default function V2ReaderDevPage() {
           return
         case 'word':
           // Dev stub: no translation service here; the label proves the word → showTranslation round trip.
-          call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
+          // No CFI (a book that is not `annotatable`, e.g. a PDF): no label can be drawn, none is asked for.
+          if (m.cfi) call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
           return
         case 'openLink':
           if (/^https?:\/\//i.test(m.href)) window.open(m.href, '_blank', 'noopener,noreferrer')
@@ -189,10 +200,10 @@ export default function V2ReaderDevPage() {
   return (
     <main style={{ display: 'flex', flexDirection: 'column', height: '100vh', padding: 8, boxSizing: 'border-box', gap: 4 }}>
       <div style={{ display: 'flex', gap: 8 }}>
-        <input type="file" accept=".epub,.mobi,.azw3,.azw,.fb2,.fbz,.cbz,application/epub+zip" onChange={pick} aria-label="Pick EPUB" />
+        <input type="file" accept=".epub,.mobi,.azw3,.azw,.fb2,.fbz,.cbz,.pdf,application/epub+zip,application/pdf" onChange={pick} aria-label="Pick EPUB" />
         <button onClick={() => call('prev')}>‹ Prev</button>
         <button onClick={() => call('next')}>Next ›</button>
-        {textual && <button onClick={() => call('highlightSelection')}>Highlight</button>}
+        {annotatable && <button onClick={() => call('highlightSelection')}>Highlight</button>}
         <button onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? 'Scrolled' : 'Paginated'}</button>
       </div>
       <strong data-testid="v2-heading">{heading}</strong>

@@ -32,10 +32,12 @@ describe('v2ReaderPageHtml', () => {
   })
 
   it('twoLoads_DifferentNonces_EachCarriesOnlyItsOwn', () => {
-    const a = v2ReaderPageHtml('A'.repeat(24))
-    const b = v2ReaderPageHtml('B'.repeat(24))
-    expect(a).not.toContain('B'.repeat(24))
-    expect(b).not.toContain('A'.repeat(24))
+    // Not runs of one letter: the carried pdf.js and cMaps hold base64 data with long runs of 'A'.
+    const [na, nb] = ['Qa1Qa1'.repeat(4), 'Zb2Zb2'.repeat(4)]
+    const a = v2ReaderPageHtml(na)
+    const b = v2ReaderPageHtml(nb)
+    expect(a).not.toContain(nb)
+    expect(b).not.toContain(na)
   })
 
   it('csp_MatchesAdr029Decision4_AndPrecedesTheOnlyScript', () => {
@@ -75,27 +77,37 @@ describe('v2ReaderPageHtml', () => {
     expect(mobi).toMatch(/const detail = \{ data: replaced, type: this\.#type \};\s*this\.transformTarget\.dispatchEvent\(new CustomEvent\("data", \{ detail \}\)\);\s*const data = await detail\.data;\s*if \(data !== replaced\) doc = /)
   })
 
-  it('bundle_OpenCancelsPendingSaves_AndNoHighlightBeforeRestored', () => {
+  it('bundle_OpenFlushesPendingSaves_AndNoHighlightBeforeRestored', () => {
     const html = v2ReaderPageHtml(NONCE)
     // The call sites of the two data-loss guards; the scheduler itself is unit-tested.
-    expect(html).toMatch(/async function open\(bytes, name, kind, mine\) \{(\s*var [^;]*;)?\s*saves\.cancel\(\);/)
+    // #1128 S5: the book is made before the swap; a superseded or empty one is destroyed and never swapped
+    // in; at the swap the book on screen's pending save is flushed under its own key, then the new one is assigned.
+    expect(html).toMatch(/const made = await makeBookFor\(bytes, name, kind\);\s*const empty = [^;]*;\s*if \(mine !== openSeq \|\| empty\) destroy\(made\.book\);\s*if \(mine !== openSeq\) return false;\s*if \(empty\) throw [^;]*;\s*saves\.flush\(\);\s*endSession\(\);\s*book = \{ sha256/)
+    // The replaced book is destroyed (view.close() leaves it alive).
+    expect(html).toMatch(/view\.close\(\);\s*\} catch \(\w+\) \{[\s\S]{0,200}?\}\s*destroy\(view == null \? void 0 : view\.book\);/)
+    expect(html).not.toContain('saves.cancel')
     // #1128: the format is sniffed (and a refusal answered) BEFORE the seq turns over, so a refused
     // file leaves the open book reading and saving, like a failed read (#1168).
     expect(html).toMatch(/function openFor\(bytes, name\) \{\s*let kind;\s*try \{\s*kind = sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*const mine = \+\+openSeq;\s*return open\(bytes, name, kind, mine\)/)
-    expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,200}?if \(!entry\) return log\("warn"/)
+    expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,300}?if \(!entry\) return log\("warn"/)
+    // The open seq only goes up: a failed open answers `open-failed` and hands nothing back.
+    expect(html).toMatch(/if \(mine === openSeq\) openFailed\(name, [^;]*;\s*\}\);/)
+    expect(html).not.toMatch(/(?<!var )openSeq = /)
+    expect(html.indexOf('const made = await makeBookFor(')).toBeLessThan(html.indexOf('view == null ? void 0 : view.close()'))
   })
 
   it('bundle_EveryStateChangeGuarded_SoOneBadBookCannotWedgeThePage', () => {
     const html = v2ReaderPageHtml(NONCE)
     // A view that never rendered throws from close(); the next open must still work.
     expect(html).toMatch(/try \{\s*view == null \? void 0 : view\.close\(\);\s*\} catch/)
-    // A superseded book's events are dropped: each view's listeners carry the open seq that made
-    // them, and openFor turns the seq over before the dying view's close() fires relocate (#1168).
-    expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+ \}\) => \{\s*(var [^;]*;\s*)?if \(mine !== openSeq\) return;\s*post\(\{\s*type: "relocate"/)
-    expect(html).toMatch(/view\.addEventListener\("create-overlay", [\s\S]{0,80}?if \(mine !== openSeq\) return;/)
-    // A superseded open must not re-key the current book's saves: the seq check precedes the assignment.
-    // (#1128: the previous book's telemetry session ends there too, before the new book is assigned.)
-    expect(html).toMatch(/if \(mine !== openSeq\) return false;\s*endSession\(\);\s*book = \{ sha256/)
+    // A replaced view's events are dropped: each view's listeners carry the seq of the open that made them
+    // and compare it with the view on screen, which turns over at the swap, before the dying view's close()
+    // fires relocate (#1168). A newer open still being made does not silence the view on screen (#1128 S5).
+    expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+ \}\) => \{\s*(var [^;]*;\s*)?if \(mine !== viewSeq\) return;\s*post\(\{\s*type: "relocate"/)
+    expect(html).toMatch(/view\.addEventListener\("create-overlay", [\s\S]{0,80}?if \(mine !== viewSeq\) return;/)
+    expect(html).toMatch(/endSession\(\);\s*book = \{ sha256[^}]*\};\s*entry = null;\s*hostMoving = true;\s*lastCfi = null;\s*viewSeq = mine;\s*navigating = Promise\.resolve\(\);/)
+    // A restore is for the view on screen that answered `opened`, whatever is being made meanwhile.
+    expect(html).toMatch(/if \(!book \|\| readySeq !== viewSeq\) return log\("warn", "restore ignored/)
     // The host-move guard is cleared however restore ends, or the page saves nothing for the rest of the session.
     expect(html).toMatch(/\} finally \{[\s\S]{0,200}?hostMoving = false;/)
     // The renderer exists only after view.open() resolved.
@@ -112,20 +124,53 @@ describe('v2ReaderPageHtml', () => {
     // #1128: MOBI, FB2 and CBZ ride ahead of the page in its one script, as strings with no raw `<`
     // (nothing in them can end or bend the script element), and are run by page.mjs on first use
     // through a script element carrying the page's own nonce: no CSP directive is widened.
-    const carried = html.match(/<script nonce="[^"]+">(var __TS_FORMATS = \{mobi: "[^"\\]*(?:\\.[^"\\]*)*",\nfb2: "[^"\\]*(?:\\.[^"\\]*)*",\ncbz: "[^"\\]*(?:\\.[^"\\]*)*"\};\n)/)?.[1]
+    const str = '"[^"\\\\]*(?:\\\\.[^"\\\\]*)*"'
+    const carried = html.match(new RegExp(`<script nonce="[^"]+">(var __TS_FORMATS = \\{mobi: ${str},\\nfb2: ${str},\\ncbz: ${str},\\npdf: ${str},\\npdfcmaps: ${str}\\};\\n)`))?.[1]
     expect(carried).toBeDefined()
     expect(carried).not.toContain('<')
-    for (const k of ['mobi', 'fb2', 'cbz']) expect(carried).toContain(`window.__tsFormats.${k} = {`)
+    for (const k of ['mobi', 'fb2', 'cbz', 'pdf', 'pdfcmaps']) expect(carried).toMatch(new RegExp(`window\\.__tsFormats\\.${k} ?=`))
     expect(html).toMatch(/var NONCE = \(\w+ = document\.currentScript\) == null \? void 0 : \w+\.nonce;/)
     expect(html).toMatch(/(\w+)\.nonce = NONCE;\s*\1\.textContent = /)
     // A comic book has no text: its frames post only `tap`, and a translation is never drawn on it.
     expect(html).toMatch(/function onLoad\(\{ detail: \{ doc, index \} \}\) \{\s*if \(!textual\) return doc\.addEventListener\("click", \(\) => post\(\{ type: "tap" \}\)\);/)
-    expect(html).toMatch(/showTranslation: \(cfi, index, \w+\) => view && textual && annotate\(/)
+    // Nor on a PDF (#1128 S5): `annotatable` is false for both, and `opened` says so.
+    expect(html).toMatch(/showTranslation: \(cfi, index, \w+\) => view && annotatable && annotate\(/)
+    expect(html).toContain('annotatable = textual && format !== "pdf";')
+    expect(html).toMatch(/type: "opened",\s*book,\s*format,\s*textual,\s*annotatable,/)
     // The page bundle itself carries none of them: view.js's own imports stay stubbed.
     const page = html.slice(html.indexOf(carried!) + carried!.length)
     expect(page).not.toContain('.vendor/foliate-js/mobi.js')
     expect(page).not.toContain('.vendor/foliate-js/fb2.js')
     expect(page).not.toContain('.vendor/foliate-js/comic-book.js')
+    expect(page).not.toContain('pdfjsWorker')
+  })
+
+  it('pdfReader_WorkerOnTheMainThread_NoEvalNoWasmNothingFetched', () => {
+    // #1128 S5: the PDF reader evaluates pdf.js's worker first (it sets globalThis.pdfjsWorker, so pdf.js
+    // never asks for a Worker or import()s a URL), then the fork's pdf.js, which forces isEvalSupported off.
+    const html = v2ReaderPageHtml(NONCE)
+    const pdf: string = JSON.parse(html.match(/\npdf: ("(?:[^"\\]|\\.)*")/)![1])
+    expect(pdf).toMatch(/globalThis\.pdfjsWorker\s*=/)
+    expect(pdf.search(/globalThis\.pdfjsWorker\s*=/)).toBeLessThan(pdf.indexOf('isEvalSupported:!1'))
+    // S5 review: the runtime polyfills run before pdf.js; the page refuses a PDF where structuredClone is missing.
+    expect(pdf.indexOf('getOrInsertComputed')).toBeLessThan(pdf.search(/globalThis\.pdfjsWorker\s*=/))
+    expect(html).toContain('if (typeof structuredClone !== "function") throw new Error("this WebView is too old to read PDF");')
+    // A book still on screen after its init answers `opened`; `restored` names its book.
+    expect(html).toMatch(/await view\.init\(\{ showTextStart: true \}\);\s*if \(mine !== viewSeq\) return false;/)
+    expect(html).toContain('post({ type: "restored", key: book.sha256, ...result })')
+    expect(pdf).toContain('Copyright 2024 Mozilla Foundation')
+    expect(pdf).toContain('Licensed under the Apache License, Version 2.0')
+    // The page: no wasm, cMaps from its own chunk, no URL for anything.
+    expect(html).toMatch(/makePDF\(new File\(\[bytes\], name\), \{ css: \w+, params: \{ useWasm: false, CMapReaderFactory: PdfCMaps \} \}\)/)
+    expect(html).toMatch(/book\d*\.rendition\.spread = "none";/)
+    const cmaps = JSON.parse(html.match(/\npdfcmaps: ("(?:[^"\\]|\\.)*")/)![1]) as string
+    expect(cmaps).toContain('Adobe Systems Incorporated')
+    expect(cmaps).toMatch(/"UniGB-UCS2-H": ?"[A-Za-z0-9+/=]+"/)
+    // A PDF position is a page, never a CFI; a position of the other kind is refused on restore and goTo.
+    expect(html).toMatch(/var fits = \((\w+)\) => format === "pdf" === isPdfPage\(\1\);/)
+    expect(html).toMatch(/if \((\w+) && !fits\(\1\)\) \{\s*result\.position = "wrong position kind, stayed at start";/)
+    // goTo: a wrong-kind position, and a raw CFI string on a PDF.
+    expect(html).toMatch(/if \(isPosition\(target\) \? !fits\(target\) : format === "pdf" && String\(target\)\.startsWith\("epubcfi\("\)\) return log\("warn"/)
   })
 
   it('bundle_SyncPrereqs_UuidIdsCodePointQuotesSelectedText', () => {
@@ -133,7 +178,8 @@ describe('v2ReaderPageHtml', () => {
     // #1078: v4 UUID ids from getRandomValues (no randomUUID: needs a secure context), quotes cut by
     // code points, the full selection in selectedText and restore comparing it (old entries: quote).
     expect(html).toContain('crypto.getRandomValues(new Uint8Array(16))')
-    expect(html).not.toContain('randomUUID')
+    // The page's own script: pdf.js (a carried reader) checks for randomUUID and falls back.
+    expect(html.slice(html.indexOf('"};\n'))).not.toContain('randomUUID')
     expect(html).toMatch(/return textual \? \{ \.\.\.\w+, quote: quoteOf\(\w+\.range\.toString\(\)/)
     expect(html).toMatch(/id: uuidV4\(\),[\s\S]{0,120}?quote: quoteOf\(selectedText\),\s*selectedText,/)
     expect(html).toMatch(/const ok = foldText\(\w+\) === foldText\((\w+)\.selectedText \?\? \1\.quote\);/)

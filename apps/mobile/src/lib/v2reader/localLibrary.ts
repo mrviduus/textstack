@@ -588,7 +588,9 @@ export function createLocalLibrary(db: Db) {
         if (!book) continue
         const st = await stateOf(s.bookId)
         if (st?.revision === s.revision && st.revision_file_id === s.fileId) continue
-        const position = statePosition(s)
+        // The format of the state's file: a PDF takes a page position only (#1128 S5).
+        const format = s.fileId === book.file_id ? book.format : s.fileId === book.server_file_id ? book.server_format : null
+        const position = statePosition(s, format)
         const setAll = () => run(
           `INSERT INTO reading_state (book_id, position, file_id, revision, revision_file_id) VALUES (?, ?, ?, ?, ?)
            ON CONFLICT (book_id) DO UPDATE SET position = excluded.position, file_id = excluded.file_id, revision = excluded.revision, revision_file_id = excluded.revision_file_id`,
@@ -599,7 +601,7 @@ export function createLocalLibrary(db: Db) {
           continue
         }
         const local = st?.file_id === book.file_id ? parse<PagePosition>(st?.position ?? null) : null
-        const action = decideServerState({ local, localFileId: book.file_id, server: s, reader: reader(s.bookId) })
+        const action = decideServerState({ local, localFileId: book.file_id, server: s, reader: reader(s.bookId), format })
         if (action === 'keep' || action === 'prompt') await upsertRevision(s.bookId, s.revision, s.fileId)
         else {
           await setAll()

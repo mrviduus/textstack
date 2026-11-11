@@ -16,6 +16,7 @@ import { deviceLocalLibrary } from '../../lib/v2reader/deviceLibrary'
 import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
 import { downloadV2Book, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
 import { v2ReaderPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
+import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
 
 /**
  * The V2 reader (ADR-029) on Android, dev builds only: reached through `app/dev/epub-v2.tsx`.
@@ -133,6 +134,8 @@ function V2Reader() {
   const source = useMemo(() => ({ html: v2ReaderPageHtml(nonce), baseUrl: Paths.document.uri }), [nonce])
   const ready = useRef(false)
   const opening = useRef<Opening | null>(null)
+  /** Which page answer belongs to which open (openTracker.mjs): a book kept on screen, a stale `restored`. */
+  const [tracker] = useState(() => createOpenTracker<Opening>())
   const setProgress = useRef<(text: string) => void>(() => {})
   const [books, setBooks] = useState<LibraryBook[]>([])
   const [heading, setHeading] = useState('Pick a book')
@@ -233,10 +236,10 @@ function V2Reader() {
   }
 
   const open = (target: Opening) => {
-    // The page answers nothing for an open it has superseded, so a staged file left behind is dropped here.
-    const previous = opening.current
-    if (previous && isStaged(previous.file) && previous.file !== target.file) v2Storage().dropStaged(previous.file).catch(fail('drop'))
+    // A superseded open's staged file is dropped once another book is taken (`takeOpened`): until then the
+    // page may still keep that book on screen, if this newer open fails before its swap.
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
+    tracker.open(target.file, opening.current)
     reading.current = { bookId: null, restored: false, baseline: null, cfi: null, index: null }
     setOffer(null)
     setError(null)
@@ -244,16 +247,17 @@ function V2Reader() {
     if (ready.current) call(`window.__fol.openUrl(${JSON.stringify(v2File(target.file).uri)}, ${JSON.stringify(target.file)})`)
   }
 
-  /** The open this answer belongs to, or null (logged) when a later open has replaced it. Explicit open id: #1069. */
-  const answered = (name: unknown) => {
-    if (opening.current?.file === name) return opening.current
-    console.log(`[v2] stale answer for ${String(name)} dropped; current is ${opening.current?.file}`)
-    return null
+  /** The page's book is `t.open`'s: every other open still pending is over, and its staged file goes. */
+  const takeOpened = (t: Take<Opening, any>) => {
+    for (const o of t.dropped) if (isStaged(o.file) && o.file !== t.open.file) v2Storage().dropStaged(o.file).catch(fail('drop'))
+    opening.current = t.open
+    setReflowable(t.opened.reflowable !== false)
+    onOpened(t.open, t.opened).catch(fail('opened', setError))
   }
 
   const pick = async () => {
     try {
-      // Any file: the page tells the format by its bytes (EPUB, MOBI/AZW3, FB2, CBZ) and refuses the rest.
+      // Any file: the page tells the format by its bytes (EPUB, MOBI/AZW3, FB2, CBZ, PDF) and refuses the rest.
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true })
       if (result.canceled) return
       const asset = result.assets[0]
@@ -303,24 +307,27 @@ function V2Reader() {
         })
         return
       case 'opened': {
-        const current = answered(m.book?.name)
-        if (!current) return
-        setReflowable(m.reflowable !== false)
-        onOpened(current, m).catch(fail('opened', setError))
+        const t = tracker.opened(m)
+        if (t) takeOpened(t)
+        else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
         return
       }
       case 'open-failed': {
-        const current = answered(m.name)
-        if (!current) return
-        if (isStaged(current.file)) v2Storage().dropStaged(current.file).catch(fail('drop'))
+        const f = tracker.failed(m.name)
+        if (!f) return
+        if (isStaged(f.failed.file)) v2Storage().dropStaged(f.failed.file).catch(fail('drop'))
         opening.current = null
-        setError(`cannot open ${current.name}: ${m.error}`)
+        setError(`cannot open ${f.failed.name}: ${m.error}`)
         // The old book may still post a relocate until the page takes up this open (file read +
         // messages in flight); a failure must not leave it standing after open() cleared it (#1168).
         setProgress.current('')
+        // The page kept a book on screen that answered meanwhile: it is the one read now.
+        if (f.take) takeOpened(f.take)
         return
       }
       case 'restored':
+        // Only for the book taken last: a stale answer must not mark another book restored.
+        if (!tracker.restored(m)) return console.log(`[v2] restored for another book dropped`)
         console.log('[v2] restored', JSON.stringify(m))
         reading.current.restored = true
         reading.current.baseline = null
@@ -338,7 +345,8 @@ function V2Reader() {
         setProgress.current(`${Math.round((m.fraction ?? 0) * 100)}% · section ${(m.index ?? 0) + 1}/${m.sections ?? '?'}${m.toc ? ` · ${m.toc}` : ''}`)
         return
       case 'word':
-        // Translation is not this slice: the tap reaches the host and stops here.
+        // Translation is not this slice: the tap reaches the host and stops here. This host offers no
+        // highlight or translation yet, so `opened.annotatable` (false: CBZ, PDF) has nothing to hide here.
         console.log('[v2] word', m.word)
         return
       case 'openLink':

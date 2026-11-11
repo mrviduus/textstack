@@ -1,8 +1,8 @@
 // The V2 reader page (ADR-029), bundled alone by build.mjs into v2ReaderPage.generated.ts and run in
-// the reader's WebView. foliate-js parses AND renders a local EPUB, MOBI/AZW3, FB2 or CBZ (#1128: the
-// last three's readers run only when such a book opens, see formatModule); this file adds word tap → host, the
-// translation drawn above the word, and the reader data (position + highlights by CFI and quote, one
-// entry per book file). The host ↔ page message contract is in README.md.
+// the reader's WebView. foliate-js parses AND renders a local EPUB, MOBI/AZW3, FB2, CBZ or PDF (#1128: all
+// but EPUB have readers that run only when such a book opens, see formatModule); this file adds word tap → host, the
+// translation drawn above the word, and the reader data (position + highlights by CFI and quote, a PDF's
+// position by page; one entry per book file). The host ↔ page message contract is in README.md.
 import './.vendor/foliate-js/view.js'
 import { Overlayer } from './.vendor/foliate-js/overlayer.js'
 import { EPUB } from './.vendor/foliate-js/epub.js'
@@ -12,7 +12,7 @@ import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
 import { mergeOverlay } from './overlays.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
 import { isFractionOnly } from '../../../../../packages/shared/src/reader/fractionPosition'
-import { emptyEntry, entryFor, foldText, isPosition, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { emptyEntry, entryFor, foldText, isPdfPage, isPosition, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 import { openableHref, sentenceOf } from './tap.mjs'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
@@ -28,6 +28,12 @@ let flow = 'paginated'   // ADR-029 Decision 1
 /** The open book's format (formats.mjs) and whether it has text: a comic book has no words to tap, select or translate. */
 let format = null
 let textual = true
+/**
+ * Whether highlights and the translation label can be drawn: not on a CBZ (no text), not on a PDF (a PDF
+ * highlight is a `pdf-page` anchor with page rects, not built; the fixed-layout renderer has no overlayer).
+ * Sent in `opened` so a host offers neither where the page would refuse it.
+ */
+let annotatable = true
 /** cfi → what is drawn over it; re-added when a section's overlayer is recreated (chapter navigation). */
 const overlays = new Map()
 /** This file's identity and its entry. No save until the stored one is restored. */
@@ -48,12 +54,15 @@ let hostMoving = false
  */
 let lastCfi = null
 let lastSelection = null
-/** The open that is allowed to finish: a second openUrl makes the first one give up silently. */
+/**
+ * The latest open attempt (#1128 S5). Only ever goes up, and answers one question only: may this build
+ * swap in? A build that is not the latest when it is made is destroyed and never shown.
+ */
 let openSeq = 0
 /**
- * The open whose view (and navigation chain) is in use. Set in `open` where they turn over, not when
- * `openSeq` does (before the new book is hashed, while the old view still shows): a call stamped with
- * it never runs on a view it was not made for. While `openSeq !== viewSeq` a newer open is on its way.
+ * The open whose view is on screen. Turns over exactly at the swap (`open`), never earlier: while a newer
+ * book is hashed or made, the book on screen keeps reporting, saving, navigating and answering its restore.
+ * Every listener and queued call is stamped with it and does nothing on a view it was not made for.
  */
 let viewSeq = 0
 /** The view that finished opening (`opened` posted): a restore is for that view only. */
@@ -122,7 +131,8 @@ function onTap(doc, index, e) {
   const frame = doc.defaultView.frameElement.getBoundingClientRect()
   post({
     type: 'word', index, word: node.data.slice(w.start, w.end).replace(/­/g, ''),
-    sentence: sentenceOf(node, w.start, w.end), cfi: view.getCFI(index, range),
+    // No CFI where nothing can be drawn at one (a PDF's text layer has no CFI that means anything).
+    sentence: sentenceOf(node, w.start, w.end), cfi: annotatable ? view.getCFI(index, range) : null,
     // Host-viewport coordinates of the word (iframe rect + range rect).
     rect: { x: Math.round(frame.left + r.left), y: Math.round(frame.top + r.top), w: Math.round(r.width), h: Math.round(r.height) },
   })
@@ -165,18 +175,20 @@ const navigate = (fn) => {
 function arrivedAt(index) {
   const r = view.renderer
   if (!view.isFixedLayout) return !!r?.getContents?.().some((c) => c.index === index)
-  const spreadOf = (i) => r?.getSpreadOf?.(view.book.sections[i])?.index
+  // A section that is not in the book has no spread: getSpreadOf(undefined) would match a spread's empty side.
+  const spreadOf = (i) => (view.book.sections[i] ? r?.getSpreadOf?.(view.book.sections[i])?.index : undefined)
   return spreadOf(index) != null && spreadOf(index) === spreadOf(r.index)
 }
 
 /**
  * Goes to a goTo target or a stored position and answers whether the view arrived. A fraction-only one
- * (#1187) by its fraction, 0 being the text start (not a cover before it); any other position by its CFI.
+ * (#1187) by its fraction, 0 being the text start (not a cover before it); a PDF page by its section
+ * (page − 1); any other position by its CFI.
  */
 async function land(target) {
   const resolved = await (isFractionOnly(target)
     ? (target.fraction === 0 ? view.goToTextStart() : view.goTo({ fraction: target.fraction }))
-    : view.goTo(isPosition(target) ? target.cfi : target))
+    : view.goTo(isPdfPage(target) ? target.page - 1 : isPosition(target) ? target.cfi : target))
   return !!resolved && arrivedAt(resolved.index)
 }
 
@@ -188,10 +200,18 @@ async function land(target) {
  * EPUB: foliate's fixed-layout renderer reports none), so such a book saves no position at all.
  */
 function positionOf(d) {
+  // A PDF page (#1128 S5): `pdf-page`, the section index + 1. Never a CFI.
+  if (d && format === 'pdf') return Number.isInteger(d.section?.current) ? { page: d.section.current + 1, index: d.section.current, fraction: d.fraction, at: Date.now() } : null
   if (!d || (textual && !d.range)) return null
   const at = { cfi: d.cfi, index: d.section?.current, fraction: d.fraction, at: Date.now() }
   return textual ? { ...at, quote: quoteOf(d.range.toString().replace(/^\s+/, '')) } : { ...at, page: String(view.book.sections[at.index]?.id ?? '') }
 }
+
+/**
+ * The scheme fits the file (the server's `SyncValidation.FitsFile`, one rule more): a PDF takes a page
+ * number and nothing else (no CFI, no fraction), every other book anything but a page number.
+ */
+const fits = (p) => (format === 'pdf') === isPdfPage(p)
 
 const flat = (items) => items.flatMap((t) => [{ label: t.label?.trim(), href: t.href }, ...flat(t.subitems ?? [])])
 
@@ -233,6 +253,37 @@ function formatModule(name) {
  */
 async function makeBookFor(bytes, name, kind) {
   // `kind` is sniffFormat's, taken before the open book was touched (openFor).
+  if (kind === 'pdf') {
+    // pdf.js runs on the page's main thread (build.mjs FORMATS.pdf): no Worker, no wasm (the CSP has no
+    // 'wasm-unsafe-eval'), nothing fetched: cMaps come from the page's own chunk (PdfCMaps), standard-font
+    // data not at all (system fonts).
+    // pdf.js's main-thread "worker" clones every message with structuredClone, which pdfPolyfills.mjs cannot
+    // stand in for: refused here, before the swap, instead of an open that never answers.
+    if (typeof structuredClone !== 'function') throw new Error('this WebView is too old to read PDF')
+    const { makePDF, css } = formatModule('pdf')
+    // makePDF calls pdf.js's getDocument before its first await and keeps no loading task: the page takes
+    // it there (globalThis.pdfjsLib is a plain object), so a load that fails can be destroyed (#1128 S5).
+    const lib = globalThis.pdfjsLib
+    const getDocument = lib.getDocument
+    let task = null
+    lib.getDocument = (params) => (task = getDocument.call(lib, params))
+    let made
+    try { made = makePDF(new File([bytes], name), { css, params: { useWasm: false, CMapReaderFactory: PdfCMaps } }) } finally { lib.getDocument = getDocument }
+    const book = await made.catch((e) => {
+      task?.destroy()
+      throw e?.name === 'PasswordException' ? new Error('this PDF is password-protected and cannot be opened') : e
+    })
+    // One page per screen, never foliate's two-page spreads: within a spread a page step or goTo shows the
+    // other page without a relocate, so the saved page would be the spread's first.
+    book.rendition.spread = 'none'
+    // An outline entry pdf.js cannot resolve (an integer page, a dangling reference) rejects; foliate awaits
+    // every entry while opening, after the swap. Such an entry goes nowhere instead of failing the open.
+    for (const k of ['splitTOCHref', 'resolveHref']) {
+      const f = book[k]
+      book[k] = (href) => f(href).catch(() => null)
+    }
+    return { format: 'pdf', book }
+  }
   if (kind === 'mobi') {
     const { MOBI, unzlibSync } = formatModule('mobi')
     // MOBI6 or KF8 (AZW3, or a MOBI/KF8 combo's KF8 half), foliate's choice; formats.mjs checked its header.
@@ -273,6 +324,23 @@ async function makeBookFor(bytes, name, kind) {
   return { format: 'fb2', book: await fb2Of(inner) }
 }
 
+/**
+ * pdf.js's predefined cMaps from the page's own carried chunk (build.mjs `pdfcmaps`), run the first time a
+ * PDF names one: a CJK font on one draws a blank page and extracts no text without them.
+ */
+class PdfCMaps {
+  async fetch({ name }) {
+    const b64 = formatModule('pdfcmaps')[name]
+    if (!b64) throw new Error(`unknown CMap ${String(name).slice(0, 40)}`)
+    return { cMapData: Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), isCompressed: true }
+  }
+}
+
+/** A book no view will show again: its own `destroy` (a pdf.js document, blob: URLs). Never throws. */
+function destroy(b) {
+  try { b?.destroy?.() } catch (e) { log('warn', `destroying a book: ${e?.message ?? e}`) }
+}
+
 /** Removes a book's `<meta http-equiv="refresh">` from `doc` (it navigates the section frame away; CSP does not cover it). */
 function dropRefresh(doc) {
   const refresh = [...doc.querySelectorAll('meta[http-equiv]')].filter((m) => /refresh/i.test(m.getAttribute('http-equiv')))
@@ -298,11 +366,20 @@ const text = (v) => (typeof v === 'string' ? v : v && typeof v === 'object' ? St
 const firstAuthor = (m) => { const a = [].concat(m?.author ?? [])[0]; return a?.name ?? a }
 
 async function open(bytes, name, kind, mine) {
-  // Nothing of the previous book may land on this one; its entry is gone with the next line.
-  saves.cancel()
   const sha256 = await sha256Yielding(bytes)
   // Checked BEFORE book is assigned: a superseded open must not re-key the current book's saves (#1168).
   if (mine !== openSeq) return false
+  // Made before the open book is touched: a file its reader cannot make a book of (a password-protected
+  // or broken PDF, a damaged index) fails here, and the book on screen keeps reading and saving (openFor).
+  const made = await makeBookFor(bytes, name, kind)
+  // Superseded while it was made, or nothing to show: destroyed, never swapped in (a pdf.js document
+  // holds the whole file).
+  const empty = !made.book.sections?.length
+  if (mine !== openSeq || empty) destroy(made.book)
+  if (mine !== openSeq) return false
+  if (empty) throw new Error(kind === 'pdf' ? 'this PDF has no pages' : 'this book has no sections')
+  // The swap. The book on screen's last turn (a save still debounced) is written under its own key first.
+  saves.flush()
   endSession()
   book = { sha256, size: bytes.length, name }
   entry = null
@@ -314,15 +391,18 @@ async function open(bytes, name, kind, mine) {
   // A view that never rendered a section (a spine of linear="no", a book that failed to open) throws
   // from close(); letting that through would wedge the page and fail this good book instead.
   try { view?.close() } catch (e) { log('warn', `closing the previous book: ${e?.message ?? e}`) }
+  // view.close() leaves the book alive: destroyed here, or each replaced PDF keeps its document.
+  destroy(view?.book)
   view?.remove()
   overlays.clear()
   view = document.createElement('foliate-view')
   document.body.append(view)
   view.addEventListener('load', onLoad)
   view.addEventListener('relocate', ({ detail: d }) => {
-    // Each view's listeners carry the seq of the open that made them: once a newer open has taken
-    // over, a dying view's events — close() still fires relocate — are dropped, not posted (#1168).
-    if (mine !== openSeq) return
+    // Each view's listeners carry the seq of the open that made them: once another view is on screen, a
+    // dying view's events — close() still fires relocate — are dropped, not posted (#1168). A newer open
+    // still being made does not silence this one.
+    if (mine !== viewSeq) return
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
     const moved = d.reason !== 'anchor' && d.cfi !== lastCfi
     lastCfi = d.cfi
@@ -332,7 +412,7 @@ async function open(bytes, name, kind, mine) {
     persist(400)
   })
   view.addEventListener('create-overlay', ({ detail: { index } }) => {
-    if (mine !== openSeq) return
+    if (mine !== viewSeq) return
     for (const a of overlays.values()) if (a.index === index) view.addAnnotation(a)
   })
   view.addEventListener('draw-annotation', ({ detail: { draw, annotation: a, range } }) => {
@@ -345,10 +425,9 @@ async function open(bytes, name, kind, mine) {
     if (href) post({ type: 'openLink', href })
     else log('warn', `link not opened, not http(s): ${String(e.detail.a.getAttribute('href')).slice(0, 80)}`)
   })
-  const made = await makeBookFor(bytes, name, kind)
-  if (mine !== openSeq) return false
   format = made.format
   textual = isTextual(format)
+  annotatable = textual && format !== 'pdf'
   // A book's <meta http-equiv="refresh"> is dropped before its section renders. Parsed every time,
   // never pre-matched on the source text: `&#x72;efresh` spells it past a text match. EPUB hands each
   // section through transformTarget, and so does KF8 (the fork's mobi.js); MOBI6 has none, so its section
@@ -373,13 +452,16 @@ async function open(bytes, name, kind, mine) {
   // The fixed-layout renderer (CBZ, a pre-paginated EPUB) has no styles to set.
   view.renderer.setStyles?.(css())
   await view.init({ showTextStart: true })
-  if (mine !== openSeq) return false
+  // Still the view on screen: it answers `opened`, even if a newer open is under way (that one may yet fail
+  // before its swap, and this book must not stay on screen unanswered and unrestorable).
+  if (mine !== viewSeq) return false
   const { book: b } = view
   session = { at: Date.now(), switched: false, timer: setTimeout(endSession, SESSION_MS) }
   readySeq = mine
   post({
     // reflowable: false for a fixed-layout book (CBZ, a pre-paginated EPUB), where flow() changes nothing.
-    type: 'opened', book, format, textual, reflowable: !view.isFixedLayout,
+    // annotatable: false where highlights and the translation label are refused (CBZ, PDF).
+    type: 'opened', book, format, textual, annotatable, reflowable: !view.isFixedLayout,
     // Either may be missing, a string, or a language map ({ en: … }); the host falls back to the file name.
     title: text(b.metadata?.title), author: text(firstAuthor(b.metadata)),
     sections: b.sections.length, toc: flat(b.toc ?? []),
@@ -399,9 +481,9 @@ async function textAt(cfi) {
  * the saved quote; otherwise that item is reported and left out, never drawn somewhere else.
  */
 function restore(json) {
-  // Only for the view that answered `opened` and is still the latest open: not a view still opening
-  // (a restore meant for an earlier `opened` of the same file), not one a newer openUrl is replacing.
-  if (!book || readySeq !== viewSeq || openSeq !== viewSeq) return log('warn', 'restore ignored: no book is ready for it')
+  // Only for the view on screen that answered `opened`: not a view still opening (a restore meant for an
+  // earlier `opened` of the same file). A newer open still being made does not refuse it.
+  if (!book || readySeq !== viewSeq) return log('warn', 'restore ignored: no book is ready for it')
   const mine = viewSeq
   // One slot of the navigation chain, taken when called: a host goTo made meanwhile runs after it and wins.
   return navigate(async () => {
@@ -429,7 +511,17 @@ async function restoreInto(json, stale) {
     if (ok) annotate({ value: h.cfi, index, hl: { id: h.id } })
   }
   const p = entry.position
-  if (isFractionOnly(p)) {
+  if (p && !fits(p)) {
+    // A page number only on a PDF; a CFI or a fraction never on one (#1128 S5).
+    result.position = 'wrong position kind, stayed at start'
+  } else if (p && format === 'pdf') {
+    if (p.page > view.book.sections.length) result.position = 'page not found, stayed at start'
+    else {
+      const arrived = await land(p)
+      if (stale()) return result
+      result.position = arrived ? 'restored' : 'navigation failed, stayed at start'
+    }
+  } else if (isFractionOnly(p)) {
     // A transitional server locator (#1187): no CFI and no quote to check, only where in the book.
     // Approximate (the legacy fraction counts words, foliate's bytes). Fraction 0 (never read on the other
     // device) is the text start init already shows: no navigation. The entry keeps the fraction until
@@ -457,9 +549,9 @@ async function restoreInto(json, stale) {
       result.position = arrivedAt(index) ? 'restored' : 'navigation failed, stayed at start'
     }
   }
-  // A newer openUrl is on its way (its bytes still hashing): the host is waiting for that book's
-  // `restored`, so this answer, for the view still showing, goes to nobody.
-  if (openSeq === viewSeq) post({ type: 'restored', ...result })
+  // For the view still on screen only (`stale` turns at the swap).
+  // `key`: the book it is for (= `store`'s key), so a host drops one for a book it is not reading.
+  if (!stale()) post({ type: 'restored', key: book.sha256, ...result })
   return result
 }
 
@@ -472,6 +564,7 @@ const MAX_SELECTED_TEXT = 4000
 /** The last non-empty selection as a highlight: CFI + selection (+ its ≤64-code-point quote) + 30 chars of context, saved. */
 function highlightSelection() {
   if (!textual) return log('warn', 'highlightSelection ignored: this book has no text')
+  if (!annotatable) return log('warn', 'highlightSelection ignored: no highlights on a PDF yet')
   const s = lastSelection
   if (!s || s.range.collapsed) return null
   // Before `restored` there is nothing to add to, and saving now would overwrite the stored entry.
@@ -498,22 +591,26 @@ function highlightSelection() {
 
 const openFailed = (name, error) => post({ type: 'open-failed', name, error })
 
-/** One `opened` or one `open-failed` per call — unless a newer openUrl took over, and then neither. */
+/**
+ * One `opened` or one `open-failed` per call — unless a newer openUrl took over first: then neither, except a
+ * book already swapped in, which answers `opened` while it is still the view on screen (the newer open may yet fail).
+ */
 function openFor(bytes, name) {
-  // Refused before anything is touched: a PDF picked by mistake, a DRM book or an unknown file leaves
+  // Refused before anything is touched: a DRM book, a damaged KF8 or an unknown file leaves
   // the open book reading, reporting and saving, like a failed read (#1168). No seq turnover, no session end.
   let kind
   try { kind = sniffFormat(bytes) } catch (e) { return openFailed(name, String(e?.message ?? e).slice(0, 200)) }
   const mine = ++openSeq
   return open(bytes, name, kind, mine).catch((e) => {
     log('error', `open: ${e?.stack ?? e}`)
+    // Failed before the swap: the book on screen never stopped reading (its view is still `viewSeq`).
     if (mine === openSeq) openFailed(name, String(e?.message ?? e).slice(0, 200))
   })
 }
 
 window.__fol = {
   // The retained file, read by the page itself (file:// origin + allowFileAccessFromFileURLs): no book
-  // bytes cross the bridge. `open-failed`: unreadable, not a book this page reads, or DRM-protected; the host must not keep it.
+  // bytes cross the bridge. `open-failed`: unreadable, not a book this page reads, DRM- or password-protected; the host must not keep it.
   openUrl: (url, name) => {
     // The seq turns over in openFor, once the bytes are in hand: a failed READ leaves the previous
     // book open, and its view must keep reporting and saving as if nothing happened (#1168).
@@ -528,7 +625,8 @@ window.__fol = {
   },
   restore: (json) => restore(json)?.catch((e) => log('error', `restore: ${e?.stack ?? e}`)),
   highlightSelection,
-  // A position (as stored: CFI, page or fraction-only, #1187), a CFI, an href or a section index. Not
+  // A position (as stored: CFI, page or fraction-only, #1187; one that does not fit the book is ignored),
+  // a CFI, an href or a section index. Not
   // `chosen` (the host moving the view: a sync adopt or move) nothing is saved or echoed back, the host
   // already holds that position; a position becomes the entry's own, so a later save (a highlight) does
   // not write the old place back. `chosen` (the reader's own choice: a taken offer) the place it landed
@@ -536,6 +634,8 @@ window.__fol = {
   goTo: (target, chosen = false) => navigate(async () => {
     if (!view?.book) return
     if (target && typeof target === 'object' && !isPosition(target)) return log('warn', 'goTo ignored: not a position')
+    if (isPosition(target) ? !fits(target) : format === 'pdf' && String(target).startsWith('epubcfi(')) return log('warn', 'goTo ignored: wrong position kind for this book')
+    if (isPdfPage(target) && target.page > view.book.sections.length) return log('warn', 'goTo ignored: page not in this book')
     const mine = viewSeq
     hostMoving = true
     let arrived = false
@@ -572,8 +672,8 @@ window.__fol = {
     flow = f
     view?.renderer?.setAttribute('flow', f)
   },
-  /** The host answers a `word` with its translation; drawn above that word. Not on an image-only book. */
-  showTranslation: (cfi, index, text) => view && textual && annotate({ value: cfi, index, gloss: text }),
+  /** The host answers a `word` with its translation; drawn above that word. Not where `annotatable` is false. */
+  showTranslation: (cfi, index, text) => view && annotatable && annotate({ value: cfi, index, gloss: text }),
 }
 
 post({ type: 'ready' })
