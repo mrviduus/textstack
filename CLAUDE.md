@@ -25,7 +25,7 @@ The project is mid-migration to **V2**: two databases, one cutover ([ADR-030](do
 
 ## Where to write things down
 
-The PR is the changelog (#1220). Readers see the `/changelog` page (merged PRs by week; `public` ones in plain words, chosen weekly by `/changelog-week`). GitHub Releases are milestones only: a Play production build. Nobody writes changelog lines.
+The PR is the changelog (#1220). Readers see the `/changelog` page (merged PRs by week; `public` ones in plain words, chosen weekly by `/changelog-week`). No GitHub releases for the app: Android notes go to Play's "What's new". Nobody writes changelog lines.
 
 | Where | Job |
 |------|-----|

@@ -8,7 +8,7 @@ Project-level slash commands for the TextStack repo. Each command is a markdown 
 |---------|---------|-------------|
 | `/check` | Run all relevant tests/builds based on `git diff`. Concise pass/fail summary. | Before `/pr`. After any non-trivial change. |
 | `/pr` | Build PR title + body + area label, push, open PR via `gh`. The PR is the changelog. | End of slice, after `/check` is green. |
-| `/changelog` | Where a change is written down; how a milestone release is cut. | A wrong title/label, an incident, an ADR, a Play build. |
+| `/changelog` | Where a change is written down; Play "What's new" text. | A wrong title/label, an incident, an ADR, a Play build. |
 | `/changelog-week` | Pick last week's reader-visible PRs with the owner; write their `## Public` blocks. | Mondays. |
 
 ## Workflow — happy path

@@ -65,5 +65,5 @@ gh pr edit <n> --add-label public
 ## 6. Report
 
 One line per PR: made public / label added / skipped. Plus: "Shows on /changelog after the next
-deploy". If a Play production build shipped this week, remind about its release (`/changelog`,
-"Milestone releases").
+deploy". If a Play production build is going out, draft its "What's new" (`/changelog`,
+"Play Store \"What's new\"").

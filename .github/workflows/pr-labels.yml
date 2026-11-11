@@ -1,9 +1,8 @@
 name: PR labels
 
-# Every PR needs an area label: it picks the PR's section on the /changelog page and in
-# milestone release notes (#1220). The allowed labels are read from .github/release.yml,
+# Every PR needs an area label: it picks the PR's section on the /changelog page (#1220). The allowed labels are read from .github/release.yml,
 # so the list lives in one place. Dependabot PRs pass by their `dependencies` label,
-# which release.yml excludes from the notes.
+# which release.yml excludes from the changelog.
 on:
   pull_request:
     types: [opened, reopened, edited, labeled, unlabeled, synchronize]
