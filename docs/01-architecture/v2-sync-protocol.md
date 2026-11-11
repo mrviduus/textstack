@@ -672,6 +672,26 @@ entry leaves the outbox on 2xx or on a code whose action is "drop"; on 5xx/netwo
 backoff. `ponytail:` per-item requests; a batch endpoint when a first sync of hundreds of words
 measurably hurts.
 
+Backoff (#1186) is a per-entry count per app session, not a timer, although a pass runs about 10 s
+after every save. Every error of an entry that does not end the pass counts: any 4xx/5xx other than
+503 without a code the client handles, a local error, a child's `unknown_file` / `book_not_found`
+(the book is pushed first; a server that keeps saying so is not asked forever), an in-pass conflict
+retry that is exhausted. Offline, any 503 (`v2_unavailable` or not: the server is down), a failing
+pull and a session change end the pass and count nothing. Known limit: one entry answered 503, or
+failing at fetch level, ends the pass for the entries after it too. After `MAX_FAILURES` (5, mobile
+`localLibrary.ts`) an entry of any kind is **kept, never dropped**, and no longer read by the pass
+(a skipped annotation also keeps shadowing the server's newer version of it until retried). Failures
+never park: `blocked` (shown as is) holds only a terminal refusal (`invalid_payload`, `duplicate_file`
+without the book, `id_conflict` twice): "<status> <code>: <server message, clipped>", a local
+error's name only; that book's children stay queued and cost no request; a park is cleared when
+the server turns out to hold the book. The count resets: on the first pass of every session (screen
+mounted, another user: an outage heals itself on the next launch, and a poisoned entry costs at most
+`MAX_FAILURES` requests per session), when the row is saved again (a save landing mid-push is a new
+gen, not counted), on an identity change (which also queues every book whose park it clears), and on
+**"Try again"**: the library shows a book as not synced when it is parked or its entry or any child's
+is skipped; "Try again" unparks and queues a parked book (one not parked is not re-sent) and retries
+all its entries from zero. A merge-map re-key keeps counts and parks.
+
 ## Guest → account merge
 
 Server-side, in one transaction at sign-in (M2.5), as a cross-user system operation with its own name

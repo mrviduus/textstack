@@ -7,9 +7,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { initApi, V2UploadNotOnServer, type OpenReader } from '@textstack/shared'
 import { resetV2ForTests, v2Store, V2UploadError } from '../v2'
-import { createLocalLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
+import { CHANGES_NOT_SYNCED, createLocalLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
-import { adoptV2LocalAccount, downloadV2Book, syncV2Library, type SyncHost } from './sync'
+import { adoptV2LocalAccount, downloadV2Book, MAX_FAILURES, syncV2Library, tryAgainV2Book, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, conflict, feed, resetMidCall, type Answer, type Call,
 } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
@@ -764,7 +764,7 @@ describe('V2 local library sync (R6)', () => {
       const other = await lib.addOpened({ sha256: SHA2, size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
       const otherFile = (await lib.book(other))!.file_id!
       await lib.setServerFile(other, serverFile(otherFile, { sha256: SHA2 }) as never)
-      await lib.done({ kind: 'book', target: other, gen: 1 })
+      await lib.done({ kind: 'book', target: other, gen: 1, failures: 0 })
       await lib.setFileSync(true)
       fakeApi({})
       const upload = vi.fn(async () => { v2Store.reset() })
@@ -971,9 +971,524 @@ describe('V2 local library sync (R6)', () => {
     it('park_SurvivesAMergeMapReKey', async () => {
       const { lib, bookId, fileId } = await seeded()
       await lib.setAccount('u1')
-      await lib.block(bookId, 'invalid_payload')
+      expect(await lib.park({ kind: 'book', target: bookId, gen: 1, failures: 0 }, 'invalid_payload')).toBe(true)
       await lib.adoptAccount('u1', { [bookId]: 'acct-book' }, { [fileId]: 'acct-file' }, 'acct')
       expect(await lib.book('acct-book')).toMatchObject({ blocked: 'invalid_payload' })
+    })
+  })
+
+  describe('outbox failure count: kept and skipped after N, per session, "Try again" (#1186)', () => {
+    const E500 = [{ status: 500 }]
+    /** Only the requests a pass makes for the outbox (the probe and the three feeds left out). */
+    const pushCalls = (calls: Call[]) => calls.filter((c) => c.path !== '/status' && !c.path.endsWith('/changes')).map((c) => `${c.method} ${c.path}`)
+    const passes = async (lib: LocalLibrary, count: number, h = host()) => { for (let i = 0; i < count; i++) await syncV2Library(lib, h) }
+    let warn = vi.fn<(...args: unknown[]) => void>()
+    beforeEach(() => { warn = vi.spyOn(console, 'warn').mockImplementation(() => {}) as unknown as typeof warn })
+    afterEach(() => warn.mockRestore())
+
+    it('failures_Book500NTimes_KeptSkippedNotParked_NextPassNoRequestNoLog_NewSessionRetries', async () => {
+      const { lib, bookId } = await seeded()
+      const calls = fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: E500 })
+      await passes(lib, MAX_FAILURES)
+      expect(pushCalls(calls).filter((c) => c.startsWith('PUT'))).toHaveLength(MAX_FAILURES)
+      // Failures never park: the entry is kept, the children wait for it uncounted.
+      expect((await lib.book(bookId))?.blocked).toBeNull()
+      expect((await lib.outbox()).map((o) => `${o.kind}:${o.failures}`)).toEqual([`book:${MAX_FAILURES}`, 'state:0', 'annotation:0'])
+      expect((await lib.books())[0].notSynced).toBe(CHANGES_NOT_SYNCED)
+      warn.mockClear()
+      const next = fakeApi({})
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(pushCalls(next)).toEqual([])
+      expect(warn).not.toHaveBeenCalled()
+      // The next session tries it again.
+      const fresh = fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: E500 })
+      await syncV2Library(lib, host({ retryFailed: true }))
+      expect(writes(fresh)).toEqual([`PUT /books/${bookId}`])
+      expect((await lib.outbox('book'))[0].failures).toBe(1)
+    })
+
+    it('outage_502OnEveryPutForNPasses_HealthyServerNewSession_EverythingPushedNoTryAgain', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }, [{ ...highlight, color: 'green' }]), newId)
+      const SHA2 = 'cd'.repeat(32)
+      const other = await lib.addOpened({ sha256: SHA2, size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      const E502 = [{ status: 502 }]
+      fakeApi({
+        [`GET /books/by-sha256/${SHA2}`]: [{ status: 404 }],
+        [`PUT /books/${other}`]: E502, [`PUT /books/${bookId}/reading-state`]: E502, [`PUT /annotations/${HL}`]: E502,
+      })
+      await passes(lib, MAX_FAILURES)
+      expect((await lib.books()).map((b) => b.notSynced)).toEqual([CHANGES_NOT_SYNCED, CHANGES_NOT_SYNCED])
+      expect((await lib.book(other))?.blocked).toBeNull()
+      const healthy = fakeApi({
+        [`GET /books/by-sha256/${SHA2}`]: [{ status: 404 }],
+        [`PUT /books/${other}`]: [ok(serverBook(other, (await lib.book(other))!.file_id!, {}, { sha256: SHA2 }), 201)],
+        [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 2))],
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 2, { color: 'green' }))],
+      })
+      expect(await syncV2Library(lib, host({ retryFailed: true }))).toBe('done')
+      expect(writes(healthy)).toEqual([`PUT /books/${other}`, `PUT /books/${bookId}/reading-state`, `PUT /annotations/${HL}`])
+      expect(await lib.outbox()).toEqual([])
+      expect((await lib.books()).map((b) => b.notSynced)).toEqual([null, null])
+    })
+
+    it('retryFailed_AskedWhileAPassRuns_NotLostToALaterPlainTrigger', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }), newId)
+      fakeApi({ [`PUT /books/${bookId}/reading-state`]: E500 })
+      await passes(lib, MAX_FAILURES)
+      const calls = fakeApi({ [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 2))] })
+      const running = syncV2Library(lib, host())
+      void syncV2Library(lib, host({ retryFailed: true }))
+      await syncV2Library(lib, host())
+      await running
+      expect(writes(calls)).toEqual([`PUT /books/${bookId}/reading-state`])
+      expect(await lib.outbox()).toEqual([])
+    })
+
+    it('staleRevision_InPassRetryExhausted_CountedAsAFailedAttempt', async () => {
+      const { lib, bookId } = await synced()
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }), newId)
+      const calls = fakeApi({ [`PUT /books/${bookId}/reading-state`]: [conflict('stale_revision')] })
+      expect(await syncV2Library(lib, host())).toBe('failed')
+      expect(writes(calls)).toHaveLength(2)
+      expect((await lib.outbox()).map((o) => `${o.kind}:${o.failures}`)).toEqual(['state:1'])
+    })
+
+    it('tryAgain_NoSession_ListRefreshedRightAfterTheUnpark', async () => {
+      const { lib, bookId } = await seeded()
+      await lib.park({ kind: 'book', target: bookId, gen: 1, failures: 0 }, 'invalid_payload')
+      const order: string[] = []
+      const refresh = vi.fn(async () => { order.push('refresh'); return lib.books() })
+      await tryAgainV2Book(lib, bookId, refresh, () => order.push('sync'))
+      expect(order).toEqual(['refresh', 'sync'])
+      expect((await refresh.mock.results[0].value)[0].notSynced).toBeNull()
+    })
+
+    it('park_ServerTurnsOutToHoldTheBook_ParkClearedChildrenPushed', async () => {
+      const { lib, bookId, fileId } = await seeded()
+      await lib.park({ kind: 'book', target: bookId, gen: 1, failures: 0 }, 'invalid_payload')
+      expect((await lib.books())[0].notSynced).toBe('invalid_payload')
+      const calls = fakeApi({
+        'GET /library/changes': feed(serverBook(bookId, fileId)),
+        [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 1))],
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 1), 201)],
+      })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect((await lib.books())[0].notSynced).toBeNull()
+      expect(writes(calls)).toEqual([`PUT /books/${bookId}/reading-state`, `PUT /annotations/${HL}`])
+    })
+
+    it('failures_StateAndAnnotation500NTimes_KeptSkippedLocalDataIntact_LoggedOnce', async () => {
+      const { lib, bookId } = await synced()
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }, [{ ...highlight, color: 'green' }]), newId)
+      const calls = fakeApi({ [`PUT /books/${bookId}/reading-state`]: E500, [`PUT /annotations/${HL}`]: E500 })
+      await passes(lib, MAX_FAILURES)
+      expect(pushCalls(calls)).toHaveLength(2 * MAX_FAILURES)
+      expect((await lib.outbox()).map((o) => `${o.kind}:${o.failures}`)).toEqual([`state:${MAX_FAILURES}`, `annotation:${MAX_FAILURES}`])
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes('not retried until it changes'))).toHaveLength(2)
+      warn.mockClear()
+      const next = fakeApi({})
+      await passes(lib, 2)
+      expect(pushCalls(next)).toEqual([])
+      expect(warn).not.toHaveBeenCalled()
+      // Nothing local lost.
+      const back = await restoredEntry(lib)
+      expect(back.position.fraction).toBe(0.5)
+      expect(back.highlights[0].color).toBe('green')
+    })
+
+    it('failures_OfflineOr503OrDroppedPass_NotCounted', async () => {
+      const { lib, bookId } = await synced()
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }), newId)
+      fakeApi({ [`PUT /books/${bookId}/reading-state`]: [{ status: 503 }] })
+      expect(await syncV2Library(lib, host())).toBe('failed')
+      fakeApi({})
+      const online = globalThis.fetch
+      vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
+        if (init.method === 'PUT') throw new TypeError('Network request failed')
+        return online(url, init)
+      }))
+      expect(await syncV2Library(lib, host())).toBe('failed')
+      expect(await resetMidCall(() => v2Store.reset(), {
+        'GET /status': ok({ maxPartBytes: 1024 }),
+        'GET /library/changes': feed()[0], 'GET /reading/changes': feed()[0], 'GET /annotations/changes': feed()[0],
+        [`PUT /books/${bookId}/reading-state`]: { status: 500 },
+      }, () => syncV2Library(lib, host()), '/reading-state')).toBe('dropped')
+      expect((await lib.outbox()).map((o) => `${o.kind}:${o.failures}`)).toEqual(['state:0'])
+      // ...and a 500 is counted.
+      fakeApi({ [`PUT /books/${bookId}/reading-state`]: E500 })
+      await syncV2Library(lib, host())
+      expect((await lib.outbox())[0].failures).toBe(1)
+    })
+
+    it('failures_NewSaveResetsTheCount_SaveDuringAFailingPushNotCountedAgainstIt', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }), newId)
+      fakeApi({ [`PUT /books/${bookId}/reading-state`]: E500 })
+      await passes(lib, MAX_FAILURES)
+      expect((await lib.outbox())[0].failures).toBe(MAX_FAILURES)
+      // A new save: a fresh attempt.
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.55, at: NOW - 90 }), newId)
+      expect((await lib.outbox())[0].failures).toBe(0)
+      // A save lands while the failing push is in flight: the 500 counts against the old gen only.
+      vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
+        const path = url.replace(V2, '').split('?')[0]
+        if (path === '/status') return { ok: true, status: 200, text: async () => JSON.stringify({ maxPartBytes: 1024 }) }
+        if (path.endsWith('/changes')) return { ok: true, status: 200, text: async () => JSON.stringify({ items: [], cursor: null, hasMore: false }) }
+        await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.6, at: NOW - 80 }), newId)
+        return { ok: false, status: 500, text: async () => '' }
+      }))
+      warn.mockClear()
+      await syncV2Library(lib, host())
+      const [item] = await lib.outbox()
+      expect(item.failures).toBe(0)
+      expect(warn).not.toHaveBeenCalled() // the old gen's failure: neither counted nor logged
+      const calls = fakeApi({ [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 2))] })
+      await syncV2Library(lib, host())
+      expect(calls.find((c) => c.method === 'PUT')?.body).toMatchObject({ bookFraction: 0.6 })
+      expect(await lib.outbox()).toEqual([])
+    })
+
+    it('tryAgain_StuckBookAndChild_RetriedFromZero_FailingAgainStopsAfterNMore_ThenPushedSamePass', async () => {
+      const { lib, bookId, fileId } = await seeded()
+      const failing = () => fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: E500 })
+      failing()
+      await passes(lib, MAX_FAILURES)
+      const [state] = await lib.outbox('state')
+      for (let i = 0; i < MAX_FAILURES; i++) await lib.failed(state)
+      await lib.unpark(bookId)
+      expect((await lib.books())[0].notSynced).toBeNull()
+      expect((await lib.outbox()).map((o) => `${o.kind}:${o.failures}`)).toEqual(['book:0', 'state:0', 'annotation:0'])
+      // Fails again: stops after N more.
+      const calls = failing()
+      await passes(lib, MAX_FAILURES + 1)
+      expect(pushCalls(calls).filter((c) => c.startsWith('PUT'))).toHaveLength(MAX_FAILURES)
+      expect((await lib.books())[0].notSynced).toBe(CHANGES_NOT_SYNCED)
+      // "Try again" and the server takes it: the children follow in the same pass.
+      await lib.unpark(bookId)
+      const ok2 = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId), 201)],
+        [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 1))],
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 1), 201)],
+      })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(writes(ok2)).toEqual([`PUT /books/${bookId}`, `PUT /books/${bookId}/reading-state`, `PUT /annotations/${HL}`])
+      expect(await lib.outbox()).toEqual([])
+    })
+
+    it('failures_MergeMapReKeyKeepsTheCount_IdentityChangeResetsIt', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }), newId)
+      fakeApi({ [`PUT /books/${bookId}/reading-state`]: E500 })
+      await passes(lib, MAX_FAILURES)
+      await lib.adoptAccount('u1', { [bookId]: 'acct-book' }, { [fileId]: 'acct-file' }, 'acct')
+      expect((await lib.outbox()).map((o) => `${o.target}:${o.failures}`)).toEqual([`acct-book:${MAX_FAILURES}`])
+      // Another identity: the count was about the previous one.
+      await lib.forgetServerState('u2')
+      expect((await lib.outbox()).map((o) => `${o.kind}:${o.target}:${o.failures}`)).toEqual(['state:acct-book:0'])
+    })
+
+    it('migration_OutboxWithoutTheColumn_UpgradedOnOpen_TwoColdStarts', async () => {
+      const db = memoryDb()
+      db.raw.exec(`CREATE TABLE outbox (kind TEXT NOT NULL, target TEXT NOT NULL, gen INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (kind, target));
+        INSERT INTO outbox (kind, target) VALUES ('state', 'b1')`)
+      expect(await createLocalLibrary(db).outbox()).toEqual([{ kind: 'state', target: 'b1', gen: 1, failures: 0 }])
+      const again = createLocalLibrary(db)
+      await again.failed({ kind: 'state', target: 'b1', gen: 1, failures: 0 })
+      expect(await again.outbox()).toEqual([{ kind: 'state', target: 'b1', gen: 1, failures: 1 }])
+    })
+  })
+
+  describe('#1186 fix round', () => {
+    let warn = vi.fn<(...args: unknown[]) => void>()
+    beforeEach(() => { warn = vi.spyOn(console, 'warn').mockImplementation(() => {}) as unknown as typeof warn })
+    afterEach(() => warn.mockRestore())
+
+    it('migration_OnlyDuplicateColumnSwallowed_AnyOtherAlterFailureRejects', async () => {
+      const db = memoryDb()
+      let broken = true
+      const lib = createLocalLibrary({
+        ...db,
+        execAsync: async (sql: string) => {
+          if (broken && sql.startsWith('ALTER TABLE outbox')) throw new Error('Error code 13: database or disk is full')
+          return db.execAsync(sql)
+        },
+      })
+      await expect(lib.outbox()).rejects.toThrow('disk is full')
+      broken = false
+      // Tried again on the next call; the duplicate `blocked` column (CREATE already has it) is ignored.
+      expect(await lib.outbox()).toEqual([])
+    })
+
+    it('reasons_LocalErrorNameOnly_InvalidPayloadMessageClipped', async () => {
+      const db = memoryDb()
+      const lib = createLocalLibrary(db)
+      const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      await lib.writeEntry(SHA, entry(), newId)
+      const fileId = (await lib.book(bookId))!.file_id!
+      db.raw.exec(`UPDATE reading_state SET position = '{secret book text'`)
+      fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId), 201)],
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 1), 201)],
+      })
+      await syncV2Library(lib, host())
+      const logged = JSON.stringify(warn.mock.calls)
+      expect(logged).toContain('SyntaxError')
+      expect(logged).not.toMatch(/secret|JSON/)
+      // A refusal's server message is clipped like any other reason.
+      const other = await lib.addOpened({ sha256: 'cd'.repeat(32), size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      fakeApi({
+        [`GET /books/by-sha256/${'cd'.repeat(32)}`]: [{ status: 404 }],
+        [`PUT /books/${other}`]: [{ status: 400, body: { code: 'invalid_payload', field: 'title', message: 'y'.repeat(300) } }],
+      })
+      await syncV2Library(lib, host())
+      expect((await lib.book(other))?.blocked).toBe(`400 invalid_payload: ${'y'.repeat(120)} (title)`)
+    })
+  })
+
+  // QA #1186: mutation survivors killed, plus the repros, fixed or pinned as decisions in the fix round.
+  describe('QA #1186 (outbox backoff)', () => {
+    const E500 = [{ status: 500 }]
+    const bookImport500 = (bookId: string) => ({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: E500 })
+    const passes = async (lib: LocalLibrary, count: number, h = host()) => { for (let i = 0; i < count; i++) await syncV2Library(lib, h) }
+    const counts = async (lib: LocalLibrary) => (await lib.outbox()).map((o) => `${o.kind}:${o.failures}`)
+    let warn = vi.fn<(...args: unknown[]) => void>()
+    beforeEach(() => { warn = vi.spyOn(console, 'warn').mockImplementation(() => {}) as unknown as typeof warn })
+    afterEach(() => warn.mockRestore())
+
+    it('qa_failureLog_LongServerMessage_StatusCodeAndMessageClippedTo120', async () => {
+      const { lib, bookId } = await seeded()
+      fakeApi({ ...bookImport500(bookId), [`PUT /books/${bookId}`]: [{ status: 500, body: { code: 'internal', message: 'x'.repeat(300) } }] })
+      await passes(lib, 1)
+      expect(warn.mock.calls.map((c) => c[1])).toContain(`500 internal: ${'x'.repeat(120)}`)
+    })
+
+    it('qa_unpark_QueuedAnnotationChildStoppedRetrying_RetriedFromZero', async () => {
+      const { lib, bookId } = await seeded()
+      fakeApi(bookImport500(bookId))
+      await passes(lib, MAX_FAILURES)
+      const [annotation] = await lib.outbox('annotation')
+      for (let i = 0; i < MAX_FAILURES; i++) await lib.failed(annotation)
+      await lib.unpark(bookId)
+      expect(await counts(lib)).toEqual(['book:0', 'state:0', 'annotation:0'])
+    })
+
+    it('qa_queueBook_AlreadyQueued_KeepsItsGenAndCount', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      await lib.failed({ kind: 'book', target: bookId, gen: 1, failures: 0 })
+      await lib.queueBook(bookId)
+      expect(await lib.outbox()).toEqual([{ kind: 'book', target: bookId, gen: 1, failures: 1 }])
+    })
+
+    it('qa_droppedPass_500ArrivesAfterTheSessionChanged_NotCountedNotLogged', async () => {
+      const { lib, bookId } = await synced()
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }), newId)
+      warn.mockClear()
+      expect(await resetMidCall(() => v2Store.reset(), {
+        'GET /status': ok({ maxPartBytes: 1024 }),
+        'GET /library/changes': feed()[0], 'GET /reading/changes': feed()[0], 'GET /annotations/changes': feed()[0],
+        [`PUT /books/${bookId}/reading-state`]: { status: 500 },
+      }, () => syncV2Library(lib, host()), '/reading-state')).toBe('dropped')
+      expect(await counts(lib)).toEqual(['state:0'])
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes('not pushed'))).toEqual([])
+    })
+
+    it('qa_stateStaleRetryInsideThePassFails500_CountedOncePerPass', async () => {
+      const { lib, bookId } = await synced()
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }), newId)
+      const calls = fakeApi({ [`PUT /books/${bookId}/reading-state`]: [conflict('stale_revision'), { status: 500 }] })
+      await syncV2Library(lib, host())
+      expect(writes(calls)).toHaveLength(2)
+      expect(await counts(lib)).toEqual(['state:1'])
+    })
+
+    it('qa_corruptLocalPosition_ThrowsLocally_CountedThenSkipped_AnnotationStillPushed', async () => {
+      const db = memoryDb()
+      const lib = createLocalLibrary(db)
+      const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      await lib.writeEntry(SHA, entry(), newId)
+      const fileId = (await lib.book(bookId))!.file_id!
+      db.raw.exec(`UPDATE reading_state SET position = '{not json'`)
+      const calls = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId), 201)],
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 1), 201)],
+      })
+      await passes(lib, MAX_FAILURES + 2)
+      expect(writes(calls)).toEqual([`PUT /books/${bookId}`, `PUT /annotations/${HL}`])
+      expect(await counts(lib)).toEqual([`state:${MAX_FAILURES}`])
+      expect(await lib.state(bookId)).toMatchObject({ position: '{not json' }) // kept, never dropped
+    })
+
+    // (a) A child skipped for its own 500s while its book is fine: the book says so, with "Try again".
+    it('qa_skippedAnnotation_BookFine_NotSyncedShownPassDoneZeroRequests', async () => {
+      const { lib } = await synced()
+      await lib.writeEntry(SHA, entry(pos, [{ ...highlight, color: 'green' }]), newId)
+      fakeApi({ [`PUT /annotations/${HL}`]: E500 })
+      await passes(lib, MAX_FAILURES)
+      const calls = fakeApi({})
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(writes(calls)).toEqual([])
+      expect((await lib.books()).map((b) => b.notSynced)).toEqual([CHANGES_NOT_SYNCED])
+      expect(await counts(lib)).toEqual([`annotation:${MAX_FAILURES}`])
+      // "Try again" on a book that is not parked: its children retried, the book not re-sent.
+      await lib.unpark((await lib.books())[0].id)
+      expect(await counts(lib)).toEqual(['annotation:0'])
+      expect((await lib.books()).map((b) => b.notSynced)).toEqual([null])
+    })
+
+    // (a) ...the queued entry shadows the server's newer edit (applyAnnotations skips a queued id) until
+    // "Try again": then the normal conflict path converges (stale_revision → ours once on theirs).
+    it('qa_skippedAnnotation_NewerEditFromAnotherDevice_TryAgainConvergesThroughStaleRevision', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.writeEntry(SHA, entry(pos, [{ ...highlight, color: 'green' }]), newId)
+      fakeApi({ [`PUT /annotations/${HL}`]: E500 })
+      await passes(lib, MAX_FAILURES)
+      const blue = serverAnnotation(bookId, fileId, 5, { color: 'blue' })
+      fakeApi({ 'GET /annotations/changes': feed(blue), [`PUT /annotations/${HL}`]: E500 })
+      await passes(lib, 2)
+      expect((await restoredEntry(lib)).highlights[0].color).toBe('green') // shadowed, as decided
+      await lib.unpark(bookId)
+      const calls = fakeApi({
+        [`PUT /annotations/${HL}`]: [conflict('stale_revision', { revision: 5, current: blue }), ok(serverAnnotation(bookId, fileId, 6, { color: 'green' }))],
+      })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(calls.filter((c) => c.method === 'PUT').map((c) => c.body.expectedRevision)).toEqual([1, 5])
+      expect(await lib.annotation(HL)).toMatchObject({ revision: 6 })
+      expect((await restoredEntry(lib)).highlights[0].color).toBe('green')
+      expect(await lib.outbox()).toEqual([])
+    })
+
+    // (b) "Try again" landing while the Nth failing push is in flight: that failure is the first of the fresh count.
+    it('qa_unparkDuringTheNthFailingPush_NothingLocalLost_PushedNextTime', async () => {
+      const { lib, bookId, fileId } = await seeded()
+      fakeApi(bookImport500(bookId))
+      await passes(lib, MAX_FAILURES - 1)
+      const failing = globalThis.fetch
+      vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
+        if (init.method === 'PUT') await lib.unpark(bookId)
+        return failing(url, init)
+      }))
+      await syncV2Library(lib, host())
+      expect(await counts(lib)).toEqual(['book:1', 'state:0', 'annotation:0'])
+      expect(await lib.state(bookId)).toMatchObject({ position: expect.any(String) })
+      const ok2 = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId), 201)],
+        [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 1))],
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 1), 201)],
+      })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(writes(ok2)).toHaveLength(3)
+    })
+
+    it('qa_unparkDuringTheNthFailingPush_LoggedFromTheRowCount_NoFalseNotRetried', async () => {
+      const { lib, bookId } = await seeded()
+      fakeApi(bookImport500(bookId))
+      await passes(lib, MAX_FAILURES - 1)
+      const failing = globalThis.fetch
+      vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
+        if (init.method === 'PUT') await lib.unpark(bookId)
+        return failing(url, init)
+      }))
+      warn.mockClear()
+      await syncV2Library(lib, host())
+      const logged = warn.mock.calls.map((c) => String(c[0]))
+      expect(logged.some((l) => l.includes(`(1/${MAX_FAILURES})`))).toBe(true)
+      expect(logged.some((l) => l.includes('not retried until'))).toBe(false)
+      expect((await lib.books())[0].notSynced).toBeNull()
+    })
+
+    // (c) id_conflict, then the retry under the new id fails: counted against the new target, stops on time.
+    it('qa_idConflictThenRetry500_StopsAfterMaxFailures', async () => {
+      const { lib, bookId } = await seeded()
+      const nid = '00000000-0000-4000-8000-000000000003' // newId()'s next
+      const calls = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [conflict('id_conflict')],
+        [`PUT /books/${nid}`]: E500,
+      })
+      await passes(lib, MAX_FAILURES + 1)
+      expect(writes(calls).filter((w) => w === `PUT /books/${nid}`)).toHaveLength(MAX_FAILURES)
+      expect((await lib.outbox('book'))[0]).toMatchObject({ target: nid, failures: MAX_FAILURES })
+      expect((await lib.book(nid))?.blocked).toBeNull()
+    })
+
+    it('qa_idConflictThenRetry500_CountedAgainstTheNewTarget', async () => {
+      const { lib, bookId } = await seeded()
+      const nid = '00000000-0000-4000-8000-000000000003'
+      fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: [conflict('id_conflict')], [`PUT /books/${nid}`]: E500 })
+      await syncV2Library(lib, host())
+      expect((await lib.outbox('book'))[0]).toMatchObject({ target: nid, failures: 1 })
+    })
+
+    // Terminal refusals: "Try again" costs one request and parks again; no loop.
+    it('qa_unparkAfterInvalidPayload_OneRequestPerTryAgain_ParkedAgainNoLoop', async () => {
+      const { lib, bookId } = await seeded()
+      const calls = fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: [conflict('invalid_payload', { field: 'title' }, 400)] })
+      await syncV2Library(lib, host())
+      await lib.unpark(bookId)
+      await passes(lib, 3)
+      expect(writes(calls)).toEqual([`PUT /books/${bookId}`, `PUT /books/${bookId}`])
+      expect((await lib.book(bookId))?.blocked).toMatch(/invalid_payload/)
+    })
+
+    // A park clears with the identity, and the book (its entry deleted when it parked) is queued for the new one.
+    it('qa_bookParkedByARefusal_NoChildren_IdentityChange_SentToTheNewIdentity', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: [conflict('invalid_payload', { field: 'title' }, 400)] })
+      await passes(lib, 1)
+      expect((await lib.book(bookId))?.blocked).toMatch(/invalid_payload/)
+      v2Store.reset()
+      const calls = fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: [ok(serverBook(bookId, (await lib.book(bookId))!.file_id!), 201)] })
+      await passes(lib, 2, host({ userId: 'u2' }))
+      expect(writes(calls)).toEqual([`PUT /books/${bookId}`])
+    })
+
+    // A child the server keeps answering unknown_file (the book re-adopted every pass) is counted like any failure.
+    it('qa_stateUnknownFileEveryPass_BookAdoptedEveryPass_StopsAfterMaxFailures', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }), newId)
+      const calls = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [ok(serverBook(bookId, fileId))],
+        [`PUT /books/${bookId}/reading-state`]: [conflict('unknown_file', {}, 404)],
+      })
+      await passes(lib, 3 * MAX_FAILURES)
+      expect(writes(calls)).toHaveLength(MAX_FAILURES)
+      expect(await counts(lib)).toEqual([`state:${MAX_FAILURES}`])
+    })
+
+    // Decision (fix round): any 503 is the server down, `v2_unavailable` or not: the pass ends, nothing is
+    // counted (counting would park a whole library in an outage); later entries wait for the next pass.
+    it('qa_oneEntryAnswers503WithoutV2Unavailable_PassEndsNothingCounted', async () => {
+      const { lib, bookId } = await seeded()
+      const SHA2 = 'cd'.repeat(32)
+      const other = await lib.addOpened({ sha256: SHA2, size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      const calls = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`GET /books/by-sha256/${SHA2}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [{ status: 503, body: { code: 'internal', message: 'upstream' } }],
+        [`PUT /books/${other}`]: [ok(serverBook(other, (await lib.book(other))!.file_id!, {}, { sha256: SHA2 }), 201)],
+      })
+      for (let i = 0; i < 3; i++) expect(await syncV2Library(lib, host())).toBe('failed')
+      expect(writes(calls)).toEqual([`PUT /books/${bookId}`, `PUT /books/${bookId}`, `PUT /books/${bookId}`])
+      expect(await counts(lib)).toEqual(['book:0', 'book:0', 'state:0', 'annotation:0'])
+    })
+
+    // File sync has its own catch: failures are not counted; the upload is retried every pass.
+    it('qa_fileSyncUploadFailing_NotCounted_RetriedEveryPass_OutboxUntouched', async () => {
+      const { lib } = await synced()
+      await lib.setFileSync(true)
+      fakeApi({})
+      const upload = vi.fn(async () => { throw new Error('upload 500') })
+      await passes(lib, MAX_FAILURES + 2, host({ upload }))
+      expect(upload).toHaveBeenCalledTimes(MAX_FAILURES + 2)
+      expect(await lib.outbox()).toEqual([])
     })
   })
 })
