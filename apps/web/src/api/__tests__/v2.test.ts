@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   startV2Probe, v2Status, onV2, resetV2ForTests, uploadV2Book, V2UploadError, saveV2Progress, readV2Progress,
-  pullV2Books, getV2UserBooks, getV2UserBook, v2Store, completeV2Book, uncompleteV2Book, v2Chapters, rememberV2State,
+  pullV2Books, getV2UserBooks, getV2UserBook, v2Store, completeV2Book, uncompleteV2Book, v2Chapters, rememberV2State, fetchV2FileBytes,
 } from '../v2'
 import { getUserBook, getUserBooks, saveUserBookProgress, getUserBookFileUrl, getUserBookBookmarks, bulkFinishUserBooks } from '../userBooks'
 import { getWords } from '../vocabulary'
@@ -449,5 +449,43 @@ describe('an answer that outlives a sign-out (v2Store.reset, #1155)', () => {
   it('remembers the revision of a keepalive answer with no reset', async () => {
     await rememberV2State(Promise.resolve(state('b1', 1) as never))
     expect(v2Store.states.get('b1')).toMatchObject({ revision: 1 })
+  })
+})
+
+// #1225: the V2 reader's bytes, online, cookie-authed, authFetch's 401 rule.
+describe('fetchV2FileBytes', () => {
+  const CONTENT = '/me/v2/books/b1/files/f1/content'
+  /** `fetch` by path: each path answers its statuses in order (the last one repeats). */
+  function stubFetch(answers: Record<string, number[]>) {
+    const f = vi.fn(async (url: string) => {
+      const path = Object.keys(answers).find((p) => url.endsWith(p))!
+      const status = answers[path].length > 1 ? answers[path].shift()! : answers[path][0]
+      return new Response(status === 200 ? (path === CONTENT ? 'BYTES' : '{}') : null, { status })
+    })
+    vi.stubGlobal('fetch', f)
+    return f
+  }
+
+  it('returns the content bytes, with the cookie', async () => {
+    const f = stubFetch({ [CONTENT]: [200] })
+    expect(new TextDecoder().decode(await fetchV2FileBytes('b1', 'f1'))).toBe('BYTES')
+    expect(f).toHaveBeenCalledWith(expect.stringMatching(/\/me\/v2\/books\/b1\/files\/f1\/content$/), { credentials: 'include' })
+  })
+
+  it('refreshes the cookie once on a 401 and retries', async () => {
+    const f = stubFetch({ [CONTENT]: [401, 200], '/auth/refresh': [200] })
+    expect(new TextDecoder().decode(await fetchV2FileBytes('b1', 'f1'))).toBe('BYTES')
+    expect(f.mock.calls.map(([u]) => u.replace(/^.*?(\/me|\/auth)/, '$1'))).toEqual([CONTENT, '/auth/refresh', CONTENT])
+  })
+
+  it.each([404, 503])('throws an ApiError on a %i', async (status) => {
+    stubFetch({ [CONTENT]: [status] })
+    await expect(fetchV2FileBytes('b1', 'f1')).rejects.toMatchObject({ status })
+  })
+
+  it('a failed refresh is the 401, no retry', async () => {
+    const f = stubFetch({ [CONTENT]: [401], '/auth/refresh': [401] })
+    await expect(fetchV2FileBytes('b1', 'f1')).rejects.toMatchObject({ status: 401 })
+    expect(f.mock.calls.filter(([u]) => u.endsWith(CONTENT))).toHaveLength(1)
   })
 })
