@@ -68,7 +68,7 @@ test.describe('V2 sync @v2', () => {
 
     // Upload: sha256, import, parts, complete — then Processing until the worker has the chapters.
     await page.goto('/en/library')
-    await page.getByRole('button', { name: 'Upload book' }).click()
+    await page.locator('.site-header__upload-btn').click()
     const imported = page.waitForResponse((r) => r.request().method() === 'PUT' && /\/me\/v2\/books\/[0-9a-f-]{36}$/.test(r.url()))
     await page.locator('.upload-modal input[type="file"]').setInputFiles(FIXTURE)
     const importResp = await imported
