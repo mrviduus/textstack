@@ -12,6 +12,12 @@ xhigh for data writes → fix → /pr).
 Open the PR, give the link, stop. No `gh pr merge --auto`, for code or docs. Do not ask for the merge
 right at the start of the wave.
 
+**Several PRs open at once are a stack** (owner, 2026-11-11: "good practice"): PR 2 is based on PR 1's
+branch, PR 3 on PR 2's (`gh pr create --base <previous-branch>`), and each body says its place ("Stack
+2/3, merge after #N"). Each PR then shows only its own change and they do not conflict in
+`CHANGELOG.md`. The owner merges bottom-up with a merge commit, never squash; the repo deletes the
+branch on merge and GitHub retargets the next PR to `main`.
+
 ## Read first
 
 `docs/01-architecture/r8-parity-audit.md` — the gap matrix, the proposed R8 DoD (§5), the recommended
