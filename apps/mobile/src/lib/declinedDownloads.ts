@@ -74,3 +74,8 @@ export const rekeyIds = (books: Record<string, string>) => (ids: Set<string>) =>
 export async function rekeyDeclinedDownloads(books: Record<string, string>): Promise<void> {
   await updateIdSet(KEY, rekeyIds(books))
 }
+
+/** Sign-out: the ids are one account's books and do not carry into the next sign-in (#1192). */
+export async function forgetDeclinedDownloads(): Promise<void> {
+  await updateIdSet(KEY, ids => (ids.size > 0 ? new Set() : null))
+}
