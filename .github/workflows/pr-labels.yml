@@ -1,0 +1,34 @@
+name: PR labels
+
+# Every PR needs an area label: it picks the PR's section in the release notes
+# deploy.yml generates (#1220). The allowed labels are read from .github/release.yml,
+# so the list lives in one place. Dependabot PRs pass by their `dependencies` label,
+# which release.yml excludes from the notes.
+on:
+  pull_request:
+    types: [opened, reopened, labeled, unlabeled, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  area-label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/release.yml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          # yq (mikefarah) ships with the runner image.
+          allowed=$(yq -o=json '[.changelog.categories[].labels[], .changelog.exclude.labels[]] - ["*"]' .github/release.yml)
+          hit=$(jq -n --argjson a "$allowed" --argjson l "$LABELS" '$l - ($l - $a) | length')
+          if [ "$hit" -eq 0 ]; then
+            echo "::error::Add one area label: $(jq -r 'join(", ")' <<<"$allowed"). It picks the release-notes section (.github/release.yml)."
+            exit 1
+          fi
+          echo "Area label present: $(jq -r --argjson a "$allowed" '. - (. - $a) | join(", ")' <<<"$LABELS")"
