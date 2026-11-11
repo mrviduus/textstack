@@ -34,6 +34,17 @@ git status --short                               # any uncommitted?
 (incl. MCP), `data` (DB, V2 schema, ETL), `ops` (infra, CI, deploy), `documentation`. The list lives in
 `.github/release.yml`; the `PR labels` check fails a PR without one.
 
+**Reader-visible change?** Ask the owner whether it goes on the public page (`/changelog`, #1216). If yes:
+label `public` and add this block to the body (format checked by `PR labels`, parsed by
+`scripts/changelog-data.mjs`):
+
+```markdown
+## Public
+Title: <short, plain title>
+<Web, Android> · <New | Fix | Improved | Changed>
+<one or two plain sentences for a reader: what they can now do or no longer suffer>
+```
+
 ## Step 2 — Read slice brief (if applicable)
 
 If the user names a slice brief (an issue or a doc), read it to extract:

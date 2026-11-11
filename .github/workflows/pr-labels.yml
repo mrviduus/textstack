@@ -6,7 +6,7 @@ name: PR labels
 # which release.yml excludes from the notes.
 on:
   pull_request:
-    types: [opened, reopened, labeled, unlabeled, synchronize]
+    types: [opened, reopened, edited, labeled, unlabeled, synchronize]
 
 permissions:
   contents: read
@@ -18,7 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          sparse-checkout: .github/release.yml
+          sparse-checkout: |
+            .github/release.yml
+            scripts/changelog-data.mjs
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - env:
@@ -32,3 +34,9 @@ jobs:
             exit 1
           fi
           echo "Area label present: $(jq -r --argjson a "$allowed" '. - (. - $a) | join(", ")' <<<"$LABELS")"
+      # `public` puts the PR on the reader view of /changelog (#1216): it needs the
+      # `## Public` block the page shows. Same parser as the build.
+      - if: contains(github.event.pull_request.labels.*.name, 'public')
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/changelog-data.mjs --check

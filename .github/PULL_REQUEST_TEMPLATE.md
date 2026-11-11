@@ -21,6 +21,13 @@
 
 <!-- Closes #NNN -->
 
+<!-- Reader-visible? Label `public` and add the block shown on /changelog:
+## Public
+Title: Read AZW3 books
+Web, Android · New
+Your Kindle AZW3 files now open in the reader.
+-->
+
 ## Breaking changes / migration notes
 
 <!-- None, or describe impact + how to migrate. -->
