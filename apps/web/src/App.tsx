@@ -30,6 +30,7 @@ import { ChangelogPage } from './pages/ChangelogPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 // User-only / heavy routes — lazy so they ship in separate chunks.
 const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })))
+const V2ReaderPage = lazy(() => import('./pages/V2ReaderPage').then(m => ({ default: m.V2ReaderPage })))
 const LibraryPage = lazy(() => import('./pages/LibraryPage').then(m => ({ default: m.LibraryPage })))
 const LibraryShelfPage = lazy(() => import('./pages/LibraryShelfPage').then(m => ({ default: m.LibraryShelfPage })))
 const UserBookDetailPage = lazy(() => import('./pages/UserBookDetailPage').then(m => ({ default: m.UserBookDetailPage })))
@@ -101,7 +102,7 @@ function LanguageRoutes() {
 
   // Hide header on reader pages (have their own top bar)
   const isReaderPage = /^\/[a-z]{2}\/books\/[^/]+\/[^/]+$/.test(location.pathname)
-  const isUserBookReaderPage = /^\/[a-z]{2}\/library\/my\/[^/]+\/read(\/[^/]+)?$/.test(location.pathname)
+  const isUserBookReaderPage = /^\/[a-z]{2}\/library\/my\/[^/]+\/(read(\/[^/]+)?|read-v2\/?)$/.test(location.pathname)
 
   return (
     <LanguageProvider>
@@ -148,6 +149,8 @@ function LanguageRoutes() {
               extraction produces chapters (ADR-012). */}
           <Route path="/library/my/:id/read" element={<ReaderPage mode="userbook" />} />
           <Route path="/library/my/:id/read/:chapterSlug" element={<ReaderPage mode="userbook" />} />
+          {/* The V2 reader page (#1225): Features:V2Api only, else the legacy reader; noindex by library/my. */}
+          <Route path="/library/my/:id/read-v2" element={<V2ReaderPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/sitemap" element={<SitemapPage />} />
           <Route path="/changelog" element={<ChangelogPage />} />

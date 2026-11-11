@@ -449,7 +449,24 @@
   "userBook": {
     "enriching": "Generating book details…",
     "enrichFailed": "Couldn't generate details",
-    "enrichRetry": "Retry"
+    "enrichRetry": "Retry",
+    "readV2": "Open in the V2 reader"
+  },
+  "v2Reader": {
+    "pick": "Pick a book",
+    "loading": "Loading the book…",
+    "opening": "Opening {{name}}",
+    "prev": "‹ Prev",
+    "next": "Next ›",
+    "highlight": "Highlight",
+    "scrolled": "Scrolled",
+    "paginated": "Paginated",
+    "position": "{{percent}}% · section {{index}}/{{sections}}",
+    "restore": "restore: {{state}}",
+    "cannotOpen": "cannot open {{name}}: {{error}}",
+    "frameFailed": "The reader page did not load: no ready from {{path}} in {{seconds}} s.",
+    "loadFailed": "Could not load the book: {{error}}",
+    "noFile": "This book has no file to read yet."
   },
   "library": {
     "continue": "Continue",
