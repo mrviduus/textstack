@@ -505,9 +505,36 @@ export const completeContent = (bookId: string, fileId: string, partCount: numbe
 export const removeContent = (bookId: string, fileId: string) => authFetch<void>(`${file(bookId, fileId)}/content`, { method: 'DELETE' })
 /** The bytes, Range-capable; cookies or a Bearer header authenticate it as any call. */
 export const contentUrl = (bookId: string, fileId: string) => `${getApiConfig().baseUrl}${file(bookId, fileId)}/content`
-/** The whole file's bytes (the web V2 reader, #1225): authFetch's auth, refresh and errors, no JSON parse. */
-export const getContent = async (bookId: string, fileId: string): Promise<ArrayBuffer> =>
-  (await authFetchResponse(`${file(bookId, fileId)}/content`)).arrayBuffer()
+/**
+ * The whole file's bytes (the web V2 reader, #1225): authFetch's auth, refresh and errors, no JSON parse.
+ * `onProgress(loaded, total)` as the body streams in (#1227); `total` is `Content-Length`, null when absent. A
+ * body that breaks off is the network failure it is (`isNetworkError`), as a request that never started.
+ */
+export async function getContent(bookId: string, fileId: string, onProgress?: (loaded: number, total: number | null) => void): Promise<ArrayBuffer> {
+  const res = await authFetchResponse(`${file(bookId, fileId)}/content`)
+  try {
+    if (!onProgress || !res.body) return await res.arrayBuffer()
+    const total = Number(res.headers.get('Content-Length')) || null
+    const reader = res.body.getReader()
+    const chunks: Uint8Array[] = []
+    let loaded = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+      loaded += value.length
+      onProgress(loaded, total)
+    }
+    const out = new Uint8Array(loaded)
+    let at = 0
+    for (const c of chunks) { out.set(c, at); at += c.length }
+    return out.buffer
+  } catch (e) {
+    const err = new ApiError(0, e instanceof Error ? e.message : String(e))
+    err.isNetworkError = true
+    throw err
+  }
+}
 export const putCover = (bookId: string, bytes: Blob | ArrayBuffer | Uint8Array, contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
   authFetch<V2Book>(`${book(bookId)}/cover`, { method: 'PUT', headers: { 'Content-Type': contentType }, body: bytes as BodyInit })
 export const readingStateUrl = (bookId: string) => `${getApiConfig().baseUrl}${book(bookId)}/reading-state`

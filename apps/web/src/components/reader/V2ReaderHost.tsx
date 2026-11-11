@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
 import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reader/openTracker.mjs'
 import { V2_READER_FRAME_PATH } from '../../../../mobile/src/lib/v2reader/framePath.mjs'
+import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
 import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
@@ -46,10 +47,11 @@ const SAVE_MESSAGE = { unsaved: 'v2Reader.unsaved', reopen: 'v2Reader.reopen', n
 const FRAME_SRC = V2_READER_FRAME_PATH
 /**
  * No `ready` by then: the frame is not the page (a wrong path, an error, the SPA's own index.html nested in
- * it, a refused script). Said on screen, since nothing else ever would (#1080 item 3, web host). The default
- * suits a local server; a route over the network passes its own. Real deadlines: slice 4 (#1227).
+ * it, a refused script). No `opened`/`open-failed` by the open's deadline: the page is stuck on the file. Both
+ * said on screen with Retry, since nothing else ever would (#1080 item 3, #1227; the rule: deadlines.mjs). The
+ * default suits a local server; a route over the network passes its own.
  */
-export const READY_DEADLINE_MS = 10_000
+export { READY_DEADLINE_MS }
 
 /**
  * The open in flight: `name` is unique per open and echoed in `opened`/`open-failed`, so a superseded
@@ -69,11 +71,16 @@ interface Props {
   idleHeading?: string
   /** How long the frame may take to send `ready`. */
   readyDeadlineMs?: number
+  /**
+   * Retry after a deadline reloads the frame; an open whose bytes already went into the old frame is gone with
+   * it, and this asks the route for the book again (a new object). Without it (the dev route) the reader picks again.
+   */
+  onReload?: () => void
   /** The dev route: reader data in localStorage, the `restore:` line and a stub translation label on a tapped word. */
   dev?: boolean
 }
 
-export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, dev = false }: Props) {
+export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, onReload, dev = false }: Props) {
   const { t } = useTranslation()
   const frame = useRef<HTMLIFrameElement>(null)
   const ready = useRef(false)
@@ -84,7 +91,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const lastBook = useRef<V2HostBook | null>(null)
   const onOpenedRef = useRef(onOpened)
   onOpenedRef.current = onOpened
-  const [heading, setHeading] = useState('')
+  const onReloadRef = useRef(onReload)
+  onReloadRef.current = onReload
+  /** null: `idleHeading` (nothing opened, or the open was given up); '' after a failed open: no title of another book (#1168). */
+  const [heading, setHeading] = useState<string | null>(null)
   const [flow, setFlow] = useState<Flow>(() => (readItem(FLOW_KEY) === 'scrolled' ? 'scrolled' : 'paginated'))
   const flowRef = useRef(flow)
   /** `opened.annotatable`: false on a CBZ (images only) and a PDF (no highlights yet): no highlight button (the page refuses it too). */
@@ -94,7 +104,13 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [status, setStatus] = useState('')
   const [restored, setRestored] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [frameFailed, setFrameFailed] = useState(false)
+  /** A deadline the frame missed (deadlines.mjs); a late answer clears it. */
+  const [overdue, setOverdue] = useState<Overdue>(null)
+  const [deadlines] = useState(() => createDeadlines(setOverdue))
+  /** The size of the open last handed to the page: its `opened` deadline (said in the message). */
+  const openedBytes = useRef(0)
+  /** A new value is a new frame (Retry after a deadline). */
+  const [frameLoad, setFrameLoad] = useState(0)
   /** The open book's server sync (null: none, or the dev route); one per take, closed (after a last write) on the next. */
   const sync = useRef<V2ReaderSync | null>(null)
   const [saveStatus, setSaveStatus] = useState<V2SaveStatus>('saved')
@@ -109,6 +125,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const flushOpen = () => {
     const o = opening.current
     if (!ready.current || !o?.bytes) return
+    openedBytes.current = o.bytes.byteLength
+    deadlines.waitOpened(o.bytes.byteLength)
     call('openBytes', [o.bytes, o.name], [o.bytes])
     o.bytes = undefined
   }
@@ -128,9 +146,22 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   }, [book])
 
   useEffect(() => {
-    const timer = setTimeout(() => { if (!ready.current) setFrameFailed(true) }, readyDeadlineMs)
-    return () => clearTimeout(timer)
-  }, [])
+    deadlines.waitReady(readyDeadlineMs)
+    return () => deadlines.dispose()
+  }, [frameLoad])
+
+  /** Retry after a deadline: a fresh frame; an open whose bytes the old one took is asked for again (`onReload`). */
+  const reloadFrame = () => {
+    ready.current = false
+    const o = opening.current
+    if (o && !o.bytes) {
+      opening.current = null
+      setHeading(null)
+      setStatus('')
+      onReloadRef.current?.()
+    }
+    setFrameLoad((n) => n + 1)
+  }
 
   useEffect(() => {
     /** The page's book is `take.open`'s (openTracker.mjs: the open in flight, or a book the page kept on screen). */
@@ -190,7 +221,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       try { m = JSON.parse(e.data) } catch { return }
       switch (m?.type) {
         case 'ready':
-          setFrameFailed(false)
+          deadlines.ready()
           // The stored layout before the first open: messages arrive in order, and a setting is not a switch.
           call('flow', [flowRef.current])
           ready.current = true
@@ -198,12 +229,17 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           return
         case 'opened': {
           const take = tracker.opened(m)
-          if (take) takeOpened(take)
+          if (!take) return
+          deadlines.answered()
+          takeOpened(take)
           return
         }
         case 'open-failed': {
           const f = tracker.failed(m.name)
           if (!f) return
+          deadlines.answered()
+          // Not the title of the book before it (#1168, #1080 item 6): the alert names the file.
+          setHeading('')
           setError(t('v2Reader.cannotOpen', { name: f.failed.originalName, error: String(m.error) }))
           // The old book may still post a relocate until the page takes up this open (bytes read +
           // messages in flight); a failure must not leave it standing after the open cleared it (#1168).
@@ -283,7 +319,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         {annotatable && (dev || highlightsReady) && <button onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
         <button onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
       </div>
-      <strong data-testid="v2-heading">{heading || idleHeading}</strong>
+      <strong data-testid="v2-heading">{heading ?? idleHeading}</strong>
       <span data-testid="v2-status">{status}</span>
       {saveStatus !== 'saved' && (
         <span role="status" data-testid="v2-not-saved">{t(SAVE_MESSAGE[saveStatus])}</span>
@@ -294,11 +330,15 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         </span>
       )}
       {dev && <span data-testid="v2-restore">{restored}</span>}
-      {(frameFailed || error) && (
-        <span role="alert">
-          {frameFailed ? t('v2Reader.frameFailed', { path: FRAME_SRC, seconds: readyDeadlineMs / 1000 }) : error}
+      {overdue && (
+        <span role="alert" data-testid="v2-overdue">
+          {overdue === 'ready'
+            ? t('v2Reader.frameFailed', { path: FRAME_SRC, seconds: readyDeadlineMs / 1000 })
+            : t('v2Reader.openTimeout', { name: opening.current?.originalName ?? '', seconds: openedDeadlineMs(openedBytes.current) / 1000 })}{' '}
+          <button onClick={reloadFrame}>{t('v2Reader.retry')}</button>
         </span>
       )}
+      {error && <span role="alert">{error}</span>}
       {children}
       {/* allow-same-origin is required: foliate reads its section frames' documents, and under an opaque
           origin every nested frame gets its own. So the page shares the app's origin, and the page CSP is the
@@ -306,7 +346,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           AND its /api session cookie. The shell itself is public (it carries no data, nginx serves it to
           anyone); what is gated is the route that hands it a book, behind Features:V2Api (off in production).
           A second origin is revisited before M5 (docs/01-architecture/v2-reader-web-hosting.md). */}
-      <iframe ref={frame} title="V2 reader" sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} style={{ flex: 1, border: '1px solid #ccc' }} />
+      <iframe key={frameLoad} ref={frame} title="V2 reader" sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} style={{ flex: 1, border: '1px solid #ccc' }} />
     </main>
   )
 }

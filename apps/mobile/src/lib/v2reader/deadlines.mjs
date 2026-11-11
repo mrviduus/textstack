@@ -21,7 +21,7 @@ export const OPENED_CAP_MS = 180_000
 
 /** The `opened` deadline for a file of `bytes` (unknown: the floor). */
 export function openedDeadlineMs(bytes) {
-  const mb = Number.isFinite(bytes) && bytes > 0 ? bytes / 1_048_576 : 0
+  const mb = bytes > 0 ? bytes / 1_048_576 : 0 // NaN, null, undefined: false
   return Math.min(OPENED_CAP_MS, Math.round(OPENED_FLOOR_MS + mb * OPENED_MS_PER_MB))
 }
 
@@ -35,8 +35,8 @@ export function createDeadlines(onChange) {
   const set = (next) => {
     if (next !== overdue) onChange((overdue = next))
   }
+  /** After `met(kind)`: no timer of that kind is running. */
   const wait = (kind, ms) => {
-    clearTimeout(timers[kind])
     timers[kind] = setTimeout(() => {
       timers[kind] = undefined
       set(kind)

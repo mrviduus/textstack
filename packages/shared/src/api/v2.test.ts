@@ -107,4 +107,43 @@ describe('v2 api', () => {
     expect(v2.contentUrl('b1', 'f1')).toBe('http://api/me/v2/books/b1/files/f1/content')
     expect(v2.coverUrl('b1', '2026-11-02T00:00:00Z')).toBe('http://api/me/v2/books/b1/cover?v=2026-11-02T00%3A00%3A00Z')
   })
+
+  describe('getContent (#1227)', () => {
+    const streamOf = (parts: number[][], breakOff = false) => new ReadableStream<Uint8Array>({
+      start(c) {
+        for (const p of parts) c.enqueue(new Uint8Array(p))
+        if (breakOff) c.error(new TypeError('network error'))
+        else c.close()
+      },
+    })
+
+    it('streams the bytes with progress against Content-Length', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(streamOf([[1, 2], [3]]), { headers: { 'Content-Length': '3' } })))
+      const progress: [number, number | null][] = []
+      const bytes = await v2.getContent('b1', 'f1', (l, t) => progress.push([l, t]))
+      expect([...new Uint8Array(bytes)]).toEqual([1, 2, 3])
+      expect(progress).toEqual([[2, 3], [3, 3]])
+    })
+
+    it('no Content-Length: progress with a null total', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(streamOf([[7]]))))
+      const progress: [number, number | null][] = []
+      await v2.getContent('b1', 'f1', (l, t) => progress.push([l, t]))
+      expect(progress).toEqual([[1, null]])
+    })
+
+    it('a body that breaks off is a network error', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(streamOf([[1]], true))))
+      const e = await v2.getContent('b1', 'f1', () => {}).catch((x: unknown) => x)
+      expect(e).toBeInstanceOf(ApiError)
+      expect((e as ApiError).isNetworkError).toBe(true)
+    })
+
+    it('a 404 stays the 404 it is', async () => {
+      stubFetch({ status: 404, body: { code: 'file_not_found', message: 'gone' } })
+      const e = await v2.getContent('b1', 'f1', () => {}).catch((x: unknown) => x)
+      expect((e as ApiError).status).toBe(404)
+      expect((e as ApiError).isNetworkError).toBeFalsy()
+    })
+  })
 })
