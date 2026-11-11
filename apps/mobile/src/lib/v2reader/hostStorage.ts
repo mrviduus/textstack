@@ -135,10 +135,21 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
 /**
  * R2's JSON library into the local library, then the files of the entries it now holds deleted
  * (best effort: the import is flagged done), library.json last.
+ *
+ * #1081: the target is read first, the tmp beside it when the target does not parse (a kill mid-write). When
+ * neither parses, both are kept aside (`<name>.corrupt-<ms>`) and the import says so: never deleted, never
+ * written over, and not read again on every start. Nothing has written library.json since R6.
  */
 async function importJsonLibrary(files: V2Files, lib: LocalLibrary, newId: () => string) {
-  const parsed = parseLibrary((await readRecovering(files, 'library.json')) ?? '')
-  if (!parsed) return
+  const names = ['library.json', 'library.json.tmp']
+  const texts = await Promise.all(names.map((n) => files.read(n)))
+  const parsed = parseLibrary(texts[0] ?? '') ?? parseLibrary(texts[1] ?? '')
+  if (!parsed) {
+    const aside = names.filter((_, i) => texts[i] !== null).map((n) => [n, `${n}.corrupt-${Date.now()}`])
+    for (const [from, to] of aside) await files.move(from, to)
+    if (aside.length) console.warn(`[v2] R2 library unreadable, not imported; kept aside as ${aside.map(([, to]) => to).join(', ')}`)
+    return
+  }
   const books = (parsed.books as LibraryEntry[]).flatMap((b) => {
     try { return [{ ...b, sha256: sha256Key(b.sha256) }] } catch { return [] }
   })

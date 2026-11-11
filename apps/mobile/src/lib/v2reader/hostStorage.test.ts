@@ -245,6 +245,48 @@ describe('v2 host storage', () => {
     })
   })
 
+  describe('R2 JSON library unreadable (#1081)', () => {
+    const oldLibrary = JSON.stringify({ v: 1, books: [{ id: randomUUID(), sha256: SHA_A, size: 10, title: 'Old', author: 'A', originalName: 'old.epub', importedAt: 5, openedAt: 6 }] })
+
+    it('corruptTarget_AValidTmpBeside_TheTmpImported', async () => {
+      const m = memoryFiles()
+      m.data.set('library.json', '{"v":1,"books":[')
+      m.data.set('library.json.tmp', oldLibrary)
+      const { storage: s } = storage(m)
+      expect((await s.books()).map((b) => b.title)).toEqual(['Old'])
+    })
+
+    it('neitherParses_KeptAsideAndReported_NeverDeleted_NotReadAgain', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const m = memoryFiles()
+      m.data.set('library.json', 'garbage')
+      m.data.set('library.json.tmp', '{"v":2}')
+      const { storage: s } = storage(m)
+      await s.addOpened(book(SHA_B), null)
+      expect((await s.books()).map((b) => b.sha256)).toEqual([SHA_B])
+      const aside = [...m.data.keys()].filter((k) => k.includes('.corrupt-')).sort()
+      expect(aside.map((k) => k.replace(/\d+$/, 'N'))).toEqual(['library.json.corrupt-N', 'library.json.tmp.corrupt-N'])
+      expect(aside.map((k) => m.data.get(k))).toEqual(['garbage', '{"v":2}'])
+      expect(m.data.has('library.json')).toBe(false)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('kept aside'))
+      // The next start reads nothing and moves nothing.
+      const before = m.ops.length
+      await createV2Storage(m.files, randomUUID, createLocalLibrary(memoryDb())).books()
+      expect(m.ops.slice(before)).toEqual([])
+      warn.mockRestore()
+    })
+
+    it('noLibraryAtAll_NothingMoved_NothingReported', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const m = memoryFiles()
+      const { storage: s } = storage(m)
+      await s.books()
+      expect(m.ops).toEqual([])
+      expect(warn).not.toHaveBeenCalled()
+      warn.mockRestore()
+    })
+  })
+
   it('sha256Key_NotSixtyFourHex_Throws', () => {
     for (const bad of ['', 'ab'.repeat(31), `${'ab'.repeat(32)}/`, '../'.repeat(22)]) expect(() => sha256Key(bad), bad).toThrow()
   })
