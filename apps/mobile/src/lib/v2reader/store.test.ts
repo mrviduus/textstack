@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { isFractionOnly } from '../../../../../packages/shared/src/reader/fractionPosition'
-import { normalisedHighlight, pageEntry, PAGE_ENTRY_VERSION } from '../../../../../packages/shared/src/reader/v2PageEntry'
-import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256, sha256Yielding, STORE_VERSION, withHighlight, withPosition } from './store.mjs'
+import { normalisedHighlight, pageEntry } from '../../../../../packages/shared/src/reader/v2PageEntry'
+import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 
 const book = { sha256: 'ab'.repeat(32), size: 1234, name: 'a.epub' }
@@ -222,8 +222,7 @@ describe('v2 reader store', () => {
     expect(withHighlight(emptyEntry(book), bad[1]).highlights).toEqual([])
   })
 
-  it('sharedPageEntry_SameVersionAndQuoteCut_TheHostsEntryIsAcceptedHere', () => {
-    expect(PAGE_ENTRY_VERSION).toBe(STORE_VERSION)
+  it('sharedPageEntry_SameQuoteCut_TheHostsEntryIsAcceptedHere', () => {
     const text = 'a😀'.repeat(40)
     expect(normalisedHighlight({ id: 'h', cfi: hl.cfi, quote: text }).quote).toBe(quoteOf(text))
     const e = pageEntry(book, pos, [{ ...hl, selectedText: hl.quote }])

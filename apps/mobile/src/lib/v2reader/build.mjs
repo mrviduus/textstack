@@ -60,7 +60,10 @@ const FOLIATE_SHA = 'b3386ef90b806dc3667941d9c26db12cce98b064'
 // +851 (#1128 S5 review): a book still on screen after its init answers `opened` (viewSeq, not the latest
 // attempt), `restored` carries its key, goTo refuses a page past the end, arrival never through a missing
 // section, the structuredClone refusal, PDF outline entries that reject go nowhere.
-const BUDGET = 254708
+// +63 (#1226): the entry checks moved to packages/shared/src/reader/v2PageStore.ts (one home for the page and both
+// hosts); the bundle's module-path comment line is the growth, the code is the same.
+// +791 (#1226): `addHighlights(list)`, the web host's highlights drawn after the restore without moving the reader.
+const BUDGET = 255562
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

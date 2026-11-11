@@ -25,10 +25,9 @@
  */
 import { createWriteQueue } from '../sessionWrites'
 import {
-  annotationHighlight, decideServerState, entryChanges, isFractionOnly, isUuid, pageEntry, statePosition, syncableText,
+  annotationHighlight, decideServerState, entryChanges, entryFor, isFractionOnly, isUuid, pageEntry, statePosition, syncableText,
   type OpenReader, type PageHighlight, type PagePosition, type V2Annotation, type V2Book, type V2BookFile, type V2ReadingState,
 } from '@textstack/shared'
-import { entryFor } from './store.mjs'
 import type { LibraryBook } from './hostStorage'
 import type { LibraryEntry } from './library.mjs'
 
@@ -281,9 +280,10 @@ export function createLocalLibrary(db: Db) {
   async function applyEntry(book: BookRow, entry: { position: PagePosition | null; highlights: PageHighlight[] }, newId: () => string, keepPosition = false) {
     const file = fileOf(book)
     const st = await stateOf(book.id)
-    const rows = await all<Pick<AnnotationRow, 'id' | 'highlight' | 'deleted_at'>>('SELECT id, highlight, deleted_at FROM annotations WHERE book_id = ?', [book.id])
+    const rows = await all<Pick<AnnotationRow, 'id' | 'highlight' | 'file_id' | 'deleted_at'>>('SELECT id, highlight, file_id, deleted_at FROM annotations WHERE book_id = ?', [book.id])
     const changes = entryChanges(
-      { position: parse(st?.position ?? null), highlights: rows.map((r) => ({ id: r.id, highlight: parse<PageHighlight>(r.highlight), deleted: !!r.deleted_at })) },
+      file,
+      { position: parse(st?.position ?? null), highlights: rows.map((r) => ({ id: r.id, highlight: parse<PageHighlight>(r.highlight), fileId: r.file_id, deleted: !!r.deleted_at })) },
       entry, newId,
     )
     if (changes.position && !(keepPosition && st?.position)) {

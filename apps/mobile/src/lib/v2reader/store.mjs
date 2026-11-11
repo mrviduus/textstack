@@ -1,54 +1,14 @@
-// V2 reader data (ADR-029): one entry per book FILE (its SHA-256 + size). The page owns the shape; the
-// host only keeps the JSON it is sent. An entry for other bytes, or a shape this code does not know, is
-// not applied. Pure: page.mjs and the tests import it.
-import { isFractionOnly } from '../../../../../packages/shared/src/reader/fractionPosition'
+// V2 reader data (ADR-029): the stored entry's shape and checks live in packages/shared/src/reader/v2PageStore.ts,
+// the one definition the page and both hosts use (#1226); re-exported here for page.mjs. Pure: page.mjs and the
+// tests import it.
 import { isPdfPage } from '../../../../../packages/shared/src/reader/pdfPagePosition'
 
-export const STORE_VERSION = 1
-
-/**
- * { v, book: { sha256, size, name }, position: null | { cfi, quote, index, fraction, at } | { cfi, page, index, fraction, at }
- *   | { page: N, index, fraction, at } (PDF, #1128 S5) | { fraction, at },
- *   highlights: [{ id, cfi, index, quote, selectedText, prefix, suffix, color, at }] }
- * `quote` is the first ≤64 code points at the CFI (the epub-cfi locator's `quote`, ADR-031); a
- * highlight's full selection is `selectedText`. A highlight stored before #1078 has only `quote`,
- * which then holds the full selection.
- */
-export function emptyEntry(book) {
-  return { v: STORE_VERSION, book, position: null, highlights: [] }
-}
+export { STORE_VERSION, emptyEntry, entryFor, isPosition, withPosition, withHighlight } from '../../../../../packages/shared/src/reader/v2PageStore'
+/** A PDF position (#1128 S5): the 1-based page number, no CFI, no quote. The shared predicate. */
+export { isPdfPage }
 
 /** The first ≤64 code points: a UTF-16 cut can split a surrogate pair, whose lone half has no UTF-8 form. */
 export const quoteOf = (text) => /^[\s\S]{0,64}/u.exec(text)[0]
-
-/** A position or highlight this code can act on: a CFI and the text that was there. */
-const isQuoted = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && typeof x.quote === 'string' && x.quote.length > 0
-/**
- * An image-only book's position (CBZ, #1128): there is no text at any CFI, so no quote. `page` is the
- * image's entry name in the archive, checked on restore instead; `cfi` is foliate's section CFI.
- */
-const isPaged = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && x.quote === undefined && typeof x.page === 'string' && x.page.length > 0
-/** A PDF position (#1128 S5): the 1-based page number, no CFI, no quote. The shared predicate. */
-export { isPdfPage }
-/** A transitional server position by book fraction alone (#1187): the shared predicate, one definition. */
-export const isPosition = (x) => isQuoted(x) || isPaged(x) || isPdfPage(x) || isFractionOnly(x)
-/** A highlight's `selectedText` is optional (older entries), but when present it is what restore compares. */
-const isHighlight = (h) => isQuoted(h) && (h.selectedText === undefined || (typeof h.selectedText === 'string' && h.selectedText.trim().length > 0))
-
-/** The stored entry for this file, or null (missing, corrupt, another version, other bytes). */
-export function entryFor(json, book) {
-  let e
-  try { e = JSON.parse(json) } catch { return null }
-  if (e?.v !== STORE_VERSION || e.book?.sha256 !== book.sha256 || e.book?.size !== book.size) return null
-  if (!Array.isArray(e.highlights)) return null
-  // Only items this code can use. A stored highlight or position without its quote would throw on
-  // restore, and a page that throws there never finishes restoring and never saves again.
-  return { ...e, position: isPosition(e.position) ? e.position : null, highlights: e.highlights.filter(isHighlight) }
-}
-
-export const withPosition = (e, p) => (isPosition(p) ? { ...e, position: p } : e)
-/** Same id replaces (a re-anchored highlight), otherwise appends. */
-export const withHighlight = (e, h) => (isHighlight(h) && h.id ? { ...e, highlights: [...e.highlights.filter((x) => x.id !== h.id), h] } : e)
 
 /**
  * Text without whitespace (NBSP and block breaks included) or soft hyphens, with curly quotes, primes,
