@@ -35,6 +35,8 @@ git status --short                               # any uncommitted?
 (incl. MCP), `data` (DB, V2 schema, ETL), `ops` (infra, CI, deploy), `documentation`. The list lives in
 `.github/release.yml`; the `PR labels` check fails a PR without one.
 
+**Reader-visible?** Not decided here: `/changelog-week` picks the week's `public` PRs with the owner.
+
 ## Step 2 — Read slice brief (if applicable)
 
 If the user names a slice brief (an issue or a doc), read it to extract:

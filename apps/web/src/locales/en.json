@@ -351,7 +351,8 @@
     "dmca": "DMCA",
     "deleteAccount": "Delete Account",
     "authors": "Authors",
-    "sitemap": "Sitemap"
+    "sitemap": "Sitemap",
+    "changelog": "What's new"
   },
   "sitemap": {
     "title": "Sitemap",
@@ -850,6 +851,36 @@
       "navigate": "to navigate",
       "select": "to select",
       "close": "to close"
+    }
+  },
+  "changelog": {
+    "title": "What's new",
+    "seoTitle": "What's new in TextStack",
+    "seoDesc": "Updates to TextStack on the web and Android, newest first.",
+    "intro": "Updates to TextStack on the web and Android, newest first.",
+    "viewReader": "Updates",
+    "viewTech": "All changes",
+    "viewLabel": "View",
+    "filterLabel": "Filter by area",
+    "all": "All",
+    "weekOf": "Week of {{date}}",
+    "empty": "Nothing here yet.",
+    "earlier": "Earlier changes are listed in",
+    "area": {
+      "reader": "Reader",
+      "mobile": "Mobile",
+      "library": "Library",
+      "vocabulary": "Vocabulary",
+      "ai": "AI",
+      "data": "Data",
+      "ops": "Ops",
+      "documentation": "Docs"
+    },
+    "kind": {
+      "New": "New",
+      "Fix": "Fix",
+      "Improved": "Improved",
+      "Changed": "Changed"
     }
   }
 }

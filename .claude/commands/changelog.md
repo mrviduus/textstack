@@ -1,5 +1,5 @@
 ---
-description: Where a change gets written down, now that PRs are the changelog. Routes incidents, ADRs and STATUS; how a milestone release is cut.
+description: Where a change gets written down, now that PRs are the changelog. Routes incidents, ADRs and STATUS; drafts Play "What's new".
 argument-hint: (no args)
 allowed-tools: Bash, Read, Edit, Write
 ---
@@ -14,7 +14,7 @@ never add to them.
 - **Readers** see the `/changelog` page in the web app: merged PRs grouped by week, with a reader
   view built from PRs labelled `public` (`## Public` block). Those labels and blocks are added once a
   week by `/changelog-week`, not per PR.
-- **GitHub Releases** are milestones only (below), never per deploy.
+- **No GitHub releases** for the app. Android users read Play's "What's new" (below).
 
 ## Where things go
 
@@ -26,18 +26,12 @@ never add to them.
 | It changed a load-bearing decision | ADR in `docs/01-architecture/adr/` |
 | It finished, or created, open work | `docs/STATUS.md`, and one GitHub issue per open item |
 
-## Milestone releases
+## Play Store "What's new"
 
-Rule (owner, 2026-11-11): a release only when an **Android build is promoted to Play production**.
-Tag `android-<versionName>`. The owner decides; Claude drafts, the owner publishes:
-
-```bash
-gh release create android-<x.y.z> --draft --title "Android <x.y.z>" \
-  --generate-notes --notes-start-tag <previous android-* tag, or 2026.11.11>
-```
-
-Prepend a short hand-written intro to the generated list; the same text goes into Play's "What's new".
-Sections come from `.github/release.yml`. `2026.11.11` marks the switch from `CHANGELOG.md`.
+When the owner promotes an Android build to Play production (`mobile-release.yml`), draft its
+"What's new" text: the Android-tagged `public` entries merged since the previous production build,
+plain words, at most 500 characters. The owner pastes it into Play Console. Nothing goes to GitHub
+Releases (`2026.11.11` there only marks the switch; the page counts from it).
 
 ## Fixing a line
 
