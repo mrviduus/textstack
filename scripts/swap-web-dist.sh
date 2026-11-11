@@ -12,7 +12,8 @@
 # old tree. So the release goes in file by file, and dist/ssg* is never touched:
 #   1. assets/ — content-hashed names, unreachable until an index.html names them.
 #      A name already present is the same bytes and is skipped.
-#   2. every other file, index.html last. Each is copied next to its target and
+#   2. every other file: the V2 reader script (reader-v2/page.*.js) first, index.html
+#      last. Each is copied next to its target and
 #      renamed over it (atomic on one filesystem), so a reader gets old or new, never half.
 #   3. files the previous release shipped (MANIFEST) that this one does not: removed.
 #   4. assets referenced by neither this release, the previous index.html (one
@@ -79,7 +80,11 @@ put() {
   cp -p "$NEW/$1" "$DIST/$1.swap-tmp"
   mv -f "$DIST/$1.swap-tmp" "$DIST/$1"
 }
-{ grep -vx 'index.html' "$work/files" || true; } | while IFS= read -r f; do put "$f"; done
+# The V2 reader's page script before the shell that names it (#1225), as assets go before index.html.
+READER_JS='reader-v2/page\..*\.js'
+{ grep -x "$READER_JS" "$work/files" || true
+  grep -vx -e 'index.html' -e "$READER_JS" "$work/files" || true
+} | while IFS= read -r f; do put "$f"; done
 put index.html
 
 # --- 3. Files the previous release shipped and this one does not.
