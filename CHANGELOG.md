@@ -11,7 +11,6 @@ line is in [`docs/changelog-archive/`](docs/changelog-archive/), postmortems in 
 
 ## [2026.11.11]
 
-## [Unreleased]
 - **Reader** — the V2 reader gets a production web route behind Features:V2Api: a small no-store frame shell (nonce per response) plus the 3.6 MB page script cached immutably by hash (#1225) — web, infra · [details](docs/changelog-archive/2026-H2.md#2026-11-11-reader-the-v2-reader-gets-a-production-web-route)
 - **Reader** — the V2 reader's web host embeds the page as its own same-origin document, not srcdoc (measured: srcdoc never becomes ready under the production CSP); an unfilled nonce placeholder runs no script; one served-frame handler for the dev server and a new CI gate; hosts hide a stale position after a failed open; dev-only, nginx untouched (#1219) — web, mobile
 - **Mobile** — a book deleted on the server keeps its bytes until the reader removes them: the sweep and the Library listing only mark it, a Library row removes all at once, kept bytes are off the 2 GB budget and never evicted (#1193, #1191) — mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-11-mobile-deleted-books-keep-their-bytes)
