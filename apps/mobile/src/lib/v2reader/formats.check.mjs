@@ -15,7 +15,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { fb2, hostilePdf, writeFormatFixtures } from './fixtures.mjs'
+import { fb2, hostilePdf, pdf, writeFormatFixtures } from './fixtures.mjs'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -227,6 +227,224 @@ try {
       server.close()
       await page.setViewportSize({ width: 1280, height: 720 })
     }
+  }
+
+  /**
+   * #1128 S5 QA: the open order (the book made before the open one is torn down) and PDF edges, on a page
+   * of its own. `known(reproduces, what)` is a bug this check documents and does not fix: it passes while the
+   * bug reproduces, and fails once it is fixed, so the line is turned into a `check` then.
+   */
+  async function checkOpenOrder() {
+    console.log('open order (S5 QA)')
+    const known = (reproduces, what) => { console.log(`  ${reproduces ? 'bug ' : 'FIXED'}  ${what}`); if (!reproduces) failures.push(`known bug no longer reproduces, make it a check: ${what}`) }
+    const qa = await browser.newPage()
+    const msgs = []
+    const pageErrors = []
+    qa.on('pageerror', (e) => pageErrors.push(e.message))
+    await qa.exposeFunction('__toHost', (json) => msgs.push(JSON.parse(json)))
+    await qa.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
+    await qa.goto(pathToFileURL(resolve(dir, 'page.html')).href)
+    const run = (js) => qa.evaluate(js)
+    const until = async (from, match, what) => {
+      for (const t0 = Date.now(); Date.now() - t0 < TIMEOUT_MS; await qa.waitForTimeout(50)) { const m = msgs.slice(from).find(match); if (m) return m }
+      throw new Error(`timed out waiting for ${what}`)
+    }
+    const send = (file) => run(`window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, file)).href)}, ${JSON.stringify(file)})`)
+    const openQa = async (file, stored = null) => {
+      const from = msgs.length
+      await send(file)
+      const m = await until(from, (x) => (x.type === 'opened' || x.type === 'open-failed') && (x.book?.name ?? x.name) === file, `${file} to open`)
+      if (m.type === 'opened') {
+        await run(`window.__fol.restore(${JSON.stringify(stored)})`)
+        m.restored = await until(from, (x) => x.type === 'restored', `${file} restored`)
+      }
+      return { ...m, from }
+    }
+    const settle = () => qa.waitForTimeout(1200)
+    const storesQa = (from) => msgs.slice(from).filter((x) => x.type === 'store')
+    const views = () => run('document.querySelectorAll("foliate-view").length')
+    const flag = (js) => (async () => { for (const t0 = Date.now(); !(await run(js)) && Date.now() - t0 < TIMEOUT_MS;) await qa.waitForTimeout(20) })()
+    await until(0, (x) => x.type === 'ready', 'ready (open order)')
+    await openQa('tsformat.pdf')
+    // The PDF reader, spied: `__holdNext` holds the next makePDF until `__release()` / `__reject(e)`; `__destroyed` counts book.destroy().
+    await run(`(() => {
+      const f = window.__tsFormats.pdf, make = f.makePDF
+      window.__destroyed = 0
+      f.makePDF = async (...a) => {
+        if (window.__holdNext) {
+          window.__holdNext = false
+          await new Promise((ok, no) => { window.__release = ok; window.__reject = no; window.__held = true })
+        }
+        const b = await make(...a), destroy = b.destroy
+        b.destroy = () => { window.__destroyed++; return destroy() }
+        return b
+      }
+    })()`)
+    const password = `Object.assign(new Error('No password given'), { name: 'PasswordException' })`
+
+    // One page per screen (spread 'none'): in a landscape view foliate would pair pages 2-3, and `next`
+    // from page 1 then page 2 would save page 4. Each turn saves the page it shows.
+    await qa.setViewportSize({ width: 1280, height: 720 })
+    let m = await openQa('tsformat.pdf')
+    const fmt = m.book
+    // I6: the label is refused where `annotatable` is false (the call answers false, nothing is drawn).
+    const label = `window.__fol.showTranslation('epubcfi(/6/2!/4/2/1:0)', 0, 'x')`
+    check(await run(label) === false, 'showTranslation is refused on a PDF')
+    let from = msgs.length
+    for (const _ of [1, 2]) { run('window.__fol.next()'); await qa.waitForTimeout(500) }
+    await settle()
+    check(storesQa(from).map((s) => JSON.parse(s.json).position?.page).join() === '2,3', `landscape: next, next saves pages 2 then 3, never a spread (${storesQa(from).map((s) => JSON.parse(s.json).position?.page)})`)
+    // I2 on a PDF: a resize (re-layout) and a tap save nothing.
+    m = await openQa('tsformat.pdf', JSON.stringify({ v: 1, book: fmt, highlights: [], position: { page: 3, index: 2, fraction: 0.5, at: 1 } }))
+    await settle()
+    from = msgs.length
+    await qa.setViewportSize({ width: 420, height: 760 })
+    await settle()
+    const cdp = await qa.context().newCDPSession(qa)
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 200, y: 380 }] })
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await settle()
+    check(m.restored.position === 'restored' && storesQa(from).length === 0, `a restored PDF, resized and tapped, saves nothing (${m.restored.position}, ${JSON.stringify(storesQa(from).map((s) => JSON.parse(s.json).position))})`)
+
+    // Leak: a PDF torn down for the next book keeps its pdf.js document (book.destroy() never called): every
+    // PDF opened and left keeps its file's bytes (measured: +21 MB backing store per 20 MB PDF, none with destroy()).
+    await run('window.__destroyed = 0')
+    await openQa('tsformat.fb2')
+    known(await run('window.__destroyed') === 0, 'a PDF replaced by the next book is never destroyed (pdf.js document leaks)')
+
+    // I4: a pending save of A (debounced 400 ms) survives B's failed open, under A's key.
+    let a = await openQa('tsformat.fb2')
+    await settle()
+    from = msgs.length
+    await run('window.__fol.next(); 0')
+    await until(from, (x) => x.type === 'relocate', 'a relocate on A')
+    await send('tslocked.pdf')
+    await until(from, (x) => x.type === 'open-failed', 'B (password) failed')
+    await settle()
+    check(storesQa(from).length === 1 && storesQa(from)[0].key === a.book.sha256, `A's pending save lands under A's key after B failed (${storesQa(from).map((s) => s.key === a.book.sha256)})`)
+    // …but is cancelled when B opens within the 400 ms: A's last turn is never saved (as before S5).
+    a = await openQa('tsformat.fb2')
+    await settle()
+    from = msgs.length
+    await run('window.__fol.next(); 0')
+    await until(from, (x) => x.type === 'relocate', 'a relocate on A')
+    await send('tsformat.epub')
+    await until(from, (x) => x.type === 'opened', 'B opened')
+    await settle()
+    known(!storesQa(from).some((s) => s.key === a.book.sha256), "A's turn made under 400 ms before B opens is lost (saves.cancel at teardown)")
+
+    // I3: A turned while B is being made, B then fails: the turn is neither reported nor saved (A's listener
+    // reads openSeq, already B's), and the place A shows is not saved until the reader moves again.
+    a = await openQa('tsformat.fb2')
+    await settle()
+    await run('window.__holdNext = true; window.__held = false')
+    from = msgs.length
+    await send('tsformat.pdf')
+    await flag('window.__held')
+    await run('window.__fol.next(); 0')
+    await settle()
+    // A taken offer on A meanwhile runs on A's own chain and saves under A's key.
+    const during = msgs.length
+    await run('window.__fol.goTo({ fraction: 0.5, at: 1 }, true); 0')
+    await settle()
+    check(storesQa(during).length === 1 && storesQa(during)[0].key === a.book.sha256, `a chosen goTo on A while B is made saves under A's key (${storesQa(during).length})`)
+    const shownPlace = await run(`document.querySelector('foliate-view').lastLocation?.cfi`)
+    await run(`window.__fol.next(); 0`)
+    await settle()
+    await run(`window.__reject(${password}); 0`)
+    await until(from, (x) => x.type === 'open-failed' && x.name === 'tsformat.pdf', 'B failed late in its make')
+    await settle()
+    const shown = await run(`document.querySelector('foliate-view').lastLocation?.cfi`)
+    check(shown !== shownPlace, 'A turned while B was made')
+    known(!storesQa(from).some((s) => JSON.parse(s.json).position?.cfi === shown) && !msgs.slice(during).some((x) => x.type === 'relocate'),
+      'a turn on A while B is made is neither reported (relocate) nor saved, and stays unsaved after B fails')
+    from = msgs.length
+    await run('window.__fol.next(); 0')
+    const later = await until(from, (x) => x.type === 'store', 'a store on A after B failed').catch(() => null)
+    check(later?.key === a.book.sha256, 'after B failed, A turns and saves under its own key')
+
+    // The open seq handed back (B failed before teardown) is reused: B made slowly, C fails fast (seq back to A's),
+    // D takes B's old seq; B, released, passes its `mine === openSeq` check and replaces D on screen.
+    await openQa('tsformat.fb2')
+    await run('window.__holdNext = true; window.__held = false')
+    from = msgs.length
+    await send('tsformat.pdf')
+    await flag('window.__held')
+    await send('tslocked.pdf')
+    await until(from, (x) => x.type === 'open-failed' && x.name === 'tslocked.pdf', 'C failed')
+    await send('tsformat.epub')
+    await until(from, (x) => x.type === 'opened' && x.book.name === 'tsformat.epub', 'D opened')
+    await run('window.__release(); 0')
+    await settle()
+    const answered = msgs.slice(from).filter((x) => x.type === 'opened').map((x) => x.book.name)
+    known(answered.join() === 'tsformat.epub,tsformat.pdf' && await run(`document.querySelector('foliate-view').book.sections.length`) === 5,
+      `a superseded open whose seq was handed back and reused opens over the newest book (${answered})`)
+
+    // Superseded while made (no give-back in between): destroyed, never opened; one view.
+    await openQa('tsformat.fb2')
+    await run('window.__holdNext = true; window.__held = false; window.__destroyed = 0')
+    from = msgs.length
+    await send('tsformat.pdf')
+    await flag('window.__held')
+    await send('tsformat.epub')
+    await until(from, (x) => x.type === 'opened', 'C opened')
+    await run('window.__release(); 0')
+    await settle()
+    check(msgs.slice(from).filter((x) => x.type === 'opened').map((x) => x.book.name).join() === 'tsformat.epub' && await run('window.__destroyed') === 1 && await views() === 1,
+      'a PDF superseded while it is made is destroyed and never opened; one view')
+
+    // A failure after the teardown (view.open throws): `open-failed`, nothing saved for either book, the next open works.
+    a = await openQa('tsformat.fb2')
+    await run(`(() => { const C = customElements.get('foliate-view'), o = C.prototype.open; C.prototype.open = async function () { C.prototype.open = o; throw new Error('late failure') } })()`)
+    from = msgs.length
+    m = await openQa('tsformat.epub')
+    await run('window.__fol.next(); window.__fol.restore(null); 0')
+    await settle()
+    check(m.type === 'open-failed' && storesQa(from).length === 0 && !msgs.slice(from).some((x) => x.type === 'restored'), `a late failure answers open-failed, saves and restores nothing (${m.type})`)
+    check((await openQa('tsformat.fb2')).restored?.position === 'none', 'and the next open works')
+
+    // Shapes pdf.js survives or refuses before the teardown (the book on screen keeps reading).
+    const src = pdf(5).toString('latin1')
+    const shapes = {
+      'tsjunk.pdf': [Buffer.concat([Buffer.alloc(900, 0x41), pdf(2)]), 'opened'],
+      'tsxref.pdf': [Buffer.from(src.replace(/startxref\n\d+/, 'startxref\n99999'), 'latin1'), 'opened'],
+      'tscount.pdf': [Buffer.from(pdf(1).toString('latin1').replace('/Count 1', '/Count 2147483647'), 'latin1'), 'opened'],
+      'tshalf.pdf': [pdf(5).subarray(0, pdf(5).length >> 1), 'open-failed'],
+      'tsnoise.pdf': [Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(4000, 0x07)]), 'open-failed'],
+    }
+    for (const [file, [bytes, expected]] of Object.entries(shapes)) {
+      writeFileSync(resolve(dir, file), bytes)
+      a = await openQa('tsformat.fb2')
+      m = await openQa(file)
+      const ok = m.type === expected && (expected === 'opened' ? m.sections >= 1 : true)
+      from = msgs.length
+      if (m.type === 'open-failed') run('window.__fol.next()')
+      const st = m.type === 'open-failed' ? await until(from, (x) => x.type === 'store', 'A saves after a refused PDF').catch(() => null) : null
+      check(ok && (m.type === 'opened' || st?.key === a.book.sha256), `${file}: ${m.type} (${m.sections ?? m.error})${st ? ', the book on screen still saves' : ''}`)
+    }
+    writeFileSync(resolve(dir, 'tszero.pdf'), Buffer.from(pdf(1).toString('latin1').replace('/Count 1', '/Count 0').replace(/\/Kids \[[^\]]*\]/, '/Kids []'), 'latin1'))
+    m = await openQa('tszero.pdf')
+    known(m.type === 'opened' && m.sections === 0, `a PDF with no page is opened as an empty book, replacing the one on screen (${m.type}, ${m.sections})`)
+
+    // A Named action (Print, NextPage…), like ResetForm and an attachment link, throws in pdf.js's annotation
+    // layer (foliate's linkService has no getAnchorUrl): the page's whole annotation layer is lost, uncaught.
+    const named = pdf(1, { title: 'TS NAMED', annots: [[
+      '<< /Type /Annot /Subtype /Link /Rect [40 700 560 720] /Border [0 0 0] /A << /S /Named /N /NextPage >> >>',
+      '<< /Type /Annot /Subtype /Link /Rect [40 660 560 680] /Border [0 0 0] /A << /S /URI /URI (https://example.com/) >> >>',
+    ]] })
+    writeFileSync(resolve(dir, 'tsnamed.pdf'), named)
+    check(pageErrors.length === 0, `no page error before the Named-action PDF (${pageErrors.join('; ')})`)
+    pageErrors.length = 0
+    m = await openQa('tsnamed.pdf')
+    await settle()
+    let links = 0
+    for (const f of qa.frames().filter((f) => f.url().startsWith('blob:'))) links += await f.evaluate(() => document.querySelectorAll('.annotationLayer section').length).catch(() => 0)
+    known(m.type === 'opened' && links === 0 && pageErrors.some((e) => /getAnchorUrl/.test(e)), `a Named-action link drops every link of its page with an uncaught error (${links} links; ${pageErrors.join('; ').slice(0, 80)})`)
+    // Let through: the known Named-action bug, and `next` on the dead view a late failure leaves (no renderer).
+    const expectedError = (msg) => /^open: /.test(msg) || /getAnchorUrl/.test(msg) || /^navigation: TypeError: Cannot read properties of undefined \(reading 'next'\)/.test(msg)
+    for (const x of msgs) if (x.type === 'log' && x.level === 'error' && !expectedError(x.msg)) check(false, `page error (open order): ${x.msg.split('\n')[0]}`)
+    await qa.close()
+    check(true, 'open order done')
   }
 
   await waitFor(0, (m) => m.type === 'ready', 'ready')
@@ -756,6 +974,7 @@ try {
     `a taken goTo to the other page of the shown spread arrives and saves (${JSON.stringify(storesFrom(from))})`)
 
   await checkPdf()
+  await checkOpenOrder()
 
   // Every page error on this page, last so that every block above is covered. One benign message is let
   // through by its exact text: Chromium's ResizeObserver loop notice, from the resize above.

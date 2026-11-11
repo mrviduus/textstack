@@ -720,13 +720,16 @@ describe('V2 local library sync (R6)', () => {
     })
 
     it('push_CfiPositionOnAPdf_NeverPushed_Dropped', async () => {
-      const { lib } = await syncedPdf()
+      const { lib, bookId } = await syncedPdf()
       // The page never builds one for a PDF; a stored one (another shape, a bug) must still never reach the server.
       await lib.writeEntry(SHA, entry({ ...pos, at: NOW - 1000 }), newId)
       const calls = fakeApi({})
       await syncV2Library(lib, host())
       expect(writes(calls).filter((w) => w.endsWith('/reading-state'))).toEqual([])
       expect((await lib.outbox()).filter((o) => o.kind === 'state')).toEqual([])
+      // QA: only the write is dropped; the local row keeps that position (the page refuses it on restore:
+      // "wrong position kind"), and the next page position replaces it.
+      expect(JSON.parse((await lib.state(bookId))!.position!)).toMatchObject({ cfi: pos.cfi })
     })
 
     it('pull_PdfPageState_StoredAndRestoredAsThePage', async () => {

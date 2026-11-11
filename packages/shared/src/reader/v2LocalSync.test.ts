@@ -112,6 +112,29 @@ describe('v2LocalSync', () => {
     expect(decideServerState({ local, localFileId: 'f', server: transitional, reader: null, format: 'pdf', now })).toBe('keep')
   })
 
+  it('decideServerState_PdfPage_NoLocalPosition_AdoptedOrByPage', () => {
+    // #1128 S5 QA: a PDF never read here (no local position) takes the server's page; an open reader is
+    // asked by page index, never by CFI.
+    const now = Date.parse('2026-11-10T12:00:00Z')
+    expect(decideServerState({ local: null, localFileId: 'f', server: pdfState(7), reader: null, format: 'pdf', now })).toBe('adopt')
+    expect(decideServerState({ local: null, localFileId: 'f', server: pdfState(7), reader: { restoreApplied: true, moved: false, index: 6 }, format: 'pdf', now })).toBe('move')
+    // Another file's state, or a pdf-page on a file this device reads as another format: kept.
+    expect(decideServerState({ local: null, localFileId: 'g', server: pdfState(7), reader: null, format: 'pdf', now })).toBe('keep')
+    expect(decideServerState({ local: null, localFileId: 'f', server: pdfState(7), reader: null, format: 'epub', now })).toBe('keep')
+  })
+
+  it('positionWrite_PdfPageAndCfiTogether_NeitherScheme', () => {
+    // A position carrying both a page number and a CFI is no PDF position, and has no quote for epub-cfi.
+    expect(positionWrite({ cfi: CFI, page: 3, index: 2, fraction: 0, at: 1 }, 'f', null, Date.now(), 'pdf')).toBeNull()
+    expect(positionWrite({ cfi: CFI, page: 3, index: 2, fraction: 0, at: 1 }, 'f', null, Date.now(), 'epub')).toBeNull()
+  })
+
+  // QA #1128 S5 (contract gap, unreachable from the page): the server reads `page` with TryGetInt32
+  // (SyncValidation.IsPage), the client accepts any safe integer, so a page past 2^31-1 is pushed and refused.
+  it.fails('positionWrite_PageBeyondInt32_NotWritten', () => {
+    expect(positionWrite({ page: 2 ** 31, index: 2 ** 31 - 1, fraction: 1, at: 1 }, 'f', null, Date.now(), 'pdf')).toBeNull()
+  })
+
   it('statePosition_TransitionalScheme_FractionOnlyPosition', () => {
     // #1187: nobody converts a textstack-* locator to a CFI; the page resumes from bookFraction.
     const at = Date.parse('2026-11-10T11:00:00.000Z')

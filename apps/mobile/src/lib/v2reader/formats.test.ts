@@ -53,6 +53,24 @@ describe('sniffFormat', () => {
     expect(() => sniffFormat(bytes(`${' '.repeat(1020)}%PDF-1.4\n`))).toThrow(/not a book this reader opens/)
   })
 
+  it('pdfMarkerInTheFirstKiBOfAZipMobiOrKfx_StillThatFormat', () => {
+    // #1128 S5 QA: the PDF sniff is a substring search, so it must run after every format told by its own
+    // magic: a zip (an EPUB whose first entry is named so), a PDB whose name says so, a KFX.
+    expect(sniffFormat(bytes(Buffer.concat([Buffer.from('504b0304140000', 'hex'), Buffer.from('%PDF-1.4 entry.xhtml')])))).toBe('zip')
+    const named = bytes(mobi('%PDF-1.4 in the title', html))
+    expect(Buffer.from(named.subarray(0, 1024)).toString('latin1')).toContain('%PDF-')
+    expect(sniffFormat(named)).toBe('mobi')
+    expect(() => sniffFormat(bytes(Buffer.concat([Buffer.from([0xea]), Buffer.from('DRMION'), Buffer.from([0xee]), Buffer.from('%PDF-1.4')])))).toThrow(/DRM-protected \(KFX\)/)
+  })
+
+  // QA #1128 S5 (bug): an FB2 is the last candidate, after the PDF substring search, so a valid FB2 whose
+  // first KiB quotes `%PDF-` (a book about file formats, a <binary> name) goes to pdf.js and fails to open.
+  it.fails('fb2QuotingThePdfMarkerInItsFirstKiB_StillFb2', () => {
+    const book = fb2('About %PDF-1.4 headers', '<section><p>p</p></section>')
+    expect(book.indexOf('%PDF-')).toBeLessThan(1024)
+    expect(sniffFormat(bytes(book))).toBe('fb2')
+  })
+
   it('unknownOrEmpty_Refused', () => {
     for (const b of ['', 'plain text', '<html><body>FictionBook</body></html>', '<FictionBookmark/>', png(1, 1, [0, 0, 0])])
       expect(() => sniffFormat(bytes(b))).toThrow(/not a book this reader opens/)
