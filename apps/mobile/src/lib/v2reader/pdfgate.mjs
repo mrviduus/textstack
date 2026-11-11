@@ -1,5 +1,5 @@
 // The ADR-032 PDF gate (#1128 S5): "open, page, select and resume on the existing real PDF uploads",
-// through the committed page in headless Chromium as file:// (the dev route's origin), one fresh page per file.
+// through the committed page in headless Chromium under the Android host's origin (bookOriginRoute.mjs), one fresh page per file.
 //
 //   node --experimental-strip-types pdfgate.mjs <corpusDir> [--map <file>] [--only 3,7]
 //
@@ -12,7 +12,9 @@ import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
+import { BOOK_ORIGIN } from './bookOrigin.mjs'
+import { PAGE_URL, routeBookOrigin } from './bookOriginRoute.mjs'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -47,12 +49,14 @@ function classOf(msg) {
 
 const dir = mkdtempSync(resolve(tmpdir(), 'ts-pdfgate-'))
 writeFileSync(resolve(dir, 'page.html'), v2ReaderPageHtml(randomBytes(18).toString('base64')))
-const browser = await chromium.launch({ args: ['--allow-file-access-from-files'] })
+const browser = await chromium.launch()
 const rows = []
 
 async function gate(file) {
   const r = { size: statSync(file).size, pages: null, openMs: null, firstPageMs: null, inked: null, forward: null, last: null, textLayer: null, textPage: null, selection: null, resume: null, heapMB: null, longTaskMs: null, warnings: {}, errors: [] }
   const page = await browser.newPage({ viewport: { width: 420, height: 760 } })
+  // The corpus file is the one book served; its path never enters a URL.
+  await routeBookOrigin(page, dir, (u) => (u === `${BOOK_ORIGIN}/v2/books/gate.pdf` ? file : null))
   const messages = []
   const errors = new Set()
   page.on('pageerror', (e) => errors.add(classOf(`${e.name}: ${e.message}`)))
@@ -122,7 +126,7 @@ async function gate(file) {
     return poll()
   }
   const call = (js) => page.evaluate(js)
-  const url = pathToFileURL(file).href
+  const url = `${BOOK_ORIGIN}/v2/books/gate.pdf`
   const open = async (stored) => {
     const from = messages.length
     const t0 = Date.now()
@@ -136,7 +140,7 @@ async function gate(file) {
   }
 
   try {
-    await page.goto(pathToFileURL(resolve(dir, 'page.html')).href)
+    await page.goto(PAGE_URL)
     await waitFor(0, (x) => x.type === 'ready', 'ready')
     // Open → page 1 drawn.
     const o = await open(null)

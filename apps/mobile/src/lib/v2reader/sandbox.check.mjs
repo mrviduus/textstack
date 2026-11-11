@@ -1,17 +1,20 @@
 // The hostile-book check (ADR-029 Decision 6): the real CSP must block every vector of fixtures.mjs
 // `hostileVectors`, and each MUTATIONS directive, removed or widened, must be caught. What it proves and
-// its blind spots: README.md, Sandbox.
+// its blind spots: README.md, Sandbox. The page runs under the Android host's origin (bookOrigin.mjs, #1228): Playwright
+// routes it (bookOriginRoute.mjs) with the interceptor's own rule, so a book is reachable only as a served file. After
+// the real-CSP EPUB run, SCOPE_ROWS: what the page's own script may fetch (one served book) and may not.
 //
 //   node --experimental-strip-types sandbox.check.mjs                    real CSP, then every mutation
 //   node --experimental-strip-types sandbox.check.mjs --mutate=<name>    one mutated run; exits 1
 //   (pnpm -C apps/web check:v2-reader-sandbox; once: pnpm -C apps/web exec playwright install chromium)
-import { createServer } from 'node:http'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
+import { BOOK_ORIGIN, bookUrl, servedFile } from './bookOrigin.mjs'
+import { PAGE_URL, routeBookOrigin } from './bookOriginRoute.mjs'
 import { formatsOf, hostileVectors, writeHostileEpub, writeHostileFb2, writeHostileMobi } from './fixtures.mjs'
 import { HOSTILE_KF8 } from './kf8fixture.mjs'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
@@ -48,7 +51,7 @@ const MUTATIONS = {
 const PROBES = {
   'file-sibling-img': () => (document.getElementById('file-sibling-img')?.naturalWidth ?? 0) > 0,
   'file-sibling-css': () => { const el = document.getElementById('file-sibling-css'); return !!el && getComputedStyle(el).color === 'rgb(1, 2, 3)' },
-  'file-sibling-iframe': () => location.protocol === 'file:' && !location.pathname.endsWith('/page.html'),
+  'file-sibling-iframe': () => location.pathname.endsWith('/secret.json'),
   // The book's own frame only: an iframe loaded from the server has it as its base too.
   'base-href': (evil) => !!document.getElementById('ts-hostile') && document.baseURI.startsWith(evil),
   // The attribute value, decoded and case-folded, whatever the source spelled.
@@ -57,7 +60,7 @@ const PROBES = {
 }
 PROBES['meta-refresh-entity'] = PROBES['meta-refresh']
 
-// Files beside the retained EPUB, each with content its vector can be recognised by.
+// Files beside the retained book in the served directory (`books/`), each with content its vector can be recognised by.
 const SIBLINGS = {
   'secret.json': '{"secret":"ts-sibling-secret"}',
   'secret.css': '#file-sibling-css { color: rgb(1, 2, 3) }',
@@ -73,6 +76,45 @@ const BOOKS = { epub: 'tshostile.epub', mobi: 'tshostile.mobi', fb2: 'tshostile.
 // Calibre 9.18 drops the external, zip and sibling stylesheets/scripts; the inline SVG script's text is kept
 // but never runs, even with script-src opened. Every other EPUB vector must still be caught in the KF8.
 const KF8_DROPPED = ['script-src-in-zip', 'svg-inline-script', 'file-sibling-css', 'link-stylesheet', 'css-import']
+/** The name a fixture is served under: the shape of a retained book (`books/<sha256>.epub`), whatever its format. */
+const servedName = (file) => `books/${createHash('sha256').update(file).digest('hex')}.epub`
+/**
+ * The interceptor's rule (servedFile) for the fixtures, plus the SIBLINGS in the same directory: the only files a
+ * book could name on Android are other served books. Everything else on the origin is a 404.
+ */
+const fileFor = (dir) => (url) => {
+  const served = servedFile(url)
+  const fixture = served && Object.values(BOOKS).find((f) => servedName(f) === served)
+  if (fixture) return resolve(dir, fixture)
+  const sibling = /^\/v2\/books\/(secret\.\w+)$/.exec(new URL(url).pathname)?.[1]
+  return sibling && SIBLINGS[sibling] ? resolve(dir, sibling) : null
+}
+
+/**
+ * What the page's own script (as one that got past the nonce would) may fetch: `ok` rows must load, every other
+ * must be refused (by the CSP or the interceptor's 404). A path outside the served scope, an encoded slash, a dot
+ * segment and `file:` are the negatives; the served book is the positive control.
+ */
+const SCOPE_ROWS = (book) => [
+  ['served book', book, true],
+  ['outside the scope', `${BOOK_ORIGIN}/v2/library.json`, false],
+  ['store entry', `${BOOK_ORIGIN}/v2/store/${'0'.repeat(64)}.json`, false],
+  ['encoded slash', `${BOOK_ORIGIN}/v2/books/..%2Flibrary.json`, false],
+  ['encoded dot segment', `${BOOK_ORIGIN}/v2/books/%2e%2e/library.json`, false],
+  ['dot segment', `${BOOK_ORIGIN}/v2/books/../library.json`, false],
+  ['query', `${book}?x=1`, false],
+  ['file: URL', 'file:///etc/hosts', false],
+  ['other origin', 'https://example.com/', false],
+]
+
+async function scopeRows(page, book) {
+  for (const [what, url, ok] of SCOPE_ROWS(book)) {
+    const status = await step(`scope ${what}`, () => page.evaluate((u) => fetch(u).then((r) => (r.ok ? 'loaded' : `refused (${r.status})`), (e) => `refused (${e.name})`), url))
+    console.log(`  ${(status === 'loaded') === ok ? 'ok     ' : 'FAILED '}  scope: ${what.padEnd(20)} ${status}`)
+    if ((status === 'loaded') !== ok) result.errors.add(`scope: ${what} ${status}, expected ${ok ? 'loaded' : 'refused'}`)
+  }
+}
+
 const carries = (format, row) => (format === 'kf8' ? formatsOf(row).includes('epub') && !KF8_DROPPED.includes(row[0]) : formatsOf(row).includes(format))
 
 /**
@@ -98,14 +140,16 @@ let result = null
 
 const vectorOf = (url) => new URL(url, 'http://evil').pathname.split('/')[1].replace(/\.\w+$/, '')
 
-/** Every request it receives is a vector that escaped, named by its first path segment. Any free port. */
-function startEvil() {
-  const server = createServer((req, res) => { result?.escaped.add(vectorOf(req.url)); res.end() })
-  return new Promise((ok, fail) => {
-    server.on('error', fail)
-    server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${server.address().port}`, close: () => server.close() }))
-  })
-}
+/**
+ * The evil server, routed in each context: every request it receives is a vector that escaped, named by its first
+ * path segment. https, as the page is (an http one from an https page is upgraded or blocked as mixed content, not
+ * by the CSP), and as long as the hostile KF8's address placeholder.
+ */
+const evil = { url: 'https://evil.tst:44443' }
+const routeEvil = (context) => context.route(`${evil.url}/**`, (route) => {
+  result?.escaped.add(vectorOf(route.request().url()))
+  return route.fulfill({ status: 200, contentType: 'text/plain', body: '' })
+})
 
 // Before any page script, in every frame: the host bridge (top only) and a log of what the CSP blocked.
 function hostShim() {
@@ -145,7 +189,9 @@ async function run(browser, evil, dir, file, mutate) {
   result = { escaped: new Set(), blocked: new Set(), errors: new Set() }
   const context = await browser.newContext()
   try {
-    await openHostile(await context.newPage(), evil.url, dir, file)
+    await routeBookOrigin(context, dir, fileFor(dir))
+    await routeEvil(context)
+    await openHostile(await context.newPage(), evil.url, dir, file, !mutate && file === BOOKS.epub)
   } catch (e) {
     result.errors.add(`run: ${e.message.split('\n')[0]}`)
   } finally {
@@ -153,7 +199,7 @@ async function run(browser, evil, dir, file, mutate) {
   }
 }
 
-async function openHostile(page, evil, dir, file) {
+async function openHostile(page, evil, dir, file, scope) {
   const { escaped, blocked, errors } = result
   const messages = []
   page.on('pageerror', (e) => errors.add(`pageerror: ${e.message}`))
@@ -163,7 +209,7 @@ async function openHostile(page, evil, dir, file) {
     if (m.type === 'log' && m.level === 'error') errors.add(`page log: ${m.msg}`)
   })
   await page.addInitScript(hostShim)
-  await bounded(page.goto(pathToFileURL(resolve(dir, 'page.html')).href), 'loading the page')
+  await bounded(page.goto(PAGE_URL), 'loading the page')
 
   const waitFor = async (match, what) => {
     for (const t0 = Date.now(); Date.now() - t0 < OPEN_TIMEOUT_MS; await page.waitForTimeout(50)) {
@@ -173,9 +219,10 @@ async function openHostile(page, evil, dir, file) {
     throw new Error(`timed out waiting for ${what}`)
   }
   await waitFor((m) => m.type === 'ready', 'ready')
-  await bounded(page.evaluate(({ url, name }) => window.__fol.openUrl(url, name), { url: pathToFileURL(resolve(dir, file)).href, name: file }), 'openUrl')
+  await bounded(page.evaluate(({ url, name }) => window.__fol.openUrl(url, name), { url: bookUrl(servedName(file)), name: file }), 'openUrl')
   const opened = await waitFor((m) => m.type === 'opened' || m.type === 'open-failed', 'opened')
   if (opened.type === 'open-failed') throw new Error(`open-failed: ${opened.error}`)
+  if (scope) await scopeRows(page, bookUrl(servedName(file)))
 
   const probed = vectors.filter(([, observe]) => observe === 'probe').map(([name]) => name)
   /** Reads every frame into the run; true if one still shows the book. */
@@ -277,17 +324,18 @@ const deadline = setTimeout(() => {
 }, DEADLINE_MS)
 
 let failed = false
-let evil = null
 let browser = null
 try {
   root = mkdtempSync(resolve(tmpdir(), 'ts-v2-sandbox-'))
-  // The working directory, padded so its URL is as long as the hostile KF8's sibling placeholder.
-  dir = resolve(root, 'x'.repeat(HOSTILE_KF8.siblings.length - pathToFileURL(root).href.length - 1))
+  dir = resolve(root, 'books')
   mkdirSync(dir)
-  evil = await startEvil()
-  browser = await chromium.launch({ args: ['--allow-file-access-from-files'] })
+  browser = await chromium.launch()
   for (const [name, data] of Object.entries(SIBLINGS)) writeFileSync(resolve(dir, name), data)
-  const siblings = pathToFileURL(dir).href
+  // The served directory's URL, as long as the hostile KF8's sibling placeholder: padded with `/.` segments, which
+  // every URL parse drops (so `${siblings}/secret.json` is `/v2/books/secret.json`).
+  const pad = HOSTILE_KF8.siblings.length - `${BOOK_ORIGIN}/v2/books`.length
+  if (pad < 0 || pad % 2) throw new Error(`sibling URL cannot be padded to ${HOSTILE_KF8.siblings.length} characters`)
+  const siblings = `${BOOK_ORIGIN}/v2${'/.'.repeat(pad / 2)}/books`
   writeHostileEpub(resolve(dir, BOOKS.epub), siblings, evil.url)
   writeHostileMobi(resolve(dir, BOOKS.mobi), siblings, evil.url)
   writeHostileFb2(resolve(dir, BOOKS.fb2), evil.url)
@@ -316,7 +364,6 @@ try {
 } finally {
   clearTimeout(deadline)
   await browser?.close()
-  evil?.close()
   if (root) rmSync(root, { recursive: true, force: true })
 }
 console.log(`\n[check:v2-reader-sandbox] ${failed ? 'FAILED' : 'ok'}`)

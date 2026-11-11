@@ -43,7 +43,7 @@ describe('v2ReaderPageHtml', () => {
   it('csp_MatchesAdr029Decision4_AndPrecedesTheOnlyScript', () => {
     const html = v2ReaderPageHtml(NONCE)
     expect(html.match(/http-equiv="Content-Security-Policy" content="([^"]*)"/)?.[1]).toBe(
-      `default-src 'none'; script-src 'nonce-${NONCE}'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: file:; form-action 'none'; base-uri 'none'`,
+      `default-src 'none'; script-src 'nonce-${NONCE}'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/; form-action 'none'; base-uri 'none'`,
     )
     expect(html.indexOf('Content-Security-Policy')).toBeLessThan(html.indexOf('<script'))
     expect(html.match(/<script/g)).toHaveLength(1)

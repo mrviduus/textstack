@@ -1,4 +1,4 @@
-// The format check (#1128): the committed page, in Chromium as file:// (the dev route's origin), opens one
+// The format check (#1128): the committed page, in Chromium under the Android host's origin (bookOriginRoute.mjs), opens one
 // small book per format (fixtures.mjs writeFormatFixtures) and must answer as README "Formats" says:
 // each format reader runs only when its first book opens, CBZ has no text features and still saves and
 // restores its page, a fraction-only position (#1187) restores without saving, a synthetic KF8 (#1182) reads,
@@ -14,7 +14,8 @@ import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
+import { PAGE_URL, bookAt, routeBookOrigin } from './bookOriginRoute.mjs'
 import { fb2, hostilePdf, pdf, writeFormatFixtures } from './fixtures.mjs'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
@@ -26,20 +27,22 @@ const failures = []
 const check = (ok, what) => { console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}`); if (!ok) failures.push(what) }
 
 const dir = mkdtempSync(resolve(tmpdir(), 'ts-v2-formats-'))
-const browser = await chromium.launch({ args: ['--allow-file-access-from-files'] })
+const browser = await chromium.launch()
+/** A page with the book origin routed to `dir`, as the Android interceptor serves it. */
+const newPage = async (opts) => { const p = await browser.newPage(opts); await routeBookOrigin(p, dir); return p }
 try {
   writeFormatFixtures(dir)
   for (const f of ['tssynthetic-kf8.azw3', 'tssynthetic-combo.mobi']) copyFileSync(resolve(here, 'synthetic', f), resolve(dir, f))
   writeFileSync(resolve(dir, 'tsplain.txt'), 'plain text, no book')
   writeFileSync(resolve(dir, 'page.html'), v2ReaderPageHtml(randomBytes(18).toString('base64')))
-  const page = await browser.newPage()
+  const page = await newPage()
   const messages = []
   page.on('pageerror', (e) => check(false, `pageerror: ${e.message}`))
   await page.exposeFunction('__toHost', (json) => messages.push(JSON.parse(json)))
   await page.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
   // Every CSP violation in any frame of the page, as `directive blockedURI`.
   await page.addInitScript(() => addEventListener('securitypolicyviolation', (e) => (top.__violations ??= []).push(`${e.violatedDirective} ${e.blockedURI}`)))
-  await page.goto(pathToFileURL(resolve(dir, 'page.html')).href)
+  await page.goto(PAGE_URL)
 
   /** The first message from `from` on that matches. */
   const waitFor = async (from, match, what) => {
@@ -54,7 +57,7 @@ try {
   /** Opens `file`; resolves with `opened` or `open-failed`, after `restored` for an opened book. */
   const open = async (file, stored = null) => {
     const from = messages.length
-    await call(`window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, file)).href)}, ${JSON.stringify(file)})`)
+    await call(`window.__fol.openUrl(${JSON.stringify(bookAt(file))}, ${JSON.stringify(file)})`)
     const m = await waitFor(from, (x) => (x.type === 'opened' || x.type === 'open-failed') && (x.book?.name ?? x.name) === file, `${file} to open`)
     if (m.type === 'opened') {
       await call(`window.__fol.restore(${JSON.stringify(stored)})`)
@@ -274,7 +277,7 @@ try {
       const pwned = (await Promise.all(page.frames().map((fr) => fr.evaluate(() => !!window.__pwned).catch(() => false)))).some(Boolean)
       check(!pwned, 'no PDF script ran (OpenAction, JavaScript link, javascript: URI)')
       check(hits.length === 0, `nothing reached the logging server (${hits.join(', ')})`)
-      check(page.frames().every((fr) => /^(file:|blob:|about:blank)/.test(fr.url())), `no frame left the book (${page.frames().map((fr) => fr.url().slice(0, 30)).join(', ')})`)
+      check(page.frames().every((fr) => (fr.url() === PAGE_URL || /^(blob:|about:blank)/.test(fr.url()))), `no frame left the book (${page.frames().map((fr) => fr.url().slice(0, 30)).join(', ')})`)
       const handed = messages.slice(from).filter((x) => x.type === 'openLink').map((x) => x.href)
       // pdf.js turns a GoToR whose file is an http URL into that URL: a link like the URI one, handed to the
       // host's allowlist like any http link in an EPUB. The Launch and script ones never.
@@ -304,14 +307,14 @@ try {
       if (alsoClone) delete window.structuredClone
     }
     for (const alsoClone of [false, true]) {
-      const old = await browser.newPage({ viewport: { width: 420, height: 760 } })
+      const old = await newPage({ viewport: { width: 420, height: 760 } })
       const got = []
       await old.exposeFunction('__toHost', (json) => got.push(JSON.parse(json)))
       await old.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
       await old.addInitScript(strip, alsoClone)
-      await old.goto(pathToFileURL(resolve(dir, 'page.html')).href)
+      await old.goto(PAGE_URL)
       const stripped = await old.evaluate((c) => typeof Promise.withResolvers === 'undefined' && typeof Map.prototype.getOrInsertComputed === 'undefined' && typeof URL.parse === 'undefined' && (typeof structuredClone === 'undefined') === c, alsoClone)
-      await old.evaluate((u) => window.__fol.openUrl(u, 'tsformat.pdf'), pathToFileURL(resolve(dir, 'tsformat.pdf')).href)
+      await old.evaluate((u) => window.__fol.openUrl(u, 'tsformat.pdf'), bookAt('tsformat.pdf'))
       let answer = null
       for (const t0 = Date.now(); !answer && Date.now() - t0 < TIMEOUT_MS; await old.waitForTimeout(50)) answer = got.find((x) => x.type === 'opened' || x.type === 'open-failed')
       if (!alsoClone) {
@@ -334,19 +337,19 @@ try {
   async function checkOpenOrder() {
     console.log('open order (S5 QA)')
     const known = (reproduces, what) => { console.log(`  ${reproduces ? 'bug ' : 'FIXED'}  ${what}`); if (!reproduces) failures.push(`known bug no longer reproduces, make it a check: ${what}`) }
-    const qa = await browser.newPage()
+    const qa = await newPage()
     const msgs = []
     const pageErrors = []
     qa.on('pageerror', (e) => pageErrors.push(e.message))
     await qa.exposeFunction('__toHost', (json) => msgs.push(JSON.parse(json)))
     await qa.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
-    await qa.goto(pathToFileURL(resolve(dir, 'page.html')).href)
+    await qa.goto(PAGE_URL)
     const run = (js) => qa.evaluate(js)
     const until = async (from, match, what) => {
       for (const t0 = Date.now(); Date.now() - t0 < TIMEOUT_MS; await qa.waitForTimeout(50)) { const m = msgs.slice(from).find(match); if (m) return m }
       throw new Error(`timed out waiting for ${what}`)
     }
-    const send = (file) => run(`window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, file)).href)}, ${JSON.stringify(file)})`)
+    const send = (file) => run(`window.__fol.openUrl(${JSON.stringify(bookAt(file))}, ${JSON.stringify(file)})`)
     const openQa = async (file, stored = null) => {
       const from = msgs.length
       await send(file)
@@ -908,7 +911,7 @@ try {
   console.log('goTo across an open')
   m = await open('tsformat.fb2')
   from = messages.length
-  await call(`window.__fol.goTo({ fraction: 0.8, at: 5 }); window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, 'tsformat.epub')).href)}, 'tsformat.epub')`)
+  await call(`window.__fol.goTo({ fraction: 0.8, at: 5 }); window.__fol.openUrl(${JSON.stringify(bookAt('tsformat.epub'))}, 'tsformat.epub')`)
   const next = await waitFor(from, (x) => x.type === 'opened', 'the next book opened')
   // Not awaited: on a wedged chain restore never settles, and the check must fail, not hang.
   call(`window.__fol.restore(${JSON.stringify(JSON.stringify({ v: 1, book: next.book, highlights: [], position: { fraction: 0.5, at: 1 } }))})`).catch(() => {})
@@ -977,7 +980,7 @@ try {
   await settle()
   check(storesFrom(from).length === 0, 'a taken fraction offer that did not arrive saves nothing')
   from = messages.length
-  await call(`window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, 'tsformat.fb2')).href)}, 'tsformat.fb2')`)
+  await call(`window.__fol.openUrl(${JSON.stringify(bookAt('tsformat.fb2'))}, 'tsformat.fb2')`)
   await waitFor(from, (x) => x.type === 'opened', 'opened for a not-arrived restore')
   await call(stuck)
   call(`window.__fol.restore(${JSON.stringify(byFraction({ fraction: 0.9, at: 1 }))})`).catch(() => {})
@@ -1027,7 +1030,7 @@ try {
   // Held: the previous view's chain is busy from here on (not awaited: it settles only on release).
   call('window.__fol.section(1)').catch(() => {})
   from = messages.length
-  await call(`window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, 'tsformat.epub')).href)}, 'tsformat.epub')`)
+  await call(`window.__fol.openUrl(${JSON.stringify(bookAt('tsformat.epub'))}, 'tsformat.epub')`)
   for (const t0 = Date.now(); !(await call('!!window.__loadNext')) && Date.now() - t0 < TIMEOUT_MS;) await page.waitForTimeout(20)
   // Both calls queue on the previous view's (held) chain, which the swap drops.
   await call(`window.__loadNext(); window.__fol.next(); window.__fol.restore(null); window.__fol.restore(${JSON.stringify(entryOf(previousBook, { fraction: 0.9, at: 1 }))}); 0`)
@@ -1059,7 +1062,7 @@ try {
   call('window.__fol.next()')
   const startEntry = await waitFor(from, (x) => x.type === 'store', 'a store at the start').then((x) => x.json)
   from = messages.length
-  await call(`window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, 'tsformat.fb2')).href)}, 'tsformat.fb2')`)
+  await call(`window.__fol.openUrl(${JSON.stringify(bookAt('tsformat.fb2'))}, 'tsformat.fb2')`)
   await waitFor(from, (x) => x.type === 'opened', 'opened for restore then goTo')
   await call(`window.__fol.restore(${JSON.stringify(startEntry)}); window.__fol.goTo({ fraction: 0.9, at: 10 }); 0`)
   const restoredFirst = await waitFor(from, (x) => x.type === 'restored', 'restored before the goTo')
@@ -1083,7 +1086,7 @@ try {
     C.prototype.open = async function (b) { C.prototype.open = open; window.__inOpen = true; await held; return open.call(this, b) }
   })()`)
   from = messages.length
-  await call(`window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, 'tsformat.fb2')).href)}, 'tsformat.fb2')`)
+  await call(`window.__fol.openUrl(${JSON.stringify(bookAt('tsformat.fb2'))}, 'tsformat.fb2')`)
   for (const t0 = Date.now(); !(await call('!!window.__inOpen')) && Date.now() - t0 < TIMEOUT_MS;) await page.waitForTimeout(20)
   await call(`window.__fol.restore(${JSON.stringify(fb2Entry)}); window.__releaseOpen(); 0`)
   await waitFor(from, (x) => x.type === 'opened', 'the second open answered')
@@ -1136,19 +1139,19 @@ try {
   // The 5-minute boundary, on a page with a fake clock: the session ends by its own timer (no next open),
   // a switch inside the window counts, a switch after it does not and sends nothing more.
   console.log('telemetry clock')
-  const timed = await browser.newPage()
+  const timed = await newPage()
   const sent = []
   await timed.clock.install()
   await timed.exposeFunction('__toHost', (json) => sent.push(JSON.parse(json)))
   await timed.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
-  await timed.goto(pathToFileURL(resolve(dir, 'page.html')).href)
+  await timed.goto(PAGE_URL)
   const until = async (match, what) => {
     for (const t0 = Date.now(); Date.now() - t0 < TIMEOUT_MS; await new Promise((ok) => setTimeout(ok, 50))) { const x = sent.find(match); if (x) return x }
     throw new Error(`timed out waiting for ${what}`)
   }
   const openTimed = async (file) => {
     const from = sent.length
-    await timed.evaluate((u) => window.__fol.openUrl(u, 'timed'), pathToFileURL(resolve(dir, file)).href)
+    await timed.evaluate((u) => window.__fol.openUrl(u, 'timed'), bookAt(file))
     // foliate's own timers run on the fake clock too: keep it moving in small steps until the book opens.
     for (const t0 = Date.now(); !sent.slice(from).some((x) => x.type === 'opened') && Date.now() - t0 < TIMEOUT_MS;) await timed.clock.runFor(50)
     return sent.slice(from).find((x) => x.type === 'opened')

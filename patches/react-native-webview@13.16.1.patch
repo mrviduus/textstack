@@ -1,0 +1,127 @@
+diff --git a/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java b/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
+index 80c68034b193a47bedb56ca527352de9548e8ac6..07fb46b6158226108b9f0b879c572f0cddb6217b 100644
+--- a/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
++++ b/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
+@@ -67,6 +67,8 @@ public class RNCWebView extends WebView implements LifecycleEventListener {
+     protected boolean injectedJavaScriptBeforeContentLoadedForMainFrameOnly = true;
+ 
+     protected boolean messagingEnabled = false;
++    // TextStack patch (#1228): set by loadSource, read by TextStackBookServer on WebView's IO thread.
++    volatile boolean servesBooks = false;
+     protected @Nullable
+     String messagingModuleName;
+     protected @Nullable
+@@ -253,6 +255,8 @@ public class RNCWebView extends WebView implements LifecycleEventListener {
+             this.bridgeListener = new WebViewCompat.WebMessageListener() {
+               @Override
+               public void onPostMessage(@NonNull WebView view, @NonNull WebMessageCompat message, @NonNull Uri sourceOrigin, boolean isMainFrame, @NonNull JavaScriptReplyProxy replyProxy) {
++                // TextStack patch (#1228): the page's own frame only, never an iframe (a book section).
++                if (!isMainFrame) return;
+                 RNCWebView.this.onMessage(message.getData(), sourceOrigin.toString());
+               }
+             };
+diff --git a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
+index 0287e1c56b07b6c23b4049f3992d88b86fdc5c79..eab47cc25c04a5d0367eb1262ab11b6190c2e749 100644
+--- a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
++++ b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
+@@ -49,6 +49,13 @@ public class RNCWebViewClient extends WebViewClient {
+         basicAuthCredential = credential;
+     }
+ 
++    // TextStack patch (#1228): the V2 reader's book files over https, see TextStackBookServer.
++    @Override
++    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
++        WebResourceResponse book = TextStackBookServer.intercept(view, request);
++        return book != null ? book : super.shouldInterceptRequest(view, request);
++    }
++
+     @Override
+     public void onPageFinished(WebView webView, String url) {
+         super.onPageFinished(webView, url);
+diff --git a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt
+index f83033b3597a425da159555233bacce250ccfce0..367e4d08a229673c7d157abdeba835e619e81c3b 100644
+--- a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt
++++ b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt
+@@ -384,10 +384,13 @@ class RNCWebViewManagerImpl(private val newArch: Boolean = false) {
+ 
+     private fun loadSource(viewWrapper: RNCWebViewWrapper, source: ReadableMap?) {
+         val view = viewWrapper.webView
++        view.servesBooks = false
+         if (source != null) {
+             if (source.hasKey("html")) {
+                 val html = source.getString("html")
+                 val baseUrl = if (source.hasKey("baseUrl")) source.getString("baseUrl") else ""
++                // TextStack patch (#1228): only the V2 reader page, loaded under that origin, gets its books served.
++                view.servesBooks = baseUrl == TextStackBookServer.BOOK_ORIGIN + "/"
+                 view.loadDataWithBaseURL(
+                     baseUrl,
+                     html!!,
+diff --git a/android/src/main/java/com/reactnativecommunity/webview/TextStackBookServer.java b/android/src/main/java/com/reactnativecommunity/webview/TextStackBookServer.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..b76d293fe82c9dd792ed613aaae2b6c063598c8f
+--- /dev/null
++++ b/android/src/main/java/com/reactnativecommunity/webview/TextStackBookServer.java
+@@ -0,0 +1,63 @@
++package com.reactnativecommunity.webview;
++
++import android.net.Uri;
++import android.webkit.WebResourceRequest;
++import android.webkit.WebResourceResponse;
++import android.webkit.WebView;
++
++import androidx.annotation.Nullable;
++
++import java.io.ByteArrayInputStream;
++import java.io.File;
++import java.io.FileInputStream;
++import java.io.IOException;
++import java.util.Collections;
++import java.util.regex.Pattern;
++
++/**
++ * TextStack patch (#1228, ADR-029 Decision 4): serves the V2 reader's book files to its page under
++ * https://appassets.androidplatform.net/ (the origin Android reserves for app content), so the page needs no
++ * file:// access. Armed only for a view whose HTML source has exactly that base URL (RNCWebViewManagerImpl.loadSource);
++ * every other WebView of the app is untouched.
++ *
++ * Served: exactly the paths BOOK_PATH matches, from <filesDir>/v2/. The pattern is byte-identical to BOOK_PATH in
++ * apps/mobile/src/lib/v2reader/bookOrigin.mjs (asserted by bookOrigin.test.ts). Anything else on that host answers
++ * 404 and never reaches the network.
++ */
++final class TextStackBookServer {
++  static final String BOOK_ORIGIN = "https://appassets.androidplatform.net";
++  private static final Pattern BOOK_PATH = Pattern.compile("^/v2/(books/[0-9a-f]{64}|staging/(dl-)?[0-9]{1,16})\\.epub$");
++
++  private TextStackBookServer() {}
++
++  /** Null: not ours, the WebView goes on as before. */
++  static @Nullable WebResourceResponse intercept(WebView view, WebResourceRequest request) {
++    if (!(view instanceof RNCWebView) || !((RNCWebView) view).servesBooks) return null;
++    Uri url = request.getUrl();
++    if (!"appassets.androidplatform.net".equals(url.getHost())) return null;
++    String path = url.getEncodedPath();
++    if (!"https".equals(url.getScheme()) || !"GET".equals(request.getMethod()) || url.getPort() != -1
++        || url.getEncodedQuery() != null || url.getEncodedFragment() != null || url.getEncodedUserInfo() != null
++        || path == null || !BOOK_PATH.matcher(path).matches()) {
++      return notFound();
++    }
++    try {
++      File root = new File(view.getContext().getFilesDir(), "v2").getCanonicalFile();
++      File file = new File(root, path.substring("/v2/".length())).getCanonicalFile();
++      // A symlink planted in books/ or staging/ must not lead out of them.
++      File parent = file.getParentFile();
++      if (parent == null || !(parent.equals(new File(root, "books")) || parent.equals(new File(root, "staging")))) {
++        return notFound();
++      }
++      return new WebResourceResponse("application/octet-stream", null, 200, "OK",
++          Collections.singletonMap("Cache-Control", "no-store"), new FileInputStream(file));
++    } catch (IOException e) {
++      return notFound();
++    }
++  }
++
++  private static WebResourceResponse notFound() {
++    return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found",
++        Collections.singletonMap("Cache-Control", "no-store"), new ByteArrayInputStream(new byte[0]));
++  }
++}

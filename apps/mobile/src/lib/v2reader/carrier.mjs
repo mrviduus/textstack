@@ -4,12 +4,16 @@
 // The CSP is the book sandbox (ADR-029 Decision 4): sections are blob: documents that inherit this
 // policy, so a book's own <script> (no nonce) cannot run, while foliate's iframes still need
 // allow-scripts. default-src 'none' + blob:/data: only: nothing a book references outside its zip is
-// fetched. connect-src file: is the host's retained EPUB, read by our own (nonce) script.
+// fetched. connect-src BOOK_CONNECT_SRC is where the Android host serves the book (bookOrigin.mjs: its two
+// directories under an https origin, #1228), read by our own (nonce) script; no file:, so no app file is reachable.
+// The web hosts hand bytes in as blob: (frame.mjs) and never need it.
 // The nonce is a placeholder, never a value: a fixed nonce in a public repo is one a book can carry.
 // v2ReaderPageHtml(nonce) fills it per load.
+import { BOOK_CONNECT_SRC } from './bookOrigin.mjs'
+
 export const NONCE = '__V2_READER_NONCE__'
 export const CSP = [`default-src 'none'`, `script-src 'nonce-${NONCE}'`, `style-src blob: 'unsafe-inline'`, `img-src blob: data:`,
-  `font-src blob: data:`, `media-src blob: data:`, `frame-src blob:`, `connect-src blob: data: file:`, `form-action 'none'`, `base-uri 'none'`].join('; ')
+  `font-src blob: data:`, `media-src blob: data:`, `frame-src blob:`, `connect-src blob: data: ${BOOK_CONNECT_SRC}`, `form-action 'none'`, `base-uri 'none'`].join('; ')
 
 /**
  * The format readers as one JS object of strings, ahead of the page in its one script: never run until
