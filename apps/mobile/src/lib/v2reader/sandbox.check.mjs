@@ -7,12 +7,13 @@
 //   (pnpm -C apps/web check:v2-reader-sandbox; once: pnpm -C apps/web exec playwright install chromium)
 import { createServer } from 'node:http'
 import { randomBytes } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { formatsOf, hostileVectors, writeHostileEpub, writeHostileFb2, writeHostileMobi } from './fixtures.mjs'
+import { HOSTILE_KF8 } from './kf8fixture.mjs'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -66,7 +67,29 @@ const SIBLINGS = {
 
 // One hostile book per format the page reads (#1128); each carries the vectors fixtures.mjs `formatsOf`
 // gives it. CBZ has no book markup to carry: foliate wraps each image in its own two-line page.
-const BOOKS = { epub: 'tshostile.epub', mobi: 'tshostile.mobi', fb2: 'tshostile.fb2' }
+// KF8 (#1182) is the hostile EPUB converted by Calibre and committed (kf8fixture.mjs): it carries the EPUB's
+// vectors except those the conversion dropped (KF8_DROPPED: found by running every mutation on it).
+const BOOKS = { epub: 'tshostile.epub', mobi: 'tshostile.mobi', fb2: 'tshostile.fb2', kf8: 'tshostile-kf8.azw3' }
+// Calibre 9.18 drops the external, zip and sibling stylesheets/scripts; the inline SVG script's text is kept
+// but never runs, even with script-src opened. Every other EPUB vector must still be caught in the KF8.
+const KF8_DROPPED = ['script-src-in-zip', 'svg-inline-script', 'file-sibling-css', 'link-stylesheet', 'css-import']
+const carries = (format, row) => (format === 'kf8' ? formatsOf(row).includes('epub') && !KF8_DROPPED.includes(row[0]) : formatsOf(row).includes(format))
+
+/**
+ * The committed hostile KF8 with its placeholder addresses swapped for this run's, byte for byte. Each
+ * replacement has the placeholder's length (kf8fixture.mjs HOSTILE_KF8), and every occurrence must be found.
+ */
+function hostileKf8(evil, siblings) {
+  const b = readFileSync(resolve(here, 'synthetic', BOOKS.kf8))
+  for (const [k, real] of [['evil', evil], ['siblings', siblings]]) {
+    const from = Buffer.from(HOSTILE_KF8[k])
+    if (real.length !== from.length) throw new Error(`hostile KF8: ${k} ${real} is not ${from.length} characters long`)
+    let n = 0
+    for (let i = b.indexOf(from); i >= 0; i = b.indexOf(from, i + 1), n++) b.write(real, i, 'latin1')
+    if (n !== HOSTILE_KF8.count[k]) throw new Error(`hostile KF8: ${n} ${k} addresses found, ${HOSTILE_KF8.count[k]} expected`)
+  }
+  return b
+}
 
 // The run in progress: what the deadline prints, and where the server writes.
 let vectors = []
@@ -240,6 +263,7 @@ if (problems.length) {
   process.exit(2)
 }
 
+let root = null
 let dir = null
 const deadline = setTimeout(() => {
   if (result) {
@@ -248,7 +272,7 @@ const deadline = setTimeout(() => {
     report(true)
   }
   console.log('\n[check:v2-reader-sandbox] FAILED (deadline)')
-  if (dir) rmSync(dir, { recursive: true, force: true })
+  if (root) rmSync(root, { recursive: true, force: true })
   process.exit(1)
 }, DEADLINE_MS)
 
@@ -256,7 +280,10 @@ let failed = false
 let evil = null
 let browser = null
 try {
-  dir = mkdtempSync(resolve(tmpdir(), 'ts-v2-sandbox-'))
+  root = mkdtempSync(resolve(tmpdir(), 'ts-v2-sandbox-'))
+  // The working directory, padded so its URL is as long as the hostile KF8's sibling placeholder.
+  dir = resolve(root, 'x'.repeat(HOSTILE_KF8.siblings.length - pathToFileURL(root).href.length - 1))
+  mkdirSync(dir)
   evil = await startEvil()
   browser = await chromium.launch({ args: ['--allow-file-access-from-files'] })
   for (const [name, data] of Object.entries(SIBLINGS)) writeFileSync(resolve(dir, name), data)
@@ -264,11 +291,12 @@ try {
   writeHostileEpub(resolve(dir, BOOKS.epub), siblings, evil.url)
   writeHostileMobi(resolve(dir, BOOKS.mobi), siblings, evil.url)
   writeHostileFb2(resolve(dir, BOOKS.fb2), evil.url)
+  writeFileSync(resolve(dir, BOOKS.kf8), hostileKf8(evil.url, siblings))
   const all = hostileVectors(evil.url, siblings)
 
   for (const directive of only ? [only] : [null, ...Object.keys(MUTATIONS)]) {
     for (const [format, file] of Object.entries(BOOKS)) {
-      vectors = all.filter((row) => formatsOf(row).includes(format))
+      vectors = all.filter((row) => carries(format, row))
       const escapes = vectors.filter(([, , stops]) => stops === directive).map(([name]) => name)
       // A mutation this book carries nothing for has nothing to show in it.
       if (directive && !escapes.length && !only) continue
@@ -289,7 +317,7 @@ try {
   clearTimeout(deadline)
   await browser?.close()
   evil?.close()
-  if (dir) rmSync(dir, { recursive: true, force: true })
+  if (root) rmSync(root, { recursive: true, force: true })
 }
 console.log(`\n[check:v2-reader-sandbox] ${failed ? 'FAILED' : 'ok'}`)
 process.exit(failed ? 1 : 0)

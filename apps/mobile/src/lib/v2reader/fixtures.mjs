@@ -178,8 +178,9 @@ export function writeHostileFb2(out, evil = EVIL) {
  * A MOBI6 file: PDB header, record 0 (PalmDOC header, uncompressed, + a 232-byte MOBI header, UTF-8,
  * no EXTH, no NCX), then the text in 4096-byte records. `encryption` 2 is Mobipocket DRM: the header
  * flag alone, which is all the page reads before it refuses. KF8/AZW3 shares this container and flag:
- * `version` 8 is the header of one (nothing else of KF8 is written: the page refuses it on the header).
- * `boundary` adds an EXTH with record 121, the KF8 half of a MOBI/KF8 combo (here a record that is none).
+ * `version` 8 is the header of one (nothing else of KF8 is written: no SKEL/FRAG index, so the page refuses it
+ * as damaged; real KF8 books are synthetic/). `boundary` adds an EXTH with record 121, the KF8 half of a
+ * MOBI/KF8 combo (here a record that holds no MOBI header, so foliate reads the MOBI6 half).
  * @param {string} title
  * @param {string} html
  * @param {{ encryption?: number, version?: number, boundary?: number }} [options]

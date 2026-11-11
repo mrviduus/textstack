@@ -8,7 +8,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | File | What |
 |---|---|
 | `page.mjs` | Runs in the WebView. The whole adapter: routing a file to its reader, our EPUB loader (SHA-1 for obfuscated fonts), the format-reader runner, the navigation queue, word tap, translation label, highlights, save/restore by CFI + quote, `meta refresh` stripped, flow + its telemetry. |
-| `formats.mjs` | Which reader a file goes to, from its bytes (pure): zip → EPUB/FBZ/CBZ by entry names, `BOOKMOBI` → MOBI (DRM, KF8, truncated refused; combo → MOBI6 half), FB2 root (UTF-16 re-encoded, entities refused), PDF/KFX/unknown refused; CBZ page names and types. |
+| `formats.mjs` | Which reader a file goes to, from its bytes (pure): zip → EPUB/FBZ/CBZ by entry names, `BOOKMOBI` → MOBI6/KF8 (DRM, truncated and KF8 without its indexes refused; combo → KF8 half), FB2 root (UTF-16 re-encoded, entities refused), PDF/KFX/unknown refused; CBZ page names and types. |
 | `store.mjs` | Reader data shape (v1), one entry per book **file** (SHA-256 + size); the quote fold; pure-JS SHA-256 / SHA-1. |
 | `tap.mjs` | What a tap hands the host: the word's sentence (reader-engine's `sentenceAround`) and an external link, only if `http(s)`. |
 | `saveScheduler.mjs` | The debounced `store` message: key and payload are fixed when the save is asked for, so a save can never land on the next book. |
@@ -26,6 +26,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `v2ReaderPage.generated.ts` | **Generated, committed.** `v2ReaderPageHtml(nonce)`. Never edit by hand. |
 | `repro.mjs` | Test-only entry: the page + `__fol.reproRenderDuringLoad` (the reproducer behind the fork's paginator fix). |
 | `fixtures.mjs` | Writes crafted books to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated), `tshostile.epub` (one row of `hostileVectors` per sandbox vector; `.mobi`/`.fb2` twins are written by the check), and `tsformat.{epub,mobi,fb2,fbz,cbz}`, `tsdrm.mobi`, `tskf8.mobi`, `tscombo.mobi`, `tsupper.cbz`, `tsutf16.fb2`, every byte written by the file itself (MOBI6 by hand: PDB + PalmDOC + MOBI header). Needs `zip`. |
+| `kf8fixture.mjs` | The recipe for the committed **synthetic** KF8 books in `synthetic/` (#1182): Calibre `ebook-convert` over an original EPUB it writes (and over `tshostile.epub`), then `normalise()`; `SYNTHETIC` records each file's SHA-256, asserted by `formats.test.ts`. CI has no Calibre and only reads the committed files. See `synthetic/README.md`. |
 | `sandbox.check.mjs` | The hostile-book check (see Sandbox). |
 | `formats.check.mjs` | The format check (see Formats): one small book per format through the committed page in Chromium. |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
@@ -39,7 +40,7 @@ pnpm -C apps/web check:v2-reader-formats   # CI: every format opens as Formats s
 node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.repro.html (test only)
 ```
 
-- **foliate-js fork** `https://github.com/mrviduus/foliate-js` @ `d73682a48a0779ca989f25074386784602437fbf`
+- **foliate-js fork** `https://github.com/mrviduus/foliate-js` @ `b38d07cea37acf2990b36853896a09093e30acd5`
   (branch `textstack-pin` = upstream `78914aef` 2026-05-01 + our commits, ADR-032), cloned into the gitignored
   `.vendor/`. Every build checks out the pin and resets the tree (`git checkout -- .`); an untracked file in
   that tree fails the build by name (delete `.vendor/` to rebuild from the pin). A bump is a PR that re-runs
@@ -49,6 +50,13 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   Offer it upstream; drop it on the bump that fixes it. Reproduce with the `--repro` page:
   `await __fol.reproRenderDuringLoad(20)` → `errors: 0` (without
   the fix it was 1–5 per 6 loads in Chromium, hundreds on Android).
+- **Fork commits of #1182**, on top of `d73682a`, each to offer upstream:
+  `fb60d58` mobi: KF8 resource blobs typed (`{ type: newType }`, was `{ newType }`: every CSS/image/font/SVG blob
+  untyped, SVG images did not render); `ff826a7` mobi: KF8 section markup dispatched through `transformTarget`
+  (the page's refresh-meta strip; it bypassed it); `40dd126` view: the view's `relocate` carries the renderer's
+  `reason` (the save rule reads it, page.mjs); `2c6588e` pdf: a null outline destination returns null (upstream
+  `ce10f08`); `b38d07c` pdf: nothing fetched or resolved at import time. pdf.js stays stubbed out of the page:
+  the last two change nothing in it yet (PDF is refused, Formats).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. view.js's own format imports, PDF, TTS and search are
   stubbed out of the page; MOBI/FB2/CBZ come in as format readers (Formats).
@@ -69,10 +77,10 @@ the Android host stages and retains every format as `*.epub`, the web host opens
 | Format | Detected by | Reader | Text features |
 |---|---|---|---|
 | EPUB | zip with `META-INF/container.xml` | the page's own (`EPUB` + our SHA-1) | all |
-| MOBI (MOBI6; a MOBI/KF8 combo as its MOBI6 half) | `BOOKMOBI` at byte 60, header version < 8 | fork `mobi.js` + `vendor/fflate.js` | all |
+| MOBI (MOBI6) | `BOOKMOBI` at byte 60, header version < 8 | fork `mobi.js` + `vendor/fflate.js` | all |
+| AZW3 (KF8); a MOBI/KF8 combo as its KF8 half | `BOOKMOBI`, header version ≥ 8; or EXTH 121 → a MOBI header | the same | all |
 | FB2 / FBZ | `<FictionBook` in the first 4 KiB (UTF-8 or UTF-16) / zip with a `.fb2` | fork `fb2.js` | all |
 | CBZ | zip with images, no container, no `.fb2` | fork `comic-book.js` (fixed layout) | **none** |
-| AZW3 (KF8) | `BOOKMOBI`, header version ≥ 8 | refused: "AZW3 (KF8) is not supported yet" | — |
 | PDF, KFX, other | `%PDF-`, `\xeaDRMION\xee`, anything else | refused with `open-failed` | — |
 
 - **Loaded only when needed.** Each format reader is its own esbuild IIFE, carried in the page's one script as a
@@ -85,18 +93,23 @@ the Android host stages and retains every format as `*.epub`, the web host opens
   the nonce is fresh per load and no book script can run to read it. The strings are parsed with the page (cheap);
   only their evaluation is deferred.
 - **A refusal touches nothing.** `sniffFormat` runs before the open book is closed or the open seq turns over
-  (like a failed read, #1168): a PDF, DRM, KF8, entity-declaring FB2 or unknown file answers `open-failed` and the
+  (like a failed read, #1168): a PDF, DRM, damaged KF8, entity-declaring FB2 or unknown file answers `open-failed` and the
   book on screen keeps reading, saving and its telemetry session. (An FBZ's inner FB2 is checked only once the
   zip is read, inside the open: that refusal does replace the book.)
-- **DRM:** a MOBI whose PalmDOC `encryption` is non-zero, and any KFX, answer `open-failed` with
-  "…DRM-protected…". A `BOOKMOBI` too short for its record 0 is "truncated or damaged", never DRM. EPUB DRM is
-  not detected here (foliate fails on the encrypted content).
-- **KF8 (AZW3) is refused** at this pin (d73682a). The fork's KF8 reader is unverified (no KF8 fixture; one needs
-  SKEL/FRAG/INDX records) and has a confirmed bug: `mobi.js` `KF8.loadResourceBlob` builds
-  `new Blob([newData], { newType })` — the option is `type`, so every CSS/image/font/SVG resource blob is untyped
-  (SVG images will not render). Its section HTML also bypasses `transformTarget`, the page's refresh-meta strip.
-  A combo file (MOBI6 record 0 + an EXTH 121 KF8 boundary) is read as its MOBI6 half: the page sets the boundary
-  to 0xffffffff in its copy of the bytes (after hashing), which foliate reads as "no KF8".
+- **DRM:** a MOBI or KF8 whose PalmDOC `encryption` is non-zero (record 0, and a combo's KF8 header too), and any
+  KFX, answer `open-failed` with "…DRM-protected…". A `BOOKMOBI` too short for what is read is "truncated or
+  damaged", never DRM. EPUB DRM is not detected here (foliate fails on the encrypted content).
+- **KF8 (AZW3)** is read by the fork's KF8 reader since the #1182 pin (typed resource blobs, sections through
+  `transformTarget`). Evidence is **synthetic only**: Calibre-made books from original text (`synthetic/`,
+  `kf8fixture.mjs`); nothing shows real-world Kindle files open (Amazon's tools, retail, fixed layout, fonts,
+  RTL). Before teardown, `sniffFormat` requires the KF8 header's SKEL and FRAG indexes to be `INDX` records
+  ("truncated or damaged" otherwise): foliate fails on a missing one only inside the open, after the open book
+  is gone. That checks the magic only; an index damaged past it still fails inside the open (`open-failed`, the
+  previous book closed).
+- **Combo files** (MOBI6 record 0 + an EXTH 121 KF8 boundary) are read as their **KF8 half**, foliate's own choice
+  (CSS, its TOC; one code path with AZW3); a boundary at no MOBI header falls back to MOBI6 inside foliate. Cost,
+  accepted because V2 is dev-only with no users: a combo stored before #1182 by its MOBI6 half has other section
+  indexes and CFIs, so its saved position fails the quote check and the book restores to the start.
 - **FB2 encodings and entities:** foliate decodes FB2 as UTF-8 before reading its declaration, so the page
   re-encodes a UTF-16 file (BOM or not, either order) to UTF-8 first. Any `<!ENTITY` before the root is refused
   before parsing ("unsupported FB2: custom entities"): a flat entity referenced tens of thousands of times hangs
@@ -109,10 +122,11 @@ the Android host stages and retains every format as `*.epub`, the web host opens
   handed to foliate with lower-case extensions (`comicName`: it keeps `.jpg`, never `.JPG`), each name once, and
   each page blob is typed by its extension (an untyped SVG is no image). `opened.reflowable` is `false`: `flow()`
   changes nothing on a fixed layout, is not counted as a switch, and the hosts disable their toggle.
-- **Refresh metas:** EPUB sections pass through `transformTarget`; MOBI6 has none, so the page wraps its
+- **Refresh metas:** EPUB and KF8 sections pass through `transformTarget`; MOBI6 has none, so the page wraps its
   `createDocument`. FB2 and CBZ sections are rebuilt by foliate from whitelisted elements / one `<img>`.
 - **Hostile input:** every reader runs inside the same page and CSP. The sandbox check opens a hostile MOBI (the
-  EPUB's HTML vectors) and FB2 (an external image) beside the EPUB; the format check refuses a nested
+  EPUB's HTML vectors), a hostile KF8 (the EPUB converted by Calibre, committed) and FB2 (an external image)
+  beside the EPUB; the format check refuses a nested
   (billion-laughs), a flat (×30k) and an external-entity FB2 before parsing. Not covered, accepted: zip bombs (a
   CBZ/EPUB entry is inflated whole when shown, an FBZ's `.fb2` whole at open: a memory DoS inside the WebView, as
   for EPUB today). The Android host stops reopening a book after its second renderer crash.
@@ -132,7 +146,7 @@ font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: 
 ```
 
 **The hostile-book check** (ADR-029 Decision 6) loads the committed page as `file://` in Chromium with file access
-(the dev route's origin), opens `tshostile.epub`, `.mobi` and `.fb2` (Formats) through `__fol.openUrl` and exits 1 if any vector gets through: a
+(the dev route's origin), opens `tshostile.epub`, `.mobi`, `.fb2` and `tshostile-kf8.azw3` (Formats) through `__fol.openUrl` and exits 1 if any vector gets through: a
 book script ran (`__pwned` in any frame), a request reached its logging server (a free local port), a sibling file of
 the EPUB was read, `<base>` took effect, a refresh meta survived the page's strip, or the section frame left the
 book. It then removes or widens one directive at a time and must catch the vectors that directive stops, so a check
@@ -140,6 +154,12 @@ that cannot fail fails itself. Every vector in `fixtures.mjs` declares how it is
 `probe`, `sandbox`) and which directive `stops` it; the check refuses to start (exit 2) when the two files disagree.
 Each page call is bounded (10 s; a timeout is an escape) and the whole check has a 3-minute deadline (exit 1 with the
 partial table).
+
+The hostile KF8 is committed (CI has no Calibre): `kf8fixture.mjs` converts `tshostile.epub` written with
+placeholder addresses (`HOSTILE_KF8`), uncompressed, and the check swaps them byte for byte for this run's server
+and sibling directory (same lengths: a 5-digit port, a working directory padded to 200 characters; every
+occurrence must be found). It carries the EPUB's vectors except `KF8_DROPPED` (sandbox.check.mjs): what Calibre's
+conversion removed, so no mutation can show them in it.
 
 **What it proves, and where:** the CSP, in desktop headless Chromium, with the page opened by `page.goto(file://…)`
 and `--allow-file-access-from-files`. Not the Android System WebView (`loadDataWithBaseURL`, Android's file-access

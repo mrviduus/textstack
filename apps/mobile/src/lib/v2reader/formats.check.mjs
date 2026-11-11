@@ -1,12 +1,13 @@
 // The format check (#1128): the committed page, in Chromium as file:// (the dev route's origin), opens one
 // small book per format (fixtures.mjs writeFormatFixtures) and must answer as README "Formats" says:
 // each format reader runs only when its first book opens, CBZ has no text features and still saves and
-// restores its page, a fraction-only position (#1187) restores without saving, a DRM-flagged MOBI and a
-// PDF are refused, and flow() switches the live view and is reported once per book in `telemetry`.
+// restores its page, a fraction-only position (#1187) restores without saving, a synthetic KF8 (#1182) reads,
+// a DRM-flagged MOBI or KF8, a damaged KF8 and a PDF are refused, and flow() switches the live view and is
+// reported once per book in `telemetry`.
 //
 //   node --experimental-strip-types formats.check.mjs      (pnpm -C apps/web check:v2-reader-formats)
 import { randomBytes } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
@@ -25,6 +26,7 @@ const dir = mkdtempSync(resolve(tmpdir(), 'ts-v2-formats-'))
 const browser = await chromium.launch({ args: ['--allow-file-access-from-files'] })
 try {
   writeFormatFixtures(dir)
+  for (const f of ['tssynthetic-kf8.azw3', 'tssynthetic-combo.mobi']) copyFileSync(resolve(here, 'synthetic', f), resolve(dir, f))
   writeFileSync(resolve(dir, 'tsformat.pdf'), '%PDF-1.4\n%%EOF\n')
   writeFileSync(resolve(dir, 'page.html'), v2ReaderPageHtml(randomBytes(18).toString('base64')))
   const page = await browser.newPage()
@@ -272,14 +274,60 @@ try {
   check(m.type === 'opened' && m.format === 'fb2' && m.title === 'TS FB2', `a UTF-16 FB2 opens (${m.title ?? m.error})`)
   check(await showsText(), 'its text is rendered')
   m = await open('tscombo.mobi')
-  check(m.type === 'opened' && m.format === 'mobi' && m.title === 'TS COMBO', `a MOBI/KF8 combo opens as its MOBI6 half (${m.title ?? m.error})`)
+  check(m.type === 'opened' && m.format === 'mobi' && m.title === 'TS COMBO', `a combo whose KF8 boundary holds no MOBI header opens as its MOBI6 half (${m.title ?? m.error})`)
   check(await showsText(), 'its text is rendered')
+
+  // KF8 (#1182), on the SYNTHETIC Calibre-made books in synthetic/ (kf8fixture.mjs): says nothing about
+  // real-world Kindle files.
+  console.log('kf8 (synthetic)')
+  m = await open('tssynthetic-kf8.azw3')
+  check(m.type === 'opened' && m.format === 'mobi' && m.textual && m.title === 'TS Synthetic KF8' && m.author === 'TextStack Fixture' && m.sections === 3
+    && m.toc.map((t) => t.label).join() === 'Part One,Part Two,Part Three', `an AZW3 opens: 3 sections, its TOC (${m.title ?? m.error}, ${m.sections}, ${m.toc?.map((t) => t.label)})`)
+  const kf8Book = m.book
+  for (const [i, text] of [[0, 'Kestrel lanterns'], [1, 'Copper gulls'], [2, 'harbour keeps its lamps']]) {
+    call(`window.__fol.goTo(${i})`)
+    check(await shown(`!!document.body?.innerText.includes(${JSON.stringify(text)})`), `section ${i} renders its own text`)
+  }
+  call('window.__fol.goTo(0)')
+  check(await shown(async () => {
+    const [css, png, svg, mark] = [document.querySelector('link[rel=stylesheet]'), document.querySelector('img.plate'), document.querySelector('img.badge'), document.querySelector('p.mark')]
+    const type = async (url) => (await (await fetch(url)).blob()).type
+    return !!(css && png && svg && mark) && png.naturalWidth === 120 && svg.naturalWidth === 80 && getComputedStyle(mark).color === 'rgb(10, 120, 30)'
+      && await type(css.href) === 'text/css' && await type(png.src) === 'image/png' && await type(svg.src) === 'image/svg+xml'
+  }), 'its resources are typed (text/css, image/png, image/svg+xml): the CSS applies, the PNG and the SVG render')
+  // Section 2 carries a refresh meta to section 1: dropped through the KF8 transformTarget, so its frame stays.
+  call('window.__fol.goTo(1)')
+  check(await shown(() => document.body?.innerText.includes('Copper gulls') && ![...document.querySelectorAll('meta[http-equiv]')].some((x) => /refresh/i.test(x.getAttribute('http-equiv')))), 'the refresh meta of a KF8 section is stripped')
+  await settle()
+  check(await shown(() => document.body?.innerText.includes('Copper gulls')), 'and its section still shows after the refresh delay')
+  // The internal link (kindle:pos) goes to section 3's harbour paragraph, inside the book: no openLink.
+  call('window.__fol.goTo(0)')
+  await shown(() => document.body?.innerText.includes('Kestrel lanterns'))
+  from = messages.length
+  for (const f of page.frames().filter((f) => f.url().startsWith('blob:'))) await f.evaluate(() => document.querySelector('a[href]')?.click()).catch(() => {})
+  const linked = await storeFrom(from, 'a store after the internal link')
+  check(lastRelocate(from)?.index === 2 && linked?.position?.index === 2 && !messages.slice(from).some((x) => x.type === 'openLink'),
+    `the internal link goes to section 3 and saves there, no openLink (${lastRelocate(from)?.index}, ${JSON.stringify(linked?.position)})`)
+  m = await open('tssynthetic-kf8.azw3', JSON.stringify(linked))
+  await settle()
+  check(m.restored.position === 'restored' && lastRelocate(m.from)?.cfi === linked?.position?.cfi, `reopened, its position is restored (${m.restored.position}, ${lastRelocate(m.from)?.cfi} vs ${linked?.position?.cfi})`)
+  check(m.book.sha256 === kf8Book.sha256, 'the same book')
+  m = await open('tssynthetic-combo.mobi')
+  check(m.type === 'opened' && m.sections === 3 && m.toc.map((t) => t.label).join() === 'Part One,Part Two,Part Three', `a MOBI/KF8 combo reads its KF8 half: 3 sections, its TOC (${m.sections ?? m.error})`)
+  check(await shown(() => { const p = document.querySelector('p.mark'); return !!p && getComputedStyle(p).color === 'rgb(10, 120, 30)' }), 'with its CSS (the MOBI6 half has none)')
 
   console.log('refused')
   // A refusal leaves the open book as it was: it keeps relocating and saving (no seq turnover, no session end).
   m = await open('tsformat.epub')
   const alive = messages.length
-  for (const [file, error] of [['tsdrm.mobi', /DRM/], ['tskf8.mobi', /AZW3 \(KF8\) is not supported yet/], ['tsformat.pdf', /PDF is not supported yet/]]) {
+  // KF8: the synthetic AZW3 with the DRM flag; with its SKEL index pointing at a text record (damaged); a
+  // header with no indexes at all (tskf8.mobi). foliate would fail on the last two only after teardown.
+  const azw3 = readFileSync(resolve(dir, 'tssynthetic-kf8.azw3'))
+  const r0 = azw3.readUInt32BE(78)
+  const patched = (write) => { const b = Buffer.from(azw3); write(b); return b }
+  writeFileSync(resolve(dir, 'tsdrm.azw3'), patched((b) => b.writeUInt16BE(2, r0 + 12)))
+  writeFileSync(resolve(dir, 'tsdamaged.azw3'), patched((b) => b.writeUInt32BE(1, r0 + 252)))
+  for (const [file, error] of [['tsdrm.mobi', /DRM/], ['tsdrm.azw3', /DRM/], ['tsdamaged.azw3', /truncated or damaged/], ['tskf8.mobi', /truncated or damaged/], ['tsformat.pdf', /PDF is not supported yet/]]) {
     const r = await open(file)
     check(r.type === 'open-failed' && error.test(r.error), `${file} is refused: ${r.error}`)
   }

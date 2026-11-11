@@ -57,6 +57,22 @@ describe('v2ReaderPageHtml', () => {
     expect(html).not.toContain('currentView')
   })
 
+  it('bundle_Kf8ForkCommits_AndTheRelocateReasonFromTheView', () => {
+    const html = v2ReaderPageHtml(NONCE)
+    // #1182 fork commits. view.js: the view's relocate carries the renderer's reason; the page reads it there
+    // and keeps no capture listener of its own on the renderer.
+    expect(html).toContain('this.#emit("relocate", { ...this.lastLocation, reason });')
+    expect(html).toMatch(/const moved = (\w+)\.reason !== "anchor" && \1\.cfi !== lastCfi;/)
+    expect(html).not.toContain('rendererReason')
+    expect(html).not.toMatch(/view\.renderer\.addEventListener\("relocate"/)
+    // mobi.js, the carried MOBI reader (a JSON string, read back as JS): typed KF8 resource blobs, and KF8
+    // section markup dispatched through transformTarget, where the page strips refresh metas.
+    const mobi: string = JSON.parse(html.match(/var __TS_FORMATS = \{mobi: ("(?:[^"\\]|\\.)*")/)![1])
+    expect(mobi).toContain('new Blob([newData], { type: newType })')
+    expect(mobi).not.toContain('{ newType }')
+    expect(mobi).toMatch(/const detail = \{ data: replaced, type: this\.#type \};\s*this\.transformTarget\.dispatchEvent\(new CustomEvent\("data", \{ detail \}\)\);\s*const data = await detail\.data;\s*if \(data !== replaced\) doc = /)
+  })
+
   it('bundle_OpenCancelsPendingSaves_AndNoHighlightBeforeRestored', () => {
     const html = v2ReaderPageHtml(NONCE)
     // The call sites of the two data-loss guards; the scheduler itself is unit-tested.

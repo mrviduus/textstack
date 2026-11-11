@@ -15,7 +15,7 @@ import { isFractionOnly } from '../../../../../packages/shared/src/reader/fracti
 import { emptyEntry, entryFor, foldText, isPosition, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 import { openableHref, sentenceOf } from './tap.mjs'
-import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, withoutKf8, zipFormat } from './formats.mjs'
+import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
 const log = (level, msg) => post({ type: 'log', level, msg })
@@ -40,18 +40,13 @@ let entry = null
  */
 let hostMoving = false
 /**
- * The save rule: a relocate saves the position only when the reader moved — its renderer `reason` is not
- * 'anchor' (foliate re-laying the page out: a resize, a font or flow change) AND its CFI differs from the
+ * The save rule: a relocate saves the position only when the reader moved — its renderer `reason` (the
+ * fork's view.js forwards it in the view's relocate) is not 'anchor' (foliate re-laying the page out: a
+ * resize, a font or flow change) AND its CFI differs from the
  * previous relocate's (foliate relocates again where it already is: after a landing, and the 'snap' of
  * every touchend). `lastCfi` follows every relocate of the open book, re-layouts included.
  */
 let lastCfi = null
-/**
- * The renderer's `reason` for the relocate being handled: foliate's view emits its relocate without it.
- * ponytail: a capture listener on view.renderer (at the target, capture runs before the view's own
- * listener); drop it once the fork's view.js #onRelocate forwards `reason` in its detail (#1182 pin bump).
- */
-let rendererReason
 let lastSelection = null
 /** The open that is allowed to finish: a second openUrl makes the first one give up silently. */
 let openSeq = 0
@@ -240,8 +235,8 @@ async function makeBookFor(bytes, name, kind) {
   // `kind` is sniffFormat's, taken before the open book was touched (openFor).
   if (kind === 'mobi') {
     const { MOBI, unzlibSync } = formatModule('mobi')
-    // A MOBI/KF8 combo is read as its MOBI6 half: KF8 is refused (formats.mjs).
-    return { format: 'mobi', book: await new MOBI({ unzlib: unzlibSync }).open(new File([withoutKf8(bytes)], name)) }
+    // MOBI6 or KF8 (AZW3, or a MOBI/KF8 combo's KF8 half), foliate's choice; formats.mjs checked its header.
+    return { format: 'mobi', book: await new MOBI({ unzlib: unzlibSync }).open(new File([bytes], name)) }
   }
   const fb2Of = (b) => formatModule('fb2').makeFB2(new Blob([fb2AsUtf8(b)]))
   if (kind === 'fb2') return { format: 'fb2', book: await fb2Of(bytes) }
@@ -313,7 +308,6 @@ async function open(bytes, name, kind, mine) {
   entry = null
   hostMoving = true
   lastCfi = null
-  rendererReason = undefined
   viewSeq = mine
   navigating = Promise.resolve()
   lastSelection = null
@@ -330,7 +324,7 @@ async function open(bytes, name, kind, mine) {
     // over, a dying view's events — close() still fires relocate — are dropped, not posted (#1168).
     if (mine !== openSeq) return
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
-    const moved = rendererReason !== 'anchor' && d.cfi !== lastCfi
+    const moved = d.reason !== 'anchor' && d.cfi !== lastCfi
     lastCfi = d.cfi
     const position = moved && !hostMoving && entry ? positionOf(d) : null
     if (!position) return
@@ -357,9 +351,9 @@ async function open(bytes, name, kind, mine) {
   textual = isTextual(format)
   // A book's <meta http-equiv="refresh"> is dropped before its section renders. Parsed every time,
   // never pre-matched on the source text: `&#x72;efresh` spells it past a text match. EPUB hands each
-  // section through transformTarget; MOBI6 has none, so its section documents are cleaned where they
-  // are made. (KF8's sections bypass its transformTarget: one reason KF8 is refused, formats.mjs.) FB2
-  // and CBZ sections are built by foliate from whitelisted elements only.
+  // section through transformTarget, and so does KF8 (the fork's mobi.js); MOBI6 has none, so its section
+  // documents are cleaned where they are made. FB2 and CBZ sections are built by foliate from whitelisted
+  // elements only.
   const nb = made.book
   if (nb.transformTarget) nb.transformTarget.addEventListener('data', ({ detail }) => {
     if (!/html/.test(detail.type)) return
@@ -374,8 +368,6 @@ async function open(bytes, name, kind, mine) {
     nb.createDocument = async (section) => { const doc = await make(section); dropRefresh(doc); return doc }
   }
   await view.open(nb)
-  // Capture: at the target it runs before the view's own listener, which emits the view's relocate.
-  view.renderer.addEventListener('relocate', ({ detail }) => { rendererReason = detail.reason }, true)
   view.renderer.setAttribute('flow', flow)
   view.renderer.setAttribute('margin', '24px')
   // The fixed-layout renderer (CBZ, a pre-paginated EPUB) has no styles to set.
