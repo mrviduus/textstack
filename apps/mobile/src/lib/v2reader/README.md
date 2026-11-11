@@ -15,7 +15,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `overlays.mjs` | What is drawn over a range. foliate keys an overlay by its CFI, so a highlight and a word's translation over the same range are one overlay carrying both. |
 | `library.mjs` | V2 local library (pure): identical bytes → the existing entry, never a duplicate or reset. |
 | `library.d.mts` | Hand-written types for `library.mjs` (apps/web type-checks it without `allowJs`); a change to one must update the other. |
-| `hostStorage.ts` | The host's files under `<documents>/v2/` (R2): staging, retained `books/<sha256>.epub`; lower-cased keys. The `store` payload goes to the local library; R2's `library.json` + `store/<sha256>.json` are imported into it once (non-UUID ids remapped), then deleted. |
+| `hostStorage.ts` | The host's files under `<documents>/v2/` (R2): staging, retained `books/<sha256>.epub`; lower-cased keys. The `store` payload goes to the local library; R2's `library.json` + `store/<sha256>.json` are imported into it once (non-UUID ids remapped), then deleted; an unreadable `library.json` falls back to its `.tmp`, and when neither parses both are renamed `.corrupt-<ms>` with a warning, never deleted or written over (#1081). |
 | `localLibrary.ts` | R6 (#1038): SQLite database `textstack-v2` — `books`, `reading_state`, `annotations` (the page's position/highlight JSON per row, keyed by client v4 UUIDs), `outbox` (one coalescing entry per row, `gen` per re-queue, `failures` per gen: any entry kept and skipped after N, reset every session and by "Try again" = `unpark`, #1186), `meta` (cursors, file-sync setting). The page's entry is rebuilt from rows on `restore` and split into rows on `store`, through `@textstack/shared`'s `v2PageEntry` (the web host's mapping too, #1226); the entry's shape and checks are `v2PageStore.ts` there (`store.mjs` re-exports them). |
 | `sync.ts` | R6: the sync client to `/me/v2/*` (PDD v2-sync-protocol.md): pull the library/reading/annotations feeds by cursor, push the outbox in order, opt-in file sync (shared `uploadV2File`), download on demand; conflicts per the PDD's codes, reading state by ADR-019 re-keyed on CFI + spine index; every answer under the shared `whileCurrent` epoch guard. |
 | `deviceLibrary.ts` / `.web.ts` | The device's library over expo-sqlite (a failed open is retried, never cached); the web twin keeps expo-sqlite out of the web bundle. |
@@ -34,6 +34,8 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `frame.mjs`, `framePath.mjs` (+ `.d.mts`) | Web only (#1219, #1225): the page as a no-store shell + a content-hashed page script, and the one handler that serves both (dev, preview, the check; the build writes the same files for nginx). See Host responsibilities, "Web, its own document". `frame.test.ts` pins the split. |
 | `prodCsp.check.mjs` | The production-CSP gate (CI): shell + script under the app CSP read from nginx; the refused variants; nginx's reader locations against the handler's headers. |
 | `openTracker.mjs` (+ `.d.mts`) | Pure, both hosts: which page answer belongs to which open — the open in flight, a book the page kept on screen while a newer open failed, a stale `restored` (dropped). |
+| `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
+| `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `NotReadableError`, `SQLITE_FULL`) as one human message, anything else as is (#1080 item 6). |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
 
 ## Build
@@ -352,6 +354,29 @@ target in the spread already shown counts as arrived (foliate shows it without a
 - **Sync (R6, Android):** opportunistic, never on the reading path: with a session, on screen open, on each book open and 10 s after a save. ADR-019 needs the host's view of the open book (restored yet, the first CFI after the restore, the one now, the spine index from `relocate`); a newer position from another device is gone to (`adopt`/`move`) or offered (`prompt`). File sync is a per-device setting, off by default.
 - `<documents>/v2/` is not yet counted in Device Storage nor wiped on sign-out (#1070): local books belong to the device until the owner decides otherwise; a sign-out forgets what the server told that identity, never unpushed rows.
 
+**Deadlines and states** (#1227, `deadlines.mjs`, one rule for both hosts; the numbers are its named constants):
+
+- `ready` is due a fixed time after each page load: `READY_DEADLINE_MS` 10 s for a page the host carries (Android's
+  inline page, the dev server's frame), `READY_DEADLINE_NETWORK_MS` 30 s for the web production route (shell + a
+  cold-cache 1.6 MB gzipped script). A reload (Retry, a renderer crash) starts a new wait and ends an open's.
+- `opened` (or `open-failed`) is due after the open is sent: `OPENED_FLOOR_MS` 20 s + `OPENED_MS_PER_MB` 1 s per
+  MiB, capped at `OPENED_CAP_MS` 180 s. The R4 gate opened 87 MB in ~7 s on the emulator (~12 MB/s); the rule
+  allows ~1 MB/s. A newer open restarts it.
+- A missed deadline is an alert with Retry; a late `ready`/`opened` clears it (slow, not dead). Retry is a new page
+  load. Android reopens the open in flight from its file. Web: bytes still held (no `ready` yet) open on the new
+  frame's `ready`; bytes the old frame took are gone, so the host asks its route for the book again (`onReload`;
+  the dev route has none: pick again).
+- Web production route states (`V2ReaderPage.tsx`): downloading (percent from `Content-Length`, never past 99 %
+  before the bytes are in; no header: "Loading the book…"), opening (`Opening <name>`), open-failed (the page's
+  message), and a failed load by cause: 401 session ended, 404 book or file gone (no Retry: it cannot help), offline,
+  503 `v2_unavailable` and anything else (Retry). A failed open shows no title (#1168): web blank, Android
+  "Pick a book".
+- Android (#1080 item 6): the open's error line (pick, download, open-failed, import, crash) is apart from the
+  other one (library, settings, sync, saves), so a later `store` failure never overwrites why a book did not open; a
+  full disk reads as one human message (`hostErrors.ts`). The update screen for a WebView older than 117 is #1228;
+  this `ready` deadline is its backstop.
+- Errors are `role="alert"` (web) / `accessibilityRole="alert"` with a polite live region (Android); Retry is a button.
+
 **WebView, dev route only** (prototype host; ADR-029 Decision 4 until the R4 security review):
 `source={{ html: v2ReaderPageHtml(nonce), baseUrl: <app documents dir> }}`, `allowFileAccess`,
 `allowFileAccessFromFileURLs`, `originWhitelist={['*']}`. The `file://` origin lets the page read the retained
@@ -388,7 +413,7 @@ One host component, `apps/web/src/components/reader/V2ReaderHost.tsx`, serves th
 picked file, dev server only) and the production route (`/:lang/library/my/:id/read-v2`, behind `Features:V2Api`:
 the current file's bytes from `/me/v2/books/{id}/files/{fileId}/content`, transferred). It embeds the shell with
 `<iframe sandbox="allow-scripts allow-same-origin" src>`, checks every message's source and origin, tracks opens
-with `openTracker.mjs`, and shows an error when no `ready` arrives within 10 s. Reader data: localStorage on the
+with `openTracker.mjs`, and runs the deadlines below. Reader data: localStorage on the
 dev route (keyed on the route, `dev`); on the production route the server only (#1226,
 `apps/web/src/lib/v2ReaderSync.ts`, one session per open). No reading-state read, no session: `restore` gets
 the server's place, and when the read fails the page gets no `restore` (an error with Retry), so nothing is
