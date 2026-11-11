@@ -41,7 +41,7 @@ async function v2Context(browser: { newContext(): Promise<BrowserContext> }, ema
 /** Upload on V2 (sha256, import, parts, complete); the bytes are readable once the content is complete. */
 async function uploadFixture(page: Page): Promise<string> {
   await page.goto('/en/library')
-  await page.getByRole('button', { name: 'Upload book' }).click()
+  await page.locator('.site-header__upload-btn').click()
   const imported = page.waitForResponse((r) => r.request().method() === 'PUT' && /\/me\/v2\/books\/[0-9a-f-]{36}$/.test(r.url()))
   const completed = page.waitForResponse((r) => r.request().method() === 'POST' && /\/me\/v2\/books\/[0-9a-f-]{36}\/files\/[0-9a-f-]{36}\/content$/.test(r.url()))
   await page.locator('.upload-modal input[type="file"]').setInputFiles(FIXTURE)
