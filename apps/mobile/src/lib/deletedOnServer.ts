@@ -90,7 +90,6 @@ export function chooseNewlyDeleted(input: {
   from: 'v2' | 'legacy' | null
   marked: ReadonlySet<string>
 }): string[] {
-  if (!input.from) return []
   const out: string[] = []
   for (const [id, source] of input.local) {
     if (source === input.from && !input.listed.has(id) && !input.marked.has(id)) out.push(id)

@@ -224,13 +224,14 @@ describe('#1174 wiring', () => {
 
   it('the deleted-books row: one leftovers rule, re-read on focus, bulk non-declining remove', () => {
     const row = read('src/components/library/DeletedDownloadsRow.tsx')
-    expect(row).toContain('useFocusEffect(useCallback(() => {')
+    expect(row).toMatch(/useFocusEffect\(useCallback\(\(\) => \{\s*let cancelled = false\s*Promise\.all\(\[listDeletedOnServer\(\), listLocalLeftovers\(\)\]\)/)
     expect(row).toContain('}, [cachedUserBooks, listedKey, refreshKey]))')
     expect(row).toContain('Promise.all([listDeletedOnServer(), listLocalLeftovers()])')
     expect(row).toContain('deletedStillOnDevice(marked, local.keys(), new Set(listedIds))')
     expect(row).toContain('await removeUserBookDownloads(ids, { decline: false })')
     expect(row).toContain('if (failed > 0) {')
     expect(row).toContain('Alert.alert(')
+    expect(row).toContain('onPress={confirm}')
     expect(row).toContain('accessibilityLabel=')
     // No visible words outside the catalogue.
     expect(row).not.toMatch(/'deleted books?'/)
@@ -245,7 +246,7 @@ describe('#1174 wiring', () => {
     const start = ctx.indexOf('const removeUserBookDownloads = useCallback(')
     const body = ctx.slice(start, ctx.indexOf('}, [forgetDownload, refreshCachedBooks])', start))
     expect(body).toContain('if (decline) await declineDownload(bookId)')
-    expect(body).toMatch(/\} catch \(err\) \{\s*failed\+\+/)
+    expect(body).toMatch(/\} catch \(err\) \{\s*failed\+\+\s*console\.warn\([^\n]*\)\s*\}\s*\}\s*await refreshCachedBooks\(\)/)
     expect(body).toMatch(/    \}\n    await refreshCachedBooks\(\)\n    return failed/)
     expect(body.match(/refreshCachedBooks\(\)/g)).toHaveLength(1)
   })
