@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
-  markDeletedOnServer, clearDeletedOnServer, isDeletedOnServer, listDeletedOnServer, failedLoadView,
+  markDeletedOnServer, clearDeletedOnServer, isDeletedOnServer, listDeletedOnServer, failedLoadView, forgetDeletedOnServer,
 } from './deletedOnServer'
-import { listDeclinedDownloads, declineDownload, updateIdSet } from './declinedDownloads'
+import { listDeclinedDownloads, declineDownload, updateIdSet, forgetDeclinedDownloads } from './declinedDownloads'
 import { applyV2MergeMap } from './v2Merge'
 
 vi.mock('./offlineDb', () => ({ rekeyCachedUserBooks: async () => {} }))
@@ -48,6 +48,23 @@ describe('deletedOnServer (#1174)', () => {
     await markDeletedOnServer('other')
     await applyV2MergeMap({ books: { 'guest-b': 'acct-b' }, files: {} })
     expect([...(await listDeletedOnServer())].sort()).toEqual(['acct-b', 'other'])
+  })
+})
+
+describe('#1192 — sign-out forgets both id sets', () => {
+  it('forget_BothSets_Empty_AndQueuedBehindAPendingMark', async () => {
+    await declineDownload('d1')
+    const marking = markDeletedOnServer('b1') // not awaited: the forget must not be overtaken by it
+    await Promise.all([forgetDeclinedDownloads(), forgetDeletedOnServer(), marking])
+    expect(await listDeclinedDownloads()).toEqual(new Set())
+    expect(await listDeletedOnServer()).toEqual(new Set())
+  })
+
+  it('the sign-out wipe in DownloadContext calls both', () => {
+    const ctx = readFileSync(resolve(__dirname, '../context/DownloadContext.tsx'), 'utf8')
+    const wipe = ctx.slice(ctx.indexOf('if (wasAuthenticatedRef.current && !isAuthenticated) {'), ctx.indexOf('wasAuthenticatedRef.current = isAuthenticated'))
+    expect(wipe).toContain('forgetDeclinedDownloads()')
+    expect(wipe).toContain('forgetDeletedOnServer()')
   })
 })
 
