@@ -412,10 +412,12 @@ jobs:
       - name: Install Playwright Chromium
         if: ${{ (needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true') && steps.pw-cache.outputs.cache-hit != 'true' }}
         working-directory: apps/web
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
 
-      - name: Install Playwright system deps
-        if: ${{ (needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true') && steps.pw-cache.outputs.cache-hit == 'true' }}
+      # See the e2e job: best-effort, an apt/DNS outage must not turn the job red by itself.
+      - name: Install Playwright system deps (best-effort)
+        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
+        continue-on-error: true
         run: pnpm -C apps/web exec playwright install-deps chromium
 
       # ADR-029 Decision 6: the V2 reader page's CSP holds against the hostile EPUB, MOBI and FB2, and
@@ -851,17 +853,33 @@ jobs:
       - name: Drop apt repositories Playwright does not need
         run: sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/azure-cli.list
 
+      # The browser comes from Playwright's CDN (cached above), no apt involved.
       - name: Install Playwright Chromium
         if: steps.pw-cache.outputs.cache-hit != 'true'
         working-directory: apps/web
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
 
-      - name: Install Playwright system deps
-        if: steps.pw-cache.outputs.cache-hit == 'true'
+      # Best-effort: the ubuntu runner image already carries Chrome's shared libraries, so this is
+      # usually a no-op. It runs `apt-get update`, and on 2026-11-11 the runners could not resolve
+      # archive/security.ubuntu.com for over an hour: three red runs on a PR whose only change was a
+      # unit-test timeout. If a library really is missing, the browser fails to launch in the tests
+      # below with Playwright's "Host system is missing dependencies", which is still a red job.
+      - name: Install Playwright system deps (best-effort)
+        id: pw-deps
+        continue-on-error: true
         run: pnpm -C apps/web exec playwright install-deps chromium
+
+      - name: Flag skipped Playwright system deps
+        if: steps.pw-deps.outcome == 'failure'
+        run: echo "::warning title=Playwright deps::install-deps failed (apt unreachable?); running on the runner image's libraries."
 
       - name: Clean stale dist
         run: rm -rf apps/web/dist
+
+      # Built once here; every Playwright run below serves this dist with `vite preview`
+      # (playwright.config.ts under CI) instead of rebuilding the app per run.
+      - name: Build web app
+        run: pnpm -C apps/web build
 
       # Split on purpose, after looking at what this suite actually earns.
       #
@@ -883,7 +901,7 @@ jobs:
       # only, a failed progress GET does not stop saving. ~10s, polls only, its own
       # users and fixture text. Here rather than in a new job because `e2e` is
       # already a required context and a new job would not be; in this invocation
-      # rather than its own step because every `pnpm test:e2e` rebuilds the web app.
+      # rather than its own step to keep the gate in one place.
       # Same path filter as the job, deliberately: the reader depends on contexts,
       # the API client, packages/ and the progress/highlight endpoints, so a
       # narrower list would be a guess that misses one.
