@@ -228,6 +228,20 @@ anyone buys anything.
 
 ## 6. Slices (stackable PRs, after the decision)
 
+> **As built (same origin, owner decision 2026-11-11).** The table below was written for option A; with the reader
+> on the app's origin there is no domain, no `dist-reader/` and no S2. What shipped instead:
+> - **Slice 1 ([#1219](https://github.com/mrviduus/textstack/issues/1219))**: the page as its own same-origin document
+>   at `/reader-v2/frame.html` (srcdoc measured unworkable under the app CSP), `prodCsp.check.mjs` in CI.
+> - **Slice 2 ([#1225](https://github.com/mrviduus/textstack/issues/1225)), the S3 row on one origin**: the frame
+>   is a `no-store` shell (CSP, shim, per-response nonce, ~1.3 KB) + the content-hashed page script
+>   (`/reader-v2/page.<hash>.js`, immutable, `integrity`-pinned; ADR-029 Decision 4 amended 2026-11-11), so a book
+>   open no longer re-downloads 3.75 MB. The build writes both to `dist/reader-v2/` (asserted); nginx's textstack.app
+>   server fills the shell's nonce (`sub_filter … $request_id`) and caches the script, and the app CSP gained
+>   `frame-src 'self'`. Route `/:lang/library/my/:id/read-v2` (noindex by the `library/my` rule), V2 flag only, else
+>   the legacy reader; entry: a secondary link on the book page. Bytes per §5 (online, no cache). One `V2ReaderHost`
+>   for the dev and production routes. Position/highlights stay in localStorage until S5/#1226; loading states S4/#1227.
+> - The second origin (option A) is revisited before the flag goes on for real users (M5).
+
 | # | PR | DoD | Tests |
 |---|---|---|---|
 | S1 | **Served page + two-site harness.** Build step writes `dist-reader/index.html` (generated page, nonce placeholder kept, shim with `__V2_PARENT_ORIGIN__`); a dev static server on `127.0.0.1:5174` doing both substitutions per request; `/dev/reader-v2` embeds it by `src=` instead of `srcDoc`; host/shim check origins; `assert-no-dev-reader` → "no page in `dist/`, page in `dist-reader/`". | Dev route reads every format as today, from the second site. App `dist/` has no `__V2_READER_NONCE__`. | `sandbox.check.mjs` new run: served cross-site, CSP bypassed → zero app reach (§3 A); existing 30/30 + mutations unchanged; `check:v2-reader-formats` through the served page; unit test of the substitution (nonce differs per request, rejects a request without placeholder). |

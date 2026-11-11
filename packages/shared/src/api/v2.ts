@@ -10,7 +10,7 @@
  * Every failure is an `ApiError` whose `body` is the one V2 error shape ({@link V2Error}); read it
  * with {@link v2ErrorOf}. A 503 `v2_unavailable` means "sync paused": keep local data, try later.
  */
-import { authFetch, ApiError, buildQuery, getApiConfig, jsonBody } from './client'
+import { authFetch, authFetchResponse, ApiError, buildQuery, getApiConfig, jsonBody } from './client'
 import { v2LocatorToPlace } from '../reader/v2Locators'
 import { chapterAtFraction } from '../reader/bookProgress'
 
@@ -505,6 +505,9 @@ export const completeContent = (bookId: string, fileId: string, partCount: numbe
 export const removeContent = (bookId: string, fileId: string) => authFetch<void>(`${file(bookId, fileId)}/content`, { method: 'DELETE' })
 /** The bytes, Range-capable; cookies or a Bearer header authenticate it as any call. */
 export const contentUrl = (bookId: string, fileId: string) => `${getApiConfig().baseUrl}${file(bookId, fileId)}/content`
+/** The whole file's bytes (the web V2 reader, #1225): authFetch's auth, refresh and errors, no JSON parse. */
+export const getContent = async (bookId: string, fileId: string): Promise<ArrayBuffer> =>
+  (await authFetchResponse(`${file(bookId, fileId)}/content`)).arrayBuffer()
 export const putCover = (bookId: string, bytes: Blob | ArrayBuffer | Uint8Array, contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
   authFetch<V2Book>(`${book(bookId)}/cover`, { method: 'PUT', headers: { 'Content-Type': contentType }, body: bytes as BodyInit })
 export const readingStateUrl = (bookId: string) => `${getApiConfig().baseUrl}${book(bookId)}/reading-state`

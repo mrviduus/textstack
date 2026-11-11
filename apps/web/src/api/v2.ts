@@ -184,6 +184,12 @@ export async function getV2UserBookChapter(bookId: string, chapterKey: string): 
   }
 }
 
+/**
+ * A V2 file's bytes for the V2 reader (#1225): online only, no cache. The shared client's call (cookie, 401
+ * refresh + retry once, ApiError on non-2xx, a network failure as its `isNetworkError` ApiError).
+ */
+export const fetchV2FileBytes = v2Api.getContent
+
 // ---- Reading state ------------------------------------------------------------------------------
 
 /**

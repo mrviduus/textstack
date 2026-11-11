@@ -16,13 +16,21 @@ on:
     # (mobile-ota.yml), the extension by hand. NEVER add packages/**, the lockfile or
     # pnpm-workspace.yaml here — the admin, ssg-worker and web images (and the
     # server's fallback web build) consume them.
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - 'apps/mobile/**'
-      - 'apps/web/e2e/**'   # Playwright specs; no image or web build reads them
-      - 'extension/**'
-      - '.github/workflows/mobile-*.yml'
+    #
+    # `paths` with negations, not `paths-ignore` (which cannot re-include): the V2
+    # reader page lives in apps/mobile/src/lib/v2reader but ships in the web dist
+    # (dist/reader-v2/, #1225), so a page-only change must deploy. Order matters:
+    # the last pattern a file matches decides.
+    paths:
+      - '**'
+      - '!docs/**'
+      - '!*.md'
+      - '!apps/mobile/**'
+      - 'apps/mobile/src/lib/v2reader/**'
+      - '!apps/mobile/src/lib/v2reader/**/*.md'
+      - '!apps/web/e2e/**'   # Playwright specs; no image or web build reads them
+      - '!extension/**'
+      - '!.github/workflows/mobile-*.yml'
   workflow_dispatch:
     inputs:
       rollback_commit:

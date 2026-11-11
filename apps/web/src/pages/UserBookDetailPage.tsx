@@ -399,6 +399,13 @@ export function UserBookDetailPage() {
               </Link>
             )}
 
+            {/* The V2 reader page (#1225), beside the legacy reader until it replaces it (R8). */}
+            {v2.enabled && (
+              <Link to={`${readerBase}/read-v2`} className="user-book-detail__mark-btn">
+                {t('userBook.readV2')}
+              </Link>
+            )}
+
             {isReady && (
               <AssistantMenu
                 book={{
