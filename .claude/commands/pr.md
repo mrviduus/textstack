@@ -1,5 +1,5 @@
 ---
-description: Create a PR with title, area label, description and rollback plan. The title is the release-notes line; the description is the write-up.
+description: Create a PR with title, area label, description and rollback plan. The PR is the changelog: title = the line, description = the write-up.
 argument-hint: (no args) or '<issue-number>' to override detection
 allowed-tools: Bash, Read, Edit, Grep, Glob
 ---
@@ -8,9 +8,10 @@ allowed-tools: Bash, Read, Edit, Grep, Glob
 
 End-of-slice ritual: commit any pending changes, build title + description, label, push, open PR.
 
-**The PR is the changelog (#1220).** Each deploy creates a dated GitHub release whose notes list the
-PRs merged since the previous one, by title, in sections picked by area label (`.github/release.yml`).
-Never edit `CHANGELOG.md` or `docs/changelog-archive/`: both are frozen.
+**The PR is the changelog (#1220).** The `/changelog` page lists merged PRs by week, by title, in
+sections picked by area label (`.github/release.yml`). Never edit `CHANGELOG.md` or
+`docs/changelog-archive/`: both are frozen. Whether a PR is reader-visible (`public`) is decided
+weekly by `/changelog-week`, not here.
 
 ## Pre-conditions
 
@@ -46,7 +47,7 @@ This makes the PR description self-documenting.
 
 ## Step 3 — Build PR title
 
-The title is the PR's line in the release notes, read by someone scanning a deploy. Conventional style,
+The title is the PR's line on the changelog page, read by someone scanning a week. Conventional style,
 under 72 chars, saying what changed, issue number at the end:
 
 - `feat(reader): V2 page reads AZW3 (KF8) (#1182)`

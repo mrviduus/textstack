@@ -8,7 +8,7 @@ Project-level slash commands for the TextStack repo. Each command is a markdown 
 |---------|---------|-------------|
 | `/check` | Run all relevant tests/builds based on `git diff`. Concise pass/fail summary. | Before `/pr`. After any non-trivial change. |
 | `/pr` | Build PR title + body + area label, push, open PR via `gh`. The PR is the changelog. | End of slice, after `/check` is green. |
-| `/changelog` | Where a change is written down; fix a release-notes line. | A wrong title/label, an incident, an ADR. |
+| `/changelog` | Where a change is written down; how a milestone release is cut. | A wrong title/label, an incident, an ADR, a Play build. |
 
 ## Workflow — happy path
 
@@ -27,7 +27,7 @@ Claude at the brief (issue or doc) directly instead.
    → reports green or fixes-needed
 
 4. /pr
-   → builds PR title (= the release-notes line) + area label
+   → builds PR title (= the changelog line) + area label
    → builds PR body (= the write-up) from template + slice brief
    → pushes and opens PR via gh
 
@@ -36,8 +36,8 @@ Claude at the brief (issue or doc) directly instead.
 ## Workflow — outside slices
 
 ```
-- Hotfix: a PR like any other (a push straight to main never reaches the release notes).
-- Dependency bump: Dependabot's PRs carry `dependencies` and stay out of the release notes.
+- Hotfix: a PR like any other (a push straight to main never reaches the changelog).
+- Dependency bump: Dependabot's PRs carry `dependencies` and stay off the changelog.
 ```
 
 ## Why these commands and not full subagents
@@ -58,5 +58,5 @@ After editing, the next `/<command>` invocation picks up changes — no reload n
 
 ## Conventions assumed
 
-- Release notes generated per deploy from PR titles + area labels (`.github/release.yml`); `CHANGELOG.md` is frozen.
+- The changelog is the merged PRs (titles + area labels), shown by week on `/changelog`; `CHANGELOG.md` is frozen.
 - `gh` CLI authenticated.
