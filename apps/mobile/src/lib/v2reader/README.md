@@ -1,14 +1,14 @@
 # V2 reader page
 
-The page that renders a local EPUB, MOBI/AZW3, FB2 or CBZ (see Formats) in the V2 reader's WebView ([ADR-029](../../../../../docs/01-architecture/adr/ADR-029-foliate-for-v2-epub.md)).
+The page that renders a local EPUB, MOBI/AZW3, FB2, CBZ or PDF (see Formats) in the V2 reader's WebView ([ADR-029](../../../../../docs/01-architecture/adr/ADR-029-foliate-for-v2-epub.md)).
 foliate-js parses and renders the book; our code adds word tap, the inline translation label, highlights and
 the reading position. Slice R1 of [v2-plan.md](../../../../../docs/01-architecture/v2-plan.md) §7: the page
 and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R2); hidden from production Metro, see metro.config.js.
 
 | File | What |
 |---|---|
-| `page.mjs` | Runs in the WebView. The whole adapter: routing a file to its reader, our EPUB loader (SHA-1 for obfuscated fonts), the format-reader runner, the navigation queue, word tap, translation label, highlights, save/restore by CFI + quote, `meta refresh` stripped, flow + its telemetry. |
-| `formats.mjs` | Which reader a file goes to, from its bytes (pure): zip → EPUB/FBZ/CBZ by entry names, `BOOKMOBI` → MOBI6/KF8 (DRM, truncated and KF8 without its indexes refused; combo → KF8 half), FB2 root (UTF-16 re-encoded, entities refused), PDF/KFX/unknown refused; CBZ page names and types. |
+| `page.mjs` | Runs in the WebView. The whole adapter: routing a file to its reader, our EPUB loader (SHA-1 for obfuscated fonts), the format-reader runner, the navigation queue, word tap, translation label, highlights, save/restore by CFI + quote (a PDF by page), `meta refresh` stripped, flow + its telemetry. |
+| `formats.mjs` | Which reader a file goes to, from its bytes (pure): zip → EPUB/FBZ/CBZ by entry names, `BOOKMOBI` → MOBI6/KF8 (DRM, truncated and KF8 without its indexes refused; combo → KF8 half), FB2 root (UTF-16 re-encoded, entities refused), `%PDF-` in the first KiB → PDF, KFX/unknown refused; CBZ page names and types. |
 | `store.mjs` | Reader data shape (v1), one entry per book **file** (SHA-256 + size); the quote fold; pure-JS SHA-256 / SHA-1. |
 | `tap.mjs` | What a tap hands the host: the word's sentence (reader-engine's `sentenceAround`) and an external link, only if `http(s)`. |
 | `saveScheduler.mjs` | The debounced `store` message: key and payload are fixed when the save is asked for, so a save can never land on the next book. |
@@ -25,10 +25,11 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `carrier.mjs` | The page shell (pure): CSP, nonce placeholder, `formatsJs` (readers as escaped strings), `html`. Tested by `carrier.test.ts`. |
 | `v2ReaderPage.generated.ts` | **Generated, committed.** `v2ReaderPageHtml(nonce)`. Never edit by hand. |
 | `repro.mjs` | Test-only entry: the page + `__fol.reproRenderDuringLoad` (the reproducer behind the fork's paginator fix). |
-| `fixtures.mjs` | Writes crafted books to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated), `tshostile.epub` (one row of `hostileVectors` per sandbox vector; `.mobi`/`.fb2` twins are written by the check), and `tsformat.{epub,mobi,fb2,fbz,cbz}`, `tsdrm.mobi`, `tskf8.mobi`, `tscombo.mobi`, `tsupper.cbz`, `tsutf16.fb2`, every byte written by the file itself (MOBI6 by hand: PDB + PalmDOC + MOBI header). Needs `zip`. |
+| `fixtures.mjs` | Writes crafted books to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated), `tshostile.epub` (one row of `hostileVectors` per sandbox vector; `.mobi`/`.fb2` twins are written by the check), and `tsformat.{epub,mobi,fb2,fbz,cbz}`, `tsdrm.mobi`, `tskf8.mobi`, `tscombo.mobi`, `tsupper.cbz`, `tsutf16.fb2`, `tsformat.pdf`, `tscjk.pdf`, `tslocked.pdf` (and `hostilePdf`, written by the format check), every byte written by the file itself (MOBI6 and PDF by hand). Needs `zip`. |
 | `kf8fixture.mjs` | The recipe for the committed **synthetic** KF8 books in `synthetic/` (#1182): Calibre `ebook-convert` over an original EPUB it writes (and over `tshostile.epub`), then `normalise()`; `SYNTHETIC` records each file's SHA-256, asserted by `formats.test.ts`. CI has no Calibre and only reads the committed files. See `synthetic/README.md`. |
 | `sandbox.check.mjs` | The hostile-book check (see Sandbox). |
 | `formats.check.mjs` | The format check (see Formats): one small book per format through the committed page in Chromium. |
+| `pdfgate.mjs` | The ADR-032 PDF gate (#1128 S5): `node --experimental-strip-types pdfgate.mjs <corpusDir> [--map <file>] [--only 3,7]` opens every PDF under a directory through the committed page, one fresh page each (open, page 1 drawn and inked, `next` ×3, chosen `goTo` last page, save + reopen, text layer + selection, peak JS heap, longest main-thread task). Prints indexes (`pdf-NN`), size buckets, pass/fail and error classes only, never a name, path, title or text: the corpus is private and stays outside the repo. |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
 
 ## Build
@@ -55,19 +56,24 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   untyped, SVG images did not render); `ff826a7` mobi: KF8 section markup dispatched through `transformTarget`
   (the page's refresh-meta strip; it bypassed it); `40dd126` view: the view's `relocate` carries the renderer's
   `reason` (the save rule reads it, page.mjs); `2c6588e` pdf: a null outline destination returns null (upstream
-  `ce10f08`); `b38d07c` pdf: nothing fetched or resolved at import time. pdf.js stays stubbed out of the page:
-  those two change nothing in it yet (PDF is refused, Formats); `b3386ef` paginator: `setStyles`' frame callback
+  `ce10f08`); `b38d07c` pdf: nothing fetched or resolved at import time (`makePDF(file, { css, params })`,
+  `isEvalSupported: false` forced; what lets the page carry it, Formats, PDF); `b3386ef` paginator: `setStyles`' frame callback
   does nothing once `destroy()` nulled the view (a book closed within a frame of a section load threw
   "reading 'document'"; predates #1182).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. view.js's own format imports, PDF, TTS and search are
-  stubbed out of the page; MOBI/FB2/CBZ come in as format readers (Formats).
+  stubbed out of the page; MOBI/FB2/CBZ/PDF come in as format readers (Formats).
 - **Size:** the page script (unminified) is at most `BUDGET` characters in `build.mjs`, and each format reader
   at most its `FORMAT_BUDGET` entry: those constants are the one source for the numbers. Reader-engine's 64 KB
   budget does not apply; a budget is raised only by a deliberate PR.
 - `BUDGET` is a tripwire by design, not a ceiling: it equals the committed size, so any growth fails `--check`
   until the PR that grows the page says so.
-- **Licences** stay in the output (`legalComments: 'inline'`): foliate-js MIT © John Factotum; zip.js BSD-3-Clause.
+- **Licences** stay in the output (`legalComments: 'inline'`): foliate-js MIT © John Factotum; zip.js BSD-3-Clause;
+  pdf.js Apache-2.0 (its notice opens with `@licstart`, which esbuild drops when minifying, so `build.mjs` restates
+  it as a `/*! */` at the top of the PDF reader); pdf.js's cMaps BSD-3-Clause (Adobe), likewise.
+- **Minified: the PDF reader only** (`MINIFIED` in `build.mjs`, `keepNames` because pdf.js reads
+  `constructor.name`): 1,706,720 characters against 3,180,221 unminified (1,614,390 without `keepNames`). The
+  other readers and the page stay readable; their budgets count unminified characters.
 - The page imports only foliate, `packages/shared` (`tokenizeVocabWords`) and `packages/reader-engine`
   (`rangeToLocator`, `chapterText`, `offsetOf`, `sentenceAround`). Nothing from `apps/`.
 
@@ -83,7 +89,8 @@ the Android host stages and retains every format as `*.epub`, the web host opens
 | AZW3 (KF8); a MOBI/KF8 combo as its KF8 half | `BOOKMOBI`, header version ≥ 8; or EXTH 121 → a MOBI header | the same | all |
 | FB2 / FBZ | `<FictionBook` in the first 4 KiB (UTF-8 or UTF-16) / zip with a `.fb2` | fork `fb2.js` | all |
 | CBZ | zip with images, no container, no `.fb2` | fork `comic-book.js` (fixed layout) | **none** |
-| PDF, KFX, other | `%PDF-`, `\xeaDRMION\xee`, anything else | refused with `open-failed` | — |
+| PDF (#1128 S5; **dev hosts only**, below) | `%PDF-` in the first KiB, after the MOBI check | fork `pdf.js` + pdf.js v5.5.207, on the page's main thread | word tap and selection; **no** highlights or translation label (`annotatable: false`) |
+| KFX, other | `\xeaDRMION\xee`, anything else | refused with `open-failed` | — |
 
 - **Loaded only when needed.** Each format reader is its own esbuild IIFE, carried in the page's one script as a
   string (`var __TS_FORMATS`, every `<` escaped as `\u003c`, so nothing in it can end or bend the script
@@ -95,9 +102,14 @@ the Android host stages and retains every format as `*.epub`, the web host opens
   the nonce is fresh per load and no book script can run to read it. The strings are parsed with the page (cheap);
   only their evaluation is deferred.
 - **A refusal touches nothing.** `sniffFormat` runs before the open book is closed or the open seq turns over
-  (like a failed read, #1168): a PDF, DRM, damaged KF8, entity-declaring FB2 or unknown file answers `open-failed` and the
-  book on screen keeps reading, saving and its telemetry session. (An FBZ's inner FB2 is checked only once the
-  zip is read, inside the open: that refusal does replace the book.)
+  (like a failed read, #1168): a DRM, damaged KF8, entity-declaring FB2 or unknown file answers `open-failed` and the
+  book on screen keeps reading, saving and its telemetry session.
+- **A failed make touches nothing either** (#1128 S5). The new book is made (`makeBookFor`: the zip read, the
+  MOBI/FB2 parsed, the PDF document loaded) before the open book is torn down. If that throws — a PDF that needs
+  a password ("this PDF is password-protected…": the cheap check, an `/Encrypt` dictionary, cannot tell it
+  from the common owner-password-only PDF that opens fine), a broken PDF, an FBZ's inner FB2 with entities — the
+  page answers `open-failed` and gives the open seq back to the book on screen, which keeps reading, saving and
+  its telemetry session. A failure after the teardown (foliate's `view.open`/`init`) still replaces the book.
 - **DRM:** a MOBI or KF8 whose PalmDOC `encryption` is non-zero (record 0, and a combo's KF8 header too), and any
   KFX, answer `open-failed` with "…DRM-protected…". A `BOOKMOBI` too short for what is read is "truncated or
   damaged", never DRM. EPUB DRM is not detected here (foliate fails on the encrypted content).
@@ -124,6 +136,45 @@ the Android host stages and retains every format as `*.epub`, the web host opens
   handed to foliate with lower-case extensions (`comicName`: it keeps `.jpg`, never `.JPG`), each name once, and
   each page blob is typed by its extension (an untyped SVG is no image). `opened.reflowable` is `false`: `flow()`
   changes nothing on a fixed layout, is not counted as a switch, and the hosts disable their toggle.
+- **PDF (#1128 S5): the V2 page only.** The page is reachable from the dev hosts alone (Android `__DEV__` route,
+  web `/dev/reader-v2` on the dev server); **the ADR-012 pdf.js viewer remains the production PDF reader** and is
+  untouched. **The ADR-032 PDF gate is NOT complete**: its evidence is desktop headless Chromium only
+  (`pdfgate.mjs`, `formats.check.mjs`); no Android System WebView or device row has been run.
+  - *Where pdf.js's worker runs:* on the page's main thread. The PDF reader's IIFE evaluates `pdf.worker.mjs`
+    first, which sets `globalThis.pdfjsWorker`; pdf.js then uses it as a "fake worker" and never constructs a
+    `Worker` nor `import()`s a URL. Why: the CSP is `script-src 'nonce-…'` only — a real Worker needs
+    `worker-src blob:` (or a served file), a widening this slice does not make. **No CSP change.** The price is
+    parsing and rendering on the UI thread: a heavy page stalls input. Its cost on a device is **not measured**.
+  - *Nothing fetched:* `isEvalSupported: false` (forced by the fork; the CSP refuses eval anyway), `useWasm: false`,
+    no URL for anything. pdf.js's predefined cMaps ride in the page as their own carried chunk (`pdfcmaps`,
+    base64, `PdfCMaps` in page.mjs), run the first time a PDF's font names one: without them a CJK font on a
+    predefined cMap draws a blank page. pdf.js never runs a PDF's JavaScript here (its scripting sandbox is not
+    shipped). A link annotation goes through `external-link` → `openLink`, http(s) only, as in an EPUB (a GoToR to
+    an http file spec is handed the same way, as pdf.js makes it a URL); Launch and `javascript:` never are.
+  - *Layout and position:* one page per screen (`rendition.spread = 'none'`: inside a two-page spread a step shows
+    the other page without a relocate, so the saved page would be the spread's first). Position
+    `{ page, index, fraction, at }`, `page` = section index + 1, the `pdf-page` locator (ADR-031,
+    `packages/shared` `isPdfPage`), **never a CFI**. The save rule, `hostMoving`, `chosen` and arrival hold as for
+    any fixed layout (arrival by spread; with `spread = 'none'` one page each). The scheme fits the file (`fits`
+    in page.mjs, beside the server's `SyncValidation.FitsFile`): on a PDF a CFI or a fraction-only position is
+    neither restored nor gone to (`wrong position kind, stayed at start`), and a page number never on another
+    format. Sync: `positionWrite(…, format)` writes `pdf-page {"page":N}` only for a `pdf` file and never
+    `epub-cfi` for one; `statePosition(state, format)` reads `pdf-page` and, on a PDF, nothing else (no
+    `textstack-*` fraction fallback).
+  - *Capabilities:* `opened.textual` is `true` (word taps answer `word`, with `cfi: null`; the text layer
+    selects) and `opened.annotatable` is `false`: `highlightSelection()` is refused with a `warn` and
+    `showTranslation()` ignored. A PDF highlight is a `pdf-page` anchor (page + rects) and the fixed-layout
+    renderer has no overlayer: **highlights and the translation label are not built**. The web dev host hides
+    its Highlight button and asks for no label; the Android dev host offers neither for any format yet.
+  - *Known gaps:* **JPEG 2000 images are not drawn** (accepted: pdf.js decodes them with OpenJPEG wasm, which
+    needs `'wasm-unsafe-eval'`); the rest of such a page draws. **Standard fonts fall back to system fonts**
+    (standard-font data is not carried); glyph shapes on Android may differ, positions come from the PDF.
+    **UI-thread parsing cost is not measured on devices.** The fork's text-selection fix (`selecting` class)
+    targets Firefox; selection was **verified in Chromium only** (desktop, mouse/script, no long-press). A
+    password-protected PDF is refused (see above), not opened with a password. A hostile PDF can burn CPU or
+    memory on the UI thread (a freeze, not an escape). The PDF vectors are checked in `formats.check.mjs`
+    under the real CSP only, not under `sandbox.check.mjs`'s per-directive mutations: they are pdf.js and
+    foliate behaviour, not the CSP's doing.
 - **Refresh metas:** EPUB and KF8 sections pass through `transformTarget`; MOBI6 has none, so the page wraps its
   `createDocument`. FB2 and CBZ sections are rebuilt by foliate from whitelisted elements / one `<img>`.
 - **Hostile input:** every reader runs inside the same page and CSP. The sandbox check opens a hostile MOBI (the
@@ -199,25 +250,25 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | Call | Does |
 |---|---|
 | `openUrl(url, name)` | Reads the retained book by XHR (`file://…`) and opens it, whatever its format (Formats). Answers `opened` or `open-failed`. A second call supersedes the first, which then answers nothing. |
-| `restore(json \| null)` | The answer to `opened`: the JSON last sent in `store` for that `book.sha256`, or null. Its position may be fraction-only, `{ fraction, at }` (a transitional `textstack-*` server locator, #1187). Ignored (a `warn`) unless the open that answered `opened` is still the latest one: not while another open of the page is under way. Takes its slot in the navigation queue when called: a `goTo` sent after it runs after it. |
-| `highlightSelection()` | The last non-empty selection becomes a highlight; sends `store` and `highlighted`. Ignored on a CBZ. A selection with no text (an image) or over 4000 UTF-16 units (`SyncLimits.MaxSelectedText`) is ignored with a `warn` log. |
-| `goTo(target, chosen = false)` | A position as stored (CFI + quote, CBZ page, or fraction-only `{ fraction, at }` with 0 the text start), a CFI, an href or a section index; an object that is no valid position is ignored with a `warn`. Queued behind the previous navigation; an open supersedes every queued or in-flight one. Not `chosen` (the host moving the view: a sync adopt or move): nothing is saved and no `store` is sent, the host already holds that position; a position target becomes the entry's own. `chosen` (the reader's own choice: a taken offer): the place it landed on is saved (one `store`), built exactly as a relocate's save. One that did not arrive changes nothing and logs a `warn`. |
+| `restore(json \| null)` | The answer to `opened`: the JSON last sent in `store` for that `book.sha256`, or null. Its position may be fraction-only, `{ fraction, at }` (a transitional `textstack-*` server locator, #1187), or a PDF page `{ page, index, fraction, at }`. Ignored (a `warn`) unless the open that answered `opened` is still the latest one: not while another open of the page is under way. Takes its slot in the navigation queue when called: a `goTo` sent after it runs after it. |
+| `highlightSelection()` | The last non-empty selection becomes a highlight; sends `store` and `highlighted`. Ignored on a CBZ and a PDF (`annotatable: false`). A selection with no text (an image) or over 4000 UTF-16 units (`SyncLimits.MaxSelectedText`) is ignored with a `warn` log. |
+| `goTo(target, chosen = false)` | A position as stored (CFI + quote, CBZ page, PDF page `{ page }`, or fraction-only `{ fraction, at }` with 0 the text start), a CFI, an href or a section index; an object that is no valid position, or a position that does not fit the book (a CFI or fraction on a PDF, a page number elsewhere), is ignored with a `warn`. Queued behind the previous navigation; an open supersedes every queued or in-flight one. Not `chosen` (the host moving the view: a sync adopt or move): nothing is saved and no `store` is sent, the host already holds that position; a position target becomes the entry's own. `chosen` (the reader's own choice: a taken offer): the place it landed on is saved (one `store`), built exactly as a relocate's save. One that did not arrive changes nothing and logs a `warn`. |
 | `section(±1)`, `next()`, `prev()` | Section / page step, queued. |
 | `font(delta)` | Font size ±px, clamped 12–32; returns the new size. No-op before `opened`. |
 | `flow('paginated' \| 'scrolled')` | foliate layout; default `paginated` (ADR-029 Decision 1). Switches the open book in place (no reload, position kept). Before `opened` it sets what the next open uses: hosts send the reader's stored setting right after `ready`. Anything else is ignored with a `warn`. |
-| `showTranslation(cfi, index, text)` | The answer to `word`: draws `text` above that word. Ignored on a CBZ. |
+| `showTranslation(cfi, index, text)` | The answer to `word`: draws `text` above that word. Ignored where `annotatable` is false (CBZ, PDF). |
 
 **Page → host** (`{ type, … }`)
 
 | `type` | Fields | Host does |
 |---|---|---|
 | `ready` | — | may call `openUrl` |
-| `opened` | `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`), `textual` (false: hide highlight, translation, vocabulary), `reflowable` (false: disable the flow toggle), `title`, `author` (either may be `''`), `sections`, `toc [{label, href}]` | calls `restore` with the stored JSON for `book.sha256` |
-| `open-failed` | `name`, `error` (shown as is: unreadable, unsupported format, PDF, DRM) | must not keep the file |
-| `restored` | `found`, `rejected`, `position` (`none` / `restored` / `restored by fraction` / `quote mismatch, stayed at start` / `page not found, stayed at start` (CBZ) / `navigation failed, stayed at start`), `highlights [{id, status}]` | — |
+| `opened` | `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`/`pdf`), `textual` (false: no word taps, hide translation and vocabulary), `annotatable` (false: hide highlight and the translation label; CBZ and PDF), `reflowable` (false: disable the flow toggle), `title`, `author` (either may be `''`), `sections`, `toc [{label, href}]` | calls `restore` with the stored JSON for `book.sha256` |
+| `open-failed` | `name`, `error` (shown as is: unreadable, unsupported format, DRM, password-protected PDF) | must not keep the file |
+| `restored` | `found`, `rejected`, `position` (`none` / `restored` / `restored by fraction` / `quote mismatch, stayed at start` / `page not found, stayed at start` (CBZ, PDF) / `wrong position kind, stayed at start` (a CFI or fraction on a PDF, a page number elsewhere) / `navigation failed, stayed at start`), `highlights [{id, status}]` | — |
 | `store` | `key` (= `book.sha256`), `json` | keeps `json` under `key`, verbatim |
 | `relocate` | `index`, `sections`, `fraction`, `toc`, `cfi` | progress UI |
-| `word` | `index`, `word`, `sentence`, `cfi`, `rect {x, y, w, h}` (host viewport) | translates, then `showTranslation` |
+| `word` | `index`, `word`, `sentence`, `cfi` (null where `annotatable` is false), `rect {x, y, w, h}` (host viewport) | translates, then `showTranslation` (not without a `cfi`) |
 | `tap` | — | a tap not on a word (chrome toggle) |
 | `highlighted` | `id` (v4 UUID), `cfi`, `quote` (first ≤64 code points), `selectedText` (the full selection) | — |
 | `openLink` | `href` | the page forwards only `http(s)` links and the host allowlists again before opening: a stated rule, not an accident. Any other scheme is dropped with a `warn` log (`mailto:`/`tel:` noted on #1069); the page never navigates |

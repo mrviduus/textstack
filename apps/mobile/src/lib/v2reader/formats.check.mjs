@@ -2,17 +2,20 @@
 // small book per format (fixtures.mjs writeFormatFixtures) and must answer as README "Formats" says:
 // each format reader runs only when its first book opens, CBZ has no text features and still saves and
 // restores its page, a fraction-only position (#1187) restores without saving, a synthetic KF8 (#1182) reads,
-// a DRM-flagged MOBI or KF8, a damaged KF8 and a PDF are refused, and flow() switches the live view and is
-// reported once per book in `telemetry`.
+// a DRM-flagged MOBI or KF8, a damaged KF8 and an unknown file are refused, and flow() switches the live view
+// and is reported once per book in `telemetry`. PDF (#1128 S5): opens through pdf.js on the page's main
+// thread, pages, selects, saves and resumes by `pdf-page`, a password-protected one fails leaving the open
+// book reading, and a hostile PDF neither runs script nor leaves the file.
 //
 //   node --experimental-strip-types formats.check.mjs      (pnpm -C apps/web check:v2-reader-formats)
 import { randomBytes } from 'node:crypto'
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { fb2, writeFormatFixtures } from './fixtures.mjs'
+import { fb2, hostilePdf, writeFormatFixtures } from './fixtures.mjs'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -27,13 +30,15 @@ const browser = await chromium.launch({ args: ['--allow-file-access-from-files']
 try {
   writeFormatFixtures(dir)
   for (const f of ['tssynthetic-kf8.azw3', 'tssynthetic-combo.mobi']) copyFileSync(resolve(here, 'synthetic', f), resolve(dir, f))
-  writeFileSync(resolve(dir, 'tsformat.pdf'), '%PDF-1.4\n%%EOF\n')
+  writeFileSync(resolve(dir, 'tsplain.txt'), 'plain text, no book')
   writeFileSync(resolve(dir, 'page.html'), v2ReaderPageHtml(randomBytes(18).toString('base64')))
   const page = await browser.newPage()
   const messages = []
   page.on('pageerror', (e) => check(false, `pageerror: ${e.message}`))
   await page.exposeFunction('__toHost', (json) => messages.push(JSON.parse(json)))
   await page.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
+  // Every CSP violation in any frame of the page, as `directive blockedURI`.
+  await page.addInitScript(() => addEventListener('securitypolicyviolation', (e) => (top.__violations ??= []).push(`${e.violatedDirective} ${e.blockedURI}`)))
   await page.goto(pathToFileURL(resolve(dir, 'page.html')).href)
 
   /** The first message from `from` on that matches. */
@@ -66,12 +71,170 @@ try {
   }
   const showsText = () => shown(() => document.body?.innerText.includes('Paragraph 1. Sphinx'))
 
+  /**
+   * PDF (#1128 S5): opens through pdf.js run on the page's main thread, under the unchanged CSP; pages;
+   * selects; saves `{ page }` (pdf-page, section index + 1) and resumes there; refuses the other position
+   * kinds; a password-protected PDF fails and the open book keeps reading; a hostile PDF neither runs
+   * script nor leaves the file. In a portrait view, as on a phone.
+   */
+  async function checkPdf() {
+    console.log('pdf')
+    await page.setViewportSize({ width: 420, height: 760 })
+    const violations = () => call('window.__violations ?? []')
+    const before = (await violations()).length
+    const settle = () => page.waitForTimeout(1200)
+    const storesFrom = (from) => messages.slice(from).filter((x) => x.type === 'store').map((x) => JSON.parse(x.json).position)
+    const t0 = Date.now()
+    let m = await open('tsformat.pdf')
+    check(m.type === 'opened' && m.format === 'pdf' && m.textual === true && m.annotatable === false && m.reflowable === false && m.sections === 5 && m.title === 'TS PDF',
+      `opened as pdf: 5 pages, fixed layout, textual, not annotatable (${m.format}, ${m.sections}, ${m.annotatable}, ${m.title}${m.error ? `, ${m.error}` : ''}) in ${Date.now() - t0} ms`)
+    check((await loaded()).split(',').includes('pdf'), 'the PDF reader ran on the first PDF')
+    const textLayer = (n) => shown(new Function(`return !!document.querySelector('.textLayer')?.textContent.includes('Page ${n}. Sphinx')`))
+    check(await textLayer(1), 'page 1 is drawn with a text layer')
+    /** The section frame on screen. */
+    const frame = async () => {
+      for (const f of page.frames().filter((f) => f.url().startsWith('blob:')))
+        if (await f.evaluate(() => getComputedStyle(frameElement.parentElement).display !== 'none' && !!document.querySelector('.textLayer span')).catch(() => false)) return f
+    }
+    // A selection in the text layer, as a long-press makes one.
+    const f1 = await frame()
+    const selected = await f1?.evaluate(() => { const s = getSelection(); s.selectAllChildren(document.querySelector('.textLayer')); return s.toString() })
+    check(/Sphinx of black quartz/.test(selected ?? ''), 'its text layer selects')
+    let from = messages.length
+    call('window.__fol.highlightSelection()')
+    await waitFor(from, (x) => x.type === 'log' && /no highlights on a PDF yet/.test(x.msg), 'pdf highlight refused')
+    check(!messages.slice(from).some((x) => x.type === 'store'), 'highlightSelection is refused on a PDF (no pdf-page anchor yet), nothing stored')
+    // A tap on a word: the word and its sentence, no CFI (nothing can be drawn at one on a PDF).
+    await f1?.evaluate(() => getSelection().removeAllRanges())
+    from = messages.length
+    const at = f1 && await f1.evaluate(() => {
+      const r = document.querySelector('.textLayer span').getBoundingClientRect()
+      const fr = frameElement.getBoundingClientRect()
+      return { x: fr.left + r.left + r.width * 0.3, y: fr.top + r.top + r.height / 2 }
+    })
+    if (at) await page.mouse.click(at.x, at.y)
+    const word = await waitFor(from, (x) => x.type === 'word' || x.type === 'tap', 'a word or tap').catch(() => null)
+    check(word?.type === 'word' && /\p{L}/u.test(word.word) && /Sphinx/.test(word.sentence) && word.cfi === null,
+      `a tap on the text layer answers a word with its sentence and no CFI (${word?.type} ${word?.word ?? ''} ${word?.cfi})`)
+    call(`window.__fol.showTranslation('epubcfi(/6/2!/4/2/1:0)', 0, 'x')`)
+    from = messages.length
+    call('window.__fol.next()')
+    let stored = await storeFrom(from, 'a store after a page turn')
+    const p = stored?.position
+    check(p?.page === 2 && p.index === 1 && !('cfi' in p) && !('quote' in p), `the page turn saved { page: 2 }, no CFI, no quote (${JSON.stringify(p)})`)
+    check(await textLayer(2), 'page 2 is drawn with a text layer')
+    for (const step of ['next', 'next', 'prev']) { call(`window.__fol.${step}()`); await page.waitForTimeout(400) }
+    await page.waitForTimeout(800)
+    stored = JSON.parse(messages.filter((x) => x.type === 'store').at(-1).json)
+    check(stored.position?.page === 3, `next, next, prev: page 3 saved (${JSON.stringify(stored.position)})`)
+    // A PDF that needs a password fails before the teardown: the PDF on screen keeps its page, turns and saves.
+    m = await open('tslocked.pdf')
+    check(m.type === 'open-failed' && /password-protected/.test(m.error), `a password-protected PDF fails to open: ${m.error}`)
+    from = messages.length
+    call('window.__fol.next()')
+    const afterLocked = await storeFrom(from, 'a store after a failed PDF open')
+    check(afterLocked?.position?.page === 4 && afterLocked.book.sha256 === stored.book.sha256, `and the PDF on screen turns and saves page 4 (${JSON.stringify(afterLocked?.position)})`)
+    m = await open('tsformat.pdf', JSON.stringify(stored))
+    check(m.restored.position === 'restored', `reopened, the saved page is restored (${m.restored.position})`)
+    check(!!(await waitFor(m.from, (x) => x.type === 'relocate' && x.index === 2, 'relocate to page 3').catch(() => null)), 'and the view shows page 3')
+    check(await textLayer(3), 'page 3 is drawn')
+    await page.waitForTimeout(600)
+    check(storesFrom(m.from).length === 0, 'the restore saved nothing')
+    const pdfBook = m.book
+    // Scheme fits the file: a CFI or a fraction is never applied to a PDF, a page number never to another format.
+    const pdfEntry = (position) => JSON.stringify({ v: 1, book: pdfBook, highlights: [], position })
+    m = await open('tsformat.pdf', pdfEntry({ cfi: 'epubcfi(/6/4)', quote: 'Page 2', index: 1, fraction: 0.4, at: 1 }))
+    check(m.restored.position === 'wrong position kind, stayed at start', `a CFI position on a PDF is not applied (${m.restored.position})`)
+    m = await open('tsformat.pdf', pdfEntry({ fraction: 0.8, at: 1 }))
+    check(m.restored.position === 'wrong position kind, stayed at start', `a fraction-only position on a PDF is not applied (${m.restored.position})`)
+    m = await open('tsformat.pdf', pdfEntry({ page: 9, index: 8, fraction: 1, at: 1 }))
+    check(m.restored.position === 'page not found, stayed at start', `a page past the end is not applied (${m.restored.position})`)
+    m = await open('tsformat.fb2')
+    m = await open('tsformat.fb2', JSON.stringify({ v: 1, book: m.book, highlights: [], position: { page: 2, index: 1, fraction: 0.5, at: 1 } }))
+    check(m.restored.position === 'wrong position kind, stayed at start', `a page number on an FB2 is not applied (${m.restored.position})`)
+    from = messages.length
+    call('window.__fol.goTo({ page: 2, index: 1, fraction: 0.5, at: 2 })')
+    await waitFor(from, (x) => x.type === 'log' && /wrong position kind/.test(x.msg), 'a page goTo on an FB2 ignored')
+    check(true, 'a host goTo { page } on an FB2 is ignored')
+    // A host goTo by page (a sync adopt): arrives, saves nothing; a CFI or fraction goTo is ignored.
+    m = await open('tsformat.pdf', JSON.stringify(stored))
+    await settle()
+    from = messages.length
+    call('window.__fol.goTo({ page: 5, index: 4, fraction: 1, at: 2 })')
+    check(!!(await waitFor(from, (x) => x.type === 'relocate' && x.index === 4, 'relocate to page 5').catch(() => null)), 'a host goTo { page: 5 } arrives')
+    await settle()
+    check(storesFrom(from).length === 0, 'and saves nothing')
+    for (const target of [{ cfi: 'epubcfi(/6/4)', quote: 'Page 2', index: 1, fraction: 0.4, at: 3 }, { fraction: 0.2, at: 3 }]) {
+      from = messages.length
+      call(`window.__fol.goTo(${JSON.stringify(target)})`)
+      await waitFor(from, (x) => x.type === 'log' && /wrong position kind/.test(x.msg), 'a wrong-kind goTo ignored')
+      await page.waitForTimeout(300)
+      check(!messages.slice(from).some((x) => x.type === 'relocate' || x.type === 'store'), `a host goTo ${Object.keys(target).join('+')} on a PDF is ignored: no move, no save`)
+    }
+    // The page holds the goTo's page as its own: the next save (a page turn back) is page 4, once.
+    from = messages.length
+    call('window.__fol.prev()')
+    const back = await storeFrom(from, 'a store after a turn following a host goTo')
+    check(back?.position?.page === 4, `the next page turn saves page 4 (${JSON.stringify(back?.position)})`)
+    // Chosen (a taken offer): the page it landed on is saved, once.
+    await settle()
+    from = messages.length
+    call('window.__fol.goTo({ page: 2, index: 1, fraction: 0.4, at: 4 }, true)')
+    const chosen = await storeFrom(from, 'a store after a chosen page goTo')
+    await settle()
+    check(chosen?.position?.page === 2 && storesFrom(from).length === 1, `a chosen goTo { page: 2 } saves page 2, once (${JSON.stringify(storesFrom(from))})`)
+    // A predefined cMap (CJK): the cMap chunk runs on first need, and the text draws and extracts.
+    check(!(await loaded()).split(',').includes('pdfcmaps'), 'no cMap chunk has run for a Latin PDF')
+    m = await open('tscjk.pdf')
+    check(m.type === 'opened' && m.format === 'pdf', `a CJK PDF on a predefined cMap opens (${m.type})`)
+    check(await shown(() => document.querySelector('.textLayer')?.textContent.includes('中文')), 'its text layer has the CJK text')
+    check((await loaded()).split(',').includes('pdfcmaps'), 'the cMap chunk ran for it')
+    const seen = (await violations()).slice(before)
+    check(seen.length === 0, `no CSP violation while reading a PDF (${seen.join('; ')})`)
+
+    console.log('pdf hostile')
+    const hits = []
+    const server = createServer((req, res) => { hits.push(req.url); res.end('') })
+    await new Promise((ok) => server.listen(0, '127.0.0.1', ok))
+    try {
+      const evil = `http://127.0.0.1:${server.address().port}`
+      writeFileSync(resolve(dir, 'tshostile.pdf'), hostilePdf(evil))
+      m = await open('tshostile.pdf')
+      check(m.type === 'opened' && m.format === 'pdf', `the hostile PDF opens (${m.type}${m.error ? `, ${m.error}` : ''})`)
+      check(await shown(() => document.querySelectorAll('.annotationLayer section').length > 0), 'its link annotations are drawn')
+      const f = await frame()
+      const links = await f?.evaluate(() => [...document.querySelectorAll('.annotationLayer section')].map((s) => {
+        const r = s.getBoundingClientRect()
+        const fr = frameElement.getBoundingClientRect()
+        return { x: fr.left + r.left + r.width / 2, y: fr.top + r.top + r.height / 2 }
+      })) ?? []
+      check(links.length === 5, `five link annotations drawn (${links.length})`)
+      from = messages.length
+      for (const l of links) { await page.mouse.click(l.x, l.y); await page.waitForTimeout(200) }
+      await page.waitForTimeout(1000)
+      const pwned = (await Promise.all(page.frames().map((fr) => fr.evaluate(() => !!window.__pwned).catch(() => false)))).some(Boolean)
+      check(!pwned, 'no PDF script ran (OpenAction, JavaScript link, javascript: URI)')
+      check(hits.length === 0, `nothing reached the logging server (${hits.join(', ')})`)
+      check(page.frames().every((fr) => /^(file:|blob:|about:blank)/.test(fr.url())), `no frame left the book (${page.frames().map((fr) => fr.url().slice(0, 30)).join(', ')})`)
+      const handed = messages.slice(from).filter((x) => x.type === 'openLink').map((x) => x.href)
+      // pdf.js turns a GoToR whose file is an http URL into that URL: a link like the URI one, handed to the
+      // host's allowlist like any http link in an EPUB. The Launch and script ones never.
+      check(handed.length === 2 && handed[0].startsWith(`${evil}/gotor.pdf`) && handed[1] === `${evil}/uri`,
+        `only the two http links are handed to the host, never followed (${handed.join(', ')})`)
+      const hostile = (await violations()).slice(before)
+      console.log(`  info  CSP violations reported while the hostile PDF was open: ${hostile.length ? hostile.join('; ') : 'none'}`)
+    } finally {
+      server.close()
+      await page.setViewportSize({ width: 1280, height: 720 })
+    }
+  }
+
   await waitFor(0, (m) => m.type === 'ready', 'ready')
   check(await loaded() === '', 'no format reader has run before a book opens')
 
   console.log('epub')
   let m = await open('tsformat.epub')
-  check(m.type === 'opened' && m.format === 'epub' && m.textual === true && m.title === 'TS EPUB', `opened as epub, textual (${m.format}, ${m.title})`)
+  check(m.type === 'opened' && m.format === 'epub' && m.textual === true && m.annotatable === true && m.title === 'TS EPUB', `opened as epub, textual, annotatable (${m.format}, ${m.title})`)
   check(await loaded() === '', 'an EPUB runs no format reader')
   call('window.__fol.flow("scrolled")')
   check(await call('document.querySelector("foliate-view").renderer.getAttribute("flow")') === 'scrolled', 'flow("scrolled") switches the live renderer')
@@ -103,7 +266,7 @@ try {
 
   console.log('cbz')
   m = await open('tsformat.cbz')
-  check(m.type === 'opened' && m.format === 'cbz' && m.textual === false && m.sections === 2, `opened as cbz, not textual, 2 pages (${m.format}, ${m.textual}, ${m.sections}${m.error ? `, ${m.error}` : ''})`)
+  check(m.type === 'opened' && m.format === 'cbz' && m.textual === false && m.annotatable === false && m.sections === 2, `opened as cbz, not textual nor annotatable, 2 pages (${m.format}, ${m.textual}, ${m.sections}${m.error ? `, ${m.error}` : ''})`)
   check(await loaded() === 'cbz,fb2,mobi', 'the CBZ reader ran on the first CBZ')
   check(await shown(() => document.querySelector('img')?.naturalWidth === 60), 'its first page image is rendered')
   let from = messages.length
@@ -188,8 +351,10 @@ try {
   m = await open('tsformat.fb2', byFraction({ fraction: 0.9, at: 1 }))
   await settle()
   const held = lastRelocate(m.from).cfi
-  // A refused open leaves the held book as it was: it still turns and saves.
-  check((await open('tsformat.pdf')).type === 'open-failed', 'a PDF picked over a fraction landing is refused')
+  // A refused open, or one that fails before the teardown (a PDF that needs a password, #1128 S5), leaves
+  // the held book as it was: it still turns and saves.
+  check((await open('tsplain.txt')).type === 'open-failed', 'a non-book picked over a fraction landing is refused')
+  check((await open('tslocked.pdf')).type === 'open-failed', 'a password-protected PDF picked over a fraction landing fails')
   from = messages.length
   call('window.__fol.next()')
   const afterRefusal = await storeFrom(from, 'a store after a refusal over a fraction landing')
@@ -327,7 +492,7 @@ try {
   const patched = (write) => { const b = Buffer.from(azw3); write(b); return b }
   writeFileSync(resolve(dir, 'tsdrm.azw3'), patched((b) => b.writeUInt16BE(2, r0 + 12)))
   writeFileSync(resolve(dir, 'tsdamaged.azw3'), patched((b) => b.writeUInt32BE(1, r0 + 252)))
-  for (const [file, error] of [['tsdrm.mobi', /DRM/], ['tsdrm.azw3', /DRM/], ['tsdamaged.azw3', /truncated or damaged/], ['tskf8.mobi', /truncated or damaged/], ['tsformat.pdf', /PDF is not supported yet/]]) {
+  for (const [file, error] of [['tsdrm.mobi', /DRM/], ['tsdrm.azw3', /DRM/], ['tsdamaged.azw3', /truncated or damaged/], ['tskf8.mobi', /truncated or damaged/], ['tsplain.txt', /not a book this reader opens/], ['tslocked.pdf', /password-protected/]]) {
     const r = await open(file)
     check(r.type === 'open-failed' && error.test(r.error), `${file} is refused: ${r.error}`)
   }
@@ -589,6 +754,8 @@ try {
   await settle()
   check(!messages.slice(from).some((x) => x.type === 'log' && /did not land/.test(x.msg)) && storesFrom(from).length === 1,
     `a taken goTo to the other page of the shown spread arrives and saves (${JSON.stringify(storesFrom(from))})`)
+
+  await checkPdf()
 
   // Every page error on this page, last so that every block above is covered. One benign message is let
   // through by its exact text: Chromium's ResizeObserver loop notice, from the resize above.

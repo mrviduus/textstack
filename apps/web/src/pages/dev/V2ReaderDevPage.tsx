@@ -84,8 +84,8 @@ export default function V2ReaderDevPage() {
   const [heading, setHeading] = useState('Pick a book')
   const [flow, setFlow] = useState<Flow>(() => (readItem(FLOW_KEY) === 'scrolled' ? 'scrolled' : 'paginated'))
   const flowRef = useRef(flow)
-  /** CBZ is images only: no highlight (the page refuses it too). */
-  const [textual, setTextual] = useState(true)
+  /** `opened.annotatable`: false on a CBZ (images only) and a PDF (no highlights yet): no highlight button (the page refuses it too). */
+  const [annotatable, setAnnotatable] = useState(true)
   /** False for a fixed-layout book (CBZ): flow changes nothing there. */
   const [reflowable, setReflowable] = useState(true)
   const [status, setStatus] = useState('')
@@ -132,7 +132,7 @@ export default function V2ReaderDevPage() {
           const current = answered(m.book?.name)
           if (!current) return
           call('restore', [readItem(storeKey(m.book.sha256))])
-          setTextual(m.textual !== false)
+          setAnnotatable(m.annotatable !== false)
           setReflowable(m.reflowable !== false)
           setHeading([m.title || current.originalName, m.author].filter(Boolean).join(' — '))
           const { lib } = addOpened(readLibrary(), { ...m.book, title: m.title, author: m.author, originalName: current.originalName })
@@ -161,7 +161,8 @@ export default function V2ReaderDevPage() {
           return
         case 'word':
           // Dev stub: no translation service here; the label proves the word → showTranslation round trip.
-          call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
+          // No CFI (a book that is not `annotatable`, e.g. a PDF): no label can be drawn, none is asked for.
+          if (m.cfi) call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
           return
         case 'openLink':
           if (/^https?:\/\//i.test(m.href)) window.open(m.href, '_blank', 'noopener,noreferrer')
@@ -189,10 +190,10 @@ export default function V2ReaderDevPage() {
   return (
     <main style={{ display: 'flex', flexDirection: 'column', height: '100vh', padding: 8, boxSizing: 'border-box', gap: 4 }}>
       <div style={{ display: 'flex', gap: 8 }}>
-        <input type="file" accept=".epub,.mobi,.azw3,.azw,.fb2,.fbz,.cbz,application/epub+zip" onChange={pick} aria-label="Pick EPUB" />
+        <input type="file" accept=".epub,.mobi,.azw3,.azw,.fb2,.fbz,.cbz,.pdf,application/epub+zip,application/pdf" onChange={pick} aria-label="Pick EPUB" />
         <button onClick={() => call('prev')}>‹ Prev</button>
         <button onClick={() => call('next')}>Next ›</button>
-        {textual && <button onClick={() => call('highlightSelection')}>Highlight</button>}
+        {annotatable && <button onClick={() => call('highlightSelection')}>Highlight</button>}
         <button onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? 'Scrolled' : 'Paginated'}</button>
       </div>
       <strong data-testid="v2-heading">{heading}</strong>

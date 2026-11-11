@@ -11,12 +11,11 @@ const FB2_WINDOW = 4096
 
 /**
  * The container: `zip` (EPUB, CBZ, FBZ — told apart by `zipFormat`), `mobi` (MOBI6, KF8/AZW3, or the KF8
- * half of a MOBI/KF8 combo), `fb2`; throws, with the message the host shows (`open-failed`), for what this page does not read or refuses. Cheap and
+ * half of a MOBI/KF8 combo), `pdf`, `fb2`; throws, with the message the host shows (`open-failed`), for what this page does not read or refuses. Cheap and
  * pure: the page calls it before it touches the open book, so a refusal leaves that book as it was.
  */
 export function sniffFormat(bytes) {
   if (bytes.length >= 4 && u32(bytes, 0) === 0x504b0304) return 'zip'
-  if (ascii(bytes, 0, 5) === '%PDF-') throw new Error('PDF is not supported yet')
   // KFX: Amazon's newer format, DRM-wrapped as a rule ("\xeaDRMION\xee"); foliate has no reader for it.
   if (ascii(bytes, 0, 8) === '\xeaDRMION\xee') throw new Error('this Kindle book is DRM-protected (KFX) and cannot be opened')
   if (ascii(bytes, 60, 68) === 'BOOKMOBI') {
@@ -30,6 +29,9 @@ export function sniffFormat(bytes) {
     if (kf8 && !(isIndx(bytes, kf8.base + kf8.skel) && isIndx(bytes, kf8.base + kf8.frag))) throw new Error('this Kindle file is truncated or damaged')
     return 'mobi'
   }
+  // pdf.js, like other PDF readers, takes the header anywhere in the first KiB (junk before it is common).
+  // Checked after MOBI: a PDB's name (its first 32 bytes) may say anything.
+  if (ascii(bytes, 0, 1024).includes('%PDF-')) return 'pdf'
   // The last candidate: anything that is not an FB2 is refused there as "not a book".
   checkFb2(bytes)
   return 'fb2'
@@ -44,7 +46,7 @@ export function checkFb2(bytes) {
   // The first FB2_WINDOW bytes as text, NULs dropped so UTF-16 (either order) reads like ASCII.
   const head = ascii(bytes, 0, FB2_WINDOW).replace(/\0/g, '')
   const root = head.search(/<FictionBook[\s>]/)
-  if (root < 0) throw new Error('not a book this reader opens (EPUB, MOBI, FB2, CBZ)')
+  if (root < 0) throw new Error('not a book this reader opens (EPUB, MOBI, FB2, CBZ, PDF)')
   if (/<!ENTITY/i.test(head.slice(0, root))) throw new Error('unsupported FB2: custom entities')
 }
 

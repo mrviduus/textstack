@@ -253,7 +253,7 @@ function V2Reader() {
 
   const pick = async () => {
     try {
-      // Any file: the page tells the format by its bytes (EPUB, MOBI/AZW3, FB2, CBZ) and refuses the rest.
+      // Any file: the page tells the format by its bytes (EPUB, MOBI/AZW3, FB2, CBZ, PDF) and refuses the rest.
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true })
       if (result.canceled) return
       const asset = result.assets[0]
@@ -338,7 +338,8 @@ function V2Reader() {
         setProgress.current(`${Math.round((m.fraction ?? 0) * 100)}% · section ${(m.index ?? 0) + 1}/${m.sections ?? '?'}${m.toc ? ` · ${m.toc}` : ''}`)
         return
       case 'word':
-        // Translation is not this slice: the tap reaches the host and stops here.
+        // Translation is not this slice: the tap reaches the host and stops here. This host offers no
+        // highlight or translation yet, so `opened.annotatable` (false: CBZ, PDF) has nothing to hide here.
         console.log('[v2] word', m.word)
         return
       case 'openLink':

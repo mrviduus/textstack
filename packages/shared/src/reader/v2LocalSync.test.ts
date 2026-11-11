@@ -47,9 +47,69 @@ describe('v2LocalSync', () => {
     expect(positionWrite({ cfi: CFI, page: 'p1.jpg', index: 0, fraction: 0, at: 1 }, 'f', null)).toBeNull()
   })
 
-  it('statePosition_RoundTripsAPositionWrite_PdfPageNull', () => {
+  it('statePosition_RoundTripsAPositionWrite_MalformedPdfPageNull', () => {
     expect(statePosition(state())).toMatchObject({ cfi: CFI, quote: pos.quote, index: 6, fraction: 0.41 })
-    expect(statePosition(state({ currentLocator: { version: 1, scheme: 'pdf-page', value: 3 } }))).toBeNull()
+    // pdf-page's value is `{"page":N}`, N a 1-based int (ADR-031): any other shape is no position, on a PDF too.
+    for (const value of [3, { page: 0 }, { page: 1.5 }, { page: '3' }, null, {}])
+      for (const format of [null, 'pdf'])
+        expect(statePosition(state({ currentLocator: { version: 1, scheme: 'pdf-page', value } as V2ReadingState['currentLocator'] }), format), `${JSON.stringify(value)} ${format}`).toBeNull()
+  })
+
+  // #1128 S5: a PDF position is the page number, `pdf-page` on the wire, and nothing else.
+  const pdfPos = { page: 12, index: 11, fraction: 0.3, at: Date.parse('2026-11-10T10:00:00Z') }
+  const pdfState = (page: unknown = 7) => state({ currentLocator: { version: 1, scheme: 'pdf-page', value: { page } } as V2ReadingState['currentLocator'], bookFraction: 0.5 })
+
+  it('positionWrite_PdfPageOnAPdf_PdfPageLocator', () => {
+    expect(positionWrite(pdfPos, 'f', 2, Date.parse('2026-11-10T12:00:00Z'), 'pdf')).toEqual({
+      expectedRevision: 2, fileId: 'f', bookFraction: 0.3, clientRecordedAt: '2026-11-10T10:00:00.000Z',
+      currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 12 } },
+    })
+  })
+
+  it('positionWrite_SchemeFitsTheFile_NeverPdfPageOffAPdf_NeverEpubCfiOnOne', () => {
+    for (const format of ['epub', 'mobi', 'fb2', 'cbz', null]) expect(positionWrite(pdfPos, 'f', 2, Date.now(), format), String(format)).toBeNull()
+    expect(positionWrite(pos, 'f', 2, Date.now(), 'pdf')).toBeNull()
+    // The quoted position still writes epub-cfi on every other format, and with no format (the default).
+    for (const format of ['epub', 'mobi', null]) expect(positionWrite(pos, 'f', 2, Date.now(), format)?.currentLocator.scheme, String(format)).toBe('epub-cfi')
+  })
+
+  it('positionWrite_NotAPdfPageOnAPdf_Null', () => {
+    // A CBZ page (entry name beside a CFI), a page number beside a CFI or a quote, page 0, a fraction alone.
+    for (const p of [
+      { cfi: CFI, page: 'p1.jpg', index: 0, fraction: 0, at: 1 }, { cfi: CFI, page: 3, fraction: 0, at: 1 },
+      { quote: 'q', page: 3, fraction: 0, at: 1 }, { page: 0, fraction: 0, at: 1 }, { page: 2.5, fraction: 0, at: 1 }, { fraction: 0.5, at: 1 },
+    ]) expect(positionWrite(p, 'f', null, Date.now(), 'pdf'), JSON.stringify(p)).toBeNull()
+  })
+
+  it('statePosition_PdfPage_PageWithIndexPageMinusOne_RoundTripsAWrite', () => {
+    const w = positionWrite({ page: 7, index: 6, fraction: 0.5, at: 1 }, 'f', null, Date.now(), 'pdf')!
+    const at = Date.parse('2026-11-10T11:00:00.000Z')
+    for (const format of ['pdf', null]) {
+      expect(statePosition(state({ currentLocator: w.currentLocator, bookFraction: w.bookFraction }), format)).toEqual({ page: 7, index: 6, fraction: 0.5, at })
+    }
+  })
+
+  it('statePosition_SchemeFitsTheFile_PdfPageOffAPdfNull_NothingButPdfPageOnAPdf', () => {
+    for (const format of ['epub', 'mobi', 'cbz']) expect(statePosition(pdfState(), format), format).toBeNull()
+    // On a PDF: no CFI, and no fraction fallback (#1187's allowlist is not for a PDF).
+    expect(statePosition(state(), 'pdf')).toBeNull()
+    expect(statePosition(state({ currentLocator: { version: 1, scheme: 'epub-cfi', value: CFI } }), 'pdf')).toBeNull()
+    for (const scheme of ['textstack-position-v1', 'textstack-anchor-v1'] as const) {
+      const s = state({ currentLocator: { version: 1, scheme, value: { chapterSlug: 'x' } }, bookFraction: 0.7 })
+      expect(statePosition(s, 'pdf'), scheme).toBeNull()
+      expect(statePosition(s, 'epub'), scheme).toEqual({ fraction: 0.7, at: Date.parse('2026-11-10T11:00:00.000Z') })
+    }
+  })
+
+  it('decideServerState_PdfPage_ByPageIndex_FractionOnAPdfKept', () => {
+    const reader = { restoreApplied: true, moved: false, index: 6 }
+    const local = { page: 7, index: 6, fraction: 0.4, at: Date.parse('2026-11-10T09:00:00Z') }
+    const now = Date.parse('2026-11-10T12:00:00Z')
+    expect(decideServerState({ local, localFileId: 'f', server: pdfState(7), reader, format: 'pdf', now })).toBe('move')
+    expect(decideServerState({ local, localFileId: 'f', server: pdfState(9), reader, format: 'pdf', now })).toBe('prompt')
+    expect(decideServerState({ local, localFileId: 'f', server: pdfState(9), reader: null, format: 'pdf', now })).toBe('adopt')
+    const transitional = state({ currentLocator: { version: 1, scheme: 'textstack-position-v1', value: { chapterSlug: 'x' } }, bookFraction: 0.7 })
+    expect(decideServerState({ local, localFileId: 'f', server: transitional, reader: null, format: 'pdf', now })).toBe('keep')
   })
 
   it('statePosition_TransitionalScheme_FractionOnlyPosition', () => {

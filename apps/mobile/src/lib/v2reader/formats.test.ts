@@ -46,8 +46,11 @@ describe('sniffFormat', () => {
     expect(() => sniffFormat(b)).toThrow(/not a book this reader opens/)
   })
 
-  it('pdf_RefusedForNow', () => {
-    expect(() => sniffFormat(bytes('%PDF-1.7\n'))).toThrow(/PDF is not supported yet/)
+  it('pdf_ByHeaderInTheFirstKiB', () => {
+    // #1128 S5: read by pdf.js; junk before the header is common, past the first KiB it is no PDF.
+    expect(sniffFormat(bytes('%PDF-1.7\n'))).toBe('pdf')
+    expect(sniffFormat(bytes(`${' '.repeat(1019)}%PDF-1.4\n`))).toBe('pdf')
+    expect(() => sniffFormat(bytes(`${' '.repeat(1020)}%PDF-1.4\n`))).toThrow(/not a book this reader opens/)
   })
 
   it('unknownOrEmpty_Refused', () => {

@@ -1,14 +1,14 @@
 // Builds the V2 reader page (ADR-029): pinned foliate-js fork + page.mjs → one IIFE inlined into an
-// HTML string under the book-sandbox CSP → v2ReaderPage.generated.ts (committed). The MOBI, FB2 and
-// CBZ readers are IIFEs of their own, carried as strings and run only when a book of that format opens
-// (README, Formats).
+// HTML string under the book-sandbox CSP → v2ReaderPage.generated.ts (committed). The MOBI, FB2, CBZ
+// and PDF readers (and pdf.js's cMaps) are IIFEs of their own, carried as strings and run only when a
+// book of that format opens (README, Formats).
 //
 //   node build.mjs           write v2ReaderPage.generated.ts   (pnpm -C apps/web build:v2-reader)
 //   node build.mjs --check   exit 1 if the committed file differs or the page outgrew its budget (CI)
 //   node build.mjs --repro   also write .vendor/v2ReaderPage.repro.html: the page + repro.mjs (test only)
 import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -50,12 +50,19 @@ const FOLIATE_SHA = 'b3386ef90b806dc3667941d9c26db12cce98b064'
 // half) for DRM and SKEL/FRAG indexes before teardown, combos no longer forced to MOBI6 (withoutKf8 gone);
 // view.js forwards the relocate reason (+15), the page's capture listener for it is gone.
 // +43 (#1182 guard commit): paginator setStyles' frame callback returns once destroy() nulled the view.
-const BUDGET = 250288
+// +2534 (#1128 S5): PDF routed to the pdf reader with its cMap reader, `pdf-page` positions (page =
+// section index + 1) built, restored and gone to, the scheme-fits-the-file guard on restore and goTo,
+// `annotatable` (PDF highlight/translation refused, no CFI in its word taps), the book made before the
+// open one is torn down (a failed make leaves it reading and gives the seq back).
+const BUDGET = 252822
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
 // mobi +264 (#1182 pin bump): typed KF8 resource blobs, KF8 section markup through transformTarget.
-const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030 }
+// pdf (#1128 S5) = fork pdf.js + pdf.js v5.5.207 (pdf.mjs + pdf.worker.mjs, run on the page's main thread)
+// + its two layer stylesheets, the one MINIFIED reader (keepNames; 1614390 without them, 3180221 unminified): the measured
+// size. pdfcmaps (#1128 S5) = pdf.js's 168 predefined cMaps as base64, run only when a PDF names one.
+const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 1706720, pdfcmaps: 1559883 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'v2ReaderPage.generated.ts')
@@ -90,7 +97,7 @@ if (minor(version) !== minor(wanted)) {
 
 // view.js's makeBook lazily imports every format. The page never calls it (page.mjs routes a file
 // itself), so its imports are stubbed out of the page: MOBI/FB2/CBZ come in as FORMATS below, and
-// pdf.js (~1 MB), TTS and search not at all.
+// PDF too (its own reader below, with pdf.js), TTS and search not at all.
 const stubFormats = {
   name: 'stub-formats',
   setup(b) {
@@ -109,9 +116,25 @@ window.__tsFormats.mobi = { MOBI, unzlibSync }`,
 window.__tsFormats.fb2 = { makeFB2 }`,
   cbz: `import { makeComicBook } from './.vendor/foliate-js/comic-book.js'
 window.__tsFormats.cbz = { makeComicBook }`,
+  // The worker first: it sets globalThis.pdfjsWorker, so pdf.js runs it on the main thread ("fake worker")
+  // and never asks for a Worker or import()s a URL (no worker-src, no blob: script in the CSP). pdf.js's
+  // Apache-2.0 notice opens with @licstart, which esbuild does not keep when minifying: restated as a /*! */.
+  pdf: `/*! ${readFileSync(resolve(vendor, 'vendor/pdfjs/pdf.mjs'), 'utf8').match(/^\/\*\*([\s\S]*?)\*\//)[1].replace(/\*\//g, '* /')} */
+import './.vendor/foliate-js/vendor/pdfjs/pdf.worker.mjs'
+import { makePDF } from './.vendor/foliate-js/pdf.js'
+import text from './.vendor/foliate-js/vendor/pdfjs/text_layer_builder.css'
+import annotation from './.vendor/foliate-js/vendor/pdfjs/annotation_layer_builder.css'
+window.__tsFormats.pdf = { makePDF, css: text + '\\n' + annotation }`,
+  // pdf.js's predefined cMaps (Adobe, BSD-3-Clause), base64 by name: nothing outside the file is fetched,
+  // so they ride in the page like a reader, run only when a PDF's font names one (CJK text).
+  pdfcmaps: `/*! ${readFileSync(resolve(vendor, 'vendor/pdfjs/cmaps/LICENSE'), 'utf8').replace(/\*\//g, '* /')} */
+window.__tsFormats.pdfcmaps = ${JSON.stringify(Object.fromEntries(readdirSync(resolve(vendor, 'vendor/pdfjs/cmaps')).filter((f) => f.endsWith('.bcmap')).sort()
+    .map((f) => [f.slice(0, -'.bcmap'.length), readFileSync(resolve(vendor, 'vendor/pdfjs/cmaps', f)).toString('base64')])))}`,
 }
+/** Minified (the only one): pdf.js is half its size so. keepNames: pdf.js reads `constructor.name`. */
+const MINIFIED = new Set(['pdf'])
 
-const bundle = async (entry) => (await build({
+const bundle = async (entry, minify = false) => (await build({
   ...(entry.endsWith('.mjs') ? { entryPoints: [resolve(here, entry)] } : { stdin: { contents: entry, resolveDir: here, sourcefile: 'format.mjs' } }),
   // Fixed, because esbuild writes source paths into the bundle relative to it: the output must not
   // depend on where the script was run from.
@@ -122,16 +145,21 @@ const bundle = async (entry) => (await build({
   // What this costs on old Android WebViews is an open ADR-029 gate.
   target: ['chrome90'],
   write: false,
-  minify: false,
+  minify,
+  keepNames: minify,
   legalComments: 'inline',
   // The page stubs the format modules out; a format reader is exactly one of them.
   plugins: entry.endsWith('.mjs') ? [stubFormats] : [],
+  // The PDF reader carries pdf.js's layer stylesheets as strings.
+  loader: { '.css': 'text' },
+  // pdf.js reads import.meta.url only on paths the page never takes (a Worker by URL, Node, wasm decoders).
+  logOverride: { 'empty-import-meta': 'silent' },
 })).outputFiles[0].text
 
 // The HTML shell, its CSP and nonce placeholder, and the format-reader carrier: carrier.mjs.
 
 const js = await bundle('page.mjs')
-const chunks = Object.fromEntries(await Promise.all(Object.entries(FORMATS).map(async ([k, src]) => [k, await bundle(src)])))
+const chunks = Object.fromEntries(await Promise.all(Object.entries(FORMATS).map(async ([k, src]) => [k, await bundle(src, MINIFIED.has(k))])))
 const page = formatsJs(chunks) + js
 const sizes = Object.entries(chunks).map(([k, v]) => `${k} ${v.length}`).join(', ')
 const content = `// AUTO-GENERATED — do not edit.
@@ -140,7 +168,7 @@ const content = `// AUTO-GENERATED — do not edit.
 //
 // foliate-js fork ${FOLIATE_SHA} (mrviduus/foliate-js, branch textstack-pin:
 // upstream 78914aef + our paginator commit d73682a + six #1182 commits, see build.mjs;
-// MIT © John Factotum; bundled zip.js BSD-3-Clause).
+// MIT © John Factotum; bundled zip.js BSD-3-Clause; pdf.js Apache-2.0, its cMaps BSD-3-Clause).
 
 /* eslint-disable */
 /* prettier-ignore */

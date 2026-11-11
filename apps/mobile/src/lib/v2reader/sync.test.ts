@@ -686,6 +686,103 @@ describe('V2 local library sync (R6)', () => {
     })
   })
 
+  describe('PDF positions: pdf-page, never a CFI (#1128 S5)', () => {
+    const page = (n: number, at = NOW - 60_000) => ({ page: n, index: n - 1, fraction: n / 10, at })
+    const pdfState = (bookId: string, fileId: string, revision: number, n: number, at: number) =>
+      serverState(bookId, fileId, revision, { currentLocator: { version: 1, scheme: 'pdf-page', value: { page: n } }, bookFraction: n / 10, clientRecordedAt: new Date(at).toISOString() })
+    /** A local PDF with a page position, pushed once: the server knows it, its state at revision 1. */
+    async function syncedPdf() {
+      const lib = createLocalLibrary(memoryDb())
+      const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.pdf', format: 'pdf' }, newId)
+      await lib.writeEntry(SHA, entry(page(3), []), newId)
+      const fileId = (await lib.book(bookId))!.file_id!
+      const calls = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId, {}, { format: 'pdf', originalName: 'b.pdf' }), 201)],
+        [`PUT /books/${bookId}/reading-state`]: [ok(pdfState(bookId, fileId, 1, 3, NOW - 60_000))],
+      })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      return { lib, bookId, fileId, calls }
+    }
+
+    it('push_LocalPdfMove_PdfPagePushedWithThePageAlone', async () => {
+      const { lib, bookId, fileId, calls } = await syncedPdf()
+      expect(calls.find((c) => c.path.endsWith('/reading-state'))?.body).toEqual({
+        expectedRevision: null, fileId, bookFraction: 0.3, clientRecordedAt: new Date(NOW - 60_000).toISOString(),
+        currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 3 } },
+      })
+      await lib.writeEntry(SHA, entry(page(5, NOW - 1000), []), newId)
+      const next = fakeApi({ [`PUT /books/${bookId}/reading-state`]: [ok(pdfState(bookId, fileId, 2, 5, NOW - 1000))] })
+      await syncV2Library(lib, host())
+      expect(next.find((c) => c.method === 'PUT')?.body).toMatchObject({ expectedRevision: 1, currentLocator: { scheme: 'pdf-page', value: { page: 5 } } })
+      expect(await lib.state(bookId)).toMatchObject({ revision: 2 })
+      expect(await lib.outbox()).toEqual([])
+    })
+
+    it('push_CfiPositionOnAPdf_NeverPushed_Dropped', async () => {
+      const { lib } = await syncedPdf()
+      // The page never builds one for a PDF; a stored one (another shape, a bug) must still never reach the server.
+      await lib.writeEntry(SHA, entry({ ...pos, at: NOW - 1000 }), newId)
+      const calls = fakeApi({})
+      await syncV2Library(lib, host())
+      expect(writes(calls).filter((w) => w.endsWith('/reading-state'))).toEqual([])
+      expect((await lib.outbox()).filter((o) => o.kind === 'state')).toEqual([])
+    })
+
+    it('pull_PdfPageState_StoredAndRestoredAsThePage', async () => {
+      const { lib, bookId, fileId } = await syncedPdf()
+      fakeApi({ 'GET /reading/changes': feed(pdfState(bookId, fileId, 3, 9, NOW - 1000)) })
+      const h = host()
+      await syncV2Library(lib, h)
+      expect((await restoredEntry(lib)).position).toEqual({ page: 9, index: 8, fraction: 0.9, at: NOW - 1000 })
+      expect(await lib.state(bookId)).toMatchObject({ revision: 3 })
+      expect(h.owed).toEqual([expect.objectContaining({ bookId, action: 'adopt', position: { page: 9, index: 8, fraction: 0.9, at: NOW - 1000 } })])
+    })
+
+    it('pull_PdfPageOnTheOpenPage_MovedSilently_OtherPage_Prompted', async () => {
+      const { lib, bookId, fileId } = await syncedPdf()
+      fakeApi({ 'GET /reading/changes': feed(pdfState(bookId, fileId, 3, 3, NOW - 1000)) })
+      const same = host({ reader: () => ({ restoreApplied: true, moved: false, index: 2 }) })
+      await syncV2Library(lib, same)
+      expect(same.owed.map((o) => o.action)).toEqual(['move'])
+      fakeApi({ 'GET /reading/changes': feed(pdfState(bookId, fileId, 4, 8, NOW - 500)) })
+      const other = host({ reader: () => ({ restoreApplied: true, moved: false, index: 2 }) })
+      await syncV2Library(lib, other)
+      expect(other.owed.map((o) => o.action)).toEqual(['prompt'])
+    })
+
+    it('pull_TransitionalStateOnAPdf_NoFractionFallback_PageKept', async () => {
+      const { lib, bookId, fileId } = await syncedPdf()
+      const transitional = serverState(bookId, fileId, 3, { currentLocator: { version: 1, scheme: 'textstack-position-v1', value: { chapterSlug: 'x', chapterFraction: 0.5 } }, bookFraction: 0.7, clientRecordedAt: new Date(NOW - 1000).toISOString() })
+      fakeApi({ 'GET /reading/changes': feed(transitional) })
+      const h = host()
+      await syncV2Library(lib, h)
+      expect((await restoredEntry(lib)).position).toEqual(page(3))
+      expect(await lib.state(bookId)).toMatchObject({ revision: 3 })
+      expect(h.owed).toEqual([])
+    })
+
+    it('pull_PdfOnlyOnTheServer_PageStateKept_TransitionalOneNot', async () => {
+      const sid = 'aaaaaaaa-0000-4000-8000-000000000001'
+      const sfid = 'aaaaaaaa-0000-4000-8000-000000000002'
+      const io = { fetch: vi.fn(async () => 'staging/dl.pdf'), retain: vi.fn(async () => {}) }
+      for (const [state, expected] of [
+        [pdfState(sid, sfid, 3, 4, NOW - 1000), { page: 4, index: 3, fraction: 0.4, at: NOW - 1000 }],
+        [serverState(sid, sfid, 3, { currentLocator: { version: 1, scheme: 'textstack-position-v1', value: { chapterSlug: 'x', chapterFraction: 0.5 } }, bookFraction: 0.7 }), null],
+      ] as const) {
+        resetV2ForTests()
+        const lib = createLocalLibrary(memoryDb())
+        fakeApi({
+          'GET /library/changes': feed(serverBook(sid, sfid, {}, { hasContent: true, format: 'pdf', originalName: 'b.pdf' })),
+          'GET /reading/changes': feed(state),
+        })
+        await syncV2Library(lib, host())
+        expect(await downloadV2Book(lib, sid, io)).toBe(true)
+        expect((await restoredEntry(lib)).position, state.currentLocator.scheme).toEqual(expected)
+      }
+    })
+  })
+
   describe('sign-out mid-sync (the shared whileCurrent epoch guard, #1151/#1155)', () => {
     it('signOutDuringImport_NothingOfThatAnswerLands', async () => {
       const { lib, bookId, fileId } = await seeded()
