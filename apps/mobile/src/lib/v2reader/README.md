@@ -396,7 +396,7 @@ lands. Each `store` is diffed against what the server is known to hold (`entryCh
 version) and written with the expected revisions. No position is written before the reading state has been
 read (a failed read is retried on the next `store`; a late read adopts the server's place when it is provably
 newer, ADR-019 "nothing restored"). Conflicts: own write = success; `stale_revision`/`reset` written once more
-on their revision (this tab wins, owner 2026-11-11; the ask UI is #TBD-prompt); an annotation re-applied once,
+on their revision (this tab wins, owner 2026-11-11; the ask UI is #1232); an annotation re-applied once,
 then the server's kept and the page's form not sent again until it changes; a tombstone wins; `id_conflict`
 re-keyed once. Terminal: `file_replaced`/`unknown_file`/`book_not_found` stop the session's writes ("reopen"
 line); `invalid_payload`/`chapter_not_found`/400/422 drop that write until it changes. Online-first, no outbox:

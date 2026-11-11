@@ -188,7 +188,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
         return true
       }
       // ADR-019 rule 5 on a lost write: a position is written only after the reader moved, where the rule asks the
-      // reader. Owner decision 2026-11-11: on web THIS TAB WINS for now (no ask UI; #TBD-prompt): ours is written
+      // reader. Owner decision 2026-11-11: on web THIS TAB WINS for now (no ask UI; #1232): ours is written
       // again on their revision. `reset`: the frontier is gone, our position stays (PDD). Lost twice: the next
       // `store` or flush writes on the revision last seen.
       if (err?.code === 'stale_revision' || err?.code === 'reset') {
