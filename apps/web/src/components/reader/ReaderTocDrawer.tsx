@@ -135,7 +135,7 @@ export function ReaderTocDrawer({
 
         {activeTab === 'contents' && (
           <ul className="reader-toc-drawer__list">
-            {chapters.map((ch) => (
+            {chapters.map((ch, i) => (
               <li key={ch.id}>
                 <ChapterLink
                   to={`${getChapterUrl(ch.identifier)}?direct=1`}
@@ -148,7 +148,8 @@ export function ReaderTocDrawer({
                     onClose()
                   }}
                 >
-                  <span className="reader-toc-drawer__number">{ch.chapterNumber + 1}</span>
+                  {/* The place in the list: chapterNumber is an ordering key (starts at 0, 1 or 2), never shown. */}
+                  <span className="reader-toc-drawer__number">{i + 1}</span>
                   <span className="reader-toc-drawer__title">{ch.title}</span>
                 </ChapterLink>
               </li>

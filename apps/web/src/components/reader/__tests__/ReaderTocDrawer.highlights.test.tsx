@@ -133,3 +133,17 @@ describe('ReaderTocDrawer — Highlights tab', () => {
     expect(onClose).toHaveBeenCalled()
   })
 })
+
+describe('ReaderTocDrawer — Contents numbering', () => {
+  // chapterNumber is an ordering key (editions start at 0, uploads at 1 or 2): the list shows the place.
+  it.each([[0], [1], [2]])('contents_ChapterNumbersFrom%i_ShowOneTwo', (first) => {
+    const { container } = renderDrawer({
+      chapters: [
+        { id: 'a', identifier: 'a', chapterNumber: first, title: 'Alpha' },
+        { id: 'b', identifier: 'b', chapterNumber: first + 1, title: 'Beta' },
+      ] as React.ComponentProps<typeof ReaderTocDrawer>['chapters'],
+    })
+    const numbers = [...container.querySelectorAll('.reader-toc-drawer__number')].map((n) => n.textContent)
+    expect(numbers).toEqual(['1', '2'])
+  })
+})

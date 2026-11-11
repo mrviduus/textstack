@@ -418,7 +418,7 @@ jobs:
       - name: Install Playwright system deps (best-effort)
         if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
         continue-on-error: true
-        timeout-minutes: 3
+        timeout-minutes: 1
         run: pnpm -C apps/web exec playwright install-deps chromium
 
       # ADR-029 Decision 6: the V2 reader page's CSP holds against the hostile EPUB, MOBI and FB2, and
@@ -869,8 +869,9 @@ jobs:
         id: pw-deps
         continue-on-error: true
         # apt retries an unresolvable mirror for ~10 min (2026-11-11), which alone pushed `frontend`
-        # past its 15-min job limit. A healthy run takes well under a minute.
-        timeout-minutes: 3
+        # past its 15-min job limit. A healthy run takes under 25 s; at 3 min the cap itself cost
+        # every run 193 s while the mirror stayed slow.
+        timeout-minutes: 1
         run: pnpm -C apps/web exec playwright install-deps chromium
 
       - name: Flag skipped Playwright system deps
