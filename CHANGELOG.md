@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Docs** — wave 12 close: STATUS, recommended answers in the R8 audit, wave-13 prompt — docs
 - **Infra** — flaky `RollingSpendTrackerTests.Alert_ConcurrentCrossing_ExactlyOneEmail` (failed a deploy run: 0 emails after 2 s under the parallel suite) waits up to 10 s for the fire-and-forget alert — backend
 - **Infra** — CI: Playwright system deps are best-effort (an apt/DNS outage no longer reds `e2e`/`frontend` by itself); the `e2e` job builds the web app once instead of per Playwright run — infra
 - **Reader** — R7: `pdf-page` positions tested through the Android host path (pull → download → open → push) and the V2 API (round trip on a PDF, refused on an EPUB); no code change needed (part of #1039) — mobile, backend
