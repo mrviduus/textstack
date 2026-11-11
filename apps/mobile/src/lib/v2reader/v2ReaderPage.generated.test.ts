@@ -77,17 +77,22 @@ describe('v2ReaderPageHtml', () => {
     expect(mobi).toMatch(/const detail = \{ data: replaced, type: this\.#type \};\s*this\.transformTarget\.dispatchEvent\(new CustomEvent\("data", \{ detail \}\)\);\s*const data = await detail\.data;\s*if \(data !== replaced\) doc = /)
   })
 
-  it('bundle_OpenCancelsPendingSaves_AndNoHighlightBeforeRestored', () => {
+  it('bundle_OpenFlushesPendingSaves_AndNoHighlightBeforeRestored', () => {
     const html = v2ReaderPageHtml(NONCE)
     // The call sites of the two data-loss guards; the scheduler itself is unit-tested.
-    // #1128 S5: the book is made before the open one is torn down, and pending saves are cancelled there.
-    expect(html).toMatch(/const made = await makeBookFor\(bytes, name, kind\);\s*if \(mine !== openSeq\) \{[\s\S]{0,160}?return false;\s*\}\s*saves\.cancel\(\);\s*endSession\(\);\s*book = \{ sha256/)
+    // #1128 S5: the book is made before the swap; a superseded or empty one is destroyed and never swapped
+    // in; at the swap the book on screen's pending save is flushed under its own key, then the new one is assigned.
+    expect(html).toMatch(/const made = await makeBookFor\(bytes, name, kind\);\s*const empty = [^;]*;\s*if \(mine !== openSeq \|\| empty\) destroy\(made\.book\);\s*if \(mine !== openSeq\) return false;\s*if \(empty\) throw [^;]*;\s*saves\.flush\(\);\s*endSession\(\);\s*book = \{ sha256/)
+    // The replaced book is destroyed (view.close() leaves it alive).
+    expect(html).toMatch(/view\.close\(\);\s*\} catch \(\w+\) \{[\s\S]{0,200}?\}\s*destroy\(view == null \? void 0 : view\.book\);/)
+    expect(html).not.toContain('saves.cancel')
     // #1128: the format is sniffed (and a refusal answered) BEFORE the seq turns over, so a refused
     // file leaves the open book reading and saving, like a failed read (#1168).
     expect(html).toMatch(/function openFor\(bytes, name\) \{\s*let kind;\s*try \{\s*kind = sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*const mine = \+\+openSeq;\s*return open\(bytes, name, kind, mine\)/)
     expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,300}?if \(!entry\) return log\("warn"/)
-    // A make that failed before the teardown gives the seq back: the book on screen reports and saves again.
-    expect(html).toMatch(/if \(mine !== openSeq\) return;\s*openFailed\(name, [^;]*;\s*if \(viewSeq !== mine\) openSeq = viewSeq;/)
+    // The open seq only goes up: a failed open answers `open-failed` and hands nothing back.
+    expect(html).toMatch(/if \(mine === openSeq\) openFailed\(name, [^;]*;\s*\}\);/)
+    expect(html).not.toMatch(/(?<!var )openSeq = /)
     expect(html.indexOf('const made = await makeBookFor(')).toBeLessThan(html.indexOf('view == null ? void 0 : view.close()'))
   })
 
@@ -95,13 +100,14 @@ describe('v2ReaderPageHtml', () => {
     const html = v2ReaderPageHtml(NONCE)
     // A view that never rendered throws from close(); the next open must still work.
     expect(html).toMatch(/try \{\s*view == null \? void 0 : view\.close\(\);\s*\} catch/)
-    // A superseded book's events are dropped: each view's listeners carry the open seq that made
-    // them, and openFor turns the seq over before the dying view's close() fires relocate (#1168).
-    expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+ \}\) => \{\s*(var [^;]*;\s*)?if \(mine !== openSeq\) return;\s*post\(\{\s*type: "relocate"/)
-    expect(html).toMatch(/view\.addEventListener\("create-overlay", [\s\S]{0,80}?if \(mine !== openSeq\) return;/)
-    // A superseded open must not re-key the current book's saves: the seq check precedes the assignment.
-    // (#1128: the previous book's telemetry session ends there too, before the new book is assigned.)
-    expect(html).toMatch(/return false;\s*\}\s*saves\.cancel\(\);\s*endSession\(\);\s*book = \{ sha256/)
+    // A replaced view's events are dropped: each view's listeners carry the seq of the open that made them
+    // and compare it with the view on screen, which turns over at the swap, before the dying view's close()
+    // fires relocate (#1168). A newer open still being made does not silence the view on screen (#1128 S5).
+    expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+ \}\) => \{\s*(var [^;]*;\s*)?if \(mine !== viewSeq\) return;\s*post\(\{\s*type: "relocate"/)
+    expect(html).toMatch(/view\.addEventListener\("create-overlay", [\s\S]{0,80}?if \(mine !== viewSeq\) return;/)
+    expect(html).toMatch(/endSession\(\);\s*book = \{ sha256[^}]*\};\s*entry = null;\s*hostMoving = true;\s*lastCfi = null;\s*viewSeq = mine;\s*navigating = Promise\.resolve\(\);/)
+    // A restore is for the view on screen that answered `opened`, whatever is being made meanwhile.
+    expect(html).toMatch(/if \(!book \|\| readySeq !== viewSeq\) return log\("warn", "restore ignored/)
     // The host-move guard is cleared however restore ends, or the page saves nothing for the rest of the session.
     expect(html).toMatch(/\} finally \{[\s\S]{0,200}?hostMoving = false;/)
     // The renderer exists only after view.open() resolved.
@@ -157,7 +163,8 @@ describe('v2ReaderPageHtml', () => {
     // A PDF position is a page, never a CFI; a position of the other kind is refused on restore and goTo.
     expect(html).toMatch(/var fits = \((\w+)\) => format === "pdf" === isPdfPage\(\1\);/)
     expect(html).toMatch(/if \((\w+) && !fits\(\1\)\) \{\s*result\.position = "wrong position kind, stayed at start";/)
-    expect(html).toMatch(/if \(isPosition\(target\) && !fits\(target\)\) return log\("warn"/)
+    // goTo: a wrong-kind position, and a raw CFI string on a PDF.
+    expect(html).toMatch(/if \(isPosition\(target\) \? !fits\(target\) : format === "pdf" && String\(target\)\.startsWith\("epubcfi\("\)\) return log\("warn"/)
   })
 
   it('bundle_SyncPrereqs_UuidIdsCodePointQuotesSelectedText', () => {

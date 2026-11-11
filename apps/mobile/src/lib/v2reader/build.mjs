@@ -54,7 +54,10 @@ const FOLIATE_SHA = 'b3386ef90b806dc3667941d9c26db12cce98b064'
 // section index + 1) built, restored and gone to, the scheme-fits-the-file guard on restore and goTo,
 // `annotatable` (PDF highlight/translation refused, no CFI in its word taps), the book made before the
 // open one is torn down (a failed make leaves it reading and gives the seq back).
-const BUDGET = 252822
+// +1035 (#1128 S5 fix round): open lifecycle — listeners, restore and `restored` bound to the view on screen
+// (`viewSeq`), the open seq only goes up (no give-back), replaced/superseded/empty builds and failed PDF loads
+// destroyed, the pending save flushed at the swap, zero-section books refused, a raw CFI goTo refused on a PDF.
+const BUDGET = 253857
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

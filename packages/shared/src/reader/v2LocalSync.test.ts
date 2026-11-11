@@ -129,10 +129,11 @@ describe('v2LocalSync', () => {
     expect(positionWrite({ cfi: CFI, page: 3, index: 2, fraction: 0, at: 1 }, 'f', null, Date.now(), 'epub')).toBeNull()
   })
 
-  // QA #1128 S5 (contract gap, unreachable from the page): the server reads `page` with TryGetInt32
-  // (SyncValidation.IsPage), the client accepts any safe integer, so a page past 2^31-1 is pushed and refused.
-  it.fails('positionWrite_PageBeyondInt32_NotWritten', () => {
+  // QA #1128 S5 (fixed): the server reads `page` with TryGetInt32 (SyncValidation.IsPage): past 2^31-1 is no page.
+  it('positionWrite_PageBeyondInt32_NotWritten', () => {
     expect(positionWrite({ page: 2 ** 31, index: 2 ** 31 - 1, fraction: 1, at: 1 }, 'f', null, Date.now(), 'pdf')).toBeNull()
+    expect(positionWrite({ page: 2 ** 31 - 1, fraction: 1, at: 1 }, 'f', null, Date.now(), 'pdf')?.currentLocator.value).toEqual({ page: 2 ** 31 - 1 })
+    expect(statePosition(pdfState(2 ** 31), 'pdf')).toBeNull()
   })
 
   it('statePosition_TransitionalScheme_FractionOnlyPosition', () => {

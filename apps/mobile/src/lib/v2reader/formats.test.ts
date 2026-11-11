@@ -63,12 +63,15 @@ describe('sniffFormat', () => {
     expect(() => sniffFormat(bytes(Buffer.concat([Buffer.from([0xea]), Buffer.from('DRMION'), Buffer.from([0xee]), Buffer.from('%PDF-1.4')])))).toThrow(/DRM-protected \(KFX\)/)
   })
 
-  // QA #1128 S5 (bug): an FB2 is the last candidate, after the PDF substring search, so a valid FB2 whose
-  // first KiB quotes `%PDF-` (a book about file formats, a <binary> name) goes to pdf.js and fails to open.
-  it.fails('fb2QuotingThePdfMarkerInItsFirstKiB_StillFb2', () => {
+  // QA #1128 S5 (fixed): markup is never a PDF, whatever its first KiB quotes; junk before a real header still is.
+  it('fb2QuotingThePdfMarkerInItsFirstKiB_StillFb2', () => {
     const book = fb2('About %PDF-1.4 headers', '<section><p>p</p></section>')
     expect(book.indexOf('%PDF-')).toBeLessThan(1024)
     expect(sniffFormat(bytes(book))).toBe('fb2')
+    expect(sniffFormat(bytes(`﻿  ${book}`))).toBe('fb2')
+    expect(() => sniffFormat(bytes('<html><body>%PDF-1.4</body></html>'))).toThrow(/not a book this reader opens/)
+    expect(sniffFormat(bytes(`${'\x41'.repeat(900)}%PDF-1.4\n`))).toBe('pdf')
+    expect(sniffFormat(bytes(`\n\n%PDF-1.7\n`))).toBe('pdf')
   })
 
   it('unknownOrEmpty_Refused', () => {

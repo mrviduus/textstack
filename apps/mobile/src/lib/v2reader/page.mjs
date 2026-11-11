@@ -54,12 +54,15 @@ let hostMoving = false
  */
 let lastCfi = null
 let lastSelection = null
-/** The open that is allowed to finish: a second openUrl makes the first one give up silently. */
+/**
+ * The latest open attempt (#1128 S5). Only ever goes up, and answers one question only: may this build
+ * swap in? A build that is not the latest when it is made is destroyed and never shown.
+ */
 let openSeq = 0
 /**
- * The open whose view (and navigation chain) is in use. Set in `open` where they turn over, not when
- * `openSeq` does (before the new book is hashed, while the old view still shows): a call stamped with
- * it never runs on a view it was not made for. While `openSeq !== viewSeq` a newer open is on its way.
+ * The open whose view is on screen. Turns over exactly at the swap (`open`), never earlier: while a newer
+ * book is hashed or made, the book on screen keeps reporting, saving, navigating and answering its restore.
+ * Every listener and queued call is stamped with it and does nothing on a view it was not made for.
  */
 let viewSeq = 0
 /** The view that finished opening (`opened` posted): a restore is for that view only. */
@@ -254,7 +257,16 @@ async function makeBookFor(bytes, name, kind) {
     // 'wasm-unsafe-eval'), nothing fetched: cMaps come from the page's own chunk (PdfCMaps), standard-font
     // data not at all (system fonts).
     const { makePDF, css } = formatModule('pdf')
-    const book = await makePDF(new File([bytes], name), { css, params: { useWasm: false, CMapReaderFactory: PdfCMaps } }).catch((e) => {
+    // makePDF calls pdf.js's getDocument before its first await and keeps no loading task: the page takes
+    // it there (globalThis.pdfjsLib is a plain object), so a load that fails can be destroyed (#1128 S5).
+    const lib = globalThis.pdfjsLib
+    const getDocument = lib.getDocument
+    let task = null
+    lib.getDocument = (params) => (task = getDocument.call(lib, params))
+    let made
+    try { made = makePDF(new File([bytes], name), { css, params: { useWasm: false, CMapReaderFactory: PdfCMaps } }) } finally { lib.getDocument = getDocument }
+    const book = await made.catch((e) => {
+      task?.destroy()
       throw e?.name === 'PasswordException' ? new Error('this PDF is password-protected and cannot be opened') : e
     })
     // One page per screen, never foliate's two-page spreads: within a spread a page step or goTo shows the
@@ -314,6 +326,11 @@ class PdfCMaps {
   }
 }
 
+/** A book no view will show again: its own `destroy` (a pdf.js document, blob: URLs). Never throws. */
+function destroy(b) {
+  try { b?.destroy?.() } catch (e) { log('warn', `destroying a book: ${e?.message ?? e}`) }
+}
+
 /** Removes a book's `<meta http-equiv="refresh">` from `doc` (it navigates the section frame away; CSP does not cover it). */
 function dropRefresh(doc) {
   const refresh = [...doc.querySelectorAll('meta[http-equiv]')].filter((m) => /refresh/i.test(m.getAttribute('http-equiv')))
@@ -345,12 +362,14 @@ async function open(bytes, name, kind, mine) {
   // Made before the open book is touched: a file its reader cannot make a book of (a password-protected
   // or broken PDF, a damaged index) fails here, and the book on screen keeps reading and saving (openFor).
   const made = await makeBookFor(bytes, name, kind)
-  if (mine !== openSeq) {
-    try { made.book.destroy?.() } catch { /* a superseded book: nothing to keep */ }
-    return false
-  }
-  // Nothing of the previous book may land on this one; its entry is gone with the next lines.
-  saves.cancel()
+  // Superseded while it was made, or nothing to show: destroyed, never swapped in (a pdf.js document
+  // holds the whole file).
+  const empty = !made.book.sections?.length
+  if (mine !== openSeq || empty) destroy(made.book)
+  if (mine !== openSeq) return false
+  if (empty) throw new Error(kind === 'pdf' ? 'this PDF has no pages' : 'this book has no sections')
+  // The swap. The book on screen's last turn (a save still debounced) is written under its own key first.
+  saves.flush()
   endSession()
   book = { sha256, size: bytes.length, name }
   entry = null
@@ -362,15 +381,18 @@ async function open(bytes, name, kind, mine) {
   // A view that never rendered a section (a spine of linear="no", a book that failed to open) throws
   // from close(); letting that through would wedge the page and fail this good book instead.
   try { view?.close() } catch (e) { log('warn', `closing the previous book: ${e?.message ?? e}`) }
+  // view.close() leaves the book alive: destroyed here, or each replaced PDF keeps its document.
+  destroy(view?.book)
   view?.remove()
   overlays.clear()
   view = document.createElement('foliate-view')
   document.body.append(view)
   view.addEventListener('load', onLoad)
   view.addEventListener('relocate', ({ detail: d }) => {
-    // Each view's listeners carry the seq of the open that made them: once a newer open has taken
-    // over, a dying view's events — close() still fires relocate — are dropped, not posted (#1168).
-    if (mine !== openSeq) return
+    // Each view's listeners carry the seq of the open that made them: once another view is on screen, a
+    // dying view's events — close() still fires relocate — are dropped, not posted (#1168). A newer open
+    // still being made does not silence this one.
+    if (mine !== viewSeq) return
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
     const moved = d.reason !== 'anchor' && d.cfi !== lastCfi
     lastCfi = d.cfi
@@ -380,7 +402,7 @@ async function open(bytes, name, kind, mine) {
     persist(400)
   })
   view.addEventListener('create-overlay', ({ detail: { index } }) => {
-    if (mine !== openSeq) return
+    if (mine !== viewSeq) return
     for (const a of overlays.values()) if (a.index === index) view.addAnnotation(a)
   })
   view.addEventListener('draw-annotation', ({ detail: { draw, annotation: a, range } }) => {
@@ -447,9 +469,9 @@ async function textAt(cfi) {
  * the saved quote; otherwise that item is reported and left out, never drawn somewhere else.
  */
 function restore(json) {
-  // Only for the view that answered `opened` and is still the latest open: not a view still opening
-  // (a restore meant for an earlier `opened` of the same file), not one a newer openUrl is replacing.
-  if (!book || readySeq !== viewSeq || openSeq !== viewSeq) return log('warn', 'restore ignored: no book is ready for it')
+  // Only for the view on screen that answered `opened`: not a view still opening (a restore meant for an
+  // earlier `opened` of the same file). A newer open still being made does not refuse it.
+  if (!book || readySeq !== viewSeq) return log('warn', 'restore ignored: no book is ready for it')
   const mine = viewSeq
   // One slot of the navigation chain, taken when called: a host goTo made meanwhile runs after it and wins.
   return navigate(async () => {
@@ -515,9 +537,8 @@ async function restoreInto(json, stale) {
       result.position = arrivedAt(index) ? 'restored' : 'navigation failed, stayed at start'
     }
   }
-  // A newer openUrl is on its way (its bytes still hashing): the host is waiting for that book's
-  // `restored`, so this answer, for the view still showing, goes to nobody.
-  if (openSeq === viewSeq) post({ type: 'restored', ...result })
+  // For the view still on screen only (`stale` turns at the swap).
+  if (!stale()) post({ type: 'restored', ...result })
   return result
 }
 
@@ -566,11 +587,8 @@ function openFor(bytes, name) {
   const mine = ++openSeq
   return open(bytes, name, kind, mine).catch((e) => {
     log('error', `open: ${e?.stack ?? e}`)
-    if (mine !== openSeq) return
-    openFailed(name, String(e?.message ?? e).slice(0, 200))
-    // Failed before the teardown (no book could be made of the file): the book on screen is still the
-    // open one, and takes the seq back, so its view reports and saves again (as after a refusal, #1168).
-    if (viewSeq !== mine) openSeq = viewSeq
+    // Failed before the swap: the book on screen never stopped reading (its view is still `viewSeq`).
+    if (mine === openSeq) openFailed(name, String(e?.message ?? e).slice(0, 200))
   })
 }
 
@@ -600,7 +618,7 @@ window.__fol = {
   goTo: (target, chosen = false) => navigate(async () => {
     if (!view?.book) return
     if (target && typeof target === 'object' && !isPosition(target)) return log('warn', 'goTo ignored: not a position')
-    if (isPosition(target) && !fits(target)) return log('warn', 'goTo ignored: wrong position kind for this book')
+    if (isPosition(target) ? !fits(target) : format === 'pdf' && String(target).startsWith('epubcfi(')) return log('warn', 'goTo ignored: wrong position kind for this book')
     const mine = viewSeq
     hostMoving = true
     let arrived = false

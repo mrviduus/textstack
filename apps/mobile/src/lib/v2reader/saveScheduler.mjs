@@ -3,16 +3,22 @@
 //
 // What the key and the payload are is decided when `save` is called, never when the timer fires: a
 // timer that read the page's current book would address the save of book A to book B and overwrite
-// B's stored data with A's (or, mid-open, with `null`). Opening a book cancels what is still pending.
+// B's stored data with A's (or, mid-open, with `null`). Replacing a book flushes what is still pending:
+// A's last turn is written under A's key at once, before B is on screen (#1128 S5).
 export function createSaveScheduler(post) {
   let timer = 0
+  let pending = null
   return {
     save(key, json, delay = 0) {
       clearTimeout(timer)
-      timer = setTimeout(() => post({ type: 'store', key, json }), delay)
+      pending = { type: 'store', key, json }
+      timer = setTimeout(() => { const m = pending; pending = null; post(m) }, delay)
     },
-    cancel() {
+    flush() {
       clearTimeout(timer)
+      const m = pending
+      pending = null
+      if (m) post(m)
     },
   }
 }

@@ -164,12 +164,12 @@ try {
     check(!!(await waitFor(from, (x) => x.type === 'relocate' && x.index === 4, 'relocate to page 5').catch(() => null)), 'a host goTo { page: 5 } arrives')
     await settle()
     check(storesFrom(from).length === 0, 'and saves nothing')
-    for (const target of [{ cfi: 'epubcfi(/6/4)', quote: 'Page 2', index: 1, fraction: 0.4, at: 3 }, { fraction: 0.2, at: 3 }]) {
+    for (const target of [{ cfi: 'epubcfi(/6/4)', quote: 'Page 2', index: 1, fraction: 0.4, at: 3 }, { fraction: 0.2, at: 3 }, 'epubcfi(/6/6!/4/2/1:0)']) {
       from = messages.length
       call(`window.__fol.goTo(${JSON.stringify(target)})`)
       await waitFor(from, (x) => x.type === 'log' && /wrong position kind/.test(x.msg), 'a wrong-kind goTo ignored')
       await page.waitForTimeout(300)
-      check(!messages.slice(from).some((x) => x.type === 'relocate' || x.type === 'store'), `a host goTo ${Object.keys(target).join('+')} on a PDF is ignored: no move, no save`)
+      check(!messages.slice(from).some((x) => x.type === 'relocate' || x.type === 'store'), `a host goTo ${typeof target === 'string' ? 'raw CFI' : Object.keys(target).join('+')} on a PDF is ignored: no move, no save`)
     }
     // The page holds the goTo's page as its own: the next save (a page turn back) is page 4, once.
     from = messages.length
@@ -310,7 +310,15 @@ try {
     // PDF opened and left keeps its file's bytes (measured: +21 MB backing store per 20 MB PDF, none with destroy()).
     await run('window.__destroyed = 0')
     await openQa('tsformat.fb2')
-    known(await run('window.__destroyed') === 0, 'a PDF replaced by the next book is never destroyed (pdf.js document leaks)')
+    check(await run('window.__destroyed') === 1, `a PDF replaced by the next book is destroyed once (${await run('window.__destroyed')})`)
+    // A PDF load that fails (a password) destroys its pdf.js loading task: the page takes it from getDocument.
+    await run(`(() => {
+      const lib = globalThis.pdfjsLib, get = lib.getDocument
+      window.__tasksDestroyed = 0
+      lib.getDocument = (p) => { const t = get.call(lib, p), d = t.destroy.bind(t); t.destroy = () => { window.__tasksDestroyed++; return d() }; return t }
+    })()`)
+    m = await openQa('tslocked.pdf')
+    check(m.type === 'open-failed' && await run('window.__tasksDestroyed') === 1, `a PDF that fails to load destroys its loading task (${m.type}, ${await run('window.__tasksDestroyed')})`)
 
     // I4: a pending save of A (debounced 400 ms) survives B's failed open, under A's key.
     let a = await openQa('tsformat.fb2')
@@ -331,7 +339,9 @@ try {
     await send('tsformat.epub')
     await until(from, (x) => x.type === 'opened', 'B opened')
     await settle()
-    known(!storesQa(from).some((s) => s.key === a.book.sha256), "A's turn made under 400 ms before B opens is lost (saves.cancel at teardown)")
+    const flushed = storesQa(from)
+    check(flushed.length === 1 && flushed[0].key === a.book.sha256 && JSON.parse(flushed[0].json).book.sha256 === a.book.sha256,
+      `A's turn made under 400 ms before B opens is flushed under A's key at the swap, once, never under B's (${flushed.map((s) => s.key === a.book.sha256)})`)
 
     // I3: A turned while B is being made, B then fails: the turn is neither reported nor saved (A's listener
     // reads openSeq, already B's), and the place A shows is not saved until the reader moves again.
@@ -356,8 +366,8 @@ try {
     await settle()
     const shown = await run(`document.querySelector('foliate-view').lastLocation?.cfi`)
     check(shown !== shownPlace, 'A turned while B was made')
-    known(!storesQa(from).some((s) => JSON.parse(s.json).position?.cfi === shown) && !msgs.slice(during).some((x) => x.type === 'relocate'),
-      'a turn on A while B is made is neither reported (relocate) nor saved, and stays unsaved after B fails')
+    check(storesQa(from).some((s) => s.key === a.book.sha256 && JSON.parse(s.json).position?.cfi === shown) && msgs.slice(during).some((x) => x.type === 'relocate'),
+      'a turn on A while B is made is reported (relocate) and saved under A\'s key')
     from = msgs.length
     await run('window.__fol.next(); 0')
     const later = await until(from, (x) => x.type === 'store', 'a store on A after B failed').catch(() => null)
@@ -377,10 +387,22 @@ try {
     await run('window.__release(); 0')
     await settle()
     const answered = msgs.slice(from).filter((x) => x.type === 'opened').map((x) => x.book.name)
-    known(answered.join() === 'tsformat.epub,tsformat.pdf' && await run(`document.querySelector('foliate-view').book.sections.length`) === 5,
-      `a superseded open whose seq was handed back and reused opens over the newest book (${answered})`)
+    check(answered.join() === 'tsformat.epub' && await run(`document.querySelector('foliate-view').book.sections.length`) !== 5 && await views() === 1,
+      `a superseded open never opens over the newest book, after a failed open in between (${answered})`)
 
-    // Superseded while made (no give-back in between): destroyed, never opened; one view.
+    // While B is made, A is the book on screen: its restore is answered (S5 fix round).
+    await openQa('tsformat.fb2')
+    await run('window.__holdNext = true; window.__held = false')
+    from = msgs.length
+    await send('tsformat.pdf')
+    await flag('window.__held')
+    await run('window.__fol.restore(null); 0')
+    const answeredA = await until(from, (x) => x.type === 'restored', 'A restored while B is made').catch(() => null)
+    check(answeredA?.position === 'none', `a restore for A while B is made is answered (${JSON.stringify(answeredA)})`)
+    await run('window.__release(); 0')
+    await until(from, (x) => x.type === 'opened' && x.book.name === 'tsformat.pdf', 'B opened after A restored')
+
+    // Superseded while made: destroyed, never opened; one view.
     await openQa('tsformat.fb2')
     await run('window.__holdNext = true; window.__held = false; window.__destroyed = 0')
     from = msgs.length
@@ -424,7 +446,11 @@ try {
     }
     writeFileSync(resolve(dir, 'tszero.pdf'), Buffer.from(pdf(1).toString('latin1').replace('/Count 1', '/Count 0').replace(/\/Kids \[[^\]]*\]/, '/Kids []'), 'latin1'))
     m = await openQa('tszero.pdf')
-    known(m.type === 'opened' && m.sections === 0, `a PDF with no page is opened as an empty book, replacing the one on screen (${m.type}, ${m.sections})`)
+    from = msgs.length
+    run('window.__fol.next()')
+    const afterZero = await until(from, (x) => x.type === 'store', 'the book on screen saves after a zero-page PDF').catch(() => null)
+    check(m.type === 'open-failed' && /this PDF has no pages/.test(m.error) && afterZero?.key === a.book.sha256,
+      `a PDF with no page is refused before the swap; the book on screen still saves (${m.type}, ${m.error ?? m.sections})`)
 
     // A Named action (Print, NextPage…), like ResetForm and an attachment link, throws in pdf.js's annotation
     // layer (foliate's linkService has no getAnchorUrl): the page's whole annotation layer is lost, uncaught.
@@ -857,6 +883,8 @@ try {
   // hashing, and the previous view still shows. A `next` queued on that view and a `restore` for it, made
   // in the window, never run on or answer for the next book. Deterministic: the previous view's goTo is
   // held, and the next book's file read is released by the check, in the same turn as the two calls.
+  // (#1128 S5: the restore is now accepted for the view on screen, and queued behind its held goTo; the
+  // swap drops that chain, so it never runs. That an unheld one IS answered: checkOpenOrder.)
   console.log('stale-call window')
   m = await open('tsformat.fb2')
   const previousBook = m.book
@@ -878,7 +906,7 @@ try {
   from = messages.length
   await call(`window.__fol.openUrl(${JSON.stringify(pathToFileURL(resolve(dir, 'tsformat.epub')).href)}, 'tsformat.epub')`)
   for (const t0 = Date.now(); !(await call('!!window.__loadNext')) && Date.now() - t0 < TIMEOUT_MS;) await page.waitForTimeout(20)
-  // restore(null) needs no navigation: it would answer while the next book still hashes, were it allowed to.
+  // Both calls queue on the previous view's (held) chain, which the swap drops.
   await call(`window.__loadNext(); window.__fol.next(); window.__fol.restore(null); window.__fol.restore(${JSON.stringify(entryOf(previousBook, { fraction: 0.9, at: 1 }))}); 0`)
   const nextBook = await waitFor(from, (x) => x.type === 'opened', 'the next book opened after the window')
   const afterOpened = messages.length

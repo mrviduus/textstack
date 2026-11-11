@@ -15,12 +15,22 @@ describe('v2 reader save scheduler', () => {
     const b = { sha256: 'b'.repeat(64), entry: null }   // B's entry before its own `restored`
 
     saves.save(a.sha256, JSON.stringify(a.entry), 400)
-    saves.cancel()                                      // open(B) cancels what A left pending
+    saves.flush()                                       // open(B) writes what A left pending, under A's key
     vi.advanceTimersByTime(1000)
 
     expect(sent.filter((m) => m.key === b.sha256)).toEqual([])
     expect(sent.map((m) => m.json)).not.toContain(JSON.stringify(b.entry))   // never "null"
-    expect(sent).toEqual([])                                                 // and nothing before B's `restored`
+    expect(sent).toEqual([{ type: 'store', key: a.sha256, json: JSON.stringify(a.entry) }])   // once, A's turn kept
+  })
+
+  it('flush_NothingPending_SendsNothing_AndAFiredSaveIsNotSentTwice', () => {
+    const sent: Store[] = []
+    const saves = createSaveScheduler((m: Store) => sent.push(m))
+    saves.flush()
+    saves.save('a'.repeat(64), '{}', 400)
+    vi.advanceTimersByTime(400)
+    saves.flush()
+    expect(sent).toHaveLength(1)
   })
 
   it('save_KeyAndPayloadReadWhenCalled_NotWhenTheTimerFires', () => {

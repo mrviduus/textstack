@@ -30,8 +30,11 @@ export function sniffFormat(bytes) {
     return 'mobi'
   }
   // pdf.js, like other PDF readers, takes the header anywhere in the first KiB (junk before it is common).
-  // Checked after MOBI: a PDB's name (its first 32 bytes) may say anything.
-  if (ascii(bytes, 0, 1024).includes('%PDF-')) return 'pdf'
+  // A substring search, so it runs after every format told by its own magic (zip, KFX, a PDB whose name may
+  // say anything) and never on markup: a file that starts with `<` (after a BOM, whitespace or UTF-16 NULs)
+  // is an FB2 or nothing, whatever it quotes.
+  const head = ascii(bytes, 0, 1024)
+  if (!/^[\s\0\xef\xbb\xbf\xfe\xff]*</.test(head) && head.includes('%PDF-')) return 'pdf'
   // The last candidate: anything that is not an FB2 is refused there as "not a book".
   checkFb2(bytes)
   return 'fb2'

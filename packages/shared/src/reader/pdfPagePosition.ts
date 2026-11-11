@@ -11,7 +11,10 @@ export interface PdfPagePosition {
   at?: number
 }
 
+/** The largest page the server takes: it reads `page` as an Int32 (`SyncValidation.IsPage`). */
+export const MAX_PDF_PAGE = 2 ** 31 - 1
+
 export function isPdfPage(x: unknown): x is PdfPagePosition {
   const p = x as { page?: unknown; cfi?: unknown; quote?: unknown } | null
-  return Number.isInteger(p?.page) && (p!.page as number) >= 1 && p!.cfi === undefined && p!.quote === undefined
+  return Number.isInteger(p?.page) && (p!.page as number) >= 1 && (p!.page as number) <= MAX_PDF_PAGE && p!.cfi === undefined && p!.quote === undefined
 }
