@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Reader** — R7: `pdf-page` positions tested through the Android host path (pull → download → open → push) and the V2 API (round trip on a PDF, refused on an EPUB); no code change needed (part of #1039) — mobile, backend
 - **Mobile** — a V2 store reset (account switch, guest → account) never lets a library listing delete downloads: a dropped pull is a retryable 503, the orphan sweep and the library screen re-list (#1191) — mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-11-mobile-v2-store-reset-never-deletes-downloads)
 - **Docs** — R8 parity audit: legacy web/mobile readers vs the V2 page, proposed R8 DoD, owner questions, 6 waves to R8 (#1040) — docs · [audit](docs/01-architecture/r8-parity-audit.md)
 - **Reader** — the V2 reader page reads PDF on its dev hosts: pdf.js from the pinned fork as two lazy chunks under the unchanged CSP, `pdf-page` positions end to end, a book is built before the open one is torn down, replaced books are destroyed and a pending save is flushed at the swap; desktop half of the ADR-032 gate run on 55 real uploads, device half owed — the ADR-012 viewer stays (part of #1128) — mobile, web · [details](docs/changelog-archive/2026-H2.md#2026-11-11-reader-v2-page-reads-pdf-dev-hosts)
