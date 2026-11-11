@@ -18,6 +18,11 @@ export const READY_DEADLINE_NETWORK_MS = 30_000
 export const OPENED_FLOOR_MS = 20_000
 export const OPENED_MS_PER_MB = 1_000
 export const OPENED_CAP_MS = 180_000
+/**
+ * The web route's download (bytes before any open): no byte for this long is a stalled transfer, said with Retry
+ * rather than a progress line that never moves. Per chunk, not per file: a slow link that keeps sending passes.
+ */
+export const DOWNLOAD_STALL_MS = 30_000
 
 /** The `opened` deadline for a file of `bytes` (unknown: the floor). */
 export function openedDeadlineMs(bytes) {

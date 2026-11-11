@@ -334,7 +334,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         <span role="alert" data-testid="v2-overdue">
           {overdue === 'ready'
             ? t('v2Reader.frameFailed', { path: FRAME_SRC, seconds: readyDeadlineMs / 1000 })
-            : t('v2Reader.openTimeout', { name: opening.current?.originalName ?? '', seconds: openedDeadlineMs(openedBytes.current) / 1000 })}{' '}
+            : t('v2Reader.openTimeout', { name: opening.current?.originalName ?? '', seconds: Math.ceil(openedDeadlineMs(openedBytes.current) / 1000) })}{' '}
           <button onClick={reloadFrame}>{t('v2Reader.retry')}</button>
         </span>
       )}

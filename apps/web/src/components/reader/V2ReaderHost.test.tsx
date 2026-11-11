@@ -154,6 +154,16 @@ describe('V2ReaderHost', () => {
     expect(screen.getByTestId('v2-heading')).toHaveTextContent('Walden — Thoreau')
   })
 
+  it('openedOverdue_ABookOfOddSize_WholeSecondsRoundedUp', () => {
+    vi.useFakeTimers()
+    const size = 1_500_000 // 20 s + 1.43 s: 21,431 ms
+    mount({ bytes: new ArrayBuffer(size), name: 'big.epub' })
+    fromPage({ type: 'ready' })
+    act(() => { vi.advanceTimersByTime(openedDeadlineMs(size)) })
+    expect(openedDeadlineMs(size)).toBe(21_431)
+    expect(screen.getByRole('alert')).toHaveTextContent('big.epub is taking too long to open (no answer in 22 s)')
+  })
+
   it('openedOverdue_Retry_AsksTheRouteForTheBookAgain_IdleHeading', () => {
     vi.useFakeTimers()
     const onReload = vi.fn()

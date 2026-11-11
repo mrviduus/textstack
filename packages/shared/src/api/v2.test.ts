@@ -139,6 +139,40 @@ describe('v2 api', () => {
       expect((e as ApiError).isNetworkError).toBe(true)
     })
 
+    it('an onProgress throw keeps its own cause, not offline', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(streamOf([[1]]))))
+      const e = await v2.getContent('b1', 'f1', () => { throw new RangeError('no memory') }).catch((x: unknown) => x)
+      expect(e).toBeInstanceOf(RangeError)
+    })
+
+    it('an abort is the AbortError it is, not offline', async () => {
+      const abort = new DOMException('aborted', 'AbortError')
+      const body = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new Uint8Array([1])); c.error(abort) } })
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body)))
+      const e = await v2.getContent('b1', 'f1', () => {}).catch((x: unknown) => x)
+      expect((e as Error).name).toBe('AbortError')
+      expect(e).not.toBeInstanceOf(ApiError)
+    })
+
+    it('the signal goes to the request', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(streamOf([[1]])))
+      vi.stubGlobal('fetch', fetchMock)
+      const signal = new AbortController().signal
+      await v2.getContent('b1', 'f1', () => {}, signal)
+      expect((fetchMock.mock.calls[0][1] as RequestInit).signal).toBe(signal)
+    })
+
+    it.each([
+      ['shorter', '5', [[1, 2], [3]], [1, 2, 3]],
+      ['longer', '2', [[1, 2], [3, 4]], [1, 2, 3, 4]],
+      ['crossing it mid-chunk', '3', [[1, 2], [3, 4]], [1, 2, 3, 4]],
+    ])('a Content-Length the body is %s than: the bytes as they came', async (_, length, parts, bytes) => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(streamOf(parts), { headers: { 'Content-Length': length } })))
+      const out = await v2.getContent('b1', 'f1', () => {})
+      expect([...new Uint8Array(out)]).toEqual(bytes)
+      expect(out.byteLength).toBe(bytes.length)
+    })
+
     it('a 404 stays the 404 it is', async () => {
       stubFetch({ status: 404, body: { code: 'file_not_found', message: 'gone' } })
       const e = await v2.getContent('b1', 'f1', () => {}).catch((x: unknown) => x)

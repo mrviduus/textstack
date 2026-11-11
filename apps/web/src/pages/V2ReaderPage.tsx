@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
 import { ApiError, isOfflineError, v2Api } from '@textstack/shared'
-import { fetchV2FileBytes, v2Book, v2Status } from '../api/v2'
+import { fetchV2FileBytes, pullV2Books, v2Book, v2Status } from '../api/v2'
 import { SeoHead } from '../components/SeoHead'
 import { V2ReaderHost, type V2HostBook } from '../components/reader/V2ReaderHost'
-import { READY_DEADLINE_NETWORK_MS } from '../../../mobile/src/lib/v2reader/deadlines.mjs'
+import { DOWNLOAD_STALL_MS, READY_DEADLINE_NETWORK_MS } from '../../../mobile/src/lib/v2reader/deadlines.mjs'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 
@@ -48,24 +48,52 @@ export function V2ReaderPage() {
 
   useEffect(() => {
     if (!enabled) return
-    let live = true
+    // Unmount, another book, Retry: the download in flight stops (its bytes would be nobody's).
+    const abort = new AbortController()
+    let stalled = false
+    let stall: ReturnType<typeof setTimeout> | undefined
+    const armStall = () => {
+      clearTimeout(stall)
+      stall = setTimeout(() => { stalled = true; abort.abort() }, DOWNLOAD_STALL_MS)
+    }
     setLoad({ percent: null })
-    ;(async () => {
+    const fetchCurrent = async (fresh: boolean): Promise<V2HostBook> => {
+      if (fresh) await pullV2Books()
       const file = (await v2Book(id)).currentFile
       if (!file?.hasContent) throw new NoFile()
+      armStall()
       const bytes = await fetchV2FileBytes(id, file.id, (loaded, total) => {
+        armStall()
+        if (!total) return
         // Content-Length may be off (a proxy's encoding): never past 99 % before the bytes are all in.
-        if (live && total) setLoad({ percent: Math.min(99, Math.floor((loaded / total) * 100)) })
-      })
+        const percent = Math.min(99, Math.floor((loaded / total) * 100))
+        setLoad((l) => (l && 'percent' in l && l.percent === percent ? l : { percent }))
+      }, abort.signal)
       // The reader data of this file goes to and comes from the server (#1226).
       const sync = { bookId: id, fileId: file.id, format: file.format, sha256: file.sha256, size: file.byteSize, name: file.originalName }
-      if (!live) return
+      return { bytes, name: file.originalName, sync }
+    }
+    ;(async () => {
+      try {
+        return await fetchCurrent(false)
+      } catch (e) {
+        // `v2Book` answers from this session's copy of the library: a 404 or "no file" is checked against a
+        // fresh pull once (the file may have been replaced) before it is said as final.
+        if (abort.signal.aborted || !(e instanceof NoFile || (e instanceof ApiError && e.status === 404))) throw e
+        return fetchCurrent(true)
+      }
+    })().then((b) => {
+      if (abort.signal.aborted) return
       setLoad(null)
-      setBook({ bytes, name: file.originalName, sync })
-    })().catch((e: unknown) => {
-      if (live) setLoad(loadError(e, t))
-    })
-    return () => { live = false }
+      setBook(b)
+    }, (e: unknown) => {
+      if (stalled) setLoad({ error: t('v2Reader.stalled', { seconds: DOWNLOAD_STALL_MS / 1000 }), retry: true })
+      else if (!abort.signal.aborted) setLoad(loadError(e, t))
+    }).finally(() => clearTimeout(stall))
+    return () => {
+      abort.abort()
+      clearTimeout(stall)
+    }
   }, [enabled, id, t, attempt])
 
   if (enabled === false) return <Navigate to={`/${language}/library/my/${id}/read`} replace />
