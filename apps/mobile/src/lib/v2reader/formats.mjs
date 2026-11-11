@@ -31,10 +31,12 @@ export function sniffFormat(bytes) {
   }
   // pdf.js, like other PDF readers, takes the header anywhere in the first KiB (junk before it is common).
   // A substring search, so it runs after every format told by its own magic (zip, KFX, a PDB whose name may
-  // say anything) and never on markup: a file that starts with `<` (after a BOM, whitespace or UTF-16 NULs)
-  // is an FB2 or nothing, whatever it quotes.
+  // say anything) and never on a book or page of markup: an FB2 root in the FB2 window, or an HTML root in
+  // the first KiB, is that, whatever it quotes. Other junk before the header (a server's HTML warning
+  // `<br />…`) is still a PDF's.
   const head = ascii(bytes, 0, 1024)
-  if (!/^[\s\0\xef\xbb\xbf\xfe\xff]*</.test(head) && head.includes('%PDF-')) return 'pdf'
+  const markup = /<FictionBook[\s>]/.test(ascii(bytes, 0, FB2_WINDOW).replace(/\0/g, '')) || /<html[\s>]|<!doctype html/i.test(head)
+  if (!markup && head.includes('%PDF-')) return 'pdf'
   // The last candidate: anything that is not an FB2 is refused there as "not a book".
   checkFb2(bytes)
   return 'fb2'

@@ -57,15 +57,19 @@ const FOLIATE_SHA = 'b3386ef90b806dc3667941d9c26db12cce98b064'
 // +1035 (#1128 S5 fix round): open lifecycle — listeners, restore and `restored` bound to the view on screen
 // (`viewSeq`), the open seq only goes up (no give-back), replaced/superseded/empty builds and failed PDF loads
 // destroyed, the pending save flushed at the swap, zero-section books refused, a raw CFI goTo refused on a PDF.
-const BUDGET = 253857
+// +851 (#1128 S5 review): a book still on screen after its init answers `opened` (viewSeq, not the latest
+// attempt), `restored` carries its key, goTo refuses a page past the end, arrival never through a missing
+// section, the structuredClone refusal, PDF outline entries that reject go nowhere.
+const BUDGET = 254708
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
 // mobi +264 (#1182 pin bump): typed KF8 resource blobs, KF8 section markup through transformTarget.
 // pdf (#1128 S5) = fork pdf.js + pdf.js v5.5.207 (pdf.mjs + pdf.worker.mjs, run on the page's main thread)
 // + its two layer stylesheets, the one MINIFIED reader (keepNames; 1614390 without them, 3180221 unminified): the measured
-// size. pdfcmaps (#1128 S5) = pdf.js's 168 predefined cMaps as base64, run only when a PDF names one.
-const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 1706720, pdfcmaps: 1559883 }
+// size. pdf +1825 (#1128 S5 review): pdfPolyfills.mjs first (runtime APIs an older WebView lacks).
+// pdfcmaps (#1128 S5) = pdf.js's 168 predefined cMaps as base64, run only when a PDF names one.
+const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 1708545, pdfcmaps: 1559883 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'v2ReaderPage.generated.ts')
@@ -119,10 +123,11 @@ window.__tsFormats.mobi = { MOBI, unzlibSync }`,
 window.__tsFormats.fb2 = { makeFB2 }`,
   cbz: `import { makeComicBook } from './.vendor/foliate-js/comic-book.js'
 window.__tsFormats.cbz = { makeComicBook }`,
-  // The worker first: it sets globalThis.pdfjsWorker, so pdf.js runs it on the main thread ("fake worker")
+  // pdfPolyfills.mjs first (runtime APIs an older WebView lacks; esbuild lowers syntax only). Then the worker: it sets globalThis.pdfjsWorker, so pdf.js runs it on the main thread ("fake worker")
   // and never asks for a Worker or import()s a URL (no worker-src, no blob: script in the CSP). pdf.js's
   // Apache-2.0 notice opens with @licstart, which esbuild does not keep when minifying: restated as a /*! */.
   pdf: `/*! ${readFileSync(resolve(vendor, 'vendor/pdfjs/pdf.mjs'), 'utf8').match(/^\/\*\*([\s\S]*?)\*\//)[1].replace(/\*\//g, '* /')} */
+import './pdfPolyfills.mjs'
 import './.vendor/foliate-js/vendor/pdfjs/pdf.worker.mjs'
 import { makePDF } from './.vendor/foliate-js/pdf.js'
 import text from './.vendor/foliate-js/vendor/pdfjs/text_layer_builder.css'

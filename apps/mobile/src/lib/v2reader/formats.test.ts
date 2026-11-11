@@ -74,6 +74,17 @@ describe('sniffFormat', () => {
     expect(sniffFormat(bytes(`\n\n%PDF-1.7\n`))).toBe('pdf')
   })
 
+  it('pdfAfterAnHtmlWarningOrDoctype_PdfUnlessTheFileIsAnHtmlPage', () => {
+    // S5 review: junk before the header may start with `<` (a server's PHP warning); an HTML page quoting it is no PDF.
+    expect(sniffFormat(bytes('<br />\n<b>Warning</b>: something in x.php on line 3<br />\n%PDF-1.4\n'))).toBe('pdf')
+    expect(() => sniffFormat(bytes('<!DOCTYPE html><title>%PDF-1.4</title>'))).toThrow(/not a book this reader opens/)
+    expect(() => sniffFormat(bytes('<HTML lang="en"><body>%PDF-1.4</body></HTML>'))).toThrow(/not a book this reader opens/)
+    // An FB2 whose root comes after a long comment (past the first KiB) and that quotes the marker early.
+    const late = fb2('Late root', '<section><p>p</p></section>').replace('<FictionBook', `<!-- %PDF-1.4 ${'x'.repeat(1500)} --><FictionBook`)
+    expect(late.indexOf('<FictionBook')).toBeGreaterThan(1024)
+    expect(sniffFormat(bytes(late))).toBe('fb2')
+  })
+
   it('unknownOrEmpty_Refused', () => {
     for (const b of ['', 'plain text', '<html><body>FictionBook</body></html>', '<FictionBookmark/>', png(1, 1, [0, 0, 0])])
       expect(() => sniffFormat(bytes(b))).toThrow(/not a book this reader opens/)

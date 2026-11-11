@@ -33,6 +33,10 @@ describe('v2 reader tap', () => {
     ['sentence crossing a span', '<p>Before. One <span>two three</span> four. After.</p>', 'three', 'One two three four.'],
     ['style inside the block', '<p>Before. <style>.x { color: red }</style>Styled word here. After.</p>', 'word', 'Styled word here.'],
     ['div paragraph with a span', '<div class="para">One <span>two three</span> four.</div>', 'three', 'One two three four.'],
+    // S5 review: a PDF text layer (pdf.js) separates its lines with <br> only; a line end is a space.
+    ['pdf text layer, word before the line end', '<div class="textLayer"><span>Sphinx of black quartz judges</span><br><span>my vow and the fox.</span></div>', 'judges', 'Sphinx of black quartz judges my vow and the fox.'],
+    ['pdf text layer, word after the line end', '<div class="textLayer"><span>Sphinx of black quartz judges</span><br><span>my vow and the fox.</span></div>', 'vow', 'Sphinx of black quartz judges my vow and the fox.'],
+    ['br inside a paragraph', '<p>Before. One<br>two three. Next.</p>', 'two', 'One two three.'],
   ])('sentenceOf_%s_OffsetsHold', (_, html, word, sentence) => {
     expect(tap(html, word)).toBe(sentence)
   })

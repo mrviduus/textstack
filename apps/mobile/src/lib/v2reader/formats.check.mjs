@@ -183,6 +183,65 @@ try {
     const chosen = await storeFrom(from, 'a store after a chosen page goTo')
     await settle()
     check(chosen?.position?.page === 2 && storesFrom(from).length === 1, `a chosen goTo { page: 2 } saves page 2, once (${JSON.stringify(storesFrom(from))})`)
+    // S5 review: `restored` names its book (hosts drop one for a book they are not reading).
+    m = await open('tsformat.pdf')
+    check(m.restored.key === m.book.sha256, `restored carries the book's key (${m.restored.key})`)
+    // A page past the end, gone to: refused as a restore refuses it; no move, no save.
+    await page.waitForTimeout(600)
+    from = messages.length
+    call('window.__fol.goTo({ page: 99, index: 98, fraction: 1, at: 5 }, true)')
+    await waitFor(from, (x) => x.type === 'log' && /page not in this book/.test(x.msg), 'a page past the end refused').catch(() => null)
+    await page.waitForTimeout(600)
+    check(messages.slice(from).some((x) => x.type === 'log' && /page not in this book/.test(x.msg)) && !messages.slice(from).some((x) => x.type === 'relocate' || x.type === 'store'),
+      'a goTo { page: 99 } on a 5-page PDF is refused with a warn: no move, no save')
+    // The text layer separates lines with <br> only: a tapped word's sentence reads across a line end with a space.
+    writeFileSync(resolve(dir, 'tslines.pdf'), pdf(1, { title: 'TS LINES', lines: ['Sphinx of black quartz judges', 'my vow and the lazy fox.'] }))
+    m = await open('tslines.pdf')
+    check(await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('quartz judges')), 'the two-line PDF is drawn with its text layer')
+    const fl = await frame()
+    const quartz = await fl?.evaluate(() => {
+      const t = [...document.querySelectorAll('.textLayer span')].map((s) => s.firstChild).find((n) => n?.data?.includes('quartz'))
+      const r = document.createRange()
+      r.setStart(t, t.data.indexOf('quartz')); r.setEnd(t, t.data.indexOf('quartz') + 6)
+      const b = r.getBoundingClientRect(), fr = frameElement.getBoundingClientRect()
+      return { x: fr.left + b.left + b.width / 2, y: fr.top + b.top + b.height / 2 }
+    })
+    from = messages.length
+    if (quartz) await page.mouse.click(quartz.x, quartz.y)
+    const across = await waitFor(from, (x) => x.type === 'word' || x.type === 'tap', 'a word on the two-line PDF').catch(() => null)
+    check(across?.word === 'quartz' && across.sentence === 'Sphinx of black quartz judges my vow and the lazy fox.',
+      `a tapped word's sentence reads across the line end with a space (${across?.word}: ${JSON.stringify(across?.sentence)})`)
+    // An outline with an integer-page and a dangling destination opens; its good entry goes to its page.
+    writeFileSync(resolve(dir, 'tsoutline.pdf'), pdf(3, { title: 'TS OUTLINE', outline: [
+      { title: 'Good', dest: (refs) => `[${refs[2]} /Fit]` },
+      { title: 'Integer', dest: () => '[0 /Fit]' },
+      { title: 'Dangling', dest: () => '[99 0 R /Fit]' },
+    ] }))
+    m = await open('tsoutline.pdf')
+    check(m.type === 'opened' && m.toc?.map((t) => t.label).join() === 'Good,Integer,Dangling', `a PDF whose outline has an integer and a dangling destination opens (${m.type}${m.error ? `, ${m.error}` : ''}, ${m.toc?.map((t) => t.label)})`)
+    if (m.type === 'opened') {
+      from = messages.length
+      call(`window.__fol.goTo(${JSON.stringify(m.toc[0].href)})`)
+      check(!!(await waitFor(from, (x) => x.type === 'relocate' && x.index === 2, 'the good outline entry').catch(() => null)), 'its good entry goes to page 3')
+      from = messages.length
+      for (const t of m.toc.slice(1)) call(`window.__fol.goTo(${JSON.stringify(t.href)})`)
+      await page.waitForTimeout(800)
+      check(!messages.slice(from).some((x) => x.type === 'relocate' || (x.type === 'log' && x.level === 'error')), 'its bad entries go nowhere and throw nothing')
+    }
+    // (Known gap, not fixed: the fork's render() is not idempotent.) A resize re-renders the page into the same
+    // text layer: its spans are appended again.
+    m = await open('tsformat.pdf')
+    await textLayer(1)
+    const spans = async () => { const f = await frame(); return f ? f.evaluate(() => document.querySelectorAll('.textLayer span').length) : -1 }
+    const spansBefore = await spans()
+    await page.setViewportSize({ width: 400, height: 740 })
+    await page.waitForTimeout(1200)
+    const spansAfter = await spans()
+    await page.setViewportSize({ width: 420, height: 760 })
+    await page.waitForTimeout(800)
+    console.log(`  ${spansAfter > spansBefore ? 'bug ' : 'FIXED'}  a resize re-renders the PDF page into the same text layer (spans ${spansBefore} -> ${spansAfter})`)
+    if (!(spansAfter > spansBefore)) failures.push(`known bug no longer reproduces, make it a check: resize duplicates the text layer (${spansBefore} -> ${spansAfter})`)
+
     // A predefined cMap (CJK): the cMap chunk runs on first need, and the text draws and extracts.
     check(!(await loaded()).split(',').includes('pdfcmaps'), 'no cMap chunk has run for a Latin PDF')
     m = await open('tscjk.pdf')
@@ -226,6 +285,44 @@ try {
     } finally {
       server.close()
       await page.setViewportSize({ width: 1280, height: 720 })
+    }
+  }
+
+  /**
+   * S5 review: an older WebView. The runtime APIs pdf.js 5.5 calls that the PDF reader polyfills
+   * (pdfPolyfills.mjs) are deleted before the page runs: the PDF still opens and draws. Without
+   * structuredClone too (not polyfillable), the open is refused with a clear message, never left hanging.
+   */
+  async function checkOldWebView() {
+    console.log('old WebView (S5 review)')
+    // Serialised into the page by Playwright: no closure, `alsoClone` comes as its argument.
+    const strip = (alsoClone) => {
+      for (const [o, k] of [[Map.prototype, 'getOrInsertComputed'], [Map.prototype, 'getOrInsert'], [WeakMap.prototype, 'getOrInsertComputed'],
+        [WeakMap.prototype, 'getOrInsert'], [Promise, 'withResolvers'], [Promise, 'try'], [AbortSignal, 'any'], [Array.prototype, 'findLast'],
+        [Uint8Array.prototype, 'toHex'], [Uint8Array.prototype, 'toBase64'], [Uint8Array, 'fromBase64'], [ArrayBuffer.prototype, 'transferToFixedLength'],
+        [URL, 'parse'], [ReadableStream.prototype, Symbol.asyncIterator]]) delete o[k]
+      if (alsoClone) delete window.structuredClone
+    }
+    for (const alsoClone of [false, true]) {
+      const old = await browser.newPage({ viewport: { width: 420, height: 760 } })
+      const got = []
+      await old.exposeFunction('__toHost', (json) => got.push(JSON.parse(json)))
+      await old.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
+      await old.addInitScript(strip, alsoClone)
+      await old.goto(pathToFileURL(resolve(dir, 'page.html')).href)
+      const stripped = await old.evaluate((c) => typeof Promise.withResolvers === 'undefined' && typeof Map.prototype.getOrInsertComputed === 'undefined' && typeof URL.parse === 'undefined' && (typeof structuredClone === 'undefined') === c, alsoClone)
+      await old.evaluate((u) => window.__fol.openUrl(u, 'tsformat.pdf'), pathToFileURL(resolve(dir, 'tsformat.pdf')).href)
+      let answer = null
+      for (const t0 = Date.now(); !answer && Date.now() - t0 < TIMEOUT_MS; await old.waitForTimeout(50)) answer = got.find((x) => x.type === 'opened' || x.type === 'open-failed')
+      if (!alsoClone) {
+        let drawn = false
+        for (const t0 = Date.now(); answer?.type === 'opened' && !drawn && Date.now() - t0 < TIMEOUT_MS; await old.waitForTimeout(100))
+          for (const f of old.frames().filter((f) => f.url().startsWith('blob:'))) drawn ||= await f.evaluate(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx')).catch(() => false)
+        check(stripped && answer?.type === 'opened' && drawn, `without the polyfilled APIs a PDF still opens and draws (${answer?.type ?? 'no answer'}${answer?.error ? `, ${answer.error}` : ''})`)
+      } else {
+        check(stripped && answer?.type === 'open-failed' && /too old to read PDF/.test(answer.error), `without structuredClone a PDF is refused with a clear message (${answer?.type ?? 'no answer'}: ${answer?.error})`)
+      }
+      await old.close()
     }
   }
 
@@ -306,8 +403,8 @@ try {
     await settle()
     check(m.restored.position === 'restored' && storesQa(from).length === 0, `a restored PDF, resized and tapped, saves nothing (${m.restored.position}, ${JSON.stringify(storesQa(from).map((s) => JSON.parse(s.json).position))})`)
 
-    // Leak: a PDF torn down for the next book keeps its pdf.js document (book.destroy() never called): every
-    // PDF opened and left keeps its file's bytes (measured: +21 MB backing store per 20 MB PDF, none with destroy()).
+    // A PDF replaced by the next book is destroyed at the swap (view.close() does not; before the S5 fix round each
+    // left PDF kept its pdf.js document: +21 MB backing store per 20 MB PDF).
     await run('window.__destroyed = 0')
     await openQa('tsformat.fb2')
     check(await run('window.__destroyed') === 1, `a PDF replaced by the next book is destroyed once (${await run('window.__destroyed')})`)
@@ -330,7 +427,7 @@ try {
     await until(from, (x) => x.type === 'open-failed', 'B (password) failed')
     await settle()
     check(storesQa(from).length === 1 && storesQa(from)[0].key === a.book.sha256, `A's pending save lands under A's key after B failed (${storesQa(from).map((s) => s.key === a.book.sha256)})`)
-    // …but is cancelled when B opens within the 400 ms: A's last turn is never saved (as before S5).
+    // …and when B opens within the 400 ms, A's last turn is flushed under A's key at the swap, never under B's.
     a = await openQa('tsformat.fb2')
     await settle()
     from = msgs.length
@@ -343,8 +440,8 @@ try {
     check(flushed.length === 1 && flushed[0].key === a.book.sha256 && JSON.parse(flushed[0].json).book.sha256 === a.book.sha256,
       `A's turn made under 400 ms before B opens is flushed under A's key at the swap, once, never under B's (${flushed.map((s) => s.key === a.book.sha256)})`)
 
-    // I3: A turned while B is being made, B then fails: the turn is neither reported nor saved (A's listener
-    // reads openSeq, already B's), and the place A shows is not saved until the reader moves again.
+    // I3: A turned while B is being made, B then fails: A is the book on screen throughout (its listener reads
+    // viewSeq), so the turn is reported and saved under A's key, and A keeps saving after B failed.
     a = await openQa('tsformat.fb2')
     await settle()
     await run('window.__holdNext = true; window.__held = false')
@@ -373,8 +470,8 @@ try {
     const later = await until(from, (x) => x.type === 'store', 'a store on A after B failed').catch(() => null)
     check(later?.key === a.book.sha256, 'after B failed, A turns and saves under its own key')
 
-    // The open seq handed back (B failed before teardown) is reused: B made slowly, C fails fast (seq back to A's),
-    // D takes B's old seq; B, released, passes its `mine === openSeq` check and replaces D on screen.
+    // B made slowly, C fails fast, D opens; B, released, is not the latest attempt and never swaps in over D (the
+    // open seq only goes up: before the S5 fix round C handed it back and D reused B's).
     await openQa('tsformat.fb2')
     await run('window.__holdNext = true; window.__held = false')
     from = msgs.length
@@ -414,6 +511,32 @@ try {
     await settle()
     check(msgs.slice(from).filter((x) => x.type === 'opened').map((x) => x.book.name).join() === 'tsformat.epub' && await run('window.__destroyed') === 1 && await views() === 1,
       'a PDF superseded while it is made is destroyed and never opened; one view')
+
+    // S5 review: B is swapped in and still in view.open when C is asked for and fails before its own swap: B
+    // is the book on screen, so it answers `opened` once its open completes, takes its restore and saves.
+    await openQa('tsformat.fb2')
+    await run(`(() => {
+      const C = customElements.get('foliate-view'), open = C.prototype.open
+      const held = new Promise((ok) => { window.__releaseOpen = ok })
+      C.prototype.open = async function (b) { C.prototype.open = open; window.__inOpen = true; await held; return open.call(this, b) }
+    })()`)
+    from = msgs.length
+    await run('window.__inOpen = false; 0')
+    await send('tsformat.epub')
+    await flag('window.__inOpen')
+    await send('tslocked.pdf')
+    await until(from, (x) => x.type === 'open-failed' && x.name === 'tslocked.pdf', 'C failed while B opens')
+    await run('window.__releaseOpen(); 0')
+    const bOpened = await until(from, (x) => x.type === 'opened' && x.book.name === 'tsformat.epub', 'B answers opened').catch(() => null)
+    check(!!bOpened, 'a book swapped in while a newer open fails before its swap answers `opened`')
+    if (bOpened) {
+      const at = msgs.length
+      await run('window.__fol.restore(null); 0')
+      const r = await until(at, (x) => x.type === 'restored', 'B restored').catch(() => null)
+      await run('window.__fol.next(); 0')
+      const st = await until(at, (x) => x.type === 'store', 'B saves').catch(() => null)
+      check(r?.key === bOpened.book.sha256 && st?.key === bOpened.book.sha256, `and takes its restore and saves (${r?.position}, ${!!st})`)
+    }
 
     // A failure after the teardown (view.open throws): `open-failed`, nothing saved for either book, the next open works.
     a = await openQa('tsformat.fb2')
@@ -1003,6 +1126,7 @@ try {
 
   await checkPdf()
   await checkOpenOrder()
+  await checkOldWebView()
 
   // Every page error on this page, last so that every block above is covered. One benign message is let
   // through by its exact text: Chromium's ResizeObserver loop notice, from the resize above.

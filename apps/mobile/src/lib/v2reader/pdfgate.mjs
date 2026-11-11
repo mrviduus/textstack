@@ -155,9 +155,11 @@ async function gate(file) {
     }
     r.forward = N > 1 ? ok : 'n/a'
     // Jump to the last page as the reader's own choice (saved), arrived and drawn.
+    // Already there (the forward steps ended on it, 2-4 pages): no relocate will come, so none is waited for.
+    const there = messages.filter((x) => x.type === 'relocate').at(-1)?.index === N - 1
     let from = messages.length
     await call(`window.__fol.goTo(${N - 1}, true)`)
-    const lastArrived = N === 1 || ((await at(from, N - 1)) && (await drawn(STEP_MS / 3)))
+    const lastArrived = N === 1 || ((there || (await at(from, N - 1))) && (await drawn(STEP_MS / 3)))
     const store = await waitFor(from, (x) => x.type === 'store', 'store').catch(() => null)
     const saved = store && JSON.parse(store.json)
     r.last = lastArrived && (N === 1 || saved?.position?.page === N)

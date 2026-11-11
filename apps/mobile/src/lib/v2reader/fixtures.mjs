@@ -279,7 +279,7 @@ const prose = (n) => Array.from({ length: n }, (_, i) => `Paragraph ${i + 1}. ${
  * `locked`: a Standard security handler whose /U no empty password matches (opening needs a password).
  * Offsets computed, so the xref is real.
  */
-export function pdf(pages, { title = 'TS PDF', annots = [], openAction = '', cjk = false, locked = false } = {}) {
+export function pdf(pages, { title = 'TS PDF', annots = [], openAction = '', cjk = false, locked = false, lines = null, outline = [] } = {}) {
   const objs = []
   const add = (body) => objs.push(body) && objs.length
   const catalog = add('')
@@ -295,13 +295,23 @@ export function pdf(pages, { title = 'TS PDF', annots = [], openAction = '', cjk
   for (let n = 1; n <= pages; n++) {
     // CJK: U+4E2D U+6587 as UCS-2 code units.
     const text = cjk ? 'BT /F1 28 Tf 40 760 Td <4E2D6587> Tj ET'
-      : `BT /F1 14 Tf 40 760 Td (Page ${n}. Sphinx of black quartz, judge my vow.) Tj 0 -20 Td (The quick brown fox jumps over the lazy dog.) Tj ET`
+      : `BT /F1 14 Tf 40 760 Td ${(lines ?? [`Page ${n}. Sphinx of black quartz, judge my vow.`, 'The quick brown fox jumps over the lazy dog.']).map((l) => `(${l}) Tj`).join(' 0 -20 Td ')} ET`
     const content = add(`<< /Length ${text.length} >>\nstream\n${text}\nendstream`)
     const annotRefs = (annots[n - 1] ?? []).map((a) => `${add(a)} 0 R`)
     kids.push(add(`<< /Type /Page /Parent ${tree} 0 R /MediaBox [0 0 600 800] /Resources << /Font << /F1 ${font} 0 R >> >> /Contents ${content} 0 R${annotRefs.length ? ` /Annots [${annotRefs.join(' ')}]` : ''} >>`))
   }
   objs[tree - 1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(' ')}] /Count ${pages} >>`
-  objs[catalog - 1] = `<< /Type /Catalog /Pages ${tree} 0 R${openAction ? ` /OpenAction ${openAction}` : ''} >>`
+  // `outline`: [{ title, dest: (pageRefs) => raw destination }], one flat level.
+  let outlines = 0
+  if (outline.length) {
+    outlines = add('')
+    const ids = outline.map(() => add(''))
+    ids.forEach((id, i) => {
+      objs[id - 1] = `<< /Title (${outline[i].title}) /Parent ${outlines} 0 R${i ? ` /Prev ${ids[i - 1]} 0 R` : ''}${i < ids.length - 1 ? ` /Next ${ids[i + 1]} 0 R` : ''} /Dest ${outline[i].dest(kids.map((k) => `${k} 0 R`))} >>`
+    })
+    objs[outlines - 1] = `<< /Type /Outlines /First ${ids[0]} 0 R /Last ${ids.at(-1)} 0 R /Count ${ids.length} >>`
+  }
+  objs[catalog - 1] = `<< /Type /Catalog /Pages ${tree} 0 R${outlines ? ` /Outlines ${outlines} 0 R` : ''}${openAction ? ` /OpenAction ${openAction}` : ''} >>`
   const info = add(`<< /Title (${title}) /Author (Test Author) >>`)
   const encrypt = locked ? add(`<< /Filter /Standard /V 1 /R 2 /O <${'5a'.repeat(32)}> /U <${'a5'.repeat(32)}> /P -4 >>`) : 0
   let out = '%PDF-1.4\n'

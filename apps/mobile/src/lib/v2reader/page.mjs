@@ -175,7 +175,8 @@ const navigate = (fn) => {
 function arrivedAt(index) {
   const r = view.renderer
   if (!view.isFixedLayout) return !!r?.getContents?.().some((c) => c.index === index)
-  const spreadOf = (i) => r?.getSpreadOf?.(view.book.sections[i])?.index
+  // A section that is not in the book has no spread: getSpreadOf(undefined) would match a spread's empty side.
+  const spreadOf = (i) => (view.book.sections[i] ? r?.getSpreadOf?.(view.book.sections[i])?.index : undefined)
   return spreadOf(index) != null && spreadOf(index) === spreadOf(r.index)
 }
 
@@ -256,6 +257,9 @@ async function makeBookFor(bytes, name, kind) {
     // pdf.js runs on the page's main thread (build.mjs FORMATS.pdf): no Worker, no wasm (the CSP has no
     // 'wasm-unsafe-eval'), nothing fetched: cMaps come from the page's own chunk (PdfCMaps), standard-font
     // data not at all (system fonts).
+    // pdf.js's main-thread "worker" clones every message with structuredClone, which pdfPolyfills.mjs cannot
+    // stand in for: refused here, before the swap, instead of an open that never answers.
+    if (typeof structuredClone !== 'function') throw new Error('this WebView is too old to read PDF')
     const { makePDF, css } = formatModule('pdf')
     // makePDF calls pdf.js's getDocument before its first await and keeps no loading task: the page takes
     // it there (globalThis.pdfjsLib is a plain object), so a load that fails can be destroyed (#1128 S5).
@@ -272,6 +276,12 @@ async function makeBookFor(bytes, name, kind) {
     // One page per screen, never foliate's two-page spreads: within a spread a page step or goTo shows the
     // other page without a relocate, so the saved page would be the spread's first.
     book.rendition.spread = 'none'
+    // An outline entry pdf.js cannot resolve (an integer page, a dangling reference) rejects; foliate awaits
+    // every entry while opening, after the swap. Such an entry goes nowhere instead of failing the open.
+    for (const k of ['splitTOCHref', 'resolveHref']) {
+      const f = book[k]
+      book[k] = (href) => f(href).catch(() => null)
+    }
     return { format: 'pdf', book }
   }
   if (kind === 'mobi') {
@@ -442,7 +452,9 @@ async function open(bytes, name, kind, mine) {
   // The fixed-layout renderer (CBZ, a pre-paginated EPUB) has no styles to set.
   view.renderer.setStyles?.(css())
   await view.init({ showTextStart: true })
-  if (mine !== openSeq) return false
+  // Still the view on screen: it answers `opened`, even if a newer open is under way (that one may yet fail
+  // before its swap, and this book must not stay on screen unanswered and unrestorable).
+  if (mine !== viewSeq) return false
   const { book: b } = view
   session = { at: Date.now(), switched: false, timer: setTimeout(endSession, SESSION_MS) }
   readySeq = mine
@@ -538,7 +550,8 @@ async function restoreInto(json, stale) {
     }
   }
   // For the view still on screen only (`stale` turns at the swap).
-  if (!stale()) post({ type: 'restored', ...result })
+  // `key`: the book it is for (= `store`'s key), so a host drops one for a book it is not reading.
+  if (!stale()) post({ type: 'restored', key: book.sha256, ...result })
   return result
 }
 
@@ -578,7 +591,10 @@ function highlightSelection() {
 
 const openFailed = (name, error) => post({ type: 'open-failed', name, error })
 
-/** One `opened` or one `open-failed` per call — unless a newer openUrl took over, and then neither. */
+/**
+ * One `opened` or one `open-failed` per call — unless a newer openUrl took over first: then neither, except a
+ * book already swapped in, which answers `opened` while it is still the view on screen (the newer open may yet fail).
+ */
 function openFor(bytes, name) {
   // Refused before anything is touched: a DRM book, a damaged KF8 or an unknown file leaves
   // the open book reading, reporting and saving, like a failed read (#1168). No seq turnover, no session end.
@@ -619,6 +635,7 @@ window.__fol = {
     if (!view?.book) return
     if (target && typeof target === 'object' && !isPosition(target)) return log('warn', 'goTo ignored: not a position')
     if (isPosition(target) ? !fits(target) : format === 'pdf' && String(target).startsWith('epubcfi(')) return log('warn', 'goTo ignored: wrong position kind for this book')
+    if (isPdfPage(target) && target.page > view.book.sections.length) return log('warn', 'goTo ignored: page not in this book')
     const mine = viewSeq
     hostMoving = true
     let arrived = false

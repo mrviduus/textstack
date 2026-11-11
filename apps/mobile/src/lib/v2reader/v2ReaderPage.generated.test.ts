@@ -152,6 +152,12 @@ describe('v2ReaderPageHtml', () => {
     const pdf: string = JSON.parse(html.match(/\npdf: ("(?:[^"\\]|\\.)*")/)![1])
     expect(pdf).toMatch(/globalThis\.pdfjsWorker\s*=/)
     expect(pdf.search(/globalThis\.pdfjsWorker\s*=/)).toBeLessThan(pdf.indexOf('isEvalSupported:!1'))
+    // S5 review: the runtime polyfills run before pdf.js; the page refuses a PDF where structuredClone is missing.
+    expect(pdf.indexOf('getOrInsertComputed')).toBeLessThan(pdf.search(/globalThis\.pdfjsWorker\s*=/))
+    expect(html).toContain('if (typeof structuredClone !== "function") throw new Error("this WebView is too old to read PDF");')
+    // A book still on screen after its init answers `opened`; `restored` names its book.
+    expect(html).toMatch(/await view\.init\(\{ showTextStart: true \}\);\s*if \(mine !== viewSeq\) return false;/)
+    expect(html).toContain('post({ type: "restored", key: book.sha256, ...result })')
     expect(pdf).toContain('Copyright 2024 Mozilla Foundation')
     expect(pdf).toContain('Licensed under the Apache License, Version 2.0')
     // The page: no wasm, cMaps from its own chunk, no URL for anything.

@@ -30,6 +30,8 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `sandbox.check.mjs` | The hostile-book check (see Sandbox). |
 | `formats.check.mjs` | The format check (see Formats): one small book per format through the committed page in Chromium. |
 | `pdfgate.mjs` | The ADR-032 PDF gate (#1128 S5): `node --experimental-strip-types pdfgate.mjs <corpusDir> [--map <file>] [--only 3,7]` opens every PDF under a directory through the committed page, one fresh page each (open, page 1 drawn and inked, `next` ×3, chosen `goTo` last page, save + reopen, text layer + selection, peak JS heap, longest main-thread task). Prints indexes (`pdf-NN`), size buckets, pass/fail and error classes only, never a name, path, title or text: the corpus is private and stays outside the repo. |
+| `pdfPolyfills.mjs` | Runtime APIs pdf.js 5.5 calls that an older WebView lacks (S5 review), run first in the carried `pdf` reader; installed only where missing. |
+| `openTracker.mjs` (+ `.d.mts`) | Pure, both hosts: which page answer belongs to which open — the open in flight, a book the page kept on screen while a newer open failed, a stale `restored` (dropped). |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
 
 ## Build
@@ -89,7 +91,7 @@ the Android host stages and retains every format as `*.epub`, the web host opens
 | AZW3 (KF8); a MOBI/KF8 combo as its KF8 half | `BOOKMOBI`, header version ≥ 8; or EXTH 121 → a MOBI header | the same | all |
 | FB2 / FBZ | `<FictionBook` in the first 4 KiB (UTF-8 or UTF-16) / zip with a `.fb2` | fork `fb2.js` | all |
 | CBZ | zip with images, no container, no `.fb2` | fork `comic-book.js` (fixed layout) | **none** |
-| PDF (#1128 S5; **dev hosts only**, below) | `%PDF-` in the first KiB, after zip, KFX and MOBI, never in markup (a file starting with `<`) | fork `pdf.js` + pdf.js v5.5.207, on the page's main thread | word tap and selection; **no** highlights or translation label (`annotatable: false`) |
+| PDF (#1128 S5; **dev hosts only**, below) | `%PDF-` in the first KiB, after zip, KFX and MOBI, never in a book or page of markup (an FB2 root in the FB2 window, `<html`/`<!doctype html` in the first KiB); junk before the header that starts with `<` (a server's HTML warning) is still a PDF's | fork `pdf.js` + pdf.js v5.5.207, on the page's main thread | word tap and selection; **no** highlights or translation label (`annotatable: false`) |
 | KFX, other | `\xeaDRMION\xee`, anything else | refused with `open-failed` | — |
 
 - **Loaded only when needed.** Each format reader is its own esbuild IIFE, carried in the page's one script as a
@@ -115,6 +117,9 @@ the Android host stages and retains every format as `*.epub`, the web host opens
     fine), a broken PDF, a book with no sections ("this PDF has no pages" / "this book has no sections"), an
     FBZ's inner FB2 with entities: `open-failed`, and the book on screen keeps reading, saving and its telemetry
     session. A failure after the swap (foliate's `view.open`/`init`) still replaces the book.
+  - *A book swapped in answers `opened` while it is still the view on screen*, even if a newer open is under
+    way (that one may yet fail before its swap; the book would otherwise stay on screen unanswered and
+    unrestorable). The hosts keep such an answer aside (`openTracker.mjs`) and take it if the newer open fails.
   - *What is destroyed when* (each book's own `destroy()`; `view.close()` does not call it): the replaced book
     at the swap; a build superseded by a newer open, before it could swap in; a build with no sections; a PDF
     load that fails (its pdf.js loading task: `makePDF` keeps none, so the page takes it from `getDocument`,
@@ -189,7 +194,27 @@ the Android host stages and retains every format as `*.epub`, the web host opens
     cap (or parse in a real Worker), not a page change. **Links on a page are lost when that page has a Named
     action, a ResetForm or an attachment link:** pdf.js's annotation layer calls `linkService.getAnchorUrl`,
     which the fork's `pdf.js` link service lacks, so the layer throws and draws none of that page's links;
-    the fork's link service needs `getAnchorUrl` (and the other no-op methods pdf.js calls). The PDF vectors are checked in `formats.check.mjs`
+    the fork's link service needs `getAnchorUrl` (and the other no-op methods pdf.js calls).
+    Found by the S5 review, not fixed (fork work): **visited pages are never released** (the fork's `makePDF`
+    caches every rendered page's `blob:` document, never revokes the URLs nor calls `page.cleanup()`); **the
+    fork's `render()` is not idempotent**: each zoom/resize callback renders into the same text and annotation
+    layers again, duplicating spans and links (`formats.check.mjs` known-bug line: 2 → 4 spans on one
+    resize); **the PDF's bytes are held 2–3 times** (the page's read buffer, the `File` made of it, pdf.js's own
+    chunks); **the outline is resolved serially before `opened`** (foliate's TOC progress awaits every entry);
+    **the page takes pdf.js's loading task from `getDocument`** because `makePDF` keeps none, which depends on
+    `makePDF` calling it before its first await (the fork should destroy its own task on failure); **three
+    copies of the page-driving harness** (`formats.check.mjs`, `sandbox.check.mjs`, `pdfgate.mjs`).
+  - *Older WebViews:* the pdf.js 5.5 modern build calls `Map`/`WeakMap.prototype.getOrInsertComputed`,
+    `Promise.withResolvers`, `Promise.try`, `AbortSignal.any`, `Uint8Array.prototype.toHex`/`toBase64`,
+    `Uint8Array.fromBase64`, `ArrayBuffer.prototype.transferToFixedLength`, `URL.parse`, `Array.prototype.findLast`,
+    `.at()` and async iteration of `ReadableStream`; esbuild's target lowers syntax, not APIs.
+    `pdfPolyfills.mjs` stands in for those (checked: they are deleted and the PDF still opens and draws).
+    `structuredClone` (pdf.js's main-thread worker clones every message with it) is not polyfilled: without
+    it the open answers `open-failed` "this WebView is too old to read PDF", before the swap. Not polyfilled
+    either, on paths this page does not take: `Response.prototype.bytes` (fetching), `DecompressionStream`
+    (guarded by pdf.js). pdf.js's two layer stylesheets use **native CSS nesting** (`&.highlighting`,
+    `&:hover`, …): a WebView older than Chrome 112 drops those nested rules (selection highlight and link
+    hover looks), not the layers. No device has been run. The PDF vectors are checked in `formats.check.mjs`
     under the real CSP only, not under `sandbox.check.mjs`'s per-directive mutations: they are pdf.js and
     foliate behaviour, not the CSP's doing.
 - **Refresh metas:** EPUB and KF8 sections pass through `transformTarget`; MOBI6 has none, so the page wraps its
@@ -269,7 +294,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `openUrl(url, name)` | Reads the retained book by XHR (`file://…`) and opens it, whatever its format (Formats). Answers `opened` or `open-failed`. A second call supersedes the first, which then answers nothing. |
 | `restore(json \| null)` | The answer to `opened`: the JSON last sent in `store` for that `book.sha256`, or null. Its position may be fraction-only, `{ fraction, at }` (a transitional `textstack-*` server locator, #1187), or a PDF page `{ page, index, fraction, at }`. Ignored (a `warn`) unless the view on screen is the one that answered `opened` (not one still opening); answered for the book on screen even while a newer open is being made. Takes its slot in the navigation queue when called: a `goTo` sent after it runs after it. |
 | `highlightSelection()` | The last non-empty selection becomes a highlight; sends `store` and `highlighted`. Ignored on a CBZ and a PDF (`annotatable: false`). A selection with no text (an image) or over 4000 UTF-16 units (`SyncLimits.MaxSelectedText`) is ignored with a `warn` log. |
-| `goTo(target, chosen = false)` | A position as stored (CFI + quote, CBZ page, PDF page `{ page }`, or fraction-only `{ fraction, at }` with 0 the text start), a CFI, an href or a section index; an object that is no valid position, or a position that does not fit the book (a CFI or fraction on a PDF, a page number elsewhere; a raw CFI string on a PDF too), is ignored with a `warn`. Queued behind the previous navigation; an open supersedes every queued or in-flight one. Not `chosen` (the host moving the view: a sync adopt or move): nothing is saved and no `store` is sent, the host already holds that position; a position target becomes the entry's own. `chosen` (the reader's own choice: a taken offer): the place it landed on is saved (one `store`), built exactly as a relocate's save. One that did not arrive changes nothing and logs a `warn`. |
+| `goTo(target, chosen = false)` | A position as stored (CFI + quote, CBZ page, PDF page `{ page }`, or fraction-only `{ fraction, at }` with 0 the text start), a CFI, an href or a section index; an object that is no valid position, or a position that does not fit the book (a CFI or fraction on a PDF, a page number elsewhere; a raw CFI string on a PDF too), or a PDF page past the book's end, is ignored with a `warn`. Queued behind the previous navigation; an open supersedes every queued or in-flight one. Not `chosen` (the host moving the view: a sync adopt or move): nothing is saved and no `store` is sent, the host already holds that position; a position target becomes the entry's own. `chosen` (the reader's own choice: a taken offer): the place it landed on is saved (one `store`), built exactly as a relocate's save. One that did not arrive changes nothing and logs a `warn`. |
 | `section(±1)`, `next()`, `prev()` | Section / page step, queued. |
 | `font(delta)` | Font size ±px, clamped 12–32; returns the new size. No-op before `opened`. |
 | `flow('paginated' \| 'scrolled')` | foliate layout; default `paginated` (ADR-029 Decision 1). Switches the open book in place (no reload, position kept). Before `opened` it sets what the next open uses: hosts send the reader's stored setting right after `ready`. Anything else is ignored with a `warn`. |
@@ -280,9 +305,9 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `type` | Fields | Host does |
 |---|---|---|
 | `ready` | — | may call `openUrl` |
-| `opened` | `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`/`pdf`), `textual` (false: no word taps, hide translation and vocabulary), `annotatable` (false: hide highlight and the translation label; CBZ and PDF), `reflowable` (false: disable the flow toggle), `title`, `author` (either may be `''`), `sections`, `toc [{label, href}]` | calls `restore` with the stored JSON for `book.sha256` |
+| `opened` | (Also for a book swapped in while a newer open is under way: see Formats, the open order.) `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`/`pdf`), `textual` (false: no word taps, hide translation and vocabulary), `annotatable` (false: hide highlight and the translation label; CBZ and PDF), `reflowable` (false: disable the flow toggle), `title`, `author` (either may be `''`), `sections`, `toc [{label, href}]` | calls `restore` with the stored JSON for `book.sha256` |
 | `open-failed` | `name`, `error` (shown as is: unreadable, unsupported format, DRM, password-protected PDF) | must not keep the file |
-| `restored` | `found`, `rejected`, `position` (`none` / `restored` / `restored by fraction` / `quote mismatch, stayed at start` / `page not found, stayed at start` (CBZ, PDF) / `wrong position kind, stayed at start` (a CFI or fraction on a PDF, a page number elsewhere) / `navigation failed, stayed at start`), `highlights [{id, status}]` | — |
+| `restored` | `key` (= the book's `sha256`, as `store`'s: a host drops one for a book it is not reading), `found`, `rejected`, `position` (`none` / `restored` / `restored by fraction` / `quote mismatch, stayed at start` / `page not found, stayed at start` (CBZ, PDF) / `wrong position kind, stayed at start` (a CFI or fraction on a PDF, a page number elsewhere) / `navigation failed, stayed at start`), `highlights [{id, status}]` | — |
 | `store` | `key` (= `book.sha256`), `json` | keeps `json` under `key`, verbatim |
 | `relocate` | `index`, `sections`, `fraction`, `toc`, `cfi` | progress UI |
 | `word` | `index`, `word`, `sentence`, `cfi` (null where `annotatable` is false), `rect {x, y, w, h}` (host viewport) | translates, then `showTranslation` (not without a `cfi`) |
