@@ -833,11 +833,10 @@
       "cta": "Update"
     },
     "webView": {
-      "title": "Update Android System WebView",
-      "body": "This reader needs a newer Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then try again.",
-      "cta": "Update WebView",
-      "retry": "Try again",
-      "readyHint": "An outdated Android System WebView is a likely cause: update it from Google Play."
+      "title": "Update Android System WebView or Chrome",
+      "body": "This reader needs a newer version of the part of Android that shows web pages in apps: Android System WebView, or Chrome on Android 7–9. Update it from Google Play, then close and reopen TextStack.",
+      "cta": "Open Google Play",
+      "readyFailed": "The reader failed to load. An outdated Android System WebView or Chrome is a likely cause: update it from Google Play, then reopen TextStack."
     }
   }
 }

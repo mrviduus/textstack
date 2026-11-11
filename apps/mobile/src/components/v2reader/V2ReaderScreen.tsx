@@ -20,7 +20,8 @@ import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { useLanguage } from '../../context/LanguageContext'
-import { WebViewGate } from './WebViewGate'
+import { openPlayStorePage } from '../../lib/playStore'
+import { USER_AGENT_PROBE, createWebViewCheck, webViewStorePackage, type WebViewVerdict } from '../../lib/v2reader/webViewVersion'
 
 /**
  * The V2 reader (ADR-029) on Android, dev builds only: reached through `app/dev/epub-v2.tsx`.
@@ -125,13 +126,39 @@ const sizeOf = (file: string) => {
 
 const IDLE_HEADING = 'Pick a book'
 
+/** The WebView's verdict for the process (#1228, webViewVersion.ts): the reader page's first `ua` answer. */
+const webViewCheck = createWebViewCheck()
+
 /**
  * Plan R2 is the Android route: iOS has no allowFileAccessFromFileURLs and refuses the file:// base.
- * A WebView older than the page's floor gets the update screen instead (#1228, WebViewGate).
+ * A WebView older than the page's floor swaps the reader for the update screen (#1228).
  */
 export default function V2ReaderScreen() {
+  const [verdict, setVerdict] = useState(webViewCheck.verdict)
   if (Platform.OS !== 'android') return <Text>Android dev route only (R2)</Text>
-  return <WebViewGate>{(webViewUnknown) => <V2Reader webViewUnknown={webViewUnknown} />}</WebViewGate>
+  if (verdict === 'outdated') return <UpdateWebViewScreen />
+  return <V2Reader verdict={verdict} onUserAgent={(ua) => setVerdict(webViewCheck.answer(ua))} />
+}
+
+/** No "try again": the WebView provider is loaded once per process, so an update applies after a reopen. */
+function UpdateWebViewScreen() {
+  const { colors } = useTheme()
+  const { t } = useLanguage()
+  return (
+    <SafeAreaView style={[styles.update, { backgroundColor: colors.background }]}>
+      <View accessibilityRole="alert" style={styles.updateText}>
+        <Text style={[styles.updateTitle, { color: colors.text }]}>{t('updates.webView.title')}</Text>
+        <Text style={[styles.updateBody, { color: colors.textSecondary }]}>{t('updates.webView.body')}</Text>
+      </View>
+      <Pressable
+        onPress={() => openPlayStorePage(webViewStorePackage(Number(Platform.Version)))}
+        accessibilityRole="button"
+        style={[styles.button, { backgroundColor: colors.primary }]}
+      >
+        <Text style={styles.buttonText}>{t('updates.webView.cta')}</Text>
+      </Pressable>
+    </SafeAreaView>
+  )
 }
 
 /** Re-renders alone on every `relocate`, not the WebView beside it. */
@@ -141,8 +168,8 @@ function ProgressLine({ setter, color }: { setter: MutableRefObject<(text: strin
   return <Text style={[styles.meta, { color }]}>{text}</Text>
 }
 
-/** `webViewUnknown`: the WebView's version could not be read, so an old one is a likely cause of a missed `ready`. */
-function V2Reader({ webViewUnknown }: { webViewUnknown: boolean }) {
+/** `verdict` other than `ok` (no or no readable answer yet): an old WebView is a likely cause of a missed `ready`. */
+function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; onUserAgent: (ua: unknown) => void }) {
   const { colors } = useTheme()
   const { t } = useLanguage()
   const webView = useRef<WebView>(null)
@@ -330,6 +357,9 @@ function V2Reader({ webViewUnknown }: { webViewUnknown: boolean }) {
     try { m = JSON.parse(event.nativeEvent.data) } catch { return }
     if (!m || typeof m !== 'object') return
     switch (m.type) {
+      case 'ua':
+        onUserAgent(m.ua)
+        return
       case 'ready':
         deadlines.ready()
         // The layout goes in first: injected calls run in order, so the open below uses it.
@@ -436,7 +466,7 @@ function V2Reader({ webViewUnknown }: { webViewUnknown: boolean }) {
   }, [])
 
   // Every page load (first mount, a crash reload, Retry) owes a `ready`: on a WebView too old for the page
-  // nothing else would ever say so (#1080 item 3; WebViewGate keeps a known-old WebView out, this catches an unknown one).
+  // nothing else would ever say so (#1080 item 3; the `ua` answer keeps a known-old WebView out, this catches an unknown one).
   useEffect(() => {
     deadlines.waitReady(READY_DEADLINE_MS)
     return () => deadlines.dispose()
@@ -480,9 +510,9 @@ function V2Reader({ webViewUnknown }: { webViewUnknown: boolean }) {
       {overdue && (
         <View style={styles.alert} accessibilityRole="alert" accessibilityLiveRegion="polite">
           <Text style={[styles.meta, { color: colors.error }]}>
-            {overdue === 'ready'
-              ? `The reader failed to load.${webViewUnknown ? ` ${t('updates.webView.readyHint')}` : ''}`
-              : `${opening.current?.name ?? 'The book'} is taking too long to open.`}
+            {overdue === 'opened'
+              ? `${opening.current?.name ?? 'The book'} is taking too long to open.`
+              : verdict === 'ok' ? 'The reader failed to load.' : t('updates.webView.readyFailed')}
           </Text>
           <Pressable onPress={retry} accessibilityRole="button" style={button}><Text style={styles.buttonText}>Retry</Text></Pressable>
         </View>
@@ -527,6 +557,8 @@ function V2Reader({ webViewUnknown }: { webViewUnknown: boolean }) {
         allowFileAccessFromFileURLs
         allowUniversalAccessFromFileURLs={false}
         onMessage={onMessage}
+        // Runs as its own script on page start, so it answers even where the page fails to parse (#1228).
+        injectedJavaScriptBeforeContentLoaded={USER_AGENT_PROBE}
         onRenderProcessGone={reload}
         onContentProcessDidTerminate={reload}
         // The page never navigates; only its own about:/blob:/data: loads pass.
@@ -550,4 +582,8 @@ const styles = StyleSheet.create({
   booksRow: { gap: 6, paddingHorizontal: 8 },
   book: { borderWidth: 1, borderRadius: 6, paddingVertical: 4, maxWidth: 160 },
   page: { flex: 1 },
+  update: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 14 },
+  updateText: { alignItems: 'center', gap: 14 },
+  updateTitle: { fontSize: 20, fontWeight: '700', textAlign: 'center' },
+  updateBody: { fontSize: 15, lineHeight: 22, textAlign: 'center' },
 })

@@ -270,6 +270,6 @@ S4 and S5 stack on S3; B/C waves of the audit start after S3.
 ## 8. Recorded decision: Android WebView floor
 
 **Decided by the owner on 2026-11-11:** an Android System WebView older than 117 gets an "update your WebView" screen,
-not the legacy reader (ADR-029 Decision 6 recommendation, `ADR-029-foliate-for-v2-epub.md:97-103`, confirmed; the
+not the legacy reader (ADR-029 Decision 6 recommendation, confirmed; the
 detection is the recommendation's: an ES5 user-agent probe before the page loads, with the `ready` deadline of S4's
 Android twin as the backstop, #1080). Moved into ADR-029 Decision 6 by #1228, which builds it.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { MIN_WEBVIEW_CHROME, WEBVIEW_PROBE_HTML, chromeMajor, webViewGate } from './webViewVersion'
+import { MIN_WEBVIEW_CHROME, USER_AGENT_PROBE, chromeMajor, createWebViewCheck, verdictOf, webViewStorePackage } from './webViewVersion'
 
-// Real Android System WebView user agents (the `wv` token), incl. the R4 gate's emulators (#1036).
+// Real Android WebView user agents (the `wv` token), incl. the R4 gate's emulators (#1036).
 const UA = {
   wv66: 'Mozilla/5.0 (Linux; Android 9; Android SDK built for arm64 Build/PSR1.180720.075; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/66.0.3359.158 Mobile Safari/537.36',
   wv116: 'Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/116.0.5845.163 Mobile Safari/537.36',
@@ -28,28 +28,41 @@ describe('V2 reader WebView floor (#1228)', () => {
     }
   })
 
-  it('webViewGate_BelowTheFloor_Update', () => {
-    expect(webViewGate(UA.wv66)).toBe('update')
-    expect(webViewGate(UA.wv116)).toBe('update')
-  })
-
-  it('webViewGate_AtOrAboveTheFloor_Ok', () => {
+  it('verdictOf_AroundTheFloor', () => {
     expect(MIN_WEBVIEW_CHROME).toBe(117)
-    expect(webViewGate(UA.wv117)).toBe('ok')
-    expect(webViewGate(UA.wv120reduced)).toBe('ok')
-    expect(webViewGate(UA.wv145)).toBe('ok')
+    expect(verdictOf(UA.wv66)).toBe('outdated')
+    expect(verdictOf(UA.wv116)).toBe('outdated')
+    expect(verdictOf(UA.wv117)).toBe('ok')
+    expect(verdictOf(UA.wv120reduced)).toBe('ok')
+    expect(verdictOf(UA.wv145)).toBe('ok')
+    expect(verdictOf(UA.legacy)).toBe('unknown')
+    expect(verdictOf(undefined)).toBe('unknown')
   })
 
-  it('webViewGate_NoVersion_UnknownNotBlocked', () => {
-    expect(webViewGate(UA.legacy)).toBe('unknown')
-    expect(webViewGate('garbled')).toBe('unknown')
-    expect(webViewGate(null)).toBe('unknown') // the probe never answered
+  it('check_FirstAnswerWinsAndIsKept', () => {
+    const ok = createWebViewCheck()
+    expect(ok.verdict()).toBeNull()
+    expect(ok.answer(UA.wv145)).toBe('ok')
+    expect(ok.answer(UA.wv66)).toBe('ok')
+    expect(ok.verdict()).toBe('ok')
+    const old = createWebViewCheck()
+    expect(old.answer(UA.wv66)).toBe('outdated')
+    expect(old.answer(UA.wv145)).toBe('outdated')
+    const garbled = createWebViewCheck()
+    expect(garbled.answer('garbled')).toBe('unknown')
+    expect(garbled.answer(UA.wv66)).toBe('unknown')
   })
 
-  it('probe_IsEs5AndNetworkless', () => {
-    const script = /<script>(.*)<\/script>/.exec(WEBVIEW_PROBE_HTML)![1]
+  it('webViewStorePackage_Android7to9Chrome_ElseWebView', () => {
+    expect(webViewStorePackage(24)).toBe('com.android.chrome')
+    expect(webViewStorePackage(28)).toBe('com.android.chrome')
+    expect(webViewStorePackage(29)).toBe('com.google.android.webview')
+    expect(webViewStorePackage(37)).toBe('com.google.android.webview')
+  })
+
+  it('probe_IsEs5', () => {
     // No ES2015+ syntax a WebView 66 or older would choke on.
-    expect(script).not.toMatch(/=>|`|\?\.|\?\?|\blet\b|\bconst\b|\.\.\./)
-    expect(WEBVIEW_PROBE_HTML).toContain("default-src 'none'")
+    expect(USER_AGENT_PROBE).not.toMatch(/=>|`|\?\.|\?\?|\blet\b|\bconst\b|\.\.\./)
+    expect(USER_AGENT_PROBE).toContain("type: 'ua'")
   })
 })
