@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Infra** — flaky `RollingSpendTrackerTests.Alert_ConcurrentCrossing_ExactlyOneEmail` (failed a deploy run: 0 emails after 2 s under the parallel suite) waits up to 10 s for the fire-and-forget alert — backend
 - **Infra** — CI: Playwright system deps are best-effort (an apt/DNS outage no longer reds `e2e`/`frontend` by itself); the `e2e` job builds the web app once instead of per Playwright run — infra
 - **Reader** — R7: `pdf-page` positions tested through the Android host path (pull → download → open → push) and the V2 API (round trip on a PDF, refused on an EPUB); no code change needed (part of #1039) — mobile, backend
 - **Mobile** — a V2 store reset (account switch, guest → account) never lets a library listing delete downloads: a dropped pull is a retryable 503, the orphan sweep and the library screen re-list (#1191) — mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-11-mobile-v2-store-reset-never-deletes-downloads)

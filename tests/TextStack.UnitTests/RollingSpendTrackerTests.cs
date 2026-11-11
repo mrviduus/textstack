@@ -154,7 +154,8 @@ public class RollingSpendTrackerTests
         Parallel.For(0, 200, _ => t.Record("explain", 0.1m)); // sums to $20, well over 80%
 
         // The alert email is fire-and-forget — poll (don't Thread.Sleep a fixed 100ms,
-        // which flakes on a slow CI runner before the dispatched Task runs).
+        // which flakes on a slow CI runner before the dispatched Task runs). 10 s: the deploy run of
+        // 2026-11-11 saw 0 emails after 2 s under the parallel suite (thread-pool starvation).
         Eventually(() => email.Verify(e => e.SendAdminAlertAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once));
     }
@@ -212,7 +213,7 @@ public class RollingSpendTrackerTests
 
     // ---- harness ----
 
-    private static void Eventually(Action assert, int timeoutMs = 2000)
+    private static void Eventually(Action assert, int timeoutMs = 10000)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (true)
