@@ -377,8 +377,12 @@ target in the spread already shown counts as arrived (foliate shows it without a
   "Pick a book".
 - Android (#1080 item 6): the open's error line (pick, download, open-failed, import, crash) is apart from the
   other one (library, settings, sync, saves), so a later `store` failure never overwrites why a book did not open; a
-  full disk reads as one human message and `NotReadableError` as "could not be read" (`hostErrors.ts`; raw text logged). The update screen for a WebView older than 117 is #1228;
-  this `ready` deadline is its backstop.
+  full disk reads as one human message and `NotReadableError` as "could not be read" (`hostErrors.ts`; raw text logged).
+- **WebView floor** (#1228, ADR-029 Decision 6): before the page loads, an ES5 probe document posts
+  `navigator.userAgent` (`webViewVersion.ts`: `Chrome/<major>`, floor `MIN_WEBVIEW_CHROME` 117). Older: the "update
+  Android System WebView" screen (`WebViewGate.tsx`: Play Store page, Try again re-probes) instead of the reader. No
+  answer in `WEBVIEW_PROBE_DEADLINE_MS` or no readable version: not blocked; the page loads, and a missed `ready`
+  says an outdated WebView is a likely cause. A version found new enough is not asked again in the process.
 - Errors are `role="alert"` (web) / `accessibilityRole="alert"` with a polite live region (Android); Retry is a button.
 
 **WebView, dev route only** (prototype host; ADR-029 Decision 4 until the R4 security review):

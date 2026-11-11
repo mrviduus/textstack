@@ -19,6 +19,8 @@ import { v2ReaderPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
+import { useLanguage } from '../../context/LanguageContext'
+import { WebViewGate } from './WebViewGate'
 
 /**
  * The V2 reader (ADR-029) on Android, dev builds only: reached through `app/dev/epub-v2.tsx`.
@@ -123,10 +125,13 @@ const sizeOf = (file: string) => {
 
 const IDLE_HEADING = 'Pick a book'
 
-/** Plan R2 is the Android route: iOS has no allowFileAccessFromFileURLs and refuses the file:// base. */
+/**
+ * Plan R2 is the Android route: iOS has no allowFileAccessFromFileURLs and refuses the file:// base.
+ * A WebView older than the page's floor gets the update screen instead (#1228, WebViewGate).
+ */
 export default function V2ReaderScreen() {
   if (Platform.OS !== 'android') return <Text>Android dev route only (R2)</Text>
-  return <V2Reader />
+  return <WebViewGate>{(webViewUnknown) => <V2Reader webViewUnknown={webViewUnknown} />}</WebViewGate>
 }
 
 /** Re-renders alone on every `relocate`, not the WebView beside it. */
@@ -136,8 +141,10 @@ function ProgressLine({ setter, color }: { setter: MutableRefObject<(text: strin
   return <Text style={[styles.meta, { color }]}>{text}</Text>
 }
 
-function V2Reader() {
+/** `webViewUnknown`: the WebView's version could not be read, so an old one is a likely cause of a missed `ready`. */
+function V2Reader({ webViewUnknown }: { webViewUnknown: boolean }) {
   const { colors } = useTheme()
+  const { t } = useLanguage()
   const webView = useRef<WebView>(null)
   const [nonce, setNonce] = useState(freshNonce)
   const source = useMemo(() => ({ html: v2ReaderPageHtml(nonce), baseUrl: Paths.document.uri }), [nonce])
@@ -429,7 +436,7 @@ function V2Reader() {
   }, [])
 
   // Every page load (first mount, a crash reload, Retry) owes a `ready`: on a WebView too old for the page
-  // nothing else would ever say so (#1080 item 3; the update screen of #1228 sits in front of this).
+  // nothing else would ever say so (#1080 item 3; WebViewGate keeps a known-old WebView out, this catches an unknown one).
   useEffect(() => {
     deadlines.waitReady(READY_DEADLINE_MS)
     return () => deadlines.dispose()
@@ -473,7 +480,9 @@ function V2Reader() {
       {overdue && (
         <View style={styles.alert} accessibilityRole="alert" accessibilityLiveRegion="polite">
           <Text style={[styles.meta, { color: colors.error }]}>
-            {overdue === 'ready' ? 'The reader failed to load.' : `${opening.current?.name ?? 'The book'} is taking too long to open.`}
+            {overdue === 'ready'
+              ? `The reader failed to load.${webViewUnknown ? ` ${t('updates.webView.readyHint')}` : ''}`
+              : `${opening.current?.name ?? 'The book'} is taking too long to open.`}
           </Text>
           <Pressable onPress={retry} accessibilityRole="button" style={button}><Text style={styles.buttonText}>Retry</Text></Pressable>
         </View>
