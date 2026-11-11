@@ -9,6 +9,7 @@ import { initApi, V2UploadNotOnServer, type OpenReader } from '@textstack/shared
 import { resetV2ForTests, v2Store, V2UploadError } from '../v2'
 import { CHANGES_NOT_SYNCED, createLocalLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
+import { createV2Storage } from './hostStorage'
 import { adoptV2LocalAccount, downloadV2Book, MAX_FAILURES, syncV2Library, tryAgainV2Book, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, conflict, feed, resetMidCall, type Answer, type Call,
@@ -783,6 +784,37 @@ describe('V2 local library sync (R6)', () => {
         expect(await downloadV2Book(lib, sid, io)).toBe(true)
         expect((await restoredEntry(lib)).position, state.currentLocator.scheme).toEqual(expected)
       }
+    })
+
+    it('androidHost_ServerOnlyPdf_DownloadOpenTurn_RestoresPullAndPushesPdfPageOnItsRevision', async () => {
+      // R7 (#1039), the dev route's calls in order: pull, download on demand, open (restore, addOpened
+      // with the page's `format`), a page turn's `store`, the next pass.
+      const sid = 'aaaaaaaa-0000-4000-8000-000000000001'
+      const sfid = 'aaaaaaaa-0000-4000-8000-000000000002'
+      const lib = createLocalLibrary(memoryDb())
+      const files = { read: async () => null, move: async () => {}, exists: () => true, remove: () => {} }
+      const storage = createV2Storage(files, newId, lib)
+      fakeApi({
+        'GET /library/changes': feed(serverBook(sid, sfid, {}, { hasContent: true, format: 'pdf', originalName: 'b.pdf' })),
+        'GET /reading/changes': feed(pdfState(sid, sfid, 3, 4, NOW - 1000)),
+      })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect((await storage.books()).map((b) => [b.id, b.local])).toEqual([[sid, false]])
+      expect(await downloadV2Book(lib, sid, { fetch: async () => 'staging/dl.epub', retain: async () => {} })).toBe(true)
+      // What the host hands `restore`: the other device's page.
+      expect(JSON.parse((await storage.readStore(SHA))!).position).toEqual({ page: 4, index: 3, fraction: 0.4, at: NOW - 1000 })
+      const { bookId } = await storage.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.pdf', format: 'pdf' }, null)
+      expect(bookId).toBe(sid)
+      await storage.writeStore(SHA, entry(page(7, NOW - 100), []))
+      const calls = fakeApi({ [`PUT /books/${sid}/reading-state`]: [ok(pdfState(sid, sfid, 4, 7, NOW - 100))] })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(writes(calls)).toEqual([`PUT /books/${sid}/reading-state`])
+      expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({
+        expectedRevision: 3, fileId: sfid, bookFraction: 0.7, clientRecordedAt: new Date(NOW - 100).toISOString(),
+        currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 7 } },
+      })
+      expect(await lib.state(sid)).toMatchObject({ revision: 4, revision_file_id: sfid })
+      expect(await lib.outbox()).toEqual([])
     })
   })
 
