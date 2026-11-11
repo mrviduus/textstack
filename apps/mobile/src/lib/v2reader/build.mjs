@@ -18,7 +18,11 @@ import { NONCE, formatsJs, html } from './carrier.mjs'
 // + our patches as real commits. MIT © John Factotum. A bump is a PR that re-runs every ADR-029
 // Decision 6 check.
 const FOLIATE_REPO = 'https://github.com/mrviduus/foliate-js.git'
-const FOLIATE_SHA = 'd73682a48a0779ca989f25074386784602437fbf'   // branch textstack-pin: 78914aef + 0001 paginator render-while-loading
+// Branch textstack-pin: 78914aef + d73682a (paginator render-while-loading) + #1182: typed KF8 resource
+// blobs, KF8 sections through transformTarget, view relocate carries `reason`, PDF null outline
+// destination (upstream ce10f08), PDF nothing at import time (pdf.js is stubbed out of the page),
+// paginator: setStyles' frame callback does nothing once destroy() nulled the view.
+const FOLIATE_SHA = 'b3386ef90b806dc3667941d9c26db12cce98b064'
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // reader-engine's 64 KB budget.
@@ -42,11 +46,16 @@ const FOLIATE_SHA = 'd73682a48a0779ca989f25074386784602437fbf'   // branch texts
 // +773 (#1187 round 3): one host-move guard (restore + non-chosen goTo save and echo nothing), restore
 // as one navigation slot, restore only for a view that answered `opened`, one position builder,
 // fixed-layout arrival by spread.
-const BUDGET = 249670
+// +575 (#1182 pin bump): KF8 read — formats.mjs checks the KF8 header (an AZW3's own or a combo's KF8
+// half) for DRM and SKEL/FRAG indexes before teardown, combos no longer forced to MOBI6 (withoutKf8 gone);
+// view.js forwards the relocate reason (+15), the page's capture listener for it is gone.
+// +43 (#1182 guard commit): paginator setStyles' frame callback returns once destroy() nulled the view.
+const BUDGET = 250288
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
-const FORMAT_BUDGET = { mobi: 51784, fb2: 11417, cbz: 2030 }
+// mobi +264 (#1182 pin bump): typed KF8 resource blobs, KF8 section markup through transformTarget.
+const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'v2ReaderPage.generated.ts')
@@ -130,7 +139,8 @@ const content = `// AUTO-GENERATED — do not edit.
 // Regenerate: pnpm -C apps/web build:v2-reader
 //
 // foliate-js fork ${FOLIATE_SHA} (mrviduus/foliate-js, branch textstack-pin:
-// upstream 78914aef + our commits; MIT © John Factotum; bundled zip.js BSD-3-Clause).
+// upstream 78914aef + our paginator commit d73682a + six #1182 commits, see build.mjs;
+// MIT © John Factotum; bundled zip.js BSD-3-Clause).
 
 /* eslint-disable */
 /* prettier-ignore */

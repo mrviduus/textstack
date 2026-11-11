@@ -1,10 +1,15 @@
-import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fb2, mobi, png } from './fixtures.mjs'
-import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, mobiHeader, sniffFormat, withoutKf8, zipFormat } from './formats.mjs'
+import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, mobiHeader, sniffFormat, zipFormat } from './formats.mjs'
+import { SYNTHETIC } from './kf8fixture.mjs'
 
 const bytes = (b: Buffer | string) => new Uint8Array(Buffer.from(b))
+/** A fresh copy of a committed synthetic book (synthetic/, kf8fixture.mjs). */
+const synthetic = (name: string) => new Uint8Array(readFileSync(resolve(__dirname, 'synthetic', name)))
+const r0 = (b: Uint8Array) => new DataView(b.buffer).getUint32(78)
 const html = '<html><body><p>Text</p></body></html>'
 
 describe('sniffFormat', () => {
@@ -53,7 +58,7 @@ describe('sniffFormat', () => {
 
 describe('mobiHeader', () => {
   it('readsRecordZerosPalmDocFlagAndVersion', () => {
-    expect(mobiHeader(bytes(mobi('T', html)))).toEqual({ encryption: 0, version: 6, boundaries: [] })
+    expect(mobiHeader(bytes(mobi('T', html)))).toEqual({ encryption: 0, version: 6, boundary: undefined, base: 0 })
     expect(mobiHeader(bytes(mobi('T', html, { encryption: 2 }))).encryption).toBe(2)
     expect(mobiHeader(bytes(mobi('T', html, { version: 8 }))).version).toBe(8)
   })
@@ -66,17 +71,58 @@ describe('mobiHeader', () => {
     }
   })
 
-  it('kf8_RefusedUntilTheForkIsFixed', () => {
-    expect(() => sniffFormat(bytes(mobi('T', html, { version: 8 })))).toThrow(/AZW3 \(KF8\) is not supported yet/)
+  it('kf8WithIndexes_GoesToTheMobiReader', () => {
+    expect(mobiHeader(synthetic('tssynthetic-kf8.azw3'))).toMatchObject({ encryption: 0, version: 8, boundary: undefined })
+    expect(sniffFormat(synthetic('tssynthetic-kf8.azw3'))).toBe('mobi')
   })
 
-  it('combo_ReadAsItsMobi6Half_EveryBoundaryCleared', () => {
-    const b = bytes(mobi('T', html, { boundary: 1 }))
+  it('kf8HeaderOnly_RefusedAsDamaged', () => {
+    expect(() => sniffFormat(bytes(mobi('T', html, { version: 8 })))).toThrow(/truncated or damaged/)
+  })
+
+  it('kf8SkelOrFragNotAnIndex_RefusedAsDamaged', () => {
+    for (const at of [248, 252]) for (const record of [1, 0xffff, 0xffffffff]) {
+      const b = synthetic('tssynthetic-kf8.azw3')
+      new DataView(b.buffer).setUint32(r0(b) + at, record)
+      expect(() => sniffFormat(b), `${at} → ${record}`).toThrow(/truncated or damaged/)
+    }
+  })
+
+  it('kf8WithDrmFlag_RefusedAsDrm', () => {
+    for (const encryption of [1, 2]) {
+      const b = synthetic('tssynthetic-kf8.azw3')
+      new DataView(b.buffer).setUint16(r0(b) + 12, encryption)
+      expect(() => sniffFormat(b)).toThrow(/DRM-protected/)
+    }
+  })
+
+  it('combo_ItsKf8HalfChecked_DrmAndIndexes', () => {
+    const b = synthetic('tssynthetic-combo.mobi')
+    const h = mobiHeader(b)
+    expect(h).toMatchObject({ version: 6, boundary: 13 })
+    expect(mobiHeader(b, 13)).toMatchObject({ version: 8, base: 13, skel: 9, frag: 6 })
     expect(sniffFormat(b)).toBe('mobi')
-    const [at] = mobiHeader(b).boundaries
-    expect([...b.subarray(at, at + 4)]).toEqual([0, 0, 0, 1])
-    withoutKf8(b)
-    expect([...b.subarray(at, at + 4)]).toEqual([0xff, 0xff, 0xff, 0xff])
+    const kf8 = new DataView(b.buffer).getUint32(78 + 13 * 8)
+    const drm = synthetic('tssynthetic-combo.mobi')
+    new DataView(drm.buffer).setUint16(kf8 + 12, 2)
+    expect(() => sniffFormat(drm)).toThrow(/DRM-protected/)
+    const damaged = synthetic('tssynthetic-combo.mobi')
+    new DataView(damaged.buffer).setUint32(kf8 + 252, 1)
+    expect(() => sniffFormat(damaged)).toThrow(/truncated or damaged/)
+  })
+
+  it('combo_BoundaryAtNoMobiHeader_Mobi6', () => {
+    // foliate falls back to the MOBI6 half when the boundary record holds no MOBI header.
+    for (const boundary of [1, 99, 0xffffffff]) expect(sniffFormat(bytes(mobi('T', html, { boundary }))), String(boundary)).toBe('mobi')
+  })
+})
+
+describe('synthetic KF8 fixtures', () => {
+  it('committedFiles_MatchTheRecipesRecordedHashes', () => {
+    for (const [name, [sha256, size]] of Object.entries(SYNTHETIC)) {
+      const b = readFileSync(resolve(__dirname, 'synthetic', name))
+      expect([createHash('sha256').update(b).digest('hex'), b.length], name).toEqual([sha256, size])
+    }
   })
 })
 

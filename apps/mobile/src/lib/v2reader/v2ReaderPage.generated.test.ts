@@ -52,9 +52,27 @@ describe('v2ReaderPageHtml', () => {
     // Fork commit d73682a (was patches/0001): Paginator.render() returns while the current view's document has no body yet.
     // esbuild's temporaries are renamed as the bundle grows (_a → _a2): matched by shape, not by name.
     expect(html).toMatch(/if \(!\(\((\w+) = \((\w+) = this\.#view\) == null \? void 0 : \2\.document\) == null \? void 0 : \1\.body\)\) return;/)
+    // Fork commit b3386ef (#1182): setStyles' frame callback does nothing once destroy() nulled the view.
+    expect(html).toMatch(/requestAnimationFrame\(\(\) => \{\s*if \(this\.#view\) this\.#background\.style\.background = getBackground\(this\.#view\.document\);\s*\}\);/)
     expect(html).toContain('var flow = "paginated";')
     expect(html).not.toContain('reproRenderDuringLoad')
     expect(html).not.toContain('currentView')
+  })
+
+  it('bundle_Kf8ForkCommits_AndTheRelocateReasonFromTheView', () => {
+    const html = v2ReaderPageHtml(NONCE)
+    // #1182 fork commits. view.js: the view's relocate carries the renderer's reason; the page reads it there
+    // and keeps no capture listener of its own on the renderer.
+    expect(html).toContain('this.#emit("relocate", { ...this.lastLocation, reason });')
+    expect(html).toMatch(/const moved = (\w+)\.reason !== "anchor" && \1\.cfi !== lastCfi;/)
+    expect(html).not.toContain('rendererReason')
+    expect(html).not.toMatch(/view\.renderer\.addEventListener\("relocate"/)
+    // mobi.js, the carried MOBI reader (a JSON string, read back as JS): typed KF8 resource blobs, and KF8
+    // section markup dispatched through transformTarget, where the page strips refresh metas.
+    const mobi: string = JSON.parse(html.match(/var __TS_FORMATS = \{mobi: ("(?:[^"\\]|\\.)*")/)![1])
+    expect(mobi).toContain('new Blob([newData], { type: newType })')
+    expect(mobi).not.toContain('{ newType }')
+    expect(mobi).toMatch(/const detail = \{ data: replaced, type: this\.#type \};\s*this\.transformTarget\.dispatchEvent\(new CustomEvent\("data", \{ detail \}\)\);\s*const data = await detail\.data;\s*if \(data !== replaced\) doc = /)
   })
 
   it('bundle_OpenCancelsPendingSaves_AndNoHighlightBeforeRestored', () => {

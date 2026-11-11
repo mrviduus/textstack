@@ -10,8 +10,8 @@ const u16 = (b, at) => (b[at] << 8) | b[at + 1]
 const FB2_WINDOW = 4096
 
 /**
- * The container: `zip` (EPUB, CBZ, FBZ — told apart by `zipFormat`), `mobi` (MOBI6, or the MOBI6 half of a
- * MOBI/KF8 combo), `fb2`; throws, with the message the host shows (`open-failed`), for what this page does not read or refuses. Cheap and
+ * The container: `zip` (EPUB, CBZ, FBZ — told apart by `zipFormat`), `mobi` (MOBI6, KF8/AZW3, or the KF8
+ * half of a MOBI/KF8 combo), `fb2`; throws, with the message the host shows (`open-failed`), for what this page does not read or refuses. Cheap and
  * pure: the page calls it before it touches the open book, so a refusal leaves that book as it was.
  */
 export function sniffFormat(bytes) {
@@ -21,11 +21,13 @@ export function sniffFormat(bytes) {
   if (ascii(bytes, 0, 8) === '\xeaDRMION\xee') throw new Error('this Kindle book is DRM-protected (KFX) and cannot be opened')
   if (ascii(bytes, 60, 68) === 'BOOKMOBI') {
     const h = mobiHeader(bytes)
-    if (h.encryption) throw new Error('this Kindle book is DRM-protected and cannot be opened')
-    // The fork's KF8 reader (pin d73682a) is unverified and makes its resource blobs without a type
-    // (mobi.js loadResourceBlob: `{ newType }` for `{ type: newType }`); its sections also bypass the
-    // transformTarget the page strips refresh metas through. Refused until the fork is fixed.
-    if (h.version >= 8) throw new Error('AZW3 (KF8) is not supported yet')
+    // The header foliate reads the book by: KF8's own, or a combo's KF8 half, which foliate prefers to its
+    // MOBI6 half. Both are checked here, before the open book is touched.
+    const kf8 = h.version >= 8 ? h : h.boundary === undefined ? null : kf8Half(bytes, h.boundary)
+    if (h.encryption || kf8?.encryption) throw new Error('this Kindle book is DRM-protected and cannot be opened')
+    // foliate fails on a missing SKEL/FRAG index only inside the open, after teardown.
+    // ponytail: the INDX magic only; a damaged index body still fails there (an open-failed, the old book gone).
+    if (kf8 && !(isIndx(bytes, kf8.base + kf8.skel) && isIndx(bytes, kf8.base + kf8.frag))) throw new Error('this Kindle file is truncated or damaged')
     return 'mobi'
   }
   // The last candidate: anything that is not an FB2 is refused there as "not a book".
@@ -46,37 +48,45 @@ export function checkFb2(bytes) {
   if (/<!ENTITY/i.test(head.slice(0, root))) throw new Error('unsupported FB2: custom entities')
 }
 
+/** Where record `i` of a PDB starts (undefined past its record list). */
+const recordAt = (bytes, i) => (i < u16(bytes, 76) && 78 + i * 8 + 4 <= bytes.length ? u32(bytes, 78 + i * 8) : undefined)
+const isIndx = (bytes, i) => { const at = recordAt(bytes, i); return at !== undefined && ascii(bytes, at, at + 4) === 'INDX' }
+
 /**
- * Record 0 of a PDB `BOOKMOBI`: its PalmDOC `encryption` (0 none, 1 old Mobipocket, 2 Mobipocket DRM), the
- * MOBI header `version` (8 = KF8), and where each EXTH 121 (the KF8 boundary of a MOBI/KF8 combo) keeps
- * its value. Throws for a file too short to hold what is read: truncated, not DRM.
+ * A MOBI header record of a PDB `BOOKMOBI` (record 0 by default): its PalmDOC `encryption` (0 none, 1 old
+ * Mobipocket, 2 Mobipocket DRM), the MOBI header `version` (8 = KF8), the last EXTH 121 `boundary` (a MOBI/KF8
+ * combo's KF8 header record; foliate keeps the last), and a KF8 header's SKEL and FRAG index records,
+ * relative to `base` (the header's own record). Throws for a file too short to hold what is read: truncated, not DRM.
  */
-export function mobiHeader(bytes) {
+export function mobiHeader(bytes, base = 0) {
   const damaged = () => new Error('this Kindle file is truncated or damaged')
   if (bytes.length < 86) throw damaged()
-  const r0 = u32(bytes, 78)
+  const r0 = recordAt(bytes, base) ?? bytes.length
   if (r0 + 248 > bytes.length || ascii(bytes, r0 + 16, r0 + 20) !== 'MOBI') throw damaged()
-  const boundaries = []
+  let boundary
   if (u32(bytes, r0 + 128) & 0x40) {
     const exth = r0 + 16 + u32(bytes, r0 + 20)
     if (exth + 12 > bytes.length || ascii(bytes, exth, exth + 4) !== 'EXTH') throw damaged()
     for (let i = 0, at = exth + 12, n = u32(bytes, exth + 8); i < n && at + 8 <= bytes.length; i++) {
       const [type, len] = [u32(bytes, at), u32(bytes, at + 4)]
       if (len < 8) break
-      if (type === 121 && at + 12 <= bytes.length) boundaries.push(at + 8)
+      if (type === 121 && at + 12 <= bytes.length) boundary = u32(bytes, at + 8)
       at += len
     }
   }
-  return { encryption: u16(bytes, r0 + 12), version: u32(bytes, r0 + 36), boundaries }
+  const version = u32(bytes, r0 + 36)
+  if (version >= 8 && r0 + 256 > bytes.length) throw damaged()
+  return { encryption: u16(bytes, r0 + 12), version, boundary, base, ...(version >= 8 && { frag: u32(bytes, r0 + 248), skel: u32(bytes, r0 + 252) }) }
 }
 
 /**
- * A combo file read as its MOBI6 half: every KF8 boundary set to "none" (0xffffffff), the value
- * foliate's MOBI reader takes for a plain MOBI6. In place; the page hashed the bytes before.
+ * A combo's KF8 header (record `boundary`), as foliate takes it: none where there is no MOBI header there
+ * (foliate then falls back to the MOBI6 half). Any MOBI header there is read as KF8, so one below version 8
+ * has no indexes and is refused as damaged.
  */
-export function withoutKf8(bytes) {
-  for (const at of mobiHeader(bytes).boundaries) bytes.fill(0xff, at, at + 4)
-  return bytes
+function kf8Half(bytes, boundary) {
+  const at = recordAt(bytes, boundary)
+  return at === undefined || ascii(bytes, at + 16, at + 20) !== 'MOBI' ? null : mobiHeader(bytes, boundary)
 }
 
 /**
