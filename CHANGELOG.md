@@ -1,8 +1,7 @@
 # Changelog
 
-**Frozen (#1220).** New changes are in [GitHub Releases](https://github.com/mrviduus/textstack/releases):
-every deploy creates a dated release whose notes list the merged PRs, sectioned by area label.
-This file and [`docs/changelog-archive/`](docs/changelog-archive/) keep the history before the switch.
+**Frozen (#1220).** New changes: the merged PRs, shown by week on [textstack.app/en/changelog](https://textstack.app/en/changelog).
+This file and [`docs/changelog-archive/`](docs/changelog-archive/) keep the history before the switch (2026-11-11).
 
 Headings are CalVer dates. Those after 2026.10.04 were set from git history when the file was frozen
 (the day each line reached `main`); earlier ones were written at deploy time. The write-up behind a

@@ -10,8 +10,8 @@ Free book library with Kindle-like reader. EPUB/PDF upload, parsing, SEO pages, 
 |----------|-------------|
 | [CLAUDE.md](../CLAUDE.md) | AI assistant context (commands, key files, concepts) |
 | [STATUS.md](STATUS.md) | **Where the project is right now** — in flight, known-broken, won't-do |
-| [Releases](https://github.com/mrviduus/textstack/releases) | One dated release per deploy, notes from the merged PRs |
-| [CHANGELOG.md](../CHANGELOG.md) | Frozen: changes before the switch to releases (#1220) |
+| [Changelog page](https://textstack.app/en/changelog) | Merged PRs by week; reader view of the public ones |
+| [CHANGELOG.md](../CHANGELOG.md) | Frozen: changes before 2026-11-11 (#1220) |
 | [Incidents](incidents/README.md) | Postmortems: what broke, why it was invisible, what it taught |
 | [Changelog archive](changelog-archive/) | Frozen: the write-ups behind the CHANGELOG lines |
 | [Vision](00-vision/README.md) | Goals, principles, stack |

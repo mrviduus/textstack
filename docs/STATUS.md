@@ -1,6 +1,6 @@
 # Status
 
-**Last updated: 2026-11-11.** Where the project is *now*: what is live, half-finished, known-broken or deliberately not done. What the product does: [`docs/README.md`](README.md). What changed and when: [Releases](https://github.com/mrviduus/textstack/releases) (one per deploy); before #1220, [`CHANGELOG.md`](../CHANGELOG.md) and [`changelog-archive/`](changelog-archive/). Closed items are deleted from here, not struck through; git history keeps them.
+**Last updated: 2026-11-11.** Where the project is *now*: what is live, half-finished, known-broken or deliberately not done. What the product does: [`docs/README.md`](README.md). What changed and when: [the changelog page](https://textstack.app/en/changelog) (merged PRs by week); before #1220, [`CHANGELOG.md`](../CHANGELOG.md) and [`changelog-archive/`](changelog-archive/). Closed items are deleted from here, not struck through; git history keeps them.
 
 > **Keeping it honest:** a PR that finishes a line here deletes or moves that line in the same PR. New open items go to [GitHub issues](https://github.com/mrviduus/textstack/issues) with a label; the items below move to an issue when someone touches them.
 
