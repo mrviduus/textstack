@@ -87,6 +87,16 @@ origin to book content, so it cannot inherit the production reader's safety argu
    and the `openLink` bridge can carry it to a browser — measured on the emulator. Narrowing is not expressible
    (Chromium rejects a `file:` path as a CSP source); bytes over the bridge would take ~68 s for an 87 MB book
    against 6.4–7.7 s by XHR. Trade-off: native code in `react-native-webview`. Evidence: [R4 security review](../epub-engine-prototype.md#gate-file-security-review).
+   **Amended 2026-11-11 (owner decision; web host only, #1225):** on the web the page is no longer one inline
+   document. It is a small `no-store` HTML shell carrying this CSP (meta), the host shim inline and a fresh nonce per
+   response, plus the page code as a separate content-hashed file (`/reader-v2/page.<hash>.js`, `Cache-Control:
+   public, max-age=31536000, immutable`, nosniff, JS type), loaded by `<script nonce="…" src="…" integrity="sha384-…">`.
+   The CSP itself is unchanged: the nonce now admits one external script as well as the inline shim and the format
+   readers. Why: with the nonce inline in the 3.75 MB page, `no-store` re-sent the whole page on every book open; now
+   an open downloads ~1.3 KB and the script comes from the HTTP cache. The shell's placeholder fails closed (a shell
+   served unfilled runs nothing), and `integrity` pins the script to the shell that names it. Android keeps the
+   inline page (`v2ReaderPageHtml(nonce)`). Files and checks: `apps/mobile/src/lib/v2reader/frame.mjs`,
+   `prodCsp.check.mjs`, the README's "Web, its own document".
 5. **Dev-only first.** One `__DEV__`-gated route (R2: `app/dev/epub-v2.tsx`); the release bundle
    contains no reader page and no route to it. No production route until every gate below passes.
 6. **Gates to leave dev-only** (prototype brief + plan R3/R4), recorded as an evidence table in
