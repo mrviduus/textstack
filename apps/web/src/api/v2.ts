@@ -7,7 +7,7 @@
  * (`createV2Books`, `uploadV2File`, #1121); this file caches, maps and gives them its IO.
  */
 import {
-  v2Api, ApiError, V2_OFF, getApiConfig, ingestionStatus, shelfFileSummary, resumeChapterOf, placeToV2Locator, createV2Books, uploadV2File, V2UploadError, mb,
+  v2Api, ApiError, V2_OFF, ingestionStatus, shelfFileSummary, resumeChapterOf, placeToV2Locator, createV2Books, uploadV2File, V2UploadError, mb,
   type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2Annotation, type V2Word,
   type V2ReadingStateWrite, type V2Switch, type ProgressWrite,
 } from '@textstack/shared'
@@ -185,17 +185,10 @@ export async function getV2UserBookChapter(bookId: string, chapterKey: string): 
 }
 
 /**
- * A V2 file's bytes for the V2 reader (#1225): online only, no cache. Cookie-authed as every call here, with
- * authFetch's rule: a 401 refreshes the cookie and retries once. Anything but 2xx is an ApiError.
+ * A V2 file's bytes for the V2 reader (#1225): online only, no cache. The shared client's call (cookie, 401
+ * refresh + retry once, ApiError on non-2xx, a network failure as its `isNetworkError` ApiError).
  */
-export async function fetchV2FileBytes(bookId: string, fileId: string): Promise<ArrayBuffer> {
-  const { onUnauthorized, credentials } = getApiConfig()
-  const get = () => fetch(v2Api.contentUrl(bookId, fileId), { credentials })
-  let res = await get()
-  if (res.status === 401 && (await onUnauthorized()) === '') res = await get()
-  if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`)
-  return res.arrayBuffer()
-}
+export const fetchV2FileBytes = v2Api.getContent
 
 // ---- Reading state ------------------------------------------------------------------------------
 

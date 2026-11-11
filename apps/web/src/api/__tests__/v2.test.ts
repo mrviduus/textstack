@@ -469,7 +469,12 @@ describe('fetchV2FileBytes', () => {
   it('returns the content bytes, with the cookie', async () => {
     const f = stubFetch({ [CONTENT]: [200] })
     expect(new TextDecoder().decode(await fetchV2FileBytes('b1', 'f1'))).toBe('BYTES')
-    expect(f).toHaveBeenCalledWith(expect.stringMatching(/\/me\/v2\/books\/b1\/files\/f1\/content$/), { credentials: 'include' })
+    expect(f).toHaveBeenCalledWith(expect.stringMatching(/\/me\/v2\/books\/b1\/files\/f1\/content$/), expect.objectContaining({ credentials: 'include' }))
+  })
+
+  it('offline is the client network error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    await expect(fetchV2FileBytes('b1', 'f1')).rejects.toMatchObject({ status: 0, isNetworkError: true })
   })
 
   it('refreshes the cookie once on a 401 and retries', async () => {

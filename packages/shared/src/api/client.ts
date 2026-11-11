@@ -102,6 +102,15 @@ async function errorFromResponse(res: Response, fallbackStatus = res.status): Pr
 }
 
 export async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await authFetchResponse(path, options)
+  return parseJsonSafe<T>(await res.text(), res.status)
+}
+
+/**
+ * authFetch's request without the JSON parse: the OK response itself, for a body that is not JSON (a book
+ * file's bytes). Same auth, headers, 401 refresh-and-retry-once, ApiError on non-2xx and network failure.
+ */
+export async function authFetchResponse(path: string, options?: RequestInit): Promise<Response> {
   const { baseUrl, getAccessToken, onUnauthorized, credentials, headers: base } = getApiConfig()
 
   const token = await getAccessToken()
@@ -126,7 +135,7 @@ export async function authFetch<T>(path: string, options?: RequestInit): Promise
         // successful refresh looks like the refresh itself failed.
         throw await errorFromResponse(retry)
       }
-      return parseJsonSafe<T>(await retry.text(), retry.status)
+      return retry
     }
     throw new ApiError(401, 'Unauthorized')
   }
@@ -135,7 +144,7 @@ export async function authFetch<T>(path: string, options?: RequestInit): Promise
     throw await errorFromResponse(res)
   }
 
-  return parseJsonSafe<T>(await res.text(), res.status)
+  return res
 }
 
 export async function publicFetch<T>(path: string, options?: RequestInit): Promise<T> {
