@@ -40,7 +40,7 @@ pnpm -C apps/web check:v2-reader-formats   # CI: every format opens as Formats s
 node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.repro.html (test only)
 ```
 
-- **foliate-js fork** `https://github.com/mrviduus/foliate-js` @ `b38d07cea37acf2990b36853896a09093e30acd5`
+- **foliate-js fork** `https://github.com/mrviduus/foliate-js` @ `b3386ef90b806dc3667941d9c26db12cce98b064`
   (branch `textstack-pin` = upstream `78914aef` 2026-05-01 + our commits, ADR-032), cloned into the gitignored
   `.vendor/`. Every build checks out the pin and resets the tree (`git checkout -- .`); an untracked file in
   that tree fails the build by name (delete `.vendor/` to rebuild from the pin). A bump is a PR that re-runs
@@ -56,7 +56,9 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   (the page's refresh-meta strip; it bypassed it); `40dd126` view: the view's `relocate` carries the renderer's
   `reason` (the save rule reads it, page.mjs); `2c6588e` pdf: a null outline destination returns null (upstream
   `ce10f08`); `b38d07c` pdf: nothing fetched or resolved at import time. pdf.js stays stubbed out of the page:
-  the last two change nothing in it yet (PDF is refused, Formats).
+  those two change nothing in it yet (PDF is refused, Formats); `b3386ef` paginator: `setStyles`' frame callback
+  does nothing once `destroy()` nulled the view (a book closed within a frame of a section load threw
+  "reading 'document'"; predates #1182).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. view.js's own format imports, PDF, TTS and search are
   stubbed out of the page; MOBI/FB2/CBZ come in as format readers (Formats).

@@ -52,6 +52,8 @@ describe('v2ReaderPageHtml', () => {
     // Fork commit d73682a (was patches/0001): Paginator.render() returns while the current view's document has no body yet.
     // esbuild's temporaries are renamed as the bundle grows (_a → _a2): matched by shape, not by name.
     expect(html).toMatch(/if \(!\(\((\w+) = \((\w+) = this\.#view\) == null \? void 0 : \2\.document\) == null \? void 0 : \1\.body\)\) return;/)
+    // Fork commit b3386ef (#1182): setStyles' frame callback does nothing once destroy() nulled the view.
+    expect(html).toMatch(/requestAnimationFrame\(\(\) => \{\s*if \(this\.#view\) this\.#background\.style\.background = getBackground\(this\.#view\.document\);\s*\}\);/)
     expect(html).toContain('var flow = "paginated";')
     expect(html).not.toContain('reproRenderDuringLoad')
     expect(html).not.toContain('currentView')
