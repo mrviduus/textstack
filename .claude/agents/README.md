@@ -42,7 +42,7 @@ phase/feature, tech-writer when the decision is worth recording.
 
 - `/pr` — open a PR (waits for CI by head-SHA, never merges red).
 - `/check` — pre-merge gate (build + tests + format).
-- `/changelog` — where a change is written down; fix a release-notes line.
+- `/changelog` — where a change is written down; how a milestone release is cut.
 
 Commands are mechanical recipes; agents are personas. Use a command inside an agent's run when it fits.
 

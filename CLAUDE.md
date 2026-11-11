@@ -25,11 +25,11 @@ The project is mid-migration to **V2**: two databases, one cutover ([ADR-030](do
 
 ## Where to write things down
 
-The PR is the changelog (#1220): each deploy creates a dated GitHub release whose notes list the merged PRs, by title, sectioned by area label (`.github/release.yml`). Nobody writes changelog lines.
+The PR is the changelog (#1220). Readers see the `/changelog` page (merged PRs by week; `public` ones in plain words, chosen weekly by `/changelog-week`). GitHub Releases are milestones only: a Play production build. Nobody writes changelog lines.
 
 | Where | Job |
 |------|-----|
-| The PR | **Title** = the release-notes line. **One area label** (`reader`, `mobile`, `library`, `vocabulary`, `ai`, `data`, `ops`, `documentation`; CI fails without one). **Description** = the full write-up, article source material. |
+| The PR | **Title** = one scannable line. **One area label** (`reader`, `mobile`, `library`, `vocabulary`, `ai`, `data`, `ops`, `documentation`; CI fails without one). **Description** = the full write-up, article source material. |
 | `CHANGELOG.md`, `docs/changelog-archive/` | **Frozen.** History up to the switch; never add to them. |
 | `docs/incidents/` | Postmortems for anything that broke production. Start from `_TEMPLATE.md`. |
 | `docs/STATUS.md` | Where the project is *now*: in flight, deliberately-not-doing. Links to issues; never copies them. |
