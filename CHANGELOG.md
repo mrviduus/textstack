@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Reader** — two legacy reader fixes: the web contents list numbers chapters by their place (was `chapterNumber + 1`), mobile TTS sends the book's language (a `uk`/`de` book was read by an English voice) — web, mobile
 - **Infra** — CI: the best-effort Playwright deps step is capped at 1 min (the 3-min cap cost every V2-reader run 193 s while the apt mirror stayed slow) — infra
 - **Mobile** — sign-out clears the declined-downloads and deleted-on-server id sets with the account's cached uploads (#1192) — mobile
 - **Infra** — flaky `RollingSpendTrackerTests.Alert_ConcurrentCrossing_ExactlyOneEmail` (failed a deploy run: 0 emails after 2 s under the parallel suite) waits up to 10 s for the fire-and-forget alert — backend
