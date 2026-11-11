@@ -1,12 +1,14 @@
 import { Platform } from 'react-native'
 import { API_URL, APP_HEADERS, freshAccessToken } from './api'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { listDeletedOnServer } from './deletedOnServer'
 import {
   CACHE_BUDGET_BYTES,
   ORIGINALS_DIR,
   PART_SUFFIX,
   chooseEvictions,
   originalFileName,
+  withoutKeptDeleted,
   type CacheEntry,
   type OriginalFormat,
 } from './originalFilePolicy'
@@ -309,18 +311,12 @@ export async function evictToBudget(
     const dir = originalsDirectory()
     if (!dir.exists) return 0
 
-    const lastUsed = await readLastUsed()
-    const entries: CacheEntry[] = []
-    for (const item of dir.list()) {
-      const name = item.name
-      if (!name || name.endsWith(PART_SUFFIX)) continue
-      const bytes = (item as { size?: number | null }).size
-      if (typeof bytes !== 'number') continue
-      const bookId = name.replace(/\.(pdf|epub)$/i, '')
-      entries.push({ name, bookId, bytes, lastUsedAt: lastUsed[bookId] ?? 0 })
-    }
+    const [lastUsed, keptDeleted] = await Promise.all([readLastUsed(), listDeletedOnServer()])
+    const entries: CacheEntry[] = (await listOriginalSizes())
+      .map(e => ({ ...e, lastUsedAt: lastUsed[e.bookId] ?? 0 }))
 
-    const doomed = chooseEvictions(entries, budgetBytes, protectedBookIds)
+    // A server-deleted book's original is neither weighed nor evicted (owner 2026-11-11, #1164).
+    const doomed = chooseEvictions(withoutKeptDeleted(entries, keptDeleted), budgetBytes, protectedBookIds)
     let freed = 0
     for (const entry of doomed) {
       try {
@@ -341,6 +337,22 @@ export async function evictToBudget(
     console.warn('[originals] eviction failed:', err)
     return 0
   }
+}
+
+/** Each stored original's size, half-downloads skipped. Native only; [] when unreadable. */
+export async function listOriginalSizes(): Promise<{ name: string; bookId: string; bytes: number }[]> {
+  if (Platform.OS === 'web') return []
+  const dir = originalsDirectory()
+  if (!dir.exists) return []
+  const out: { name: string; bookId: string; bytes: number }[] = []
+  for (const item of dir.list()) {
+    const name = item.name
+    if (!name || name.endsWith(PART_SUFFIX)) continue
+    const bytes = (item as { size?: number | null }).size
+    if (typeof bytes !== 'number') continue
+    out.push({ name, bookId: name.replace(/\.(pdf|epub)$/i, ''), bytes })
+  }
+  return out
 }
 
 /** Ids of uploads whose original is on this device. One directory listing

@@ -703,6 +703,29 @@ export async function hasAnyUserBookCache(bookId: string): Promise<boolean> {
   return row != null
 }
 
+/** `hasAnyUserBookCache` for every upload at once: book id -> whether any of its rows came from a V2
+ *  file (`file_id` set) rather than the legacy store. What the deleted-on-server marking reads (#1193). */
+export async function listUserBookCaches(): Promise<Map<string, boolean>> {
+  const d = await getDb()
+  if (!d) return new Map()
+  const rows = await d.getAllAsync(
+    'SELECT book_id, MAX(file_id IS NOT NULL) AS v2 FROM (SELECT book_id, file_id FROM cached_user_books UNION ALL SELECT book_id, file_id FROM user_chapters) GROUP BY book_id',
+  ) as { book_id: string; v2: number }[]
+  return new Map(rows.map(r => [r.book_id, r.v2 === 1]))
+}
+
+/** Bytes of chapter HTML these uploads hold in SQLite. ponytail: HTML only, not page or index
+ *  overhead, so it under-states what deleting them would free; good enough to keep them off the budget. */
+export async function userBookRowBytes(bookIds: string[]): Promise<number> {
+  const d = await getDb()
+  if (!d || bookIds.length === 0) return 0
+  const row = await d.getFirstAsync(
+    `SELECT COALESCE(SUM(LENGTH(CAST(html AS BLOB))), 0) AS bytes FROM user_chapters WHERE book_id IN (${bookIds.map(() => '?').join(',')})`,
+    bookIds,
+  ) as { bytes: number } | null
+  return Number(row?.bytes ?? 0)
+}
+
 export async function isUserBookFullyCached(bookId: string): Promise<boolean> {
   const meta = await getCachedUserBookMeta(bookId)
   if (!meta) return false

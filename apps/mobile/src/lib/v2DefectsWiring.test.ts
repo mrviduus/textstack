@@ -10,17 +10,21 @@ import type { Selection } from '../hooks/useReaderSelection'
 const read = (file: string) => readFileSync(resolve(__dirname, '../..', file), 'utf8')
 
 describe('#1191 — a V2 store reset never lets a listing delete downloads', () => {
-  it('the orphan sweep re-lists after a reset during or after the listing, and stops deleting on one', () => {
+  it('the orphan sweep re-lists after a reset during or after the listing, and stops marking on one', () => {
     const ctx = read('src/context/DownloadContext.tsx')
     const listing = ctx.indexOf('const epoch = v2Epoch()')
-    const orphans = ctx.indexOf('chooseOrphanedDownloads(', listing)
+    const orphans = ctx.indexOf('markUnlistedLeftovers(', listing)
     expect(listing).toBeGreaterThan(-1)
     const before = ctx.slice(listing, orphans)
     expect(before).toContain('if (!resetSince()) throw err')
     expect(before).toContain('if (!listed || resetSince()) {')
     expect(before).toContain('autoRerunRef.current = true')
-    const loop = ctx.slice(orphans, ctx.indexOf('deleteCachedUserBook(id)', orphans))
-    expect(loop).toContain('if (resetSince()) { autoRerunRef.current = true; break }')
+    // #1193: the sweep marks instead of deleting; `resetSince` stops the marking per id (localLeftovers)
+    // and a reset during it re-lists instead of queueing the previous account's books.
+    const after = ctx.slice(orphans, ctx.indexOf('chooseAutoDownloads(', orphans))
+    expect(after).toContain('listingSource(v2Before, v2Enabled()), resetSince)')
+    expect(after).toContain('if (resetSince()) { autoRerunRef.current = true; continue }')
+    expect(read('src/lib/localLeftovers.ts')).toMatch(/for \(const id of chooseNewlyDeleted\([^)]*\)\) \{\s*if \(stale\(\)\) break\s*await markDeletedOnServer\(id\)/)
   })
 
   it('the library screen re-loads instead of failing when a reset dropped its load, and a sign-out supersedes it', () => {

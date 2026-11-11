@@ -1,6 +1,8 @@
 import { Platform } from 'react-native'
-import { chooseEvictions, type CacheEntry } from './originalFilePolicy'
-import { originalsTotalBytes } from './originalFileCache'
+import { budgetedBytes, chooseEvictions, type CacheEntry } from './originalFilePolicy'
+import { listOriginalSizes, originalsTotalBytes } from './originalFileCache'
+import { listDeletedOnServer } from './deletedOnServer'
+import { userBookRowBytes } from './offlineDb'
 
 /**
  * What the app is holding on this device, and how to get some of it back.
@@ -162,5 +164,14 @@ export async function offlineStorageBytes(): Promise<number> {
     // An unreadable database is not a reason to refuse to measure the rest;
     // under-reporting here only makes the budget more generous, never less.
   }
-  return (await originalsTotalBytes()) + dbBytes
+  // A server-deleted book's kept bytes are off the budget (owner 2026-11-11); Profile's
+  // `measureDeviceStorage` still reports the real total.
+  try {
+    const keptDeleted = await listDeletedOnServer()
+    const [originals, keptRowBytes] = await Promise.all([listOriginalSizes(), userBookRowBytes([...keptDeleted])])
+    return budgetedBytes({ dbBytes, keptRowBytes, originals, keptDeleted })
+  } catch {
+    // Same stance as above: an unreadable part under-reports, never blocks.
+    return (await originalsTotalBytes()) + dbBytes
+  }
 }

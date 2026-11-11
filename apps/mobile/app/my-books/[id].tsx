@@ -22,10 +22,11 @@ import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { shareOriginalFile } from '../../src/lib/shareOriginal'
 import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
-import { getCachedOriginalUri, listStoredOriginalIds } from '../../src/lib/originalFileCache'
+import { getCachedOriginalUri } from '../../src/lib/originalFileCache'
+import { hasLocalLeftovers } from '../../src/lib/localLeftovers'
 import { shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
 import { formatBytes } from '../../src/lib/formatBytes'
-import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached, hasAnyUserBookCache, onCachedUserBooksChanged } from '../../src/lib/offlineDb'
+import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached, onCachedUserBooksChanged } from '../../src/lib/offlineDb'
 import { markDeletedOnServer, clearDeletedOnServer, isDeletedOnServer, failedLoadView } from '../../src/lib/deletedOnServer'
 import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
@@ -83,17 +84,6 @@ async function rehydrateFromCache(bookId: string): Promise<{
     console.warn('Offline user-book rehydrate failed:', err)
     return null
   }
-}
-
-
-/** Anything of this upload left on the device (#1174): SQLite rows, partial included, or the stored
- *  original file alone. What "Remove download" on a server-deleted book offers to free. */
-async function hasLocalLeftovers(bookId: string): Promise<boolean> {
-  const [rows, originals] = await Promise.all([
-    hasAnyUserBookCache(bookId).catch(() => false),
-    listStoredOriginalIds(),
-  ])
-  return rows || originals.has(bookId)
 }
 
 /**
@@ -527,7 +517,8 @@ export default function UserBookDetailScreen() {
             // The book page is gone, so this is the only way left to free its bytes.
             secondaryLabel={loadError === 'notfound' && anyLocalCopy ? t('myBooks.deleted.removeDownload') : undefined}
             onSecondaryPress={() => {
-              removeUserBookDownload(id!)
+              // No decline: the book is gone, and a false mark must not block its auto-download later.
+              removeUserBookDownload(id!, { decline: false })
                 .then(() => { setAnyLocalCopy(false); router.back() })
                 .catch(err => {
                   console.warn('Removing the local copy of a deleted book failed:', err)

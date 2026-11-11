@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
   CELLULAR_WARN_BYTES,
+  budgetedBytes,
   chooseEvictions,
+  withoutKeptDeleted,
   isOutOfSpaceError,
   originalFileName,
   shouldConfirmOnCellular,
@@ -98,5 +102,51 @@ describe('isOutOfSpaceError', () => {
     expect(isOutOfSpaceError(new Error('401 Unauthorized'))).toBe(false)
     expect(isOutOfSpaceError(null)).toBe(false)
     expect(isOutOfSpaceError(undefined)).toBe(false)
+  })
+})
+
+// Owner 2026-11-11: a server-deleted book's kept bytes are not the budget's (#1164, #1193).
+describe('kept deleted books and the budget', () => {
+  const entry = (bookId: string, bytes: number, lastUsedAt = 0) => ({ name: `${bookId}.pdf`, bookId, bytes, lastUsedAt })
+
+  it('withoutKeptDeleted_MarkedOriginal_NeitherWeighedNorEvicted', () => {
+    // 'gone' is oldest and alone puts the cache over budget: without it there is nothing to evict.
+    const entries = [entry('gone', 900, 0), entry('read', 200, 5)]
+    expect(chooseEvictions(entries, 500, new Set()).map(e => e.bookId)).toEqual(['gone'])
+    expect(chooseEvictions(withoutKeptDeleted(entries, new Set(['gone'])), 500, new Set())).toEqual([])
+  })
+
+  it('withoutKeptDeleted_OverBudgetWithoutIt_EvictsOthersNeverIt', () => {
+    const entries = [entry('gone', 100, 0), entry('old', 400, 1), entry('new', 400, 9)]
+    expect(chooseEvictions(withoutKeptDeleted(entries, new Set(['gone'])), 500, new Set()).map(e => e.bookId)).toEqual(['old'])
+  })
+
+  it('budgetedBytes_KeptDeleted_ExcludesItsOriginalAndRows', () => {
+    const originals = [{ bookId: 'gone', bytes: 700 }, { bookId: 'live', bytes: 300 }]
+    expect(budgetedBytes({ dbBytes: 1000, keptRowBytes: 400, originals, keptDeleted: new Set(['gone']) })).toBe(600 + 300)
+    expect(budgetedBytes({ dbBytes: 1000, keptRowBytes: 0, originals, keptDeleted: new Set() })).toBe(2000)
+  })
+
+  it('budgetedBytes_RowEstimateAboveDbSize_NeverNegative', () => {
+    expect(budgetedBytes({ dbBytes: 100, keptRowBytes: 400, originals: [], keptDeleted: new Set() })).toBe(0)
+  })
+})
+
+describe('kept deleted books — wiring (source guards; the file system cannot run here)', () => {
+  const read = (f: string) => readFileSync(resolve(__dirname, f), 'utf8')
+
+  it('evictToBudget_WeighsAndEvictsWithoutKeptDeleted', () => {
+    const src = read('originalFileCache.ts')
+    expect(src).toContain('const [lastUsed, keptDeleted] = await Promise.all([readLastUsed(), listDeletedOnServer()])')
+    expect(src).toContain('chooseEvictions(withoutKeptDeleted(entries, keptDeleted), budgetBytes, protectedBookIds)')
+  })
+
+  it('offlineStorageBytes_GatesOnBudgetedBytes_ProfileKeepsRealTotal', () => {
+    const src = read('deviceStorage.ts')
+    expect(src).toContain('userBookRowBytes([...keptDeleted])')
+    expect(src).toContain('return budgetedBytes({ dbBytes, keptRowBytes, originals, keptDeleted })')
+    const measure = src.slice(src.indexOf('export async function measureDeviceStorage'), src.indexOf('export async function sweepTtsCache'))
+    expect(measure).toContain('originalsTotalBytes()')
+    expect(measure).not.toContain('keptDeleted')
   })
 })
