@@ -1,108 +1,33 @@
 ---
-description: Append a changelog entry outside the /pr flow. Enforces the one-line format and routes the write-up to the archive, an incident postmortem, or an ADR.
-argument-hint: <Area>: <one-line description>  e.g. "Reader: fix highlight pulse for list view"
+description: Where a change gets written down, now that PRs are the changelog. Fixes a release-notes line, routes incidents, ADRs and STATUS.
+argument-hint: (no args) or '<PR number>' whose release-notes line to fix
 allowed-tools: Bash, Read, Edit, Write
 ---
 
-# /changelog — manual entry
+# /changelog — the PR is the changelog
 
-For when an entry must land outside the slice/PR flow: a hotfix straight to main, a dependency bump,
-a refactor too small for its own subsection, a backport, or a `/pr` you skipped.
+Since #1220 nobody writes changelog lines. Each deploy creates a dated GitHub release (`2026.11.12`,
+`.2` for a second deploy that day) whose notes list the PRs merged since the previous release, by
+title, in sections picked by area label (`.github/release.yml`). `CHANGELOG.md` and
+`docs/changelog-archive/` are frozen: never add to them.
 
-## Step 0 — Decide where it goes (do this first)
-
-The changelog is four files, and putting a thing in the wrong one is how the old 1804-line file
-happened. Route before you write:
+## Where things go
 
 | What happened | Where it goes |
 |---|---|
-| Any merged change | **One line** in `CHANGELOG.md` — always |
-| It needs more than one line to explain | Full write-up in `docs/changelog-archive/<YYYY>-H<1\|2>.md`, linked from that line |
-| It broke production | Postmortem in `docs/incidents/` (copy `_TEMPLATE.md`), linked from that line |
+| Any merged change | The PR: title = the release-notes line, one area label, description = the write-up |
+| It broke production | Postmortem in `docs/incidents/` (copy `_TEMPLATE.md`), plus a row in its README |
 | It changed a load-bearing decision | ADR in `docs/01-architecture/adr/` |
-| It finished, or created, open work | Update `docs/STATUS.md` too |
+| It finished, or created, open work | `docs/STATUS.md`, and one GitHub issue per open item |
 
-A dependency bump is one line and nothing else. An incident is one line **plus** a postmortem. Most
-features are one line plus an archive entry.
+## Fixing a line
 
-## Step 1 — Parse arguments
+- **Not deployed yet:** fix the PR itself — `gh pr edit <n> --title "..."`,
+  `gh pr edit <n> --add-label <area> --remove-label <wrong>`. The next release picks it up.
+- **Already released:** `gh release edit <tag> --notes-file <file>` after
+  `gh release view <tag> --json body --jq .body > <file>` and editing that file.
 
-Expected: `<Area>: <description>` or `<Area> — <description>`. Without a separator, ask to rephrase.
+## A change with no PR
 
-Areas: `Reader`, `Library`, `Vocabulary`, `Book Chat`, `Mobile`, `Users`, `Admin`, `SEO`,
-`Observability`, `Ops`, `Worker`, `AI quality`, `Extraction`, `Infra`, `Docs`.
-
-## Step 2 — Write the line
-
-Read `CHANGELOG.md`, find `## [Unreleased]`. Today: `date +%Y-%m-%d`.
-
-```markdown
-- **<Area>** — <what changed, one clause> — <scope> · [details](docs/changelog-archive/<YYYY>-H<N>.md#<anchor>)
-```
-
-`<scope>` is `backend`, `web`, `mobile`, `infra`, or a combination. Add
-`· [**postmortem**](docs/incidents/<file>.md)` **before** the details link when one exists. Omit the
-details link entirely if there is no write-up — never create an empty archive section just to link at it.
-
-**One line.** If you are reaching for a second sentence, that sentence belongs in the archive.
-
-If `[Unreleased]` currently says `_Nothing yet._`, replace that line with your entry.
-
-## Step 3 — Write the archive entry (unless it's a one-liner)
-
-Append at the **top** of `docs/changelog-archive/<YYYY>-H<1|2>.md` (H1 = Jan–Jun, H2 = Jul–Dec):
-
-```markdown
-<a id="<anchor>"></a>
-
-## <the line text, without links> — YYYY-MM-DD
-
-<the full write-up>
-```
-
-`<anchor>` = `YYYY-MM-DD-` + heading lowercased, non-alphanumerics collapsed to `-`, cut to 60 chars.
-It must match the link in `CHANGELOG.md` exactly.
-
-Write the archive entry as fully as the work deserves — root cause, what was ruled out, what it cost,
-what the misleading evidence looked like. **This is the article source material.** Nothing about the
-restructure asks for less detail; it asks for the detail to live one click away from the index.
-
-## Step 4 — Commit context
-
-```bash
-git log -1 --format="%h %s"
-```
-
-If a recent commit matches the description, reference its short SHA in the archive entry (not in the
-one-line index — that line is for humans scanning, not for SHAs).
-
-## Step 5 — Show the diff
-
-```bash
-git diff CHANGELOG.md docs/changelog-archive docs/incidents docs/STATUS.md
-```
-
-Verify the anchor link resolves: the `<a id="...">` in the archive must equal the `#...` in the line.
-
-## Step 6 — Optionally commit
-
-Ask: "Commit this changelog entry now? (y/n)". If yes:
-
-```bash
-git add CHANGELOG.md docs/changelog-archive docs/incidents docs/STATUS.md
-git commit -m "changelog: <area> — <short description>"
-```
-
-## Examples
-
-```
-/changelog Infra: bump pdfpig to 0.1.14
-→ One line under [Unreleased]. No archive entry, no details link. Done.
-
-/changelog Reader: fix highlight pulse for list view
-→ One line + a short archive entry explaining what was wrong.
-
-/changelog Ops: nightly backup filled the disk
-→ One line + docs/incidents/YYYY-MM-DD-*.md from _TEMPLATE.md + a row in incidents/README.md,
-  and the line carries a [**postmortem**] link.
-```
+A hotfix pushed straight to `main` has no PR, so the next release does not list it. Do not push
+straight to `main`; if it happened, add a line to that release by hand (`gh release edit`, above).

@@ -14,7 +14,7 @@ system prompt + tool access (`.claude/agents/*.md`). Files live under `.claude/`
 | **mobile-engineer** | Mobile app | Expo Router, WebView reader, EAS, Android launch |
 | **reader-engine** | Reader engine work, test-first (ADR-025) | `packages/reader-engine`: render, position, decorations, selection |
 | **qa-automation** | Verify before ship — adversarially | xUnit/Vitest/Playwright, eval suites, blind spots, CI |
-| **tech-writer** | After a feature lands | CHANGELOG, ADRs, architecture docs, `CLAUDE.md` |
+| **tech-writer** | After a feature lands | PR write-ups, ADRs, architecture docs, `CLAUDE.md` |
 | **product-manager** | When *what/why/for whom* is unclear | Scope, DoD, value framing, PR slicing, roadmap |
 
 ## How to invoke
@@ -31,7 +31,7 @@ product-manager  → what & why, scope, DoD, PR slices
    architect     → how: plan, seams, data model, open questions   (you approve)
 backend / frontend / mobile  → implement the slice
    qa-automation → adversarial verify + Bug Report (before merge)
-   tech-writer   → CHANGELOG + ADR for what shipped
+   tech-writer   → PR write-up + ADR for what shipped
 ```
 
 You stay the conductor: approve the plan, answer the open questions, decide what merges.
@@ -42,7 +42,7 @@ phase/feature, tech-writer when the decision is worth recording.
 
 - `/pr` — open a PR (waits for CI by head-SHA, never merges red).
 - `/check` — pre-merge gate (build + tests + format).
-- `/changelog` — draft the CHANGELOG entry.
+- `/changelog` — where a change is written down; fix a release-notes line.
 
 Commands are mechanical recipes; agents are personas. Use a command inside an agent's run when it fits.
 
@@ -55,5 +55,5 @@ encode the conventions. Ask to scaffold one when a pattern keeps repeating.
 ## Conventions every role inherits (see `CLAUDE.md`)
 
 Clean Architecture · central package versions (`Directory.Packages.props`) · snake_case EF ·
-small PRs + CHANGELOG · **deploy only via GitHub Actions** (never manual SSH) · every LLM call through
+small PRs, one area label each · **deploy only via GitHub Actions** (never manual SSH) · every LLM call through
 the `ILlmService` gateway · eval gates split into deterministic (CI) + judged/live (prod).
