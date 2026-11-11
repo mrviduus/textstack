@@ -14,11 +14,12 @@ beforeEach(() => {
 })
 afterEach(() => vi.useRealTimers())
 
-function mount(book: V2HostBook | null = null) {
+function mount(book: V2HostBook | null = null, extra: { dev?: boolean; readyDeadlineMs?: number } = {}) {
   const onOpened = vi.fn()
-  const view = render(<V2ReaderHost book={book} onOpened={onOpened} idleHeading="idle" />)
+  const el = (b: V2HostBook | null) => <V2ReaderHost book={b} onOpened={onOpened} idleHeading="idle" {...extra} />
+  const view = render(el(book))
   vi.spyOn(frameWindow(), 'postMessage').mockImplementation(((m: { call: string; args: unknown[] }) => { posted.push(m) }) as never)
-  return { ...view, onOpened, rerender: (b: V2HostBook | null) => view.rerender(<V2ReaderHost book={b} onOpened={onOpened} idleHeading="idle" />) }
+  return { ...view, onOpened, rerender: (b: V2HostBook | null) => view.rerender(el(b)) }
 }
 
 /** A page message, as the frame posts it (JSON), from `source` at `origin`. */
@@ -107,5 +108,29 @@ describe('V2ReaderHost', () => {
     expect(f).toHaveAttribute('src', '/reader-v2/frame.html')
     expect(f).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin')
     expect(f).not.toHaveAttribute('srcdoc')
+  })
+
+  it('readyDeadlineMs_ThePropsDeadline_NotTheDefault', () => {
+    vi.useFakeTimers()
+    mount(null, { readyDeadlineMs: 30_000 })
+    act(() => { vi.advanceTimersByTime(READY_DEADLINE_MS) })
+    expect(screen.queryByRole('alert')).toBeNull()
+    act(() => { vi.advanceTimersByTime(30_000 - READY_DEADLINE_MS) })
+    expect(screen.getByRole('alert')).toHaveTextContent('in 30 s')
+  })
+
+  it('idleHeading_UntilTheFirstOpen', () => {
+    const { rerender } = mount()
+    expect(screen.getByTestId('v2-heading')).toHaveTextContent('idle')
+    rerender(book())
+    expect(screen.getByTestId('v2-heading')).toHaveTextContent('Opening a.epub')
+  })
+
+  it.each([[false, 0], [true, 1]])('dev %s: the word stub label and the restore line, %i times', (dev, shown) => {
+    mount(book(), { dev })
+    fromPage({ type: 'ready' })
+    fromPage({ type: 'word', word: 'pond', cfi: 'epubcfi(/6/2)', index: 0 })
+    expect(posted.filter((m) => m.call === 'showTranslation')).toHaveLength(shown)
+    expect(screen.queryAllByTestId('v2-restore')).toHaveLength(shown)
   })
 })

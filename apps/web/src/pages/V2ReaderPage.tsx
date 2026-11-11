@@ -12,6 +12,8 @@ import { useTranslation } from '../hooks/useTranslation'
  * bytes are fetched per open and transferred into the frame. Position and highlights: V2ReaderHost's local
  * store until the sync slice (#1226); loading and error states beyond one line: #1227.
  */
+export const PROD_READY_DEADLINE_MS = 30_000
+
 export function V2ReaderPage() {
   const { id = '' } = useParams<{ id: string }>()
   const { language } = useLanguage()
@@ -46,7 +48,8 @@ export function V2ReaderPage() {
   return (
     <>
       <SeoHead title={book?.name} noindex />
-      <V2ReaderHost book={book} idleHeading={t('v2Reader.loading')}>
+      {/* 30 s: the first open fetches the 1.6 MB (gzip) page script over the network; real deadlines: #1227. */}
+      <V2ReaderHost book={book} idleHeading={error ? '' : t('v2Reader.loading')} readyDeadlineMs={PROD_READY_DEADLINE_MS}>
         {error && <span role="alert" data-testid="v2-load-error">{error}</span>}
       </V2ReaderHost>
     </>

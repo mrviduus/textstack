@@ -66,6 +66,14 @@ describe('V2ReaderPage', () => {
     fetchV2FileBytes.mockRejectedValue(new Error('HTTP 404'))
     renderPage()
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the book: HTTP 404')
+    // No "Loading the book…" beside the error.
+    expect(hostProps).toHaveBeenLastCalledWith(expect.objectContaining({ idleHeading: '' }))
+  })
+
+  it('theProdRoute_A30sReadyDeadline_NoDevAids', async () => {
+    renderPage()
+    await vi.waitFor(() => expect(hostProps).toHaveBeenLastCalledWith(expect.objectContaining({ readyDeadlineMs: 30_000, idleHeading: 'Loading the book…' })))
+    expect(hostProps.mock.calls[hostProps.mock.calls.length - 1][0]).not.toHaveProperty('dev')
   })
 
   it('noFileContent_ShowsTheErrorLine_FetchesNothing', async () => {

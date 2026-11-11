@@ -53,7 +53,8 @@ export function writeItem(key: string, value: string) {
 const FRAME_SRC = V2_READER_FRAME_PATH
 /**
  * No `ready` by then: the frame is not the page (a wrong path, an error, the SPA's own index.html nested in
- * it, a refused script). Said on screen, since nothing else ever would (#1080 item 3, web host).
+ * it, a refused script). Said on screen, since nothing else ever would (#1080 item 3, web host). The default
+ * suits a local server; a route over the network passes its own. Real deadlines: slice 4 (#1227).
  */
 export const READY_DEADLINE_MS = 10_000
 
@@ -71,11 +72,15 @@ interface Props {
   toolbar?: ReactNode
   /** Between the status lines and the frame (the dev route's library; the production route's load error). */
   children?: ReactNode
-  /** The heading before the first open. */
+  /** The heading until the first open (the prod route clears it on a load error). */
   idleHeading?: string
+  /** How long the frame may take to send `ready`. */
+  readyDeadlineMs?: number
+  /** The dev route's debug aids: the `restore:` line and a stub translation label on a tapped word. */
+  dev?: boolean
 }
 
-export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '' }: Props) {
+export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, dev = false }: Props) {
   const { t } = useTranslation()
   const frame = useRef<HTMLIFrameElement>(null)
   const ready = useRef(false)
@@ -86,7 +91,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const lastBook = useRef<V2HostBook | null>(null)
   const onOpenedRef = useRef(onOpened)
   onOpenedRef.current = onOpened
-  const [heading, setHeading] = useState(idleHeading)
+  const [heading, setHeading] = useState('')
   const [flow, setFlow] = useState<Flow>(() => (readItem(FLOW_KEY) === 'scrolled' ? 'scrolled' : 'paginated'))
   const flowRef = useRef(flow)
   /** `opened.annotatable`: false on a CBZ (images only) and a PDF (no highlights yet): no highlight button (the page refuses it too). */
@@ -122,7 +127,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   }, [book])
 
   useEffect(() => {
-    const timer = setTimeout(() => { if (!ready.current) setFrameFailed(true) }, READY_DEADLINE_MS)
+    const timer = setTimeout(() => { if (!ready.current) setFrameFailed(true) }, readyDeadlineMs)
     return () => clearTimeout(timer)
   }, [])
 
@@ -180,9 +185,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             + (m.toc ? ` · ${m.toc}` : ''))
           return
         case 'word':
-          // Stub: no translation service yet; the label proves the word → showTranslation round trip.
+          // Dev stub: no translation service yet; the label proves the word → showTranslation round trip.
           // No CFI (a book that is not `annotatable`, e.g. a PDF): no label can be drawn, none is asked for.
-          if (m.cfi) call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
+          if (dev && m.cfi) call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
           return
         case 'openLink':
           if (/^https?:\/\//i.test(m.href)) window.open(m.href, '_blank', 'noopener,noreferrer')
@@ -216,20 +221,21 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         {annotatable && <button onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
         <button onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
       </div>
-      <strong data-testid="v2-heading">{heading}</strong>
+      <strong data-testid="v2-heading">{heading || idleHeading}</strong>
       <span data-testid="v2-status">{status}</span>
-      <span data-testid="v2-restore">{restored}</span>
+      {dev && <span data-testid="v2-restore">{restored}</span>}
       {(frameFailed || error) && (
         <span role="alert">
-          {frameFailed ? t('v2Reader.frameFailed', { path: FRAME_SRC, seconds: READY_DEADLINE_MS / 1000 }) : error}
+          {frameFailed ? t('v2Reader.frameFailed', { path: FRAME_SRC, seconds: readyDeadlineMs / 1000 }) : error}
         </span>
       )}
       {children}
       {/* allow-same-origin is required: foliate reads its section frames' documents, and under an opaque
           origin every nested frame gets its own. So the page shares the app's origin, and the page CSP is the
           only script barrier (README "Sandbox"). A book script past it would reach this origin's localStorage
-          AND its /api session cookie. Accepted while the route is behind Features:V2Api (off in production);
-          a second origin is revisited before M5 (docs/01-architecture/v2-reader-web-hosting.md). */}
+          AND its /api session cookie. The shell itself is public (it carries no data, nginx serves it to
+          anyone); what is gated is the route that hands it a book, behind Features:V2Api (off in production).
+          A second origin is revisited before M5 (docs/01-architecture/v2-reader-web-hosting.md). */}
       <iframe ref={frame} title="V2 reader" sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} style={{ flex: 1, border: '1px solid #ccc' }} />
     </main>
   )

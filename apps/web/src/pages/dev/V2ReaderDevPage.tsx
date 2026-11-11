@@ -26,6 +26,7 @@ export default function V2ReaderDevPage() {
   return (
     <V2ReaderHost
       book={book}
+      dev
       idleHeading={t('v2Reader.pick')}
       toolbar={<input type="file" accept=".epub,.mobi,.azw3,.azw,.fb2,.fbz,.cbz,.pdf,application/epub+zip,application/pdf" onChange={pick} aria-label="Pick EPUB" />}
       onOpened={(m, originalName) => {
