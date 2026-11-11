@@ -27,8 +27,8 @@ import { deleteAllOriginals, deleteOriginal, downloadOriginal, evictToBudget } f
 import { chooseAutoDownloads, chooseOrphanedDownloads, mayAutoDownload } from '../lib/autoDownloadPolicy'
 import { offlineStorageBytes } from '../lib/deviceStorage'
 import { listStoredOriginalIds } from '../lib/originalFileCache'
-import { declineDownload, listDeclinedDownloads, undeclineDownload } from '../lib/declinedDownloads'
-import { clearDeletedOnServer } from '../lib/deletedOnServer'
+import { declineDownload, forgetDeclinedDownloads, listDeclinedDownloads, undeclineDownload } from '../lib/declinedDownloads'
+import { clearDeletedOnServer, forgetDeletedOnServer } from '../lib/deletedOnServer'
 import { v2Epoch } from '../lib/v2'
 import { AppState } from 'react-native'
 import NetInfo from '@react-native-community/netinfo'
@@ -152,6 +152,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       // wipe must not block sign-out — and the same weakness, that it reports
       // only to the console.
       deleteAllOriginals().catch(err => console.warn('Clearing stored originals failed:', err))
+      // The two id sets name this account's books: gone with it (#1192). The cost is small and
+      // accepted: a download declined before the sign-out may be fetched again on Wi-Fi after the
+      // same account signs back in.
+      forgetDeclinedDownloads().catch(() => {})
+      forgetDeletedOnServer().catch(() => {})
       setDownloads(new Map())
       setCachedBooks([])
       setCachedUserBooks([])

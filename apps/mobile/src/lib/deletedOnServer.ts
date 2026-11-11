@@ -38,6 +38,11 @@ export async function rekeyDeletedOnServer(books: Record<string, string>): Promi
   await updateIdSet(KEY, rekeyIds(books))
 }
 
+/** Sign-out: the marks are one account's books and do not carry into the next sign-in (#1192). */
+export async function forgetDeletedOnServer(): Promise<void> {
+  await updateIdSet(KEY, ids => (ids.size > 0 ? new Set() : null))
+}
+
 /**
  * What the book screen shows when `getUserBook` failed. A confirmed 404 is `notfound`; so is a book
  * the server already said is gone while offline. Online, a tombstoned book's other failures (500,
