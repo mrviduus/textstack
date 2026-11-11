@@ -8,24 +8,37 @@ export type Kind = 'New' | 'Fix' | 'Improved' | 'Changed'
 export type Where = 'Web' | 'Android'
 
 export interface PublicBlock { title: string; where: Where[]; kind: Kind; text: string }
-export interface ChangelogPr { number: number; title: string; url: string; labels: string[]; public?: PublicBlock }
-export interface ChangelogRelease { tag: string | null; date: string; url: string | null; prs: ChangelogPr[] }
-export interface ChangelogData { generatedAt?: string; releases: ChangelogRelease[] }
+export interface ChangelogPr { number: number; title: string; url: string; labels: string[]; mergedAt: string; public?: PublicBlock }
+export interface ChangelogData { generatedAt?: string; prs: ChangelogPr[] }
 
 export interface ReaderEntry extends PublicBlock { date: string; area: Area | null; url?: string }
 
 /** The first area label in release-notes order, as .github/release.yml picks the section. */
 export const areaOf = (labels: string[]): Area | null => AREAS.find((a) => labels.includes(a)) ?? null
 
-/** Reader view: every public PR plus the seed, newest first, grouped by date. */
-export function readerFeed(data: ChangelogData, seed: ReaderEntry[] = SEED): [string, ReaderEntry[]][] {
-  const fromPrs = data.releases.flatMap((r) =>
-    r.prs.flatMap((p) => (p.public ? [{ ...p.public, date: r.date, area: areaOf(p.labels), url: p.url }] : [])),
+/** Monday (UTC) of the week a date falls in, as YYYY-MM-DD. */
+export function weekOf(date: string): string {
+  const d = new Date(`${date.slice(0, 10)}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7))
+  return d.toISOString().slice(0, 10)
+}
+
+/** Items grouped by week, newest week first; items keep their order. */
+export function byWeek<T>(items: T[], dateOf: (t: T) => string): [string, T[]][] {
+  const weeks = new Map<string, T[]>()
+  for (const i of items) {
+    const w = weekOf(dateOf(i))
+    weeks.set(w, [...(weeks.get(w) ?? []), i])
+  }
+  return [...weeks].sort(([a], [b]) => b.localeCompare(a))
+}
+
+/** Reader view: public PRs plus the seed, newest first. */
+export function readerEntries(data: ChangelogData, seed: ReaderEntry[] = SEED): ReaderEntry[] {
+  const fromPrs = data.prs.flatMap((p) =>
+    p.public ? [{ ...p.public, date: p.mergedAt.slice(0, 10), area: areaOf(p.labels), url: p.url }] : [],
   )
-  const byDate = new Map<string, ReaderEntry[]>()
-  for (const e of [...fromPrs, ...seed].sort((a, b) => b.date.localeCompare(a.date)))
-    byDate.set(e.date, [...(byDate.get(e.date) ?? []), e])
-  return [...byDate]
+  return [...fromPrs, ...seed].sort((a, b) => b.date.localeCompare(a.date))
 }
 
 // Hand-picked from the frozen CHANGELOG.md when the page shipped. Only what a reader could see.

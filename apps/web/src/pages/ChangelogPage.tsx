@@ -3,38 +3,36 @@ import { useSearchParams } from 'react-router-dom'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
 import { useTranslation } from '../hooks/useTranslation'
-import { AREAS, areaOf, readerFeed, type Area, type ChangelogData } from '../lib/changelog'
+import { AREAS, areaOf, byWeek, readerEntries, type Area, type ChangelogData } from '../lib/changelog'
 import './ChangelogPage.css'
 
 const FROZEN_URL = 'https://github.com/mrviduus/textstack/blob/main/CHANGELOG.md'
 
 const formatDate = (iso: string) =>
-  new Date(`${iso}T00:00:00Z`).toLocaleDateString('en', { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' })
+  new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en', { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' })
 
 export function ChangelogPage() {
   const { t } = useTranslation()
   const [params, setParams] = useSearchParams()
   const tech = params.get('view') === 'all'
   const [area, setArea] = useState<Area | null>(null)
-  const [data, setData] = useState<ChangelogData>({ releases: [] })
+  const [data, setData] = useState<ChangelogData>({ prs: [] })
 
   // Same-origin file baked into the build; a dev server or a build without it 404s → seed only.
   useEffect(() => {
     let live = true
     fetch('/changelog.json')
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: ChangelogData | null) => { if (live && d?.releases) setData(d) })
+      .then((d: ChangelogData | null) => { if (live && Array.isArray(d?.prs)) setData(d) })
       .catch(() => {})
     return () => { live = false }
   }, [])
 
-  const feed = useMemo(() => readerFeed(data), [data])
+  const entries = useMemo(() => readerEntries(data), [data])
   const present = useMemo(() => {
-    const seen = new Set<Area | null>(
-      tech ? data.releases.flatMap((r) => r.prs.map((p) => areaOf(p.labels))) : feed.flatMap(([, es]) => es.map((e) => e.area)),
-    )
+    const seen = new Set<Area | null>(tech ? data.prs.map((p) => areaOf(p.labels)) : entries.map((e) => e.area))
     return AREAS.filter((a) => seen.has(a))
-  }, [tech, data, feed])
+  }, [tech, data, entries])
 
   const setView = (all: boolean) => {
     const next = new URLSearchParams(params)
@@ -47,12 +45,11 @@ export function ChangelogPage() {
   const areaTag = (a: Area | null) =>
     a && <span className={`changelog__area changelog__area--${a}`}>{t(`changelog.area.${a}`)}</span>
 
-  const readerGroups = feed
-    .map(([date, es]) => [date, es.filter((e) => !area || e.area === area)] as const)
-    .filter(([, es]) => es.length)
-  const techGroups = data.releases
-    .map((r) => ({ ...r, prs: r.prs.filter((p) => !area || areaOf(p.labels) === area) }))
-    .filter((r) => r.prs.length)
+  const readerGroups = byWeek(entries.filter((e) => !area || e.area === area), (e) => e.date)
+  const techGroups = byWeek(data.prs.filter((p) => !area || areaOf(p.labels) === area), (p) => p.mergedAt)
+  const weekHeading = (week: string) => (
+    <h2 className="changelog__date"><time dateTime={week}>{t('changelog.weekOf', { date: formatDate(week) })}</time></h2>
+  )
 
   return (
     <>
@@ -80,9 +77,9 @@ export function ChangelogPage() {
           )}
         </div>
 
-        {!tech && readerGroups.map(([date, es]) => (
-          <section key={date} className="changelog__day">
-            <h2 className="changelog__date"><time dateTime={date}>{formatDate(date)}</time></h2>
+        {!tech && readerGroups.map(([week, es]) => (
+          <section key={week} className="changelog__day">
+            {weekHeading(week)}
             {es.map((e) => (
               <article key={`${e.title}-${e.url ?? ''}`} className="changelog__entry">
                 <div className="changelog__meta">
@@ -97,14 +94,11 @@ export function ChangelogPage() {
           </section>
         ))}
 
-        {tech && techGroups.map((r) => (
-          <section key={r.tag ?? 'next'} className="changelog__day">
-            <h2 className="changelog__date">
-              {r.url ? <a href={r.url} target="_blank" rel="noopener noreferrer">{r.tag}</a> : t('changelog.unreleased')}
-              <time dateTime={r.date}> · {formatDate(r.date)}</time>
-            </h2>
+        {tech && techGroups.map(([week, prs]) => (
+          <section key={week} className="changelog__day">
+            {weekHeading(week)}
             <ul className="changelog__prs">
-              {r.prs.map((p) => (
+              {prs.map((p) => (
                 <li key={p.number}>
                   {areaTag(areaOf(p.labels))}
                   <a href={p.url} target="_blank" rel="noopener noreferrer">{p.title}</a>

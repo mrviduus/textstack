@@ -247,7 +247,7 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
         run: pnpm install --frozen-lockfile
 
-      # The public changelog page's data (#1216): releases + merged PRs, read from GitHub
+      # The public changelog page's data (#1216): merged PRs, read from GitHub
       # now so the page never calls it. vite copies public/ into dist. A GitHub outage
       # ships no file (the page then shows its built-in entries) rather than no deploy.
       - name: Changelog data

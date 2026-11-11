@@ -26,7 +26,6 @@ describe('parsePublic', () => {
   })
 })
 
-const rel = (tag, at) => ({ tag_name: tag, created_at: at, html_url: `u/${tag}` })
 const pr = (number, merged, labels = [], body = '') => ({
   number,
   title: `t${number}`,
@@ -37,49 +36,27 @@ const pr = (number, merged, labels = [], body = '') => ({
 })
 
 describe('build', () => {
-  const releases = [
-    rel('v0.1.0', '2026-05-06T00:00:00Z'),
-    rel('2026.11.12', '2026-11-12T10:00:00Z'), // baseline
-    rel('2026.11.13', '2026-11-13T10:00:00Z'),
-    rel('2026.11.13.2', '2026-11-13T15:00:00Z'),
-  ]
-  const now = new Date('2026-11-14T09:00:00Z')
-
-  it('puts each PR under the first release after its merge, unreleased under today, newest first', () => {
-    const out = build(
-      releases,
-      [
-        pr(1, '2026-11-12T09:00:00Z'), // before baseline: frozen CHANGELOG's
-        pr(2, '2026-11-12T11:00:00Z', ['reader']),
-        pr(3, '2026-11-13T12:00:00Z', ['ops']),
-        pr(4, '2026-11-13T09:00:00Z', ['mobile']),
-        pr(5, '2026-11-14T08:00:00Z', ['data']),
-        pr(6, '2026-11-13T11:00:00Z', ['dependencies']),
-      ],
-      now,
-    )
-    expect(out.map((g) => [g.tag, g.date, g.prs.map((p) => p.number)])).toEqual([
-      [null, '2026-11-14', [5]],
-      ['2026.11.13.2', '2026-11-13', [3]],
-      ['2026.11.13', '2026-11-13', [4, 2]],
+  it('keeps PRs merged since the switch, drops Dependabot, newest first', () => {
+    const out = build([
+      pr(1, '2026-11-11T09:00:00Z'), // before the switch: frozen CHANGELOG's
+      pr(2, '2026-11-12T11:00:00Z', ['reader']),
+      pr(3, '2026-11-13T12:00:00Z', ['ops']),
+      pr(4, '2026-11-13T11:00:00Z', ['dependencies']),
+    ])
+    expect(out.map((p) => [p.number, p.mergedAt])).toEqual([
+      [3, '2026-11-13T12:00:00Z'],
+      [2, '2026-11-12T11:00:00Z'],
     ])
   })
 
   it('attaches the reader block to public PRs; a bad block warns and drops only the block', () => {
     const warned = []
     const out = build(
-      releases,
-      [pr(7, '2026-11-14T08:00:00Z', ['reader', 'public'], block), pr(8, '2026-11-14T08:00:00Z', ['public'], 'none')],
-      now,
+      [pr(7, '2026-11-14T08:00:00Z', ['reader', 'public'], block), pr(8, '2026-11-14T07:00:00Z', ['public'], 'none')],
       (m) => warned.push(m),
     )
-    const [p8, p7] = out[0].prs
-    expect(p7.public.kind).toBe('New')
-    expect(p8.public).toBeUndefined()
+    expect(out[0].public.kind).toBe('New')
+    expect(out[1].public).toBeUndefined()
     expect(warned).toEqual(['#8: no "## Public" section in the description'])
-  })
-
-  it('is empty before the first dated release', () => {
-    expect(build([releases[0]], [pr(9, '2026-11-14T08:00:00Z')], now)).toEqual([])
   })
 })

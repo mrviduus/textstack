@@ -1266,7 +1266,7 @@
   "changelog.viewLabel": "View",
   "changelog.filterLabel": "Filter by area",
   "changelog.all": "All",
-  "changelog.unreleased": "Shipping next",
+  "changelog.weekOf": "Week of {{date}}",
   "changelog.empty": "Nothing here yet.",
   "changelog.earlier": "Earlier changes are listed in",
   "changelog.area.reader": "Reader",

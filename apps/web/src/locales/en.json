@@ -846,7 +846,7 @@
     "viewLabel": "View",
     "filterLabel": "Filter by area",
     "all": "All",
-    "unreleased": "Shipping next",
+    "weekOf": "Week of {{date}}",
     "empty": "Nothing here yet.",
     "earlier": "Earlier changes are listed in",
     "area": {
