@@ -1,4 +1,6 @@
-# Sections of the release notes deploy.yml generates for every deploy (#1220).
+# Sections of a release's generated notes (#1220). Releases are cut by hand for milestones
+# (V2 cutover, Android store builds), not per deploy:
+#   gh release create v2.0.0 --generate-notes --notes-start-tag <previous release>
 # Every PR carries one area label from the list below; pr-labels.yml fails a PR
 # without one, and reads its allowed labels from this file, so add an area here only.
 # A PR with two area labels lands in the first matching section.
