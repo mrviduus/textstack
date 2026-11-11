@@ -1,6 +1,7 @@
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { test, expect, type Page } from '@playwright/test'
+import { V2_READER_FRAME_PATH } from '../../../mobile/src/lib/v2reader/framePath.mjs'
 
 // @v2-reader-dev — the V2 reader page on the web dev route (R5, #1037): /dev/reader-v2 hosts the
 // foliate page in an iframe, the EPUB comes from a file input, everything persists in localStorage.
@@ -43,6 +44,31 @@ test.describe('V2 reader dev route @v2-reader-dev', () => {
     await page.goto('/dev/reader-v2')
     const served = await page.getByLabel('Pick EPUB').waitFor({ timeout: 10_000 }).then(() => true, () => false)
     test.skip(!served, 'this server does not serve /dev/reader-v2: run the suite against the dev server (pnpm dev)')
+  })
+
+  // #1219: the page is its own same-origin document (not srcdoc, which inherits the app CSP), with a nonce
+  // per response and its own frame-ancestors.
+  test('the reader frame is a src document with a fresh nonce per response', async ({ page }) => {
+    await expect(page.locator('iframe[title="V2 reader"]')).toHaveAttribute('src', V2_READER_FRAME_PATH)
+    await expect(page.locator('iframe[title="V2 reader"]')).not.toHaveAttribute('srcdoc', /./)
+    const load = () => page.request.get(V2_READER_FRAME_PATH)
+    const [a, b] = [await load(), await load()]
+    expect(a.headers()['content-security-policy']).toBe("frame-ancestors 'self'")
+    const nonce = async (r: typeof a) => (await r.text()).match(/script-src 'nonce-([0-9a-f]{32})'/)?.[1]
+    const [na, nb] = [await nonce(a), await nonce(b)]
+    expect(na).toBeTruthy()
+    expect(na).not.toBe(nb)
+  })
+
+  // #1080 item 3 (web): a frame that is not the page (here a 404) never sends ready; the host says so.
+  test('a frame that never becomes ready shows an error', async ({ page }) => {
+    await page.route(`**${V2_READER_FRAME_PATH}*`, (r) => r.fulfill({ status: 404, body: 'not found' }))
+    await page.clock.install()
+    await page.goto('/dev/reader-v2')
+    await expect(page.getByLabel('Pick EPUB')).toBeVisible()
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    await page.clock.fastForward(11_000)
+    await expect(page.getByRole('alert')).toContainText('The reader page did not load')
   })
 
   test('a picked EPUB renders its first section', async ({ page }) => {

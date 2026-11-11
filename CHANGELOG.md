@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Reader** — the V2 reader's web host embeds the page as its own same-origin document, not srcdoc (measured: srcdoc never becomes ready under the production CSP); an unfilled nonce placeholder runs no script; one served-frame handler for the dev server and a new CI gate; hosts hide a stale position after a failed open; dev-only, nginx untouched (#1219) — web, mobile
 - **Mobile** — a book deleted on the server keeps its bytes until the reader removes them: the sweep and the Library listing only mark it, a Library row removes all at once, kept bytes are off the 2 GB budget and never evicted (#1193, #1191) — mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-11-mobile-deleted-books-keep-their-bytes)
 - **Docs** — V2 reader web hosting design: threat model, options A–E, recommendation (separate reader domain), slices, owner questions; proposed — docs
 - **Docs** — wave 12 close: STATUS, recommended answers in the R8 audit, wave-13 prompt — docs

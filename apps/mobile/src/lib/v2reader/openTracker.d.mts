@@ -6,5 +6,6 @@ export interface OpenTracker<O, M extends OpenedMessage> {
   opened(m: M): Take<O, M> | null
   failed(name: string): { failed: O; take: Take<O, M> | null } | null
   restored(m: { key?: string }): boolean
+  showsPosition(): boolean
 }
 export function createOpenTracker<O, M extends OpenedMessage = OpenedMessage>(): OpenTracker<O, M>

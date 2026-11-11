@@ -12,6 +12,35 @@ xhigh for data writes → fix → /pr).
 Open the PR, give the link, stop. No `gh pr merge --auto`, for code or docs. Do not ask for the merge
 right at the start of the wave.
 
+## State after the session of 2026-11-11 (wave 13 was started early, then paused)
+
+- **Decided by the owner:** the V2 reader runs **inside the web app, same origin**; no separate domain
+  now, revisited before the flag goes on (M5). Design and analysis: `docs/01-architecture/v2-reader-web-hosting.md`.
+  Android WebView older than 117 gets an "update your WebView" screen.
+- **Merged:** #1217 (hosting design), #1218 (a server-deleted book keeps its bytes; Library "Remove"
+  row; kept bytes off the 2 GB budget — #1193 items 1 and 3; items 2 and 4 open).
+- **Slice 1, #1219** (the reader page as its own same-origin document, not srcdoc; `prodCsp.check.mjs`
+  gates it in CI): PR open for the owner, or merged. Measured: under the production CSP a srcdoc frame
+  never becomes ready; as its own document it works with `frame-src 'self'` plus one nginx location.
+  The route is still dev-only and nginx is untouched.
+- **Next slices, one issue each before code:** (2) emit `dist/reader-v2/frame.html`, the nginx location
+  (block in the #1219 PR body; first confirm `ngx_http_sub_module` with `nginx -V`), the route behind
+  `Features:V2Api`, bytes from `/me/v2/books/{id}/files/{fileId}/content` transferred into the frame,
+  an `@v2` e2e; (3) the web host on the shared V2 sync client; (4) loading/error states, the Android
+  `ready` deadline (#1080, #1081); then Android https serving and the WebView update screen.
+- **Open design question for slice 2:** the nonce sits inline in the 3.75 MB page, so `no-store`
+  re-sends it on every open. A small no-store shell plus a cached script would fix that, but it changes
+  ADR-029 Decision 4: the owner decides first.
+- **Process, new on 2026-11-11:** work is tracked on the GitHub Project board
+  (https://github.com/users/mrviduus/projects/3): issue first, the PR says `Fixes #N`, move the card
+  (Backlog → This wave → In progress → In review → Needs you → Done), fill the Area field. Ask owner
+  decisions with the option picker. Choosing a wave's content is planning: start building only on an
+  explicit "start".
+- **Changelog:** #1220 (PRs become the source, a dated GitHub release per deploy) and #1216 (the public
+  page in the web app) may run in a parallel session in `../textstack-changelog`. Until #1220 is merged,
+  keep adding the one `CHANGELOG.md` line per PR. Do not touch `.github/release.yml`, the release step in
+  `deploy.yml`, `.claude/commands/pr.md` or `.claude/commands/changelog.md` from the wave-13 session.
+
 ## Read first
 
 `docs/01-architecture/r8-parity-audit.md` — the gap matrix, the proposed R8 DoD (§5), the recommended

@@ -18,8 +18,10 @@ cite `file:line` at `main` 9f86676f.
 ## 1. Problem
 
 The web host is dev-only: `main.tsx:13` mounts `V2ReaderDevPage` only under `import.meta.env.DEV`, and
-`apps/web/scripts/assert-no-dev-reader.mjs:6` fails the build if the page reaches `dist/`. The page runs in
-`<iframe sandbox="allow-scripts allow-same-origin" srcDoc=…>` (`V2ReaderDevPage.tsx:221`). `allow-same-origin` is
+`apps/web/scripts/assert-no-dev-reader.mjs:6` fails the build if the page reaches `dist/`. When this doc was
+written the page ran in `<iframe sandbox="allow-scripts allow-same-origin" srcDoc=…>` (`V2ReaderDevPage.tsx:221`);
+since #1219 it is its own same-origin document, `<iframe … src="/reader-v2/frame.html">`, served by the dev server
+(§2, the srcdoc finding). Either way `allow-same-origin` is
 forced by foliate: it reads its section frames' documents directly (`paginator.js:244,251`, `fixed-layout.js:86,93`
 in the local `.vendor/foliate-js` checkout). So the page runs on the app's origin, and the page CSP
 (`carrier.mjs:11-12`) is the only barrier between a hostile book and the app origin. `sandbox.check.mjs` shows the
@@ -60,8 +62,14 @@ A finding that matters for option C: the srcdoc document **inherits the app's CS
 parent) [spec; WPT `content-security-policy/inheritance/iframe-srcdoc-*`]. The app CSP (`textstack.conf:160`) has
 `script-src 'self' …` (no nonce, no `'unsafe-inline'`), `frame-src https://accounts.google.com`, and no `blob:` in
 `style-src`/`font-src`. Both policies enforce, so in production the page's nonce'd script, its `blob:` section frames
-and the book's CSS and fonts would all be refused [spec; exp to confirm in Chromium]. The dev host works only because
-the Vite dev server sends no CSP. **The dev host cannot ship as is even if we wanted it to.**
+and the book's CSS and fonts would all be refused. **Measured** (Chromium, `prodCsp.check.mjs`, #1219): under the
+exact app CSP the srcdoc page never sends `ready` (`script-src-elem`). Making srcdoc work takes five app-wide
+additions, each shown necessary: a per-response script nonce, and `blob:` in `connect-src` (the page's `openUrl` read
+of the book, missing from the list above), `frame-src`, `style-src` and `font-src`. The srcdoc dev host worked only
+because the Vite dev server sends no CSP: **srcdoc cannot ship.** The page **as its own same-origin document**
+(`<iframe src>`) can, measured: it carries only its own policy, and the app needs `frame-src 'self'` plus a location
+that sends the frame's own headers (`frame-ancestors 'self'`; without them the server-level `frame-ancestors 'none'`
+refuses it, #857). The dev host now does this (#1219).
 
 ## 3. Options
 
@@ -153,9 +161,12 @@ panel (admin cookies `SameSite=Lax`, `AdminAuthEndpoints.cs:123-137`). Same prob
 
 **Hardening available:** none of it adds a layer. No tokens are in `localStorage` already (§2); the cookies are
 already `HttpOnly`. The exposure is the cookie-authenticated API through `parent.fetch`, which no storage hygiene
-removes. **Costs:** the app CSP must be widened for the whole app (§2 finding): hashes for the page's script and every
-format reader (or `'unsafe-inline'`), `frame-src blob:`, `style-src`/`font-src blob:`; the ~3.75 MB page ships in the
-app bundle as a lazy chunk. **Rejected:** most expensive in app-wide CSP and weakest.
+removes. **Costs:** as srcdoc, the app CSP must be widened for the whole app (§2 finding: a nonce, `blob:` in
+`connect-src`, `frame-src`, `style-src`, `font-src`) and the ~3.75 MB page ships in the app bundle as a lazy chunk.
+**Measured correction (#1219):** as its own same-origin document the cost drops to `frame-src 'self'` and one nginx
+location; the page is a served file, not a chunk. The security verdict does not change: the second layer is still
+zero. **Rejected** at the time of writing as weakest; the owner since chose the same origin (2026-11-11), in the
+own-document shape.
 
 ### D. Drop `allow-same-origin` (a real opaque origin)
 
@@ -187,7 +198,7 @@ not pursued.
 |---|---|---|---|---|---|
 | **A** separate domain | full (no cookies, no API, no `parent`) | `frame-src` +1 origin | domain, zone, tunnel host, nginx block | none | page leaves app `dist/` |
 | B subdomain | partial until `__Host-` + `Sec-Fetch-Site` | `frame-src` +1 origin | zone record, tunnel host, nginx block | two, app-wide | same as A |
-| C same origin | none | widened app-wide | none | none | +3.75 MB lazy chunk |
+| C same origin | none | srcdoc: widened app-wide; own document (measured): `frame-src 'self'` | own document: one nginx location | none | srcdoc: +3.75 MB lazy chunk; own document: a served file |
 | D opaque | full | none | none | none | fork rewrite |
 | E header sandbox | — (hardening in A) | — | header | — | — |
 

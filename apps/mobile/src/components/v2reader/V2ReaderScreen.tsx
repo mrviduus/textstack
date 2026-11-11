@@ -342,6 +342,8 @@ function V2Reader() {
           reading.current.cfi = m.cfi ?? null
           reading.current.index = m.index ?? null
         }
+        // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
+        if (!tracker.showsPosition()) return
         setProgress.current(`${Math.round((m.fraction ?? 0) * 100)}% · section ${(m.index ?? 0) + 1}/${m.sections ?? '?'}${m.toc ? ` · ${m.toc}` : ''}`)
         return
       case 'word':

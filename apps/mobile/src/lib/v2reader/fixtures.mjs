@@ -52,7 +52,7 @@ const xor = (buf, key, n) => Buffer.from(buf.map((b, i) => (i < n ? b ^ key[i % 
 const idpfKey = createHash('sha1').update(`urn:uuid:${UUID}`).digest()
 const adobeKey = Buffer.from(UUID.replaceAll('-', ''), 'hex')
 
-function writeFontsEpub(out) {
+export function writeFontsEpub(out) {
   const font = readFileSync(resolve(here, '../../../assets/fonts/SourceSans3-Regular.woff2'))
   epub(out, 'tsfonts.epub', {
     files: {

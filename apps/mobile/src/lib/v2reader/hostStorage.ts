@@ -28,8 +28,9 @@ export interface LibraryBook {
 }
 
 /**
- * The rows this storage keeps (localLibrary.ts, R6). Structural, not imported: apps/web type-checks
- * this file (its dev page takes `nonceFromUuid`) without allowJs, and the library reads store.mjs.
+ * The rows this storage keeps (localLibrary.ts, R6). Structural, not imported: apps/web type-checked this file
+ * without allowJs (its dev page took `nonceFromUuid`) until #1219. Nothing outside mobile imports it now, so
+ * importing localLibrary's own types would work; left as is, the shape is the same.
  */
 export interface LocalLibrary {
   books(): Promise<LibraryBook[]>
