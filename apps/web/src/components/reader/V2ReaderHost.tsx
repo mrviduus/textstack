@@ -4,17 +4,22 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reader/openTracker.mjs'
 import { V2_READER_FRAME_PATH } from '../../../../mobile/src/lib/v2reader/framePath.mjs'
 import { useTranslation } from '../../hooks/useTranslation'
+import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
 
 /**
  * The V2 reader page (ADR-029) on the web: one host for the dev route (/dev/reader-v2, a picked file) and the
  * production route (/:lang/library/my/:id/read-v2, the V2 file's bytes), #1225. It drives the contract the
  * Android host drives (apps/mobile/src/lib/v2reader/README.md): ready → openBytes → opened → restore → restored,
- * then store / relocate / word / openLink. Reader data (position, highlights) and the layout live in
- * localStorage until the V2 sync client takes them (#1226).
+ * then store / relocate / word / openLink. Reader data (position, highlights): on the server for a book with a
+ * `sync` target (the production route, #1226: lib/v2ReaderSync.ts), in localStorage on the dev route. The
+ * layout is a localStorage setting on both.
  */
 
-/** A book to open: a new object opens it (the same object again does nothing). `bytes` are transferred. */
-export interface V2HostBook { bytes: ArrayBuffer; name: string }
+/**
+ * A book to open: a new object opens it (the same object again does nothing). `bytes` are transferred. `sync`:
+ * the server book and file these bytes are; its reader data is restored from and saved to the server.
+ */
+export interface V2HostBook { bytes: ArrayBuffer; name: string; sync?: V2SyncTarget }
 /** The page's `opened` message, as far as hosts read it. */
 export interface V2OpenedMessage {
   title?: string
@@ -62,7 +67,7 @@ export const READY_DEADLINE_MS = 10_000
  * The open in flight: `name` is unique per open and echoed in `opened`/`open-failed`, so a superseded
  * answer is dropped. `bytes` until the page has been handed them (it may not be `ready` yet).
  */
-type Opening = { name: string; originalName: string; bytes?: ArrayBuffer }
+type Opening = { name: string; originalName: string; bytes?: ArrayBuffer; sync?: V2SyncTarget }
 
 interface Props {
   book: V2HostBook | null
@@ -102,6 +107,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [restored, setRestored] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [frameFailed, setFrameFailed] = useState(false)
+  /** The open book's server sync (null: none, or the dev route's localStorage); one per take, closed on the next. */
+  const sync = useRef<V2ReaderSync | null>(null)
+  const [saveStatus, setSaveStatus] = useState<V2SaveStatus>('saved')
 
   const call = (name: string, args: unknown[] = [], transfer: Transferable[] = []) =>
     frame.current?.contentWindow?.postMessage({ call: name, args }, location.origin, transfer)
@@ -121,7 +129,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setHeading(t('v2Reader.opening', { name: book.name }))
     setStatus('')
     setRestored('')
-    opening.current = { name: `${++opens.current}/${book.name}`, originalName: book.name, bytes: book.bytes }
+    opening.current = { name: `${++opens.current}/${book.name}`, originalName: book.name, bytes: book.bytes, sync: book.sync }
     tracker.open(opening.current.name, opening.current)
     flushOpen()
   }, [book])
@@ -135,7 +143,22 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     /** The page's book is `take.open`'s (openTracker.mjs: the open in flight, or a book the page kept on screen). */
     const takeOpened = ({ open: current, opened: m }: Take<Opening, V2OpenedMessage>) => {
       opening.current = current
-      call('restore', [readItem(storeKey(m.book.sha256))])
+      sync.current?.close()
+      sync.current = null
+      setSaveStatus('saved')
+      const target = current.sync
+      if (!target) call('restore', [readItem(storeKey(m.book.sha256))])
+      else if (target.sha256.toLowerCase() !== m.book.sha256) {
+        // Bytes that are not the server file's: nothing of that book's data is theirs, and nothing is saved.
+        console.warn(`[v2] opened bytes ${m.book.sha256} are not file ${target.fileId}: not synced`)
+        setSaveStatus('unsaved')
+        call('restore', [null])
+      } else {
+        const s = createV2ReaderSync(target, { onStatus: setSaveStatus })
+        sync.current = s
+        // Only while this take is the open one: a later take closed `s`, and its restore is no answer here.
+        void s.restore().then((json) => { if (sync.current === s) call('restore', [json]) })
+      }
       setAnnotatable(m.annotatable !== false)
       setReflowable(m.reflowable !== false)
       setHeading([m.title || current.originalName, m.author].filter(Boolean).join(' — '))
@@ -176,7 +199,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           setRestored(t('v2Reader.restore', { state: String(m.position) }))
           return
         case 'store':
-          writeItem(storeKey(m.key), m.json)
+          // The production route never keeps reader data in this browser: the server only (a store for
+          // another book than the synced one is a previous open's, dropped).
+          if (sync.current) { if (m.key === sync.current.sha256) sync.current.store(m.json) }
+          else if (!opening.current?.sync) writeItem(storeKey(m.key), m.json)
           return
         case 'relocate':
           // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
@@ -201,7 +227,18 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       }
     }
     addEventListener('message', onMessage)
-    return () => removeEventListener('message', onMessage)
+    // Online-first: what did not land is written again when the tab is hidden, and by a keepalive write as it goes.
+    const onVisibility = () => { if (document.visibilityState === 'hidden') void sync.current?.flush() }
+    const onPageHide = () => sync.current?.flushKeepalive()
+    document.addEventListener('visibilitychange', onVisibility)
+    addEventListener('pagehide', onPageHide)
+    return () => {
+      removeEventListener('message', onMessage)
+      document.removeEventListener('visibilitychange', onVisibility)
+      removeEventListener('pagehide', onPageHide)
+      sync.current?.close()
+      sync.current = null
+    }
   }, [])
 
   const toggleFlow = () => {
@@ -223,6 +260,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       </div>
       <strong data-testid="v2-heading">{heading || idleHeading}</strong>
       <span data-testid="v2-status">{status}</span>
+      {saveStatus === 'unsaved' && <span role="status" data-testid="v2-not-saved">{t('v2Reader.notSaved')}</span>}
       {dev && <span data-testid="v2-restore">{restored}</span>}
       {(frameFailed || error) && (
         <span role="alert">

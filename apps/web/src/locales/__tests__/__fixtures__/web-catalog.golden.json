@@ -979,6 +979,7 @@
   "v2Reader.loading": "Loading the book…",
   "v2Reader.next": "Next ›",
   "v2Reader.noFile": "This book has no file to read yet.",
+  "v2Reader.notSaved": "Not saved yet: your place and highlights are saved again as you read.",
   "v2Reader.opening": "Opening {{name}}",
   "v2Reader.paginated": "Paginated",
   "v2Reader.pick": "Pick a book",
