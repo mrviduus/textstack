@@ -9,13 +9,13 @@ import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
 interface FakeSync {
   target: V2SyncTarget
   onStatus(s: V2SaveStatus): void
-  onPosition?(p: unknown): void
+  onHighlights(list: unknown[]): void
   after?: Promise<unknown>
+  /** The next `restore` call's answer (a new one per call: Retry calls it again). */
   answer(json: string | null): void
-  answerHighlights(list: unknown[]): void
-  restoreHighlights: ReturnType<typeof vi.fn>
-  sha256: string
+  fail(): void
   restore: ReturnType<typeof vi.fn>
+  loadHighlights: ReturnType<typeof vi.fn>
   store: ReturnType<typeof vi.fn>
   flush: ReturnType<typeof vi.fn>
   flushKeepalive: ReturnType<typeof vi.fn>
@@ -23,15 +23,13 @@ interface FakeSync {
 }
 const sessions: FakeSync[] = []
 vi.mock('../../lib/v2ReaderSync', () => ({
-  createV2ReaderSync: (target: V2SyncTarget, o: { onStatus(s: V2SaveStatus): void; onPosition?(p: unknown): void; after?: Promise<unknown> }) => {
-    let answer!: (json: string | null) => void
-    let answerHighlights!: (list: unknown[]) => void
-    const restored = new Promise<string | null>((ok) => { answer = ok })
-    const highlights = new Promise<unknown[]>((ok) => { answerHighlights = ok })
+  createV2ReaderSync: (target: V2SyncTarget, o: { onStatus(s: V2SaveStatus): void; onHighlights(list: unknown[]): void; after?: Promise<unknown> }) => {
+    let settle: { ok(json: string | null): void; no(e: unknown): void } | null = null
     const closed = Promise.resolve()
     const s: FakeSync = {
-      target, onStatus: o.onStatus, onPosition: o.onPosition, after: o.after, answer, answerHighlights, sha256: target.sha256,
-      restore: vi.fn(() => restored), restoreHighlights: vi.fn(() => highlights),
+      target, onStatus: o.onStatus, onHighlights: o.onHighlights, after: o.after,
+      answer: (json) => settle?.ok(json), fail: () => settle?.no(new Error('offline')),
+      restore: vi.fn(() => new Promise((ok, no) => { settle = { ok, no } })), loadHighlights: vi.fn(async () => {}),
       store: vi.fn(), flush: vi.fn(async () => {}), flushKeepalive: vi.fn(), close: vi.fn(() => closed),
     }
     sessions.push(s)
@@ -141,35 +139,39 @@ describe('V2ReaderHost, server sync', () => {
     expect(sessions[0].close).toHaveBeenCalled()
   })
 
-  it('highlights_AfterTheRestore_DrawnWhenTheirPullLands', async () => {
+  it('highlights_PulledAfterTheRestore_DrawnAndHighlightingOfferedOnlyThen', async () => {
     const { open } = mount()
     fromPage({ type: 'ready' })
     open(synced('b1', SHA('a')))
     fromPage(opened('1/b1.epub', SHA('a')))
     sessions[0].answer('{"v":1}')
     await flushAll()
-    expect(posted.some((m) => m.call === 'addHighlights')).toBe(false)
-    sessions[0].answerHighlights([{ id: 'h' }])
-    await flushAll()
+    expect(sessions[0].loadHighlights).toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Highlight' })).toBeNull()
+    act(() => sessions[0].onHighlights([{ id: 'h' }]))
     expect(posted.filter((m) => m.call === 'restore' || m.call === 'addHighlights').map((m) => m.call)).toEqual(['restore', 'addHighlights'])
     expect(posted[posted.length - 1].args).toEqual([[{ id: 'h' }]])
+    expect(screen.getByRole('button', { name: 'Highlight' })).toBeInTheDocument()
   })
 
-  it('highlightsOfASupersededTake_NotDrawn', async () => {
+  it('readFails_NoRestore_AnAlertWithRetry_RetryRestores', async () => {
     const { open } = mount()
     fromPage({ type: 'ready' })
     open(synced('b1', SHA('a')))
     fromPage(opened('1/b1.epub', SHA('a')))
-    sessions[0].answer('{"v":1}')
+    sessions[0].fail()
     await flushAll()
-    open(synced('b2', SHA('b')))
-    fromPage(opened('2/b2.epub', SHA('b')))
-    sessions[0].answerHighlights([{ id: 'h' }])
+    expect(restores()).toEqual([])
+    expect(screen.getByTestId('v2-read-failed')).toBeInTheDocument()
+    act(() => screen.getByRole('button', { name: 'Retry' }).click())
+    expect(sessions[0].restore).toHaveBeenCalledTimes(2)
+    expect(screen.queryByTestId('v2-read-failed')).toBeNull()
+    sessions[0].answer('{"v":2}')
     await flushAll()
-    expect(posted.some((m) => m.call === 'addHighlights')).toBe(false)
+    expect(restores()).toEqual(['{"v":2}'])
   })
 
-  it('reopenOfTheSameBook_TheNewSessionWaitsForTheOldOnesClose', () => {
+  it('reopenOfTheSameBook_WaitsForTheOldClose_AnotherBookNever', () => {
     const { open } = mount()
     fromPage({ type: 'ready' })
     open(synced('b1', SHA('a')))
@@ -177,23 +179,26 @@ describe('V2ReaderHost, server sync', () => {
     open(synced('b1', SHA('a')))
     fromPage(opened('2/b1.epub', SHA('a')))
     expect(sessions[1].after).toBe(sessions[0].close.mock.results[0].value)
+    open(synced('b2', SHA('b')))
+    fromPage(opened('3/b2.epub', SHA('b')))
+    expect(sessions[1].close).toHaveBeenCalled()
+    expect(sessions[2].after).toBeUndefined()
   })
 
-  it('serverPlaceAdopted_GoToNotChosen', () => {
+  it('addHighlightsAnswer_NotDrawnOnesLogged', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mount()
+    fromPage({ type: 'highlights', key: SHA('a'), highlights: [{ id: 'h1', status: 'restored' }, { id: 'h2', status: 'quote mismatch, not drawn' }] })
+    expect(warn.mock.calls.map((c) => String(c[0]))).toEqual(['[v2] highlight h2 not drawn: quote mismatch, not drawn'])
+    warn.mockRestore()
+  })
+
+  it.each([['reopen', 'reopen it'], ['noHighlights', 'Highlights are not loaded'], ['unsaved', 'Not saved']] as const)('status %s_ItsOwnMessage', (st, text) => {
     const { open } = mount()
     fromPage({ type: 'ready' })
     open(synced('b1', SHA('a')))
     fromPage(opened('1/b1.epub', SHA('a')))
-    sessions[0].onPosition?.({ cfi: 'epubcfi(/6/4)' })
-    expect(posted[posted.length - 1]).toEqual({ call: 'goTo', args: [{ cfi: 'epubcfi(/6/4)' }] })
-  })
-
-  it('reopenStatus_ItsOwnMessage', () => {
-    const { open } = mount()
-    fromPage({ type: 'ready' })
-    open(synced('b1', SHA('a')))
-    fromPage(opened('1/b1.epub', SHA('a')))
-    act(() => sessions[0].onStatus('reopen'))
-    expect(screen.getByTestId('v2-not-saved')).toHaveTextContent('reopen it')
+    act(() => sessions[0].onStatus(st))
+    expect(screen.getByTestId('v2-not-saved')).toHaveTextContent(text)
   })
 })

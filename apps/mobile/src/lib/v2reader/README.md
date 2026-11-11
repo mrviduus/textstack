@@ -297,7 +297,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.â€
 |---|---|
 | `openUrl(url, name)` | Reads the retained book by XHR (`file://â€¦`) and opens it, whatever its format (Formats). Answers `opened` or `open-failed`. A second call supersedes the first, which then answers nothing. |
 | `restore(json \| null)` | The answer to `opened`: the JSON last sent in `store` for that `book.sha256`, or null. Its position may be fraction-only, `{ fraction, at }` (a transitional `textstack-*` server locator, #1187), or a PDF page `{ page, index, fraction, at }`. Ignored (a `warn`) unless the view on screen is the one that answered `opened` (not one still opening); answered for the book on screen even while a newer open is being made. Takes its slot in the navigation queue when called: a `goTo` sent after it runs after it. |
-| `addHighlights(list)` | Highlights the host learned after `restore` (the web host draws the server's when their pull lands, #1226): each drawn where its text still is (the restore check), added to the entry, not saved (the host holds them). The reader is not moved. Queued behind the restore. Ignored where `annotatable` is false. |
+| `addHighlights(list)` | Highlights the host learned after `restore` (the web host draws the server's when their pull lands, #1226): each drawn where its text still is (the restore check), added to the entry, not saved (the host holds them). The reader is not moved. Queued behind the restore. Ignored where `annotatable` is false. Answered by `highlights`. |
 | `highlightSelection()` | The last non-empty selection becomes a highlight; sends `store` and `highlighted`. Ignored on a CBZ and a PDF (`annotatable: false`). A selection with no text (an image) or over 4000 UTF-16 units (`SyncLimits.MaxSelectedText`) is ignored with a `warn` log. |
 | `goTo(target, chosen = false)` | A position as stored (CFI + quote, CBZ page, PDF page `{ page }`, or fraction-only `{ fraction, at }` with 0 the text start), a CFI, an href or a section index; an object that is no valid position, or a position that does not fit the book (a CFI or fraction on a PDF, a page number elsewhere; a raw CFI string on a PDF too), or a PDF page past the book's end, is ignored with a `warn`. Queued behind the previous navigation; an open supersedes every queued or in-flight one. Not `chosen` (the host moving the view: a sync adopt or move): nothing is saved and no `store` is sent, the host already holds that position; a position target becomes the entry's own. `chosen` (the reader's own choice: a taken offer): the place it landed on is saved (one `store`), built exactly as a relocate's save. One that did not arrive changes nothing and logs a `warn`. |
 | `section(Â±1)`, `next()`, `prev()` | Section / page step, queued. |
@@ -313,6 +313,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.â€
 | `opened` | (Also for a book swapped in while a newer open is under way: see Formats, the open order.) `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`/`pdf`), `textual` (false: no word taps, hide translation and vocabulary), `annotatable` (false: hide highlight and the translation label; CBZ and PDF), `reflowable` (false: disable the flow toggle), `title`, `author` (either may be `''`), `sections`, `toc [{label, href}]` | calls `restore` with the stored JSON for `book.sha256` |
 | `open-failed` | `name`, `error` (shown as is: unreadable, unsupported format, DRM, password-protected PDF) | must not keep the file |
 | `restored` | `key` (= the book's `sha256`, as `store`'s: a host drops one for a book it is not reading), `found`, `rejected`, `position` (`none` / `restored` / `restored by fraction` / `quote mismatch, stayed at start` / `page not found, stayed at start` (CBZ, PDF) / `wrong position kind, stayed at start` (a CFI or fraction on a PDF, a page number elsewhere) / `navigation failed, stayed at start`), `highlights [{id, status}]` | â€” |
+| `highlights` | `key` (= the book's `sha256`), `highlights [{id, status}]` (`restored` / `quote mismatch, not drawn` / `already drawn` / `not a highlight`) | the answer to `addHighlights`; a host logs the ones not drawn |
 | `store` | `key` (= `book.sha256`), `json` | keeps `json` under `key`, verbatim |
 | `relocate` | `index`, `sections`, `fraction`, `toc`, `cfi` | progress UI |
 | `word` | `index`, `word`, `sentence`, `cfi` (null where `annotatable` is false), `rect {x, y, w, h}` (host viewport) | translates, then `showTranslation` (not without a `cfi`) |
@@ -389,20 +390,21 @@ the current file's bytes from `/me/v2/books/{id}/files/{fileId}/content`, transf
 `<iframe sandbox="allow-scripts allow-same-origin" src>`, checks every message's source and origin, tracks opens
 with `openTracker.mjs`, and shows an error when no `ready` arrives within 10 s. Reader data: localStorage on the
 dev route (keyed on the route, `dev`); on the production route the server only (#1226,
-`apps/web/src/lib/v2ReaderSync.ts`, one session per open). `restore` gets the server's reading state as the
-entry's position; the book's annotations (this file version's, live) follow by `addHighlights` when their pull
-lands. Each `store` is diffed against what the server is known to hold (`entryChanges`,
+`apps/web/src/lib/v2ReaderSync.ts`, one session per open). No reading-state read, no session: `restore` gets
+the server's place, and when the read fails the page gets no `restore` (an error with Retry), so nothing is
+written. The book's annotations (this file version's, live) follow by `addHighlights` when a fresh pull lands
+(answered by `highlights`; ones not drawn are logged); until then highlighting is not offered, no highlight is
+written, and a status line says so (the pull retried on the next `store` and when the tab hides). Each `store` is diffed against what the server is known to hold (`entryChanges`,
 `packages/shared/src/reader/v2PageEntry.ts`, the mapping `localLibrary.ts` uses; twins only within one file
-version) and written with the expected revisions. No position is written before the reading state has been
-read (a failed read is retried on the next `store`; a late read adopts the server's place when it is provably
-newer, ADR-019 "nothing restored"). Conflicts: own write = success; `stale_revision`/`reset` written once more
+version) and written with the expected revisions. Conflicts: own write = success; `stale_revision`/`reset` written once more
 on their revision (this tab wins, owner 2026-11-11; the ask UI is #1232); an annotation re-applied once,
 then the server's kept and the page's form not sent again until it changes; a tombstone wins; `id_conflict`
 re-keyed once. Terminal: `file_replaced`/`unknown_file`/`book_not_found` stop the session's writes ("reopen"
-line); `invalid_payload`/`chapter_not_found`/400/422 drop that write until it changes. Online-first, no outbox:
+line); `invalid_payload`/`chapter_not_found`/400/422: not resent until it changes, "not saved" meanwhile. Online-first, no outbox:
 a failed write stays a difference, retried on the next `store` and when the tab hides; `pagehide` sends what is
 left by keepalive (position first, highlights within a 60 KB budget); a "not saved" line until it lands. A new
-take or leaving the route closes the session after one last pass; a reopen of the same book reads after it.
+take or leaving the route closes the session after one last pass; a reopen of the same book and file reads after
+it (another book never waits).
 Bytes that are not the server file's are not synced. The one local exception: a CBZ page position (no server
 form yet, #1188) is kept in this browser per book. The shim posts to `self.origin` only and takes messages from `parent` at that origin
 only; the frame is same-origin with its host, so that is the host's origin. **Android keeps the inline page**

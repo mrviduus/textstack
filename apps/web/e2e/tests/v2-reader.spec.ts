@@ -54,18 +54,20 @@ interface PageMessages {
   restored: { position: string }[]
   /** The page's saved entries: a highlight drawn by `addHighlights` is in every one after it. */
   store: { json: string }[]
+  /** The answers to `addHighlights`: one status per highlight. */
+  highlights: { highlights: { id: string; status: string }[] }[]
 }
 
-/** The page's `restored` and `store` messages, as the host's window receives them (the host shows neither here). */
+/** The page's `restored`, `store` and `highlights` messages, as the host's window receives them (the host shows neither here). */
 async function collectPageMessages(page: Page) {
   await page.addInitScript(() => {
     if (window.top !== window) return
     const w = window as unknown as { __page: Record<string, unknown[]> }
-    w.__page = { restored: [], store: [] }
+    w.__page = { restored: [], store: [], highlights: [] }
     addEventListener('message', (e) => {
       try {
         const m = typeof e.data === 'string' ? JSON.parse(e.data) : null
-        if (m?.type === 'restored' || m?.type === 'store') w.__page[m.type].push(m)
+        if (m?.type === 'restored' || m?.type === 'store' || m?.type === 'highlights') w.__page[m.type].push(m)
       } catch { /* not the page's */ }
     })
   })
@@ -158,6 +160,7 @@ test.describe('V2 reader page @v2', () => {
     const there = await collectPageMessages(second)
     await second.goto(`/en/library/my/${bookId}/read-v2`)
     await expect.poll(async () => (await there()).restored.at(-1)?.position, { timeout: 20_000 }).toBe('restored')
+    await expect.poll(async () => (await there()).highlights.flatMap((m) => m.highlights), { timeout: 20_000 }).toContainEqual({ id, status: 'restored' })
     const annotationPut = second.waitForRequest((r) => r.method() === 'PUT' && r.url().includes('/me/v2/annotations/'), { timeout: 3_000 }).then(() => true, () => false)
     await expect.poll(async () => {
       await second.getByRole('button', { name: 'Next ›' }).click()

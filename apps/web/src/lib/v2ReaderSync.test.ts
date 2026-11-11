@@ -1,11 +1,11 @@
-import { ApiError, type PagePosition, type V2Annotation, type V2AnnotationWrite, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
+import { ApiError, type PageHighlight, type V2Annotation, type V2AnnotationWrite, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v2Store } from '../api/v2'
-import { createV2ReaderSync, KEEPALIVE_BUDGET, type V2ReaderSyncApi, type V2SaveStatus, type V2SyncTarget } from './v2ReaderSync'
+import { createV2ReaderSync, KEEPALIVE_BUDGET, v2ReaderSyncApi, type V2ReaderSyncApi, type V2SaveStatus, type V2SyncTarget } from './v2ReaderSync'
 
-// #1226: the web V2 host's sync decisions against a fake server — restore (position, then highlights), diff, the
-// 409 paths, terminal refusals, no position write before a read, the stale-open and account guards, retry on the
-// next store / flush, close's last pass, the keepalive writes, the CBZ local exception.
+// #1226: the web V2 host's sync decisions against a fake server — restore (no read, no session), highlights after
+// their pull (none written before it), diff, the 409 paths, terminal refusals, the stale-open and account guards,
+// retry on the next store / flush, close's last pass, the keepalive writes, the CBZ local exception.
 
 const T: V2SyncTarget = { bookId: 'b1', fileId: 'f1', format: 'epub', sha256: 'ab'.repeat(32), size: 100, name: 'a.epub' }
 const H1 = '11111111-1111-4111-8111-111111111111'
@@ -37,12 +37,12 @@ const deferred = <T>() => {
 
 let api: { [K in keyof V2ReaderSyncApi]: ReturnType<typeof vi.fn> }
 let statuses: V2SaveStatus[]
-let moved: PagePosition[]
+let drawnLists: PageHighlight[][]
 
 beforeEach(() => {
   localStorage.clear()
   statuses = []
-  moved = []
+  drawnLists = []
   api = {
     getReadingState: vi.fn().mockResolvedValue(null),
     annotations: vi.fn().mockResolvedValue([]),
@@ -54,14 +54,14 @@ beforeEach(() => {
 })
 
 const open = (t: V2SyncTarget = T, after?: Promise<unknown>) => createV2ReaderSync(t, {
-  api: api as unknown as V2ReaderSyncApi, onStatus: (s) => statuses.push(s), onPosition: (p) => moved.push(p), newId: () => MINTED, after,
+  api: api as unknown as V2ReaderSyncApi, onStatus: (s) => statuses.push(s), onHighlights: (l) => drawnLists.push(l), newId: () => MINTED, after,
 })
 const expectedOf = (call: unknown[]) => (call[1] as { expectedRevision: number | null }).expectedRevision
 const last = () => statuses[statuses.length - 1]
 async function opened(t: V2SyncTarget = T) {
   const s = open(t)
   await s.restore()
-  await s.restoreHighlights()
+  await s.loadHighlights()
   return s
 }
 async function stored(s: ReturnType<typeof open>, json: string) {
@@ -71,12 +71,13 @@ async function stored(s: ReturnType<typeof open>, json: string) {
 
 describe('createV2ReaderSync', () => {
   describe('restore', () => {
-    it('restore_PositionFromTheReadingState_HighlightsLaterThisFilesLiveOnly', async () => {
+    it('restore_PositionFromTheReadingState_HighlightsWhenThePullLandsThisFilesLiveOnly', async () => {
       api.getReadingState.mockResolvedValue(state(4, 2))
       const pull = deferred<V2Annotation[]>()
       api.annotations.mockReturnValue(pull.promise)
       const s = open()
       const e = JSON.parse((await s.restore())!)
+      const loading = s.loadHighlights()
       // The position does not wait for the annotations pull.
       expect(e.position).toMatchObject({ cfi: cfi(2), quote: 'quote 2', index: 2, fraction: 0.2 })
       expect(e.highlights).toEqual([])
@@ -87,7 +88,8 @@ describe('createV2ReaderSync', () => {
         annotation({ id: '33333333-3333-4333-8333-333333333333', fileId: 'old' }),
         annotation({ id: '44444444-4444-4444-8444-444444444444', bookId: 'other' }),
       ])
-      expect((await s.restoreHighlights()).map((h) => h.id)).toEqual([H1])
+      await loading
+      expect(drawnLists.map((l) => l.map((h) => h.id))).toEqual([[H1]])
     })
 
     it('restore_StateOnAnotherFileVersion_NoPosition_FirstWriteOnThisFile', async () => {
@@ -131,49 +133,83 @@ describe('createV2ReaderSync', () => {
     })
   })
 
-  describe('no position write before a read', () => {
-    it('restoreReadFails_Unsaved_NoPositionWrite_TheReadRetriedOnTheNextStore', async () => {
-      api.getReadingState.mockRejectedValueOnce(offline()).mockRejectedValueOnce(offline())
+  describe('no read, no session', () => {
+    it('readFails_RestoreThrows_NothingEverWritten', async () => {
+      api.getReadingState.mockRejectedValue(offline())
       const s = open()
-      expect(JSON.parse((await s.restore())!).position).toBeNull()
-      expect(statuses).toEqual(['unsaved'])
-      await stored(s, entry(pos(2)))
-      expect(api.putReadingState).not.toHaveBeenCalled()
-      expect(api.getReadingState).toHaveBeenCalledTimes(2)
-      expect(last()).toBe('unsaved')
-      // Read at last (no state on the server): ours is a first write.
+      await expect(s.restore()).rejects.toThrow()
+      s.store(entry(pos(2), [hl()]))
       await s.flush()
-      expect(api.putReadingState.mock.calls.map(expectedOf)).toEqual([null])
-      expect(last()).toBe('saved')
-    })
-
-    it('lateRead_TheServersPlaceNewer_Adopted_PageMovedThere_NothingWritten', async () => {
-      api.getReadingState.mockRejectedValueOnce(offline()).mockResolvedValueOnce(state(7, 5, new Date(Date.now() + 60_000).toISOString()))
-      const s = open()
-      await s.restore()
-      await stored(s, entry(pos(1, Date.now() - 60_000)))
-      expect(moved.map((p) => p.cfi)).toEqual([cfi(5)])
+      s.flushKeepalive()
+      await s.close()
       expect(api.putReadingState).not.toHaveBeenCalled()
-      expect(last()).toBe('saved')
+      expect(api.putAnnotation).not.toHaveBeenCalled()
+      expect(api.keepalivePutState).not.toHaveBeenCalled()
+      expect(api.getReadingState).toHaveBeenCalledTimes(1)
+      expect(statuses).toEqual([])
     })
 
-    it('lateRead_OursNewer_WrittenOnTheirRevision', async () => {
+    it('retryAfterAFailedRead_RestoresTheServersPlace_ThenWritesOnItsRevision', async () => {
       api.getReadingState.mockRejectedValueOnce(offline()).mockResolvedValueOnce(state(7, 5))
       const s = open()
-      await s.restore()
-      await stored(s, entry(pos(2, Date.now())))
-      expect(moved).toEqual([])
+      await expect(s.restore()).rejects.toThrow()
+      expect(JSON.parse((await s.restore())!).position).toMatchObject({ cfi: cfi(5) })
+      await s.loadHighlights()
+      await stored(s, entry(pos(6)))
       expect(api.putReadingState.mock.calls.map(expectedOf)).toEqual([7])
     })
+  })
 
-    it('flushKeepalive_StateNeverRead_NoPositionSent', async () => {
-      api.getReadingState.mockRejectedValue(offline())
+  describe('annotations pull', () => {
+    it('closed_NoPull', async () => {
+      const s = open()
+      await s.restore()
+      await s.close()
+      await s.loadHighlights()
+      expect(api.annotations).not.toHaveBeenCalled()
+    })
+
+    it('pullLandsWhileClosing_NotDrawn', async () => {
+      const pull = deferred<V2Annotation[]>()
+      api.annotations.mockReturnValueOnce(pull.promise)
       const s = open()
       await s.restore()
       s.store(entry(pos(2)))
-      await s.flush()
+      const closed = s.close()
+      pull.resolve([annotation({ id: H1 })])
+      await closed
+      expect(drawnLists).toEqual([])
+    })
+
+    it('defaultPull_FreshEachTime_NeverJoinsOneInFlight', async () => {
+      const fetchMock = vi.fn(async () => new Response(JSON.stringify({ items: [], cursor: null, hasMore: false }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      vi.stubGlobal('fetch', fetchMock)
+      try {
+        await Promise.all([v2ReaderSyncApi.annotations(), v2ReaderSyncApi.annotations()])
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('pullFails_NoHighlights_PositionStillWritten_HighlightHeld_ThenRetriedDrawnAndWritten', async () => {
+      api.annotations.mockRejectedValueOnce(offline()).mockRejectedValueOnce(offline())
+      const s = open()
+      await s.restore()
+      await s.loadHighlights()
+      expect(statuses).toEqual(['noHighlights'])
+      expect(drawnLists).toEqual([])
+      await stored(s, entry(pos(2), [hl()]))
+      expect(api.putReadingState).toHaveBeenCalledTimes(1)
+      expect(api.putAnnotation).not.toHaveBeenCalled()
       s.flushKeepalive()
-      expect(api.keepalivePutState).not.toHaveBeenCalled()
+      expect(api.keepalivePutAnnotation).not.toHaveBeenCalled()
+      expect(statuses[statuses.length - 1]).toBe('noHighlights')
+      // The next flush pulls again: drawn, then the held highlight is written.
+      await s.flush()
+      expect(drawnLists).toEqual([[]])
+      expect(api.putAnnotation).toHaveBeenCalledTimes(1)
+      expect(statuses[statuses.length - 1]).toBe('saved')
     })
   })
 
@@ -255,14 +291,16 @@ describe('createV2ReaderSync', () => {
       expect(api.keepalivePutState).not.toHaveBeenCalled()
     })
 
-    it('invalidPayload_Dropped_NotSentAgainUntilTheReaderMoves', async () => {
+    it('invalidPayload_UnsavedNotResent_UntilTheReaderMoves', async () => {
       const s = await opened()
       api.putReadingState.mockRejectedValueOnce(fail(400, 'invalid_payload'))
       await stored(s, entry(pos(2)))
       await stored(s, entry(pos(2)))
       expect(api.putReadingState).toHaveBeenCalledTimes(1)
+      expect(statuses).toEqual(['unsaved', 'unsaved'])
       await stored(s, entry(pos(3)))
       expect(api.putReadingState).toHaveBeenCalledTimes(2)
+      expect(last()).toBe('saved')
     })
   })
 
@@ -330,22 +368,25 @@ describe('createV2ReaderSync', () => {
       expect(api.putAnnotation).toHaveBeenCalledTimes(2)
     })
 
-    it('idConflictTwice_Dropped_NotSentAgainUntilChanged', async () => {
+    it('idConflictTwice_UnsavedNotResentUntilChanged', async () => {
       const s = await opened()
       api.putAnnotation.mockRejectedValueOnce(conflict('id_conflict', null)).mockRejectedValueOnce(conflict('id_conflict', null))
       await stored(s, entry(null, [hl()]))
       await stored(s, entry(pos(2), [hl()]))
       expect(api.putAnnotation).toHaveBeenCalledTimes(2)
+      expect(last()).toBe('unsaved')
     })
 
-    it('invalidPayload_Dropped_NotSentAgainUntilChanged', async () => {
+    it('invalidPayload_UnsavedNotResent_UntilChanged', async () => {
       const s = await opened()
       api.putAnnotation.mockRejectedValueOnce(fail(400, 'invalid_payload'))
       await stored(s, entry(null, [hl()]))
       await stored(s, entry(pos(2), [hl()]))
       expect(api.putAnnotation).toHaveBeenCalledTimes(1)
+      expect(statuses).toEqual(['unsaved', 'unsaved'])
       await stored(s, entry(pos(2), [hl(H1, 'green')]))
       expect(api.putAnnotation).toHaveBeenCalledTimes(2)
+      expect(last()).toBe('saved')
     })
 
     it('bookNotFound_Reopen_NoMoreRequests', async () => {

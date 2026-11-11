@@ -1,7 +1,8 @@
 import { useState, type ChangeEvent } from 'react'
 // ponytail: deep import of apps/mobile source, as V2ReaderHost's (#1128, ADR-032).
 import { addOpened, emptyLibrary, parseLibrary, type LibraryEntry } from '../../../../mobile/src/lib/v2reader/library.mjs'
-import { V2ReaderHost, readItem, writeItem, type V2HostBook } from '../../components/reader/V2ReaderHost'
+import { V2ReaderHost, type V2HostBook } from '../../components/reader/V2ReaderHost'
+import { readItem, writeItem } from '../../lib/safeLocalStorage'
 import { useTranslation } from '../../hooks/useTranslation'
 
 /**

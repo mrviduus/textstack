@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reader/openTracker.mjs'
 import { V2_READER_FRAME_PATH } from '../../../../mobile/src/lib/v2reader/framePath.mjs'
 import { useTranslation } from '../../hooks/useTranslation'
+import { readItem, writeItem } from '../../lib/safeLocalStorage'
 import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
 
 /**
@@ -34,22 +35,8 @@ const storeKey = (sha256: string) => `v2reader:store:${sha256}`
 /** The reader's layout, a per-user setting (#1128): paginated unless the reader chose scrolled. */
 const FLOW_KEY = 'v2reader:flow'
 type Flow = 'paginated' | 'scrolled'
-
-// A full, disabled or cleared localStorage costs the reader data, never the open book.
-export function readItem(key: string): string | null {
-  try {
-    return localStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
-export function writeItem(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value)
-  } catch (e) {
-    console.warn(`[v2] localStorage write ${key} failed: ${e}`)
-  }
-}
+/** The save line per sync status ('saved' shows none). */
+const SAVE_MESSAGE = { unsaved: 'v2Reader.unsaved', reopen: 'v2Reader.reopen', noHighlights: 'v2Reader.noHighlights' } as const
 
 /**
  * The page as its own same-origin document (#1219): a no-store shell with a fresh nonce per response and the
@@ -111,6 +98,11 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   /** The open book's server sync (null: none, or the dev route); one per take, closed (after a last write) on the next. */
   const sync = useRef<V2ReaderSync | null>(null)
   const [saveStatus, setSaveStatus] = useState<V2SaveStatus>('saved')
+  /** The production route: the server's highlights have landed, so highlighting is offered (B, #1226). */
+  const [highlightsReady, setHighlightsReady] = useState(false)
+  /** The open's reading-state read failed: no session; Retry reads again, then restores (no read, no writes). */
+  const [readFailed, setReadFailed] = useState(false)
+  const retryRead = useRef<(() => void) | null>(null)
 
   const call = (name: string, args: unknown[] = [], transfer: Transferable[] = []) =>
     frame.current?.contentWindow?.postMessage({ call: name, args }, location.origin, transfer)
@@ -144,10 +136,14 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     /** The page's book is `take.open`'s (openTracker.mjs: the open in flight, or a book the page kept on screen). */
     const takeOpened = ({ open: current, opened: m }: Take<Opening, V2OpenedMessage>) => {
       opening.current = current
-      // The previous take's last writes go out first; a reopen of the same book reads after them.
-      const previous = sync.current?.close()
+      // The previous take's last writes go out; a reopen of the same book and file reads after them, another never waits.
+      const previous = sync.current
+      const closed = previous?.close()
       sync.current = null
+      retryRead.current = null
       setSaveStatus('saved')
+      setHighlightsReady(false)
+      setReadFailed(false)
       const target = current.sync
       if (dev) call('restore', [readItem(storeKey(m.book.sha256))])
       else if (!target) call('restore', [null])
@@ -157,21 +153,31 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         setSaveStatus('unsaved')
         call('restore', [null])
       } else {
+        const same = previous?.target.bookId === target.bookId && previous.target.fileId === target.fileId
         const s = createV2ReaderSync(target, {
           onStatus: setSaveStatus,
-          // The server's place, adopted (a late read, nothing restored from it): not the reader's choice, not saved back.
-          onPosition: (p) => call('goTo', [p]),
-          after: previous,
+          // Drawn without moving the reader; highlighting is offered from now on.
+          onHighlights: (list) => {
+            setHighlightsReady(true)
+            if (list.length) call('addHighlights', [list])
+          },
+          after: same ? closed : undefined,
         })
         sync.current = s
         // Only while this take is the open one: a later take closed `s`, and its answers are none of this book's.
-        void s.restore().then(async (json) => {
-          if (sync.current !== s) return
-          // The position first; the highlights when their pull lands, drawn without moving the reader.
-          call('restore', [json])
-          const list = await s.restoreHighlights()
-          if (sync.current === s && list.length) call('addHighlights', [list])
-        })
+        const read = () => {
+          setReadFailed(false)
+          s.restore().then((json) => {
+            if (sync.current !== s || json === null) return
+            call('restore', [json])
+            void s.loadHighlights()
+          }, (e: unknown) => {
+            console.warn('[v2] reading state not read:', e)
+            if (sync.current === s) setReadFailed(true)
+          })
+        }
+        retryRead.current = read
+        read()
       }
       setAnnotatable(m.annotatable !== false)
       setReflowable(m.reflowable !== false)
@@ -207,6 +213,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (f.take) takeOpened(f.take)
           return
         }
+        case 'highlights':
+          // addHighlights' answer: one not drawn is the server's but not where its text is in this file.
+          for (const h of m.highlights ?? []) if (h.status !== 'restored') console.warn(`[v2] highlight ${h.id} not drawn: ${h.status}`)
+          return
         case 'restored':
           // Only for the book taken last: a stale answer must not show another book as restored.
           if (!tracker.restored(m)) return
@@ -216,7 +226,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           // Keyed on the route: the production route never keeps reader data in this browser (the server
           // only; a store for another book than the synced one is a previous open's, dropped).
           if (dev) writeItem(storeKey(m.key), m.json)
-          else if (sync.current && m.key === sync.current.sha256) sync.current.store(m.json)
+          else if (sync.current && m.key === sync.current.target.sha256) sync.current.store(m.json)
           return
         case 'relocate':
           // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
@@ -270,13 +280,18 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         {toolbar}
         <button onClick={() => call('prev')}>{t('v2Reader.prev')}</button>
         <button onClick={() => call('next')}>{t('v2Reader.next')}</button>
-        {annotatable && <button onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
+        {annotatable && (dev || highlightsReady) && <button onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
         <button onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
       </div>
       <strong data-testid="v2-heading">{heading || idleHeading}</strong>
       <span data-testid="v2-status">{status}</span>
       {saveStatus !== 'saved' && (
-        <span role="status" data-testid="v2-not-saved">{t(saveStatus === 'reopen' ? 'v2Reader.reopen' : 'v2Reader.notSaved')}</span>
+        <span role="status" data-testid="v2-not-saved">{t(SAVE_MESSAGE[saveStatus])}</span>
+      )}
+      {readFailed && (
+        <span role="alert" data-testid="v2-read-failed">
+          {t('v2Reader.readFailed')} <button onClick={() => retryRead.current?.()}>{t('v2Reader.retry')}</button>
+        </span>
       )}
       {dev && <span data-testid="v2-restore">{restored}</span>}
       {(frameFailed || error) && (
