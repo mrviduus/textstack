@@ -11,8 +11,10 @@ cite `file:line` at `main` 9f86676f.
 ## 1. Problem
 
 The web host is dev-only: `main.tsx:13` mounts `V2ReaderDevPage` only under `import.meta.env.DEV`, and
-`apps/web/scripts/assert-no-dev-reader.mjs:6` fails the build if the page reaches `dist/`. The page runs in
-`<iframe sandbox="allow-scripts allow-same-origin" srcDoc=…>` (`V2ReaderDevPage.tsx:221`). `allow-same-origin` is
+`apps/web/scripts/assert-no-dev-reader.mjs:6` fails the build if the page reaches `dist/`. When this doc was
+written the page ran in `<iframe sandbox="allow-scripts allow-same-origin" srcDoc=…>` (`V2ReaderDevPage.tsx:221`);
+since #1219 it is its own same-origin document, `<iframe … src="/reader-v2/frame.html">`, served by the dev server
+(§2, the srcdoc finding). Either way `allow-same-origin` is
 forced by foliate: it reads its section frames' documents directly (`paginator.js:244,251`, `fixed-layout.js:86,93`
 in the local `.vendor/foliate-js` checkout). So the page runs on the app's origin, and the page CSP
 (`carrier.mjs:11-12`) is the only barrier between a hostile book and the app origin. `sandbox.check.mjs` shows the

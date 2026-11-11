@@ -279,7 +279,8 @@ node --experimental-strip-types apps/mobile/src/lib/v2reader/sandbox.check.mjs -
 
 The artifact carries only the placeholder `__V2_READER_NONCE__` (a fixed nonce in a public repo is one a book
 can carry); `v2ReaderPageHtml(nonce)` fills the CSP and the script tag and rejects anything but base64/hex of
-16+ chars. The host supplies a fresh random nonce per load; on the web, whoever serves the frame document fills
+16+ chars, and the placeholder itself (it fits that rule, so a page "filled" with it would run any script
+carrying it). The host supplies a fresh random nonce per load; on the web, whoever serves the frame document fills
 it per response (Host responsibilities, "Web, its own document").
 
 ## Host ↔ page contract
@@ -353,16 +354,21 @@ target in the spread already shown counts as arrived (foliate shows it without a
 file itself, so no book bytes cross the bridge. Universal file access stays off.
 
 **Web, its own document** (#1219; dev server only until the production route): `frame.mjs` turns the page into a
-frame document, the page plus the host shim, the nonce still a placeholder. The dev server serves it at
-`/reader-v2/frame.html` (`vite.config.ts`, plugin `v2-reader-frame`) with a fresh nonce per response (16 random
-bytes, hex, as nginx's `$request_id` will) and its own headers (`V2_READER_FRAME_HEADERS`: `frame-ancestors
-'self'`, `no-store`, nosniff, `no-referrer`). The host (`V2ReaderDevPage.tsx`) embeds it with `<iframe
-sandbox="allow-scripts allow-same-origin" src>`. The shim posts to `location.origin` only and takes messages from
-`parent` at that origin only; the frame is same-origin with its host, so that is the host's origin.
+frame document, the page plus the host shim, with its own nonce placeholder `%V2_READER_FRAME_NONCE%`. That one
+fails closed: `%` is outside the CSP nonce grammar, so a document served unfilled has no valid script source and
+runs nothing, not even a script that carries the placeholder. `serveV2ReaderFrame` serves it at
+`/reader-v2/frame.html` (path: `framePath.mjs`) with a fresh nonce per response (16 random bytes, hex, as nginx's
+`$request_id` will; `fillNonce` takes nothing else) and its own headers (`V2_READER_FRAME_HEADERS`:
+`frame-ancestors 'self'`, `no-store`, nosniff, `no-referrer`). The Vite dev server uses that handler (plugin
+`v2-reader-frame`, loaded on the first frame request), and so does the check. The host (`V2ReaderDevPage.tsx`)
+embeds it with `<iframe sandbox="allow-scripts allow-same-origin" src>` and shows an error when no `ready` arrives
+within 10 s. The shim posts to `self.origin` only and takes messages from `parent` at that origin only; the frame
+is same-origin with its host, so that is the host's origin.
 
 Not `srcdoc`, measured (`prodCsp.check.mjs`): a srcdoc document inherits the app's CSP (`infra/nginx/textstack.conf`)
-on top of its own, and the app's `script-src` refuses the page's nonce'd scripts, so the page never sends `ready`.
-Making srcdoc work takes five app-wide additions (a per-response script nonce; `blob:` in `connect-src`, the
+on top of its own, and the app's `script-src` refuses the page's nonce'd scripts, so the page never sends `ready`;
+the same document as srcdoc under a host without CSP works (the `srcdoc-control` row), so the CSP is the reason.
+Making srcdoc work took five app-wide additions (measured on the experiment branch, `exp/v2-reader-prod-csp`) (a per-response script nonce; `blob:` in `connect-src`, the
 `openUrl` read; in `frame-src`, the section frames; in `style-src` and `font-src`, a book's CSS and fonts). As its
 own document the page carries only its own policy, and the app needs `frame-src 'self'` plus a location that sends
 the frame's headers itself (nginx drops server-level `add_header` there, #857, and those carry `frame-ancestors
@@ -370,5 +376,5 @@ the frame's headers itself (nginx drops server-level `add_header` there, #857, a
 (`docs/01-architecture/v2-reader-web-hosting.md`).
 
 ```bash
-pnpm -C apps/web check:v2-reader-prod-csp   # CI, ~2 s: the frame document works under the app CSP read from nginx; srcdoc does not
+pnpm -C apps/web check:v2-reader-prod-csp   # CI, ~10 s: the served frame works under the app CSP read from nginx; srcdoc, header-less, foreign-framed and unfilled do not
 ```

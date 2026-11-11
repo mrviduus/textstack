@@ -13,5 +13,7 @@ const PAGE_HTML = "<!doctype html><html><head><meta charset=\"utf-8\">\n<meta na
 /** The page with `nonce` in its CSP and script tag. A fresh random nonce per load, base64 or hex, >= 16 chars. */
 export function v2ReaderPageHtml(nonce: string): string {
   if (!/^[A-Za-z0-9+/_-]{16,}={0,2}$/.test(nonce)) throw new Error('v2ReaderPageHtml: nonce must be base64 or hex, at least 16 chars')
+  // The placeholder fits that rule and is public: a page "filled" with it runs any script carrying it.
+  if (nonce.includes("__V2_READER_NONCE__")) throw new Error('v2ReaderPageHtml: the placeholder is not a nonce')
   return PAGE_HTML.split("__V2_READER_NONCE__").join(nonce)
 }

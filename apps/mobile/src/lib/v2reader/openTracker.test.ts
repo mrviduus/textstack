@@ -51,4 +51,35 @@ describe('v2 host open tracker (S5 review)', () => {
     t.opened(opened('a'))
     expect(t.opened(opened('a'))).toBeNull() // a second answer for an open already taken
   })
+
+  it('relocateAfterAFailedOpen_NoPositionShown_UntilTheNextOpenOrTake', () => {
+    const t = createOpenTracker<string>()
+    t.open('a', 'A')
+    t.opened(opened('a'))
+    expect(t.showsPosition()).toBe(true)
+    t.open('b', 'B')
+    expect(t.showsPosition()).toBe(true) // A still reads while B's file is read
+    expect(t.failed('b')).toEqual({ failed: 'B', take: null })
+    expect(t.showsPosition()).toBe(false) // A may still relocate: the host cleared its position
+    t.open('c', 'C')
+    expect(t.showsPosition()).toBe(true)
+  })
+
+  it('failedOpenWithABookKeptOnScreen_PositionShown', () => {
+    // B swapped in and answered, then C failed: B is taken and is the book read.
+    const t = createOpenTracker<string>()
+    t.open('b', 'B')
+    t.open('c', 'C')
+    t.opened(opened('b'))
+    expect(t.failed('c')?.take).toMatchObject({ open: 'B' })
+    expect(t.showsPosition()).toBe(true)
+    // Failed first, the kept book's answer later: shown again once taken.
+    const u = createOpenTracker<string>()
+    u.open('b', 'B')
+    u.open('c', 'C')
+    u.failed('c')
+    expect(u.showsPosition()).toBe(false)
+    u.opened(opened('b'))
+    expect(u.showsPosition()).toBe(true)
+  })
 })

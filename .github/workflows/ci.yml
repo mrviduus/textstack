@@ -435,7 +435,7 @@ jobs:
         run: pnpm check:v2-reader-formats
 
       # #1219: the web host's frame document (frame.mjs) works under the app CSP read from
-      # infra/nginx/textstack.conf (a change there runs every job, so this too); srcdoc stays refused. ~2s.
+      # infra/nginx/textstack.conf (a change there runs every job, so this too); srcdoc, header-less, foreign-framed and unfilled stay refused. ~10s.
       - name: V2 reader prod CSP — gates the PR
         if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
         working-directory: apps/web

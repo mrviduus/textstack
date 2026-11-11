@@ -2,25 +2,24 @@ import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { randomBytes } from 'crypto'
-import { V2_READER_FRAME_HEADERS, V2_READER_FRAME_PATH, fillNonce, v2ReaderFrameTemplate } from '../mobile/src/lib/v2reader/frame.mjs'
+import { V2_READER_FRAME_PATH } from '../mobile/src/lib/v2reader/framePath.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /**
- * The V2 reader frame document (#1219), dev server only: a fresh nonce per response (16 random bytes, hex,
- * as nginx's $request_id) and the frame's own headers. Not emitted to dist/ until the production route.
+ * The V2 reader frame document (#1219), dev server only, served by frame.mjs `serveV2ReaderFrame` (the
+ * handler prodCsp.check.mjs tests). frame.mjs carries the 3.75 MB page: imported on the first frame request,
+ * so a build (and every other dev request) never evaluates it. Not emitted to dist/ until the production route.
  */
 const v2ReaderFrame = (): Plugin => ({
   name: 'v2-reader-frame',
   apply: 'serve',
   configureServer(server) {
-    let template: string | undefined
-    server.middlewares.use(V2_READER_FRAME_PATH, (req, res, next) => {
-      if (req.method !== 'GET' && req.method !== 'HEAD') return next()
-      template ??= v2ReaderFrameTemplate()
-      res.writeHead(200, V2_READER_FRAME_HEADERS)
-      res.end(req.method === 'HEAD' ? undefined : fillNonce(template, randomBytes(16).toString('hex')))
+    server.middlewares.use((req, res, next) => {
+      if (!req.url?.startsWith(V2_READER_FRAME_PATH)) return next()
+      import('../mobile/src/lib/v2reader/frame.mjs')
+        .then(({ serveV2ReaderFrame }) => serveV2ReaderFrame(req, res) || next())
+        .catch(next)
     })
   },
 })

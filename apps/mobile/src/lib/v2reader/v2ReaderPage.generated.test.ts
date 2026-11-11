@@ -21,7 +21,7 @@ describe('v2ReaderPageHtml', () => {
   })
 
   it('weakOrUnsafeNonce_Throws', () => {
-    for (const bad of ['', 'tsfoliate', 'a'.repeat(15), `${'a'.repeat(16)}"><script>`, `${'a'.repeat(16)}'`])
+    for (const bad of ['', 'tsfoliate', '__V2_READER_NONCE__', 'x__V2_READER_NONCE__', 'a'.repeat(15), `${'a'.repeat(16)}"><script>`, `${'a'.repeat(16)}'`])
       expect(() => v2ReaderPageHtml(bad), bad).toThrow()
   })
 
