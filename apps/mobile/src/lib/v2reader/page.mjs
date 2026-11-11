@@ -497,6 +497,33 @@ function restore(json) {
   })
 }
 
+/**
+ * Highlights the host learned after `restore` (#1226: the web host pulls them after the position): each is
+ * drawn where its text still is (as restore checks), joins the entry, and is not saved (the host holds it).
+ * The reader is not moved. Queued behind the restore, so it lands in the restored entry. Answered by
+ * `highlights`, one status per item (as `restored` reports them).
+ */
+const addHighlights = (list) => navigate(async () => {
+  const mine = viewSeq
+  const result = []
+  for (const raw of Array.isArray(list) ? list : []) {
+    if (!entry || !annotatable || mine !== viewSeq) return
+    const h = withHighlight(emptyEntry(book), raw).highlights[0]
+    if (!h || entry.highlights.some((x) => x.id === h.id)) {
+      result.push({ id: raw?.id, status: h ? 'already drawn' : 'not a highlight' })
+      continue
+    }
+    const { index, text } = await textAt(h.cfi).catch(() => ({ text: '' }))
+    if (mine !== viewSeq || !entry) return
+    const ok = foldText(text) === foldText(h.selectedText ?? h.quote)
+    result.push({ id: h.id, status: ok ? 'restored' : 'quote mismatch, not drawn' })
+    if (!ok) continue
+    entry = withHighlight(entry, h)
+    annotate({ value: h.cfi, index, hl: { id: h.id } })
+  }
+  post({ type: 'highlights', key: book.sha256, highlights: result })
+})
+
 /** `stale()`: another view took over during an await; nothing more is done or answered for this one. */
 async function restoreInto(json, stale) {
   const stored = json ? entryFor(json, book) : null
@@ -624,6 +651,7 @@ window.__fol = {
     x.send()
   },
   restore: (json) => restore(json)?.catch((e) => log('error', `restore: ${e?.stack ?? e}`)),
+  addHighlights: (list) => addHighlights(list).catch((e) => log('error', `addHighlights: ${e?.stack ?? e}`)),
   highlightSelection,
   // A position (as stored: CFI, page or fraction-only, #1187; one that does not fit the book is ignored),
   // a CFI, an href or a section index. Not

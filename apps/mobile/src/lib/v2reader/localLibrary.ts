@@ -25,10 +25,9 @@
  */
 import { createWriteQueue } from '../sessionWrites'
 import {
-  annotationHighlight, decideServerState, isFractionOnly, isUuid, sameJson, statePosition, syncableText,
+  annotationHighlight, decideServerState, entryChanges, entryFor, isFractionOnly, isUuid, pageEntry, statePosition, syncableText,
   type OpenReader, type PageHighlight, type PagePosition, type V2Annotation, type V2Book, type V2BookFile, type V2ReadingState,
 } from '@textstack/shared'
-import { entryFor, quoteOf, STORE_VERSION } from './store.mjs'
 import type { LibraryBook } from './hostStorage'
 import type { LibraryEntry } from './library.mjs'
 
@@ -158,14 +157,6 @@ const parse = <T>(json: string | null): T | null => {
   try { return JSON.parse(json) as T } catch { return null }
 }
 
-/** An old (#1078-less) highlight: `quote` held the whole selection; now `selectedText` does and `quote` is its start. */
-function normalised(h: PageHighlight): PageHighlight {
-  return h.selectedText === undefined ? { ...h, selectedText: h.quote, quote: quoteOf(h.quote) } : h
-}
-
-/** A highlight's identity for the twin lookup: where it is and what it says. */
-const twinKey = (h: PageHighlight | null) => (h ? `${h.cfi}\u0000${h.selectedText ?? h.quote}` : '')
-
 /** The server's current file, as the `server_*` columns and `has_content`. */
 const SERVER_FILE = 'server_file_id = ?, server_sha256 = ?, server_size = ?, server_format = ?, has_content = ?'
 const serverFile = (f: V2BookFile | null | undefined) => [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0]
@@ -282,46 +273,32 @@ export function createLocalLibrary(db: Db) {
   )
 
   /**
-   * The page's entry into rows: a changed position queues a state write; a highlight new or changed
-   * queues its annotation (only when its text may sync). A tombstoned highlight stays deleted (a
-   * tombstone wins over every edit). A highlight under an id this book does not know — a pre-#1078
-   * `h…` id, or one re-keyed after `id_conflict` while the page still holds the old one — is the
-   * live highlight at the same CFI with the same text when there is one, else a new v4 id. One read
-   * of the book's highlights per save (the hot path: every save debounce).
+   * The page's entry into rows (the mapping is shared, `@textstack/shared` entryChanges): a changed position
+   * queues a state write; a highlight new or changed queues its annotation (only when its text may sync).
+   * One read of the book's highlights per save (the hot path: every save debounce).
    */
   async function applyEntry(book: BookRow, entry: { position: PagePosition | null; highlights: PageHighlight[] }, newId: () => string, keepPosition = false) {
     const file = fileOf(book)
-    if (entry.position) {
-      const st = await stateOf(book.id)
-      if (!(keepPosition && st?.position) && !sameJson(parse(st?.position ?? null), entry.position)) {
-        await run(
-          `INSERT INTO reading_state (book_id, position, file_id) VALUES (?, ?, ?)
-           ON CONFLICT (book_id) DO UPDATE SET position = excluded.position, file_id = excluded.file_id`,
-          [book.id, JSON.stringify(entry.position), file],
-        )
-        // A fraction-only position (#1187) is the server's own transitional locator: never pushed, never queued.
-        if (!isFractionOnly(entry.position)) await enqueue('state', book.id)
-      }
+    const st = await stateOf(book.id)
+    const rows = await all<Pick<AnnotationRow, 'id' | 'highlight' | 'file_id' | 'deleted_at'>>('SELECT id, highlight, file_id, deleted_at FROM annotations WHERE book_id = ?', [book.id])
+    const changes = entryChanges(
+      file,
+      { position: parse(st?.position ?? null), highlights: rows.map((r) => ({ id: r.id, highlight: parse<PageHighlight>(r.highlight), fileId: r.file_id, deleted: !!r.deleted_at })) },
+      entry, newId,
+    )
+    if (changes.position && !(keepPosition && st?.position)) {
+      await run(
+        `INSERT INTO reading_state (book_id, position, file_id) VALUES (?, ?, ?)
+         ON CONFLICT (book_id) DO UPDATE SET position = excluded.position, file_id = excluded.file_id`,
+        [book.id, JSON.stringify(changes.position), file],
+      )
+      // A fraction-only position (#1187) is the server's own transitional locator: never pushed, never queued.
+      if (!isFractionOnly(changes.position)) await enqueue('state', book.id)
     }
-    const rows = await all<Pick<AnnotationRow, 'id' | 'highlight' | 'deleted_at'>>('SELECT id, highlight, deleted_at FROM annotations WHERE book_id = ?', [book.id])
-    const byId = new Map(rows.map((r) => [r.id, r]))
-    const live = new Set(rows.filter((r) => !r.deleted_at).map((r) => twinKey(parse<PageHighlight>(r.highlight))))
-    for (const raw of entry.highlights) {
-      let h = normalised(raw)
-      const row = isUuid(h.id) ? byId.get(h.id) : undefined
-      if (!row) {
-        if (live.has(twinKey(h))) continue
-        if (!isUuid(h.id)) h = { ...h, id: newId() }
-      }
-      if (row?.deleted_at) continue
+    for (const { highlight: h, isNew } of changes.highlights) {
       const json = JSON.stringify(h)
-      if (row && (row.highlight === json || sameJson(parse(row.highlight), h))) continue
-      if (row) await run('UPDATE annotations SET highlight = ? WHERE id = ?', [json, h.id])
-      else {
-        await run('INSERT INTO annotations (id, book_id, file_id, highlight, mine) VALUES (?, ?, ?, ?, 1)', [h.id, book.id, file, json])
-        byId.set(h.id, { id: h.id, highlight: json, deleted_at: null })
-        live.add(twinKey(h))
-      }
+      if (isNew) await run('INSERT INTO annotations (id, book_id, file_id, highlight, mine) VALUES (?, ?, ?, ?, 1)', [h.id, book.id, file, json])
+      else await run('UPDATE annotations SET highlight = ? WHERE id = ?', [json, h.id])
       if (syncableText(h)) await enqueue('annotation', h.id)
     }
   }
@@ -386,12 +363,11 @@ export function createLocalLibrary(db: Db) {
       const st = await stateOf(book.id)
       const file = fileOf(book)
       const rows = await all<AnnotationRow>('SELECT highlight FROM annotations WHERE book_id = ? AND file_id = ? AND deleted_at IS NULL ORDER BY rowid', [book.id, file])
-      return JSON.stringify({
-        v: STORE_VERSION,
-        book: { sha256, size: sizeOf(book), name: book.original_name },
-        position: st && st.file_id === file ? parse(st.position) : null,
-        highlights: rows.map((r) => parse<PageHighlight>(r.highlight)).filter(Boolean),
-      })
+      return JSON.stringify(pageEntry(
+        { sha256, size: sizeOf(book)!, name: book.original_name },
+        st && st.file_id === file ? parse<PagePosition>(st.position) : null,
+        rows.map((r) => parse<PageHighlight>(r.highlight)).filter((h): h is PageHighlight => !!h),
+      ))
     }),
 
     /** The page's `store` payload: rejected when it is not an entry for a book with these bytes. */

@@ -20,7 +20,7 @@ vi.mock('../../components/SeoHead', () => ({ SeoHead: () => null }))
 import { V2ReaderPage } from '../V2ReaderPage'
 
 const BYTES = new ArrayBuffer(4)
-const FILE = { id: 'f1', originalName: 'walden.epub', hasContent: true }
+const FILE = { id: 'f1', originalName: 'walden.epub', hasContent: true, format: 'epub', sha256: 'ab'.repeat(32), byteSize: 4 }
 
 function renderPage() {
   return render(
@@ -56,9 +56,10 @@ describe('V2ReaderPage', () => {
     expect(screen.queryByTestId('legacy')).toBeNull()
   })
 
-  it('v2On_TheCurrentFilesBytes_GoToTheHost', async () => {
+  it('v2On_TheCurrentFilesBytes_GoToTheHost_WithItsServerSyncTarget', async () => {
     renderPage()
-    await vi.waitFor(() => expect(hostProps).toHaveBeenLastCalledWith(expect.objectContaining({ book: { bytes: BYTES, name: 'walden.epub' } })))
+    const sync = { bookId: 'bk-1', fileId: 'f1', format: 'epub', sha256: 'ab'.repeat(32), size: 4, name: 'walden.epub' }
+    await vi.waitFor(() => expect(hostProps).toHaveBeenLastCalledWith(expect.objectContaining({ book: { bytes: BYTES, name: 'walden.epub', sync } })))
     expect(fetchV2FileBytes).toHaveBeenCalledWith('bk-1', 'f1')
   })
 

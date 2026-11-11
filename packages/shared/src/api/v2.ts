@@ -530,6 +530,8 @@ export const resetReadingState = (bookId: string, expectedRevision: number | nul
 export const putSession = (clientSessionId: string, body: V2SessionWrite) =>
   authFetch<V2Session>(`${V2}/reading/sessions/${clientSessionId}`, jsonBody('PUT', body))
 
+/** The annotation's URL, for a keepalive write that outlives the page (the web V2 reader, #1226). */
+export const annotationUrl = (id: string) => `${getApiConfig().baseUrl}${V2}/annotations/${id}`
 export const putAnnotation = (id: string, body: V2AnnotationWrite) => authFetch<V2Annotation>(`${V2}/annotations/${id}`, jsonBody('PUT', body))
 export const deleteAnnotation = (id: string) => authFetch<V2Annotation>(`${V2}/annotations/${id}`, { method: 'DELETE' })
 

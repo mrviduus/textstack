@@ -605,6 +605,21 @@ describe('V2 local library sync (R6)', () => {
       expect(writes(calls)).toEqual([])
       expect((await restoredEntry(lib)).highlights).toHaveLength(2)
     })
+
+    it('newHighlight_TwinOfOneInAnotherFileVersion_KeptAndQueued', async () => {
+      const { lib, bookId } = await synced()
+      // Pulled: the same CFI + text, made on an older version of the file (its CFI means nothing in this one).
+      const CFI2 = 'epubcfi(/6/16!/4/2/1:0)'
+      fakeApi({ 'GET /annotations/changes': feed({
+        ...serverAnnotation(bookId, 'old-file', 1), id: '0b6a2c1e-1111-4222-8333-444455559999', selectedText: 'grey dawn',
+        locator: { version: 1, scheme: 'epub-cfi', value: CFI2, quote: 'grey' },
+      }) })
+      await syncV2Library(lib, host())
+      const mine = { ...highlight, id: '0b6a2c1e-1111-4222-8333-444455557777', cfi: CFI2, index: 7, quote: 'grey', selectedText: 'grey dawn' }
+      await lib.writeEntry(SHA, entry(pos, [highlight, mine]), newId)
+      expect((await lib.outbox()).map((o) => o.target)).toContain(mine.id)
+      expect(await lib.annotation(mine.id)).toMatchObject({ book_id: bookId })
+    })
   })
 
   describe('pull', () => {

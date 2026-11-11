@@ -9,8 +9,8 @@ import { useTranslation } from '../hooks/useTranslation'
 /**
  * `/:lang/library/my/:id/read-v2` (#1225): a V2 book in the V2 reader page, behind Features:V2Api. With V2 off
  * for this app start (the probe's answer, waited for) it is the legacy reader. Online only: the current file's
- * bytes are fetched per open and transferred into the frame. Position and highlights: V2ReaderHost's local
- * store until the sync slice (#1226); loading and error states beyond one line: #1227.
+ * bytes are fetched per open and transferred into the frame. Position and highlights: on the server, through
+ * V2ReaderHost's sync (#1226); loading and error states beyond one line: #1227.
  */
 export const PROD_READY_DEADLINE_MS = 30_000
 
@@ -36,7 +36,9 @@ export function V2ReaderPage() {
       const file = (await v2Book(id)).currentFile
       if (!file?.hasContent) throw new Error(t('v2Reader.noFile'))
       const bytes = await fetchV2FileBytes(id, file.id)
-      if (live) setBook({ bytes, name: file.originalName })
+      // The reader data of this file goes to and comes from the server (#1226).
+      const sync = { bookId: id, fileId: file.id, format: file.format, sha256: file.sha256, size: file.byteSize, name: file.originalName }
+      if (live) setBook({ bytes, name: file.originalName, sync })
     })().catch((e: unknown) => {
       if (live) setError(t('v2Reader.loadFailed', { error: e instanceof Error ? e.message : String(e) }))
     })
