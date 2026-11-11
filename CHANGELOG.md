@@ -22,6 +22,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ---
 
 ## [Unreleased]
+- **Mobile** — a book deleted on the server keeps its bytes until the reader removes them: the sweep and the Library listing only mark it, a Library row removes all at once, kept bytes are off the 2 GB budget and never evicted (#1193, #1191) — mobile · [details](docs/changelog-archive/2026-H2.md#2026-11-11-mobile-deleted-books-keep-their-bytes)
 - **Docs** — V2 reader web hosting design: threat model, options A–E, recommendation (separate reader domain), slices, owner questions; proposed — docs
 - **Docs** — wave 12 close: STATUS, recommended answers in the R8 audit, wave-13 prompt — docs
 - **Reader** — two legacy reader fixes: the web contents list numbers chapters by their place (was `chapterNumber + 1`), mobile TTS sends the book's language (a `uk`/`de` book was read by an English voice) — web, mobile
