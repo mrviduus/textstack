@@ -247,6 +247,17 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
         run: pnpm install --frozen-lockfile
 
+      # The public changelog page's data (#1216): merged PRs, read from GitHub
+      # now so the page never calls it. vite copies public/ into dist. A GitHub outage
+      # ships no file (the page then shows its built-in entries) rather than no deploy.
+      - name: Changelog data
+        if: steps.exists.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/changelog-data.mjs > apps/web/public/changelog.json \
+            || { echo "::warning::changelog data not fetched — the page shows its seed only"; rm -f apps/web/public/changelog.json; }
+
       # Every name the server's .env can hold is set to a canary first (the same list
       # as the image canaries), so a vite config or plugin that ever inlines a
       # non-VITE_ variable puts CANARY_SECRET_<name> into the bundle and the scan

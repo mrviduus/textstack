@@ -26,6 +26,7 @@ import { OAuthConsentPage } from './pages/OAuthConsentPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { DeviceVerifyPage } from './pages/DeviceVerifyPage'
 import { SitemapPage } from './pages/SitemapPage'
+import { ChangelogPage } from './pages/ChangelogPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 // User-only / heavy routes — lazy so they ship in separate chunks.
 const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })))
@@ -152,6 +153,7 @@ function LanguageRoutes() {
           <Route path="/library/my/:id/read-v2" element={<V2ReaderPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/sitemap" element={<SitemapPage />} />
+          <Route path="/changelog" element={<ChangelogPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Suspense>
@@ -195,6 +197,7 @@ function AppRoutes() {
       <Route path="/dmca" element={<LegacyRedirect />} />
       <Route path="/delete-account" element={<LegacyRedirect />} />
       <Route path="/contact" element={<LegacyRedirect />} />
+      <Route path="/changelog" element={<LegacyRedirect />} />
       <Route path="/library" element={<LegacyRedirect />} />
       <Route path="/stats" element={<LegacyRedirect />} />
       <Route path="/vocabulary" element={<LegacyRedirect />} />

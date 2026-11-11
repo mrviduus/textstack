@@ -1,0 +1,171 @@
+/* Public changelog (#1216): a dated feed, newest first. Colours from theme.css tokens. */
+
+.changelog {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 48px 16px 80px;
+  font-family: var(--font-sans);
+}
+
+.changelog__title {
+  font-family: var(--font-serif);
+  font-size: clamp(2.5rem, 7vw, 4rem);
+  line-height: 1.1;
+  margin: 0 0 12px;
+}
+
+.changelog__intro {
+  color: var(--color-text-secondary);
+  margin: 0 0 32px;
+}
+
+.changelog__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 40px;
+}
+
+.changelog__switch,
+.changelog__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.changelog__controls button {
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.changelog__controls button:hover {
+  border-color: var(--color-brand);
+}
+
+.changelog__controls button[aria-pressed='true'] {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-bg);
+}
+
+.changelog__controls button:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.changelog__day {
+  margin-bottom: 40px;
+}
+
+.changelog__date {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-secondary);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+  margin: 0 0 16px;
+}
+
+.changelog__date a {
+  color: inherit;
+}
+
+.changelog__entry {
+  padding: 16px 0;
+}
+
+.changelog__entry + .changelog__entry {
+  border-top: 1px dashed var(--color-border);
+}
+
+.changelog__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  margin-bottom: 6px;
+}
+
+.changelog__area,
+.changelog__kind {
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+}
+
+.changelog__area--reader { color: #9a4f2e; background: rgba(196, 112, 75, 0.14); }
+.changelog__area--mobile { color: #1f6f43; background: rgba(34, 139, 84, 0.14); }
+.changelog__area--library { color: #1e5aa8; background: rgba(37, 99, 235, 0.12); }
+.changelog__area--vocabulary { color: #8a6100; background: rgba(234, 179, 8, 0.18); }
+
+html.dark .changelog__area--reader { color: #e8a382; }
+html.dark .changelog__area--mobile { color: #6fd39b; }
+html.dark .changelog__area--library { color: #8fb6f5; }
+html.dark .changelog__area--vocabulary { color: #f2cd5c; }
+
+.changelog__kind {
+  background: none;
+  border: 1px solid var(--color-border);
+}
+
+.changelog__kind--new { border-color: var(--color-brand); color: var(--color-brand); }
+
+.changelog__where {
+  color: var(--color-text-secondary);
+}
+
+.changelog__entry-title {
+  font-size: 1.125rem;
+  margin: 0 0 4px;
+}
+
+.changelog__text {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.changelog__prs {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.changelog__prs li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 0.9375rem;
+  overflow-wrap: anywhere;
+}
+
+.changelog__prs .changelog__area {
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.changelog__prs a {
+  color: var(--color-text);
+}
+
+.changelog__empty,
+.changelog__earlier {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+
+.changelog__earlier a {
+  color: inherit;
+}

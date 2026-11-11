@@ -25,12 +25,12 @@ The project is mid-migration to **V2**: two databases, one cutover ([ADR-030](do
 
 ## Where to write things down
 
-Four files, four jobs — plus GitHub issues for open items. Putting a write-up in the wrong one is how `CHANGELOG.md` reached 1804 lines.
+The PR is the changelog (#1220). Readers see the `/changelog` page (merged PRs by week; `public` ones in plain words, chosen weekly by `/changelog-week`). No GitHub releases for the app: Android notes go to Play's "What's new". Nobody writes changelog lines.
 
-| File | Job |
+| Where | Job |
 |------|-----|
-| `CHANGELOG.md` | **Index only.** One line per change, grouped by deploy date (CalVer). Never a paragraph. |
-| `docs/changelog-archive/<YYYY>-H<1\|2>.md` | The full write-up behind that line. Article source material. |
+| The PR | **Title** = one scannable line. **One area label** (`reader`, `mobile`, `library`, `vocabulary`, `ai`, `data`, `ops`, `documentation`; CI fails without one). **Description** = the full write-up, article source material. |
+| `CHANGELOG.md`, `docs/changelog-archive/` | **Frozen.** History up to the switch; never add to them. |
 | `docs/incidents/` | Postmortems for anything that broke production. Start from `_TEMPLATE.md`. |
 | `docs/STATUS.md` | Where the project is *now*: in flight, deliberately-not-doing. Links to issues; never copies them. |
 | GitHub issues | **Every open item** (bug, review finding, deferred work), one issue each, labelled (`reader-engine`, `phase-3-gate`, …). A PR closes it with `Fixes #N`. Public: nothing private. Old STATUS items move to an issue when someone touches them. |

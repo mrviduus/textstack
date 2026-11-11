@@ -7,8 +7,9 @@ Project-level slash commands for the TextStack repo. Each command is a markdown 
 | Command | Purpose | When to use |
 |---------|---------|-------------|
 | `/check` | Run all relevant tests/builds based on `git diff`. Concise pass/fail summary. | Before `/pr`. After any non-trivial change. |
-| `/pr` | Build PR title + body, append changelog entry, push, open PR via `gh`. | End of slice, after `/check` is green. |
-| `/changelog <category>: <text>` | Manually append a changelog entry. | Hotfix / dep bump / anything outside `/pr` flow. |
+| `/pr` | Build PR title + body + area label, push, open PR via `gh`. The PR is the changelog. | End of slice, after `/check` is green. |
+| `/changelog` | Where a change is written down; Play "What's new" text. | A wrong title/label, an incident, an ADR, a Play build. |
+| `/changelog-week` | Pick last week's reader-visible PRs with the owner; write their `## Public` blocks. | Mondays. |
 
 ## Workflow — happy path
 
@@ -27,10 +28,8 @@ Claude at the brief (issue or doc) directly instead.
    → reports green or fixes-needed
 
 4. /pr
-   → builds PR title from slice number
-   → builds PR body from template + slice brief
-   → appends bullet to CHANGELOG.md under ## [Unreleased]
-   → commits CHANGELOG.md change
+   → builds PR title (= the changelog line) + area label
+   → builds PR body (= the write-up) from template + slice brief
    → pushes and opens PR via gh
 
 ```
@@ -38,20 +37,13 @@ Claude at the brief (issue or doc) directly instead.
 ## Workflow — outside slices
 
 ```
-- Hotfix to main:
-    git commit -am "fix: ..."
-    /changelog Reader: fix highlight pulse for list view
-    git push
-
-- Dependency bump:
-    pnpm -C apps/web update foo
-    git commit -am "deps: bump foo"
-    /changelog Infra: bump foo to vX.Y
+- Hotfix: a PR like any other (a push straight to main never reaches the changelog).
+- Dependency bump: Dependabot's PRs carry `dependencies` and stay off the changelog.
 ```
 
 ## Why these commands and not full subagents
 
-Solo dev workflow. Sequential slice work. Subagents would add configuration overhead without proportional benefit. Slash commands give 80% of the value (workflow standardization, reduced friction, no-forget changelog) at 10% of the complexity.
+Solo dev workflow. Sequential slice work. Subagents would add configuration overhead without proportional benefit. Slash commands give 80% of the value (workflow standardization, reduced friction) at 10% of the complexity.
 
 If/when the team grows or parallel epics start: revisit and add `architect` / `developer` / `tester` subagents in `.claude/agents/`.
 
@@ -67,7 +59,5 @@ After editing, the next `/<command>` invocation picks up changes — no reload n
 
 ## Conventions assumed
 
-- CHANGELOG.md at repo root, format: `## [Unreleased]` → `### <Category> (YYYY-MM-DD)` → bullets.
-- Branch name pattern `ux/my-books-v2*` (or other epic branch).
-- Commit message pattern `my-books-v2 [NN]: <title>` for slice work.
+- The changelog is the merged PRs (titles + area labels), shown by week on `/changelog`; `CHANGELOG.md` is frozen.
 - `gh` CLI authenticated.

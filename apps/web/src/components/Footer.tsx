@@ -23,6 +23,7 @@ export function Footer() {
           <LocalizedLink to="/delete-account" className="site-footer__link">{t('footer.deleteAccount')}</LocalizedLink>
           <LocalizedLink to="/contact" className="site-footer__link">{t('footer.contact')}</LocalizedLink>
           <LocalizedLink to="/sitemap" className="site-footer__link">{t('footer.sitemap')}</LocalizedLink>
+          <LocalizedLink to="/changelog" className="site-footer__link">{t('footer.changelog')}</LocalizedLink>
         </nav>
         {/* Deliberately not the official "Get it on Google Play" badge. That badge
             links to a store listing, and ours returns 404 while the app is in
