@@ -9,6 +9,8 @@
 // tests it; the production build writes the same two files (`v2ReaderFrameFiles`) for nginx.
 // Android does not use this module: it keeps the inline page (`v2ReaderPageHtml(nonce)`).
 import { createHash, randomBytes } from 'node:crypto'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { V2_READER_DIR, V2_READER_FRAME_PATH, V2_READER_SCRIPT_PATH } from './framePath.mjs'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
@@ -31,9 +33,12 @@ export const FRAME_NONCE_PLACEHOLDER = '%V2_READER_FRAME_NONCE%'
 export const V2_READER_FRAME_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
   'Content-Security-Policy': "frame-ancestors 'self'",
-  'Cache-Control': 'no-store',
+  // no-transform: an edge (Cloudflare) must not rewrite the shell; an injected script breaks the nonce CSP.
+  'Cache-Control': 'no-store, no-transform',
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
+  // The location's own headers drop the server-level X-Robots-Tag (#857): the shell says it itself.
+  'X-Robots-Tag': 'noindex',
 }
 
 /** The page script's headers: a JS type under nosniff, cached for a year (its name changes with its bytes). */
@@ -92,6 +97,17 @@ export function v2ReaderFrameFiles() {
   return (files = { shell, script, scriptPath })
 }
 
+/**
+ * The two files as a build wrote them to `<distDir>/reader-v2/`, in `v2ReaderFrameFiles`' shape: what `vite
+ * preview` serves (`serveV2ReaderFrame(req, res, files)`), so CI's e2e runs the bytes nginx ships, not the source.
+ */
+export function v2ReaderDistFiles(distDir) {
+  const dir = join(distDir, V2_READER_DIR)
+  const name = readdirSync(dir).find((f) => V2_READER_SCRIPT_PATH.test(`${V2_READER_DIR}${f}`))
+  if (!name) throw new Error(`v2ReaderDistFiles: no page.<hash>.js in ${dir}`)
+  return { shell: readFileSync(join(dir, 'frame.html'), 'utf8'), script: readFileSync(join(dir, name)), scriptPath: `${V2_READER_DIR}${name}` }
+}
+
 /** The shell, nonce unfilled: what the build writes and nginx fills. */
 export const v2ReaderFrameTemplate = () => v2ReaderFrameFiles().shell
 
@@ -107,16 +123,17 @@ export function fillNonce(template, nonce) {
  * Serves anything under V2_READER_DIR (any query): GET/HEAD of the shell, with its headers and a fresh nonce
  * per response; of the current page script, with its immutable headers; 404 for any other path there (a stale
  * script name, never the SPA's index.html). Returns false outside V2_READER_DIR (the caller goes on). Node
- * `http` request/response, as a Vite (connect) middleware or a plain server gets them.
+ * `http` request/response, as a Vite (connect) middleware or a plain server gets them. `files`: the source's
+ * (`v2ReaderFrameFiles`, the default) or a build's (`v2ReaderDistFiles`).
  */
-export function serveV2ReaderFrame(req, res) {
+export function serveV2ReaderFrame(req, res, files) {
   const path = new URL(req.url ?? '/', 'http://x').pathname
   if (!path.startsWith(V2_READER_DIR)) return false
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405, { Allow: 'GET, HEAD' }).end()
     return true
   }
-  const { shell, script, scriptPath } = v2ReaderFrameFiles()
+  const { shell, script, scriptPath } = files ?? v2ReaderFrameFiles()
   const body = (b) => (req.method === 'HEAD' ? undefined : b)
   if (path === V2_READER_FRAME_PATH) res.writeHead(200, V2_READER_FRAME_HEADERS).end(body(fillNonce(shell, randomBytes(16).toString('hex'))))
   else if (path === scriptPath) res.writeHead(200, V2_READER_SCRIPT_HEADERS).end(body(script))

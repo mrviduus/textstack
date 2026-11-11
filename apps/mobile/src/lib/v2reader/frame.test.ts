@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   FRAME_NONCE_PLACEHOLDER, V2_READER_FRAME_HEADERS, V2_READER_FRAME_PATH, V2_READER_SCRIPT_HEADERS, V2_READER_SCRIPT_PATH,
-  fillNonce, serveV2ReaderFrame, v2ReaderFrameFiles,
+  fillNonce, serveV2ReaderFrame, v2ReaderDistFiles, v2ReaderFrameFiles,
 } from './frame.mjs'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated'
 
@@ -86,5 +89,28 @@ describe('serveV2ReaderFrame (frame.mjs)', () => {
     expect(serve('/en/library').handled).toBe(false)
     expect(serve('/reader-v2-other/frame.html').handled).toBe(false)
     expect(serve(V2_READER_FRAME_PATH, 'POST')).toMatchObject({ handled: true, status: 405 })
+  })
+})
+
+describe('v2ReaderDistFiles (frame.mjs): vite preview serves the build', () => {
+  it('servedFromABuild_TheBuiltBytes_ShellFilledPerResponse', () => {
+    const dist = mkdtempSync(join(tmpdir(), 'ts-frame-dist-'))
+    mkdirSync(join(dist, 'reader-v2'))
+    writeFileSync(join(dist, 'reader-v2/frame.html'), shell.replace('<body>', '<body><!--built-->'))
+    writeFileSync(join(dist, `reader-v2/page.${'a'.repeat(16)}.js`), 'built script')
+    const files = v2ReaderDistFiles(dist)
+    expect(files.scriptPath).toBe(`/reader-v2/page.${'a'.repeat(16)}.js`)
+    const req = (url: string) => {
+      const out: { status?: number; body?: unknown } = {}
+      const res = { writeHead(status: number) { out.status = status; return res }, end(b?: unknown) { out.body = b } }
+      serveV2ReaderFrame({ url, method: 'GET' }, res, files)
+      return out
+    }
+    const page = req(V2_READER_FRAME_PATH)
+    expect(String(page.body)).toContain('<!--built-->')
+    expect(String(page.body)).toMatch(/script-src 'nonce-[0-9a-f]{32}'/)
+    expect(String(req(files.scriptPath).body)).toBe('built script')
+    expect(req(scriptPath).status).toBe(404) // the source's name, not the build's
+    rmSync(dist, { recursive: true, force: true })
   })
 })

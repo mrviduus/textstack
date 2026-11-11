@@ -364,7 +364,7 @@ file itself, so no book bytes cross the bridge. Universal file access stays off.
   no valid script source and runs nothing (not the shim, not the page script, not a script carrying the
   placeholder). Sent `no-store` with a fresh nonce per response (16 random bytes, hex, nginx's `$request_id`;
   `fillNonce` takes nothing else) and its own headers (`V2_READER_FRAME_HEADERS`: `frame-ancestors 'self'`,
-  `no-store`, nosniff, `no-referrer`).
+  `no-store, no-transform`, nosniff, `no-referrer`, `X-Robots-Tag: noindex`).
 - **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,656,316 bytes; 1,644,100 gzipped):
   the page's one script, byte for byte what the inline page runs, sent `public, max-age=31536000, immutable`,
   `text/javascript; charset=utf-8` (it is not ASCII), nosniff. A book open fetches the shell only; the script
@@ -373,8 +373,9 @@ file itself, so no book bytes cross the bridge. Universal file access stays off.
   (an external script has it too; the check opens a MOBI to prove it). `integrity` pins the script to the shell
   that names it: a swapped file is refused, not run under the nonce.
 
-`serveV2ReaderFrame` is the one handler: the Vite dev and preview servers (plugin `v2-reader-frame`, which loads
-frame.mjs on the first `/reader-v2/` request) and the check use it; any other path under `/reader-v2/` is a 404,
+`serveV2ReaderFrame` is the one handler: the Vite dev server (from source) and `vite preview` (from the built
+`dist/reader-v2/`, `v2ReaderDistFiles`, so CI's e2e runs what nginx ships) through plugin `v2-reader-frame`, which
+loads frame.mjs on the first `/reader-v2/` request, and the check use it; any other path under `/reader-v2/` is a 404,
 never the SPA. A production build writes the same two files to `dist/reader-v2/` (`v2ReaderFrameFiles`), the
 shell unfilled; nginx fills it (`location = /reader-v2/frame.html`, `sub_filter … $request_id`) and serves the
 script (`location ~ ^/reader-v2/page\.[0-9a-f]{16}\.js$`, server-level headers, `$cache_immutable`).

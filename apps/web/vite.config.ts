@@ -8,20 +8,29 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * The V2 reader frame (#1219, #1225): a no-store shell + the content-hashed page script, under /reader-v2/.
- * Dev and preview servers answer it with frame.mjs `serveV2ReaderFrame` (the handler prodCsp.check.mjs tests;
- * it fills a fresh nonce per response, as nginx does in production); a build writes the same two files into
- * dist/reader-v2/ for nginx. frame.mjs carries the 3.75 MB page: imported on the first reader request or at
- * the end of a build, never into the app's own chunks (scripts/assert-no-dev-reader.mjs).
+ * Both servers answer it with frame.mjs `serveV2ReaderFrame` (the handler prodCsp.check.mjs tests; it fills a
+ * fresh nonce per response, as nginx does in production): the dev server from source, `vite preview` from the
+ * built dist/reader-v2/ (CI's e2e then runs the bytes nginx ships). A build writes the two files there.
+ * frame.mjs carries the 3.75 MB page: imported on the first reader request or at the end of a build, never
+ * into the app's own chunks (scripts/assert-no-dev-reader.mjs).
  */
 const loadFrame = () => import('../mobile/src/lib/v2reader/frame.mjs')
-const serveFrame: Connect.NextHandleFunction = (req, res, next) => {
-  if (!req.url?.startsWith(V2_READER_DIR)) return next()
-  loadFrame().then(({ serveV2ReaderFrame }) => serveV2ReaderFrame(req, res) || next()).catch(next)
+type FrameModule = Awaited<ReturnType<typeof loadFrame>>
+/** `files`: null for the source's; else the build's, read once. */
+const serveFrame = (files: ((m: FrameModule) => object) | null): Connect.NextHandleFunction => {
+  let built: object | undefined
+  return (req, res, next) => {
+    if (!req.url?.startsWith(V2_READER_DIR)) return next()
+    loadFrame().then((m) => m.serveV2ReaderFrame(req, res, files ? (built ??= files(m)) : undefined) || next()).catch(next)
+  }
 }
 const v2ReaderFrame = (): Plugin => ({
   name: 'v2-reader-frame',
-  configureServer: (server) => { server.middlewares.use(serveFrame) },
-  configurePreviewServer: (server) => { server.middlewares.use(serveFrame) },
+  configureServer: (server) => { server.middlewares.use(serveFrame(null)) },
+  configurePreviewServer: (server) => {
+    const dist = path.resolve(server.config.root, server.config.build.outDir)
+    server.middlewares.use(serveFrame((m) => m.v2ReaderDistFiles(dist)))
+  },
   async generateBundle() {
     const { v2ReaderFrameFiles } = await loadFrame()
     const { shell, script, scriptPath } = v2ReaderFrameFiles()

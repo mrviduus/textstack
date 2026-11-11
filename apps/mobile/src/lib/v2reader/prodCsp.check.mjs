@@ -234,7 +234,10 @@ try {
   // nginx, as text (no nginx here): the shell location sends the frame headers and fills the placeholder with
   // $request_id; the script location takes this script's name and caches it as the handler does.
   const addHeader = (k, v) => frameLocation.includes(`add_header ${k} "${v}" always;`)
+  const nginxNames = [...frameLocation.matchAll(/add_header (\S+) /g)].map((m) => m[1]).sort().join()
+  const handlerNames = Object.keys(V2_READER_FRAME_HEADERS).filter((k) => k !== 'Content-Type').sort().join()
   check(report, Object.entries(V2_READER_FRAME_HEADERS).every(([k, v]) => k === 'Content-Type' || addHeader(k, v))
+    && nginxNames === handlerNames
     && /default_type text\/html;\s+charset utf-8;/.test(frameLocation), 'nginx: the frame location sends every V2_READER_FRAME_HEADERS header')
   check(report, frameLocation.includes(`sub_filter '${FRAME_NONCE_PLACEHOLDER}' $request_id;`) && frameLocation.includes('sub_filter_once off;'),
     'nginx: the frame location fills every placeholder with $request_id')

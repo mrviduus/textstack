@@ -62,7 +62,7 @@ test.describe('V2 reader page @v2', () => {
 
     // The page script is cached (immutable), the shell never is.
     const shell = await request.get('/reader-v2/frame.html')
-    expect(shell.headers()['cache-control']).toBe('no-store')
+    expect(shell.headers()['cache-control']).toBe('no-store, no-transform')
     const src = (await shell.text()).match(/src="(\/reader-v2\/page\.[0-9a-f]{16}\.js)"/)?.[1]
     expect(src, 'the shell loads the page script').toBeTruthy()
     expect((await request.head(src!)).headers()['cache-control']).toContain('immutable')
