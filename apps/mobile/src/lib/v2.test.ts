@@ -119,7 +119,8 @@ describe('mobile v2', () => {
   })
 
   // #1140 second review: the shelf of a pull that outlived a sign-out is neither mapped, fetched nor shown.
-  it('getV2UserBooks after v2Store.reset mid-pull returns nothing and fetches no chapters', async () => {
+  // #1191: and it is a retryable 503, never `[]` — the orphan sweep reads an empty list as "delete every download".
+  it('getV2UserBooks after v2Store.reset mid-pull throws a retryable 503 and fetches no chapters', async () => {
     const answers: Array<() => void> = []
     const fetchSpy = vi.fn((url: string) => new Promise((resolve) => {
       const body = url.includes('/library/') ? { items: [{ id: 'old-acct-book', currentFile: { id: 'f', hasContent: true } }], cursor: null, hasMore: false }
@@ -131,7 +132,7 @@ describe('mobile v2', () => {
     await new Promise((r) => setTimeout(r, 0))
     v2Store.reset()
     for (const a of answers) a()
-    expect(await shelf).toEqual([])
+    await expect(shelf).rejects.toMatchObject({ status: 503 })
     expect(fetchSpy.mock.calls.map(([u]) => String(u)).filter((u) => u.includes('/chapters'))).toHaveLength(0)
   })
 
