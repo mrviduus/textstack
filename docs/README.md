@@ -10,9 +10,10 @@ Free book library with Kindle-like reader. EPUB/PDF upload, parsing, SEO pages, 
 |----------|-------------|
 | [CLAUDE.md](../CLAUDE.md) | AI assistant context (commands, key files, concepts) |
 | [STATUS.md](STATUS.md) | **Where the project is right now** — in flight, known-broken, won't-do |
-| [CHANGELOG.md](../CHANGELOG.md) | Release index — one line per change, by deploy date |
+| [Releases](https://github.com/mrviduus/textstack/releases) | One dated release per deploy, notes from the merged PRs |
+| [CHANGELOG.md](../CHANGELOG.md) | Frozen: changes before the switch to releases (#1220) |
 | [Incidents](incidents/README.md) | Postmortems: what broke, why it was invisible, what it taught |
-| [Changelog archive](changelog-archive/) | The full write-up behind every changelog line |
+| [Changelog archive](changelog-archive/) | Frozen: the write-ups behind the CHANGELOG lines |
 | [Vision](00-vision/README.md) | Goals, principles, stack |
 | [Architecture](01-architecture/README.md) | System design: services, projects, pipeline, external deps |
 | [Delivery](01-architecture/delivery.md) | PR → images → deploy flow, external dependencies, secret controls |
@@ -58,7 +59,7 @@ docs/
 ├── claude/             # Reference loaded from CLAUDE.md
 ├── incidents/          # Postmortems
 ├── qa/                 # Manual scenarios and reports
-├── changelog-archive/  # Full write-ups behind CHANGELOG lines
+├── changelog-archive/  # Frozen write-ups behind CHANGELOG lines
 └── marketing/ research/ loadtest/
 ```
 
