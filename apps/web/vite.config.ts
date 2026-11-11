@@ -1,26 +1,41 @@
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig, type Connect, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { V2_READER_FRAME_PATH } from '../mobile/src/lib/v2reader/framePath.mjs'
+import { V2_READER_DIR, V2_READER_FRAME_PATH } from '../mobile/src/lib/v2reader/framePath.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /**
- * The V2 reader frame document (#1219), dev server only, served by frame.mjs `serveV2ReaderFrame` (the
- * handler prodCsp.check.mjs tests). frame.mjs carries the 3.75 MB page: imported on the first frame request,
- * so a build (and every other dev request) never evaluates it. Not emitted to dist/ until the production route.
+ * The V2 reader frame (#1219, #1225): a no-store shell + the content-hashed page script, under /reader-v2/.
+ * Both servers answer it with frame.mjs `serveV2ReaderFrame` (the handler prodCsp.check.mjs tests; it fills a
+ * fresh nonce per response, as nginx does in production): the dev server from source, `vite preview` from the
+ * built dist/reader-v2/ (CI's e2e then runs the bytes nginx ships). A build writes the two files there.
+ * frame.mjs carries the 3.75 MB page: imported on the first reader request or at the end of a build, never
+ * into the app's own chunks (scripts/assert-no-dev-reader.mjs).
  */
+const loadFrame = () => import('../mobile/src/lib/v2reader/frame.mjs')
+type FrameModule = Awaited<ReturnType<typeof loadFrame>>
+/** `files`: null for the source's; else the build's, read once. */
+const serveFrame = (files: ((m: FrameModule) => object) | null): Connect.NextHandleFunction => {
+  let built: object | undefined
+  return (req, res, next) => {
+    if (!req.url?.startsWith(V2_READER_DIR)) return next()
+    loadFrame().then((m) => m.serveV2ReaderFrame(req, res, files ? (built ??= files(m)) : undefined) || next()).catch(next)
+  }
+}
 const v2ReaderFrame = (): Plugin => ({
   name: 'v2-reader-frame',
-  apply: 'serve',
-  configureServer(server) {
-    server.middlewares.use((req, res, next) => {
-      if (!req.url?.startsWith(V2_READER_FRAME_PATH)) return next()
-      import('../mobile/src/lib/v2reader/frame.mjs')
-        .then(({ serveV2ReaderFrame }) => serveV2ReaderFrame(req, res) || next())
-        .catch(next)
-    })
+  configureServer: (server) => { server.middlewares.use(serveFrame(null)) },
+  configurePreviewServer: (server) => {
+    const dist = path.resolve(server.config.root, server.config.build.outDir)
+    server.middlewares.use(serveFrame((m) => m.v2ReaderDistFiles(dist)))
+  },
+  async generateBundle() {
+    const { v2ReaderFrameFiles } = await loadFrame()
+    const { shell, script, scriptPath } = v2ReaderFrameFiles()
+    this.emitFile({ type: 'asset', fileName: V2_READER_FRAME_PATH.slice(1), source: shell })
+    this.emitFile({ type: 'asset', fileName: scriptPath.slice(1), source: script })
   },
 })
 

@@ -97,4 +97,15 @@ describe('UserBookDetailPage on V2', () => {
     expect(screen.queryAllByText('Mark as read')).toHaveLength(shown)
     v2On = false
   })
+
+  it.each([[false, 0], [true, 1]])('V2 %s: the V2 reader link shown %i times (#1225)', async (on, shown) => {
+    v2On = on
+    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined })
+    renderPage()
+    await screen.findByText('Test Book')
+    const links = screen.queryAllByRole('link', { name: 'Open in the V2 reader' })
+    expect(links).toHaveLength(shown)
+    if (on) expect(links[0]).toHaveAttribute('href', '/en/library/my/bk-1/read-v2')
+    v2On = false
+  })
 })

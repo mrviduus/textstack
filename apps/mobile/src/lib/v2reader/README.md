@@ -31,6 +31,8 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `formats.check.mjs` | The format check (see Formats): one small book per format through the committed page in Chromium. |
 | `pdfgate.mjs` | The ADR-032 PDF gate (#1128 S5): `node --experimental-strip-types pdfgate.mjs <corpusDir> [--map <file>] [--only 3,7]` opens every PDF under a directory through the committed page, one fresh page each (open, page 1 drawn and inked, `next` ×3, chosen `goTo` last page, save + reopen, text layer + selection, peak JS heap, longest main-thread task). Prints indexes (`pdf-NN`), size buckets, pass/fail and error classes only, never a name, path, title or text: the corpus is private and stays outside the repo. |
 | `pdfPolyfills.mjs` | Runtime APIs pdf.js 5.5 calls that an older WebView lacks (S5 review), run first in the carried `pdf` reader; installed only where missing. |
+| `frame.mjs`, `framePath.mjs` (+ `.d.mts`) | Web only (#1219, #1225): the page as a no-store shell + a content-hashed page script, and the one handler that serves both (dev, preview, the check; the build writes the same files for nginx). See Host responsibilities, "Web, its own document". `frame.test.ts` pins the split. |
+| `prodCsp.check.mjs` | The production-CSP gate (CI): shell + script under the app CSP read from nginx; the refused variants; nginx's reader locations against the handler's headers. |
 | `openTracker.mjs` (+ `.d.mts`) | Pure, both hosts: which page answer belongs to which open — the open in flight, a book the page kept on screen while a newer open failed, a stale `restored` (dropped). |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
 
@@ -353,17 +355,41 @@ target in the spread already shown counts as arrived (foliate shows it without a
 `allowFileAccessFromFileURLs`, `originWhitelist={['*']}`. The `file://` origin lets the page read the retained
 file itself, so no book bytes cross the bridge. Universal file access stays off.
 
-**Web, its own document** (#1219; dev server only until the production route): `frame.mjs` turns the page into a
-frame document, the page plus the host shim, with its own nonce placeholder `%V2_READER_FRAME_NONCE%`. That one
-fails closed: `%` is outside the CSP nonce grammar, so a document served unfilled has no valid script source and
-runs nothing, not even a script that carries the placeholder. `serveV2ReaderFrame` serves it at
-`/reader-v2/frame.html` (path: `framePath.mjs`) with a fresh nonce per response (16 random bytes, hex, as nginx's
-`$request_id` will; `fillNonce` takes nothing else) and its own headers (`V2_READER_FRAME_HEADERS`:
-`frame-ancestors 'self'`, `no-store`, nosniff, `no-referrer`). The Vite dev server uses that handler (plugin
-`v2-reader-frame`, loaded on the first frame request), and so does the check. The host (`V2ReaderDevPage.tsx`)
-embeds it with `<iframe sandbox="allow-scripts allow-same-origin" src>` and shows an error when no `ready` arrives
-within 10 s. The shim posts to `self.origin` only and takes messages from `parent` at that origin only; the frame
-is same-origin with its host, so that is the host's origin.
+**Web, its own document** (#1219, production route #1225): `frame.mjs` splits the page into two files under
+`/reader-v2/` (paths: `framePath.mjs`):
+
+- **the shell**, `/reader-v2/frame.html` (1,332 bytes): the page's head (its meta CSP), the host shim inline, and
+  `<script src="/reader-v2/page.<hash>.js" integrity="sha384-…">`, all under one nonce placeholder
+  `%V2_READER_FRAME_NONCE%`. It fails closed: `%` is outside the CSP nonce grammar, so a shell served unfilled has
+  no valid script source and runs nothing (not the shim, not the page script, not a script carrying the
+  placeholder). Sent `no-store` with a fresh nonce per response (16 random bytes, hex, nginx's `$request_id`;
+  `fillNonce` takes nothing else) and its own headers (`V2_READER_FRAME_HEADERS`: `frame-ancestors 'self'`,
+  `no-store, no-transform`, nosniff, `no-referrer`, `X-Robots-Tag: noindex`).
+- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,656,316 bytes; 1,644,100 gzipped):
+  the page's one script, byte for byte what the inline page runs, sent `public, max-age=31536000, immutable`,
+  `text/javascript; charset=utf-8` (it is not ASCII), nosniff. A book open fetches the shell only; the script
+  comes from the HTTP cache (ADR-029 Decision 4 as amended 2026-11-11). The format readers stay inside it as
+  strings and run as inline scripts under the same nonce, which page.mjs reads from `document.currentScript`
+  (an external script has it too; the check opens a MOBI to prove it). `integrity` pins the script to the shell
+  that names it: a swapped file is refused, not run under the nonce.
+
+`serveV2ReaderFrame` is the one handler: the Vite dev server (from source) and `vite preview` (from the built
+`dist/reader-v2/`, `v2ReaderDistFiles`, so CI's e2e runs what nginx ships) through plugin `v2-reader-frame`, which
+loads frame.mjs on the first `/reader-v2/` request, and the check use it; any other path under `/reader-v2/` is a 404,
+never the SPA. A production build writes the same two files to `dist/reader-v2/` (`v2ReaderFrameFiles`), the
+shell unfilled; nginx fills it (`location = /reader-v2/frame.html`, `sub_filter … $request_id`) and serves the
+script (`location ~ ^/reader-v2/page\.[0-9a-f]{16}\.js$`, server-level headers, `$cache_immutable`).
+`apps/web/scripts/assert-no-dev-reader.mjs` fails the build unless `dist/reader-v2/` is exactly those two files
+(the name is the hash, the shell pins it) and no other file carries the page code or the dev route.
+
+One host component, `apps/web/src/components/reader/V2ReaderHost.tsx`, serves the dev route (`/dev/reader-v2`, a
+picked file, dev server only) and the production route (`/:lang/library/my/:id/read-v2`, behind `Features:V2Api`:
+the current file's bytes from `/me/v2/books/{id}/files/{fileId}/content`, transferred). It embeds the shell with
+`<iframe sandbox="allow-scripts allow-same-origin" src>`, checks every message's source and origin, tracks opens
+with `openTracker.mjs`, and shows an error when no `ready` arrives within 10 s. Reader data stays in localStorage
+until the sync slice (#1226). The shim posts to `self.origin` only and takes messages from `parent` at that origin
+only; the frame is same-origin with its host, so that is the host's origin. **Android keeps the inline page**
+(`v2ReaderPageHtml(nonce)`): nothing here changes it.
 
 Not `srcdoc`, measured (`prodCsp.check.mjs`): a srcdoc document inherits the app's CSP (`infra/nginx/textstack.conf`)
 on top of its own, and the app's `script-src` refuses the page's nonce'd scripts, so the page never sends `ready`;
@@ -376,5 +402,5 @@ the frame's headers itself (nginx drops server-level `add_header` there, #857, a
 (`docs/01-architecture/v2-reader-web-hosting.md`).
 
 ```bash
-pnpm -C apps/web check:v2-reader-prod-csp   # CI, ~10 s: the served frame works under the app CSP read from nginx; srcdoc, header-less, foreign-framed and unfilled do not
+pnpm -C apps/web check:v2-reader-prod-csp   # CI, ~15 s: shell + script work under the app CSP read from nginx (EPUB, fonts, MOBI); srcdoc, header-less, foreign-framed, unfilled, un-nonced script and tampered script do not; nginx's reader locations send the handler's headers
 ```

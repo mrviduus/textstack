@@ -1,6 +1,7 @@
-// The production-CSP gate (#1219): the web host's frame document, served by the one handler that serves it
-// (frame.mjs `serveV2ReaderFrame`, the Vite dev server's too), works under the app's real Content-Security-
-// Policy, read from infra/nginx/textstack.conf, so the two cannot drift. A local server plays nginx; its host
+// The production-CSP gate (#1219, #1225): the web host's frame, the no-store shell + its cached page script,
+// served by the one handler that serves them (frame.mjs `serveV2ReaderFrame`, the Vite dev and preview servers'
+// too), works under the app's real Content-Security-Policy, read from infra/nginx/textstack.conf, so the two
+// cannot drift; and that file's reader locations send what the handler sends. A local server plays nginx; its host
 // document loads an external 'self' script, as the app bundle does, embeds the page in `<iframe
 // sandbox="allow-scripts allow-same-origin">`, transfers it the v2-sync EPUB (text) and then tsfonts
 // (fixtures.mjs: a linked stylesheet and @font-face, so the book's blob: CSS and fonts are exercised), and
@@ -13,21 +14,28 @@
 //   server-hdrs     the handler's document under the app's server-level headers (what an nginx location
 //                   without its own add_header set sends, #857): refused by frame-ancestors 'none'.
 //   foreign-host    another origin (localhost vs 127.0.0.1) embedding the frame: refused by frame-ancestors 'self'.
-//   unfilled        the template served without its nonce filled (a skipped sub_filter): no script runs, not
-//                   even one carrying the placeholder as its nonce. The placeholder fails closed.
+//   unfilled        the shell served without its nonce filled (a skipped sub_filter): no script runs, the page
+//                   script neither, not even one carrying the placeholder as its nonce. It fails closed.
+//   script-nonce    the shell with the page script's nonce attribute dropped: refused by script-src (the
+//                   app's 'self' does not reach into the frame's own policy).
+//   tampered        the page script with one byte more than the shell's integrity: refused, never run.
 // A negative row waits the whole READY_MS for `ready` before it says "never".
 //
 //   node --experimental-strip-types prodCsp.check.mjs      (pnpm -C apps/web check:v2-reader-prod-csp)
 //
 // Exit 1 when a row's outcome differs from the one stated above.
+import { randomBytes } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { writeFontsEpub } from './fixtures.mjs'
-import { FRAME_NONCE_PLACEHOLDER, V2_READER_FRAME_HEADERS, V2_READER_FRAME_PATH, serveV2ReaderFrame, v2ReaderFrameTemplate } from './frame.mjs'
+import { mobi, writeFontsEpub } from './fixtures.mjs'
+import {
+  FRAME_NONCE_PLACEHOLDER, V2_READER_FRAME_HEADERS, V2_READER_FRAME_PATH, V2_READER_SCRIPT_HEADERS, fillNonce, serveV2ReaderFrame,
+  v2ReaderFrameFiles, v2ReaderFrameTemplate,
+} from './frame.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '../../../../..')
@@ -42,6 +50,8 @@ const BOOK_TEXT = 'The Pond, paragraph 1.'
 const tmp = mkdtempSync(resolve(tmpdir(), 'ts-v2-prodcsp-'))
 writeFontsEpub(resolve(tmp, 'tsfonts.epub'))
 const FONTS_BOOK = readFileSync(resolve(tmp, 'tsfonts.epub'))
+const MOBI_TEXT = 'A MOBI paragraph through the shell.'
+const MOBI_BOOK = mobi('TS MOBI', `<html><body><p>${MOBI_TEXT}</p></body></html>`)
 rmSync(tmp, { recursive: true, force: true })
 
 // The server-level headers of the app's server block: its CSP and X-Frame-Options, verbatim.
@@ -49,20 +59,30 @@ const conf = readFileSync(resolve(repo, 'infra/nginx/textstack.conf'), 'utf8')
 const APP_CSP = conf.match(/^ {4}add_header Content-Security-Policy "(default-src 'self';[^"]+)" always;$/m)?.[1]
 const APP_XFO = conf.match(/^ {4}add_header X-Frame-Options "([^"]+)" always;$/m)?.[1]
 if (!APP_CSP || !APP_XFO) { console.error('app CSP / X-Frame-Options not found in infra/nginx/textstack.conf'); process.exit(2) }
-// The frame needs `frame-src 'self'` in the app CSP. Until the production route lands it in nginx, the
-// check adds it (and says so); afterwards it is read as is.
+// The frame needs `frame-src 'self'` in the app CSP (#1225 put it there).
 const appFrameSrc = APP_CSP.match(/(?:^|; )frame-src ([^;]*)/)?.[1] ?? ''
-const HOST_CSP = appFrameSrc.split(' ').includes("'self'") ? APP_CSP : APP_CSP.replace(/((?:^|; )frame-src [^;]*)/, "$1 'self'")
-if (HOST_CSP !== APP_CSP) console.log("note: the app CSP has no frame-src 'self' yet (the production route adds it); added here")
+if (!appFrameSrc.split(' ').includes("'self'")) { console.error("the app CSP has no frame-src 'self': the reader frame cannot load"); process.exit(2) }
+
+// The reader's nginx locations (textstack.app server), as text: what they send must be what the handler sends.
+const frameLocation = conf.match(/\n {4}location = \/reader-v2\/frame\.html \{\n([\s\S]*?)\n {4}\}/)?.[1] ?? ''
+const scriptLocation = conf.match(/\n {4}location ~ "(\^\/reader-v2\/page[^"]*)" \{\n([\s\S]*?)\n {4}\}/)
+
+const { shell: SHELL, script: SCRIPT, scriptPath: SCRIPT_PATH } = v2ReaderFrameFiles()
+/** Must change the text it is given: a transform that no longer matches would make its row test nothing. */
+const changed = (before, after) => { if (after === before) throw new Error('prodCsp.check: a row transform matched nothing'); return after }
 
 /** `serve`: how the frame path answers for this row. */
 const ROWS = [
-  { id: 'frame', mode: 'src', host: HOST_CSP, serve: 'handler', works: true },
+  { id: 'frame', mode: 'src', host: APP_CSP, serve: 'handler', works: true },
   { id: 'srcdoc-control', mode: 'srcdoc', host: null, serve: 'handler', works: true },
   { id: 'srcdoc', mode: 'srcdoc', host: APP_CSP, serve: 'handler', refusedBy: 'script-src-elem' },
-  { id: 'server-hdrs', mode: 'src', host: HOST_CSP, serve: 'server-headers', refusedBy: 'frame-ancestors' },
+  { id: 'server-hdrs', mode: 'src', host: APP_CSP, serve: 'server-headers', refusedBy: 'frame-ancestors' },
   { id: 'foreign-host', mode: 'src', host: null, foreign: true, serve: 'handler', refusedBy: 'frame-ancestors' },
-  { id: 'unfilled', mode: 'src', host: HOST_CSP, serve: 'unfilled', refusedBy: 'script-src-elem', placeholderProbe: true },
+  { id: 'unfilled', mode: 'src', host: APP_CSP, serve: 'unfilled', refusedBy: 'script-src-elem', placeholderProbe: true },
+  { id: 'script-nonce', mode: 'src', host: APP_CSP, serve: 'shell',
+    shell: (s) => changed(s, s.replace(/<script nonce="[0-9a-f]{32}" src=/, '<script src=')), refusedBy: 'script-src-elem' },
+  { id: 'tampered', mode: 'src', host: APP_CSP, serve: 'shell',
+    shell: (s) => changed(s, s.replace(`src="${SCRIPT_PATH}"`, `src="${SCRIPT_PATH}?row=tampered"`)), refusedBy: 'integrity' },
 ]
 
 // srcdoc: the host puts the served document (the handler's, nonce filled) into srcdoc; src: the frame loads it.
@@ -97,8 +117,13 @@ const server = createServer((req, res) => {
   if (url.pathname === '/host.js') return res.writeHead(200, { 'Content-Type': 'text/javascript' }).end(HOST_JS)
   if (url.pathname === '/book.epub') return res.writeHead(200).end(BOOK)
   if (url.pathname === '/fonts.epub') return res.writeHead(200).end(FONTS_BOOK)
+  if (url.pathname === '/book.mobi') return res.writeHead(200).end(MOBI_BOOK)
   if (row?.serve === 'unfilled' && url.pathname === V2_READER_FRAME_PATH)
     return res.writeHead(200, V2_READER_FRAME_HEADERS).end(v2ReaderFrameTemplate())
+  if (row?.serve === 'shell' && url.pathname === V2_READER_FRAME_PATH)
+    return res.writeHead(200, V2_READER_FRAME_HEADERS).end(row.shell(fillNonce(SHELL, randomBytes(16).toString('hex'))))
+  if (row?.id === 'tampered' && url.pathname === SCRIPT_PATH)
+    return res.writeHead(200, V2_READER_SCRIPT_HEADERS).end(`${SCRIPT};`)
   if (row?.serve === 'server-headers') {
     // The handler's own document, with the headers a location that sets none of its own would send.
     const writeHead = res.writeHead.bind(res)
@@ -120,8 +145,12 @@ async function runRow(browser, row) {
     + `${!row.host ? 'no CSP' : row.host === APP_CSP ? 'app CSP (verbatim)' : "app CSP + frame-src 'self'"}; frame served by ${row.serve}`]
   const page = await browser.newPage()
   const violations = []
-  // A frame-ancestors refusal fires no event in the embedding document: the console is its only trace.
-  page.on('console', (m) => { if (/Content Security Policy|X-Frame-Options/i.test(m.text())) violations.push(`console: ${m.text().slice(0, 220)}`) })
+  // A frame-ancestors refusal fires no event in the embedding document, nor does an integrity mismatch: the
+  // console is their only trace.
+  page.on('console', (m) => {
+    if (/Content Security Policy|X-Frame-Options/i.test(m.text())) violations.push(`console: ${m.text().slice(0, 220)}`)
+    if (/'integrity' attribute/.test(m.text())) violations.push(`integrity: ${m.text().slice(0, 220)}`)
+  })
   await page.exposeBinding('__violation', ({ frame }, s) => violations.push(`${s} (in ${frame.url().split(/[?#]/)[0].replace(base, '') || frame.url()})`))
   // In every frame, by CDP, past any CSP.
   await page.addInitScript(() => addEventListener('securitypolicyviolation', (e) =>
@@ -165,9 +194,14 @@ async function runRow(browser, row) {
       await until(async () => (await msgs()).filter((x) => x === 'opened').length === 2 && (await fontState())?.font === true)
       ;({ css = false, font = false } = (await fontState()) ?? {})
     }
+    // A format reader runs as an inline script under the nonce page.mjs reads from document.currentScript:
+    // here that is the external page script's (#1225), so a MOBI proves the nonce reaches it.
+    const mobi = renders && await page.evaluate(() => window.__open('/book.mobi', 'tsformat.mobi')).then(() =>
+      until(async () => (await msgs()).filter((x) => x === 'opened').length === 3 && (await text()).includes(MOBI_TEXT)))
     for (const v of violations) log.push(`    violation: ${v}`)
     check(log, ready && renders, `${row.id}: ready, opens, renders the book text`)
     check(log, css && font, `${row.id}: book CSS applied (${css}) and book font loaded (${font}) from blob:`)
+    check(log, mobi, `${row.id}: a MOBI opens (its format reader runs under the page's nonce)`)
     check(log, !violations.length, `${row.id}: no CSP violation`)
     check(log, !(await probe(null)), `${row.id}: the page's own CSP holds: an un-nonced script does not run`)
   } else {
@@ -192,11 +226,30 @@ try {
   check(report, /^[0-9a-f]{32}$/.test(n1 ?? '') && n1 !== n2, `handler: a fresh nonce per response (${n1}, ${n2})`)
   const head = await fetch(`${base}${V2_READER_FRAME_PATH}`, { method: 'HEAD' })
   check(report, Object.entries(V2_READER_FRAME_HEADERS).every(([k, v]) => head.headers.get(k) === v), 'handler: sends every V2_READER_FRAME_HEADERS header')
+  const js = await fetch(`${base}${SCRIPT_PATH}`)
+  check(report, Object.entries(V2_READER_SCRIPT_HEADERS).every(([k, v]) => js.headers.get(k) === v) && (await js.text()) === SCRIPT,
+    `handler: ${SCRIPT_PATH} is the page script, immutable, JS under nosniff`)
+  check(report, (await fetch(`${base}/reader-v2/page.0000000000000000.js`)).status === 404, 'handler: a stale script name is a 404')
+
+  // nginx, as text (no nginx here): the shell location sends the frame headers and fills the placeholder with
+  // $request_id; the script location takes this script's name and caches it as the handler does.
+  const addHeader = (k, v) => frameLocation.includes(`add_header ${k} "${v}" always;`)
+  const nginxNames = [...frameLocation.matchAll(/add_header (\S+) /g)].map((m) => m[1]).sort().join()
+  const handlerNames = Object.keys(V2_READER_FRAME_HEADERS).filter((k) => k !== 'Content-Type').sort().join()
+  check(report, Object.entries(V2_READER_FRAME_HEADERS).every(([k, v]) => k === 'Content-Type' || addHeader(k, v))
+    && nginxNames === handlerNames
+    && /default_type text\/html;\s+charset utf-8;/.test(frameLocation), 'nginx: the frame location sends every V2_READER_FRAME_HEADERS header')
+  check(report, frameLocation.includes(`sub_filter '${FRAME_NONCE_PLACEHOLDER}' $request_id;`) && frameLocation.includes('sub_filter_once off;'),
+    'nginx: the frame location fills every placeholder with $request_id')
+  check(report, !!scriptLocation && new RegExp(scriptLocation[1]).test(SCRIPT_PATH) && !/add_header/.test(scriptLocation[2])
+    && scriptLocation[2].includes(`set $cache_immutable "${V2_READER_SCRIPT_HEADERS['Cache-Control']}";`)
+    && /default_type text\/javascript;\s+charset utf-8;\s+charset_types text\/javascript;/.test(scriptLocation[2]),
+    'nginx: the script location matches this script, immutable, JS utf-8, server-level headers (nosniff) kept')
   await Promise.all(ROWS.map((row) => runRow(browser, row)))
 } finally {
   await browser.close()
   server.close()
 }
 console.log(report.join('\n'))
-console.log(failures.length ? `\nFAIL: ${failures.length}\n  ${failures.join('\n  ')}` : '\nok: the frame document works under the app CSP; srcdoc, header-less, foreign and unfilled do not')
+console.log(failures.length ? `\nFAIL: ${failures.length}\n  ${failures.join('\n  ')}` : '\nok: the shell + script work under the app CSP; srcdoc, header-less, foreign, unfilled, un-nonced and tampered do not')
 process.exit(failures.length ? 1 : 0)
