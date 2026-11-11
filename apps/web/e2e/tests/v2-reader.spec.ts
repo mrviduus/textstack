@@ -170,4 +170,32 @@ test.describe('V2 reader page @v2', () => {
     await other.close()
     await context.close()
   })
+
+  // #1227: a load that fails says why; one that cannot be helped by trying again offers no Retry.
+  test('a file the server no longer has: the "gone" alert, no Retry', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2r404'))
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.route('**/me/v2/books/*/files/*/content', (r) =>
+      r.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ code: 'file_not_found', message: 'gone' }) }))
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    const alert = page.getByTestId('v2-load-error')
+    await expect(alert).toHaveText('This book or its file is no longer in your library.')
+    await expect(alert.getByRole('button')).toHaveCount(0)
+    await context.close()
+  })
+
+  test('a reader frame that never sends ready: the deadline alert after 30 s; Retry opens the book', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2rframe'))
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.route('**/reader-v2/frame.html*', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>blocked</title>' }))
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    const alert = page.getByRole('alert')
+    await expect(alert).toContainText('The reader failed to load', { timeout: 40_000 })
+    await page.unroute('**/reader-v2/frame.html*')
+    await alert.getByRole('button', { name: 'Retry' }).click()
+    await expectOpened(page)
+    await context.close()
+  })
 })
