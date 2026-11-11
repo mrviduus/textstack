@@ -41,7 +41,8 @@ export default defineConfig({
 
   webServer: [
     {
-      command: isCI ? 'pnpm build && pnpm preview --port 5173' : 'pnpm dev',
+      // CI builds once in its own step (ci.yml e2e "Build web app"); every run serves that dist.
+      command: isCI ? 'pnpm preview --port 5173' : 'pnpm dev',
       url: baseURL,
       reuseExistingServer: !isCI,
     },
