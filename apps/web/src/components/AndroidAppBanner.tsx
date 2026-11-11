@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useTranslation } from '../hooks/useTranslation'
-import '../styles/android-tester-banner.css'
+import '../styles/android-app-banner.css'
 
 const STORAGE_KEY = 'androidTesterBanner'
 const READ_KEY = 'androidTesterBanner.hasRead'
 const COOKIE_KEY = 'cookieConsent'
 
-export const OPT_IN_URL = 'https://play.google.com/apps/testing/app.textstack.mobile'
+export const PLAY_URL = 'https://play.google.com/store/apps/details?id=app.textstack.mobile'
 
 /**
  * Reader routes: /:lang/books/:book/:chapter and /:lang/library/my/:id/read[/:chapter].
@@ -21,11 +21,11 @@ function isAndroid() {
 }
 
 /**
- * Invites Android readers into the closed test. Deliberately narrow: it waits until
- * someone has actually opened a book, because a tester who never reads is worth
- * nothing to us and counts against us with Google.
+ * Points Android readers at the Play listing. Deliberately narrow: it waits until someone
+ * has actually opened a book, so it asks readers, not drive-by visitors. The storage keys
+ * keep their old "tester" names, so whoever dismissed the beta invite stays dismissed.
  */
-export function AndroidTesterBanner() {
+export function AndroidAppBanner() {
   const { t } = useTranslation()
   const { pathname } = useLocation()
   const [visible, setVisible] = useState(false)
@@ -55,32 +55,32 @@ export function AndroidTesterBanner() {
     setVisible(false)
   }
 
-  const join = () => {
-    localStorage.setItem(STORAGE_KEY, 'joined')
+  const open = () => {
+    localStorage.setItem(STORAGE_KEY, 'opened')
     setVisible(false)
   }
 
   if (!visible) return null
 
   return (
-    <div className="android-tester" role="dialog" aria-labelledby="android-tester-title">
-      <div className="android-tester__inner">
-        <div className="android-tester__text">
-          <strong id="android-tester-title">{t('androidBeta.title')}</strong>
-          <p>{t('androidBeta.body')}</p>
+    <div className="android-app-banner" role="dialog" aria-labelledby="android-app-banner-title">
+      <div className="android-app-banner__inner">
+        <div className="android-app-banner__text">
+          <strong id="android-app-banner-title">{t('androidApp.title')}</strong>
+          <p>{t('androidApp.body')}</p>
         </div>
-        <div className="android-tester__actions">
-          <button type="button" className="android-tester__btn android-tester__btn--secondary" onClick={dismiss}>
-            {t('androidBeta.dismiss')}
+        <div className="android-app-banner__actions">
+          <button type="button" className="android-app-banner__btn android-app-banner__btn--secondary" onClick={dismiss}>
+            {t('androidApp.dismiss')}
           </button>
           <a
-            className="android-tester__btn android-tester__btn--primary"
-            href={OPT_IN_URL}
+            className="android-app-banner__btn android-app-banner__btn--primary"
+            href={PLAY_URL}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={join}
+            onClick={open}
           >
-            {t('androidBeta.join')}
+            {t('androidApp.open')}
           </a>
         </div>
       </div>

@@ -1,7 +1,7 @@
 # Docs site + contributor golden path — brief
 
 Goal: make TextStack easy to understand for new contributors and self-hosters.
-Docs site at textstack.dev, admin moves to textstack.dev/admin.
+Docs site at docs.textstack.app (GitHub Pages); admin stays on textstack.dev (decision 2026-11-11, #1237).
 
 ## Priority order
 
@@ -32,7 +32,7 @@ Docs site at textstack.dev, admin moves to textstack.dev/admin.
    "On this page", search, card grid on home). Own brand colors/fonts
    (TextStack fonts from #885). Do NOT copy Shopify assets or icons.
 
-4. **Move admin to textstack.dev/admin**, docs at textstack.dev root.
+4. **Hosting (decided 2026-11-11, #1237):** admin stays on textstack.dev. Until the site exists, the web footer links "Developers" to `docs/README.md` on GitHub. The site: Starlight on GitHub Pages at docs.textstack.app, built once getting-started and one golden path exist. Rejected: docs at the textstack.dev root with admin at /admin (shared origin with the admin's `Path=/` cookies).
 
 5. **Later — decoration:** original pixel icons in docs/assets/pixel-icons/ (edit grids in gen.py).
 
