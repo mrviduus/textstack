@@ -45,6 +45,20 @@ test.describe('V2 reader dev route @v2-reader-dev', () => {
     test.skip(!served, 'this server does not serve /dev/reader-v2: run the suite against the dev server (pnpm dev)')
   })
 
+  // #1219: the page is its own same-origin document (not srcdoc, which inherits the app CSP), with a nonce
+  // per response and its own frame-ancestors.
+  test('the reader frame is a src document with a fresh nonce per response', async ({ page }) => {
+    await expect(page.locator('iframe[title="V2 reader"]')).toHaveAttribute('src', '/reader-v2/frame.html')
+    await expect(page.locator('iframe[title="V2 reader"]')).not.toHaveAttribute('srcdoc', /./)
+    const load = () => page.request.get('/reader-v2/frame.html')
+    const [a, b] = [await load(), await load()]
+    expect(a.headers()['content-security-policy']).toBe("frame-ancestors 'self'")
+    const nonce = async (r: typeof a) => (await r.text()).match(/script-src 'nonce-([0-9a-f]{32})'/)?.[1]
+    const [na, nb] = [await nonce(a), await nonce(b)]
+    expect(na).toBeTruthy()
+    expect(na).not.toBe(nb)
+  })
+
   test('a picked EPUB renders its first section', async ({ page }) => {
     await openFixture(page)
     await expect.poll(() => sectionText(page)).toContain(FIRST_SECTION_TEXT)

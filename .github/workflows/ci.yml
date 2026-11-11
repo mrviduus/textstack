@@ -389,7 +389,7 @@ jobs:
         run: pnpm check:v2-reader
 
       # Chromium for the sandbox check below, installed exactly as the e2e job does (same cache key).
-      # All six steps run only when the check's inputs changed (v2reader), or on push to main.
+      # All these steps run only when the check's inputs changed (v2reader), or on push to main.
       - name: Get Playwright version
         id: pw-version
         if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
@@ -433,6 +433,13 @@ jobs:
         if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
         working-directory: apps/web
         run: pnpm check:v2-reader-formats
+
+      # #1219: the web host's frame document (frame.mjs) works under the app CSP read from
+      # infra/nginx/textstack.conf (a change there runs every job, so this too); srcdoc stays refused. ~2s.
+      - name: V2 reader prod CSP — gates the PR
+        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
+        working-directory: apps/web
+        run: pnpm check:v2-reader-prod-csp
 
       # The PDF bundle had no such guard. engineEntry.ts (+ readerEnginePdfPage.ts) is the source
       # of the page that owns the reader's position in a PDF, and an edit shipped without a

@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 // ponytail: deep imports of apps/mobile source. The page and its library live there until the engine's home
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
-import { v2ReaderPageHtml } from '../../../../mobile/src/lib/v2reader/v2ReaderPage.generated'
 import { addOpened, emptyLibrary, parseLibrary, type LibraryEntry } from '../../../../mobile/src/lib/v2reader/library.mjs'
-import { nonceFromUuid } from '../../../../mobile/src/lib/v2reader/hostStorage'
 import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reader/openTracker.mjs'
 
 /**
@@ -38,33 +36,12 @@ function writeItem(key: string, value: string) {
 
 const readLibrary = () => parseLibrary(readItem(LIBRARY_KEY) ?? '') ?? emptyLibrary()
 
-/** The mobile host's nonce, from the browser's CSPRNG: fresh per load, as v2ReaderPageHtml requires. */
-const freshNonce = () => nonceFromUuid(crypto.randomUUID())
-
 /**
- * Stands in for react-native-webview inside the iframe, under the page's own nonce so its CSP admits it.
- * Out: the page's `ReactNativeWebView.postMessage(json)` goes to this window. In: `{ call, args }` from
- * this window becomes `window.__fol[call](...args)`; `openBytes` hands the page a blob: URL of the
- * transferred bytes for `openUrl`, which the CSP's `connect-src blob:` lets it read.
+ * The page as its own same-origin document (#1219): the dev server serves it with the host shim and a fresh
+ * nonce per response (vite.config.ts, frame.mjs). Not srcdoc: that inherits this document's CSP, which in
+ * production refuses the page's scripts (prodCsp.check.mjs).
  */
-const hostShim = (parentOrigin: string) => `
-window.ReactNativeWebView = { postMessage: (json) => parent.postMessage(json, ${JSON.stringify(parentOrigin)}) };
-let bookUrl = null;
-addEventListener('message', (e) => {
-  if (e.source !== parent || !Array.isArray(e.data?.args)) return;
-  const { call, args } = e.data;
-  if (call !== 'openBytes') return Object.hasOwn(window.__fol, call) && window.__fol[call](...args);
-  if (bookUrl) URL.revokeObjectURL(bookUrl);
-  bookUrl = URL.createObjectURL(new Blob([args[0]]));
-  window.__fol.openUrl(bookUrl, args[1]);
-});`
-
-/** Throws rather than load a page no message can reach: without the shim it would sit at "Pick an EPUB" forever. */
-function withHostShim(html: string, nonce: string): string {
-  const shimmed = html.replace('<body>', `<body><script nonce="${nonce}">${hostShim(location.origin)}</script>`)
-  if (shimmed === html) throw new Error('V2 reader dev route: no <body> in the generated page to put the host shim in')
-  return shimmed
-}
+const FRAME_SRC = '/reader-v2/frame.html'
 
 /**
  * The open in flight: `name` is unique per pick and echoed in `opened`/`open-failed`, so a superseded
@@ -74,10 +51,6 @@ type Opening = { name: string; originalName: string; bytes?: ArrayBuffer }
 
 export default function V2ReaderDevPage() {
   const frame = useRef<HTMLIFrameElement>(null)
-  const [srcDoc] = useState(() => {
-    const nonce = freshNonce()
-    return withHostShim(v2ReaderPageHtml(nonce), nonce)
-  })
   const ready = useRef(false)
   const opening = useRef<Opening | null>(null)
   /** Which page answer belongs to which open (openTracker.mjs): a book kept on screen, a stale `restored`. */
@@ -131,7 +104,7 @@ export default function V2ReaderDevPage() {
       setBooks(lib.books)
     }
     const onMessage = (e: MessageEvent) => {
-      if (e.source !== frame.current?.contentWindow || typeof e.data !== 'string') return
+      if (e.source !== frame.current?.contentWindow || e.origin !== location.origin || typeof e.data !== 'string') return
       let m: any
       try { m = JSON.parse(e.data) } catch { return }
       switch (m?.type) {
@@ -167,6 +140,9 @@ export default function V2ReaderDevPage() {
           writeItem(storeKey(m.key), m.json)
           return
         case 'relocate':
+          // After a failed open the page keeps the old book reading (README, Formats), so it can still relocate
+          // (the e2e saw one land after open-failed): no position for a book this host no longer holds as open.
+          if (!opening.current) return
           setStatus(`${Math.round((m.fraction ?? 0) * 100)}% · section ${(m.index ?? 0) + 1}/${m.sections ?? '?'}${m.toc ? ` · ${m.toc}` : ''}`)
           return
         case 'word':
@@ -218,7 +194,7 @@ export default function V2ReaderDevPage() {
           only script barrier (README "Sandbox"). A book script past it would reach this origin's localStorage
           AND its /api session cookie: more than Android's file:// exposes. Bounded only by main.tsx keeping
           the route on the dev server. */}
-      <iframe ref={frame} title="V2 reader" sandbox="allow-scripts allow-same-origin" srcDoc={srcDoc} style={{ flex: 1, border: '1px solid #ccc' }} />
+      <iframe ref={frame} title="V2 reader" sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} style={{ flex: 1, border: '1px solid #ccc' }} />
     </main>
   )
 }
