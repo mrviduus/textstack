@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   markDeletedOnServer, clearDeletedOnServer, isDeletedOnServer, listDeletedOnServer, failedLoadView, forgetDeletedOnServer,
+  deletedStillOnDevice,
 } from './deletedOnServer'
 import { listDeclinedDownloads, declineDownload, updateIdSet, forgetDeclinedDownloads } from './declinedDownloads'
 import { applyV2MergeMap } from './v2Merge'
@@ -12,6 +13,24 @@ vi.mock('./offlineDb', () => ({ rekeyCachedUserBooks: async () => {} }))
 vi.mock('./v2', () => ({ onV2: async () => false }))
 
 beforeEach(() => (AsyncStorage as unknown as { __reset(): void }).__reset())
+
+describe('deletedStillOnDevice (#1193)', () => {
+  it('deletedStillOnDevice_MarkedAndOnDevice_Listed', () => {
+    expect(deletedStillOnDevice(new Set(['a', 'b']), ['a', 'x'], new Set())).toEqual(['a'])
+  })
+
+  it('deletedStillOnDevice_RowsAndOriginalBothLocal_CountedOnce', () => {
+    expect(deletedStillOnDevice(new Set(['a']), ['a', 'a'], new Set())).toEqual(['a'])
+  })
+
+  it('deletedStillOnDevice_MarkedButNothingLocal_Empty', () => {
+    expect(deletedStillOnDevice(new Set(['a']), ['x'], new Set())).toEqual([])
+  })
+
+  it('deletedStillOnDevice_MarkedButListedByLibrary_Excluded', () => {
+    expect(deletedStillOnDevice(new Set(['a', 'b']), ['a', 'b'], new Set(['a']))).toEqual(['b'])
+  })
+})
 
 describe('deletedOnServer (#1174)', () => {
   it('mark_ThenClear_RoundTrips', async () => {
@@ -133,10 +152,32 @@ describe('#1174 wiring', () => {
     expect(ctx.slice(start, ctx.indexOf('}, [', start))).toContain('await clearDeletedOnServer([bookId])')
   })
 
-  it('the orphan sweep clears the mark of what it removed', () => {
+  // #1193: the sweep marks instead of deleting (#1164: bytes stay until the reader removes them).
+  it('the orphan sweep cancels and marks, and frees nothing', () => {
     const ctx = read('src/context/DownloadContext.tsx')
     const start = ctx.indexOf('for (const id of orphans)')
-    expect(ctx.slice(start, ctx.indexOf('forgetDownload(id)', start))).toContain('await clearDeletedOnServer([id])')
+    const loop = ctx.slice(start, ctx.indexOf('} catch (err)', start))
+    expect(loop).toContain('cancelledRef.current.add(id)')
+    expect(loop).toContain('forgetDownload(id)')
+    expect(loop).toContain('await markDeletedOnServer(id)')
+    for (const gone of ['deleteCachedUserBook', 'deleteOriginal', 'undeclineDownload', 'clearDeletedOnServer']) {
+      expect(loop).not.toContain(gone)
+    }
+  })
+
+  it('library: the deleted-books row sits under the list and in both empty states', () => {
+    const lib = read('app/(tabs)/library.tsx')
+    expect(lib).toContain('listFooter={<DeletedDownloadsRow listedIds={userBooks.map(b => b.id)} />}')
+    expect(lib.match(/<DeletedDownloadsRow listedIds=\{\[\]\} \/>/g)).toHaveLength(2)
+    expect(read('src/components/library/BookList.tsx')).toContain('ListFooterComponent={listFooter ?')
+  })
+
+  it('the deleted-books row removes through removeUserBookDownload, counted by deletedStillOnDevice', () => {
+    const row = read('src/components/library/DeletedDownloadsRow.tsx')
+    expect(row).toContain('for (const id of ids) await removeUserBookDownload(id)')
+    expect(row).toMatch(/deletedStillOnDevice\(marked, \[\.\.\.cachedUserBooks\.map\(b => b\.bookId\), \.\.\.originals\], new Set\(listedIds\)\)/)
+    expect(row).toContain('}, [cachedUserBooks, listedKey])')
+    expect(row).toContain('accessibilityLabel=')
   })
 })
 

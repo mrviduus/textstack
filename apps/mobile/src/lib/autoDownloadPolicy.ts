@@ -100,17 +100,15 @@ export function mayAutoDownload(input: {
 /**
  * Downloads on this device whose book is no longer in the account.
  *
- * A book deleted from another phone, or from the web, leaves its copy here
- * untouched: it stays on the shelf, it stays readable, and it keeps holding
- * space against a budget that is meant to be spent on books the reader has. The
- * shelf is the part that matters — an app that still lists something the account
- * says is gone is simply wrong about the library.
+ * A book deleted from another phone, or from the web, leaves its copy here. The
+ * caller marks it deleted on the server (#1174) so the offline shelf stops
+ * listing it; its bytes stay until the reader removes them (#1164, #1193).
  *
  * `serverIds` must come from a **successful** listing. An empty set is a real
  * answer (the reader deleted everything) and is treated as one, so a caller that
- * passes an empty set after a failed request wipes the device. The guard belongs
- * at the call site, where the difference between "no books" and "no answer" is
- * visible.
+ * passes an empty set after a failed request marks every download deleted. The
+ * guard belongs at the call site, where the difference between "no books" and
+ * "no answer" is visible.
  */
 export function chooseOrphanedDownloads(
   localIds: Iterable<string>,

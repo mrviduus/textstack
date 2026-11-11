@@ -5,10 +5,14 @@ import { readIdSet, rekeyIds, updateIdSet } from './declinedDownloads'
  * record the next offline moment (library tab, a reload that fails as offline) shows the cached
  * copy as a live book again.
  *
- * A mark, not a deletion: the bytes stay until the reader removes them (#1164). And not final: a
- * later successful load of the book or an online library list that has it clears it, as do Remove
- * download and the orphan sweep. Known source of a false mark: with the V2 probe answering off, the
- * legacy `/me/books/{id}` 404s for a V2-only book; the next online library load heals it.
+ * Also learned by the Wi-Fi orphan sweep from a successful listing that no longer has a downloaded
+ * book (#1193 item 3).
+ *
+ * A mark, not a deletion: the bytes stay until the reader removes them (#1164) — from the book's
+ * not-found screen or the Library's deleted-books row. And not final: a later successful load of
+ * the book or an online library list that has it clears it, as does Remove download. Known source
+ * of a false mark: with the V2 probe answering off, the legacy `/me/books/{id}` 404s for a V2-only
+ * book; the next online library load heals it.
  */
 const KEY = 'offline:deletedOnServer'
 
@@ -41,6 +45,21 @@ export async function rekeyDeletedOnServer(books: Record<string, string>): Promi
 /** Sign-out: the marks are one account's books and do not carry into the next sign-in (#1192). */
 export async function forgetDeletedOnServer(): Promise<void> {
   await updateIdSet(KEY, ids => (ids.size > 0 ? new Set() : null))
+}
+
+/**
+ * Marked books whose rows or original are still on this device, minus any the library currently
+ * lists (a list that has a book outranks a mark not yet cleared). What the Library's
+ * deleted-books row counts and removes (#1193).
+ */
+export function deletedStillOnDevice(
+  marked: ReadonlySet<string>,
+  onDevice: Iterable<string>,
+  listed: ReadonlySet<string>,
+): string[] {
+  const out = new Set<string>()
+  for (const id of onDevice) if (marked.has(id) && !listed.has(id)) out.add(id)
+  return [...out]
 }
 
 /**

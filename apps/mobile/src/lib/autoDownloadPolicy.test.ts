@@ -136,3 +136,14 @@ describe('chooseOrphanedDownloads', () => {
     expect(chooseOrphanedDownloads(['a', 'b'], new Set(['a', 'b', 'c']))).toEqual([])
   })
 })
+
+describe('orphan sweep (#1193) — a marked orphan is not re-queued', () => {
+  it('chooseAutoDownloads_OrphanUncachedAndUndeclined_NotQueued', () => {
+    // The sweep's inputs: the orphan is local, absent from the listing, no longer cached-as-whole
+    // and not declined (the sweep stopped touching the declined list). Only `books` feeds the queue.
+    const books = [book({ id: 'kept' })]
+    const orphans = chooseOrphanedDownloads(['kept', 'gone'], new Set(books.map(b => b.id)))
+    expect(orphans).toEqual(['gone'])
+    expect(chooseAutoDownloads(books, new Set(), new Set())).toEqual(['kept'])
+  })
+})

@@ -28,7 +28,7 @@ import { chooseAutoDownloads, chooseOrphanedDownloads, mayAutoDownload } from '.
 import { offlineStorageBytes } from '../lib/deviceStorage'
 import { listStoredOriginalIds } from '../lib/originalFileCache'
 import { declineDownload, forgetDeclinedDownloads, listDeclinedDownloads, undeclineDownload } from '../lib/declinedDownloads'
-import { clearDeletedOnServer, forgetDeletedOnServer } from '../lib/deletedOnServer'
+import { clearDeletedOnServer, forgetDeletedOnServer, markDeletedOnServer } from '../lib/deletedOnServer'
 import { v2Epoch } from '../lib/v2'
 import { AppState } from 'react-native'
 import NetInfo from '@react-native-community/netinfo'
@@ -752,6 +752,9 @@ const PROCESSING_RECHECK_LIMIT = 25
         // library IS, and the listing succeeded: `Promise.all` above rejects
         // otherwise, so an empty `books` means empty, not unreachable. That
         // distinction is the whole safety of this.
+        // Marked, not deleted: the bytes stay until the reader removes them
+        // (#1164), from the Library's deleted-books row or the book's not-found
+        // screen (#1193). Not in `books`, so `chooseAutoDownloads` never re-queues it.
         const orphans = chooseOrphanedDownloads(
           [...metas.map(m => m.bookId), ...storedOriginals],
           new Set(books.map(b => b.id)),
@@ -759,27 +762,17 @@ const PROCESSING_RECHECK_LIMIT = 25
         for (const id of orphans) {
           if (resetSince()) { autoRerunRef.current = true; break }
           try {
-            // Cancel first, the same order `removeUserBookDownload` uses: a
-            // download still running would otherwise have its rows deleted and
-            // then write more of them straight back.
+            // Stop a download still running: it would keep writing rows for a
+            // book the account no longer has.
             cancelledRef.current.add(id)
-            await deleteCachedUserBook(id)
-            await deleteOriginal(id, 'pdf')
-            // Not `declineDownload` — the book is gone, so there is nothing to
-            // decline, and an entry for a dead id would sit in that list for the
-            // life of the install.
-            await undeclineDownload(id)
-            // Same for the server-deleted mark (#1174): nothing left to warn about.
-            await clearDeletedOnServer([id])
             forgetDownload(id)
+            await markDeletedOnServer(id)
           } catch (err) {
-            console.warn(`[auto-download] could not remove orphaned ${id}:`, err)
+            console.warn(`[auto-download] could not mark orphaned ${id}:`, err)
           }
         }
-        if (orphans.length > 0) {
-          console.warn(`[auto-download] removed ${orphans.length} download(s) deleted elsewhere`)
-          await refreshCachedBooks()
-        }
+        // Re-read the cached lists so the Library's deleted-books row sees the marks.
+        if (orphans.length > 0) await refreshCachedBooks()
 
         // A book the server has not finished with yet is not a book this sweep
         // can fetch — but it is a reason to come back. See

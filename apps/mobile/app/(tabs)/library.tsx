@@ -28,6 +28,7 @@ import { LibraryViewSheet, type LibrarySource } from '../../src/components/libra
 import { useSheetMount } from '../../src/hooks/useSheetMount'
 import { LibrarySearch } from '../../src/components/library/LibrarySearch'
 import { StorageQuotaRow } from '../../src/components/library/StorageQuotaRow'
+import { DeletedDownloadsRow } from '../../src/components/library/DeletedDownloadsRow'
 import { LibraryStatusTabs } from '../../src/components/library/LibraryStatusTabs'
 import { useLibrarySort } from '../../src/hooks/useLibrarySort'
 import { useLibraryStatus } from '../../src/hooks/useLibraryStatus'
@@ -147,8 +148,8 @@ export default function LibraryScreen() {
           if (myGen !== loadGenRef.current) return
           // A server-deleted book (#1174) is not offered offline, from the device
           // list or from `prev` (a book marked during this session), so it has no
-          // Continue pill either. Known residue: hidden here, its bytes are freed
-          // only from the not-found screen at 404 time or by the orphan sweep.
+          // Continue pill either. Its bytes stay until the reader removes them:
+          // DeletedDownloadsRow below the list, or the book's not-found screen (#1193).
           setUserBooks(prev => (prev.length > 0 ? prev : cachedUploads.map(c => ({
             id: c.bookId,
             title: c.title,
@@ -301,6 +302,7 @@ export default function LibraryScreen() {
           buttonLabel={t('common.retry')}
           onButtonPress={() => { setLoading(true); loadData() }}
         />
+        <DeletedDownloadsRow listedIds={[]} />
       </View>
     )
   }
@@ -313,6 +315,7 @@ export default function LibraryScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <FirstBookState />
+        <DeletedDownloadsRow listedIds={[]} />
       </View>
     )
   }
@@ -424,6 +427,8 @@ export default function LibraryScreen() {
         onRefresh={onRefresh}
         viewMode={viewMode}
         listHeader={listHeader}
+        // Under the list, whatever the filters: it is about the device, not the shelf (#1193).
+        listFooter={<DeletedDownloadsRow listedIds={userBooks.map(b => b.id)} />}
         resumeList={resumeList}
       />
       {sheetMounted && <LibraryViewSheet
