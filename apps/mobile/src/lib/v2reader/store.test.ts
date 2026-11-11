@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { isFractionOnly } from '../../../../../packages/shared/src/reader/fractionPosition'
-import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { normalisedHighlight, pageEntry, PAGE_ENTRY_VERSION } from '../../../../../packages/shared/src/reader/v2PageEntry'
+import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256, sha256Yielding, STORE_VERSION, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 
 const book = { sha256: 'ab'.repeat(32), size: 1234, name: 'a.epub' }
@@ -100,7 +101,7 @@ describe('v2 reader store', () => {
     const json = `{"__proto__":{"polluted":1},"v":1,"book":{"sha256":"${book.sha256}","size":${book.size}},"position":null,"highlights":[],"constructor":{"prototype":{"polluted":1}}}`
     const e = entryFor(json, book)
     expect(e).not.toBeNull()
-    expect(withHighlight(withPosition(e, pos), hl).highlights).toEqual([hl])
+    expect(withHighlight(withPosition(e!, pos), hl).highlights).toEqual([hl])
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
   })
 
@@ -144,9 +145,9 @@ describe('v2 reader store', () => {
     const stored = { ...emptyEntry(book), position: { cfi: 'epubcfi(/6/8!/4/2/1:5)' }, highlights: [{ id: 'x' }, hl] }
     const e = entryFor(JSON.stringify(stored), book)
     expect(e).toMatchObject({ position: null, highlights: [hl] })
-    for (const item of [e!.position, ...e!.highlights]) if (item) expect(() => foldText(item.quote)).not.toThrow()
+    for (const item of [e!.position, ...e!.highlights]) if (item) expect(() => foldText(item.quote!)).not.toThrow()
     // Still the same file's entry, so the page goes on saving into it.
-    expect(withPosition(e, pos).position).toEqual(pos)
+    expect(withPosition(e!, pos).position).toEqual(pos)
   })
 
   it('sha256Yielding_MoreThanOneSlice_SameDigestAndGivesThePageBackBetweenSlices', async () => {
@@ -219,5 +220,13 @@ describe('v2 reader store', () => {
     const bad = [{ ...hl, selectedText: '' }, { ...hl, selectedText: ' \n ' }, { ...hl, selectedText: 7 }, { ...hl, selectedText: null }]
     expect(entryFor(JSON.stringify({ ...emptyEntry(book), highlights: [...bad, hl] }), book)?.highlights).toEqual([hl])
     expect(withHighlight(emptyEntry(book), bad[1]).highlights).toEqual([])
+  })
+
+  it('sharedPageEntry_SameVersionAndQuoteCut_TheHostsEntryIsAcceptedHere', () => {
+    expect(PAGE_ENTRY_VERSION).toBe(STORE_VERSION)
+    const text = 'a😀'.repeat(40)
+    expect(normalisedHighlight({ id: 'h', cfi: hl.cfi, quote: text }).quote).toBe(quoteOf(text))
+    const e = pageEntry(book, pos, [{ ...hl, selectedText: hl.quote }])
+    expect(entryFor(JSON.stringify(e), book)).toEqual(e)
   })
 })
