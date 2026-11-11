@@ -6472,14 +6472,6 @@ html.dark .book-hero__read-btn--secondary {
   text-decoration: underline;
 }
 
-/* Footer content links */
-.site-footer__content-links {
-  display: flex;
-  justify-content: center;
-  gap: 32px;
-  margin-bottom: 24px;
-}
-
 /* ---------------------------------------------------------------
    Sitemap page — HTML sitemap for internal linking / SEO
    --------------------------------------------------------------- */

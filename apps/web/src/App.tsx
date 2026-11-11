@@ -46,7 +46,7 @@ import { Header } from './components/Header'
 import { DownloadProgressBar } from './components/DownloadProgressBar'
 import { AuthModal } from './components/auth/AuthModal'
 import { CookieBanner } from './components/CookieBanner'
-import { AndroidTesterBanner } from './components/AndroidTesterBanner'
+import { AndroidAppBanner } from './components/AndroidAppBanner'
 import { Toast } from './components/Toast'
 import { GlobalDropZone } from './components/library/GlobalDropZone'
 import { CommandPaletteProvider } from './components/CommandPaletteProvider'
@@ -225,7 +225,7 @@ function App() {
           </GuestLimitsProvider>
           <AuthModal />
           <CookieBanner />
-          <AndroidTesterBanner />
+          <AndroidAppBanner />
         </AuthProvider>
       </SiteProvider>
     </BrowserRouter>

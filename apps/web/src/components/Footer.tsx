@@ -1,6 +1,9 @@
 import { LocalizedLink } from './LocalizedLink'
 import { useTranslation } from '../hooks/useTranslation'
-import { OPT_IN_URL } from './AndroidTesterBanner'
+import { PLAY_URL } from './AndroidAppBanner'
+
+// Developer docs live in the repo for now; a docs site comes later (#1237).
+const DOCS_URL = 'https://github.com/mrviduus/textstack/blob/main/docs/README.md'
 
 export function Footer() {
   const { t } = useTranslation()
@@ -11,36 +14,38 @@ export function Footer() {
         <p className="site-footer__description">
           {t('footer.description')}
         </p>
-        <nav className="site-footer__content-links">
-          <LocalizedLink to="/books" className="site-footer__link">{t('nav.catalog')}</LocalizedLink>
-          <LocalizedLink to="/authors" className="site-footer__link">{t('footer.authors')}</LocalizedLink>
-          <LocalizedLink to="/genres" className="site-footer__link">{t('nav.genres')}</LocalizedLink>
-        </nav>
-        <nav className="site-footer__links">
-          <LocalizedLink to="/privacy" className="site-footer__link">{t('footer.privacy')}</LocalizedLink>
-          <LocalizedLink to="/terms" className="site-footer__link">{t('footer.terms')}</LocalizedLink>
-          <LocalizedLink to="/dmca" className="site-footer__link">{t('footer.dmca')}</LocalizedLink>
-          <LocalizedLink to="/delete-account" className="site-footer__link">{t('footer.deleteAccount')}</LocalizedLink>
-          <LocalizedLink to="/contact" className="site-footer__link">{t('footer.contact')}</LocalizedLink>
-          <LocalizedLink to="/sitemap" className="site-footer__link">{t('footer.sitemap')}</LocalizedLink>
-          <LocalizedLink to="/changelog" className="site-footer__link">{t('footer.changelog')}</LocalizedLink>
-        </nav>
-        {/* Deliberately not the official "Get it on Google Play" badge. That badge
-            links to a store listing, and ours returns 404 while the app is in
-            closed testing — so it would send every visitor to a Not Found page
-            and misrepresent a beta as a shipped app. Swap it in the day the
-            production track goes live; the link is the only thing that changes.
+        <div className="site-footer__columns">
+          <nav className="site-footer__col" aria-labelledby="footer-col-read">
+            <h2 id="footer-col-read" className="site-footer__heading">{t('footer.colRead')}</h2>
+            <LocalizedLink to="/books" className="site-footer__link">{t('nav.catalog')}</LocalizedLink>
+            <LocalizedLink to="/authors" className="site-footer__link">{t('footer.authors')}</LocalizedLink>
+            <LocalizedLink to="/genres" className="site-footer__link">{t('nav.genres')}</LocalizedLink>
+          </nav>
+          <nav className="site-footer__col" aria-labelledby="footer-col-app">
+            <h2 id="footer-col-app" className="site-footer__heading">{t('footer.colApp')}</h2>
+            <a href={PLAY_URL} className="site-footer__link" target="_blank" rel="noopener noreferrer">{t('footer.android')} ↗</a>
+            <LocalizedLink to="/mcp" className="site-footer__link">{t('footer.ai')}</LocalizedLink>
+            <LocalizedLink to="/changelog" className="site-footer__link">{t('footer.changelog')}</LocalizedLink>
+          </nav>
+          <nav className="site-footer__col" aria-labelledby="footer-col-project">
+            <h2 id="footer-col-project" className="site-footer__heading">{t('footer.colProject')}</h2>
+            <LocalizedLink to="/about" className="site-footer__link">{t('footer.about')}</LocalizedLink>
+            <LocalizedLink to="/contact" className="site-footer__link">{t('footer.contact')}</LocalizedLink>
+            <a href={DOCS_URL} className="site-footer__link" target="_blank" rel="noopener noreferrer">{t('footer.developers')} ↗</a>
+          </nav>
+          <nav className="site-footer__col" aria-labelledby="footer-col-legal">
+            <h2 id="footer-col-legal" className="site-footer__heading">{t('footer.colLegal')}</h2>
+            <LocalizedLink to="/privacy" className="site-footer__link">{t('footer.privacy')}</LocalizedLink>
+            <LocalizedLink to="/terms" className="site-footer__link">{t('footer.terms')}</LocalizedLink>
+            <LocalizedLink to="/dmca" className="site-footer__link">{t('footer.dmca')}</LocalizedLink>
+            <LocalizedLink to="/delete-account" className="site-footer__link">{t('footer.deleteAccount')}</LocalizedLink>
+            <LocalizedLink to="/sitemap" className="site-footer__link">{t('footer.sitemap')}</LocalizedLink>
+          </nav>
+        </div>
 
-            Shown to everyone, unlike AndroidTesterBanner, which waits for an
-            Android device and a reader who has actually opened a book. This is
-            the standing "we have an app" line; that one is the invitation. */}
+        {/* Our own badge, not Google's artwork: it follows the light/dark theme. */}
         <div className="site-footer__android">
-          <a
-            className="site-footer__android-badge"
-            href={OPT_IN_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          <a className="site-footer__android-badge" href={PLAY_URL} target="_blank" rel="noopener noreferrer">
             <svg className="site-footer__android-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path
                 fill="currentColor"
@@ -48,11 +53,10 @@ export function Footer() {
               />
             </svg>
             <span className="site-footer__android-text">
-              <span className="site-footer__android-label">{t('androidBeta.badgeLabel')}</span>
-              <span className="site-footer__android-action">{t('androidBeta.badgeAction')}</span>
+              <span className="site-footer__android-label">{t('androidApp.badgeLabel')}</span>
+              <span className="site-footer__android-action">{t('androidApp.badgeAction')}</span>
             </span>
           </a>
-          <p className="site-footer__android-note">{t('androidBeta.badgeNote')}</p>
         </div>
 
         <div className="site-footer__bottom">
