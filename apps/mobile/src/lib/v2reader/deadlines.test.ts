@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  OPENED_CAP_MS, OPENED_FLOOR_MS, OPENED_MS_PER_MB, READY_DEADLINE_MS, createDeadlines, openedDeadlineMs,
+  OPENED_CAP_MS, OPENED_FLOOR_MS, OPENED_MS_PER_MB, OPENED_OVERDUE_LIMIT, READY_DEADLINE_MS, createDeadlines, createOverdueStrikes, openedDeadlineMs,
 } from './deadlines.mjs'
 
 const MB = 1_048_576
@@ -94,5 +94,25 @@ describe('v2 host deadlines (#1227)', () => {
     d.dispose()
     vi.advanceTimersByTime(OPENED_CAP_MS)
     expect(changes).toEqual([])
+  })
+})
+
+describe('v2 host overdue strikes (#1227)', () => {
+  it('theSameOpenOverdueTwice_GivenUp_ThenCountsAgain', () => {
+    const s = createOverdueStrikes()
+    expect(OPENED_OVERDUE_LIMIT).toBe(2)
+    expect(s.strike('a')).toBe(false)
+    expect(s.strike('a')).toBe(true)
+    expect(s.strike('a')).toBe(false)
+  })
+
+  it('anotherOpen_OrAnAnswer_StartsAgain', () => {
+    const s = createOverdueStrikes()
+    s.strike('a')
+    expect(s.strike('b')).toBe(false)
+    expect(s.strike('a')).toBe(false)
+    s.clear()
+    expect(s.strike('a')).toBe(false)
+    expect(s.strike('a')).toBe(true)
   })
 })

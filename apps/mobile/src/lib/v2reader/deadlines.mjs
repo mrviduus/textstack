@@ -74,3 +74,30 @@ export function createDeadlines(onChange) {
     },
   }
 }
+
+/** An open that misses its `opened` deadline this many times in a row is given up (Android: Retry reopens it). */
+export const OPENED_OVERDUE_LIMIT = 2
+
+/**
+ * Overdue opens in a row, per open (the host's key: Android's file path). `strike(key)` counts one and answers
+ * true when `key` reached the limit (then it starts again from zero); another key starts its own count, and
+ * `clear()` (the open answered) forgets it.
+ */
+export function createOverdueStrikes(limit = OPENED_OVERDUE_LIMIT) {
+  let key = null
+  let count = 0
+  return {
+    strike(k) {
+      count = k === key ? count + 1 : 1
+      key = k
+      if (count < limit) return false
+      key = null
+      count = 0
+      return true
+    },
+    clear() {
+      key = null
+      count = 0
+    },
+  }
+}

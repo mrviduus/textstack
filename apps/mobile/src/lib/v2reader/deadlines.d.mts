@@ -16,3 +16,6 @@ export interface Deadlines {
   dispose(): void
 }
 export function createDeadlines(onChange: (overdue: Overdue) => void): Deadlines
+export const OPENED_OVERDUE_LIMIT: number
+export interface OverdueStrikes { strike(key: string): boolean; clear(): void }
+export function createOverdueStrikes(limit?: number): OverdueStrikes

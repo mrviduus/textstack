@@ -17,7 +17,7 @@ import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
 import { downloadV2Book, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
 import { v2ReaderPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
-import { createDeadlines, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
+import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
 
 /**
@@ -165,6 +165,8 @@ function V2Reader() {
   /** A deadline the page missed (deadlines.mjs, #1080 item 3); a late answer clears it. */
   const [overdue, setOverdue] = useState<Overdue>(null)
   const [deadlines] = useState(() => createDeadlines(setOverdue))
+  /** The same open overdue twice in a row is given up (deadlines.mjs OPENED_OVERDUE_LIMIT). */
+  const [strikes] = useState(() => createOverdueStrikes())
   /** A newer position from another device the reader is asked about (ADR-019 `prompt`). */
   const [offer, setOffer] = useState<PagePosition | null>(null)
   const [fileSync, setFileSync] = useState(false)
@@ -295,10 +297,11 @@ function V2Reader() {
     const s = v2Storage()
     // A reload or a new pick can replace this open during any await; then this answer stops there.
     const superseded = () => opening.current !== current
+    // The page shows this book now: its title before any await, so a failed read below leaves no "Opening …".
+    setHeading([m.title || current.name, m.author].filter(Boolean).join(' — '))
     const stored = await s.readStore(m.book.sha256)
     if (superseded()) return
     call(`window.__fol.restore(${JSON.stringify(stored)})`)
-    setHeading([m.title || current.name, m.author].filter(Boolean).join(' — '))
     const { retained, bookId, books } = await s.addOpened(
       { ...m.book, title: m.title, author: m.author, originalName: current.name, format: m.format ?? null },
       isStaged(current.file) ? current.file : null,
@@ -333,6 +336,7 @@ function V2Reader() {
         const t = tracker.opened(m)
         if (t) {
           deadlines.answered()
+          strikes.clear()
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
         return
@@ -341,6 +345,8 @@ function V2Reader() {
         const f = tracker.failed(m.name)
         if (!f) return
         deadlines.answered()
+        strikes.clear()
+        console.log(`[v2] open-failed ${f.failed.name}: ${m.error}`)
         if (isStaged(f.failed.file)) v2Storage().dropStaged(f.failed.file).catch(fail('drop'))
         opening.current = null
         setOpenError(`cannot open ${f.failed.name}: ${hostError(m.error)}`)
@@ -428,6 +434,21 @@ function V2Reader() {
     deadlines.waitReady(READY_DEADLINE_MS)
     return () => deadlines.dispose()
   }, [nonce])
+
+  // An open overdue twice in a row (Retry sent it again) is given up as a crashing book is: dropped with its
+  // staged file, the reader told; a new page load stops the page still working on it.
+  useEffect(() => {
+    if (overdue !== 'opened') return
+    const o = opening.current
+    if (!o || !strikes.strike(o.file)) return
+    opening.current = null
+    if (isStaged(o.file)) v2Storage().dropStaged(o.file).catch(fail('drop'))
+    setProgress.current('')
+    setHeading(IDLE_HEADING)
+    setOpenError(`cannot open ${o.name}: it did not open in time, twice`)
+    ready.current = false
+    setNonce(freshNonce())
+  }, [overdue])
 
   /** Retry after a deadline: a new page load; the open in flight (its file is still on disk) goes again on `ready`. */
   const retry = () => {
