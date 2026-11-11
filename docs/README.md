@@ -14,8 +14,8 @@ Readers find help inside the app at [textstack.app](https://textstack.app/).
       From a clone to the app running on your machine with Docker.
     </td>
     <td width="50%" valign="top">
-      <a href="../.github/CONTRIBUTING.md"><img src="assets/pixel-icons/contribute.svg" width="48" height="48" alt=""></a>
-      <h3><a href="../.github/CONTRIBUTING.md">Ship a first PR</a></h3>
+      <a href="start/first-pr.md"><img src="assets/pixel-icons/contribute.svg" width="48" height="48" alt=""></a>
+      <h3><a href="start/first-pr.md">Ship a first PR</a></h3>
       Branch, change, checks, area label, pull request.
     </td>
   </tr>

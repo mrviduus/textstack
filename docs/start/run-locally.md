@@ -1,133 +1,116 @@
-# Local Development
+# Run TextStack locally
 
-## Prerequisites
+You get: TextStack running on your machine, with a book you uploaded open in the reader. Time: about
+20 minutes, most of it the first build. Before you start: [Docker](https://docs.docker.com/get-docker/)
+is running, and you have `git`, `make`, Node.js (the version in [`.nvmrc`](../../.nvmrc)) and
+[pnpm](https://pnpm.io/installation). Ports 8080, 81 and 5173 are free.
 
-- Docker + Docker Compose
-- .NET 10 SDK (to run the backend without Docker)
-- Node.js (version in `.nvmrc`) and pnpm
+Two parts run in different places. The **backend** (API, worker, database) runs in Docker. The
+**web app** runs on your machine with a dev server, so your changes show up at once.
 
-## Quick Start
+## Steps
 
-```bash
-docker compose up --build
-```
+1. **Clone the repository.**
 
-| Service | URL |
-|---------|-----|
-| API | http://localhost:8080 |
-| API Docs | http://localhost:8080/scalar/v1 |
-| Web | http://localhost:5173 (not a compose service — run `pnpm -C apps/web dev`) |
-| Admin | http://localhost:81 |
-| Postgres | not exposed — `docker compose exec db psql -U <POSTGRES_USER> <POSTGRES_DB>` |
+   ```bash
+   git clone https://github.com/mrviduus/textstack
+   cd textstack
+   ```
 
-## Nginx (prod-like)
+2. **Create your settings file.** `.env` holds the settings Docker reads.
 
-`make nginx-setup` (Linux) / `make nginx-setup-mac` install `infra/nginx/textstack.conf` with
-paths rewritten to this checkout. It serves `localhost` like `textstack.app` (SSG/SPA + `/api/`
-proxy) and `textstack.dev` as admin. There are no `*.localhost` gateway hosts and no
-`/debug/site` endpoint any more (single site, ADR-007).
+   ```bash
+   cp .env.example .env
+   ```
 
-## Migrations
+3. **Edit four lines in `.env`.**
 
-The schema is plain SQL in [`database/`](../../database/README.md) ([ADR-026](../architecture/adr/ADR-026-sql-first-migrations.md)).
-Only the `migrator` service applies it — the Api never migrates, also not under `dotnet run`. If the
-schema is behind the Api's build, the Api logs Critical at start and `/health/ready` answers 503 with
-`components.schema.pending` until the migrator runs.
+   ```bash
+   POSTGRES_PASSWORD=local-dev-password
+   JWT_SECRET=local-dev-secret-at-least-32-characters
+   ASPNETCORE_ENVIRONMENT=Development
+   FEATURES_V2API=true
+   ```
 
-```bash
-docker compose up            # runs the migrator (up) before api and worker
-make migrate                 # the same, on its own
-make migrate-status          # applied, pending, unknown versions
-make migrate-down V=3        # revert every version above 3
-```
+   `JWT_SECRET` signs the sign-in tokens and must be 32 characters or longer. `FEATURES_V2API=true`
+   turns on V2, the new library and reader the project is moving to. Leave the other lines as they are.
 
-The `make` targets mount this checkout's `database/` into the migrator, so a migration just written
-runs without rebuilding the image. A plain `docker compose up` runs the image's own copy — to the
-image's head, which misses migrations written since the last `make build`. After a `down`, restart the
-Api with `docker compose restart api` (or `up -d --no-deps api`); `make migrate` brings it back up.
+4. **Create the data folders.** The backend keeps books and caches in `./data`.
 
-Rolling back a release: **schema first, with the current image**, check `/health/ready` shows the
-expected `pending`, **then** the code (`rollback_commit`). An older image has no down files for newer
-versions; `down` exits 1 if asked
-([ADR-026](../architecture/adr/ADR-026-sql-first-migrations.md#rolling-back-a-release-with-a-migration--order-unchanged-from-adr-021)).
+   ```bash
+   make fix-permissions
+   ```
 
-### Create New Migration
+   You should see: `Done.`
 
-A numbered pair, `database/migrations/NNNN_<name>.up.sql` + `.down.sql`, with the header from
-[`database/README.md`](../../database/README.md#adding-a-migration). Change the EF mapping to match;
-`SchemaDriftTests` checks the two agree.
+5. **Start the backend.** The first run builds five images and downloads about 3 GB.
 
-## Run Without Docker
+   ```bash
+   make up
+   ```
 
-### Backend
-```bash
-# API (does not migrate). Compose db: `make migrate`. Any other Postgres:
-#   PGHOST=localhost PGUSER=app PGPASSWORD=changeme PGDATABASE=books sh database/migrate.sh up
-dotnet run --project backend/src/Api
+   You should see: `Container textstack_api_prod  Healthy` near the end.
 
-# Worker
-dotnet run --project backend/src/Worker
-```
+6. **Create the V2 database.** `make up` does not do this.
 
-Requires PostgreSQL running locally or via Docker.
+   ```bash
+   make migrate-v2
+   ```
 
-### Frontend
-```bash
-# Web
-pnpm -C apps/web dev
+   You should see: a list of `up: …` lines, then `Done.`
 
-# Admin
-pnpm -C apps/admin dev
-```
+7. **Check the backend.** Wait 30 seconds after step 6, then:
 
-## Storage
+   ```bash
+   curl http://localhost:8080/health/ready
+   ```
 
-Files stored at `./data/storage`:
-```
-./data/storage/books/{editionId}/original/{filename}.epub
-./data/storage/books/{editionId}/derived/cover.jpg
-```
+   You should see: `"status":"ready"` and `"v2":{"status":"ok"}`.
 
-DB stores paths only. Containers mount via bind mount.
+8. **Start the web app.**
 
-## Environment Variables
+   ```bash
+   pnpm install
+   pnpm -C apps/web dev
+   ```
 
-Copy `.env.example` to `.env` for overrides.
+   You should see: `Local: http://localhost:5173/`. Keep this terminal open.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | none — required | DB credentials |
+9. **Upload a book.** Open <http://localhost:5173>. Click **Upload your book** and choose an EPUB
+   file. The repository has one: `tests/TextStack.Extraction.Tests/Fixtures/frankenstein.epub`. You
+   do not need an account; the app signs you in as a guest.
 
-Full list: [environment-variables.md](../reference/environment-variables.md).
+   You should see: the book's page, with its chapters listed.
+
+10. **Open the book.** Click **Open in the V2 reader**.
+
+## It worked when
+
+The first page of the book is on your screen, at an address that ends in `/read-v2`.
+
+To stop the backend: `make down`. Your data stays in `./data`.
 
 ## Troubleshooting
 
-| Issue | Fix |
-|-------|-----|
-| Migrator exits 1 | `docker compose logs migrator` |
-| API won't start | Check migrator completed |
-| Port conflict | Change ports in compose |
-| Stale containers | `docker compose down -v` |
+| What you see | Why | What to do |
+|---|---|---|
+| `make up` fails with `port is already allocated` | Another program uses port 8080 or 81. | Stop that program, then run `make up` again. |
+| `"v2":{"status":"unreachable"}` in step 7 | The V2 database does not exist yet, or the API has not looked again. It looks every 30 seconds. | Run `make migrate-v2`, wait 30 seconds, check again. |
+| **Upload failed** next to the upload button | The web app cannot reach the API. The API answers only a web app on port 5173. | Check step 7. Check the dev server says port 5173; if it chose another port, stop what uses 5173 and start it again. |
+| There is no **Open in the V2 reader** link | `FEATURES_V2API` was not `true` when the backend started. | Fix `.env`, then run `docker compose up -d --force-recreate api worker`. A plain restart does not read `.env` again. |
 
-## Useful Commands
+## Where things are
 
-```bash
-# View logs
-docker compose logs -f api
-docker compose logs -f worker
+| What | Address |
+|---|---|
+| Web app | <http://localhost:5173> |
+| API | <http://localhost:8080> |
+| API reference | <http://localhost:8080/scalar/v1> |
+| Admin panel | <http://localhost:81> |
 
-# Rebuild single service
-docker compose up --build api
+Database changes: [`database/README.md`](../../database/README.md). All settings:
+[environment variables](../reference/environment-variables.md).
 
-# Reset everything
-docker compose down -v
-rm -rf ./data/postgres-prod ./data/storage
-docker compose up --build
+## Next
 
-# Database shell
-docker compose exec db psql -U app books
-```
-
-## See Also
-
-- [Backup](../internal/ops/backup.md) — Backup procedures
+[Ship a first pull request](first-pr.md).
