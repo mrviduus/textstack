@@ -107,6 +107,27 @@ export function chooseEvictions(
  * 110 and then advises "Tap Retry", which cannot help. The web side already
  * distinguishes them (`QuotaExceededError` → stop, "Storage full").
  */
+/**
+ * The 2 GB budget does not weigh a server-deleted book's kept bytes (owner decision 2026-11-11). A
+ * marked book (#1174) keeps its bytes until the reader removes them (#1164): its original is neither
+ * counted nor evicted, its rows not counted. The Profile figure still shows the real total on disk.
+ */
+export function withoutKeptDeleted<T extends { bookId: string }>(entries: T[], keptDeleted: ReadonlySet<string>): T[] {
+  return entries.filter(e => !keptDeleted.has(e.bookId))
+}
+
+/** The bytes the auto-download budget gates on: the chapter database less the kept rows, plus the
+ *  originals that are not kept-deleted. */
+export function budgetedBytes(input: {
+  dbBytes: number
+  keptRowBytes: number
+  originals: { bookId: string; bytes: number }[]
+  keptDeleted: ReadonlySet<string>
+}): number {
+  const originals = withoutKeptDeleted(input.originals, input.keptDeleted).reduce((sum, e) => sum + e.bytes, 0)
+  return Math.max(0, input.dbBytes - input.keptRowBytes) + originals
+}
+
 export function isOutOfSpaceError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err ?? '')
   return /SQLITE_FULL|ENOSPC|disk is full|No space left|QuotaExceeded/i.test(message)

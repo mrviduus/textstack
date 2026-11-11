@@ -1,12 +1,19 @@
 # V2 reader page on the web: production hosting
 
-**Date:** 2026-11-11 · **Status:** proposed, owner decision pending (§7) · **Wave:** 13 = wave A of
+**Date:** 2026-11-11 · **Status:** decided 2026-11-11: same origin for now (see the note below); §7 questions 1–2 answered, the rest open · **Wave:** 13 = wave A of
 [`r8-parity-audit.md`](r8-parity-audit.md) §7 (line 218) · **Touches:** [ADR-029](adr/ADR-029-foliate-for-v2-epub.md)
 Decision 4 (sandbox), [ADR-032](adr/ADR-032-one-engine-foliate-fork.md). Once decided, the decision becomes an ADR
 (next free number: ADR-033).
 
 Markers on browser claims: **[spec]** verified from the spec/docs text; **[exp]** needs an experiment. Code claims
 cite `file:line` at `main` 9f86676f.
+
+> **Owner decision, 2026-11-11:** the reader is built **inside the web app, on the app's own origin**
+> (option C). No separate domain and no subdomain now: the route stays behind `Features:V2Api`, which is
+> off in production, and the page CSP passed 30/30 hostile vectors. The recommendation below (option A)
+> is kept as the analysis; a second origin is revisited before the flag goes on for real users (M5).
+> First step: measure whether the page works under the production CSP at all (§3 C says it may not;
+> that claim is untested), and scope any CSP change to the reader route only.
 
 ## 1. Problem
 

@@ -228,4 +228,26 @@ describe('offlineDb on V2 (real SQLite)', () => {
     await m.deleteCachedUserBook('chapters-only')
     expect(await m.hasAnyUserBookCache('chapters-only')).toBe(false)
   })
+
+  // #1193: the list form of hasAnyUserBookCache, with each book's source.
+  it('listUserBookCaches_RowsOfEitherTable_EveryBookWithItsSource', async () => {
+    const m = await coldStart() // the old install's 'legacy-b': meta + chapter, no file id
+    await m.cacheUserChapter('v2-chapters-only', ch('s1', 'f1'), 1)
+    await m.setCachedUserBookMeta(meta('v2-meta-only', 'f2'))
+    await m.cacheUserChapter('mixed', ch('a', null), 1)
+    await m.cacheUserChapter('mixed', ch('b', 'f3'), 1)
+    expect(Object.fromEntries(await m.listUserBookCaches())).toEqual({
+      'legacy-b': false, 'v2-chapters-only': true, 'v2-meta-only': true, mixed: true,
+    })
+    for (const id of ['legacy-b', 'v2-chapters-only', 'v2-meta-only', 'mixed']) expect(await m.hasAnyUserBookCache(id)).toBe(true)
+  })
+
+  it('userBookRowBytes_ListedBooksOnly_SumsHtmlBytes', async () => {
+    const m = await coldStart()
+    await m.cacheUserChapter('kept', { ...ch('a', null), html: 'ééé' }, 1) // 6 bytes, 3 characters
+    await m.cacheUserChapter('other', ch('a', null), 1)
+    expect(await m.userBookRowBytes(['kept'])).toBe(6)
+    expect(await m.userBookRowBytes(['kept', 'legacy-b'])).toBe(6 + '<p>old</p>'.length)
+    expect(await m.userBookRowBytes([])).toBe(0)
+  })
 })
