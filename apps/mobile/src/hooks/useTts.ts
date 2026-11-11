@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { API_URL } from '../lib/api'
-import { ttsRequestDecision, TtsPhase } from '../lib/ttsRequest'
+import { ttsRequestDecision, ttsLang, TtsPhase } from '../lib/ttsRequest'
 
 // Lazy + safe loads — these native modules ship with the dev build only
 // after their respective `expo install`. An older dev build (before the
@@ -38,19 +38,6 @@ function loadNativeOnce(): { audio: ExpoAudioModule | null; fs: FileSystemModule
   try { fileSystem = require('expo-file-system/legacy') as FileSystemModule }
   catch (e) { if (__DEV__) console.warn('[tts] expo-file-system not available:', (e as Error)?.message) }
   return { audio: expoAudio, fs: fileSystem }
-}
-
-/**
- * Maps our app language codes to BCP-47 identifiers passed through to
- * the backend /api/tts endpoint. The backend picks an Edge TTS voice
- * appropriate for the locale (see TtsEndpoints.cs).
- */
-function toBcp47(lang?: string): string {
-  if (!lang) return 'en-US'
-  const lc = lang.toLowerCase()
-  if (lc.startsWith('en')) return 'en-US'
-  if (lc.includes('-')) return lang
-  return 'en-US'
 }
 
 /** Cheap deterministic 32-bit djb2 hash used as a filename component. Combined
@@ -169,7 +156,7 @@ export function useTts() {
       if (!audio || !fs) return
       const normalized: TtsSpeakOptions = typeof opts === 'number' ? { rate: opts } : opts
       const rate = normalized.rate ?? 1.0
-      const bcp47 = toBcp47(normalized.lang)
+      const bcp47 = ttsLang(normalized.lang)
       const req = ++reqRef.current
 
       // Tear down any current playback before starting another download —
