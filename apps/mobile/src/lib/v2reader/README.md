@@ -241,28 +241,41 @@ The section iframes are `sandbox="allow-same-origin allow-scripts"`, so the page
 
 ```
 default-src 'none'; script-src 'nonce-__V2_READER_NONCE__'; style-src blob: 'unsafe-inline'; img-src blob: data:;
-font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: file:; form-action 'none'; base-uri 'none'
+font-src blob: data:; media-src blob: data:; frame-src blob:;
+connect-src blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/;
+form-action 'none'; base-uri 'none'
 ```
 
-**The hostile-book check** (ADR-029 Decision 6) loads the committed page as `file://` in Chromium with file access
-(the dev route's origin), opens `tshostile.epub`, `.mobi`, `.fb2` and `tshostile-kf8.azw3` (Formats) through `__fol.openUrl` and exits 1 if any vector gets through: a
-book script ran (`__pwned` in any frame), a request reached its logging server (a free local port), a sibling file of
-the EPUB was read, `<base>` took effect, a refresh meta survived the page's strip, or the section frame left the
+`connect-src` names the two directories the Android host serves (`bookOrigin.mjs`, #1228) and nothing above them; no
+`file:`, so even a script that got past the nonce reaches no app file. The web hosts hand bytes in as `blob:` and
+never use those sources (the host is reserved by Android and does not resolve as a web site).
+
+**The hostile-book check** (ADR-029 Decision 6) loads the committed page under the Android host's origin in Chromium
+(`bookOriginRoute.mjs`: Playwright routes `https://appassets.androidplatform.net/` with the interceptor's own rule,
+`bookOrigin.mjs` `servedFile`; no file access), opens `tshostile.epub`, `.mobi`, `.fb2` and `tshostile-kf8.azw3` (Formats) through `__fol.openUrl` and exits 1 if any vector gets through: a
+book script ran (`__pwned` in any frame), a request reached its logging server (a routed `https://evil.tst:44443`: an http
+server from an https page is stopped by mixed content, not by the CSP), a sibling file of the book in the served
+directory was read, `<base>` took effect, a refresh meta survived the page's strip, or the section frame left the
 book. It then removes or widens one directive at a time and must catch the vectors that directive stops, so a check
 that cannot fail fails itself. Every vector in `fixtures.mjs` declares how it is observed (`mark`, `request`,
 `probe`, `sandbox`) and which directive `stops` it; the check refuses to start (exit 2) when the two files disagree.
 Each page call is bounded (10 s; a timeout is an escape) and the whole check has a 3-minute deadline (exit 1 with the
-partial table).
+partial table). After the real-CSP EPUB run, **scope rows** fetch from the page's own script, as one that got past
+the nonce would: the served book must load (the positive control); a path outside the served directories, a store
+entry, an encoded slash, a dot segment (plain and encoded), a query, a `file:` URL and another origin must be
+refused (by the CSP or the interceptor's 404).
 
 The hostile KF8 is committed (CI has no Calibre): `kf8fixture.mjs` converts `tshostile.epub` written with
 placeholder addresses (`HOSTILE_KF8`), uncompressed, and the check swaps them byte for byte for this run's server
-and sibling directory (same lengths: a 5-digit port, a working directory padded to 200 characters; every
-occurrence must be found). It carries the EPUB's vectors except `KF8_DROPPED` (sandbox.check.mjs): what Calibre's
+and sibling directory (same lengths: the evil URL is 22 characters, the served directory's URL is padded to 200
+with `/.` segments, which every URL parse drops; every occurrence must be found). It carries the EPUB's vectors except `KF8_DROPPED` (sandbox.check.mjs): what Calibre's
 conversion removed, so no mutation can show them in it.
 
-**What it proves, and where:** the CSP, in desktop headless Chromium, with the page opened by `page.goto(file://…)`
-and `--allow-file-access-from-files`. Not the Android System WebView (`loadDataWithBaseURL`, Android's file-access
-flags, `content:`/`intent:` URLs): R4 (#1036) runs the book on the device.
+**What it proves, and where:** the CSP and the serving rule, in desktop headless Chromium, with the interceptor
+emulated by a Playwright route. Not the Android System WebView, the Java interceptor or the bridge patch
+(`loadDataWithBaseURL`, `content:`/`intent:` URLs): the emulator run of #1228 (`docs/01-architecture/
+v2-reader-android-bytes.md`) and R4 (#1036) run those on the device. The format check and the PDF gate use the same
+route (lenient on fixture names).
 
 ```bash
 pnpm -C apps/web exec playwright install chromium   # once
@@ -297,7 +310,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 
 | Call | Does |
 |---|---|
-| `openUrl(url, name)` | Reads the retained book by XHR (`file://…`) and opens it, whatever its format (Formats). Answers `opened` or `open-failed`. A second call supersedes the first, which then answers nothing. |
+| `openUrl(url, name)` | Reads the book by XHR (Android: the host's served URL, `bookOrigin.mjs`; web: a `blob:` URL) and opens it, whatever its format (Formats). Answers `opened` or `open-failed`. A second call supersedes the first, which then answers nothing. |
 | `restore(json \| null)` | The answer to `opened`: the JSON last sent in `store` for that `book.sha256`, or null. Its position may be fraction-only, `{ fraction, at }` (a transitional `textstack-*` server locator, #1187), or a PDF page `{ page, index, fraction, at }`. Ignored (a `warn`) unless the view on screen is the one that answered `opened` (not one still opening); answered for the book on screen even while a newer open is being made. Takes its slot in the navigation queue when called: a `goTo` sent after it runs after it. |
 | `addHighlights(list)` | Highlights the host learned after `restore` (the web host draws the server's when their pull lands, #1226): each drawn where its text still is (the restore check), added to the entry, not saved (the host holds them). The reader is not moved. Queued behind the restore. Ignored where `annotatable` is false. Answered by `highlights`. |
 | `highlightSelection()` | The last non-empty selection becomes a highlight; sends `store` and `highlighted`. Ignored on a CBZ and a PDF (`annotatable: false`). A selection with no text (an image) or over 4000 UTF-16 units (`SyncLimits.MaxSelectedText`) is ignored with a `warn` log. |
@@ -387,10 +400,16 @@ target in the spread already shown counts as arrived (foliate shows it without a
   outdated WebView as a likely cause (not when the version is known to be fine).
 - Errors are `role="alert"` (web) / `accessibilityRole="alert"` with a polite live region (Android); Retry is a button.
 
-**WebView, dev route only** (prototype host; ADR-029 Decision 4 until the R4 security review):
-`source={{ html: v2ReaderPageHtml(nonce), baseUrl: <app documents dir> }}`, `allowFileAccess`,
-`allowFileAccessFromFileURLs`, `originWhitelist={['*']}`. The `file://` origin lets the page read the retained
-file itself, so no book bytes cross the bridge. Universal file access stays off.
+**WebView** (Android, #1228; ADR-029 Decision 4 as amended): `source={{ html: v2ReaderPageHtml(nonce), baseUrl:
+'https://appassets.androidplatform.net/' }}`, no file access at all (the library's defaults: `allowFileAccess`,
+`allowFileAccessFromFileURLs`, universal and content access all off). The base URL arms the patched
+react-native-webview's interceptor (`patches/react-native-webview@13.16.1.patch`, `TextStackBookServer.java`): it
+serves exactly `bookOrigin.mjs` `BOOK_PATH` (`/v2/books/<sha256>.epub`, `/v2/staging/[dl-]<ms>.epub`) from
+`files/v2/`, checks the canonical file is still in `books/` or `staging/` (a symlink cannot lead out), and answers
+404 to anything else on that host, so nothing on it reaches the network. The page reads the book by XHR from it,
+streamed, so no book bytes cross the bridge. The same patch accepts bridge messages from the main frame only (a
+book section is an iframe). `originWhitelist={['*']}` on purpose: react-native-webview opens a navigation outside
+the whitelist in another app; `onShouldStartLoadWithRequest` (about:/blob:/data: only) is the filter.
 
 **Web, its own document** (#1219, production route #1225): `frame.mjs` splits the page into two files under
 `/reader-v2/` (paths: `framePath.mjs`):

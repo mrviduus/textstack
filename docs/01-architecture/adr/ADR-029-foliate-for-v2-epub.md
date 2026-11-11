@@ -73,7 +73,7 @@ origin to book content, so it cannot inherit the production reader's safety argu
    own size assertion at its first committed size, raised only by a deliberate PR.
 4. **Sandbox: the CSP is the contract.** Because the section iframes allow scripts and same-origin,
    the page's CSP is the only thing between a book and script execution:
-   `default-src 'none'; script-src 'nonce-…'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: file:; form-action 'none'; base-uri 'none'`.
+   `default-src 'none'; script-src 'nonce-…'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/; form-action 'none'; base-uri 'none'` (`connect-src` as amended 2026-11-11, below; it was `blob: data: file:`).
    Book scripts never run; book resources load only as `blob:`/`data:`. Removing or widening a
    directive is a change to this ADR. The `file://` base URL with direct XHR read of the retained
    file is **accepted only for the dev route** until the R4 security review decides (keep, narrow
@@ -97,6 +97,16 @@ origin to book content, so it cannot inherit the production reader's safety argu
    served unfilled runs nothing), and `integrity` pins the script to the shell that names it. Android keeps the
    inline page (`v2ReaderPageHtml(nonce)`). Files and checks: `apps/mobile/src/lib/v2reader/frame.mjs`,
    `prodCsp.check.mjs`, the README's "Web, its own document".
+   **Amended 2026-11-11 (owner decision; Android, #1228): no `file://`.** The R4 recommendation, built: the Android
+   page loads under `https://appassets.androidplatform.net/` and reads its book by XHR from a native interceptor, a
+   `pnpm patch` of react-native-webview (`patches/react-native-webview@13.16.1.patch`). It serves exactly
+   `/v2/books/<sha256>.epub` and `/v2/staging/[dl-]<ms>.epub` from the app's `files/v2/` (`bookOrigin.mjs`
+   `BOOK_PATH`, pinned to the Java copy by a test; canonical-path containment against symlinks) and answers 404 to
+   anything else on that host. Both `allowFileAccess*` flags are off; `connect-src` drops `file:` and names those two
+   directories. The same patch accepts bridge messages from the main frame only. Defaults taken where the owner did
+   not answer (veto in the PR): the two directories rather than one book at a time; staged picks served from
+   `staging/` (no second copy); the main-frame bridge fixed in the same patch. Design and evidence:
+   [v2-reader-android-bytes.md](../v2-reader-android-bytes.md).
 5. **Dev-only first.** One `__DEV__`-gated route (R2: `app/dev/epub-v2.tsx`); the release bundle
    contains no reader page and no route to it. No production route until every gate below passes.
 6. **Gates to leave dev-only** (prototype brief + plan R3/R4), recorded as an evidence table in

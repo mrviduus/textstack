@@ -41,6 +41,17 @@ succeeded or threw.
 
 **Build**: EAS Build (cloud) for dev/prod. OTA updates via `expo-updates`.
 
+**Patched native dependency** (#1228): `react-native-webview` 13.16.1 carries a pnpm patch
+(`patches/react-native-webview@13.16.1.patch`, `patchedDependencies` in `pnpm-workspace.yaml`, applied by every
+`pnpm install`, EAS included): the V2 reader's book interceptor (`TextStackBookServer.java`, https instead of
+`file://`) and a bridge that takes messages from the main frame only. It is native code: a change to it needs a new
+dev client (`npx expo run:android` from `apps/mobile`, or `npm run build:dev:android`) and ships only in a store
+build. The fingerprint does not read a library's android sources, so `apps/mobile/fingerprint.config.js` adds the
+`patches/` directory to it, so an OTA never reaches a build without the patch. Bumping the package:
+`pnpm patch react-native-webview@<new>`, re-apply the hunks, `pnpm patch-commit <dir>`, delete the old `.patch`,
+rerun `bookOrigin.test.ts` (it pins the Java serving rule to `bookOrigin.mjs`); an install fails loudly if a patch
+no longer applies.
+
 ### Releasing to Play Internal Testing
 
 ```bash
