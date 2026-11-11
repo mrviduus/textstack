@@ -1,6 +1,7 @@
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { READY_DEADLINE_MS, V2ReaderHost, type V2HostBook } from './V2ReaderHost'
+import { openedDeadlineMs } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
 
 // #1225: the one web host of the V2 reader page, driven through a fake frame: what it posts into the frame
 // (spied on the iframe's window) and which page messages it takes.
@@ -14,11 +15,14 @@ beforeEach(() => {
 })
 afterEach(() => vi.useRealTimers())
 
-function mount(book: V2HostBook | null = null, extra: { dev?: boolean; readyDeadlineMs?: number } = {}) {
+/** Records what the host posts into the frame now on screen (a Retry mounts a new one). */
+const spyFrame = () => vi.spyOn(frameWindow(), 'postMessage').mockImplementation(((m: { call: string; args: unknown[] }) => { posted.push(m) }) as never)
+
+function mount(book: V2HostBook | null = null, extra: { dev?: boolean; readyDeadlineMs?: number; onReload?: () => void } = {}) {
   const onOpened = vi.fn()
   const el = (b: V2HostBook | null) => <V2ReaderHost book={b} onOpened={onOpened} idleHeading="idle" {...extra} />
   const view = render(el(book))
-  vi.spyOn(frameWindow(), 'postMessage').mockImplementation(((m: { call: string; args: unknown[] }) => { posted.push(m) }) as never)
+  spyFrame()
   return { ...view, onOpened, rerender: (b: V2HostBook | null) => view.rerender(el(b)) }
 }
 
@@ -113,9 +117,83 @@ describe('V2ReaderHost', () => {
     mount()
     expect(screen.queryByRole('alert')).toBeNull()
     act(() => { vi.advanceTimersByTime(READY_DEADLINE_MS) })
-    expect(screen.getByRole('alert')).toHaveTextContent('The reader page did not load')
+    expect(screen.getByRole('alert')).toHaveTextContent('The reader failed to load')
     fromPage({ type: 'ready' })
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('readyOverdue_Retry_AFreshFrame_TheHeldBookOpensOnItsReady', () => {
+    vi.useFakeTimers()
+    const onReload = vi.fn()
+    const b = book()
+    mount(b, { onReload })
+    const first = screen.getByTitle('V2 reader')
+    act(() => { vi.advanceTimersByTime(READY_DEADLINE_MS) })
+    act(() => { screen.getByRole('button', { name: 'Retry' }).click() })
+    expect(screen.getByTitle('V2 reader')).not.toBe(first)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(onReload).not.toHaveBeenCalled() // the bytes never left the host
+    spyFrame()
+    fromPage({ type: 'ready' })
+    expect(posted.map((m) => m.call)).toEqual(['flow', 'openBytes'])
+    // The new frame has its own ready deadline.
+    act(() => { vi.advanceTimersByTime(READY_DEADLINE_MS) })
+    expect(screen.queryByTestId('v2-overdue')).toBeNull()
+  })
+
+  it('noOpenedByTheOpensDeadline_ShowsAnAlert_ALateOpenedClearsIt', () => {
+    vi.useFakeTimers()
+    mount(book())
+    fromPage({ type: 'ready' })
+    act(() => { vi.advanceTimersByTime(openedDeadlineMs(8) - 1) })
+    expect(screen.queryByRole('alert')).toBeNull()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(screen.getByRole('alert')).toHaveTextContent(`a.epub is taking too long to open (no answer in ${openedDeadlineMs(8) / 1000} s)`)
+    fromPage(opened('1/a.epub'))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByTestId('v2-heading')).toHaveTextContent('Walden — Thoreau')
+  })
+
+  it('openedOverdue_ABookOfOddSize_WholeSecondsRoundedUp', () => {
+    vi.useFakeTimers()
+    const size = 1_500_000 // 20 s + 1.43 s: 21,431 ms
+    mount({ bytes: new ArrayBuffer(size), name: 'big.epub' })
+    fromPage({ type: 'ready' })
+    act(() => { vi.advanceTimersByTime(openedDeadlineMs(size)) })
+    expect(openedDeadlineMs(size)).toBe(21_431)
+    expect(screen.getByRole('alert')).toHaveTextContent('big.epub is taking too long to open (no answer in 22 s)')
+  })
+
+  it('openedOverdue_Retry_AsksTheRouteForTheBookAgain_IdleHeading', () => {
+    vi.useFakeTimers()
+    const onReload = vi.fn()
+    mount(book(), { onReload })
+    fromPage({ type: 'ready' })
+    act(() => { vi.advanceTimersByTime(openedDeadlineMs(8)) })
+    act(() => { screen.getByRole('button', { name: 'Retry' }).click() })
+    expect(onReload).toHaveBeenCalledOnce()
+    expect(screen.getByTestId('v2-heading')).toHaveTextContent('idle')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('openFailedInTime_NoOpenDeadlineLater', () => {
+    vi.useFakeTimers()
+    mount(book('broken.epub'))
+    fromPage({ type: 'ready' })
+    fromPage({ type: 'open-failed', name: '1/broken.epub', error: 'not a zip' })
+    act(() => { vi.advanceTimersByTime(openedDeadlineMs(8)) })
+    expect(screen.queryByTestId('v2-overdue')).toBeNull()
+  })
+
+  it('openFailedAfterABookWasRead_HeadingIsNotThePreviousTitle', () => {
+    const { rerender } = mount(book('a.epub'))
+    fromPage({ type: 'ready' })
+    fromPage(opened('1/a.epub'))
+    expect(screen.getByTestId('v2-heading')).toHaveTextContent('Walden')
+    rerender(book('broken.epub'))
+    fromPage({ type: 'open-failed', name: '2/broken.epub', error: 'not a zip' })
+    expect(screen.getByTestId('v2-heading')).toHaveTextContent(/^$/)
+    expect(screen.getByRole('alert')).toHaveTextContent('cannot open broken.epub: not a zip')
   })
 
   it('frame_IsTheSameOriginShell_NeverSrcdoc', () => {
