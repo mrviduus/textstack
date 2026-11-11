@@ -176,6 +176,14 @@ export async function hasAnyUserBookCache(): Promise<boolean> {
   return false
 }
 
+export async function listUserBookCaches(): Promise<Map<string, boolean>> {
+  return new Map()
+}
+
+export async function userBookRowBytes(): Promise<number> {
+  return 0
+}
+
 export async function isUserBookFullyCached(): Promise<boolean> {
   return false
 }

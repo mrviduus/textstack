@@ -96,30 +96,3 @@ export function mayAutoDownload(input: {
   if (input.connectionType !== 'wifi') return false
   return input.usedBytes < input.budgetBytes
 }
-
-/**
- * Downloads on this device whose book is no longer in the account.
- *
- * A book deleted from another phone, or from the web, leaves its copy here. The
- * caller marks it deleted on the server (#1174) so the offline shelf stops
- * listing it; its bytes stay until the reader removes them (#1164, #1193).
- *
- * `serverIds` must come from a **successful** listing. An empty set is a real
- * answer (the reader deleted everything) and is treated as one, so a caller that
- * passes an empty set after a failed request marks every download deleted. The
- * guard belongs at the call site, where the difference between "no books" and
- * "no answer" is visible.
- */
-export function chooseOrphanedDownloads(
-  localIds: Iterable<string>,
-  serverIds: ReadonlySet<string>,
-): string[] {
-  const seen = new Set<string>()
-  const orphans: string[] = []
-  for (const id of localIds) {
-    if (serverIds.has(id) || seen.has(id)) continue
-    seen.add(id)
-    orphans.push(id)
-  }
-  return orphans
-}

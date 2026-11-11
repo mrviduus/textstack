@@ -24,12 +24,13 @@ import {
 } from '../lib/offlineDb'
 import { userBookChapterSlug } from '../lib/userBookChapters'
 import { deleteAllOriginals, deleteOriginal, downloadOriginal, evictToBudget } from '../lib/originalFileCache'
-import { chooseAutoDownloads, chooseOrphanedDownloads, mayAutoDownload } from '../lib/autoDownloadPolicy'
+import { chooseAutoDownloads, mayAutoDownload } from '../lib/autoDownloadPolicy'
 import { offlineStorageBytes } from '../lib/deviceStorage'
 import { listStoredOriginalIds } from '../lib/originalFileCache'
 import { declineDownload, forgetDeclinedDownloads, listDeclinedDownloads, undeclineDownload } from '../lib/declinedDownloads'
-import { clearDeletedOnServer, forgetDeletedOnServer, markDeletedOnServer } from '../lib/deletedOnServer'
-import { v2Epoch } from '../lib/v2'
+import { clearDeletedOnServer, forgetDeletedOnServer, listingSource } from '../lib/deletedOnServer'
+import { markUnlistedLeftovers } from '../lib/localLeftovers'
+import { onV2, v2Enabled, v2Epoch } from '../lib/v2'
 import { AppState } from 'react-native'
 import NetInfo from '@react-native-community/netinfo'
 import { CACHE_BUDGET_BYTES, isOutOfSpaceError } from '../lib/originalFilePolicy'
@@ -88,7 +89,10 @@ interface DownloadContextValue {
   retryFailed: (id: string) => Promise<void>
   cancelDownload: (id: string) => void
   removeDownload: (editionId: string) => Promise<void>
-  removeUserBookDownload: (bookId: string) => Promise<void>
+  /** Throws if it could not remove. `decline: false` for a server-deleted book (#1193): nothing to decline. */
+  removeUserBookDownload: (bookId: string, opts?: { decline?: boolean }) => Promise<void>
+  /** Several at once, the cached lists refreshed once; continues past a failure. Resolves to how many failed. */
+  removeUserBookDownloads: (bookIds: string[], opts?: { decline?: boolean }) => Promise<number>
   isDownloading: (id: string) => boolean
   isCached: (editionId: string) => Promise<boolean>
   isUserBookCached: (bookId: string) => Promise<boolean>
@@ -107,6 +111,7 @@ const DownloadContext = createContext<DownloadContextValue>({
   cancelDownload: () => {},
   removeDownload: async () => {},
   removeUserBookDownload: async () => {},
+  removeUserBookDownloads: async () => 0,
   isDownloading: () => false,
   isCached: async () => false,
   isUserBookCached: async () => false,
@@ -586,23 +591,37 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     await refreshCachedBooks()
   }, [forgetDownload, refreshCachedBooks])
 
-  const removeUserBookDownload = useCallback(async (bookId: string) => {
-    // Cancel first: "Remove" on a download still running would otherwise delete
-    // the rows and then have the loop write more of them back.
-    cancelledRef.current.add(bookId)
-    await deleteCachedUserBook(bookId)
-    // The file too — "Remove" that leaves twenty megabytes on disk is a lie,
-    // and this one is visible to a file manager.
-    await deleteOriginal(bookId, 'pdf')
-    // And remember the answer. Otherwise the automatic sweep sees an uncached
-    // book on the next Wi-Fi and brings it straight back, along with the space
-    // the reader had just freed.
-    await declineDownload(bookId)
-    // Nothing of it left on the device, so nothing left to warn about (#1174).
-    await clearDeletedOnServer([bookId])
-    forgetDownload(bookId)
+  const removeUserBookDownloads = useCallback(async (bookIds: string[], { decline = true }: { decline?: boolean } = {}) => {
+    let failed = 0
+    for (const bookId of bookIds) {
+      try {
+        // Cancel first: "Remove" on a download still running would otherwise delete
+        // the rows and then have the loop write more of them back.
+        cancelledRef.current.add(bookId)
+        await deleteCachedUserBook(bookId)
+        // The file too — "Remove" that leaves twenty megabytes on disk is a lie,
+        // and this one is visible to a file manager.
+        await deleteOriginal(bookId, 'pdf')
+        // And remember the answer. Otherwise the automatic sweep sees an uncached
+        // book on the next Wi-Fi and brings it straight back, along with the space
+        // the reader had just freed. Not for a server-deleted book (#1193): a dead
+        // id would sit in the list, and a false mark would block the live book.
+        if (decline) await declineDownload(bookId)
+        // Nothing of it left on the device, so nothing left to warn about (#1174).
+        await clearDeletedOnServer([bookId])
+        forgetDownload(bookId)
+      } catch (err) {
+        failed++
+        console.warn(`Removing the download of ${bookId} failed:`, err)
+      }
+    }
     await refreshCachedBooks()
+    return failed
   }, [forgetDownload, refreshCachedBooks])
+
+  const removeUserBookDownload = useCallback(async (bookId: string, opts?: { decline?: boolean }) => {
+    if (await removeUserBookDownloads([bookId], opts) > 0) throw new Error(`Could not remove ${bookId}`)
+  }, [removeUserBookDownloads])
 
   const isDownloading = useCallback((id: string) => {
     return downloads.get(id)?.status === 'downloading'
@@ -725,6 +744,8 @@ const PROCESSING_RECHECK_LIMIT = 25
             getAllCachedUserBooks(),
             listStoredOriginalIds(),
             listDeclinedDownloads(),
+            // The probe answer `getUserBooks` used (same probe promise): which store listed (#1193).
+            onV2(),
           ])
         } catch (err) {
           if (!resetSince()) throw err
@@ -734,7 +755,7 @@ const PROCESSING_RECHECK_LIMIT = 25
           autoRerunRef.current = true
           continue
         }
-        const [books, metas, storedOriginals, declined] = listed
+        const [books, metas, storedOriginals, declined, v2Before] = listed
         // "Cached" has to mean the whole book. Chapters alone satisfied it
         // before, so a PDF whose original had failed or been evicted counted as
         // done — and offline it would open as text with the figures stripped,
@@ -747,32 +768,22 @@ const PROCESSING_RECHECK_LIMIT = 25
         )
 
         // Books this device holds that the account no longer has — deleted from
-        // another phone or from the web. Done here rather than on a schedule
-        // because this is the one place that has just asked the server what the
-        // library IS, and the listing succeeded: `Promise.all` above rejects
-        // otherwise, so an empty `books` means empty, not unreachable. That
-        // distinction is the whole safety of this.
-        // Marked, not deleted: the bytes stay until the reader removes them
-        // (#1164), from the Library's deleted-books row or the book's not-found
-        // screen (#1193). Not in `books`, so `chooseAutoDownloads` never re-queues it.
-        const orphans = chooseOrphanedDownloads(
-          [...metas.map(m => m.bookId), ...storedOriginals],
-          new Set(books.map(b => b.id)),
-        )
-        for (const id of orphans) {
-          if (resetSince()) { autoRerunRef.current = true; break }
-          try {
-            // Stop a download still running: it would keep writing rows for a
-            // book the account no longer has.
-            cancelledRef.current.add(id)
-            forgetDownload(id)
-            await markDeletedOnServer(id)
-          } catch (err) {
-            console.warn(`[auto-download] could not mark orphaned ${id}:`, err)
-          }
+        // another phone or from the web. The listing succeeded: `Promise.all` above
+        // rejects otherwise, so an empty `books` means empty, not unreachable.
+        // Marked, not deleted: the bytes stay until the reader removes them (#1164,
+        // #1193). The Library's online load marks too, on any network; here it is
+        // for the download in flight, which must stop writing. Only newly marked
+        // ids, so a kept deleted book costs nothing on later sweeps. Not in
+        // `books`, so `chooseAutoDownloads` never re-queues one.
+        const gone = await markUnlistedLeftovers(new Set(books.map(b => b.id)), listingSource(v2Before, v2Enabled()), resetSince)
+        for (const id of gone) {
+          cancelledRef.current.add(id)
+          forgetDownload(id)
         }
+        // A reset mid-marking: this listing is the previous account's, so is its queue.
+        if (resetSince()) { autoRerunRef.current = true; continue }
         // Re-read the cached lists so the Library's deleted-books row sees the marks.
-        if (orphans.length > 0) await refreshCachedBooks()
+        if (gone.length > 0) await refreshCachedBooks()
 
         // A book the server has not finished with yet is not a book this sweep
         // can fetch — but it is a reason to come back. See
@@ -898,6 +909,7 @@ const PROCESSING_RECHECK_LIMIT = 25
         cancelDownload,
         removeDownload,
         removeUserBookDownload,
+        removeUserBookDownloads,
         isDownloading,
         isCached,
         isUserBookCached,

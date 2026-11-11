@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   markDeletedOnServer, clearDeletedOnServer, isDeletedOnServer, listDeletedOnServer, failedLoadView, forgetDeletedOnServer,
-  deletedStillOnDevice,
+  deletedStillOnDevice, chooseNewlyDeleted, listingSource,
 } from './deletedOnServer'
 import { listDeclinedDownloads, declineDownload, updateIdSet, forgetDeclinedDownloads } from './declinedDownloads'
 import { applyV2MergeMap } from './v2Merge'
@@ -29,6 +29,44 @@ describe('deletedStillOnDevice (#1193)', () => {
 
   it('deletedStillOnDevice_MarkedButListedByLibrary_Excluded', () => {
     expect(deletedStillOnDevice(new Set(['a', 'b']), ['a', 'b'], new Set(['a']))).toEqual(['b'])
+  })
+})
+
+describe('listingSource (#1193)', () => {
+  it('listingSource_ProbeUnchanged_NamesTheStore', () => {
+    expect(listingSource(true, true)).toBe('v2')
+    expect(listingSource(false, false)).toBe('legacy')
+  })
+
+  it('listingSource_ProbeMovedDuringListing_Null', () => {
+    expect(listingSource(false, true)).toBeNull()
+    expect(listingSource(true, false)).toBeNull()
+  })
+})
+
+describe('chooseNewlyDeleted (#1193)', () => {
+  const local = new Map([['v2-gone', 'v2'], ['legacy-gone', 'legacy'], ['orig-only', 'unknown'], ['live', 'legacy']] as const)
+
+  it('chooseNewlyDeleted_LegacyListing_MarksOnlyLegacyCopies', () => {
+    // Probe off/unreached: the legacy list lacks every V2-only book; those must not be marked.
+    expect(chooseNewlyDeleted({ local, listed: new Set(['live']), from: 'legacy', marked: new Set() })).toEqual(['legacy-gone'])
+  })
+
+  it('chooseNewlyDeleted_V2Listing_MarksOnlyV2Copies', () => {
+    expect(chooseNewlyDeleted({ local, listed: new Set(['live']), from: 'v2', marked: new Set() })).toEqual(['v2-gone'])
+  })
+
+  it('chooseNewlyDeleted_SourceUnknown_MarksNothing', () => {
+    expect(chooseNewlyDeleted({ local, listed: new Set(), from: null, marked: new Set() })).toEqual([])
+  })
+
+  it('chooseNewlyDeleted_AlreadyMarked_Skipped', () => {
+    expect(chooseNewlyDeleted({ local, listed: new Set(['live']), from: 'legacy', marked: new Set(['legacy-gone']) })).toEqual([])
+  })
+
+  it('chooseNewlyDeleted_EmptyListing_MarksEveryCopyOfThatStore', () => {
+    // An empty successful listing is a real answer; the caller never passes a failed one.
+    expect(chooseNewlyDeleted({ local, listed: new Set(), from: 'legacy', marked: new Set() })).toEqual(['legacy-gone', 'live'])
   })
 })
 
@@ -119,7 +157,8 @@ describe('#1174 wiring', () => {
 
   it('not-found Remove and both 404 paths use the leftovers check (rows or original), not the fully-cached one', () => {
     expect(page.match(/await hasLocalLeftovers\(id\)/g)).toHaveLength(3)
-    expect(page).toMatch(/async function hasLocalLeftovers[\s\S]*?hasAnyUserBookCache\(bookId\)[\s\S]*?listStoredOriginalIds\(\)[\s\S]*?return rows \|\| originals\.has\(bookId\)/)
+    expect(page).toContain("import { hasLocalLeftovers } from '../../src/lib/localLeftovers'")
+    expect(read('src/lib/localLeftovers.ts')).toMatch(/async function hasLocalLeftovers[\s\S]*?hasAnyUserBookCache\(bookId\)[\s\S]*?listStoredOriginalIds\(\)[\s\S]*?return rows \|\| originals\.has\(bookId\)/)
     expect(page).toContain("secondaryLabel={loadError === 'notfound' && anyLocalCopy ?")
   })
 
@@ -148,36 +187,67 @@ describe('#1174 wiring', () => {
 
   it('removing the download clears the mark', () => {
     const ctx = read('src/context/DownloadContext.tsx')
-    const start = ctx.indexOf('const removeUserBookDownload')
+    const start = ctx.indexOf('const removeUserBookDownloads')
     expect(ctx.slice(start, ctx.indexOf('}, [', start))).toContain('await clearDeletedOnServer([bookId])')
   })
 
-  // #1193: the sweep marks instead of deleting (#1164: bytes stay until the reader removes them).
-  it('the orphan sweep cancels and marks, and frees nothing', () => {
+  // #1193: the sweep marks (only new ids, from the store that listed) instead of deleting (#1164).
+  it('the orphan sweep marks through markUnlistedLeftovers, cancels what it marked, and frees nothing', () => {
     const ctx = read('src/context/DownloadContext.tsx')
-    const start = ctx.indexOf('for (const id of orphans)')
-    const loop = ctx.slice(start, ctx.indexOf('} catch (err)', start))
-    expect(loop).toContain('cancelledRef.current.add(id)')
-    expect(loop).toContain('forgetDownload(id)')
-    expect(loop).toContain('await markDeletedOnServer(id)')
-    for (const gone of ['deleteCachedUserBook', 'deleteOriginal', 'undeclineDownload', 'clearDeletedOnServer']) {
-      expect(loop).not.toContain(gone)
+    const start = ctx.indexOf('const gone = await markUnlistedLeftovers(')
+    expect(start).toBeGreaterThan(-1)
+    const block = ctx.slice(start, ctx.indexOf('// A book the server has not finished with yet', start))
+    expect(block).toContain('listingSource(v2Before, v2Enabled()), resetSince)')
+    expect(block).toMatch(/for \(const id of gone\) \{\s*cancelledRef\.current\.add\(id\)\s*forgetDownload\(id\)\s*\}/)
+    expect(block).toContain('if (resetSince()) { autoRerunRef.current = true; continue }')
+    expect(block).toContain('if (gone.length > 0) await refreshCachedBooks()')
+    for (const freed of ['deleteCachedUserBook', 'deleteOriginal', 'undeclineDownload', 'clearDeletedOnServer']) {
+      expect(block).not.toContain(freed)
     }
+    expect(ctx).toMatch(/listDeclinedDownloads\(\),[\s\S]{0,120}onV2\(\),\s*\]\)/)
+  })
+
+  it('library: a successful load marks what it lacks, guarded by the epoch and the generation', () => {
+    const lib = read('app/(tabs)/library.tsx')
+    expect(lib).toMatch(/userBooksApi\.getUserBooks\(\),[\s\S]{0,140}onV2\(\),\s*\]\)/)
+    expect(lib).toContain('const stale = () => v2Epoch() !== epoch || myGen !== loadGenRef.current')
+    expect(lib).toContain('markUnlistedLeftovers(new Set(books.map(b => b.id)), listingSource(v2Before, v2Enabled()), stale)')
+    expect(lib).toContain('if (ids.length > 0 && !stale()) setMarksVersion(v => v + 1)')
   })
 
   it('library: the deleted-books row sits under the list and in both empty states', () => {
     const lib = read('app/(tabs)/library.tsx')
-    expect(lib).toContain('listFooter={<DeletedDownloadsRow listedIds={userBooks.map(b => b.id)} />}')
-    expect(lib.match(/<DeletedDownloadsRow listedIds=\{\[\]\} \/>/g)).toHaveLength(2)
+    expect(lib).toContain('listFooter={<DeletedDownloadsRow listedIds={userBooks.map(b => b.id)} refreshKey={marksVersion} />}')
+    expect(lib.match(/<DeletedDownloadsRow listedIds=\{\[\]\} refreshKey=\{marksVersion\} \/>/g)).toHaveLength(2)
     expect(read('src/components/library/BookList.tsx')).toContain('ListFooterComponent={listFooter ?')
   })
 
-  it('the deleted-books row removes through removeUserBookDownload, counted by deletedStillOnDevice', () => {
+  it('the deleted-books row: one leftovers rule, re-read on focus, bulk non-declining remove', () => {
     const row = read('src/components/library/DeletedDownloadsRow.tsx')
-    expect(row).toContain('for (const id of ids) await removeUserBookDownload(id)')
-    expect(row).toMatch(/deletedStillOnDevice\(marked, \[\.\.\.cachedUserBooks\.map\(b => b\.bookId\), \.\.\.originals\], new Set\(listedIds\)\)/)
-    expect(row).toContain('}, [cachedUserBooks, listedKey])')
+    expect(row).toContain('useFocusEffect(useCallback(() => {')
+    expect(row).toContain('}, [cachedUserBooks, listedKey, refreshKey]))')
+    expect(row).toContain('Promise.all([listDeletedOnServer(), listLocalLeftovers()])')
+    expect(row).toContain('deletedStillOnDevice(marked, local.keys(), new Set(listedIds))')
+    expect(row).toContain('await removeUserBookDownloads(ids, { decline: false })')
+    expect(row).toContain('if (failed > 0) {')
+    expect(row).toContain('Alert.alert(')
     expect(row).toContain('accessibilityLabel=')
+    // No visible words outside the catalogue.
+    expect(row).not.toMatch(/'deleted books?'/)
+  })
+
+  it('the not-found Remove does not decline', () => {
+    expect(read('app/my-books/[id].tsx')).toContain('removeUserBookDownload(id!, { decline: false })')
+  })
+
+  it('bulk remove: continues past a failure, declines only when asked, refreshes once after the loop', () => {
+    const ctx = read('src/context/DownloadContext.tsx')
+    const start = ctx.indexOf('const removeUserBookDownloads = useCallback(')
+    const body = ctx.slice(start, ctx.indexOf('}, [forgetDownload, refreshCachedBooks])', start))
+    expect(body).toContain('if (decline) await declineDownload(bookId)')
+    expect(body).toMatch(/\} catch \(err\) \{\s*failed\+\+/)
+    expect(body).toMatch(/    \}\n    await refreshCachedBooks\(\)\n    return failed/)
+    expect(body.match(/refreshCachedBooks\(\)/g)).toHaveLength(1)
   })
 })
 

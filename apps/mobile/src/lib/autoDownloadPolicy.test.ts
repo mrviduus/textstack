@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { chooseAutoDownloads, chooseOrphanedDownloads, mayAutoDownload, type AutoDownloadCandidate } from './autoDownloadPolicy'
+import { chooseAutoDownloads, mayAutoDownload, type AutoDownloadCandidate } from './autoDownloadPolicy'
+import { chooseNewlyDeleted } from './deletedOnServer'
 
 const book = (over: Partial<AutoDownloadCandidate> & { id: string }): AutoDownloadCandidate => ({
   status: 'Ready',
@@ -114,36 +115,14 @@ describe('chooseAutoDownloads — what it must not do', () => {
   })
 })
 
-describe('chooseOrphanedDownloads', () => {
-  it('names what is here and not in the account any more', () => {
-    expect(chooseOrphanedDownloads(['kept', 'deleted-elsewhere'], new Set(['kept'])))
-      .toEqual(['deleted-elsewhere'])
-  })
-
-  it('treats an empty account as an empty account', () => {
-    // The reader deleted everything. That is an answer, not an error — the
-    // caller is responsible for never passing this after a failed request.
-    expect(chooseOrphanedDownloads(['a', 'b'], new Set())).toEqual(['a', 'b'])
-  })
-
-  it('reports a book once even when both its rows and its file are local', () => {
-    // The caller feeds it the SQLite ids and the stored-original ids together,
-    // and a downloaded PDF is in both.
-    expect(chooseOrphanedDownloads(['gone', 'gone'], new Set())).toEqual(['gone'])
-  })
-
-  it('leaves everything alone when the account still has it all', () => {
-    expect(chooseOrphanedDownloads(['a', 'b'], new Set(['a', 'b', 'c']))).toEqual([])
-  })
-})
-
 describe('orphan sweep (#1193) — a marked orphan is not re-queued', () => {
-  it('chooseAutoDownloads_OrphanUncachedAndUndeclined_NotQueued', () => {
-    // The sweep's inputs: the orphan is local, absent from the listing, no longer cached-as-whole
-    // and not declined (the sweep stopped touching the declined list). Only `books` feeds the queue.
+  it('chooseAutoDownloads_MarkedOrphanUncachedAndUndeclined_NotQueued', () => {
+    // The sweep's inputs: the orphan is local, absent from the listing, not cached-as-whole and not
+    // declined (marking never touches the declined list). Only `books` feeds the queue.
     const books = [book({ id: 'kept' })]
-    const orphans = chooseOrphanedDownloads(['kept', 'gone'], new Set(books.map(b => b.id)))
-    expect(orphans).toEqual(['gone'])
+    const local = new Map([['kept', 'legacy'], ['gone', 'legacy']] as const)
+    const marked = chooseNewlyDeleted({ local, listed: new Set(books.map(b => b.id)), from: 'legacy', marked: new Set() })
+    expect(marked).toEqual(['gone'])
     expect(chooseAutoDownloads(books, new Set(), new Set())).toEqual(['kept'])
   })
 })
