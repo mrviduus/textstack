@@ -215,7 +215,7 @@ say no before code depends on it.
 
 | Wave | Work | Depends on |
 |---|---|---|
-| A | Production hosting: Android native https serving (no `file://`), web prod route behind the flag, web host on the shared V2 sync client, error/loading states, `ready`/`opened` deadlines (#1080, #1081) | owner: WebView ≥117 screen |
+| A | **Done, wave 13 (2026-11-11), dark behind the flag.** Production hosting: Android native https serving (no `file://`), web prod route behind the flag, web host on the shared V2 sync client, error/loading states, `ready`/`opened` deadlines (#1080, #1081) | owner: WebView ≥117 screen |
 | B | Reader chrome: TOC, settings (size, family, line height, align, theme), progress + time left, immersive bars, back/exit, keep-awake, lightbox, finish book, a11y + i18n baseline | A |
 | C | Word layer: selection event in the protocol, word popup/translate/explain via the host, vocabulary save + outcomes, saved-word marks, inline glosses, backfill, guest nudges, TTS for word/selection | A |
 | D | Annotations: colours, notes, delete, list, `?highlight=` jump, fixed-layout EPUB position (#1196), sessions to `/me/v2/sessions`, chapter-discuss handoff on sections | B, C |
