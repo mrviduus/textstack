@@ -101,7 +101,7 @@ describe('v2ReaderPageHtml', () => {
     // #1128: the format is sniffed (and a refusal answered) BEFORE the seq turns over, so a refused
     // file leaves the open book reading and saving, like a failed read (#1168).
     expect(html).toMatch(/function openFor\(bytes, name\) \{\s*let kind;\s*try \{\s*kind = sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*const mine = \+\+openSeq;\s*return open\(bytes, name, kind, mine\)/)
-    expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,300}?if \(!entry\) return log\("warn"/)
+    expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,500}?if \(!entry\) return log\("warn"/)
     // The open seq only goes up: a failed open answers `open-failed` and hands nothing back.
     expect(html).toMatch(/if \(mine === openSeq\) openFailed\(name, [^;]*;\s*\}\);/)
     expect(html).not.toMatch(/(?<!var )openSeq = /)

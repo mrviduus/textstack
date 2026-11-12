@@ -373,6 +373,44 @@ try {
     check(!!wide && wide.cfi === null && refused, `a selection the highlight refuses is sent without a CFI (${wide?.text.length} shown, cfi ${wide?.cfi}; refused ${refused})`)
     await f.evaluate(() => document.body.firstElementChild.remove())
     await settled()
+    // Highlighted before the settle time: the live selection, described as its message will be.
+    from = messages.length
+    await select(f, 'judge', 0, 'judge', 'judge '.length)
+    await page.waitForTimeout(50)
+    call('window.__fol.highlightSelection()')
+    const early = await waitFor(from, (x) => x.type === 'highlighted', 'highlighted').catch(() => null)
+    await settled()
+    const earlySel = readSelection(messages.slice(from).find((x) => x.type === 'selection'))
+    check(early?.selectedText === 'judge' && (!earlySel || early.cfi === earlySel.cfi), `a highlight 50 ms after selecting (before the settle) lands, as its selection would say (${JSON.stringify([early?.selectedText, early?.cfi])})`)
+    // The e2e's steps (v2-reader.spec readV2Sync…): paginated, a page turned, the section's first paragraph
+    // selected (off screen now), 200 ms, Highlight: it lands.
+    call('window.__fol.flow("paginated")')
+    m = await open('tsformat.epub')
+    m = await open('tsformat.epub', JSON.stringify({ v: 1, book: m.book, highlights: [], position: null }))
+    from = messages.length
+    call('window.__fol.next()')
+    await waitFor(from, (x) => x.type === 'relocate', 'turned').catch(() => null)
+    await page.waitForTimeout(600)
+    const picked = await Promise.all(page.frames().filter((x) => x.url().startsWith('blob:')).map((x) => x.evaluate(() => {
+      const node = Array.from(document.querySelectorAll('p')).map((p) => p.firstChild).find((n) => (n?.textContent?.trim().length ?? 0) > 12)
+      if (!node) return false
+      const range = document.createRange()
+      range.setStart(node, 0)
+      range.setEnd(node, 12)
+      document.getSelection().removeAllRanges()
+      document.getSelection().addRange(range)
+      return true
+    }).catch(() => false)))
+    await page.waitForTimeout(200)
+    from = messages.length
+    call('window.__fol.highlightSelection()')
+    const off = await waitFor(from, (x) => x.type === 'highlighted', 'highlighted').catch(() => null)
+    const offStore = await waitFor(from, (x) => x.type === 'store', 'store').catch(() => null)
+    check(picked.some(Boolean) && off?.selectedText === 'Paragraph 1.' && !!offStore, `the e2e's steps: a selection turned off screen, highlighted 200 ms later, lands and is stored (${JSON.stringify(off?.selectedText)})`)
+    // Back to the scrolled book at its start, as the rows below expect.
+    call('window.__fol.flow("scrolled")')
+    m = await open('tsformat.epub')
+    await settled()
 
     // 9. A relocate with the same selection recomputes its box only: no CFI, text or sentence again.
     f = await frameWith('black quartz')
@@ -1102,14 +1140,8 @@ try {
   const storesFrom = (from) => messages.slice(from).filter((x) => x.type === 'store').map((x) => JSON.parse(x.json).position)
   /** The entry as the page holds it: a highlight on the shown page saves it whole. */
   const heldEntry = async () => {
-    // A paragraph on screen: a highlight is of the selection sent (#1268), and one off screen is never sent.
-    await call(`(() => {
-      const c = document.querySelector('foliate-view').renderer.getContents()[0], fr = c.doc.defaultView.frameElement.getBoundingClientRect()
-      const p = [...c.doc.querySelectorAll('p')].find((p) => { const r = p.getBoundingClientRect(); return fr.left + r.left >= 0 && fr.left + r.right <= innerWidth && fr.top + r.top >= 0 && fr.top + r.bottom <= innerHeight })
-      c.doc.getSelection().selectAllChildren(p)
-    })()`)
-    // After the settle time, as a host's button can only be.
-    await page.waitForTimeout(600)
+    await call(`(() => { const c = document.querySelector('foliate-view').renderer.getContents()[0]; c.doc.getSelection().selectAllChildren(c.doc.querySelector('p')) })()`)
+    await page.waitForTimeout(150)
     const from = messages.length
     call('window.__fol.highlightSelection()')
     return storeFrom(from, 'a store after a highlight')
