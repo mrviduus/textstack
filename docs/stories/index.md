@@ -112,7 +112,7 @@ Existing picture: flow 6b in the system map of the 2026-10 review.
 **Words:** *highlight* and *note*. The new database calls them "annotations"; that stays a
 technical name.
 
-**To check:** is a bookmark its own thing after the move, or does the reading position do its job?
+A *bookmark* is a kind of highlight: a marked place with no passage and no colour. (owner)
 
 Sources: `v2-target-model.md` highlights row and replacement decisions (owner, 2026-10-28 and 29).
 Existing picture: none.
@@ -137,8 +137,8 @@ Existing picture: none.
 **Word:** what the Assistant saves is an *insight*. An insight about one chapter is a *chapter
 insight*. "Review" is kept for practising words.
 
-**To check:** the new database also keeps *checkpoints*: a growing list of thoughts, where an
-insight is one entry per chapter that gets replaced. One thing or two?
+Insights are kept as a list. A new one never replaces an old one. "Checkpoint" is only a
+technical name for that list. (owner)
 
 **Honest limit, to keep in the story:** deleting something in TextStack does not delete the copy the
 Assistant already has.
@@ -181,8 +181,8 @@ Existing picture: none.
 6. A book that is not on the device cannot be opened with no network. TextStack says so in plain
    words. (today)
 
-**To check:** the app says "download" for keeping a book on the device, and "offline" for reading
-with no network. Do we keep both words?
+**Words:** the reader *downloads* a book to keep it on the device, and reads *offline* when there
+is no network. Two words for two things. (owner)
 
 Sources: the reading-path rule in `CLAUDE.md`, `internal/claude/mobile.md` "Offline".
 Existing picture: none.
@@ -213,13 +213,11 @@ One word per thing, the words not to use, and the list of areas.
 
 ## What is still open
 
-The owner decides these. Each is also marked in the glossary.
+The words are decided (owner, 2026-11-12). Two things are left:
 
-1. Is a *bookmark* its own thing after the move, or does the reading position do its job?
-2. Is a *checkpoint* a second thing next to an *insight*, or does it replace it?
-3. "Download" and "offline": keep both words?
-4. Is each story right? Change any sentence. The steps marked (owner) quote earlier decisions; say
+1. Is each story right? Change any sentence. The steps marked (owner) quote earlier decisions; say
    if one has changed.
+2. Story 2: the exact words on screen when two devices disagree.
 
 Not a story, on purpose: finding a book in the public catalogue. The catalogue goes away after the
 move.

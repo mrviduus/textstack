@@ -11,7 +11,6 @@ How to read an entry:
 - **Not** lists words that mean the same thing and must not be used for it.
 - **In code** is the technical name you will meet today. It is a map, not a second word: do not use
   it in text for readers.
-- **Open** marks something the owner has not decided yet.
 
 ## People
 
@@ -96,9 +95,11 @@ Not: comment, annotation.
 
 ### Bookmark
 
-A page the reader wants to find again.
+A place the reader marked to find again. A bookmark is a kind of highlight: a marked place with
+no passage and no colour. It is kept and shown with the highlights.
 
-**Open:** is a bookmark its own thing after the move, or does the reading position do its job?
+Not: reading position. The reading position is one per book and moves by itself. A reader can have
+many bookmarks, and each stays where it was put.
 
 ### Word
 
@@ -134,12 +135,13 @@ The word in the reader's own language. A different thing from an explanation.
 A thought the assistant saves into a book after talking with the reader: a conclusion, a changed
 view, an open question. An insight about one chapter is a **chapter insight**.
 
-Not: conclusion, chapter review, summary.
-In code: `book_insight`, and the assistant tools `save_insight` and `save_chapter_review`. Tool
-names stay as they are.
+Insights are kept as a list. A new insight never replaces an old one, so the reader can see how
+their view of a book changed.
 
-**Open:** the new database also has checkpoints (`discussion_checkpoints`), a growing list where an
-insight is one entry per chapter that gets replaced. One thing or two?
+Not: checkpoint, conclusion, chapter review, summary.
+In code: `discussion_checkpoints` is the list. `book_insight` is the older store, where a new entry
+replaces the old one for the same chapter; it stays until the move is done. The assistant tools
+`save_insight` and `save_chapter_review` keep their names.
 
 ### Shared chapter
 
@@ -161,10 +163,10 @@ Not: profile, library card, user.
 
 ### Download, offline
 
-A reader **downloads** a book to keep it on the device. They read **offline** when there is no
-network.
+Two words for two things. A reader **downloads** a book to keep it on the device. They read
+**offline** when there is no network.
 
-**Open:** keep both words?
+Not: "offline book". Say "downloaded book".
 
 ## Areas
 
@@ -175,7 +177,7 @@ For readers:
 
 - **Library**: books and where they are.
 - **Reading**: opening a book, the reading screen, the reading position, offline.
-- **Highlights**: highlights and notes.
+- **Highlights**: highlights, notes and bookmarks.
 - **Vocabulary**: words, explanations, translations, reviews.
 - **Assistant**: sharing chapters, insights, keys.
 - **Account**: guests, accounts, signing in, closing an account.
