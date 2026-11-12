@@ -15,6 +15,7 @@ import { useTranslation } from '../hooks/useTranslation'
  * server, through V2ReaderHost's sync (#1226). The load's failures by cause, Retry where it can help (#1227).
  */
 export const PROD_READY_DEADLINE_MS = READY_DEADLINE_NETWORK_MS
+export const STALL_GRACE_MS = 1000
 
 class NoFile extends Error {}
 
@@ -52,14 +53,21 @@ export function V2ReaderPage() {
     const abort = new AbortController()
     let stalled = false
     let stall: ReturnType<typeof setTimeout> | undefined
+    // After a frozen tab the due timer can run before the chunks that arrived meanwhile: one grace second,
+    // which a chunk's `armStall` cancels.
     const armStall = () => {
       clearTimeout(stall)
-      stall = setTimeout(() => { stalled = true; abort.abort() }, DOWNLOAD_STALL_MS)
+      stall = setTimeout(() => { stall = setTimeout(() => { stalled = true; abort.abort() }, STALL_GRACE_MS) }, DOWNLOAD_STALL_MS)
     }
+    /** The library calls take no signal: their wait ends with the abort (the stall, unmount, Retry). */
+    const orAbort = <T,>(p: Promise<T>) => Promise.race([p, new Promise<never>((_, reject) => {
+      abort.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+    })])
     setLoad({ percent: null })
     const fetchCurrent = async (fresh: boolean): Promise<V2HostBook> => {
-      if (fresh) await pullV2Books()
-      const file = (await v2Book(id)).currentFile
+      armStall()
+      if (fresh) await orAbort(pullV2Books())
+      const file = (await orAbort(v2Book(id))).currentFile
       if (!file?.hasContent) throw new NoFile()
       armStall()
       const bytes = await fetchV2FileBytes(id, file.id, (loaded, total) => {

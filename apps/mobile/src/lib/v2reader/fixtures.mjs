@@ -101,7 +101,7 @@ export const hostileVectors = (evil, siblings) => {
     ['srcdoc-script', 'mark', 'script-src', { body: `<iframe width="10" height="10" srcdoc="&lt;script&gt;${mark('srcdoc-script')}&lt;/script&gt;"></iframe>` }],
     // Also an escape if it reaches the host as openLink (#1066).
     ['javascript-url', 'mark', null, { body: `<p><a data-ts-click="" href="javascript:${mark('javascript-url')}">javascript: link</a></p>` }],
-    // The retained EPUB's own directory: the dev route's page origin is file:// (ADR-029 Decision 4).
+    // The retained EPUB's own directory: reachable only if the page could read file:// (it cannot: its origin is https, ADR-029 Decision 4).
     ['file-sibling-xhr', 'mark', 'script-src', { head: `<script>try{var x=new XMLHttpRequest();x.open('GET','${siblings}/secret.json',false);x.send();if(/ts-sibling-secret/.test(x.responseText)){${mark('file-sibling-xhr')}}}catch(e){}</script>` }],
     ['file-sibling-img', 'probe', 'img-src', { body: `<img id="file-sibling-img" src="${siblings}/secret.png" alt=""/>` }],
     ['file-sibling-css', 'probe', 'style-src', { head: `<link rel="stylesheet" href="${siblings}/secret.css"/>`, body: '<p id="file-sibling-css">styled by a sibling file?</p>' }],

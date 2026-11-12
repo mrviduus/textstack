@@ -53,8 +53,8 @@ beforeEach(() => {
   }
 })
 
-const open = (t: V2SyncTarget = T, after?: Promise<unknown>) => createV2ReaderSync(t, {
-  api: api as unknown as V2ReaderSyncApi, onStatus: (s) => statuses.push(s), onHighlights: (l) => drawnLists.push(l), newId: () => MINTED, after,
+const open = (t: V2SyncTarget = T, after?: Promise<unknown>, highlights?: boolean) => createV2ReaderSync(t, {
+  api: api as unknown as V2ReaderSyncApi, onStatus: (s) => statuses.push(s), onHighlights: (l) => drawnLists.push(l), newId: () => MINTED, after, highlights,
 })
 const expectedOf = (call: unknown[]) => (call[1] as { expectedRevision: number | null }).expectedRevision
 const last = () => statuses[statuses.length - 1]
@@ -205,11 +205,56 @@ describe('createV2ReaderSync', () => {
       s.flushKeepalive()
       expect(api.keepalivePutAnnotation).not.toHaveBeenCalled()
       expect(statuses[statuses.length - 1]).toBe('noHighlights')
-      // The next flush pulls again: drawn, then the held highlight is written.
+      // The next flush pulls again: drawn, then the held highlight is written by one more pass.
       await s.flush()
+      await vi.waitFor(() => expect(statuses[statuses.length - 1]).toBe('saved'))
       expect(drawnLists).toEqual([[]])
       expect(api.putAnnotation).toHaveBeenCalledTimes(1)
-      expect(statuses[statuses.length - 1]).toBe('saved')
+    })
+
+    it('pullHangs_PositionWrittenAndCloseEnds_NeitherWaitsForIt', async () => {
+      api.annotations.mockReturnValue(new Promise(() => {}))
+      const s = open()
+      await s.restore()
+      void s.loadHighlights()
+      await stored(s, entry(pos(2)))
+      expect(api.putReadingState).toHaveBeenCalledTimes(1)
+      await s.close()
+    })
+
+    it('pullFailed_FlushBeforeAnyStore_PullsAgain', async () => {
+      api.annotations.mockRejectedValueOnce(offline())
+      const s = open()
+      await s.restore()
+      await s.loadHighlights()
+      await s.flush()
+      await vi.waitFor(() => expect(drawnLists).toEqual([[]]))
+      expect(api.annotations).toHaveBeenCalledTimes(2)
+    })
+
+    it('bookWithoutHighlights_NoPull_PositionSaved', async () => {
+      const s = open(T, undefined, false)
+      await s.restore()
+      await s.loadHighlights()
+      await stored(s, entry(pos(2)))
+      expect(api.annotations).not.toHaveBeenCalled()
+      expect(statuses).toEqual(['saved'])
+    })
+
+    it('reopenAfterAnotherBook_ReadsAfterTheOldSessionsLastWrite', async () => {
+      const a1 = await opened()
+      const put = deferred<V2ReadingState>()
+      api.putReadingState.mockReturnValueOnce(put.promise)
+      a1.store(entry(pos(2)))
+      void a1.close()
+      const b = await opened({ ...T, bookId: 'b2' })
+      void b.close()
+      const read = open().restore()
+      await Promise.resolve()
+      expect(api.getReadingState.mock.calls.filter((c) => c[0] === T.bookId)).toHaveLength(1)
+      put.resolve(state(1, 2))
+      await read
+      expect(api.getReadingState.mock.calls.filter((c) => c[0] === T.bookId)).toHaveLength(2)
     })
   })
 
@@ -316,6 +361,14 @@ describe('createV2ReaderSync', () => {
       const again = open(CBZ)
       expect(JSON.parse((await again.restore())!).position).toEqual(page('p3.jpg'))
       expect(JSON.parse((await open().restore())!).position).toBeNull()
+    })
+
+    it('tabGoingAway_APassStillRunning_TheLatestImagePageIsKept', async () => {
+      const s = await opened(CBZ)
+      s.store(entry(page('p3.jpg'), [], CBZ))
+      s.store(entry(page('p4.jpg'), [], CBZ))
+      s.flushKeepalive()
+      expect(JSON.parse(localStorage.getItem(`v2reader:cbz-position:${CBZ.bookId}`)!)).toEqual(page('p4.jpg'))
     })
   })
 

@@ -154,6 +154,19 @@ describe('v2 api', () => {
       expect(e).not.toBeInstanceOf(ApiError)
     })
 
+    it('an abort before the headers is the AbortError it is, not offline', async () => {
+      const abort = new AbortController()
+      vi.stubGlobal('fetch', vi.fn((_u: string, init: RequestInit) => new Promise((_, reject) => {
+        if (init.signal!.aborted) reject(init.signal!.reason)
+        init.signal!.addEventListener('abort', () => reject(init.signal!.reason))
+      })))
+      const got = v2.getContent('b1', 'f1', () => {}, abort.signal).catch((x: unknown) => x)
+      abort.abort()
+      const e = await got
+      expect((e as Error).name).toBe('AbortError')
+      expect(e).not.toBeInstanceOf(ApiError)
+    })
+
     it('the signal goes to the request', async () => {
       const fetchMock = vi.fn().mockResolvedValue(new Response(streamOf([[1]])))
       vi.stubGlobal('fetch', fetchMock)

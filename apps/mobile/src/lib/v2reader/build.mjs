@@ -187,9 +187,9 @@ const content = `// AUTO-GENERATED — do not edit.
 const PAGE_HTML = ${JSON.stringify(html(page))}
 
 function fill(page: string, nonce: string): string {
-  if (!/^[A-Za-z0-9+/_-]{16,}={0,2}$/.test(nonce)) throw new Error('v2ReaderPageHtml: nonce must be base64 or hex, at least 16 chars')
+  if (!/^[A-Za-z0-9+/_-]{16,}={0,2}$/.test(nonce)) throw new Error('v2 reader page: nonce must be base64 or hex, at least 16 chars')
   // The placeholder fits that rule and is public: a page "filled" with it runs any script carrying it.
-  if (nonce.includes(${JSON.stringify(NONCE)})) throw new Error('v2ReaderPageHtml: the placeholder is not a nonce')
+  if (nonce.includes(${JSON.stringify(NONCE)})) throw new Error('v2 reader page: the placeholder is not a nonce')
   return page.split(${JSON.stringify(NONCE)}).join(nonce)
 }
 
@@ -198,12 +198,11 @@ export function v2ReaderPageHtml(nonce: string): string {
   return fill(PAGE_HTML, nonce)
 }
 
-let androidPage: string | null = null
 /** The Android host's page (#1228): the same, with connect-src naming the two directories its interceptor serves. */
 export function v2ReaderAndroidPageHtml(nonce: string): string {
   // The CSP meta is the first thing in the head, ahead of the script: its first occurrence is the one replaced.
-  androidPage ??= PAGE_HTML.replace(${JSON.stringify(CSP)}, ${JSON.stringify(ANDROID_CSP)})
-  return fill(androidPage, nonce)
+  // Not kept: a second copy of the page would stay in memory for the life of the app.
+  return fill(PAGE_HTML.replace(${JSON.stringify(CSP)}, ${JSON.stringify(ANDROID_CSP)}), nonce)
 }
 `
 

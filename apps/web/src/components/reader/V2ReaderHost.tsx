@@ -167,9 +167,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     /** The page's book is `take.open`'s (openTracker.mjs: the open in flight, or a book the page kept on screen). */
     const takeOpened = ({ open: current, opened: m }: Take<Opening, V2OpenedMessage>) => {
       opening.current = current
-      // The previous take's last writes go out; a reopen of the same book and file reads after them, another never waits.
-      const previous = sync.current
-      const closed = previous?.close()
+      // The previous take's last writes go out; a later open of the same book reads after them (v2ReaderSync), another never waits.
+      void sync.current?.close()
       sync.current = null
       retryRead.current = null
       setSaveStatus('saved')
@@ -184,7 +183,6 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         setSaveStatus('unsaved')
         call('restore', [null])
       } else {
-        const same = previous?.target.bookId === target.bookId && previous.target.fileId === target.fileId
         const s = createV2ReaderSync(target, {
           onStatus: setSaveStatus,
           // Drawn without moving the reader; highlighting is offered from now on.
@@ -192,7 +190,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             setHighlightsReady(true)
             if (list.length) call('addHighlights', [list])
           },
-          after: same ? closed : undefined,
+          highlights: m.annotatable !== false,
         })
         sync.current = s
         // Only while this take is the open one: a later take closed `s`, and its answers are none of this book's.

@@ -20,7 +20,7 @@ vi.mock('../../components/reader/V2ReaderHost', () => ({
 }))
 vi.mock('../../components/SeoHead', () => ({ SeoHead: () => null }))
 
-import { V2ReaderPage } from '../V2ReaderPage'
+import { STALL_GRACE_MS, V2ReaderPage } from '../V2ReaderPage'
 import { DOWNLOAD_STALL_MS } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
 
 const BYTES = new ArrayBuffer(4)
@@ -186,10 +186,24 @@ describe('V2ReaderPage', () => {
     await act(async () => {}) // a stall would have rejected by now
     expect(d.signal!.aborted).toBe(false)
     expect(screen.queryByRole('alert')).toBeNull()
+    // Due, but one grace second first (a frozen tab's chunks may still be queued).
     act(() => { vi.advanceTimersByTime(1000) })
+    expect(d.signal!.aborted).toBe(false)
+    act(() => { vi.advanceTimersByTime(STALL_GRACE_MS) })
     expect(await screen.findByRole('alert')).toHaveTextContent(`The download stopped: nothing arrived for ${DOWNLOAD_STALL_MS / 1000} s.`)
     expect(d.signal!.aborted).toBe(true)
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+  })
+
+  it('libraryNeverAnswers_StalledAlertWithRetry', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    v2Book.mockReturnValue(new Promise(() => {}))
+    renderPage()
+    await vi.waitFor(() => expect(v2Book).toHaveBeenCalled())
+    act(() => { vi.advanceTimersByTime(DOWNLOAD_STALL_MS + STALL_GRACE_MS) })
+    expect(await screen.findByRole('alert')).toHaveTextContent('The download stopped')
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+    expect(fetchV2FileBytes).not.toHaveBeenCalled()
   })
 
   it('unmount_AbortsTheDownload_NoAlert', async () => {
