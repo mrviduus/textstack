@@ -16,11 +16,11 @@ Free book library w/ Kindle-like reader. Upload EPUB/PDF → parse → SEO pages
 
 ## V2 program (active)
 
-The project is mid-migration to **V2**: two databases, one cutover ([ADR-030](docs/01-architecture/adr/ADR-030-two-databases-one-cutover.md), plan [`docs/01-architecture/v2-plan.md`](docs/01-architecture/v2-plan.md), umbrella #1013). The public SEO catalog retires at the end (#992 decision; M6).
+The project is mid-migration to **V2**: two databases, one cutover ([ADR-030](docs/architecture/adr/ADR-030-two-databases-one-cutover.md), plan [`docs/internal/v2/v2-plan.md`](docs/internal/v2/v2-plan.md), umbrella #1013). The public SEO catalog retires at the end (#992 decision; M6).
 
 - **`textstack_v2`** is a second Postgres DB beside the legacy one: own SQL ledger (`make migrate-v2`), Dapper repositories, `/me/v2/*` endpoints behind `Features:V2Api` — **off in production**, on in CI/dev. The legacy path must never depend on V2 being up.
 - **ETL** legacy → V2: `etl-v2` CLI, built, validated, rehearsed on real backups (M3 done). Cutover (M5) and legacy retirement (M6, drops EF Core + catalog) are not executed yet.
-- **V2 reader** ([ADR-029](docs/01-architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/01-architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `apps/mobile/src/lib/v2reader/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android dev route (`__DEV__`) and web `/dev/reader-v2` (dev server only) and `/:lang/library/my/:id/read-v2` (behind `Features:V2Api`). The web build ships `dist/reader-v2/` = a no-store frame shell (nonce filled by nginx `sub_filter`) + the content-hashed page script, asserted on build; nginx locations in `textstack.conf`, checked by `prodCsp.check.mjs`. Own README in `apps/mobile/src/lib/v2reader/`. Replaces `packages/reader-engine` only at R8 — until then the engine rules below still hold.
+- **V2 reader** ([ADR-029](docs/architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `apps/mobile/src/lib/v2reader/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android dev route (`__DEV__`) and web `/dev/reader-v2` (dev server only) and `/:lang/library/my/:id/read-v2` (behind `Features:V2Api`). The web build ships `dist/reader-v2/` = a no-store frame shell (nonce filled by nginx `sub_filter`) + the content-hashed page script, asserted on build; nginx locations in `textstack.conf`, checked by `prodCsp.check.mjs`. Own README in `apps/mobile/src/lib/v2reader/`. Replaces `packages/reader-engine` only at R8 — until then the engine rules below still hold.
 - **Work runs in waves**: kickoff files `.claude/wave-<N>-prompt.md` (pipeline, quality bar, standing rules); current state in [`docs/STATUS.md`](docs/STATUS.md) and #1013 checkboxes. Locator schemes and roles: ADR-031.
 
 ## Where to write things down
@@ -30,12 +30,12 @@ The PR is the changelog (#1220). Readers see the `/changelog` page (merged PRs b
 | Where | Job |
 |------|-----|
 | The PR | **Title** = one scannable line. **One area label** (`reader`, `mobile`, `library`, `vocabulary`, `ai`, `data`, `ops`, `documentation`; CI fails without one). **Description** = the full write-up, article source material. |
-| `CHANGELOG.md`, `docs/changelog-archive/` | **Frozen.** History up to the switch; never add to them. |
-| `docs/incidents/` | Postmortems for anything that broke production. Start from `_TEMPLATE.md`. |
+| `CHANGELOG.md`, `docs/internal/changelog-archive/` | **Frozen.** History up to the switch; never add to them. |
+| `docs/internal/incidents/` | Postmortems for anything that broke production. Start from `_TEMPLATE.md`. |
 | `docs/STATUS.md` | Where the project is *now*: in flight, deliberately-not-doing. Links to issues; never copies them. |
 | GitHub issues | **Every open item** (bug, review finding, deferred work), one issue each, labelled (`reader-engine`, `phase-3-gate`, …). A PR closes it with `Fixes #N`. Public: nothing private. Old STATUS items move to an issue when someone touches them. |
 
-Load-bearing decisions still go to `docs/01-architecture/adr/`. Details: `.claude/commands/changelog.md`.
+Load-bearing decisions still go to `docs/architecture/adr/`. Details: `.claude/commands/changelog.md`.
 
 ## Commands
 
@@ -92,7 +92,7 @@ dotnet format textstack.sln                  # Backend
 # optimize-images [--dry-run]
 # import-textstack <book-path>
 # backfill-pdf-page-counts [--dry-run]   (fills null UserBook.PageCount for PDF uploads)
-# etl-v2 [--dry-run] [--source <cs>] [--target <cs>] [--source-dump-sha <hex>]   (legacy -> textstack_v2 data, v2-plan §5.2, docs/03-ops/v2-etl.md; not the schema: that is `make migrate-v2`)
+# etl-v2 [--dry-run] [--source <cs>] [--target <cs>] [--source-dump-sha <hex>]   (legacy -> textstack_v2 data, v2-plan §5.2, docs/internal/ops/v2-etl.md; not the schema: that is `make migrate-v2`)
 #   credentials via env ConnectionStrings__Default / ConnectionStrings__V2 or Passfile=, never argv (refused): ConnectionStrings__Default=… make etl-v2 ARGS=--dry-run
 
 # Local dev (no Docker)
@@ -155,7 +155,7 @@ API → Application → Domain ← Infrastructure
 
 Cross-platform TS code shared by **both** web and mobile, consumed via source path-aliases (NOT published / built) — `apps/web` resolves them in `vite.config.ts` + `tsconfig.json`; mobile via its bundler config.
 - **`@textstack/shared`** (`packages/shared/src/`) — the canonical home for platform-agnostic logic: `api/` (client), `types/api`, `i18n/`, `anon/`, `reader/` (bookProgress, progressPayload, continueReading), `vocabLevel`, `vocabularyConstants`, `lib/pathPrefix`. Edit here, not in app copies, when changing logic both clients need.
-- **`@textstack/reader-engine`** (`packages/reader-engine/`) — the reader engine ([ADR-025](docs/01-architecture/adr/ADR-025-reader-engine-package.md)): the reader's rendering and position; mobile (reflow + PDF) and web read only through it; old readers deleted in Phase 6 (#848 web, #866 mobile, #868 cleanup). Own rules in its `CLAUDE.md`, own agent `.claude/agents/reader-engine.md`, built test-first.
+- **`@textstack/reader-engine`** (`packages/reader-engine/`) — the reader engine ([ADR-025](docs/architecture/adr/ADR-025-reader-engine-package.md)): the reader's rendering and position; mobile (reflow + PDF) and web read only through it; old readers deleted in Phase 6 (#848 web, #866 mobile, #868 cleanup). Own rules in its `CLAUDE.md`, own agent `.claude/agents/reader-engine.md`, built test-first.
 
 **Middleware pipeline** (order matters): `ForwardedHeaders` → `Cors` → `AppVersion` (mobile `X-App-Version` → log scope + Sentry tag) → `ExceptionMiddleware` → `UserStoragePolicy` (404 for an upload's files except its cover; must precede StaticFiles) → `StaticFiles(/storage)` → `/health` → `SiteContext` → `LanguageContext` → `Routing` → `McpKeyAuth` → `RateLimiter` (must follow Routing, or per-endpoint policies are inert) → `GuestActivity` (LastActiveAt, 10 min debounce) → `AdminAuth` (conditional on `/admin/*`) → `PathGates` (`/me/*` → 401 without a user, `/internal/*` → 403 off the docker network; ADR-024)
 
@@ -273,8 +273,8 @@ Central versioning via `Directory.Packages.props` — don't add `<Version>` in i
 
 | Topic | File |
 |---|---|
-| Features: entities, user books, translate/explain/TTS, vocabulary SRS, guests, auth, auto publish, SEO backfill, SSG | [`docs/claude/features.md`](docs/claude/features.md) |
-| Every API route group | [`docs/claude/api-endpoints.md`](docs/claude/api-endpoints.md) |
-| Where things live (key files table) | [`docs/claude/key-files.md`](docs/claude/key-files.md) |
-| Mobile: Expo, offline, reading path, Play/OTA release | [`docs/claude/mobile.md`](docs/claude/mobile.md) |
-| CI/CD, deployment, nginx, MCP server, telemetry, verifying SSG | [`docs/claude/operations.md`](docs/claude/operations.md) |
+| Features: entities, user books, translate/explain/TTS, vocabulary SRS, guests, auth, auto publish, SEO backfill, SSG | [`docs/internal/claude/features.md`](docs/internal/claude/features.md) |
+| Every API route group | [`docs/internal/claude/api-endpoints.md`](docs/internal/claude/api-endpoints.md) |
+| Where things live (key files table) | [`docs/internal/claude/key-files.md`](docs/internal/claude/key-files.md) |
+| Mobile: Expo, offline, reading path, Play/OTA release | [`docs/internal/claude/mobile.md`](docs/internal/claude/mobile.md) |
+| CI/CD, deployment, nginx, MCP server, telemetry, verifying SSG | [`docs/internal/claude/operations.md`](docs/internal/claude/operations.md) |

@@ -6,7 +6,7 @@
 --
 -- The legacy side may be etl_reader (it reads only tables etl-v2 reads). The run checked is run_id, else
 -- the newest row of migration_runs. Connection strings: no password on the command line (pgpass or
--- PGPASSWORD for the session), as for etl-v2 itself (docs/03-ops/v2-etl.md §2).
+-- PGPASSWORD for the session), as for etl-v2 itself (docs/internal/ops/v2-etl.md §2).
 --
 -- Output: one row per check, (check, status, details). status is
 --   ok      the check holds;

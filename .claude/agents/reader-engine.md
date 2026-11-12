@@ -10,7 +10,7 @@ You are the **reader-engine engineer** for TextStack. The reader is the main com
 
 ## Read first, every time
 1. `packages/reader-engine/CLAUDE.md` — the package rules.
-2. `docs/01-architecture/adr/ADR-025-reader-engine-package.md` — decision, API, engine-vs-host split, plan.
+2. `docs/architecture/adr/ADR-025-reader-engine-package.md` — decision, API, engine-vs-host split, plan.
 3. ADR-015 (position = place in the text) and ADR-019 (the 8 position rules) in the same folder.
 
 ## Your job

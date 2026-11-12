@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace Contracts.V2;
 
-// The /me/v2 wire shapes (docs/01-architecture/v2-sync-protocol.md "Payloads"). Requests carry
+// The /me/v2 wire shapes (docs/internal/v2/v2-sync-protocol.md "Payloads"). Requests carry
 // nullable members so a missing required field is a 400 that names it, not a default value.
 // Locators, toc and other opaque client JSON travel as JsonElement and are stored as sent.
 

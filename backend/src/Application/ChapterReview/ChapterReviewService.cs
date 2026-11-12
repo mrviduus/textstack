@@ -17,7 +17,7 @@ public sealed record ReviewResult<T>(T? Value, int Status, ReviewErrorDto? Error
 /// <summary>
 /// Chapter review — the context a review needs (tool <c>get_chapter_review</c>) and the save
 /// (tool <c>save_chapter_review</c>). We run no LLM: the reader's own assistant does the reviewing,
-/// and only the structured result comes home. Spec: docs/05-features/chapter-review.md; storage ADR-016.
+/// and only the structured result comes home. Spec: docs/internal/features/chapter-review.md; storage ADR-016.
 /// Guests may use it — it costs us no inference (owner decision 2026-09-29).
 /// </summary>
 public sealed class ChapterReviewService(

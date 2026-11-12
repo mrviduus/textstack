@@ -1150,7 +1150,7 @@ public sealed partial class McpToolCatalog
     };
 
     // ── chapter review ──────────────────────────────────────────────────────────
-    // docs/05-features/chapter-review.md. One upstream call each; the API's DTO is the tool text, and
+    // docs/internal/features/chapter-review.md. One upstream call each; the API's DTO is the tool text, and
     // a refusal comes back with the server's own message (every validation problem, or the spoiler
     // gate's instruction), because that message is what the model acts on.
 

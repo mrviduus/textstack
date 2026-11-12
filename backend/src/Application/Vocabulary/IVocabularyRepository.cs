@@ -6,7 +6,7 @@ namespace Application.Vocabulary;
 /// <summary>
 /// The V2 vocabulary (tables <c>vocabulary_words</c> + <c>vocabulary_examples</c> +
 /// <c>vocabulary_reviews</c>, one aggregate; ADR-031). Every method is scoped to <c>userId</c>
-/// (docs/01-architecture/data-access.md rule 7): a write is stored under <c>userId</c>, whatever the
+/// (docs/architecture/data-access.md rule 7): a write is stored under <c>userId</c>, whatever the
 /// entity's <c>UserId</c> says, and a card that is not the user's reads as not found.
 /// Neither the SRS math nor the payload hash is here: a review arrives with the function that computes
 /// the schedule, an example or review with its <c>PayloadSha256</c> (v2-sync-protocol.md,

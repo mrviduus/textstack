@@ -7,7 +7,7 @@ using static Contracts.V2.SyncLimits;
 namespace TextStack.Ai.Mcp.Tools;
 
 /// <summary>
-/// The discussion tools (docs/01-architecture/mcp-discussion-checkpoints.md "Proposed MCP contract"),
+/// The discussion tools (docs/internal/v2/mcp-discussion-checkpoints.md "Proposed MCP contract"),
 /// registered only on the V2 sync API (<see cref="McpBridgeOptions.V2"/>). The writes take
 /// <c>operationId</c> from the host (owner decision 13), so a retried call replays. The schemas read
 /// the server's caps (<see cref="SyncLimits"/>); the server re-checks.

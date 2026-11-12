@@ -15,7 +15,7 @@ name: Mobile OTA (auto)
 # update` still SUCCEEDS, publishing to a runtime nobody has installed. A green
 # check and zero delivery. That is the same shape as the SSG rebuild that
 # reported success after losing its files
-# (docs/incidents/2026-08-31-deploy-wiped-a-running-ssg-rebuild.md), and it is
+# (docs/internal/incidents/2026-08-31-deploy-wiped-a-running-ssg-rebuild.md), and it is
 # worse here because nothing else would ever notice.
 #
 # So: compute the fingerprint, compare it with the runtime of the newest
@@ -141,7 +141,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # MUST run from apps/mobile. From the repo root the command computes a
-      # different hash and reports it as valid — see docs/03-ops/play-store-release.md.
+      # different hash and reports it as valid — see docs/internal/ops/play-store-release.md.
       # `working-directory` above covers it; do not "simplify" this to a root run.
       - name: Resolve the runtime this commit would have
         id: fp
@@ -149,7 +149,7 @@ jobs:
           set -euo pipefail
           # runtimeversion:resolve, not fingerprint:generate — it answers the
           # question being asked ("what runtime would this commit produce"),
-          # and it is the command docs/03-ops/play-store-release.md already
+          # and it is the command docs/internal/ops/play-store-release.md already
           # prescribes for this comparison. fingerprint:generate is kept as a
           # fallback for CLI versions that lack it.
           out=$(npx expo-updates runtimeversion:resolve --platform android 2>/dev/null \
@@ -234,7 +234,7 @@ jobs:
       # And then delete it again. A leftover `android/` makes EAS treat the project
       # as bare: it skips its own prebuild, builds from these local files, and the
       # runtime fingerprint of the result is no longer the one measured two steps
-      # ago — the exact poisoning docs/03-ops/play-store-release.md warns about for
+      # ago — the exact poisoning docs/internal/ops/play-store-release.md warns about for
       # local fingerprint runs, with a build attached.
       - name: Put the tree back the way EAS expects it
         if: ${{ steps.build.outputs.action == 'build' && inputs.dry_run != true }}

@@ -160,6 +160,21 @@ jobs:
           package-manager-cache: false
       - run: node scripts/check-node-version.mjs
 
+  # A moved or renamed doc must not leave a dead link behind (#1237). Every
+  # relative link in every tracked .md file has to point at a file that exists.
+  docs-links:
+    if: inputs.scope != 'merged-tree'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          # One plain Node script, no install (same reason as node-version).
+          package-manager-cache: false
+      - run: node scripts/check-doc-links.mjs
+
   # The extension has no build step and no package.json, so nothing else in this
   # file would ever look at it. Its README documented a check and asked a person
   # to remember it; nothing ran it, and it could not have failed if it had.

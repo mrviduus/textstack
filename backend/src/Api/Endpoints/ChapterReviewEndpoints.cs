@@ -9,7 +9,7 @@ namespace Api.Endpoints;
 
 /// <summary>
 /// Chapter review — the reader's own assistant reviews a chapter over MCP and the result comes home
-/// as structure (docs/05-features/chapter-review.md, ADR-016). Thin: the logic is in
+/// as structure (docs/internal/features/chapter-review.md, ADR-016). Thin: the logic is in
 /// <see cref="ChapterReviewService"/> and <see cref="ReviewQuestionService"/>.
 ///
 /// <list type="bullet">

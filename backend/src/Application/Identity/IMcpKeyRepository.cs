@@ -4,7 +4,7 @@ namespace Application.Identity;
 
 /// <summary>
 /// The V2 MCP connect keys (table <c>mcp_access_keys</c>). The reader's methods are scoped to
-/// <c>userId</c> (docs/01-architecture/data-access.md rule 7); the lookup by hash is not, the hash
+/// <c>userId</c> (docs/architecture/data-access.md rule 7); the lookup by hash is not, the hash
 /// being the credential.
 /// </summary>
 public interface IMcpKeyRepository

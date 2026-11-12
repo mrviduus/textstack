@@ -28,7 +28,7 @@ Pattern mirrors `LlmTrace` / `EvalRun` / `AgentRun`. Domain stays framework-free
    ADR-026): `database/migrations/NNNN_add_<name>.up.sql` (header: what / why / issue / compatibility /
    down) with the `CREATE TABLE`, keys, FKs and indexes the mapping declares (`pk_<table>`,
    `ix_<table>_<cols>`, `fk_<table>_<target>_<col>` — the names EF would give), and
-   `NNNN_add_<name>.down.sql` that drops it. Update `docs/01-architecture/data-model.md` in the same PR.
+   `NNNN_add_<name>.down.sql` that drops it. Update `docs/architecture/data-model.md` in the same PR.
 
 5. **Writer** (optional, for observability records like agent runs): interface in `Ai.Core`
    (`I<Name>Writer`), `Db<Name>Writer` in `Application/Ai` (scoped, `: global::TextStack.Ai.Core.I<Name>Writer`,

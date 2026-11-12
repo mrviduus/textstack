@@ -10,7 +10,7 @@ namespace Infrastructure.Persistence.Etl;
 /// <c>current_user</c>: <c>RESET ROLE</c> returns a session to its login's powers, so a writer login
 /// connected with <c>-c role=etl_reader</c> fails. Effective privileges: attributes, memberships
 /// (inherited or SET ROLE-able), ownership of anything, and every grant incl. PUBLIC's.
-/// Not checked, by decision (runbook docs/03-ops/v2-etl.md): TEMP (non-persistent) and the large-object
+/// Not checked, by decision (runbook docs/internal/ops/v2-etl.md): TEMP (non-persistent) and the large-object
 /// functions PUBLIC may execute — closing either means revoking from PUBLIC, i.e. from the app too.
 /// </summary>
 public static class EtlV2SourceAudit

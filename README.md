@@ -7,7 +7,7 @@
 Free reader for real books. Look up and explain what you don't understand, discuss it with your own AI assistant, save what you learn back into the book.
 
 <p align="center">
-  <img src="docs/demo.gif" alt="TextStack: select a phrase in the reader, get a short contextual explanation" width="800">
+  <img src="docs/assets/demo.gif" alt="TextStack: select a phrase in the reader, get a short contextual explanation" width="800">
 </p>
 
 ## Get TextStack
@@ -36,33 +36,16 @@ TextStack is a [Model Context Protocol](https://modelcontextprotocol.io) server,
 2. **Discuss**: ask about the chapter, an argument or a hard passage.
 3. **Save back**: conclusions go into the book as insights, highlights, chapter reviews and vocabulary. Chapter reviews and vocabulary are saved only after you say yes.
 
-Setup, tools and auth: [docs/05-features/mcp.md](docs/05-features/mcp.md).
+Setup, tools and auth: [docs/reference/mcp.md](docs/reference/mcp.md).
 
 ## Run locally
 
-Prerequisites: Docker, pnpm, Node.js ([.nvmrc](.nvmrc)) and the .NET SDK for the target in [Directory.Build.props](Directory.Build.props) (only needed outside Docker).
-
-```bash
-git clone https://github.com/mrviduus/textstack
-cd textstack
-cp .env.example .env     # fill POSTGRES_PASSWORD and JWT_SECRET (32+ chars); OPENAI_API_KEY enables AI features
-make up                  # backend services in Docker (builds on first run)
-pnpm install
-pnpm -C apps/web dev     # web is not a compose service
-```
-
-| Service | URL |
-|---|---|
-| Web | http://localhost:5173 |
-| API | http://localhost:8080 ([Scalar docs](http://localhost:8080/scalar/v1)) |
-| Admin | http://localhost:81 |
-
-Tests, migrations, mobile and the rest: [docs/03-ops/local-dev.md](docs/03-ops/local-dev.md) and [CLAUDE.md](CLAUDE.md).
+From a clone to a book open in the reader, in about 20 minutes: [docs/start/run-locally.md](docs/start/run-locally.md).
 
 ## Documentation
 
-- [Docs index](docs/README.md) and [architecture](docs/01-architecture/README.md)
-- [Deployment](docs/03-ops/deployment.md), [backup and restore](docs/03-ops/backup.md), [incident runbook](docs/03-ops/incident-runbook.md)
+- [Docs index](docs/README.md) and [architecture](docs/architecture/index.md)
+- [Deployment](docs/internal/ops/deployment.md), [backup and restore](docs/internal/ops/backup.md), [incident runbook](docs/internal/ops/incident-runbook.md)
 - [Changelog](CHANGELOG.md)
 
 ## Contributing

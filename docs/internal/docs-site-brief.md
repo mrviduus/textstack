@@ -8,7 +8,7 @@ Docs site at docs.textstack.app (GitHub Pages); admin stays on textstack.dev (de
 1. **Reorganize docs/ into a clear public structure** (zoom-in, general → detail):
    - Getting started (run locally, self-host with docker compose)
    - Architecture: C4 L1 → L2 → L3 → key flows → ADRs
-     (main C4 is buried in docs/01-architecture/review-2026-10/01-map.md;
+     (main C4 is buried in docs/internal/architecture/review-2026-10/01-map.md;
      also README.md high-level view, flows.md, textstack-map.html — merge into one path)
    - Guides by area: backend, web, mobile, AI/MCP
    - Reference: API, env vars, config
@@ -32,7 +32,7 @@ Docs site at docs.textstack.app (GitHub Pages); admin stays on textstack.dev (de
    "On this page", search, card grid on home). Own brand colors/fonts
    (TextStack fonts from #885). Do NOT copy Shopify assets or icons.
 
-4. **Hosting (decided 2026-11-11, #1237):** admin stays on textstack.dev. Until the site exists, the web footer links "Developers" to `docs/README.md` on GitHub. The site: Starlight on GitHub Pages at docs.textstack.app, built once getting-started and one golden path exist. Rejected: docs at the textstack.dev root with admin at /admin (shared origin with the admin's `Path=/` cookies).
+4. **Hosting (decided 2026-11-11, #1237):** admin stays on textstack.dev. Until the site exists, the web footer links "Developers" to `docs/README.md` on GitHub. The site: Starlight on GitHub Pages at docs.textstack.app, built only once the pages exist and outside readers show up. Rejected: docs at the textstack.dev root with admin at /admin (shared origin with the admin's `Path=/` cookies).
 
 5. **Later — decoration:** original pixel icons in docs/assets/pixel-icons/ (edit grids in gen.py).
 

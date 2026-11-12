@@ -118,7 +118,7 @@ public static class EtlV2
         var (login, violations) = await EtlV2SourceAudit.AuditAsync(sourceConn, snapshot, ct);
         if (violations.Count > 0)
             throw new InvalidOperationException(
-                $"source login {login} can write ({string.Join("; ", violations.Take(5))}{(violations.Count > 5 ? $"; and {violations.Count - 5} more" : "")}); read as the SELECT-only etl_reader (docs/03-ops/v2-etl.md)");
+                $"source login {login} can write ({string.Join("; ", violations.Take(5))}{(violations.Count > 5 ? $"; and {violations.Count - 5} more" : "")}); read as the SELECT-only etl_reader (docs/internal/ops/v2-etl.md)");
         if (!await targetConn.ExecuteScalarAsync<bool>(new CommandDefinition(TryLock, new { LockKey }, cancellationToken: ct)))
             throw new InvalidOperationException($"another etl-v2 run holds the target's advisory lock {LockKey}; wait for it to finish");
 

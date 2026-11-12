@@ -1,9 +1,9 @@
 # database/v2/
 
-The V2 database, `textstack_v2` ([ADR-030](../../docs/01-architecture/adr/ADR-030-two-databases-one-cutover.md)):
+The V2 database, `textstack_v2` ([ADR-030](../../docs/architecture/adr/ADR-030-two-databases-one-cutover.md)):
 its schema as plain SQL files, and the runner that applies them. The schema itself is decided in
-[ADR-031](../../docs/01-architecture/adr/ADR-031-v2-schema.md); the table map is the V2 section of
-[data-model.md](../../docs/01-architecture/data-model.md).
+[ADR-031](../../docs/architecture/adr/ADR-031-v2-schema.md); the table map is the V2 section of
+[data-model.md](../../docs/architecture/data-model.md).
 
 ```
 database/v2/
@@ -41,7 +41,7 @@ what differs.
 | Run by `docker compose up` | yes | **no** — profile `v2`; run it with `make migrate-v2` |
 
 `make migrate-v2` builds the schema; it moves no data. The data moves with `make etl-v2` (the ETL,
-[v2-plan §5.2](../../docs/01-architecture/v2-plan.md), runbook [v2-etl.md](../../docs/03-ops/v2-etl.md)), which records each run in
+[v2-plan §5.2](../../docs/internal/v2/v2-plan.md), runbook [v2-etl.md](../../docs/internal/ops/v2-etl.md)), which records each run in
 `migration_runs`. It reads legacy as the SELECT-only `etl_reader`; connection strings go in by env
 (`ConnectionStrings__Default`, `ConnectionStrings__V2`) or a pgpass `Passfile=`, never as `--source`/`--target`
 with a password (visible in `ps`; refused).
@@ -49,7 +49,7 @@ with a password (visible in `ps`; refused).
 `api` and `worker` wait for `migrator` (ADR-021) and **not** for `migrator-v2`: nothing connects to
 `textstack_v2` yet (M1.2), so a V2 migrator that cannot reach or create its database must not keep
 the site down. It did, once, on the day it shipped —
-[postmortem](../../docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md). The wait comes back,
+[postmortem](../../docs/internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md). The wait comes back,
 over V2 endpoints only, when V2 holds real data (#1053).
 
 `run.sh` needs a role that may `CREATE DATABASE` and a reachable `postgres` maintenance database. It
