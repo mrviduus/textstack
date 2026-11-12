@@ -82,7 +82,7 @@ jobs:
   # `if:` below starts with `!cancelled()` and the fail-open clause: without them
   # a broken `changes` job would skip all four and let the PR merge green.
   #
-  # Areas: `docs/**` and root-level *.md touch nothing. Markdown INSIDE a code
+  # Areas: `docs/**`, `internal/**`, `site/**` (the docs site, #1275) and root-level *.md touch nothing. Markdown INSIDE a code
   # directory is that directory's (Application embeds ChapterReview/ReviewMethod.md;
   # the MCP package ships its README). Anything shared or unrecognised —
   # packages/, scripts/, .github/, root package/lock files, .nvmrc — is
@@ -121,7 +121,7 @@ jobs:
             esac
             case "$f" in
               '') ;;
-              docs/*) ;;
+              docs/*|internal/*|site/*) ;;
               backend/*|database/*|tests/*|*.sln|Directory.*.props|NuGet.Config|global.json|docker-compose*.yml) backend=true ;;
               apps/web/*|apps/admin/*) web=true ;;
               apps/mobile/*) mobile=true ;;
