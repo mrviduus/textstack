@@ -68,6 +68,10 @@ const frameLocation = conf.match(/\n {4}location = \/reader-v2\/frame\.html \{\n
 const scriptLocation = conf.match(/\n {4}location ~ "(\^\/reader-v2\/page[^"]*)" \{\n([\s\S]*?)\n {4}\}/)
 
 const { shell: SHELL, script: SCRIPT, scriptPath: SCRIPT_PATH } = v2ReaderFrameFiles()
+// The web frame's own CSP (#1228): connect-src is blob:/data: only; the Android page's book origin is not in it.
+const FRAME_CONNECT = SHELL.match(/connect-src ([^;"]*)/)?.[1]
+if (FRAME_CONNECT !== 'blob: data:') { console.error(`the web frame's connect-src is "${FRAME_CONNECT}", not "blob: data:"`); process.exit(2) }
+console.log(`ok    frame CSP: connect-src ${FRAME_CONNECT} (no Android book origin)`)
 /** Must change the text it is given: a transform that no longer matches would make its row test nothing. */
 const changed = (before, after) => { if (after === before) throw new Error('prodCsp.check: a row transform matched nothing'); return after }
 

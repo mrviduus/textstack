@@ -15,11 +15,11 @@ import { bookFile, createV2Storage, nonceFromUuid, type LibraryBook, type V2File
 import { deviceLocalLibrary } from '../../lib/v2reader/deviceLibrary'
 import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
 import { downloadV2Book, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
-import { v2ReaderPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
+import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
-import { BOOK_ORIGIN, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
+import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
 import { USER_AGENT_PROBE, createWebViewCheck, webViewStorePackage, type WebViewVerdict } from '../../lib/v2reader/webViewVersion'
@@ -177,7 +177,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const webView = useRef<WebView>(null)
   const [nonce, setNonce] = useState(freshNonce)
   // The base URL arms the patched WebView's book interceptor (bookOrigin.mjs) and gives the page that https origin.
-  const source = useMemo(() => ({ html: v2ReaderPageHtml(nonce), baseUrl: `${BOOK_ORIGIN}/` }), [nonce])
+  const source = useMemo(() => ({ html: v2ReaderAndroidPageHtml(nonce), baseUrl: PAGE_URL }), [nonce])
   const ready = useRef(false)
   const opening = useRef<Opening | null>(null)
   /** Which page answer belongs to which open (openTracker.mjs): a book kept on screen, a stale `restored`. */
@@ -293,6 +293,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
 
   const open = (target: Opening) => {
+    // The URL first: a name the interceptor would not serve (never one this host makes) is refused before any
+    // state moves, as a failed open (its staged file dropped).
+    const url = bookUrl(target.file)
+    if (!url) {
+      if (isStaged(target.file)) v2Storage().dropStaged(target.file).catch(fail('drop'))
+      return setOpenError(`cannot open ${target.name}: not a file the reader serves`)
+    }
     // A superseded open's staged file is dropped once another book is taken (`takeOpened`): until then the
     // page may still keep that book on screen, if this newer open fails before its swap.
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
@@ -304,8 +311,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setHeading(`Opening ${target.name}`)
     setProgress.current('')
     if (!ready.current) return
-    let url: string
-    try { url = bookUrl(target.file) } catch (e) { return fail('open', setOpenError)(e) }
     deadlines.waitOpened(sizeOf(target.file))
     call(`window.__fol.openUrl(${JSON.stringify(url)}, ${JSON.stringify(target.file)})`)
   }

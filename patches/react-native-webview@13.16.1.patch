@@ -1,5 +1,5 @@
 diff --git a/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java b/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
-index 80c68034b193a47bedb56ca527352de9548e8ac6..07fb46b6158226108b9f0b879c572f0cddb6217b 100644
+index 80c68034b193a47bedb56ca527352de9548e8ac6..b0abec5a7940b9cdc7c011fc3c2a02d9e7bea4b8 100644
 --- a/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
 +++ b/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
 @@ -67,6 +67,8 @@ public class RNCWebView extends WebView implements LifecycleEventListener {
@@ -20,6 +20,17 @@ index 80c68034b193a47bedb56ca527352de9548e8ac6..07fb46b6158226108b9f0b879c572f0c
                  RNCWebView.this.onMessage(message.getData(), sourceOrigin.toString());
                }
              };
+@@ -444,6 +448,10 @@ public class RNCWebView extends WebView implements LifecycleEventListener {
+          */
+         @JavascriptInterface
+         public void postMessage(String message) {
++            // TextStack patch (#1228): this fallback (engines without WEB_MESSAGE_LISTENER) cannot tell frames
++            // apart. On the V2 reader's WebView it carries only the user-agent answer: those engines are far below
++            // the page's floor (Chrome 117), so no book is ever opened there, and nothing else is needed.
++            if (mWebView.servesBooks && !message.startsWith("{\"type\":\"ua\",")) return;
+             if (mWebView.getMessagingEnabled()) {
+                 // Post to main thread because `mWebView.getUrl()` requires to be executed on main.
+                 mWebView.post(() -> mWebView.onMessage(message, mWebView.getUrl()));
 diff --git a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
 index 0287e1c56b07b6c23b4049f3992d88b86fdc5c79..eab47cc25c04a5d0367eb1262ab11b6190c2e749 100644
 --- a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java

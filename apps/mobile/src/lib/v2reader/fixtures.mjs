@@ -1,5 +1,5 @@
 // Crafted books for the gates no Project Gutenberg book covers (ADR-029 Decision 6), into the gitignored
-// fixtures/; needs the `zip` CLI.   node fixtures.mjs [siblingDir]   → fixtures/tsfonts.epub, fixtures/tshostile.epub,
+// fixtures/; needs the `zip` CLI.   node fixtures.mjs [siblingsUrl]   → fixtures/tsfonts.epub, fixtures/tshostile.epub,
 // and one small book per other format (writeFormatFixtures)
 // tsfonts: one font (Source Sans 3, OFL) plain, IDPF- and Adobe-obfuscated. tshostile: see hostileVectors.
 import { createHash } from 'node:crypto'
@@ -9,12 +9,17 @@ import { tmpdir } from 'node:os'
 import { crc32, deflateSync } from 'node:zlib'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { BOOK_ORIGIN } from './bookOrigin.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
-// The on-device run's logging server (`adb reverse tcp:9876 tcp:9876`); sandbox.check.mjs passes its own.
-export const EVIL = 'http://127.0.0.1:9876'
-// The app's own private files: the dev route's page origin is file:// on Android (README.md).
-const LOCAL = 'file:///data/user/0/app.textstack.mobile/files'
+// On-device defaults (#1228: the page runs under https://appassets.androidplatform.net/, mixed content never
+// allowed, no file access). The logging host is https, as sandbox.check.mjs's: an http one would be stopped by
+// mixed content before the CSP was ever asked. It needs no server: on the device a request that got past the CSP
+// shows in CDP's Network domain (attach as in v2-reader-android-bytes.md). sandbox.check.mjs passes its own.
+export const EVIL = 'https://evil.tst:44443'
+// The "sibling" files the vectors aim at: beside library.json, outside the two served directories, so a vector
+// that got past the CSP still meets the interceptor's 404. (In the served directory itself: sandbox.check.mjs.)
+const LOCAL = `${BOOK_ORIGIN}/v2`
 const UUID = '2c4a3b8e-5d1f-4e6a-9b7c-0123456789ab'
 
 function epub(out, name, { files, manifest, spine, encryption, meta = '' }) {

@@ -1,14 +1,15 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { v2ReaderPageHtml } from './v2ReaderPage.generated'
+import { v2ReaderAndroidPageHtml, v2ReaderPageHtml } from './v2ReaderPage.generated'
 
 const NONCE = 'q7Rk2mW9xLpA4vBn8cZt0g=='
 
 describe('v2ReaderPageHtml', () => {
   it('generatedSource_CarriesOnlyThePlaceholder_NoLiteralNonce', () => {
     const src = readFileSync(resolve(__dirname, 'v2ReaderPage.generated.ts'), 'utf8')
-    expect(src.match(/'nonce-[^']*'/g)).toEqual(["'nonce-__V2_READER_NONCE__'"])
+    // The page's CSP, and the web and Android CSP literals the Android page swaps: every one the placeholder.
+    expect(new Set(src.match(/'nonce-[^']*'/g))).toEqual(new Set(["'nonce-__V2_READER_NONCE__'"]))
     expect(src.match(/nonce=\\"[^\\]*\\"/g)).toEqual(['nonce=\\"__V2_READER_NONCE__\\"'])
   })
 
@@ -43,10 +44,20 @@ describe('v2ReaderPageHtml', () => {
   it('csp_MatchesAdr029Decision4_AndPrecedesTheOnlyScript', () => {
     const html = v2ReaderPageHtml(NONCE)
     expect(html.match(/http-equiv="Content-Security-Policy" content="([^"]*)"/)?.[1]).toBe(
-      `default-src 'none'; script-src 'nonce-${NONCE}'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/; form-action 'none'; base-uri 'none'`,
+      `default-src 'none'; script-src 'nonce-${NONCE}'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data:; form-action 'none'; base-uri 'none'`,
     )
     expect(html.indexOf('Content-Security-Policy')).toBeLessThan(html.indexOf('<script'))
     expect(html.match(/<script/g)).toHaveLength(1)
+  })
+
+  it('androidPage_CspAddsTheServedDirectories_RestIdentical', () => {
+    const web = v2ReaderPageHtml(NONCE)
+    const android = v2ReaderAndroidPageHtml(NONCE)
+    expect(android.match(/http-equiv="Content-Security-Policy" content="([^"]*)"/)?.[1]).toBe(
+      `default-src 'none'; script-src 'nonce-${NONCE}'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/; form-action 'none'; base-uri 'none'`,
+    )
+    expect(android.replace(/connect-src [^;]*/, '')).toBe(web.replace(/connect-src [^;]*/, ''))
+    expect(() => v2ReaderAndroidPageHtml('__V2_READER_NONCE__')).toThrow()
   })
 
   it('bundle_PatchedPaginatorGuardAndPaginatedDefault_NoTestOnlyCode', () => {

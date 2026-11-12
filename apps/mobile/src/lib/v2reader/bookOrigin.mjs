@@ -5,6 +5,8 @@
 // (carrier.mjs), the sandbox check's emulation of the interceptor and bookOrigin.test.ts all read it.
 
 export const BOOK_ORIGIN = 'https://appassets.androidplatform.net'
+/** The page's base URL: it gives the page this origin and arms the interceptor (the patch compares it exactly). */
+export const PAGE_URL = `${BOOK_ORIGIN}/`
 
 /**
  * The only request paths served, as sent (still percent-encoded): a retained book `books/<sha256>.epub` or a staged
@@ -18,11 +20,10 @@ const bookPath = new RegExp(BOOK_PATH)
 /** The CSP `connect-src` sources: the two directories, nothing above them. */
 export const BOOK_CONNECT_SRC = `${BOOK_ORIGIN}/v2/books/ ${BOOK_ORIGIN}/v2/staging/`
 
-/** The page's URL for a host file name (`books/…` or `staging/…`, relative to `files/v2/`); throws for any other. */
+/** The page's URL for a host file name (`books/…` or `staging/…`, relative to `files/v2/`); null for any other. */
 export function bookUrl(file) {
   const path = `/v2/${file}`
-  if (!bookPath.test(path)) throw new Error(`bookUrl: not a servable book file: ${JSON.stringify(file)}`)
-  return BOOK_ORIGIN + path
+  return bookPath.test(path) ? BOOK_ORIGIN + path : null
 }
 
 /**
@@ -30,6 +31,8 @@ export function bookUrl(file) {
  * lets the request reach the network). Only https on BOOK_ORIGIN, no query, no fragment, the encoded path as sent.
  */
 export function servedFile(url) {
-  const m = /^https:\/\/appassets\.androidplatform\.net(\/.*)$/.exec(String(url))
-  return m && bookPath.test(m[1]) ? m[1].slice('/v2/'.length) : null
+  const u = String(url)
+  if (!u.startsWith(PAGE_URL)) return null
+  const path = u.slice(BOOK_ORIGIN.length)
+  return bookPath.test(path) ? path.slice('/v2/'.length) : null
 }

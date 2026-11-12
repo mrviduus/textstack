@@ -2,7 +2,8 @@
 // `hostileVectors`, and each MUTATIONS directive, removed or widened, must be caught. What it proves and
 // its blind spots: README.md, Sandbox. The page runs under the Android host's origin (bookOrigin.mjs, #1228): Playwright
 // routes it (bookOriginRoute.mjs) with the interceptor's own rule, so a book is reachable only as a served file. After
-// the real-CSP EPUB run, SCOPE_ROWS: what the page's own script may fetch (one served book) and may not.
+// the real-CSP EPUB run, SCOPE_ROWS: what the page's own script may fetch (one served book) and may not, and who
+// refuses it; SCOPE_MUTATIONS widen connect-src and must each fail a row.
 //
 //   node --experimental-strip-types sandbox.check.mjs                    real CSP, then every mutation
 //   node --experimental-strip-types sandbox.check.mjs --mutate=<name>    one mutated run; exits 1
@@ -17,7 +18,7 @@ import { BOOK_ORIGIN, bookUrl, servedFile } from './bookOrigin.mjs'
 import { PAGE_URL, routeBookOrigin } from './bookOriginRoute.mjs'
 import { formatsOf, hostileVectors, writeHostileEpub, writeHostileFb2, writeHostileMobi } from './fixtures.mjs'
 import { HOSTILE_KF8 } from './kf8fixture.mjs'
-import { v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
+import { v2ReaderAndroidPageHtml as v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 // apps/web's Playwright, as build.mjs takes apps/web's esbuild: no new dependency.
@@ -40,9 +41,9 @@ const MUTATIONS = {
   'script-src blob:': (c) => c.replace(/(script-src 'nonce-[^']+')/, '$1 blob:'),
   'base-uri': (c) => c.replace(/; base-uri 'none'/, ''),
   'default-src': (c) => c.replace(/default-src 'none'; /, ''),
-  'img-src': (c) => c.replace(/img-src blob: data:/, '$& http: file:'),
-  'style-src': (c) => c.replace(/style-src blob:/, '$& http: file:'),
-  'frame-src': (c) => c.replace(/frame-src blob:/, '$& http: file:'),
+  'img-src': (c) => c.replace(/img-src blob: data:/, '$& http:'),
+  'style-src': (c) => c.replace(/style-src blob:/, '$& http:'),
+  'frame-src': (c) => c.replace(/frame-src blob:/, '$& http:'),
   'font-src': (c) => c.replace(/font-src blob: data:/, '$& http:'),
   'media-src': (c) => c.replace(/media-src blob: data:/, '$& http:'),
 }
@@ -91,27 +92,41 @@ const fileFor = (dir) => (url) => {
 }
 
 /**
- * What the page's own script (as one that got past the nonce would) may fetch: `ok` rows must load, every other
- * must be refused (by the CSP or the interceptor's 404). A path outside the served scope, an encoded slash, a dot
- * segment and `file:` are the negatives; the served book is the positive control.
+ * What the page's own script (as one that got past the nonce would) may fetch, and WHO refuses it: `loaded` (the
+ * served book, the positive control), `csp` (a connect-src violation was reported), `interceptor` (the interceptor's
+ * 404: a path the CSP's directory prefix lets through but BOOK_PATH does not). Each row must end exactly as declared,
+ * so a widened connect-src (SCOPE_MUTATIONS) turns a `csp` row into a load or a 404 and fails it.
  */
-const SCOPE_ROWS = (book) => [
-  ['served book', book, true],
-  ['outside the scope', `${BOOK_ORIGIN}/v2/library.json`, false],
-  ['store entry', `${BOOK_ORIGIN}/v2/store/${'0'.repeat(64)}.json`, false],
-  ['encoded slash', `${BOOK_ORIGIN}/v2/books/..%2Flibrary.json`, false],
-  ['encoded dot segment', `${BOOK_ORIGIN}/v2/books/%2e%2e/library.json`, false],
-  ['dot segment', `${BOOK_ORIGIN}/v2/books/../library.json`, false],
-  ['query', `${book}?x=1`, false],
-  ['file: URL', 'file:///etc/hosts', false],
-  ['other origin', 'https://example.com/', false],
+const SCOPE_ROWS = (book, evil) => [
+  ['served book', book, 'loaded'],
+  ['outside the scope', `${BOOK_ORIGIN}/v2/library.json`, 'csp'],
+  ['store entry', `${BOOK_ORIGIN}/v2/store/${'0'.repeat(64)}.json`, 'csp'],
+  ['encoded slash', `${BOOK_ORIGIN}/v2/books/..%2Flibrary.json`, 'interceptor'],
+  ['encoded dot segment', `${BOOK_ORIGIN}/v2/books/%2e%2e/library.json`, 'csp'],
+  ['dot segment', `${BOOK_ORIGIN}/v2/books/../library.json`, 'csp'],
+  ['query', `${book}?x=1`, 'interceptor'],
+  ['file: URL', 'file:///etc/hosts', 'csp'],
+  ['other origin', `${evil}/scope`, 'csp'],
 ]
 
-async function scopeRows(page, book) {
-  for (const [what, url, ok] of SCOPE_ROWS(book)) {
-    const status = await step(`scope ${what}`, () => page.evaluate((u) => fetch(u).then((r) => (r.ok ? 'loaded' : `refused (${r.status})`), (e) => `refused (${e.name})`), url))
-    console.log(`  ${(status === 'loaded') === ok ? 'ok     ' : 'FAILED '}  scope: ${what.padEnd(20)} ${status}`)
-    if ((status === 'loaded') !== ok) result.errors.add(`scope: ${what} ${status}, expected ${ok ? 'loaded' : 'refused'}`)
+/** connect-src widened; each must fail at least one scope row. */
+const SCOPE_MUTATIONS = {
+  'connect-src whole origin': (c) => c.replace(/connect-src [^;]*/, `connect-src blob: data: ${BOOK_ORIGIN}`),
+  'connect-src https:': (c) => c.replace(/connect-src [^;]*/, '$& https:'),
+  'connect-src file:': (c) => c.replace(/connect-src [^;]*/, '$& file:'),
+}
+
+async function scopeRows(page, book, evil) {
+  for (const [what, url, expected] of SCOPE_ROWS(book, evil)) {
+    const got = await step(`scope ${what}`, () => page.evaluate(async (u) => {
+      const before = window.__csp.length
+      const outcome = await fetch(u).then((r) => (r.ok ? 'loaded' : r.status === 404 ? 'interceptor' : `status ${r.status}`), () => 'rejected')
+      await new Promise((ok) => setTimeout(ok, 50)) // the violation event is queued after the rejection
+      const csp = window.__csp.slice(before).some((v) => v.startsWith('connect-src '))
+      return outcome === 'rejected' ? (csp ? 'csp' : 'rejected, no CSP report') : outcome
+    }, url))
+    console.log(`  ${got === expected ? 'ok     ' : 'FAILED '}  scope: ${what.padEnd(20)} ${got} (expected ${expected})`)
+    if (got !== expected) result.errors.add(`scope: ${what} ${got}, expected ${expected}`)
   }
 }
 
@@ -182,7 +197,7 @@ async function step(what, call) {
 }
 
 /** Opens the hostile book under its own CSP or `mutate(csp)`, in a fresh context (its own cache: no prefetch carries over). */
-async function run(browser, evil, dir, file, mutate) {
+async function run(browser, evil, dir, file, mutate, scope = false) {
   let html = v2ReaderPageHtml(randomBytes(18).toString('base64'))
   if (mutate) html = html.replace(/(Content-Security-Policy" content=")([^"]*)/, (_, a, csp) => a + mutate(csp))
   writeFileSync(resolve(dir, 'page.html'), html)
@@ -191,7 +206,7 @@ async function run(browser, evil, dir, file, mutate) {
   try {
     await routeBookOrigin(context, dir, fileFor(dir))
     await routeEvil(context)
-    await openHostile(await context.newPage(), evil.url, dir, file, !mutate && file === BOOKS.epub)
+    await openHostile(await context.newPage(), evil.url, dir, file, scope)
   } catch (e) {
     result.errors.add(`run: ${e.message.split('\n')[0]}`)
   } finally {
@@ -222,7 +237,7 @@ async function openHostile(page, evil, dir, file, scope) {
   await bounded(page.evaluate(({ url, name }) => window.__fol.openUrl(url, name), { url: bookUrl(servedName(file)), name: file }), 'openUrl')
   const opened = await waitFor((m) => m.type === 'opened' || m.type === 'open-failed', 'opened')
   if (opened.type === 'open-failed') throw new Error(`open-failed: ${opened.error}`)
-  if (scope) await scopeRows(page, bookUrl(servedName(file)))
+  if (scope) await scopeRows(page, bookUrl(servedName(file)), evil)
 
   const probed = vectors.filter(([, observe]) => observe === 'probe').map(([name]) => name)
   /** Reads every frame into the run; true if one still shows the book. */
@@ -349,7 +364,7 @@ try {
       // A mutation this book carries nothing for has nothing to show in it.
       if (directive && !escapes.length && !only) continue
       title = `${file}, ${directive ? `mutation ${directive}: must catch ${escapes.join(', ')}` : 'real CSP: every vector must be blocked'}`
-      await run(browser, evil, dir, file, directive && MUTATIONS[directive])
+      await run(browser, evil, dir, file, directive && MUTATIONS[directive], !directive && format === 'epub')
       if (!directive || only) {
         report(true)
         failed ||= !passes(result)
@@ -359,6 +374,17 @@ try {
         console.log(`  → ${missed.length ? `NOT CAUGHT: ${missed.join(', ')} — the check cannot see this directive go` : 'caught: the check fails, as it must'}`)
         failed ||= missed.length > 0
       }
+    }
+  }
+  // The scope rows under a widened connect-src: each mutation must fail a row (EPUB only: the rows do not depend on the book).
+  if (!only) {
+    for (const [name, mutate] of Object.entries(SCOPE_MUTATIONS)) {
+      vectors = []
+      title = `${BOOKS.epub}, mutation ${name}: a scope row must fail`
+      await run(browser, evil, dir, BOOKS.epub, mutate, true)
+      const caught = [...result.errors].some((e) => e.startsWith('scope: '))
+      console.log(`  → ${caught ? 'caught: the check fails, as it must' : 'NOT CAUGHT — the scope rows cannot see this directive widen'}`)
+      failed ||= !caught
     }
   }
 } finally {

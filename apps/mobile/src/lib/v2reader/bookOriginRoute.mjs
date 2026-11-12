@@ -2,10 +2,9 @@
 // under the origin and CSP it has on Android, with no --allow-file-access-from-files. Checks only, never the app.
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
-import { BOOK_ORIGIN } from './bookOrigin.mjs'
+import { BOOK_ORIGIN, PAGE_URL } from './bookOrigin.mjs'
 
-/** Where the page is loaded (the host's baseUrl). */
-export const PAGE_URL = `${BOOK_ORIGIN}/`
+export { PAGE_URL }
 /** A fixture under the served books directory, by its file name. */
 export const bookAt = (name) => `${BOOK_ORIGIN}/v2/books/${encodeURIComponent(name)}`
 

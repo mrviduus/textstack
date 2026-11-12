@@ -29,7 +29,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `kf8fixture.mjs` | The recipe for the committed **synthetic** KF8 books in `synthetic/` (#1182): Calibre `ebook-convert` over an original EPUB it writes (and over `tshostile.epub`), then `normalise()`; `SYNTHETIC` records each file's SHA-256, asserted by `formats.test.ts`. CI has no Calibre and only reads the committed files. See `synthetic/README.md`. |
 | `sandbox.check.mjs` | The hostile-book check (see Sandbox). |
 | `formats.check.mjs` | The format check (see Formats): one small book per format through the committed page in Chromium. |
-| `pdfgate.mjs` | The ADR-032 PDF gate (#1128 S5): `node --experimental-strip-types pdfgate.mjs <corpusDir> [--map <file>] [--only 3,7]` opens every PDF under a directory through the committed page, one fresh page each (open, page 1 drawn and inked, `next` ×3, chosen `goTo` last page, save + reopen, text layer + selection, peak JS heap, longest main-thread task). Prints indexes (`pdf-NN`), size buckets, pass/fail and error classes only, never a name, path, title or text: the corpus is private and stays outside the repo. |
+| `pdfgate.mjs` | The ADR-032 PDF gate (#1128 S5): `node --experimental-strip-types pdfgate.mjs <corpusDir> [--map <file>] [--only 3,7]` opens every PDF under a directory through the committed page, one fresh page each (open, page 1 drawn and inked, `next` ×3, chosen `goTo` last page, save + reopen, text layer + selection, peak JS heap, longest main-thread task). Since #1228 the file comes through a Playwright route, so its open timings include that transfer and are not comparable with the earlier file:// runs. Prints indexes (`pdf-NN`), size buckets, pass/fail and error classes only, never a name, path, title or text: the corpus is private and stays outside the repo. |
 | `pdfPolyfills.mjs` | Runtime APIs pdf.js 5.5 calls that an older WebView lacks (S5 review), run first in the carried `pdf` reader; installed only where missing. |
 | `frame.mjs`, `framePath.mjs` (+ `.d.mts`) | Web only (#1219, #1225): the page as a no-store shell + a content-hashed page script, and the one handler that serves both (dev, preview, the check; the build writes the same files for nginx). See Host responsibilities, "Web, its own document". `frame.test.ts` pins the split. |
 | `prodCsp.check.mjs` | The production-CSP gate (CI): shell + script under the app CSP read from nginx; the refused variants; nginx's reader locations against the handler's headers. |
@@ -241,14 +241,13 @@ The section iframes are `sandbox="allow-same-origin allow-scripts"`, so the page
 
 ```
 default-src 'none'; script-src 'nonce-__V2_READER_NONCE__'; style-src blob: 'unsafe-inline'; img-src blob: data:;
-font-src blob: data:; media-src blob: data:; frame-src blob:;
-connect-src blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/;
-form-action 'none'; base-uri 'none'
+font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data:; form-action 'none'; base-uri 'none'
 ```
 
-`connect-src` names the two directories the Android host serves (`bookOrigin.mjs`, #1228) and nothing above them; no
-`file:`, so even a script that got past the nonce reaches no app file. The web hosts hand bytes in as `blob:` and
-never use those sources (the host is reserved by Android and does not resolve as a web site).
+That is the page as built and the web frame's. The Android page (`v2ReaderAndroidPageHtml`, #1228) differs in
+`connect-src` only: `blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/`,
+the two directories its interceptor serves (`bookOrigin.mjs`) and nothing above them. No `file:` on either host, so
+even a script that got past the nonce reaches no app file.
 
 **The hostile-book check** (ADR-029 Decision 6) loads the committed page under the Android host's origin in Chromium
 (`bookOriginRoute.mjs`: Playwright routes `https://appassets.androidplatform.net/` with the interceptor's own rule,
@@ -407,8 +406,7 @@ react-native-webview's interceptor (`patches/react-native-webview@13.16.1.patch`
 serves exactly `bookOrigin.mjs` `BOOK_PATH` (`/v2/books/<sha256>.epub`, `/v2/staging/[dl-]<ms>.epub`) from
 `files/v2/`, checks the canonical file is still in `books/` or `staging/` (a symlink cannot lead out), and answers
 404 to anything else on that host, so nothing on it reaches the network. The page reads the book by XHR from it,
-streamed, so no book bytes cross the bridge. The same patch accepts bridge messages from the main frame only (a
-book section is an iframe). `originWhitelist={['*']}` on purpose: react-native-webview opens a navigation outside
+streamed, so no book bytes cross the bridge. The same patch limits the message bridge on that WebView: with `WEB_MESSAGE_LISTENER` (every engine that can run the page, Chrome 117+) only the main frame's messages are delivered; on the `addJavascriptInterface` fallback (older engines, no frame information) only the user-agent answer is, and no book opens there. Other WebViews keep the fallback as it was; on the listener path they too take main-frame messages only (none of them uses iframes). `originWhitelist={['*']}` on purpose: react-native-webview opens a navigation outside
 the whitelist in another app; `onShouldStartLoadWithRequest` (about:/blob:/data: only) is the filter.
 
 **Web, its own document** (#1219, production route #1225): `frame.mjs` splits the page into two files under

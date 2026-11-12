@@ -10,14 +10,13 @@
 //   node --experimental-strip-types formats.check.mjs      (pnpm -C apps/web check:v2-reader-formats)
 import { randomBytes } from 'node:crypto'
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt, routeBookOrigin } from './bookOriginRoute.mjs'
 import { fb2, hostilePdf, pdf, writeFormatFixtures } from './fixtures.mjs'
-import { v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
+import { v2ReaderAndroidPageHtml as v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const { chromium } = createRequire(resolve(here, '../../../../web/package.json'))('@playwright/test')
@@ -255,11 +254,19 @@ try {
     check(seen.length === 0, `no CSP violation while reading a PDF (${seen.join('; ')})`)
 
     console.log('pdf hostile')
+    // The logging host, routed over https like the page (an http one is stopped by mixed content before the CSP
+    // or any link handling could be tested). The control shows it answers a document without this page's CSP.
     const hits = []
-    const server = createServer((req, res) => { hits.push(req.url); res.end('') })
-    await new Promise((ok) => server.listen(0, '127.0.0.1', ok))
+    const evil = 'https://evil.tst:44443'
+    const log = (r) => { hits.push(new URL(r.request().url()).pathname); return r.fulfill({ body: '' }) }
+    await page.context().route(`${evil}/**`, log) // the context: a window a link opened is caught too
+    const control = await browser.newPage()
+    await control.route(`${evil}/**`, log)
+    await control.evaluate((u) => fetch(u, { mode: 'no-cors' }).catch(() => {}), `${evil}/control`)
+    await control.close()
+    check(hits.includes('/control'), `control: the logging host is reachable (${hits.join(', ')})`)
+    hits.length = 0
     try {
-      const evil = `http://127.0.0.1:${server.address().port}`
       writeFileSync(resolve(dir, 'tshostile.pdf'), hostilePdf(evil))
       m = await open('tshostile.pdf')
       check(m.type === 'opened' && m.format === 'pdf', `the hostile PDF opens (${m.type}${m.error ? `, ${m.error}` : ''})`)
@@ -286,7 +293,6 @@ try {
       const hostile = (await violations()).slice(before)
       console.log(`  info  CSP violations reported while the hostile PDF was open: ${hostile.length ? hostile.join('; ') : 'none'}`)
     } finally {
-      server.close()
       await page.setViewportSize({ width: 1280, height: 720 })
     }
   }

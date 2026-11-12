@@ -15,7 +15,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BOOK_ORIGIN } from './bookOrigin.mjs'
 import { PAGE_URL, routeBookOrigin } from './bookOriginRoute.mjs'
-import { v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
+import { v2ReaderAndroidPageHtml as v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const { chromium } = createRequire(resolve(here, '../../../../web/package.json'))('@playwright/test')
@@ -211,6 +211,9 @@ async function gate(file) {
 }
 
 const yn = (v) => (v === true ? 'yes' : v === false ? 'NO' : v ?? '-')
+// #1228: the file now comes through a Playwright route (node read, base64, CDP transfer) where it was a file:// XHR,
+// and that cost lands in "open ms" and "first page ms": not comparable with runs before 2026-11-11.
+console.log('Timings include the route\'s transfer of the file (#1228): not comparable with the file:// runs before 2026-11-11.\n')
 console.log('| file | size | pages | open ms | first page ms | page 1 inked | forward x3 | last page | resume | text layer (page) | selection | peak JS heap MB | longest task ms | pdf.js warnings | errors |')
 console.log('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|')
 try {
