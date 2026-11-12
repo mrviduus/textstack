@@ -40,24 +40,7 @@ Setup, tools and auth: [docs/reference/mcp.md](docs/reference/mcp.md).
 
 ## Run locally
 
-Prerequisites: Docker, pnpm, Node.js ([.nvmrc](.nvmrc)) and the .NET SDK for the target in [Directory.Build.props](Directory.Build.props) (only needed outside Docker).
-
-```bash
-git clone https://github.com/mrviduus/textstack
-cd textstack
-cp .env.example .env     # fill POSTGRES_PASSWORD and JWT_SECRET (32+ chars); OPENAI_API_KEY enables AI features
-make up                  # backend services in Docker (builds on first run)
-pnpm install
-pnpm -C apps/web dev     # web is not a compose service
-```
-
-| Service | URL |
-|---|---|
-| Web | http://localhost:5173 |
-| API | http://localhost:8080 ([Scalar docs](http://localhost:8080/scalar/v1)) |
-| Admin | http://localhost:81 |
-
-Tests, migrations, mobile and the rest: [docs/start/run-locally.md](docs/start/run-locally.md) and [CLAUDE.md](CLAUDE.md).
+From a clone to a book open in the reader, in about 20 minutes: [docs/start/run-locally.md](docs/start/run-locally.md).
 
 ## Documentation
 

@@ -15,27 +15,11 @@ reports, and PRs are welcome.
 
 ## Running locally
 
-See [README: Run locally](../README.md#run-locally). For day-to-day dev, tests,
-migrations, mobile and lint see [local-dev.md](../docs/start/run-locally.md) and
-[CLAUDE.md](../CLAUDE.md).
+Follow [Run TextStack locally](../docs/start/run-locally.md).
 
-## Before sending a PR
+## Sending a PR
 
-1. **Open an issue first** if the change is > ~30 LoC or touches multiple
-   files. Cheaper to align on direction than on code.
-2. **Branch from `main`** with a descriptive name:
-   `feat/<short>`, `fix/<issue>`, `docs/<area>`, `refactor/<area>`, `test/<what>`.
-3. **Tests** — add/update tests for the behavior you changed.
-   ```bash
-   dotnet test                          # backend (unit + integration + extraction + search)
-   pnpm -C apps/web test                # web unit (Vitest)
-   pnpm -C apps/web test:e2e            # Playwright (needs services up)
-   ```
-4. **Lint** — `dotnet format textstack.sln` for backend. Web/admin have no
-   enforced formatter yet; match surrounding style.
-5. **Conventional commit subject** — `type(scope): summary`. Common types:
-   `feat`, `fix`, `refactor`, `docs`, `presale`. One logical change per
-   commit; rebase locally if things got noisy.
+Follow [Ship a first pull request](../docs/start/first-pr.md): issue, branch, checks, commit, PR, area label.
 
 ## PR expectations
 

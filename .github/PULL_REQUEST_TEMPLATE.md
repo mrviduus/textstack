@@ -17,6 +17,11 @@
 
 <!-- If UI change, attach screenshot or GIF. Required, not optional. -->
 
+## Docs
+
+<!-- A change to a command, env var, route, flag or setup step edits the page that states it, in this PR. -->
+Docs: updated / not affected
+
 ## Linked issues
 
 <!-- Closes #NNN -->
@@ -29,5 +34,4 @@
 
 - [ ] One logical change per commit (rebase if noisy)
 - [ ] Conventional commit subject (`type(scope): summary`)
-- [ ] Docs / CLAUDE.md updated if behavior changed
 - [ ] No emoji added to code / docs unless the file already uses them

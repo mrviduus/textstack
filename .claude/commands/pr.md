@@ -84,10 +84,16 @@ Use this template (HEREDOC):
 
 <one-liner from slice brief, or commit revert if no flag>
 
+Docs: <updated | not affected>
+
 ## Notes
 
 <anything reviewer should know — gotchas, follow-ups, open questions>
 ```
+
+**The `Docs:` line (#1237).** A change to a command, an environment variable, a route, a flag or a
+setup step edits the page that states it, in this PR (`docs/start/`, `docs/reference/`, `CLAUDE.md`).
+Then write `Docs: updated`. Nothing of that kind changed: `Docs: not affected`.
 
 ## Step 5 — Route what is not the PR
 
