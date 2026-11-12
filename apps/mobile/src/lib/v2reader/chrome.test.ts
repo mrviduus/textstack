@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   BOOK_CLOSED, CLOSE_BOOK_JS, HOST_MOVE_GRACE_MS, NAV_KEYS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, navKey,
-  readDir, readKey, readRelocate, readTap, reopensOnReady, takenWithoutBook,
+  readDir, readKey, readRelocate, readTap, readWordTap, reopensOnReady, takenWithoutBook,
 } from './chrome.mjs'
 import { MAX_SELECTION_PX } from './selection.mjs'
 
@@ -152,14 +152,16 @@ describe('v2 reader chrome readers (hostile payloads)', () => {
 })
 
 describe('v2 reader bars on relocate (host)', () => {
-  it('scrolledFlow_ReaderMoved_Hides', () => {
-    expect(hidesBarsOnRelocate({ flow: 'scrolled', moved: true, msSinceHostMove: Infinity })).toBe(true)
+  it('readerMoved_Hides_EitherFlow', () => {
+    // One rule: a swipe in paginated flow and a scroll in scrolled flow are both `moved`.
+    expect(hidesBarsOnRelocate({ moved: true, msSinceHostMove: Infinity })).toBe(true)
   })
 
-  it('paginated_OrNotMoved_OrHostJustMoved_Keeps', () => {
-    expect(hidesBarsOnRelocate({ flow: 'paginated', moved: true, msSinceHostMove: Infinity })).toBe(false)
-    expect(hidesBarsOnRelocate({ flow: 'scrolled', moved: false, msSinceHostMove: Infinity })).toBe(false)
-    expect(hidesBarsOnRelocate({ flow: 'scrolled', moved: true, msSinceHostMove: HOST_MOVE_GRACE_MS - 1 })).toBe(false)
+  it('notMoved_OrABarButtonJustMovedIt_Keeps', () => {
+    // A re-layout, an open/restore, a sync goTo: the page says moved false.
+    expect(hidesBarsOnRelocate({ moved: false, msSinceHostMove: Infinity })).toBe(false)
+    expect(hidesBarsOnRelocate({ moved: true, msSinceHostMove: HOST_MOVE_GRACE_MS - 1 })).toBe(false)
+    expect(hidesBarsOnRelocate({ moved: true, msSinceHostMove: HOST_MOVE_GRACE_MS })).toBe(true)
   })
 
   it('hostMoves_FirstRelocateAfterStartIsTheHosts_HoweverLate', () => {
@@ -174,8 +176,31 @@ describe('v2 reader bars on relocate (host)', () => {
 
 describe('v2 reader relocate read for the chrome (hostile payloads)', () => {
   it('readRelocate_Valid_Kept', () => {
-    expect(readRelocate({ type: 'relocate', fraction: 0.5, index: 3, sections: 9, toc: 'Ch 1', dir: 'rtl', cfi: 'x' }))
-      .toEqual({ fraction: 0.5, index: 3, sections: 9, toc: 'Ch 1', dir: 'rtl' })
+    expect(readRelocate({ type: 'relocate', fraction: 0.5, index: 3, sections: 9, toc: 'Ch 1', dir: 'rtl', moved: true, cfi: 'x' }))
+      .toEqual({ fraction: 0.5, index: 3, sections: 9, toc: 'Ch 1', dir: 'rtl', moved: true })
+  })
+
+  it.each([['missing', undefined], ['false', false], ['a string', 'true'], ['1', 1], ['an object', {}]])('readRelocate_moved %s_False', (_, moved) => {
+    expect(readRelocate({ type: 'relocate', moved })?.moved).toBe(false)
+  })
+
+  it('readWordTap_CentreOfTheRect', () => {
+    expect(readWordTap({ type: 'word', word: 'a', rect: { x: 300, y: 100, w: 40, h: 20 } })).toEqual({ x: 320, y: 110 })
+  })
+
+  it.each([
+    ['another type', { type: 'tap', rect: { x: 1, y: 1, w: 1, h: 1 } }],
+    ['no rect', { type: 'word' }],
+    ['rect a string', { type: 'word', rect: 'x' }],
+    ['x NaN', { type: 'word', rect: { x: NaN, y: 1, w: 1, h: 1 } }],
+    ['w missing', { type: 'word', rect: { x: 1, y: 1, h: 1 } }],
+    ['w negative', { type: 'word', rect: { x: 1, y: 1, w: -1, h: 1 } }],
+    ['x past its bound', { type: 'word', rect: { x: MAX_SELECTION_PX + 1, y: 1, w: 1, h: 1 } }],
+    ['w past its bound (centre inside)', { type: 'word', rect: { x: 0, y: 1, w: MAX_SELECTION_PX + 1, h: 1 } }],
+    ['null', null],
+  ])('readWordTap_%s_Dropped', (_, m) => {
+    expect(() => readWordTap(m)).not.toThrow()
+    expect(readWordTap(m)).toBeNull()
   })
 
   it.each([

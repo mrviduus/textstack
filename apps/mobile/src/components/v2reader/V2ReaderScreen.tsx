@@ -23,7 +23,7 @@ import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue 
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
 import {
-  BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readRelocate, readTap,
+  BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readRelocate, readTap, readWordTap,
   reopensOnReady, takenWithoutBook,
 } from '../../lib/v2reader/chrome.mjs'
 import { tapAction } from '../../lib/v2reader/tapZone.mjs'
@@ -284,7 +284,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   useKeepReaderAwake(inBook)
   /** The page viewport's width (the WebView's), the space of `tap.x`. */
   const pageWidth = useRef(0)
-  /** The host's own moves (bar buttons, goTo): their relocates never hide the bars. */
+  /** Bar buttons and the taken offer: the page counts their moves as the reader's, but they keep the bars up. */
   const [hostMoves] = useState(createHostMoves)
   const barTurn = (dir: 'prev' | 'next') => {
     hostMoves.start()
@@ -318,11 +318,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
 
   /**
-   * A `tap` (never a word, a link or a press that dismissed a selection: the page sends none for those): an edge
-   * turns the page, the centre toggles the bars (tapZone.mjs). A fixed-layout book pages whatever the flow setting.
+   * A `tap` (never a link or a press that dismissed a selection: the page sends none for those), or a `word` at its
+   * rect's centre: an edge turns the page, the centre toggles the bars (tapZone.mjs). A fixed-layout book pages
+   * whatever the flow setting.
    */
-  const onTap = (m: unknown) => {
-    const p = readTap(m)
+  const onTap = (p: { x: number; y: number } | null) => {
     const action = tapAction({ x: p?.x, width: pageWidth.current, flow: effectiveFlow, dir: pageDir.current })
     if (action === 'toggle') return toggleBars()
     call(`window.__fol.${action}()`)
@@ -341,7 +341,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    */
   const goTo = (p: PagePosition, chosen = false) => {
     reading.current.baseline = null
-    hostMoves.start()
+    // A chosen goTo (the taken offer) is `moved` to the page; a sync adopt/move is not.
+    if (chosen) hostMoves.start()
     call(`window.__fol.goTo(${JSON.stringify(p)}, ${chosen})`)
   }
 
@@ -555,12 +556,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         if (!inBookRef.current) endBook()
         return
       case 'relocate': {
-        // The reader moving (not the restore's landing, not a move the host made): in scrolled flow that hides the
-        // bars. A re-layout (rotation, font) that changes the CFI still counts (README, Reader chrome).
-        const moved = reading.current.restored && reading.current.cfi != null && (m.cfi ?? null) !== reading.current.cfi
-        if (hidesBarsOnRelocate({ flow: effectiveFlow, moved, msSinceHostMove: hostMoves.onRelocate(Date.now()) })) hideBars()
         // What the chrome shows and follows is read through readRelocate (the page renders untrusted content).
         const shown = readRelocate(m)
+        // The reader moving the place (the page's `moved`), in either flow, hides the bars; not under a bar button.
+        if (hidesBarsOnRelocate({ moved: !!shown?.moved, msSinceHostMove: hostMoves.onRelocate(Date.now()) })) hideBars()
         pageDir.current = shown?.dir ?? pageDir.current
         if (reading.current.restored) {
           reading.current.baseline ??= m.cfi ?? null
@@ -576,6 +575,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // Translation is not this slice: the tap reaches the host and stops here. This host offers no
         // highlight or translation yet, so `opened.annotatable` (false: CBZ, PDF) has nothing to hide here.
         console.log('[v2] word', m.word)
+        onTap(readWordTap(m)) // until the word popup (#1269) replaces it: text is most of the screen
         return
       case 'selection': {
         // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
@@ -585,7 +585,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         return
       }
       case 'tap':
-        onTap(m)
+        onTap(readTap(m))
         return
       case 'key': {
         // A navigation key pressed in the page (#1263), through readKey: one press, one turn (a held key's

@@ -382,18 +382,17 @@ target in the spread already shown counts as arrived (foliate shows it without a
 reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReaderAwake`, all already in the app):
 
 - A book on screen shows a top bar (back, title) and a bottom bar (place from `relocate`, prev/next page) over the
-  WebView; they auto-hide 3 s after each open (a replayed open too); a centre tap toggles them; in scrolled flow
-  (the effective flow: a fixed-layout book pages) the reader moving hides them: a relocate after the restore's
-  landing, not the host's own (a bar button, a sync `goTo`, the taken offer: `createHostMoves`, plus 1 s for the
-  snap after it). Reduced motion: no slide or fade. What the chrome shows comes through `readRelocate` (bounded
-  numbers, a capped string); the position code reads `relocate` as before.
-- **Known:** a re-layout (rotation, `font`, `flow`) that changes the CFI hides the bars as if the reader scrolled.
-  The page knows (foliate's `reason` is `'anchor'` there, the save rule reads it) but does not send it: `relocate`
-  would need `reason` (or a `moved` flag) for the host to tell.
+  WebView; they auto-hide 3 s after each open (a replayed open too); a centre tap toggles them; in either flow a
+  relocate with `moved` (the reader's swipe or scroll; never a re-layout, an open/restore or a sync `goTo`) hides
+  them, except one a bar button or the taken offer caused (`createHostMoves`: its first relocate plus 1 s for the
+  snap after it), so the bars stay under the finger. Reduced motion: no slide or fade. What the chrome shows and
+  follows comes through `readRelocate` (bounded numbers, a capped string, strict `moved`); the position code reads
+  `relocate` as before.
 - Tap zones (`tapZone.mjs` `tapAction`, the web host's too): in paginated flow, and always on a fixed-layout book,
   the outer 25 % of each side turns the page, the middle toggles. `tap.x` (through `readTap`) against the WebView's
   width; the latest direction (`opened.dir`, then every `relocate.dir`, through `readDir`) swaps the edges of an rtl
-  book. Only a `tap` reaches it: a word, a link and a press that dismissed a selection send none.
+  book. A link and a press that dismissed a selection send no `tap`. Until the word popup (#1269), a `word` acts as
+  a tap at the centre of its rect (`readWordTap`): text is most of the screen.
 - Keys (a hardware keyboard): `key` through `readKey` (a held key's repeats dropped) and `keyAction` with the same
   direction: `prev`/`next` turn the page and hide the bars, `bars` (Escape) shows them.
 - Android back: the offer, then the book (back to the list), then the route. No exit prompt.
