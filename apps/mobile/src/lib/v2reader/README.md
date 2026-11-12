@@ -34,6 +34,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `frame.mjs`, `framePath.mjs` (+ `.d.mts`) | Web only (#1219, #1225): the page as a no-store shell + a content-hashed page script, and the one handler that serves both (dev, preview, the check; the build writes the same files for nginx). See Host responsibilities, "Web, its own document". `frame.test.ts` pins the split. |
 | `prodCsp.check.mjs` | The production-CSP gate (CI): shell + script under the app CSP read from nginx; the refused variants; nginx's reader locations against the handler's headers. |
 | `openTracker.mjs` (+ `.d.mts`) | Pure, both hosts: which page answer belongs to which open — the open in flight, a book the page kept on screen while a newer open failed, a stale `restored` (dropped). |
+| `tapZone.mjs` (+ `.d.mts`) | Pure, both hosts (#1263): what a page `tap` does (turn back, turn on, toggle the bars). See Host responsibilities, "Bars and tap zones". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
 | `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
@@ -331,7 +332,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `store` | `key` (= `book.sha256`), `json` | keeps `json` under `key`, verbatim |
 | `relocate` | `index`, `sections`, `fraction`, `toc`, `cfi` | progress UI |
 | `word` | `index`, `word`, `sentence`, `cfi` (null where `annotatable` is false), `rect {x, y, w, h}` (host viewport) | translates, then `showTranslation` (not without a `cfi`) |
-| `tap` | — | a tap not on a word (chrome toggle) |
+| `tap` | — | a tap not on a word: toggles the bars (`tapAction`; an edge turns the page once `tap` carries `x`: Host responsibilities, "Bars and tap zones") |
 | `highlighted` | `id` (v4 UUID), `cfi`, `quote` (first ≤64 code points), `selectedText` (the full selection) | — |
 | `openLink` | `href` | the page forwards only `http(s)` links and the host allowlists again before opening: a stated rule, not an accident. Any other scheme is dropped with a `warn` log (`mailto:`/`tel:` noted on #1069); the page never navigates |
 | `telemetry` | `event: 'reader-flow'`, `mode` (the flow in use), `format`, `switchedInFirst5Min` | one per opened book, 5 min after `opened` or when the next book opens first (a page that dies earlier sends none). Hosts log it: there is no analytics pipeline in the app yet |
@@ -398,6 +399,23 @@ target in the spread already shown counts as arrived (foliate shows it without a
   process, the copy says to reopen the app). No readable version: not blocked, and a missed `ready` names an
   outdated WebView as a likely cause (not when the version is known to be fine).
 - Errors are `role="alert"` (web) / `accessibilityRole="alert"` with a polite live region (Android); Retry is a button.
+
+**Bars and tap zones** (#1263; web host done, Android to follow). The frame fills the screen; a top bar (back to the
+library, the title, the reader's buttons) and a bottom bar (‹ Prev, the position, Next ›) float over it and hide 3 s
+after the first open, on a page turn by tap or key, and on a new place in scrolled flow (a `relocate` whose fraction
+changed; not the first after an open). A centre tap toggles them, Esc and focus on a bar show them; no animation
+under `prefers-reduced-motion`. The states (opening, errors, "not saved", the newer place, read-failed Retry, a
+load error) sit above the book, outside the bars, and never hide with them.
+- **Only a `tap` may turn a page** (`tapZone.mjs` `tapAction`): a word answers `word`, a link `openLink` or nothing, a
+  selection nothing. Paginated flow (a fixed-layout book always): the outer `EDGE_SHARE` of the width each side
+  turns, the centre toggles; scrolled flow: every tap toggles. **The page's `tap` carries no coordinates yet**, so
+  today every tap toggles; the host already reads `tap.x` (page viewport px, as `word.rect`) against its frame's
+  width. Not sent either: the book's direction (edges are left-to-right until `opened` carries it), and a tap that
+  only dismissed a selection still answers `tap` (it must answer nothing once edges turn pages).
+- **Keys (web):** ←/PageUp/Shift+Space back, →/PageDown/Space on, Esc shows the bars; not with Ctrl/Alt/Meta, not in a
+  field, not Space on a button or link (`keyAction`). Keys pressed inside the frame never reach the host (the
+  sections are frames of their own): after a `tap` or `word` the host takes focus back, so the keys keep working;
+  after a drag selection focus stays in the book until the next tap.
 
 **WebView** (Android, #1228; ADR-029 Decision 4 as amended): `source={{ html: v2ReaderPageHtml(nonce), baseUrl:
 'https://appassets.androidplatform.net/' }}`, no file access at all (the library's defaults: `allowFileAccess`,

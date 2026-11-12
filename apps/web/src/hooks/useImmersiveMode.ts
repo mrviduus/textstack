@@ -39,6 +39,13 @@ export function useImmersiveMode(_enabled: boolean, isLoading: boolean) {
     clearTimer()
   }, [])
 
+  /** Hides them now (the V2 reader: a page turn, a scroll inside its frame). */
+  const hideBars = useCallback(() => {
+    setImmersiveMode(true)
+    lastDirRef.current = 'down'
+    clearTimer()
+  }, [])
+
   useEffect(() => {
     if (isLoading) return
     baselineRef.current = window.scrollY
@@ -79,5 +86,5 @@ export function useImmersiveMode(_enabled: boolean, isLoading: boolean) {
     return () => window.removeEventListener('scroll', onScroll)
   }, [isLoading])
 
-  return { immersiveMode, showBars, startTimer }
+  return { immersiveMode, showBars, hideBars, startTimer }
 }

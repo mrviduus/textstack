@@ -15,6 +15,11 @@ const FIXTURE = path.resolve(__dirname, '../fixtures/v2-sync.epub')
 const FIRST_SECTION_TEXT = 'The Pond, paragraph 1.'
 
 const status = (page: Page) => page.getByTestId('v2-status')
+/** The bar's Next: the bars hide while reading (#1263), Esc shows them. */
+async function next(page: Page) {
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Next ›' }).click()
+}
 const pick = (page: Page) => page.getByLabel('Pick EPUB').setInputFiles(FIXTURE)
 const library = (page: Page) =>
   page.evaluate(() => JSON.parse(localStorage.getItem('v2reader:library') ?? '{"books":[]}').books as unknown[])
@@ -85,7 +90,7 @@ test.describe('V2 reader dev route @v2-reader-dev', () => {
   test('Next turns the page', async ({ page }) => {
     await openFixture(page)
     const before = await status(page).textContent()
-    await page.getByRole('button', { name: 'Next ›' }).click()
+    await next(page)
     await expect(status(page)).not.toHaveText(before ?? '')
   })
 
@@ -94,7 +99,7 @@ test.describe('V2 reader dev route @v2-reader-dev', () => {
   test('a failed open after a book shows no position of the previous book', async ({ page }) => {
     await openFixture(page)
     const before = await status(page).textContent()
-    await page.getByRole('button', { name: 'Next ›' }).click()
+    await next(page)
     await expect(status(page)).not.toHaveText(before ?? '')
     await page.getByLabel('Pick EPUB').setInputFiles({ name: 'broken.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('not a zip') })
     await expect(page.getByRole('alert')).toContainText('cannot open broken.epub')
@@ -106,7 +111,7 @@ test.describe('V2 reader dev route @v2-reader-dev', () => {
   test('after a reload, reopening the file restores the position from localStorage', async ({ page }) => {
     await openFixture(page)
     const start = await status(page).textContent()
-    for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Next ›' }).click()
+    for (let i = 0; i < 3; i++) await next(page)
     // The page saves only after a turn, debounced; whatever it saved last is what a reopen must restore.
     await expect.poll(() => storedPosition(page)).not.toBeNull()
 

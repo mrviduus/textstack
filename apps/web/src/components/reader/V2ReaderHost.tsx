@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import type { PagePosition } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
 import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reader/openTracker.mjs'
 import { V2_READER_FRAME_PATH } from '../../../../mobile/src/lib/v2reader/framePath.mjs'
 import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
+import { tapAction } from '../../../../mobile/src/lib/v2reader/tapZone.mjs'
+import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
 import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
@@ -61,6 +64,22 @@ export { READY_DEADLINE_MS }
  */
 type Opening = { name: string; originalName: string; bytes?: ArrayBuffer; sync?: V2SyncTarget }
 
+type KeyInput = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'altKey' | 'target'>
+/**
+ * A key on the host's document as a reader command (#1263): ←/PageUp/Shift+Space back, →/PageDown/Space on, Esc
+ * shows the bars. Null: not the reader's (a modifier chord such as Alt+← history back, typing in a field, Space
+ * on a button or link, which activates it).
+ */
+export function keyAction(e: KeyInput): 'prev' | 'next' | 'show' | null {
+  if (e.ctrlKey || e.metaKey || e.altKey) return null
+  if (e.key === 'Escape') return 'show'
+  const el = e.target instanceof Element ? e.target : null
+  if (el?.closest('input, textarea, select, [contenteditable]')) return null
+  if (e.key === ' ') return el?.closest('button, a') ? null : e.shiftKey ? 'prev' : 'next'
+  if (e.key === 'ArrowLeft' || e.key === 'PageUp') return 'prev'
+  return e.key === 'ArrowRight' || e.key === 'PageDown' ? 'next' : null
+}
+
 interface Props {
   book: V2HostBook | null
   /** The page took a book (after the open tracker's checks): the dev route records it in its library. */
@@ -80,9 +99,11 @@ interface Props {
   onReload?: () => void
   /** The dev route: reader data in localStorage, the `restore:` line and a stub translation label on a tapped word. */
   dev?: boolean
+  /** The top bar's back link (none without it: the dev route). */
+  backUrl?: string
 }
 
-export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, onReload, dev = false }: Props) {
+export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, onReload, dev = false, backUrl }: Props) {
   const { t } = useTranslation()
   const frame = useRef<HTMLIFrameElement>(null)
   const ready = useRef(false)
@@ -123,9 +144,28 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const retryRead = useRef<(() => void) | null>(null)
   /** Another device's newer place, offered (#1232, ADR-019 `prompt`); the newest one shown until answered or a new open. */
   const [offer, setOffer] = useState<PagePosition | null>(null)
+  /**
+   * The bars (#1263): hidden 3 s after the first open, by a page turn (edge tap, key) and by scrolling in scrolled
+   * flow; a centre tap toggles them, Esc and focus on a bar show them. The states above them never hide.
+   */
+  const main = useRef<HTMLElement>(null)
+  const [reading, setReading] = useState(false)
+  const { immersiveMode: barsHidden, showBars, hideBars } = useImmersiveMode(true, !reading)
+  const barsHiddenRef = useRef(barsHidden)
+  barsHiddenRef.current = barsHidden
+  const reflowableRef = useRef(reflowable)
+  reflowableRef.current = reflowable
+  /** The last relocate's fraction: in scrolled flow a new one is the reader scrolling. */
+  const lastFraction = useRef<number | null>(null)
 
-  const call = (name: string, args: unknown[] = [], transfer: Transferable[] = []) =>
+  const call =(name: string, args: unknown[] = [], transfer: Transferable[] = []) =>
     frame.current?.contentWindow?.postMessage({ call: name, args }, location.origin, transfer)
+  /**
+   * A key pressed inside the frame never reaches this document (the book's sections are frames of their own), and a
+   * click in the book takes focus there. A tap or word tap (its selection is collapsed) hands focus back here, so
+   * the keys keep turning pages; after a drag selection focus stays in the book (the page forwards no keys).
+   */
+  const focusHost = () => main.current?.focus({ preventScroll: true })
   const flushOpen = () => {
     const o = opening.current
     if (!ready.current || !o?.bytes) return
@@ -217,6 +257,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       }
       setAnnotatable(m.annotatable !== false)
       setReflowable(m.reflowable !== false)
+      setReading(true)
+      lastFraction.current = null
       setHeading([m.title || current.originalName, m.author].filter(Boolean).join(' — '))
       onOpenedRef.current?.(m, current.originalName)
     }
@@ -272,10 +314,26 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         case 'relocate':
           // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
           if (!tracker.showsPosition()) return
+          // Scrolled flow: a new place is the reader scrolling (not the first after an open, nor a re-layout in place).
+          if (flowRef.current === 'scrolled' && lastFraction.current !== null && m.fraction !== lastFraction.current) hideBars()
+          lastFraction.current = m.fraction ?? null
           setStatus(t('v2Reader.position', { percent: Math.round((m.fraction ?? 0) * 100), index: (m.index ?? 0) + 1, sections: m.sections ?? '?' })
             + (m.toc ? ` · ${m.toc}` : ''))
           return
+        case 'tap': {
+          // Only a tap off any word, link and selection is a `tap` (page.mjs onTap), so only it may turn a page.
+          // `x` (the tap in the page's viewport = this frame's) is not sent by the page yet: without it every tap
+          // toggles (tapZone.mjs). A book's direction is not sent either: the edges are left-to-right.
+          focusHost()
+          const flow = reflowableRef.current ? flowRef.current : 'paginated'
+          const action = tapAction({ x: m.x, width: frame.current?.clientWidth, flow })
+          if (action === 'toggle') return barsHiddenRef.current ? showBars() : hideBars()
+          call(action)
+          hideBars()
+          return
+        }
         case 'word':
+          focusHost()
           // Dev stub: no translation service yet; the label proves the word → showTranslation round trip.
           // No CFI (a book that is not `annotatable`, e.g. a PDF): no label can be drawn, none is asked for.
           if (dev && m.cfi) call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
@@ -307,6 +365,19 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     }
   }, [])
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const action = keyAction(e)
+      if (!action) return
+      if (action === 'show') return showBars()
+      e.preventDefault()
+      call(action)
+      hideBars()
+    }
+    addEventListener('keydown', onKey)
+    return () => removeEventListener('keydown', onKey)
+  }, [])
+
   const toggleFlow = () => {
     const next: Flow = flow === 'paginated' ? 'scrolled' : 'paginated'
     setFlow(next)
@@ -316,50 +387,71 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   }
 
   return (
-    <main style={{ display: 'flex', flexDirection: 'column', height: '100vh', padding: 8, boxSizing: 'border-box', gap: 4 }}>
-      <div style={{ display: 'flex', gap: 8 }}>
-        {toolbar}
-        <button onClick={() => call('prev')}>{t('v2Reader.prev')}</button>
-        <button onClick={() => call('next')}>{t('v2Reader.next')}</button>
-        {annotatable && (dev || highlightsReady) && <button onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
-        <button onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
-      </div>
-      <strong data-testid="v2-heading">{heading ?? idleHeading}</strong>
-      <span data-testid="v2-status">{status}</span>
-      {saveStatus !== 'saved' && (
-        <span role="status" data-testid="v2-not-saved">{t(SAVE_MESSAGE[saveStatus])}</span>
-      )}
-      {offer && (
-        <div role="status" aria-label={t('v2Reader.newerPlaceLabel')} data-testid="v2-newer-place">
-          {t('v2Reader.newerPlace', { percent: Math.round((offer.fraction ?? 0) * 100) })}{' '}
-          <button onClick={() => setOffer(null)}>{t('v2Reader.stayHere')}</button>{' '}
-          {/* Chosen: the page saves where it lands (README, `goTo`). */}
-          <button onClick={() => { call('goTo', [offer, true]); setOffer(null) }}>{t('v2Reader.goThere')}</button>
+    <main ref={main} tabIndex={-1} className={`reader-page v2-reader${barsHidden ? ' immersive-mode' : ''}`} data-bars={barsHidden ? 'hidden' : 'shown'}>
+      {/* Legacy reader's bars (reader.css); hidden ones stay reachable by Tab, and focus shows them. */}
+      <header className="reader-top-bar" onFocus={showBars}>
+        <div className="reader-top-bar__left">
+          {backUrl && (
+            <Link to={backUrl} className="reader-top-bar__back" aria-label={t('v2Reader.back')}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+              </svg>
+            </Link>
+          )}
+          <div className="reader-top-bar__title">
+            <span className="reader-top-bar__book-title" data-testid="v2-heading">{heading ?? idleHeading}</span>
+          </div>
         </div>
-      )}
-      {readFailed && (
-        <span role="alert" data-testid="v2-read-failed">
-          {t('v2Reader.readFailed')} <button onClick={() => retryRead.current?.()}>{t('v2Reader.retry')}</button>
-        </span>
-      )}
-      {dev && <span data-testid="v2-restore">{restored}</span>}
-      {overdue && (
-        <span role="alert" data-testid="v2-overdue">
-          {overdue === 'ready'
-            ? t('v2Reader.frameFailed', { path: FRAME_SRC, seconds: readyDeadlineMs / 1000 })
-            : t('v2Reader.openTimeout', { name: opening.current?.originalName ?? '', seconds: Math.ceil(openedDeadlineMs(openedBytes.current) / 1000) })}{' '}
-          <button onClick={reloadFrame}>{t('v2Reader.retry')}</button>
-        </span>
-      )}
-      {error && <span role="alert">{error}</span>}
-      {children}
+        <div className="reader-top-bar__right">
+          {toolbar}
+          {annotatable && (dev || highlightsReady) && <button className="reader-top-bar__btn" onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
+          <button className="reader-top-bar__btn" onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
+        </div>
+      </header>
       {/* allow-same-origin is required: foliate reads its section frames' documents, and under an opaque
           origin every nested frame gets its own. So the page shares the app's origin, and the page CSP is the
           only script barrier (README "Sandbox"). A book script past it would reach this origin's localStorage
           AND its /api session cookie. The shell itself is public (it carries no data, nginx serves it to
           anyone); what is gated is the route that hands it a book, behind Features:V2Api (off in production).
           A second origin is revisited before M5 (docs/01-architecture/v2-reader-web-hosting.md). */}
-      <iframe key={frameLoad} ref={frame} title="V2 reader" sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} style={{ flex: 1, border: '1px solid #ccc' }} />
+      <iframe key={frameLoad} ref={frame} title="V2 reader" sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} className="v2-reader__frame" />
+      <footer className="reader-footer" onFocus={showBars}>
+        <div className="reader-footer__info">
+          <button className="reader-top-bar__btn" onClick={() => call('prev')}>{t('v2Reader.prev')}</button>
+          <span className="reader-footer__counter" data-testid="v2-status">{status}</span>
+          <button className="reader-top-bar__btn reader-footer__percent" onClick={() => call('next')}>{t('v2Reader.next')}</button>
+        </div>
+      </footer>
+      {/* The states: above the book and never hidden with the bars. */}
+      <div className="v2-reader__notices">
+        {saveStatus !== 'saved' && (
+          <span role="status" data-testid="v2-not-saved">{t(SAVE_MESSAGE[saveStatus])}</span>
+        )}
+        {offer && (
+          <div role="status" aria-label={t('v2Reader.newerPlaceLabel')} data-testid="v2-newer-place">
+            {t('v2Reader.newerPlace', { percent: Math.round((offer.fraction ?? 0) * 100) })}{' '}
+            <button onClick={() => setOffer(null)}>{t('v2Reader.stayHere')}</button>{' '}
+            {/* Chosen: the page saves where it lands (README, `goTo`). */}
+            <button onClick={() => { call('goTo', [offer, true]); setOffer(null) }}>{t('v2Reader.goThere')}</button>
+          </div>
+        )}
+        {readFailed && (
+          <span role="alert" data-testid="v2-read-failed">
+            {t('v2Reader.readFailed')} <button onClick={() => retryRead.current?.()}>{t('v2Reader.retry')}</button>
+          </span>
+        )}
+        {dev && <span data-testid="v2-restore">{restored}</span>}
+        {overdue && (
+          <span role="alert" data-testid="v2-overdue">
+            {overdue === 'ready'
+              ? t('v2Reader.frameFailed', { path: FRAME_SRC, seconds: readyDeadlineMs / 1000 })
+              : t('v2Reader.openTimeout', { name: opening.current?.originalName ?? '', seconds: Math.ceil(openedDeadlineMs(openedBytes.current) / 1000) })}{' '}
+            <button onClick={reloadFrame}>{t('v2Reader.retry')}</button>
+          </span>
+        )}
+        {error && <span role="alert">{error}</span>}
+        {children}
+      </div>
     </main>
   )
 }

@@ -1330,5 +1330,6 @@
   "v2Reader.newerPlaceLabel": "Newer reading place",
   "v2Reader.newerPlace": "Another device saved a newer place in this book ({{percent}}%).",
   "v2Reader.stayHere": "Stay here",
-  "v2Reader.goThere": "Go to their place"
+  "v2Reader.goThere": "Go to their place",
+  "v2Reader.back": "Back to the library"
 }
