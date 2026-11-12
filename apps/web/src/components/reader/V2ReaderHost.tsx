@@ -8,7 +8,7 @@ import { V2_READER_FRAME_PATH } from '../../../../mobile/src/lib/v2reader/frameP
 import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
 import { tapAction } from '../../../../mobile/src/lib/v2reader/tapZone.mjs'
 import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs'
-import { keyAction, navKey, readDir, readKey, readTap } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
+import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readRelocate, readTap, readWordTap, takenWithoutBook, type V2NavKey } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
@@ -66,6 +66,24 @@ export { READY_DEADLINE_MS }
  */
 type Opening = { name: string; originalName: string; bytes?: ArrayBuffer; sync?: V2SyncTarget }
 
+type HostKeyEvent = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'ctrlKey' | 'altKey' | 'metaKey' | 'repeat' | 'target'>
+/**
+ * A keydown on the host's own document as a navigation key (#1263), or null. The page's `navKey` takes keys on
+ * its document body only; here a focused bar control keeps only the keys it uses itself, so after a click on
+ * Next › the arrows still turn: Space on a button or link, every key in a field. Escape always (the bars). No
+ * Ctrl/Alt/Meta, no Shift+arrow (it extends a selection), as `navKey`.
+ */
+export function hostNavKey(e: HostKeyEvent): { key: V2NavKey; shift: boolean; repeat: boolean } | null {
+  if (e.ctrlKey || e.altKey || e.metaKey) return null
+  const key = (e.key === ' ' ? 'Space' : e.key) as V2NavKey
+  if (!NAV_KEYS.includes(key) || (e.shiftKey && key.startsWith('Arrow'))) return null
+  const k = { key, shift: !!e.shiftKey, repeat: !!e.repeat }
+  if (key === 'Escape') return k
+  const el = e.target instanceof Element ? e.target : null
+  if (el?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return null
+  if (key === 'Space' && el?.closest('button, a[href], summary, [role="button"]')) return null
+  return k
+}
 
 interface Props {
   book: V2HostBook | null
@@ -73,7 +91,7 @@ interface Props {
   onOpened?: (m: V2OpenedMessage, originalName: string) => void
   /** Controls before the reader's own (the dev route's file input). */
   toolbar?: ReactNode
-  /** Between the status lines and the frame (the dev route's library; the production route's load error). */
+  /** In the states box above the frame (the dev route's library; the production route's load error). */
   children?: ReactNode
   /** The heading until the first open (the prod route clears it on a load error). */
   idleHeading?: string
@@ -134,17 +152,33 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   /** Another device's newer place, offered (#1232, ADR-019 `prompt`); the newest one shown until answered or a new open. */
   const [offer, setOffer] = useState<PagePosition | null>(null)
   /**
-   * The bars (#1263): hidden 3 s after the first open, by a page turn (edge tap, key) and by scrolling in scrolled
-   * flow; a centre tap toggles them, Esc and focus on a bar show them. The states above them never hide.
+   * The bars (#1263): hidden 3 s after `opened`, by a page turn (tap, key) and by the reader moving the place
+   * (`relocate.moved`, either flow) unless a bar button or the taken offer moved it; a centre tap toggles them,
+   * Esc and focus on a bar show them. A new open shows them (its title is the opening state) and they stay up
+   * until `opened`. The states box above the frame never hides.
    */
-  const [reading, setReading] = useState(false)
+  const [reading, setReadingState] = useState(false)
+  /**
+   * A book is on screen and no open is in flight: only then do taps and keys turn pages or hide the bars. Set at
+   * once with the state: the page's next message may come before the re-render.
+   */
+  const readingRef = useRef(false)
+  const setReading = (v: boolean) => {
+    readingRef.current = v
+    setReadingState(v)
+  }
   const { immersiveMode: barsHidden, showBars, hideBars } = useImmersiveMode(true, !reading)
   const barsHiddenRef = useRef(barsHidden)
   barsHiddenRef.current = barsHidden
   const reflowableRef = useRef(reflowable)
   reflowableRef.current = reflowable
-  /** The last relocate's fraction: in scrolled flow a new one is the reader scrolling. */
-  const lastFraction = useRef<number | null>(null)
+  /** The flow in effect: a fixed-layout book pages whatever the setting. */
+  const effectiveFlow = (): Flow => (reflowableRef.current ? flowRef.current : 'paginated')
+  /** A bar button's or the taken offer's move: its relocates keep the bars up (chrome.mjs). */
+  const [hostMoves] = useState(() => createHostMoves())
+  const main = useRef<HTMLElement>(null)
+  const header = useRef<HTMLElement>(null)
+  const footer = useRef<HTMLElement>(null)
 
   const call = (name: string, args: unknown[] = [], transfer: Transferable[] = []) =>
     frame.current?.contentWindow?.postMessage({ call: name, args }, location.origin, transfer)
@@ -157,11 +191,16 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     if (k.repeat) return true
     const action = keyAction({ ...k, dir: pageDir.current })
     if (action === 'bars') showBars()
-    else if (action) {
+    else if (action && readingRef.current) {
       call(action)
       hideBars()
     }
     return !!action
+  }
+  /** A bar button or the taken offer moving the book: the bars stay. */
+  const hostMove = (name: string, args: unknown[] = []) => {
+    hostMoves.start()
+    call(name, args)
   }
   const flushOpen = () => {
     const o = opening.current
@@ -182,6 +221,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setHeading(t('v2Reader.opening', { name: book.name }))
     setStatus('')
     setRestored('')
+    // The opening state is the top bar's title: shown, and kept up until `opened`.
+    setReading(false)
+    showBars()
     opening.current = { name: `${++opens.current}/${book.name}`, originalName: book.name, bytes: book.bytes, sync: book.sync }
     tracker.open(opening.current.name, opening.current)
     flushOpen()
@@ -195,6 +237,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   /** Retry after a deadline: a fresh frame; an open whose bytes the old one took is asked for again (`onReload`). */
   const reloadFrame = () => {
     ready.current = false
+    // A fresh frame has no book on screen.
+    setReading(false)
+    showBars()
     const o = opening.current
     if (o && !o.bytes) {
       opening.current = null
@@ -255,7 +300,6 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       setAnnotatable(m.annotatable !== false)
       setReflowable(m.reflowable !== false)
       setReading(true)
-      lastFraction.current = null
       // Untrusted (the page renders the book): only what readDir takes; none is left to right.
       pageDir.current = readDir(m) ?? 'ltr'
       setHeading([m.title || current.originalName, m.author].filter(Boolean).join(' — '))
@@ -265,6 +309,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       if (e.source !== frame.current?.contentWindow || e.origin !== location.origin || typeof e.data !== 'string') return
       let m: any
       try { m = JSON.parse(e.data) } catch { return }
+      // No book on screen (loading, opening, a fresh frame): a tap, key, word or selection does nothing.
+      if (!readingRef.current && !takenWithoutBook(m?.type)) return
       switch (m?.type) {
         case 'ready':
           deadlines.ready()
@@ -310,24 +356,28 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (dev) writeItem(storeKey(m.key), m.json)
           else if (sync.current && m.key === sync.current.target.sha256) sync.current.store(m.json)
           return
-        case 'relocate':
-          pageDir.current = readDir(m) ?? pageDir.current
+        case 'relocate': {
+          // Untrusted (the page renders the book): the chrome reads only what readRelocate takes.
+          const r = readRelocate(m)
+          if (!r) return
+          pageDir.current = r.dir ?? pageDir.current
+          const msSinceHostMove = hostMoves.onRelocate(Date.now())
+          if (readingRef.current && hidesBarsOnRelocate({ moved: r.moved, msSinceHostMove })) hideBars()
           // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
           if (!tracker.showsPosition()) return
-          // Scrolled flow: a new place is the reader scrolling (not the first after an open, nor a re-layout in place).
-          if (flowRef.current === 'scrolled' && lastFraction.current !== null && m.fraction !== lastFraction.current) hideBars()
-          lastFraction.current = m.fraction ?? null
-          setStatus(t('v2Reader.position', { percent: Math.round((m.fraction ?? 0) * 100), index: (m.index ?? 0) + 1, sections: m.sections ?? '?' })
-            + (m.toc ? ` · ${m.toc}` : ''))
+          setStatus(t('v2Reader.position', { percent: Math.round((r.fraction ?? 0) * 100), index: (r.index ?? 0) + 1, sections: r.sections ?? '?' })
+            + (r.toc ? ` · ${r.toc}` : ''))
           return
-        case 'tap': {
-          // Only a tap off any word, link and selection is a `tap` (no `tap` for a press that dismissed a
-          // selection), so only it may turn a page. Untrusted: only what readTap takes; a malformed one is dropped.
-          // Its x is in the page's viewport, which is this frame's.
-          const p = readTap(m)
+        }
+        case 'tap':
+        case 'word': {
+          // A press that dismissed a selection sends no `tap`, a link none either. Until the word popup (#1269)
+          // a word is a tap at its centre. Untrusted: only what readTap / readWordTap take. Page-viewport px = this frame's.
+          // Dev stub: no translation service yet; the label proves the word → showTranslation round trip (no CFI: none).
+          if (m.type === 'word' && dev && m.cfi) call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
+          const p = m.type === 'tap' ? readTap(m) : readWordTap(m)
           if (!p) return
-          const flow = reflowableRef.current ? flowRef.current : 'paginated'
-          const action = tapAction({ x: p.x, width: frame.current?.clientWidth, flow, dir: pageDir.current })
+          const action = tapAction({ x: p.x, width: frame.current?.clientWidth, flow: effectiveFlow(), dir: pageDir.current })
           if (action === 'toggle') return barsHiddenRef.current ? showBars() : hideBars()
           call(action)
           hideBars()
@@ -338,11 +388,6 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           onNavKey(readKey(m))
           return
         }
-        case 'word':
-          // Dev stub: no translation service yet; the label proves the word → showTranslation round trip.
-          // No CFI (a book that is not `annotatable`, e.g. a PDF): no label can be drawn, none is asked for.
-          if (dev && m.cfi) call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
-          return
         case 'selection': {
           // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
           // No toolbar in this slice (#1268): the dev route logs it, the production route takes it no further.
@@ -379,11 +424,17 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (onNavKey(navKey(e))) e.preventDefault()
+      if (onNavKey(hostNavKey(e))) e.preventDefault()
     }
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
   }, [])
+
+  // Hidden bars keep no focus: an invisible control must not be activated by a key.
+  useEffect(() => {
+    const at = document.activeElement
+    if (barsHidden && at && (header.current?.contains(at) || footer.current?.contains(at))) main.current?.focus({ preventScroll: true })
+  }, [barsHidden])
 
   const toggleFlow = () => {
     const next: Flow = flow === 'paginated' ? 'scrolled' : 'paginated'
@@ -394,9 +445,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   }
 
   return (
-    <main className={`reader-page v2-reader${barsHidden ? ' immersive-mode' : ''}`} data-bars={barsHidden ? 'hidden' : 'shown'}>
+    <main ref={main} tabIndex={-1} className={`reader-page v2-reader${barsHidden ? ' immersive-mode' : ''}`} data-bars={barsHidden ? 'hidden' : 'shown'}>
       {/* Legacy reader's bars (reader.css); hidden ones stay reachable by Tab, and focus shows them. */}
-      <header className="reader-top-bar" onFocus={showBars}>
+      <header ref={header} className="reader-top-bar" onFocus={showBars}>
         <div className="reader-top-bar__left">
           {backUrl && (
             <Link to={backUrl} className="reader-top-bar__back" aria-label={t('v2Reader.back')}>
@@ -415,21 +466,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           <button className="reader-top-bar__btn" onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
         </div>
       </header>
-      {/* allow-same-origin is required: foliate reads its section frames' documents, and under an opaque
-          origin every nested frame gets its own. So the page shares the app's origin, and the page CSP is the
-          only script barrier (README "Sandbox"). A book script past it would reach this origin's localStorage
-          AND its /api session cookie. The shell itself is public (it carries no data, nginx serves it to
-          anyone); what is gated is the route that hands it a book, behind Features:V2Api (off in production).
-          A second origin is revisited before M5 (docs/01-architecture/v2-reader-web-hosting.md). */}
-      <iframe key={frameLoad} ref={frame} title="V2 reader" sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} className="v2-reader__frame" />
-      <footer className="reader-footer" onFocus={showBars}>
-        <div className="reader-footer__info">
-          <button className="reader-top-bar__btn" onClick={() => call('prev')}>{t('v2Reader.prev')}</button>
-          <span className="reader-footer__counter" data-testid="v2-status">{status}</span>
-          <button className="reader-top-bar__btn reader-footer__percent" onClick={() => call('next')}>{t('v2Reader.next')}</button>
-        </div>
-      </footer>
-      {/* The states: above the book and never hidden with the bars. */}
+      {/* The states: in layout above the frame (never over the book), never hidden with the bars. */}
       <div className="v2-reader__notices">
         {saveStatus !== 'saved' && (
           <span role="status" data-testid="v2-not-saved">{t(SAVE_MESSAGE[saveStatus])}</span>
@@ -439,7 +476,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             {t('v2Reader.newerPlace', { percent: Math.round((offer.fraction ?? 0) * 100) })}{' '}
             <button onClick={() => setOffer(null)}>{t('v2Reader.stayHere')}</button>{' '}
             {/* Chosen: the page saves where it lands (README, `goTo`). */}
-            <button onClick={() => { call('goTo', [offer, true]); setOffer(null) }}>{t('v2Reader.goThere')}</button>
+            <button onClick={() => { hostMove('goTo', [offer, true]); setOffer(null) }}>{t('v2Reader.goThere')}</button>
           </div>
         )}
         {readFailed && (
@@ -459,6 +496,20 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         {error && <span role="alert">{error}</span>}
         {children}
       </div>
+      {/* allow-same-origin is required: foliate reads its section frames' documents, and under an opaque
+          origin every nested frame gets its own. So the page shares the app's origin, and the page CSP is the
+          only script barrier (README "Sandbox"). A book script past it would reach this origin's localStorage
+          AND its /api session cookie. The shell itself is public (it carries no data, nginx serves it to
+          anyone); what is gated is the route that hands it a book, behind Features:V2Api (off in production).
+          A second origin is revisited before M5 (docs/01-architecture/v2-reader-web-hosting.md). */}
+      <iframe key={frameLoad} ref={frame} title="V2 reader" sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} className="v2-reader__frame" />
+      <footer ref={footer} className="reader-footer" onFocus={showBars}>
+        <div className="reader-footer__info v2-reader__footer">
+          <button className="reader-top-bar__btn" onClick={() => hostMove('prev')}>{t('v2Reader.prev')}</button>
+          <span className="reader-footer__counter" data-testid="v2-status">{status}</span>
+          <button className="reader-top-bar__btn" onClick={() => hostMove('next')}>{t('v2Reader.next')}</button>
+        </div>
+      </footer>
     </main>
   )
 }

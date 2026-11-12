@@ -114,7 +114,7 @@ test.describe('V2 reader page @v2', () => {
   })
 
   // #1263: the bars hide while reading; keys and an edge tap turn the page; a tap off any word toggles the bars.
-  test('readV2Chrome_BarsHide_KeysInAndOutOfTheBookAndEdgeTapsTurn_ACentreTapTogglesTheBars', async ({ browser }) => {
+  test('readV2Chrome_TextAndEdgeTapsKeysAndTheBarsNext_TurnAndToggleAsTheyShould', async ({ browser }) => {
     const context = await v2Context(browser, email('v2bars'))
     const page = await context.newPage()
     const bookId = await uploadFixture(page)
@@ -130,16 +130,22 @@ test.describe('V2 reader page @v2', () => {
     await page.keyboard.press('PageUp')
     await expect(status(page)).toHaveText(first)
 
-    // A tap off any word (between the first two paragraphs) toggles the bars; focus stays in the book.
+    // Taps on the text (a word acts as a tap at its centre until the word popup, #1269): the centre toggles the
+    // bars, an edge turns; focus stays in the book.
     const frames = page.frames().filter((f) => f.url().startsWith('blob:'))
     const texts = await Promise.all(frames.map((f) => f.evaluate(() => document.body?.innerText ?? '').catch(() => '')))
     const section = frames[texts.findIndex((t) => t.includes(FIRST_SECTION_TEXT))]
-    const [a, b] = [await section.locator('p').nth(0).boundingBox(), await section.locator('p').nth(1).boundingBox()]
-    const gap = { x: a!.x + a!.width / 2, y: (a!.y + a!.height + b!.y) / 2 }
-    await page.mouse.click(gap.x, gap.y)
+    const a = (await section.locator('p').nth(0).boundingBox())!
+    const width = page.viewportSize()!.width
+    const line = a.y + 12
+    await page.mouse.click(width / 2 - 200, line)
     await expect(main).toHaveAttribute('data-bars', 'shown')
-    await page.mouse.click(gap.x, gap.y)
+    await page.mouse.click(width / 2 - 200, line)
     await expect(main).toHaveAttribute('data-bars', 'hidden')
+    await page.mouse.click(width - a.x - 30, line)
+    await expect(status(page)).not.toHaveText(first)
+    await page.mouse.click(a.x + 15, line)
+    await expect(status(page)).toHaveText(first)
 
     // Keys with focus inside the book: the page forwards them (`key`).
     expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('IFRAME')
@@ -148,17 +154,24 @@ test.describe('V2 reader page @v2', () => {
     await page.keyboard.press('Escape')
     await expect(main).toHaveAttribute('data-bars', 'shown')
 
-    // Edge taps at the very edges (the page's own margin): left back, right on; a turn hides the bars.
-    const width = page.viewportSize()!.width
-    await page.mouse.click(10, gap.y)
+    // The very edges (the page's own margin): left back, right on; a turn hides the bars.
+    await page.mouse.click(10, line)
     await expect(status(page)).toHaveText(first)
     await expect(main).toHaveAttribute('data-bars', 'hidden')
-    await page.mouse.click(width - 10, gap.y)
+    await page.mouse.click(width - 10, line)
     await expect(status(page)).not.toHaveText(first)
     // A key after a click in the page's margin: forwarded from the page's own document.
     const turned = (await status(page).textContent()) ?? ''
     await page.keyboard.press('ArrowLeft')
+    await expect(status(page)).toHaveText(first)
+
+    // The bar's Next keeps the bars under the cursor; a key after it still turns (and hides them).
+    await clickBar(page, 'Next ›')
+    await expect(status(page)).toHaveText(turned)
+    await expect(main).toHaveAttribute('data-bars', 'shown')
+    await page.keyboard.press('ArrowRight')
     await expect(status(page)).not.toHaveText(turned)
+    await expect(main).toHaveAttribute('data-bars', 'hidden')
     await context.close()
   })
 

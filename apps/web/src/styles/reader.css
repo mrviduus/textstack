@@ -939,56 +939,57 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   }
 }
 
-/* The V2 reader (#1263): its frame fills the viewport, the bars above float over it; the states sit above both. */
+/* The V2 reader (#1263): the states box, then the frame taking the rest of the viewport; the bars float over the
+   frame. The states take layout space (below the top bar's height), never cover the book. */
 .v2-reader {
   position: fixed;
   inset: 0;
+  display: flex;
+  flex-direction: column;
+  outline: none;
 }
 
 .v2-reader__frame {
-  position: absolute;
-  inset: 0;
+  flex: 1;
+  min-height: 0;
   width: 100%;
-  height: 100%;
   border: 0;
 }
 
-.v2-reader .reader-footer__info > :first-child {
-  justify-self: start;
-}
-
-.v2-reader .reader-footer__counter {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .v2-reader__notices {
-  position: fixed;
-  top: 64px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(560px, calc(100% - 32px));
-  max-height: calc(100% - 140px);
-  overflow: auto;
-  z-index: 150;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  pointer-events: none;
+  gap: 4px;
+  margin-top: 56px;
+  padding: 6px 16px;
+  max-height: 40vh;
+  overflow: auto;
+  font-size: 14px;
+  border-bottom: 1px solid var(--reader-border);
+}
+
+.v2-reader__notices:empty,
+.v2-reader__notices > :empty {
+  display: none;
 }
 
 .v2-reader__notices > * {
   margin: 0;
-  padding: 10px 14px;
-  border: 1px solid var(--reader-border);
-  border-radius: 8px;
-  background: var(--reader-bar-bg);
-  font-size: 14px;
-  pointer-events: auto;
 }
 
-.v2-reader__notices > :empty {
-  display: none;
+/* Prev | position | Next: Prev and Next alike, at the two ends. */
+.v2-reader__footer > :first-child {
+  justify-self: start;
+}
+
+.v2-reader__footer > :last-child {
+  grid-column: 3;
+  justify-self: end;
+}
+
+.v2-reader__footer .reader-footer__counter {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ===========================================

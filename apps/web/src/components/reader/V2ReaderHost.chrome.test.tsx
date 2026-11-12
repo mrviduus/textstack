@@ -40,6 +40,8 @@ function opened(reflowable = true, dir?: string) {
 const tap = (x: number) => ({ type: 'tap', x, y: 300 })
 /** A page `key` (a navigation key pressed inside the book). */
 const key = (k: string, shift = false, repeat = false) => ({ type: 'key', key: k, shift, repeat })
+/** A page `relocate`; `moved`: the reader moved the place. */
+const relocate = (fraction: number, moved: boolean) => ({ type: 'relocate', fraction, index: 0, sections: 3, toc: null, moved })
 
 const bars = () => document.querySelector('main')!.getAttribute('data-bars')
 const turns = () => posted.filter((m) => m.call === 'next' || m.call === 'prev').map((m) => m.call)
@@ -119,10 +121,15 @@ describe('V2ReaderHost bars and tap zones', () => {
     expect(turns()).toEqual(['next'])
   })
 
-  it('wordTap_NeverTurnsNorToggles', () => {
+  it('wordTap_UntilThePopupATapAtItsCentre_EdgeTurnsCentreToggles_AMalformedRectDropped', () => {
     opened()
-    fromPage({ type: 'word', word: 'pond', cfi: 'epubcfi(/6/2)', index: 0, x: WIDTH - 5, y: 10, rect: { x: WIDTH - 20, y: 10, w: 30, h: 10 } })
-    expect(turns()).toEqual([])
+    const word = (x: number, w = 30) => ({ type: 'word', word: 'pond', cfi: 'epubcfi(/6/2)', index: 0, rect: { x, y: 10, w, h: 10 } })
+    fromPage(word(WIDTH - 40))
+    expect(turns()).toEqual(['next'])
+    fromPage(word(WIDTH / 2 - 15))
+    expect(bars()).toBe('shown')
+    fromPage(word(5, -3))
+    expect(turns()).toEqual(['next'])
     expect(bars()).toBe('shown')
   })
 
@@ -162,35 +169,92 @@ describe('V2ReaderHost bars and tap zones', () => {
     expect(bars()).toBe('shown')
   })
 
-  it('hostKeys_NotTheReaders_ModifiersShiftArrowAFocusedControlOrField', () => {
+  it('hostKeys_NotTheReaders_ModifiersShiftArrowSpaceOnAControlAField', () => {
     opened()
     press('ArrowLeft', { altKey: true })
     press('ArrowRight', { metaKey: true })
     press(' ', { ctrlKey: true })
     press('ArrowRight', { shiftKey: true })
     press(' ', {}, screen.getByRole('button', { name: 'Next ›' }))
-    press('ArrowRight', {}, screen.getByRole('button', { name: 'Next ›' }))
     const input = document.body.appendChild(document.createElement('input'))
     press('ArrowRight', {}, input)
+    press(' ', {}, input)
     expect(turns()).toEqual([])
+    input.remove()
   })
 
-  it('scrolledFlow_ANewPlaceHidesTheBars_TheFirstAfterAnOpenDoesNot', () => {
-    localStorage.setItem('v2reader:flow', 'scrolled')
+  it('aFocusedBarButton_ArrowsAndPageKeysStillTurn_EscShowsFromAField', () => {
     opened()
-    fromPage({ type: 'relocate', fraction: 0.1, index: 0, sections: 3 })
+    const next = screen.getByRole('button', { name: 'Next ›' })
+    press('ArrowRight', {}, next)
+    press('PageDown', {}, next)
+    expect(turns()).toEqual(['next', 'next'])
+    const input = document.body.appendChild(document.createElement('input'))
+    expect(bars()).toBe('hidden')
+    press('Escape', {}, input)
     expect(bars()).toBe('shown')
-    fromPage({ type: 'relocate', fraction: 0.1, index: 0, sections: 3 })
+    input.remove()
+  })
+
+  it('barsHiding_MoveFocusOutOfThem_ToTheReader', () => {
+    opened()
+    const next = screen.getByRole('button', { name: 'Next ›' })
+    act(() => { next.focus() })
+    press('ArrowRight', {}, next)
+    expect(bars()).toBe('hidden')
+    expect(document.activeElement).toBe(document.querySelector('main'))
+  })
+
+  it('relocateMoved_HidesTheBars_EitherFlow_NotMovedDoesNot', () => {
+    for (const flow of ['paginated', 'scrolled']) {
+      localStorage.setItem('v2reader:flow', flow)
+      opened()
+      fromPage(relocate(0.1, false))
+      expect(bars()).toBe('shown')
+      fromPage(relocate(0.2, true))
+      expect(bars()).toBe('hidden')
+      cleanup()
+    }
+  })
+
+  it('aBarButtonOrTheTakenOfferMoved_ItsRelocatesKeepTheBars', () => {
+    opened()
+    act(() => { screen.getByRole('button', { name: 'Next ›' }).click() })
+    vi.setSystemTime(Date.now() + 5000) // the landing comes late: still the button's
+    fromPage(relocate(0.2, true))
+    fromPage(relocate(0.2, true))
     expect(bars()).toBe('shown')
-    fromPage({ type: 'relocate', fraction: 0.2, index: 0, sections: 3 })
+    expect(posted.map((m) => m.call)).toEqual(['next'])
+    vi.setSystemTime(Date.now() + 2000)
+    fromPage(relocate(0.3, true)) // the reader's own move, past the grace
     expect(bars()).toBe('hidden')
   })
 
-  it('paginatedFlow_APageTurnFromTheBar_KeepsTheBars', () => {
+  it('relocate_TheChromeReadsItThroughReadRelocate', () => {
     opened()
-    fromPage({ type: 'relocate', fraction: 0.1, index: 0, sections: 3 })
-    fromPage({ type: 'relocate', fraction: 0.2, index: 0, sections: 3 })
+    fromPage({ type: 'relocate', fraction: 5, index: -1, sections: 'x', toc: 7, moved: 'yes' })
+    expect(screen.getByTestId('v2-status')).toHaveTextContent(/^0% · section 1\/\?$/)
     expect(bars()).toBe('shown')
+  })
+
+  it('noBookOnScreen_TapsKeysAndWordsDoNothing_ANewOpenShowsTheBarsUntilOpened', () => {
+    const view = opened()
+    fromPage(tap(WIDTH / 2))
+    expect(bars()).toBe('hidden')
+    view.rerender(<MemoryRouter><V2ReaderHost book={{ bytes: new ArrayBuffer(8), name: 'b.epub' }} idleHeading="idle" /></MemoryRouter>)
+    expect(bars()).toBe('shown')
+    expect(screen.getByTestId('v2-heading')).toHaveTextContent('Opening b.epub')
+    fromPage(tap(WIDTH - 5))
+    fromPage(key('ArrowRight'))
+    press('PageDown')
+    fromPage({ type: 'word', word: 'x', index: 0, rect: { x: WIDTH - 40, y: 10, w: 30, h: 10 } })
+    fromPage(relocate(0.4, true))
+    act(() => { vi.advanceTimersByTime(10_000) })
+    expect(turns()).toEqual([])
+    expect(bars()).toBe('shown')
+    fromPage({ type: 'opened', title: 'B', book: { sha256: 'bb', size: 8, name: '2/b.epub' } })
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(bars()).toBe('hidden')
   })
 
   it('focusOnAHiddenBar_ShowsTheBars', () => {
@@ -201,15 +265,15 @@ describe('V2ReaderHost bars and tap zones', () => {
     expect(bars()).toBe('shown')
   })
 
-  it('aStateWithTheBarsHidden_NotInsideABar', () => {
+  it('states_InLayoutAboveTheFrame_NotInABarNorOverTheBook', () => {
     const view = opened()
-    fromPage(tap(WIDTH / 2))
-    expect(bars()).toBe('hidden')
     view.rerender(<MemoryRouter><V2ReaderHost book={{ bytes: new ArrayBuffer(8), name: 'b.epub' }} idleHeading="idle" /></MemoryRouter>)
     fromPage({ type: 'open-failed', name: '2/b.epub', error: 'not a zip' })
     const alert = screen.getByRole('alert')
     expect(alert).toHaveTextContent('cannot open b.epub')
     expect(alert.closest('header, footer')).toBeNull()
+    expect(alert.compareDocumentPosition(frame()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(alert.closest('main')).toBe(frame().parentElement)
   })
 
   it('backLink_NamedAndToTheGivenUrl', () => {
