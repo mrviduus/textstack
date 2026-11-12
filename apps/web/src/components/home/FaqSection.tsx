@@ -11,6 +11,9 @@ const FAQ_KEYS = [
   'srsCards',
   'offline',
   'mobileApp',
+  'installAndroid',
+  'connectAssistant',
+  'deleteAccount',
   'vsFriends',
 ] as const
 

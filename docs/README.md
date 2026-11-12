@@ -21,10 +21,9 @@ Readers find help inside the app at [textstack.app](https://textstack.app/).
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="assets/pixel-icons/self-host.svg" width="48" height="48" alt="">
-      <h3>Self-host</h3>
-      It runs locally today. Production self-hosting is not packaged yet; a status page is coming
-      (<a href="https://github.com/mrviduus/textstack/issues/1237">#1237</a>).
+      <a href="self-host/index.md"><img src="assets/pixel-icons/self-host.svg" width="48" height="48" alt=""></a>
+      <h3><a href="self-host/index.md">Self-host</a></h3>
+      It runs locally today. Production self-hosting is not packaged yet: what works, what is missing.
     </td>
     <td width="50%" valign="top">
       <a href="architecture/index.md"><img src="assets/pixel-icons/architecture.svg" width="48" height="48" alt=""></a>

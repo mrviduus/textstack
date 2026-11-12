@@ -1,10 +1,34 @@
-# System Architecture
+# Architecture
 
-Modular monolith ([ADR-006](adr/006-modular-monolith.md)): one ASP.NET Core API, one background
-Worker, one PostgreSQL, three clients. Single public site ([ADR-007](adr/007-single-domain-consolidation.md)).
-Verified against code on 2026-10-04.
+<img src="../assets/pixel-icons/architecture.svg" width="48" height="48" alt="">
 
-## High-Level View
+TextStack is one API, one background worker and one PostgreSQL, with three clients: a web app, an
+Android app and an MCP server for AI assistants. It is a modular monolith
+([ADR-006](adr/006-modular-monolith.md)): one deployable backend, split into projects with strict
+dependency rules.
+
+> **V2 is in flight.** The project is moving to a second database (`textstack_v2`) and a new reader,
+> with one cutover at the end ([ADR-030](adr/ADR-030-two-databases-one-cutover.md)).
+>
+> | | Today |
+> |---|---|
+> | **Live in production** | The legacy database, the legacy reader (`packages/reader-engine`), the public catalog and its prerendered pages |
+> | **Behind the flag `Features:V2Api`** (off in production, on in CI and local dev) | The `/me/v2/*` API on `textstack_v2`, the V2 reader page at `/:lang/library/my/:id/read-v2` |
+> | **Goes away at the cutover** | The legacy database, EF Core, the public catalog, the prerendered (SSG) pages |
+>
+> Current state: [STATUS.md](../STATUS.md). The V2 map: [v2.md](v2.md). This page describes what
+> runs in production today.
+
+## Read in this order
+
+1. This page: the parts and what each one does.
+2. [flows.md](flows.md): how a request moves between the parts, one diagram per scenario.
+3. [data-model.md](data-model.md) and [data-access.md](data-access.md): the tables and the rules for reading and writing them.
+4. [frontend.md](frontend.md): the apps and the shared packages.
+5. [delivery.md](delivery.md): how a commit reaches production.
+6. [adr/](adr/): why each load-bearing choice was made.
+
+## The parts
 
 How the deployment is laid out and what a second worker would take: [c4-worker-scaling.md](../internal/architecture/c4-worker-scaling.md). How requests move between these parts: the interactive [map](https://mrviduus.github.io/textstack/architecture/) (source [textstack-map.html](../internal/architecture/textstack-map.html)), or the same as Mermaid in [flows.md](flows.md).
 
@@ -17,7 +41,7 @@ Internet ─► Cloudflare (DNS + TLS) ─► Cloudflare Tunnel ─► nginx on 
 
 Docker services (docker-compose.yml, all bound to 127.0.0.1):
   db          pgvector/pgvector:pg16 — Postgres 16 + FTS + pgvector
-  migrator    one-shot EF migrations; api waits for it
+  migrator    one-shot: applies the plain-SQL migrations in database/ (ADR-026); api waits for it
   api         HTTP API + some hosted services (see below)
   worker      ingestion + enrichment + cleanup jobs (polls DB)
   ssg-worker  Node + Puppeteer; polls DB for SSG rebuild jobs, writes apps/web/dist/ssg
@@ -72,9 +96,10 @@ Api ──► Application ──► Domain ◄── Infrastructure
 
 ## Request pipeline (`Api/Program.cs`, order matters)
 
-`ForwardedHeaders` → `Cors` → `ExceptionMiddleware` → `StaticFiles(/storage)` → `/health`,
-`/health/ready` → `SiteContext` → `LanguageContext` → `Routing` → `McpKeyAuth` → `RateLimiter`
-→ `GuestActivity` (10-min debounce) → `AdminAuth` (only `/admin/*` except `/admin/auth/*`) → endpoints.
+`ForwardedHeaders` → `Cors` → `AppVersion` → `ExceptionMiddleware` → `UserStoragePolicy` →
+`StaticFiles(/storage)` → `/health` → `SiteContext` → `LanguageContext` → `Routing` → `McpKeyAuth` →
+`RateLimiter` → `GuestActivity` (10-min debounce) → `AdminAuth` (only `/admin/*`) → `PathGates`
+(`/me/*` needs a user, `/internal/*` only from the Docker network; [ADR-024](adr/ADR-024-auth-fails-closed-by-path.md)) → endpoints.
 
 The rate limiter must sit after `UseRouting`; before it, every per-endpoint policy was inert
 (comment in `Program.cs`). There is no ASP.NET authentication middleware — endpoints read the
@@ -134,7 +159,7 @@ Details: [frontend.md](frontend.md).
 | Cloudflare | DNS, TLS, tunnel to the home server | Site down |
 | IndexNow (Bing/Yandex) | Push changed URLs after SSG rebuild | — |
 | Claude CLI (host, Max subscription) | SEO generation, PDF cleanup pollers | Jobs stay queued |
-| GitHub Actions (self-hosted runner) | CI + deploy on push to `main` | No deploys |
+| GitHub Actions | CI, image builds and deploy on merge to `main` ([delivery.md](delivery.md)) | No deploys |
 | EAS / Google Play | Mobile builds, OTA updates | — |
 
 ## Feature notes
