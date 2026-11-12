@@ -131,4 +131,17 @@ describe('createAccountSignOut (#1070: sign-out wipes the V2 library)', () => {
     expect(await Promise.all([first, second])).toEqual([true, true])
     expect(calls).toEqual(['sync', 'confirm', 'signOut'])
   })
+
+  it('lossCheckHangs_FailsClosedAtTheDeadline', async () => {
+    const { calls, d } = v2(() => ({ loss: () => new Promise<never>(() => {}) }))
+    expect(await createAccountSignOut(20)(d)).toBe(true)
+    expect(calls).toEqual(['sync', 'confirm:null', 'signOut'])
+  })
+
+  it('busy_TrueWhileItRuns_FalseAfter_EvenWhenCancelled', async () => {
+    const busy: boolean[] = []
+    const { d } = v2(() => ({ loss: async () => ({ books: 1, writes: 0 }), confirm: async () => false, onBusy: (b) => busy.push(b) }))
+    expect(await createAccountSignOut()(d)).toBe(false)
+    expect(busy).toEqual([true, false])
+  })
 })

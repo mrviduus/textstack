@@ -18,7 +18,7 @@ import { useOnline } from '../../src/hooks/useOnline'
 import { useNativeLanguage } from '../../src/context/NativeLanguageContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
 import { createAccountSignOut, deleteGuestData, signOutIntent } from '../../src/lib/profileActions'
-import { syncV2BeforeSignOut } from '../../src/lib/v2reader/sync'
+import { pushV2BeforeSignOut } from '../../src/lib/v2reader/sync'
 import { deviceV2SignOutLoss } from '../../src/lib/v2reader/deviceLibrary'
 import { getLanguage } from '@textstack/shared'
 import { LanguagePickerModal } from '../../src/components/LanguagePickerModal'
@@ -207,12 +207,14 @@ export default function ProfileScreen() {
     }
   }
 
-  // Sign-out wipes the V2 reader's books (#1070): one sync pass, then, when something is only on this
+  // Sign-out wipes the V2 reader's books (#1070): one push, then, when something is only on this
   // phone (or that could not be checked), the confirm. Unit-tested as `createAccountSignOut`.
   const accountSignOut = useRef(createAccountSignOut()).current
+  const [signingOut, setSigningOut] = useState(false)
   const confirmV2LossThenLeave = async () => {
     const left = await accountSignOut({
-      syncFirst: () => (user ? syncV2BeforeSignOut(user.id) : Promise.resolve()),
+      onBusy: setSigningOut,
+      syncFirst: () => (user ? pushV2BeforeSignOut(user.id, capabilitiesFor(user).isGuest) : Promise.resolve()),
       loss: deviceV2SignOutLoss,
       confirm: (loss) => new Promise<boolean>((resolve) => Alert.alert(
         t('profile.signOutLossTitle'),
@@ -526,10 +528,15 @@ export default function ProfileScreen() {
             // user on Profile's own signed-out state, and Library — the first
             // tab — is now a sign-in wall for them; `/` routes a guest to Discover.
             onPress={handleSignOut}
+            // Busy while the V2 push and check run (up to a few seconds): no second tap, visible progress.
+            disabled={signingOut}
+            accessibilityState={{ busy: signingOut, disabled: signingOut }}
             activeOpacity={0.7}
           >
-            <Ionicons name="log-out-outline" size={20} color={colors.error} style={styles.menuIcon} />
-            <Text style={[styles.menuText, { color: colors.error }]}>Sign Out</Text>
+            {signingOut
+              ? <ActivityIndicator size="small" color={colors.error} style={styles.menuIcon} />
+              : <Ionicons name="log-out-outline" size={20} color={colors.error} style={styles.menuIcon} />}
+            <Text style={[styles.menuText, { color: colors.error, opacity: signingOut ? 0.6 : 1 }]}>Sign Out</Text>
           </TouchableOpacity>
         ) : (
           /* Small and grey on purpose: the way forward is the card at the top;

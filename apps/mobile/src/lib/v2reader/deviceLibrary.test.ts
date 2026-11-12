@@ -9,6 +9,8 @@ const files = new Map<string, number>()
 const dirs = new Set<string>()
 let opens = 0
 let failOpen: string | null = null
+/** Directory creations that throw before they work again. */
+let failCreate = 0
 let db: ReturnType<typeof memoryDb> | null = null
 
 const req = createRequire(import.meta.url)
@@ -31,6 +33,7 @@ class Directory {
   get exists() { return dirs.has(this.uri) }
   get size() { return this.exists ? [...files].filter(([p]) => under(this.uri)(p)).reduce((n, [, s]) => n + s, 0) : null }
   create() {
+    if (failCreate > 0) { failCreate--; throw new Error('create failed') }
     const segments = this.uri.split('/')
     for (let i = 2; i <= segments.length; i++) dirs.add(segments.slice(0, i).join('/'))
   }
@@ -75,6 +78,7 @@ describe('device V2 local library', () => {
     dirs.clear()
     opens = 0
     failOpen = null
+    failCreate = 0
     db = null
   })
 
@@ -87,12 +91,26 @@ describe('device V2 local library', () => {
     expect(opens).toBe(2)
   })
 
-  it('neverCreated_MeasureAndWipe_NoDirectoryCreatedMeasureOpensNothing', async () => {
+  it('neverCreated_MeasureCreatesNothing_WipeLeavesOnlyTheEmptyDirectories', async () => {
     const m = await fresh()
     expect(m.deviceV2Bytes()).toBe(0)
     expect(opens).toBe(0)
-    await m.wipeDeviceV2Library()
     expect([...dirs, ...files.keys()]).toEqual([])
+    await m.wipeDeviceV2Library()
+    expect([...files.keys()]).toEqual([])
+    expect([...dirs].sort()).toEqual([...HOST_DIRS].sort())
+  })
+
+  it('clearFiles_DirectoriesFailOnce_NextCallMakesThemAgain', async () => {
+    const m = await fresh()
+    m.makeV2Dirs()
+    files.set('doc/v2/staging/1.epub', 500)
+    failCreate = 1
+    expect(() => m.clearV2Files()).toThrow('create failed')
+    expect(dirs.has('doc/v2/books')).toBe(false)
+    m.clearV2Files()
+    expect([...dirs].sort()).toEqual([...HOST_DIRS].sort())
+    expect([...files.keys()]).toEqual([])
   })
 
   it('measure_BooksAndStaging_CountedUnderV2Only', async () => {
@@ -108,12 +126,12 @@ describe('device V2 local library', () => {
     expect(await m.deviceV2SignOutLoss()).toEqual({ books: 1, writes: 0 })
   })
 
-  it('wipe_UsedLibrary_RowsGoneIdentityKeptFilesGoneDirectoriesBack', async () => {
+  it('wipe_UsedLibrary_EveryRowOwnerIncludedFilesGoneDirectoriesBack', async () => {
     const m = await fresh()
     const lib = await used(m)
     await m.wipeDeviceV2Library()
-    for (const t of ['books', 'reading_state', 'annotations', 'outbox']) expect(rows(t), t).toBe(0)
-    expect(db!.raw.prepare('SELECT key FROM meta').all()).toEqual([{ key: 'account' }])
+    // The owner too (#1070 rule A): an emptied library belongs to nobody.
+    for (const t of ['books', 'reading_state', 'annotations', 'outbox', 'meta']) expect(rows(t), t).toBe(0)
     expect([...files.keys()]).toEqual([])
     // Made again in the one place, so the host's next write (staging, books) finds them.
     expect([...dirs].sort()).toEqual([...HOST_DIRS].sort())

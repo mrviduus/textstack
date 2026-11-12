@@ -774,14 +774,22 @@ once. Nothing local is lost.
 
 - **Sign-out wipes ALL local V2 data** (amended 2026-11-12, owner, #1070; replaces the 2026-11-02 text
   "keeps guest books … offers to sync first or export"): every book file and every row of the local
-  library (books, reading state, highlights, outbox, cursors) — no guest books are kept. Before it, the
-  client runs one bounded sync pass (no button), then, when something exists only on the device (a book
-  whose file the server lacks, a change not sent), warns with the counts and lets the reader cancel; a
-  check that fails warns too. There is no export. **Another account** than the one the local library
-  belongs to wipes it before anything syncs (an expired session, an interrupted sign-out); that loss is
-  accepted and logged. The same account signing back in keeps everything; a guest's library becomes the
-  account's by the merge map. Sign-out and account deletion are different actions: deletion is
-  `DELETE FROM users` on the server (ADR-031 rule 9) and the same local wipe. Client: R6 (#1070).
+  library (books, reading state, highlights, outbox, cursors) and its owner — no guest books are kept.
+  Before it, the client pushes its outbox once (bounded, no button, no pulls), then, when something
+  exists only on the device (a book whose file the server lacks, a change not sent), warns with the
+  counts and lets the reader cancel; a check that fails or times out warns too. There is no export.
+  The local library records its owner and whether that owner is a guest:
+  - **nobody** (never synced, or wiped): the first identity that syncs takes it, rows included;
+  - **the same user**: kept;
+  - **a guest**: carried to whoever comes next (guest → account by the merge map, guest → new guest),
+    never wiped by an identity change; if the merge-map adoption failed, the first sync forgets only
+    what the server told the guest and sends the device's own rows to the new identity;
+  - **another real account**: wiped **at sign-in** (where the identity is authoritative; no server
+    needed), the loss accepted and logged with the counts; until that wipe has run, every sync pass of
+    the other account is refused (nothing pulled, pushed or recorded) — a sync pass never wipes.
+
+  Sign-out and account deletion are different actions: deletion is `DELETE FROM users` on the server
+  (ADR-031 rule 9) and the same local wipe. Client: R6 (#1070), rules in `apps/mobile/src/lib/v2reader/README.md`.
 - **Quota**: V2 bytes count against the same tier limits, computed over V2 `users` / `book_files`
   (never through legacy EF, ADR-030). A file is counted once: while legacy still holds the bytes it is
   legacy's; at cutover the ETL moves the key and the count moves with it. No double counting.
@@ -1014,8 +1022,9 @@ concerns and, where it touches the schema, listed under migration `0001` above.
 2. **Quota = V2 tiers** over V2 tables; no byte counted twice across the cutover.
 3. **Sign-out** wipes account data, keeps guest books, never drops unsynced data silently (warn, offer
    sync/export); sign-out ≠ account deletion. *Amended 2026-11-12 (owner, #1070): sign-out wipes all
-   local V2 data, guest books included, after one sync pass and a warning with the counts (no export);
-   another account than the library's wipes it before syncing, the loss logged. See "Sign-out, account
+   local V2 data, guest books included, after one push and a warning with the counts (no export); a
+   library owned by another real account is wiped at that account's sign-in, the loss logged, and its
+   sync passes are refused until then; a guest's library carries over. See "Sign-out, account
    deletion, quota".*
 4. **Covers**: the client extracts and uploads; the server checks size/format; no server EPUB parsing.
 5. **Metadata edits are revision-guarded** (`books.revision`); no unguarded LWW anywhere a client edits.

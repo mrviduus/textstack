@@ -10,9 +10,10 @@ import type { OpenReader, PagePosition, V2ClientFormat } from '@textstack/shared
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
-import { deviceUploadIo, sha256Of, uploadV2Book } from '../../lib/v2'
+import { deviceUploadIo, resetSince, sha256Of, uploadV2Book } from '../../lib/v2'
 import { bookFile, createV2Storage, nonceFromUuid, type LibraryBook, type V2Files, type V2Storage } from '../../lib/v2reader/hostStorage'
-import { clearV2Files, deviceLocalLibrary, makeV2Dirs, v2Root } from '../../lib/v2reader/deviceLibrary'
+import { deviceLocalLibrary, makeV2Dirs, v2Root } from '../../lib/v2reader/deviceLibrary'
+import { capabilitiesFor } from '../../lib/capabilities'
 import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
 import { downloadV2Book, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
 import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
@@ -56,7 +57,7 @@ function deviceFiles(): V2Files {
 
 // One storage for the process, so every read and write goes through its one queue.
 let storage: V2Storage | null = null
-const v2Storage = () => (storage ??= createV2Storage(deviceFiles(), uuid.v4, deviceLocalLibrary()))
+const v2Storage = () => (storage ??= createV2Storage(deviceFiles(), uuid.v4, deviceLocalLibrary(), resetSince))
 
 /**
  * File sync (opt-in): the retained copy's bytes through the shared upload sequence, with the format
@@ -252,7 +253,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         else goTo(a.position)
       },
       upload: uploadRetained,
-      clearFiles: clearV2Files,
+      guest: capabilitiesFor(user).isGuest,
     }).then(refreshBooks, fail('sync'))
   }
   const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)

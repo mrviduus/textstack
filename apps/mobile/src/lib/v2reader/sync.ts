@@ -18,8 +18,9 @@ import {
 import { onV2, resetSince, startV2Probe, whileCurrent, V2UploadError } from '../v2'
 import { uuid } from 'expo-modules-core'
 import { withDeadline } from '../deadline'
+import { createSingleFlight } from '../singleFlight'
 import { clearV2Files, deviceLocalLibrary } from './deviceLibrary'
-import { FEEDS, MAX_FAILURES, wipeV2Library, type BookRow, type LocalFeed, type LocalLibrary, type OutboxItem, type PositionAction } from './localLibrary'
+import { FEEDS, MAX_FAILURES, identityStep, wipeV2Library, type BookRow, type LocalFeed, type LocalLibrary, type OutboxItem, type PositionAction } from './localLibrary'
 
 export interface SyncHost {
   /** The session's user id (a guest's too: ADR-014). */
@@ -36,14 +37,17 @@ export interface SyncHost {
   upload?(book: BookRow, maxPartBytes: number, cancelled: () => boolean): Promise<void>
   /** A session's first pass (screen mounted, another user): every failure count reset first (`retryAll`). */
   retryFailed?: boolean
-  /** Deletes every file under the v2 root (deviceLibrary `clearV2Files`): another account's library is wiped (#1070). */
-  clearFiles(): void
+  /** Whether the session's user is a guest (`capabilitiesFor(user).isGuest`): a guest's library carries over (#1070). */
+  guest: boolean
 }
 
-export type SyncResult = 'off' | 'done' | 'dropped' | 'failed'
+/** `refused`: the library belongs to another real account (#1070 rule D); nothing pulled, pushed or recorded. */
+export type SyncResult = 'off' | 'done' | 'dropped' | 'failed' | 'refused'
 
 /** Thrown to end a pass whose session changed: nothing more of it may land. */
 const DROPPED = Symbol('dropped')
+/** Thrown to end a pass for an identity the library does not belong to. */
+const REFUSED = Symbol('refused')
 type Reset = () => boolean
 
 /** `work`'s answer (null included), `keep` run in the checked tick; the pass ends if the session changed. */
@@ -122,13 +126,13 @@ export function syncV2Library(lib: LocalLibrary, host: SyncHost): Promise<SyncRe
 
 const PUSHES = [['book', pushBook], ['state', pushState], ['annotation', pushAnnotation]] as const
 
-async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset): Promise<SyncResult> {
+async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset, pushOnly = false): Promise<SyncResult> {
   if (reset()) return 'dropped'
   try {
     if (!(await onV2())) return 'off'
     await account(lib, host, reset)
     if (host.retryFailed) await checked(reset, () => lib.retryAll())
-    for (const feed of FEEDS) await pull(lib, host, reset, feed)
+    if (!pushOnly) for (const feed of FEEDS) await pull(lib, host, reset, feed)
     let failed = false
     // Kind by kind, the outbox read again each time: a book push can re-key the ids its children name.
     // Each entry on its own: one that keeps failing is counted and, at the limit, no longer read (`due`),
@@ -144,9 +148,10 @@ async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset): Promise<Sy
         }
       }
     }
-    await fileSync(lib, host, reset)
+    if (!pushOnly) await fileSync(lib, host, reset)
     return failed ? 'failed' : 'done'
   } catch (e) {
+    if (e === REFUSED) return 'refused'
     if (e === DROPPED || reset()) return 'dropped'
     console.warn('[v2 sync] pass ended:', brief(e))
     return 'failed'
@@ -154,24 +159,42 @@ async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset): Promise<Sy
 }
 
 /**
- * The library belongs to the account it last synced as (owner 2026-11-12, #1070). Another account
- * (after an expired session, a sign-out whose wipe did not run, a guest minted after a sign-out): the
- * library is wiped — rows, then files — before anything syncs, then the new identity is recorded. What
- * the previous account had not synced is lost, accepted by the owner, and logged. The identity changes
- * only after the files are gone, so a failed wipe is tried again on the next pass. The same account
- * keeps everything; a guest's library becomes the account's by `adoptV2LocalAccount` before this runs.
+ * Whom the library belongs to (#1070 rule D). Never destructive: a pass's user id is a render closure
+ * that can lag the session. The owner → go on (a guest promoted in place is recorded as an account);
+ * nobody → this identity takes it; a guest → carried to this identity (`forgetServerState`: the
+ * server's knowledge goes, own rows and queue stay; `adoptV2LocalAccount` normally did it first);
+ * another real account → the pass is refused, nothing pulled, pushed or recorded (the wipe is
+ * sign-in's, `claimV2LibraryFor`).
  */
 async function account(lib: LocalLibrary, host: SyncHost, reset: Reset) {
-  const last = await lib.account()
-  if (last === host.userId) return
-  if (last) {
-    const loss = await lib.signOutLoss()
-    if (loss.books || loss.writes) {
-      console.warn(`[v2 sync] another account: the previous one's local V2 library is wiped; lost ${loss.books} book(s) and ${loss.writes} change(s) not on the server`)
-    }
-    await checked(reset, () => wipeV2Library(lib, host.clearFiles))
+  const owner = await lib.owner()
+  switch (identityStep(owner, host.userId)) {
+    case 'same':
+      if (owner!.guest !== host.guest) await checked(reset, () => lib.setAccount(host.userId, host.guest))
+      return
+    case 'claim':
+      return void (await checked(reset, () => lib.setAccount(host.userId, host.guest)))
+    case 'carry':
+      return void (await checked(reset, () => lib.forgetServerState(host.userId, host.guest)))
+    case 'foreign':
+      console.warn('[v2 sync] the local V2 library belongs to another account: pass refused (it is wiped at that sign-in)')
+      throw REFUSED
   }
-  await checked(reset, () => lib.setAccount(host.userId))
+}
+
+/**
+ * Sign-in (#1070 rule B; AuthContext, before the session's user is set, where the identity is
+ * authoritative; no server needed): a library owned by another real account is wiped, its loss logged
+ * with the counts. A guest's library carries over; the same account's is kept; an un-owned one waits
+ * for the first pass. Android only.
+ */
+export async function claimV2LibraryFor(userId: string, lib: () => LocalLibrary = deviceLocalLibrary, clearFiles: () => void = clearV2Files) {
+  if (Platform.OS === 'web') return
+  const l = lib()
+  if (identityStep(await l.owner(), userId) !== 'foreign') return
+  const loss = await l.signOutLoss()
+  console.warn(`[v2] another account signed in: the previous account's local V2 library is wiped; lost ${loss.books} book(s) and ${loss.writes} change(s) not on the server`)
+  await wipeV2Library(l, clearFiles)
 }
 
 /**
@@ -198,14 +221,21 @@ export async function adoptV2LocalAccount(guestId: string, accountId: string, me
 /** How long sign-out waits for its one pass before checking what would be lost. */
 export const SIGN_OUT_SYNC_MS = 4000
 
+/** Sign-out's push, in its own slot: never replaces a reader screen's pass waiting in `next`. */
+const signOutPush = createSingleFlight<SyncResult>()
+
 /**
- * Sign-out's one pass before the loss check (#1070; the PDD's "offer to sync first", without a button):
- * a write only waiting for the screen's 10 s timer goes now, so it is neither reported nor lost.
- * Bounded; offline, V2 off, a failure or the deadline just go on to the check. Android only.
+ * Sign-out's one push before the loss check (#1070; the PDD's "offer to sync first", without a button):
+ * the outbox only — pulls would fetch data about to be wiped — so a write only waiting for the screen's
+ * 10 s timer goes now and is neither reported nor lost. Its own slot (a concurrent reader pass may push
+ * the same entry: every write is idempotent by client id or revision). Bounded; offline, V2 off, a
+ * failure or the deadline just go on to the check. Android only.
  */
-export async function syncV2BeforeSignOut(userId: string, ms = SIGN_OUT_SYNC_MS, lib: () => LocalLibrary = deviceLocalLibrary) {
+export async function pushV2BeforeSignOut(userId: string, guest: boolean, ms = SIGN_OUT_SYNC_MS, lib: () => LocalLibrary = deviceLocalLibrary) {
   if (Platform.OS === 'web') return
-  await withDeadline(syncV2Library(lib(), { userId, newId: uuid.v4, reader: () => null, clearFiles: clearV2Files }), ms).catch(() => {})
+  const reset = resetSince()
+  const host: SyncHost = { userId, guest, newId: uuid.v4, reader: () => null }
+  await withDeadline(signOutPush.run(() => pass(lib(), host, reset, true)), ms).catch(() => {})
 }
 
 /**

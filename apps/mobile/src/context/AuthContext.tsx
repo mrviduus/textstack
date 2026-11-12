@@ -18,9 +18,16 @@ import { useReconnectCount } from '../hooks/useOnline'
 import { clearReaderCache } from '../lib/readerOfflineCache'
 import { reprobeV2AfterReconnect, v2Store } from '../lib/v2'
 import { applyV2MergeMap } from '../lib/v2Merge'
-import { adoptV2LocalAccount } from '../lib/v2reader/sync'
+import { adoptV2LocalAccount, claimV2LibraryFor } from '../lib/v2reader/sync'
 import { wipeDeviceV2Library } from '../lib/v2reader/deviceLibrary'
 import { withDeadline } from '../lib/deadline'
+import { capabilitiesFor } from '../lib/capabilities'
+
+/** Every V2 local wipe at a session change is bounded: a hung database open must not hold the auth queue (#1070). */
+const V2_WIPE_MS = 5000
+/** Sign-in's another-account wipe (#1070 rule B), bounded; a failure or a late one only warns. */
+const claimV2Library = (userId: string) =>
+  withDeadline(claimV2LibraryFor(userId), V2_WIPE_MS).catch((e) => console.warn('[v2] sign-in wipe failed or late:', e))
 
 // Lazy import so the Google module isn't pulled on platforms / contexts
 // that don't ship it (e.g. Expo Go web preview, where this package may
@@ -215,6 +222,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // above and is exactly what a later cleanup deletes.
           userRef.current = restored
           setUser(restored)
+          // A sign-in whose wipe failed or ran late is retried at the next start (#1070 rule B);
+          // not awaited: the reading path waits for nothing, and passes refuse until it is done.
+          void claimV2Library(restored.id)
         }
       } catch {
         // ignore
@@ -270,11 +280,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const previous = userRef.current
         v2Store.reset()
         if (merge) await applyV2MergeMap(merge)
+        // A V2 local library another real account owns is wiped here, where the identity is
+        // authoritative (#1070 rule B; bounded like the sign-out wipe; a failure leaves every pass refused).
+        await claimV2Library(userData.id)
         // The V2 local library a guest synced becomes the account's (R6): ids re-keyed, full pull next.
         // A failure never blocks sign-in and is logged: the re-key and the identity commit together
-        // in one transaction, so a failed adopt leaves the rows as they were.
-        if (previous?.isGuest) {
-          await adoptV2LocalAccount(previous.id, userData.id, merge).catch((e) => console.warn('[v2] local library not moved to the account:', e))
+        // in one transaction, so a failed adopt leaves the rows as they were (the first pass then
+        // carries the guest's rows: sync.ts `account`).
+        if (capabilitiesFor(previous).isGuest) {
+          await adoptV2LocalAccount(previous!.id, userData.id, merge).catch((e) => console.warn('[v2] local library not moved to the account:', e))
         }
         // Fresh session — allow the next terminal auth failure to fire
         // again (the latch is one-shot per session).
@@ -330,9 +344,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // V2 books belong to the account (#1070): rows, then files. After the epoch bump, so no sync pass
       // of this session lands after it (one still waiting is dropped unrun: sync.ts). Awaited, with a
       // deadline: a hung database open must not hold the auth queue (sign-in waits on it). A failed or
-      // late wipe only warns; the next pass under another account wipes before it syncs (sync.ts
-      // `account`). The profile synced once and warned about what the server lacks first.
-      await withDeadline(wipeDeviceV2Library(), 5000).catch((e) => console.warn('[v2] sign-out wipe failed or late:', e))
+      // late wipe only warns: the library keeps its owner, so another account's passes are refused and
+      // its sign-in wipes (`claimV2Library`). The profile pushed once and warned about what the server lacks first.
+      await withDeadline(wipeDeviceV2Library(), V2_WIPE_MS).catch((e) => console.warn('[v2] sign-out wipe failed or late:', e))
       setUser(null)
     })
   }, [runExclusive])
@@ -444,6 +458,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // previous session's terminal failure stays set, and the NEXT expiry
       // never reaches the UI.
       resetAuthFailureLatch()
+      // A minted guest takes the device after an account's library whose sign-out wipe did not run (#1070 rule B).
+      await claimV2Library(res.user.id)
       setUser(res.user)
       return { status: 'minted' }
     })

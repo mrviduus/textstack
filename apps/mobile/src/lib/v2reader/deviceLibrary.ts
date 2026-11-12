@@ -37,14 +37,17 @@ export function makeV2Dirs() {
 }
 
 /**
- * Everything under the root deleted, its directories made again so the host's next write finds them:
- * the one place the files are wiped. Nothing when the root never existed (the reader is `__DEV__`-only).
+ * Everything under the root deleted, its directories made again whenever this ran (a failure of either
+ * step is retried whole by the next call) so the host's next write finds them: the one place the
+ * files are wiped. A wipe may create the three empty directories; measuring never does.
  */
 export function clearV2Files() {
   const root = v2Root()
-  if (!root.exists) return
-  root.delete()
-  makeV2Dirs()
+  try {
+    if (root.exists) root.delete()
+  } finally {
+    makeV2Dirs()
+  }
 }
 
 /** Bytes under the root (book files, staging); 0 when it never existed. Creates nothing; never throws. */

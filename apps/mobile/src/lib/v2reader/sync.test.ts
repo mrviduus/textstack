@@ -7,10 +7,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { initApi, V2UploadNotOnServer, type OpenReader } from '@textstack/shared'
 import { resetV2ForTests, v2Store, V2UploadError } from '../v2'
-import { CHANGES_NOT_SYNCED, createLocalLibrary, wipeV2Library, type LocalLibrary, type PositionAction } from './localLibrary'
+import { CHANGES_NOT_SYNCED, createLocalLibrary, identityStep, wipeV2Library, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createV2Storage } from './hostStorage'
-import { adoptV2LocalAccount, downloadV2Book, MAX_FAILURES, syncV2BeforeSignOut, syncV2Library, tryAgainV2Book, type SyncHost } from './sync'
+import { adoptV2LocalAccount, claimV2LibraryFor, downloadV2Book, MAX_FAILURES, pushV2BeforeSignOut, syncV2Library, tryAgainV2Book, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, conflict, feed, resetMidCall, type Answer, type Call,
 } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
@@ -53,12 +53,12 @@ const EMPTY_FEEDS = { 'GET /library/changes': feed(), 'GET /reading/changes': fe
 const fakeApi = (routes: Record<string, Answer[]>) => fakeV2({ 'GET /status': [ok({ maxPartBytes: 1024 })], ...EMPTY_FEEDS, ...routes }, V2)
 const writes = (calls: Call[]) => calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path}`)
 
-/** Calls of the host's `clearFiles` (another account's library wiped, #1070). */
+/** Calls of `clearFiles` given to `claimV2LibraryFor` / `wipeV2Library` (#1070). */
 let cleared = 0
 
 function host(extra: Partial<SyncHost> = {}): SyncHost & { owed: PositionAction[] } {
   const owed: PositionAction[] = []
-  return { userId: 'u1', newId, reader: () => null, onPosition: (a) => owed.push(a), clearFiles: () => { cleared++ }, owed, ...extra }
+  return { userId: 'u1', newId, reader: () => null, onPosition: (a) => owed.push(a), guest: false, owed, ...extra }
 }
 
 /** A local book with a position and a highlight, never synced. */
@@ -482,7 +482,7 @@ describe('V2 local library sync (R6)', () => {
         expect(writes(calls)).toEqual([])
       })
 
-      it('fractionPosition_MergeMapReKeyThenAnotherAccount_KeptForTheAccountWipedForAnotherNeverPushed', async () => {
+      it('fractionPosition_MergeMapReKeyThenAnotherAccount_KeptForTheAccountRefusedForAnotherNeverPushed', async () => {
         const { lib, bookId, fileId } = await synced()
         const at = NOW - 1000
         fakeApi({ 'GET /reading/changes': feed(transitional(bookId, fileId, 3, at)) })
@@ -494,9 +494,9 @@ describe('V2 local library sync (R6)', () => {
         await syncV2Library(lib, host({ userId: 'acct' }))
         expect(writes(calls)).toEqual([])
         calls = fakeApi({})
-        await syncV2Library(lib, host({ userId: 'someone-else' }))
-        // Another account wipes the library (#1070): the position is gone, never pushed.
-        expect(await lib.readEntry(SHA)).toBeNull()
+        // Another account's pass is refused (#1070 rule D): kept here, never pushed.
+        expect(await syncV2Library(lib, host({ userId: 'someone-else' }))).toBe('refused')
+        expect((await restoredEntry(lib)).position).toEqual({ fraction: 0.7, at })
         expect(writes(calls).filter((w) => w.endsWith('/reading-state'))).toEqual([])
       })
     })
@@ -937,37 +937,30 @@ describe('V2 local library sync (R6)', () => {
     })
   })
 
-  describe('accounts', () => {
+  describe('accounts (#1070: identity rules)', () => {
     const HL2 = { ...highlight, id: '1b6a2c1e-1111-4222-8333-444455556666', cfi: 'epubcfi(/6/14!/4/2/1:9)', quote: 'cold', selectedText: 'cold day', prefix: 'bright ', suffix: '' }
-    /** u1's library with a position and a second highlight not sent yet. */
+    /** u1's library (an account) with a position and a second highlight not sent yet. */
     const withUnsent = async () => {
       const s = await synced()
-      await lib2Write(s.lib)
+      await s.lib.writeEntry(SHA, entry({ ...pos, fraction: 0.8, at: NOW }, [highlight, HL2]), newId)
       return s
     }
-    const lib2Write = (lib: LocalLibrary) => lib.writeEntry(SHA, entry({ ...pos, fraction: 0.8, at: NOW }, [highlight, HL2]), newId)
-    const U2_BOOK = 'aaaaaaaa-0000-4000-8000-000000000001'
-    const u2Feed = () => feed(serverBook(U2_BOOK, 'aaaaaaaa-0000-4000-8000-000000000002', {}, { sha256: 'ef'.repeat(32), hasContent: true }))
-
-    it('anotherAccount_UnsentWritesOfThePrevious_WipedBeforeAnythingSyncsLossLogged', async () => {
-      const { lib } = await withUnsent()
-      // The server has the book but not its bytes (file sync off): one book; its changes go with it.
-      expect(await lib.signOutLoss()).toEqual({ books: 1, writes: 0 })
+    const warnings = () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      v2Store.reset() // the session expired (onAuthFailure: no wipe), then u2 signs in
-      const calls = fakeApi({ 'GET /library/changes': u2Feed() })
-      expect(await syncV2Library(lib, host({ userId: 'u2' }))).toBe('done')
-      // Nothing of u1 is pushed, listed or restorable under u2; u2's own book is pulled after the wipe.
-      expect(writes(calls)).toEqual([])
-      expect((await lib.books()).map((b) => b.id)).toEqual([U2_BOOK])
-      expect(await lib.readEntry(SHA)).toBeNull()
-      expect(await lib.outbox()).toEqual([])
-      expect(await lib.account()).toBe('u2')
-      expect(cleared).toBe(1)
-      expect(warn.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('another account'))).toEqual([
-        expect.stringContaining('lost 1 book(s) and 0 change(s)'),
-      ])
-      warn.mockRestore()
+      return { lines: () => warn.mock.calls.map((c) => String(c[0])), restore: () => warn.mockRestore() }
+    }
+    const clear = () => { cleared++ }
+    const gated = (lib: LocalLibrary) => {
+      let release!: () => void
+      const gate = new Promise<void>((r) => { release = r })
+      return { release, slow: { ...lib, owner: async () => { await gate; return lib.owner() } } }
+    }
+
+    it('identityStep_TheFourRules', () => {
+      expect(identityStep(null, 'u1')).toBe('claim')
+      expect(identityStep({ id: 'u1', guest: false }, 'u1')).toBe('same')
+      expect(identityStep({ id: 'g1', guest: true }, 'u1')).toBe('carry')
+      expect(identityStep({ id: 'u1', guest: false }, 'u2')).toBe('foreign')
     })
 
     it('signOutLoss_BookOnTheServer_QueuedAndNeverSentChangesCountedSyncedNot', async () => {
@@ -983,75 +976,190 @@ describe('V2 local library sync (R6)', () => {
       expect(await lib.signOutLoss()).toEqual({ books: 0, writes: 2 })
     })
 
-    it('sameAccountSignsBackIn_EverythingKeptAndPushed', async () => {
+    // A: an emptied library has no owner.
+    it('signOutWipe_OwnerCleared_RowsAfterItTakenByTheFirstIdentityThatSyncs', async () => {
+      const { lib } = await withUnsent()
+      v2Store.reset() // signed out: the epoch bump, then the wipe
+      await wipeV2Library(lib, clear)
+      expect(await lib.owner()).toBeNull()
+      // A book added with no session (or an open finishing late) belongs to nobody.
+      const late = await lib.addOpened({ sha256: 'ef'.repeat(32), size: 3, title: 'Late', author: '', originalName: 'l.epub', format: null }, newId)
+      fakeApi({})
+      expect(await syncV2Library(lib, host({ userId: 'u2' }))).toBe('done')
+      expect(await lib.owner()).toEqual({ id: 'u2', guest: false })
+      expect((await lib.books()).map((b) => b.id)).toEqual([late])
+      expect(cleared).toBe(1)
+    })
+
+    // B: the another-account wipe is sign-in's.
+    describe('claimV2LibraryFor (sign-in)', () => {
+      it('claim_AnotherRealAccountsLibrary_WipedLossLogged', async () => {
+        const { lib } = await withUnsent()
+        const w = warnings()
+        await claimV2LibraryFor('u2', () => lib, clear)
+        expect(await lib.books()).toEqual([])
+        expect(await lib.outbox()).toEqual([])
+        expect(await lib.owner()).toBeNull()
+        expect(cleared).toBe(1)
+        expect(w.lines().filter((m) => m.includes('another account signed in'))).toEqual([expect.stringContaining('lost 1 book(s) and 0 change(s)')])
+        w.restore()
+      })
+
+      it('claim_SameAccountGuestOwnedOrUnowned_NothingWiped', async () => {
+        const { lib, bookId } = await withUnsent()
+        await claimV2LibraryFor('u1', () => lib, clear)
+        await lib.setAccount('g1', true)
+        await claimV2LibraryFor('u2', () => lib, clear)
+        expect((await lib.books()).map((b) => b.id)).toEqual([bookId])
+        expect(cleared).toBe(0)
+        const empty = createLocalLibrary(memoryDb())
+        await claimV2LibraryFor('u2', () => empty, clear)
+        expect(cleared).toBe(0)
+      })
+
+      it('claim_RowWipeFails_FilesAndOwnerKept_PassesStillRefused', async () => {
+        const { lib, bookId } = await withUnsent()
+        const broken = { ...lib, wipe: () => Promise.reject(new Error('disk busy')) }
+        const w = warnings()
+        await expect(claimV2LibraryFor('u2', () => broken, clear)).rejects.toThrow('disk busy')
+        expect(cleared).toBe(0)
+        expect(await lib.owner()).toEqual({ id: 'u1', guest: false })
+        v2Store.reset()
+        const calls = fakeApi({})
+        expect(await syncV2Library(lib, host({ userId: 'u2' }))).toBe('refused')
+        expect(writes(calls)).toEqual([])
+        expect((await lib.books()).map((b) => b.id)).toEqual([bookId])
+        w.restore()
+      })
+    })
+
+    // C: a guest's library carries over.
+    describe('guest-owned library', () => {
+      /** A guest's synced library (the guest's first pass recorded it as a guest's). */
+      async function guestLibrary() {
+        const s = await seeded()
+        fakeApi({
+          [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+          [`PUT /books/${s.bookId}`]: [ok(serverBook(s.bookId, s.fileId), 201)],
+          [`PUT /books/${s.bookId}/reading-state`]: [ok(serverState(s.bookId, s.fileId, 1))],
+          [`PUT /annotations/${HL}`]: [ok(serverAnnotation(s.bookId, s.fileId, 1), 201)],
+        })
+        expect(await syncV2Library(s.lib, host({ userId: 'g1', guest: true }))).toBe('done')
+        expect(await s.lib.owner()).toEqual({ id: 'g1', guest: true })
+        await s.lib.writeEntry(SHA, entry({ ...pos, fraction: 0.8, at: NOW }), newId)
+        return s
+      }
+
+      it('guestToAccount_AdoptThrows_RowsAsTheyWere_FirstPassCarriesThemToTheAccount', async () => {
+        const { lib, bookId } = await guestLibrary()
+        const broken = () => ({ ...lib, adoptAccount: () => Promise.reject(new Error('disk busy')) })
+        await expect(adoptV2LocalAccount('g1', 'acct', { books: { [bookId]: 'acct-book' }, files: {} }, broken)).rejects.toThrow('disk busy')
+        // A failed adopt leaves the rows as they were (AuthContext's comment).
+        expect(await lib.owner()).toEqual({ id: 'g1', guest: true })
+        expect((await lib.books()).map((b) => b.id)).toEqual([bookId])
+        await claimV2LibraryFor('acct', () => lib, clear)
+        expect(cleared).toBe(0)
+        v2Store.reset()
+        const calls = fakeApi({
+          [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+          [`PUT /books/${bookId}`]: [ok(serverBook(bookId, (await lib.book(bookId))!.file_id!), 201)],
+          [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, (await lib.book(bookId))!.file_id!, 1))],
+        })
+        // Two passes: the state asks for its book first (what the server told the guest is forgotten).
+        for (let i = 0; i < 2; i++) await syncV2Library(lib, host({ userId: 'acct' }))
+        expect(await lib.owner()).toEqual({ id: 'acct', guest: false })
+        // The guest's book and its unsent position go to the account.
+        expect(writes(calls)).toEqual([`PUT /books/${bookId}`, `PUT /books/${bookId}/reading-state`])
+        expect((await restoredEntry(lib)).position.fraction).toBe(0.8)
+      })
+
+      it('guestToNewGuest_Carried', async () => {
+        const { lib, bookId } = await guestLibrary()
+        v2Store.reset()
+        fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: [{ status: 502 }] })
+        await syncV2Library(lib, host({ userId: 'g2', guest: true }))
+        expect(await lib.owner()).toEqual({ id: 'g2', guest: true })
+        expect((await lib.books()).map((b) => b.id)).toEqual([bookId])
+      })
+
+      it('guestPromotedInPlace_SameId_RecordedAsAnAccount', async () => {
+        const { lib } = await guestLibrary()
+        fakeApi({})
+        await syncV2Library(lib, host({ userId: 'g1', guest: false }))
+        expect(await lib.owner()).toEqual({ id: 'g1', guest: false })
+      })
+
+      it('guestSignsIn_MergeMapRekeysTheLibraryCursorsClearedNoWipe', async () => {
+        const { lib, bookId, fileId } = await synced()
+        await lib.setAccount('u1', true)
+        fakeApi({ 'GET /library/changes': [ok({ items: [], cursor: 'c1', hasMore: false })] })
+        await syncV2Library(lib, host({ guest: true }))
+        expect(await lib.cursor('library')).toBe('c1')
+        await claimV2LibraryFor('acct', () => lib, clear)
+        await adoptV2LocalAccount('u1', 'acct', { books: { [bookId]: 'acct-book' }, files: { [fileId]: 'acct-file' } }, () => lib)
+        expect(await lib.owner()).toEqual({ id: 'acct', guest: false })
+        expect(await lib.book('acct-book')).toMatchObject({ file_id: 'acct-file', server_file_id: 'acct-file' })
+        expect(await lib.state('acct-book')).toMatchObject({ revision: 1, revision_file_id: 'acct-file' })
+        expect(await lib.annotation(HL)).toMatchObject({ book_id: 'acct-book', file_id: 'acct-file' })
+        expect(await lib.cursor('library')).toBeNull()
+        await adoptV2LocalAccount('someone-else', 'x', undefined, () => lib)
+        expect(await lib.account()).toBe('acct')
+        fakeApi({})
+        await syncV2Library(lib, host({ userId: 'acct' }))
+        expect(cleared).toBe(0)
+        expect((await lib.books()).map((b) => b.id)).toEqual(['acct-book'])
+      })
+    })
+
+    // D: a pass never wipes.
+    it('passForAnotherRealAccount_Refused_NothingPulledPushedRecordedNoWipeNoLoop', async () => {
       const { lib, bookId } = await withUnsent()
+      const w = warnings()
+      v2Store.reset() // the session expired (onAuthFailure: no wipe); u2's sign-in wipe did not run
+      for (let i = 0; i < 2; i++) {
+        const calls = fakeApi({})
+        expect(await syncV2Library(lib, host({ userId: 'u2' }))).toBe('refused')
+        expect(calls.filter((c) => c.path !== '/status')).toEqual([])
+      }
+      expect(await lib.owner()).toEqual({ id: 'u1', guest: false })
+      expect((await lib.books()).map((b) => b.id)).toEqual([bookId])
+      expect((await lib.outbox()).length).toBe(2)
+      expect(w.lines().filter((m) => m.includes('pass refused'))).toHaveLength(2)
+      w.restore()
+    })
+
+    it('sameAccountSignsBackIn_EverythingKeptAndPushed', async () => {
+      const { lib, bookId, fileId } = await withUnsent()
       v2Store.reset()
       const calls = fakeApi({
-        [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, (await lib.book(bookId))!.file_id!, 2))],
-        [`PUT /annotations/${HL2.id}`]: [ok({ ...serverAnnotation(bookId, (await lib.book(bookId))!.file_id!, 1), id: HL2.id }, 201)],
+        [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 2))],
+        [`PUT /annotations/${HL2.id}`]: [ok({ ...serverAnnotation(bookId, fileId, 1), id: HL2.id }, 201)],
       })
       await syncV2Library(lib, host())
-      expect(cleared).toBe(0)
       expect(writes(calls)).toEqual([`PUT /books/${bookId}/reading-state`, `PUT /annotations/${HL2.id}`])
     })
 
-    it('signOutWipe_ThenAnotherAccount_NothingOfThePreviousPushedOrListed', async () => {
-      const { lib } = await withUnsent()
-      v2Store.reset() // signed out (AuthContext: the epoch bump, then the wipe)
-      await wipeV2Library(lib, () => { cleared++ })
-      expect(await lib.account()).toBe('u1') // kept: the next other account wipes again before syncing
+    // E: the stale-id race only refuses.
+    it('staleUserIdAfterTheOwnerChanged_Refused_LibraryIntact', async () => {
+      const { lib, bookId } = await withUnsent()
+      await claimV2LibraryFor('u2', () => lib, clear) // u2 signs in: u1's library wiped
+      const u2Book = await lib.addOpened({ sha256: 'ef'.repeat(32), size: 3, title: 'U2', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      await lib.setAccount('u2')
+      const w = warnings()
+      // A pass asked between the epoch bump and the re-render: fresh epoch, the old user id.
       const calls = fakeApi({})
-      expect(await syncV2Library(lib, host({ userId: 'u2' }))).toBe('done')
+      expect(await syncV2Library(lib, host({ userId: 'u1' }))).toBe('refused')
       expect(writes(calls)).toEqual([])
-      expect(await lib.books()).toEqual([])
-      expect(await lib.account()).toBe('u2')
-    })
-
-    it('openFinishingAfterTheSignOutWipe_RowNeverReachesAnotherAccount_SameAccountKeepsIt', async () => {
-      const { lib } = await withUnsent()
-      v2Store.reset()
-      await lib.wipe()
-      // The page's `opened` lands after the wipe: a row and a queued book.
-      const late = await lib.addOpened({ sha256: 'ef'.repeat(32), size: 3, title: 'Late', author: '', originalName: 'l.epub', format: 'epub' }, newId)
-      expect((await lib.outbox()).map((o) => o.target)).toEqual([late])
-      const calls = fakeApi({})
-      await syncV2Library(lib, host({ userId: 'u2' }))
-      expect(writes(calls)).toEqual([])
-      expect(await lib.books()).toEqual([])
-    })
-
-    it('anotherAccount_RowWipeFails_FilesKeptIdentityKept_TriedAgainNextPass', async () => {
-      const { lib } = await withUnsent()
-      v2Store.reset()
-      const broken = { ...lib, wipe: () => Promise.reject(new Error('disk busy')) }
-      fakeApi({})
-      expect(await syncV2Library(broken, host({ userId: 'u2' }))).toBe('failed')
-      expect(cleared).toBe(0)
-      expect(await lib.account()).toBe('u1')
-      const calls = fakeApi({})
-      await syncV2Library(lib, host({ userId: 'u2' }))
-      expect(writes(calls)).toEqual([])
-      expect(cleared).toBe(1)
-      expect(await lib.account()).toBe('u2')
-    })
-
-    it('anotherAccount_FileWipeFails_IdentityKept_TriedAgainNextPass', async () => {
-      const { lib } = await withUnsent()
-      v2Store.reset()
-      fakeApi({})
-      expect(await syncV2Library(lib, host({ userId: 'u2', clearFiles: () => { throw new Error('busy') } }))).toBe('failed')
-      expect(await lib.account()).toBe('u1')
-      await syncV2Library(lib, host({ userId: 'u2' }))
-      expect(cleared).toBe(1)
-      expect(await lib.account()).toBe('u2')
+      expect((await lib.books()).map((b) => b.id)).toEqual([u2Book])
+      expect(await lib.owner()).toEqual({ id: 'u2', guest: false })
+      expect(bookId).not.toBe(u2Book)
+      w.restore()
     })
 
     it('passWaitingWhenTheSessionEnds_DroppedUnrunNothingUnderTheOldUser', async () => {
       const { lib } = await synced()
-      let release!: () => void
-      const gate = new Promise<void>((r) => { release = r })
+      const { release, slow } = gated(lib)
       const calls = fakeApi({})
-      const slow = { ...lib, account: async () => { await gate; return lib.account() } }
       const first = syncV2Library(slow, host())
       const queued = syncV2Library(lib, host()) // a save's pass, waiting for the running one
       v2Store.reset() // sign-out: the epoch bump, then the wipe
@@ -1059,43 +1167,40 @@ describe('V2 local library sync (R6)', () => {
       release()
       expect(await first).toBe('dropped')
       expect(await queued).toBe('dropped')
-      // The running pass's one pull (answer dropped); the waiting pass sent nothing.
-      expect(calls.filter((c) => c.path === '/library/changes')).toHaveLength(1)
-      expect(await lib.books()).toEqual([])
-      expect(await lib.account()).toBe('u1') // never re-recorded on the wiped library
+      expect(calls.filter((c) => c.path === '/library/changes')).toEqual([])
+      expect(await lib.owner()).toBeNull() // never re-recorded on the wiped library
     })
 
-    it('syncBeforeSignOut_PassHangs_GivesUpAtTheDeadline', async () => {
-      const { lib } = await synced()
-      let release!: () => void
-      const gate = new Promise<void>((r) => { release = r })
-      fakeApi({})
-      const slow = { ...lib, account: async () => { await gate; return lib.account() } }
-      const started = Date.now()
-      await syncV2BeforeSignOut('u1', 50, () => slow)
-      expect(Date.now() - started).toBeLessThan(1000)
-      release()
-      await syncV2Library(lib, host()) // the hung pass ends; nothing left running for later tests
-    })
+    // H: sign-out pushes only, in its own slot.
+    describe('pushV2BeforeSignOut', () => {
+      it('push_OutboxOnlyNoPulls_OwnSlotWhileAReaderPassRuns', async () => {
+        const { lib, bookId, fileId } = await withUnsent()
+        const { release, slow } = gated(lib)
+        fakeApi({})
+        const readerPass = syncV2Library(slow, host()) // a reader screen's pass, held
+        const calls = fakeApi({
+          [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 2))],
+          [`PUT /annotations/${HL2.id}`]: [ok({ ...serverAnnotation(bookId, fileId, 1), id: HL2.id }, 201)],
+        })
+        await pushV2BeforeSignOut('u1', false, 1000, () => lib)
+        // Done while the reader's pass still waits: its own slot; nothing pulled.
+        expect(writes(calls)).toEqual([`PUT /books/${bookId}/reading-state`, `PUT /annotations/${HL2.id}`])
+        expect(calls.filter((c) => c.path.endsWith('/changes'))).toEqual([])
+        expect(await lib.outbox()).toEqual([])
+        release()
+        expect(await readerPass).toBe('done')
+      })
 
-    it('guestSignsIn_MergeMapRekeysTheLibraryCursorsClearedNoForget', async () => {
-      const { lib, bookId, fileId } = await synced()
-      fakeApi({ 'GET /library/changes': [ok({ items: [], cursor: 'c1', hasMore: false })] })
-      await syncV2Library(lib, host())
-      expect(await lib.cursor('library')).toBe('c1')
-      await adoptV2LocalAccount('u1', 'acct', { books: { [bookId]: 'acct-book' }, files: { [fileId]: 'acct-file' } }, () => lib)
-      expect(await lib.account()).toBe('acct')
-      expect(await lib.book('acct-book')).toMatchObject({ file_id: 'acct-file', server_file_id: 'acct-file' })
-      expect(await lib.state('acct-book')).toMatchObject({ revision: 1, revision_file_id: 'acct-file' })
-      expect(await lib.annotation(HL)).toMatchObject({ book_id: 'acct-book', file_id: 'acct-file' })
-      expect(await lib.cursor('library')).toBeNull()
-      await adoptV2LocalAccount('someone-else', 'x', undefined, () => lib)
-      expect(await lib.account()).toBe('acct')
-      // The one legitimate carry-over (#1070): the account's first pass finds its own library, no wipe.
-      fakeApi({})
-      await syncV2Library(lib, host({ userId: 'acct' }))
-      expect(cleared).toBe(0)
-      expect((await lib.books()).map((b) => b.id)).toEqual(['acct-book'])
+      it('push_Hangs_GivesUpAtTheDeadline', async () => {
+        const { lib } = await synced()
+        const { release, slow } = gated(lib)
+        fakeApi({})
+        const started = Date.now()
+        await pushV2BeforeSignOut('u1', false, 50, () => slow)
+        expect(Date.now() - started).toBeLessThan(1000)
+        release()
+        await pushV2BeforeSignOut('u1', false, 1000, () => lib) // the held push ends; nothing left running
+      })
     })
   })
 
@@ -1198,11 +1303,12 @@ describe('V2 local library sync (R6)', () => {
       const old = syncV2Library(lib, host())
       for (let i = 0; i < 20 && !held; i++) await new Promise((r) => setTimeout(r, 0))
       v2Store.reset() // signed out; another session asks for a sync while the old pass is in flight
-      const fresh = syncV2Library(lib, host({ userId: 'u2' }))
+      // The same account signing back in (another account's pass would be refused: #1070 rule D).
+      const fresh = syncV2Library(lib, host())
       release()
       expect(await fresh).toBe('done')
       expect(await old).toBe('done') // both callers see the last pass's result
-      expect(await lib.account()).toBe('u2')
+      expect(await lib.account()).toBe('u1')
     })
 
     it('download_BytesAnotherBookHereHolds_NoSecondLocalCopy', async () => {
@@ -1707,8 +1813,8 @@ describe('V2 local library sync (R6)', () => {
       expect((await lib.book(bookId))?.blocked).toMatch(/invalid_payload/)
     })
 
-    // Another account wipes the library (#1070): a parked book is not sent to it.
-    it('qa_bookParkedByARefusal_AnotherAccount_WipedNothingSent', async () => {
+    // Another account's passes are refused (#1070 rule D): a parked book is not sent to it.
+    it('qa_bookParkedByARefusal_AnotherAccount_RefusedNothingSent', async () => {
       const lib = createLocalLibrary(memoryDb())
       const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
       fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: [conflict('invalid_payload', { field: 'title' }, 400)] })
@@ -1718,7 +1824,7 @@ describe('V2 local library sync (R6)', () => {
       const calls = fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: [ok(serverBook(bookId, (await lib.book(bookId))!.file_id!), 201)] })
       await passes(lib, 2, host({ userId: 'u2' }))
       expect(writes(calls)).toEqual([])
-      expect(await lib.books()).toEqual([])
+      expect((await lib.books()).map((b) => b.id)).toEqual([bookId])
     })
 
     // A child the server keeps answering unknown_file (the book re-adopted every pass) is counted like any failure.

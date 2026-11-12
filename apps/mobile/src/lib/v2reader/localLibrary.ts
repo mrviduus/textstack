@@ -161,6 +161,22 @@ const parse = <T>(json: string | null): T | null => {
 const SERVER_FILE = 'server_file_id = ?, server_sha256 = ?, server_size = ?, server_format = ?, has_content = ?'
 const serverFile = (f: V2BookFile | null | undefined) => [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0]
 
+/** `meta` key: '1' when the owner (`meta.account`) is a guest. */
+const OWNER_GUEST = 'account_guest'
+/** Whom the library belongs to; null: nobody (never synced, or wiped). */
+export type Owner = { id: string; guest: boolean } | null
+
+/**
+ * The library and an identity (#1070, owner 2026-11-12): `same` owner; `claim` an un-owned library;
+ * `carry` a guest's library to whoever comes next (never wiped by an identity change); `foreign`
+ * another real account's — wiped at sign-in (sync.ts `claimV2LibraryFor`), a sync pass only refuses.
+ */
+export function identityStep(owner: Owner, userId: string): 'same' | 'claim' | 'carry' | 'foreign' {
+  if (!owner) return 'claim'
+  if (owner.id === userId) return 'same'
+  return owner.guest ? 'carry' : 'foreign'
+}
+
 /** What a wipe deletes that the server does not hold (#1070): device books, and other changes only here. */
 export interface SignOutLoss { books: number; writes: number }
 export const NOTHING_LOST: SignOutLoss = { books: 0, writes: 0 }
@@ -252,6 +268,10 @@ export function createLocalLibrary(db: Db) {
   const setMeta = (key: string, value: string | null) =>
     value === null ? run('DELETE FROM meta WHERE key = ?', [key]) : run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [key, value])
   const clearCursors = () => run(`DELETE FROM meta WHERE key LIKE 'cursor:%'`)
+  const setOwner = async (userId: string, guest: boolean) => {
+    await setMeta('account', userId)
+    await setMeta(OWNER_GUEST, guest ? '1' : null)
+  }
 
   /**
    * The server's book onto its row: current file, removal, title and author (the server's metadata
@@ -513,9 +533,14 @@ export function createLocalLibrary(db: Db) {
       return id
     }),
 
-    /** The identity these rows last synced with. */
+    /** The identity these rows belong to (null: nobody, e.g. after a wipe). */
     account: () => job(() => getMeta('account')),
-    setAccount: (userId: string) => job(() => setMeta('account', userId)),
+    /** The owner and whether it is a guest (#1070: a guest's library carries over, an account's does not). */
+    owner: () => job(async (): Promise<Owner> => {
+      const id = await getMeta('account')
+      return id === null ? null : { id, guest: (await getMeta(OWNER_GUEST)) === '1' }
+    }),
+    setAccount: (userId: string, guest = false) => job(() => setOwner(userId, guest)),
 
     /**
      * PDD "Guest → account merge": the rows the guest `fromId` synced become the account's, in one
@@ -527,7 +552,7 @@ export function createLocalLibrary(db: Db) {
       if ((await getMeta('account')) !== fromId) return false
       await rekeyIn(books, files)
       await clearCursors()
-      await setMeta('account', accountId)
+      await setOwner(accountId, false)
       return true
     }),
 
@@ -665,22 +690,39 @@ export function createLocalLibrary(db: Db) {
     )),
 
     /**
-     * Every row in one transaction: no book, position, highlight, queued write or cursor is left. The
-     * identity (`meta.account`) stays: the next pass under another one wipes again before it syncs
-     * anything (sync.ts `account`), so a row that lands after this (an open finishing mid-sign-out)
-     * never reaches another account; the same account signing back in keeps it.
+     * A guest-owned library under the next identity (#1070 rule C, when `adoptAccount` failed or did not
+     * run): what the server told the guest goes — pulled books not imported here, others' highlights,
+     * revisions, server files, parks, failure counts, cursors — and the new owner is recorded. The
+     * device's own books, positions, highlights and queued writes stay and go to the new identity.
+     */
+    forgetServerState: (userId: string, guest: boolean) => tx(async () => {
+      await setOwner(userId, guest)
+      await run('DELETE FROM books WHERE imported_at IS NULL')
+      await run(`DELETE FROM annotations WHERE mine = 0 AND id NOT IN (SELECT target FROM outbox WHERE kind = 'annotation')`)
+      await run('DELETE FROM reading_state WHERE book_id NOT IN (SELECT id FROM books)')
+      // A park's entry is gone (deleted when it parked): the new identity is sent every book it clears.
+      for (const { id } of await all<{ id: string }>('SELECT id FROM books WHERE blocked IS NOT NULL')) await enqueue('book', id)
+      await run('UPDATE books SET server_file_id = NULL, server_sha256 = NULL, server_size = NULL, server_format = NULL, has_content = 0, content_removed = 0, removed_at = NULL, blocked = NULL')
+      await run('UPDATE reading_state SET revision = NULL, revision_file_id = NULL')
+      await run('UPDATE annotations SET revision = NULL')
+      await run('UPDATE outbox SET failures = 0')
+      await clearCursors()
+    }),
+
+    /**
+     * Every row in one transaction, the owner included (#1070 rule A): an emptied library belongs to
+     * nobody; rows that appear after it are taken by the first identity that syncs.
      */
     wipe: () => tx(async () => {
-      for (const table of ['books', 'reading_state', 'annotations', 'outbox']) await run(`DELETE FROM ${table}`)
-      await run(`DELETE FROM meta WHERE key <> 'account'`)
+      for (const table of ['books', 'reading_state', 'annotations', 'outbox', 'meta']) await run(`DELETE FROM ${table}`)
     }),
   }
 }
 
 /**
  * Rows, then files (`clearFiles`: everything under the v2 root). A failed row wipe stops before the
- * files: rows never name missing files, and the identity left in place makes the next pass under
- * another account try again (#1070).
+ * files: rows never name missing files, and the owner left in place keeps every pass of another
+ * account refused until the next sign-in wipes again (#1070).
  */
 export async function wipeV2Library(lib: Pick<LocalLibrary, 'wipe'>, clearFiles: () => void): Promise<void> {
   await lib.wipe()
