@@ -2,7 +2,7 @@
 
 **Draft for the owner to edit (#1251).** Nothing here is final until the owner says so.
 
-TextStack is a library you carry with you. These seven stories say how people use it. Every
+TextStack is a library you carry with you. These eight stories say how people use it. Every
 sentence has the same shape: **someone does something with something**. There is no code here and
 no technical name. The technical pages come after the stories, not before.
 
@@ -24,7 +24,8 @@ the app, in the code, in the changelog and in these docs.
 
 - **Reader**: reads books. May have an account, or use the app as a guest.
 - **Assistant**: the reader's own AI helper, outside TextStack.
-- **Library**: TextStack itself. It keeps books and remembers things for the reader.
+- **TextStack**: the app itself. It keeps books and remembers things for the reader. The reader's
+  own books are their *library*.
 - **Helper**: an outside service the library asks to explain or translate a word.
 - **Contributor** and **Maintainer**: people who change TextStack.
 
@@ -33,20 +34,21 @@ the app, in the code, in the changelog and in these docs.
 ## Story 1. A reader brings a book and starts reading
 
 1. The **Reader** picks a *book file* on their device. (today)
-2. The **Library** checks if the reader already has this exact file. If yes, it offers to open the
+2. **TextStack** checks if the reader already has this exact file. If yes, it offers to open the
    book they have, or to cancel. It never replaces a book without asking. (owner)
-3. The Library adds the *book* to the reader's *library*. (today)
+3. TextStack adds the *book* to the reader's *library*. (today)
 4. The Reader opens the book. (today)
-5. The *reader screen* shows the first page. (today)
-6. The Library remembers the *reading position* as the reader moves. (today)
+5. The *reading screen* shows the first page. (today)
+6. TextStack remembers the *reading position* as the reader moves. (today)
 
 **After the move:** the book opens straight from the file on the device. The reader does not wait
-for the Library to prepare it, and does not need an account or a network. (owner)
+for TextStack to prepare it, and does not need an account or a network. (owner)
 
-**Today:** the file goes to the Library first. The Library cuts it into chapters, and then the book
+**Today:** the file goes to TextStack first. TextStack cuts it into chapters, and then the book
 can be opened. (today)
 
-**To check:** the app says "Upload your book". The story says "bring" or "add". Which word do we keep?
+**Word:** the reader *adds* a book. The app still says "upload" today, and that is true today: the
+file goes to TextStack first. The app text changes together with the move.
 
 Sources: `v2-target-model.md` (stories, identity decisions of 2026-10-28), `flows.md` "Upload a book".
 Existing picture: the "Upload a book" scenario of the architecture map.
@@ -56,15 +58,16 @@ Existing picture: the "Upload a book" scenario of the architecture map.
 ## Story 2. A reader comes back on another device
 
 1. The **Reader** signs in on a second device. (today)
-2. The **Library** shows the reader's *library* there. (today)
-3. The Library brings the *reading position*, the *highlights* and the *words* to the new device.
+2. **TextStack** shows the reader's *library* there. (today)
+3. TextStack brings the *reading position*, the *highlights* and the *words* to the new device.
    This happens by default after sign-in. (owner)
-4. The Library brings the *book file* only if the reader turned that on. If not, the book is shown
+4. TextStack brings the *book file* only if the reader turned that on. If not, the book is shown
    as "not on this device", and the reader adds the file again. (owner)
 5. The Reader opens the book and continues from the saved position. (today)
-6. If the reader moved in the book on both devices, the Library does not jump by itself. It says
+6. If the reader moved in the book on both devices, TextStack does not jump by itself. It says
    there is a newer position and lets the reader choose. (today)
-7. The *furthest point read* never moves back because the reader went back a few pages. (owner)
+7. The *progress*, the furthest point read, never moves back because the reader went back a few
+   pages. (owner)
 
 **To check:** what the reader sees when two devices disagree is decided for the new reader, but the
 exact words on screen are not written yet.
@@ -76,19 +79,20 @@ Existing picture: the "Read a chapter" scenario of the architecture map.
 
 ## Story 3. A reader meets a hard word
 
-1. The **Reader** taps a *word* on the reader screen. (today)
-2. The **Library** asks a **Helper** for a short *explanation* that fits this book. (today)
-3. The reader screen shows the explanation. If the Helper is away, reading still works. (today)
-4. The Reader saves the word. (today)
-5. The Library puts the word into the reader's *vocabulary*, with the sentence and the book it came
+1. The **Reader** taps a *word* on the reading screen. (today)
+2. **TextStack** asks a **Helper** for a short *explanation* that fits this book. (today)
+3. The reading screen shows the explanation. If the Helper is away, reading still works. (today)
+4. The Reader may listen to how the word sounds. (today)
+5. The Reader saves the word. (today)
+6. TextStack puts the word into the reader's *vocabulary*, with the sentence and the book it came
    from. (today)
-6. The next time the word appears, in any book, the reader screen shows a small translation next to
+7. The next time the word appears, in any book, the reading screen shows a small translation next to
    it. The reader does not have to stop. (owner)
-7. Later the Reader does a *review* of their words. (today)
-8. Saving a word again never resets what the reader already learned. (owner)
+8. Later the Reader does a *review* of their words. (today)
+9. Saving a word again never resets what the reader already learned. (owner)
 
-**To check:** the app uses "vocabulary", "saved words", "your words" and "flashcards" for parts of
-this. We need one word for the list, one for an item, one for the practice.
+**Words:** the list is the *vocabulary*, one item is a *word*, the practice is a *review*.
+"Flashcards" is one way to do a review, not another name for it.
 
 Sources: `v2-target-model.md` story 1 and the vocabulary row (owner), `vocabulary-srs.md`.
 Existing picture: flow 6b in the system map of the 2026-10 review.
@@ -97,16 +101,18 @@ Existing picture: flow 6b in the system map of the 2026-10 review.
 
 ## Story 4. A reader marks a passage
 
-1. The **Reader** selects a passage on the reader screen. (today)
+1. The **Reader** selects a passage on the reading screen. (today)
 2. The Reader marks it as a *highlight* and picks a colour. (today)
 3. The Reader may write a *note* on the highlight. A note always belongs to a highlight. (owner)
-4. The **Library** keeps the highlight with the book, together with the words that were marked. (today)
+4. **TextStack** keeps the highlight with the book, together with the words that were marked. (today)
 5. The Reader sees all highlights of a book, and of all books, in one place. (today)
-6. If the reader replaces the book file with a new edition, the Library keeps every highlight and
+6. If the reader replaces the book file with a new edition, TextStack keeps every highlight and
    its words. It does not move a highlight to a place it is not sure about. (owner)
 
-**To check:** the new database calls all of this "annotations". The app says "highlights". The old
-database also has "bookmarks" as a separate thing. Is a bookmark its own thing, or a kind of highlight?
+**Words:** *highlight* and *note*. The new database calls them "annotations"; that stays a
+technical name.
+
+**To check:** is a bookmark its own thing after the move, or does the reading position do its job?
 
 Sources: `v2-target-model.md` highlights row and replacement decisions (owner, 2026-10-28 and 29).
 Existing picture: none.
@@ -122,15 +128,17 @@ Existing picture: none.
 4. The Reader and the Assistant talk. The conversation lives with the Assistant, not in TextStack. (owner)
 5. When they reach a conclusion, a changed view or an open question, the Assistant saves it into
    the book. (owner)
-6. The **Library** confirms that it was saved. If it was not, the Assistant says so. (owner)
+6. **TextStack** confirms that it was saved. If it was not, the Assistant says so. (owner)
 7. When the Reader returns, the Assistant gets those saved thoughts first, and keeps them apart
    from today's talk. It does not rewrite what the reader thought before. (owner)
 8. The Assistant never marks a chapter as read, and never adds or deletes words, just because they
    talked. (owner)
 
-**To check, the biggest word problem in the project:** what the Assistant saves is called
-"insight", "conclusion", "checkpoint" and "chapter review" in different places. Are these one thing
-with kinds, or really different things?
+**Word:** what the Assistant saves is an *insight*. An insight about one chapter is a *chapter
+insight*. "Review" is kept for practising words.
+
+**To check:** the new database also keeps *checkpoints*: a growing list of thoughts, where an
+insight is one entry per chapter that gets replaced. One thing or two?
 
 **Honest limit, to keep in the story:** deleting something in TextStack does not delete the copy the
 Assistant already has.
@@ -146,15 +154,15 @@ Existing picture: the assistant scenario of the architecture map.
 1. A **Reader** uses TextStack with no *account*. They are a *guest*. Their books stay on their
    device. (owner)
 2. The guest creates an account. (today)
-3. The **Library** moves everything the guest had into the account: books, reading positions,
+3. **TextStack** moves everything the guest had into the account: books, reading positions,
    words and highlights. Nothing is lost and nothing is asked twice. (owner)
-4. From now on the Library copies reading positions, words and notes between the reader's devices. (owner)
-5. The Reader signs out. The Library removes the account's data from this device and keeps the
+4. From now on TextStack copies reading positions, words and notes between the reader's devices. (owner)
+5. The Reader signs out. TextStack removes the account's data from this device and keeps the
    books that were added as a guest. If something is not saved to the account yet, it warns first. (owner)
-6. The Reader closes the account. The Library deletes the account and everything in it at once. It
+6. The Reader closes the account. TextStack deletes the account and everything in it at once. It
    cannot be undone. (today)
 
-**To check:** "account" or "library card"? "Guest" is used the same everywhere, which is good.
+**Words:** *account* and *guest*. Both are already used the same way everywhere.
 
 Sources: `v2-sync-protocol.md` "Guest → account merge" and "Sign-out, account deletion" (owner
 decisions 2 and 3), ADR-014, the delete-account page of the app.
@@ -162,7 +170,26 @@ Existing picture: none.
 
 ---
 
-## Story 7. A contributor changes TextStack
+## Story 7. A reader reads with no network
+
+1. The **Reader** keeps a book on their device. (today)
+2. The network goes away. (today)
+3. The Reader opens the book. The reading screen shows it from the device. It waits for no network
+   and for no sign-in. (owner)
+4. The Reader reads, makes highlights and saves words. The device keeps them. (today)
+5. The network comes back. **TextStack** sends what the device kept to the reader's account. (today)
+6. A book that is not on the device cannot be opened with no network. TextStack says so in plain
+   words. (today)
+
+**To check:** the app says "download" for keeping a book on the device, and "offline" for reading
+with no network. Do we keep both words?
+
+Sources: the reading-path rule in `CLAUDE.md`, `internal/claude/mobile.md` "Offline".
+Existing picture: none.
+
+---
+
+## Story 8. A contributor changes TextStack
 
 1. A **Contributor** picks an *issue*: a short note that says what should change. (today)
 2. The Contributor makes the change on their own copy. (today)
@@ -172,48 +199,27 @@ Existing picture: none.
 6. The change goes live by itself. (today)
 7. The change appears on the *changelog* page, under its area. (today)
 
-**To check:** the areas. The changelog has eight, the code has six, the task board has six others,
-and the app menu has four. They should be one list.
+The areas are one list now. It is in the [glossary](../glossary.md).
 
 Sources: `start/first-pr.md`, `.github/release.yml`.
 Existing picture: the delivery diagram in `architecture/delivery.md`.
 
 ---
 
-## Words these stories need
+## The words and the areas
 
-A first list, taken from the stories. The owner picks one word per line; the others become
-forbidden as synonyms.
+The stories gave the project its words. They live in one place: the [glossary](../glossary.md).
+One word per thing, the words not to use, and the list of areas.
 
-- **Book**. Also seen: upload, user book, my book.
-- **Library**. Also seen: my books, shelf.
-- **Reader screen**. Also seen: reader, reading view. Note: "reader" is also the person.
-- **Reading position**. Also seen: progress, location, place.
-- **Highlight**, with an optional **note**. Also seen: annotation, bookmark.
-- **Word**, **vocabulary**, **review**. Also seen: saved words, your words, flashcards.
-- **Explanation**. Also seen: translation, definition, gloss.
-- **Assistant** and **key**. Also seen: AI, connector, MCP client; connect key, access key.
-- One word for what the assistant saves. Seen: insight, conclusion, checkpoint, chapter review.
-- **Guest** and **account**.
-- **Area**, **issue**, **pull request**, **changelog**.
+## What is still open
 
-## Areas the stories suggest
+The owner decides these. Each is also marked in the glossary.
 
-Each story stays inside one area, or crosses a clear line between two. That gives this list:
-
-- **Library**: stories 1 and 2. Books and where they are.
-- **Reader**: stories 1 and 2. Opening a book and keeping the place.
-- **Highlights**: story 4.
-- **Vocabulary**: story 3.
-- **Assistant**: story 5.
-- **Account**: story 6.
-
-Not seen by readers: Mobile, Data, Ops, Docs.
-
-## What the owner decides next
-
-1. Is each story right? Change any sentence. The steps marked (owner) quote earlier decisions; say
+1. Is a *bookmark* its own thing after the move, or does the reading position do its job?
+2. Is a *checkpoint* a second thing next to an *insight*, or does it replace it?
+3. "Download" and "offline": keep both words?
+4. Is each story right? Change any sentence. The steps marked (owner) quote earlier decisions; say
    if one has changed.
-2. Are seven stories the right seven? Missing candidates: listening to a book read aloud, reading
-   with no network, finding a book in the library.
-3. The "to check" line under each story.
+
+Not a story, on purpose: finding a book in the public catalogue. The catalogue goes away after the
+move.
