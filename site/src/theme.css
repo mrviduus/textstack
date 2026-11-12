@@ -1,0 +1,23 @@
+/* Warm paper, like a library reading room. Accent is the TextStack orange. */
+:root {
+  --sl-font: 'Source Sans 3', system-ui, sans-serif;
+  --sl-color-accent-low: #2b2118;
+  --sl-color-accent: #ff922b;
+  --sl-color-accent-high: #ffd8a8;
+  --sl-color-black: #14161c;
+  --sl-color-gray-6: #1b1e26;
+  --sl-color-gray-5: #2c313d;
+}
+:root[data-theme='light'] {
+  --sl-color-accent-low: #fff1e8;
+  --sl-color-accent: #d9480f;
+  --sl-color-accent-high: #7a2a08;
+  --sl-color-white: #1f2430;
+  --sl-color-black: #fbfaf7;
+  --sl-color-gray-7: #f3f1ec;
+  --sl-color-gray-6: #f3f1ec;
+  --sl-color-gray-5: #e4e0d8;
+}
+h1, h2, h3 { font-family: 'Source Serif 4', Georgia, serif; }
+.diagram { overflow-x: auto; margin-block: 1rem; }
+.diagram svg { max-width: 100%; height: auto; }
