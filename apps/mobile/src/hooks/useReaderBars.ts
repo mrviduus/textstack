@@ -6,6 +6,8 @@ type Options = {
   footerHeight: number
   /** When the chapter first loads we briefly show then auto-hide bars. */
   autoHideTrigger: boolean
+    /** A count instead: every new value (bars shown again, e.g. a book reopened) re-arms the auto-hide. 0 = off. */
+    | number
   hideDelayMs?: number
 }
 

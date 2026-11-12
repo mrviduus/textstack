@@ -56,12 +56,52 @@ export function keyAction({ key, shift, dir }) {
   return null
 }
 
-/** A relocate this soon after a bar control was pressed (the bar's own prev/next) keeps the bars up. */
-export const BAR_PRESS_GRACE_MS = 1000
+/** The cap on the TOC label the chrome renders. */
+const MAX_TOC_LABEL = 200
+const count = (v) => Number.isInteger(v) && v >= 0 && v <= 100_000
 
-/** Scrolling (the reader moving, scrolled flow) hides the bars, unless a bar control just moved it. */
-export function hidesBarsOnRelocate({ flow, moved, msSinceBarPress }) {
-  return flow === 'scrolled' && moved && !(msSinceBarPress < BAR_PRESS_GRACE_MS)
+/**
+ * A host's read of `relocate` for what the chrome shows and follows (never throws): `fraction` in [0, 1], `index`
+ * and `sections` whole numbers ≤ 100,000, else null; `toc` a string cut to 200, else ''; `dir` through `readDir`.
+ * The position code (sync, ADR-019) keeps reading the message as before.
+ */
+export function readRelocate(m) {
+  if (m?.type !== 'relocate') return null
+  const f = m.fraction
+  return {
+    fraction: typeof f === 'number' && f >= 0 && f <= 1 ? f : null,
+    index: count(m.index) ? m.index : null,
+    sections: count(m.sections) ? m.sections : null,
+    toc: typeof m.toc === 'string' ? m.toc.slice(0, MAX_TOC_LABEL) : '',
+    dir: readDir(m),
+  }
+}
+
+/** A relocate this soon after one the host caused keeps the bars up (a landing can relocate more than once). */
+export const HOST_MOVE_GRACE_MS = 1000
+
+/** Scrolling (the reader moving, scrolled flow) hides the bars, unless the host just moved it. `flow`: the effective one. */
+export function hidesBarsOnRelocate({ flow, moved, msSinceHostMove }) {
+  return flow === 'scrolled' && moved && !(msSinceHostMove < HOST_MOVE_GRACE_MS)
+}
+
+/**
+ * The host's own moves (a bar button, a `goTo`): `start()` when it calls the page; `onRelocate(now)` per relocate
+ * gives the ms since the host's move landed: 0 for the first relocate after `start()`, however late it comes.
+ */
+export function createHostMoves() {
+  let pending = false
+  let at = -Infinity
+  return {
+    start() { pending = true },
+    onRelocate(now) {
+      if (pending) {
+        pending = false
+        at = now
+      }
+      return now - at
+    },
+  }
 }
 
 /** Android back, in order: the offer, then the open book (back to the list), then the route. */
@@ -69,4 +109,24 @@ export function backAction({ offer, reading }) {
   if (offer) return 'close-offer'
   if (reading) return 'close-book'
   return 'leave'
+}
+
+/** The marker the Android host's close script posts after the flush. */
+export const BOOK_CLOSED = 'book-closed'
+
+/**
+ * Android host, closing a book: the page's pending save first (`flush()` posts its `store` synchronously), then
+ * the marker, so the `store` is in before the host ends the book (messages arrive in order).
+ */
+// A plain literal (no `${BOOK_CLOSED}`): a template is kept in the page bundle even unused; the test pins the type.
+export const CLOSE_BOOK_JS = 'try{window.__fol.flush()}catch(e){};window.ReactNativeWebView.postMessage(\'{"type":"book-closed"}\');true'
+
+/** A page load's `ready` reopens the open in flight only while its book is on screen: a closed book stays closed. */
+export function reopensOnReady({ opening, inBook }) {
+  return !!opening && inBook
+}
+
+/** Page messages acted on with no book on screen: a `tap`, `key`, `word` or `selection` from the hidden page is dropped. */
+export function takenWithoutBook(type) {
+  return type !== 'tap' && type !== 'key' && type !== 'word' && type !== 'selection'
 }

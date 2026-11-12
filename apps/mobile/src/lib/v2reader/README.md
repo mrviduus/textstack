@@ -382,8 +382,14 @@ target in the spread already shown counts as arrived (foliate shows it without a
 reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReaderAwake`, all already in the app):
 
 - A book on screen shows a top bar (back, title) and a bottom bar (place from `relocate`, prev/next page) over the
-  WebView; they auto-hide after 3 s; a centre tap toggles them; in scrolled flow the reader moving (a relocate after
-  the restore's landing, not within 1 s of a bar button) hides them. Reduced motion: no slide or fade.
+  WebView; they auto-hide 3 s after each open (a replayed open too); a centre tap toggles them; in scrolled flow
+  (the effective flow: a fixed-layout book pages) the reader moving hides them: a relocate after the restore's
+  landing, not the host's own (a bar button, a sync `goTo`, the taken offer: `createHostMoves`, plus 1 s for the
+  snap after it). Reduced motion: no slide or fade. What the chrome shows comes through `readRelocate` (bounded
+  numbers, a capped string); the position code reads `relocate` as before.
+- **Known:** a re-layout (rotation, `font`, `flow`) that changes the CFI hides the bars as if the reader scrolled.
+  The page knows (foliate's `reason` is `'anchor'` there, the save rule reads it) but does not send it: `relocate`
+  would need `reason` (or a `moved` flag) for the host to tell.
 - Tap zones (`tapZone.mjs` `tapAction`, the web host's too): in paginated flow, and always on a fixed-layout book,
   the outer 25 % of each side turns the page, the middle toggles. `tap.x` (through `readTap`) against the WebView's
   width; the latest direction (`opened.dir`, then every `relocate.dir`, through `readDir`) swaps the edges of an rtl
@@ -391,12 +397,17 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
 - Keys (a hardware keyboard): `key` through `readKey` (a held key's repeats dropped) and `keyAction` with the same
   direction: `prev`/`next` turn the page and hide the bars, `bars` (Escape) shows them.
 - Android back: the offer, then the book (back to the list), then the route. No exit prompt.
+- **Closing a book** (back, the top bar) shows the list at once and injects `CLOSE_BOOK_JS`: `flush()` (its `store`
+  is posted synchronously), then a `book-closed` marker; on the marker the book ends as the open one (no `ready`
+  reopens it, its per-book state is reset). No page loaded: it ends at once; a page gone before the marker: the
+  next `ready` ends it. With no book on screen the page is hidden from accessibility, and its `tap`, `key`, `word`,
+  `selection` and a late `opened` are dropped.
+- Notices over a book (a failed save, an offer) have a Dismiss button; the overdue alert keeps its Retry.
 - The screen stays awake and the status bar follows the bars while a book is on screen; the page keeps the top
   inset it had with the status bar shown, so a toggle never re-lays the book out.
-- **Save on leave:** the host calls `flush()` on background, on unmount and when the book is closed (back, the
-  top bar), so the 400 ms debounced save is written at once (`useFlushOnLeave`). On unmount the
-  WebView goes with the screen, so that `store` can be lost; back and the top bar close the book first, with the
-  WebView alive.
+- **Save on leave:** `flush()` on background lands (`useFlushOnLeave`). On unmount it is called too, but saves
+  nothing: the `store` comes back to a handler that is gone. The path that saves is closing the book first (above),
+  which back and the top bar do.
 
 **Deadlines and states** (#1227, `deadlines.mjs`, one rule for both hosts; the numbers are its named constants):
 

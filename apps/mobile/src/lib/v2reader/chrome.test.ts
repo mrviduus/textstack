@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { BAR_PRESS_GRACE_MS, NAV_KEYS, backAction, hidesBarsOnRelocate, keyAction, navKey, readDir, readKey, readTap } from './chrome.mjs'
+import {
+  BOOK_CLOSED, CLOSE_BOOK_JS, HOST_MOVE_GRACE_MS, NAV_KEYS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, navKey,
+  readDir, readKey, readRelocate, readTap, reopensOnReady, takenWithoutBook,
+} from './chrome.mjs'
 import { MAX_SELECTION_PX } from './selection.mjs'
 
 const press = (key: string, o: { shift?: boolean; ctrl?: boolean; alt?: boolean; meta?: boolean; repeat?: boolean; target?: unknown } = {}) =>
@@ -150,13 +153,89 @@ describe('v2 reader chrome readers (hostile payloads)', () => {
 
 describe('v2 reader bars on relocate (host)', () => {
   it('scrolledFlow_ReaderMoved_Hides', () => {
-    expect(hidesBarsOnRelocate({ flow: 'scrolled', moved: true, msSinceBarPress: Infinity })).toBe(true)
+    expect(hidesBarsOnRelocate({ flow: 'scrolled', moved: true, msSinceHostMove: Infinity })).toBe(true)
   })
 
-  it('paginated_OrNotMoved_OrBarControlJustPressed_Keeps', () => {
-    expect(hidesBarsOnRelocate({ flow: 'paginated', moved: true, msSinceBarPress: Infinity })).toBe(false)
-    expect(hidesBarsOnRelocate({ flow: 'scrolled', moved: false, msSinceBarPress: Infinity })).toBe(false)
-    expect(hidesBarsOnRelocate({ flow: 'scrolled', moved: true, msSinceBarPress: BAR_PRESS_GRACE_MS - 1 })).toBe(false)
+  it('paginated_OrNotMoved_OrHostJustMoved_Keeps', () => {
+    expect(hidesBarsOnRelocate({ flow: 'paginated', moved: true, msSinceHostMove: Infinity })).toBe(false)
+    expect(hidesBarsOnRelocate({ flow: 'scrolled', moved: false, msSinceHostMove: Infinity })).toBe(false)
+    expect(hidesBarsOnRelocate({ flow: 'scrolled', moved: true, msSinceHostMove: HOST_MOVE_GRACE_MS - 1 })).toBe(false)
+  })
+
+  it('hostMoves_FirstRelocateAfterStartIsTheHosts_HoweverLate', () => {
+    const moves = createHostMoves()
+    expect(moves.onRelocate(1000)).toBe(Infinity) // the reader's own
+    moves.start() // a goTo (sync adopt, the offer) or a bar button
+    expect(moves.onRelocate(9000)).toBe(0) // its landing, a slow section load later
+    expect(moves.onRelocate(9400)).toBe(400) // the snap after it, inside the grace
+    expect(moves.onRelocate(20000)).toBe(11000) // the reader scrolling again
+  })
+})
+
+describe('v2 reader relocate read for the chrome (hostile payloads)', () => {
+  it('readRelocate_Valid_Kept', () => {
+    expect(readRelocate({ type: 'relocate', fraction: 0.5, index: 3, sections: 9, toc: 'Ch 1', dir: 'rtl', cfi: 'x' }))
+      .toEqual({ fraction: 0.5, index: 3, sections: 9, toc: 'Ch 1', dir: 'rtl' })
+  })
+
+  it.each([
+    ['a toc object', { toc: { a: 1 } }, { toc: '' }],
+    ['a toc array', { toc: ['x'] }, { toc: '' }],
+    ['a long toc', { toc: 'x'.repeat(5000) }, { toc: 'x'.repeat(200) }],
+    ['fraction a string', { fraction: '0.5' }, { fraction: null }],
+    ['fraction NaN', { fraction: NaN }, { fraction: null }],
+    ['fraction past 1', { fraction: 1.5 }, { fraction: null }],
+    ['fraction negative', { fraction: -0.1 }, { fraction: null }],
+    ['index a float', { index: 1.5 }, { index: null }],
+    ['index negative', { index: -1 }, { index: null }],
+    ['sections huge', { sections: 1e9 }, { sections: null }],
+    ['dir malformed', { dir: 'RTL' }, { dir: null }],
+  ])('readRelocate_%s_Neutralised', (_, fields, want) => {
+    const r = readRelocate({ type: 'relocate', fraction: 0.2, index: 1, sections: 2, toc: 't', ...fields })
+    expect(r).toMatchObject(want)
+  })
+
+  it.each([['null', null], ['a string', 'relocate'], ['another type', { type: 'tap', fraction: 0.5 }]])('readRelocate_%s_Null', (_, m) => {
+    expect(() => readRelocate(m)).not.toThrow()
+    expect(readRelocate(m)).toBeNull()
+  })
+})
+
+describe('v2 reader closing a book (Android host, #1264)', () => {
+  /** Runs the close script against a page whose `flush()` posts a pending save, as saveScheduler does. */
+  const run = (pending: boolean) => {
+    const posted: string[] = []
+    const window = {
+      ReactNativeWebView: { postMessage: (m: string) => posted.push(m) },
+      __fol: { flush: () => { if (pending) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'store', key: 'k', json: '{}' })) } },
+    }
+    new Function('window', CLOSE_BOOK_JS)(window)
+    return posted.map((m) => JSON.parse(m).type)
+  }
+
+  it('closeScript_TheSaveLandsBeforeTheBookCloses', () => {
+    expect(run(true)).toEqual(['store', BOOK_CLOSED])
+  })
+
+  it('closeScript_NothingPending_OnlyTheMarker', () => {
+    expect(run(false)).toEqual([BOOK_CLOSED])
+  })
+
+  it('closeScript_PageWithoutFol_StillCloses', () => {
+    const posted: string[] = []
+    new Function('window', CLOSE_BOOK_JS)({ ReactNativeWebView: { postMessage: (m: string) => posted.push(m) } })
+    expect(posted).toEqual([JSON.stringify({ type: BOOK_CLOSED })])
+  })
+
+  it('closedBook_ReadyReopensNothing', () => {
+    expect(reopensOnReady({ opening: { file: 'books/a.epub' }, inBook: true })).toBe(true)
+    expect(reopensOnReady({ opening: { file: 'books/a.epub' }, inBook: false })).toBe(false)
+    expect(reopensOnReady({ opening: null, inBook: true })).toBe(false)
+  })
+
+  it('noBook_TapKeyWordSelectionDropped_RestTaken', () => {
+    for (const t of ['tap', 'key', 'word', 'selection']) expect(takenWithoutBook(t)).toBe(false)
+    for (const t of ['ready', 'opened', 'store', 'relocate', BOOK_CLOSED]) expect(takenWithoutBook(t)).toBe(true)
   })
 })
 

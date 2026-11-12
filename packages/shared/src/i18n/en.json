@@ -636,7 +636,8 @@
     "chrome": {
       "back": "Back",
       "prevPage": "Previous page",
-      "nextPage": "Next page"
+      "nextPage": "Next page",
+      "dismiss": "Dismiss"
     },
     "newerElsewhere": {
       "message": "You read further on another device: {target}",

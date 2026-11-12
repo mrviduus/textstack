@@ -22,7 +22,10 @@ import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
-import { backAction, hidesBarsOnRelocate, keyAction, readDir, readKey, readTap } from '../../lib/v2reader/chrome.mjs'
+import {
+  BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readRelocate, readTap,
+  reopensOnReady, takenWithoutBook,
+} from '../../lib/v2reader/chrome.mjs'
 import { tapAction } from '../../lib/v2reader/tapZone.mjs'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
@@ -181,8 +184,8 @@ function UpdateWebViewScreen() {
   )
 }
 
-/** Where the reader is, from the last `relocate`; null: nothing to show yet. */
-type Place = { fraction: number; index: number; sections: number; toc: string } | null
+/** Where the reader is, from the last `relocate` through `readRelocate`; null: nothing to show yet. */
+type Place = { fraction: number | null; index: number | null; sections: number | null; toc: string } | null
 
 /**
  * The bottom bar (the legacy reader's footer): re-renders alone on every `relocate`, not the WebView beside it.
@@ -257,8 +260,17 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
 
   const call = (js: string) => webView.current?.injectJavaScript(`${js};true`)
 
-  /** A book is on screen (the reader, with its bars) rather than the list. */
+  /** A book is on screen (the reader, with its bars) rather than the list; the ref for the message handler. */
   const [inBook, setInBook] = useState(false)
+  const inBookRef = useRef(false)
+  const setBook = (v: boolean) => {
+    inBookRef.current = v
+    setInBook(v)
+  }
+  /** Counts opens: each one shows the bars and re-arms their auto-hide, also when replayed in the book. */
+  const [opens, setOpens] = useState(0)
+  /** The flow the book pages by: a fixed-layout book pages whatever the setting. */
+  const effectiveFlow: Flow = reflowable ? flow ?? 'scrolled' : 'paginated'
   const insets = useSafeAreaInsets()
   // The page keeps the inset it had with the status bar shown: hiding the bars must not resize (re-lay out) the book.
   const topPad = useRef(0)
@@ -267,25 +279,42 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const { barsVisible, barsAnim, topBarTranslateY, footerTranslateY, showBars, hideBars, toggleBars } = useReaderBars({
     topBarHeight: 56 + insets.top,
     footerHeight: footerHeight || 60 + insets.bottom,
-    autoHideTrigger: inBook,
+    autoHideTrigger: inBook ? opens : 0,
   })
   useKeepReaderAwake(inBook)
   /** The page viewport's width (the WebView's), the space of `tap.x`. */
   const pageWidth = useRef(0)
-  /** When a bar control last moved the reader: its relocate keeps the bars up. */
-  const barPressAt = useRef(-Infinity)
+  /** The host's own moves (bar buttons, goTo): their relocates never hide the bars. */
+  const [hostMoves] = useState(createHostMoves)
   const barTurn = (dir: 'prev' | 'next') => {
-    barPressAt.current = Date.now()
+    hostMoves.start()
     call(`window.__fol.${dir}()`)
   }
 
-  // The page's debounced save (400 ms) is written on background, on unmount and when the book is closed
-  // (the page also flushes itself when its document turns hidden).
+  // The page's debounced save (400 ms) is written on background (the page also flushes itself when its document
+  // turns hidden); the unmount call is best effort (useFlushOnLeave). Closing a book flushes through CLOSE_BOOK_JS.
   const flushPage = useCallback(() => { webView.current?.injectJavaScript(FLUSH_JS) }, [])
   useFlushOnLeave(flushPage)
+
+  /**
+   * Back or the top bar: the list at once (the hidden page takes no tap or key from here), then the book ends
+   * once the page's pending save is in (`CLOSE_BOOK_JS`: `store`, then `book-closed`). No page to flush: at once.
+   */
   const closeBook = () => {
-    flushPage()
-    setInBook(false)
+    setBook(false)
+    deadlines.answered()
+    if (ready.current) webView.current?.injectJavaScript(CLOSE_BOOK_JS)
+    else endBook()
+  }
+  /** The closed book is no longer the open one: a later `ready` opens nothing, and its per-book state goes. */
+  const endBook = () => {
+    opening.current = null
+    reading.current = { bookId: null, restored: false, baseline: null, cfi: null, index: null }
+    setReflowable(true)
+    pageDir.current = 'ltr'
+    setProgress.current(null)
+    setOffer(null)
+    setHeading(IDLE_HEADING)
   }
 
   /**
@@ -294,7 +323,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    */
   const onTap = (m: unknown) => {
     const p = readTap(m)
-    const action = tapAction({ x: p?.x, width: pageWidth.current, flow: reflowable ? flow ?? 'scrolled' : 'paginated', dir: pageDir.current })
+    const action = tapAction({ x: p?.x, width: pageWidth.current, flow: effectiveFlow, dir: pageDir.current })
     if (action === 'toggle') return toggleBars()
     call(`window.__fol.${action}()`)
     hideBars()
@@ -312,6 +341,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    */
   const goTo = (p: PagePosition, chosen = false) => {
     reading.current.baseline = null
+    hostMoves.start()
     call(`window.__fol.goTo(${JSON.stringify(p)}, ${chosen})`)
   }
 
@@ -396,8 +426,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setError(null)
     setHeading(`Opening ${target.name}`)
     setProgress.current(null)
-    setInBook(true)
+    setBook(true)
     showBars()
+    setOpens((n) => n + 1)
     if (!ready.current) return
     deadlines.waitOpened(sizeOf(target.file))
     call(`window.__fol.openUrl(${JSON.stringify(url)}, ${JSON.stringify(target.file)})`)
@@ -457,7 +488,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // The old book may still post a relocate until the page takes up this open (file read + messages in
     // flight); a failure must not leave it standing after open() cleared it (#1168).
     setProgress.current(null)
-    setInBook(false)
+    setBook(false)
     // Not the previous book's title (#1080 item 6): the error line names this file.
     setHeading(IDLE_HEADING)
     setOpenError(`cannot open ${o.name}: ${reason}`)
@@ -470,6 +501,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // Until the WebView said what it is, only that answer is taken: on an engine without frame-aware messaging
     // (the patch's fallback bridge) any frame can post, and those engines never get past the update screen.
     if (webViewCheck.verdict() === null && m.type !== 'ua') return
+    // No book on screen: the hidden page's taps, keys, words and selections are not the reader's.
+    if (!inBookRef.current && !takenWithoutBook(m.type)) return
     switch (m.type) {
       case 'ua':
         onUserAgent(m.ua)
@@ -480,10 +513,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         storedFlow().then((f) => {
           call(`window.__fol.flow(${JSON.stringify(f)})`)
           ready.current = true
-          if (opening.current) open(opening.current)
+          if (reopensOnReady({ opening: opening.current, inBook: inBookRef.current })) open(opening.current!)
+          else if (opening.current) endBook() // closed while the page was gone: its book-closed never came
         })
         return
       case 'opened': {
+        // A book closed before its page answered: not taken (no restore, so the page saves nothing for it).
+        if (!inBookRef.current) return deadlines.answered()
         const t = tracker.opened(m)
         if (t) {
           deadlines.answered()
@@ -514,11 +550,18 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       case 'store':
         v2Storage().writeStore(m.key, m.json).then(syncSoon, fail('store', setError))
         return
+      case BOOK_CLOSED:
+        // The closed book's pending save came first (CLOSE_BOOK_JS); a reopen meanwhile keeps it.
+        if (!inBookRef.current) endBook()
+        return
       case 'relocate': {
-        // The reader moving (not the restore's landing): in scrolled flow that hides the bars.
+        // The reader moving (not the restore's landing, not a move the host made): in scrolled flow that hides the
+        // bars. A re-layout (rotation, font) that changes the CFI still counts (README, Reader chrome).
         const moved = reading.current.restored && reading.current.cfi != null && (m.cfi ?? null) !== reading.current.cfi
-        if (hidesBarsOnRelocate({ flow, moved, msSinceBarPress: Date.now() - barPressAt.current })) hideBars()
-        pageDir.current = readDir(m) ?? pageDir.current
+        if (hidesBarsOnRelocate({ flow: effectiveFlow, moved, msSinceHostMove: hostMoves.onRelocate(Date.now()) })) hideBars()
+        // What the chrome shows and follows is read through readRelocate (the page renders untrusted content).
+        const shown = readRelocate(m)
+        pageDir.current = shown?.dir ?? pageDir.current
         if (reading.current.restored) {
           reading.current.baseline ??= m.cfi ?? null
           reading.current.cfi = m.cfi ?? null
@@ -526,7 +569,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         }
         // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
         if (!tracker.showsPosition()) return
-        setProgress.current({ fraction: m.fraction ?? 0, index: m.index ?? 0, sections: m.sections ?? 0, toc: m.toc ?? '' })
+        if (shown) setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc })
         return
       }
       case 'word':
@@ -586,7 +629,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const reload = useCallback(() => {
     ready.current = false
     const o = opening.current
-    if (o) {
+    // Only a book on screen counts a crash; a closed one is ended on the next `ready`.
+    if (o && inBookRef.current) {
       const again = crashedFile.current === o.file
       crashedFile.current = again ? null : o.file
       if (again) giveUp(o, 'this book crashes the reader')
@@ -652,11 +696,19 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     </>
   )
   const hasNotices = !!(overdue || openError || error || offer)
+  const dismissNotices = () => {
+    setError(null)
+    setOpenError(null)
+    setOffer(null)
+  }
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar hidden={inBook && !barsVisible} style={isDark ? 'light' : 'dark'} />
       <View
+        // No book on screen: the list covers the page, and TalkBack must not reach the book behind it.
+        importantForAccessibility={inBook ? 'auto' : 'no-hide-descendants'}
+        accessibilityElementsHidden={!inBook}
         style={[styles.page, { paddingTop: topPad.current, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right }]}
       >
         <WebView
@@ -712,7 +764,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             onHeight={(h) => { if (h > 0 && h !== footerHeight) setFooterHeight(h) }}
           />
           {hasNotices && (
-            <View style={[styles.notices, { top: barsVisible ? 56 + insets.top : insets.top, backgroundColor: colors.background }]}>{notices}</View>
+            <View style={[styles.notices, { top: barsVisible ? 56 + insets.top : insets.top, backgroundColor: colors.background }]}>
+              <View style={styles.noticesText}>{notices}</View>
+              {!overdue && (
+                <Pressable onPress={dismissNotices} accessibilityRole="button" accessibilityLabel={t('reader.chrome.dismiss')} style={styles.dismiss}>
+                  <Text style={[styles.dismissText, { color: colors.text }]}>×</Text>
+                </Pressable>
+              )}
+            </View>
           )}
         </>
       ) : (
@@ -768,7 +827,10 @@ const styles = StyleSheet.create({
   booksRow: { gap: 6, paddingHorizontal: 8 },
   book: { borderWidth: 1, borderRadius: 6, paddingVertical: 4, maxWidth: 160 },
   page: { flex: 1 },
-  notices: { position: 'absolute', left: 0, right: 0, zIndex: 11, paddingVertical: 4 },
+  notices: { position: 'absolute', left: 0, right: 0, zIndex: 11, paddingVertical: 4, flexDirection: 'row', alignItems: 'flex-start' },
+  noticesText: { flex: 1 },
+  dismiss: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  dismissText: { fontSize: 22 },
   update: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 14 },
   updateText: { alignItems: 'center', gap: 14 },
   updateTitle: { fontSize: 20, fontWeight: '700', textAlign: 'center' },

@@ -26,7 +26,8 @@ describe('useFlushOnLeave (V2 reader position, #1264)', () => {
     h.unmount()
   })
 
-  it('unmount_Flushes', () => {
+  // Only that the page is asked: what it answers reaches no handler (the hook's doc); no save is claimed here.
+  it('unmount_AsksTheFlush_BestEffort', () => {
     const flush = vi.fn()
     const h = renderHook(useFlushOnLeave, flush)
     h.unmount()
