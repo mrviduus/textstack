@@ -1,6 +1,6 @@
 # The words of TextStack
 
-**Draft (#1251).** One word for one thing. The same word in the app, in the docs, in the changelog
+**Agreed with the owner on 2026-11-12 (#1251).** One word for one thing. The same word in the app, in the docs, in the changelog
 and, in time, in the code.
 
 The words come from [the stories](stories/index.md). Read those first.

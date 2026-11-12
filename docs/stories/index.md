@@ -1,6 +1,6 @@
 # The stories of TextStack
 
-**Draft for the owner to edit (#1251).** Nothing here is final until the owner says so.
+**Agreed with the owner on 2026-11-12 (#1251).** A change to a story is a change to the product: it needs the owner.
 
 TextStack is a library you carry with you. These eight stories say how people use it. Every
 sentence has the same shape: **someone does something with something**. There is no code here and
