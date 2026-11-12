@@ -17,6 +17,11 @@ import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
 import { downloadV2Book, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
 import { v2ReaderPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
+import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
+import { hostError } from '../../lib/v2reader/hostErrors'
+import { useLanguage } from '../../context/LanguageContext'
+import { openPlayStorePage } from '../../lib/playStore'
+import { USER_AGENT_PROBE, createWebViewCheck, webViewStorePackage, type WebViewVerdict } from '../../lib/v2reader/webViewVersion'
 
 /**
  * The V2 reader (ADR-029) on Android, dev builds only: reached through `app/dev/epub-v2.tsx`.
@@ -108,16 +113,52 @@ const freshNonce = () => nonceFromUuid(uuid.v4())
 type Opening = { file: string; name: string }
 const isStaged = (file: string) => file.startsWith('staging/')
 
-/** Logs a failure; `show` also puts it on screen. */
+/** Logs a failure; `show` also puts it on screen (a full disk as a human message, hostErrors.ts). */
 const fail = (what: string, show?: (text: string) => void) => (e: unknown) => {
   console.log(`[v2] ${what} failed: ${e}`)
-  show?.(`${what}: ${e}`)
+  show?.(`${what}: ${hostError(e)}`)
 }
 
-/** Plan R2 is the Android route: iOS has no allowFileAccessFromFileURLs and refuses the file:// base. */
+/** The file's size for its `opened` deadline; unknown (null) gives the floor. */
+const sizeOf = (file: string) => {
+  try { return v2File(file).size } catch { return null }
+}
+
+const IDLE_HEADING = 'Pick a book'
+
+/** The WebView's verdict for the process (#1228, webViewVersion.ts): the reader page's first `ua` answer. */
+const webViewCheck = createWebViewCheck()
+
+/**
+ * Plan R2 is the Android route: iOS has no allowFileAccessFromFileURLs and refuses the file:// base.
+ * A WebView older than the page's floor swaps the reader for the update screen (#1228).
+ */
 export default function V2ReaderScreen() {
+  const [verdict, setVerdict] = useState(webViewCheck.verdict)
   if (Platform.OS !== 'android') return <Text>Android dev route only (R2)</Text>
-  return <V2Reader />
+  if (verdict === 'outdated') return <UpdateWebViewScreen />
+  return <V2Reader verdict={verdict} onUserAgent={(ua) => setVerdict(webViewCheck.answer(ua))} />
+}
+
+/** No "try again": the WebView provider is loaded once per process, so an update applies after a reopen. */
+function UpdateWebViewScreen() {
+  const { colors } = useTheme()
+  const { t } = useLanguage()
+  return (
+    <SafeAreaView style={[styles.update, { backgroundColor: colors.background }]}>
+      <View accessibilityRole="alert" style={styles.updateText}>
+        <Text style={[styles.updateTitle, { color: colors.text }]}>{t('updates.webView.title')}</Text>
+        <Text style={[styles.updateBody, { color: colors.textSecondary }]}>{t('updates.webView.body')}</Text>
+      </View>
+      <Pressable
+        onPress={() => openPlayStorePage(webViewStorePackage(Number(Platform.Version)))}
+        accessibilityRole="button"
+        style={[styles.button, { backgroundColor: colors.primary }]}
+      >
+        <Text style={styles.buttonText}>{t('updates.webView.cta')}</Text>
+      </Pressable>
+    </SafeAreaView>
+  )
 }
 
 /** Re-renders alone on every `relocate`, not the WebView beside it. */
@@ -127,8 +168,10 @@ function ProgressLine({ setter, color }: { setter: MutableRefObject<(text: strin
   return <Text style={[styles.meta, { color }]}>{text}</Text>
 }
 
-function V2Reader() {
+/** `verdict` other than `ok` (no or no readable answer yet): an old WebView is a likely cause of a missed `ready`. */
+function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; onUserAgent: (ua: unknown) => void }) {
   const { colors } = useTheme()
+  const { t } = useLanguage()
   const webView = useRef<WebView>(null)
   const [nonce, setNonce] = useState(freshNonce)
   const source = useMemo(() => ({ html: v2ReaderPageHtml(nonce), baseUrl: Paths.document.uri }), [nonce])
@@ -138,7 +181,7 @@ function V2Reader() {
   const [tracker] = useState(() => createOpenTracker<Opening>())
   const setProgress = useRef<(text: string) => void>(() => {})
   const [books, setBooks] = useState<LibraryBook[]>([])
-  const [heading, setHeading] = useState('Pick a book')
+  const [heading, setHeading] = useState(IDLE_HEADING)
   // null until the stored choice is read: the toggle is off until then, so no toggle can race the read.
   const [flow, setFlow] = useState<Flow | null>(null)
   useEffect(() => { storedFlow().then(setFlow) }, [])
@@ -146,7 +189,18 @@ function V2Reader() {
   const [reflowable, setReflowable] = useState(true)
   /** The book open at the last renderer crash: one that crashes it twice is not reopened again. */
   const crashedFile = useRef<string | null>(null)
+  /**
+   * Two lines (#1080 item 6): `openError` is the open's (pick, download, open-failed, a failed import, a crash)
+   * and only a new open clears it; `error` is everything else (library, settings, sync, saves), so a later
+   * `store` failure never overwrites why the book did not open.
+   */
+  const [openError, setOpenError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** A deadline the page missed (deadlines.mjs, #1080 item 3); a late answer clears it. */
+  const [overdue, setOverdue] = useState<Overdue>(null)
+  const [deadlines] = useState(() => createDeadlines(setOverdue))
+  /** The same open overdue twice in a row is given up (deadlines.mjs OPENED_OVERDUE_LIMIT). */
+  const [strikes] = useState(() => createOverdueStrikes())
   /** A newer position from another device the reader is asked about (ADR-019 `prompt`). */
   const [offer, setOffer] = useState<PagePosition | null>(null)
   const [fileSync, setFileSync] = useState(false)
@@ -218,14 +272,14 @@ function V2Reader() {
 
   /** A book only the server has: fetched on demand, then opened. */
   const download = (b: LibraryBook) => {
-    setError(null)
+    setOpenError(null)
     downloadV2Book(deviceLocalLibrary(), b.id, downloadIo).then(
       async (ok) => {
         if (!ok) return
         await refreshBooks()
         open({ file: bookFile(b.sha256), name: b.originalName })
       },
-      fail('download', setError),
+      fail('download', setOpenError),
     )
   }
 
@@ -242,9 +296,13 @@ function V2Reader() {
     tracker.open(target.file, opening.current)
     reading.current = { bookId: null, restored: false, baseline: null, cfi: null, index: null }
     setOffer(null)
+    setOpenError(null)
     setError(null)
+    setHeading(`Opening ${target.name}`)
     setProgress.current('')
-    if (ready.current) call(`window.__fol.openUrl(${JSON.stringify(v2File(target.file).uri)}, ${JSON.stringify(target.file)})`)
+    if (!ready.current) return
+    deadlines.waitOpened(sizeOf(target.file))
+    call(`window.__fol.openUrl(${JSON.stringify(v2File(target.file).uri)}, ${JSON.stringify(target.file)})`)
   }
 
   /** The page's book is `t.open`'s: every other open still pending is over, and its staged file goes. */
@@ -252,7 +310,7 @@ function V2Reader() {
     for (const o of t.dropped) if (isStaged(o.file) && o.file !== t.open.file) v2Storage().dropStaged(o.file).catch(fail('drop'))
     opening.current = t.open
     setReflowable(t.opened.reflowable !== false)
-    onOpened(t.open, t.opened).catch(fail('opened', setError))
+    onOpened(t.open, t.opened).catch(fail('opened', setOpenError))
   }
 
   const pick = async () => {
@@ -265,7 +323,7 @@ function V2Reader() {
       await new File(asset.uri).move(v2File(staged))
       open({ file: staged, name: asset.name })
     } catch (e) {
-      fail('pick', setError)(e)
+      fail('pick', setOpenError)(e)
     }
   }
 
@@ -273,10 +331,11 @@ function V2Reader() {
     const s = v2Storage()
     // A reload or a new pick can replace this open during any await; then this answer stops there.
     const superseded = () => opening.current !== current
+    // The page shows this book now: its title before any await, so a failed read below leaves no "Opening …".
+    setHeading([m.title || current.name, m.author].filter(Boolean).join(' — '))
     const stored = await s.readStore(m.book.sha256)
     if (superseded()) return
     call(`window.__fol.restore(${JSON.stringify(stored)})`)
-    setHeading([m.title || current.name, m.author].filter(Boolean).join(' — '))
     const { retained, bookId, books } = await s.addOpened(
       { ...m.book, title: m.title, author: m.author, originalName: current.name, format: m.format ?? null },
       isStaged(current.file) ? current.file : null,
@@ -298,7 +357,11 @@ function V2Reader() {
     try { m = JSON.parse(event.nativeEvent.data) } catch { return }
     if (!m || typeof m !== 'object') return
     switch (m.type) {
+      case 'ua':
+        onUserAgent(m.ua)
+        return
       case 'ready':
+        deadlines.ready()
         // The layout goes in first: injected calls run in order, so the open below uses it.
         storedFlow().then((f) => {
           call(`window.__fol.flow(${JSON.stringify(f)})`)
@@ -308,16 +371,24 @@ function V2Reader() {
         return
       case 'opened': {
         const t = tracker.opened(m)
-        if (t) takeOpened(t)
-        else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
+        if (t) {
+          deadlines.answered()
+          strikes.clear()
+          takeOpened(t)
+        } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
         return
       }
       case 'open-failed': {
         const f = tracker.failed(m.name)
         if (!f) return
+        deadlines.answered()
+        strikes.clear()
+        console.log(`[v2] open-failed ${f.failed.name}: ${m.error}`)
         if (isStaged(f.failed.file)) v2Storage().dropStaged(f.failed.file).catch(fail('drop'))
         opening.current = null
-        setError(`cannot open ${f.failed.name}: ${m.error}`)
+        setOpenError(`cannot open ${f.failed.name}: ${hostError(m.error)}`)
+        // Not the previous book's title (#1080 item 6): the error line names this file.
+        setHeading(IDLE_HEADING)
         // The old book may still post a relocate until the page takes up this open (file read +
         // messages in flight); a failure must not leave it standing after open() cleared it (#1168).
         setProgress.current('')
@@ -387,11 +458,40 @@ function V2Reader() {
         opening.current = null
         if (isStaged(o.file)) v2Storage().dropStaged(o.file).catch(fail('drop'))
         setProgress.current('')
-        setError(`cannot open ${o.name}: this book crashes the reader`)
+        setHeading(IDLE_HEADING)
+        setOpenError(`cannot open ${o.name}: this book crashes the reader`)
       }
     }
     setNonce(freshNonce())
   }, [])
+
+  // Every page load (first mount, a crash reload, Retry) owes a `ready`: on a WebView too old for the page
+  // nothing else would ever say so (#1080 item 3; the `ua` answer keeps a known-old WebView out, this catches an unknown one).
+  useEffect(() => {
+    deadlines.waitReady(READY_DEADLINE_MS)
+    return () => deadlines.dispose()
+  }, [nonce])
+
+  // An open overdue twice in a row (Retry sent it again) is given up as a crashing book is: dropped with its
+  // staged file, the reader told; a new page load stops the page still working on it.
+  useEffect(() => {
+    if (overdue !== 'opened') return
+    const o = opening.current
+    if (!o || !strikes.strike(o.file)) return
+    opening.current = null
+    if (isStaged(o.file)) v2Storage().dropStaged(o.file).catch(fail('drop'))
+    setProgress.current('')
+    setHeading(IDLE_HEADING)
+    setOpenError(`cannot open ${o.name}: it did not open in time, twice`)
+    ready.current = false
+    setNonce(freshNonce())
+  }, [overdue])
+
+  /** Retry after a deadline: a new page load; the open in flight (its file is still on disk) goes again on `ready`. */
+  const retry = () => {
+    ready.current = false
+    setNonce(freshNonce())
+  }
 
   const button = [styles.button, { backgroundColor: colors.primary }]
   return (
@@ -407,7 +507,18 @@ function V2Reader() {
       </View>
       <Text style={[styles.heading, { color: colors.text }]} numberOfLines={1}>{heading}</Text>
       <ProgressLine setter={setProgress} color={colors.textSecondary} />
-      {error && <Text style={[styles.meta, { color: colors.error }]}>{error}</Text>}
+      {overdue && (
+        <View style={styles.alert} accessibilityRole="alert" accessibilityLiveRegion="polite">
+          <Text style={[styles.meta, { color: colors.error }]}>
+            {overdue === 'opened'
+              ? `${opening.current?.name ?? 'The book'} is taking too long to open.`
+              : verdict === 'ok' ? 'The reader failed to load.' : t('updates.webView.readyFailed')}
+          </Text>
+          <Pressable onPress={retry} accessibilityRole="button" style={button}><Text style={styles.buttonText}>Retry</Text></Pressable>
+        </View>
+      )}
+      {openError && <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{openError}</Text>}
+      {error && <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{error}</Text>}
       {offer && (
         <Pressable onPress={() => { goTo(offer, true); setOffer(null) }} style={styles.offer}>
           <Text style={[styles.meta, { color: colors.primary }]}>Read further on another device ({Math.round((offer.fraction ?? 0) * 100)}%): go there</Text>
@@ -446,6 +557,8 @@ function V2Reader() {
         allowFileAccessFromFileURLs
         allowUniversalAccessFromFileURLs={false}
         onMessage={onMessage}
+        // Runs as its own script on page start, so it answers even where the page fails to parse (#1228).
+        injectedJavaScriptBeforeContentLoaded={USER_AGENT_PROBE}
         onRenderProcessGone={reload}
         onContentProcessDidTerminate={reload}
         // The page never navigates; only its own about:/blob:/data: loads pass.
@@ -462,10 +575,15 @@ const styles = StyleSheet.create({
   buttonText: { color: '#fff', fontWeight: '600' },
   disabled: { opacity: 0.4 },
   offer: { paddingHorizontal: 8, paddingVertical: 4 },
+  alert: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 8 },
   heading: { paddingHorizontal: 8, fontSize: 15, fontWeight: '600' },
   meta: { paddingHorizontal: 8, fontSize: 12 },
   books: { flexGrow: 0, paddingVertical: 4 },
   booksRow: { gap: 6, paddingHorizontal: 8 },
   book: { borderWidth: 1, borderRadius: 6, paddingVertical: 4, maxWidth: 160 },
   page: { flex: 1 },
+  update: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 14 },
+  updateText: { alignItems: 'center', gap: 14 },
+  updateTitle: { fontSize: 20, fontWeight: '700', textAlign: 'center' },
+  updateBody: { fontSize: 15, lineHeight: 22, textAlign: 'center' },
 })

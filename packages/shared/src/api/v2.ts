@@ -505,9 +505,55 @@ export const completeContent = (bookId: string, fileId: string, partCount: numbe
 export const removeContent = (bookId: string, fileId: string) => authFetch<void>(`${file(bookId, fileId)}/content`, { method: 'DELETE' })
 /** The bytes, Range-capable; cookies or a Bearer header authenticate it as any call. */
 export const contentUrl = (bookId: string, fileId: string) => `${getApiConfig().baseUrl}${file(bookId, fileId)}/content`
-/** The whole file's bytes (the web V2 reader, #1225): authFetch's auth, refresh and errors, no JSON parse. */
-export const getContent = async (bookId: string, fileId: string): Promise<ArrayBuffer> =>
-  (await authFetchResponse(`${file(bookId, fileId)}/content`)).arrayBuffer()
+/**
+ * The whole file's bytes (the web V2 reader, #1225): authFetch's auth, refresh and errors, no JSON parse.
+ * `onProgress(loaded, total)` as the body streams in (#1227); `total` is `Content-Length`, null when absent.
+ * `signal` cancels it (the caller's own AbortError, rethrown as is). A body read that breaks off is the network
+ * failure it is (`isNetworkError`), as a request that never started; any other failure (an allocation, an
+ * `onProgress` throw) keeps its own cause.
+ */
+export async function getContent(
+  bookId: string, fileId: string, onProgress?: (loaded: number, total: number | null) => void, signal?: AbortSignal,
+): Promise<ArrayBuffer> {
+  const res = await authFetchResponse(`${file(bookId, fileId)}/content`, signal ? { signal } : undefined)
+  /** Only the body read itself is the network. */
+  const network = async <T>(read: Promise<T>): Promise<T> => {
+    try {
+      return await read
+    } catch (e) {
+      if ((e as { name?: string } | null)?.name === 'AbortError') throw e
+      const err = new ApiError(0, e instanceof Error ? e.message : String(e))
+      err.isNetworkError = true
+      throw err
+    }
+  }
+  if (!onProgress || !res.body) return network(res.arrayBuffer())
+  const total = Number(res.headers.get('Content-Length')) || null
+  const reader = res.body.getReader()
+  // With a length, filled in place (one copy of the book in memory); chunks only without one or past it
+  // (a Content-Length that is not the decoded body's).
+  const whole = total ? new ArrayBuffer(total) : null
+  let filled = whole && new Uint8Array(whole)
+  const chunks: Uint8Array[] = []
+  let loaded = 0
+  for (;;) {
+    const { done, value } = await network(reader.read())
+    if (done) break
+    if (filled && loaded + value.length <= filled.length) filled.set(value, loaded)
+    else {
+      if (filled) chunks.push(filled.subarray(0, loaded))
+      filled = null
+      chunks.push(value)
+    }
+    loaded += value.length
+    onProgress(loaded, total)
+  }
+  if (whole && filled) return loaded === whole.byteLength ? whole : whole.slice(0, loaded)
+  const out = new Uint8Array(loaded)
+  let at = 0
+  for (const c of chunks) { out.set(c, at); at += c.length }
+  return out.buffer
+}
 export const putCover = (bookId: string, bytes: Blob | ArrayBuffer | Uint8Array, contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
   authFetch<V2Book>(`${book(bookId)}/cover`, { method: 'PUT', headers: { 'Content-Type': contentType }, body: bytes as BodyInit })
 export const readingStateUrl = (bookId: string) => `${getApiConfig().baseUrl}${book(bookId)}/reading-state`
