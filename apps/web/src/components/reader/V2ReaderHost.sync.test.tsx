@@ -1,4 +1,4 @@
-import type { OpenReader, PagePosition } from '@textstack/shared'
+import type { PagePosition } from '@textstack/shared'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { V2SaveStatus, V2SyncTarget } from '../../lib/v2ReaderSync'
@@ -12,8 +12,7 @@ interface FakeSync {
   onStatus(s: V2SaveStatus): void
   onHighlights(list: unknown[]): void
   highlights?: boolean
-  reader(): OpenReader | null
-  onNewerPlace(p: PagePosition, ask: boolean): void
+  onNewerPlace(p: PagePosition): void
   /** The next `restore` call's answer (a new one per call: Retry calls it again). */
   answer(json: string | null): void
   fail(): void
@@ -26,11 +25,11 @@ interface FakeSync {
 }
 const sessions: FakeSync[] = []
 vi.mock('../../lib/v2ReaderSync', () => ({
-  createV2ReaderSync: (target: V2SyncTarget, o: Pick<FakeSync, 'onStatus' | 'onHighlights' | 'highlights' | 'reader' | 'onNewerPlace'>) => {
+  createV2ReaderSync: (target: V2SyncTarget, o: Pick<FakeSync, 'onStatus' | 'onHighlights' | 'highlights' | 'onNewerPlace'>) => {
     let settle: { ok(json: string | null): void; no(e: unknown): void } | null = null
     const closed = Promise.resolve()
     const s: FakeSync = {
-      target, onStatus: o.onStatus, onHighlights: o.onHighlights, highlights: o.highlights, reader: o.reader, onNewerPlace: o.onNewerPlace,
+      target, onStatus: o.onStatus, onHighlights: o.onHighlights, highlights: o.highlights, onNewerPlace: o.onNewerPlace,
       answer: (json) => settle?.ok(json), fail: () => settle?.no(new Error('offline')),
       restore: vi.fn(() => new Promise((ok, no) => { settle = { ok, no } })), loadHighlights: vi.fn(async () => {}),
       store: vi.fn(), flush: vi.fn(async () => {}), flushKeepalive: vi.fn(), close: vi.fn(() => closed),
@@ -218,7 +217,7 @@ describe('V2ReaderHost, server sync', () => {
 
     it('offered_ABarWithTwoButtons_GoMovesThePageThereAsTheReadersChoice', () => {
       const s = reading()
-      act(() => s.onNewerPlace(THEIRS, true))
+      act(() => s.onNewerPlace(THEIRS))
       expect(bar()).toHaveTextContent('Another device saved a newer place in this book (42%).')
       expect(goTos()).toEqual([])
       fireEvent.click(screen.getByRole('button', { name: 'Go to their place' }))
@@ -229,7 +228,7 @@ describe('V2ReaderHost, server sync', () => {
 
     it('offered_Stay_TheBarGoes_NothingElse', () => {
       const s = reading()
-      act(() => s.onNewerPlace(THEIRS, true))
+      act(() => s.onNewerPlace(THEIRS))
       const before = posted.length
       fireEvent.click(screen.getByRole('button', { name: 'Stay here' }))
       expect(posted.length).toBe(before)
@@ -238,42 +237,21 @@ describe('V2ReaderHost, server sync', () => {
 
     it('offeredAgain_TheNewestShown_KeptAcrossPageTurns', () => {
       const s = reading()
-      act(() => s.onNewerPlace(THEIRS, true))
-      act(() => s.onNewerPlace({ ...THEIRS, fraction: 0.6 }, true))
+      act(() => s.onNewerPlace(THEIRS))
+      act(() => s.onNewerPlace({ ...THEIRS, fraction: 0.6 }))
       fromPage({ type: 'relocate', cfi: 'c9', index: 9 })
       expect(bar()).toHaveTextContent('(60%)')
     })
 
-    it('taken_ThePageMovedThere_NoBar', () => {
-      const s = reading()
-      act(() => s.onNewerPlace(THEIRS, false))
-      expect(goTos()).toEqual([[THEIRS, false]])
-      expect(bar()).toBeNull()
-    })
-
-    it('aLaterTake_TheBarGoes', () => {
+    it('aNewBookOpening_TheBarGoesAtOnce', () => {
       const { open } = mount()
       fromPage({ type: 'ready' })
       open(synced('b1', SHA('a')))
       fromPage(opened('1/b1.epub', SHA('a')))
-      act(() => sessions[0].onNewerPlace(THEIRS, true))
+      act(() => sessions[0].onNewerPlace(THEIRS))
       open(synced('b2', SHA('b')))
-      fromPage(opened('2/b2.epub', SHA('b')))
+      // Gone while b2 is still opening, before its `opened`.
       expect(bar()).toBeNull()
-    })
-
-    it('reader_RestoredThenMoved_AHostMoveIsANewBaseline', () => {
-      const s = reading()
-      fromPage({ type: 'relocate', cfi: 'c0', index: 0 })
-      expect(s.reader()).toEqual({ restoreApplied: false, moved: false, index: null })
-      fromPage({ type: 'restored', key: SHA('a'), position: 'restored' })
-      fromPage({ type: 'relocate', cfi: 'c1', index: 1 })
-      expect(s.reader()).toEqual({ restoreApplied: true, moved: false, index: 1 })
-      fromPage({ type: 'relocate', cfi: 'c2', index: 2 })
-      expect(s.reader()).toEqual({ restoreApplied: true, moved: true, index: 2 })
-      act(() => s.onNewerPlace(THEIRS, false))
-      fromPage({ type: 'relocate', cfi: 'c4', index: 4 })
-      expect(s.reader()).toEqual({ restoreApplied: true, moved: false, index: 4 })
     })
   })
 })

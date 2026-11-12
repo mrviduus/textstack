@@ -172,7 +172,7 @@ test.describe('V2 reader page @v2', () => {
   })
 
   // #1232: a tab still open while the reader read on in another browser: its next page turn is written (on their
-  // revision, as Android) and their newer place is offered; Go moves the tab there.
+  // revision) and their newer place is offered, the tab never moved by itself; Go moves it there.
   test('readV2Sync_AnotherBrowserReadOn_ThisTabTurnsAPage_WrittenAndTheirPlaceOffered_GoMovesThere', async ({ browser }) => {
     const who = email('v2newer')
     const context = await v2Context(browser, who)
