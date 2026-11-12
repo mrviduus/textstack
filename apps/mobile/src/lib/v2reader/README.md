@@ -10,7 +10,9 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `page.mjs` | Runs in the WebView. The whole adapter: routing a file to its reader, our EPUB loader (SHA-1 for obfuscated fonts), the format-reader runner, the navigation queue, word tap, translation label, highlights, save/restore by CFI + quote (a PDF by page), `meta refresh` stripped, flow + its telemetry. |
 | `formats.mjs` | Which reader a file goes to, from its bytes (pure): zip → EPUB/FBZ/CBZ by entry names, `BOOKMOBI` → MOBI6/KF8 (DRM, truncated and KF8 without its indexes refused; combo → KF8 half), FB2 root (UTF-16 re-encoded, entities refused), `%PDF-` in the first KiB → PDF, KFX/unknown refused; CBZ page names and types. |
 | `store.mjs` | Reader data shape (v1), one entry per book **file** (SHA-256 + size); the quote fold; pure-JS SHA-256 / SHA-1. |
-| `tap.mjs` | What a tap hands the host: the word's sentence (reader-engine's `sentenceAround`) and an external link, only if `http(s)`. |
+| `tap.mjs` | What a tap hands the host: the word's sentence (reader-engine's `sentenceAround`) and an external link, only if `http(s)`. For a selection (#1268): its range without edge whitespace (`trimRange`) and its sentence (`sentenceOfRange`, element points too, never throws). `rectInPage`: a box in a section frame as the page viewport shows it, the fixed-layout renderer's `scale()` of a pre-paginated page included (`word` and `selection`). |
+| `selection.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1268): the `selection` message's builder (`selectionMessage`) and the hosts' validator (`readSelection`), with the caps they share; the text cap and its cut are `packages/shared`'s (`MAX_SELECTED_TEXT`, `clip`). The format check bundles it with esbuild first: plain node does not resolve `packages/shared`'s extensionless imports. |
+| `chrome.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1263, #1264): `navKey` (the page: which keydown in a section becomes a `key` message, a closed list) and the hosts' readers `readTap`, `readDir`, `readKey`, in `readSelection`'s style; the host decisions `hidesBarsOnRelocate` and Android back's order `backAction` (Host responsibilities, "Reader chrome"). |
 | `saveScheduler.mjs` | The debounced `store` message: key and payload are fixed when the save is asked for, so a save can never land on the next book; `flush()` writes a pending one at once (the swap). |
 | `overlays.mjs` | What is drawn over a range. foliate keys an overlay by its CFI, so a highlight and a word's translation over the same range are one overlay carrying both. |
 | `library.mjs` | V2 local library (pure): identical bytes → the existing entry, never a duplicate or reset. |
@@ -34,7 +36,6 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `frame.mjs`, `framePath.mjs` (+ `.d.mts`) | Web only (#1219, #1225): the page as a no-store shell + a content-hashed page script, and the one handler that serves both (dev, preview, the check; the build writes the same files for nginx). See Host responsibilities, "Web, its own document". `frame.test.ts` pins the split. |
 | `prodCsp.check.mjs` | The production-CSP gate (CI): shell + script under the app CSP read from nginx; the refused variants; nginx's reader locations against the handler's headers. |
 | `openTracker.mjs` (+ `.d.mts`) | Pure, both hosts: which page answer belongs to which open — the open in flight, a book the page kept on screen while a newer open failed, a stale `restored` (dropped). |
-| `chrome.mjs` (+ `.d.mts`) | Pure, both hosts (#1263, #1264): what a tap does (edge zones, centre toggle), the touch↔`tap` pairing, when scrolling hides the bars, Android back's order. See Host responsibilities, "Reader chrome". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
 | `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
@@ -313,11 +314,12 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `openUrl(url, name)` | Reads the book by XHR (Android: the host's served URL, `bookOrigin.mjs`; web: a `blob:` URL) and opens it, whatever its format (Formats). Answers `opened` or `open-failed`. A second call supersedes the first, which then answers nothing. |
 | `restore(json \| null)` | The answer to `opened`: the JSON last sent in `store` for that `book.sha256`, or null. Its position may be fraction-only, `{ fraction, at }` (a transitional `textstack-*` server locator, #1187), or a PDF page `{ page, index, fraction, at }`. Ignored (a `warn`) unless the view on screen is the one that answered `opened` (not one still opening); answered for the book on screen even while a newer open is being made. Takes its slot in the navigation queue when called: a `goTo` sent after it runs after it. |
 | `addHighlights(list)` | Highlights the host learned after `restore` (the web host draws the server's when their pull lands, #1226): each drawn where its text still is (the restore check), added to the entry, not saved (the host holds them). The reader is not moved. Queued behind the restore. Ignored where `annotatable` is false. Answered by `highlights`. |
-| `highlightSelection()` | The last non-empty selection becomes a highlight; sends `store` and `highlighted`. Ignored on a CBZ and a PDF (`annotatable: false`). A selection with no text (an image) or over 4000 UTF-16 units (`SyncLimits.MaxSelectedText`) is ignored with a `warn` log. |
+| `highlightSelection()` | The last `selection` sent (#1268: exactly its range and text, edge whitespace dropped) becomes a highlight; sends `store` and `highlighted`. Ignored on a CBZ and a PDF (`annotatable: false`). A selection with no text (an image) or over 4000 UTF-16 units (`SyncLimits.MaxSelectedText`) is ignored with a `warn` log. |
 | `goTo(target, chosen = false)` | A position as stored (CFI + quote, CBZ page, PDF page `{ page }`, or fraction-only `{ fraction, at }` with 0 the text start), a CFI, an href or a section index; an object that is no valid position, or a position that does not fit the book (a CFI or fraction on a PDF, a page number elsewhere; a raw CFI string on a PDF too), or a PDF page past the book's end, is ignored with a `warn`. Queued behind the previous navigation; an open supersedes every queued or in-flight one. Not `chosen` (the host moving the view: a sync adopt or move): nothing is saved and no `store` is sent, the host already holds that position; a position target becomes the entry's own. `chosen` (the reader's own choice: a taken offer): the place it landed on is saved (one `store`), built exactly as a relocate's save. One that did not arrive changes nothing and logs a `warn`. |
 | `section(±1)`, `next()`, `prev()` | Section / page step, queued. |
 | `font(delta)` | Font size ±px, clamped 12–32; returns the new size. No-op before `opened`. |
 | `flow('paginated' \| 'scrolled')` | foliate layout; default `paginated` (ADR-029 Decision 1). Switches the open book in place (no reload, position kept). Before `opened` it sets what the next open uses: hosts send the reader's stored setting right after `ready`. Anything else is ignored with a `warn`. |
+| `flush()` | #1264: a `store` still debounced (a page turn's, 400 ms) is written now; nothing pending, nothing sent. Hosts call it on background, unmount and close. The page also flushes by itself when its document turns hidden (`visibilitychange`) and on `pagehide`, which covers the web host's tab hide and unload. |
 | `showTranslation(cfi, index, text)` | The answer to `word`: draws `text` above that word. Ignored where `annotatable` is false (CBZ, PDF). |
 
 **Page → host** (`{ type, … }`)
@@ -325,18 +327,27 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `type` | Fields | Host does |
 |---|---|---|
 | `ready` | — | may call `openUrl` |
-| `opened` | (Also for a book swapped in while a newer open is under way: see Formats, the open order.) `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`/`pdf`), `textual` (false: no word taps, hide translation and vocabulary), `annotatable` (false: hide highlight and the translation label; CBZ and PDF), `reflowable` (false: disable the flow toggle), `title`, `author` (either may be `''`), `sections`, `toc [{label, href}]` | calls `restore` with the stored JSON for `book.sha256` |
+| `opened` | (Also for a book swapped in while a newer open is under way: see Formats, the open order.) `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`/`pdf`), `textual` (false: no word taps, hide translation and vocabulary), `annotatable` (false: hide highlight and the translation label; CBZ and PDF), `reflowable` (false: disable the flow toggle), `dir` (`ltr` / `rtl`, #1263: the page-progression direction foliate pages by, `book.dir`: an EPUB's spine `page-progression-direction`, a MOBI/KF8's EXTH 527; none is `ltr`), `title`, `author` (either may be `''`), `sections`, `toc [{label, href}]` | calls `restore` with the stored JSON for `book.sha256` |
 | `open-failed` | `name`, `error` (shown as is: unreadable, unsupported format, DRM, password-protected PDF) | must not keep the file |
 | `restored` | `key` (= the book's `sha256`, as `store`'s: a host drops one for a book it is not reading), `found`, `rejected`, `position` (`none` / `restored` / `restored by fraction` / `quote mismatch, stayed at start` / `page not found, stayed at start` (CBZ, PDF) / `wrong position kind, stayed at start` (a CFI or fraction on a PDF, a page number elsewhere) / `navigation failed, stayed at start`), `highlights [{id, status}]` | — |
 | `highlights` | `key` (= the book's `sha256`), `highlights [{id, status}]` (`restored` / `quote mismatch, not drawn` / `already drawn` / `not a highlight`) | the answer to `addHighlights`; a host logs the ones not drawn |
 | `store` | `key` (= `book.sha256`), `json` | keeps `json` under `key`, verbatim |
 | `relocate` | `index`, `sections`, `fraction`, `toc`, `cfi` | progress UI |
-| `word` | `index`, `word`, `sentence`, `cfi` (null where `annotatable` is false), `rect {x, y, w, h}` (host viewport) | translates, then `showTranslation` (not without a `cfi`) |
-| `tap` | — | a tap not on a word (chrome toggle) |
+| `word` | `index`, `word`, `sentence`, `cfi` (null where `annotatable` is false), `rect {x, y, w, h}` (page viewport, `rectInPage`) | translates, then `showTranslation` (not without a `cfi`). A later `selection` supersedes it (below, taps and selections) |
+| `tap` | `x`, `y` (#1263: where it landed, page-viewport px, the space of `word.rect`; a scaled fixed-layout frame mapped as `rectInPage` does) | a tap not on a word, an image book's every tap: the host decides edge (turn) or centre (chrome toggle) from `x`, `y`. Hosts read it through `readTap` (numbers within ±100,000 px, else dropped). A tap that dismisses a selection sends no `tap` (below) |
+| `key` | `key` (`ArrowLeft`, `ArrowRight`, `PageUp`, `PageDown`, `Space`, `Escape`), `shift` | #1263: a navigation key pressed inside a section document (its own frame: the host never sees it otherwise). Only those keys, never with Ctrl/Alt/Meta, never typed in a form field of the book (`input`, `textarea`, `select`, `contenteditable`); the page prevents their default, so the frame does not move by itself. No other key is ever sent. Hosts read it through `readKey` (a key off the list, or `shift` not a boolean, is dropped) |
+| `selection` | `index`, `text` (the selection as rendered, `Selection.toString()`: blocks and a PDF's lines apart; edge whitespace dropped; at most 4000 UTF-16 units, `MAX_SELECTED_TEXT`, a longer one cut there by `clip`), `cfi` (the CFI of the range without its edge whitespace, the scheme highlights use; null where `annotatable` is false, where `highlightSelection` would refuse it (its DOM text over 4000: source whitespace the screen collapses counts), when the text was cut, or past 1024 chars), `sentence` (≤1000; the sentence around that range in its start's block, `sentenceAround`), `rect {x, y, w, h}` (the part of that range's box inside the page viewport, a scaled pre-paginated frame included, either flow) | #1268. Sent once the selection stops changing for reader-engine's `SELECTION_SETTLE_MS` (220 ms; a drag is one message), and again when it moved: after every `relocate` (a page turn, the re-layout of a `font` or `flow` change), scroll of the renderer and window resize, only if the message differs; its text, CFI and sentence are computed once per range, a move recomputes the box only. One selection at a time: a new one in one shown section document removes the one in another (a spread), and one timer reads every shown document (`getContents()`). A selection with no text (whitespace, an image), or with no part inside the page viewport (a page turned or scrolled away from it), is none. Not on a CBZ. Hosts take it only through `readSelection` (`selection.mjs`), which adds `tooLong` (over 500 UTF-16 units, reader-engine's `SELECTION_MAX_CHARS`, the translate/TTS cap) itself: a wrong type, whitespace-only text, a string over its cap, a CFI of another scheme, an index over 100,000, a non-finite coordinate, \|x\| or \|y\| over 100,000 px, w or h negative or over 100,000 px drops the whole message, never throws; only the known fields are kept. No UI yet |
+| `selection-cleared` | — | the selection last sent is gone: dismissed by a press (at once, below), collapsed, its section frame gone (a fixed-layout page turned away), its box off the page viewport, or the book replaced (sent at the swap, before the new book's `opened` or `open-failed`) |
 | `highlighted` | `id` (v4 UUID), `cfi`, `quote` (first ≤64 code points), `selectedText` (the full selection) | — |
 | `openLink` | `href` | the page forwards only `http(s)` links and the host allowlists again before opening: a stated rule, not an accident. Any other scheme is dropped with a `warn` log (`mailto:`/`tel:` noted on #1069); the page never navigates |
 | `telemetry` | `event: 'reader-flow'`, `mode` (the flow in use), `format`, `switchedInFirst5Min` | one per opened book, 5 min after `opened` or when the next book opens first (a page that dies earlier sends none). Hosts log it: there is no analytics pipeline in the app yet |
 | `log` | `level`, `msg` | `error`: window errors and a failed open or restore. `warn`: a call that was ignored (a highlight or a restore before the book is ready) and a previous book that would not close. foliate logs its own navigation failures to the console, not here — a position that did not land is reported in `restored` instead. |
+
+**Taps and selections** (#1268): `word` and `tap` are sent at once. A press (`pointerdown`) while a selection is
+sent is that selection's dismissal, decided at the press whatever its length: the selection is removed from every
+shown section, `selection-cleared` is sent at once, and the press's click is no `word`/`tap`. A double-click is a tap and then a selection, so
+it sends `word` then `selection`: **a `selection` supersedes a `word`** for the host (it closes a word popup when a
+selection arrives).
 
 A stored position or highlight is applied only while the text at its CFI still reads as its saved quote
 (`foldText`; a highlight compares its `selectedText`, or its `quote` if stored before #1078); otherwise it is reported in `restored` and left out, never drawn elsewhere. Stored items with no
@@ -367,22 +378,21 @@ target in the spread already shown counts as arrived (foliate shows it without a
 - **Sync (R6, Android):** opportunistic, never on the reading path: with a session, on screen open, on each book open and 10 s after a save. ADR-019 needs the host's view of the open book (restored yet, the first CFI after the restore, the one now, the spine index from `relocate`); a newer position from another device is gone to (`adopt`/`move`) or offered (`prompt`). File sync is a per-device setting, off by default.
 - `<documents>/v2/` is not yet counted in Device Storage nor wiped on sign-out (#1070): local books belong to the device until the owner decides otherwise; a sign-out forgets what the server told that identity, never unpushed rows.
 
-**Reader chrome** (Android, #1263/#1264; the decisions are `chrome.mjs`, the bars and footer are the legacy
+**Reader chrome** (Android, #1263/#1264; the decisions are `tapZone.mjs` and `chrome.mjs`, the bars and footer are the legacy
 reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReaderAwake`, all already in the app):
 
 - A book on screen shows a top bar (back, title) and a bottom bar (place from `relocate`, prev/next page) over the
   WebView; they auto-hide after 3 s; a centre tap toggles them; in scrolled flow the reader moving (a relocate after
   the restore's landing, not within 1 s of a bar button) hides them. Reduced motion: no slide or fade.
-- Tap zones, paginated flow only: the outer 25 % of each side turns the page, the middle toggles. A `word` or
-  `openLink` never turns it. The page's `tap` carries no place, so the host pairs it with the WebView touch that
-  just ended (≤ 1 s, else a toggle), and takes the tap after a long press (≥ 500 ms: a selection may be up) as one
-  that dismissed the selection: nothing happens. RTL books: the zones swap once the page reports a direction.
+- Tap zones (`tapZone.mjs` `tapAction`, the web host's too): in paginated flow, and always on a fixed-layout book,
+  the outer 25 % of each side turns the page, the middle toggles. `tap.x` (through `readTap`) against the WebView's
+  width; `opened.dir` (through `readDir`) swaps the edges of an rtl book. Only a `tap` reaches it: a word, a link
+  and a press that dismissed a selection send none. `key` messages are read and logged, not acted on yet.
 - Android back: the offer, then the book (back to the list), then the route. No exit prompt.
 - The screen stays awake and the status bar follows the bars while a book is on screen; the page keeps the top
   inset it had with the status bar shown, so a toggle never re-lays the book out.
-- **Save on leave:** the host injects `window.__fol.flush()` on background (**not in the page yet**: until it is,
-  the call is skipped and a turn in the last 400 ms before a kill is lost), on unmount and when
-  the book is closed, so the 400 ms debounced save is written (`saveScheduler.mjs` `flush()`). On unmount the
+- **Save on leave:** the host calls `flush()` on background, on unmount and when the book is closed (back, the
+  top bar), so the 400 ms debounced save is written at once (`useFlushOnLeave`). On unmount the
   WebView goes with the screen, so that `store` can be lost; back and the top bar close the book first, with the
   WebView alive.
 
@@ -439,7 +449,7 @@ the whitelist in another app; `onShouldStartLoadWithRequest` (about:/blob:/data:
   placeholder). Sent `no-store` with a fresh nonce per response (16 random bytes, hex, nginx's `$request_id`;
   `fillNonce` takes nothing else) and its own headers (`V2_READER_FRAME_HEADERS`: `frame-ancestors 'self'`,
   `no-store, no-transform`, nosniff, `no-referrer`, `X-Robots-Tag: noindex`).
-- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,656,316 bytes; 1,644,100 gzipped):
+- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,664,987 bytes; 1,646,398 gzipped, #1263):
   the page's one script, byte for byte what the inline page runs, sent `public, max-age=31536000, immutable`,
   `text/javascript; charset=utf-8` (it is not ASCII), nosniff. A book open fetches the shell only; the script
   comes from the HTTP cache (ADR-029 Decision 4 as amended 2026-11-11). The format readers stay inside it as

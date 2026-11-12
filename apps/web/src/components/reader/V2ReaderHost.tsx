@@ -5,6 +5,8 @@ import type { PagePosition } from '@textstack/shared'
 import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reader/openTracker.mjs'
 import { V2_READER_FRAME_PATH } from '../../../../mobile/src/lib/v2reader/framePath.mjs'
 import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
+import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs'
+import { readDir, readKey, readTap } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
 import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
@@ -236,6 +238,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           const take = tracker.opened(m)
           if (!take) return
           deadlines.answered()
+          // The reading direction (#1263): what the page says, through readDir; parsed only, no bars yet.
+          if (dev) console.log(`[v2] opened, dir ${readDir(m) ?? 'ltr'}`)
           takeOpened(take)
           return
         }
@@ -280,6 +284,25 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           // No CFI (a book that is not `annotatable`, e.g. a PDF): no label can be drawn, none is asked for.
           if (dev && m.cfi) call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
           return
+        case 'selection': {
+          // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
+          // No toolbar in this slice (#1268): the dev route logs it, the production route takes it no further.
+          const s = readSelection(m)
+          if (s && dev) console.log(`[v2] selection ${s.text.length} chars, section ${s.index}`)
+          return
+        }
+        case 'tap': {
+          // Where it landed (#1263), through readTap; no tap zones yet.
+          const p = readTap(m)
+          if (p && dev) console.log(`[v2] tap ${p.x},${p.y}`)
+          return
+        }
+        case 'key': {
+          // A navigation key pressed in a section (#1263), through readKey; nothing acts on it yet.
+          const k = readKey(m)
+          if (k && dev) console.log(`[v2] key ${k.key}${k.shift ? ' +shift' : ''}`)
+          return
+        }
         case 'openLink':
           if (/^https?:\/\//i.test(m.href)) window.open(m.href, '_blank', 'noopener,noreferrer')
           return

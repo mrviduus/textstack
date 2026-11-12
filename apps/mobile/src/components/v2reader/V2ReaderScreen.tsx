@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
-import { BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
@@ -21,11 +21,13 @@ import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generat
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
+import { readSelection } from '../../lib/v2reader/selection.mjs'
+import { backAction, hidesBarsOnRelocate, readDir, readKey, readTap } from '../../lib/v2reader/chrome.mjs'
+import { tapAction } from '../../lib/v2reader/tapZone.mjs'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
 import { USER_AGENT_PROBE, createWebViewCheck, webViewStorePackage, type WebViewVerdict } from '../../lib/v2reader/webViewVersion'
-import { backAction, createTouchTracker, hidesBarsOnRelocate, tapAction } from '../../lib/v2reader/chrome.mjs'
 import { useReaderBars } from '../../hooks/useReaderBars'
 import { useKeepReaderAwake } from '../../hooks/useKeepReaderAwake'
 import { useFlushOnLeave } from '../../hooks/useFlushOnLeave'
@@ -206,8 +208,8 @@ function V2Footer({ setter, ...props }: { setter: MutableRefObject<(p: Place) =>
   )
 }
 
-/** Asks the page to write a save it still holds back (README, Host responsibilities: "Save on leave"). */
-const FLUSH_JS = 'window.__fol && window.__fol.flush && window.__fol.flush();true'
+/** The page writes a save it still holds back (README `flush()`); `__fol` is absent only before the page ran. */
+const FLUSH_JS = 'window.__fol && window.__fol.flush();true'
 
 /** `verdict` other than `ok` (no or no readable answer yet): an old WebView is a likely cause of a missed `ready`. */
 function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; onUserAgent: (ua: unknown) => void }) {
@@ -266,8 +268,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     autoHideTrigger: inBook,
   })
   useKeepReaderAwake(inBook)
-  const { width } = useWindowDimensions()
-  const [touches] = useState(createTouchTracker)
+  /** The page viewport's width (the WebView's), the space of `tap.x`. */
+  const pageWidth = useRef(0)
+  /** The open book's page-progression direction (`opened.dir`): an rtl book's left edge is the next page. */
+  const dir = useRef<'ltr' | 'rtl' | null>(null)
   /** When a bar control last moved the reader: its relocate keeps the bars up. */
   const barPressAt = useRef(-Infinity)
   const barTurn = (dir: 'prev' | 'next') => {
@@ -275,7 +279,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     call(`window.__fol.${dir}()`)
   }
 
-  // The page's debounced save (400 ms) is written on background, on unmount and when the book is closed.
+  // The page's debounced save (400 ms) is written on background, on unmount and when the book is closed
+  // (the page also flushes itself when its document turns hidden).
   const flushPage = useCallback(() => { webView.current?.injectJavaScript(FLUSH_JS) }, [])
   useFlushOnLeave(flushPage)
   const closeBook = () => {
@@ -283,15 +288,16 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setInBook(false)
   }
 
-  /** A `tap` or a `word` from the page: an edge turns the page, the centre toggles the bars (chrome.mjs). */
-  const onTap = (kind: string) => {
-    const { x, selection } = touches.take(Date.now())
-    const action = tapAction({ kind, x, width, flow, selection })
-    if (action === 'toggle') toggleBars()
-    else if (action !== 'none') {
-      call(`window.__fol.${action}()`)
-      hideBars()
-    }
+  /**
+   * A `tap` (never a word, a link or a press that dismissed a selection: the page sends none for those): an edge
+   * turns the page, the centre toggles the bars (tapZone.mjs). A fixed-layout book pages whatever the flow setting.
+   */
+  const onTap = (m: unknown) => {
+    const p = readTap(m)
+    const action = tapAction({ x: p?.x, width: pageWidth.current, flow: reflowable ? flow ?? 'scrolled' : 'paginated', dir: dir.current ?? undefined })
+    if (action === 'toggle') return toggleBars()
+    call(`window.__fol.${action}()`)
+    hideBars()
   }
   const refreshBooks = () => v2Storage().books().then(setBooks, fail('library', setError))
   useEffect(() => {
@@ -482,6 +488,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         if (t) {
           deadlines.answered()
           strikes.clear()
+          dir.current = readDir(m)
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
         return
@@ -525,11 +532,23 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // Translation is not this slice: the tap reaches the host and stops here. This host offers no
         // highlight or translation yet, so `opened.annotatable` (false: CBZ, PDF) has nothing to hide here.
         console.log('[v2] word', m.word)
-        onTap('word')
         return
+      case 'selection': {
+        // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
+        // No toolbar in this slice (#1268): the selection reaches the host and stops here.
+        const s = readSelection(m)
+        if (s) console.log(`[v2] selection ${s.text.length} chars, section ${s.index}`)
+        return
+      }
       case 'tap':
-        onTap('tap')
+        onTap(m)
         return
+      case 'key': {
+        // A navigation key pressed in a section (#1263), through readKey; nothing acts on it yet.
+        const k = readKey(m)
+        if (k) console.log(`[v2] key ${k.key}${k.shift ? ' +shift' : ''}`)
+        return
+      }
       case 'openLink':
         if (/^https?:\/\//i.test(m.href)) Linking.openURL(m.href).catch(fail('openLink'))
         return
@@ -631,14 +650,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       <StatusBar hidden={inBook && !barsVisible} style={isDark ? 'light' : 'dark'} />
       <View
         style={[styles.page, { paddingTop: topPad.current, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right }]}
-        // The page's `tap` carries no place: the touch that made it does (chrome.mjs createTouchTracker).
-        onTouchStart={(e) => touches.start(e.nativeEvent.pageX, Date.now())}
-        onTouchEnd={(e) => touches.end(e.nativeEvent.pageX, Date.now())}
       >
         <WebView
           key={nonce}
           ref={webView}
           style={styles.page}
+          onLayout={(e) => { pageWidth.current = e.nativeEvent.layout.width }}
           // README "WebView": no file access at all (the library's defaults, all off); the page reads its book by
           // XHR from the interceptor, so no book bytes cross the bridge. `*`: react-native-webview opens a
           // navigation outside originWhitelist in another app, so the filter is onShouldStartLoadWithRequest below.

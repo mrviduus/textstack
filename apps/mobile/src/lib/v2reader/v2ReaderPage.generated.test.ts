@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { v2ReaderAndroidPageHtml, v2ReaderPageHtml } from './v2ReaderPage.generated'
+import { MAX_SELECTED_TEXT } from '../../../../../packages/shared/src/reader/v2Locators'
 
 const NONCE = 'q7Rk2mW9xLpA4vBn8cZt0g=='
 
@@ -142,8 +143,8 @@ describe('v2ReaderPageHtml', () => {
     for (const k of ['mobi', 'fb2', 'cbz', 'pdf', 'pdfcmaps']) expect(carried).toMatch(new RegExp(`window\\.__tsFormats\\.${k} ?=`))
     expect(html).toMatch(/var NONCE = \(\w+ = document\.currentScript\) == null \? void 0 : \w+\.nonce;/)
     expect(html).toMatch(/(\w+)\.nonce = NONCE;\s*\1\.textContent = /)
-    // A comic book has no text: its frames post only `tap`, and a translation is never drawn on it.
-    expect(html).toMatch(/function onLoad\(\{ detail: \{ doc, index \} \}\) \{\s*if \(!textual\) return doc\.addEventListener\("click", \(\) => post\(\{ type: "tap" \}\)\);/)
+    // A comic book has no text: its frames post only `tap` (where it landed, #1263), and a translation is never drawn on it.
+    expect(html).toMatch(/if \(!textual\) return doc\.addEventListener\("click", \((\w+)\) => post\(tapAt\(doc, \1\)\)\);/)
     // Nor on a PDF (#1128 S5): `annotatable` is false for both, and `opened` says so.
     expect(html).toMatch(/showTranslation: \(cfi, index, \w+\) => view && annotatable && annotate\(/)
     expect(html).toContain('annotatable = textual && format !== "pdf";')
@@ -199,7 +200,9 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toMatch(/type: "highlighted", id: \w+\.id, cfi: \w+\.cfi, quote: \w+\.quote, selectedText \}/)
     // A selection with no text, or one the server would refuse (SyncLimits.MaxSelectedText), is not
     // stored, and nothing is drawn or announced for it.
-    expect(html).toContain('var MAX_SELECTED_TEXT = 4e3;')
+    // The cap is the shared one (packages/shared v2Locators, SyncLimits.MaxSelectedText), bundled once.
+    expect(html.match(/var MAX_SELECTED_TEXT = (\S+);/g)).toHaveLength(1)
+    expect(Number(html.match(/var MAX_SELECTED_TEXT = (\S+);/)?.[1])).toBe(MAX_SELECTED_TEXT)
     expect(html).toMatch(/const selectedText = \w+\.range\.toString\(\);\s*if \(!selectedText\.trim\(\)\) return log\("warn"[^;]*;\s*if \(selectedText\.length > MAX_SELECTED_TEXT\) return log\("warn"/)
   })
 })

@@ -1,16 +1,13 @@
 // Types for chrome.mjs (apps/web type-checks it without allowJs); a change to one must update the other.
-export type Flow = 'paginated' | 'scrolled'
-export type TapAction = 'prev' | 'next' | 'toggle' | 'none'
-export const EDGE: number
-export const LONG_PRESS_MS: number
-export const PAIR_MS: number
+export type V2NavKey = 'ArrowLeft' | 'ArrowRight' | 'PageUp' | 'PageDown' | 'Space' | 'Escape'
+export const NAV_KEYS: readonly V2NavKey[]
+export function navKey(e: { key: string; shiftKey?: boolean; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean; target?: unknown }):
+  { type: 'key'; key: V2NavKey; shift: boolean } | null
+/** Where a tap landed, in page-viewport px (the space of `word.rect`). */
+export function readTap(m: unknown): { x: number; y: number } | null
+/** The book's reading direction from `opened`; null when absent or malformed (left to right). */
+export function readDir(m: unknown): 'ltr' | 'rtl' | null
+export function readKey(m: unknown): { key: V2NavKey; shift: boolean } | null
 export const BAR_PRESS_GRACE_MS: number
-export function tapAction(input: { kind: string; x: number | null; width: number; flow: Flow | null; selection?: boolean; rtl?: boolean }): TapAction
-export interface TouchTracker {
-  start(x: number, at: number): void
-  end(x: number, at: number): void
-  take(at: number): { x: number | null; selection: boolean }
-}
-export function createTouchTracker(): TouchTracker
-export function hidesBarsOnRelocate(input: { flow: Flow | null; moved: boolean; msSinceBarPress: number }): boolean
+export function hidesBarsOnRelocate(input: { flow: 'paginated' | 'scrolled' | null; moved: boolean; msSinceBarPress: number }): boolean
 export function backAction(input: { offer: boolean; reading: boolean }): 'close-offer' | 'close-book' | 'leave'
