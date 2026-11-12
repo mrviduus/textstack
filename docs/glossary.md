@@ -194,9 +194,6 @@ highlights on the phone is a Highlights change.
 In code: the folders are Library, Reading, Annotations, Vocabulary, Discussion, Identity. They
 match the six reader areas one to one.
 
-**Not done yet:** the changelog still uses the old labels (`reader`, `mobile`, `ai`). They change in
-their own pull request, so that open work is not broken.
-
 ## What changes when
 
 - **Now:** these docs.
