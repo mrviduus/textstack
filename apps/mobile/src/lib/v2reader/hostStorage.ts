@@ -54,13 +54,6 @@ export interface V2Files {
   copyIn(uri: string, to: string): Promise<void>
 }
 
-/**
- * The picker hands back its own URI, not a copy in its cache (#1080 items 4–5): a cache copy kept the
- * cache's group when moved, so Android counted the retained book as app cache, and a full disk left
- * a partial one in `cache/DocumentPicker/` that nothing removed. `stagePicked` copies it instead.
- */
-export const PICK_OPTIONS = { type: '*/*', copyToCacheDirectory: false } as const
-
 /** The page's `sha256()` emits lower case and every lookup compares bytes, so a key is lower-cased
  *  before it names a file or matches an entry. Anything but 64 hex digits never names a file. */
 export function sha256Key(hex: string): string {
@@ -152,7 +145,7 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
       })),
 
     /**
-     * A picked file (`PICK_OPTIONS`) copied straight into `staging/`; resolves to its staged name. A failed
+     * A picked file (the picker's own URI, no cache copy: #1080 items 4–5) copied straight into `staging/`; resolves to its staged name. A failed
      * copy (a full disk) leaves no partial file behind. Not queued: a big copy must not hold up other writes.
      */
     stagePicked: async (uri: string) => {

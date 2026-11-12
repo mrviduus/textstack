@@ -11,7 +11,7 @@ import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
 import { deviceUploadIo, sha256Of, uploadV2Book } from '../../lib/v2'
-import { PICK_OPTIONS, bookFile, createV2Storage, nonceFromUuid, type LibraryBook, type V2Files, type V2Storage } from '../../lib/v2reader/hostStorage'
+import { bookFile, createV2Storage, nonceFromUuid, type LibraryBook, type V2Files, type V2Storage } from '../../lib/v2reader/hostStorage'
 import { deviceLocalLibrary } from '../../lib/v2reader/deviceLibrary'
 import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
 import { downloadV2Book, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
@@ -80,7 +80,13 @@ const downloadIo = {
   async fetch(url: string, sha256: string) {
     const token = await freshAccessToken()
     const staged = `staging/dl-${Date.now()}.epub`
-    const file = await File.downloadFileAsync(url, v2File(staged), { headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }, idempotent: true })
+    const dest = v2File(staged)
+    const file = await File.downloadFileAsync(url, dest, { headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }, idempotent: true })
+      .catch((e) => {
+        // A failed download (a full disk) leaves no partial file, like a failed pick.
+        try { if (dest.exists) dest.delete() } catch { /* staging/ is cleared on start */ }
+        throw e
+      })
     const source = deviceUploadIo(() => false).open(file.uri)
     const actual = await sha256Of(source, () => new Promise((r) => setTimeout(r, 0))).finally(() => source.close())
     if (actual !== sha256) {
@@ -328,7 +334,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const pick = async () => {
     try {
       // Any file: the page tells the format by its bytes (EPUB, MOBI/AZW3, FB2, CBZ, PDF) and refuses the rest.
-      const result = await DocumentPicker.getDocumentAsync(PICK_OPTIONS)
+      // No picker cache copy (#1080 items 4–5): a moved cache copy keeps the cache's group, so Android counts the
+      // retained book as app cache, and a full disk leaves a partial in cache/DocumentPicker/. stagePicked copies the URI.
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: false })
       if (result.canceled) return
       const asset = result.assets[0]
       open({ file: await v2Storage().stagePicked(asset.uri), name: asset.name })

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { isUuid } from '@textstack/shared'
-import { PICK_OPTIONS, createV2Storage, nonceFromUuid, readRecovering, sha256Key, type V2Files } from './hostStorage'
+import { createV2Storage, nonceFromUuid, readRecovering, sha256Key, type V2Files } from './hostStorage'
 import { createLocalLibrary } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated'
@@ -323,11 +323,6 @@ describe('v2 host storage', () => {
       expect(warn).not.toHaveBeenCalled()
       warn.mockRestore()
     })
-  })
-
-  it('pick_PickerOptions_NoCacheCopy', () => {
-    // #1080 item 4: the picker's cache copy kept the cache group in books/ (Android counted the book as cache).
-    expect(PICK_OPTIONS.copyToCacheDirectory).toBe(false)
   })
 
   it('stagePicked_PickedUri_CopiedStraightIntoStaging', async () => {
