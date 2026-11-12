@@ -19,6 +19,8 @@ WORKDIR /repo
 
 # pnpm version comes from `packageManager` in the root package.json.
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+# pnpm-workspace.yaml `patchedDependencies` makes every install read these (#1228): without them, ENOENT.
+COPY patches/ patches/
 RUN corepack enable && corepack prepare --activate
 
 # Every workspace member's manifest: --frozen-lockfile validates against all of
