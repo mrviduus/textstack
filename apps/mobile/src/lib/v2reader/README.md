@@ -455,8 +455,9 @@ re-keyed once. Terminal: `file_replaced`/`unknown_file`/`book_not_found` stop th
 line); `invalid_payload`/`chapter_not_found`/400/422: not resent until it changes, "not saved" meanwhile. Online-first, no outbox:
 a failed write stays a difference, retried on the next `store` and when the tab hides; `pagehide` sends what is
 left by keepalive (position first, highlights within a 60 KB budget); a "not saved" line until it lands. A new
-take or leaving the route closes the session after one last pass; a reopen of the same book and file reads after
-it (another book never waits).
+take or leaving the route closes the session after one last pass; a later open of the same book reads after
+it, whatever was open between (another book never waits). The position never waits for the annotations pull;
+a book without highlights (a PDF, a CBZ) pulls none.
 Bytes that are not the server file's are not synced. The one local exception: a CBZ page position (no server
 form yet, #1188) is kept in this browser per book. The shim posts to `self.origin` only and takes messages from `parent` at that origin
 only; the frame is same-origin with its host, so that is the host's origin. **Android keeps the inline page**

@@ -10,7 +10,7 @@
  * Every failure is an `ApiError` whose `body` is the one V2 error shape ({@link V2Error}); read it
  * with {@link v2ErrorOf}. A 503 `v2_unavailable` means "sync paused": keep local data, try later.
  */
-import { authFetch, authFetchResponse, ApiError, buildQuery, getApiConfig, jsonBody } from './client'
+import { authFetch, authFetchResponse, ApiError, buildQuery, getApiConfig, jsonBody, networkError } from './client'
 import { v2LocatorToPlace } from '../reader/v2Locators'
 import { chapterAtFraction } from '../reader/bookProgress'
 
@@ -515,16 +515,17 @@ export const contentUrl = (bookId: string, fileId: string) => `${getApiConfig().
 export async function getContent(
   bookId: string, fileId: string, onProgress?: (loaded: number, total: number | null) => void, signal?: AbortSignal,
 ): Promise<ArrayBuffer> {
-  const res = await authFetchResponse(`${file(bookId, fileId)}/content`, signal ? { signal } : undefined)
+  const res = await authFetchResponse(`${file(bookId, fileId)}/content`, signal ? { signal } : undefined).catch((e: unknown) => {
+    // Cancelled before the headers: the caller's abort, not "offline".
+    throw signal?.aborted ? signal.reason ?? e : e
+  })
   /** Only the body read itself is the network. */
   const network = async <T>(read: Promise<T>): Promise<T> => {
     try {
       return await read
     } catch (e) {
       if ((e as { name?: string } | null)?.name === 'AbortError') throw e
-      const err = new ApiError(0, e instanceof Error ? e.message : String(e))
-      err.isNetworkError = true
-      throw err
+      throw networkError(e)
     }
   }
   if (!onProgress || !res.body) return network(res.arrayBuffer())

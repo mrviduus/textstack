@@ -10,7 +10,7 @@ interface FakeSync {
   target: V2SyncTarget
   onStatus(s: V2SaveStatus): void
   onHighlights(list: unknown[]): void
-  after?: Promise<unknown>
+  highlights?: boolean
   /** The next `restore` call's answer (a new one per call: Retry calls it again). */
   answer(json: string | null): void
   fail(): void
@@ -23,11 +23,11 @@ interface FakeSync {
 }
 const sessions: FakeSync[] = []
 vi.mock('../../lib/v2ReaderSync', () => ({
-  createV2ReaderSync: (target: V2SyncTarget, o: { onStatus(s: V2SaveStatus): void; onHighlights(list: unknown[]): void; after?: Promise<unknown> }) => {
+  createV2ReaderSync: (target: V2SyncTarget, o: { onStatus(s: V2SaveStatus): void; onHighlights(list: unknown[]): void; highlights?: boolean }) => {
     let settle: { ok(json: string | null): void; no(e: unknown): void } | null = null
     const closed = Promise.resolve()
     const s: FakeSync = {
-      target, onStatus: o.onStatus, onHighlights: o.onHighlights, after: o.after,
+      target, onStatus: o.onStatus, onHighlights: o.onHighlights, highlights: o.highlights,
       answer: (json) => settle?.ok(json), fail: () => settle?.no(new Error('offline')),
       restore: vi.fn(() => new Promise((ok, no) => { settle = { ok, no } })), loadHighlights: vi.fn(async () => {}),
       store: vi.fn(), flush: vi.fn(async () => {}), flushKeepalive: vi.fn(), close: vi.fn(() => closed),
@@ -171,18 +171,16 @@ describe('V2ReaderHost, server sync', () => {
     expect(restores()).toEqual(['{"v":2}'])
   })
 
-  it('reopenOfTheSameBook_WaitsForTheOldClose_AnotherBookNever', () => {
+  it('nextOpen_ClosesThePreviousSession_HighlightsOnlyWhereThePageOffersThem', () => {
     const { open } = mount()
     fromPage({ type: 'ready' })
     open(synced('b1', SHA('a')))
     fromPage(opened('1/b1.epub', SHA('a')))
-    open(synced('b1', SHA('a')))
-    fromPage(opened('2/b1.epub', SHA('a')))
-    expect(sessions[1].after).toBe(sessions[0].close.mock.results[0].value)
+    expect(sessions[0].highlights).toBe(true)
     open(synced('b2', SHA('b')))
-    fromPage(opened('3/b2.epub', SHA('b')))
-    expect(sessions[1].close).toHaveBeenCalled()
-    expect(sessions[2].after).toBeUndefined()
+    fromPage({ ...opened('2/b2.epub', SHA('b')), annotatable: false })
+    expect(sessions[0].close).toHaveBeenCalled()
+    expect(sessions[1].highlights).toBe(false)
   })
 
   it('addHighlightsAnswer_NotDrawnOnesLogged', () => {

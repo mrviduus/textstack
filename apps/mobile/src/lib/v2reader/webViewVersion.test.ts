@@ -64,5 +64,7 @@ describe('V2 reader WebView floor (#1228)', () => {
     // No ES2015+ syntax a WebView 66 or older would choke on.
     expect(USER_AGENT_PROBE).not.toMatch(/=>|`|\?\.|\?\?|\blet\b|\bconst\b|\.\.\./)
     expect(USER_AGENT_PROBE).toContain("type: 'ua'")
+    // `type` first: the patched fallback bridge passes only a message that starts `{"type":"ua",`.
+    expect(USER_AGENT_PROBE).toContain("JSON.stringify({ type: 'ua',")
   })
 })

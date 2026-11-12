@@ -362,10 +362,25 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     sync.current()
   }
 
+  /** An open that ends without a book: dropped with its staged file, the reader told why. */
+  function giveUp(o: { file: string; name: string }, reason: string) {
+    opening.current = null
+    if (isStaged(o.file)) v2Storage().dropStaged(o.file).catch(fail('drop'))
+    // The old book may still post a relocate until the page takes up this open (file read + messages in
+    // flight); a failure must not leave it standing after open() cleared it (#1168).
+    setProgress.current('')
+    // Not the previous book's title (#1080 item 6): the error line names this file.
+    setHeading(IDLE_HEADING)
+    setOpenError(`cannot open ${o.name}: ${reason}`)
+  }
+
   const onMessage = (event: WebViewMessageEvent) => {
     let m: any
     try { m = JSON.parse(event.nativeEvent.data) } catch { return }
     if (!m || typeof m !== 'object') return
+    // Until the WebView said what it is, only that answer is taken: on an engine without frame-aware messaging
+    // (the patch's fallback bridge) any frame can post, and those engines never get past the update screen.
+    if (webViewCheck.verdict() === null && m.type !== 'ua') return
     switch (m.type) {
       case 'ua':
         onUserAgent(m.ua)
@@ -394,14 +409,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         deadlines.answered()
         strikes.clear()
         console.log(`[v2] open-failed ${f.failed.name}: ${m.error}`)
-        if (isStaged(f.failed.file)) v2Storage().dropStaged(f.failed.file).catch(fail('drop'))
-        opening.current = null
-        setOpenError(`cannot open ${f.failed.name}: ${hostError(m.error)}`)
-        // Not the previous book's title (#1080 item 6): the error line names this file.
-        setHeading(IDLE_HEADING)
-        // The old book may still post a relocate until the page takes up this open (file read +
-        // messages in flight); a failure must not leave it standing after open() cleared it (#1168).
-        setProgress.current('')
+        giveUp(f.failed, hostError(m.error))
         // The page kept a book on screen that answered meanwhile: it is the one read now.
         if (f.take) takeOpened(f.take)
         return
@@ -464,13 +472,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (o) {
       const again = crashedFile.current === o.file
       crashedFile.current = again ? null : o.file
-      if (again) {
-        opening.current = null
-        if (isStaged(o.file)) v2Storage().dropStaged(o.file).catch(fail('drop'))
-        setProgress.current('')
-        setHeading(IDLE_HEADING)
-        setOpenError(`cannot open ${o.name}: this book crashes the reader`)
-      }
+      if (again) giveUp(o, 'this book crashes the reader')
     }
     setNonce(freshNonce())
   }, [])
@@ -488,11 +490,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (overdue !== 'opened') return
     const o = opening.current
     if (!o || !strikes.strike(o.file)) return
-    opening.current = null
-    if (isStaged(o.file)) v2Storage().dropStaged(o.file).catch(fail('drop'))
-    setProgress.current('')
-    setHeading(IDLE_HEADING)
-    setOpenError(`cannot open ${o.name}: it did not open in time, twice`)
+    giveUp(o, 'it did not open in time, twice')
     ready.current = false
     setNonce(freshNonce())
   }, [overdue])

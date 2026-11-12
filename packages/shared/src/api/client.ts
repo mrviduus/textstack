@@ -43,11 +43,15 @@ async function safeFetch(input: string, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(input, init)
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
-    const err = new ApiError(0, msg || 'Network request failed')
-    err.isNetworkError = true
-    throw err
+    throw networkError(e)
   }
+}
+
+/** `e` as "the request never reached the server" (`isNetworkError`). */
+export function networkError(e: unknown): ApiError {
+  const err = new ApiError(0, (e instanceof Error ? e.message : String(e)) || 'Network request failed')
+  err.isNetworkError = true
+  return err
 }
 
 /**

@@ -5,7 +5,8 @@
  *   retry); the page is restored only from the server's place, so nothing is ever written over a place unseen.
  * - **No annotations pull, no highlight writes.** The book's annotations are drawn when their pull lands
  *   (`onHighlights`); until then highlights are held, the host offers none, and the status says so; the pull
- *   is retried on the next `store` and flush.
+ *   is retried on the next `store` and flush. The position never waits for it. A book without highlights
+ *   (`highlights: false`: a PDF, a CBZ) pulls nothing.
  * - Each `store` is diffed (`@textstack/shared` entryChanges, the mapping the Android local library uses)
  *   against what the server is known to hold and written with the expected revisions (PDD v2-sync-protocol.md
  *   "The revision rule", "Conflict codes"). A failed write stays a difference, written again on the next
@@ -73,6 +74,9 @@ export const KEEPALIVE_BUDGET = 60_000
 /** A CBZ page position, kept in this browser (#1188). */
 const imagePageKey = (bookId: string) => `v2reader:cbz-position:${bookId}`
 
+/** The last session of each book still writing: the next one of that book reads after it, whatever was open between. */
+const closingByBook = new Map<string, Promise<void>>()
+
 interface Held extends HeldHighlight { revision: number | null }
 
 export interface V2ReaderSync {
@@ -109,8 +113,10 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   onStatus(s: V2SaveStatus): void
   /** This file's live highlights, once the pull lands: the host draws them and offers highlighting. */
   onHighlights(list: PageHighlight[]): void
-  /** Waited for before the first read: the previous session of this book still writing (a reopen). */
+  /** Waited for before the first read; by default the last session of this book still writing (a reopen). */
   after?: Promise<unknown>
+  /** False where the page offers no highlights (a PDF, a CBZ): no annotations pull. */
+  highlights?: boolean
   api?: V2ReaderSyncApi
   newId?: () => string
 }): V2ReaderSync {
@@ -125,7 +131,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   const current = () => live() && !closing
   /** The reading state was read and the page restored from it: only then is a `store` taken (`latest`). */
   let ready = false
-  let highlightsLoaded = false
+  let highlightsLoaded = o.highlights === false
+  const after = o.after ?? closingByBook.get(t.bookId)
   let pulling: Promise<void> | null = null
   /** The book's file changed on the server: nothing more is written this open. */
   let gone = false
@@ -223,8 +230,10 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   }
 
   async function pass() {
-    if (gone || !latest) return
-    if (!highlightsLoaded) await loadHighlights()
+    if (gone) return
+    // Not waited for: the position is written now, the highlights by one more pass when the pull lands.
+    if (!highlightsLoaded) void loadHighlights().then(() => { if (highlightsLoaded && latest && current()) void kick() })
+    if (!latest) return
     const changes = changesOf(latest)
     let saved = true
     if (changes.position) {
@@ -291,7 +300,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   return {
     target: t,
     async restore() {
-      await o.after?.catch(() => {})
+      await after?.catch(() => {})
       if (!current()) return null
       const s = await api.getReadingState(t.bookId)
       if (!current()) return null
@@ -315,6 +324,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     flushKeepalive() {
       if (!live() || gone || !latest) return
       const changes = changesOf(latest)
+      // A CBZ page a pass has not kept yet (one was running).
+      if (changes.position && isImagePage(changes.position)) writeItem(imagePageKey(t.bookId), JSON.stringify(changes.position))
       const bodies: [send: (body: string) => void, body: string][] = []
       // ponytail: a position PUT still in flight on the same revision makes this one lose (stale_revision, never
       // read): on a slow link the last page turn before closing the tab can be lost; the next open is one turn back.
@@ -336,8 +347,13 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       }
     },
     close() {
-      closing ??= (running ?? (latest && !gone ? kick() : Promise.resolve())).catch(() => {}).finally(() => { closed = true })
-      return closing
+      if (closing) return closing
+      const done = closing = (running ?? (latest && !gone ? kick() : Promise.resolve())).catch(() => {}).finally(() => {
+        closed = true
+        if (closingByBook.get(t.bookId) === done) closingByBook.delete(t.bookId)
+      })
+      closingByBook.set(t.bookId, done)
+      return done
     },
   }
 }
