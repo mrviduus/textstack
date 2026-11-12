@@ -536,13 +536,15 @@ async function open(bytes, name, kind, mine) {
     // dying view's events — close() still fires relocate — are dropped, not posted (#1168). A newer open
     // still being made does not silence this one.
     if (mine !== viewSeq) return
-    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi, dir: pagedDir() })
+    // The save rule's own test: the reader moved the place (not a re-layout, not the same place again, not the
+    // host moving the view). Sent as `moved`, so a host never guesses it from CFIs.
+    const moved = d.reason !== 'anchor' && d.cfi !== lastCfi && !hostMoving
+    lastCfi = d.cfi
+    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi, dir: pagedDir(), moved })
     // A selection moved (or left the screen) with the view, a font or flow change's re-layout included: sent
     // again, or cleared.
     settleSelection()
-    const moved = d.reason !== 'anchor' && d.cfi !== lastCfi
-    lastCfi = d.cfi
-    const position = moved && !hostMoving && entry ? positionOf(d) : null
+    const position = moved && entry ? positionOf(d) : null
     if (!position) return
     entry = withPosition(entry, position)
     persist(400)

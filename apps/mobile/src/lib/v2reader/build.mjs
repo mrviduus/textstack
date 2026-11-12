@@ -73,7 +73,8 @@ const FOLIATE_SHA = 'b3386ef90b806dc3667941d9c26db12cce98b064'
 // keys (a closed list, chrome.mjs), `flush()` and a flush on hidden / pagehide.
 // +742 (#1263 review): `tap` from the page's own document (margins, letterbox), keys forwarded from it too, only on
 // the document itself (no control, no Shift+arrow) with `repeat`, `dir` as the renderer pages (`pagedDir`) on `relocate` too.
-const BUDGET = 264403
+// +7 (#1263): `relocate.moved`, the save rule's own test sent to the hosts.
+const BUDGET = 264410
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
