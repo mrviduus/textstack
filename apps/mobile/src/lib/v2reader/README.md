@@ -331,8 +331,8 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `highlights` | `key` (= the book's `sha256`), `highlights [{id, status}]` (`restored` / `quote mismatch, not drawn` / `already drawn` / `not a highlight`) | the answer to `addHighlights`; a host logs the ones not drawn |
 | `store` | `key` (= `book.sha256`), `json` | keeps `json` under `key`, verbatim |
 | `relocate` | `index`, `sections`, `fraction`, `toc`, `cfi` | progress UI |
-| `word` | `index`, `word`, `sentence`, `cfi` (null where `annotatable` is false), `rect {x, y, w, h}` (page viewport, `rectInPage`) | translates, then `showTranslation` (not without a `cfi`). Sent `SELECTION_SETTLE_MS` after the tap (below, one event per gesture) |
-| `tap` | — | a tap not on a word (chrome toggle); on text, sent like `word`, after the settle time |
+| `word` | `index`, `word`, `sentence`, `cfi` (null where `annotatable` is false), `rect {x, y, w, h}` (page viewport, `rectInPage`) | translates, then `showTranslation` (not without a `cfi`). A later `selection` supersedes it (below, taps and selections) |
+| `tap` | — | a tap not on a word (chrome toggle) |
 | `selection` | `index`, `text` (the selection as rendered, `Selection.toString()`: blocks and a PDF's lines apart; edge whitespace dropped; at most 4000 UTF-16 units, `MAX_SELECTED_TEXT`, a longer one cut there by `clip`), `cfi` (the CFI of the range without its edge whitespace, the scheme highlights use; null where `annotatable` is false, when the text was cut, or past 1024 chars), `sentence` (≤1000; the sentence around that range in its start's block, `sentenceAround`), `rect {x, y, w, h}` (that range's box in the page viewport, a scaled pre-paginated frame included, either flow) | #1268. Sent once the selection stops changing for reader-engine's `SELECTION_SETTLE_MS` (220 ms; a drag is one message), and again when it moved: after every `relocate` (a page turn, a scroll, the re-layout of a `font` or `flow` change), only if the message differs. One timer for the page, reading every shown section document (`getContents()`), so a change in one frame of a spread never cancels the other's. A selection with no text (whitespace, an image), or whose box lies wholly outside the page viewport (a page turned or scrolled away from it), is none. Not on a CBZ. Hosts take it only through `readSelection` (`selection.mjs`), which adds `tooLong` (over 500 UTF-16 units, reader-engine's `SELECTION_MAX_CHARS`, the translate/TTS cap) itself: a wrong type, whitespace-only text, a string over its cap, a CFI of another scheme, an index over 100,000, a non-finite coordinate, \|x\| or \|y\| over 100,000 px, w or h negative or over 100,000 px drops the whole message, never throws; only the known fields are kept. No UI yet |
 | `selection-cleared` | — | the selection last sent is gone: collapsed, its section frame gone (a fixed-layout page turned away), its box off the page viewport, or the book replaced (sent at the swap, before the new book's `opened` or `open-failed`) |
 | `highlighted` | `id` (v4 UUID), `cfi`, `quote` (first ≤64 code points), `selectedText` (the full selection) | — |
@@ -340,10 +340,10 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `telemetry` | `event: 'reader-flow'`, `mode` (the flow in use), `format`, `switchedInFirst5Min` | one per opened book, 5 min after `opened` or when the next book opens first (a page that dies earlier sends none). Hosts log it: there is no analytics pipeline in the app yet |
 | `log` | `level`, `msg` | `error`: window errors and a failed open or restore. `warn`: a call that was ignored (a highlight or a restore before the book is ready) and a previous book that would not close. foliate logs its own navigation failures to the console, not here — a position that did not land is reported in `restored` instead. |
 
-**One event per gesture** (#1268): a tap on text sends its `word` or `tap` after `SELECTION_SETTLE_MS`,
-dropped if a selection appears meanwhile (a double-click that selects a word is that `selection` only); a tap
-while a selection is sent is that selection's dismissal (`selection-cleared` only, no `word`/`tap`). The cost:
-a word tap answers 220 ms later, and a double-click slower than that is a `word` then a `selection`.
+**Taps and selections** (#1268): `word` and `tap` are sent at once. A tap while a selection is sent is that
+selection's dismissal: `selection-cleared` only, no `word`/`tap`. A double-click is a tap and then a selection, so
+it sends `word` then `selection`: **a `selection` supersedes a `word`** for the host (it closes a word popup when a
+selection arrives).
 
 A stored position or highlight is applied only while the text at its CFI still reads as its saved quote
 (`foldText`; a highlight compares its `selectedText`, or its `quote` if stored before #1078); otherwise it is reported in `restored` and left out, never drawn elsewhere. Stored items with no
@@ -427,7 +427,7 @@ the whitelist in another app; `onShouldStartLoadWithRequest` (about:/blob:/data:
   placeholder). Sent `no-store` with a fresh nonce per response (16 random bytes, hex, nginx's `$request_id`;
   `fillNonce` takes nothing else) and its own headers (`V2_READER_FRAME_HEADERS`: `frame-ancestors 'self'`,
   `no-store, no-transform`, nosniff, `no-referrer`, `X-Robots-Tag: noindex`).
-- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,662,310 bytes; 1,645,557 gzipped, #1268):
+- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,662,074 bytes; 1,645,498 gzipped, #1268):
   the page's one script, byte for byte what the inline page runs, sent `public, max-age=31536000, immutable`,
   `text/javascript; charset=utf-8` (it is not ASCII), nosniff. A book open fetches the shell only; the script
   comes from the HTTP cache (ADR-029 Decision 4 as amended 2026-11-11). The format readers stay inside it as

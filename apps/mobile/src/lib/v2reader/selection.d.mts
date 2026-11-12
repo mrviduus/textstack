@@ -5,7 +5,10 @@ export const MAX_SELECTION_CFI: number
 export const MAX_SELECTION_INDEX: number
 export const MAX_SELECTION_PX: number
 export interface V2Rect { x: number; y: number; w: number; h: number }
-/** The `selection` message as the page sends it. */
+/**
+ * The `selection` message as the page sends it. It supersedes a `word`: a double-click sends `word` then
+ * `selection`, and the host closes a word popup when a selection arrives.
+ */
 export interface V2SelectionMessage {
   type: 'selection'
   index: number

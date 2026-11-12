@@ -121,8 +121,9 @@ try {
   /**
    * #1268 on a reflowable book: a drag over "black quartz" (three selectionchanges) is one `selection` once it
    * settles, which the hosts' validator takes, with a CFI and a rect on the range in the page viewport; it is
-   * sent again where a font change moved it; collapsing it is one `selection-cleared`. One event per gesture:
-   * a click that dismisses a selection is only its `selection-cleared`, a double-click only a `selection`.
+   * sent again where a font change moved it; collapsing it is one `selection-cleared`. A click that dismisses a
+   * selection is only its `selection-cleared`; a word tap is answered at once; a double-click is `word` then
+   * `selection` (the selection supersedes the word).
    * Text as rendered, without the edge whitespace a drag from the blank after a heading starts in.
    */
   async function checkSelection(what) {
@@ -164,12 +165,20 @@ try {
     await settled()
     check(JSON.stringify(kinds(from)) === '["selection-cleared"]', `${what}: a click that dismisses the selection is only selection-cleared (${kinds(from)})`)
 
-    // A double-click selecting a word: a selection, not a word tap first.
+    // A plain word tap: answered at once, before the selection settle time (220 ms) could pass.
+    from = messages.length
+    const t0 = Date.now()
+    await page.mouse.click(judge.x, judge.y)
+    const tapWord = await waitFor(from, (x) => x.type === 'word', `${what}: word`).catch(() => null)
+    const ms = Date.now() - t0
+    check(tapWord?.word === 'judge' && ms < 150, `${what}: a word tap is answered at once (${tapWord?.word}, ${ms} ms)`)
+    await settled()
+    // A double-click selecting a word: the tap's word, then the selection that supersedes it.
     from = messages.length
     await page.mouse.dblclick(judge.x, judge.y)
     await settled()
     const dbl = messages.slice(from).find((x) => x.type === 'selection')
-    check(JSON.stringify(kinds(from)) === '["selection"]' && dbl?.text === 'judge', `${what}: a double-click on a word is one selection (${kinds(from)}, ${dbl?.text})`)
+    check(JSON.stringify(kinds(from)) === '["word","selection"]' && dbl?.text === 'judge', `${what}: a double-click on a word is word then selection (${kinds(from)}, ${dbl?.text})`)
     check(await unselect(f), `${what}: a collapsed selection is selection-cleared`)
 
     // From the heading's end (the blank after it) into the paragraph: text and sentence are the paragraph's.
