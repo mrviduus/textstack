@@ -50,6 +50,8 @@ export interface V2Files {
   move(from: string, to: string): Promise<void>
   exists(name: string): boolean
   remove(name: string): void
+  /** Copies the file at `uri` (a picker's `content://`) to `to`. */
+  copyIn(uri: string, to: string): Promise<void>
 }
 
 /** The page's `sha256()` emits lower case and every lookup compares bytes, so a key is lower-cased
@@ -141,6 +143,21 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
           throw e
         }
       })),
+
+    /**
+     * A picked file (the picker's own URI, no cache copy: #1080 items 4–5) copied straight into `staging/`; resolves to its staged name. A failed
+     * copy (a full disk) leaves no partial file behind. Not queued: a big copy must not hold up other writes.
+     */
+    stagePicked: async (uri: string) => {
+      const staged = `staging/${Date.now()}.epub`
+      try {
+        await files.copyIn(uri, staged)
+      } catch (e) {
+        try { files.remove(staged) } catch { /* best effort; staging/ is cleared on start; rethrow the real error */ }
+        throw e
+      }
+      return staged
+    },
 
     /** A staged file the page could not open: README "open-failed — must not keep the file". */
     dropStaged: (staged: string) => queue.run(async () => files.remove(staged)),

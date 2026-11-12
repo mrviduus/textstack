@@ -972,6 +972,7 @@
   "userBook.readV2": "Open in the V2 reader",
   "userMenu.anonymousReader": "Anonymous reader",
   "v2Reader.cannotOpen": "cannot open {{name}}: {{error}}",
+  "v2Reader.libraryCorrupt": "The stored library ({{key}}) cannot be read: books are not added to it. Fix or remove it, then reload.",
   "v2Reader.downloading": "Downloading the book… {{percent}}%",
   "v2Reader.frameFailed": "The reader failed to load: no answer from {{path}} in {{seconds}} s.",
   "v2Reader.gone": "This book or its file is no longer in your library.",
