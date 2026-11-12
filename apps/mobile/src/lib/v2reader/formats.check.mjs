@@ -25,7 +25,7 @@ const TIMEOUT_MS = 15000
 // packages/shared, whose extensionless TS imports plain node does not resolve.
 const { build: esbuild } = createRequire(resolve(here, '../../../../web/package.json'))('esbuild')
 const bundled = await esbuild({ stdin: { contents: `export * from './selection.mjs'; export * from './chrome.mjs'`, resolveDir: here, loader: 'js' }, bundle: true, write: false, format: 'esm', logLevel: 'silent' })
-const { readSelection, readDir, readTap } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`)
+const { readSelection, readDir, readTap, readKey } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`)
 
 const failures = []
 const check = (ok, what) => { console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}`); if (!ok) failures.push(what) }
@@ -236,11 +236,19 @@ try {
     const tapFrom = (from) => messages.slice(from).find((x) => x.type === 'tap')
 
     // Reading direction.
+    // A spine page-progression-direction of rtl over left-to-right English text: foliate's paginator lays the
+    // columns out by the text's own direction, so the book pages left to right, and says so.
     let m = await open('tsrtl.epub')
-    check(m.type === 'opened' && m.dir === 'rtl' && readDir(m) === 'rtl', `a right-to-left EPUB opens with dir rtl (${m.dir})`)
+    check(m.type === 'opened' && m.dir === 'ltr' && readDir(m) === 'ltr', `a reflowable EPUB pages by its text's direction, not its spine's (${m.dir})`)
     call('window.__fol.flow("scrolled")')
     m = await open('tsformat.epub')
     check(m.dir === 'ltr' && readDir(m) === 'ltr', `a left-to-right EPUB opens with dir ltr (${m.dir})`)
+    // Right to left by language only: the renderer pages it right to left, and says so.
+    m = await open('tshe.epub')
+    const heRel = messages.slice(m.from).filter((x) => x.type === 'relocate').at(-1)
+    check(m.dir === 'rtl' && readDir(heRel) === 'rtl', `a Hebrew EPUB without a spine direction opens rtl, and relocates say rtl (${m.dir}, ${heRel?.dir})`)
+    m = await open('tsformat.epub')
+    check(readDir(messages.slice(m.from).filter((x) => x.type === 'relocate').at(-1)) === 'ltr', 'relocates of a left-to-right book say ltr')
 
     // A tap off the text, in the scrolled frame's margin: where it landed.
     await page.waitForTimeout(800)
@@ -250,7 +258,7 @@ try {
     let t = readTap(tapFrom(from))
     check(!!t && near1(t.x, 60) && near1(t.y, 360) && kinds(from).join() === 'tap', `a tap off the text says where it landed (${JSON.stringify(tapFrom(from))})`)
     // The same edge tap while a selection is sent: only its selection-cleared; the next one is a tap again.
-    const f = await frameWith('black quartz')
+    let f = await frameWith('black quartz')
     await select(f, 'black quartz', 0, 'black quartz', 'black quartz'.length)
     await settled()
     from = messages.length
@@ -261,6 +269,52 @@ try {
     await page.mouse.click(60, 360)
     await settled()
     check(kinds(from).join() === 'tap', `and the next edge tap is a tap (${kinds(from)})`)
+
+    // Paginated: the margins and outer columns are the page's own document; a tap there is a tap too, and
+    // dismisses a selection like any other press.
+    call('window.__fol.flow("paginated")')
+    await page.setViewportSize({ width: 1000, height: 700 })
+    m = await open('tsformat.epub')
+    await page.waitForTimeout(800)
+    for (const [what, x, y] of [['far left edge', 8, 350], ['far right edge', 992, 350], ['top margin row', 500, 8]]) {
+      from = messages.length
+      await page.mouse.click(x, y)
+      await settled()
+      t = readTap(tapFrom(from))
+      check(!!t && near1(t.x, x) && near1(t.y, y) && kinds(from).join() === 'tap', `paginated, ${what}: a tap says where it landed (${JSON.stringify(tapFrom(from))})`)
+    }
+    {
+      const pf = await frameWith('black quartz')
+      await select(pf, 'black quartz', 0, 'black quartz', 'black quartz'.length)
+      await settled()
+      from = messages.length
+      await page.mouse.click(8, 350)
+      await settled()
+      check(kinds(from).join() === 'selection-cleared', `paginated: a margin tap that dismisses a selection is only selection-cleared (${kinds(from)})`)
+    }
+    // Focus is now on the page's own document (the margin was tapped): keys pressed there are forwarded too.
+    {
+      const from = messages.length
+      await page.keyboard.press('ArrowRight')
+      await page.waitForTimeout(150)
+      const k = messages.slice(from).filter((x) => x.type === 'key').map((x) => x.key).join()
+      check(k === 'ArrowRight', `paginated: ArrowRight after a margin tap (focus on the page's own document) is forwarded (${JSON.stringify(k)})`)
+    }
+    // Beside a letterboxed image page: the page's own document too.
+    m = await open('tsformat.cbz')
+    await page.waitForTimeout(800)
+    from = messages.length
+    await page.mouse.click(30, 350)
+    await page.waitForTimeout(300)
+    t = readTap(tapFrom(from))
+    check(!!t && near1(t.x, 30) && near1(t.y, 350), `beside a letterboxed image page, a tap says where it landed (${JSON.stringify(tapFrom(from))})`)
+    await page.setViewportSize({ width: 1280, height: 720 })
+    call('window.__fol.flow("scrolled")')
+    m = await open('tsformat.epub')
+    await page.waitForTimeout(800)
+    f = await frameWith('black quartz')
+    await page.mouse.click(60, 360)
+    await settled()
 
     // Keys: the list only, no modifiers, not in a field; the frame does not act on them itself.
     const keys = async (press) => { const from = messages.length; await press(); await page.waitForTimeout(150); return messages.slice(from).filter((x) => x.type === 'key').map((x) => `${x.key}${x.shift ? '+shift' : ''}`).join() }
@@ -273,6 +327,40 @@ try {
     await f.evaluate(() => { const i = document.createElement('input'); i.id = 'ts-field'; document.body.prepend(i); i.focus() })
     check(await keys(() => page.keyboard.press('Space')) === '', 'Space typed in a form field of the book is not forwarded')
     await f.evaluate(() => document.getElementById('ts-field').remove())
+    // A control of the book keeps its keys: Space on a <summary> toggles it and is not forwarded.
+    await f.evaluate(() => { const d = document.createElement('details'); d.id = 'ts-details'; d.innerHTML = '<summary>More</summary>hidden'; document.body.prepend(d); d.querySelector('summary').focus() })
+    const summaryKeys = await keys(() => page.keyboard.press('Space'))
+    const toggled = await f.evaluate(() => document.getElementById('ts-details').open)
+    check(summaryKeys === '' && toggled, `Space on a summary of the book toggles it and is not forwarded (${JSON.stringify(summaryKeys)}, open ${toggled})`)
+    await f.evaluate(() => { document.getElementById('ts-details').remove(); document.activeElement?.blur() })
+    // Shift+Arrow extends a selection: never forwarded, never cancelled.
+    await page.mouse.click(60, 360)
+    await settled()
+    await select(f, 'black quartz', 0, 'black quartz', 'black'.length)
+    await f.evaluate(() => document.body.focus())
+    const extendKeys = await keys(() => page.keyboard.press('Shift+ArrowRight'))
+    const extended = await f.evaluate(() => getSelection().toString())
+    check(extendKeys === '' && extended.length > 'black'.length, `Shift+ArrowRight extends the selection and is not forwarded (${JSON.stringify(extendKeys)}, ${JSON.stringify(extended)})`)
+    await unselect(f)
+    // A held key: its repeats say so.
+    const held = messages.length
+    await page.mouse.click(60, 360)
+    await page.keyboard.down('PageDown')
+    await page.keyboard.down('PageDown')
+    await page.keyboard.down('PageDown')
+    await page.keyboard.up('PageDown')
+    await page.waitForTimeout(150)
+    const reps = messages.slice(held).filter((x) => x.type === 'key').map((x) => readKey(x)?.repeat)
+    check(JSON.stringify(reps) === '[false,true,true]', `a held key's repeats carry repeat: true (${JSON.stringify(reps)})`)
+    // Across a section boundary foliate replaces the focused section frame: keys are still forwarded.
+    m = await open('tsformat.mobi')
+    await page.waitForTimeout(800)
+    await page.mouse.click(60, 360)
+    from = messages.length
+    await call('window.__fol.section(1)')
+    await waitFor(from, (x) => x.type === 'relocate' && x.index === 1, 'the next section').catch(() => null)
+    await page.waitForTimeout(300)
+    check(await keys(() => page.keyboard.press('ArrowRight')) === 'ArrowRight', 'ArrowRight after a section boundary is still forwarded')
 
     // flush(), a hidden page, pagehide: the debounced save (400 ms) of a page turn arrives at once, and once.
     call('window.__fol.flow("paginated")')

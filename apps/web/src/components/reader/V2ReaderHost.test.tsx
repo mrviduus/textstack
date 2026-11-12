@@ -227,4 +227,43 @@ describe('V2ReaderHost', () => {
     expect(posted.filter((m) => m.call === 'showTranslation')).toHaveLength(shown)
     expect(screen.queryAllByTestId('v2-restore')).toHaveLength(shown)
   })
+
+  describe('navigation keys from the page (#1263)', () => {
+    const turns = () => posted.filter((m) => m.call === 'next' || m.call === 'prev').map((m) => m.call)
+    const key = (k: string, o: { shift?: boolean; repeat?: boolean } = {}) => fromPage({ type: 'key', key: k, shift: !!o.shift, repeat: !!o.repeat })
+
+    it('key_SpaceAndPageKeys_TurnTheBook', () => {
+      mount(book(), { dev: true })
+      fromPage({ type: 'ready' })
+      fromPage({ ...opened('1/a.epub'), dir: 'ltr' })
+      key('Space')
+      key('Space', { shift: true })
+      key('PageDown')
+      key('PageUp')
+      key('ArrowRight')
+      key('ArrowLeft')
+      expect(turns()).toEqual(['next', 'prev', 'next', 'prev', 'next', 'prev'])
+    })
+
+    it('key_ArrowsInARightToLeftBook_FollowItsDirection_ALaterRelocateToo', () => {
+      mount(book(), { dev: true })
+      fromPage({ type: 'ready' })
+      fromPage({ ...opened('1/a.epub'), dir: 'rtl' })
+      key('ArrowLeft')
+      fromPage({ type: 'relocate', index: 1, sections: 2, fraction: 0.5, dir: 'ltr' })
+      key('ArrowLeft')
+      expect(turns()).toEqual(['next', 'prev'])
+    })
+
+    it('key_HeldOrMalformedOrEscape_NoTurn', () => {
+      mount(book(), { dev: true })
+      fromPage({ type: 'ready' })
+      fromPage(opened('1/a.epub'))
+      key('Space', { repeat: true })
+      key('Escape')
+      fromPage({ type: 'key', key: 'Space', shift: false })
+      fromPage({ type: 'key', key: 'Home', shift: false, repeat: false })
+      expect(turns()).toEqual([])
+    })
+  })
 })
