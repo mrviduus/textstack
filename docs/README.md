@@ -1,8 +1,18 @@
 # TextStack docs
 
-TextStack is a free reading app: upload a book, read it on the web or on Android, save words, talk
-about a chapter with your AI assistant. These pages are for people who run the code or change it.
-Readers find help inside the app at [textstack.app](https://textstack.app/).
+TextStack is a library you carry with you. You add a book, read it on the web or on Android, save
+the words you do not know, and talk about a chapter with your AI assistant.
+
+These pages are for people who run TextStack or change it. If you only want to read books, the app
+is at [textstack.app](https://textstack.app/).
+
+## Start with the stories
+
+Eight short stories say how people use TextStack. No code, no technical names. Read them first: the
+words in them are the words of the whole project.
+
+- [The stories of TextStack](stories/index.md)
+- [The words of TextStack](glossary.md): one word for one thing, and the list of areas.
 
 ## What do you want to do?
 
@@ -11,12 +21,12 @@ Readers find help inside the app at [textstack.app](https://textstack.app/).
     <td width="50%" valign="top">
       <a href="start/run-locally.md"><img src="assets/pixel-icons/start-here.svg" width="48" height="48" alt=""></a>
       <h3><a href="start/run-locally.md">Run it locally</a></h3>
-      From a clone to the app running on your machine with Docker.
+      Three short lessons, from a copy of the code to a book open on your screen.
     </td>
     <td width="50%" valign="top">
       <a href="start/first-pr.md"><img src="assets/pixel-icons/contribute.svg" width="48" height="48" alt=""></a>
       <h3><a href="start/first-pr.md">Ship a first PR</a></h3>
-      Branch, change, checks, area label, pull request.
+      Three short lessons: pick the work, change and check, open the pull request.
     </td>
   </tr>
   <tr>
@@ -27,59 +37,36 @@ Readers find help inside the app at [textstack.app](https://textstack.app/).
     </td>
     <td width="50%" valign="top">
       <a href="architecture/index.md"><img src="assets/pixel-icons/architecture.svg" width="48" height="48" alt=""></a>
-      <h3><a href="architecture/index.md">Understand the architecture</a></h3>
-      The services, how a book moves through them, and why they are built this way.
+      <h3><a href="architecture/index.md">See how it works</a></h3>
+      The parts of TextStack and how a book moves between them.
     </td>
   </tr>
 </table>
 
-## Start with the stories
+## Look something up
 
-- [The stories of TextStack](stories/index.md): eight short stories of how people use it. No code.
-- [The words of TextStack](glossary.md): one word for one thing, and the list of areas.
+- [Settings](reference/environment-variables.md): every environment variable.
+- [Connect an AI assistant](reference/mcp.md).
+- [End-to-end tests](guides/e2e-tests.md): write and run them.
+- [The data](architecture/data-model.md) and [the rules for reading and writing it](architecture/data-access.md).
+- [Decisions](architecture/adr/): why each big choice was made. Read the status line of a decision first.
 
 ## Where the project is now
 
-TextStack is moving to **V2**: a second database, a new reader, one cutover. Part of it is live and
-part is behind a flag.
+TextStack is moving to **V2**: a new library and a new reading screen. Part of it is live, part is
+still switched off.
 
-- [STATUS.md](STATUS.md): what is in flight, what is known broken, what we decided not to do.
-- [V2 architecture](architecture/v2.md): the map of V2 and its boundaries.
-- [Changelog](https://textstack.app/en/changelog): merged pull requests by week.
-
-## Architecture
-
-| Page | What it answers |
-|---|---|
-| [Overview](architecture/index.md) | Which services exist and what each one does |
-| [Flows](architecture/flows.md) | How a request moves between them, one diagram per scenario |
-| [Data model](architecture/data-model.md) | Every table: purpose, status, personal data |
-| [Data access](architecture/data-access.md) | The rules for repositories and SQL |
-| [Frontend](architecture/frontend.md) | The apps and the shared packages |
-| [Delivery](architecture/delivery.md) | How a commit reaches production |
-| [Decisions (ADRs)](architecture/adr/) | Why each load-bearing choice was made; read the status line first |
-
-## Guides
-
-- [Write and run end-to-end tests](guides/e2e-tests.md)
-
-## Reference
-
-- [Environment variables](reference/environment-variables.md)
-- [MCP server](reference/mcp.md): connect TextStack to an AI assistant
-- API reference: generated from the code. Run the app, then open `http://localhost:8080/scalar/v1`.
+- [The move to V2](architecture/v2.md).
+- [What changed, week by week](https://textstack.app/en/changelog).
+- [Status](STATUS.md): what is being worked on and what is known to be broken.
 
 ## Rules for these docs
 
-- A change to a command, an environment variable, a route, a flag or a setup step edits the page
-  that states it, in the same pull request.
-- One home per fact. The API reference and the changelog are generated, never written by hand.
-- A new decision that is hard to reverse, or that touches several modules, gets an
-  [ADR](architecture/adr/).
-- Links are checked in CI: `node scripts/check-doc-links.mjs`.
+- A change to a command, a setting, a route or a setup step edits the page that states it, in the
+  same pull request.
+- One home for each fact.
+- Plain words. The [glossary](glossary.md) has the word for each thing; use that word.
+- Links are checked by CI: `node scripts/check-doc-links.mjs`.
 
-## Internal notes
-
-[`internal/`](internal/) holds the maintainer's working material: operations of the production
-server, incident postmortems, V2 design drafts, feature specs, QA reports, the frozen changelog
-archive and `legacy/` (what the V2 cutover removes). It is public, but not written for a first read.
+The maintainer's working notes are not part of these docs. They live in
+[`internal/`](../internal/) at the top of the repository.

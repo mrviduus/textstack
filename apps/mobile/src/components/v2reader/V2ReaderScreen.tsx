@@ -53,6 +53,8 @@ function deviceFiles(): V2Files {
       const file = v2File(name)
       if (file.exists) file.delete()
     },
+    // expo-file-system copies a SAF/content:// source to a local file (Android, since 56.0.0).
+    copyIn: (uri, to) => new File(uri).copy(v2File(to)),
   }
 }
 
@@ -79,7 +81,13 @@ const downloadIo = {
   async fetch(url: string, sha256: string) {
     const token = await freshAccessToken()
     const staged = `staging/dl-${Date.now()}.epub`
-    const file = await File.downloadFileAsync(url, v2File(staged), { headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }, idempotent: true })
+    const dest = v2File(staged)
+    const file = await File.downloadFileAsync(url, dest, { headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }, idempotent: true })
+      .catch((e) => {
+        // A failed download (a full disk) leaves no partial file, like a failed pick.
+        try { if (dest.exists) dest.delete() } catch { /* staging/ is cleared on start */ }
+        throw e
+      })
     const source = deviceUploadIo(() => false).open(file.uri)
     const actual = await sha256Of(source, () => new Promise((r) => setTimeout(r, 0))).finally(() => source.close())
     if (actual !== sha256) {
@@ -327,12 +335,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const pick = async () => {
     try {
       // Any file: the page tells the format by its bytes (EPUB, MOBI/AZW3, FB2, CBZ, PDF) and refuses the rest.
-      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true })
+      // No picker cache copy (#1080 items 4–5): a moved cache copy keeps the cache's group, so Android counts the
+      // retained book as app cache, and a full disk leaves a partial in cache/DocumentPicker/. stagePicked copies the URI.
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: false })
       if (result.canceled) return
       const asset = result.assets[0]
-      const staged = `staging/${Date.now()}.epub`
-      await new File(asset.uri).move(v2File(staged))
-      open({ file: staged, name: asset.name })
+      open({ file: await v2Storage().stagePicked(asset.uri), name: asset.name })
     } catch (e) {
       fail('pick', setOpenError)(e)
     }

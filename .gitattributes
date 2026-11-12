@@ -7,4 +7,3 @@
 # out interleaved, which is worth a glance when a batch lands; that is a cheaper
 # review than resolving the same conflict six times.
 CHANGELOG.md merge=union
-docs/internal/changelog-archive/*.md merge=union

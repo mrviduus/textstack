@@ -16,7 +16,7 @@
 #   $OUT/summary.txt        avg / p50 / p95 latency, tokens/sec, speedup
 set -euo pipefail
 
-OUT="${1:-docs/internal/loadtest/bench-$(date +%Y%m%d-%H%M%S)}"
+OUT="${1:-data/loadtest/bench-$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$OUT"
 
 PROMPTS=(

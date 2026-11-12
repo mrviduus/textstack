@@ -82,7 +82,7 @@ jobs:
   # `if:` below starts with `!cancelled()` and the fail-open clause: without them
   # a broken `changes` job would skip all four and let the PR merge green.
   #
-  # Areas: `docs/**` and root-level *.md touch nothing. Markdown INSIDE a code
+  # Areas: `docs/**`, `internal/**`, `site/**` (the docs site, #1275) and root-level *.md touch nothing. Markdown INSIDE a code
   # directory is that directory's (Application embeds ChapterReview/ReviewMethod.md;
   # the MCP package ships its README). Anything shared or unrecognised —
   # packages/, scripts/, .github/, root package/lock files, .nvmrc — is
@@ -98,6 +98,7 @@ jobs:
       mobile: ${{ steps.areas.outputs.mobile }}
       extension: ${{ steps.areas.outputs.extension }}
       v2reader: ${{ steps.areas.outputs.v2reader }}
+      docs: ${{ steps.areas.outputs.docs }}
     steps:
       # A pull_request checkout is GitHub's merge commit; its first parent is the
       # base tip. Depth 2 is both commits and nothing more.
@@ -111,8 +112,8 @@ jobs:
           set -euo pipefail
           files=$(git diff --name-only HEAD^1 HEAD)
           echo "$files"
-          backend=false web=false mobile=false extension=false v2reader=false
-          everything() { backend=true web=true mobile=true extension=true v2reader=true; }
+          backend=false web=false mobile=false extension=false v2reader=false docs=false
+          everything() { backend=true web=true mobile=true extension=true v2reader=true docs=true; }
           [ -n "$files" ] || everything
           while IFS= read -r f; do
             # Not an area of its own: what the V2 sandbox check in `frontend` reads.
@@ -121,7 +122,8 @@ jobs:
             esac
             case "$f" in
               '') ;;
-              docs/*) ;;
+              docs/*|site/*) docs=true ;;
+              internal/*) ;;
               backend/*|database/*|tests/*|*.sln|Directory.*.props|NuGet.Config|global.json|docker-compose*.yml) backend=true ;;
               apps/web/*|apps/admin/*) web=true ;;
               apps/mobile/*) mobile=true ;;
@@ -137,6 +139,7 @@ jobs:
             echo "mobile=$mobile"
             echo "extension=$extension"
             echo "v2reader=$v2reader"
+            echo "docs=$docs"
           } | tee -a "$GITHUB_OUTPUT"
 
   # Cheapest job in the file and the one that would have saved the most time:
@@ -174,6 +177,31 @@ jobs:
           # One plain Node script, no install (same reason as node-version).
           package-manager-cache: false
       - run: node scripts/check-doc-links.mjs
+
+  # The docs site (#1275) builds from docs/ with the tooling in site/. A page that
+  # breaks the build (a bad link target, a diagram the loader chokes on) fails here,
+  # not at publish time.
+  docs-site:
+    needs: changes
+    if: ${{ !cancelled() && inputs.scope != 'merged-tree' && (needs.changes.result != 'success' || needs.changes.outputs.docs == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      # site/ is not a workspace member: its own lockfile, nothing shared with the apps.
+      - name: Install
+        working-directory: site
+        run: pnpm install --ignore-workspace --frozen-lockfile
+      - name: Build
+        working-directory: site
+        env:
+          DOCS_BASE: /textstack
+        run: pnpm build
 
   # The extension has no build step and no package.json, so nothing else in this
   # file would ever look at it. Its README documented a check and asked a person

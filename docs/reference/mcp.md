@@ -44,7 +44,7 @@ uploads.
 | `get_book_progress` | How far you have got in one book, and the chapter you stopped in. | User |
 | `set_book_progress` | Record that you finished a chapter — including one you read or listened to somewhere else. | User |
 | `get_chapter_review` | Start a chapter review in one call: the review method, the chapter text (in parts if long), your highlights and saved words, open threads from earlier chapters. Refuses a chapter you have not reached. | User |
-| `save_chapter_review` | Save the structured review into the chapter's insight; its questions get their own spaced-repetition queue. A refusal lists every problem at once. See [chapter-review.md](../internal/features/chapter-review.md). | User |
+| `save_chapter_review` | Save the structured review into the chapter's insight; its questions get their own spaced-repetition queue. A refusal lists every problem at once. See [chapter-review.md](../../internal/features/chapter-review.md). | User |
 
 Every enabled tool is always listed regardless of whether you're signed in — only a
 user-scoped *call* fails with a clean "authentication required" message when no

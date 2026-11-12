@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { PagePosition } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
 import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reader/openTracker.mjs'
@@ -15,7 +16,8 @@ import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTa
  * Android host drives (apps/mobile/src/lib/v2reader/README.md): ready → openBytes → opened → restore → restored,
  * then store / relocate / word / openLink. Reader data (position, highlights): in localStorage on the dev route
  * (`dev`) only; on the production route on the server, for a book with a `sync` target (#1226:
- * lib/v2ReaderSync.ts; its one local exception, a CBZ page position, is named there). The layout is a
+ * lib/v2ReaderSync.ts; its one local exception, a CBZ page position, is named there; another device's newer place
+ * is offered, #1232). The layout is a
  * localStorage setting on both.
  */
 
@@ -120,6 +122,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   /** The open's reading-state read failed: no session; Retry reads again, then restores (no read, no writes). */
   const [readFailed, setReadFailed] = useState(false)
   const retryRead = useRef<(() => void) | null>(null)
+  /** Another device's newer place, offered (#1232, ADR-019 `prompt`); the newest one shown until answered or a new open. */
+  const [offer, setOffer] = useState<PagePosition | null>(null)
 
   const call = (name: string, args: unknown[] = [], transfer: Transferable[] = []) =>
     frame.current?.contentWindow?.postMessage({ call: name, args }, location.origin, transfer)
@@ -138,6 +142,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     lastBook.current = book
     // Nothing of the previous book may stay on screen beside this one's answer (or its error).
     setError(null)
+    setOffer(null)
     setHeading(t('v2Reader.opening', { name: book.name }))
     setStatus('')
     setRestored('')
@@ -192,6 +197,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             if (list.length) call('addHighlights', [list])
           },
           highlights: m.annotatable !== false,
+          // A later offer replaces the one shown (the newest place).
+          onNewerPlace: setOffer,
         })
         sync.current = s
         // Only while this take is the open one: a later take closed `s`, and its answers are none of this book's.
@@ -329,6 +336,14 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       <span data-testid="v2-status">{status}</span>
       {saveStatus !== 'saved' && (
         <span role="status" data-testid="v2-not-saved">{t(SAVE_MESSAGE[saveStatus])}</span>
+      )}
+      {offer && (
+        <div role="status" aria-label={t('v2Reader.newerPlaceLabel')} data-testid="v2-newer-place">
+          {t('v2Reader.newerPlace', { percent: Math.round((offer.fraction ?? 0) * 100) })}{' '}
+          <button onClick={() => setOffer(null)}>{t('v2Reader.stayHere')}</button>{' '}
+          {/* Chosen: the page saves where it lands (README, `goTo`). */}
+          <button onClick={() => { call('goTo', [offer, true]); setOffer(null) }}>{t('v2Reader.goThere')}</button>
+        </div>
       )}
       {readFailed && (
         <span role="alert" data-testid="v2-read-failed">

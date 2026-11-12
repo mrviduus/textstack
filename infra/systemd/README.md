@@ -69,4 +69,4 @@ systemctl --user list-units --type=service | grep poller
 
 All three should show `active running`. If one is `failed` — see
 [`../scripts/README.md`](../scripts/README.md#what-to-monitor) and
-[`docs/internal/ops/incident-runbook.md`](../../docs/internal/ops/incident-runbook.md).
+[`internal/ops/incident-runbook.md`](../../internal/ops/incident-runbook.md).

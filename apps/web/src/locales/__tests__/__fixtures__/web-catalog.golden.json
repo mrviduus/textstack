@@ -972,6 +972,7 @@
   "userBook.readV2": "Open in the V2 reader",
   "userMenu.anonymousReader": "Anonymous reader",
   "v2Reader.cannotOpen": "cannot open {{name}}: {{error}}",
+  "v2Reader.libraryCorrupt": "The stored library ({{key}}) cannot be read: books are not added to it. Fix or remove it, then reload.",
   "v2Reader.downloading": "Downloading the book… {{percent}}%",
   "v2Reader.frameFailed": "The reader failed to load: no answer from {{path}} in {{seconds}} s.",
   "v2Reader.gone": "This book or its file is no longer in your library.",
@@ -1325,5 +1326,9 @@
   "footer.android": "Android app",
   "footer.ai": "AI assistants",
   "footer.about": "About",
-  "footer.developers": "Developers"
+  "footer.developers": "Developers",
+  "v2Reader.newerPlaceLabel": "Newer reading place",
+  "v2Reader.newerPlace": "Another device saved a newer place in this book ({{percent}}%).",
+  "v2Reader.stayHere": "Stay here",
+  "v2Reader.goThere": "Go to their place"
 }

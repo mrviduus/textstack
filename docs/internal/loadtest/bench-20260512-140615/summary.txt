@@ -1,4 +1,0 @@
-Ollama micro-benchmark — gemma4:e2b on prod (GTX 1650 Ti Mobile, 4GB)
-Generated: Tue 12 May 2026 18:07:10 UTC
-Prompts: 5 distractor-shape, num_predict=400, think:false
-
