@@ -41,8 +41,7 @@ let drawnLists: PageHighlight[][]
 /** The open page as the host reports it: restored and moved (a write follows a move) unless a test says otherwise. */
 let reader: OpenReader | null
 let newer: [PagePosition, boolean][]
-/** Another device's write: recorded after every `pos(n)` here (theirs is newer), or long before (`OLD`, ours is). */
-const LATER = () => new Date(Date.now() + 60_000).toISOString()
+/** A write recorded before every other here. */
 const OLD = '1970-01-01T00:00:00.000Z'
 
 beforeEach(() => {
@@ -298,96 +297,83 @@ describe('createV2ReaderSync', () => {
       expect(expectedOf(api.putReadingState.mock.calls[1])).toBe(7)
     })
 
-    it('staleRevision_AnotherDevicesOlderPlace_Keep_OursWrittenOnceMoreOnTheirRevision', async () => {
-      const s = await opened()
-      api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(9, 5, OLD)))
-      await stored(s, entry(pos(2)))
-      expect(api.putReadingState.mock.calls.map(expectedOf)).toEqual([null, 9])
-      expect(newer).toEqual([])
-      expect(statuses).toEqual(['saved'])
-    })
-
-    // #1232: ADR-019 by decideServerState on a lost write, as Android.
-    describe('another device saved a newer place', () => {
+    // #1232: ADR-019 by decideServerState on a lost write, as Android: against the place this tab last saved or restored.
+    describe('another device wrote meanwhile', () => {
       const theirs = (n: number) => expect.objectContaining({ cfi: cfi(n), index: n })
-      const positionsSent = () => api.putReadingState.mock.calls.map((c) => [(c[1] as V2ReadingStateWrite).currentLocator.value, expectedOf(c)])
-      async function asked() {
+      const sent = () => api.putReadingState.mock.calls.map((c) => [(c[1] as V2ReadingStateWrite).currentLocator.value, expectedOf(c)])
+      const SAVED_AT = Date.parse('2026-01-01T00:00:00.000Z')
+      const BETWEEN = '2026-02-01T00:00:00.000Z'
+      /** pos(2) saved (revision 5, recorded at SAVED_AT); the next write loses to `server`. */
+      async function savedThenLost(...server: V2ReadingState[]) {
+        api.getReadingState.mockResolvedValue(state(4, 1, OLD))
         const s = await opened()
-        api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(9, 5, LATER())))
-        await stored(s, entry(pos(2), [hl()]))
-        expect(newer).toEqual([[theirs(5), true]])
+        await stored(s, entry(pos(2, SAVED_AT)))
+        for (const st of server) api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', st))
+        // The move now is the newest of all: the rule never weighs it.
+        await stored(s, entry(pos(3, Date.now() + 120_000)))
         return s
       }
 
-      it('readerMoved_Asked_UnansweredNothingOverwritesTheirs_StoreFlushKeepaliveClose', async () => {
-        const s = await asked()
-        await stored(s, entry(pos(3), [hl()]))
-        s.flushKeepalive()
-        await s.close()
-        expect(positionsSent()).toEqual([[cfi(2), null]])
-        expect(api.keepalivePutState).not.toHaveBeenCalled()
-        // Highlights are not held by the question.
-        expect(api.putAnnotation).toHaveBeenCalledTimes(1)
-        expect(statuses).not.toContain('unsaved')
-      })
-
-      it('stay_OursWrittenOnTheirRevision', async () => {
-        const s = await asked()
-        s.store(entry(pos(3), [hl()]))
-        s.answerNewer(false)
-        await s.flush()
-        expect(positionsSent()).toEqual([[cfi(2), null], [cfi(3), 9]])
+      it('theirsNewerThanOurLastSave_ReaderMoved_OursWrittenOnTheirRevision_TheirsOffered', async () => {
+        await savedThenLost(state(9, 5, BETWEEN))
+        expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 5], [cfi(3), 9]])
+        expect(newer).toEqual([[theirs(5), true]])
         expect(last()).toBe('saved')
       })
 
-      it('go_TheirsKept_NothingWrittenBack_TheNextMoveOnTheirRevision', async () => {
-        const s = await asked()
-        s.answerNewer(true)
-        await s.flush()
-        s.flushKeepalive()
-        expect(positionsSent()).toEqual([[cfi(2), null]])
-        expect(api.keepalivePutState).not.toHaveBeenCalled()
-        // The page's entry after the host's goTo: their place, not written back.
-        await stored(s, entry(newer[0][0], [hl()]))
-        expect(api.putReadingState).toHaveBeenCalledTimes(1)
-        await stored(s, entry(pos(6, Date.now() + 120_000), [hl()]))
-        expect(positionsSent()).toEqual([[cfi(2), null], [cfi(6), 9]])
+      it('nothingSavedYet_TheRestoredPlaceIsOurs', async () => {
+        api.getReadingState.mockResolvedValue(state(4, 1, OLD))
+        const s = await opened()
+        api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(9, 5, BETWEEN)))
+        await stored(s, entry(pos(3, Date.now() + 120_000)))
+        expect(newer).toEqual([[theirs(5), true]])
+        expect(sent()).toEqual([[cfi(3), 4], [cfi(3), 9]])
       })
 
-      it('answerWithNothingAsked_OrWhileClosing_NothingWritten', async () => {
-        const s = await opened()
-        await stored(s, entry(pos(2)))
-        s.answerNewer(true)
-        await stored(s, entry(pos(2)))
-        expect(api.putReadingState).toHaveBeenCalledTimes(1)
-        api.putReadingState.mockClear()
-        const t = await asked()
-        void t.close()
-        t.answerNewer(false)
-        await t.close()
-        expect(positionsSent()).toEqual([[cfi(2), null]])
+      it('theirsOlderThanOurLastSave_Keep_OursWritten_NothingOffered', async () => {
+        await savedThenLost(state(9, 5, OLD))
+        expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 5], [cfi(3), 9]])
+        expect(newer).toEqual([])
+      })
+
+      it('lostAgain_TheNewestOffered', async () => {
+        await savedThenLost(state(9, 5, BETWEEN), state(10, 6, BETWEEN))
+        expect(newer).toEqual([[theirs(5), true], [theirs(6), true]])
+        expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 5], [cfi(3), 9]])
+        expect(last()).toBe('unsaved')
       })
 
       it('notMovedSameSection_MovedSilently_TheirsNotWrittenBack', async () => {
         reader = { restoreApplied: true, moved: false, index: 5 }
-        const s = await opened()
-        api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(9, 5, LATER())))
-        await stored(s, entry(pos(2)))
+        const s = await savedThenLost(state(9, 5, BETWEEN))
         expect(newer).toEqual([[theirs(5), false]])
         await s.flush()
         s.flushKeepalive()
-        expect(api.putReadingState).toHaveBeenCalledTimes(1)
+        expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 5]])
         expect(api.keepalivePutState).not.toHaveBeenCalled()
         expect(last()).toBe('saved')
       })
 
       it('notRestoredYet_Adopted', async () => {
         reader = { restoreApplied: false, moved: false, index: null }
-        const s = await opened()
-        api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(9, 5, LATER())))
-        await stored(s, entry(pos(2)))
+        await savedThenLost(state(9, 5, BETWEEN))
         expect(newer).toEqual([[theirs(5), false]])
-        expect(api.putReadingState).toHaveBeenCalledTimes(1)
+        expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 5]])
+      })
+
+      it('closing_TheHostToldNothing', async () => {
+        api.getReadingState.mockResolvedValue(state(4, 1, OLD))
+        const s = await opened()
+        await stored(s, entry(pos(2, SAVED_AT)))
+        const put = deferred<V2ReadingState>()
+        api.putReadingState.mockReturnValueOnce(put.promise)
+        s.store(entry(pos(3, Date.now() + 120_000)))
+        const closing = s.close()
+        put.reject(conflict('stale_revision', state(9, 5, BETWEEN)))
+        await closing
+        expect(newer).toEqual([])
+        // Still decided: ours written once more on their revision.
+        expect(api.putReadingState.mock.calls.map(expectedOf)).toEqual([4, 5, 9])
       })
     })
 
@@ -400,7 +386,7 @@ describe('createV2ReaderSync', () => {
 
     it('lostTwice_UnsavedThenTheNextStoreRetriesOnTheLastRevision', async () => {
       const s = await opened()
-      api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(2, 1, OLD))).mockRejectedValueOnce(conflict('stale_revision', state(3, 1, OLD)))
+      api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(2))).mockRejectedValueOnce(conflict('stale_revision', state(3)))
       await stored(s, entry(pos(2)))
       expect(statuses).toEqual(['unsaved'])
       await stored(s, entry(pos(2)))
@@ -440,132 +426,6 @@ describe('createV2ReaderSync', () => {
       await stored(s, entry(pos(3)))
       expect(api.putReadingState).toHaveBeenCalledTimes(2)
       expect(last()).toBe('saved')
-    })
-  })
-
-  // #1232: the tab shown again re-reads the server's place and decides before its next position write.
-  describe('recheck (the tab shown again)', () => {
-    const theirs = (n: number) => expect.objectContaining({ cfi: cfi(n), index: n })
-    const sent = () => api.putReadingState.mock.calls.map((c) => [(c[1] as V2ReadingStateWrite).currentLocator.value, expectedOf(c)])
-    /** Read on to pos(2), saved on revision 5; the server's next read answers `next`. */
-    async function readThenIdle(next: V2ReadingState | Promise<V2ReadingState | null>) {
-      api.getReadingState.mockResolvedValueOnce(state(4, 1))
-      const s = await opened()
-      await stored(s, entry(pos(2)))
-      expect(sent()).toEqual([[cfi(2), 4]])
-      api.getReadingState.mockReturnValueOnce(Promise.resolve(next))
-      return s
-    }
-
-    it('serverNewer_NotMovedSameSection_MovedThere_NothingWrittenBack', async () => {
-      reader = { restoreApplied: true, moved: false, index: 5 }
-      const s = await readThenIdle(state(9, 5, LATER()))
-      s.recheck()
-      await s.flush()
-      expect(newer).toEqual([[theirs(5), false]])
-      s.flushKeepalive()
-      expect(api.keepalivePutState).not.toHaveBeenCalled()
-      expect(api.putReadingState).toHaveBeenCalledTimes(1)
-    })
-
-    it('serverNewer_ReaderMoved_Asked_TheNextPageTurnNotWritten_StayWritesItOnTheirRevision', async () => {
-      const s = await readThenIdle(state(9, 5, LATER()))
-      s.recheck()
-      await stored(s, entry(pos(3, Date.now() + 120_000)))
-      expect(newer).toEqual([[theirs(5), true]])
-      expect(api.putReadingState).toHaveBeenCalledTimes(1)
-      s.answerNewer(false)
-      await s.flush()
-      expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 9]])
-    })
-
-    it('aPageTurnWhileTheReadIsInFlight_NotWrittenBeforeTheDecision_ThenHeldByIt', async () => {
-      const read = deferred<V2ReadingState | null>()
-      const s = await readThenIdle(read.promise)
-      s.recheck()
-      // Moved now: newer than theirs, but not what the tab showed when it came back.
-      s.store(entry(pos(3, Date.now() + 120_000)))
-      await Promise.resolve()
-      expect(api.putReadingState).toHaveBeenCalledTimes(1)
-      read.resolve(state(9, 5, LATER()))
-      await s.flush()
-      expect(newer).toEqual([[theirs(5), true]])
-      expect(api.putReadingState).toHaveBeenCalledTimes(1)
-    })
-
-    it('serverOlder_Keep_TheNextMoveWrittenOnItsRevision_NoConflict', async () => {
-      const s = await readThenIdle(state(9, 5, OLD))
-      s.recheck()
-      await stored(s, entry(pos(3)))
-      expect(newer).toEqual([])
-      expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 9]])
-    })
-
-    it('theRevisionThisTabWrote_NothingDecided', async () => {
-      const s = await readThenIdle(state(5, 5, LATER()))
-      s.recheck()
-      await stored(s, entry(pos(3)))
-      expect(newer).toEqual([])
-      expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 5]])
-    })
-
-    it('readFails_SavingGoesOn', async () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      const s = await readThenIdle(state(9, 5, LATER()))
-      api.getReadingState.mockReset()
-      api.getReadingState.mockRejectedValueOnce(offline())
-      s.recheck()
-      await stored(s, entry(pos(3)))
-      expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 5]])
-      expect(last()).toBe('saved')
-      warn.mockRestore()
-    })
-
-    it('closedWhileReading_TheHostToldNothing', async () => {
-      const read = deferred<V2ReadingState | null>()
-      const s = await readThenIdle(read.promise)
-      s.recheck()
-      const closing = s.close()
-      read.resolve(state(9, 5, LATER()))
-      await closing
-      expect(newer).toEqual([])
-    })
-
-    it('noRead_BeforeTheRestore_Closed_WhileAsking_WhileOneIsInFlight_OnACbz_AfterTheBookWentAway', async () => {
-      const early = open()
-      early.recheck()
-      expect(api.getReadingState).not.toHaveBeenCalled()
-      await early.restore()
-      await early.close()
-      early.recheck()
-      expect(api.getReadingState).toHaveBeenCalledTimes(1)
-      api.getReadingState.mockClear()
-
-      const s = await readThenIdle(new Promise(() => {}))
-      s.recheck()
-      s.recheck()
-      expect(api.getReadingState).toHaveBeenCalledTimes(2)
-
-      api.getReadingState.mockClear()
-      api.putReadingState.mockClear()
-      const a = await readThenIdle(state(9, 5, LATER()))
-      a.recheck()
-      await a.flush()
-      expect(newer).toHaveLength(1)
-      a.recheck()
-      expect(api.getReadingState).toHaveBeenCalledTimes(2)
-
-      api.getReadingState.mockClear()
-      const cbz = await opened({ ...T, bookId: 'c1', format: 'cbz' })
-      cbz.recheck()
-      expect(api.getReadingState).toHaveBeenCalledTimes(1)
-
-      api.getReadingState.mockClear()
-      const gone = await opened()
-      api.putReadingState.mockRejectedValueOnce(conflict('file_replaced', null))
-      await stored(gone, entry(pos(7)))
-      gone.recheck()
-      expect(api.getReadingState).toHaveBeenCalledTimes(1)
     })
   })
 

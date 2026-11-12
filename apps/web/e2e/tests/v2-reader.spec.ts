@@ -171,88 +171,58 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
-  // #1232: a tab left open while the reader read on in another browser: shown again and turned, it is asked
-  // (ADR-019) and never silently writes its older place over the newer one.
-  const setVisibility = (page: Page, state: 'hidden' | 'visible') => page.evaluate((s) => {
-    Object.defineProperty(document, 'visibilityState', { value: s, configurable: true })
-    document.dispatchEvent(new Event('visibilitychange'))
-  }, state)
-  const turn = async (page: Page) => {
-    const before = await status(page).textContent()
-    await page.getByRole('button', { name: 'Next ›' }).click()
-    await expect(status(page)).not.toHaveText(before ?? '')
-  }
-
-  async function aTabLeftOpenTurned(browser: { newContext(): Promise<BrowserContext> }) {
+  // #1232: a tab still open while the reader read on in another browser: its next page turn is written (on their
+  // revision, as Android) and their newer place is offered; Go moves the tab there.
+  test('readV2Sync_AnotherBrowserReadOn_ThisTabTurnsAPage_WrittenAndTheirPlaceOffered_GoMovesThere', async ({ browser }) => {
     const who = email('v2newer')
     const context = await v2Context(browser, who)
     const page = await context.newPage()
     const bookId = await uploadFixture(page)
     const statePath = `/me/v2/books/${bookId}/reading-state`
     const isStatePut = (r: { method(): string; url(): string }) => r.method() === 'PUT' && r.url().endsWith(statePath)
+    const serverPlace = async () =>
+      ((await (await context.request.get(`${API_URL}${statePath}`, { headers: API_HEADERS })).json()) as { currentLocator: unknown }).currentLocator
+    const turn = async (p: Page) => {
+      const before = await status(p).textContent()
+      const saved = p.waitForResponse((r) => isStatePut(r.request()) && r.ok())
+      await p.getByRole('button', { name: 'Next ›' }).click()
+      await expect(status(p)).not.toHaveText(before ?? '')
+      return (await saved).request().postDataJSON() as { currentLocator: unknown }
+    }
     await page.goto(`/en/library/my/${bookId}/read-v2`)
     await expectOpened(page)
 
-    // Tab A reads two pages (saved), then is left in the background.
-    for (let i = 0; i < 2; i++) {
-      const saved = page.waitForResponse((r) => isStatePut(r.request()))
-      await turn(page)
-      expect((await saved).ok()).toBeTruthy()
-    }
-    await setVisibility(page, 'hidden')
+    // Tab A reads two pages (saved).
+    await turn(page)
+    await turn(page)
 
-    // Another browser, same account, reads on from there: its place is the server's, recorded later.
+    // Another browser, same account, opens at A's place and reads on (saved, recorded later).
     const other = await v2Context(browser, who)
     const second = await other.newPage()
     await second.goto(`/en/library/my/${bookId}/read-v2`)
     await expect(second.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
     await expect(status(second)).toHaveText((await status(page).textContent()) ?? '', { timeout: 15_000 })
-    let theirs: unknown = null
-    for (let i = 0; i < 3; i++) {
-      const saved = second.waitForResponse((r) => isStatePut(r.request()))
-      await turn(second)
-      const resp = await saved
-      expect(resp.ok(), `PUT reading-state: ${resp.status()}`).toBeTruthy()
-      theirs = (resp.request().postDataJSON() as { currentLocator: unknown }).currentLocator
-    }
+    for (let i = 0; i < 3; i++) await turn(second)
     const theirStatus = (await status(second).textContent()) ?? ''
     await other.close()
 
-    // Tab A is shown again and turned at once: its page turn is newer than theirs, but it is not written over them.
-    const put = page.waitForRequest(isStatePut, { timeout: 5_000 }).then(() => true, () => false)
-    await setVisibility(page, 'visible')
-    await turn(page)
-    const ours = (await status(page).textContent()) ?? ''
+    // Tab A (never hidden) turns a page: its write loses on the revision, is written again on theirs, and their
+    // newer place is offered.
+    const lost = page.waitForResponse((r) => isStatePut(r.request()) && r.status() === 409)
+    const ours = await turn(page)
+    expect((await lost).status()).toBe(409)
+    expect(await serverPlace()).toEqual(ours.currentLocator)
     const bar = page.getByRole('status', { name: 'Newer reading place' })
     await expect(bar).toBeVisible()
-    expect(await put, 'no place written while the bar is unanswered').toBe(false)
-    const serverPlace = async () =>
-      ((await (await context.request.get(`${API_URL}${statePath}`, { headers: API_HEADERS })).json()) as { currentLocator: unknown }).currentLocator
-    expect(await serverPlace()).toEqual(theirs)
-    return { context, page, bar, ours, theirs, theirStatus, serverPlace, isStatePut }
-  }
 
-  test('readV2Sync_ATabLeftOpenWhileAnotherBrowserReadOn_Asked_GoMovesThere_NothingOverwritten', async ({ browser }) => {
-    const { context, page, bar, theirs, theirStatus, serverPlace, isStatePut } = await aTabLeftOpenTurned(browser)
-    // Keyboard reachable: Go is a real button.
+    // Keyboard reachable: Go is a real button. The page lands on their place and saves it (the reader's choice).
+    const landed = page.waitForResponse((r) => isStatePut(r.request()) && r.ok())
     await bar.getByRole('button', { name: 'Go to their place' }).focus()
     await page.keyboard.press('Enter')
     await expect(bar).toHaveCount(0)
     await expect(status(page)).toHaveText(theirStatus)
-    const after = page.waitForRequest(isStatePut, { timeout: 3_000 }).then(() => true, () => false)
-    expect(await after, 'their place is not written back').toBe(false)
-    expect(await serverPlace()).toEqual(theirs)
-    await context.close()
-  })
-
-  test('readV2Sync_ATabLeftOpenWhileAnotherBrowserReadOn_StayWritesThisTabsPlace', async ({ browser }) => {
-    const { context, page, bar, ours, theirs, serverPlace, isStatePut } = await aTabLeftOpenTurned(browser)
-    const saved = page.waitForResponse((r) => isStatePut(r.request()))
-    await bar.getByRole('button', { name: 'Stay here' }).click()
-    expect((await saved).ok()).toBeTruthy()
-    await expect(bar).toHaveCount(0)
-    await expect(status(page)).toHaveText(ours)
-    expect(await serverPlace()).not.toEqual(theirs)
+    const there = (await landed).request().postDataJSON() as { currentLocator: unknown }
+    expect(await serverPlace()).toEqual(there.currentLocator)
     await context.close()
   })
 

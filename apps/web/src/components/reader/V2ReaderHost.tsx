@@ -128,16 +128,13 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
 
   const call = (name: string, args: unknown[] = [], transfer: Transferable[] = []) =>
     frame.current?.contentWindow?.postMessage({ call: name, args }, location.origin, transfer)
-  /** A host move (a sync adopt or move, a taken offer): not saved by the page, and the next relocate is the new baseline. */
-  const goTo = (p: PagePosition) => {
+  /**
+   * A host move: the next relocate is the new baseline. Not `chosen` (a sync adopt or move: the session holds it), the
+   * page saves nothing; `chosen` (a taken offer), the page saves where it landed (README, `goTo`).
+   */
+  const goTo = (p: PagePosition, chosen = false) => {
     reading.current.baseline = null
-    call('goTo', [p, false])
-  }
-  const answerOffer = (go: boolean) => {
-    if (!offer) return
-    sync.current?.answerNewer(go)
-    if (go) goTo(offer)
-    setOffer(null)
+    call('goTo', [p, chosen])
   }
   const flushOpen = () => {
     const o = opening.current
@@ -214,12 +211,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             const r = reading.current
             return { restoreApplied: r.restored, moved: r.baseline != null && r.cfi !== r.baseline, index: r.index }
           },
-          // A previous take's late answer moves and asks nothing.
-          onNewerPlace: (p, ask) => {
-            if (sync.current !== s) return
-            if (ask) setOffer(p)
-            else goTo(p)
-          },
+          // A later offer replaces the one shown (the newest place).
+          onNewerPlace: (p, ask) => (ask ? setOffer(p) : goTo(p)),
         })
         sync.current = s
         // Only while this take is the open one: a later take closed `s`, and its answers are none of this book's.
@@ -321,21 +314,14 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     }
     addEventListener('message', onMessage)
     // Online-first: what did not land is written again when the tab is hidden, and by a keepalive write as it goes.
-    // Shown again (or back from the bfcache): another device may have read on meanwhile (#1232).
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden') void sync.current?.flush()
-      else sync.current?.recheck()
-    }
+    const onVisibility = () => { if (document.visibilityState === 'hidden') void sync.current?.flush() }
     const onPageHide = () => sync.current?.flushKeepalive()
-    const onPageShow = (e: PageTransitionEvent) => { if (e.persisted) sync.current?.recheck() }
     document.addEventListener('visibilitychange', onVisibility)
     addEventListener('pagehide', onPageHide)
-    addEventListener('pageshow', onPageShow)
     return () => {
       removeEventListener('message', onMessage)
       document.removeEventListener('visibilitychange', onVisibility)
       removeEventListener('pagehide', onPageHide)
-      removeEventListener('pageshow', onPageShow)
       // Leaving the route (SPA navigation): the session's last pass still writes what is unsaved.
       void sync.current?.close()
       sync.current = null
@@ -367,8 +353,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       {offer && (
         <div role="status" aria-label={t('v2Reader.newerPlaceLabel')} data-testid="v2-newer-place">
           {t('v2Reader.newerPlace', { percent: Math.round((offer.fraction ?? 0) * 100) })}{' '}
-          <button onClick={() => answerOffer(false)}>{t('v2Reader.stayHere')}</button>{' '}
-          <button onClick={() => answerOffer(true)}>{t('v2Reader.goThere')}</button>
+          <button onClick={() => setOffer(null)}>{t('v2Reader.stayHere')}</button>{' '}
+          <button onClick={() => { goTo(offer, true); setOffer(null) }}>{t('v2Reader.goThere')}</button>
         </div>
       )}
       {readFailed && (
