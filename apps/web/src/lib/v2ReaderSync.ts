@@ -13,6 +13,9 @@
  *   `store` and on flush (the tab hidden), `unsaved` until it lands; `pagehide` sends what is left by keepalive.
  * - A refusal no retry changes: the book's file changed → no more writes, `reopen`; the write itself refused →
  *   not resent until the page changes it, `unsaved` meanwhile. Never silent, no request per page turn.
+ * - Another device's place on a lost write (#1232): ours is written again on their revision, and when theirs is
+ *   provably newer than this tab's last saved (or restored) place (ADR-019, `decideServerState`) it is offered
+ *   (`onNewerPlace`). The reader is never moved by the session: a position write exists only because they moved.
  *
  * The one local exception: a CBZ page position (no server form yet, #1188) is kept in this browser per book.
  *
@@ -21,7 +24,7 @@
  */
 import {
   annotationHighlight, ApiError, entryChanges, entryFor, highlightWrite, isImagePage, normalisedHighlight, ownAnnotationWrite,
-  ownStateWrite, pageEntry, positionWrite, sameJson, statePosition, v2Api,
+  decideServerState, ownStateWrite, pageEntry, positionWrite, sameJson, statePosition, v2Api,
   type HeldHighlight, type PageEntry, type PageHighlight, type PagePosition, type V2Annotation, type V2AnnotationWrite, type V2ReadingState,
   type V2ReadingStateWrite,
 } from '@textstack/shared'
@@ -95,6 +98,8 @@ export interface V2ReaderSync {
   close(): Promise<void>
 }
 
+/** A position write exists only because the reader moved (or took an offer): ADR-019 then keeps or asks. */
+const MOVED = { restoreApplied: true, moved: true, index: null }
 const errorCode = (e: unknown) => v2Api.v2ErrorOf(e)?.code ?? (e as Error | null)?.message
 /** The book's file is not what this session reads any more: no write of this open can land. */
 const BOOK_GONE = new Set(['file_replaced', 'unknown_file', 'book_not_found'])
@@ -113,6 +118,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   onStatus(s: V2SaveStatus): void
   /** This file's live highlights, once the pull lands: the host draws them and offers highlighting. */
   onHighlights(list: PageHighlight[]): void
+  /** Another device's place, provably newer than this tab's last save: offered (ours is written anyway). */
+  onNewerPlace(p: PagePosition): void
   /** Waited for before the first read; by default the last session of this book still writing (a reopen). */
   after?: Promise<unknown>
   /** False where the page offers no highlights (a PDF, a CBZ): no annotations pull. */
@@ -144,6 +151,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   const overridden = new Map<string, PageHighlight>()
   const refused = new Map<string, PageHighlight>()
   let refusedPosition: PagePosition | null = null
+  /** The last position write sent: a later `stale_revision` whose state is this one is ours (its answer was lost). */
+  let lastSent: { p: PagePosition; write: V2ReadingStateWrite } | null = null
   let latest: PageEntry | null = null
   let running: Promise<void> | null = null
   let again = false
@@ -157,6 +166,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     // A fraction-only position has no write the server takes (and a CBZ page never reaches here).
     const write = positionWrite(p, t.fileId, expected, Date.now(), t.format)
     if (!write) return false
+    const prev = lastSent
+    lastSent = { p, write }
     try {
       const s = await api.putReadingState(t.bookId, write)
       if (live()) { position = p; revision = s.revision }
@@ -170,12 +181,17 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
         revision = cur.revision
         return true
       }
-      // ADR-019 rule 5 on a lost write: a position is written only after the reader moved, where the rule asks the
-      // reader. Owner decision 2026-11-11: on web THIS TAB WINS for now (no ask UI; #1232): ours is written
-      // again on their revision. `reset`: the frontier is gone, our position stays (PDD). Lost twice: the next
-      // `store` or flush writes on the revision last seen.
+      // Lost write (#1232): ours again on their revision (`reset` too: the frontier is gone, our position stays, PDD).
+      // ADR-019 (`decideServerState`, a reader who moved: only `keep` or `prompt`) against this tab's last saved place,
+      // never the move being written (always the newest): theirs provably newer is offered. The state of our previous
+      // write whose answer was lost is ours: no offer. Lost twice: the next `store` or flush writes on the revision last seen.
       if (err?.code === 'stale_revision' || err?.code === 'reset') {
         revision = cur?.revision ?? null
+        if (cur && prev && ownStateWrite(cur, prev.write)) position = prev.p
+        else if (cur && current() && decideServerState({ local: position, localFileId: t.fileId, server: cur, reader: MOVED, format: t.format }) === 'prompt') {
+          // `prompt`: their state is a position on this file (decideServerState).
+          o.onNewerPlace(statePosition(cur, t.format)!)
+        }
         if (!retried) return pushPosition(p, revision, true)
       } else if (err && BOOK_GONE.has(err.code)) gone = true
       // Held as sent so it is not resent; unsaved until the reader moves.

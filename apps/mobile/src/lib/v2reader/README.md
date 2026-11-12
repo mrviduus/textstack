@@ -448,8 +448,13 @@ written. The book's annotations (this file version's, live) follow by `addHighli
 (answered by `highlights`; ones not drawn are logged); until then highlighting is not offered, no highlight is
 written, and a status line says so (the pull retried on the next `store` and when the tab hides). Each `store` is diffed against what the server is known to hold (`entryChanges`,
 `packages/shared/src/reader/v2PageEntry.ts`, the mapping `localLibrary.ts` uses; twins only within one file
-version) and written with the expected revisions. Conflicts: own write = success; `stale_revision`/`reset` written once more
-on their revision (this tab wins, owner 2026-11-11; the ask UI is #1232); an annotation re-applied once,
+version) and written with the expected revisions. Conflicts: own write = success; `stale_revision`
+written once more on their revision (#1232). The web host never moves the reader by itself: a position write
+exists only because the reader moved, so ADR-019 (`decideServerState` with a reader who moved, against the place
+this tab last saved or restored, never the move being written) only keeps or asks. Theirs provably newer: a bar
+offers it ("stay here / go to their place": stay dismisses it, go is `goTo(theirs, chosen)`, the page saving where
+it lands; a later one shows the newest, a new open clears it). The state of this tab's previous write whose answer
+was lost is its own: no bar. No write waits for an answer; `reset` written once more on their revision; an annotation re-applied once,
 then the server's kept and the page's form not sent again until it changes; a tombstone wins; `id_conflict`
 re-keyed once. Terminal: `file_replaced`/`unknown_file`/`book_not_found` stop the session's writes ("reopen"
 line); `invalid_payload`/`chapter_not_found`/400/422: not resent until it changes, "not saved" meanwhile. Online-first, no outbox:

@@ -171,6 +171,61 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
+  // #1232: a tab still open while the reader read on in another browser: its next page turn is written (on their
+  // revision) and their newer place is offered, the tab never moved by itself; Go moves it there.
+  test('readV2Sync_AnotherBrowserReadOn_ThisTabTurnsAPage_WrittenAndTheirPlaceOffered_GoMovesThere', async ({ browser }) => {
+    const who = email('v2newer')
+    const context = await v2Context(browser, who)
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    const statePath = `/me/v2/books/${bookId}/reading-state`
+    const isStatePut = (r: { method(): string; url(): string }) => r.method() === 'PUT' && r.url().endsWith(statePath)
+    const serverPlace = async () =>
+      ((await (await context.request.get(`${API_URL}${statePath}`, { headers: API_HEADERS })).json()) as { currentLocator: unknown }).currentLocator
+    const turn = async (p: Page) => {
+      const before = await status(p).textContent()
+      const saved = p.waitForResponse((r) => isStatePut(r.request()) && r.ok())
+      await p.getByRole('button', { name: 'Next ›' }).click()
+      await expect(status(p)).not.toHaveText(before ?? '')
+      return (await saved).request().postDataJSON() as { currentLocator: unknown }
+    }
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+
+    // Tab A reads two pages (saved).
+    await turn(page)
+    await turn(page)
+
+    // Another browser, same account, opens at A's place and reads on (saved, recorded later).
+    const other = await v2Context(browser, who)
+    const second = await other.newPage()
+    await second.goto(`/en/library/my/${bookId}/read-v2`)
+    await expect(second.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
+    await expect(status(second)).toHaveText((await status(page).textContent()) ?? '', { timeout: 15_000 })
+    for (let i = 0; i < 3; i++) await turn(second)
+    const theirStatus = (await status(second).textContent()) ?? ''
+    await other.close()
+
+    // Tab A (never hidden) turns a page: its write loses on the revision, is written again on theirs, and their
+    // newer place is offered.
+    const lost = page.waitForResponse((r) => isStatePut(r.request()) && r.status() === 409)
+    const ours = await turn(page)
+    expect((await lost).status()).toBe(409)
+    expect(await serverPlace()).toEqual(ours.currentLocator)
+    const bar = page.getByRole('status', { name: 'Newer reading place' })
+    await expect(bar).toBeVisible()
+
+    // Keyboard reachable: Go is a real button. The page lands on their place and saves it (the reader's choice).
+    const landed = page.waitForResponse((r) => isStatePut(r.request()) && r.ok())
+    await bar.getByRole('button', { name: 'Go to their place' }).focus()
+    await page.keyboard.press('Enter')
+    await expect(bar).toHaveCount(0)
+    await expect(status(page)).toHaveText(theirStatus)
+    const there = (await landed).request().postDataJSON() as { currentLocator: unknown }
+    expect(await serverPlace()).toEqual(there.currentLocator)
+    await context.close()
+  })
+
   // #1227: a load that fails says why; one that cannot be helped by trying again offers no Retry.
   test('a file the server no longer has: the "gone" alert, no Retry', async ({ browser }) => {
     const context = await v2Context(browser, email('v2r404'))
