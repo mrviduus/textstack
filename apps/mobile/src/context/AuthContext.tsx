@@ -20,6 +20,7 @@ import { reprobeV2AfterReconnect, v2Store } from '../lib/v2'
 import { applyV2MergeMap } from '../lib/v2Merge'
 import { adoptV2LocalAccount } from '../lib/v2reader/sync'
 import { wipeDeviceV2Library } from '../lib/v2reader/deviceLibrary'
+import { withDeadline } from '../lib/deadline'
 
 // Lazy import so the Google module isn't pulled on platforms / contexts
 // that don't ship it (e.g. Expo Go web preview, where this package may
@@ -326,11 +327,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearPendingSessions().catch(() => {})
       clearReaderCache().catch(() => {})
       v2Store.reset()
-      // V2 books belong to the account (#1070): their files and rows go, the unsent outbox with them
-      // (else the next account's first pass pushes it). After the epoch bump, so no pass of this
-      // session lands after it; awaited, so the next sign-in starts on an empty library. The profile
-      // warned first about what the server lacks. A failed step does not block the sign-out.
-      await wipeDeviceV2Library().catch((e) => console.warn('[v2] sign-out wipe failed:', e))
+      // V2 books belong to the account (#1070): rows, then files. After the epoch bump, so no sync pass
+      // of this session lands after it (one still waiting is dropped unrun: sync.ts). Awaited, with a
+      // deadline: a hung database open must not hold the auth queue (sign-in waits on it). A failed or
+      // late wipe only warns; the next pass under another account wipes before it syncs (sync.ts
+      // `account`). The profile synced once and warned about what the server lacks first.
+      await withDeadline(wipeDeviceV2Library(), 5000).catch((e) => console.warn('[v2] sign-out wipe failed or late:', e))
       setUser(null)
     })
   }, [runExclusive])

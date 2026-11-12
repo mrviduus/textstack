@@ -4,7 +4,7 @@ import { memoryDb } from './sqliteShim'
 import { signOutLoss } from './localLibrary'
 
 // deviceLibrary loads expo-sqlite and expo-file-system with a plain `require`, which vi.mock does not
-// reach: seed Node's cache. The file system is a memory one; opening a database creates its file, as on a device.
+// reach: seed Node's cache. The file system is a memory one.
 const files = new Map<string, number>()
 const dirs = new Set<string>()
 let opens = 0
@@ -17,10 +17,9 @@ const seed = (name: string, exports: object) => {
   req.cache[path] = { id: path, filename: path, loaded: true, exports } as never
 }
 seed('expo-sqlite', {
-  openDatabaseAsync: async (name: string) => {
+  openDatabaseAsync: async () => {
     opens++
     if (failOpen) throw new Error(failOpen)
-    files.set(`doc/SQLite/${name}`, 4096)
     return (db = memoryDb())
   },
 })
@@ -31,18 +30,17 @@ class Directory {
   constructor(...parts: unknown[]) { this.uri = join(parts) }
   get exists() { return dirs.has(this.uri) }
   get size() { return this.exists ? [...files].filter(([p]) => under(this.uri)(p)).reduce((n, [, s]) => n + s, 0) : null }
+  create() {
+    const segments = this.uri.split('/')
+    for (let i = 2; i <= segments.length; i++) dirs.add(segments.slice(0, i).join('/'))
+  }
   delete() {
     if (!this.exists) throw new Error('directory does not exist')
     for (const p of [...files.keys()].filter(under(this.uri))) files.delete(p)
     for (const p of [...dirs].filter((d) => d === this.uri || under(this.uri)(d))) dirs.delete(p)
   }
 }
-class File {
-  uri: string
-  constructor(...parts: unknown[]) { this.uri = join(parts) }
-  get exists() { return files.has(this.uri) }
-}
-seed('expo-file-system', { Directory, File, Paths: { document: 'doc' } })
+seed('expo-file-system', { Directory, Paths: { document: 'doc' } })
 
 /** The module afresh: its open database and library are per process. */
 const fresh = async () => {
@@ -50,8 +48,8 @@ const fresh = async () => {
   return import('./deviceLibrary')
 }
 const SHA = 'cd'.repeat(32)
-const TABLES = ['books', 'reading_state', 'annotations', 'outbox', 'meta']
 const rows = (table: string) => (db!.raw.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n
+const HOST_DIRS = ['doc/v2', 'doc/v2/books', 'doc/v2/store', 'doc/v2/staging']
 
 /** A library that used every table, and its files. */
 async function used(m: Awaited<ReturnType<typeof fresh>>) {
@@ -64,10 +62,10 @@ async function used(m: Awaited<ReturnType<typeof fresh>>) {
   await lib.writeEntry(SHA, JSON.stringify({ v: 1, book: { sha256: SHA, size: 10, name: 'b.epub' }, position: pos, highlights: [hl] }), newId)
   await lib.setAccount('u1')
   await lib.setFileSync(true)
-  for (const d of ['doc/v2', 'doc/v2/books', 'doc/v2/staging']) dirs.add(d)
+  m.makeV2Dirs()
   files.set(`doc/v2/books/${SHA}.epub`, 1000)
   files.set('doc/v2/staging/1.epub', 500)
-  for (const t of TABLES) expect(rows(t), t).toBeGreaterThan(0)
+  for (const t of ['books', 'reading_state', 'annotations', 'outbox', 'meta']) expect(rows(t), t).toBeGreaterThan(0)
   return lib
 }
 
@@ -89,56 +87,54 @@ describe('device V2 local library', () => {
     expect(opens).toBe(2)
   })
 
-  describe('never created (the reader is __DEV__-only): measuring, the loss check and the wipe create nothing', () => {
-    it('neverCreated_MeasureLossAndWipe_NoDatabaseOpenedNoDirectoryCreated', async () => {
-      const m = await fresh()
-      expect(m.deviceV2Bytes()).toBe(0)
-      expect(await m.deviceV2SignOutLoss()).toEqual({ books: 0, writes: 0 })
-      await m.wipeDeviceV2Library()
-      expect(opens).toBe(0)
-      expect([...files.keys(), ...dirs]).toEqual([])
-    })
+  it('neverCreated_MeasureAndWipe_NoDirectoryCreatedMeasureOpensNothing', async () => {
+    const m = await fresh()
+    expect(m.deviceV2Bytes()).toBe(0)
+    expect(opens).toBe(0)
+    await m.wipeDeviceV2Library()
+    expect([...dirs, ...files.keys()]).toEqual([])
   })
 
-  it('measure_BooksAndStaging_CountedUnderV2', async () => {
+  it('measure_BooksAndStaging_CountedUnderV2Only', async () => {
     const m = await fresh()
     await used(m)
     files.set('doc/elsewhere.epub', 7)
     expect(m.deviceV2Bytes()).toBe(1500)
   })
 
-  it('signOutLoss_UnsyncedBookAndQueuedWrites_Counted', async () => {
+  it('signOutLoss_NeverPushedBook_OneBookItsChangesNotCountedAgain', async () => {
     const m = await fresh()
     await used(m)
-    expect(await m.deviceV2SignOutLoss()).toEqual({ books: 1, writes: 3 })
+    expect(await m.deviceV2SignOutLoss()).toEqual({ books: 1, writes: 0 })
   })
 
-  it('wipe_UsedLibrary_EveryTableEmptyFilesGoneNothingRecreated', async () => {
+  it('wipe_UsedLibrary_RowsGoneIdentityKeptFilesGoneDirectoriesBack', async () => {
     const m = await fresh()
     const lib = await used(m)
     await m.wipeDeviceV2Library()
-    for (const t of TABLES) expect(rows(t), t).toBe(0)
-    expect([...dirs]).toEqual([])
-    expect([...files.keys()]).toEqual(['doc/SQLite/textstack-v2'])
+    for (const t of ['books', 'reading_state', 'annotations', 'outbox']) expect(rows(t), t).toBe(0)
+    expect(db!.raw.prepare('SELECT key FROM meta').all()).toEqual([{ key: 'account' }])
+    expect([...files.keys()]).toEqual([])
+    // Made again in the one place, so the host's next write (staging, books) finds them.
+    expect([...dirs].sort()).toEqual([...HOST_DIRS].sort())
     expect(await lib.books()).toEqual([])
-    expect(await lib.account()).toBeNull()
     expect(await m.deviceV2SignOutLoss()).toEqual({ books: 0, writes: 0 })
   })
 
-  it('wipe_DatabaseCannotOpen_FilesStillDeletedAndTheFailureThrown', async () => {
+  it('wipe_DatabaseCannotOpen_StopsBeforeTheFilesAndThrows', async () => {
     const m = await fresh()
-    files.set('doc/SQLite/textstack-v2', 4096)
-    dirs.add('doc/v2')
-    files.set('doc/v2/staging/1.epub', 500)
+    m.makeV2Dirs()
+    files.set(`doc/v2/books/${SHA}.epub`, 1000)
     failOpen = 'disk busy'
-    await expect(m.wipeDeviceV2Library()).rejects.toThrow(/not fully wiped: disk busy/)
-    expect([...dirs]).toEqual([])
-    expect(files.has('doc/v2/staging/1.epub')).toBe(false)
+    await expect(m.wipeDeviceV2Library()).rejects.toThrow('disk busy')
+    // No row is left naming a missing file: the files stay until the rows can go.
+    expect(files.has(`doc/v2/books/${SHA}.epub`)).toBe(true)
   })
 })
 
-describe('signOutLoss (what sign-out deletes that the server lacks)', () => {
-  const book = (extra: object = {}) => ({ imported_at: 1, file_id: 'f', server_file_id: 'f', has_content: 1, content_removed: 0, ...extra })
+describe('signOutLoss (what a wipe deletes that the server lacks)', () => {
+  let id = 0
+  const book = (extra: object = {}) => ({ id: `b${++id}`, imported_at: 1, file_id: 'f', server_file_id: 'f', has_content: 1, content_removed: 0, removed_at: null, ...extra })
 
   it('signOutLoss_EachWayAFileIsNotOnTheServer_CountedOnce', () => {
     expect(signOutLoss([
@@ -147,11 +143,19 @@ describe('signOutLoss (what sign-out deletes that the server lacks)', () => {
       book({ has_content: 0 }), // pushed, bytes not (file sync off)
       book({ server_file_id: 'g' }), // replaced on another device: this copy is not there
       book({ content_removed: 1 }), // bytes removed there
+      book({ removed_at: '2026-11-12T00:00:00Z' }), // removed there, kept here
       book({ imported_at: null, file_id: null, server_file_id: 'g' }), // on the server only: nothing here to lose
-    ], 4)).toEqual({ books: 4, writes: 4 })
+    ], [])).toEqual({ books: 5, writes: 0 })
+  })
+
+  it('signOutLoss_ChangesOfABookOnTheServer_CountedThoseOfALostBookNot', () => {
+    const synced = book()
+    const lost = book({ server_file_id: null, has_content: 0 })
+    expect(signOutLoss([synced, lost], [{ book_id: synced.id }, { book_id: synced.id }, { book_id: lost.id }, { book_id: null }]))
+      .toEqual({ books: 1, writes: 3 })
   })
 
   it('signOutLoss_EverythingSynced_NothingLost', () => {
-    expect(signOutLoss([book()], 0)).toEqual({ books: 0, writes: 0 })
+    expect(signOutLoss([book()], [])).toEqual({ books: 0, writes: 0 })
   })
 })

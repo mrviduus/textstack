@@ -1,5 +1,7 @@
 import type { UserDto } from '@textstack/shared'
 import { capabilitiesFor } from './capabilities'
+import { createSingleFlight } from './singleFlight'
+import type { SignOutLoss } from './v2reader/localLibrary'
 
 /**
  * What leaving the session means for this viewer.
@@ -56,4 +58,33 @@ export async function deleteGuestData(deps: {
     // Best-effort by design — see above.
   }
   await deps.signOut()
+}
+
+export interface V2SignOutDeps {
+  /** One bounded sync pass (sync.ts `syncV2BeforeSignOut`); a failure is ignored. */
+  syncFirst: () => Promise<unknown>
+  /** What the wipe would delete that the server lacks (deviceLibrary `deviceV2SignOutLoss`). */
+  loss: () => Promise<SignOutLoss>
+  /** The confirm; `null` when the loss could not be checked. Resolves true to sign out. */
+  confirm: (loss: SignOutLoss | null) => Promise<boolean>
+  signOut: () => Promise<void>
+}
+
+/**
+ * An account's sign-out with the V2 library on the device (#1070: sign-out wipes it): one sync pass
+ * first, so a write only waiting for its timer is neither reported nor lost; then, if anything would
+ * be lost, the confirm with the counts. A check that fails fails closed: a generic confirm, never
+ * straight to the wipe. Resolves to whether it signed out. A second tap joins the call in flight.
+ */
+export function createAccountSignOut(): (deps: V2SignOutDeps) => Promise<boolean> {
+  const flight = createSingleFlight<boolean>()
+  return (deps) => flight.run(async () => {
+    await deps.syncFirst().catch(() => {})
+    const loss = await deps.loss().catch(() => null)
+    if (!loss || loss.books || loss.writes) {
+      if (!(await deps.confirm(loss))) return false
+    }
+    await deps.signOut()
+    return true
+  })
 }

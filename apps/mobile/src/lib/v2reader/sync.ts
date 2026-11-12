@@ -16,8 +16,10 @@ import {
   type OpenReader, type PageHighlight, type V2Annotation, type V2Book, type V2BookFile, type V2ClientFormat, type V2MergeMap, type V2ReadingState,
 } from '@textstack/shared'
 import { onV2, resetSince, startV2Probe, whileCurrent, V2UploadError } from '../v2'
-import { deviceLocalLibrary } from './deviceLibrary'
-import { FEEDS, MAX_FAILURES, type BookRow, type LocalFeed, type LocalLibrary, type OutboxItem, type PositionAction } from './localLibrary'
+import { uuid } from 'expo-modules-core'
+import { withDeadline } from '../deadline'
+import { clearV2Files, deviceLocalLibrary } from './deviceLibrary'
+import { FEEDS, MAX_FAILURES, wipeV2Library, type BookRow, type LocalFeed, type LocalLibrary, type OutboxItem, type PositionAction } from './localLibrary'
 
 export interface SyncHost {
   /** The session's user id (a guest's too: ADR-014). */
@@ -34,6 +36,8 @@ export interface SyncHost {
   upload?(book: BookRow, maxPartBytes: number, cancelled: () => boolean): Promise<void>
   /** A session's first pass (screen mounted, another user): every failure count reset first (`retryAll`). */
   retryFailed?: boolean
+  /** Deletes every file under the v2 root (deviceLibrary `clearV2Files`): another account's library is wiped (#1070). */
+  clearFiles(): void
 }
 
 export type SyncResult = 'off' | 'done' | 'dropped' | 'failed'
@@ -89,23 +93,25 @@ async function failedOnce(lib: LocalLibrary, reset: Reset, item: OutboxItem, e: 
 }
 
 let running: Promise<SyncResult> | null = null
-let next: { lib: LocalLibrary; host: SyncHost } | null = null
+let next: { lib: LocalLibrary; host: SyncHost; reset: Reset } | null = null
 
 /**
  * One sync pass at a time. A trigger while one runs (a save after its outbox snapshot, a new
  * session joining a pass of the old one that ends dropped) is not folded into it: it asks for one
  * more pass, with the latest caller's host, when the running one ends. Callers get the last pass's result.
+ * The session is the one current when the pass was asked for: a pass still waiting when the session
+ * changes (sign-out, then its wipe) is dropped unrun, never run later under the old user id.
  */
 export function syncV2Library(lib: LocalLibrary, host: SyncHost): Promise<SyncResult> {
   // A session's first pass asked while another waits is not lost to a later plain trigger.
-  next = { lib, host: { ...host, retryFailed: host.retryFailed || next?.host.retryFailed } }
+  next = { lib, host: { ...host, retryFailed: host.retryFailed || next?.host.retryFailed }, reset: resetSince() }
   return (running ??= (async () => {
     let result: SyncResult = 'done'
     try {
       while (next) {
         const asked = next
         next = null
-        result = await pass(asked.lib, asked.host)
+        result = await pass(asked.lib, asked.host, asked.reset)
       }
       return result
     } finally {
@@ -116,11 +122,11 @@ export function syncV2Library(lib: LocalLibrary, host: SyncHost): Promise<SyncRe
 
 const PUSHES = [['book', pushBook], ['state', pushState], ['annotation', pushAnnotation]] as const
 
-async function pass(lib: LocalLibrary, host: SyncHost): Promise<SyncResult> {
-  const reset = resetSince()
+async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset): Promise<SyncResult> {
+  if (reset()) return 'dropped'
   try {
     if (!(await onV2())) return 'off'
-    await account(lib, host.userId, reset)
+    await account(lib, host, reset)
     if (host.retryFailed) await checked(reset, () => lib.retryAll())
     for (const feed of FEEDS) await pull(lib, host, reset, feed)
     let failed = false
@@ -147,11 +153,25 @@ async function pass(lib: LocalLibrary, host: SyncHost): Promise<SyncResult> {
   }
 }
 
-/** Another identity than the one this library last synced with: what the server told that one is forgotten. */
-async function account(lib: LocalLibrary, userId: string, reset: Reset) {
+/**
+ * The library belongs to the account it last synced as (owner 2026-11-12, #1070). Another account
+ * (after an expired session, a sign-out whose wipe did not run, a guest minted after a sign-out): the
+ * library is wiped — rows, then files — before anything syncs, then the new identity is recorded. What
+ * the previous account had not synced is lost, accepted by the owner, and logged. The identity changes
+ * only after the files are gone, so a failed wipe is tried again on the next pass. The same account
+ * keeps everything; a guest's library becomes the account's by `adoptV2LocalAccount` before this runs.
+ */
+async function account(lib: LocalLibrary, host: SyncHost, reset: Reset) {
   const last = await lib.account()
-  if (last === userId) return
-  await checked(reset, () => (last ? lib.forgetServerState(userId) : lib.setAccount(userId)))
+  if (last === host.userId) return
+  if (last) {
+    const loss = await lib.signOutLoss()
+    if (loss.books || loss.writes) {
+      console.warn(`[v2 sync] another account: the previous one's local V2 library is wiped; lost ${loss.books} book(s) and ${loss.writes} change(s) not on the server`)
+    }
+    await checked(reset, () => wipeV2Library(lib, host.clearFiles))
+  }
+  await checked(reset, () => lib.setAccount(host.userId))
 }
 
 /**
@@ -173,6 +193,19 @@ export async function tryAgainV2Book(lib: LocalLibrary, bookId: string, refresh:
 export async function adoptV2LocalAccount(guestId: string, accountId: string, merge?: V2MergeMap, lib: () => LocalLibrary = deviceLocalLibrary) {
   if (Platform.OS === 'web') return
   await lib().adoptAccount(guestId, merge?.books ?? {}, merge?.files ?? {}, accountId)
+}
+
+/** How long sign-out waits for its one pass before checking what would be lost. */
+export const SIGN_OUT_SYNC_MS = 4000
+
+/**
+ * Sign-out's one pass before the loss check (#1070; the PDD's "offer to sync first", without a button):
+ * a write only waiting for the screen's 10 s timer goes now, so it is neither reported nor lost.
+ * Bounded; offline, V2 off, a failure or the deadline just go on to the check. Android only.
+ */
+export async function syncV2BeforeSignOut(userId: string, ms = SIGN_OUT_SYNC_MS, lib: () => LocalLibrary = deviceLocalLibrary) {
+  if (Platform.OS === 'web') return
+  await withDeadline(syncV2Library(lib(), { userId, newId: uuid.v4, reader: () => null, clearFiles: clearV2Files }), ms).catch(() => {})
 }
 
 /**

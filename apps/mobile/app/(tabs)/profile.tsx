@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ActivityIndicator, ScrollView, Linking, Platform } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Image } from 'expo-image'
@@ -17,7 +17,8 @@ import { useLanguage } from '../../src/context/LanguageContext'
 import { useOnline } from '../../src/hooks/useOnline'
 import { useNativeLanguage } from '../../src/context/NativeLanguageContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
-import { deleteGuestData, signOutIntent } from '../../src/lib/profileActions'
+import { createAccountSignOut, deleteGuestData, signOutIntent } from '../../src/lib/profileActions'
+import { syncV2BeforeSignOut } from '../../src/lib/v2reader/sync'
 import { deviceV2SignOutLoss } from '../../src/lib/v2reader/deviceLibrary'
 import { getLanguage } from '@textstack/shared'
 import { LanguagePickerModal } from '../../src/components/LanguagePickerModal'
@@ -206,21 +207,27 @@ export default function ProfileScreen() {
     }
   }
 
-  const leave = async () => { await signOut(); router.replace('/') }
-
-  // Sign-out wipes the V2 reader's books (#1070): when some are not on the server, or writes are
-  // unsent, say how many first and let the reader cancel. A failed check does not block leaving.
+  // Sign-out wipes the V2 reader's books (#1070): one sync pass, then, when something is only on this
+  // phone (or that could not be checked), the confirm. Unit-tested as `createAccountSignOut`.
+  const accountSignOut = useRef(createAccountSignOut()).current
   const confirmV2LossThenLeave = async () => {
-    const loss = await deviceV2SignOutLoss().catch(() => ({ books: 0, writes: 0 }))
-    if (!loss.books && !loss.writes) { await leave(); return }
-    Alert.alert(
-      t('profile.signOutLossTitle'),
-      t('profile.signOutLossMessage').replace('{{books}}', String(loss.books)).replace('{{writes}}', String(loss.writes)),
-      [
-        { text: t('profile.signOutLossCancel'), style: 'cancel' },
-        { text: t('profile.signOutLossConfirm'), style: 'destructive', onPress: () => void leave() },
-      ],
-    )
+    const left = await accountSignOut({
+      syncFirst: () => (user ? syncV2BeforeSignOut(user.id) : Promise.resolve()),
+      loss: deviceV2SignOutLoss,
+      confirm: (loss) => new Promise<boolean>((resolve) => Alert.alert(
+        t('profile.signOutLossTitle'),
+        loss
+          ? t('profile.signOutLossMessage').replace('{{books}}', String(loss.books)).replace('{{writes}}', String(loss.writes))
+          : t('profile.signOutLossUnknownMessage'),
+        [
+          { text: t('profile.signOutLossCancel'), style: 'cancel', onPress: () => resolve(false) },
+          { text: t('profile.signOutLossConfirm'), style: 'destructive', onPress: () => resolve(true) },
+        ],
+        { cancelable: true, onDismiss: () => resolve(false) },
+      )),
+      signOut,
+    })
+    if (left) router.replace('/')
   }
 
   // For an account this is the row it has always been: tap, tokens cleared, back

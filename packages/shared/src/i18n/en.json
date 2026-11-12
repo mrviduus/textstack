@@ -97,9 +97,10 @@
     },
     "deviceStorageV2": "V2 reader {{size}}",
     "signOutLossTitle": "Sign out and lose unsynced books?",
-    "signOutLossMessage": "Signing out deletes the V2 reader's books from this device. {{books}} book(s) are not on the server and {{writes}} change(s) were not sent yet: they will be lost.",
+    "signOutLossMessage": "Signing out deletes the V2 reader's books from this device. {{books}} book(s) are not on the server and {{writes}} other change(s) (positions, highlights) exist only on this phone: they will be lost.",
     "signOutLossConfirm": "Sign out",
-    "signOutLossCancel": "Cancel"
+    "signOutLossCancel": "Cancel",
+    "signOutLossUnknownMessage": "Could not check what exists only on this phone. Signing out deletes the V2 reader's books from this device, and some may not be on the server."
   },
   "guest": {
     "createAccount": "Create free account",
