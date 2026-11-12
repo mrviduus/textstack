@@ -831,6 +831,12 @@
       "title": "Please update TextStack",
       "body": "This version is no longer supported. Install the latest version from Google Play to keep reading.",
       "cta": "Update"
+    },
+    "webView": {
+      "title": "Update Android System WebView or Chrome",
+      "body": "This reader needs a newer version of the part of Android that shows web pages in apps: Android System WebView, or Chrome on Android 7–9. Update it from Google Play, then close and reopen TextStack.",
+      "cta": "Open Google Play",
+      "readyFailed": "The reader failed to load. An outdated Android System WebView or Chrome is a likely cause: update it from Google Play, then reopen TextStack."
     }
   }
 }

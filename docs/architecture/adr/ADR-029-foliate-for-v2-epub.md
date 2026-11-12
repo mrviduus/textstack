@@ -106,9 +106,13 @@ origin to book content, so it cannot inherit the production reader's safety argu
    - a real out-of-space (ENOSPC) failure during import, with no half-written state;
    - the oldest supported system WebView. The `chrome90` target means stock Android 7–9 WebViews
      fail to run the page: decide between an explicit "update Android System WebView" screen and a
-     lower target. **Recommendation (2026-10-30), the owner's to confirm:** the update screen, gated on
+     lower target. **Decided 2026-11-11 (owner; recommended 2026-10-30):** the update screen, gated on
      Chrome ≥ 117 — the page's real floor (foliate calls `Object.groupBy`), whatever the esbuild target —
-     detected without booting the page (an ES5 user-agent probe or a `ready` deadline), keeping `chrome90`.
+     detected without booting the page, keeping `chrome90`. Built in #1228: the reader WebView's
+     `injectedJavaScriptBeforeContentLoaded` (ES5, its own script, so it answers where the page does not parse) posts
+     `navigator.userAgent` (`webViewVersion.ts`, floor `MIN_WEBVIEW_CHROME`); an unreadable version does not block, the
+     `ready` deadline is the backstop. The update target follows the SDK level (Chrome on Android 7–9, else Android
+     System WebView): the provider package is native-only.
      A lower target alone cannot work (esbuild does not polyfill APIs); lowering plus polyfills costs ~10 %
      bundle and a polyfill list every foliate bump can outgrow, and stock Android 7–8 stay out anyway;
    - a security review of the `file://` access (Decision 4);

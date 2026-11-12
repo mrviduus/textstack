@@ -60,15 +60,21 @@ test.describe('V2 reader dev route @v2-reader-dev', () => {
     expect(na).not.toBe(nb)
   })
 
-  // #1080 item 3 (web): a frame that is not the page (here a 404) never sends ready; the host says so.
-  test('a frame that never becomes ready shows an error', async ({ page }) => {
+  // #1080 item 3 (web), #1227: a frame that is not the page (here a 404) never sends ready; the host says so,
+  // and Retry loads a fresh frame, which opens the book picked meanwhile (its bytes never left the host).
+  test('a frame that never becomes ready shows an error; Retry loads a fresh frame', async ({ page }) => {
     await page.route(`**${V2_READER_FRAME_PATH}*`, (r) => r.fulfill({ status: 404, body: 'not found' }))
-    await page.clock.install()
     await page.goto('/dev/reader-v2')
     await expect(page.getByLabel('Pick EPUB')).toBeVisible()
     await expect(page.getByRole('alert')).toHaveCount(0)
-    await page.clock.fastForward(11_000)
-    await expect(page.getByRole('alert')).toContainText('The reader page did not load')
+    await pick(page)
+    await expect(page.getByTestId('v2-heading')).toHaveText('Opening v2-sync.epub')
+    const alert = page.getByRole('alert')
+    await expect(alert).toContainText('The reader failed to load', { timeout: 15_000 })
+    await page.unroute(`**${V2_READER_FRAME_PATH}*`)
+    await alert.getByRole('button', { name: 'Retry' }).click()
+    await expect(page.getByTestId('v2-heading')).toHaveText('E2E V2 sync')
+    await expect(page.getByRole('alert')).toHaveCount(0)
   })
 
   test('a picked EPUB renders its first section', async ({ page }) => {
@@ -93,6 +99,8 @@ test.describe('V2 reader dev route @v2-reader-dev', () => {
     await page.getByLabel('Pick EPUB').setInputFiles({ name: 'broken.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('not a zip') })
     await expect(page.getByRole('alert')).toContainText('cannot open broken.epub')
     await expect(status(page)).toHaveText('')
+    // #1080 item 6: nor its title (the alert names the file that failed).
+    await expect(page.getByTestId('v2-heading')).not.toHaveText('E2E V2 sync')
   })
 
   test('after a reload, reopening the file restores the position from localStorage', async ({ page }) => {
