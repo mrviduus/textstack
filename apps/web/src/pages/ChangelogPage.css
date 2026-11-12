@@ -104,13 +104,13 @@
   color: var(--color-text);
 }
 
-.changelog__area--reader { color: #9a4f2e; background: rgba(196, 112, 75, 0.14); }
-.changelog__area--mobile { color: #1f6f43; background: rgba(34, 139, 84, 0.14); }
+.changelog__area--reading { color: #9a4f2e; background: rgba(196, 112, 75, 0.14); }
+.changelog__area--highlights { color: #1f6f43; background: rgba(34, 139, 84, 0.14); }
 .changelog__area--library { color: #1e5aa8; background: rgba(37, 99, 235, 0.12); }
 .changelog__area--vocabulary { color: #8a6100; background: rgba(234, 179, 8, 0.18); }
 
-html.dark .changelog__area--reader { color: #e8a382; }
-html.dark .changelog__area--mobile { color: #6fd39b; }
+html.dark .changelog__area--reading { color: #e8a382; }
+html.dark .changelog__area--highlights { color: #6fd39b; }
 html.dark .changelog__area--library { color: #8fb6f5; }
 html.dark .changelog__area--vocabulary { color: #f2cd5c; }
 

@@ -64,8 +64,8 @@ automatic checks GitHub runs on every PR.
 
    You should see: a link to your new PR.
 
-8. **Name the area.** Each PR carries one area label: `reader`, `mobile`, `library`, `vocabulary`,
-   `ai`, `data`, `ops` or `documentation`. Only maintainers can set labels, so write the area in the
+8. **Name the area.** Each PR carries one area label: `reading`, `library`, `highlights`,
+   `vocabulary`, `assistant`, `account`, `data`, `ops` or `documentation`. Only maintainers can set labels, so write the area in the
    PR description. The `area-label` check stays red until the maintainer adds it.
 
 ## It worked when
