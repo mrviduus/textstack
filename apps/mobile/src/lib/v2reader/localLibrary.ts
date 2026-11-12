@@ -161,6 +161,20 @@ const parse = <T>(json: string | null): T | null => {
 const SERVER_FILE = 'server_file_id = ?, server_sha256 = ?, server_size = ?, server_format = ?, has_content = ?'
 const serverFile = (f: V2BookFile | null | undefined) => [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0]
 
+/** What signing out deletes that the server does not hold (#1070): books whose file is not there, unsent writes. */
+export interface SignOutLoss { books: number; writes: number }
+export const NOTHING_LOST: SignOutLoss = { books: 0, writes: 0 }
+
+/**
+ * A book on this device whose file the server lacks — never pushed, pushed without its bytes (file
+ * sync is opt-in), replaced since, or its bytes removed there — is lost with the device copy. A book
+ * not imported here has no device copy to lose. Every outbox entry is an unsent write.
+ */
+export function signOutLoss(books: Pick<BookRow, 'imported_at' | 'file_id' | 'server_file_id' | 'has_content' | 'content_removed'>[], outboxEntries: number): SignOutLoss {
+  const onServer = (b: (typeof books)[number]) => b.server_file_id !== null && b.server_file_id === b.file_id && !!b.has_content && !b.content_removed
+  return { books: books.filter((b) => b.imported_at != null && !onServer(b)).length, writes: outboxEntries }
+}
+
 export function createLocalLibrary(db: Db) {
   const queue = createWriteQueue()
   let ready: Promise<void> | null = null
@@ -627,7 +641,9 @@ export function createLocalLibrary(db: Db) {
      * Another identity syncs this device now (sign-out, then another session): what the server told
      * the previous one goes — pulled books not imported here, others' highlights, revisions, server
      * files, parks, failure counts, cursors — and the new identity is recorded. This device's own books, positions,
-     * highlights and queued writes stay: nothing unpushed is dropped (owner decision 3; #1070).
+     * highlights and queued writes stay: nothing unpushed is dropped (owner decision 3). A sign-out wipes
+     * everything first (`wipe`, #1070), so this is reached only by an identity change without one (an
+     * expired session, then another account): those rows still go to the next identity.
      */
     forgetServerState: (userId: string) => tx(async () => {
       await setMeta('account', userId)
@@ -641,6 +657,18 @@ export function createLocalLibrary(db: Db) {
       await run('UPDATE annotations SET revision = NULL')
       await run('UPDATE outbox SET failures = 0')
       await clearCursors()
+    }),
+
+    // ---- Sign-out (#1070: V2 books belong to the account) ---------------------------------------
+
+    signOutLoss: () => job(async () => signOutLoss(
+      await all<BookRow>('SELECT * FROM books'),
+      (await one<{ n: number }>('SELECT COUNT(*) AS n FROM outbox'))?.n ?? 0,
+    )),
+
+    /** Every row of every table, in one transaction: the next identity inherits no book, position, highlight, queued write or cursor. */
+    wipe: () => tx(async () => {
+      for (const table of ['books', 'reading_state', 'annotations', 'outbox', 'meta']) await run(`DELETE FROM ${table}`)
     }),
   }
 }

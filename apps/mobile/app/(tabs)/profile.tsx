@@ -18,6 +18,7 @@ import { useOnline } from '../../src/hooks/useOnline'
 import { useNativeLanguage } from '../../src/context/NativeLanguageContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
 import { deleteGuestData, signOutIntent } from '../../src/lib/profileActions'
+import { deviceV2SignOutLoss } from '../../src/lib/v2reader/deviceLibrary'
 import { getLanguage } from '@textstack/shared'
 import { LanguagePickerModal } from '../../src/components/LanguagePickerModal'
 import { VocabReminderSettingsRow } from '../../src/components/profile/VocabReminderSettingsRow'
@@ -207,6 +208,21 @@ export default function ProfileScreen() {
 
   const leave = async () => { await signOut(); router.replace('/') }
 
+  // Sign-out wipes the V2 reader's books (#1070): when some are not on the server, or writes are
+  // unsent, say how many first and let the reader cancel. A failed check does not block leaving.
+  const confirmV2LossThenLeave = async () => {
+    const loss = await deviceV2SignOutLoss().catch(() => ({ books: 0, writes: 0 }))
+    if (!loss.books && !loss.writes) { await leave(); return }
+    Alert.alert(
+      t('profile.signOutLossTitle'),
+      t('profile.signOutLossMessage').replace('{{books}}', String(loss.books)).replace('{{writes}}', String(loss.writes)),
+      [
+        { text: t('profile.signOutLossCancel'), style: 'cancel' },
+        { text: t('profile.signOutLossConfirm'), style: 'destructive', onPress: () => void leave() },
+      ],
+    )
+  }
+
   // For an account this is the row it has always been: tap, tokens cleared, back
   // to the front door. A guest has no sign-out, only "Delete guest data": a
   // destructive confirm, then the guest row is deleted on the server and the
@@ -214,7 +230,7 @@ export default function ProfileScreen() {
   // offline (`deleteGuestData`). The branch is `signOutIntent`; both are
   // unit-tested in `src/lib/profileActions.test.ts`.
   const handleSignOut = () => {
-    if (signOutIntent(user) === 'immediate') { void leave(); return }
+    if (signOutIntent(user) === 'immediate') { void confirmV2LossThenLeave(); return }
     Alert.alert(
       t('guest.deleteTitle'),
       t('guest.deleteMessage'),

@@ -958,6 +958,25 @@ describe('V2 local library sync (R6)', () => {
       expect(writes(calls)).toEqual([`PUT /books/${bookId}`])
     })
 
+    it('signOutWipe_UnsentWritesOfTheLastAccount_NextAccountPushesAndSeesNothing', async () => {
+      const { lib, bookId } = await synced()
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.8, at: NOW }, [highlight, { ...highlight, id: '1b6a2c1e-1111-4222-8333-444455556666', cfi: 'epubcfi(/6/14!/4/2/1:9)', quote: 'cold', selectedText: 'cold day', prefix: 'bright ', suffix: '' }]), newId)
+      expect(await lib.signOutLoss()).toEqual({ books: 1, writes: 2 })
+      v2Store.reset() // signed out (AuthContext: the epoch bump, then the wipe)
+      await lib.wipe()
+      const calls = fakeApi({
+        'GET /library/changes': feed(),
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, 'x'), 201)],
+      })
+      expect(await syncV2Library(lib, host({ userId: 'u2' }))).toBe('done')
+      // u1's position and highlights never reach u2's server rows; nothing of u1 is listed.
+      expect(writes(calls)).toEqual([])
+      expect(await lib.books()).toEqual([])
+      expect(await lib.readEntry(SHA)).toBeNull()
+      expect(await lib.account()).toBe('u2')
+    })
+
     it('guestSignsIn_MergeMapRekeysTheLibraryCursorsClearedNoForget', async () => {
       const { lib, bookId, fileId } = await synced()
       fakeApi({ 'GET /library/changes': [ok({ items: [], cursor: 'c1', hasMore: false })] })

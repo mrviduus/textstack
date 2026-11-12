@@ -35,6 +35,12 @@ const v2Root = () => new Directory(Paths.document, 'v2')
 
 /** `name` under <documents>/v2/, e.g. `books/<sha256>.epub`. */
 const v2File = (name: string) => new File(v2Root(), ...name.split('/'))
+/** `v2File` as a write target: its directory made again if a sign-out wiped `<documents>/v2/` meanwhile (#1070). */
+const v2Target = (name: string) => {
+  const file = v2File(name)
+  file.parentDirectory.create({ intermediates: true, idempotent: true })
+  return file
+}
 
 function deviceFiles(): V2Files {
   // Anything still staged belongs to an open that never finished in an earlier process.
@@ -46,14 +52,14 @@ function deviceFiles(): V2Files {
       const file = v2File(name)
       return file.exists ? file.text() : null
     },
-    move: (from, to) => v2File(from).move(v2File(to), { overwrite: true }),
+    move: (from, to) => v2File(from).move(v2Target(to), { overwrite: true }),
     exists: (name) => v2File(name).exists,
     remove: (name) => {
       const file = v2File(name)
       if (file.exists) file.delete()
     },
     // expo-file-system copies a SAF/content:// source to a local file (Android, since 56.0.0).
-    copyIn: (uri, to) => new File(uri).copy(v2File(to)),
+    copyIn: (uri, to) => new File(uri).copy(v2Target(to)),
   }
 }
 
@@ -80,7 +86,7 @@ const downloadIo = {
   async fetch(url: string, sha256: string) {
     const token = await freshAccessToken()
     const staged = `staging/dl-${Date.now()}.epub`
-    const dest = v2File(staged)
+    const dest = v2Target(staged)
     const file = await File.downloadFileAsync(url, dest, { headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }, idempotent: true })
       .catch((e) => {
         // A failed download (a full disk) leaves no partial file, like a failed pick.
@@ -95,7 +101,7 @@ const downloadIo = {
     }
     return staged
   },
-  retain: async (staged: string, sha256: string) => v2File(staged).move(v2File(bookFile(sha256)), { overwrite: true }),
+  retain: async (staged: string, sha256: string) => v2File(staged).move(v2Target(bookFile(sha256)), { overwrite: true }),
 }
 
 /** A sync pass is asked for this long after the last save (the reading path never waits for it). */

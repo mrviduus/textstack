@@ -94,7 +94,12 @@
       "permissionDeniedBody": "Enable notifications in Settings to receive review reminders.",
       "unavailableTitle": "Not available",
       "unavailableBody": "Reminders aren't available in this build. Install the latest app version to enable them."
-    }
+    },
+    "deviceStorageV2": "V2 reader {{size}}",
+    "signOutLossTitle": "Sign out and lose unsynced books?",
+    "signOutLossMessage": "Signing out deletes the V2 reader's books from this device. {{books}} book(s) are not on the server and {{writes}} change(s) were not sent yet: they will be lost.",
+    "signOutLossConfirm": "Sign out",
+    "signOutLossCancel": "Cancel"
   },
   "guest": {
     "createAccount": "Create free account",
