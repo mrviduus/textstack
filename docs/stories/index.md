@@ -112,7 +112,8 @@ Existing picture: flow 6b in the system map of the 2026-10 review.
 **Words:** *highlight* and *note*. The new database calls them "annotations"; that stays a
 technical name.
 
-A *bookmark* is a kind of highlight: a marked place with no passage and no colour. (owner)
+A *bookmark* is not a highlight and not the reading position. It is its own feature, and it comes
+after the move. (owner)
 
 Sources: `v2-target-model.md` highlights row and replacement decisions (owner, 2026-10-28 and 29).
 Existing picture: none.
@@ -127,18 +128,20 @@ Existing picture: none.
 3. The Assistant reads the shared chapter and what the reader worked out before. (owner)
 4. The Reader and the Assistant talk. The conversation lives with the Assistant, not in TextStack. (owner)
 5. When they reach a conclusion, a changed view or an open question, the Assistant saves it into
-   the book. (owner)
+   the book as a *checkpoint*. (owner)
 6. **TextStack** confirms that it was saved. If it was not, the Assistant says so. (owner)
 7. When the Reader returns, the Assistant gets those saved thoughts first, and keeps them apart
    from today's talk. It does not rewrite what the reader thought before. (owner)
 8. The Assistant never marks a chapter as read, and never adds or deletes words, just because they
    talked. (owner)
 
-**Word:** what the Assistant saves is an *insight*. An insight about one chapter is a *chapter
-insight*. "Review" is kept for practising words.
+**Words:** there are two things here, and they keep two names. (owner)
 
-Insights are kept as a list. A new one never replaces an old one. "Checkpoint" is only a
-technical name for that list. (owner)
+- A *checkpoint* is a saved stage of the conversation. New ones are added; earlier ones stay. Steps
+  5 to 7 are about checkpoints.
+- An *insight* is a conclusion or a summary of a book or a chapter. It can be edited.
+
+"Review" is kept for practising words.
 
 **Honest limit, to keep in the story:** deleting something in TextStack does not delete the copy the
 Assistant already has.
