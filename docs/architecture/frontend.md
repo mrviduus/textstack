@@ -9,7 +9,7 @@ Three apps, two shared packages.
 
 ### `apps/web/` — public site (Vite SPA)
 - Served by host nginx: crawlers get prerendered SSG HTML, people get the SPA
-  ([ssg-prerender.md](../internal/legacy/ssg-prerender.md)).
+  ([ssg-prerender.md](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/ssg-prerender.md)).
 - Pages: home, books, book detail, reader, authors, genres, search, library (catalog + own uploads),
   vocabulary + review + tutor, highlights + review, chapter review, stats, MCP landing, OAuth
   consent, legal pages.

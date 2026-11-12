@@ -8,8 +8,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, normalize } from 'node:path'
 
 // apps/mobile, packages: wave 13 owns them until it merges; their old paths are fixed in #1239.
-// changelog-archive: frozen history, some entries link to files deleted since.
-const SKIP = /^(apps\/mobile|packages|docs\/internal\/changelog-archive)\//
+const SKIP = /^(apps\/mobile|packages)\//
 const files = execFileSync('git', ['ls-files', '--', '*.md'], { encoding: 'utf8' })
   .split('\n')
   .filter((f) => f && !SKIP.test(f) && existsSync(f))

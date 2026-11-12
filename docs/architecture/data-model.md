@@ -249,5 +249,5 @@ as `/health/ready` 503. Being replaced by plain SQL `up`/`down` files under `dat
 
 ## See also
 
-- [multisite.md](../internal/legacy/multisite.md) — site resolution (ADR-007)
-- [../internal/ops/backup.md](../internal/ops/backup.md) — backup + restore drill
+- [multisite.md](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/multisite.md) — site resolution (ADR-007)
+- [../internal/ops/backup.md](../../internal/ops/backup.md) — backup + restore drill

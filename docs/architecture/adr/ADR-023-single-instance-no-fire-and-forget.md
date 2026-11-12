@@ -1,6 +1,6 @@
 # ADR-023 — Api and Worker are single-instance; no fire-and-forget for real work
 
-**Status:** Accepted · **Date:** 2026-10-07 · **Review:** [2026-10 #16](../../internal/architecture/review-2026-10/00-summary.md),
+**Status:** Accepted · **Date:** 2026-10-07 · **Review:** [2026-10 #16](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/architecture/review-2026-10/00-summary.md),
 backend G3, G4 (fire-and-forget row), G9, N5 · **Related:** [ADR-022](ADR-022-one-consumer-per-queue.md)
 (one consumer per queue), review #29 (pgvector / Drift) · **Implement after:** the Play production launch
 (~2026-10-16)

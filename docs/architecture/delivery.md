@@ -131,7 +131,7 @@ What reaches the owner, and what deliberately does not exist.
 | Errors | Sentry, one project (`dotnet-aspnetcore`), filtered by the `service` tag: `api`, `worker`, `mcp-server`, `ssg-worker` | api, worker, mcp-server: anything logged at Error (the API's unhandled exceptions arrive through `ExceptionMiddleware`'s `LogError`). mcp-server logs one when a tool's mapping breaks — before 2026-10-07 that branch reported nothing. ssg-worker: a failed rebuild job, each route that still fails after prerender's retries (capped at 20 per job, grouped into one issue), a poll-loop failure (once until the loop recovers), a crash. |
 | Request traces | Sentry, API only: 20 % of `http.server` (`SentryBootstrap` default; compose does not forward `Sentry__TracesSampleRate`), every AI agent run, never `/health` | Latency and the AI routing spans. No other service sends transactions. |
 | Mobile crashes | Sentry project `textstack-mobile` | The reader app (its own scrubber, `apps/mobile/src/lib/sentryScrub.ts`) |
-| Uptime | `health-check.yml` every 5 min (GitHub email); UptimeRobot (see `docs/internal/ops/uptime-monitoring.md`) | Both hosts, API body, SSG freshness |
+| Uptime | `health-check.yml` every 5 min (GitHub email); UptimeRobot (see `internal/ops/uptime-monitoring.md`) | Both hosts, API body, SSG freshness |
 | Metrics | **none in production** | — |
 
 **OpenTelemetry is off in production.** Traces, metrics and logs are exported over OTLP only when
@@ -276,7 +276,7 @@ environment reports nothing on any service.
 | Which server values the web scan treats as secret | `deploy.yml` "Secret scan web dist" (the awk name filter) |
 | An action version | Let Dependabot do it; by hand: `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`, keep the `# vX.Y` comment |
 | A pulled image version | `docker-compose.yml` `image: name:tag@sha256:…` (Dependabot weekly); restic/scanner/Makefile by hand |
-| Pre-deploy backup | `deploy.yml` step "Pre-deploy backup" (after the SSG wait, before the web swap or build); nightly + R2: `backup.yml`; drill: `restore-drill.yml`; ops: [`backup.md`](../internal/ops/backup.md) |
+| Pre-deploy backup | `deploy.yml` step "Pre-deploy backup" (after the SSG wait, before the web swap or build); nightly + R2: `backup.yml`; drill: `restore-drill.yml`; ops: [`backup.md`](../../internal/ops/backup.md) |
 | Rollback | Actions → Deploy → Run workflow → `rollback_commit` = a SHA on main |
 | Full SSG rebuild on deploy | Run workflow with `rebuild_ssg`, or `make rebuild-ssg` |
 | Workflow permissions | top-level `permissions:` stays read/none; widen per job |

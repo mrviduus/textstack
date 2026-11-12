@@ -50,7 +50,7 @@ with a written sunset; **Q3** retire collections; **Q5** keep guest sessions (AD
     `template0` with `LOCALE_PROVIDER icu ICU_LOCALE 'und'`. The server default would let a base-image
     bump silently re-sort every text index — the legacy cluster has been in that state since its own
     initdb ([#1056](https://github.com/mrviduus/textstack/issues/1056),
-    [postmortem](../../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)). ICU's version travels
+    [postmortem](../../../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)). ICU's version travels
     with the image, which is digest-pinned and no longer bumped automatically, and `und` orders text
     exactly as the `en_US.utf8` it replaces. Changing this later is a dump and restore, which is why
     it is settled while V2 is empty.
@@ -403,5 +403,5 @@ write SQL). No `ingestion_jobs` row is enqueued for the new formats.
 ## Amended 2026-11-08 — `takedown_at` ([#1027](https://github.com/mrviduus/textstack/issues/1027))
 
 - `user_books.takedown_at`: its meaning is carried into V2 as content-removed (`books.removed_at` and
-  `book_files.content_removed_at` = `takedown_at`, no bytes, no chapters; `docs/internal/ops/v2-etl.md` §4);
+  `book_files.content_removed_at` = `takedown_at`, no bytes, no chapters; `internal/ops/v2-etl.md` §4);
   the column itself stays retired (decided item 3).

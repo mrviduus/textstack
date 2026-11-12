@@ -1,4 +1,4 @@
-import { ApiError, type PageHighlight, type V2Annotation, type V2AnnotationWrite, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
+import { ApiError, type PageHighlight, type PagePosition, type V2Annotation, type V2AnnotationWrite, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v2Store } from '../api/v2'
 import { createV2ReaderSync, KEEPALIVE_BUDGET, v2ReaderSyncApi, type V2ReaderSyncApi, type V2SaveStatus, type V2SyncTarget } from './v2ReaderSync'
@@ -38,11 +38,16 @@ const deferred = <T>() => {
 let api: { [K in keyof V2ReaderSyncApi]: ReturnType<typeof vi.fn> }
 let statuses: V2SaveStatus[]
 let drawnLists: PageHighlight[][]
+/** The places offered to the host (`onNewerPlace`). */
+let newer: PagePosition[]
+/** A write recorded before every other here. */
+const OLD = '1970-01-01T00:00:00.000Z'
 
 beforeEach(() => {
   localStorage.clear()
   statuses = []
   drawnLists = []
+  newer = []
   api = {
     getReadingState: vi.fn().mockResolvedValue(null),
     annotations: vi.fn().mockResolvedValue([]),
@@ -54,7 +59,8 @@ beforeEach(() => {
 })
 
 const open = (t: V2SyncTarget = T, after?: Promise<unknown>, highlights?: boolean) => createV2ReaderSync(t, {
-  api: api as unknown as V2ReaderSyncApi, onStatus: (s) => statuses.push(s), onHighlights: (l) => drawnLists.push(l), newId: () => MINTED, after, highlights,
+  api: api as unknown as V2ReaderSyncApi, onStatus: (s) => statuses.push(s), onHighlights: (l) => drawnLists.push(l),
+  onNewerPlace: (p) => newer.push(p), newId: () => MINTED, after, highlights,
 })
 const expectedOf = (call: unknown[]) => (call[1] as { expectedRevision: number | null }).expectedRevision
 const last = () => statuses[statuses.length - 1]
@@ -289,12 +295,80 @@ describe('createV2ReaderSync', () => {
       expect(expectedOf(api.putReadingState.mock.calls[1])).toBe(7)
     })
 
-    it('staleRevision_AnotherDevice_ThisTabWins_OursWrittenOnceMoreOnTheirRevision', async () => {
-      const s = await opened()
-      api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(9, 5, new Date(Date.now() + 60_000).toISOString())))
-      await stored(s, entry(pos(2)))
-      expect(api.putReadingState.mock.calls.map(expectedOf)).toEqual([null, 9])
-      expect(statuses).toEqual(['saved'])
+    // #1232: ADR-019 by decideServerState on a lost write, as Android: against the place this tab last saved or restored.
+    describe('another device wrote meanwhile', () => {
+      const theirs = (n: number) => expect.objectContaining({ cfi: cfi(n), index: n })
+      const sent = () => api.putReadingState.mock.calls.map((c) => [(c[1] as V2ReadingStateWrite).currentLocator.value, expectedOf(c)])
+      const SAVED_AT = Date.parse('2026-01-01T00:00:00.000Z')
+      const BETWEEN = '2026-02-01T00:00:00.000Z'
+      /** pos(2) saved (revision 5, recorded at SAVED_AT); the next move loses to `server`. */
+      async function savedThenLost(...server: V2ReadingState[]) {
+        api.getReadingState.mockResolvedValue(state(4, 1, OLD))
+        const s = await opened()
+        await stored(s, entry(pos(2, SAVED_AT)))
+        for (const st of server) api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', st))
+        // The move now is the newest of all: the rule never weighs it.
+        await stored(s, entry(pos(3, Date.now() + 120_000)))
+        return s
+      }
+
+      it('theirsNewerThanOurLastSave_OursWrittenOnTheirRevision_TheirsOffered', async () => {
+        await savedThenLost(state(9, 5, BETWEEN))
+        expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 5], [cfi(3), 9]])
+        expect(newer).toEqual([theirs(5)])
+        expect(last()).toBe('saved')
+      })
+
+      it('nothingSavedYet_TheRestoredPlaceIsOurs', async () => {
+        api.getReadingState.mockResolvedValue(state(4, 1, OLD))
+        const s = await opened()
+        api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(9, 5, BETWEEN)))
+        await stored(s, entry(pos(3, Date.now() + 120_000)))
+        expect(newer).toEqual([theirs(5)])
+        expect(sent()).toEqual([[cfi(3), 4], [cfi(3), 9]])
+      })
+
+      it('theirsOlderThanOurLastSave_OursWritten_NothingOffered', async () => {
+        await savedThenLost(state(9, 5, OLD))
+        expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 5], [cfi(3), 9]])
+        expect(newer).toEqual([])
+      })
+
+      it('lostAgain_TheNewestOffered', async () => {
+        await savedThenLost(state(9, 5, BETWEEN), state(10, 6, BETWEEN))
+        expect(newer).toEqual([theirs(5), theirs(6)])
+        expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 5], [cfi(3), 9]])
+        expect(last()).toBe('unsaved')
+      })
+
+      it('ourPreviousWriteLandedItsAnswerLost_OursRewritten_NothingOffered', async () => {
+        api.getReadingState.mockResolvedValue(state(4, 1, OLD))
+        const s = await opened()
+        // pos(2) lands (revision 5) but its answer is lost: this tab still holds pos(1) as saved.
+        api.putReadingState.mockRejectedValueOnce(offline())
+        await stored(s, entry(pos(2, SAVED_AT)))
+        const landed = api.putReadingState.mock.calls[0][1] as V2ReadingStateWrite
+        api.putReadingState.mockRejectedValueOnce(conflict('stale_revision',
+          { ...state(5), currentLocator: landed.currentLocator, clientRecordedAt: landed.clientRecordedAt }))
+        await stored(s, entry(pos(3, Date.now() + 120_000)))
+        expect(newer).toEqual([])
+        expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 4], [cfi(3), 5]])
+        expect(last()).toBe('saved')
+      })
+
+      it('closing_TheHostToldNothing_OursStillWrittenOnTheirRevision', async () => {
+        api.getReadingState.mockResolvedValue(state(4, 1, OLD))
+        const s = await opened()
+        await stored(s, entry(pos(2, SAVED_AT)))
+        const put = deferred<V2ReadingState>()
+        api.putReadingState.mockReturnValueOnce(put.promise)
+        s.store(entry(pos(3, Date.now() + 120_000)))
+        const closing = s.close()
+        put.reject(conflict('stale_revision', state(9, 5, BETWEEN)))
+        await closing
+        expect(newer).toEqual([])
+        expect(api.putReadingState.mock.calls.map(expectedOf)).toEqual([4, 5, 9])
+      })
     })
 
     it('reset_WrittenAgainOnTheNewRevision', async () => {

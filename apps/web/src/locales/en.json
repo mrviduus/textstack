@@ -498,7 +498,11 @@
     "noHighlights": "Highlights are not loaded yet: they are retried as you read, and highlighting comes back with them.",
     "readFailed": "Could not load your place in this book.",
     "retry": "Retry",
-    "reopen": "This book changed on another device: reopen it to keep saving your place and highlights."
+    "reopen": "This book changed on another device: reopen it to keep saving your place and highlights.",
+    "newerPlaceLabel": "Newer reading place",
+    "newerPlace": "Another device saved a newer place in this book ({{percent}}%).",
+    "stayHere": "Stay here",
+    "goThere": "Go to their place"
   },
   "library": {
     "continue": "Continue",

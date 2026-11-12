@@ -34,7 +34,7 @@ Dependency rule unchanged: Api → Application → Domain ← Infrastructure.
    instead, the pool to `textstack_v2` (one data source per database, ADR-030 §2). Building it opens
    nothing, so nothing at startup touches `textstack_v2` and V1 keeps serving while V2 is broken or
    unconfigured (ADR-030 decision 1, amended;
-   [postmortem](../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)). Without
+   [postmortem](../../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)). Without
    `ConnectionStrings:V2` every V2 service still resolves; the first open fails naming that key.
 6. **Transactions.** A use case that writes EF tables and a ported table together opens the
    transaction on EF and passes the `IDbContextTransaction` to the repository; the repository runs on

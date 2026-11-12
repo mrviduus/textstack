@@ -19,6 +19,8 @@ dependency rules.
 > Current state: [STATUS.md](../STATUS.md). The V2 map: [v2.md](v2.md). This page describes what
 > runs in production today.
 
+New here? Read [a book's journey](story.md) first: the same system as a short story with pictures.
+
 ## Read in this order
 
 1. This page: the parts and what each one does.
@@ -30,7 +32,7 @@ dependency rules.
 
 ## The parts
 
-How the deployment is laid out and what a second worker would take: [c4-worker-scaling.md](../internal/architecture/c4-worker-scaling.md). How requests move between these parts: the interactive [map](https://mrviduus.github.io/textstack/architecture/) (source [textstack-map.html](../internal/architecture/textstack-map.html)), or the same as Mermaid in [flows.md](flows.md).
+How the deployment is laid out and what a second worker would take: [c4-worker-scaling.md](../../internal/c4-worker-scaling.md). How requests move between these parts: [flows.md](flows.md).
 
 ```
 Internet ─► Cloudflare (DNS + TLS) ─► Cloudflare Tunnel ─► nginx on host (:80)
@@ -110,7 +112,7 @@ bearer token themselves (`GetUserId`).
 Single site forever (ADR-007). `SiteContextMiddleware` resolves `Host` via `site_domains`; an
 unknown host falls back to the one site (`ICurrentSite.Id`, config `Site:Id`) — 404 only if that
 row is missing. EF global query filters on `ISiteScoped` entities key on `ICurrentSite.Id`, so
-code does not pass `SiteId` by hand. The `site_id` columns stay. See [multisite.md](../internal/legacy/multisite.md).
+code does not pass `SiteId` by hand. The `site_id` columns stay. See [multisite.md](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/multisite.md).
 
 ## Background work
 
@@ -172,7 +174,7 @@ WebSocket. Server key `SHA256(text+voice+rate)`.
 a `BookQualityJob` is queued. `quality-poll.sh` on the host runs a Claude pass on low-score
 chapters behind a word-diff gate (`pdf-cleanup-gate.py`). Off by default
 (`CONTENT_CLEANUP_ENABLED=false`). Full design:
-[feat-0007](../internal/features/feat-0007-pdf-content-quality.md).
+[feat-0007](../../internal/features/feat-0007-pdf-content-quality.md).
 
 ## ADRs
 
@@ -184,6 +186,6 @@ are superseded or obsolete.
 
 - [flows.md](flows.md) — runtime view: upload, read, MCP, SSG, background AI
 - [data-model.md](data-model.md) — entity map + PII
-- [multisite.md](../internal/legacy/multisite.md) — host → site resolution
+- [multisite.md](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/multisite.md) — host → site resolution
 - [frontend.md](frontend.md) — apps and packages
-- [ingestion](../internal/legacy/ingestion.md), [SSG](../internal/legacy/ssg-prerender.md), [SEO](../internal/legacy/seo-implementation.md), [admin](../internal/admin.md)
+- [ingestion](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/ingestion.md), [SSG](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/ssg-prerender.md), [SEO](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/seo-implementation.md), [admin](../../internal/admin.md)

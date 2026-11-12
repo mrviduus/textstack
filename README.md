@@ -45,7 +45,7 @@ From a clone to a book open in the reader, in about 20 minutes: [docs/start/run-
 ## Documentation
 
 - [Docs index](docs/README.md) and [architecture](docs/architecture/index.md)
-- [Deployment](docs/internal/ops/deployment.md), [backup and restore](docs/internal/ops/backup.md), [incident runbook](docs/internal/ops/incident-runbook.md)
+- [Deployment](internal/ops/deployment.md), [backup and restore](internal/ops/backup.md), [incident runbook](internal/ops/incident-runbook.md)
 - [Changelog](CHANGELOG.md)
 
 ## Contributing
