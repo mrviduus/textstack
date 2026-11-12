@@ -29,7 +29,7 @@ The PR is the changelog (#1220). Readers see the `/changelog` page (merged PRs b
 
 | Where | Job |
 |------|-----|
-| The PR | **Title** = one scannable line. **One area label** (`reader`, `mobile`, `library`, `vocabulary`, `ai`, `data`, `ops`, `documentation`; CI fails without one). **Description** = the full write-up, article source material. |
+| The PR | **Title** = one scannable line. **One area label** (`reading`, `library`, `highlights`, `vocabulary`, `assistant`, `account`, `data`, `ops`, `documentation`; CI fails without one). **Description** = the full write-up, article source material. |
 | `CHANGELOG.md`, `docs/internal/changelog-archive/` | **Frozen.** History up to the switch; never add to them. |
 | `docs/internal/incidents/` | Postmortems for anything that broke production. Start from `_TEMPLATE.md`. |
 | `docs/STATUS.md` | Where the project is *now*: in flight, deliberately-not-doing. Links to issues; never copies them. |

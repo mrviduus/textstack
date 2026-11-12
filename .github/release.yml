@@ -1,6 +1,7 @@
 # The area labels (#1220): each one is a section on the /changelog page, and the format GitHub
 # uses if notes are ever generated (`gh release create --generate-notes`). The app has no GitHub
 # releases: Android notes go to Play's "What's new" (owner, 2026-11-11).
+# The areas are the list in docs/glossary.md. Android is where the app runs, not an area.
 # Every PR carries one area label from the list below; pr-labels.yml fails a PR
 # without one, and reads its allowed labels from this file, so add an area here only.
 # A PR with two area labels lands in the first matching section.
@@ -9,16 +10,18 @@ changelog:
     labels: [dependencies]
     authors: [dependabot]
   categories:
-    - title: Reader
-      labels: [reader]
-    - title: Mobile
-      labels: [mobile]
+    - title: Reading
+      labels: [reading]
     - title: Library
       labels: [library]
+    - title: Highlights
+      labels: [highlights]
     - title: Vocabulary
       labels: [vocabulary]
-    - title: AI & MCP
-      labels: [ai]
+    - title: Assistant
+      labels: [assistant]
+    - title: Account
+      labels: [account]
     - title: Data
       labels: [data]
     - title: Ops

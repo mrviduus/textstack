@@ -31,8 +31,9 @@ git status --short                               # any uncommitted?
 
 **Detect the issue** the PR closes (branch name, commits, or `$ARGUMENTS`). Every task has one; none found → ask.
 
-**Pick one area label** by the most-touched paths: `reader`, `mobile`, `library`, `vocabulary`, `ai`
-(incl. MCP), `data` (DB, V2 schema, ETL), `ops` (infra, CI, deploy), `documentation`. The list lives in
+**Pick one area label** by the most-touched paths: `reading`, `library`, `highlights`, `vocabulary`,
+`assistant` (incl. MCP), `account`, `data` (DB, V2 schema, ETL), `ops` (infra, CI, deploy, app releases),
+`documentation`. Android is not an area: label by what changed for the reader. The list lives in
 `.github/release.yml`; the `PR labels` check fails a PR without one.
 
 **Reader-visible?** Not decided here: `/changelog-week` picks the week's `public` PRs with the owner.
