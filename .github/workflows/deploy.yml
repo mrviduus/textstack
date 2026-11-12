@@ -24,6 +24,9 @@ on:
     paths:
       - '**'
       - '!docs/**'
+      - '!internal/**'   # working notes (#1275); nothing reads them at build or run time
+      - '!site/**'       # the docs site tooling; it publishes by docs-site.yml, not from here
+      - '!.github/workflows/docs-site.yml'
       - '!*.md'
       - '!apps/mobile/**'
       - 'apps/mobile/src/lib/v2reader/**'
