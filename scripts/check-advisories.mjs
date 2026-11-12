@@ -59,7 +59,26 @@ export const BATCH_SIZE = 200
 export class LookupFailed extends Error {}
 
 /**
- * One workspace, one lockfile — and this reads exactly that one.
+ * Every lockfile this check reads. The root one is the workspace. `site/` is the docs site
+ * (#1275): its own project outside the workspace, so the apps' dependency tree does not grow
+ * a docs generator. Its lockfile is audited here exactly like the root one, which is the whole
+ * condition for letting it exist: a lockfile may be committed only if it is on this list.
+ */
+export const LOCKFILES = ['pnpm-lock.yaml', 'site/pnpm-lock.yaml']
+
+/** `name → versions` from several lockfiles, as one map. */
+export function mergeInstalled(maps) {
+  const all = {}
+  for (const m of maps) {
+    for (const [name, versions] of Object.entries(m)) {
+      all[name] = [...new Set([...(all[name] ?? []), ...versions])]
+    }
+  }
+  return all
+}
+
+/**
+ * One workspace, one lockfile — and this reads every lockfile in `LOCKFILES`, no other.
  *
  * Turning Dependabot alerts on produced fourteen findings where `pnpm audit`
  * reported three. The eleven extra ones all named the same manifest:
@@ -70,7 +89,8 @@ export class LookupFailed extends Error {}
  * 8.5.10 in the repository where a scanner would find them.
  *
  * Neither tool was wrong. They were reading different files. A second lockfile
- * is a place advisories can hide from the audit, so there must not be one.
+ * is a place advisories can hide from the audit, so there must not be one that this
+ * check does not read.
  *
  * Asks git rather than walking the tree: a lockfile someone has lying around
  * untracked is their business, a committed one is the repository's. Walking was
@@ -91,7 +111,7 @@ export function strayLockfiles({ run = execFileSync } = {}) {
     // accident, running this script from outside the repository.
     throw new LookupFailed(`could not ask git for stray lockfiles: ${e.message}`)
   }
-  return out.split('\n').filter((p) => p.trim() && p !== 'pnpm-lock.yaml')
+  return out.split('\n').filter((p) => p.trim() && !LOCKFILES.includes(p))
 }
 
 /**
@@ -306,9 +326,9 @@ function cannotCheck(reason) {
 async function main() {
   let installed
   try {
-    installed = readInstalled(readFileSync(join(ROOT, 'pnpm-lock.yaml'), 'utf8'))
+    installed = mergeInstalled(LOCKFILES.map((f) => readInstalled(readFileSync(join(ROOT, f), 'utf8'))))
   } catch (e) {
-    cannotCheck(`could not read pnpm-lock.yaml: ${e.message}`)
+    cannotCheck(`could not read a lockfile (${LOCKFILES.join(', ')}): ${e.message}`)
   }
 
   let found
@@ -339,8 +359,8 @@ async function main() {
   if (failsBuild({ blocking, strays })) {
     console.error('Advisory check failed:\n')
     for (const path of strays) {
-      console.error(`  • ${path} is a second lockfile.`)
-      console.error('    This check reads the root one, so anything pinned here is invisible to it')
+      console.error(`  • ${path} is a lockfile this check does not read.`)
+      console.error(`    It reads ${LOCKFILES.join(' and ')}, so anything pinned here is invisible to it`)
       console.error('    while still being visible to every scanner that reads the repository.')
       console.error('    Delete it — workspace members resolve through the root lockfile.\n')
     }

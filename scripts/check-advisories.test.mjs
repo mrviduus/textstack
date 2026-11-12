@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   readInstalled,
   strayLockfiles,
+  mergeInstalled,
   advisoryId,
   classify,
   failsBuild,
@@ -235,8 +236,8 @@ describe('chunk', () => {
 })
 
 describe('strayLockfiles', () => {
-  it('lists a second lockfile and never the root one', () => {
-    const run = () => 'pnpm-lock.yaml\npackages/shared/pnpm-lock.yaml\napps/web/package-lock.json\n'
+  it('lists a lockfile the check does not read, and never the ones it reads', () => {
+    const run = () => 'pnpm-lock.yaml\nsite/pnpm-lock.yaml\npackages/shared/pnpm-lock.yaml\napps/web/package-lock.json\n'
     expect(strayLockfiles({ run })).toEqual(['packages/shared/pnpm-lock.yaml', 'apps/web/package-lock.json'])
   })
 
@@ -247,5 +248,15 @@ describe('strayLockfiles', () => {
     // exists to remove.
     const run = () => { throw new Error('not a git repository') }
     expect(() => strayLockfiles({ run })).toThrow(LookupFailed)
+  })
+})
+
+describe('mergeInstalled', () => {
+  it('audits a package from any lockfile, every version once', () => {
+    expect(mergeInstalled([{ vite: ['7.0.0'], zod: ['4.6.7'] }, { vite: ['7.0.0', '6.4.1'], astro: ['7.4.4'] }])).toEqual({
+      vite: ['7.0.0', '6.4.1'],
+      zod: ['4.6.7'],
+      astro: ['7.4.4'],
+    })
   })
 })
