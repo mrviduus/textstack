@@ -114,7 +114,7 @@ test.describe('V2 reader page @v2', () => {
   })
 
   // #1263: the bars hide while reading; keys and an edge tap turn the page; a tap off any word toggles the bars.
-  test('readV2Chrome_BarsHide_KeysAndAnEdgeTapTurn_ACentreTapTogglesTheBars', async ({ browser }) => {
+  test('readV2Chrome_BarsHide_KeysInAndOutOfTheBookAndEdgeTapsTurn_ACentreTapTogglesTheBars', async ({ browser }) => {
     const context = await v2Context(browser, email('v2bars'))
     const page = await context.newPage()
     const bookId = await uploadFixture(page)
@@ -130,7 +130,7 @@ test.describe('V2 reader page @v2', () => {
     await page.keyboard.press('PageUp')
     await expect(status(page)).toHaveText(first)
 
-    // A tap off any word (between the first two paragraphs) toggles the bars, and hands focus back for the keys.
+    // A tap off any word (between the first two paragraphs) toggles the bars; focus stays in the book.
     const frames = page.frames().filter((f) => f.url().startsWith('blob:'))
     const texts = await Promise.all(frames.map((f) => f.evaluate(() => document.body?.innerText ?? '').catch(() => '')))
     const section = frames[texts.findIndex((t) => t.includes(FIRST_SECTION_TEXT))]
@@ -140,20 +140,21 @@ test.describe('V2 reader page @v2', () => {
     await expect(main).toHaveAttribute('data-bars', 'shown')
     await page.mouse.click(gap.x, gap.y)
     await expect(main).toHaveAttribute('data-bars', 'hidden')
+
+    // Keys with focus inside the book: the page forwards them (`key`).
+    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('IFRAME')
     await page.keyboard.press('ArrowRight')
     await expect(status(page)).not.toHaveText(first)
     await page.keyboard.press('Escape')
     await expect(main).toHaveAttribute('data-bars', 'shown')
 
-    // An edge tap: the page's `tap` carries no coordinates yet (#1263 report), so the host's half is driven with
-    // the message the page is to send; replace it with page.mouse.click on the edge once the page sends `x`.
-    const turned = (await status(page).textContent()) ?? ''
-    const shell = page.frames().find((f) => f.url().includes('/reader-v2/frame'))!
-    await shell.evaluate(() => (window as unknown as { ReactNativeWebView: { postMessage(s: string): void } })
-      .ReactNativeWebView.postMessage(JSON.stringify({ type: 'tap', x: 5, y: 300 })))
+    // Edge taps, just outside the text column (no word there): left back, right on; a turn hides the bars.
+    const width = page.viewportSize()!.width
+    await page.mouse.click(a!.x - 5, gap.y)
     await expect(status(page)).toHaveText(first)
     await expect(main).toHaveAttribute('data-bars', 'hidden')
-    expect(turned).not.toBe(first)
+    await page.mouse.click(width - a!.x + 10, gap.y)
+    await expect(status(page)).not.toHaveText(first)
     await context.close()
   })
 

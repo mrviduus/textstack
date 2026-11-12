@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { keyAction, V2ReaderHost, type V2HostBook } from './V2ReaderHost'
@@ -29,13 +29,15 @@ function fromPage(m: object) {
 }
 
 /** A book open on screen, its bars still shown. */
-function opened(reflowable = true) {
+function opened(reflowable = true, dir?: string) {
   const view = mount()
   fromPage({ type: 'ready' })
-  fromPage({ type: 'opened', title: 'Walden', reflowable, book: { sha256: 'aa', size: 8, name: '1/a.epub' } })
+  fromPage({ type: 'opened', title: 'Walden', reflowable, dir, book: { sha256: 'aa', size: 8, name: '1/a.epub' } })
   posted = []
   return view
 }
+/** A page `tap` at `x` (page-viewport px, as the page sends it). */
+const tap = (x: number) => ({ type: 'tap', x, y: 300 })
 
 const bars = () => document.querySelector('main')!.getAttribute('data-bars')
 const turns = () => posted.filter((m) => m.call === 'next' || m.call === 'prev').map((m) => m.call)
@@ -50,30 +52,49 @@ describe('V2ReaderHost bars and tap zones', () => {
     expect(bars()).toBe('hidden')
   })
 
-  it('tapWithoutCoordinates_TogglesTheBars_NeverTurns', () => {
+  it('centreTap_TogglesTheBars_NeverTurns', () => {
     opened()
-    fromPage({ type: 'tap' })
+    fromPage(tap(WIDTH / 2))
     expect(bars()).toBe('hidden')
-    fromPage({ type: 'tap' })
+    fromPage(tap(WIDTH / 2))
     expect(bars()).toBe('shown')
     expect(turns()).toEqual([])
   })
 
+  it('malformedTap_Dropped_NeitherTurnsNorToggles', () => {
+    opened()
+    for (const m of [{ type: 'tap' }, { type: 'tap', x: WIDTH - 5 }, { type: 'tap', x: '995', y: 10 }, { type: 'tap', x: 1e9, y: 10 }]) fromPage(m)
+    expect(turns()).toEqual([])
+    expect(bars()).toBe('shown')
+  })
+
   it('tapOnAnEdge_Paginated_TurnsThePage_AndHidesTheBars', () => {
     opened()
-    fromPage({ type: 'tap', x: WIDTH - 5 })
-    fromPage({ type: 'tap', x: 5 })
+    fromPage(tap(WIDTH - 5))
+    fromPage(tap(5))
     expect(turns()).toEqual(['next', 'prev'])
     expect(bars()).toBe('hidden')
-    fromPage({ type: 'tap', x: WIDTH / 2 })
+    fromPage(tap(WIDTH / 2))
     expect(bars()).toBe('shown')
     expect(turns()).toHaveLength(2)
+  })
+
+  it('rtlBook_LeftEdgeAndArrowLeftAreNext_AnUnknownDirIsLtr', () => {
+    opened(true, 'rtl')
+    fromPage(tap(5))
+    fromPage({ type: 'key', key: 'ArrowLeft', shift: false })
+    press('ArrowRight')
+    expect(turns()).toEqual(['next', 'next', 'prev'])
+    cleanup()
+    opened(true, 'sideways')
+    fromPage(tap(5))
+    expect(turns()).toEqual(['prev'])
   })
 
   it('tapOnAnEdge_ScrolledFlow_Toggles', () => {
     localStorage.setItem('v2reader:flow', 'scrolled')
     opened()
-    fromPage({ type: 'tap', x: WIDTH - 5 })
+    fromPage(tap(WIDTH - 5))
     expect(turns()).toEqual([])
     expect(bars()).toBe('hidden')
   })
@@ -81,26 +102,28 @@ describe('V2ReaderHost bars and tap zones', () => {
   it('tapOnAnEdge_FixedLayoutBook_TurnsWhateverTheFlowSetting', () => {
     localStorage.setItem('v2reader:flow', 'scrolled')
     opened(false)
-    fromPage({ type: 'tap', x: WIDTH - 5 })
+    fromPage(tap(WIDTH - 5))
     expect(turns()).toEqual(['next'])
   })
 
   it('wordTap_NeverTurnsNorToggles', () => {
     opened()
-    fromPage({ type: 'word', word: 'pond', cfi: 'epubcfi(/6/2)', index: 0, x: WIDTH - 5, rect: { x: WIDTH - 20, y: 10, w: 30, h: 10 } })
+    fromPage({ type: 'word', word: 'pond', cfi: 'epubcfi(/6/2)', index: 0, x: WIDTH - 5, y: 10, rect: { x: WIDTH - 20, y: 10, w: 30, h: 10 } })
     expect(turns()).toEqual([])
     expect(bars()).toBe('shown')
   })
 
-  it('tapOrWord_HandsFocusBackToTheHost_SoKeysKeepWorking', () => {
+  it('keyFromInsideTheBook_TurnsPages_EscShowsTheBars_AMalformedOneDropped', () => {
     opened()
-    const main = document.querySelector('main')!
-    for (const m of [{ type: 'tap' }, { type: 'word', word: 'pond', index: 0 }]) {
-      frame().focus()
-      expect(document.activeElement).not.toBe(main)
-      fromPage(m)
-      expect(document.activeElement).toBe(main)
-    }
+    fromPage({ type: 'key', key: 'ArrowRight', shift: false })
+    fromPage({ type: 'key', key: 'Space', shift: true })
+    fromPage({ type: 'key', key: 'PageDown', shift: false })
+    expect(turns()).toEqual(['next', 'prev', 'next'])
+    expect(bars()).toBe('hidden')
+    fromPage({ type: 'key', key: 'Escape', shift: false })
+    expect(bars()).toBe('shown')
+    for (const m of [{ type: 'key', key: 'Enter', shift: false }, { type: 'key', key: 'ArrowRight' }, { type: 'key', key: ' ', shift: false }]) fromPage(m)
+    expect(turns()).toHaveLength(3)
   })
 
   it('keys_TurnPagesAndHideTheBars_EscShowsThem', () => {
@@ -143,7 +166,7 @@ describe('V2ReaderHost bars and tap zones', () => {
 
   it('focusOnAHiddenBar_ShowsTheBars', () => {
     opened()
-    fromPage({ type: 'tap' })
+    fromPage(tap(WIDTH / 2))
     expect(bars()).toBe('hidden')
     act(() => { screen.getByRole('button', { name: 'Next ›' }).focus() })
     expect(bars()).toBe('shown')
@@ -151,7 +174,7 @@ describe('V2ReaderHost bars and tap zones', () => {
 
   it('aStateWithTheBarsHidden_NotInsideABar', () => {
     const view = opened()
-    fromPage({ type: 'tap' })
+    fromPage(tap(WIDTH / 2))
     expect(bars()).toBe('hidden')
     view.rerender(<MemoryRouter><V2ReaderHost book={{ bytes: new ArrayBuffer(8), name: 'b.epub' }} idleHeading="idle" /></MemoryRouter>)
     fromPage({ type: 'open-failed', name: '2/b.epub', error: 'not a zip' })
@@ -175,6 +198,13 @@ describe('keyAction', () => {
     expect([k('ArrowRight'), k('PageDown'), k(' ')]).toEqual(['next', 'next', 'next'])
     expect(k('Escape')).toBe('show')
     expect(k('a')).toBeNull()
+  })
+
+  it('rtlBook_ArrowsFollowTheScreen_PageKeysAndSpaceDoNot', () => {
+    const r = (key: string, init: Partial<KeyboardEvent> = {}) =>
+      keyAction({ key, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, target: null, ...init }, 'rtl')
+    expect([r('ArrowLeft'), r('ArrowRight')]).toEqual(['next', 'prev'])
+    expect([r('PageDown'), r('PageUp'), r(' '), r(' ', { shiftKey: true })]).toEqual(['next', 'prev', 'next', 'prev'])
   })
 
   it('modifierChords_NotTheReaders', () => {

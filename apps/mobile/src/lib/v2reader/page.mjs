@@ -14,7 +14,11 @@ import { createSaveScheduler } from './saveScheduler.mjs'
 import { isFractionOnly } from '../../../../../packages/shared/src/reader/fractionPosition'
 import { emptyEntry, entryFor, foldText, isPdfPage, isPosition, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
-import { openableHref, sentenceOf } from './tap.mjs'
+import { openableHref, rectInPage, sentenceOf, sentenceOfRange, trimRange } from './tap.mjs'
+import { selectionMessage } from './selection.mjs'
+import { navKey } from './chrome.mjs'
+import { SELECTION_SETTLE_MS } from '../../../../../packages/reader-engine/src/timing'
+import { MAX_SELECTED_TEXT } from '../../../../../packages/shared/src/reader/v2Locators'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
@@ -53,6 +57,10 @@ let hostMoving = false
  * every touchend). `lastCfi` follows every relocate of the open book, re-layouts included.
  */
 let lastCfi = null
+/**
+ * The last `selection` sent: its range (edge whitespace dropped), text, CFI, sentence. What `highlightSelection`
+ * highlights; kept after the selection is cleared (tapping a host button may clear the WebView's selection first).
+ */
 let lastSelection = null
 /**
  * The latest open attempt (#1128 S5). Only ever goes up, and answers one question only: may this build
@@ -116,37 +124,130 @@ function decorate(rects, { hl, gloss, el }) {
 function onTap(doc, index, e) {
   if (e.target.closest?.('a[href]')) return   // foliate owns links
   if (!doc.getSelection().isCollapsed) return   // a selection, not a word tap
+  if (dismissing) return   // it ended the selection sent (`selection-cleared`), nothing else
   const c = doc.caretRangeFromPoint?.(e.clientX, e.clientY)
   const node = c?.startContainer
-  if (!node || node.nodeType !== Node.TEXT_NODE) return post({ type: 'tap' })
+  if (!node || node.nodeType !== Node.TEXT_NODE) return post(tapAt(doc, e))
   // Same word rule as the reader engine's wordAt (soft hyphens kept inside the word).
   const w = tokenizeVocabWords(node.data.replace(/­/g, 'a')).find((t) => t.start <= c.startOffset && c.startOffset <= t.end)
-  if (!w || !/\p{L}/u.test(w.word)) return post({ type: 'tap' })
+  if (!w || !/\p{L}/u.test(w.word)) return post(tapAt(doc, e))
   const range = doc.createRange()
   range.setStart(node, w.start)
   range.setEnd(node, w.end)
   // The caret snaps to the nearest text: a tap in a margin is not a tap on the line's last word.
   const r = range.getBoundingClientRect()
-  if (e.clientX < r.left - 4 || e.clientX > r.right + 4 || e.clientY < r.top - 4 || e.clientY > r.bottom + 4) return post({ type: 'tap' })
-  const frame = doc.defaultView.frameElement.getBoundingClientRect()
+  if (e.clientX < r.left - 4 || e.clientX > r.right + 4 || e.clientY < r.top - 4 || e.clientY > r.bottom + 4) return post(tapAt(doc, e))
   post({
     type: 'word', index, word: node.data.slice(w.start, w.end).replace(/­/g, ''),
     // No CFI where nothing can be drawn at one (a PDF's text layer has no CFI that means anything).
     sentence: sentenceOf(node, w.start, w.end), cfi: annotatable ? view.getCFI(index, range) : null,
-    // Host-viewport coordinates of the word (iframe rect + range rect).
-    rect: { x: Math.round(frame.left + r.left), y: Math.round(frame.top + r.top), w: Math.round(r.width), h: Math.round(r.height) },
+    // Host-viewport coordinates of the word.
+    rect: rectInPage(doc.defaultView.frameElement, r),
   })
 }
 
+/** Each section document's index: the fixed-layout renderer's `getContents()` gives none. */
+const sectionIndex = new WeakMap()
+const shownDocs = () => (view?.renderer?.getContents?.() ?? []).map((c) => c.doc).filter(Boolean)
+
+/** This gesture dismisses the selection sent: decided at its press, so how long the press lasts does not matter. */
+let dismissing = false
+
+/** A `tap` with where it landed, in page-viewport px (`rectInPage`: a scaled fixed-layout frame too). */
+function tapAt(doc, e) {
+  const { x, y } = rectInPage(doc.defaultView.frameElement, { left: e.clientX, top: e.clientY, width: 0, height: 0 })
+  return { type: 'tap', x, y }
+}
+
 function onLoad({ detail: { doc, index } }) {
-  // Images only: every tap is a chrome toggle, and nothing is kept for a highlight.
-  if (!textual) return doc.addEventListener('click', () => post({ type: 'tap' }))
-  doc.addEventListener('click', (e) => onTap(doc, index, e))
-  // Kept, not read on demand: tapping a host button may clear the WebView's selection first.
-  doc.addEventListener('selectionchange', () => {
-    const s = doc.getSelection()
-    if (s.rangeCount && !s.isCollapsed) lastSelection = { index, doc, range: s.getRangeAt(0).cloneRange() }
+  // A navigation key pressed in a section (its own frame) reaches the host only this way; nothing else does.
+  doc.addEventListener('keydown', (e) => {
+    const m = navKey(e)
+    if (!m) return
+    e.preventDefault()   // the host moves the view, not the frame by itself
+    post(m)
   })
+  // Images only: every tap is a chrome toggle, and nothing is kept for a highlight.
+  if (!textual) return doc.addEventListener('click', (e) => post(tapAt(doc, e)))
+  sectionIndex.set(doc, index)
+  // A press while a selection is sent ends it, in every shown section, at once; its click is no tap.
+  doc.addEventListener('pointerdown', () => {
+    dismissing = !!selectionSent
+    if (!dismissing) return
+    for (const d of shownDocs()) d.getSelection()?.removeAllRanges()
+    selectionSent = null
+    post({ type: 'selection-cleared' })
+  })
+  doc.addEventListener('click', (e) => onTap(doc, index, e))
+  doc.addEventListener('selectionchange', () => {
+    // One selection at a time: a new one in this section ends the one in another shown section (a spread).
+    if (!doc.getSelection().isCollapsed) for (const d of shownDocs()) if (d !== doc) d.getSelection()?.removeAllRanges()
+    settleSelection()
+  })
+}
+
+/** The last `selection` posted (its JSON), null once `selection-cleared` went: a re-fired same selection is not sent again. */
+let selectionSent = null
+let selectionTimer = 0
+/**
+ * `selection` once the selection stops changing (a drag fires selectionchange all the way: reader-engine's
+ * settle time) and whenever the view moves it (a `relocate`, a scroll, a resize); `selection-cleared` once the
+ * one sent is gone.
+ */
+function settleSelection() {
+  clearTimeout(selectionTimer)
+  selectionTimer = setTimeout(sendSelection, SELECTION_SETTLE_MS)
+}
+addEventListener('resize', settleSelection)
+
+const sameRange = (a, b) => a.startContainer === b.startContainer && a.startOffset === b.startOffset && a.endContainer === b.endContainer && a.endOffset === b.endOffset
+
+/**
+ * `doc`'s selection as a message, or null: none, no text, its frame gone (a section no longer shown), or no part
+ * of it inside the page viewport. Its text, CFI and sentence are computed once per range (`lastSelection`);
+ * a move recomputes the box only. The box sent is the part inside the page viewport.
+ */
+function selectionIn(doc) {
+  const frame = doc.defaultView?.frameElement
+  const s = frame ? doc.getSelection() : null
+  const raw = s?.rangeCount && !s.isCollapsed ? s.getRangeAt(0) : null
+  const range = raw && trimRange(raw)
+  const index = sectionIndex.get(doc)
+  if (!range || index === undefined) return null
+  const rect = clipToViewport(rectInPage(frame, range.getBoundingClientRect()))
+  if (!rect) return null
+  const known = lastSelection?.doc === doc && sameRange(lastSelection.range, range)
+  const sel = known ? lastSelection : {
+    index, doc, range: range.cloneRange(),
+    // As rendered: across blocks and a PDF text layer's lines, words stay apart (a range's text glues them).
+    text: s.toString(),
+    // No CFI where nothing can be drawn at one (a PDF), as `word`, nor where `highlightSelection` refuses it.
+    cfi: annotatable && range.toString().length <= MAX_SELECTED_TEXT ? view.getCFI(index, range) : null,
+    sentence: sentenceOfRange(range.startContainer, range.startOffset, range.endContainer, range.endOffset),
+  }
+  const m = selectionMessage({ index, text: sel.text, cfi: sel.cfi, sentence: sel.sentence, rect })
+  return m && { m, sel }
+}
+
+/** The part of a page-viewport box inside the viewport, or null when none is. */
+function clipToViewport({ x, y, w, h }) {
+  const [l, t, r, b] = [Math.max(x, 0), Math.max(y, 0), Math.min(x + w, innerWidth), Math.min(y + h, innerHeight)]
+  return r > l && b > t ? { x: l, y: t, w: r - l, h: b - t } : null
+}
+
+function sendSelection() {
+  let found = null
+  for (const doc of shownDocs()) if ((found = selectionIn(doc))) break
+  if (found) {
+    // What `highlightSelection` highlights: exactly the range this message describes.
+    lastSelection = found.sel
+    const json = JSON.stringify(found.m)
+    if (json !== selectionSent) post(found.m)
+    selectionSent = json
+  } else if (selectionSent) {
+    selectionSent = null
+    post({ type: 'selection-cleared' })
+  }
 }
 
 /**
@@ -388,6 +489,10 @@ async function open(bytes, name, kind, mine) {
   viewSeq = mine
   navigating = Promise.resolve()
   lastSelection = null
+  // Nothing of the old book's selection is sent after the swap; a selection the host holds ends here.
+  clearTimeout(selectionTimer)
+  if (selectionSent) post({ type: 'selection-cleared' })
+  selectionSent = null
   // A view that never rendered a section (a spine of linear="no", a book that failed to open) throws
   // from close(); letting that through would wedge the page and fail this good book instead.
   try { view?.close() } catch (e) { log('warn', `closing the previous book: ${e?.message ?? e}`) }
@@ -404,6 +509,9 @@ async function open(bytes, name, kind, mine) {
     // still being made does not silence this one.
     if (mine !== viewSeq) return
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
+    // A selection moved (or left the screen) with the view, a font or flow change's re-layout included: sent
+    // again, or cleared.
+    settleSelection()
     const moved = d.reason !== 'anchor' && d.cfi !== lastCfi
     lastCfi = d.cfi
     const position = moved && !hostMoving && entry ? positionOf(d) : null
@@ -447,6 +555,9 @@ async function open(bytes, name, kind, mine) {
     nb.createDocument = async (section) => { const doc = await make(section); dropRefresh(doc); return doc }
   }
   await view.open(nb)
+  // The scrolled paginator relocates on a scroll only after a debounce, and not at all on the first one after
+  // an anchored re-layout: a selection's box follows every scroll.
+  view.renderer.addEventListener('scroll', () => { if (mine === viewSeq) settleSelection() })
   view.renderer.setAttribute('flow', flow)
   view.renderer.setAttribute('margin', '24px')
   // The fixed-layout renderer (CBZ, a pre-paginated EPUB) has no styles to set.
@@ -462,6 +573,8 @@ async function open(bytes, name, kind, mine) {
     // reflowable: false for a fixed-layout book (CBZ, a pre-paginated EPUB), where flow() changes nothing.
     // annotatable: false where highlights and the translation label are refused (CBZ, PDF).
     type: 'opened', book, format, textual, annotatable, reflowable: !view.isFixedLayout,
+    // The page-progression direction foliate pages by (EPUB spine, MOBI EXTH 527); none is left to right.
+    dir: b.dir === 'rtl' ? 'rtl' : 'ltr',
     // Either may be missing, a string, or a language map ({ en: … }); the host falls back to the file name.
     title: text(b.metadata?.title), author: text(firstAuthor(b.metadata)),
     sections: b.sections.length, toc: flat(b.toc ?? []),
@@ -582,13 +695,8 @@ async function restoreInto(json, stale) {
   return result
 }
 
-/**
- * SyncLimits.MaxSelectedText (backend/src/Contracts/V2/SyncLimits.cs), checked in UTF-16 units by
- * SyncValidation.Text: a longer selection could never sync.
- */
-const MAX_SELECTED_TEXT = 4000
 
-/** The last non-empty selection as a highlight: CFI + selection (+ its ≤64-code-point quote) + 30 chars of context, saved. */
+/** The last `selection` sent, exactly its range, as a highlight: CFI + selection (+ its ≤64-code-point quote) + 30 chars of context, saved. */
 function highlightSelection() {
   if (!textual) return log('warn', 'highlightSelection ignored: this book has no text')
   if (!annotatable) return log('warn', 'highlightSelection ignored: no highlights on a PDF yet')
@@ -635,7 +743,13 @@ function openFor(bytes, name) {
   })
 }
 
+// A save still debounced is written before the page may go away: hidden (backgrounded, a tab switch) or unloaded.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saves.flush() })
+addEventListener('pagehide', () => saves.flush())
+
 window.__fol = {
+  // The host is leaving (backgrounded, unmounted, closed): a save still debounced is written at once.
+  flush: () => saves.flush(),
   // Read by the page itself (Android: the host's interceptor, bookOrigin.mjs; web: a blob: URL): no book bytes
   // cross the bridge. `open-failed`: unreadable, not a book this page reads, DRM- or password-protected.
   openUrl: (url, name) => {

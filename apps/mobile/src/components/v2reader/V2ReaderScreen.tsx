@@ -19,6 +19,8 @@ import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generat
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
+import { readSelection } from '../../lib/v2reader/selection.mjs'
+import { readDir, readKey, readTap } from '../../lib/v2reader/chrome.mjs'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
@@ -407,6 +409,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         if (t) {
           deadlines.answered()
           strikes.clear()
+          // The reading direction (#1263): what the page says, through readDir; parsed only, no bars yet.
+          console.log(`[v2] opened, dir ${readDir(m) ?? 'ltr'}`)
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
         return
@@ -448,6 +452,25 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // highlight or translation yet, so `opened.annotatable` (false: CBZ, PDF) has nothing to hide here.
         console.log('[v2] word', m.word)
         return
+      case 'selection': {
+        // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
+        // No toolbar in this slice (#1268): the selection reaches the host and stops here.
+        const s = readSelection(m)
+        if (s) console.log(`[v2] selection ${s.text.length} chars, section ${s.index}`)
+        return
+      }
+      case 'tap': {
+        // Where it landed (#1263), through readTap; no tap zones yet.
+        const p = readTap(m)
+        if (p) console.log(`[v2] tap ${p.x},${p.y}`)
+        return
+      }
+      case 'key': {
+        // A navigation key pressed in a section (#1263), through readKey; nothing acts on it yet.
+        const k = readKey(m)
+        if (k) console.log(`[v2] key ${k.key}${k.shift ? ' +shift' : ''}`)
+        return
+      }
       case 'openLink':
         if (/^https?:\/\//i.test(m.href)) Linking.openURL(m.href).catch(fail('openLink'))
         return

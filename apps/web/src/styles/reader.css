@@ -943,7 +943,6 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
 .v2-reader {
   position: fixed;
   inset: 0;
-  outline: none;
 }
 
 .v2-reader__frame {

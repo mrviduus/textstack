@@ -7,6 +7,8 @@ import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reade
 import { V2_READER_FRAME_PATH } from '../../../../mobile/src/lib/v2reader/framePath.mjs'
 import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
 import { tapAction } from '../../../../mobile/src/lib/v2reader/tapZone.mjs'
+import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs'
+import { readDir, readKey, readTap } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
@@ -66,18 +68,20 @@ type Opening = { name: string; originalName: string; bytes?: ArrayBuffer; sync?:
 
 type KeyInput = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'altKey' | 'target'>
 /**
- * A key on the host's document as a reader command (#1263): ←/PageUp/Shift+Space back, →/PageDown/Space on, Esc
- * shows the bars. Null: not the reader's (a modifier chord such as Alt+← history back, typing in a field, Space
- * on a button or link, which activates it).
+ * A key as a reader command (#1263): ←/PageUp/Shift+Space back, →/PageDown/Space on, Esc shows the bars; in an rtl
+ * book the arrows follow the screen (← is the next page). Null: not the reader's (a modifier chord such as Alt+←
+ * history back, typing in a field, Space on a button or link, which activates it).
  */
-export function keyAction(e: KeyInput): 'prev' | 'next' | 'show' | null {
+export function keyAction(e: KeyInput, dir: 'ltr' | 'rtl' = 'ltr'): 'prev' | 'next' | 'show' | null {
   if (e.ctrlKey || e.metaKey || e.altKey) return null
   if (e.key === 'Escape') return 'show'
   const el = e.target instanceof Element ? e.target : null
   if (el?.closest('input, textarea, select, [contenteditable]')) return null
   if (e.key === ' ') return el?.closest('button, a') ? null : e.shiftKey ? 'prev' : 'next'
-  if (e.key === 'ArrowLeft' || e.key === 'PageUp') return 'prev'
-  return e.key === 'ArrowRight' || e.key === 'PageDown' ? 'next' : null
+  if (e.key === 'PageUp') return 'prev'
+  if (e.key === 'PageDown') return 'next'
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return null
+  return (e.key === 'ArrowLeft') === (dir === 'rtl') ? 'next' : 'prev'
 }
 
 interface Props {
@@ -148,7 +152,6 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    * The bars (#1263): hidden 3 s after the first open, by a page turn (edge tap, key) and by scrolling in scrolled
    * flow; a centre tap toggles them, Esc and focus on a bar show them. The states above them never hide.
    */
-  const main = useRef<HTMLElement>(null)
   const [reading, setReading] = useState(false)
   const { immersiveMode: barsHidden, showBars, hideBars } = useImmersiveMode(true, !reading)
   const barsHiddenRef = useRef(barsHidden)
@@ -158,14 +161,20 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   /** The last relocate's fraction: in scrolled flow a new one is the reader scrolling. */
   const lastFraction = useRef<number | null>(null)
 
-  const call =(name: string, args: unknown[] = [], transfer: Transferable[] = []) =>
+  /** The open book's page-progression direction (`opened.dir`, through readDir): an rtl book's left is its next page. */
+  const dir = useRef<'ltr' | 'rtl'>('ltr')
+  const call = (name: string, args: unknown[] = [], transfer: Transferable[] = []) =>
     frame.current?.contentWindow?.postMessage({ call: name, args }, location.origin, transfer)
-  /**
-   * A key pressed inside the frame never reaches this document (the book's sections are frames of their own), and a
-   * click in the book takes focus there. A tap or word tap (its selection is collapsed) hands focus back here, so
-   * the keys keep turning pages; after a drag selection focus stays in the book (the page forwards no keys).
-   */
-  const focusHost = () => main.current?.focus({ preventScroll: true })
+  /** A key's command (keyAction), from this document or forwarded by the page from inside the book. */
+  const onKeyAction = (action: ReturnType<typeof keyAction>) => {
+    if (!action) return false
+    if (action === 'show') showBars()
+    else {
+      call(action)
+      hideBars()
+    }
+    return true
+  }
   const flushOpen = () => {
     const o = opening.current
     if (!ready.current || !o?.bytes) return
@@ -259,6 +268,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       setReflowable(m.reflowable !== false)
       setReading(true)
       lastFraction.current = null
+      // Untrusted (the page renders the book): only what readDir takes; none is left to right.
+      dir.current = readDir(m) ?? 'ltr'
       setHeading([m.title || current.originalName, m.author].filter(Boolean).join(' — '))
       onOpenedRef.current?.(m, current.originalName)
     }
@@ -321,23 +332,36 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             + (m.toc ? ` · ${m.toc}` : ''))
           return
         case 'tap': {
-          // Only a tap off any word, link and selection is a `tap` (page.mjs onTap), so only it may turn a page.
-          // `x` (the tap in the page's viewport = this frame's) is not sent by the page yet: without it every tap
-          // toggles (tapZone.mjs). A book's direction is not sent either: the edges are left-to-right.
-          focusHost()
+          // Only a tap off any word, link and selection is a `tap` (no `tap` for a press that dismissed a
+          // selection), so only it may turn a page. Untrusted: only what readTap takes; a malformed one is dropped.
+          // Its x is in the page's viewport, which is this frame's.
+          const p = readTap(m)
+          if (!p) return
           const flow = reflowableRef.current ? flowRef.current : 'paginated'
-          const action = tapAction({ x: m.x, width: frame.current?.clientWidth, flow })
+          const action = tapAction({ x: p.x, width: frame.current?.clientWidth, flow, dir: dir.current })
           if (action === 'toggle') return barsHiddenRef.current ? showBars() : hideBars()
           call(action)
           hideBars()
           return
         }
+        case 'key': {
+          // A key pressed inside the book (its section frames keep focus): only what readKey takes.
+          const k = readKey(m)
+          if (k) onKeyAction(keyAction({ key: k.key === 'Space' ? ' ' : k.key, shiftKey: k.shift, ctrlKey: false, metaKey: false, altKey: false, target: null }, dir.current))
+          return
+        }
         case 'word':
-          focusHost()
           // Dev stub: no translation service yet; the label proves the word → showTranslation round trip.
           // No CFI (a book that is not `annotatable`, e.g. a PDF): no label can be drawn, none is asked for.
           if (dev && m.cfi) call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
           return
+        case 'selection': {
+          // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
+          // No toolbar in this slice (#1268): the dev route logs it, the production route takes it no further.
+          const s = readSelection(m)
+          if (s && dev) console.log(`[v2] selection ${s.text.length} chars, section ${s.index}`)
+          return
+        }
         case 'openLink':
           if (/^https?:\/\//i.test(m.href)) window.open(m.href, '_blank', 'noopener,noreferrer')
           return
@@ -367,12 +391,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const action = keyAction(e)
-      if (!action) return
-      if (action === 'show') return showBars()
-      e.preventDefault()
-      call(action)
-      hideBars()
+      if (onKeyAction(keyAction(e, dir.current))) e.preventDefault()
     }
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
@@ -387,7 +406,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   }
 
   return (
-    <main ref={main} tabIndex={-1} className={`reader-page v2-reader${barsHidden ? ' immersive-mode' : ''}`} data-bars={barsHidden ? 'hidden' : 'shown'}>
+    <main className={`reader-page v2-reader${barsHidden ? ' immersive-mode' : ''}`} data-bars={barsHidden ? 'hidden' : 'shown'}>
       {/* Legacy reader's bars (reader.css); hidden ones stay reachable by Tab, and focus shows them. */}
       <header className="reader-top-bar" onFocus={showBars}>
         <div className="reader-top-bar__left">
