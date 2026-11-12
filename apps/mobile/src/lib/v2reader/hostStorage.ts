@@ -50,7 +50,16 @@ export interface V2Files {
   move(from: string, to: string): Promise<void>
   exists(name: string): boolean
   remove(name: string): void
+  /** Copies the file at `uri` (a picker's `content://`) to `to`. */
+  copyIn(uri: string, to: string): Promise<void>
 }
+
+/**
+ * The picker hands back its own URI, not a copy in its cache (#1080 items 4–5): a cache copy kept the
+ * cache's group when moved, so Android counted the retained book as app cache, and a full disk left
+ * a partial one in `cache/DocumentPicker/` that nothing removed. `stagePicked` copies it instead.
+ */
+export const PICK_OPTIONS = { type: '*/*', copyToCacheDirectory: false } as const
 
 /** The page's `sha256()` emits lower case and every lookup compares bytes, so a key is lower-cased
  *  before it names a file or matches an entry. Anything but 64 hex digits never names a file. */
@@ -141,6 +150,21 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
           throw e
         }
       })),
+
+    /**
+     * A picked file (`PICK_OPTIONS`) copied straight into `staging/`; resolves to its staged name. A failed
+     * copy (a full disk) leaves no partial file behind. Not queued: a big copy must not hold up other writes.
+     */
+    stagePicked: async (uri: string) => {
+      const staged = `staging/${Date.now()}.epub`
+      try {
+        await files.copyIn(uri, staged)
+      } catch (e) {
+        try { files.remove(staged) } catch { /* best effort; staging/ is cleared on start; rethrow the real error */ }
+        throw e
+      }
+      return staged
+    },
 
     /** A staged file the page could not open: README "open-failed — must not keep the file". */
     dropStaged: (staged: string) => queue.run(async () => files.remove(staged)),

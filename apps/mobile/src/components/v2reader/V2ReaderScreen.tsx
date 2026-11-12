@@ -11,7 +11,7 @@ import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
 import { deviceUploadIo, sha256Of, uploadV2Book } from '../../lib/v2'
-import { bookFile, createV2Storage, nonceFromUuid, type LibraryBook, type V2Files, type V2Storage } from '../../lib/v2reader/hostStorage'
+import { PICK_OPTIONS, bookFile, createV2Storage, nonceFromUuid,type LibraryBook, type V2Files, type V2Storage } from '../../lib/v2reader/hostStorage'
 import { deviceLocalLibrary } from '../../lib/v2reader/deviceLibrary'
 import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
 import { downloadV2Book, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
@@ -52,6 +52,8 @@ function deviceFiles(): V2Files {
       const file = v2File(name)
       if (file.exists) file.delete()
     },
+    // expo-file-system copies a SAF/content:// source to a local file (Android, since 56.0.0).
+    copyIn: (uri, to) => new File(uri).copy(v2File(to)),
   }
 }
 
@@ -326,12 +328,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const pick = async () => {
     try {
       // Any file: the page tells the format by its bytes (EPUB, MOBI/AZW3, FB2, CBZ, PDF) and refuses the rest.
-      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true })
+      const result = await DocumentPicker.getDocumentAsync(PICK_OPTIONS)
       if (result.canceled) return
       const asset = result.assets[0]
-      const staged = `staging/${Date.now()}.epub`
-      await new File(asset.uri).move(v2File(staged))
-      open({ file: staged, name: asset.name })
+      open({ file: await v2Storage().stagePicked(asset.uri), name: asset.name })
     } catch (e) {
       fail('pick', setOpenError)(e)
     }

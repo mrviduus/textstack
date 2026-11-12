@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { isUuid } from '@textstack/shared'
-import { createV2Storage, nonceFromUuid, readRecovering, sha256Key, type V2Files } from './hostStorage'
+import { PICK_OPTIONS, createV2Storage, nonceFromUuid, readRecovering, sha256Key, type V2Files } from './hostStorage'
 import { createLocalLibrary } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated'
@@ -27,6 +27,13 @@ function memoryFiles() {
     },
     exists: (name) => data.has(name),
     remove: (name) => { ops.push(`remove ${name}`); data.delete(name) },
+    async copyIn(uri, to) {
+      ops.push(`copyIn ${uri} ${to}`)
+      // A full disk: the copy dies part-way, its partial file left behind (as Android's copy does).
+      data.set(to, uri.endsWith('full') ? 'partial' : `bytes of ${uri}`)
+      await tick()
+      if (uri.endsWith('full')) throw new Error('ENOSPC (No space left on device)')
+    },
   }
   return { files, data, ops }
 }
@@ -316,6 +323,26 @@ describe('v2 host storage', () => {
       expect(warn).not.toHaveBeenCalled()
       warn.mockRestore()
     })
+  })
+
+  it('pick_PickerOptions_NoCacheCopy', () => {
+    // #1080 item 4: the picker's cache copy kept the cache group in books/ (Android counted the book as cache).
+    expect(PICK_OPTIONS.copyToCacheDirectory).toBe(false)
+  })
+
+  it('stagePicked_PickedUri_CopiedStraightIntoStaging', async () => {
+    const { storage: s, data, ops } = storage()
+    const staged = await s.stagePicked('content://docs/book')
+    expect(staged).toMatch(/^staging\/\d+\.epub$/)
+    expect(data.get(staged)).toBe('bytes of content://docs/book')
+    expect(ops).toEqual([`copyIn content://docs/book ${staged}`])
+  })
+
+  it('stagePicked_DiskFullMidCopy_PartialRemovedErrorKept', async () => {
+    // #1080 item 5: a copy that dies on a full disk leaves no partial file.
+    const { storage: s, data } = storage()
+    await expect(s.stagePicked('content://docs/full')).rejects.toThrow('ENOSPC')
+    expect([...data.keys()]).toEqual([])
   })
 
   it('sha256Key_NotSixtyFourHex_Throws', () => {
