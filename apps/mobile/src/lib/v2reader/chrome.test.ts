@@ -1,22 +1,30 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { BAR_PRESS_GRACE_MS, NAV_KEYS, backAction, hidesBarsOnRelocate, navKey, readDir, readKey, readTap } from './chrome.mjs'
+import { BAR_PRESS_GRACE_MS, NAV_KEYS, backAction, hidesBarsOnRelocate, keyAction, navKey, readDir, readKey, readTap } from './chrome.mjs'
 import { MAX_SELECTION_PX } from './selection.mjs'
 
-const press = (key: string, o: { shift?: boolean; ctrl?: boolean; alt?: boolean; meta?: boolean; target?: Element } = {}) =>
-  navKey({ key, shiftKey: !!o.shift, ctrlKey: !!o.ctrl, altKey: !!o.alt, metaKey: !!o.meta, target: o.target ?? document.body })
+const press = (key: string, o: { shift?: boolean; ctrl?: boolean; alt?: boolean; meta?: boolean; repeat?: boolean; target?: unknown } = {}) =>
+  navKey({ key, shiftKey: !!o.shift, ctrlKey: !!o.ctrl, altKey: !!o.alt, metaKey: !!o.meta, repeat: !!o.repeat, target: 'target' in o ? o.target : document.body })
 
 describe('v2 reader navigation keys (page side)', () => {
   it.each([['ArrowLeft'], ['ArrowRight'], ['PageUp'], ['PageDown'], ['Escape']])('navKey_%s_Forwarded', (key) => {
-    expect(press(key)).toEqual({ type: 'key', key, shift: false })
+    expect(press(key)).toEqual({ type: 'key', key, shift: false, repeat: false })
   })
 
   it('navKey_Space_ForwardedAsSpaceWithShift', () => {
-    expect(press(' ', { shift: true })).toEqual({ type: 'key', key: 'Space', shift: true })
+    expect(press(' ', { shift: true })).toEqual({ type: 'key', key: 'Space', shift: true, repeat: false })
   })
 
-  it('navKey_NoShiftKeyOnTheEvent_ShiftFalse', () => {
-    expect(navKey({ key: 'Escape', target: document.body })).toEqual({ type: 'key', key: 'Escape', shift: false })
+  it('navKey_NoShiftOrRepeatOnTheEvent_False', () => {
+    expect(navKey({ key: 'Escape', target: document.body })).toEqual({ type: 'key', key: 'Escape', shift: false, repeat: false })
+  })
+
+  it('navKey_HeldKey_RepeatTrue', () => {
+    expect(press('PageDown', { repeat: true })?.repeat).toBe(true)
+  })
+
+  it('navKey_OnTheRootElement_Forwarded', () => {
+    expect(press('PageDown', { target: document.documentElement })?.key).toBe('PageDown')
   })
 
   it.each([['a'], ['Enter'], ['Tab'], ['ArrowUp'], ['ArrowDown'], ['Home'], ['Backspace'], ['Space'], ['F5']])('navKey_%s_NeverForwarded', (key) => {
@@ -27,24 +35,56 @@ describe('v2 reader navigation keys (page side)', () => {
     expect(press('ArrowRight', { [mod]: true })).toBeNull()
   })
 
+  it.each([['ArrowLeft'], ['ArrowRight']])('navKey_Shift%s_NotForwarded_ItExtendsASelection', (key) => {
+    expect(press(key, { shift: true })).toBeNull()
+  })
+
   it.each([
     ['input', '<input>'],
     ['textarea', '<textarea></textarea>'],
     ['select', '<select><option>x</option></select>'],
-    ['contenteditable', '<div contenteditable="true"><span>x</span></div>'],
-    ['contenteditable empty', '<div contenteditable><span>x</span></div>'],
-  ])('navKey_TypingInA%s_NotForwarded', (_, html) => {
+    ['summary', '<details><summary>x</summary>y</details>'],
+    ['button', '<button>x</button>'],
+    ['link', '<a href="#x">x</a>'],
+    ['video with controls', '<video controls></video>'],
+    ['tabindex', '<div tabindex="0">x</div>'],
+    ['role button', '<div role="button" tabindex="0">x</div>'],
+  ])('navKey_OnA%s_NotForwarded', (_, html) => {
     document.body.innerHTML = html
-    expect(press(' ', { target: document.body.querySelector('span') ?? document.body.firstElementChild! })).toBeNull()
+    expect(press(' ', { target: document.body.firstElementChild!.querySelector('summary') ?? document.body.firstElementChild })).toBeNull()
   })
 
-  it('navKey_InContenteditableFalse_Forwarded', () => {
-    document.body.innerHTML = '<div contenteditable="false"><span>x</span></div>'
-    expect(press('PageDown', { target: document.querySelector('span')! })?.key).toBe('PageDown')
+  it('navKey_ContentEditableBody_NotForwarded', () => {
+    document.body.setAttribute('contenteditable', '')
+    try { expect(press(' ')).toBeNull() } finally { document.body.removeAttribute('contenteditable') }
+  })
+
+  it.each([['no target', undefined], ['the document', document], ['a detached element', document.createElement('div')]])('navKey_%s_NotForwarded', (_, target) => {
+    expect(press(' ', { target })).toBeNull()
   })
 
   it('NAV_KEYS_TheClosedList', () => {
     expect([...NAV_KEYS].sort()).toEqual(['ArrowLeft', 'ArrowRight', 'Escape', 'PageDown', 'PageUp', 'Space'])
+  })
+})
+
+describe('v2 reader key actions (both hosts)', () => {
+  it.each([
+    ['ArrowLeft', false, 'ltr', 'prev'],
+    ['ArrowRight', false, 'ltr', 'next'],
+    ['ArrowLeft', false, 'rtl', 'next'],
+    ['ArrowRight', false, 'rtl', 'prev'],
+    ['PageUp', false, 'rtl', 'prev'],
+    ['PageDown', false, 'rtl', 'next'],
+    ['Space', false, 'ltr', 'next'],
+    ['Space', true, 'ltr', 'prev'],
+    ['Escape', false, 'ltr', 'bars'],
+  ] as const)('keyAction_%s_shift%s_%s_%s', (key, shift, dir, want) => {
+    expect(keyAction({ key, shift, dir })).toBe(want)
+  })
+
+  it('keyAction_UnknownKey_Null', () => {
+    expect(keyAction({ key: 'Home' as never, shift: false, dir: 'ltr' })).toBeNull()
   })
 })
 
@@ -85,21 +125,23 @@ describe('v2 reader chrome readers (hostile payloads)', () => {
     expect(readDir(m)).toBe(want)
   })
 
-  it('readKey_Key_KeyAndShiftOnly', () => {
-    expect(readKey({ type: 'key', key: 'PageDown', shift: true, code: 'x' })).toEqual({ key: 'PageDown', shift: true })
+  it('readKey_Key_KeyShiftRepeatOnly', () => {
+    expect(readKey({ type: 'key', key: 'PageDown', shift: true, repeat: false, code: 'x' })).toEqual({ key: 'PageDown', shift: true, repeat: false })
   })
 
   it.each([
-    ['another type', { type: 'tap', key: 'Space', shift: false }],
-    ['a key off the list', { type: 'key', key: 'a', shift: false }],
-    ['the raw space character', { type: 'key', key: ' ', shift: false }],
-    ['a list key in other case', { type: 'key', key: 'arrowleft', shift: false }],
-    ['an inherited list name', { type: 'key', key: 'includes', shift: false }],
-    ['a key that is not a string', { type: 'key', key: ['Space'], shift: false }],
-    ['shift missing', { type: 'key', key: 'Space' }],
-    ['shift a string', { type: 'key', key: 'Space', shift: 'false' }],
+    ['another type', { type: 'tap', key: 'Space', shift: false, repeat: false }],
+    ['a key off the list', { type: 'key', key: 'a', shift: false, repeat: false }],
+    ['the raw space character', { type: 'key', key: ' ', shift: false, repeat: false }],
+    ['a list key in other case', { type: 'key', key: 'arrowleft', shift: false, repeat: false }],
+    ['an inherited list name', { type: 'key', key: 'includes', shift: false, repeat: false }],
+    ['a key that is not a string', { type: 'key', key: ['Space'], shift: false, repeat: false }],
+    ['shift missing', { type: 'key', key: 'Space', repeat: false }],
+    ['shift a string', { type: 'key', key: 'Space', shift: 'false', repeat: false }],
+    ['repeat missing (an old page)', { type: 'key', key: 'Space', shift: false }],
+    ['repeat a number', { type: 'key', key: 'Space', shift: false, repeat: 1 }],
     ['null', null],
-    ['fields only under __proto__', JSON.parse('{"type":"key","__proto__":{"key":"Space","shift":false}}')],
+    ['fields only under __proto__', JSON.parse('{"type":"key","__proto__":{"key":"Space","shift":false,"repeat":false}}')],
   ])('readKey_%s_Dropped', (_, m) => {
     expect(() => readKey(m)).not.toThrow()
     expect(readKey(m)).toBeNull()

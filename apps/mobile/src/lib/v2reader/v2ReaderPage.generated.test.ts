@@ -101,7 +101,7 @@ describe('v2ReaderPageHtml', () => {
     // #1128: the format is sniffed (and a refusal answered) BEFORE the seq turns over, so a refused
     // file leaves the open book reading and saving, like a failed read (#1168).
     expect(html).toMatch(/function openFor\(bytes, name\) \{\s*let kind;\s*try \{\s*kind = sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*const mine = \+\+openSeq;\s*return open\(bytes, name, kind, mine\)/)
-    expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,300}?if \(!entry\) return log\("warn"/)
+    expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,500}?if \(!entry\) return log\("warn"/)
     // The open seq only goes up: a failed open answers `open-failed` and hands nothing back.
     expect(html).toMatch(/if \(mine === openSeq\) openFailed\(name, [^;]*;\s*\}\);/)
     expect(html).not.toMatch(/(?<!var )openSeq = /)
@@ -143,8 +143,9 @@ describe('v2ReaderPageHtml', () => {
     for (const k of ['mobi', 'fb2', 'cbz', 'pdf', 'pdfcmaps']) expect(carried).toMatch(new RegExp(`window\\.__tsFormats\\.${k} ?=`))
     expect(html).toMatch(/var NONCE = \(\w+ = document\.currentScript\) == null \? void 0 : \w+\.nonce;/)
     expect(html).toMatch(/(\w+)\.nonce = NONCE;\s*\1\.textContent = /)
-    // A comic book has no text: its frames post only `tap` (where it landed, #1263), and a translation is never drawn on it.
-    expect(html).toMatch(/if \(!textual\) return doc\.addEventListener\("click", \((\w+)\) => post\(tapAt\(doc, \1\)\)\);/)
+    // A comic book has no text: its frames forward keys and post `tap` (where it landed, #1263) and return before
+    // any selection or press listener; a translation is never drawn on it.
+    expect(html).toMatch(/function onLoad\(\{ detail: \{ doc, index \} \}\) \{\s*doc\.addEventListener\("keydown", onKey\);\s*if \(!textual\) return doc\.addEventListener\("click", \((\w+)\) => post\(tapAt\(doc, \1\)\)\);\s*sectionIndex\.set\(doc, index\);/)
     // Nor on a PDF (#1128 S5): `annotatable` is false for both, and `opened` says so.
     expect(html).toMatch(/showTranslation: \(cfi, index, \w+\) => view && annotatable && annotate\(/)
     expect(html).toContain('annotatable = textual && format !== "pdf";')

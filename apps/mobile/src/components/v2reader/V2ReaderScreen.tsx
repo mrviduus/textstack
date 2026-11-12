@@ -22,7 +22,7 @@ import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
-import { backAction, hidesBarsOnRelocate, readDir, readKey, readTap } from '../../lib/v2reader/chrome.mjs'
+import { backAction, hidesBarsOnRelocate, keyAction, readDir, readKey, readTap } from '../../lib/v2reader/chrome.mjs'
 import { tapAction } from '../../lib/v2reader/tapZone.mjs'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
@@ -250,6 +250,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const [fileSync, setFileSync] = useState(false)
   const { user } = useAuth()
   const userId = user?.id ?? null
+  /** The direction the open book pages in (`opened`, then every `relocate`): the keys and the tap zones follow it. */
+  const pageDir = useRef<'ltr' | 'rtl'>('ltr')
   /** The open book as ADR-019 sees it (R6): restored yet, the first CFI after the restore, the one now. */
   const reading = useRef({ bookId: null as string | null, restored: false, baseline: null as string | null, cfi: null as string | null, index: null as number | null })
 
@@ -270,8 +272,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   useKeepReaderAwake(inBook)
   /** The page viewport's width (the WebView's), the space of `tap.x`. */
   const pageWidth = useRef(0)
-  /** The open book's page-progression direction (`opened.dir`): an rtl book's left edge is the next page. */
-  const dir = useRef<'ltr' | 'rtl' | null>(null)
   /** When a bar control last moved the reader: its relocate keeps the bars up. */
   const barPressAt = useRef(-Infinity)
   const barTurn = (dir: 'prev' | 'next') => {
@@ -294,7 +294,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    */
   const onTap = (m: unknown) => {
     const p = readTap(m)
-    const action = tapAction({ x: p?.x, width: pageWidth.current, flow: reflowable ? flow ?? 'scrolled' : 'paginated', dir: dir.current ?? undefined })
+    const action = tapAction({ x: p?.x, width: pageWidth.current, flow: reflowable ? flow ?? 'scrolled' : 'paginated', dir: pageDir.current })
     if (action === 'toggle') return toggleBars()
     call(`window.__fol.${action}()`)
     hideBars()
@@ -488,7 +488,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         if (t) {
           deadlines.answered()
           strikes.clear()
-          dir.current = readDir(m)
+          pageDir.current = readDir(m) ?? 'ltr'
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
         return
@@ -518,6 +518,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // The reader moving (not the restore's landing): in scrolled flow that hides the bars.
         const moved = reading.current.restored && reading.current.cfi != null && (m.cfi ?? null) !== reading.current.cfi
         if (hidesBarsOnRelocate({ flow, moved, msSinceBarPress: Date.now() - barPressAt.current })) hideBars()
+        pageDir.current = readDir(m) ?? pageDir.current
         if (reading.current.restored) {
           reading.current.baseline ??= m.cfi ?? null
           reading.current.cfi = m.cfi ?? null
@@ -544,9 +545,16 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         onTap(m)
         return
       case 'key': {
-        // A navigation key pressed in a section (#1263), through readKey; nothing acts on it yet.
+        // A navigation key pressed in the page (#1263), through readKey: one press, one turn (a held key's
+        // repeats are dropped). A turn hides the bars, as an edge tap does; Escape ('bars') shows them.
         const k = readKey(m)
-        if (k) console.log(`[v2] key ${k.key}${k.shift ? ' +shift' : ''}`)
+        if (!k || k.repeat) return
+        const a = keyAction({ ...k, dir: pageDir.current })
+        if (a === 'bars') showBars()
+        else if (a) {
+          call(`window.__fol.${a}()`)
+          hideBars()
+        }
         return
       }
       case 'openLink':

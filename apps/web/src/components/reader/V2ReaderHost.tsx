@@ -6,7 +6,7 @@ import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reade
 import { V2_READER_FRAME_PATH } from '../../../../mobile/src/lib/v2reader/framePath.mjs'
 import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
 import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs'
-import { readDir, readKey, readTap } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
+import { keyAction, readDir, readKey, readTap } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
 import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
@@ -101,6 +101,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [heading, setHeading] = useState<string | null>(null)
   const [flow, setFlow] = useState<Flow>(() => (readItem(FLOW_KEY) === 'scrolled' ? 'scrolled' : 'paginated'))
   const flowRef = useRef(flow)
+  /** The direction the open book pages in (`opened`, then every `relocate`): the arrow keys follow it. */
+  const pageDir = useRef<'ltr' | 'rtl'>('ltr')
   /** `opened.annotatable`: false on a CBZ (images only) and a PDF (no highlights yet): no highlight button (the page refuses it too). */
   const [annotatable, setAnnotatable] = useState(true)
   /** False for a fixed-layout book (CBZ): flow changes nothing there. */
@@ -238,8 +240,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           const take = tracker.opened(m)
           if (!take) return
           deadlines.answered()
-          // The reading direction (#1263): what the page says, through readDir; parsed only, no bars yet.
-          if (dev) console.log(`[v2] opened, dir ${readDir(m) ?? 'ltr'}`)
+          pageDir.current = readDir(m) ?? 'ltr'
           takeOpened(take)
           return
         }
@@ -274,6 +275,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           else if (sync.current && m.key === sync.current.target.sha256) sync.current.store(m.json)
           return
         case 'relocate':
+          pageDir.current = readDir(m) ?? pageDir.current
           // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
           if (!tracker.showsPosition()) return
           setStatus(t('v2Reader.position', { percent: Math.round((m.fraction ?? 0) * 100), index: (m.index ?? 0) + 1, sections: m.sections ?? '?' })
@@ -298,9 +300,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           return
         }
         case 'key': {
-          // A navigation key pressed in a section (#1263), through readKey; nothing acts on it yet.
+          // A navigation key pressed in the page (#1263), through readKey: one press, one turn (a held key's
+          // repeats are dropped). Escape ('bars') does nothing until the bars land.
           const k = readKey(m)
-          if (k && dev) console.log(`[v2] key ${k.key}${k.shift ? ' +shift' : ''}`)
+          if (!k || k.repeat) return
+          const a = keyAction({ ...k, dir: pageDir.current })
+          if (a === 'prev' || a === 'next') call(a)
           return
         }
         case 'openLink':
