@@ -73,7 +73,7 @@ origin to book content, so it cannot inherit the production reader's safety argu
    own size assertion at its first committed size, raised only by a deliberate PR.
 4. **Sandbox: the CSP is the contract.** Because the section iframes allow scripts and same-origin,
    the page's CSP is the only thing between a book and script execution:
-   `default-src 'none'; script-src 'nonce-…'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/; form-action 'none'; base-uri 'none'` (`connect-src` as amended 2026-11-11, below; it was `blob: data: file:`).
+   `default-src 'none'; script-src 'nonce-…'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data:; form-action 'none'; base-uri 'none'` (`connect-src` as amended 2026-11-11, below: it was `blob: data: file:`; the Android page adds its two book directories).
    Book scripts never run; book resources load only as `blob:`/`data:`. Removing or widening a
    directive is a change to this ADR. The `file://` base URL with direct XHR read of the retained
    file is **accepted only for the dev route** until the R4 security review decides (keep, narrow
@@ -102,8 +102,8 @@ origin to book content, so it cannot inherit the production reader's safety argu
    `pnpm patch` of react-native-webview (`patches/react-native-webview@13.16.1.patch`). It serves exactly
    `/v2/books/<sha256>.epub` and `/v2/staging/[dl-]<ms>.epub` from the app's `files/v2/` (`bookOrigin.mjs`
    `BOOK_PATH`, pinned to the Java copy by a test; canonical-path containment against symlinks) and answers 404 to
-   anything else on that host. Both `allowFileAccess*` flags are off; `connect-src` drops `file:` and names those two
-   directories. The same patch accepts bridge messages from the main frame only. Defaults taken where the owner did
+   anything else on that host. Both `allowFileAccess*` flags are off; `connect-src` drops `file:` on every host and,
+   on the Android page only, names those two directories (the web frame keeps `blob: data:`). The same patch limits the message bridge on that WebView: with `WEB_MESSAGE_LISTENER` (every engine that can run the page, Chrome 117+) only the main frame's messages are delivered; on the `addJavascriptInterface` fallback (older engines, no frame information) only the user-agent answer is, and no book opens there. Other WebViews keep the fallback as it was; on the listener path they too take main-frame messages only (none of them uses iframes). Defaults taken where the owner did
    not answer (veto in the PR): the two directories rather than one book at a time; staged picks served from
    `staging/` (no second copy); the main-frame bridge fixed in the same patch. Design and evidence:
    [v2-reader-android-bytes.md](../v2-reader-android-bytes.md).

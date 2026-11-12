@@ -110,11 +110,19 @@ Defaults taken where the owner did not answer; **the owner can veto each in the 
   react-native-webview opens a navigation outside the whitelist in another app (`Linking.openURL`), so a narrow
   whitelist would turn a blocked navigation into an external open. `onShouldStartLoadWithRequest` (about:/blob:/data:)
   stays the filter.
-- **CSP:** `connect-src blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/`;
-  `file:` gone (ADR-029 Decision 4, amended). The web frame shares the CSP and is unaffected (bytes as `blob:`;
-  prod-csp check passes).
-- **Fingerprint:** Expo's fingerprint reads react-native-webview's `package.json` only, not its android sources, so
-  a patch alone would not move the runtime. `apps/mobile/fingerprint.config.js` adds `patches/` as a source.
+- **CSP, per host:** the Android page (`v2ReaderAndroidPageHtml`, carrier.mjs `ANDROID_CSP`) has `connect-src blob:
+  data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/`; the page
+  as built and the web frame keep `connect-src blob: data:` (the prod-csp check asserts the frame's). `file:` is gone
+  from both (ADR-029 Decision 4, amended).
+- **Fingerprint:** the Expo fingerprint (`npx expo-updates fingerprint:generate --platform android`, from
+  `apps/mobile`) hashes the whole `node_modules/react-native-webview` directory: measured `1b3582e7…` without the
+  patch applied and `8227c2d6…` with it. No extra source is needed; an OTA never reaches a build without the patch.
+- **Bridge:** The same patch limits the message bridge on that WebView: with `WEB_MESSAGE_LISTENER` (every engine that can run the page, Chrome 117+) only the main frame's messages are delivered; on the `addJavascriptInterface` fallback (older engines, no frame information) only the user-agent answer is, and no book opens there. Other WebViews keep the fallback as it was; on the listener path they too take main-frame messages only (none of them uses iframes).
+- **Images:** `patchedDependencies` makes every install read the patch, so `apps/admin/Dockerfile` and
+  `apps/web/Dockerfile.ssg-worker` `COPY patches/` before installing (without it: ENOENT, reproduced). The ssg-worker's
+  `pnpm deploy` of the web app alone has no react-native-webview, so it passes `--config.allow-unused-patches=true`
+  for that command only (workspace-wide, the unused-patch error is what catches a version bump that left the patch
+  behind). Both images built locally (`docker build`). The CI and deploy installs run on full checkouts.
 - **Desktop checks:** `bookOriginRoute.mjs` routes the origin in Playwright (no `--allow-file-access-from-files`
   anywhere). The sandbox check uses the interceptor's rule plus scope rows; the format check and the PDF gate use
   the same origin.
@@ -137,9 +145,23 @@ Defaults taken where the owner did not answer; **the owner can veto each in the 
 | Bridge: `postMessage` from a `blob:` iframe vs the main frame | iframe message dropped, main-frame message delivered |
 | AVD `TS_API28` (WebView 66), same APK | the update screen, not the reader |
 
+**Re-run after the review fixes (second dev client: the fallback-bridge guard, host-specific CSP, page rebuilt):**
+
+| Check | Result |
+|---|---|
+| WebView 156: 87 MB EPUB open | 2.12 s |
+| Served book / out-of-scope rows, CSP on and bypassed | as above: 200; CSP refusals; with the CSP bypassed every out-of-scope path 404, `file:` refused |
+| Bridge from a `blob:` iframe vs the main frame | iframe dropped, main frame delivered |
+| WebView 66 (fallback bridge, `servesBooks`): the `ua` answer | delivered: the update screen shows |
+| **Legacy reader** (`ReaderShell`, catalog EPUB "Alice", WebView 156, process-wide bridge change) | opens and renders; long-press a word: the selection bar (Translate, Explain, Listen, Save) comes up over the bridge; a yellow highlight saved; scrolled 4 screens, app killed, "Continue Reading" (book page showed 3 %) reopened at the same paragraph; the highlight is still drawn |
+| **Legacy PDF viewer** (`ReaderShell` original layout) | **not run**: only a user upload has one, and the dev client talks to production; uploading a test file there was not done. Owner, on the device |
+
+Every `<WebView` in the app: `src/components/reader/ReaderShell.tsx` (legacy reader: reflow, and the PDF original
+layout) and `src/components/v2reader/V2ReaderScreen.tsx` (V2). Only the reflow half of the first and the second
+were run.
+
 Not run here: a physical device (owner); the hostile book on the device (the desktop sandbox check covers the CSP
-under this origin); an ENOSPC import on this build; the legacy reader and PDF viewer WebViews on the new APK (they
-are not armed; their only change is the main-frame bridge, and none of them uses iframes).
+under this origin); an ENOSPC import on this build; the legacy PDF viewer (above).
 
 **Owner, physical device:** build a dev client with the patch (`cd apps/mobile && npx expo run:android` with the phone
 on USB, or `npm run build:dev:android` on EAS and install it; Expo Go cannot run it). Then
