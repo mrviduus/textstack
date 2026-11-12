@@ -483,6 +483,7 @@
     "position": "{{percent}}% · section {{index}}/{{sections}}",
     "restore": "restore: {{state}}",
     "cannotOpen": "cannot open {{name}}: {{error}}",
+    "libraryCorrupt": "The stored library ({{key}}) cannot be read: books are not added to it. Fix or remove it, then reload.",
     "frameFailed": "The reader failed to load: no answer from {{path}} in {{seconds}} s.",
     "openTimeout": "{{name}} is taking too long to open (no answer in {{seconds}} s).",
     "loadFailed": "Could not load the book: {{error}}",
