@@ -13,6 +13,9 @@
  *   `store` and on flush (the tab hidden), `unsaved` until it lands; `pagehide` sends what is left by keepalive.
  * - A refusal no retry changes: the book's file changed → no more writes, `reopen`; the write itself refused →
  *   not resent until the page changes it, `unsaved` meanwhile. Never silent, no request per page turn.
+ * - Another device's newer place on a lost write (#1232): ADR-019 by `decideServerState`, as Android. `adopt`/`move`
+ *   take theirs (the host moves the page), `prompt` asks (`onNewerPlace`), and until `answerNewer` no position is
+ *   written; `keep` writes ours on their revision.
  *
  * The one local exception: a CBZ page position (no server form yet, #1188) is kept in this browser per book.
  *
@@ -21,8 +24,8 @@
  */
 import {
   annotationHighlight, ApiError, entryChanges, entryFor, highlightWrite, isImagePage, normalisedHighlight, ownAnnotationWrite,
-  ownStateWrite, pageEntry, positionWrite, sameJson, statePosition, v2Api,
-  type HeldHighlight, type PageEntry, type PageHighlight, type PagePosition, type V2Annotation, type V2AnnotationWrite, type V2ReadingState,
+  decideServerState, ownStateWrite, pageEntry, positionWrite, sameJson, statePosition, v2Api,
+  type HeldHighlight, type OpenReader, type PageEntry, type PageHighlight, type PagePosition, type V2Annotation, type V2AnnotationWrite, type V2ReadingState,
   type V2ReadingStateWrite,
 } from '@textstack/shared'
 import { resetSince } from '../api/v2'
@@ -93,6 +96,8 @@ export interface V2ReaderSync {
   flushKeepalive(): void
   /** Another open, or the host unmounted: one last pass of what is unsaved, then nothing more is written. */
   close(): Promise<void>
+  /** The reader's answer to `onNewerPlace(…, true)`: go (theirs is kept, the host moves the page) or stay (ours written on their revision). */
+  answerNewer(go: boolean): void
 }
 
 const errorCode = (e: unknown) => v2Api.v2ErrorOf(e)?.code ?? (e as Error | null)?.message
@@ -113,6 +118,10 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   onStatus(s: V2SaveStatus): void
   /** This file's live highlights, once the pull lands: the host draws them and offers highlighting. */
   onHighlights(list: PageHighlight[]): void
+  /** The open page as ADR-019 sees it (`decideServerState`). */
+  reader(): OpenReader | null
+  /** Another device's newer place: `ask` false, taken (the host moves the page there, nothing saved); true, asked. */
+  onNewerPlace(p: PagePosition, ask: boolean): void
   /** Waited for before the first read; by default the last session of this book still writing (a reopen). */
   after?: Promise<unknown>
   /** False where the page offers no highlights (a PDF, a CBZ): no annotations pull. */
@@ -144,6 +153,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   const overridden = new Map<string, PageHighlight>()
   const refused = new Map<string, PageHighlight>()
   let refusedPosition: PagePosition | null = null
+  /** Another device's newer place the reader is asked about: no position is written until the answer. */
+  let asking: PagePosition | null = null
   let latest: PageEntry | null = null
   let running: Promise<void> | null = null
   let again = false
@@ -151,6 +162,12 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   const status = (s: V2SaveStatus) => { if (current()) o.onStatus(s) }
   const keep = (a: V2Annotation, highlight = annotationHighlight(a)) =>
     held.set(a.id, { id: a.id, highlight, fileId: a.fileId, deleted: !!a.deletedAt, revision: a.revision })
+
+  /** Theirs is what the server holds and what the page shows (no store follows a host move). */
+  function takeTheirs(p: PagePosition) {
+    position = p
+    if (latest) latest = { ...latest, position: p }
+  }
 
   /** The position written; false when it did not land or was refused. One retry after a lost revision. */
   async function pushPosition(p: PagePosition, expected: number | null, retried = false): Promise<boolean> {
@@ -170,12 +187,23 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
         revision = cur.revision
         return true
       }
-      // ADR-019 rule 5 on a lost write: a position is written only after the reader moved, where the rule asks the
-      // reader. Owner decision 2026-11-11: on web THIS TAB WINS for now (no ask UI; #1232): ours is written
-      // again on their revision. `reset`: the frontier is gone, our position stays (PDD). Lost twice: the next
-      // `store` or flush writes on the revision last seen.
+      // ADR-019 rule 5 on a lost write (#1232): theirs taken or asked about, never written over unasked; `keep` (ours
+      // is not older) and `reset` (the frontier is gone, our position stays: PDD) write ours again on their revision.
+      // Lost twice: the next `store` or flush writes on the revision last seen.
       if (err?.code === 'stale_revision' || err?.code === 'reset') {
         revision = cur?.revision ?? null
+        const action = err.code === 'stale_revision' && cur
+          ? decideServerState({ local: p, localFileId: t.fileId, server: cur, reader: o.reader(), format: t.format })
+          : 'keep'
+        if (action !== 'keep') {
+          // Not `keep`: their state is a position on this file (decideServerState).
+          const theirs = statePosition(cur!, t.format)!
+          if (action === 'prompt') asking = theirs
+          else takeTheirs(theirs)
+          if (current()) o.onNewerPlace(theirs, action === 'prompt')
+          // Not "not saved": the bar asking says what is held.
+          return true
+        }
         if (!retried) return pushPosition(p, revision, true)
       } else if (err && BOOK_GONE.has(err.code)) gone = true
       // Held as sent so it is not resent; unsaved until the reader moves.
@@ -240,7 +268,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       if (isImagePage(changes.position)) {
         writeItem(imagePageKey(t.bookId), JSON.stringify(changes.position))
         position = changes.position
-      } else if (!(await pushPosition(changes.position, revision))) saved = false
+      } else if (!asking && !(await pushPosition(changes.position, revision))) saved = false
     }
     // Highlight writes wait for the pull: without the server's rows a write would duplicate or overwrite one.
     if (highlightsLoaded) {
@@ -329,7 +357,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       const bodies: [send: (body: string) => void, body: string][] = []
       // ponytail: a position PUT still in flight on the same revision makes this one lose (stale_revision, never
       // read): on a slow link the last page turn before closing the tab can be lost; the next open is one turn back.
-      const write = changes.position && positionWrite(changes.position, t.fileId, revision, Date.now(), t.format)
+      const write = !asking && changes.position && positionWrite(changes.position, t.fileId, revision, Date.now(), t.format)
       if (write) bodies.push([(b) => api.keepalivePutState(t.bookId, b), JSON.stringify(write)])
       if (highlightsLoaded) {
         for (const { highlight: h } of changes.highlights) {
@@ -354,6 +382,13 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       })
       closingByBook.set(t.bookId, done)
       return done
+    },
+    answerNewer(go) {
+      if (!asking || !current()) return
+      if (go) takeTheirs(asking)
+      asking = null
+      // Stay: ours on their revision (taken on the 409). Go: nothing of the position left to write.
+      void kick()
     },
   }
 }

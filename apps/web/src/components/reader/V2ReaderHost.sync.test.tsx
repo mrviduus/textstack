@@ -1,4 +1,5 @@
-import { act, render, screen } from '@testing-library/react'
+import type { OpenReader, PagePosition } from '@textstack/shared'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { V2SaveStatus, V2SyncTarget } from '../../lib/v2ReaderSync'
 import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
@@ -11,6 +12,9 @@ interface FakeSync {
   onStatus(s: V2SaveStatus): void
   onHighlights(list: unknown[]): void
   highlights?: boolean
+  reader(): OpenReader | null
+  onNewerPlace(p: PagePosition, ask: boolean): void
+  answerNewer: ReturnType<typeof vi.fn>
   /** The next `restore` call's answer (a new one per call: Retry calls it again). */
   answer(json: string | null): void
   fail(): void
@@ -23,11 +27,11 @@ interface FakeSync {
 }
 const sessions: FakeSync[] = []
 vi.mock('../../lib/v2ReaderSync', () => ({
-  createV2ReaderSync: (target: V2SyncTarget, o: { onStatus(s: V2SaveStatus): void; onHighlights(list: unknown[]): void; highlights?: boolean }) => {
+  createV2ReaderSync: (target: V2SyncTarget, o: Pick<FakeSync, 'onStatus' | 'onHighlights' | 'highlights' | 'reader' | 'onNewerPlace'>) => {
     let settle: { ok(json: string | null): void; no(e: unknown): void } | null = null
     const closed = Promise.resolve()
     const s: FakeSync = {
-      target, onStatus: o.onStatus, onHighlights: o.onHighlights, highlights: o.highlights,
+      target, onStatus: o.onStatus, onHighlights: o.onHighlights, highlights: o.highlights, reader: o.reader, onNewerPlace: o.onNewerPlace, answerNewer: vi.fn(),
       answer: (json) => settle?.ok(json), fail: () => settle?.no(new Error('offline')),
       restore: vi.fn(() => new Promise((ok, no) => { settle = { ok, no } })), loadHighlights: vi.fn(async () => {}),
       store: vi.fn(), flush: vi.fn(async () => {}), flushKeepalive: vi.fn(), close: vi.fn(() => closed),
@@ -198,5 +202,71 @@ describe('V2ReaderHost, server sync', () => {
     fromPage(opened('1/b1.epub', SHA('a')))
     act(() => sessions[0].onStatus(st))
     expect(screen.getByTestId('v2-not-saved')).toHaveTextContent(text)
+  })
+
+  // #1232: another device's newer place (the session decides by ADR-019; the host moves the page or asks).
+  describe('newer place', () => {
+    const THEIRS = { cfi: 'epubcfi(/6/10!/4/2/1:0)', quote: 'q', index: 4, fraction: 0.42, at: 1 }
+    const goTos = () => posted.filter((m) => m.call === 'goTo').map((m) => m.args)
+    function reading() {
+      const { open } = mount()
+      fromPage({ type: 'ready' })
+      open(synced('b1', SHA('a')))
+      fromPage(opened('1/b1.epub', SHA('a')))
+      return sessions[0]
+    }
+    const bar = () => screen.queryByRole('status', { name: 'Newer reading place' })
+
+    it('asked_ABarWithTwoButtons_GoMovesThePageThere_AndAnswersTheSession', () => {
+      const s = reading()
+      act(() => s.onNewerPlace(THEIRS, true))
+      expect(bar()).toHaveTextContent('Another device saved a newer place in this book (42%).')
+      expect(goTos()).toEqual([])
+      fireEvent.click(screen.getByRole('button', { name: 'Go to their place' }))
+      expect(s.answerNewer.mock.calls).toEqual([[true]])
+      expect(goTos()).toEqual([[THEIRS, false]])
+      expect(bar()).toBeNull()
+    })
+
+    it('asked_Stay_AnswersTheSession_ThePageStays', () => {
+      const s = reading()
+      act(() => s.onNewerPlace(THEIRS, true))
+      fireEvent.click(screen.getByRole('button', { name: 'Stay here' }))
+      expect(s.answerNewer.mock.calls).toEqual([[false]])
+      expect(goTos()).toEqual([])
+      expect(bar()).toBeNull()
+    })
+
+    it('taken_ThePageMovedThere_NoBar', () => {
+      const s = reading()
+      act(() => s.onNewerPlace(THEIRS, false))
+      expect(goTos()).toEqual([[THEIRS, false]])
+      expect(bar()).toBeNull()
+    })
+
+    it('aLaterTake_TheBarGoes', () => {
+      const { open } = mount()
+      fromPage({ type: 'ready' })
+      open(synced('b1', SHA('a')))
+      fromPage(opened('1/b1.epub', SHA('a')))
+      act(() => sessions[0].onNewerPlace(THEIRS, true))
+      open(synced('b2', SHA('b')))
+      fromPage(opened('2/b2.epub', SHA('b')))
+      expect(bar()).toBeNull()
+    })
+
+    it('reader_RestoredThenMoved_AHostMoveIsANewBaseline', () => {
+      const s = reading()
+      fromPage({ type: 'relocate', cfi: 'c0', index: 0 })
+      expect(s.reader()).toEqual({ restoreApplied: false, moved: false, index: null })
+      fromPage({ type: 'restored', key: SHA('a'), position: 'restored' })
+      fromPage({ type: 'relocate', cfi: 'c1', index: 1 })
+      expect(s.reader()).toEqual({ restoreApplied: true, moved: false, index: 1 })
+      fromPage({ type: 'relocate', cfi: 'c2', index: 2 })
+      expect(s.reader()).toEqual({ restoreApplied: true, moved: true, index: 2 })
+      act(() => s.onNewerPlace(THEIRS, false))
+      fromPage({ type: 'relocate', cfi: 'c4', index: 4 })
+      expect(s.reader()).toEqual({ restoreApplied: true, moved: false, index: 4 })
+    })
   })
 })

@@ -171,6 +171,90 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
+  // #1232: a tab whose place did not land while another browser read on is asked (ADR-019), never silently winning.
+  async function anOlderTabAsked(browser: { newContext(): Promise<BrowserContext> }) {
+    const who = email('v2newer')
+    const context = await v2Context(browser, who)
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    const statePath = `/me/v2/books/${bookId}/reading-state`
+    const isStatePut = (r: { method(): string; url(): string }) => r.method() === 'PUT' && r.url().endsWith(statePath)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+
+    // This tab moves twice (so it moved since its restore) while its writes cannot land: its place is the older one.
+    await page.route(`**${statePath}`, (r) => (isStatePut(r.request()) ? r.abort() : r.continue()))
+    for (let i = 0; i < 2; i++) {
+      const before = await status(page).textContent()
+      await page.getByRole('button', { name: 'Next ›' }).click()
+      await expect(status(page)).not.toHaveText(before ?? '')
+    }
+    await expect(page.getByTestId('v2-not-saved')).toBeVisible()
+    const ours = await status(page).textContent()
+
+    // Another browser, same account, reads on: its place is the server's, recorded later.
+    const other = await v2Context(browser, who)
+    const second = await other.newPage()
+    await second.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(second)
+    let theirs: unknown = null
+    for (let i = 0; i < 3; i++) {
+      const saved = second.waitForResponse((r) => isStatePut(r.request()))
+      await second.getByRole('button', { name: 'Next ›' }).click()
+      const resp = await saved
+      expect(resp.ok(), `PUT reading-state: ${resp.status()}`).toBeTruthy()
+      theirs = (resp.request().postDataJSON() as { currentLocator: unknown }).currentLocator
+    }
+    const theirStatus = await status(second).textContent()
+    expect(theirStatus).not.toBe(ours)
+    await other.close()
+
+    // The first tab writes what it holds (the tab hidden): it loses on the revision, and is asked.
+    await page.unroute(`**${statePath}`)
+    const lost = page.waitForResponse((r) => isStatePut(r.request()))
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+      document.dispatchEvent(new Event('visibilitychange'))
+      delete (document as { visibilityState?: unknown }).visibilityState
+    })
+    expect((await lost).status()).toBe(409)
+    const bar = page.getByRole('status', { name: 'Newer reading place' })
+    await expect(bar).toBeVisible()
+    const serverPlace = async () =>
+      ((await (await context.request.get(`${API_URL}${statePath}`, { headers: API_HEADERS })).json()) as { currentLocator: unknown }).currentLocator
+    return { context, page, bar, ours, theirs, theirStatus: theirStatus ?? '', serverPlace, isStatePut }
+  }
+
+  test('readV2Sync_AnotherBrowserSavedANewerPlace_Asked_UnansweredNotOverwritten_GoMovesThere', async ({ browser }) => {
+    const { context, page, bar, theirs, theirStatus, serverPlace, isStatePut } = await anOlderTabAsked(browser)
+    // Unanswered: reading on writes no place over theirs.
+    const put = page.waitForRequest(isStatePut, { timeout: 3_000 }).then(() => true, () => false)
+    await page.getByRole('button', { name: 'Next ›' }).click()
+    expect(await put, 'no place written while the bar is unanswered').toBe(false)
+    expect(await serverPlace()).toEqual(theirs)
+
+    // Keyboard reachable: Go is a real button.
+    await bar.getByRole('button', { name: 'Go to their place' }).focus()
+    await page.keyboard.press('Enter')
+    await expect(bar).toHaveCount(0)
+    await expect(status(page)).toHaveText(theirStatus)
+    const after = page.waitForRequest(isStatePut, { timeout: 3_000 }).then(() => true, () => false)
+    expect(await after, 'their place is not written back').toBe(false)
+    expect(await serverPlace()).toEqual(theirs)
+    await context.close()
+  })
+
+  test('readV2Sync_AnotherBrowserSavedANewerPlace_StayWritesThisTabsPlace', async ({ browser }) => {
+    const { context, page, bar, ours, theirs, serverPlace, isStatePut } = await anOlderTabAsked(browser)
+    const saved = page.waitForResponse((r) => isStatePut(r.request()))
+    await bar.getByRole('button', { name: 'Stay here' }).click()
+    expect((await saved).ok()).toBeTruthy()
+    await expect(bar).toHaveCount(0)
+    await expect(status(page)).toHaveText(ours ?? '')
+    expect(await serverPlace()).not.toEqual(theirs)
+    await context.close()
+  })
+
   // #1227: a load that fails says why; one that cannot be helped by trying again offers no Retry.
   test('a file the server no longer has: the "gone" alert, no Retry', async ({ browser }) => {
     const context = await v2Context(browser, email('v2r404'))

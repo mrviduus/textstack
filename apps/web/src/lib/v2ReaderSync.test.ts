@@ -1,4 +1,4 @@
-import { ApiError, type PageHighlight, type V2Annotation, type V2AnnotationWrite, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
+import { ApiError, type OpenReader, type PageHighlight, type PagePosition, type V2Annotation, type V2AnnotationWrite, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v2Store } from '../api/v2'
 import { createV2ReaderSync, KEEPALIVE_BUDGET, v2ReaderSyncApi, type V2ReaderSyncApi, type V2SaveStatus, type V2SyncTarget } from './v2ReaderSync'
@@ -38,11 +38,19 @@ const deferred = <T>() => {
 let api: { [K in keyof V2ReaderSyncApi]: ReturnType<typeof vi.fn> }
 let statuses: V2SaveStatus[]
 let drawnLists: PageHighlight[][]
+/** The open page as the host reports it: restored and moved (a write follows a move) unless a test says otherwise. */
+let reader: OpenReader | null
+let newer: [PagePosition, boolean][]
+/** Another device's write: recorded after every `pos(n)` here (theirs is newer), or long before (`OLD`, ours is). */
+const LATER = () => new Date(Date.now() + 60_000).toISOString()
+const OLD = '1970-01-01T00:00:00.000Z'
 
 beforeEach(() => {
   localStorage.clear()
   statuses = []
   drawnLists = []
+  reader = { restoreApplied: true, moved: true, index: 2 }
+  newer = []
   api = {
     getReadingState: vi.fn().mockResolvedValue(null),
     annotations: vi.fn().mockResolvedValue([]),
@@ -54,7 +62,8 @@ beforeEach(() => {
 })
 
 const open = (t: V2SyncTarget = T, after?: Promise<unknown>, highlights?: boolean) => createV2ReaderSync(t, {
-  api: api as unknown as V2ReaderSyncApi, onStatus: (s) => statuses.push(s), onHighlights: (l) => drawnLists.push(l), newId: () => MINTED, after, highlights,
+  api: api as unknown as V2ReaderSyncApi, onStatus: (s) => statuses.push(s), onHighlights: (l) => drawnLists.push(l),
+  reader: () => reader, onNewerPlace: (p, ask) => newer.push([p, ask]), newId: () => MINTED, after, highlights,
 })
 const expectedOf = (call: unknown[]) => (call[1] as { expectedRevision: number | null }).expectedRevision
 const last = () => statuses[statuses.length - 1]
@@ -289,12 +298,97 @@ describe('createV2ReaderSync', () => {
       expect(expectedOf(api.putReadingState.mock.calls[1])).toBe(7)
     })
 
-    it('staleRevision_AnotherDevice_ThisTabWins_OursWrittenOnceMoreOnTheirRevision', async () => {
+    it('staleRevision_AnotherDevicesOlderPlace_Keep_OursWrittenOnceMoreOnTheirRevision', async () => {
       const s = await opened()
-      api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(9, 5, new Date(Date.now() + 60_000).toISOString())))
+      api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(9, 5, OLD)))
       await stored(s, entry(pos(2)))
       expect(api.putReadingState.mock.calls.map(expectedOf)).toEqual([null, 9])
+      expect(newer).toEqual([])
       expect(statuses).toEqual(['saved'])
+    })
+
+    // #1232: ADR-019 by decideServerState on a lost write, as Android.
+    describe('another device saved a newer place', () => {
+      const theirs = (n: number) => expect.objectContaining({ cfi: cfi(n), index: n })
+      const positionsSent = () => api.putReadingState.mock.calls.map((c) => [(c[1] as V2ReadingStateWrite).currentLocator.value, expectedOf(c)])
+      async function asked() {
+        const s = await opened()
+        api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(9, 5, LATER())))
+        await stored(s, entry(pos(2), [hl()]))
+        expect(newer).toEqual([[theirs(5), true]])
+        return s
+      }
+
+      it('readerMoved_Asked_UnansweredNothingOverwritesTheirs_StoreFlushKeepaliveClose', async () => {
+        const s = await asked()
+        await stored(s, entry(pos(3), [hl()]))
+        s.flushKeepalive()
+        await s.close()
+        expect(positionsSent()).toEqual([[cfi(2), null]])
+        expect(api.keepalivePutState).not.toHaveBeenCalled()
+        // Highlights are not held by the question.
+        expect(api.putAnnotation).toHaveBeenCalledTimes(1)
+        expect(statuses).not.toContain('unsaved')
+      })
+
+      it('stay_OursWrittenOnTheirRevision', async () => {
+        const s = await asked()
+        s.store(entry(pos(3), [hl()]))
+        s.answerNewer(false)
+        await s.flush()
+        expect(positionsSent()).toEqual([[cfi(2), null], [cfi(3), 9]])
+        expect(last()).toBe('saved')
+      })
+
+      it('go_TheirsKept_NothingWrittenBack_TheNextMoveOnTheirRevision', async () => {
+        const s = await asked()
+        s.answerNewer(true)
+        await s.flush()
+        s.flushKeepalive()
+        expect(positionsSent()).toEqual([[cfi(2), null]])
+        expect(api.keepalivePutState).not.toHaveBeenCalled()
+        // The page's entry after the host's goTo: their place, not written back.
+        await stored(s, entry(newer[0][0], [hl()]))
+        expect(api.putReadingState).toHaveBeenCalledTimes(1)
+        await stored(s, entry(pos(6, Date.now() + 120_000), [hl()]))
+        expect(positionsSent()).toEqual([[cfi(2), null], [cfi(6), 9]])
+      })
+
+      it('answerWithNothingAsked_OrWhileClosing_NothingWritten', async () => {
+        const s = await opened()
+        await stored(s, entry(pos(2)))
+        s.answerNewer(true)
+        await stored(s, entry(pos(2)))
+        expect(api.putReadingState).toHaveBeenCalledTimes(1)
+        api.putReadingState.mockClear()
+        const t = await asked()
+        void t.close()
+        t.answerNewer(false)
+        await t.close()
+        expect(positionsSent()).toEqual([[cfi(2), null]])
+      })
+
+      it('notMovedSameSection_MovedSilently_TheirsNotWrittenBack', async () => {
+        reader = { restoreApplied: true, moved: false, index: 5 }
+        const s = await opened()
+        api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(9, 5, LATER())))
+        await stored(s, entry(pos(2)))
+        expect(newer).toEqual([[theirs(5), false]])
+        await s.flush()
+        s.flushKeepalive()
+        expect(api.putReadingState).toHaveBeenCalledTimes(1)
+        expect(api.keepalivePutState).not.toHaveBeenCalled()
+        expect(last()).toBe('saved')
+      })
+
+      it('notRestoredYet_Adopted', async () => {
+        reader = { restoreApplied: false, moved: false, index: null }
+        const s = await opened()
+        api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(9, 5, LATER())))
+        await stored(s, entry(pos(2)))
+        expect(newer).toEqual([[theirs(5), false]])
+        expect(api.putReadingState).toHaveBeenCalledTimes(1)
+      })
     })
 
     it('reset_WrittenAgainOnTheNewRevision', async () => {
@@ -306,7 +400,7 @@ describe('createV2ReaderSync', () => {
 
     it('lostTwice_UnsavedThenTheNextStoreRetriesOnTheLastRevision', async () => {
       const s = await opened()
-      api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(2))).mockRejectedValueOnce(conflict('stale_revision', state(3)))
+      api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', state(2, 1, OLD))).mockRejectedValueOnce(conflict('stale_revision', state(3, 1, OLD)))
       await stored(s, entry(pos(2)))
       expect(statuses).toEqual(['unsaved'])
       await stored(s, entry(pos(2)))

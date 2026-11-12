@@ -1325,5 +1325,9 @@
   "footer.android": "Android app",
   "footer.ai": "AI assistants",
   "footer.about": "About",
-  "footer.developers": "Developers"
+  "footer.developers": "Developers",
+  "v2Reader.newerPlaceLabel": "Newer reading place",
+  "v2Reader.newerPlace": "Another device saved a newer place in this book ({{percent}}%).",
+  "v2Reader.stayHere": "Stay here",
+  "v2Reader.goThere": "Go to their place"
 }
