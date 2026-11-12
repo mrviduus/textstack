@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { openableHref, sentenceOf } from './tap.mjs'
+import { openableHref, sentenceOf, sentenceOfRange } from './tap.mjs'
 
 /** Taps the first `word` the way page.mjs does: a text node and the word's offsets in it. XHTML when `mime` says so. */
 function tap(html: string, word: string, mime?: DOMParserSupportedType): string {
@@ -43,6 +43,34 @@ describe('v2 reader tap', () => {
 
   it('sentenceOf_XhtmlSectionWithLowerCaseTags_SpanIsInlineToo', () => {
     expect(tap(xhtml('<div>One <span>two three</span> four.</div>'), 'three', 'application/xhtml+xml')).toBe('One two three four.')
+  })
+
+  /** Selects from the first `from` to the end of the first `to` after it, as a drag does, and reads its sentence. */
+  function select(html: string, from: string, to: string): string {
+    document.body.innerHTML = html
+    const nodes: Text[] = []
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    while (walker.nextNode()) nodes.push(walker.currentNode as Text)
+    const a = nodes.find((n) => n.data.includes(from))!
+    const b = nodes.slice(nodes.indexOf(a)).find((n) => n.data.includes(to))!
+    const end = b === a ? b.data.indexOf(to, a.data.indexOf(from)) : b.data.indexOf(to)
+    return sentenceOfRange(a, a.data.indexOf(from), b, end + to.length)
+  }
+
+  it.each([
+    ['inside one node', '<p>Before. The quick brown fox. After.</p>', 'quick', 'fox', 'The quick brown fox.'],
+    ['across a span', '<p>Before. One <em>two three</em> four five. After.</p>', 'One', 'three', 'One two three four five.'],
+    ['across two sentences', '<p>Before. One two. Three four. After.</p>', 'two', 'Three', 'One two. Three four.'],
+    ['across a br', '<p>Before. One<br>two three. Next.</p>', 'One', 'two', 'One two three.'],
+    ['into the next block: the start block only', '<p>Before. One two</p><p>three four.</p>', 'two', 'three', 'One two'],
+  ])('sentenceOfRange_%s_SentenceAroundTheSelection', (_, html, from, to, sentence) => {
+    expect(select(html, from, to)).toBe(sentence)
+  })
+
+  it('sentenceOfRange_ElementBoundaries_MappedToText', () => {
+    document.body.innerHTML = '<p>Before. <em>One two</em> three. After.</p>'
+    const em = document.querySelector('em')!
+    expect(sentenceOfRange(em, 0, em, 1)).toBe('One two three.')
   })
 
   it.each([

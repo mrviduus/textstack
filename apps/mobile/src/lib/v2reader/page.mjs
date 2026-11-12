@@ -14,7 +14,9 @@ import { createSaveScheduler } from './saveScheduler.mjs'
 import { isFractionOnly } from '../../../../../packages/shared/src/reader/fractionPosition'
 import { emptyEntry, entryFor, foldText, isPdfPage, isPosition, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
-import { openableHref, sentenceOf } from './tap.mjs'
+import { openableHref, sentenceOf, sentenceOfRange } from './tap.mjs'
+import { selectionMessage } from './selection.mjs'
+import { SELECTION_SETTLE_MS } from '../../../../../packages/reader-engine/src/timing'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
@@ -146,7 +148,38 @@ function onLoad({ detail: { doc, index } }) {
   doc.addEventListener('selectionchange', () => {
     const s = doc.getSelection()
     if (s.rangeCount && !s.isCollapsed) lastSelection = { index, doc, range: s.getRangeAt(0).cloneRange() }
+    clearTimeout(selectionTimer)
+    selectionTimer = setTimeout(() => sendSelection(doc, index), SELECTION_SETTLE_MS)
   })
+}
+
+/** The last `selection` posted (its JSON), null once `selection-cleared` went: a re-fired same selection is not sent again. */
+let selectionSent = null
+let selectionTimer = 0
+/**
+ * `selection` once a selection stops changing (a drag fires selectionchange all the way, reader-engine's
+ * settle time), `selection-cleared` once the one sent is gone. A selection with no text is no selection.
+ */
+function sendSelection(doc, index) {
+  // A section no longer shown has no selection on screen.
+  const frame = doc.defaultView?.frameElement
+  const s = frame ? doc.getSelection() : null
+  const range = s?.rangeCount && !s.isCollapsed ? s.getRangeAt(0) : null
+  const m = range && selectionMessage({
+    index, text: range.toString(),
+    // No CFI where nothing can be drawn at one (a PDF), as `word`.
+    cfi: annotatable ? view.getCFI(index, range) : null,
+    sentence: sentenceOfRange(range.startContainer, range.startOffset, range.endContainer, range.endOffset),
+    frame: frame.getBoundingClientRect(), range: range.getBoundingClientRect(),
+  })
+  if (m) {
+    const json = JSON.stringify(m)
+    if (json !== selectionSent) post(m)
+    selectionSent = json
+  } else if (selectionSent) {
+    selectionSent = null
+    post({ type: 'selection-cleared' })
+  }
 }
 
 /**
@@ -388,6 +421,9 @@ async function open(bytes, name, kind, mine) {
   viewSeq = mine
   navigating = Promise.resolve()
   lastSelection = null
+  // A new book clears the host's selection with `opened`; nothing of the old one is sent after the swap.
+  clearTimeout(selectionTimer)
+  selectionSent = null
   // A view that never rendered a section (a spine of linear="no", a book that failed to open) throws
   // from close(); letting that through would wedge the page and fail this good book instead.
   try { view?.close() } catch (e) { log('warn', `closing the previous book: ${e?.message ?? e}`) }

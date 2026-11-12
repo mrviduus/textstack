@@ -3,7 +3,7 @@
 // each format reader runs only when its first book opens, CBZ has no text features and still saves and
 // restores its page, a fraction-only position (#1187) restores without saving, a synthetic KF8 (#1182) reads,
 // a DRM-flagged MOBI or KF8, a damaged KF8 and an unknown file are refused, and flow() switches the live view
-// and is reported once per book in `telemetry`. PDF (#1128 S5): opens through pdf.js on the page's main
+// and is reported once per book in `telemetry`; a selection reaches the host as one `selection` (#1268). PDF (#1128 S5): opens through pdf.js on the page's main
 // thread, pages, selects, saves and resumes by `pdf-page`, a password-protected one fails leaving the open
 // book reading, and a hostile PDF neither runs script nor leaves the file.
 //
@@ -16,6 +16,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt, routeBookOrigin } from './bookOriginRoute.mjs'
 import { fb2, hostilePdf, pdf, writeFormatFixtures } from './fixtures.mjs'
+import { readSelection } from './selection.mjs'
 import { v2ReaderAndroidPageHtml as v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -74,6 +75,48 @@ try {
   const showsText = () => shown(() => document.body?.innerText.includes('Paragraph 1. Sphinx'))
 
   /**
+   * #1268: a drag over "black quartz" (three selectionchanges) is one `selection` once it settles, which the
+   * hosts' validator takes, with a CFI where `annotatable`, and a rect on the range in the page viewport;
+   * collapsing it is one `selection-cleared`.
+   */
+  async function checkSelection(what, annotatable) {
+    let f = null
+    for (const t0 = Date.now(); !f && Date.now() - t0 < TIMEOUT_MS; await page.waitForTimeout(100))
+      for (const x of page.frames().filter((x) => x.url().startsWith('blob:')))
+        if (await x.evaluate(() => document.body?.innerText.includes('black quartz')).catch(() => false)) { f = x; break }
+    if (!f) return check(false, `${what}: no section frame with text`)
+    const from = messages.length
+    const want = await f.evaluate(async () => {
+      const t = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+      while (t.nextNode() && !t.currentNode.data.includes('black quartz'));
+      const node = t.currentNode, i = node.data.indexOf('black quartz')
+      const r = document.createRange()
+      r.setStart(node, i)
+      const s = getSelection()
+      for (const end of ['black'.length, 'black qu'.length, 'black quartz'.length]) {
+        r.setEnd(node, i + end)
+        s.removeAllRanges()
+        s.addRange(r)
+        await new Promise((ok) => setTimeout(ok, 30))
+      }
+      const b = r.getBoundingClientRect(), fr = frameElement.getBoundingClientRect()
+      return { x: Math.round(fr.left + b.left), y: Math.round(fr.top + b.top), w: Math.round(b.width), h: Math.round(b.height) }
+    })
+    const sel = await waitFor(from, (x) => x.type === 'selection', `${what}: selection`).catch(() => null)
+    await page.waitForTimeout(500)
+    const v = readSelection(sel)
+    const vw = await call('[innerWidth, innerHeight]')
+    check(!!v && v.text === 'black quartz' && /Sphinx of black quartz, judge my vow\./.test(v.sentence) && v.tooLong === false
+      && (annotatable ? /^epubcfi\(/.test(v.cfi ?? '') : v.cfi === null)
+      && JSON.stringify(v.rect) === JSON.stringify(want) && v.rect.x >= 0 && v.rect.x + v.rect.w <= vw[0] && v.rect.y >= 0 && v.rect.y + v.rect.h <= vw[1],
+    `${what}: a selection is sent and passes the host validator (${JSON.stringify(sel)}, range at ${JSON.stringify(want)})`)
+    check(messages.slice(from).filter((x) => x.type === 'selection').length === 1, `${what}: a drag is one selection, not one per change`)
+    const cleared = messages.length
+    await f.evaluate(() => getSelection().removeAllRanges())
+    check(!!(await waitFor(cleared, (x) => x.type === 'selection-cleared', `${what}: selection-cleared`).catch(() => null)), `${what}: a collapsed selection is selection-cleared`)
+  }
+
+  /**
    * PDF (#1128 S5): opens through pdf.js run on the page's main thread, under the unchanged CSP; pages;
    * selects; saves `{ page }` (pdf-page, section index + 1) and resumes there; refuses the other position
    * kinds; a password-protected PDF fails and the open book keeps reading; a hostile PDF neither runs
@@ -102,6 +145,8 @@ try {
     const f1 = await frame()
     const selected = await f1?.evaluate(() => { const s = getSelection(); s.selectAllChildren(document.querySelector('.textLayer')); return s.toString() })
     check(/Sphinx of black quartz/.test(selected ?? ''), 'its text layer selects')
+    const pdfSel = readSelection(await waitFor(0, (x) => x.type === 'selection' && /Page 1\. Sphinx/.test(x.text), 'pdf selection').catch(() => null))
+    check(pdfSel?.cfi === null && pdfSel.rect.w > 0, `the selection reaches the host, without a CFI (${JSON.stringify(pdfSel)})`)
     let from = messages.length
     call('window.__fol.highlightSelection()')
     await waitFor(from, (x) => x.type === 'log' && /no highlights on a PDF yet/.test(x.msg), 'pdf highlight refused')
@@ -619,6 +664,7 @@ try {
   call('window.__fol.flow("sideways")')
   await waitFor(warns, (x) => x.type === 'log' && /flow ignored/.test(x.msg), 'flow ignored')
   check(true, 'an unknown flow is ignored with a warn')
+  await checkSelection('epub, scrolled', true)
 
   console.log('mobi')
   m = await open('tsformat.mobi')
@@ -629,6 +675,7 @@ try {
   check(await loaded() === 'mobi', 'the MOBI reader ran on the first MOBI, and only it')
   check(await showsText(), 'its text is rendered')
   call('window.__fol.flow("paginated")')
+  await checkSelection('mobi, paginated', true)
 
   for (const file of ['tsformat.fb2', 'tsformat.fbz']) {
     console.log(file.split('.')[1])

@@ -10,7 +10,8 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `page.mjs` | Runs in the WebView. The whole adapter: routing a file to its reader, our EPUB loader (SHA-1 for obfuscated fonts), the format-reader runner, the navigation queue, word tap, translation label, highlights, save/restore by CFI + quote (a PDF by page), `meta refresh` stripped, flow + its telemetry. |
 | `formats.mjs` | Which reader a file goes to, from its bytes (pure): zip → EPUB/FBZ/CBZ by entry names, `BOOKMOBI` → MOBI6/KF8 (DRM, truncated and KF8 without its indexes refused; combo → KF8 half), FB2 root (UTF-16 re-encoded, entities refused), `%PDF-` in the first KiB → PDF, KFX/unknown refused; CBZ page names and types. |
 | `store.mjs` | Reader data shape (v1), one entry per book **file** (SHA-256 + size); the quote fold; pure-JS SHA-256 / SHA-1. |
-| `tap.mjs` | What a tap hands the host: the word's sentence (reader-engine's `sentenceAround`) and an external link, only if `http(s)`. |
+| `tap.mjs` | What a tap hands the host: the word's sentence (reader-engine's `sentenceAround`) and an external link, only if `http(s)`; a selection's sentence (`sentenceOfRange`). |
+| `selection.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1268): the `selection` message's builder (`selectionMessage`) and the hosts' validator (`readSelection`), with the caps they share. No imports, so the format check loads it in node. |
 | `saveScheduler.mjs` | The debounced `store` message: key and payload are fixed when the save is asked for, so a save can never land on the next book; `flush()` writes a pending one at once (the swap). |
 | `overlays.mjs` | What is drawn over a range. foliate keys an overlay by its CFI, so a highlight and a word's translation over the same range are one overlay carrying both. |
 | `library.mjs` | V2 local library (pure): identical bytes → the existing entry, never a duplicate or reset. |
@@ -332,6 +333,8 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `relocate` | `index`, `sections`, `fraction`, `toc`, `cfi` | progress UI |
 | `word` | `index`, `word`, `sentence`, `cfi` (null where `annotatable` is false), `rect {x, y, w, h}` (host viewport) | translates, then `showTranslation` (not without a `cfi`) |
 | `tap` | — | a tap not on a word (chrome toggle) |
+| `selection` | `index`, `text` (the selection, edge whitespace dropped; at most 4000 UTF-16 units, a longer one cut there), `tooLong` (over 500, the translate/TTS cap), `cfi` (the range's CFI, the scheme highlights use; null where `annotatable` is false or past 1024 chars), `sentence` (≤1000; the sentence around the selection in its start's block, `sentenceAround`), `rect {x, y, w, h}` (the range's box in the page viewport, as `word`'s: frame rect + range rect, either flow) | #1268: sent once a selection stops changing for reader-engine's `SELECTION_SETTLE_MS` (220 ms; a drag is one message), again only when it changed (a scroll moves `rect`); a selection with no text (whitespace, an image) is none. Not on a CBZ. Hosts take it only through `readSelection` (`selection.mjs`): a wrong type, a non-finite or negative number, a CFI of another scheme or a string over its cap drops the whole message, never throws; only the known fields are kept. No UI yet |
+| `selection-cleared` | — | the selection last sent is gone (collapsed, or its section no longer shown). An `opened` clears it too: nothing of the previous book's selection is sent after the swap |
 | `highlighted` | `id` (v4 UUID), `cfi`, `quote` (first ≤64 code points), `selectedText` (the full selection) | — |
 | `openLink` | `href` | the page forwards only `http(s)` links and the host allowlists again before opening: a stated rule, not an accident. Any other scheme is dropped with a `warn` log (`mailto:`/`tel:` noted on #1069); the page never navigates |
 | `telemetry` | `event: 'reader-flow'`, `mode` (the flow in use), `format`, `switchedInFirst5Min` | one per opened book, 5 min after `opened` or when the next book opens first (a page that dies earlier sends none). Hosts log it: there is no analytics pipeline in the app yet |
@@ -419,7 +422,7 @@ the whitelist in another app; `onShouldStartLoadWithRequest` (about:/blob:/data:
   placeholder). Sent `no-store` with a fresh nonce per response (16 random bytes, hex, nginx's `$request_id`;
   `fillNonce` takes nothing else) and its own headers (`V2_READER_FRAME_HEADERS`: `frame-ancestors 'self'`,
   `no-store, no-transform`, nosniff, `no-referrer`, `X-Robots-Tag: noindex`).
-- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,656,316 bytes; 1,644,100 gzipped):
+- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,660,188 bytes; 1,644,915 gzipped, #1268):
   the page's one script, byte for byte what the inline page runs, sent `public, max-age=31536000, immutable`,
   `text/javascript; charset=utf-8` (it is not ASCII), nosniff. A book open fetches the shell only; the script
   comes from the HTTP cache (ADR-029 Decision 4 as amended 2026-11-11). The format readers stay inside it as

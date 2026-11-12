@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reader/openTracker.mjs'
 import { V2_READER_FRAME_PATH } from '../../../../mobile/src/lib/v2reader/framePath.mjs'
 import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
+import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
 import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
@@ -273,6 +274,13 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           // No CFI (a book that is not `annotatable`, e.g. a PDF): no label can be drawn, none is asked for.
           if (dev && m.cfi) call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
           return
+        case 'selection': {
+          // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
+          // No toolbar in this slice (#1268): the dev route logs it, the production route takes it no further.
+          const s = readSelection(m)
+          if (s && dev) console.log(`[v2] selection ${s.text.length} chars, section ${s.index}`)
+          return
+        }
         case 'openLink':
           if (/^https?:\/\//i.test(m.href)) window.open(m.href, '_blank', 'noopener,noreferrer')
           return
