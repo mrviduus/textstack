@@ -8,10 +8,13 @@ export default defineConfig({
   base: process.env.DOCS_BASE || '/',
   integrations: [
     {
-      name: 'diagrams',
+      name: 'page-scripts',
       hooks: {
         'astro:config:setup': ({ injectScript }) =>
-          injectScript('page', `import ${JSON.stringify(new URL('./src/mermaid.js', import.meta.url).pathname)}`),
+          injectScript(
+            'page',
+            ['mermaid', 'lesson'].map((f) => `import ${JSON.stringify(new URL(`./src/${f}.js`, import.meta.url).pathname)}`).join(';'),
+          ),
       },
     },
     starlight({
@@ -21,7 +24,19 @@ export default defineConfig({
       editLink: { baseUrl: 'https://github.com/mrviduus/textstack/edit/main/site/' },
       sidebar: [
         { label: 'Stories', items: ['stories', 'glossary'] },
-        { label: 'Start', items: ['start/run-locally', 'start/first-pr'] },
+        {
+          label: 'Start',
+          items: [
+            {
+              label: 'Run it locally',
+              items: ['start/run-locally', 'start/run-1-get-the-code', 'start/run-2-start-it', 'start/run-3-open-a-book'],
+            },
+            {
+              label: 'Ship a first pull request',
+              items: ['start/first-pr', 'start/pr-1-pick-the-work', 'start/pr-2-change-and-check', 'start/pr-3-open-the-pull-request'],
+            },
+          ],
+        },
         {
           label: 'How it works',
           items: [
