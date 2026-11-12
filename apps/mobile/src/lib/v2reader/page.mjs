@@ -59,7 +59,8 @@ let hostMoving = false
 let lastCfi = null
 /**
  * The last `selection` sent: its range (edge whitespace dropped), text, CFI, sentence. What `highlightSelection`
- * highlights; kept after the selection is cleared (tapping a host button may clear the WebView's selection first).
+ * highlights when no selection is live: kept after the selection is cleared (tapping a host button may clear the
+ * WebView's selection first).
  */
 let lastSelection = null
 /**
@@ -217,22 +218,23 @@ addEventListener('resize', settleSelection)
 
 const sameRange = (a, b) => a.startContainer === b.startContainer && a.startOffset === b.startOffset && a.endContainer === b.endContainer && a.endOffset === b.endOffset
 
-/**
- * `doc`'s selection as a message, or null: none, no text, its frame gone (a section no longer shown), or no part
- * of it inside the page viewport. Its text, CFI and sentence are computed once per range (`lastSelection`);
- * a move recomputes the box only. The box sent is the part inside the page viewport.
- */
-function selectionIn(doc) {
+/** `doc`'s live selection, edge whitespace dropped: `{ doc, index, frame, s, range }`, or null (none, no text, no frame). */
+function liveRange(doc) {
   const frame = doc.defaultView?.frameElement
   const s = frame ? doc.getSelection() : null
   const raw = s?.rangeCount && !s.isCollapsed ? s.getRangeAt(0) : null
   const range = raw && trimRange(raw)
   const index = sectionIndex.get(doc)
-  if (!range || index === undefined) return null
-  const rect = clipToViewport(rectInPage(frame, range.getBoundingClientRect()))
-  if (!rect) return null
-  const known = lastSelection?.doc === doc && sameRange(lastSelection.range, range)
-  const sel = known ? lastSelection : {
+  return range && index !== undefined ? { doc, index, frame, s, range } : null
+}
+
+/**
+ * What a live selection is: its range, text, CFI and sentence, the one description both the `selection` message
+ * and `highlightSelection` use. Computed once per range: the same range again is `lastSelection`.
+ */
+function describe({ doc, index, s, range }) {
+  if (lastSelection?.doc === doc && sameRange(lastSelection.range, range)) return lastSelection
+  return {
     index, doc, range: range.cloneRange(),
     // As rendered: across blocks and a PDF text layer's lines, words stay apart (a range's text glues them).
     text: s.toString(),
@@ -240,7 +242,18 @@ function selectionIn(doc) {
     cfi: annotatable && range.toString().length <= MAX_SELECTED_TEXT ? view.getCFI(index, range) : null,
     sentence: sentenceOfRange(range.startContainer, range.startOffset, range.endContainer, range.endOffset),
   }
-  const m = selectionMessage({ index, text: sel.text, cfi: sel.cfi, sentence: sel.sentence, rect })
+}
+
+/**
+ * `doc`'s selection as a message, or null: none, no text, its frame gone (a section no longer shown), or no part
+ * of it inside the page viewport. A move recomputes the box only. The box sent is the part inside the viewport.
+ */
+function selectionIn(doc) {
+  const live = liveRange(doc)
+  const rect = live && clipToViewport(rectInPage(live.frame, live.range.getBoundingClientRect()))
+  if (!rect) return null
+  const sel = describe(live)
+  const m = selectionMessage({ index: sel.index, text: sel.text, cfi: sel.cfi, sentence: sel.sentence, rect })
   return m && { m, sel }
 }
 
@@ -723,11 +736,14 @@ async function restoreInto(json, stale) {
 }
 
 
-/** The last `selection` sent, exactly its range, as a highlight: CFI + selection (+ its ≤64-code-point quote) + 30 chars of context, saved. */
+/** The live selection (else the last `selection` sent), exactly as a `selection` message describes it, as a highlight: CFI + selection (+ its ≤64-code-point quote) + 30 chars of context, saved. */
 function highlightSelection() {
   if (!textual) return log('warn', 'highlightSelection ignored: this book has no text')
   if (!annotatable) return log('warn', 'highlightSelection ignored: no highlights on a PDF yet')
-  const s = lastSelection
+  // The live selection, settled or not, on screen or not, described as a `selection` message would describe it;
+  // without one (a host's button press collapsed it first), the last one sent.
+  const live = shownDocs().map(liveRange).find(Boolean)
+  const s = live ? describe(live) : lastSelection
   if (!s || s.range.collapsed) return null
   // Before `restored` there is nothing to add to, and saving now would overwrite the stored entry.
   if (!entry) return log('warn', 'highlightSelection ignored: the stored entry is not restored yet')

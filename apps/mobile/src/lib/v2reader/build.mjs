@@ -64,15 +64,16 @@ const FOLIATE_SHA = 'b3386ef90b806dc3667941d9c26db12cce98b064'
 // hosts); the bundle's module-path comment line is the growth, the code is the same.
 // +791 (#1226): `addHighlights(list)`, the web host's highlights drawn after the restore without moving the reader;
 // +350: its `highlights` answer, one status per item.
-// +6021 (#1268): the `selection` / `selection-cleared` messages — one selection at a time across the shown section
+// +6303 (#1268): the `selection` / `selection-cleared` messages — one selection at a time across the shown section
 // documents, re-sent (box only) on relocate, scroll and resize, clipped to the viewport, trimmed range, rendered
 // text, sentence of a range, the frame's scale (`word` too), a press dismissing a selection, cleared at the swap,
-// `highlightSelection` of the selection sent; packages/shared's text cap and `clip`.
+// `highlightSelection` of the live selection (else the one sent), one description for both; packages/shared's text
+// cap and `clip`.
 // +1446 (#1263, #1264): `tap` carries where it landed, `opened` the reading direction, `key` forwards the navigation
 // keys (a closed list, chrome.mjs), `flush()` and a flush on hidden / pagehide.
 // +742 (#1263 review): `tap` from the page's own document (margins, letterbox), keys forwarded from it too, only on
 // the document itself (no control, no Shift+arrow) with `repeat`, `dir` as the renderer pages (`pagedDir`) on `relocate` too.
-const BUDGET = 264121
+const BUDGET = 264403
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
