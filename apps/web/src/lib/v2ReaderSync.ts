@@ -15,7 +15,8 @@
  *   not resent until the page changes it, `unsaved` meanwhile. Never silent, no request per page turn.
  * - Another device's newer place on a lost write (#1232): ADR-019 by `decideServerState`, as Android. `adopt`/`move`
  *   take theirs (the host moves the page), `prompt` asks (`onNewerPlace`), and until `answerNewer` no position is
- *   written; `keep` writes ours on their revision.
+ *   written; `keep` writes ours on their revision. The same decision when the tab is shown again (`recheck`: a
+ *   fresh read; no position is written until it is decided, a failed read decides nothing).
  *
  * The one local exception: a CBZ page position (no server form yet, #1188) is kept in this browser per book.
  *
@@ -98,6 +99,8 @@ export interface V2ReaderSync {
   close(): Promise<void>
   /** The reader's answer to `onNewerPlace(…, true)`: go (theirs is kept, the host moves the page) or stay (ours written on their revision). */
   answerNewer(go: boolean): void
+  /** The tab is shown again: the server's place re-read and decided as on a lost write, before the next position write. */
+  recheck(): void
 }
 
 const errorCode = (e: unknown) => v2Api.v2ErrorOf(e)?.code ?? (e as Error | null)?.message
@@ -155,6 +158,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   let refusedPosition: PagePosition | null = null
   /** Another device's newer place the reader is asked about: no position is written until the answer. */
   let asking: PagePosition | null = null
+  /** A `recheck` read in flight: the next pass waits for its decision. */
+  let checking: Promise<void> | null = null
   let latest: PageEntry | null = null
   let running: Promise<void> | null = null
   let again = false
@@ -167,6 +172,22 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   function takeTheirs(p: PagePosition) {
     position = p
     if (latest) latest = { ...latest, position: p }
+  }
+
+  /**
+   * Another device's state against this tab's place `local` (ADR-019, `decideServerState`): true when it was taken or
+   * is asked about (`revision` is theirs either way); false for `keep`.
+   */
+  function decide(local: PagePosition | null, cur: V2ReadingState): boolean {
+    revision = cur.revision
+    const action = decideServerState({ local, localFileId: t.fileId, server: cur, reader: o.reader(), format: t.format })
+    if (action === 'keep') return false
+    // Not `keep`: their state is a position on this file (decideServerState).
+    const theirs = statePosition(cur, t.format)!
+    if (action === 'prompt') asking = theirs
+    else takeTheirs(theirs)
+    if (current()) o.onNewerPlace(theirs, action === 'prompt')
+    return true
   }
 
   /** The position written; false when it did not land or was refused. One retry after a lost revision. */
@@ -192,18 +213,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       // Lost twice: the next `store` or flush writes on the revision last seen.
       if (err?.code === 'stale_revision' || err?.code === 'reset') {
         revision = cur?.revision ?? null
-        const action = err.code === 'stale_revision' && cur
-          ? decideServerState({ local: p, localFileId: t.fileId, server: cur, reader: o.reader(), format: t.format })
-          : 'keep'
-        if (action !== 'keep') {
-          // Not `keep`: their state is a position on this file (decideServerState).
-          const theirs = statePosition(cur!, t.format)!
-          if (action === 'prompt') asking = theirs
-          else takeTheirs(theirs)
-          if (current()) o.onNewerPlace(theirs, action === 'prompt')
-          // Not "not saved": the bar asking says what is held.
-          return true
-        }
+        // Taken or asked: not "not saved" (the bar asking says what is held).
+        if (err.code === 'stale_revision' && cur && decide(p, cur)) return true
         if (!retried) return pushPosition(p, revision, true)
       } else if (err && BOOK_GONE.has(err.code)) gone = true
       // Held as sent so it is not resent; unsaved until the reader moves.
@@ -258,6 +269,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   }
 
   async function pass() {
+    // A position moved while the tab's re-read is in flight is written (or dropped) per its decision.
+    if (checking) await checking
     if (gone) return
     // Not waited for: the position is written now, the highlights by one more pass when the pull lands.
     if (!highlightsLoaded) void loadHighlights().then(() => { if (highlightsLoaded && latest && current()) void kick() })
@@ -382,6 +395,26 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       })
       closingByBook.set(t.bookId, done)
       return done
+    },
+    recheck() {
+      if (!current() || !ready || gone || asking || checking || t.format === 'cbz') return
+      // This tab's place as it was shown again: a move made while the read is in flight does not make it newer.
+      const local = latest?.position ?? position
+      checking = (async () => {
+        try {
+          const s = await api.getReadingState(t.bookId)
+          // None, or the revision this tab already knows (its own write): nothing new. Another file version: `keep`.
+          // Closing or after an account reset it is still decided (the last pass must not write over a newer place),
+          // and the host is told nothing (`decide`, the epoch guard in `current`).
+          if (!s || s.revision === revision) return
+          decide(local, s)
+        } catch (e) {
+          // Offline: decided by the next lost write, as before; saving goes on.
+          console.warn('[v2 sync] recheck: reading state not read:', errorCode(e))
+        } finally {
+          checking = null
+        }
+      })()
     },
     answerNewer(go) {
       if (!asking || !current()) return

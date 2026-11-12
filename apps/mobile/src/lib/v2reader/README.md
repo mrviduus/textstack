@@ -452,7 +452,9 @@ version) and written with the expected revisions. Conflicts: own write = success
 Android (`decideServerState`, ADR-019; #1232): `keep` (ours is not older) written once more on their revision,
 `adopt`/`move` take theirs and the host moves the page (`goTo`, not `chosen`), `prompt` shows a bar ("stay here / go
 to their place") and no position is written (store, flush, keepalive, close) until it is answered: stay writes ours
-on their revision, go moves the page there and writes nothing back; `reset` written once more on their revision; an annotation re-applied once,
+on their revision, go moves the page there and writes nothing back. The same decision when the tab is shown again
+(`visibilitychange` to visible, a bfcache `pageshow`): the reading state re-read, a move made meanwhile held until
+it is decided (a failed read decides nothing, saving goes on); `reset` written once more on their revision; an annotation re-applied once,
 then the server's kept and the page's form not sent again until it changes; a tombstone wins; `id_conflict`
 re-keyed once. Terminal: `file_replaced`/`unknown_file`/`book_not_found` stop the session's writes ("reopen"
 line); `invalid_payload`/`chapter_not_found`/400/422: not resent until it changes, "not saved" meanwhile. Online-first, no outbox:

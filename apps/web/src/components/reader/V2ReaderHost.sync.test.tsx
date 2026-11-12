@@ -15,6 +15,7 @@ interface FakeSync {
   reader(): OpenReader | null
   onNewerPlace(p: PagePosition, ask: boolean): void
   answerNewer: ReturnType<typeof vi.fn>
+  recheck: ReturnType<typeof vi.fn>
   /** The next `restore` call's answer (a new one per call: Retry calls it again). */
   answer(json: string | null): void
   fail(): void
@@ -31,7 +32,7 @@ vi.mock('../../lib/v2ReaderSync', () => ({
     let settle: { ok(json: string | null): void; no(e: unknown): void } | null = null
     const closed = Promise.resolve()
     const s: FakeSync = {
-      target, onStatus: o.onStatus, onHighlights: o.onHighlights, highlights: o.highlights, reader: o.reader, onNewerPlace: o.onNewerPlace, answerNewer: vi.fn(),
+      target, onStatus: o.onStatus, onHighlights: o.onHighlights, highlights: o.highlights, reader: o.reader, onNewerPlace: o.onNewerPlace, answerNewer: vi.fn(), recheck: vi.fn(),
       answer: (json) => settle?.ok(json), fail: () => settle?.no(new Error('offline')),
       restore: vi.fn(() => new Promise((ok, no) => { settle = { ok, no } })), loadHighlights: vi.fn(async () => {}),
       store: vi.fn(), flush: vi.fn(async () => {}), flushKeepalive: vi.fn(), close: vi.fn(() => closed),
@@ -135,6 +136,8 @@ describe('V2ReaderHost, server sync', () => {
     fromPage(opened('1/b1.epub', SHA('a')))
     const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
     document.dispatchEvent(new Event('visibilitychange'))
+    // Hidden: written, not re-read.
+    expect(sessions[0].recheck).not.toHaveBeenCalled()
     visibility.mockRestore()
     window.dispatchEvent(new Event('pagehide'))
     expect(sessions[0].flush).toHaveBeenCalledTimes(1)
@@ -253,6 +256,32 @@ describe('V2ReaderHost, server sync', () => {
       open(synced('b2', SHA('b')))
       fromPage(opened('2/b2.epub', SHA('b')))
       expect(bar()).toBeNull()
+    })
+
+    it('tabShownAgain_OrBackFromTheBfcache_ReRead_NotOnAFreshPageshow', () => {
+      const s = reading()
+      const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+      document.dispatchEvent(new Event('visibilitychange'))
+      visibility.mockRestore()
+      expect(s.recheck).toHaveBeenCalledTimes(1)
+      expect(s.flush).not.toHaveBeenCalled()
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: false }))
+      expect(s.recheck).toHaveBeenCalledTimes(1)
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+      expect(s.recheck).toHaveBeenCalledTimes(2)
+    })
+
+    it('aPreviousTakesLateAnswer_NeitherMovesNorAsks', () => {
+      const { open } = mount()
+      fromPage({ type: 'ready' })
+      open(synced('b1', SHA('a')))
+      fromPage(opened('1/b1.epub', SHA('a')))
+      open(synced('b2', SHA('b')))
+      fromPage(opened('2/b2.epub', SHA('b')))
+      act(() => sessions[0].onNewerPlace(THEIRS, true))
+      act(() => sessions[0].onNewerPlace(THEIRS, false))
+      expect(bar()).toBeNull()
+      expect(goTos()).toEqual([])
     })
 
     it('reader_RestoredThenMoved_AHostMoveIsANewBaseline', () => {

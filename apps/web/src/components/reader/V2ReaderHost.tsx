@@ -214,7 +214,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             const r = reading.current
             return { restoreApplied: r.restored, moved: r.baseline != null && r.cfi !== r.baseline, index: r.index }
           },
-          onNewerPlace: (p, ask) => (ask ? setOffer(p) : goTo(p)),
+          // A previous take's late answer moves and asks nothing.
+          onNewerPlace: (p, ask) => {
+            if (sync.current !== s) return
+            if (ask) setOffer(p)
+            else goTo(p)
+          },
         })
         sync.current = s
         // Only while this take is the open one: a later take closed `s`, and its answers are none of this book's.
@@ -316,14 +321,21 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     }
     addEventListener('message', onMessage)
     // Online-first: what did not land is written again when the tab is hidden, and by a keepalive write as it goes.
-    const onVisibility = () => { if (document.visibilityState === 'hidden') void sync.current?.flush() }
+    // Shown again (or back from the bfcache): another device may have read on meanwhile (#1232).
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') void sync.current?.flush()
+      else sync.current?.recheck()
+    }
     const onPageHide = () => sync.current?.flushKeepalive()
+    const onPageShow = (e: PageTransitionEvent) => { if (e.persisted) sync.current?.recheck() }
     document.addEventListener('visibilitychange', onVisibility)
     addEventListener('pagehide', onPageHide)
+    addEventListener('pageshow', onPageShow)
     return () => {
       removeEventListener('message', onMessage)
       document.removeEventListener('visibilitychange', onVisibility)
       removeEventListener('pagehide', onPageHide)
+      removeEventListener('pageshow', onPageShow)
       // Leaving the route (SPA navigation): the session's last pass still writes what is unsaved.
       void sync.current?.close()
       sync.current = null

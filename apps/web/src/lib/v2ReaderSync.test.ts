@@ -443,6 +443,132 @@ describe('createV2ReaderSync', () => {
     })
   })
 
+  // #1232: the tab shown again re-reads the server's place and decides before its next position write.
+  describe('recheck (the tab shown again)', () => {
+    const theirs = (n: number) => expect.objectContaining({ cfi: cfi(n), index: n })
+    const sent = () => api.putReadingState.mock.calls.map((c) => [(c[1] as V2ReadingStateWrite).currentLocator.value, expectedOf(c)])
+    /** Read on to pos(2), saved on revision 5; the server's next read answers `next`. */
+    async function readThenIdle(next: V2ReadingState | Promise<V2ReadingState | null>) {
+      api.getReadingState.mockResolvedValueOnce(state(4, 1))
+      const s = await opened()
+      await stored(s, entry(pos(2)))
+      expect(sent()).toEqual([[cfi(2), 4]])
+      api.getReadingState.mockReturnValueOnce(Promise.resolve(next))
+      return s
+    }
+
+    it('serverNewer_NotMovedSameSection_MovedThere_NothingWrittenBack', async () => {
+      reader = { restoreApplied: true, moved: false, index: 5 }
+      const s = await readThenIdle(state(9, 5, LATER()))
+      s.recheck()
+      await s.flush()
+      expect(newer).toEqual([[theirs(5), false]])
+      s.flushKeepalive()
+      expect(api.keepalivePutState).not.toHaveBeenCalled()
+      expect(api.putReadingState).toHaveBeenCalledTimes(1)
+    })
+
+    it('serverNewer_ReaderMoved_Asked_TheNextPageTurnNotWritten_StayWritesItOnTheirRevision', async () => {
+      const s = await readThenIdle(state(9, 5, LATER()))
+      s.recheck()
+      await stored(s, entry(pos(3, Date.now() + 120_000)))
+      expect(newer).toEqual([[theirs(5), true]])
+      expect(api.putReadingState).toHaveBeenCalledTimes(1)
+      s.answerNewer(false)
+      await s.flush()
+      expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 9]])
+    })
+
+    it('aPageTurnWhileTheReadIsInFlight_NotWrittenBeforeTheDecision_ThenHeldByIt', async () => {
+      const read = deferred<V2ReadingState | null>()
+      const s = await readThenIdle(read.promise)
+      s.recheck()
+      // Moved now: newer than theirs, but not what the tab showed when it came back.
+      s.store(entry(pos(3, Date.now() + 120_000)))
+      await Promise.resolve()
+      expect(api.putReadingState).toHaveBeenCalledTimes(1)
+      read.resolve(state(9, 5, LATER()))
+      await s.flush()
+      expect(newer).toEqual([[theirs(5), true]])
+      expect(api.putReadingState).toHaveBeenCalledTimes(1)
+    })
+
+    it('serverOlder_Keep_TheNextMoveWrittenOnItsRevision_NoConflict', async () => {
+      const s = await readThenIdle(state(9, 5, OLD))
+      s.recheck()
+      await stored(s, entry(pos(3)))
+      expect(newer).toEqual([])
+      expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 9]])
+    })
+
+    it('theRevisionThisTabWrote_NothingDecided', async () => {
+      const s = await readThenIdle(state(5, 5, LATER()))
+      s.recheck()
+      await stored(s, entry(pos(3)))
+      expect(newer).toEqual([])
+      expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 5]])
+    })
+
+    it('readFails_SavingGoesOn', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const s = await readThenIdle(state(9, 5, LATER()))
+      api.getReadingState.mockReset()
+      api.getReadingState.mockRejectedValueOnce(offline())
+      s.recheck()
+      await stored(s, entry(pos(3)))
+      expect(sent()).toEqual([[cfi(2), 4], [cfi(3), 5]])
+      expect(last()).toBe('saved')
+      warn.mockRestore()
+    })
+
+    it('closedWhileReading_TheHostToldNothing', async () => {
+      const read = deferred<V2ReadingState | null>()
+      const s = await readThenIdle(read.promise)
+      s.recheck()
+      const closing = s.close()
+      read.resolve(state(9, 5, LATER()))
+      await closing
+      expect(newer).toEqual([])
+    })
+
+    it('noRead_BeforeTheRestore_Closed_WhileAsking_WhileOneIsInFlight_OnACbz_AfterTheBookWentAway', async () => {
+      const early = open()
+      early.recheck()
+      expect(api.getReadingState).not.toHaveBeenCalled()
+      await early.restore()
+      await early.close()
+      early.recheck()
+      expect(api.getReadingState).toHaveBeenCalledTimes(1)
+      api.getReadingState.mockClear()
+
+      const s = await readThenIdle(new Promise(() => {}))
+      s.recheck()
+      s.recheck()
+      expect(api.getReadingState).toHaveBeenCalledTimes(2)
+
+      api.getReadingState.mockClear()
+      api.putReadingState.mockClear()
+      const a = await readThenIdle(state(9, 5, LATER()))
+      a.recheck()
+      await a.flush()
+      expect(newer).toHaveLength(1)
+      a.recheck()
+      expect(api.getReadingState).toHaveBeenCalledTimes(2)
+
+      api.getReadingState.mockClear()
+      const cbz = await opened({ ...T, bookId: 'c1', format: 'cbz' })
+      cbz.recheck()
+      expect(api.getReadingState).toHaveBeenCalledTimes(1)
+
+      api.getReadingState.mockClear()
+      const gone = await opened()
+      api.putReadingState.mockRejectedValueOnce(conflict('file_replaced', null))
+      await stored(gone, entry(pos(7)))
+      gone.recheck()
+      expect(api.getReadingState).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('cbz (#1188: local only)', () => {
     const CBZ: V2SyncTarget = { ...T, format: 'cbz' }
     const page = (name: string) => ({ cfi: cfi(1), page: name, index: 1, fraction: 0.1, at: 1 })

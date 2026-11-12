@@ -171,8 +171,19 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
-  // #1232: a tab whose place did not land while another browser read on is asked (ADR-019), never silently winning.
-  async function anOlderTabAsked(browser: { newContext(): Promise<BrowserContext> }) {
+  // #1232: a tab left open while the reader read on in another browser: shown again and turned, it is asked
+  // (ADR-019) and never silently writes its older place over the newer one.
+  const setVisibility = (page: Page, state: 'hidden' | 'visible') => page.evaluate((s) => {
+    Object.defineProperty(document, 'visibilityState', { value: s, configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }, state)
+  const turn = async (page: Page) => {
+    const before = await status(page).textContent()
+    await page.getByRole('button', { name: 'Next ›' }).click()
+    await expect(status(page)).not.toHaveText(before ?? '')
+  }
+
+  async function aTabLeftOpenTurned(browser: { newContext(): Promise<BrowserContext> }) {
     const who = email('v2newer')
     const context = await v2Context(browser, who)
     const page = await context.newPage()
@@ -182,57 +193,47 @@ test.describe('V2 reader page @v2', () => {
     await page.goto(`/en/library/my/${bookId}/read-v2`)
     await expectOpened(page)
 
-    // This tab moves twice (so it moved since its restore) while its writes cannot land: its place is the older one.
-    await page.route(`**${statePath}`, (r) => (isStatePut(r.request()) ? r.abort() : r.continue()))
+    // Tab A reads two pages (saved), then is left in the background.
     for (let i = 0; i < 2; i++) {
-      const before = await status(page).textContent()
-      await page.getByRole('button', { name: 'Next ›' }).click()
-      await expect(status(page)).not.toHaveText(before ?? '')
+      const saved = page.waitForResponse((r) => isStatePut(r.request()))
+      await turn(page)
+      expect((await saved).ok()).toBeTruthy()
     }
-    await expect(page.getByTestId('v2-not-saved')).toBeVisible()
-    const ours = await status(page).textContent()
+    await setVisibility(page, 'hidden')
 
-    // Another browser, same account, reads on: its place is the server's, recorded later.
+    // Another browser, same account, reads on from there: its place is the server's, recorded later.
     const other = await v2Context(browser, who)
     const second = await other.newPage()
     await second.goto(`/en/library/my/${bookId}/read-v2`)
-    await expectOpened(second)
+    await expect(second.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
+    await expect(status(second)).toHaveText((await status(page).textContent()) ?? '', { timeout: 15_000 })
     let theirs: unknown = null
     for (let i = 0; i < 3; i++) {
       const saved = second.waitForResponse((r) => isStatePut(r.request()))
-      await second.getByRole('button', { name: 'Next ›' }).click()
+      await turn(second)
       const resp = await saved
       expect(resp.ok(), `PUT reading-state: ${resp.status()}`).toBeTruthy()
       theirs = (resp.request().postDataJSON() as { currentLocator: unknown }).currentLocator
     }
-    const theirStatus = await status(second).textContent()
-    expect(theirStatus).not.toBe(ours)
+    const theirStatus = (await status(second).textContent()) ?? ''
     await other.close()
 
-    // The first tab writes what it holds (the tab hidden): it loses on the revision, and is asked.
-    await page.unroute(`**${statePath}`)
-    const lost = page.waitForResponse((r) => isStatePut(r.request()))
-    await page.evaluate(() => {
-      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
-      document.dispatchEvent(new Event('visibilitychange'))
-      delete (document as { visibilityState?: unknown }).visibilityState
-    })
-    expect((await lost).status()).toBe(409)
+    // Tab A is shown again and turned at once: its page turn is newer than theirs, but it is not written over them.
+    const put = page.waitForRequest(isStatePut, { timeout: 5_000 }).then(() => true, () => false)
+    await setVisibility(page, 'visible')
+    await turn(page)
+    const ours = (await status(page).textContent()) ?? ''
     const bar = page.getByRole('status', { name: 'Newer reading place' })
     await expect(bar).toBeVisible()
+    expect(await put, 'no place written while the bar is unanswered').toBe(false)
     const serverPlace = async () =>
       ((await (await context.request.get(`${API_URL}${statePath}`, { headers: API_HEADERS })).json()) as { currentLocator: unknown }).currentLocator
-    return { context, page, bar, ours, theirs, theirStatus: theirStatus ?? '', serverPlace, isStatePut }
+    expect(await serverPlace()).toEqual(theirs)
+    return { context, page, bar, ours, theirs, theirStatus, serverPlace, isStatePut }
   }
 
-  test('readV2Sync_AnotherBrowserSavedANewerPlace_Asked_UnansweredNotOverwritten_GoMovesThere', async ({ browser }) => {
-    const { context, page, bar, theirs, theirStatus, serverPlace, isStatePut } = await anOlderTabAsked(browser)
-    // Unanswered: reading on writes no place over theirs.
-    const put = page.waitForRequest(isStatePut, { timeout: 3_000 }).then(() => true, () => false)
-    await page.getByRole('button', { name: 'Next ›' }).click()
-    expect(await put, 'no place written while the bar is unanswered').toBe(false)
-    expect(await serverPlace()).toEqual(theirs)
-
+  test('readV2Sync_ATabLeftOpenWhileAnotherBrowserReadOn_Asked_GoMovesThere_NothingOverwritten', async ({ browser }) => {
+    const { context, page, bar, theirs, theirStatus, serverPlace, isStatePut } = await aTabLeftOpenTurned(browser)
     // Keyboard reachable: Go is a real button.
     await bar.getByRole('button', { name: 'Go to their place' }).focus()
     await page.keyboard.press('Enter')
@@ -244,13 +245,13 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
-  test('readV2Sync_AnotherBrowserSavedANewerPlace_StayWritesThisTabsPlace', async ({ browser }) => {
-    const { context, page, bar, ours, theirs, serverPlace, isStatePut } = await anOlderTabAsked(browser)
+  test('readV2Sync_ATabLeftOpenWhileAnotherBrowserReadOn_StayWritesThisTabsPlace', async ({ browser }) => {
+    const { context, page, bar, ours, theirs, serverPlace, isStatePut } = await aTabLeftOpenTurned(browser)
     const saved = page.waitForResponse((r) => isStatePut(r.request()))
     await bar.getByRole('button', { name: 'Stay here' }).click()
     expect((await saved).ok()).toBeTruthy()
     await expect(bar).toHaveCount(0)
-    await expect(status(page)).toHaveText(ours ?? '')
+    await expect(status(page)).toHaveText(ours)
     expect(await serverPlace()).not.toEqual(theirs)
     await context.close()
   })
