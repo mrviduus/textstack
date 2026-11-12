@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Animated } from 'react-native'
+import { AccessibilityInfo, Animated } from 'react-native'
 
 type Options = {
   topBarHeight: number
   footerHeight: number
   /** When the chapter first loads we briefly show then auto-hide bars. */
   autoHideTrigger: boolean
+    /** A count instead: every new value (bars shown again, e.g. a book reopened) re-arms the auto-hide. 0 = off. */
+    | number
   hideDelayMs?: number
 }
 
@@ -16,6 +18,13 @@ export function useReaderBars({ topBarHeight, footerHeight, autoHideTrigger, hid
   const topBarTranslateY = barsAnim.interpolate({ inputRange: [0, 1], outputRange: [-topBarHeight, 0] })
   const footerTranslateY = barsAnim.interpolate({ inputRange: [0, 1], outputRange: [footerHeight, 0] })
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Reduced motion: the bars appear and go at once, no slide or fade.
+  const reduceMotionRef = useRef(false)
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(r => { reduceMotionRef.current = r }, () => {})
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', r => { reduceMotionRef.current = r })
+    return () => sub.remove()
+  }, [])
 
   const hideBars = useCallback(() => {
     if (hideTimerRef.current) {
@@ -25,7 +34,7 @@ export function useReaderBars({ topBarHeight, footerHeight, autoHideTrigger, hid
     if (!barsVisibleRef.current) return
     barsVisibleRef.current = false
     setBarsVisible(false)
-    Animated.timing(barsAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start()
+    Animated.timing(barsAnim, { toValue: 0, duration: reduceMotionRef.current ? 0 : 300, useNativeDriver: true }).start()
   }, [barsAnim])
 
   const showBars = useCallback(() => {
@@ -36,7 +45,7 @@ export function useReaderBars({ topBarHeight, footerHeight, autoHideTrigger, hid
     if (barsVisibleRef.current) return
     barsVisibleRef.current = true
     setBarsVisible(true)
-    Animated.timing(barsAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start()
+    Animated.timing(barsAnim, { toValue: 1, duration: reduceMotionRef.current ? 0 : 200, useNativeDriver: true }).start()
   }, [barsAnim])
 
   const startHideTimer = useCallback(() => {
