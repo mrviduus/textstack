@@ -1,0 +1,66 @@
+name: Docs site
+
+# Publishes the docs site (#1275) to GitHub Pages: docs/ is the content, site/ the tooling.
+# The product is not involved: deploy.yml ignores docs/**, site/** and this file.
+#
+# One-time setup, by the repository owner: Settings → Pages → Source = "GitHub Actions".
+# Until then the deploy job fails and the old gh-pages branch keeps being served.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'site/**'
+      - '.github/workflows/docs-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push replaces a waiting one; a running publish is left to finish.
+concurrency:
+  group: docs-site
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      # Gives the address Pages serves from: /textstack on the project address, / on a custom domain.
+      - id: pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - name: Install
+        working-directory: site
+        run: pnpm install --ignore-workspace --frozen-lockfile
+      - name: Build
+        working-directory: site
+        env:
+          DOCS_SITE: ${{ steps.pages.outputs.origin }}
+          DOCS_BASE: ${{ steps.pages.outputs.base_path }}
+        run: pnpm build
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
