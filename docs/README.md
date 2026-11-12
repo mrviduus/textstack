@@ -80,6 +80,7 @@ part is behind a flag.
 
 ## Internal notes
 
-[`internal/`](internal/) holds the maintainer's working material: operations of the production
-server, incident postmortems, V2 design drafts, feature specs, QA reports, the frozen changelog
-archive and `legacy/` (what the V2 cutover removes). It is public, but not written for a first read.
+The maintainer's working notes are not part of these docs. They live in [`internal/`](../internal/)
+at the top of the repository: running the production server, incident postmortems, feature specs.
+The V2 design drafts are still in [`internal/v2/`](internal/v2/) here and move there next. They are
+public, but not written for a first read.

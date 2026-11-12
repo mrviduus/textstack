@@ -1,7 +1,7 @@
 # ADR-016 — A chapter review lives inside the chapter's `BookInsight`
 
-**Status:** Proposed (implemented — `BookInsight.ReviewJson` and `review_question` exist in code as of 2026-10-04) · **Date:** 2026-09-28 · **Feature:** [chapter-review.md](../../internal/features/chapter-review.md) ·
-**Builds on** the insight decisions of 2026-09-10 ([assistant-handoff.md](../../internal/features/assistant-handoff.md#insight-categories--what-the-consilium-settled-and-what-it-did-not))
+**Status:** Proposed (implemented — `BookInsight.ReviewJson` and `review_question` exist in code as of 2026-10-04) · **Date:** 2026-09-28 · **Feature:** [chapter-review.md](../../../internal/features/chapter-review.md) ·
+**Builds on** the insight decisions of 2026-09-10 ([assistant-handoff.md](../../../internal/features/assistant-handoff.md#insight-categories--what-the-consilium-settled-and-what-it-did-not))
 
 ## Context
 

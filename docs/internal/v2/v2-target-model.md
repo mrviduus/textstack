@@ -208,7 +208,7 @@ This table describes direction, not implemented behavior or runtime verification
 **No standalone interim migration is planned.** Catalog → today's `user_chapters` → local files and
 explicit shares would introduce two transitions for highlights, vocabulary and insights.
 The deferred [ADR-027](../../architecture/adr/ADR-027-retire-public-catalog.md) and
-[retirement plan](../legacy/catalog-retirement-plan.md) remain research inputs, not an executable V2 plan.
+[retirement plan](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/catalog-retirement-plan.md) remain research inputs, not an executable V2 plan.
 
 Reuse their inventory, migration ledger concept, retry/rollback tests, old-client write matrix and MCP
 parity scenarios when designing the actual cutover. Revalidate them against the chosen target.

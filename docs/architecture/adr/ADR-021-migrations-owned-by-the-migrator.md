@@ -3,7 +3,7 @@
 **Status:** Accepted; mechanics superseded by [ADR-026](ADR-026-sql-first-migrations.md) (2026-10-26:
 plain SQL migrations, `migrate.sh down <version>` instead of `MIGRATE_TARGET`, no Api migration under
 `dotnet run`). Who migrates and the rollback order still hold. · **Date:** 2026-10-07 · **PRs:** #706 (Api stops migrating), this PR (readiness,
-rollback path) · **Review:** [2026-10 #17](../../internal/architecture/review-2026-10/00-summary.md), backend N6
+rollback path) · **Review:** [2026-10 #17](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/architecture/review-2026-10/00-summary.md), backend N6
 
 ## Context
 

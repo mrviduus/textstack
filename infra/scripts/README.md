@@ -91,5 +91,5 @@ being processed.
 ## See also
 
 - [`../systemd/README.md`](../systemd/README.md) — unit files
-- [`docs/internal/ops/incident-runbook.md`](../../docs/internal/ops/incident-runbook.md) — first-response steps
-- [docs/internal/claude/features.md](../../docs/internal/claude/features.md) — Auto Publish feature overview
+- [`internal/ops/incident-runbook.md`](../../internal/ops/incident-runbook.md) — first-response steps
+- [internal/claude/features.md](../../internal/claude/features.md) — Auto Publish feature overview
