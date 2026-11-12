@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { keyAction, V2ReaderHost, type V2HostBook } from './V2ReaderHost'
+import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
 
 // #1263: the bars and tap zones of the V2 reader on the web, driven through a fake frame as V2ReaderHost.test.tsx.
 
@@ -38,6 +38,8 @@ function opened(reflowable = true, dir?: string) {
 }
 /** A page `tap` at `x` (page-viewport px, as the page sends it). */
 const tap = (x: number) => ({ type: 'tap', x, y: 300 })
+/** A page `key` (a navigation key pressed inside the book). */
+const key = (k: string, shift = false, repeat = false) => ({ type: 'key', key: k, shift, repeat })
 
 const bars = () => document.querySelector('main')!.getAttribute('data-bars')
 const turns = () => posted.filter((m) => m.call === 'next' || m.call === 'prev').map((m) => m.call)
@@ -82,13 +84,24 @@ describe('V2ReaderHost bars and tap zones', () => {
   it('rtlBook_LeftEdgeAndArrowLeftAreNext_AnUnknownDirIsLtr', () => {
     opened(true, 'rtl')
     fromPage(tap(5))
-    fromPage({ type: 'key', key: 'ArrowLeft', shift: false })
+    fromPage(key('ArrowLeft'))
     press('ArrowRight')
     expect(turns()).toEqual(['next', 'next', 'prev'])
     cleanup()
     opened(true, 'sideways')
     fromPage(tap(5))
     expect(turns()).toEqual(['prev'])
+  })
+
+  it('relocateDir_TheLatestDirectionDecides_AMalformedOneKeepsIt', () => {
+    opened(true, 'ltr')
+    fromPage({ type: 'relocate', fraction: 0.1, index: 0, sections: 3, dir: 'rtl' })
+    fromPage(tap(5))
+    fromPage({ type: 'relocate', fraction: 0.2, index: 0, sections: 3, dir: 'up' })
+    fromPage(key('ArrowLeft'))
+    fromPage({ type: 'relocate', fraction: 0.3, index: 0, sections: 3, dir: 'ltr' })
+    fromPage(tap(5))
+    expect(turns()).toEqual(['next', 'next', 'prev'])
   })
 
   it('tapOnAnEdge_ScrolledFlow_Toggles', () => {
@@ -115,18 +128,27 @@ describe('V2ReaderHost bars and tap zones', () => {
 
   it('keyFromInsideTheBook_TurnsPages_EscShowsTheBars_AMalformedOneDropped', () => {
     opened()
-    fromPage({ type: 'key', key: 'ArrowRight', shift: false })
-    fromPage({ type: 'key', key: 'Space', shift: true })
-    fromPage({ type: 'key', key: 'PageDown', shift: false })
+    fromPage(key('ArrowRight'))
+    fromPage(key('Space', true))
+    fromPage(key('PageDown'))
     expect(turns()).toEqual(['next', 'prev', 'next'])
     expect(bars()).toBe('hidden')
-    fromPage({ type: 'key', key: 'Escape', shift: false })
+    fromPage(key('Escape'))
     expect(bars()).toBe('shown')
-    for (const m of [{ type: 'key', key: 'Enter', shift: false }, { type: 'key', key: 'ArrowRight' }, { type: 'key', key: ' ', shift: false }]) fromPage(m)
+    for (const m of [{ type: 'key', key: 'Enter', shift: false, repeat: false }, { type: 'key', key: 'ArrowRight', shift: false }, { type: 'key', key: ' ', shift: false, repeat: false }]) fromPage(m)
     expect(turns()).toHaveLength(3)
   })
 
-  it('keys_TurnPagesAndHideTheBars_EscShowsThem', () => {
+  it('heldKey_OneTurnPerPress_InTheBookAndOnTheHost', () => {
+    opened()
+    fromPage(key('ArrowRight'))
+    fromPage(key('ArrowRight', false, true))
+    press('ArrowRight')
+    press('ArrowRight', { repeat: true })
+    expect(turns()).toEqual(['next', 'next'])
+  })
+
+  it('hostKeys_TurnPagesAndHideTheBars_EscShowsThem', () => {
     opened()
     press('ArrowRight')
     press('PageDown')
@@ -140,9 +162,16 @@ describe('V2ReaderHost bars and tap zones', () => {
     expect(bars()).toBe('shown')
   })
 
-  it('spaceOnAButton_IsTheButtons_NotATurn', () => {
+  it('hostKeys_NotTheReaders_ModifiersShiftArrowAFocusedControlOrField', () => {
     opened()
+    press('ArrowLeft', { altKey: true })
+    press('ArrowRight', { metaKey: true })
+    press(' ', { ctrlKey: true })
+    press('ArrowRight', { shiftKey: true })
     press(' ', {}, screen.getByRole('button', { name: 'Next ›' }))
+    press('ArrowRight', {}, screen.getByRole('button', { name: 'Next ›' }))
+    const input = document.body.appendChild(document.createElement('input'))
+    press('ArrowRight', {}, input)
     expect(turns()).toEqual([])
   })
 
@@ -186,43 +215,5 @@ describe('V2ReaderHost bars and tap zones', () => {
   it('backLink_NamedAndToTheGivenUrl', () => {
     mount({ backUrl: '/en/library' })
     expect(screen.getByRole('link', { name: 'Back to the library' })).toHaveAttribute('href', '/en/library')
-  })
-})
-
-describe('keyAction', () => {
-  const k = (key: string, init: Partial<KeyboardEvent> = {}, target: EventTarget | null = document.body) =>
-    keyAction({ key, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, target, ...init })
-
-  it('readerKeys', () => {
-    expect([k('ArrowLeft'), k('PageUp'), k(' ', { shiftKey: true })]).toEqual(['prev', 'prev', 'prev'])
-    expect([k('ArrowRight'), k('PageDown'), k(' ')]).toEqual(['next', 'next', 'next'])
-    expect(k('Escape')).toBe('show')
-    expect(k('a')).toBeNull()
-  })
-
-  it('rtlBook_ArrowsFollowTheScreen_PageKeysAndSpaceDoNot', () => {
-    const r = (key: string, init: Partial<KeyboardEvent> = {}) =>
-      keyAction({ key, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, target: null, ...init }, 'rtl')
-    expect([r('ArrowLeft'), r('ArrowRight')]).toEqual(['next', 'prev'])
-    expect([r('PageDown'), r('PageUp'), r(' '), r(' ', { shiftKey: true })]).toEqual(['next', 'prev', 'next', 'prev'])
-  })
-
-  it('modifierChords_NotTheReaders', () => {
-    expect(k('ArrowLeft', { altKey: true })).toBeNull()
-    expect(k('ArrowRight', { metaKey: true })).toBeNull()
-    expect(k(' ', { ctrlKey: true })).toBeNull()
-  })
-
-  it('typingInAField_NotTheReaders', () => {
-    const input = document.createElement('input')
-    expect(k('ArrowLeft', {}, input)).toBeNull()
-    expect(k(' ', {}, input)).toBeNull()
-  })
-
-  it('spaceOnAButtonOrLink_ActivatesIt_ArrowsStillTurn', () => {
-    const button = document.createElement('button')
-    expect(k(' ', {}, button)).toBeNull()
-    expect(k(' ', {}, document.createElement('a'))).toBeNull()
-    expect(k('ArrowRight', {}, button)).toBe('next')
   })
 })

@@ -59,7 +59,8 @@ let hostMoving = false
 let lastCfi = null
 /**
  * The last `selection` sent: its range (edge whitespace dropped), text, CFI, sentence. What `highlightSelection`
- * highlights; kept after the selection is cleared (tapping a host button may clear the WebView's selection first).
+ * highlights when no selection is live: kept after the selection is cleared (tapping a host button may clear the
+ * WebView's selection first).
  */
 let lastSelection = null
 /**
@@ -159,25 +160,40 @@ function tapAt(doc, e) {
   return { type: 'tap', x, y }
 }
 
+/**
+ * A navigation key (chrome.mjs `navKey`: a closed list, never typed into a control) is the host's, forwarded:
+ * from a section document, and from this one, where focus falls when foliate replaces the focused section.
+ */
+function onKey(e) {
+  const m = navKey(e)
+  if (!m) return
+  e.preventDefault()   // the host moves the view, not the frame by itself
+  post(m)
+}
+document.addEventListener('keydown', onKey)
+
+/** A press while a selection is sent ends it, in every shown section, at once; its click is no tap. */
+function onPress() {
+  dismissing = !!selectionSent
+  if (!dismissing) return
+  for (const d of shownDocs()) d.getSelection()?.removeAllRanges()
+  selectionSent = null
+  post({ type: 'selection-cleared' })
+}
+// The page's own document: the paginator's margins and outer columns, beside a letterboxed fixed-layout page.
+// A tap there is a `tap` too (the hosts' edge zones are mostly there). Nothing before a book is on screen.
+document.addEventListener('pointerdown', () => { if (view) onPress() })
+document.addEventListener('click', (e) => {
+  if (!view || dismissing) return
+  post({ type: 'tap', x: Math.round(e.clientX), y: Math.round(e.clientY) })
+})
+
 function onLoad({ detail: { doc, index } }) {
-  // A navigation key pressed in a section (its own frame) reaches the host only this way; nothing else does.
-  doc.addEventListener('keydown', (e) => {
-    const m = navKey(e)
-    if (!m) return
-    e.preventDefault()   // the host moves the view, not the frame by itself
-    post(m)
-  })
+  doc.addEventListener('keydown', onKey)
   // Images only: every tap is a chrome toggle, and nothing is kept for a highlight.
   if (!textual) return doc.addEventListener('click', (e) => post(tapAt(doc, e)))
   sectionIndex.set(doc, index)
-  // A press while a selection is sent ends it, in every shown section, at once; its click is no tap.
-  doc.addEventListener('pointerdown', () => {
-    dismissing = !!selectionSent
-    if (!dismissing) return
-    for (const d of shownDocs()) d.getSelection()?.removeAllRanges()
-    selectionSent = null
-    post({ type: 'selection-cleared' })
-  })
+  doc.addEventListener('pointerdown', onPress)
   doc.addEventListener('click', (e) => onTap(doc, index, e))
   doc.addEventListener('selectionchange', () => {
     // One selection at a time: a new one in this section ends the one in another shown section (a spread).
@@ -202,22 +218,23 @@ addEventListener('resize', settleSelection)
 
 const sameRange = (a, b) => a.startContainer === b.startContainer && a.startOffset === b.startOffset && a.endContainer === b.endContainer && a.endOffset === b.endOffset
 
-/**
- * `doc`'s selection as a message, or null: none, no text, its frame gone (a section no longer shown), or no part
- * of it inside the page viewport. Its text, CFI and sentence are computed once per range (`lastSelection`);
- * a move recomputes the box only. The box sent is the part inside the page viewport.
- */
-function selectionIn(doc) {
+/** `doc`'s live selection, edge whitespace dropped: `{ doc, index, frame, s, range }`, or null (none, no text, no frame). */
+function liveRange(doc) {
   const frame = doc.defaultView?.frameElement
   const s = frame ? doc.getSelection() : null
   const raw = s?.rangeCount && !s.isCollapsed ? s.getRangeAt(0) : null
   const range = raw && trimRange(raw)
   const index = sectionIndex.get(doc)
-  if (!range || index === undefined) return null
-  const rect = clipToViewport(rectInPage(frame, range.getBoundingClientRect()))
-  if (!rect) return null
-  const known = lastSelection?.doc === doc && sameRange(lastSelection.range, range)
-  const sel = known ? lastSelection : {
+  return range && index !== undefined ? { doc, index, frame, s, range } : null
+}
+
+/**
+ * What a live selection is: its range, text, CFI and sentence, the one description both the `selection` message
+ * and `highlightSelection` use. Computed once per range: the same range again is `lastSelection`.
+ */
+function describe({ doc, index, s, range }) {
+  if (lastSelection?.doc === doc && sameRange(lastSelection.range, range)) return lastSelection
+  return {
     index, doc, range: range.cloneRange(),
     // As rendered: across blocks and a PDF text layer's lines, words stay apart (a range's text glues them).
     text: s.toString(),
@@ -225,7 +242,18 @@ function selectionIn(doc) {
     cfi: annotatable && range.toString().length <= MAX_SELECTED_TEXT ? view.getCFI(index, range) : null,
     sentence: sentenceOfRange(range.startContainer, range.startOffset, range.endContainer, range.endOffset),
   }
-  const m = selectionMessage({ index, text: sel.text, cfi: sel.cfi, sentence: sel.sentence, rect })
+}
+
+/**
+ * `doc`'s selection as a message, or null: none, no text, its frame gone (a section no longer shown), or no part
+ * of it inside the page viewport. A move recomputes the box only. The box sent is the part inside the viewport.
+ */
+function selectionIn(doc) {
+  const live = liveRange(doc)
+  const rect = live && clipToViewport(rectInPage(live.frame, live.range.getBoundingClientRect()))
+  if (!rect) return null
+  const sel = describe(live)
+  const m = selectionMessage({ index: sel.index, text: sel.text, cfi: sel.cfi, sentence: sel.sentence, rect })
   return m && { m, sel }
 }
 
@@ -508,7 +536,7 @@ async function open(bytes, name, kind, mine) {
     // dying view's events — close() still fires relocate — are dropped, not posted (#1168). A newer open
     // still being made does not silence this one.
     if (mine !== viewSeq) return
-    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
+    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi, dir: pagedDir() })
     // A selection moved (or left the screen) with the view, a font or flow change's re-layout included: sent
     // again, or cleared.
     settleSelection()
@@ -573,13 +601,25 @@ async function open(bytes, name, kind, mine) {
     // reflowable: false for a fixed-layout book (CBZ, a pre-paginated EPUB), where flow() changes nothing.
     // annotatable: false where highlights and the translation label are refused (CBZ, PDF).
     type: 'opened', book, format, textual, annotatable, reflowable: !view.isFixedLayout,
-    // The page-progression direction foliate pages by (EPUB spine, MOBI EXTH 527); none is left to right.
-    dir: b.dir === 'rtl' ? 'rtl' : 'ltr',
+    dir: pagedDir(),
     // Either may be missing, a string, or a language map ({ en: … }); the host falls back to the file name.
     title: text(b.metadata?.title), author: text(firstAuthor(b.metadata)),
     sections: b.sections.length, toc: flat(b.toc ?? []),
   })
   return true
+}
+
+/**
+ * The direction the renderer pages in (#1263). A fixed layout spreads by the book's page-progression direction
+ * (EPUB spine, MOBI EXTH 527); a reflowable book lays its columns out by the section's own direction, as the
+ * paginator's getDirection reads it (the book's language sets it where no attribute does). Left to right if unknown.
+ */
+function pagedDir() {
+  if (view.isFixedLayout) return view.book.dir === 'rtl' ? 'rtl' : 'ltr'
+  const doc = view.renderer.getContents?.()[0]?.doc
+  const body = doc?.body
+  if (!body) return 'ltr'
+  return body.dir === 'rtl' || doc.documentElement.dir === 'rtl' || doc.defaultView.getComputedStyle(body).direction === 'rtl' ? 'rtl' : 'ltr'
 }
 
 /** The text a CFI points at in this book's own section document (not the rendered one): verification. */
@@ -696,11 +736,14 @@ async function restoreInto(json, stale) {
 }
 
 
-/** The last `selection` sent, exactly its range, as a highlight: CFI + selection (+ its ≤64-code-point quote) + 30 chars of context, saved. */
+/** The live selection (else the last `selection` sent), exactly as a `selection` message describes it, as a highlight: CFI + selection (+ its ≤64-code-point quote) + 30 chars of context, saved. */
 function highlightSelection() {
   if (!textual) return log('warn', 'highlightSelection ignored: this book has no text')
   if (!annotatable) return log('warn', 'highlightSelection ignored: no highlights on a PDF yet')
-  const s = lastSelection
+  // The live selection, settled or not, on screen or not, described as a `selection` message would describe it;
+  // without one (a host's button press collapsed it first), the last one sent.
+  const live = shownDocs().map(liveRange).find(Boolean)
+  const s = live ? describe(live) : lastSelection
   if (!s || s.range.collapsed) return null
   // Before `restored` there is nothing to add to, and saving now would overwrite the stored entry.
   if (!entry) return log('warn', 'highlightSelection ignored: the stored entry is not restored yet')

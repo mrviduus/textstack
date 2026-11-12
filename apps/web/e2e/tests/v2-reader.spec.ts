@@ -148,13 +148,17 @@ test.describe('V2 reader page @v2', () => {
     await page.keyboard.press('Escape')
     await expect(main).toHaveAttribute('data-bars', 'shown')
 
-    // Edge taps, just outside the text column (no word there): left back, right on; a turn hides the bars.
+    // Edge taps at the very edges (the page's own margin): left back, right on; a turn hides the bars.
     const width = page.viewportSize()!.width
-    await page.mouse.click(a!.x - 5, gap.y)
+    await page.mouse.click(10, gap.y)
     await expect(status(page)).toHaveText(first)
     await expect(main).toHaveAttribute('data-bars', 'hidden')
-    await page.mouse.click(width - a!.x + 10, gap.y)
+    await page.mouse.click(width - 10, gap.y)
     await expect(status(page)).not.toHaveText(first)
+    // A key after a click in the page's margin: forwarded from the page's own document.
+    const turned = (await status(page).textContent()) ?? ''
+    await page.keyboard.press('ArrowLeft')
+    await expect(status(page)).not.toHaveText(turned)
     await context.close()
   })
 
