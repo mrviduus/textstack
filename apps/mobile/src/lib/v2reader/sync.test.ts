@@ -807,7 +807,7 @@ describe('V2 local library sync (R6)', () => {
       const sid = 'aaaaaaaa-0000-4000-8000-000000000001'
       const sfid = 'aaaaaaaa-0000-4000-8000-000000000002'
       const lib = createLocalLibrary(memoryDb())
-      const files = { read: async () => null, move: async () => {}, exists: () => true, remove: () => {} }
+      const files = { read: async () => null, move: async () => {}, exists: () => true, remove: () => {}, copyIn: async () => {} }
       const storage = createV2Storage(files, newId, lib)
       fakeApi({
         'GET /library/changes': feed(serverBook(sid, sfid, {}, { hasContent: true, format: 'pdf', originalName: 'b.pdf' })),

@@ -27,6 +27,13 @@ function memoryFiles() {
     },
     exists: (name) => data.has(name),
     remove: (name) => { ops.push(`remove ${name}`); data.delete(name) },
+    async copyIn(uri, to) {
+      ops.push(`copyIn ${uri} ${to}`)
+      // A full disk: the copy dies part-way, its partial file left behind (as Android's copy does).
+      data.set(to, uri.endsWith('full') ? 'partial' : `bytes of ${uri}`)
+      await tick()
+      if (uri.endsWith('full')) throw new Error('ENOSPC (No space left on device)')
+    },
   }
   return { files, data, ops }
 }
@@ -316,6 +323,21 @@ describe('v2 host storage', () => {
       expect(warn).not.toHaveBeenCalled()
       warn.mockRestore()
     })
+  })
+
+  it('stagePicked_PickedUri_CopiedStraightIntoStaging', async () => {
+    const { storage: s, data, ops } = storage()
+    const staged = await s.stagePicked('content://docs/book')
+    expect(staged).toMatch(/^staging\/\d+\.epub$/)
+    expect(data.get(staged)).toBe('bytes of content://docs/book')
+    expect(ops).toEqual([`copyIn content://docs/book ${staged}`])
+  })
+
+  it('stagePicked_DiskFullMidCopy_PartialRemovedErrorKept', async () => {
+    // #1080 item 5: a copy that dies on a full disk leaves no partial file.
+    const { storage: s, data } = storage()
+    await expect(s.stagePicked('content://docs/full')).rejects.toThrow('ENOSPC')
+    expect([...data.keys()]).toEqual([])
   })
 
   it('sha256Key_NotSixtyFourHex_Throws', () => {
