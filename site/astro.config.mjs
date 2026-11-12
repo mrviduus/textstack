@@ -40,6 +40,7 @@ export default defineConfig({
         {
           label: 'How it works',
           items: [
+            'architecture/story',
             'architecture',
             'architecture/flows',
             'architecture/frontend',

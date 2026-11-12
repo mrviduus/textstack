@@ -19,6 +19,8 @@ dependency rules.
 > Current state: [STATUS.md](../STATUS.md). The V2 map: [v2.md](v2.md). This page describes what
 > runs in production today.
 
+New here? Read [a book's journey](story.md) first: the same system as a short story with pictures.
+
 ## Read in this order
 
 1. This page: the parts and what each one does.
@@ -30,7 +32,7 @@ dependency rules.
 
 ## The parts
 
-How the deployment is laid out and what a second worker would take: [c4-worker-scaling.md](../../internal/c4-worker-scaling.md). How requests move between these parts: the interactive [map](https://mrviduus.github.io/textstack/architecture/) (source [textstack-map.html](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/architecture/textstack-map.html)), or the same as Mermaid in [flows.md](flows.md).
+How the deployment is laid out and what a second worker would take: [c4-worker-scaling.md](../../internal/c4-worker-scaling.md). How requests move between these parts: [flows.md](flows.md).
 
 ```
 Internet ─► Cloudflare (DNS + TLS) ─► Cloudflare Tunnel ─► nginx on host (:80)
