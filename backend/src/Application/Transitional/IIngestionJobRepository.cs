@@ -5,7 +5,7 @@ namespace Application.Transitional;
 /// <summary>
 /// Transitional. Dropped at M6.4 once the V2 reader serves EPUB and PDF on all clients; see ADR-031.
 /// <para>The server extraction queue for uploaded files (table <c>ingestion_jobs</c>). The reader's
-/// methods take <c>userId</c> (docs/01-architecture/data-access.md rule 7); the worker's
+/// methods take <c>userId</c> (docs/architecture/data-access.md rule 7); the worker's
 /// (claim, finish, give back, sweep, count) are cross-user and say so by taking none. A job is
 /// eligible while under <c>maxAttempts</c> and queued, or processing but stuck (started more than
 /// <c>stuckAfter</c> ago: its worker died).</para>

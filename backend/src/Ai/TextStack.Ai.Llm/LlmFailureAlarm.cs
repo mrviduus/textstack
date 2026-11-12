@@ -73,7 +73,7 @@ public static class LlmFailureAlarm
     ///
     /// Fingerprinted by the same key, so each distinct failure is its own Sentry issue and fires the
     /// new-issue alert. Grouped by exception type instead, a retired model joined an old, ongoing
-    /// invalid_api_key issue and notified nobody (docs/incidents/2026-10-24-translation-down-on-a-retired-model.md).
+    /// invalid_api_key issue and notified nobody (docs/internal/incidents/2026-10-24-translation-down-on-a-retired-model.md).
     /// </summary>
     public static void Capture(
         string provider, string? featureTag, string reason, Exception? ex = null, string? code = null)

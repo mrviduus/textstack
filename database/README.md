@@ -75,7 +75,7 @@ docker run --rm --network host -v "$PWD/database:/database:ro" \
 3. No `BEGIN`/`COMMIT` in the file: the runner wraps it. That also rules out statements that cannot
    run in a transaction (`CREATE INDEX CONCURRENTLY`); the tables are small enough for a plain
    `CREATE INDEX`.
-4. Update `docs/01-architecture/data-model.md` in the same PR.
+4. Update `docs/architecture/data-model.md` in the same PR.
 5. Run `tests/roundtrip.sh` (CI runs it too).
 
 Never edit a file that has been applied anywhere; add a new one.

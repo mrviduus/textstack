@@ -60,7 +60,7 @@ public static partial class ServiceCollectionExtensions
         services.AddScoped<Application.UserBooks.UserBookSearchService>();
         services.AddScoped<Application.Library.LibraryShelvesService>();
 
-        // Chapter review (docs/05-features/chapter-review.md)
+        // Chapter review (docs/internal/features/chapter-review.md)
         services.AddScoped<Application.ChapterReview.ChapterReviewService>();
         services.AddScoped<Application.ChapterReview.ReviewQuestionService>();
 

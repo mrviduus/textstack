@@ -4,7 +4,7 @@ name: GHCR retention
 # keep the newest 10 tagged per package, anything younger than 14 days, the SHAs of
 # the last 5 successful deploys (and of any deploy run since — a failed run may have
 # reached `compose up`), and the manifests those kept indexes reference. Rules and
-# fail-closed behaviour: scripts/ghcr-retention.mjs. Why: docs/01-architecture/delivery.md.
+# fail-closed behaviour: scripts/ghcr-retention.mjs. Why: docs/architecture/delivery.md.
 #
 # A rollback to a SHA deleted here still works: images.yml rebuilds it for the
 # rollback ref (or the server builds it) — it is slower, not impossible.

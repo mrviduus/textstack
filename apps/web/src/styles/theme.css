@@ -2,7 +2,7 @@
   box-sizing: border-box;
 }
 
-/* User-provided TextStack fonts. See docs/typography.md for provenance and licensing. */
+/* User-provided TextStack fonts. See docs/internal/typography.md for provenance and licensing. */
 @font-face {
   font-family: 'TextStack';
   src: url('../assets/fonts/TextStack-Regular.woff2') format('woff2');

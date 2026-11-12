@@ -10,7 +10,7 @@ name: Restore drill (R2 → clean machine)
 # Monthly + on demand. A backup that was never restored is a hope, not a backup.
 #
 # On demand only, `etl_rehearsal: true` then rehearses the legacy → V2 ETL on the restored pair
-# (docs/03-ops/v2-etl.md; M3.5, #1030): dry run → real run → validate-etl → re-run (0 writes) →
+# (docs/internal/ops/v2-etl.md; M3.5, #1030): dry run → real run → validate-etl → re-run (0 writes) →
 # validate again, all on this runner. The step summary carries timings, counts and check names; ids
 # are masked (public repo: run logs and summaries are public), no text is ever printed.
 
@@ -262,7 +262,7 @@ jobs:
           dotnet build backend/src/Api -c Release -o /tmp/api -v quiet -nologo
           echo "BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
 
-      # The runbook's preflight (docs/03-ops/v2-etl.md §1) on the restored legacy copy: the SELECT-only
+      # The runbook's preflight (docs/internal/ops/v2-etl.md §1) on the restored legacy copy: the SELECT-only
       # etl_reader (its password is this throwaway service's, as drill's is), PUBLIC's large-object
       # EXECUTE revoked. Then V2 at this checkout's head: the restored V2 copy when the backup has one
       # (the cutover's target), else an empty database; run.sh up creates it either way.

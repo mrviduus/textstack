@@ -5,7 +5,7 @@ namespace Application.Common.Interfaces;
 
 /// <summary>
 /// <see cref="BookInsight"/> persistence (table <c>book_insight</c>) — the first module off EF Core
-/// (ADR-028; rules in docs/01-architecture/data-access.md). A book is named by exactly one of
+/// (ADR-028; rules in docs/architecture/data-access.md). A book is named by exactly one of
 /// <c>userBookId</c> (an upload) or <c>editionId</c> (a catalog book); both or neither throws.
 /// <para>Methods taking an <see cref="IDbContextTransaction"/> run inside the caller's EF transaction,
 /// so their writes commit or roll back with the EF writes around them.</para>

@@ -1,4 +1,4 @@
--- etl-reader.sql — the SELECT-only source role etl-v2 reads legacy as (runbook: docs/03-ops/v2-etl.md)
+-- etl-reader.sql — the SELECT-only source role etl-v2 reads legacy as (runbook: docs/internal/ops/v2-etl.md)
 --
 -- Run against the LEGACY database the ETL reads (a restored rehearsal copy, or production at the
 -- cutover), as a role that may create roles. psql 16+ (\getenv). The password is never on argv:

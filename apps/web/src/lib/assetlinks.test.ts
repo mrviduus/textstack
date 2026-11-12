@@ -21,7 +21,7 @@ import { resolve } from 'node:path'
  * SHA-256 comes from Play Console or `eas credentials`. Rather than leave CI red for everyone until
  * someone pastes it — which would block every unrelated PR — the strict check activates itself the
  * moment the placeholder is replaced. Until then the file's shape is still pinned, so the one manual
- * step is "paste 32 hex bytes", not "work out the format". See docs/03-ops/android-app-links.md.
+ * step is "paste 32 hex bytes", not "work out the format". See docs/internal/ops/android-app-links.md.
  */
 const PLACEHOLDER = 'REPLACE_WITH_PLAY_APP_SIGNING_SHA256'
 describe('assetlinks.json', () => {

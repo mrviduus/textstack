@@ -14,7 +14,17 @@ export function Footer() {
         <p className="site-footer__description">
           {t('footer.description')}
         </p>
-        <div className="site-footer__columns">
+        {/* The footer sits at the bottom, and client-side navigation keeps the scroll: without this
+            the new page opens on its own footer (#1245). Links that open a new tab are left alone. */}
+        <div
+          className="site-footer__columns"
+          onClick={(e) => {
+            // Cmd/Ctrl/Shift-click opens the link elsewhere; this page stays where it is (#1247).
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+            const link = (e.target as HTMLElement).closest('a')
+            if (link && link.target !== '_blank') window.scrollTo(0, 0)
+          }}
+        >
           <nav className="site-footer__col" aria-labelledby="footer-col-read">
             <h2 id="footer-col-read" className="site-footer__heading">{t('footer.colRead')}</h2>
             <LocalizedLink to="/books" className="site-footer__link">{t('nav.catalog')}</LocalizedLink>

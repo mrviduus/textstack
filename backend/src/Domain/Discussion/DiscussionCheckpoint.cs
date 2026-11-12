@@ -4,7 +4,7 @@ namespace Domain.Discussion;
 /// One saved stage of a discussion about a book (V2 table <c>discussion_checkpoints</c>, ADR-031):
 /// what was discussed, what the reader thought, what the assistant suggested, what was concluded and
 /// what is still open. Append-only: a new stage is a new row, older thoughts are never rewritten
-/// (docs/01-architecture/mcp-discussion-checkpoints.md).
+/// (docs/internal/v2/mcp-discussion-checkpoints.md).
 /// </summary>
 public class DiscussionCheckpoint
 {
@@ -37,7 +37,7 @@ public class DiscussionCheckpoint
 
     /// <summary>
     /// Lowercase hex SHA-256 of the write's canonical payload, computed by the caller: what tells a
-    /// retry from a different write reusing the operation id (docs/01-architecture/v2-sync-protocol.md).
+    /// retry from a different write reusing the operation id (docs/internal/v2/v2-sync-protocol.md).
     /// </summary>
     public string PayloadSha256 { get; set; } = "";
 

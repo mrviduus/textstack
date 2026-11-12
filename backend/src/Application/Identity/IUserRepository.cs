@@ -5,7 +5,7 @@ namespace Application.Identity;
 /// <summary>
 /// The V2 accounts (table <c>users</c>, ADR-031): readers, guests (ADR-014) and admins, who are
 /// accounts with the admin role (there is no "inactive admin": an admin that is not active does not
-/// exist). A method that names a user changes only that row (docs/01-architecture/data-access.md rule 7).
+/// exist). A method that names a user changes only that row (docs/architecture/data-access.md rule 7).
 /// <para>Emails are stored as given: the caller normalises them (legacy AuthService trims and
 /// lower-cases). <c>ix_users_email</c> makes lookups and uniqueness case-insensitive, not
 /// whitespace-tolerant.</para>

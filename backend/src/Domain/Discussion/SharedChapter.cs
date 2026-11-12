@@ -28,7 +28,7 @@ public class SharedChapter
 
     /// <summary>
     /// Lowercase hex SHA-256 of the write's canonical payload, computed by the caller: what tells a
-    /// retry from a different write reusing the operation id (docs/01-architecture/v2-sync-protocol.md).
+    /// retry from a different write reusing the operation id (docs/internal/v2/v2-sync-protocol.md).
     /// </summary>
     public string PayloadSha256 { get; set; } = "";
 

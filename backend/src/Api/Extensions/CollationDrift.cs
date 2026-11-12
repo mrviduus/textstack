@@ -13,7 +13,7 @@ namespace Api.Extensions;
 /// 2.41 against an image providing 2.36, true since its own initdb, while the application database
 /// matched. A mismatched `template1` cannot be copied, so `CREATE DATABASE` fails cluster-wide —
 /// which is how it was finally noticed, by taking the API down for 44 minutes
-/// (docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md).
+/// (docs/internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md).
 /// </summary>
 internal static class CollationDrift
 {

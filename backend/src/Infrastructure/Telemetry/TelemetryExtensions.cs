@@ -22,7 +22,7 @@ namespace Infrastructure.Telemetry;
 /// traces go to Sentry instead (TextStack.Observability). Locally, start Aspire
 /// (<c>docker compose --profile observability up -d aspire-dashboard</c>) and set the endpoint.
 /// The console exporter that used to stand in for a missing endpoint is gone: in a container it
-/// printed every span and metric into the log. See docs/01-architecture/delivery.md, Observability.
+/// printed every span and metric into the log. See docs/architecture/delivery.md, Observability.
 /// </summary>
 public static class TelemetryExtensions
 {

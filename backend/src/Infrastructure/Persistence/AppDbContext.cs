@@ -12,7 +12,7 @@ namespace Infrastructure.Persistence;
 /// .User.cs, .Reading.cs, .UserBooks.cs, .Vocabulary.cs, .Ops.cs, .Seo.cs, .Collections.cs, .Ai.cs,
 /// .Agents.cs, .ReviewQuestions.cs, .McpKeys.cs, .OAuth.cs) — the file name says the domain; each
 /// file's <c>Entity&lt;T&gt;</c> calls are the entity list. Table purpose and status:
-/// docs/01-architecture/data-model.md.
+/// docs/architecture/data-model.md.
 /// </summary>
 public partial class AppDbContext : DbContext, IAppDbContext
 {

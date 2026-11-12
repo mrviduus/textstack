@@ -272,7 +272,7 @@ conversion removed, so no mutation can show them in it.
 
 **What it proves, and where:** the CSP and the serving rule, in desktop headless Chromium, with the interceptor
 emulated by a Playwright route. Not the Android System WebView, the Java interceptor or the bridge patch
-(`loadDataWithBaseURL`, `content:`/`intent:` URLs): the emulator run of #1228 (`docs/01-architecture/
+(`loadDataWithBaseURL`, `content:`/`intent:` URLs): the emulator run of #1228 (`docs/internal/v2/
 v2-reader-android-bytes.md`) and R4 (#1036) run those on the device. The format check and the PDF gate use the same
 route (lenient on fixture names).
 

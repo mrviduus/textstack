@@ -7,7 +7,7 @@ namespace Application.Library;
 /// <summary>
 /// The V2 library (tables <c>books</c> + <c>book_files</c>, one aggregate; ADR-031). Every method is
 /// scoped to <c>userId</c>: another user's ids read as "not found" and change nothing
-/// (docs/01-architecture/data-access.md rule 7). Every write bumps <c>books.updated_at</c>, the
+/// (docs/architecture/data-access.md rule 7). Every write bumps <c>books.updated_at</c>, the
 /// library feed's watermark (v2-sync-protocol.md "Pull and push").
 /// </summary>
 public interface ILibraryRepository

@@ -10,7 +10,7 @@ End-of-slice ritual: commit any pending changes, build title + description, labe
 
 **The PR is the changelog (#1220).** The `/changelog` page lists merged PRs by week, by title, in
 sections picked by area label (`.github/release.yml`). Never edit `CHANGELOG.md` or
-`docs/changelog-archive/`: both are frozen. Whether a PR is reader-visible (`public`) is decided
+`docs/internal/changelog-archive/`: both are frozen. Whether a PR is reader-visible (`public`) is decided
 weekly by `/changelog-week`, not here.
 
 ## Pre-conditions
@@ -84,10 +84,16 @@ Use this template (HEREDOC):
 
 <one-liner from slice brief, or commit revert if no flag>
 
+Docs: <updated | not affected>
+
 ## Notes
 
 <anything reviewer should know — gotchas, follow-ups, open questions>
 ```
+
+**The `Docs:` line (#1237).** A change to a command, an environment variable, a route, a flag or a
+setup step edits the page that states it, in this PR (`docs/start/`, `docs/reference/`, `CLAUDE.md`).
+Then write `Docs: updated`. Nothing of that kind changed: `Docs: not affected`.
 
 ## Step 5 — Route what is not the PR
 
@@ -96,8 +102,8 @@ what it cost. Write it that well. Only these go to files, in the same PR:
 
 | What happened | Where it goes |
 |---|---|
-| It broke production | Postmortem in `docs/incidents/`, from `_TEMPLATE.md` |
-| It changed a load-bearing decision | ADR in `docs/01-architecture/adr/` |
+| It broke production | Postmortem in `docs/internal/incidents/`, from `_TEMPLATE.md` |
+| It changed a load-bearing decision | ADR in `docs/architecture/adr/` |
 | It finished or created open work | `docs/STATUS.md`, and an issue per open item |
 
 ## Step 6 — Push and create PR

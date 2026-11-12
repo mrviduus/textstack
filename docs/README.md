@@ -1,135 +1,80 @@
-# TextStack Documentation
+# TextStack docs
 
-Free book library with Kindle-like reader. EPUB/PDF upload, parsing, SEO pages, and offline reading.
+TextStack is a free reading app: upload a book, read it on the web or on Android, save words, talk
+about a chapter with your AI assistant. These pages are for people who run the code or change it.
+Readers find help inside the app at [textstack.app](https://textstack.app/).
 
-**Live**: [textstack.app](https://textstack.app/) (public) · [textstack.dev](https://textstack.dev/) (admin)
+## What do you want to do?
 
-## Quick Links
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="start/run-locally.md"><img src="assets/pixel-icons/start-here.svg" width="48" height="48" alt=""></a>
+      <h3><a href="start/run-locally.md">Run it locally</a></h3>
+      From a clone to the app running on your machine with Docker.
+    </td>
+    <td width="50%" valign="top">
+      <a href="start/first-pr.md"><img src="assets/pixel-icons/contribute.svg" width="48" height="48" alt=""></a>
+      <h3><a href="start/first-pr.md">Ship a first PR</a></h3>
+      Branch, change, checks, area label, pull request.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="self-host/index.md"><img src="assets/pixel-icons/self-host.svg" width="48" height="48" alt=""></a>
+      <h3><a href="self-host/index.md">Self-host</a></h3>
+      It runs locally today. Production self-hosting is not packaged yet: what works, what is missing.
+    </td>
+    <td width="50%" valign="top">
+      <a href="architecture/index.md"><img src="assets/pixel-icons/architecture.svg" width="48" height="48" alt=""></a>
+      <h3><a href="architecture/index.md">Understand the architecture</a></h3>
+      The services, how a book moves through them, and why they are built this way.
+    </td>
+  </tr>
+</table>
 
-| Document | Description |
-|----------|-------------|
-| [CLAUDE.md](../CLAUDE.md) | AI assistant context (commands, key files, concepts) |
-| [STATUS.md](STATUS.md) | **Where the project is right now** — in flight, known-broken, won't-do |
-| [Changelog page](https://textstack.app/en/changelog) | Merged PRs by week; reader view of the public ones |
-| [CHANGELOG.md](../CHANGELOG.md) | Frozen: changes before 2026-11-11 (#1220) |
-| [Incidents](incidents/README.md) | Postmortems: what broke, why it was invisible, what it taught |
-| [Changelog archive](changelog-archive/) | Frozen: the write-ups behind the CHANGELOG lines |
-| [Vision](00-vision/README.md) | Goals, principles, stack |
-| [Architecture](01-architecture/README.md) | System design: services, projects, pipeline, external deps |
-| [Delivery](01-architecture/delivery.md) | PR → images → deploy flow, external dependencies, secret controls |
-| [Data model](01-architecture/data-model.md) | Every table: purpose, status, PII |
-| API Docs | http://localhost:8080/scalar/v1 (live) |
-| [Local Dev](03-ops/local-dev.md) | Docker, migrations |
-| [Environment Variables](03-ops/environment-variables.md) | Complete env var reference |
-| [Production Deployment](03-ops/deployment.md) | Cloudflare tunnel, nginx, Docker |
-| [Backup & Restore](03-ops/backup.md) | `make backup`, GHA daily dump, restore drill |
-| [Uptime Monitoring](03-ops/uptime-monitoring.md) | External probes + alert runbook |
-| [Incident Runbook](03-ops/incident-runbook.md) | First-response for DB/worker/SSG/site outages |
-| [infra/scripts/README](../infra/scripts/README.md) | Pollers (SEO publish, SEO backfill, quality) — what, install, logs |
-| [infra/systemd/README](../infra/systemd/README.md) | User-level systemd units |
-| [Play Store release](03-ops/play-store-release.md) | Android release runbook (EAS, tracks, OTA) |
-| [Android App Links](03-ops/android-app-links.md) | Deep links / assetlinks |
-| [E2E Testing Guide](04-dev/e2e-guide.md) | Playwright setup, UI mode, troubleshooting |
-| [LLM Provider Swap](04-dev/llm-provider-swap.md) | Swap the Ollama calls (distractors, metadata) for a hosted API |
+## Where the project is now
 
-## Core Features
+TextStack is moving to **V2**: a second database, a new reader, one cutover. Part of it is live and
+part is behind a flag.
 
-| Feature | Description | Docs |
-|---------|-------------|------|
-| Reader | Kindle-like reading (settings, navigation, mobile) | [reader.md](05-features/reader.md) |
-| Offline | IndexedDB caching, download manager | [offline-reading.md](05-features/offline-reading.md) |
-| Auth | Google, Apple, email/password, guest sessions, JWT | [user-auth.md](05-features/user-auth.md), [ADR-014](01-architecture/adr/ADR-014-guest-sessions.md) |
-| Search | PostgreSQL FTS (trigger-maintained `search_vector`) | [feat-0006](05-features/feat-0006-search-library.md) |
-| Vocabulary | SRS vocab builder + Ollama LLM | [vocabulary-srs.md](05-features/vocabulary-srs.md) |
-| Ingestion | EPUB/PDF extraction, admin + user uploads | [ingestion.md](02-system/ingestion.md) |
-| MCP server | Connect TextStack to Claude Desktop / Cursor / ChatGPT | [mcp.md](05-features/mcp.md) |
-| Chapter review | Assistant reviews a chapter over MCP | [chapter-review.md](05-features/chapter-review.md) |
-| SSG | Prerendered HTML for crawlers | [ssg-prerender.md](02-system/ssg-prerender.md) |
+- [STATUS.md](STATUS.md): what is in flight, what is known broken, what we decided not to do.
+- [V2 architecture](architecture/v2.md): the map of V2 and its boundaries.
+- [Changelog](https://textstack.app/en/changelog): merged pull requests by week.
 
-## Structure
+## Architecture
 
-```
-docs/
-├── 00-vision/          # Why: goals, vision
-├── 01-architecture/    # How: design, ADRs, architecture review
-├── 02-system/          # What: schemas, APIs
-├── 03-ops/             # Run: setup, deploy, Play release
-├── 04-dev/             # Build: test, security
-├── 05-features/        # Feature docs
-├── claude/             # Reference loaded from CLAUDE.md
-├── incidents/          # Postmortems
-├── qa/                 # Manual scenarios and reports
-├── changelog-archive/  # Frozen write-ups behind CHANGELOG lines
-└── marketing/ research/ loadtest/
-```
+| Page | What it answers |
+|---|---|
+| [Overview](architecture/index.md) | Which services exist and what each one does |
+| [Flows](architecture/flows.md) | How a request moves between them, one diagram per scenario |
+| [Data model](architecture/data-model.md) | Every table: purpose, status, personal data |
+| [Data access](architecture/data-access.md) | The rules for repositories and SQL |
+| [Frontend](architecture/frontend.md) | The apps and the shared packages |
+| [Delivery](architecture/delivery.md) | How a commit reaches production |
+| [Decisions (ADRs)](architecture/adr/) | Why each load-bearing choice was made; read the status line first |
 
-## Features
+## Guides
 
-### Implemented
-| Feature | Docs |
-|---------|------|
-| Text Extraction | [feat-0003](05-features/feat-0003-text-extraction-core.md) |
-| Observability | [feat-0005](05-features/feat-0005-observability-opentelemetry.md) |
-| i18n | `/:lang/` routes; English only since 2026-04-21 (Ukrainian removed) |
-| E2E Testing | Playwright e2e tests with CI pipeline |
-| Text Selection | Highlights, translate, Explain, TTS in reader (free dictionary removed 2026-10-03) |
-| Vocabulary SRS | Spaced repetition vocab builder with Ollama LLM distractors |
-| Reading Stats | Heatmap, streaks, goals, achievements |
+- [Write and run end-to-end tests](guides/e2e-tests.md)
 
-## Reading Order
+## Reference
 
-1. **New to project**: [Vision](00-vision/README.md) → [Architecture](01-architecture/README.md) → [Local Dev](03-ops/local-dev.md)
-2. **Backend work**: [Data model](01-architecture/data-model.md) → [Ingestion](02-system/ingestion.md) → API Docs (Scalar)
-3. **Frontend work**: [Reader](05-features/reader.md) → [Offline](05-features/offline-reading.md) → [Auth](05-features/user-auth.md)
-4. **Ops**: [Local Dev](03-ops/local-dev.md) → [Production Deployment](03-ops/deployment.md) → [Backup](03-ops/backup.md)
+- [Environment variables](reference/environment-variables.md)
+- [MCP server](reference/mcp.md): connect TextStack to an AI assistant
+- API reference: generated from the code. Run the app, then open `http://localhost:8080/scalar/v1`.
 
-## ADRs (Architectural Decisions)
+## Rules for these docs
 
-All in `01-architecture/adr/`. Numbering is messy (three 007s, `0001` vs `001`); read the status
-line at the top of each file.
+- A change to a command, an environment variable, a route, a flag or a setup step edits the page
+  that states it, in the same pull request.
+- One home per fact. The API reference and the changelog are generated, never written by hand.
+- A new decision that is hard to reverse, or that touches several modules, gets an
+  [ADR](architecture/adr/).
+- Links are checked in CI: `node scripts/check-doc-links.mjs`.
 
-| ADR | Title | Status |
-|-----|-------|--------|
-| [0001](01-architecture/adr/0001-audience-based-multisite.md) | Audience-based multisite | Superseded by 007 |
-| [001](01-architecture/adr/001-storage-bind-mounts.md) | Storage via bind mounts | In force |
-| [002](01-architecture/adr/002-google-auth-only.md) | Google OAuth only | Obsolete |
-| [003](01-architecture/adr/003-work-edition-model.md) | Work/Edition data model | In force |
-| [004](01-architecture/adr/004-postgres-fts.md) | PostgreSQL FTS | In force |
-| [005](01-architecture/adr/005-multisite-resolution.md) | Multisite via Host | Superseded by 007 |
-| [006](01-architecture/adr/006-modular-monolith.md) | Modular monolith | In force |
-| [007](01-architecture/adr/007-single-domain-consolidation.md) | Single domain consolidation (+ [deploy runbook](01-architecture/adr/007-single-domain-consolidation-deploy.md)) | Implemented |
-| [ADR-007](01-architecture/adr/ADR-007-reader-autosave.md) | Reader auto-save (number clash) | In force |
-| [ADR-010](01-architecture/adr/ADR-010-seo-backfill-automation.md) | SEO backfill automation | Implemented |
-| [ADR-011](01-architecture/adr/ADR-011-mobile-reader-progress-architecture.md) | Mobile reader progress | Partly superseded |
-| [ADR-012](01-architecture/adr/ADR-012-pdf-original-first-lazy-parse.md) | PDF original-first | Display in force; RAG parts obsolete |
-| [ADR-013](01-architecture/adr/ADR-013-reader-position-model.md) | Reader position model | In force |
-| [ADR-014](01-architecture/adr/ADR-014-guest-sessions.md) | Guest sessions | In force (amended) |
-| [ADR-015](01-architecture/adr/ADR-015-reader-position-is-logical.md) | Position is a place in the text | In force |
-| [ADR-016](01-architecture/adr/ADR-016-chapter-review-lives-in-book-insight.md) | Chapter review in `BookInsight` | Implemented |
-| [ADR-017](01-architecture/adr/ADR-017-mcp-oauth-authorization-server.md) | OAuth AS for MCP | In force |
-| [ADR-018](01-architecture/adr/ADR-018-reingest-updates-chapters-in-place.md) | Re-ingest updates chapters in place; reader data never cascades | In force |
-| [ADR-019](01-architecture/adr/ADR-019-reader-position-rules.md) | Reader position: shared rules, not a shared state machine | Accepted |
-| [ADR-020](01-architecture/adr/ADR-020-build-once-deploy-by-digest.md) | Build once on GitHub, deploy by digest (+ [delivery pipeline](01-architecture/delivery.md)) | Accepted |
-| [ADR-021](01-architecture/adr/ADR-021-migrations-owned-by-the-migrator.md) | Migrations are owned by the migrator; Api reports a schema behind its build | Accepted |
-| [ADR-022](01-architecture/adr/ADR-022-one-consumer-per-queue.md) | One consumer per queue; recover at startup, give the claim back on shutdown | Accepted |
-| [ADR-023](01-architecture/adr/ADR-023-single-instance-no-fire-and-forget.md) | Api and Worker are single-instance; no fire-and-forget for real work | Accepted |
-| [ADR-024](01-architecture/adr/ADR-024-auth-fails-closed-by-path.md) | Auth fails closed by path (`/me`, `/internal` like `/admin`) + public-routes snapshot | Accepted |
+## Internal notes
 
-## Governance
-
-### When to Update Docs
-
-| Event | Update |
-|-------|--------|
-| Entity added | 01-architecture/data-model.md |
-| Endpoint added | (auto in Scalar) |
-| Architecture decision | New ADR |
-| Migration created | Mention if significant |
-| New page type (indexable/not) | seo-implementation.md |
-
-### When ADR Required
-
-- Choosing between 2+ valid approaches
-- Decision affects multiple modules
-- Hard to reverse
-- Security implications
+[`internal/`](internal/) holds the maintainer's working material: operations of the production
+server, incident postmortems, V2 design drafts, feature specs, QA reports, the frozen changelog
+archive and `legacy/` (what the V2 cutover removes). It is public, but not written for a first read.

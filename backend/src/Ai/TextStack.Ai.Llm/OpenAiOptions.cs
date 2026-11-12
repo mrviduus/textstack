@@ -3,7 +3,7 @@ namespace TextStack.Ai.Llm;
 /// <summary>
 /// The <c>OpenAI</c> section's model ids, bound with the Options pattern (registered in Application's
 /// DI). The defaults below are the only defaults: appsettings and compose do not repeat them, so a
-/// retired model is changed here and nowhere else (docs/incidents/2026-10-24-translation-down-on-a-retired-model.md).
+/// retired model is changed here and nowhere else (docs/internal/incidents/2026-10-24-translation-down-on-a-retired-model.md).
 /// The client, the Explain/translate cache keys and the registry seed all read these options.
 /// </summary>
 public sealed class OpenAiOptions

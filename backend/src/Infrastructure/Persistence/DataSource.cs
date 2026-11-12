@@ -21,7 +21,7 @@ namespace Infrastructure.Persistence;
 
 /// <summary>
 /// The one <see cref="NpgsqlDataSource"/> a process talks to Postgres through — EF Core, Dapper
-/// repositories and search share its pool and its type mapping (ADR-028, docs/01-architecture/data-access.md).
+/// repositories and search share its pool and its type mapping (ADR-028, docs/architecture/data-access.md).
 /// </summary>
 public static class DataSource
 {
