@@ -82,7 +82,8 @@ export function trimRange(range) {
  */
 export function rectInPage(frame, r) {
   const f = frame.getBoundingClientRect()
-  const scale = frame.offsetWidth ? f.width / frame.offsetWidth : 1
+  // Only a real transform: an untransformed frame of fractional width (offsetWidth is rounded) is scale 1.
+  const scale = frame.offsetWidth && Math.abs(f.width - frame.offsetWidth) > 1 ? f.width / frame.offsetWidth : 1
   const x = f.left + (frame.clientLeft + r.left) * scale
   const y = f.top + (frame.clientTop + r.top) * scale
   return { x: Math.round(x), y: Math.round(y), w: Math.round(r.width * scale), h: Math.round(r.height * scale) }

@@ -126,8 +126,14 @@ describe('v2 reader tap', () => {
     ['scaled 0.9 (a pre-paginated page)', frame(700, 10, 540, 600), { x: 988, y: 47, w: 72, h: 17 }],
     ['scaled, with a border', frame(700, 10, 540, 600, 2), { x: 990, y: 48, w: 72, h: 17 }],
     ['not laid out', frame(5, 5, 0, 0), { x: 325, y: 46, w: 81, h: 19 }],
+    ['laid out 0 wide, drawn wide', frame(5, 5, 540, 0), { x: 325, y: 46, w: 81, h: 19 }],
   ])('rectInPage_%s_PageViewportBox', (_, f, want) => {
     expect(rectInPage(f, { left: 320.2, top: 40.6, width: 80.5, height: 19.4 } as DOMRect)).toEqual(want)
+  })
+
+  it('rectInPage_UntransformedFractionalWidthDeepInAChapter_NoDrift', () => {
+    // offsetWidth rounds 600.4 to 600: read as a scale, 3000 px down would drift 2 px.
+    expect(rectInPage(frame(0, -2990, 600.4, 600), { left: 10, top: 3000, width: 30, height: 20 } as DOMRect)).toEqual({ x: 10, y: 10, w: 30, h: 20 })
   })
 
   it.each([
