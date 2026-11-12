@@ -34,6 +34,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `frame.mjs`, `framePath.mjs` (+ `.d.mts`) | Web only (#1219, #1225): the page as a no-store shell + a content-hashed page script, and the one handler that serves both (dev, preview, the check; the build writes the same files for nginx). See Host responsibilities, "Web, its own document". `frame.test.ts` pins the split. |
 | `prodCsp.check.mjs` | The production-CSP gate (CI): shell + script under the app CSP read from nginx; the refused variants; nginx's reader locations against the handler's headers. |
 | `openTracker.mjs` (+ `.d.mts`) | Pure, both hosts: which page answer belongs to which open — the open in flight, a book the page kept on screen while a newer open failed, a stale `restored` (dropped). |
+| `chrome.mjs` (+ `.d.mts`) | Pure, both hosts (#1263, #1264): what a tap does (edge zones, centre toggle), the touch↔`tap` pairing, when scrolling hides the bars, Android back's order. See Host responsibilities, "Reader chrome". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
 | `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
@@ -365,6 +366,25 @@ target in the spread already shown counts as arrived (foliate shows it without a
 - The R2 host passes its file path (`staging/<ts>.epub` or `books/<sha256>.epub`) as `openUrl`'s `name` to match each answer to its open, so the page's stored `book.name` is that path until the contract gains an explicit open id (#1069).
 - **Sync (R6, Android):** opportunistic, never on the reading path: with a session, on screen open, on each book open and 10 s after a save. ADR-019 needs the host's view of the open book (restored yet, the first CFI after the restore, the one now, the spine index from `relocate`); a newer position from another device is gone to (`adopt`/`move`) or offered (`prompt`). File sync is a per-device setting, off by default.
 - `<documents>/v2/` is not yet counted in Device Storage nor wiped on sign-out (#1070): local books belong to the device until the owner decides otherwise; a sign-out forgets what the server told that identity, never unpushed rows.
+
+**Reader chrome** (Android, #1263/#1264; the decisions are `chrome.mjs`, the bars and footer are the legacy
+reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReaderAwake`, all already in the app):
+
+- A book on screen shows a top bar (back, title) and a bottom bar (place from `relocate`, prev/next page) over the
+  WebView; they auto-hide after 3 s; a centre tap toggles them; in scrolled flow the reader moving (a relocate after
+  the restore's landing, not within 1 s of a bar button) hides them. Reduced motion: no slide or fade.
+- Tap zones, paginated flow only: the outer 25 % of each side turns the page, the middle toggles. A `word` or
+  `openLink` never turns it. The page's `tap` carries no place, so the host pairs it with the WebView touch that
+  just ended (≤ 1 s, else a toggle), and takes the tap after a long press (≥ 500 ms: a selection may be up) as one
+  that dismissed the selection: nothing happens. RTL books: the zones swap once the page reports a direction.
+- Android back: the offer, then the book (back to the list), then the route. No exit prompt.
+- The screen stays awake and the status bar follows the bars while a book is on screen; the page keeps the top
+  inset it had with the status bar shown, so a toggle never re-lays the book out.
+- **Save on leave:** the host injects `window.__fol.flush()` on background (**not in the page yet**: until it is,
+  the call is skipped and a turn in the last 400 ms before a kill is lost), on unmount and when
+  the book is closed, so the 400 ms debounced save is written (`saveScheduler.mjs` `flush()`). On unmount the
+  WebView goes with the screen, so that `store` can be lost; back and the top bar close the book first, with the
+  WebView alive.
 
 **Deadlines and states** (#1227, `deadlines.mjs`, one rule for both hosts; the numbers are its named constants):
 
