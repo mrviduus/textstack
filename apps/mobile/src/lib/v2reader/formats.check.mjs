@@ -383,6 +383,53 @@ try {
       check(!!rel && !!st && ms < 200 && n === 1, `${what} writes the pending save at once, once (${ms} ms, ${n} stores)`)
     }
 
+    // `relocate.moved`: the reader moved the place (the save rule's test), never a re-layout or the host.
+    {
+      const rels = (from) => messages.slice(from).filter((x) => x.type === 'relocate')
+      call('window.__fol.flow("paginated")')
+      let from = messages.length
+      m = await open('tsformat.epub')
+      await page.waitForTimeout(800)
+      check(rels(from).length > 0 && rels(from).every((x) => x.moved === false), `open and restore: every relocate is moved: false (${rels(from).map((x) => x.moved)})`)
+      from = messages.length
+      await call('window.__fol.next()')
+      await page.waitForTimeout(800)
+      check(rels(from).some((x) => x.moved === true), `next(): moved: true (${rels(from).map((x) => x.moved)})`)
+      from = messages.length
+      await call('window.__fol.goTo({ fraction: 0.5, at: 1 })')
+      await page.waitForTimeout(1000)
+      check(rels(from).length > 0 && rels(from).every((x) => x.moved === false), `a host goTo: moved: false (${rels(from).map((x) => x.moved)})`)
+      from = messages.length
+      call('window.__fol.flow("scrolled")')
+      await page.waitForTimeout(1000)
+      check(rels(from).length > 0 && rels(from).every((x) => x.moved === false), `a flow toggle: moved: false (${rels(from).map((x) => x.moved)})`)
+      const before = rels(0).at(-1)?.fraction
+      from = messages.length
+      await call('window.__fol.font(1)')
+      await page.waitForTimeout(1000)
+      check(rels(from).length > 0 && rels(from).every((x) => x.moved === false) && rels(from).at(-1).fraction !== before,
+        `font(+1) in scrolled flow, the fraction changed: moved: false (${rels(from).map((x) => `${x.moved}@${x.fraction?.toFixed(3)}`)} from ${before?.toFixed(3)})`)
+      from = messages.length
+      await page.setViewportSize({ width: 1100, height: 640 })
+      await page.waitForTimeout(1000)
+      check(rels(from).length > 0 && rels(from).every((x) => x.moved === false), `a resize: moved: false (${rels(from).map((x) => x.moved)})`)
+      await page.setViewportSize({ width: 1280, height: 720 })
+      await page.waitForTimeout(1000)
+      // foliate's scrolled paginator sends no relocate at all for the first scroll after an anchored re-layout
+      // (`#justAnchored`, known: README): the scroll after it is the reader's move.
+      await page.mouse.move(640, 360)
+      from = messages.length
+      await page.mouse.wheel(0, 400)
+      await page.waitForTimeout(1200)
+      const swallowed = rels(from).length
+      from = messages.length
+      await page.mouse.wheel(0, 400)
+      await page.waitForTimeout(1200)
+      check(rels(from).some((x) => x.moved === true), `a scroll in scrolled flow: moved: true (${rels(from).map((x) => x.moved)}; the first scroll after the re-layout sent ${swallowed} relocates)`)
+      await call('window.__fol.font(-1)')
+      call('window.__fol.flow("paginated")')
+    }
+
     // An image book's tap says where it landed too.
     // The page's event coordinates are whole frame pixels: on the fixture's 60×80 image, scaled up many times,
     // one frame pixel is several page pixels, so the point is right within half a frame pixel.
