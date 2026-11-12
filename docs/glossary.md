@@ -95,11 +95,11 @@ Not: comment, annotation.
 
 ### Bookmark
 
-A place the reader marked to find again. A bookmark is a kind of highlight: a marked place with
-no passage and no colour. It is kept and shown with the highlights.
+A place in a book the reader chose to find again. A reader can have many in one book.
 
-Not: reading position. The reading position is one per book and moves by itself. A reader can have
-many bookmarks, and each stays where it was put.
+Not: reading position. The reading position says where to continue; there is one per book and it
+moves by itself. Not a highlight either.
+Note: bookmarks are their own feature, and they come after the move. They are not being built now.
 
 ### Word
 
@@ -132,16 +132,20 @@ The word in the reader's own language. A different thing from an explanation.
 
 ### Insight
 
-A thought the assistant saves into a book after talking with the reader: a conclusion, a changed
-view, an open question. An insight about one chapter is a **chapter insight**.
+A conclusion or a summary of a book or a chapter. It can be edited: a better one replaces the old
+one. An insight about one chapter is a **chapter insight**.
 
-Insights are kept as a list. A new insight never replaces an old one, so the reader can see how
-their view of a book changed.
+Not: checkpoint, chapter review.
+In code: `book_insight`, and the assistant tools `save_insight` and `save_chapter_review`. Tool
+names stay as they are.
 
-Not: checkpoint, conclusion, chapter review, summary.
-In code: `discussion_checkpoints` is the list. `book_insight` is the older store, where a new entry
-replaces the old one for the same chapter; it stays until the move is done. The assistant tools
-`save_insight` and `save_chapter_review` keep their names.
+### Checkpoint
+
+A saved stage of a conversation between the reader and their assistant: what they thought, what
+they concluded, what is still open. New checkpoints are added; earlier ones stay as they were.
+
+Not: insight. An insight is rewritten; a checkpoint never is.
+In code: `discussion_checkpoints`.
 
 ### Shared chapter
 
@@ -163,8 +167,9 @@ Not: profile, library card, user.
 
 ### Download, offline
 
-Two words for two things. A reader **downloads** a book to keep it on the device. They read
-**offline** when there is no network.
+Two words for two things. To **download** is an action: the reader puts a book on the device.
+**Offline** is what the reader can then do: read with no network. A downloaded book must be
+readable offline.
 
 Not: "offline book". Say "downloaded book".
 
@@ -177,7 +182,7 @@ For readers:
 
 - **Library**: books and where they are.
 - **Reading**: opening a book, the reading screen, the reading position, offline.
-- **Highlights**: highlights, notes and bookmarks.
+- **Highlights**: highlights and the notes on them.
 - **Vocabulary**: words, explanations, translations, reviews.
 - **Assistant**: sharing chapters, insights, keys.
 - **Account**: guests, accounts, signing in, closing an account.
@@ -187,6 +192,9 @@ For the people who build it:
 - **Data**: the databases and moving data between them.
 - **Ops**: running TextStack, releases, checks.
 - **Docs**: these pages.
+
+How many changes an area gets does not decide if it is an area. And an area is not a separate
+service: it is a part of the product with its own words.
 
 Not an area: "mobile". The phone is a place where TextStack runs, not a part of it. A change to
 highlights on the phone is a Highlights change.
