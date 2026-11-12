@@ -33,6 +33,11 @@ Readers find help inside the app at [textstack.app](https://textstack.app/).
   </tr>
 </table>
 
+## Start with the stories
+
+- [The stories of TextStack](stories/index.md): eight short stories of how people use it. No code.
+- [The words of TextStack](glossary.md): one word for one thing, and the list of areas.
+
 ## Where the project is now
 
 TextStack is moving to **V2**: a second database, a new reader, one cutover. Part of it is live and
