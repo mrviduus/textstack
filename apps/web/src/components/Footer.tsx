@@ -19,6 +19,8 @@ export function Footer() {
         <div
           className="site-footer__columns"
           onClick={(e) => {
+            // Cmd/Ctrl/Shift-click opens the link elsewhere; this page stays where it is (#1247).
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
             const link = (e.target as HTMLElement).closest('a')
             if (link && link.target !== '_blank') window.scrollTo(0, 0)
           }}

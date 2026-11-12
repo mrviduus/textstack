@@ -22,6 +22,13 @@ describe('Footer', () => {
     expect(scrollTo).toHaveBeenCalledWith(0, 0)
   })
 
+  // #1247: the link opens in a new tab, this page must not move.
+  it('Click_WithModifierKey_LeavesScrollAlone', () => {
+    fireEvent.click(screen.getByRole('link', { name: 'About' }), { metaKey: true })
+    fireEvent.click(screen.getByRole('link', { name: 'About' }), { ctrlKey: true })
+    expect(scrollTo).not.toHaveBeenCalled()
+  })
+
   it('Click_NewTabLink_LeavesScrollAlone', () => {
     fireEvent.click(screen.getByRole('link', { name: /Developers/ }))
     expect(scrollTo).not.toHaveBeenCalled()
