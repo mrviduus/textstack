@@ -1,5 +1,0 @@
-{"model":"gemma4:e2b","eval_count":57,"prompt_eval_count":94,"prompt_eval_duration":1527073874,"eval_duration":3219246200,"total_duration":5213094553,"load_duration":411181585,"done_reason":"stop"}
-{"model":"gemma4:e2b","eval_count":59,"prompt_eval_count":94,"prompt_eval_duration":1164584202,"eval_duration":3550744712,"total_duration":5179401603,"load_duration":405222578,"done_reason":"stop"}
-{"model":"gemma4:e2b","eval_count":67,"prompt_eval_count":93,"prompt_eval_duration":1433665656,"eval_duration":3926447575,"total_duration":5849671518,"load_duration":429921719,"done_reason":"stop"}
-{"model":"gemma4:e2b","eval_count":53,"prompt_eval_count":100,"prompt_eval_duration":1496845660,"eval_duration":3142823656,"total_duration":5076771699,"load_duration":394855827,"done_reason":"stop"}
-{"model":"gemma4:e2b","eval_count":62,"prompt_eval_count":94,"prompt_eval_duration":1475366871,"eval_duration":3690054125,"total_duration":5630028741,"load_duration":412451395,"done_reason":"stop"}

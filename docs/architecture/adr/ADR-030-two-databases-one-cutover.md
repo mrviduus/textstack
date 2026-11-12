@@ -35,7 +35,7 @@ preserved set: `user_chapters`, 131 MB), so moving it in one event costs minutes
    grow a seventh image. ADR-021 holds for both databases: only a migrator migrates.
    **Amended 2026-10-30:** `api` and `worker` wait on the legacy migrator only. Waiting on
    `migrator-v2` too took the site down on the day it shipped, for a database nothing read
-   ([postmortem](../../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)); `migrator-v2` is
+   ([postmortem](../../../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)); `migrator-v2` is
    behind compose profile `v2`. V2 readiness returns as a gate over V2 endpoints when V2 holds real
    data (#1053) — two databases exist so that V2 can be broken while V1 serves, and a hard
    dependency from V1's containers undoes exactly that.
@@ -62,7 +62,7 @@ preserved set: `user_chapters`, 131 MB), so moving it in one event costs minutes
    `default_transaction_read_only = on`. **Rollback = flip back** and turn read-only off: V2 code
    never writes legacy, so legacy is exactly as it was at the freeze.
 6. **Old clients get a compatibility shim** (plan §5.4; write matrix adapted from
-   [catalog-retirement-plan.md](../../internal/legacy/catalog-retirement-plan.md) §7). It translates edition-keyed and
+   [catalog-retirement-plan.md](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/catalog-retirement-plan.md) §7). It translates edition-keyed and
    `user_books`-keyed routes to V2 (upload ids are unchanged, so most map 1:1; edition writes → the
    pair's V2 book or 410; catalog reads → 410). Every hit is logged with `X-App-Version`, route and
    outcome. Window: 60 days, closed only after the log has been silent for the last 14. iOS is
@@ -145,5 +145,5 @@ preserved set: `user_chapters`, 131 MB), so moving it in one event costs minutes
 
 Related: [ADR-021](ADR-021-migrations-owned-by-the-migrator.md) ·
 [ADR-026](ADR-026-sql-first-migrations.md) · [ADR-027](ADR-027-retire-public-catalog.md) ·
-[ADR-028](ADR-028-dapper-and-repositories.md) · [catalog-retirement-plan.md](../../internal/legacy/catalog-retirement-plan.md) ·
+[ADR-028](ADR-028-dapper-and-repositories.md) · [catalog-retirement-plan.md](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/catalog-retirement-plan.md) ·
 [v2-plan.md](../../internal/v2/v2-plan.md).

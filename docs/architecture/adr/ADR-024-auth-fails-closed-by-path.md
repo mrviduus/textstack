@@ -1,6 +1,6 @@
 # ADR-024 — Auth fails closed by path: `/me` and `/internal` like `/admin`
 
-**Status:** Accepted · **Date:** 2026-10-07 · **Review:** [2026-10 #18](../../internal/architecture/review-2026-10/00-summary.md)
+**Status:** Accepted · **Date:** 2026-10-07 · **Review:** [2026-10 #18](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/architecture/review-2026-10/00-summary.md)
 (security M3) · **Related:** [ADR-014](ADR-014-guest-sessions.md) (guests have sessions),
 [ADR-017](ADR-017-mcp-oauth-authorization-server.md) (assistant credentials), review #19 (admin roles,
 audit) · **Implement after:** the Play production launch (~2026-10-16)

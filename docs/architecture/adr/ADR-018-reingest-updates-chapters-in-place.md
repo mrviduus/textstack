@@ -1,7 +1,7 @@
 # ADR-018 — Re-ingestion updates chapters in place; reader data never cascades with chapters
 
 **Status:** Accepted · **Date:** 2026-10-05 · **PRs:** #715, #718 ·
-**Write-up:** [changelog archive](../../internal/changelog-archive/2026-H2.md#2026-10-05-reader-bug-hunt-r1-r2)
+**Write-up:** [changelog archive](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/changelog-archive/2026-H2.md#2026-10-05-reader-bug-hunt-r1-r2)
 
 ## Context
 

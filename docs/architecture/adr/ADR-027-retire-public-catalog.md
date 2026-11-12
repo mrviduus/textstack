@@ -1,7 +1,7 @@
 # ADR-027 — Retire the public catalog (interim migration)
 
 **Status:** Proposed — deferred into V2 (owner, 2026-10-28); no interim migration. · **Date:** 2026-10-28 · **Issues:** [#992](https://github.com/mrviduus/textstack/issues/992),
-[#926](https://github.com/mrviduus/textstack/issues/926) · **Plan:** [catalog-retirement-plan.md](../../internal/legacy/catalog-retirement-plan.md)
+[#926](https://github.com/mrviduus/textstack/issues/926) · **Plan:** [catalog-retirement-plan.md](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/catalog-retirement-plan.md)
 · **Superseded in part by:** [ADR-030](ADR-030-two-databases-one-cutover.md) (migration mechanics; the inventory in catalog-retirement-plan.md remains input)
 · **Supersedes:** the 2026-10-26 "catalog kept" decision of the database cleanup; the SSG parts of
 [ADR-023](ADR-023-single-instance-no-fire-and-forget.md)'s amendment

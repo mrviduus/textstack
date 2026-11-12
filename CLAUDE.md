@@ -30,8 +30,8 @@ The PR is the changelog (#1220). Readers see the `/changelog` page (merged PRs b
 | Where | Job |
 |------|-----|
 | The PR | **Title** = one scannable line. **One area label** (`reading`, `library`, `highlights`, `vocabulary`, `assistant`, `account`, `data`, `ops`, `documentation`; CI fails without one). **Description** = the full write-up, article source material. |
-| `CHANGELOG.md`, `docs/internal/changelog-archive/` | **Frozen.** History up to the switch; never add to them. |
-| `docs/internal/incidents/` | Postmortems for anything that broke production. Start from `_TEMPLATE.md`. |
+| `CHANGELOG.md` | **Frozen.** History up to the switch; never add to it. Older halves live in git history only. |
+| `internal/incidents/` | Postmortems for anything that broke production. Start from `_TEMPLATE.md`. |
 | `docs/STATUS.md` | Where the project is *now*: in flight, deliberately-not-doing. Links to issues; never copies them. |
 | GitHub issues | **Every open item** (bug, review finding, deferred work), one issue each, labelled (`reader-engine`, `phase-3-gate`, …). A PR closes it with `Fixes #N`. Public: nothing private. Old STATUS items move to an issue when someone touches them. |
 
@@ -92,7 +92,7 @@ dotnet format textstack.sln                  # Backend
 # optimize-images [--dry-run]
 # import-textstack <book-path>
 # backfill-pdf-page-counts [--dry-run]   (fills null UserBook.PageCount for PDF uploads)
-# etl-v2 [--dry-run] [--source <cs>] [--target <cs>] [--source-dump-sha <hex>]   (legacy -> textstack_v2 data, v2-plan §5.2, docs/internal/ops/v2-etl.md; not the schema: that is `make migrate-v2`)
+# etl-v2 [--dry-run] [--source <cs>] [--target <cs>] [--source-dump-sha <hex>]   (legacy -> textstack_v2 data, v2-plan §5.2, internal/ops/v2-etl.md; not the schema: that is `make migrate-v2`)
 #   credentials via env ConnectionStrings__Default / ConnectionStrings__V2 or Passfile=, never argv (refused): ConnectionStrings__Default=… make etl-v2 ARGS=--dry-run
 
 # Local dev (no Docker)
@@ -273,8 +273,8 @@ Central versioning via `Directory.Packages.props` — don't add `<Version>` in i
 
 | Topic | File |
 |---|---|
-| Features: entities, user books, translate/explain/TTS, vocabulary SRS, guests, auth, auto publish, SEO backfill, SSG | [`docs/internal/claude/features.md`](docs/internal/claude/features.md) |
-| Every API route group | [`docs/internal/claude/api-endpoints.md`](docs/internal/claude/api-endpoints.md) |
-| Where things live (key files table) | [`docs/internal/claude/key-files.md`](docs/internal/claude/key-files.md) |
-| Mobile: Expo, offline, reading path, Play/OTA release | [`docs/internal/claude/mobile.md`](docs/internal/claude/mobile.md) |
-| CI/CD, deployment, nginx, MCP server, telemetry, verifying SSG | [`docs/internal/claude/operations.md`](docs/internal/claude/operations.md) |
+| Features: entities, user books, translate/explain/TTS, vocabulary SRS, guests, auth, auto publish, SEO backfill, SSG | [`internal/claude/features.md`](internal/claude/features.md) |
+| Every API route group | [`internal/claude/api-endpoints.md`](internal/claude/api-endpoints.md) |
+| Where things live (key files table) | [`internal/claude/key-files.md`](internal/claude/key-files.md) |
+| Mobile: Expo, offline, reading path, Play/OTA release | [`internal/claude/mobile.md`](internal/claude/mobile.md) |
+| CI/CD, deployment, nginx, MCP server, telemetry, verifying SSG | [`internal/claude/operations.md`](internal/claude/operations.md) |

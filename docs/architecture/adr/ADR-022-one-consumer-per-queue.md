@@ -1,6 +1,6 @@
 # ADR-022 — One consumer per queue; recover at startup, give back on shutdown
 
-**Status:** Accepted · **Date:** 2026-10-07 · **Review:** [2026-10 #15](../../internal/architecture/review-2026-10/00-summary.md),
+**Status:** Accepted · **Date:** 2026-10-07 · **Review:** [2026-10 #15](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/architecture/review-2026-10/00-summary.md),
 backend G4, N2, N3, N10 · **Related:** [ADR-023](ADR-023-single-instance-no-fire-and-forget.md)
 (single-instance rule), review #21 (pollers on the owner's Claude login), #25 (two SEO engines) ·
 **Implement after:** the Play production launch (~2026-10-16), except the live bug below

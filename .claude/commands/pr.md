@@ -9,8 +9,7 @@ allowed-tools: Bash, Read, Edit, Grep, Glob
 End-of-slice ritual: commit any pending changes, build title + description, label, push, open PR.
 
 **The PR is the changelog (#1220).** The `/changelog` page lists merged PRs by week, by title, in
-sections picked by area label (`.github/release.yml`). Never edit `CHANGELOG.md` or
-`docs/internal/changelog-archive/`: both are frozen. Whether a PR is reader-visible (`public`) is decided
+sections picked by area label (`.github/release.yml`). Never edit `CHANGELOG.md`: it is frozen. Whether a PR is reader-visible (`public`) is decided
 weekly by `/changelog-week`, not here.
 
 ## Pre-conditions
@@ -103,7 +102,7 @@ what it cost. Write it that well. Only these go to files, in the same PR:
 
 | What happened | Where it goes |
 |---|---|
-| It broke production | Postmortem in `docs/internal/incidents/`, from `_TEMPLATE.md` |
+| It broke production | Postmortem in `internal/incidents/`, from `_TEMPLATE.md` |
 | It changed a load-bearing decision | ADR in `docs/architecture/adr/` |
 | It finished or created open work | `docs/STATUS.md`, and an issue per open item |
 
