@@ -16,12 +16,16 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt, routeBookOrigin } from './bookOriginRoute.mjs'
 import { fb2, hostilePdf, pdf, writeFormatFixtures } from './fixtures.mjs'
-import { readSelection } from './selection.mjs'
 import { v2ReaderAndroidPageHtml as v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const { chromium } = createRequire(resolve(here, '../../../../web/package.json'))('@playwright/test')
 const TIMEOUT_MS = 15000
+// The hosts' validator, as they run it. Bundled first (apps/web's esbuild, as build.mjs): selection.mjs imports
+// packages/shared, whose extensionless TS imports plain node does not resolve.
+const { build: esbuild } = createRequire(resolve(here, '../../../../web/package.json'))('esbuild')
+const bundled = await esbuild({ entryPoints: [resolve(here, 'selection.mjs')], bundle: true, write: false, format: 'esm', logLevel: 'silent' })
+const { readSelection } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`)
 
 const failures = []
 const check = (ok, what) => { console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}`); if (!ok) failures.push(what) }
@@ -74,46 +78,140 @@ try {
   }
   const showsText = () => shown(() => document.body?.innerText.includes('Paragraph 1. Sphinx'))
 
-  /**
-   * #1268: a drag over "black quartz" (three selectionchanges) is one `selection` once it settles, which the
-   * hosts' validator takes, with a CFI where `annotatable`, and a rect on the range in the page viewport;
-   * collapsing it is one `selection-cleared`.
-   */
-  async function checkSelection(what, annotatable) {
-    let f = null
-    for (const t0 = Date.now(); !f && Date.now() - t0 < TIMEOUT_MS; await page.waitForTimeout(100))
+  /** The shown section frame whose text includes `text`. */
+  const frameWith = async (text) => {
+    for (const t0 = Date.now(); Date.now() - t0 < TIMEOUT_MS; await page.waitForTimeout(100))
       for (const x of page.frames().filter((x) => x.url().startsWith('blob:')))
-        if (await x.evaluate(() => document.body?.innerText.includes('black quartz')).catch(() => false)) { f = x; break }
-    if (!f) return check(false, `${what}: no section frame with text`)
+        if (await x.evaluate((t) => !!frameElement && frameElement.getBoundingClientRect().width > 0 && document.body?.innerText.includes(t), text).catch(() => false)) return x
+    return null
+  }
+  /**
+   * Selects in frame `f` from `a` (+`ao`) to `b` (+`bo`), the first text nodes holding them, in `steps` changes
+   * 30 ms apart (a drag). Resolves with the range's box as the page viewport shows it (unscaled frame).
+   */
+  const select = (f, a, ao, b, bo, steps = 1) => f.evaluate(async ([a, ao, b, bo, steps]) => {
+    const find = (t) => { const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); while (w.nextNode()) if (w.currentNode.data.includes(t)) return w.currentNode }
+    const [na, nb] = [find(a), find(b)]
+    const r = document.createRange()
+    r.setStart(na, na.data.indexOf(a) + ao)
+    const s = getSelection()
+    for (let k = steps; k >= 1; k--) {
+      r.setEnd(nb, nb.data.indexOf(b) + bo - (k - 1))
+      s.removeAllRanges()
+      s.addRange(r)
+      await new Promise((ok) => setTimeout(ok, 30))
+    }
+    return r.getBoundingClientRect().toJSON()
+  }, [a, ao, b, bo, steps])
+  /** `box` (in `f`'s document) in the page viewport, rounded as the page rounds. */
+  const inPage = async (f, box) => {
+    const fr = await f.evaluate(() => frameElement.getBoundingClientRect().toJSON())
+    return { x: Math.round(fr.left + box.left), y: Math.round(fr.top + box.top), w: Math.round(box.width), h: Math.round(box.height) }
+  }
+  /** The settle (220 ms) and some: every message one gesture makes is in by then. */
+  const settled = () => page.waitForTimeout(600)
+  const kinds = (from) => messages.slice(from).filter((x) => ['selection', 'selection-cleared', 'word', 'tap'].includes(x.type)).map((x) => x.type)
+  /** Collapses the selection in `f` and waits for its `selection-cleared`. */
+  const unselect = async (f) => {
     const from = messages.length
-    const want = await f.evaluate(async () => {
-      const t = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
-      while (t.nextNode() && !t.currentNode.data.includes('black quartz'));
-      const node = t.currentNode, i = node.data.indexOf('black quartz')
-      const r = document.createRange()
-      r.setStart(node, i)
-      const s = getSelection()
-      for (const end of ['black'.length, 'black qu'.length, 'black quartz'.length]) {
-        r.setEnd(node, i + end)
-        s.removeAllRanges()
-        s.addRange(r)
-        await new Promise((ok) => setTimeout(ok, 30))
-      }
-      const b = r.getBoundingClientRect(), fr = frameElement.getBoundingClientRect()
-      return { x: Math.round(fr.left + b.left), y: Math.round(fr.top + b.top), w: Math.round(b.width), h: Math.round(b.height) }
-    })
-    const sel = await waitFor(from, (x) => x.type === 'selection', `${what}: selection`).catch(() => null)
-    await page.waitForTimeout(500)
-    const v = readSelection(sel)
-    const vw = await call('[innerWidth, innerHeight]')
-    check(!!v && v.text === 'black quartz' && /Sphinx of black quartz, judge my vow\./.test(v.sentence) && v.tooLong === false
-      && (annotatable ? /^epubcfi\(/.test(v.cfi ?? '') : v.cfi === null)
-      && JSON.stringify(v.rect) === JSON.stringify(want) && v.rect.x >= 0 && v.rect.x + v.rect.w <= vw[0] && v.rect.y >= 0 && v.rect.y + v.rect.h <= vw[1],
-    `${what}: a selection is sent and passes the host validator (${JSON.stringify(sel)}, range at ${JSON.stringify(want)})`)
-    check(messages.slice(from).filter((x) => x.type === 'selection').length === 1, `${what}: a drag is one selection, not one per change`)
-    const cleared = messages.length
     await f.evaluate(() => getSelection().removeAllRanges())
-    check(!!(await waitFor(cleared, (x) => x.type === 'selection-cleared', `${what}: selection-cleared`).catch(() => null)), `${what}: a collapsed selection is selection-cleared`)
+    return !!(await waitFor(from, (x) => x.type === 'selection-cleared', 'selection-cleared').catch(() => null))
+  }
+
+  /**
+   * #1268 on a reflowable book: a drag over "black quartz" (three selectionchanges) is one `selection` once it
+   * settles, which the hosts' validator takes, with a CFI and a rect on the range in the page viewport; it is
+   * sent again where a font change moved it; collapsing it is one `selection-cleared`. One event per gesture:
+   * a click that dismisses a selection is only its `selection-cleared`, a double-click only a `selection`.
+   * Text as rendered, without the edge whitespace a drag from the blank after a heading starts in.
+   */
+  async function checkSelection(what) {
+    const f = await frameWith('black quartz')
+    if (!f) return check(false, `${what}: no section frame with text`)
+    let from = messages.length
+    const want = await inPage(f, await select(f, 'black quartz', 0, 'black quartz', 'black quartz'.length, 3))
+    await settled()
+    const v = readSelection(messages.slice(from).find((x) => x.type === 'selection'))
+    const vw = await call('[innerWidth, innerHeight]')
+    check(!!v && v.text === 'black quartz' && /Sphinx of black quartz, judge my vow\./.test(v.sentence) && v.tooLong === false && /^epubcfi\(/.test(v.cfi ?? '')
+      && JSON.stringify(v.rect) === JSON.stringify(want) && v.rect.x >= 0 && v.rect.x + v.rect.w <= vw[0] && v.rect.y >= 0 && v.rect.y + v.rect.h <= vw[1],
+    `${what}: a selection is sent and passes the host validator (${JSON.stringify(v)}, range at ${JSON.stringify(want)})`)
+    check(JSON.stringify(kinds(from)) === '["selection"]', `${what}: a drag is one selection, not one per change (${kinds(from)})`)
+
+    // A font change moves the selection: sent again where it now is.
+    from = messages.length
+    await call('window.__fol.font(4)')
+    await page.waitForTimeout(1200)
+    const moved = readSelection(messages.slice(from).findLast((x) => x.type === 'selection'))
+    const now = await inPage(f, await f.evaluate(() => getSelection().getRangeAt(0).getBoundingClientRect().toJSON()))
+    check(!!moved && JSON.stringify(moved.rect) === JSON.stringify(now) && JSON.stringify(now) !== JSON.stringify(want),
+      `${what}: font(+4) sends the selection again at its new place (${JSON.stringify(moved?.rect)}, range at ${JSON.stringify(now)})`)
+    await call('window.__fol.font(-4)')
+    await page.waitForTimeout(1200)
+
+    // A click on another word while a selection is sent: the selection ends, and that is all.
+    from = messages.length
+    const judge = await f.evaluate(() => {
+      const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+      while (w.nextNode() && !w.currentNode.data.includes('judge'));
+      const r = document.createRange()
+      r.setStart(w.currentNode, w.currentNode.data.indexOf('judge'))
+      r.setEnd(w.currentNode, w.currentNode.data.indexOf('judge') + 5)
+      const b = r.getBoundingClientRect(), fr = frameElement.getBoundingClientRect()
+      return { x: fr.left + b.left + b.width / 2, y: fr.top + b.top + b.height / 2 }
+    })
+    await page.mouse.click(judge.x, judge.y)
+    await settled()
+    check(JSON.stringify(kinds(from)) === '["selection-cleared"]', `${what}: a click that dismisses the selection is only selection-cleared (${kinds(from)})`)
+
+    // A double-click selecting a word: a selection, not a word tap first.
+    from = messages.length
+    await page.mouse.dblclick(judge.x, judge.y)
+    await settled()
+    const dbl = messages.slice(from).find((x) => x.type === 'selection')
+    check(JSON.stringify(kinds(from)) === '["selection"]' && dbl?.text === 'judge', `${what}: a double-click on a word is one selection (${kinds(from)}, ${dbl?.text})`)
+    check(await unselect(f), `${what}: a collapsed selection is selection-cleared`)
+
+    // From the heading's end (the blank after it) into the paragraph: text and sentence are the paragraph's.
+    from = messages.length
+    await select(f, 'Chapter One', 'Chapter One'.length, 'Paragraph 1.', 'Paragraph 1.'.length)
+    await settled()
+    const edge = readSelection(messages.slice(from).find((x) => x.type === 'selection'))
+    check(edge?.text === 'Paragraph 1.' && /^Paragraph 1\./.test(edge.sentence), `${what}: a drag from the blank after a heading is the paragraph's (${edge?.text} / ${edge?.sentence})`)
+    // Across blocks: the words stay apart, as on screen.
+    from = messages.length
+    await select(f, 'Chapter One', 0, 'Paragraph 1.', 'Paragraph 1.'.length)
+    await settled()
+    const across = readSelection(messages.slice(from).find((x) => x.type === 'selection'))
+    check(/^Chapter One\s+Paragraph 1\.$/.test(across?.text ?? ''), `${what}: a selection across blocks keeps its words apart (${JSON.stringify(across?.text)})`)
+    check(await unselect(f), `${what}: and is cleared`)
+  }
+
+  /**
+   * #1268 on a paginated book: a selection turned off the page is cleared, and sent again where it is when
+   * turned back; a selection held when another book swaps in is cleared then, before that book's `opened`.
+   */
+  async function checkSelectionPaged(what, nextFile) {
+    const f = await frameWith('black quartz')
+    if (!f) return check(false, `${what}: no section frame with text`)
+    let from = messages.length
+    const want = await inPage(f, await select(f, 'black quartz', 0, 'black quartz', 'black quartz'.length))
+    await settled()
+    check(!!readSelection(messages.slice(from).find((x) => x.type === 'selection')), `${what}: a selection is sent`)
+    from = messages.length
+    await call('window.__fol.next()')
+    await page.waitForTimeout(1200)
+    check(kinds(from).join() === 'selection-cleared', `${what}: a page turned away from it clears it (${kinds(from)})`)
+    from = messages.length
+    await call('window.__fol.prev()')
+    await page.waitForTimeout(1200)
+    const back = readSelection(messages.slice(from).find((x) => x.type === 'selection'))
+    check(!!back && JSON.stringify(back.rect) === JSON.stringify(want), `${what}: turned back, it is sent again where it is (${JSON.stringify(back?.rect)} vs ${JSON.stringify(want)})`)
+    from = messages.length
+    const m = await open(nextFile)
+    const order = messages.slice(from).filter((x) => x.type === 'selection-cleared' || x.type === 'opened').map((x) => x.type)
+    check(m.type === 'opened' && order[0] === 'selection-cleared' && order.filter((x) => x === 'selection-cleared').length === 1, `${what}: the next book's swap clears it, before opened (${order})`)
+    return m
   }
 
   /**
@@ -142,11 +240,21 @@ try {
         if (await f.evaluate(() => getComputedStyle(frameElement.parentElement).display !== 'none' && !!document.querySelector('.textLayer span')).catch(() => false)) return f
     }
     // A selection in the text layer, as a long-press makes one.
-    const f1 = await frame()
+    let f1 = await frame()
     const selected = await f1?.evaluate(() => { const s = getSelection(); s.selectAllChildren(document.querySelector('.textLayer')); return s.toString() })
     check(/Sphinx of black quartz/.test(selected ?? ''), 'its text layer selects')
     const pdfSel = readSelection(await waitFor(0, (x) => x.type === 'selection' && /Page 1\. Sphinx/.test(x.text), 'pdf selection').catch(() => null))
-    check(pdfSel?.cfi === null && pdfSel.rect.w > 0, `the selection reaches the host, without a CFI (${JSON.stringify(pdfSel)})`)
+    check(pdfSel?.cfi === null && pdfSel.rect.w > 0 && /vow\.\s+The quick/.test(pdfSel.text),
+      `the selection reaches the host, without a CFI, its lines apart (${JSON.stringify(pdfSel)})`)
+    // A fixed-layout page holding the selection turned away: its frame is gone, the selection cleared.
+    let turned = messages.length
+    await call('window.__fol.next()')
+    check(!!(await waitFor(turned, (x) => x.type === 'selection-cleared', 'pdf selection cleared by a page turn').catch(() => null)), 'a page turned away from the selection clears it')
+    turned = messages.length
+    await call('window.__fol.prev()')
+    await waitFor(turned, (x) => x.type === 'relocate' && x.index === 0, 'back on page 1')
+    await textLayer(1)
+    f1 = await frame()
     let from = messages.length
     call('window.__fol.highlightSelection()')
     await waitFor(from, (x) => x.type === 'log' && /no highlights on a PDF yet/.test(x.msg), 'pdf highlight refused')
@@ -664,7 +772,7 @@ try {
   call('window.__fol.flow("sideways")')
   await waitFor(warns, (x) => x.type === 'log' && /flow ignored/.test(x.msg), 'flow ignored')
   check(true, 'an unknown flow is ignored with a warn')
-  await checkSelection('epub, scrolled', true)
+  await checkSelection('epub, scrolled')
 
   console.log('mobi')
   m = await open('tsformat.mobi')
@@ -675,7 +783,8 @@ try {
   check(await loaded() === 'mobi', 'the MOBI reader ran on the first MOBI, and only it')
   check(await showsText(), 'its text is rendered')
   call('window.__fol.flow("paginated")')
-  await checkSelection('mobi, paginated', true)
+  await checkSelection('mobi, paginated')
+  await checkSelectionPaged('mobi, paginated', 'tsformat.fb2')
 
   for (const file of ['tsformat.fb2', 'tsformat.fbz']) {
     console.log(file.split('.')[1])
@@ -1162,6 +1271,49 @@ try {
   await settle()
   check(storesFrom(from).length === 0 && messages.slice(from).some((x) => x.type === 'log' && /nothing to save here/.test(x.msg)),
     'a taken offer on a pre-paginated EPUB saves nothing and says so')
+  // #1268: the fixed-layout renderer scales a pre-paginated page's frame with a transform; a selection's rect
+  // is where the text is drawn. A page turned away clears it. On a spread, a change in one frame does not
+  // cancel the other frame's selection.
+  console.log('fixed layout selection')
+  m = await open('tsfixed.epub', entryOf(m.book, null))
+  {
+    const f = await frameWith('Page 1. Sphinx')
+    const scale = await f?.evaluate(() => frameElement.getBoundingClientRect().width / frameElement.offsetWidth)
+    from = messages.length
+    await f?.evaluate(() => {
+      const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+      while (w.nextNode() && !w.currentNode.data.includes('black quartz'));
+      const r = document.createRange()
+      r.setStart(w.currentNode, w.currentNode.data.indexOf('black quartz'))
+      r.setEnd(w.currentNode, w.currentNode.data.indexOf('black quartz') + 12)
+      const span = document.createElement('span')
+      span.id = 'ts-sel'
+      r.surroundContents(span)
+      getSelection().selectAllChildren(span)
+    })
+    await settled()
+    const real = await (await f?.$('#ts-sel'))?.boundingBox()
+    const v = readSelection(messages.slice(from).find((x) => x.type === 'selection'))
+    const near = (a, b) => Math.abs(a - b) <= 1
+    check(!!real && !!v && Math.abs(scale - 1) > 0.01 && near(v.rect.x, real.x) && near(v.rect.y, real.y) && near(v.rect.w, real.width) && near(v.rect.h, real.height),
+      `a selection on a scaled page (scale ${scale?.toFixed(2)}) is placed where it is drawn (${JSON.stringify(v?.rect)} vs ${JSON.stringify(real)})`)
+    from = messages.length
+    await call('window.__fol.next()')
+    check(!!(await waitFor(from, (x) => x.type === 'selection-cleared', 'fixed selection cleared').catch(() => null)), 'a pre-paginated page turned away from the selection clears it')
+    const [f2, f3] = [await frameWith('Page 2. Sphinx'), await frameWith('Page 3. Sphinx')]
+    check(!!f2 && !!f3 && f2 !== f3, 'pages 2 and 3 are shown side by side')
+    if (f2 && f3) {
+      await settled()
+      from = messages.length
+      await select(f2, 'black quartz', 0, 'black quartz', 'black quartz'.length)
+      await f3.evaluate(() => { getSelection().selectAllChildren(document.body); getSelection().removeAllRanges() })
+      await settled()
+      const two = messages.slice(from).filter((x) => x.type === 'selection' || x.type === 'selection-cleared')
+      check(two.length === 1 && two[0].type === 'selection' && two[0].text === 'black quartz' && two[0].index === 1,
+        `a change in the other frame of a spread does not cancel this frame's selection (${JSON.stringify(two.map((x) => [x.type, x.text, x.index]))})`)
+      check(await unselect(f2), 'and it is cleared when collapsed')
+    }
+  }
   m = await open('tsformat.cbz', entryOf(cbzBook, null))
   from = messages.length
   call('window.__fol.goTo({ fraction: 0.9, at: 12 }, true)')

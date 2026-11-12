@@ -376,12 +376,13 @@ export function writeFormatFixtures(dir) {
     manifest: '<item id="c" href="c.xhtml" media-type="application/xhtml+xml"/><item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/>',
     spine: '<itemref idref="c" linear="no"/><itemref idref="s1"/>',
   })
-  // A pre-paginated EPUB with text (#1187): foliate's fixed-layout renderer, which reports no range.
+  // A pre-paginated EPUB with text (#1187): foliate's fixed-layout renderer, which reports no range. Three pages:
+  // the 2nd and 3rd share a spread in a landscape view (#1268: a selection in one frame of two).
   epub(resolve(dir, 'tsfixed.epub'), 'TS FIXED', {
     meta: '<meta property="rendition:layout">pre-paginated</meta>',
-    files: Object.fromEntries([1, 2].map((n) => [`p${n}.xhtml`, xhtml('<meta name="viewport" content="width=600, height=800"/>', `<p>Page ${n}. ${para}</p>`)])),
-    manifest: [1, 2].map((n) => `<item id="p${n}" href="p${n}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
-    spine: '<itemref idref="p1"/><itemref idref="p2"/>',
+    files: Object.fromEntries([1, 2, 3].map((n) => [`p${n}.xhtml`, xhtml('<meta name="viewport" content="width=600, height=800"/>', `<p>Page ${n}. ${para}</p>`)])),
+    manifest: [1, 2, 3].map((n) => `<item id="p${n}" href="p${n}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: '<itemref idref="p1"/><itemref idref="p2"/><itemref idref="p3"/>',
   })
   // Three pages: the 2nd and 3rd share a spread in a landscape view (foliate pairs pages after the first).
   zipFiles(resolve(dir, 'tsthree.cbz'), { 'p01.png': png(60, 80, [200, 40, 40]), 'p02.png': png(60, 80, [40, 200, 40]), 'p03.png': png(60, 80, [40, 40, 200]) })
