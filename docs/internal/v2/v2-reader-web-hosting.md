@@ -35,7 +35,7 @@ today's dev host, if shipped as is:
 | Asset | Exposure | Evidence |
 |---|---|---|
 | Auth cookies `access_token`, `refresh_token` | **Not readable** by JS: `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain` (host-only), `Secure` outside Development, `MaxAge` = refresh TTL | `AuthEndpoints.cs:321-331`, `307-311` |
-| The API **with** those cookies | **Full.** The script is same-origin with the app window: `parent.fetch('/api/me/…')` runs in the parent's realm, under the **app's** CSP (`connect-src 'self'`, `nginx textstack.conf:160`), not the page's `connect-src blob: data: file:` [spec reasoning, exp] | `client.ts:11-16` (cookie mode); `ClaimsPrincipalExtensions.cs:27-40` (cookie read when no Bearer) |
+| The API **with** those cookies | **Full.** The script is same-origin with the app window: `parent.fetch('/api/me/…')` runs in the parent's realm, under the **app's** CSP (`connect-src 'self'`, `nginx textstack.conf:160`), not the page's `connect-src blob: data:` (the web frame's; `file:` dropped by #1228) [spec reasoning, exp] | `client.ts:11-16` (cookie mode); `ClaimsPrincipalExtensions.cs:27-40` (cookie read when no Bearer) |
 | — what that means | read the library, vocabulary, profile, highlights; download every book (`GET /me/v2/books/{id}/files/{fileId}/content`); **mint a long-lived MCP key** (`POST /me/mcp/keys`) and exfiltrate it through any channel the app CSP allows (`img-src https:` is open); delete the account (`DELETE /me/account`) | `McpKeysEndpoints.cs:27`, `AccountEndpoints.cs:17`, `V2Endpoints.cs:61` |
 | `localStorage` / `sessionStorage` | Readable via `parent.localStorage`. **No tokens there** (web auth is cookie-only). Keys: native language, cookie consent, reader settings, dark mode, search history, library sort, reading progress caches, pending reading sessions, quick stats, pace, assistant launcher, Android tester banner | `NativeLanguageContext.tsx:14,66`, `useReaderSettings.ts:35`, `useReadingSession.ts:185`, `useUserBookProgress.ts:60`, … (grep `localStorage` in `apps/web/src`) |
 | IndexedDB `textstack-reader` | Readable: offline catalog chapters | `offlineDb.ts:110` |
@@ -43,7 +43,7 @@ today's dev host, if shipped as is:
 | Its own sandbox | With `allow-scripts allow-same-origin` on a same-origin frame, the frame can remove its own `sandbox` attribute [spec: HTML "sandbox" note] | — |
 
 What the page's own CSP still blocks **inside the page's realm** (it does not bind the parent's functions):
-`connect-src blob: data: file:` (no fetch/XHR/beacon to http), `img-src`/`font-src`/`media-src blob: data:` (no GET
+`connect-src blob: data:` (#1228: `file:` dropped; no fetch/XHR/beacon to http), `img-src`/`font-src`/`media-src blob: data:` (no GET
 beacons), `form-action 'none'` (plus no `allow-forms`), `frame-src blob:` (a section frame navigating itself to
 `https:` is checked against its embedder's `frame-src`) [spec], `base-uri 'none'`. Not in the page CSP:
 `frame-ancestors` and `sandbox` (both are **ignored in a `<meta>` CSP**) [spec: CSP3 §"meta element"]; `navigate-to`

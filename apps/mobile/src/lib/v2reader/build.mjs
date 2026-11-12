@@ -12,7 +12,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { NONCE, formatsJs, html } from './carrier.mjs'
+import { ANDROID_CSP, CSP, NONCE, formatsJs, html } from './carrier.mjs'
 
 // Pinned by SHA on our fork (ADR-032): upstream 78914aef (2026-05-01, no releases, unstable API)
 // + our patches as real commits. MIT © John Factotum. A bump is a PR that re-runs every ADR-029
@@ -186,12 +186,24 @@ const content = `// AUTO-GENERATED — do not edit.
 /* prettier-ignore */
 const PAGE_HTML = ${JSON.stringify(html(page))}
 
-/** The page with \`nonce\` in its CSP and script tag. A fresh random nonce per load, base64 or hex, >= 16 chars. */
-export function v2ReaderPageHtml(nonce: string): string {
+function fill(page: string, nonce: string): string {
   if (!/^[A-Za-z0-9+/_-]{16,}={0,2}$/.test(nonce)) throw new Error('v2ReaderPageHtml: nonce must be base64 or hex, at least 16 chars')
   // The placeholder fits that rule and is public: a page "filled" with it runs any script carrying it.
   if (nonce.includes(${JSON.stringify(NONCE)})) throw new Error('v2ReaderPageHtml: the placeholder is not a nonce')
-  return PAGE_HTML.split(${JSON.stringify(NONCE)}).join(nonce)
+  return page.split(${JSON.stringify(NONCE)}).join(nonce)
+}
+
+/** The page with \`nonce\` in its CSP and script tag. A fresh random nonce per load, base64 or hex, >= 16 chars. The web frame's (frame.mjs). */
+export function v2ReaderPageHtml(nonce: string): string {
+  return fill(PAGE_HTML, nonce)
+}
+
+let androidPage: string | null = null
+/** The Android host's page (#1228): the same, with connect-src naming the two directories its interceptor serves. */
+export function v2ReaderAndroidPageHtml(nonce: string): string {
+  // The CSP meta is the first thing in the head, ahead of the script: its first occurrence is the one replaced.
+  androidPage ??= PAGE_HTML.replace(${JSON.stringify(CSP)}, ${JSON.stringify(ANDROID_CSP)})
+  return fill(androidPage, nonce)
 }
 `
 

@@ -22,6 +22,8 @@
 FROM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS deps
 WORKDIR /repo
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+# pnpm-workspace.yaml `patchedDependencies` makes every install read these (#1228): without them, ENOENT.
+COPY patches/ patches/
 RUN corepack enable && corepack prepare --activate
 # Every member's manifest: --frozen-lockfile validates the lockfile against all of them.
 COPY apps/web/package.json apps/web/
@@ -34,7 +36,10 @@ COPY packages/reader-engine/package.json packages/reader-engine/
 # Puppeteer 25 ignores it — so the image used to carry Chrome AND chrome-headless-shell
 # on top of the apk Chromium it actually launched.)
 ENV PUPPETEER_SKIP_DOWNLOAD=true
-RUN pnpm --filter textstack-web deploy --prod --legacy --frozen-lockfile /deploy
+# The web deploy does not contain react-native-webview, so its patch is unused here and pnpm refuses
+# (ERR_PNPM_UNUSED_PATCH). Allowed for this command only: workspace-wide, the check is what catches a
+# version bump that left the patch behind.
+RUN pnpm --filter textstack-web deploy --prod --legacy --frozen-lockfile --config.allow-unused-patches=true /deploy
 
 # ---- runtime ----
 FROM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf

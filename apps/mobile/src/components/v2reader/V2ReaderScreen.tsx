@@ -15,10 +15,11 @@ import { bookFile, createV2Storage, nonceFromUuid, type LibraryBook, type V2File
 import { deviceLocalLibrary } from '../../lib/v2reader/deviceLibrary'
 import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
 import { downloadV2Book, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
-import { v2ReaderPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
+import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
+import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
 import { USER_AGENT_PROBE, createWebViewCheck, webViewStorePackage, type WebViewVerdict } from '../../lib/v2reader/webViewVersion'
@@ -130,7 +131,8 @@ const IDLE_HEADING = 'Pick a book'
 const webViewCheck = createWebViewCheck()
 
 /**
- * Plan R2 is the Android route: iOS has no allowFileAccessFromFileURLs and refuses the file:// base.
+ * Android only (R2): the page reads its book from a native interceptor (bookOrigin.mjs, a react-native-webview patch)
+ * that iOS does not have.
  * A WebView older than the page's floor swaps the reader for the update screen (#1228).
  */
 export default function V2ReaderScreen() {
@@ -174,7 +176,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const { t } = useLanguage()
   const webView = useRef<WebView>(null)
   const [nonce, setNonce] = useState(freshNonce)
-  const source = useMemo(() => ({ html: v2ReaderPageHtml(nonce), baseUrl: Paths.document.uri }), [nonce])
+  // The base URL arms the patched WebView's book interceptor (bookOrigin.mjs) and gives the page that https origin.
+  const source = useMemo(() => ({ html: v2ReaderAndroidPageHtml(nonce), baseUrl: PAGE_URL }), [nonce])
   const ready = useRef(false)
   const opening = useRef<Opening | null>(null)
   /** Which page answer belongs to which open (openTracker.mjs): a book kept on screen, a stale `restored`. */
@@ -290,6 +293,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
 
   const open = (target: Opening) => {
+    // The URL first: a name the interceptor would not serve (never one this host makes) is refused before any
+    // state moves, as a failed open (its staged file dropped).
+    const url = bookUrl(target.file)
+    if (!url) {
+      if (isStaged(target.file)) v2Storage().dropStaged(target.file).catch(fail('drop'))
+      return setOpenError(`cannot open ${target.name}: not a file the reader serves`)
+    }
     // A superseded open's staged file is dropped once another book is taken (`takeOpened`): until then the
     // page may still keep that book on screen, if this newer open fails before its swap.
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
@@ -302,7 +312,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setProgress.current('')
     if (!ready.current) return
     deadlines.waitOpened(sizeOf(target.file))
-    call(`window.__fol.openUrl(${JSON.stringify(v2File(target.file).uri)}, ${JSON.stringify(target.file)})`)
+    call(`window.__fol.openUrl(${JSON.stringify(url)}, ${JSON.stringify(target.file)})`)
   }
 
   /** The page's book is `t.open`'s: every other open still pending is over, and its staged file goes. */
@@ -549,13 +559,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         key={nonce}
         ref={webView}
         style={styles.page}
-        // README "WebView, dev route only": the file:// base lets the page read the retained file by
-        // XHR, so no book bytes cross the bridge. Accepted for this route only until the R4 review.
+        // README "WebView": no file access at all (the library's defaults, all off); the page reads its book by
+        // XHR from the interceptor, so no book bytes cross the bridge. `*`: react-native-webview opens a
+        // navigation outside originWhitelist in another app, so the filter is onShouldStartLoadWithRequest below.
         source={source}
         originWhitelist={['*']}
-        allowFileAccess
-        allowFileAccessFromFileURLs
-        allowUniversalAccessFromFileURLs={false}
         onMessage={onMessage}
         // Runs as its own script on page start, so it answers even where the page fails to parse (#1228).
         injectedJavaScriptBeforeContentLoaded={USER_AGENT_PROBE}

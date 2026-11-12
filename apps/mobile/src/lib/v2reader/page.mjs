@@ -636,14 +636,14 @@ function openFor(bytes, name) {
 }
 
 window.__fol = {
-  // The retained file, read by the page itself (file:// origin + allowFileAccessFromFileURLs): no book
-  // bytes cross the bridge. `open-failed`: unreadable, not a book this page reads, DRM- or password-protected; the host must not keep it.
+  // Read by the page itself (Android: the host's interceptor, bookOrigin.mjs; web: a blob: URL): no book bytes
+  // cross the bridge. `open-failed`: unreadable, not a book this page reads, DRM- or password-protected.
   openUrl: (url, name) => {
     // The seq turns over in openFor, once the bytes are in hand: a failed READ leaves the previous
     // book open, and its view must keep reporting and saving as if nothing happened (#1168).
     const x = new XMLHttpRequest()
     x.responseType = 'arraybuffer'
-    x.onload = () => ((x.status === 0 || x.status === 200) && x.response
+    x.onload = () => (x.status === 200 && x.response
       ? openFor(new Uint8Array(x.response), name)
       : openFailed(name, `cannot read the file (status ${x.status})`))
     x.onerror = () => openFailed(name, 'cannot read the file')

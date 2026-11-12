@@ -41,6 +41,18 @@ succeeded or threw.
 
 **Build**: EAS Build (cloud) for dev/prod. OTA updates via `expo-updates`.
 
+**Patched native dependency** (#1228): `react-native-webview` 13.16.1 carries a pnpm patch
+(`patches/react-native-webview@13.16.1.patch`, `patchedDependencies` in `pnpm-workspace.yaml`, applied by every
+`pnpm install`, EAS included): the V2 reader's book interceptor (`TextStackBookServer.java`, https instead of
+`file://`) and a narrowed message bridge (main frame only; on the old-engine fallback, only the V2 page's user-agent answer). It is native code: a change to it needs a new
+dev client (`npx expo run:android` from `apps/mobile`, or `npm run build:dev:android`) and ships only in a store
+build. The Expo fingerprint hashes `node_modules/react-native-webview` itself (measured with `npx expo-updates
+fingerprint:generate --platform android` from `apps/mobile`: the hash moves with the patch applied or not), so an OTA
+never reaches a build without it. Bumping the package:
+`pnpm patch react-native-webview@<new>`, re-apply the hunks, `pnpm patch-commit <dir>`, delete the old `.patch`,
+rerun `bookOrigin.test.ts` (it pins the Java serving rule to `bookOrigin.mjs`); an install fails loudly if a patch
+no longer applies. The web ssg-worker image installs only the web app, so its `pnpm deploy` allows an unused patch for that one command (`apps/web/Dockerfile.ssg-worker`); both images `COPY patches/` before installing.
+
 ### Releasing to Play Internal Testing
 
 ```bash

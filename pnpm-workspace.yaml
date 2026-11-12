@@ -120,3 +120,11 @@ catalog:
 
 minimumReleaseAgeExclude:
   - vite@6.4.5
+
+# Patches applied on every install (local, CI, EAS). One so far, react-native-webview (#1228): the V2 reader's
+# book files served over https by a native interceptor, and the message bridge limited to the main frame
+# (docs/internal/v2/v2-reader-android-bytes.md). Bumping the package: `pnpm patch react-native-webview@<new>`,
+# re-apply the patch's hunks, `pnpm patch-commit`, delete the old .patch; the install fails loudly if the patch no
+# longer applies. A native change: a new dev client and a store build, never an OTA.
+patchedDependencies:
+  react-native-webview@13.16.1: patches/react-native-webview@13.16.1.patch

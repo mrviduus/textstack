@@ -1,7 +1,8 @@
 # V2 reader on Android: book bytes without `file://`
 
-**Status:** proposed — the owner decides. Issue [#1228](https://github.com/mrviduus/textstack/issues/1228) (half B,
-investigation only; nothing here is built). Context: ADR-029 Decision 4 (`file://` is dev-only; owner direction
+**Status:** built (owner decision 2026-11-11: option (a) as a `pnpm patch`), on the dev route; §5 is what was built
+and measured. Issue [#1228](https://github.com/mrviduus/textstack/issues/1228). §1–§3 are the investigation as
+written before the decision ("today" there means before #1228). Context: ADR-029 Decision 4 (`file://` is dev-only; owner direction
 2026-10-30: native, limited file serving over https), the R4 security review in
 [`epub-engine-prototype.md`](epub-engine-prototype.md#gate-file-security-review), R8 audit §2.1 and §7 wave A.
 
@@ -77,9 +78,97 @@ native (another small patched method) and buys little: a running script already 
    run:android`) is needed to test, and the change ships only with a store build** (`mobile-ota.yml` will not send it
    to old runtimes, by design). Expo Go cannot run it.
 
-## 4. Open questions for the owner
+## 4. Decisions
 
-1. (a) as a `pnpm patch` vs a fork of `react-native-webview` vs a local module spike?
-2. Directory-scoped (`v2/books/*`) or one-book-at-a-time serving?
-3. Staged picks: second handler on `staging/`, or stage inside `books/`?
-4. The bridge accepts messages from every frame (`Set.of("*")`, no `isMainFrame` check): fix it in the same patch?
+1. **Option (a) as a `pnpm patch`** of react-native-webview: decided by the owner (2026-11-11).
+
+Defaults taken where the owner did not answer; **the owner can veto each in the PR**:
+
+2. **Serving scope: the two directories** `files/v2/books/` and `files/v2/staging/`, each restricted to its file-name
+   shape (`books/<sha256>.epub`, `staging/[dl-]<ms>.epub`), not one book at a time. One-book serving needs a second
+   channel to native (a patched method or prop, with codegen) and buys little: a script that runs already has the open
+   book. Never the documents dir, `library.json`, `store/` or anything else.
+3. **Staged picks: served from `staging/`** (a second allowed directory): the smaller diff, and no second copy of an
+   87 MB file.
+4. **The any-frame bridge: fixed in the same patch** (messages from the main frame only).
+
+## 5. As built (#1228)
+
+- **Patch** `patches/react-native-webview@13.16.1.patch` (`patchedDependencies` in `pnpm-workspace.yaml`; `pnpm
+  install --frozen-lockfile` applies it everywhere, EAS included): a new `TextStackBookServer.java` and three small
+  hunks. `RNCWebViewClient.shouldInterceptRequest` asks it first. It is armed only when `loadSource` gets an HTML
+  source with base URL exactly `https://appassets.androidplatform.net/`, so the app's other WebViews are untouched.
+  For that host it serves a GET whose encoded path matches `BOOK_PATH` (no port, query, fragment or user info) from
+  `files/v2/` after a canonical-path check (the file's real parent must be `books/` or `staging/`: a planted symlink
+  is refused), with `Cache-Control: no-store`; anything else on the host is a 404, never the network. It does not use
+  `WebViewAssetLoader`: one fixed regex plus the canonical check is less code and stricter than a path handler.
+  `RNCWebView`'s message listener drops `!isMainFrame`.
+- **Rule in one place:** `apps/mobile/src/lib/v2reader/bookOrigin.mjs` (`BOOK_ORIGIN`, `BOOK_PATH`, `bookUrl`,
+  `servedFile`, `BOOK_CONNECT_SRC`). `bookOrigin.test.ts` pins the Java regex to it byte for byte.
+- **Host** (`V2ReaderScreen.tsx`): `baseUrl` is the origin; `allowFileAccess*` removed (the library defaults: file,
+  universal and content access all off); `openUrl` gets `bookUrl(file)`. `originWhitelist` stays `['*']` on purpose:
+  react-native-webview opens a navigation outside the whitelist in another app (`Linking.openURL`), so a narrow
+  whitelist would turn a blocked navigation into an external open. `onShouldStartLoadWithRequest` (about:/blob:/data:)
+  stays the filter.
+- **CSP, per host:** the Android page (`v2ReaderAndroidPageHtml`, carrier.mjs `ANDROID_CSP`) has `connect-src blob:
+  data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/`; the page
+  as built and the web frame keep `connect-src blob: data:` (the prod-csp check asserts the frame's). `file:` is gone
+  from both (ADR-029 Decision 4, amended).
+- **Fingerprint:** the Expo fingerprint (`npx expo-updates fingerprint:generate --platform android`, from
+  `apps/mobile`) hashes the whole `node_modules/react-native-webview` directory: measured `1b3582e7…` without the
+  patch applied and `8227c2d6…` with it. No extra source is needed; an OTA never reaches a build without the patch.
+- **Bridge:** The same patch limits the message bridge on that WebView: with `WEB_MESSAGE_LISTENER` (every engine that can run the page, Chrome 117+) only the main frame's messages are delivered; on the `addJavascriptInterface` fallback (older engines, no frame information) only the user-agent answer is, and no book opens there. Other WebViews keep the fallback as it was; on the listener path they too take main-frame messages only (none of them uses iframes).
+- **Images:** `patchedDependencies` makes every install read the patch, so `apps/admin/Dockerfile` and
+  `apps/web/Dockerfile.ssg-worker` `COPY patches/` before installing (without it: ENOENT, reproduced). The ssg-worker's
+  `pnpm deploy` of the web app alone has no react-native-webview, so it passes `--config.allow-unused-patches=true`
+  for that command only (workspace-wide, the unused-patch error is what catches a version bump that left the patch
+  behind). Both images built locally (`docker build`). The CI and deploy installs run on full checkouts.
+- **Desktop checks:** `bookOriginRoute.mjs` routes the origin in Playwright (no `--allow-file-access-from-files`
+  anywhere). The sandbox check uses the interceptor's rule plus scope rows; the format check and the PDF gate use
+  the same origin.
+
+**Emulator evidence (2026-11-11, agent).** A local debug dev client (`npx expo run:android`, patch applied) on AVD
+`Pixel_7_Pro` (Android 17, WebView 156.0.8078.47), JS from Metro; timings from a throwaway `Date.now()` log at
+`openUrl` and `opened` (not committed), as in R4:
+
+| Check | Result |
+|---|---|
+| 87 MB EPUB (`314d6bff…`, R4's padded book) open | **2.31 s and 2.27 s** (two opens) vs 6.4–7.7 s by `file://` in R4 (same AVD type, R4's build; not a same-day A/B) |
+| 87 MB book: page, kill the app, reopen | restored at the same place (14 %, `position: restored`) |
+| PDF picked (`staging/<ms>.epub`) | opens (0.7 s), pages; after a kill, reopened from `books/<sha>.epub`, `position: restored` |
+| From the page over CDP: served book | 200 |
+| `/v2/library.json`, `/v2/store/`, `/v2/books/../library.json` | refused by the CSP |
+| `/v2/books/..%2Flibrary.json`, `<book>?x=1` | 404 (interceptor) |
+| `file:///…/files/v2/library.json`, `file:///…/databases/` | refused |
+| **CSP bypassed** (CDP `Page.setBypassCSP`, as a CSP regression): same rows | out-of-scope paths all **404**, `file:` still refused: the interceptor and the file flags hold alone |
+| Symlink `books/<64 c>.epub → files/v2/library.json` | **404** (served book beside it: 200) |
+| Bridge: `postMessage` from a `blob:` iframe vs the main frame | iframe message dropped, main-frame message delivered |
+| AVD `TS_API28` (WebView 66), same APK | the update screen, not the reader |
+
+**Re-run after the review fixes (second dev client: the fallback-bridge guard, host-specific CSP, page rebuilt):**
+
+| Check | Result |
+|---|---|
+| WebView 156: 87 MB EPUB open | 2.12 s |
+| Served book / out-of-scope rows, CSP on and bypassed | as above: 200; CSP refusals; with the CSP bypassed every out-of-scope path 404, `file:` refused |
+| Bridge from a `blob:` iframe vs the main frame | iframe dropped, main frame delivered |
+| WebView 66 (fallback bridge, `servesBooks`): the `ua` answer | delivered: the update screen shows |
+| **Legacy reader** (`ReaderShell`, catalog EPUB "Alice", WebView 156, process-wide bridge change) | opens and renders; long-press a word: the selection bar (Translate, Explain, Listen, Save) comes up over the bridge; a yellow highlight saved; scrolled 4 screens, app killed, "Continue Reading" (book page showed 3 %) reopened at the same paragraph; the highlight is still drawn |
+| **Legacy PDF viewer** (`ReaderShell` original layout) | **not run**: only a user upload has one, and the dev client talks to production; uploading a test file there was not done. Owner, on the device |
+
+Every `<WebView` in the app: `src/components/reader/ReaderShell.tsx` (legacy reader: reflow, and the PDF original
+layout) and `src/components/v2reader/V2ReaderScreen.tsx` (V2). Only the reflow half of the first and the second
+were run.
+
+Not run here: a physical device (owner); the hostile book on the device (the desktop sandbox check covers the CSP
+under this origin); an ENOSPC import on this build; the legacy PDF viewer (above).
+
+**Owner, physical device:** build a dev client with the patch (`cd apps/mobile && npx expo run:android` with the phone
+on USB, or `npm run build:dev:android` on EAS and install it; Expo Go cannot run it). Then
+`adb shell am start -a android.intent.action.VIEW -d textstack://dev/epub-v2`: pick a large EPUB and a PDF, page,
+kill, reopen (the place is kept); open a legacy book in the normal reader once (unchanged).
+
+**Upgrade procedure** (react-native-webview bump): `pnpm patch react-native-webview@<new>`, re-apply the hunks from
+the old `.patch`, `pnpm patch-commit <dir>`, delete the old `.patch`, run `bookOrigin.test.ts` and the emulator rows
+above. A patch that no longer applies fails `pnpm install` loudly; a hunk applied to moved code is what the emulator
+rows catch.
