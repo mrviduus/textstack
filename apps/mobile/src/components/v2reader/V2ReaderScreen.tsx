@@ -392,10 +392,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** A book only the server has: fetched on demand, then opened. */
   const download = (b: LibraryBook) => {
     setOpenError(null)
+    // As a pick's copy (#1273): a book opened while this one downloads is not replaced; the download stays in the library.
+    const current = tracker.pick()
     downloadV2Book(deviceLocalLibrary(), b.id, downloadIo).then(
       async (ok) => {
         if (!ok) return
         await refreshBooks()
+        if (!current()) return
         open({ file: bookFile(b.sha256), name: b.originalName })
       },
       fail('download', setOpenError),
