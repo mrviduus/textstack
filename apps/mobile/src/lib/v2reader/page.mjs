@@ -311,6 +311,26 @@ function atBookEnd(index) {
   } catch { return false }
 }
 
+const wordCounts = new WeakMap()
+/**
+ * For a host's "time left" (#1262), which a book fraction alone cannot give: `sectionEnd`, the book fraction where
+ * the shown section ends, and `words`, the book's length in words, estimated from the shown section (its words
+ * over its share of the book), so it shifts a little from section to section. Either is null when unknown; `words`
+ * always for a book with no text layer of its own (CBZ, PDF).
+ */
+function lengthAt(index) {
+  try {
+    const f = view.getSectionFractions()
+    // getSectionFractions adds an epsilon: the last one is a hair over 1.
+    const sectionEnd = f[index + 1] >= 0 ? Math.min(1, f[index + 1]) : null
+    const share = f[index + 1] - f[index]
+    const doc = !view.isFixedLayout && textual && view.renderer.getContents?.().find((c) => c.index === index)?.doc
+    if (!doc?.body || !(share > 0)) return { sectionEnd, words: null }
+    if (!wordCounts.has(doc)) wordCounts.set(doc, tokenizeVocabWords(doc.body.textContent ?? '').length)
+    return { sectionEnd, words: Math.round(wordCounts.get(doc) / share) || null }
+  } catch { return { sectionEnd: null, words: null } }
+}
+
 /**
  * foliate's goTo resolves with the target it resolved, arrived or not (a locked paginator, a section that
  * failed to load): the renderer is asked whether that section is on screen. A fixed-layout renderer's
@@ -557,7 +577,7 @@ async function open(bytes, name, kind, mine) {
     // host moving the view). Sent as `moved`, so a host never guesses it from CFIs.
     const moved = d.reason !== 'anchor' && d.cfi !== lastCfi && !hostMoving
     lastCfi = d.cfi
-    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, atEnd: atBookEnd(d.section?.current) })
+    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, atEnd: atBookEnd(d.section?.current), ...lengthAt(d.section?.current) })
     // A selection moved (or left the screen) with the view, a font or flow change's re-layout included: sent
     // again, or cleared.
     settleSelection()

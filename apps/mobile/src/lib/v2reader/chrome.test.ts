@@ -177,7 +177,7 @@ describe('v2 reader bars on relocate (host)', () => {
 describe('v2 reader relocate read for the chrome (hostile payloads)', () => {
   it('readRelocate_Valid_Kept', () => {
     expect(readRelocate({ type: 'relocate', fraction: 0.5, index: 3, sections: 9, toc: 'Ch 1', dir: 'rtl', moved: true, cfi: 'x' }))
-      .toEqual({ fraction: 0.5, index: 3, sections: 9, toc: 'Ch 1', tocIndex: null, dir: 'rtl', moved: true, atEnd: false })
+      .toEqual({ fraction: 0.5, index: 3, sections: 9, toc: 'Ch 1', tocIndex: null, dir: 'rtl', moved: true, atEnd: false, sectionEnd: null, words: null })
   })
 
   it.each([['missing', undefined], ['false', false], ['a string', 'true'], ['1', 1], ['an object', {}]])('readRelocate_moved %s_False', (_, moved) => {
@@ -212,6 +212,14 @@ describe('v2 reader relocate read for the chrome (hostile payloads)', () => {
     ['a string toc index', { tocIndex: '1' }, { tocIndex: null }],
     ['a toc array', { toc: ['x'] }, { toc: '' }],
     ['atEnd true', { atEnd: true }, { atEnd: true }],
+    ['a section end', { sectionEnd: 0.5 }, { sectionEnd: 0.5 }],
+    ['a section end past 1', { sectionEnd: 1.01 }, { sectionEnd: null }],
+    ['a section end NaN', { sectionEnd: NaN }, { sectionEnd: null }],
+    ['words', { words: 80000 }, { words: 80000 }],
+    ['words zero', { words: 0 }, { words: null }],
+    ['words fractional', { words: 10.5 }, { words: null }],
+    ['words huge', { words: 1e12 }, { words: null }],
+    ['words a string', { words: '9' }, { words: null }],
     ['atEnd truthy', { atEnd: 1 }, { atEnd: false }],
     ['a long toc', { toc: 'x'.repeat(5000) }, { toc: 'x'.repeat(200) }],
     ['fraction a string', { fraction: '0.5' }, { fraction: null }],

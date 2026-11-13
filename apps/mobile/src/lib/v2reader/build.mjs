@@ -76,8 +76,9 @@ const FOLIATE_SHA = '73d42595074f0f5914c00ccb7172a0a8bdfecf26'
 // the document itself (no control, no Shift+arrow) with `repeat`, `dir` as the renderer pages (`pagedDir`) on `relocate` too.
 // +7 (#1263): `relocate.moved`, the save rule's own test sent to the hosts.
 // +35 (#1291): the fork's afterScroll guard.
-// +587 (#1261, #1266): `opened.toc[].depth`, `relocate.tocIndex`, `relocate.atEnd` (atBookEnd).
-const BUDGET = 265032
+// +1493 (#1261, #1262, #1266): `opened.toc[].depth`, `relocate.tocIndex`, `relocate.atEnd` (atBookEnd),
+// `relocate.sectionEnd` and `relocate.words` (lengthAt).
+const BUDGET = 265938
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

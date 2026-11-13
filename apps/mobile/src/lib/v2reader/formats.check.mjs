@@ -251,6 +251,9 @@ try {
       call(`window.__fol.goTo(${JSON.stringify(t.href)})`)
       const rel = await waitFor(at, (x) => x.type === 'relocate' && x.index === i, `the TOC entry ${i}`).catch(() => null)
       check(rel?.tocIndex === i && readRelocate(rel)?.tocIndex === i && rel.toc === t.label, `relocate.tocIndex is the entry's index in opened.toc (${i}: ${rel?.tocIndex}, ${rel?.toc})`)
+      // Three equal sections of 50 words: each ends a third further on, and each gives the book's 150 words.
+      const len = readRelocate(rel)
+      check(Math.abs((len?.sectionEnd ?? 0) - (i + 1) / 3) < 0.02 && len?.words > 130 && len.words < 170, `relocate carries the section's end and the book's words (${i}: ${rel?.sectionEnd}, ${rel?.words})`)
       check(rel?.atEnd === (i === 2), `a short section is the end of the book only when it is the last (${i}: ${rel?.atEnd})`)
     }
     // The end of the book (#1266): `relocate.atEnd`, which a host cannot tell from `fraction`.
@@ -263,6 +266,9 @@ try {
       let rel = await waitFor(at, (x) => x.type === 'relocate' && x.index === 1, 'the last section, scrolled').catch(() => null)
       check(rel?.atEnd === false, `scrolled: the top of a long last section is not the end (${rel?.atEnd})`)
       await page.mouse.move(640, 360)
+      // The first scroll after a navigation sends no relocate (foliate's `#justAnchored`, README): spent here.
+      await page.mouse.wheel(0, 100)
+      await page.waitForTimeout(600)
       for (let k = 0; k < 40; k++) { await page.mouse.wheel(0, 2000); await page.waitForTimeout(60) }
       await page.waitForTimeout(1200)
       rel = lastRel(at)
@@ -288,7 +294,7 @@ try {
       at = messages.length
       call(`window.__fol.goTo({ page: ${m.sections} })`)
       rel = await waitFor(at, (x) => x.type === 'relocate' && x.atEnd === true, 'the last PDF page').catch(() => null)
-      check(!!rel, `a PDF's last page is the end (${m.sections} pages, ${JSON.stringify(lastRel(at))})`)
+      check(!!rel && rel.words === null && readRelocate(rel)?.sectionEnd === 1, `a PDF's last page is the end, with no word estimate (${m.sections} pages, ${JSON.stringify(lastRel(at))})`)
       call('window.__fol.flow("scrolled")')
     }
     // Right to left by language only: the renderer pages it right to left, and says so.

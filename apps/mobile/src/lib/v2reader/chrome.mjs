@@ -58,6 +58,7 @@ export function keyAction({ key, shift, dir }) {
 
 /** The cap on the TOC label the chrome renders. */
 const MAX_TOC_LABEL = 200
+const MAX_BOOK_WORDS = 100_000_000
 const count = (v) => Number.isInteger(v) && v >= 0 && v <= 100_000
 
 /**
@@ -65,7 +66,8 @@ const count = (v) => Number.isInteger(v) && v >= 0 && v <= 100_000
  * and `sections` whole numbers ≤ 100,000, else null; `toc` a string cut to 200, else ''; `tocIndex` (the current entry's index in
  * `opened.toc`, #1261) a whole number ≤ 100,000, else null (the host still checks it against its list); `dir` through `readDir`;
  * `moved` (the reader moved the place, the page's save rule) and `atEnd` (the end of the book is on screen,
- * #1266) true only when exactly `true`.
+ * #1266) true only when exactly `true`; `sectionEnd` (the book fraction where the shown section ends) in [0, 1] and
+ * `words` (the page's estimate of the book's length, #1262) a whole number in 1..100,000,000, else null.
  * The position code (sync, ADR-019) keeps reading the message as before.
  */
 export function readRelocate(m) {
@@ -80,6 +82,8 @@ export function readRelocate(m) {
     dir: readDir(m),
     moved: m.moved === true,
     atEnd: m.atEnd === true,
+    sectionEnd: typeof m.sectionEnd === 'number' && m.sectionEnd >= 0 && m.sectionEnd <= 1 ? m.sectionEnd : null,
+    words: Number.isInteger(m.words) && m.words > 0 && m.words <= MAX_BOOK_WORDS ? m.words : null,
   }
 }
 
