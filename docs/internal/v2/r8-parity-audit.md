@@ -83,7 +83,7 @@ Legend — **Need**: `R8` must exist before R8 · `owner` needs a decision (§6)
 |---|---|---|---|---|
 | Word tap → popup (translation or definition by native language) | `WordPopup` | `SelectionActionBar` inline gloss | `word` event out; host logs it | R8 |
 | Native-language picker inside the popup | yes | yes | absent | R8 |
-| Multi-word selection toolbar (highlight, translate, explain, listen, copy) | yes | yes | **no selection event to the host** | R8 (protocol addition) |
+| Multi-word selection toolbar (highlight, translate, explain, listen, copy) | yes | yes | `selection` / `selection-cleared` events out, validated by both hosts (#1268); no toolbar | R8 |
 | Translation popup / sheet | yes | yes | absent | R8 |
 | Explain (streamed) | yes | yes | absent | R8 |
 | `tooLong` (>500 chars) notice | yes | yes | absent | R8 |

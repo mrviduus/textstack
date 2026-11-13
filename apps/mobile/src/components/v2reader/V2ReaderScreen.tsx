@@ -19,6 +19,7 @@ import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generat
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
+import { readSelection } from '../../lib/v2reader/selection.mjs'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
@@ -448,6 +449,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // highlight or translation yet, so `opened.annotatable` (false: CBZ, PDF) has nothing to hide here.
         console.log('[v2] word', m.word)
         return
+      case 'selection': {
+        // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
+        // No toolbar in this slice (#1268): the selection reaches the host and stops here.
+        const s = readSelection(m)
+        if (s) console.log(`[v2] selection ${s.text.length} chars, section ${s.index}`)
+        return
+      }
       case 'openLink':
         if (/^https?:\/\//i.test(m.href)) Linking.openURL(m.href).catch(fail('openLink'))
         return

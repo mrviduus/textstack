@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { v2ReaderAndroidPageHtml, v2ReaderPageHtml } from './v2ReaderPage.generated'
+import { MAX_SELECTED_TEXT } from '../../../../../packages/shared/src/reader/v2Locators'
 
 const NONCE = 'q7Rk2mW9xLpA4vBn8cZt0g=='
 
@@ -100,7 +101,7 @@ describe('v2ReaderPageHtml', () => {
     // #1128: the format is sniffed (and a refusal answered) BEFORE the seq turns over, so a refused
     // file leaves the open book reading and saving, like a failed read (#1168).
     expect(html).toMatch(/function openFor\(bytes, name\) \{\s*let kind;\s*try \{\s*kind = sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*const mine = \+\+openSeq;\s*return open\(bytes, name, kind, mine\)/)
-    expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,300}?if \(!entry\) return log\("warn"/)
+    expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,500}?if \(!entry\) return log\("warn"/)
     // The open seq only goes up: a failed open answers `open-failed` and hands nothing back.
     expect(html).toMatch(/if \(mine === openSeq\) openFailed\(name, [^;]*;\s*\}\);/)
     expect(html).not.toMatch(/(?<!var )openSeq = /)
@@ -199,7 +200,9 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toMatch(/type: "highlighted", id: \w+\.id, cfi: \w+\.cfi, quote: \w+\.quote, selectedText \}/)
     // A selection with no text, or one the server would refuse (SyncLimits.MaxSelectedText), is not
     // stored, and nothing is drawn or announced for it.
-    expect(html).toContain('var MAX_SELECTED_TEXT = 4e3;')
+    // The cap is the shared one (packages/shared v2Locators, SyncLimits.MaxSelectedText), bundled once.
+    expect(html.match(/var MAX_SELECTED_TEXT = (\S+);/g)).toHaveLength(1)
+    expect(Number(html.match(/var MAX_SELECTED_TEXT = (\S+);/)?.[1])).toBe(MAX_SELECTED_TEXT)
     expect(html).toMatch(/const selectedText = \w+\.range\.toString\(\);\s*if \(!selectedText\.trim\(\)\) return log\("warn"[^;]*;\s*if \(selectedText\.length > MAX_SELECTED_TEXT\) return log\("warn"/)
   })
 })
