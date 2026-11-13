@@ -36,11 +36,16 @@ async function reader(o: { target?: V2SyncTarget; server?: V2ReadingState | null
     await new Promise((r) => setTimeout(r, 0))
   })
   let opens = 0
-  const openBook = async (t: V2SyncTarget = target) => {
+  /** A new book handed to the host; `answer()` is the page's `opened` + `restored` for it. */
+  const pick = (t: V2SyncTarget = target) => {
     view.rerender(host({ bytes: new ArrayBuffer(8), name: t.name, sync: o.dev ? undefined : t }))
-    await fromPage({ type: 'opened', title: 'T', format: t.format, book: { sha256: t.sha256, size: 8, name: `${++opens}/${t.name}` } })
-    await fromPage({ type: 'restored', key: t.sha256, position: 'restored' })
+    const name = `${++opens}/${t.name}`
+    return async () => {
+      await fromPage({ type: 'opened', title: 'T', format: t.format, book: { sha256: t.sha256, size: 8, name } })
+      await fromPage({ type: 'restored', key: t.sha256, position: 'restored' })
+    }
   }
+  const openBook = (t?: V2SyncTarget) => pick(t)()
   await fromPage({ type: 'ready' })
   await openBook()
   const relocate = (m: object) => fromPage({ type: 'relocate', cfi: cfi(9), index: 9, sections: 10, fraction: 0.97, ...m })
@@ -48,7 +53,7 @@ async function reader(o: { target?: V2SyncTarget; server?: V2ReadingState | null
     screen.getByRole('button', { name }).click()
     await new Promise((r) => setTimeout(r, 0))
   })
-  return { put, relocate, click, openBook, fromPage }
+  return { put, relocate, click, openBook, pick, fromPage }
 }
 const block = () => screen.queryByTestId('v2-finish')
 
@@ -119,6 +124,26 @@ describe('V2ReaderHost finish book (#1266)', () => {
     const { relocate } = await reader({ dev: true })
     await relocate({ atEnd: true })
     expect(block()).toBeNull()
+  })
+
+  it('newOpen_ThePreviousBooksLateRelocateAndThisBooksStateNotReadYet_NoBlock', async () => {
+    const { relocate, pick } = await reader()
+    await relocate({ atEnd: true })
+    const answer = pick({ ...T, name: 'next.epub' })
+    // The old book may still relocate until the page takes up the new open: its end is not the new book's.
+    await relocate({ atEnd: true })
+    let read!: (s: V2ReadingState | null) => void
+    vi.mocked(v2ReaderSyncApi.getReadingState).mockImplementationOnce(() => new Promise((ok) => { read = ok }))
+    await answer()
+    expect(block()).toBeNull()
+    // This book's own end, its reading state still being read: no block from the previous book's state.
+    await relocate({ atEnd: true })
+    expect(block()).toBeNull()
+    await act(async () => {
+      read(state(1))
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(block()).not.toBeNull()
   })
 
   it('newOpen_AfterTheEndOfAnotherBook_BlockGoneUntilThisBooksOwnEnd', async () => {

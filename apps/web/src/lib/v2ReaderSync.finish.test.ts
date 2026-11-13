@@ -94,6 +94,21 @@ describe('createV2ReaderSync complete (#1266)', () => {
     expect(writes().map((w) => [w.expectedRevision, w.bookFraction, !!w.completedAt])).toEqual([[4, 1, false], [5, 1, true]])
   })
 
+  it('complete_APositionWriteInFlight_NothingReadUntilItLanded', async () => {
+    const s = await opened()
+    let land!: () => void
+    const write = api.putReadingState.getMockImplementation() as (b: string, w: V2ReadingStateWrite) => Promise<V2ReadingState>
+    api.putReadingState.mockImplementationOnce((b: string, w: V2ReadingStateWrite) => new Promise((ok) => { land = () => ok(write(b, w)) }))
+    s.store(entry(pos(10, Date.now())))
+    const done = s.complete()
+    await new Promise((r) => setTimeout(r, 0))
+    // Only the restore's read so far: the completion waits for the place.
+    expect(api.getReadingState).toHaveBeenCalledTimes(1)
+    land()
+    await done
+    expect(writes().map((w) => [w.expectedRevision, w.bookFraction, !!w.completedAt])).toEqual([[4, 1, false], [5, 1, true]])
+  })
+
   it('complete_AlreadyFinished_NothingWrittenItsTimeReturned', async () => {
     const s = await opened()
     server = state(7, 9, { completedAt: DONE })
