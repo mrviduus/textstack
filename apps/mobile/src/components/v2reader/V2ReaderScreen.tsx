@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import { BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Stack } from 'expo-router'
@@ -29,6 +29,8 @@ import {
   reopensOnReady, takenWithoutBook,
 } from '../../lib/v2reader/chrome.mjs'
 import { tapAction } from '../../lib/v2reader/tapZone.mjs'
+import { readToc, tocAround, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
+import { V2SectionNav, V2TocSheet } from './V2ReaderToc'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
@@ -185,15 +187,15 @@ function UpdateWebViewScreen() {
 }
 
 /** Where the reader is, from the last `relocate` through `readRelocate`; null: nothing to show yet. */
-type Place = { fraction: number | null; index: number | null; sections: number | null; toc: string; sectionEnd: number | null; words: number | null } | null
+type Place = { fraction: number | null; index: number | null; sections: number | null; toc: string; tocIndex: number | null; sectionEnd: number | null; words: number | null } | null
 
 /**
  * The bottom bar (the legacy reader's footer): re-renders alone on every `relocate`, not the WebView beside it.
  * Its prev/next are page turns for now.
  */
-function V2Footer({ setter, ...props }: { setter: MutableRefObject<(p: Place) => void> } & Omit<
+function V2Footer({ setter, toc, onGoToc, ...props }: { setter: MutableRefObject<Dispatch<SetStateAction<Place>>>; toc: V2TocEntry[]; onGoToc: (entry: V2TocEntry) => void } & Omit<
   Parameters<typeof ReaderFooter>[0],
-  'bookProgress' | 'chapterTitle' | 'currentChapterIndex' | 'totalChapters' | 'timeLeftLabel' | 'hasPrev' | 'hasNext'
+  'bookProgress' | 'chapterTitle' | 'currentChapterIndex' | 'totalChapters' | 'timeLeftLabel' | 'hasPrev' | 'hasNext' | 'above'
 >) {
   const [place, setPlace] = useState<Place>(null)
   useEffect(() => { setter.current = setPlace }, [setter])
@@ -204,12 +206,14 @@ function V2Footer({ setter, ...props }: { setter: MutableRefObject<(p: Place) =>
     <ReaderFooter
       {...props}
       bookProgress={place?.fraction ?? null}
-      chapterTitle={place?.toc ?? ''}
-      currentChapterIndex={place?.index ?? -1}
-      totalChapters={place?.sections ?? 0}
+      // The current contents entry's title; never a section number (#1261): no index, no counter.
+      chapterTitle={tocAround(toc, place?.tocIndex ?? null).current?.label ?? ''}
+      currentChapterIndex={-1}
+      totalChapters={0}
       timeLeftLabel={placeTimeLeftLabel(timeLeftAt({ fraction: place?.fraction, sectionEnd: place?.sectionEnd, totalWords: place?.words, wpm }), t)}
       hasPrev={!!place}
       hasNext={!!place}
+      above={place && <V2SectionNav toc={toc} tocIndex={place.tocIndex} onGo={onGoToc} color={props.barText} />}
     />
   )
 }
@@ -229,7 +233,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const opening = useRef<Opening | null>(null)
   /** Which page answer belongs to which open (openTracker.mjs): a book kept on screen, a stale `restored`. */
   const [tracker] = useState(() => createOpenTracker<Opening>())
-  const setProgress = useRef<(p: Place) => void>(() => {})
+  const setProgress = useRef<Dispatch<SetStateAction<Place>>>(() => {})
   const [books, setBooks] = useState<LibraryBook[]>([])
   const [heading, setHeading] = useState(IDLE_HEADING)
   // null until the stored choice is read: the toggle is off until then, so no toggle can race the read.
@@ -261,6 +265,16 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** The open book as ADR-019 sees it (R6): its row, and whether the reader moved since the restore (movedTracker.mjs). */
   const reading = useRef({ bookId: null as string | null })
   const [place] = useState(createMovedTracker)
+  /** The open book's contents (#1261, toc.mjs); the reader's place in them as of the last relocate, read when the sheet opens. */
+  const [toc, setToc] = useState<V2TocEntry[]>([])
+  const tocIndex = useRef<number | null>(null)
+  const [tocOpen, setTocOpen] = useState(false)
+  /** A new open or a closed book: the previous book's contents go. */
+  const clearToc = () => {
+    setToc([])
+    tocIndex.current = null
+    setTocOpen(false)
+  }
 
   const call = (js: string) => webView.current?.injectJavaScript(`${js};true`)
 
@@ -294,6 +308,16 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     hostMoves.start()
     call(`window.__fol.${dir}()`)
   }
+  /**
+   * A contents entry the reader chose (the sheet, the footer's section controls): the page saves where it lands.
+   * It is the current one at once: a jump within the view on screen may send no relocate.
+   */
+  const goToc = (e: V2TocEntry) => {
+    tocIndex.current = e.index
+    setProgress.current((p) => p && { ...p, tocIndex: e.index })
+    hostMoves.start()
+    call(`window.__fol.goTo(${JSON.stringify(e.href)}, true)`)
+  }
 
   // The page's debounced save (400 ms) is written on background (the page also flushes itself when its document
   // turns hidden); the unmount call is best effort (useFlushOnLeave). Closing a book flushes through CLOSE_BOOK_JS.
@@ -318,6 +342,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setReflowable(true)
     pageDir.current = 'ltr'
     setProgress.current(null)
+    clearToc()
     setOffer(null)
     setHeading(IDLE_HEADING)
   }
@@ -436,6 +461,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setError(null)
     setHeading(`Opening ${target.name}`)
     setProgress.current(null)
+    clearToc()
     setBook(true)
     showBars()
     setOpens((n) => n + 1)
@@ -543,6 +569,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           deadlines.answered()
           strikes.clear()
           pageDir.current = readDir(m) ?? 'ltr'
+          // Untrusted: only what readToc takes.
+          setToc(readToc(m))
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
         return
@@ -580,7 +608,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         place.relocate(shown)
         // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
         if (!tracker.showsPosition()) return
-        if (shown) setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc, sectionEnd: shown.sectionEnd, words: shown.words })
+        if (!shown) return
+        tocIndex.current = shown.tocIndex
+        setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc, tocIndex: shown.tocIndex, sectionEnd: shown.sectionEnd, words: shown.words })
         return
       }
       case 'word':
@@ -755,13 +785,17 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             chapterTitle=""
             sessionWordCount={0}
             isAuthenticated={!!user}
-            hasChapters={false}
+            hasChapters={toc.length > 0}
+            onTocPress={() => setTocOpen(true)}
+            tocLabel={t('reader.chrome.contents')}
             isCurrentBookmarked={false}
             onExit={closeBook}
             backLabel={t('reader.chrome.back')}
           />
           <V2Footer
             setter={setProgress}
+            toc={toc}
+            onGoToc={goToc}
             barBg={colors.background}
             barText={colors.text}
             trackColor={colors.border}
@@ -775,6 +809,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             nextLabel={t('reader.chrome.nextPage')}
             onHeight={(h) => { if (h > 0 && h !== footerHeight) setFooterHeight(h) }}
           />
+          <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
           {hasNotices && (
             <View style={[styles.notices, { top: barsVisible ? 56 + insets.top : insets.top, backgroundColor: colors.background }]}>
               <View style={styles.noticesText}>{notices}</View>

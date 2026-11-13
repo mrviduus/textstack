@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native'
 import { fonts } from '../../theme/typography'
 
@@ -25,13 +26,15 @@ interface Props {
   nextLabel?: string
   /** The footer's measured height, rounded — it grows a line with the time-left label. */
   onHeight: (height: number) => void
+  /** A row above the chevrons (the V2 reader's section controls, #1261). */
+  above?: ReactNode
 }
 
 /** The reflow reader's footer: book progress bar, chapter chevrons, title, counter, % and time left. */
 export function ReaderFooter({
   barBg, barText, trackColor, barsAnim, footerTranslateY, barsVisible, bottomInset, bookProgress,
   chapterTitle, currentChapterIndex, totalChapters, timeLeftLabel, hasPrev, hasNext, onPrev, onNext, onHeight,
-  prevLabel = 'Previous chapter', nextLabel = 'Next chapter',
+  prevLabel = 'Previous chapter', nextLabel = 'Next chapter', above,
 }: Props) {
   return (
     <Animated.View
@@ -56,6 +59,7 @@ export function ReaderFooter({
       <View style={[styles.progressBar, { backgroundColor: trackColor }]}>
         <View style={[styles.progressFill, { width: `${bookProgress != null ? Math.round(bookProgress * 100) : 0}%`, backgroundColor: barText + '40' }]} />
       </View>
+      {above}
       <View style={styles.footerRow}>
         <TouchableOpacity
           onPress={onPrev}

@@ -29,7 +29,8 @@ async function clickBar(page: Page, name: string) {
 async function expectOpened(page: Page) {
   await expect(page.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
   await expect.poll(() => sectionText(page), { timeout: 15_000 }).toContain(FIRST_SECTION_TEXT)
-  await expect(status(page)).toContainText('section')
+  // The percent read, then the current contents entry's title (#1261): never a section number.
+  await expect(status(page)).toHaveText(/^\d+% · The (Pond|Woods|Village)$/)
   await expect(page.getByRole('alert')).toHaveCount(0)
 }
 
@@ -174,6 +175,51 @@ test.describe('V2 reader page @v2', () => {
     await page.keyboard.press('ArrowRight')
     await expect(status(page)).not.toHaveText(turned)
     await expect(main).toHaveAttribute('data-bars', 'hidden')
+    await context.close()
+  })
+
+  // #1261: the contents dialog jumps to an entry (saved as the reader's own move); the section controls name the
+  // neighbouring entries by title.
+  test('readV2Toc_AnEntryChosenThenThePreviousSection_TheBookJumpsAndTheCurrentEntryFollows', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2toc'))
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+
+    await clickBar(page, 'Contents')
+    const dialog = page.getByRole('dialog', { name: 'Contents' })
+    const entries = dialog.locator('li button')
+    await expect(entries).toHaveText(['The Pond', 'The Woods', 'The Village'])
+    const current = dialog.locator('[aria-current="true"]')
+    await expect(current).toHaveText('The Pond')
+    await expect(current).toBeFocused()
+
+    const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith(`/me/v2/books/${bookId}/reading-state`))
+    await entries.nth(2).click()
+    await expect(dialog).toHaveCount(0)
+    await expect.poll(() => sectionText(page), { timeout: 15_000 }).toContain('The Village, paragraph 1.')
+    expect((await saved).ok()).toBeTruthy()
+    // The last entry: only the one before it is offered, by its title.
+    await expect(page.getByTestId('v2-prev-section')).toHaveText('‹ The Woods')
+    await expect(page.getByTestId('v2-next-section')).toHaveCount(0)
+    // The host marks a chosen entry at once; a page turn's relocate is the page's own word for the place.
+    const landed = (await status(page).textContent()) ?? ''
+    expect(landed).toMatch(/^\d+% · The Village$/)
+    await page.keyboard.press('ArrowRight')
+    await expect(status(page)).not.toHaveText(landed)
+    await expect(status(page)).toHaveText(/^\d+% · The Village$/)
+
+    await clickBar(page, 'Previous section: The Woods')
+    await expect.poll(() => sectionText(page), { timeout: 15_000 }).toContain('The Woods, paragraph 1.')
+    await expect(page.getByTestId('v2-prev-section')).toHaveText('‹ The Pond')
+    await expect(page.getByTestId('v2-next-section')).toHaveText('The Village ›')
+
+    await clickBar(page, 'Contents')
+    await expect(current).toHaveText('The Woods')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Contents', exact: true })).toBeFocused()
     await context.close()
   })
 

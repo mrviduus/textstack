@@ -24,6 +24,8 @@ type Props = {
   onSettingsPress?: () => void
   /** The back button's accessible name. */
   backLabel?: string
+  /** The contents button's accessible name. */
+  tocLabel?: string
 }
 
 /**
@@ -50,6 +52,7 @@ export function ReaderTopBar({
   onTocPress,
   onSettingsPress,
   backLabel,
+  tocLabel,
 }: Props) {
   return (
     <Animated.View
@@ -88,7 +91,7 @@ export function ReaderTopBar({
           </TouchableOpacity>
         )}
         {hasChapters && onTocPress && (
-          <TouchableOpacity onPress={onTocPress} style={styles.iconBtn}>
+          <TouchableOpacity onPress={onTocPress} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel={tocLabel}>
             <Ionicons name="list-outline" size={20} color={barText} />
           </TouchableOpacity>
         )}

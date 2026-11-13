@@ -982,6 +982,24 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   margin: 0;
 }
 
+/* The entries before and after the reader's place (#1261), by title: one line each, at the two ends. */
+.v2-reader__sections {
+  display: flex;
+  gap: 12px;
+  padding: 4px 16px 0;
+}
+
+.v2-reader__sections > button {
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v2-reader__section-next {
+  margin-left: auto;
+}
+
 /* Prev | position | Next: Prev and Next alike, at the two ends. */
 .v2-reader__footer > :first-child {
   justify-self: start;

@@ -51,7 +51,7 @@ describe('V2ReaderHost time left', () => {
     await opened()
     await relocated()
     expect(timeLeft()).toHaveTextContent(/^30 min left in chapter · 2 hr 30 min left in book$/)
-    expect(screen.getByTestId('v2-status')).toHaveTextContent(/^50% · section 2\/3$/)
+    expect(screen.getByTestId('v2-status')).toHaveTextContent(/^50%$/)
   })
 
   it('timeLeft_TheServersFallbackPace_IsAPace', async () => {
@@ -77,7 +77,7 @@ describe('V2ReaderHost time left', () => {
     await opened()
     await relocated()
     expect(timeLeft()).toBeNull()
-    expect(screen.getByTestId('v2-status')).toHaveTextContent(/^50% · section 2\/3$/)
+    expect(screen.getByTestId('v2-status')).toHaveTextContent(/^50%$/)
   })
 
   it('timeLeft_NoWords_Hidden', async () => {
@@ -115,7 +115,7 @@ describe('V2ReaderHost time left', () => {
     pace.mockResolvedValue({ wpm: 200, sessionCount: 9, isUserSpecific: true })
     await opened()
     await relocated({ fraction: null })
-    expect(screen.getByTestId('v2-status')).toHaveTextContent(/^— · section 2\/3$/)
+    expect(screen.getByTestId('v2-status')).toHaveTextContent(/^—$/)
     expect(timeLeft()).toBeNull()
   })
 })

@@ -996,7 +996,6 @@
   "v2Reader.opening": "Opening {{name}}",
   "v2Reader.paginated": "Paginated",
   "v2Reader.pick": "Pick a book",
-  "v2Reader.position": "{{percent}} · section {{index}}/{{sections}}",
   "v2Reader.prev": "‹ Prev",
   "v2Reader.readFailed": "Could not load your place in this book.",
   "v2Reader.reopen": "This book changed on another device: reopen it to keep saving your place and highlights.",
@@ -1263,6 +1262,10 @@
   "reader.chrome.prevPage": "Previous page",
   "reader.chrome.nextPage": "Next page",
   "reader.chrome.dismiss": "Dismiss",
+  "reader.chrome.contents": "Contents",
+  "reader.chrome.closeContents": "Close contents",
+  "reader.chrome.prevSection": "Previous section: {title}",
+  "reader.chrome.nextSection": "Next section: {title}",
   "reader.v2.copying": "Copying the book…",
   "reader.newerElsewhere.message": "You read further on another device: {target}",
   "reader.newerElsewhere.action": "Go there",
@@ -1345,5 +1348,9 @@
   "v2Reader.newerPlace": "Another device saved a newer place in this book ({{percent}}%).",
   "v2Reader.stayHere": "Stay here",
   "v2Reader.goThere": "Go to their place",
-  "v2Reader.back": "Back to the library"
+  "v2Reader.back": "Back to the library",
+  "v2Reader.contents": "Contents",
+  "v2Reader.closeContents": "Close contents",
+  "v2Reader.prevSection": "Previous section: {{title}}",
+  "v2Reader.nextSection": "Next section: {{title}}"
 }
