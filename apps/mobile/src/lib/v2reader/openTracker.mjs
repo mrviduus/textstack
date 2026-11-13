@@ -11,7 +11,12 @@
 // still relocate; the host has already cleared its position and holds no open. `showsPosition()` is false
 // then, until the next open or take, so neither host puts a position back (#1168; seen in the web e2e).
 // The cost, by choice: turning pages in that still-visible old book shows no position until the next pick.
+//
+// A pick copies its file into staging/ before it opens (#1273): `pick()` returns whether that pick is still the
+// latest intent. Any later open, later pick or the screen's end (`dispose()`) supersedes it; the host then drops
+// its staged file instead of opening it over the book opened meanwhile.
 export function createOpenTracker() {
+  let intent = 0
   let current = null
   let standby = null
   let shownKey = null
@@ -30,6 +35,7 @@ export function createOpenTracker() {
   return {
     /** An `openUrl(…, name)` the host sent. */
     open(name, open) {
+      intent++
       current = open
       pending.set(name, open)
       showing = true
@@ -51,6 +57,15 @@ export function createOpenTracker() {
       const kept = standby
       showing = false
       return { failed, take: kept ? take(kept.open, kept.opened) : null }
+    },
+    /** A pick starts its copy: the returned check is true while nothing newer was asked for. */
+    pick() {
+      const mine = ++intent
+      return () => intent === mine
+    },
+    /** The host goes away: every pick still copying is superseded (a later pick still counts). */
+    dispose() {
+      intent++
     },
     /** `restored`: true only for the book taken last. */
     restored(m) {

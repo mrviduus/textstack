@@ -5,6 +5,8 @@ export interface OpenTracker<O, M extends OpenedMessage> {
   open(name: string, open: O): void
   opened(m: M): Take<O, M> | null
   failed(name: string): { failed: O; take: Take<O, M> | null } | null
+  pick(): () => boolean
+  dispose(): void
   restored(m: { key?: string }): boolean
   showsPosition(): boolean
 }
