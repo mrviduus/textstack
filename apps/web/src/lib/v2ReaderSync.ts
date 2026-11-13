@@ -178,8 +178,9 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   let completing: Promise<string> | null = null
 
   const status = (s: V2SaveStatus) => { if (current()) o.onStatus(s) }
-  /** A state of this file the server holds: the host is told its completion. */
-  const completion = (s: V2ReadingState) => { if (current()) o.onCompleted?.(s.completedAt ?? null) }
+  /** A state of this file the server holds: the host is told its completion. Another file's (a `file_replaced`
+   * 409 carries the new file's state) is not this book's. */
+  const completion = (s: V2ReadingState) => { if (current() && s.fileId === t.fileId) o.onCompleted?.(s.completedAt ?? null) }
   /**
    * A server state this session did not see written (ADR-019, a reader who moved: only `keep` or `prompt`)
    * against this tab's last saved place: `own`'s state (a write whose answer was lost) is ours; theirs provably
@@ -321,7 +322,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
 
   /**
    * Finish book: the place on screen written first, then the state as the server holds it plus `completedAt`.
-   * Lost to a position write of this session that landed meanwhile (a debounced `store`): after it, once more.
+   * Lost on `stale_revision` (a debounced `store` of this session, or another device's write, landed meanwhile):
+   * after the running pass, once more; a second loss is the host's error, with its Retry.
    */
   async function completeOnce(retried = false): Promise<string> {
     await (running ?? (latest ? kick() : undefined))

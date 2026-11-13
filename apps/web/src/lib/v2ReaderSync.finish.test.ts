@@ -220,6 +220,18 @@ describe('createV2ReaderSync complete (#1266)', () => {
     expect(completed).not.toContain(undefined)
   })
 
+  it('positionWrite_FileReplacedWithTheNewFileFinished_NotThisBooksCompletion', async () => {
+    const s = await opened()
+    const before = [...completed]
+    // The file was replaced and finished on another device: the 409 carries the NEW file's state.
+    api.putReadingState.mockImplementationOnce(async () => {
+      throw Object.assign(new ApiError(409, 'file_replaced'), { body: { code: 'file_replaced', message: '', current: state(1, 9, { fileId: 'other', completedAt: DONE }) } })
+    })
+    s.store(entry(pos(8, Date.now())))
+    await s.flush()
+    expect(completed).toEqual(before)
+  })
+
   it('complete_NoStateOnThisFile_RejectsNothingWritten', async () => {
     server = null
     const s = await opened()

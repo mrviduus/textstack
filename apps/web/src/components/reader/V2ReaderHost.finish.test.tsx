@@ -131,8 +131,10 @@ describe('V2ReaderHost finish book (#1266)', () => {
     const { relocate, pick } = await reader()
     await relocate({ atEnd: true })
     const answer = pick({ ...T, name: 'next.epub' })
-    // The old book may still relocate until the page takes up the new open: its end is not the new book's.
+    // The old book may still relocate until the page takes up the new open: its end is not the new book's,
+    // and no block offers to finish the old one meanwhile (its session is still the host's).
     await relocate({ atEnd: true })
+    expect(block()).toBeNull()
     let read!: (s: V2ReadingState | null) => void
     vi.mocked(v2ReaderSyncApi.getReadingState).mockImplementationOnce(() => new Promise((ok) => { read = ok }))
     await answer()

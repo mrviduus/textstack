@@ -246,6 +246,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setTocOpen(false)
     setRestored('')
     setAtEnd(false)
+    // The previous book's session stays until `takeOpened`: no Finish block (and no click finishing that book)
+    // from a relocate of it still on its way.
+    setFinish(null)
     // The opening state is the top bar's title: shown, and kept up until `opened`.
     setReading(false)
     showBars()
@@ -264,6 +267,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     ready.current = false
     // A fresh frame has no book on screen.
     setReading(false)
+    setAtEnd(false)
     showBars()
     const o = opening.current
     if (o && !o.bytes) {
