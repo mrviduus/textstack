@@ -6,7 +6,7 @@ import { useLanguage } from '../src/context/LanguageContext'
 import { fonts } from '../src/theme/typography'
 
 const REPO_URL = 'https://github.com/mrviduus/textstack'
-const SELF_HOST_URL = 'https://github.com/mrviduus/textstack#deploy'
+const SELF_HOST_URL = 'https://mrviduus.github.io/textstack/self-host/'
 const CONTACT_EMAIL = 'vasyl.vdov@gmail.com'
 
 export default function AboutScreen() {
