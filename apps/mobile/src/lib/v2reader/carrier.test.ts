@@ -48,7 +48,7 @@ describe('the committed page, as an HTML parser reads it', () => {
     const carrier = scripts[0].slice(0, scripts[0].indexOf('};\n') + 3)
     const ctx: { __TS_FORMATS?: Record<string, string> } = {}
     runInNewContext(carrier, ctx)
-    expect(Object.keys(ctx.__TS_FORMATS ?? {}).sort()).toEqual(['cbz', 'fb2', 'mobi', 'pdf', 'pdfcmaps'])
+    expect(Object.keys(ctx.__TS_FORMATS ?? {}).sort()).toEqual(['cbz', 'dyslexic', 'fb2', 'mobi', 'pdf', 'pdfcmaps'])
     for (const [k, js] of Object.entries(ctx.__TS_FORMATS!)) {
       expect(() => new Script(js), k).not.toThrow()
       // pdf is minified (build.mjs MINIFIED): no spaces around its `=`.

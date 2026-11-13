@@ -41,6 +41,8 @@ import { useFetchedReadingPace } from '../../hooks/useReadingPace'
 import { useFlushOnLeave } from '../../hooks/useFlushOnLeave'
 import { ReaderTopBar } from '../reader/ReaderTopBar'
 import { ReaderFooter } from '../reader/ReaderFooter'
+import { THEMES, readSettings } from '../../lib/v2reader/settings.mjs'
+import { V2SettingsSheet, storedV2Settings, useV2Settings } from './V2SettingsSheet'
 
 /**
  * The V2 reader (ADR-029) on Android, dev builds only: reached through `app/dev/epub-v2.tsx`.
@@ -241,6 +243,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   useEffect(() => { storedFlow().then(setFlow) }, [])
   /** False for a fixed-layout book (CBZ): flow changes nothing there, so the toggle is off. */
   const [reflowable, setReflowable] = useState(true)
+  /** The reading settings (#1260): sent whole on `ready` and on every change; the theme colours the bars. */
+  const { settings, update: updateSettings } = useV2Settings()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const theme = THEMES[settings.theme]
   /** The book open at the last renderer crash: one that crashes it twice is not reopened again. */
   const crashedFile = useRef<string | null>(null)
   /**
@@ -554,8 +560,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       case 'ready':
         deadlines.ready()
         // The layout goes in first: injected calls run in order, so the open below uses it.
-        storedFlow().then((f) => {
+        Promise.all([storedFlow(), storedV2Settings()]).then(([f, chosen]) => {
           call(`window.__fol.flow(${JSON.stringify(f)})`)
+          call(`window.__fol.settings(${JSON.stringify(readSettings(chosen))})`)
           ready.current = true
           if (reopensOnReady({ opening: opening.current, inBook: inBookRef.current })) open(opening.current!)
           else if (opening.current) endBook() // closed while the page was gone: its book-closed never came
@@ -655,6 +662,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     }
   }
 
+  // Applied live: the page re-lays the book out where it is (README, `settings`). Before `ready` the pending
+  // ready handler applies the stored choices instead.
+  useEffect(() => {
+    if (ready.current) call(`window.__fol.settings(${JSON.stringify(settings)})`)
+  }, [settings])
+
   const toggleFlow = () => {
     if (!flow) return
     const next: Flow = flow === 'paginated' ? 'scrolled' : 'paginated'
@@ -744,9 +757,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setOffer(null)
   }
   return (
-    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+    <View style={[styles.screen, { backgroundColor: inBook ? theme.bg : colors.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar hidden={inBook && !barsVisible} style={isDark ? 'light' : 'dark'} />
+      <StatusBar hidden={inBook && !barsVisible} style={(inBook ? settings.theme === 'dark' : isDark) ? 'light' : 'dark'} />
       <View
         // No book on screen: the list covers the page, and TalkBack must not reach the book behind it.
         importantForAccessibility={inBook ? 'auto' : 'no-hide-descendants'}
@@ -775,8 +788,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       {inBook ? (
         <>
           <ReaderTopBar
-            barBg={colors.background}
-            barText={colors.text}
+            barBg={theme.bg}
+            barText={theme.fg}
+            onSettingsPress={() => setSettingsOpen(true)}
             barsAnim={barsAnim}
             topBarTranslateY={topBarTranslateY}
             barsVisible={barsVisible}
@@ -796,9 +810,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             setter={setProgress}
             toc={toc}
             onGoToc={goToc}
-            barBg={colors.background}
-            barText={colors.text}
-            trackColor={colors.border}
+            barBg={theme.bg}
+            barText={theme.fg}
+            trackColor={theme.fg + '22'}
             barsAnim={barsAnim}
             footerTranslateY={footerTranslateY}
             barsVisible={barsVisible}
@@ -809,6 +823,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             nextLabel={t('reader.chrome.nextPage')}
             onHeight={(h) => { if (h > 0 && h !== footerHeight) setFooterHeight(h) }}
           />
+          <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
           {hasNotices && (
             <View style={[styles.notices, { top: barsVisible ? 56 + insets.top : insets.top, backgroundColor: colors.background }]}>

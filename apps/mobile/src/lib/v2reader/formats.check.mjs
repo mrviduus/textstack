@@ -225,6 +225,145 @@ try {
   const near = (rect, box, px = 1) => !!rect && !!box && Math.abs(rect.x - box.x) <= px && Math.abs(rect.y - box.y) <= px && Math.abs(rect.w - box.width) <= px && Math.abs(rect.h - box.height) <= px
 
   /**
+   * #1260: `settings(raw)`. Every setting restyles the open book where it is: no relocate is `moved`, nothing is
+   * saved, the text that was on screen still is. Values off the lists never reach the stylesheet. OpenDyslexic's
+   * chunk runs only when chosen, and loads under the CSP. A fixed layout takes the theme on the page itself and
+   * nothing else. The settings outlive an open (a host sends them once per page load). Run last on this page:
+   * the font chunk registers among the format readers.
+   */
+  async function checkSettings() {
+    console.log('settings')
+    await page.setViewportSize({ width: 1280, height: 720 })
+    const DEFAULT = { fontSize: 20, lineHeight: 1.6, fontFamily: 'serif', textAlign: 'book', theme: 'light' }
+    const set = (o) => call(`window.__fol.settings(${JSON.stringify(o)})`)
+    const rels = (from) => messages.slice(from).filter((x) => x.type === 'relocate')
+    const stores = (from) => messages.slice(from).filter((x) => x.type === 'store')
+    /** The first paragraph's computed look in the shown section, with its root's background. */
+    const look = async () => {
+      const f = await frameWith('Paragraph 1. Sphinx')
+      return f?.evaluate(() => {
+        const p = getComputedStyle(document.querySelector('p')), root = getComputedStyle(document.documentElement)
+        return { size: p.fontSize, line: Math.round((parseFloat(p.lineHeight) / parseFloat(p.fontSize)) * 100) / 100, family: p.fontFamily, align: p.textAlign, color: p.color, bg: root.backgroundColor }
+      })
+    }
+    const pageBg = () => call('getComputedStyle(document.body).backgroundColor')
+    /**
+     * The first character on screen after the reader's move, kept; then whether it is still on screen (its box
+     * inside the page viewport). foliate anchors every re-layout to that same place until the reader moves again,
+     * so nothing drifts over several changes.
+     */
+    const anchor = () => call(`(() => { const r = document.querySelector('foliate-view').lastLocation.range.cloneRange(); r.setEnd(r.startContainer, r.startOffset + 1); window.__anchor = r })()`)
+    const anchored = () => call(`(() => { const a = window.__anchor, b = a.getBoundingClientRect(), f = a.startContainer.ownerDocument.defaultView.frameElement.getBoundingClientRect(); const x = f.left + b.left, y = f.top + b.top; return (b.height > 0 && x + b.width > 0 && x < innerWidth && y + b.height > 0 && y < innerHeight) || Math.round(x) + ',' + Math.round(y) })()`)
+
+    check(JSON.stringify(await set(null)) === JSON.stringify(DEFAULT), 'settings(null) answers the defaults')
+    call('window.__fol.flow("paginated")')
+    let m = await open('tsformat.epub')
+    await page.waitForTimeout(600)
+    const first = await look()
+    check(first?.size === '20px' && first.line === 1.6 && /Georgia/.test(first.family) && first.align === 'start' && first.bg === 'rgb(255, 255, 255)' && first.color === 'rgb(26, 26, 26)',
+      `a book opens with the defaults (${JSON.stringify(first)})`)
+    check(await pageBg() === 'rgb(255, 255, 255)', 'the page itself takes the theme (light)')
+    // `book` (the default): the book's own alignment wins, no rule of ours; a chosen one is forced over it.
+    const bookAlign = () => frameWith('Paragraph 1. Sphinx').then((f) => f?.evaluate(() => {
+      const st = document.head.appendChild(document.createElement('style'))
+      st.textContent = 'p { text-align: right }'
+      const a = getComputedStyle(document.querySelector('p')).textAlign
+      st.remove()
+      return a
+    }))
+    check(await bookAlign() === 'right', `align book: the book's own alignment stays (${await bookAlign()})`)
+    await set({ ...DEFAULT, textAlign: 'center' })
+    await page.waitForTimeout(600)
+    check(await bookAlign() === 'center', `align center: forced over the book's own (${await bookAlign()})`)
+    await set(DEFAULT)
+    await page.waitForTimeout(600)
+    check(!(await loaded()).split(',').includes('dyslexic'), 'the OpenDyslexic chunk has not run before it is chosen')
+
+    for (const flow of ['paginated', 'scrolled']) {
+      call(`window.__fol.flow("${flow}")`)
+      await page.waitForTimeout(800)
+      await set(DEFAULT)
+      await page.waitForTimeout(600)
+      // Away from the start, by the reader: the place a re-layout has to keep.
+      let from = messages.length
+      if (flow === 'paginated') { await call('window.__fol.next()'); await call('window.__fol.next()') }
+      else { await page.mouse.move(640, 360); await page.mouse.wheel(0, 500); await page.waitForTimeout(700); await page.mouse.wheel(0, 500) }
+      await waitFor(from, (x) => x.type === 'store', `a store after moving (${flow})`).catch(() => null)
+      await page.waitForTimeout(800)
+      check(rels(from).some((x) => x.moved === true), `${flow}: the reader moved before the settings change`)
+      await anchor()
+      for (const [what, patch, want] of [
+        ['size 26', { fontSize: 26 }, (l) => l.size === '26px'],
+        ['line height 1.8', { lineHeight: 1.8 }, (l) => l.line === 1.8],
+        ['family sans', { fontFamily: 'sans' }, (l) => /system-ui/.test(l.family)],
+        ['family dyslexic', { fontFamily: 'dyslexic' }, (l) => /TextStack OpenDyslexic/.test(l.family)],
+        ['align justify', { textAlign: 'justify' }, (l) => l.align === 'justify'],
+        ['align left', { textAlign: 'left' }, (l) => l.align === 'start'],
+        ['theme sepia', { theme: 'sepia' }, (l) => l.bg === 'rgb(244, 236, 216)' && l.color === 'rgb(91, 70, 54)'],
+        ['theme dark', { theme: 'dark' }, (l) => l.bg === 'rgb(26, 26, 26)' && l.color === 'rgb(224, 224, 224)'],
+      ]) {
+        from = messages.length
+        await set({ ...DEFAULT, ...patch })
+        await page.waitForTimeout(1000)
+        const l = await look()
+        check(!!l && want(l), `${flow}, ${what}: applied live (${JSON.stringify(l)})`)
+        const held = await anchored()
+        check(rels(from).every((x) => x.moved === false) && stores(from).length === 0 && held === true,
+          `${flow}, ${what}: a re-layout, not a move: moved ${JSON.stringify(rels(from).map((x) => x.moved))}, ${stores(from).length} stores, the place holds (${held})`)
+        if (patch.theme) check(await pageBg() === l?.bg, `${flow}, ${what}: the page itself takes the theme (${await pageBg()})`)
+      }
+    }
+    // Still dark here (the loop's last row): images and inline SVG on a light plate (#1260 review).
+    const plates = await (await frameWith('Paragraph 1. Sphinx'))?.evaluate(() => ['img', 'svg'].map((t) => {
+      const el = document.body.appendChild(t === 'svg' ? document.createElementNS('http://www.w3.org/2000/svg', 'svg') : document.createElement('img'))
+      const bg = getComputedStyle(el).backgroundColor
+      el.remove()
+      return bg
+    }))
+    check(JSON.stringify(plates) === JSON.stringify(['rgb(240, 240, 240)', 'rgb(240, 240, 240)']), `dark: img and svg on a light plate (${JSON.stringify(plates)})`)
+    call('window.__fol.flow("paginated")')
+
+    // OpenDyslexic: its chunk ran when chosen, the face loaded from the page's blob:, nothing refused by the CSP.
+    await set({ ...DEFAULT, fontFamily: 'dyslexic' })
+    check((await loaded()).split(',').includes('dyslexic'), 'choosing OpenDyslexic runs its chunk')
+    check(await shown(() => [...document.fonts].some((x) => /OpenDyslexic/.test(x.family) && x.status === 'loaded')), 'the OpenDyslexic face loads in the section')
+    check(await shown(() => getComputedStyle(document.querySelector('h1')).fontFamily.includes('OpenDyslexic')), 'and replaces a heading\'s font too')
+    const refused = (await call('top.__violations ?? []')).filter((v) => /^(font|style)-src/.test(v))
+    check(refused.length === 0, `no font or style was refused by the CSP (${refused})`)
+
+    // Off the lists: dropped to the default, never written into the stylesheet.
+    const hostile = { fontSize: 1e9, lineHeight: '1.8', fontFamily: 'x } body { display: none', textAlign: ['left'], theme: '__proto__', extra: '} * { color: red' }
+    const got = await set(hostile)
+    check(JSON.stringify(got) === JSON.stringify({ ...DEFAULT, fontSize: 28 }), `values off the lists fall to the defaults, the size is clamped (${JSON.stringify(got)})`)
+    await page.waitForTimeout(600)
+    const sheet = await (await frameWith('Paragraph 1. Sphinx'))?.evaluate(() => [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n'))
+    check(!!sheet && /font-size: 28px/.test(sheet) && !/display|red|__proto__|NaN|undefined/.test(sheet), 'and nothing of them is in the section\'s stylesheet')
+    check(JSON.stringify(await set({ ...DEFAULT, fontSize: -5 })) === JSON.stringify({ ...DEFAULT, fontSize: 14 }) && (await call('window.__fol.font(-2)')) === 14, 'the size stops at 14, through font(±) too')
+    check(JSON.stringify(await set('dark')) === JSON.stringify(DEFAULT) && JSON.stringify(await set([1])) === JSON.stringify(DEFAULT), 'not an object: the defaults')
+
+    // The settings are the page's, not the book's: the next book opens with them (what a reload restores).
+    await set({ ...DEFAULT, theme: 'dark', fontSize: 24 })
+    m = await open('tsformat.epub')
+    await page.waitForTimeout(600)
+    const kept = await look()
+    check(kept?.size === '24px' && kept.bg === 'rgb(26, 26, 26)', `the next open uses the settings (${JSON.stringify(kept)})`)
+
+    // A fixed layout has no styles to set: the theme colours the page around it, nothing moves, nothing throws.
+    for (const file of ['tsformat.cbz', 'tsfixed.epub', 'tsformat.pdf']) {
+      m = await open(file)
+      await page.waitForTimeout(800)
+      check(m.reflowable === false && await pageBg() === 'rgb(26, 26, 26)', `${file}: fixed layout, the page keeps the theme (${await pageBg()})`)
+      const from = messages.length
+      const answer = await set({ ...DEFAULT, theme: 'sepia', fontSize: 26, fontFamily: 'dyslexic', textAlign: 'justify', lineHeight: 1.8 })
+      await page.waitForTimeout(800)
+      check(answer?.theme === 'sepia' && await pageBg() === 'rgb(244, 236, 216)' && rels(from).every((x) => x.moved === false) && stores(from).length === 0,
+        `${file}: settings change the page's colours only (${await pageBg()}, moved ${JSON.stringify(rels(from).map((x) => x.moved))}, ${stores(from).length} stores)`)
+      await set({ ...DEFAULT, theme: 'dark', fontSize: 24 })
+    }
+    await set(DEFAULT)
+  }
+
+  /**
    * #1263, #1264: what the reader chrome needs. A `tap` says where it landed (page viewport, a scaled page
    * too, an image book too); an edge tap that dismisses a selection is only `selection-cleared`; `opened`
    * says the reading direction; `flush()`, a hidden page and `pagehide` write a debounced save at once, once;
@@ -1944,6 +2083,7 @@ try {
   await checkPdf()
   await checkOpenOrder()
   await checkOldWebView()
+  await checkSettings()
 
   // Every page error on this page, last so that every block above is covered. One benign message is let
   // through by its exact text: Chromium's ResizeObserver loop notice, from the resize above.

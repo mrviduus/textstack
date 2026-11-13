@@ -78,7 +78,12 @@ const FOLIATE_SHA = '73d42595074f0f5914c00ccb7172a0a8bdfecf26'
 // +35 (#1291): the fork's afterScroll guard.
 // +1493 (#1261, #1262, #1266): `opened.toc[].depth`, `relocate.tocIndex`, `relocate.atEnd` (atBookEnd),
 // `relocate.sectionEnd` and `relocate.words` (lengthAt).
-const BUDGET = 265938
+// +3227 (#1260): `settings(raw)` — settings.mjs (closed lists, a clamped size, the section stylesheet: size, family,
+// line height, alignment, theme), the page's own colours by theme, OpenDyslexic's blob: URL from its chunk; `font(±)`
+// is now `settings` with one field changed.
+// +284 (#1260 review): the `book` alignment (the default: no text-align of ours), string-only closed lists, a light
+// plate under images and inline SVG in dark.
+const BUDGET = 269449
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
@@ -87,7 +92,9 @@ const BUDGET = 265938
 // + its two layer stylesheets, the one MINIFIED reader (keepNames; 1614390 without them, 3180221 unminified): the measured
 // size. pdf +1825 (#1128 S5 review): pdfPolyfills.mjs first (runtime APIs an older WebView lacks).
 // pdfcmaps (#1128 S5) = pdf.js's 168 predefined cMaps as base64, run only when a PDF names one.
-const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 1708545, pdfcmaps: 1559883 }
+// dyslexic (#1260) = OpenDyslexic-Regular.woff2 (115280 bytes, the file the web app serves) as base64 + its OFL
+// notice, run only when the reader picks that family. Not a reader; it rides the same carrier.
+const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 1708545, pdfcmaps: 1559883, dyslexic: 158436 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'v2ReaderPage.generated.ts')
@@ -156,6 +163,10 @@ window.__tsFormats.pdf = { makePDF, css: text + '\\n' + annotation }`,
   pdfcmaps: `/*! ${readFileSync(resolve(vendor, 'vendor/pdfjs/cmaps/LICENSE'), 'utf8').replace(/\*\//g, '* /')} */
 window.__tsFormats.pdfcmaps = ${JSON.stringify(Object.fromEntries(readdirSync(resolve(vendor, 'vendor/pdfjs/cmaps')).filter((f) => f.endsWith('.bcmap')).sort()
     .map((f) => [f.slice(0, -'.bcmap'.length), readFileSync(resolve(vendor, 'vendor/pdfjs/cmaps', f)).toString('base64')])))}`,
+  // OpenDyslexic (#1260; SIL OFL 1.1, its notice restated), the woff2 the web app serves, base64: run only when
+  // the reader picks that family, then a blob: URL of the page's own (font-src blob:).
+  dyslexic: `/*! ${readFileSync(resolve(here, '../../../../web/public/fonts/OpenDyslexic-LICENSE.txt'), 'utf8').replace(/\*\//g, '* /')} */
+window.__tsFormats.dyslexic = { woff2: ${JSON.stringify(readFileSync(resolve(here, '../../../../web/public/fonts/OpenDyslexic-Regular.woff2')).toString('base64'))} }`,
 }
 /** Minified (the only one): pdf.js is half its size so. keepNames: pdf.js reads `constructor.name`. */
 const MINIFIED = new Set(['pdf'])
