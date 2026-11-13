@@ -12,6 +12,7 @@ import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, rea
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
+import { useV2ReaderSettings, V2ReaderSettingsDrawer } from './V2ReaderSettings'
 import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
 
 /**
@@ -125,6 +126,11 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [heading, setHeading] = useState<string | null>(null)
   const [flow, setFlow] = useState<Flow>(() => (readItem(FLOW_KEY) === 'scrolled' ? 'scrolled' : 'paginated'))
   const flowRef = useRef(flow)
+  /** The reading settings (#1260): sent whole on `ready` and on every change; the theme colours the bars. */
+  const { settings, update: updateSettings } = useV2ReaderSettings()
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
+  const [settingsOpen, setSettingsOpen] = useState(false)
   /** The direction the open book pages in (`opened`, then every `relocate`): the arrow keys follow it. */
   const pageDir = useRef<'ltr' | 'rtl'>('ltr')
   /** `opened.annotatable`: false on a CBZ (images only) and a PDF (no highlights yet): no highlight button (the page refuses it too). */
@@ -316,6 +322,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           deadlines.ready()
           // The stored layout before the first open: messages arrive in order, and a setting is not a switch.
           call('flow', [flowRef.current])
+          call('settings', [settingsRef.current])
           ready.current = true
           flushOpen()
           return
@@ -436,6 +443,11 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     if (barsHidden && at && (header.current?.contains(at) || footer.current?.contains(at))) main.current?.focus({ preventScroll: true })
   }, [barsHidden])
 
+  // Applied live: the page re-lays the book out where it is (README, `settings`).
+  useEffect(() => {
+    if (ready.current) call('settings', [settings])
+  }, [settings])
+
   const toggleFlow = () => {
     const next: Flow = flow === 'paginated' ? 'scrolled' : 'paginated'
     setFlow(next)
@@ -464,6 +476,14 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           {toolbar}
           {annotatable && (dev || highlightsReady) && <button className="reader-top-bar__btn" onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
           <button className="reader-top-bar__btn" onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
+          <button className="reader-top-bar__btn" onClick={() => setSettingsOpen(true)} aria-label={t('v2Reader.settings')} title={t('v2Reader.settings')}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+              <circle cx="8" cy="6" r="2" fill="currentColor" />
+              <circle cx="16" cy="12" r="2" fill="currentColor" />
+              <circle cx="10" cy="18" r="2" fill="currentColor" />
+            </svg>
+          </button>
         </div>
       </header>
       {/* The states: in layout above the frame (never over the book), never hidden with the bars. */}
@@ -510,6 +530,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           <button className="reader-top-bar__btn" onClick={() => hostMove('next')}>{t('v2Reader.next')}</button>
         </div>
       </footer>
+      <V2ReaderSettingsDrawer open={settingsOpen} settings={settings} onUpdate={updateSettings} onClose={() => setSettingsOpen(false)} typography={reflowable} />
     </main>
   )
 }

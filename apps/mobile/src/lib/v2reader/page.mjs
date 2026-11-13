@@ -19,6 +19,7 @@ import { selectionMessage } from './selection.mjs'
 import { navKey } from './chrome.mjs'
 import { SELECTION_SETTLE_MS } from '../../../../../packages/reader-engine/src/timing'
 import { MAX_SELECTED_TEXT } from '../../../../../packages/shared/src/reader/v2Locators'
+import { THEMES, readSettings, settingsCss } from './settings.mjs'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
@@ -27,7 +28,8 @@ addEventListener('error', (e) => log('error', String(e.error?.stack ?? e.message
 addEventListener('unhandledrejection', (e) => log('error', String(e.reason?.stack ?? e.reason)))
 
 let view = null
-let fontPx = 18
+/** The reading settings (#1260, settings.mjs): the defaults until the host sends the reader's. */
+let look = readSettings(null)
 let flow = 'paginated'   // ADR-029 Decision 1
 /** The open book's format (formats.mjs) and whether it has text: a comic book has no words to tap, select or translate. */
 let format = null
@@ -78,8 +80,32 @@ let viewSeq = 0
 let readySeq = 0
 const saves = createSaveScheduler(post)
 
-// Our reader's own look: generous line-height leaves room above a word for its label.
-const css = () => `html, body { font-size: ${fontPx}px !important; line-height: 1.7 !important; }`
+/**
+ * OpenDyslexic as a blob: URL of the page's own making (font-src blob:), from the chunk the page carries
+ * (build.mjs `dyslexic`), run the first time that family is chosen. Null for any other family, or if it fails.
+ */
+let dyslexicUrl = null
+function fontUrl() {
+  if (look.fontFamily !== 'dyslexic') return null
+  try {
+    return (dyslexicUrl ??= URL.createObjectURL(new Blob([Uint8Array.from(atob(formatModule('dyslexic').woff2), (c) => c.charCodeAt(0))], { type: 'font/woff2' })))
+  } catch (e) {
+    log('warn', `OpenDyslexic not loaded: ${e?.message ?? e}`)
+    return null
+  }
+}
+/**
+ * The settings on screen: this document's own colours (the margins, the letterbox of a fixed-layout page, which
+ * has no styles to set) and the open book's sections. foliate re-lays the book out where it is (`anchor`).
+ */
+function applyLook() {
+  const { bg, fg } = THEMES[look.theme]
+  for (const el of [document.documentElement, document.body]) {
+    el.style.background = bg
+    el.style.color = fg
+  }
+  view?.renderer?.setStyles?.(settingsCss(look, fontUrl()))
+}
 
 const SVG = 'http://www.w3.org/2000/svg'
 const GLOSS_COLOR = 'rgba(59, 130, 246, 0.8)'
@@ -627,8 +653,7 @@ async function open(bytes, name, kind, mine) {
   view.renderer.addEventListener('scroll', () => { if (mine === viewSeq) settleSelection() })
   view.renderer.setAttribute('flow', flow)
   view.renderer.setAttribute('margin', '24px')
-  // The fixed-layout renderer (CBZ, a pre-paginated EPUB) has no styles to set.
-  view.renderer.setStyles?.(css())
+  applyLook()
   await view.init({ showTextStart: true })
   // Still the view on screen: it answers `opened`, even if a newer open is under way (that one may yet fail
   // before its swap, and this book must not stay on screen unanswered and unrestorable).
@@ -883,8 +908,11 @@ window.__fol = {
   }),
   next: () => navigate(() => view?.next()),
   prev: () => navigate(() => view?.prev()),
-  // The renderer exists only once view.open() has resolved: both are no-ops between openUrl and opened.
-  font: (delta) => { fontPx = Math.max(12, Math.min(32, fontPx + delta)); view?.renderer?.setStyles?.(css()); return fontPx },
+  // #1260: the whole settings object, read through settings.mjs (closed lists, a clamped size): nothing of the
+  // host's reaches the CSS as it came. Applied live; before `opened` it sets what the next open uses.
+  settings: (raw) => { look = readSettings(raw); applyLook(); return look },
+  // The size alone, ±px (the format check's re-layout rows): `settings` with one field changed.
+  font: (delta) => window.__fol.settings({ ...look, fontSize: look.fontSize + delta }).fontSize,
   // Switches the live view: foliate re-renders on the attribute, no reload (#1128). Before `opened` it
   // only sets what the next open uses.
   flow: (f) => {
@@ -900,4 +928,5 @@ window.__fol = {
   showTranslation: (cfi, index, text) => view && annotatable && annotate({ value: cfi, index, gloss: text }),
 }
 
+applyLook()
 post({ type: 'ready' })

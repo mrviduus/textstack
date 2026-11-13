@@ -977,6 +977,26 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   margin: 0;
 }
 
+/* The settings panel's typography controls (#1260): one fieldset, disabled for a fixed-layout book. */
+.v2-reader__typography {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.v2-reader__typography:disabled .reader-settings-drawer__section {
+  opacity: 0.5;
+}
+
+.v2-reader__fixed-note {
+  margin: 0;
+  padding: 12px 16px 0;
+  font-size: 13px;
+  color: var(--reader-secondary);
+}
+
 /* Prev | position | Next: Prev and Next alike, at the two ends. */
 .v2-reader__footer > :first-child {
   justify-self: start;
