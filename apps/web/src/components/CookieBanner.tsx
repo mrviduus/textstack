@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LocalizedLink } from './LocalizedLink'
 import { useTranslation } from '../hooks/useTranslation'
 import '../styles/cookie-banner.css'
@@ -45,6 +45,22 @@ export function CookieBanner() {
     setVisible(true)
   }, [])
 
+  // The banner's height, for what must sit above it while it is unanswered (#1292: the V2 reader's bottom bar).
+  const banner = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = banner.current
+    if (!el) return
+    const root = document.documentElement.style
+    const publish = () => root.setProperty('--cookie-banner-height', `${el.offsetHeight}px`)
+    publish()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(publish)
+    observer?.observe(el)
+    return () => {
+      observer?.disconnect()
+      root.removeProperty('--cookie-banner-height')
+    }
+  }, [visible])
+
   const accept = () => {
     localStorage.setItem(STORAGE_KEY, 'accepted')
     grantAnalytics()
@@ -59,7 +75,7 @@ export function CookieBanner() {
   if (!visible) return null
 
   return (
-    <div className="cookie-banner" role="dialog" aria-labelledby="cookie-banner-title">
+    <div ref={banner} className="cookie-banner" role="dialog" aria-labelledby="cookie-banner-title">
       <div className="cookie-banner__inner">
         <div className="cookie-banner__text">
           <strong id="cookie-banner-title">{t('cookieBanner.title')}</strong>

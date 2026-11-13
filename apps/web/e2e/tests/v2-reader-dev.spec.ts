@@ -38,7 +38,8 @@ const sectionText = (page: Page) =>
 async function openFixture(page: Page) {
   await pick(page)
   await expect(page.getByTestId('v2-heading')).toHaveText('E2E V2 sync')
-  await expect(status(page)).toContainText('section')
+  // The percent read, then the current contents entry's title (#1261): never a section number.
+  await expect(status(page)).toHaveText(/^\d+% · The (Pond|Woods|Village)$/)
 }
 
 test.describe('V2 reader dev route @v2-reader-dev', () => {
@@ -119,7 +120,7 @@ test.describe('V2 reader dev route @v2-reader-dev', () => {
     const position = (await storedPosition(page))!
     await openFixture(page)
     await expect(page.getByTestId('v2-restore')).toHaveText('restore: restored')
-    await expect(status(page)).toHaveText(new RegExp(`^${Math.round(position.fraction * 100)}% · section ${position.index + 1}/3`))
+    await expect(status(page)).toHaveText(`${Math.round(position.fraction * 100)}% · ${['The Pond', 'The Woods', 'The Village'][position.index]}`)
     await expect(status(page)).not.toHaveText(start ?? '')
   })
 

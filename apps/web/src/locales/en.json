@@ -480,7 +480,6 @@
     "highlight": "Highlight",
     "scrolled": "Scrolled",
     "paginated": "Paginated",
-    "position": "{{percent}}% · section {{index}}/{{sections}}",
     "restore": "restore: {{state}}",
     "cannotOpen": "cannot open {{name}}: {{error}}",
     "libraryCorrupt": "The stored library ({{key}}) cannot be read: books are not added to it. Fix or remove it, then reload.",
@@ -507,7 +506,11 @@
     "finishing": "Saving…",
     "finished": "You finished this book.",
     "finishFailed": "Could not mark the book as finished. Check your connection and try again.",
-    "back": "Back to the library"
+    "back": "Back to the library",
+    "contents": "Contents",
+    "closeContents": "Close contents",
+    "prevSection": "Previous section: {{title}}",
+    "nextSection": "Next section: {{title}}"
   },
   "library": {
     "continue": "Continue",

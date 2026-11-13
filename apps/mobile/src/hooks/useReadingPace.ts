@@ -15,7 +15,15 @@ let cached: number | null = null
  * reading session, and every reader mount would otherwise refetch it.
  */
 export function useReadingPace(enabled: boolean): number {
-  const [wpm, setWpm] = useState<number>(cached ?? FALLBACK_WPM)
+  return useFetchedReadingPace(enabled) ?? FALLBACK_WPM
+}
+
+/**
+ * The same pace, `null` until the call has answered (or when it failed with nothing cached): the V2 reader
+ * shows no time left before then (#1262). The server's own fallback pace is an answer.
+ */
+export function useFetchedReadingPace(enabled: boolean): number | null {
+  const [wpm, setWpm] = useState<number | null>(cached)
 
   useEffect(() => {
     if (!enabled || cached != null) return

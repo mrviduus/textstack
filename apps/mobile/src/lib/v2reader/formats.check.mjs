@@ -16,6 +16,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt, routeBookOrigin } from './bookOriginRoute.mjs'
 import { fb2, hostilePdf, pdf, writeFormatFixtures } from './fixtures.mjs'
+import { createMovedTracker } from './movedTracker.mjs'
 import { v2ReaderAndroidPageHtml as v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -1697,10 +1698,31 @@ try {
   await tap()
   await settle()
   check(m.restored.position === 'restored' && storesFrom(m.from).length === 0, `a CFI restore, settled and tapped, saves nothing (${m.restored.position}, ${JSON.stringify(storesFrom(m.from))})`)
+  // #1278: what a host's ADR-019 view (movedTracker.mjs) makes of the page's own relocates. A restore that navigates
+  // relocates to the stored spine item before or after `restored` (the count is printed): either way the reader
+  // has an index and has not moved; a never-read book has one too, from the opening relocate, before any turn.
+  const hostReader = (at) => {
+    const t = createMovedTracker()
+    for (const x of messages.slice(at)) x.type === 'restored' ? t.restored() : x.type === 'relocate' && t.relocate(x)
+    return t.reader()
+  }
+  const place = JSON.parse(cfiEntry).position
+  const restoredAt = messages.slice(m.from).findIndex((x) => x.type === 'restored')
+  const arrivals = [false, true].map((late) => messages.slice(m.from).filter((x, i) => x.type === 'relocate' && x.cfi === place.cfi && i > restoredAt === late).length)
+  check(arrivals[0] + arrivals[1] > 0 && JSON.stringify(hostReader(m.from)) === JSON.stringify({ restoreApplied: true, moved: false, index: place.index }),
+    `a restore that navigates relocates to the stored place (${arrivals[0]} before restored, ${arrivals[1]} after): restored, not moved, at its spine item (${JSON.stringify(hostReader(m.from))}, stored ${place.index})`)
   from = messages.length
   call('window.__fol.next()')
   const turnedCfi = await storeFrom(from, 'a store after a page turn on a CFI restore')
   check(turnedCfi?.position?.cfi?.startsWith('epubcfi('), 'and its first page turn saves a CFI')
+  check(hostReader(m.from).moved === true, 'and is a move to the host')
+  m = await open('tsformat.fb2')
+  await settle()
+  check(JSON.stringify(hostReader(m.from)) === JSON.stringify({ restoreApplied: true, moved: false, index: lastRelocate(m.from)?.index ?? 'none' }),
+    `a never-read book, before any turn: restored, not moved, with an index (${JSON.stringify(hostReader(m.from))})`)
+  call('window.__fol.next()')
+  await settle()
+  check(hostReader(m.from).moved === true, 'and its first page turn is a move')
 
   // A taken offer (goTo chosen): the place the fraction landed on is saved as a CFI position, once.
   console.log('taken offer')

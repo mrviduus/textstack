@@ -623,7 +623,9 @@
       "under": "Less than a minute left",
       "minutes": "{minutes} min left",
       "hours": "{hours} hr left",
-      "hoursMinutes": "{hours} hr {minutes} min left"
+      "hoursMinutes": "{hours} hr {minutes} min left",
+      "inChapter": "{time} in chapter",
+      "inBook": "{time} in book"
     },
     "exitSummary": {
       "reviewNow": "Review Now",
@@ -646,7 +648,14 @@
       "nextPage": "Next page",
       "dismiss": "Dismiss",
       "finishBook": "Finish book",
-      "finished": "Finished"
+      "finished": "Finished",
+      "contents": "Contents",
+      "closeContents": "Close contents",
+      "prevSection": "Previous section: {title}",
+      "nextSection": "Next section: {title}"
+    },
+    "v2": {
+      "copying": "Copying the book…"
     },
     "newerElsewhere": {
       "message": "You read further on another device: {target}",

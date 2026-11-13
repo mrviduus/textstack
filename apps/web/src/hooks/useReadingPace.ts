@@ -63,3 +63,12 @@ export function useReadingPace(): ReadingPaceDto {
 
   return pace
 }
+
+/**
+ * The pace in words per minute, `null` until there is one from the server (this call's answer or the cached
+ * one): the V2 reader shows no time left before then (#1262). The server's own fallback pace is an answer.
+ */
+export function useFetchedReadingPace(): number | null {
+  const pace = useReadingPace()
+  return pace === FALLBACK_PACE ? null : pace.wpm
+}

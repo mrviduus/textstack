@@ -11,7 +11,10 @@ import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs
 import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readRelocate, readTap, readWordTap, takenWithoutBook, type V2NavKey } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
 import { showsFinishBook } from '../../../../mobile/src/lib/v2reader/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
+import { readToc, tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
+import { V2SectionNav, V2TocDrawer } from './V2ReaderToc'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
+import { V2TimeLeft, v2Percent, type V2TimePlace } from './V2TimeLeft'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
 import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
@@ -133,7 +136,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [annotatable, setAnnotatable] = useState(true)
   /** False for a fixed-layout book (CBZ): flow changes nothing there. */
   const [reflowable, setReflowable] = useState(true)
+  /** The percent read, of the last relocate shown ('' : none); the current contents entry's title is added where it is drawn. */
   const [status, setStatus] = useState('')
+  /** The place of the relocate `status` shows, for the time left (#1262). */
+  const [timePlace, setTimePlace] = useState<V2TimePlace | null>(null)
   const [restored, setRestored] = useState('')
   const [error, setError] = useState<string | null>(null)
   /** A deadline the frame missed (deadlines.mjs); a late answer clears it. */
@@ -159,6 +165,14 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    */
   const [atEnd, setAtEnd] = useState(false)
   const [finish, setFinish] = useState<{ format: string; completedAt?: string | null } | null>(null)
+  /**
+   * The open book's contents (#1261, toc.mjs) and the reader's place in them; shown only while `reading`. The
+   * place is cleared where an open starts, not on `opened`: the page posts a book's first relocate before its
+   * `opened`, and a fixed-layout book sends no other until a page turn.
+   */
+  const [toc, setToc] = useState<V2TocEntry[]>([])
+  const [tocIndex, setTocIndex] = useState<number | null>(null)
+  const [tocOpen, setTocOpen] = useState(false)
   /**
    * The bars (#1263): hidden 3 s after `opened`, by a page turn (tap, key) and by the reader moving the place
    * (`relocate.moved`, either flow) unless a bar button or the taken offer moved it; a centre tap toggles them,
@@ -228,6 +242,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setOffer(null)
     setHeading(t('v2Reader.opening', { name: book.name }))
     setStatus('')
+    setTocIndex(null)
+    setTocOpen(false)
     setRestored('')
     setAtEnd(false)
     // The opening state is the top bar's title: shown, and kept up until `opened`.
@@ -311,6 +327,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       }
       setAnnotatable(m.annotatable !== false)
       setReflowable(m.reflowable !== false)
+      // Untrusted: only what readToc takes. Its place came with the relocate before this message.
+      setToc(readToc(m))
       setReading(true)
       // Untrusted (the page renders the book): only what readDir takes; none is left to right.
       pageDir.current = readDir(m) ?? 'ltr'
@@ -377,8 +395,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (readingRef.current && hidesBarsOnRelocate({ moved: r.moved, msSinceHostMove })) hideBars()
           // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
           if (!tracker.showsPosition()) return
-          setStatus(t('v2Reader.position', { percent: Math.round((r.fraction ?? 0) * 100), index: (r.index ?? 0) + 1, sections: r.sections ?? '?' })
-            + (r.toc ? ` · ${r.toc}` : ''))
+          setTocIndex(r.tocIndex)
+          setTimePlace({ fraction: r.fraction, sectionEnd: r.sectionEnd, words: r.words })
+          setStatus(v2Percent(r.fraction))
           setAtEnd(r.atEnd)
           return
         }
@@ -457,6 +476,18 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     if (sync.current === s) setFinish({ format: s.target.format, completedAt })
   }
 
+  /**
+   * A contents entry the reader chose (the dialog, the section controls). Chosen: the page saves where it lands
+   * (README, `goTo`). It is the current one at once: a jump within the view on screen may send no relocate.
+   */
+  const goToc = (e: V2TocEntry) => {
+    setTocIndex(e.index)
+    hostMove('goTo', [e.href, true])
+  }
+  /** Never a section number (#1261): the percent, then the current entry's title when there is one. */
+  const currentEntry = tocAround(toc, tocIndex).current
+  const statusLine = status && currentEntry ? `${status} · ${currentEntry.label}` : status
+
   const toggleFlow = () => {
     const next: Flow = flow === 'paginated' ? 'scrolled' : 'paginated'
     setFlow(next)
@@ -483,6 +514,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         </div>
         <div className="reader-top-bar__right">
           {toolbar}
+          {reading && toc.length > 0 && <button className="reader-top-bar__btn" onClick={() => setTocOpen(true)}>{t('v2Reader.contents')}</button>}
           {annotatable && (dev || highlightsReady) && <button className="reader-top-bar__btn" onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
           <button className="reader-top-bar__btn" onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
         </div>
@@ -528,12 +560,15 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           A second origin is revisited before M5 (docs/01-architecture/v2-reader-web-hosting.md). */}
       <iframe key={frameLoad} ref={frame} title="V2 reader" sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} className="v2-reader__frame" />
       <footer ref={footer} className="reader-footer" onFocus={showBars}>
+        {reading && <V2SectionNav toc={toc} tocIndex={tocIndex} onGo={goToc} />}
         <div className="reader-footer__info v2-reader__footer">
           <button className="reader-top-bar__btn" onClick={() => hostMove('prev')}>{t('v2Reader.prev')}</button>
-          <span className="reader-footer__counter" data-testid="v2-status">{status}</span>
+          <span className="reader-footer__counter" data-testid="v2-status">{statusLine}</span>
+          {status && timePlace && <V2TimeLeft {...timePlace} />}
           <button className="reader-top-bar__btn" onClick={() => hostMove('next')}>{t('v2Reader.next')}</button>
         </div>
       </footer>
+      <V2TocDrawer open={tocOpen && reading} toc={toc} tocIndex={tocIndex} onGo={goToc} onClose={() => setTocOpen(false)} />
     </main>
   )
 }
