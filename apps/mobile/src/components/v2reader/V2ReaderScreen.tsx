@@ -392,10 +392,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** A book only the server has: fetched on demand, then opened. */
   const download = (b: LibraryBook) => {
     setOpenError(null)
+    // As a pick's copy (#1273): a book opened while this one downloads is not replaced; the download stays in the library.
+    const current = tracker.pick()
     downloadV2Book(deviceLocalLibrary(), b.id, downloadIo).then(
       async (ok) => {
         if (!ok) return
         await refreshBooks()
+        if (!current()) return
         open({ file: bookFile(b.sha256), name: b.originalName })
       },
       fail('download', setOpenError),
@@ -442,6 +445,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     onOpened(t.open, t.opened).catch(fail('opened', setOpenError))
   }
 
+  /** Picks still copying their file into staging/ (#1273): shown, as a large or cloud file takes a while. */
+  const [copying, setCopying] = useState(0)
+  useEffect(() => () => tracker.dispose(), [])
   const pick = async () => {
     try {
       // Any file: the page tells the format by its bytes (EPUB, MOBI/AZW3, FB2, CBZ, PDF) and refuses the rest.
@@ -450,7 +456,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: false })
       if (result.canceled) return
       const asset = result.assets[0]
-      open({ file: await v2Storage().stagePicked(asset.uri), name: asset.name })
+      const current = tracker.pick()
+      setCopying((n) => n + 1)
+      const file = await v2Storage().stagePicked(asset.uri).finally(() => setCopying((n) => n - 1))
+      // A later open or pick (or an unmount) came during the copy (#1273): this one must not replace it.
+      if (!current()) return void v2Storage().dropStaged(file).catch(fail('drop'))
+      open({ file, name: asset.name })
     } catch (e) {
       fail('pick', setOpenError)(e)
     }
@@ -783,6 +794,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             )}
           </View>
           <Text style={[styles.heading, { color: colors.text }]} numberOfLines={1}>{heading}</Text>
+          {copying > 0 && <Text style={[styles.meta, { color: colors.textSecondary }]} accessibilityLiveRegion="polite">{t('reader.v2.copying')}</Text>}
           {notices}
           {books.length > 0 && (
             <ScrollView horizontal style={styles.books} contentContainerStyle={styles.booksRow}>
