@@ -20,6 +20,7 @@ import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
 import { downloadV2Book, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
 import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
+import { createMovedTracker } from '../../lib/v2reader/movedTracker.mjs'
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
@@ -257,8 +258,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const userId = user?.id ?? null
   /** The direction the open book pages in (`opened`, then every `relocate`): the keys and the tap zones follow it. */
   const pageDir = useRef<'ltr' | 'rtl'>('ltr')
-  /** The open book as ADR-019 sees it (R6): restored yet, the first CFI after the restore, the one now. */
-  const reading = useRef({ bookId: null as string | null, restored: false, baseline: null as string | null, cfi: null as string | null, index: null as number | null })
+  /** The open book as ADR-019 sees it (R6): its row, and whether the reader moved since the restore (movedTracker.mjs). */
+  const reading = useRef({ bookId: null as string | null })
+  const [place] = useState(createMovedTracker)
 
   const call = (js: string) => webView.current?.injectJavaScript(`${js};true`)
 
@@ -311,7 +313,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** The closed book is no longer the open one: a later `ready` opens nothing, and its per-book state goes. */
   const endBook = () => {
     opening.current = null
-    reading.current = { bookId: null, restored: false, baseline: null, cfi: null, index: null }
+    reading.current.bookId = null
+    place.open()
     setReflowable(true)
     pageDir.current = 'ltr'
     setProgress.current(null)
@@ -337,12 +340,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }, [])
 
   /**
-   * A programmatic move: the next relocate is the new baseline, not the reader moving. The whole position
+   * A programmatic move: where it lands is not the reader moving (movedTracker.mjs). The whole position
    * goes (README, `goTo`): not `chosen` (a sync adopt or move, already stored here) the page saves
    * nothing and takes it as its own; `chosen` (the reader took an offer) it saves where it landed.
    */
   const goTo = (p: PagePosition, chosen = false) => {
-    reading.current.baseline = null
+    place.hostMove()
     // A chosen goTo (the taken offer) is `moved` to the page; a sync adopt/move is not.
     if (chosen) hostMoves.start()
     call(`window.__fol.goTo(${JSON.stringify(p)}, ${chosen})`)
@@ -357,8 +360,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       retryFailed,
       newId: uuid.v4,
       reader: (bookId): OpenReader | null => {
-        const r = reading.current
-        return r.bookId === bookId ? { restoreApplied: r.restored, moved: r.baseline != null && r.cfi !== r.baseline, index: r.index } : null
+        return reading.current.bookId === bookId ? place.reader() : null
       },
       onPosition: (a: PositionAction) => {
         if (reading.current.bookId !== a.bookId) return
@@ -427,7 +429,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // page may still keep that book on screen, if this newer open fails before its swap.
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
     tracker.open(target.file, opening.current)
-    reading.current = { bookId: null, restored: false, baseline: null, cfi: null, index: null }
+    reading.current.bookId = null
+    place.open()
     setOffer(null)
     setOpenError(null)
     setError(null)
@@ -559,8 +562,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // Only for the book taken last: a stale answer must not mark another book restored.
         if (!tracker.restored(m)) return console.log(`[v2] restored for another book dropped`)
         console.log('[v2] restored', JSON.stringify(m))
-        reading.current.restored = true
-        reading.current.baseline = null
+        place.restored()
         return
       case 'store':
         v2Storage().writeStore(m.key, m.json).then(syncSoon, fail('store', setError))
@@ -575,11 +577,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // The reader moving the place (the page's `moved`), in either flow, hides the bars; not under a bar button.
         if (hidesBarsOnRelocate({ moved: !!shown?.moved, msSinceHostMove: hostMoves.onRelocate(Date.now()) })) hideBars()
         pageDir.current = shown?.dir ?? pageDir.current
-        if (reading.current.restored) {
-          reading.current.baseline ??= m.cfi ?? null
-          reading.current.cfi = m.cfi ?? null
-          reading.current.index = m.index ?? null
-        }
+        place.relocate(shown)
         // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
         if (!tracker.showsPosition()) return
         if (shown) setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc, sectionEnd: shown.sectionEnd, words: shown.words })
