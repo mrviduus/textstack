@@ -480,7 +480,6 @@
     "highlight": "Highlight",
     "scrolled": "Scrolled",
     "paginated": "Paginated",
-    "position": "{{percent}}% · section {{index}}/{{sections}}",
     "restore": "restore: {{state}}",
     "cannotOpen": "cannot open {{name}}: {{error}}",
     "libraryCorrupt": "The stored library ({{key}}) cannot be read: books are not added to it. Fix or remove it, then reload.",
@@ -519,10 +518,15 @@
     "fontDyslexic": "Dyslexic",
     "lineHeight": "Line height",
     "textAlign": "Text align",
+    "alignBook": "Book",
     "alignLeft": "Left",
     "alignCenter": "Center",
     "alignJustify": "Justify",
-    "fixedLayout": "This book has a fixed layout: only the theme applies."
+    "fixedLayout": "This book has a fixed layout: only the theme applies.",
+    "contents": "Contents",
+    "closeContents": "Close contents",
+    "prevSection": "Previous section: {{title}}",
+    "nextSection": "Next section: {{title}}"
   },
   "library": {
     "continue": "Continue",

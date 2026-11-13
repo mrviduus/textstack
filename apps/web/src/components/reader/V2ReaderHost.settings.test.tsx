@@ -1,12 +1,12 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
+import { V2ReaderHost, hostNavKey, type V2HostBook } from './V2ReaderHost'
 
 // #1260: the V2 reader's settings on the web, driven through a fake frame as V2ReaderHost.chrome.test.tsx.
 
 const KEY = 'v2reader.settings'
-const DEFAULTS = { fontSize: 20, lineHeight: 1.6, fontFamily: 'serif', textAlign: 'center', theme: 'light' }
+const DEFAULTS = { fontSize: 20, lineHeight: 1.6, fontFamily: 'serif', textAlign: 'book', theme: 'light' }
 const frame = () => screen.getByTitle('V2 reader') as HTMLIFrameElement
 let posted: { call: string; args: unknown[] }[]
 const sent = () => posted.filter((m) => m.call === 'settings').map((m) => m.args[0])
@@ -111,6 +111,29 @@ describe('V2ReaderHost settings', () => {
     expect(screen.queryByTestId('v2-settings')).toBeNull()
     fireEvent.click(openPanel().getByRole('button', { name: 'Close reading settings' }))
     expect(screen.queryByTestId('v2-settings')).toBeNull()
+  })
+
+  // #1260 review: the panel is modal; a page key on one of its buttons must not turn (and save) the page behind it.
+  it('panelOpen_PageKeysOnItsControls_DoNotTurnThePage_EscapeStillCloses', () => {
+    opened()
+    posted = []
+    const panel = openPanel()
+    for (const key of ['ArrowRight', 'ArrowLeft', 'PageDown', 'PageUp']) fireEvent.keyDown(panel.getByRole('button', { name: 'Dark' }), { key })
+    expect(posted.filter((m) => m.call === 'next' || m.call === 'prev')).toEqual([])
+    fireEvent.keyDown(panel.getByRole('button', { name: 'Dark' }), { key: 'Escape' })
+    expect(screen.queryByTestId('v2-settings')).toBeNull()
+    fireEvent.keyDown(document.body, { key: 'ArrowRight' })
+    expect(posted.filter((m) => m.call === 'next' || m.call === 'prev').map((m) => m.call)).toEqual(['next'])
+  })
+
+  it('hostNavKey_InsideAnyDialog_EscapeOnly', () => {
+    const dialog = document.body.appendChild(document.createElement('div'))
+    dialog.setAttribute('role', 'dialog')
+    const button = dialog.appendChild(document.createElement('button'))
+    const at = (key: string) => hostNavKey({ key, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, repeat: false, target: button })
+    for (const key of ['ArrowRight', 'ArrowLeft', 'PageDown', 'PageUp', 'Home', 'End']) expect(at(key)).toBeNull()
+    expect(at('Escape')?.key).toBe('Escape')
+    dialog.remove()
   })
 
   it('unmount_TheThemeLeavesTheDocument', () => {

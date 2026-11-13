@@ -28,7 +28,8 @@ export function useV2ReaderSettings() {
   return { settings, update }
 }
 
-const ALIGN_LABEL: Record<V2TextAlign, string> = { left: 'v2Reader.alignLeft', center: 'v2Reader.alignCenter', justify: 'v2Reader.alignJustify' }
+// `book`: the book's own alignment, the default (no rule of ours).
+const ALIGN_LABEL: Record<V2TextAlign, string> = { book: 'v2Reader.alignBook', left: 'v2Reader.alignLeft', center: 'v2Reader.alignCenter', justify: 'v2Reader.alignJustify' }
 const FAMILY_LABEL: Record<V2FontFamily, string> = { serif: 'v2Reader.fontSerif', sans: 'v2Reader.fontSans', dyslexic: 'v2Reader.fontDyslexic' }
 const THEME_LABEL: Record<V2Theme, string> = { light: 'v2Reader.themeLight', sepia: 'v2Reader.themeSepia', dark: 'v2Reader.themeDark' }
 

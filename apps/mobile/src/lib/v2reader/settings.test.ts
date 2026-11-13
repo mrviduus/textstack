@@ -35,6 +35,11 @@ describe('v2 reader settings', () => {
     for (const v of ['system', 'Serif', '', 'toString', '__proto__', 'constructor', ['serif'], { toString: () => 'serif' }, 0, null]) {
       expect(readChosen({ fontFamily: v, textAlign: v, theme: v })).toEqual({})
     }
+    // A real member wrapped in an array: `includes`/`hasOwn` would coerce it (#1260 review: ['dark'] passed).
+    for (const [k, v] of [['fontFamily', FAMILIES[1]], ['textAlign', ALIGNS[1]], ['theme', 'dark']] as const) {
+      expect(readChosen({ [k]: [v] })).toEqual({})
+      expect(readSettings({ [k]: [v] })[k]).toBe(DEFAULTS[k])
+    }
   })
 
   it('readChosen_OlderOrForeignShape_OnlyKnownValidKeysSurvive', () => {
@@ -76,7 +81,10 @@ describe('v2 reader settings stylesheet', () => {
     expect(css).toContain('font-size: 20px !important')
     expect(css).toContain('line-height: 1.6 !important')
     expect(css).toContain('Georgia')
-    expect(css).toContain('text-align: center !important')
+    // The book's own alignment by default: no text-align of ours at all (owner 2026-11-13).
+    expect(DEFAULTS.textAlign).toBe('book')
+    expect(css).not.toContain('text-align')
+    expect(css).toContain('p, li, blockquote, dd { line-height: inherit !important; }')
     expect(css).toContain(`color: ${THEMES.light.fg} !important; background: ${THEMES.light.bg} !important`)
     expect(css).not.toContain('@font-face')
     expect(css).not.toContain('body *')
@@ -86,11 +94,27 @@ describe('v2 reader settings stylesheet', () => {
     expect(settingsCss({ textAlign: 'left' })).toContain('text-align: start !important')
   })
 
+  it.each([['center'], ['justify']])('settingsCss_%s_ForcedOnTextBlocks', (textAlign) => {
+    expect(settingsCss({ textAlign })).toContain(`p, li, blockquote, dd { text-align: ${textAlign} !important;`)
+  })
+
+  it('aligns_BookFirst', () => {
+    expect(ALIGNS[0]).toBe('book')
+  })
+
   it('settingsCss_Dark_RecoloursEverything', () => {
     const css = settingsCss({ theme: 'dark' })
     expect(css).toContain(`background: ${THEMES.dark.bg} !important`)
     expect(css).toContain('body * { color: inherit !important')
     expect(settingsCss({ theme: 'sepia' })).not.toContain('color: inherit')
+  })
+
+  it('settingsCss_Dark_ImagesAndSvgOnALightPlate_AfterTheTransparentRule', () => {
+    // Black line art and inline SVG's default black fill would vanish on the dark page.
+    const css = settingsCss({ theme: 'dark' })
+    const plate = css.indexOf('img, svg { background-color: #f0f0f0 !important; }')
+    expect(plate).toBeGreaterThan(css.indexOf('background-color: transparent'))
+    for (const theme of ['light', 'sepia']) expect(settingsCss({ theme })).not.toContain('img, svg')
   })
 
   it('settingsCss_Dyslexic_FaceFromTheBlobUrlAndEveryElement', () => {

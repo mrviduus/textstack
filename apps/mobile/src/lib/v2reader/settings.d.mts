@@ -1,6 +1,6 @@
 // Types for settings.mjs (apps/web type-checks it without allowJs); a change to one must update the other.
 export type V2FontFamily = 'serif' | 'sans' | 'dyslexic'
-export type V2TextAlign = 'left' | 'center' | 'justify'
+export type V2TextAlign = 'book' | 'left' | 'center' | 'justify'
 export type V2Theme = 'light' | 'sepia' | 'dark'
 export interface V2Settings { fontSize: number; lineHeight: number; fontFamily: V2FontFamily; textAlign: V2TextAlign; theme: V2Theme }
 export const FONT_MIN: number

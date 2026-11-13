@@ -949,6 +949,11 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   outline: none;
 }
 
+/* An unanswered cookie banner (fixed, bottom) would cover the bottom bar and take its clicks (#1292). */
+.v2-reader .reader-footer {
+  bottom: var(--cookie-banner-height, 0px);
+}
+
 .v2-reader__frame {
   flex: 1;
   min-height: 0;
@@ -997,6 +1002,24 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   color: var(--reader-secondary);
 }
 
+/* The entries before and after the reader's place (#1261), by title: one line each, at the two ends. */
+.v2-reader__sections {
+  display: flex;
+  gap: 12px;
+  padding: 4px 16px 0;
+}
+
+.v2-reader__sections > button {
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v2-reader__section-next {
+  margin-left: auto;
+}
+
 /* Prev | position | Next: Prev and Next alike, at the two ends. */
 .v2-reader__footer > :first-child {
   justify-self: start;
@@ -1010,6 +1033,11 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
 .v2-reader__footer .reader-footer__counter {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Time left (#1262): its own row under the position, so Prev | position | Next keep theirs. */
+.v2-reader__footer .v2-reader__time-left {
+  grid-row: 2;
 }
 
 /* ===========================================

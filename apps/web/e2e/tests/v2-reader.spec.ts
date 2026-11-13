@@ -29,15 +29,16 @@ async function clickBar(page: Page, name: string) {
 async function expectOpened(page: Page) {
   await expect(page.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
   await expect.poll(() => sectionText(page), { timeout: 15_000 }).toContain(FIRST_SECTION_TEXT)
-  await expect(status(page)).toContainText('section')
+  // The percent read, then the current contents entry's title (#1261): never a section number.
+  await expect(status(page)).toHaveText(/^\d+% · The (Pond|Woods|Village)$/)
   await expect(page.getByRole('alert')).toHaveCount(0)
 }
 
 /** A signed-in context for `email`; skipped when V2 is off (unless V2_E2E=1). */
-async function v2Context(browser: { newContext(): Promise<BrowserContext> }, email: string) {
+async function v2Context(browser: { newContext(): Promise<BrowserContext> }, email: string, answerBanner = true) {
   const context = await browser.newContext()
-  // The cookie banner sits over the reader's bottom bar (Prev / Next) until it is answered.
-  await context.addInitScript(() => localStorage.setItem('cookieConsent', 'rejected'))
+  // Answered, so the cookie banner is out of the way; #1292's spec leaves it up.
+  if (answerBanner) await context.addInitScript(() => localStorage.setItem('cookieConsent', 'rejected'))
   await testLogin(context.request, email)
   const probe = await context.request.get(`${API_URL}/me/v2/status`, { headers: API_HEADERS })
   test.skip(probe.status() === 404 && process.env.V2_E2E !== '1', 'Features:V2Api is off: /me/v2 is not mapped')
@@ -218,7 +219,77 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
+  // #1261: the contents dialog jumps to an entry (saved as the reader's own move); the section controls name the
+  // neighbouring entries by title.
+  test('readV2Toc_AnEntryChosenThenThePreviousSection_TheBookJumpsAndTheCurrentEntryFollows', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2toc'))
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+
+    await clickBar(page, 'Contents')
+    const dialog = page.getByRole('dialog', { name: 'Contents' })
+    const entries = dialog.locator('li button')
+    await expect(entries).toHaveText(['The Pond', 'The Woods', 'The Village'])
+    const current = dialog.locator('[aria-current="true"]')
+    await expect(current).toHaveText('The Pond')
+    await expect(current).toBeFocused()
+
+    const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith(`/me/v2/books/${bookId}/reading-state`))
+    await entries.nth(2).click()
+    await expect(dialog).toHaveCount(0)
+    await expect.poll(() => sectionText(page), { timeout: 15_000 }).toContain('The Village, paragraph 1.')
+    expect((await saved).ok()).toBeTruthy()
+    // The last entry: only the one before it is offered, by its title.
+    await expect(page.getByTestId('v2-prev-section')).toHaveText('‹ The Woods')
+    await expect(page.getByTestId('v2-next-section')).toHaveCount(0)
+    // The host marks a chosen entry at once; a page turn's relocate is the page's own word for the place.
+    const landed = (await status(page).textContent()) ?? ''
+    expect(landed).toMatch(/^\d+% · The Village$/)
+    await page.keyboard.press('ArrowRight')
+    await expect(status(page)).not.toHaveText(landed)
+    await expect(status(page)).toHaveText(/^\d+% · The Village$/)
+
+    await clickBar(page, 'Previous section: The Woods')
+    await expect.poll(() => sectionText(page), { timeout: 15_000 }).toContain('The Woods, paragraph 1.')
+    await expect(page.getByTestId('v2-prev-section')).toHaveText('‹ The Pond')
+    await expect(page.getByTestId('v2-next-section')).toHaveText('The Village ›')
+
+    await clickBar(page, 'Contents')
+    await expect(current).toHaveText('The Woods')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Contents', exact: true })).toBeFocused()
+    await context.close()
+  })
+
   // #1226: position and highlights on /me/v2 through the shared client, not in this browser's storage.
+  test('readV2Chrome_CookieBannerUnanswered_TheBottomBarSitsAboveItAndNextTurns', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2banner'), false)
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    const banner = page.locator('.cookie-banner')
+    await expect(banner).toBeVisible()
+    const first = (await status(page).textContent()) ?? ''
+    await page.keyboard.press('Escape')
+    const next = page.getByRole('button', { name: 'Next ›', exact: true })
+    // Polled: the bar slides in.
+    await expect.poll(async () => {
+      const [bar, box] = [await page.locator('.reader-footer').boundingBox(), await banner.boundingBox()]
+      return !!bar && !!box && bar.y + bar.height <= box.y + 1
+    }).toBe(true)
+    await next.click()
+    await expect(status(page)).not.toHaveText(first)
+    // Answered: the bar is back at the bottom edge.
+    await page.getByRole('button', { name: 'Reject analytics', exact: true }).click()
+    await expect(banner).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect.poll(async () => { const b = await page.locator('.reader-footer').boundingBox(); return b ? Math.round(b.y + b.height) : 0 }).toBe(page.viewportSize()!.height)
+  })
+
   test('readV2Sync_ReloadThenASecondBrowserContext_SamePlaceAndTheHighlightDrawn', async ({ browser }) => {
     const who = email('v2rs')
     const context = await v2Context(browser, who)

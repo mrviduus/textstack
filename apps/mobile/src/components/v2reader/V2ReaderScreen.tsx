@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import { BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Stack } from 'expo-router'
@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import type { OpenReader, PagePosition, V2ClientFormat } from '@textstack/shared'
+import { placeTimeLeftLabel, timeLeftAt, type OpenReader, type PagePosition, type V2ClientFormat } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
@@ -20,6 +20,7 @@ import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
 import { downloadV2Book, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
 import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
+import { createMovedTracker } from '../../lib/v2reader/movedTracker.mjs'
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
@@ -28,12 +29,15 @@ import {
   reopensOnReady, takenWithoutBook,
 } from '../../lib/v2reader/chrome.mjs'
 import { tapAction } from '../../lib/v2reader/tapZone.mjs'
+import { readToc, tocAround, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
+import { V2SectionNav, V2TocSheet } from './V2ReaderToc'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
 import { USER_AGENT_PROBE, createWebViewCheck, webViewStorePackage, type WebViewVerdict } from '../../lib/v2reader/webViewVersion'
 import { useReaderBars } from '../../hooks/useReaderBars'
 import { useKeepReaderAwake } from '../../hooks/useKeepReaderAwake'
+import { useFetchedReadingPace } from '../../hooks/useReadingPace'
 import { useFlushOnLeave } from '../../hooks/useFlushOnLeave'
 import { ReaderTopBar } from '../reader/ReaderTopBar'
 import { ReaderFooter } from '../reader/ReaderFooter'
@@ -185,28 +189,33 @@ function UpdateWebViewScreen() {
 }
 
 /** Where the reader is, from the last `relocate` through `readRelocate`; null: nothing to show yet. */
-type Place = { fraction: number | null; index: number | null; sections: number | null; toc: string } | null
+type Place = { fraction: number | null; index: number | null; sections: number | null; toc: string; tocIndex: number | null; sectionEnd: number | null; words: number | null } | null
 
 /**
  * The bottom bar (the legacy reader's footer): re-renders alone on every `relocate`, not the WebView beside it.
  * Its prev/next are page turns for now.
  */
-function V2Footer({ setter, ...props }: { setter: MutableRefObject<(p: Place) => void> } & Omit<
+function V2Footer({ setter, toc, onGoToc, ...props }: { setter: MutableRefObject<Dispatch<SetStateAction<Place>>>; toc: V2TocEntry[]; onGoToc: (entry: V2TocEntry) => void } & Omit<
   Parameters<typeof ReaderFooter>[0],
-  'bookProgress' | 'chapterTitle' | 'currentChapterIndex' | 'totalChapters' | 'timeLeftLabel' | 'hasPrev' | 'hasNext'
+  'bookProgress' | 'chapterTitle' | 'currentChapterIndex' | 'totalChapters' | 'timeLeftLabel' | 'hasPrev' | 'hasNext' | 'above'
 >) {
   const [place, setPlace] = useState<Place>(null)
   useEffect(() => { setter.current = setPlace }, [setter])
+  const { t } = useLanguage()
+  // Never waited for: no answer (offline, no session) is no time left, nothing else (#1262).
+  const wpm = useFetchedReadingPace(true)
   return (
     <ReaderFooter
       {...props}
       bookProgress={place?.fraction ?? null}
-      chapterTitle={place?.toc ?? ''}
-      currentChapterIndex={place?.index ?? -1}
-      totalChapters={place?.sections ?? 0}
-      timeLeftLabel={null}
+      // The current contents entry's title; never a section number (#1261): no index, no counter.
+      chapterTitle={tocAround(toc, place?.tocIndex ?? null).current?.label ?? ''}
+      currentChapterIndex={-1}
+      totalChapters={0}
+      timeLeftLabel={placeTimeLeftLabel(timeLeftAt({ fraction: place?.fraction, sectionEnd: place?.sectionEnd, totalWords: place?.words, wpm }), t)}
       hasPrev={!!place}
       hasNext={!!place}
+      above={place && <V2SectionNav toc={toc} tocIndex={place.tocIndex} onGo={onGoToc} color={props.barText} />}
     />
   )
 }
@@ -226,7 +235,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const opening = useRef<Opening | null>(null)
   /** Which page answer belongs to which open (openTracker.mjs): a book kept on screen, a stale `restored`. */
   const [tracker] = useState(() => createOpenTracker<Opening>())
-  const setProgress = useRef<(p: Place) => void>(() => {})
+  const setProgress = useRef<Dispatch<SetStateAction<Place>>>(() => {})
   const [books, setBooks] = useState<LibraryBook[]>([])
   const [heading, setHeading] = useState(IDLE_HEADING)
   // null until the stored choice is read: the toggle is off until then, so no toggle can race the read.
@@ -259,8 +268,19 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const userId = user?.id ?? null
   /** The direction the open book pages in (`opened`, then every `relocate`): the keys and the tap zones follow it. */
   const pageDir = useRef<'ltr' | 'rtl'>('ltr')
-  /** The open book as ADR-019 sees it (R6): restored yet, the first CFI after the restore, the one now. */
-  const reading = useRef({ bookId: null as string | null, restored: false, baseline: null as string | null, cfi: null as string | null, index: null as number | null })
+  /** The open book as ADR-019 sees it (R6): its row, and whether the reader moved since the restore (movedTracker.mjs). */
+  const reading = useRef({ bookId: null as string | null })
+  const [place] = useState(createMovedTracker)
+  /** The open book's contents (#1261, toc.mjs); the reader's place in them as of the last relocate, read when the sheet opens. */
+  const [toc, setToc] = useState<V2TocEntry[]>([])
+  const tocIndex = useRef<number | null>(null)
+  const [tocOpen, setTocOpen] = useState(false)
+  /** A new open or a closed book: the previous book's contents go. */
+  const clearToc = () => {
+    setToc([])
+    tocIndex.current = null
+    setTocOpen(false)
+  }
 
   const call = (js: string) => webView.current?.injectJavaScript(`${js};true`)
 
@@ -294,6 +314,16 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     hostMoves.start()
     call(`window.__fol.${dir}()`)
   }
+  /**
+   * A contents entry the reader chose (the sheet, the footer's section controls): the page saves where it lands.
+   * It is the current one at once: a jump within the view on screen may send no relocate.
+   */
+  const goToc = (e: V2TocEntry) => {
+    tocIndex.current = e.index
+    setProgress.current((p) => p && { ...p, tocIndex: e.index })
+    hostMoves.start()
+    call(`window.__fol.goTo(${JSON.stringify(e.href)}, true)`)
+  }
 
   // The page's debounced save (400 ms) is written on background (the page also flushes itself when its document
   // turns hidden); the unmount call is best effort (useFlushOnLeave). Closing a book flushes through CLOSE_BOOK_JS.
@@ -313,10 +343,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** The closed book is no longer the open one: a later `ready` opens nothing, and its per-book state goes. */
   const endBook = () => {
     opening.current = null
-    reading.current = { bookId: null, restored: false, baseline: null, cfi: null, index: null }
+    reading.current.bookId = null
+    place.open()
     setReflowable(true)
     pageDir.current = 'ltr'
     setProgress.current(null)
+    clearToc()
     setOffer(null)
     setHeading(IDLE_HEADING)
   }
@@ -339,12 +371,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }, [])
 
   /**
-   * A programmatic move: the next relocate is the new baseline, not the reader moving. The whole position
+   * A programmatic move: where it lands is not the reader moving (movedTracker.mjs). The whole position
    * goes (README, `goTo`): not `chosen` (a sync adopt or move, already stored here) the page saves
    * nothing and takes it as its own; `chosen` (the reader took an offer) it saves where it landed.
    */
   const goTo = (p: PagePosition, chosen = false) => {
-    reading.current.baseline = null
+    place.hostMove()
     // A chosen goTo (the taken offer) is `moved` to the page; a sync adopt/move is not.
     if (chosen) hostMoves.start()
     call(`window.__fol.goTo(${JSON.stringify(p)}, ${chosen})`)
@@ -359,8 +391,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       retryFailed,
       newId: uuid.v4,
       reader: (bookId): OpenReader | null => {
-        const r = reading.current
-        return r.bookId === bookId ? { restoreApplied: r.restored, moved: r.baseline != null && r.cfi !== r.baseline, index: r.index } : null
+        return reading.current.bookId === bookId ? place.reader() : null
       },
       onPosition: (a: PositionAction) => {
         if (reading.current.bookId !== a.bookId) return
@@ -398,10 +429,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** A book only the server has: fetched on demand, then opened. */
   const download = (b: LibraryBook) => {
     setOpenError(null)
+    // As a pick's copy (#1273): a book opened while this one downloads is not replaced; the download stays in the library.
+    const current = tracker.pick()
     downloadV2Book(deviceLocalLibrary(), b.id, downloadIo).then(
       async (ok) => {
         if (!ok) return
         await refreshBooks()
+        if (!current()) return
         open({ file: bookFile(b.sha256), name: b.originalName })
       },
       fail('download', setOpenError),
@@ -426,12 +460,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // page may still keep that book on screen, if this newer open fails before its swap.
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
     tracker.open(target.file, opening.current)
-    reading.current = { bookId: null, restored: false, baseline: null, cfi: null, index: null }
+    reading.current.bookId = null
+    place.open()
     setOffer(null)
     setOpenError(null)
     setError(null)
     setHeading(`Opening ${target.name}`)
     setProgress.current(null)
+    clearToc()
     setBook(true)
     showBars()
     setOpens((n) => n + 1)
@@ -448,6 +484,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     onOpened(t.open, t.opened).catch(fail('opened', setOpenError))
   }
 
+  /** Picks still copying their file into staging/ (#1273): shown, as a large or cloud file takes a while. */
+  const [copying, setCopying] = useState(0)
+  useEffect(() => () => tracker.dispose(), [])
   const pick = async () => {
     try {
       // Any file: the page tells the format by its bytes (EPUB, MOBI/AZW3, FB2, CBZ, PDF) and refuses the rest.
@@ -456,7 +495,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: false })
       if (result.canceled) return
       const asset = result.assets[0]
-      open({ file: await v2Storage().stagePicked(asset.uri), name: asset.name })
+      const current = tracker.pick()
+      setCopying((n) => n + 1)
+      const file = await v2Storage().stagePicked(asset.uri).finally(() => setCopying((n) => n - 1))
+      // A later open or pick (or an unmount) came during the copy (#1273): this one must not replace it.
+      if (!current()) return void v2Storage().dropStaged(file).catch(fail('drop'))
+      open({ file, name: asset.name })
     } catch (e) {
       fail('pick', setOpenError)(e)
     }
@@ -532,6 +576,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           deadlines.answered()
           strikes.clear()
           pageDir.current = readDir(m) ?? 'ltr'
+          // Untrusted: only what readToc takes.
+          setToc(readToc(m))
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
         return
@@ -551,8 +597,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // Only for the book taken last: a stale answer must not mark another book restored.
         if (!tracker.restored(m)) return console.log(`[v2] restored for another book dropped`)
         console.log('[v2] restored', JSON.stringify(m))
-        reading.current.restored = true
-        reading.current.baseline = null
+        place.restored()
         return
       case 'store':
         v2Storage().writeStore(m.key, m.json).then(syncSoon, fail('store', setError))
@@ -567,14 +612,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // The reader moving the place (the page's `moved`), in either flow, hides the bars; not under a bar button.
         if (hidesBarsOnRelocate({ moved: !!shown?.moved, msSinceHostMove: hostMoves.onRelocate(Date.now()) })) hideBars()
         pageDir.current = shown?.dir ?? pageDir.current
-        if (reading.current.restored) {
-          reading.current.baseline ??= m.cfi ?? null
-          reading.current.cfi = m.cfi ?? null
-          reading.current.index = m.index ?? null
-        }
+        place.relocate(shown)
         // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
         if (!tracker.showsPosition()) return
-        if (shown) setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc })
+        if (!shown) return
+        tocIndex.current = shown.tocIndex
+        setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc, tocIndex: shown.tocIndex, sectionEnd: shown.sectionEnd, words: shown.words })
         return
       }
       case 'word':
@@ -756,13 +799,17 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             chapterTitle=""
             sessionWordCount={0}
             isAuthenticated={!!user}
-            hasChapters={false}
+            hasChapters={toc.length > 0}
+            onTocPress={() => setTocOpen(true)}
+            tocLabel={t('reader.chrome.contents')}
             isCurrentBookmarked={false}
             onExit={closeBook}
             backLabel={t('reader.chrome.back')}
           />
           <V2Footer
             setter={setProgress}
+            toc={toc}
+            onGoToc={goToc}
             barBg={theme.bg}
             barText={theme.fg}
             trackColor={theme.fg + '22'}
@@ -777,6 +824,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             onHeight={(h) => { if (h > 0 && h !== footerHeight) setFooterHeight(h) }}
           />
           <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} />
+          <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
           {hasNotices && (
             <View style={[styles.notices, { top: barsVisible ? 56 + insets.top : insets.top, backgroundColor: colors.background }]}>
               <View style={styles.noticesText}>{notices}</View>
@@ -798,6 +846,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             )}
           </View>
           <Text style={[styles.heading, { color: colors.text }]} numberOfLines={1}>{heading}</Text>
+          {copying > 0 && <Text style={[styles.meta, { color: colors.textSecondary }]} accessibilityLiveRegion="polite">{t('reader.v2.copying')}</Text>}
           {notices}
           {books.length > 0 && (
             <ScrollView horizontal style={styles.books} contentContainerStyle={styles.booksRow}>

@@ -8,23 +8,25 @@ export const FONT_MAX = 28
 export const FONT_STEP = 2
 export const LINE_HEIGHTS = [1.5, 1.6, 1.65, 1.8]
 export const FAMILIES = ['serif', 'sans', 'dyslexic']
-export const ALIGNS = ['left', 'center', 'justify']
+/** `book`: the book's own alignment, no rule of ours (the default, owner 2026-11-13); shown first. */
+export const ALIGNS = ['book', 'left', 'center', 'justify']
 /** Page background and text per theme; the hosts' bars use the same colours. */
 export const THEMES = {
   light: { bg: '#ffffff', fg: '#1a1a1a' },
   sepia: { bg: '#f4ecd8', fg: '#5b4636' },
   dark: { bg: '#1a1a1a', fg: '#e0e0e0' },
 }
-export const DEFAULTS = Object.freeze({ fontSize: 20, lineHeight: 1.6, fontFamily: 'serif', textAlign: 'center', theme: 'light' })
+export const DEFAULTS = Object.freeze({ fontSize: 20, lineHeight: 1.6, fontFamily: 'serif', textAlign: 'book', theme: 'light' })
 /** Where each host keeps the reader's choices (localStorage / AsyncStorage), as JSON. */
 export const SETTINGS_KEY = 'v2reader.settings'
 
 const VALID = {
   fontSize: (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(v))) : undefined),
   lineHeight: (v) => (LINE_HEIGHTS.includes(v) ? v : undefined),
-  fontFamily: (v) => (FAMILIES.includes(v) ? v : undefined),
-  textAlign: (v) => (ALIGNS.includes(v) ? v : undefined),
-  theme: (v) => (Object.hasOwn(THEMES, v) ? v : undefined),
+  fontFamily: (v) => (typeof v === 'string' && FAMILIES.includes(v) ? v : undefined),
+  textAlign: (v) => (typeof v === 'string' && ALIGNS.includes(v) ? v : undefined),
+  // A string only: `Object.hasOwn` reads ['dark'] as 'dark' (#1260 review).
+  theme: (v) => (typeof v === 'string' && Object.hasOwn(THEMES, v) ? v : undefined),
 }
 
 /**
@@ -58,13 +60,15 @@ const FAMILY_CSS = {
   sans: 'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
   dyslexic: '"TextStack OpenDyslexic", sans-serif',
 }
+/** Dark: images and inline SVG on a light plate, or black line art (and SVG's default black fill) vanishes. */
+const DARK_PLATE = '#f0f0f0'
 /** `start`, not `left`: a right-to-left book's own side. */
 const ALIGN_CSS = { left: 'start', center: 'center', justify: 'justify' }
 
 /**
  * The stylesheet for a book section. `raw` goes through `readSettings` again here. `fontUrl`: the page's own blob:
  * URL of OpenDyslexic, used only for that family and only if it is one. A book's own rules on an element still
- * win over the base font and colours, except: text blocks take the alignment and line height, OpenDyslexic
+ * win over the base font and colours, except: text blocks take the alignment (unless `book`) and line height, OpenDyslexic
  * replaces every font (it is an accessibility setting), and dark recolours everything (black text would vanish).
  */
 export function settingsCss(raw, fontUrl) {
@@ -74,7 +78,8 @@ export function settingsCss(raw, fontUrl) {
   const face = dyslexic && typeof fontUrl === 'string' && /^blob:[\w:/.-]+$/.test(fontUrl)
     ? `@font-face { font-family: "TextStack OpenDyslexic"; src: url(${fontUrl}) format("woff2"); }\n` : ''
   return `${face}html, body { font-size: ${s.fontSize}px !important; line-height: ${s.lineHeight} !important; font-family: ${FAMILY_CSS[s.fontFamily]} !important; color: ${fg} !important; background: ${bg} !important; }
-p, li, blockquote, dd { text-align: ${ALIGN_CSS[s.textAlign]} !important; line-height: inherit !important; }${
+p, li, blockquote, dd {${s.textAlign === 'book' ? '' : ` text-align: ${ALIGN_CSS[s.textAlign]} !important;`} line-height: inherit !important; }${
     dyslexic ? '\nbody * { font-family: inherit !important; }' : ''}${
-    s.theme === 'dark' ? '\nbody * { color: inherit !important; background-color: transparent !important; }\na:any-link { color: #8ab4f8 !important; }' : ''}`
+    s.theme === 'dark' ? `\nbody * { color: inherit !important; background-color: transparent !important; }\na:any-link { color: #8ab4f8 !important; }
+img, svg { background-color: ${DARK_PLATE} !important; }` : ''}`
 }

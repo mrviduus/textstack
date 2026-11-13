@@ -34,7 +34,8 @@ export function useV2Settings() {
 }
 
 const FAMILY_LABEL: Record<V2FontFamily, string> = { serif: 'Serif', sans: 'Sans', dyslexic: 'Dyslexic' }
-const ALIGN_LABEL: Record<V2TextAlign, string> = { left: 'Left', center: 'Center', justify: 'Justify' }
+// `book`: the book's own alignment, the default (no rule of ours).
+const ALIGN_LABEL: Record<V2TextAlign, string> = { book: 'Book', left: 'Left', center: 'Center', justify: 'Justify' }
 const THEME_LABEL: Record<V2Theme, string> = { light: 'Light', sepia: 'Sepia', dark: 'Dark' }
 
 interface Props {

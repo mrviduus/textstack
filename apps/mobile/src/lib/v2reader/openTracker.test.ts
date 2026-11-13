@@ -82,4 +82,20 @@ describe('v2 host open tracker (S5 review)', () => {
     u.opened(opened('b'))
     expect(u.showsPosition()).toBe(true)
   })
+
+  it('pickSupersededDuringItsCopy_NotCurrent (#1273)', () => {
+    const t = createOpenTracker<string>()
+    const alone = t.pick()
+    expect(alone()).toBe(true) // nothing newer: it opens
+    const slow = t.pick()
+    t.open('lib', 'LIB') // a library book opened while the copy ran
+    expect(slow()).toBe(false)
+    const first = t.pick()
+    const second = t.pick() // slow then fast: the later pick wins
+    expect(first()).toBe(false)
+    expect(second()).toBe(true)
+    t.dispose() // the screen unmounted during the copy
+    expect(second()).toBe(false)
+    expect(t.pick()()).toBe(true) // a remount's pick still counts
+  })
 })

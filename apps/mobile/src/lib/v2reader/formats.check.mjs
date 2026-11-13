@@ -16,6 +16,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt, routeBookOrigin } from './bookOriginRoute.mjs'
 import { fb2, hostilePdf, pdf, writeFormatFixtures } from './fixtures.mjs'
+import { createMovedTracker } from './movedTracker.mjs'
 import { v2ReaderAndroidPageHtml as v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -233,7 +234,7 @@ try {
   async function checkSettings() {
     console.log('settings')
     await page.setViewportSize({ width: 1280, height: 720 })
-    const DEFAULT = { fontSize: 20, lineHeight: 1.6, fontFamily: 'serif', textAlign: 'center', theme: 'light' }
+    const DEFAULT = { fontSize: 20, lineHeight: 1.6, fontFamily: 'serif', textAlign: 'book', theme: 'light' }
     const set = (o) => call(`window.__fol.settings(${JSON.stringify(o)})`)
     const rels = (from) => messages.slice(from).filter((x) => x.type === 'relocate')
     const stores = (from) => messages.slice(from).filter((x) => x.type === 'store')
@@ -259,9 +260,23 @@ try {
     let m = await open('tsformat.epub')
     await page.waitForTimeout(600)
     const first = await look()
-    check(first?.size === '20px' && first.line === 1.6 && /Georgia/.test(first.family) && first.align === 'center' && first.bg === 'rgb(255, 255, 255)' && first.color === 'rgb(26, 26, 26)',
+    check(first?.size === '20px' && first.line === 1.6 && /Georgia/.test(first.family) && first.align === 'start' && first.bg === 'rgb(255, 255, 255)' && first.color === 'rgb(26, 26, 26)',
       `a book opens with the defaults (${JSON.stringify(first)})`)
     check(await pageBg() === 'rgb(255, 255, 255)', 'the page itself takes the theme (light)')
+    // `book` (the default): the book's own alignment wins, no rule of ours; a chosen one is forced over it.
+    const bookAlign = () => frameWith('Paragraph 1. Sphinx').then((f) => f?.evaluate(() => {
+      const st = document.head.appendChild(document.createElement('style'))
+      st.textContent = 'p { text-align: right }'
+      const a = getComputedStyle(document.querySelector('p')).textAlign
+      st.remove()
+      return a
+    }))
+    check(await bookAlign() === 'right', `align book: the book's own alignment stays (${await bookAlign()})`)
+    await set({ ...DEFAULT, textAlign: 'center' })
+    await page.waitForTimeout(600)
+    check(await bookAlign() === 'center', `align center: forced over the book's own (${await bookAlign()})`)
+    await set(DEFAULT)
+    await page.waitForTimeout(600)
     check(!(await loaded()).split(',').includes('dyslexic'), 'the OpenDyslexic chunk has not run before it is chosen')
 
     for (const flow of ['paginated', 'scrolled']) {
@@ -298,6 +313,14 @@ try {
         if (patch.theme) check(await pageBg() === l?.bg, `${flow}, ${what}: the page itself takes the theme (${await pageBg()})`)
       }
     }
+    // Still dark here (the loop's last row): images and inline SVG on a light plate (#1260 review).
+    const plates = await (await frameWith('Paragraph 1. Sphinx'))?.evaluate(() => ['img', 'svg'].map((t) => {
+      const el = document.body.appendChild(t === 'svg' ? document.createElementNS('http://www.w3.org/2000/svg', 'svg') : document.createElement('img'))
+      const bg = getComputedStyle(el).backgroundColor
+      el.remove()
+      return bg
+    }))
+    check(JSON.stringify(plates) === JSON.stringify(['rgb(240, 240, 240)', 'rgb(240, 240, 240)']), `dark: img and svg on a light plate (${JSON.stringify(plates)})`)
     call('window.__fol.flow("paginated")')
 
     // OpenDyslexic: its chunk ran when chosen, the face loaded from the page's blob:, nothing refused by the CSP.
@@ -1814,10 +1837,31 @@ try {
   await tap()
   await settle()
   check(m.restored.position === 'restored' && storesFrom(m.from).length === 0, `a CFI restore, settled and tapped, saves nothing (${m.restored.position}, ${JSON.stringify(storesFrom(m.from))})`)
+  // #1278: what a host's ADR-019 view (movedTracker.mjs) makes of the page's own relocates. A restore that navigates
+  // relocates to the stored spine item before or after `restored` (the count is printed): either way the reader
+  // has an index and has not moved; a never-read book has one too, from the opening relocate, before any turn.
+  const hostReader = (at) => {
+    const t = createMovedTracker()
+    for (const x of messages.slice(at)) x.type === 'restored' ? t.restored() : x.type === 'relocate' && t.relocate(x)
+    return t.reader()
+  }
+  const place = JSON.parse(cfiEntry).position
+  const restoredAt = messages.slice(m.from).findIndex((x) => x.type === 'restored')
+  const arrivals = [false, true].map((late) => messages.slice(m.from).filter((x, i) => x.type === 'relocate' && x.cfi === place.cfi && i > restoredAt === late).length)
+  check(arrivals[0] + arrivals[1] > 0 && JSON.stringify(hostReader(m.from)) === JSON.stringify({ restoreApplied: true, moved: false, index: place.index }),
+    `a restore that navigates relocates to the stored place (${arrivals[0]} before restored, ${arrivals[1]} after): restored, not moved, at its spine item (${JSON.stringify(hostReader(m.from))}, stored ${place.index})`)
   from = messages.length
   call('window.__fol.next()')
   const turnedCfi = await storeFrom(from, 'a store after a page turn on a CFI restore')
   check(turnedCfi?.position?.cfi?.startsWith('epubcfi('), 'and its first page turn saves a CFI')
+  check(hostReader(m.from).moved === true, 'and is a move to the host')
+  m = await open('tsformat.fb2')
+  await settle()
+  check(JSON.stringify(hostReader(m.from)) === JSON.stringify({ restoreApplied: true, moved: false, index: lastRelocate(m.from)?.index ?? 'none' }),
+    `a never-read book, before any turn: restored, not moved, with an index (${JSON.stringify(hostReader(m.from))})`)
+  call('window.__fol.next()')
+  await settle()
+  check(hostReader(m.from).moved === true, 'and its first page turn is a move')
 
   // A taken offer (goTo chosen): the place the fraction landed on is saved as a CFI position, once.
   console.log('taken offer')
