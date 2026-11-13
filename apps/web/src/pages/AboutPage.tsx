@@ -54,7 +54,7 @@ export function AboutPage() {
                   {t('about.starOnGitHub')}
                 </a>
                 <a
-                  href="https://github.com/mrviduus/textstack#deploy"
+                  href="https://mrviduus.github.io/textstack/self-host/"
                   className="about-page__btn"
                   target="_blank"
                   rel="noopener noreferrer"
