@@ -16,6 +16,7 @@ import { emptyEntry, entryFor, foldText, isPdfPage, isPosition, quoteOf, sha1, s
 import { uuidV4 } from './uuid.mjs'
 import { openableHref, rectInPage, sentenceOf, sentenceOfRange, trimRange } from './tap.mjs'
 import { selectionMessage } from './selection.mjs'
+import { navKey } from './chrome.mjs'
 import { SELECTION_SETTLE_MS } from '../../../../../packages/reader-engine/src/timing'
 import { MAX_SELECTED_TEXT } from '../../../../../packages/shared/src/reader/v2Locators'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
@@ -127,16 +128,16 @@ function onTap(doc, index, e) {
   if (dismissing) return   // it ended the selection sent (`selection-cleared`), nothing else
   const c = doc.caretRangeFromPoint?.(e.clientX, e.clientY)
   const node = c?.startContainer
-  if (!node || node.nodeType !== Node.TEXT_NODE) return post({ type: 'tap' })
+  if (!node || node.nodeType !== Node.TEXT_NODE) return post(tapAt(doc, e))
   // Same word rule as the reader engine's wordAt (soft hyphens kept inside the word).
   const w = tokenizeVocabWords(node.data.replace(/­/g, 'a')).find((t) => t.start <= c.startOffset && c.startOffset <= t.end)
-  if (!w || !/\p{L}/u.test(w.word)) return post({ type: 'tap' })
+  if (!w || !/\p{L}/u.test(w.word)) return post(tapAt(doc, e))
   const range = doc.createRange()
   range.setStart(node, w.start)
   range.setEnd(node, w.end)
   // The caret snaps to the nearest text: a tap in a margin is not a tap on the line's last word.
   const r = range.getBoundingClientRect()
-  if (e.clientX < r.left - 4 || e.clientX > r.right + 4 || e.clientY < r.top - 4 || e.clientY > r.bottom + 4) return post({ type: 'tap' })
+  if (e.clientX < r.left - 4 || e.clientX > r.right + 4 || e.clientY < r.top - 4 || e.clientY > r.bottom + 4) return post(tapAt(doc, e))
   post({
     type: 'word', index, word: node.data.slice(w.start, w.end).replace(/­/g, ''),
     // No CFI where nothing can be drawn at one (a PDF's text layer has no CFI that means anything).
@@ -153,18 +154,46 @@ const shownDocs = () => (view?.renderer?.getContents?.() ?? []).map((c) => c.doc
 /** This gesture dismisses the selection sent: decided at its press, so how long the press lasts does not matter. */
 let dismissing = false
 
+/** A `tap` with where it landed, in page-viewport px (`rectInPage`: a scaled fixed-layout frame too). */
+function tapAt(doc, e) {
+  const { x, y } = rectInPage(doc.defaultView.frameElement, { left: e.clientX, top: e.clientY, width: 0, height: 0 })
+  return { type: 'tap', x, y }
+}
+
+/**
+ * A navigation key (chrome.mjs `navKey`: a closed list, never typed into a control) is the host's, forwarded:
+ * from a section document, and from this one, where focus falls when foliate replaces the focused section.
+ */
+function onKey(e) {
+  const m = navKey(e)
+  if (!m) return
+  e.preventDefault()   // the host moves the view, not the frame by itself
+  post(m)
+}
+document.addEventListener('keydown', onKey)
+
+/** A press while a selection is sent ends it, in every shown section, at once; its click is no tap. */
+function onPress() {
+  dismissing = !!selectionSent
+  if (!dismissing) return
+  for (const d of shownDocs()) d.getSelection()?.removeAllRanges()
+  selectionSent = null
+  post({ type: 'selection-cleared' })
+}
+// The page's own document: the paginator's margins and outer columns, beside a letterboxed fixed-layout page.
+// A tap there is a `tap` too (the hosts' edge zones are mostly there). Nothing before a book is on screen.
+document.addEventListener('pointerdown', () => { if (view) onPress() })
+document.addEventListener('click', (e) => {
+  if (!view || dismissing) return
+  post({ type: 'tap', x: Math.round(e.clientX), y: Math.round(e.clientY) })
+})
+
 function onLoad({ detail: { doc, index } }) {
+  doc.addEventListener('keydown', onKey)
   // Images only: every tap is a chrome toggle, and nothing is kept for a highlight.
-  if (!textual) return doc.addEventListener('click', () => post({ type: 'tap' }))
+  if (!textual) return doc.addEventListener('click', (e) => post(tapAt(doc, e)))
   sectionIndex.set(doc, index)
-  // A press while a selection is sent ends it, in every shown section, at once; its click is no tap.
-  doc.addEventListener('pointerdown', () => {
-    dismissing = !!selectionSent
-    if (!dismissing) return
-    for (const d of shownDocs()) d.getSelection()?.removeAllRanges()
-    selectionSent = null
-    post({ type: 'selection-cleared' })
-  })
+  doc.addEventListener('pointerdown', onPress)
   doc.addEventListener('click', (e) => onTap(doc, index, e))
   doc.addEventListener('selectionchange', () => {
     // One selection at a time: a new one in this section ends the one in another shown section (a spread).
@@ -507,13 +536,15 @@ async function open(bytes, name, kind, mine) {
     // dying view's events — close() still fires relocate — are dropped, not posted (#1168). A newer open
     // still being made does not silence this one.
     if (mine !== viewSeq) return
-    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi })
+    // The save rule's own test: the reader moved the place (not a re-layout, not the same place again, not the
+    // host moving the view). Sent as `moved`, so a host never guesses it from CFIs.
+    const moved = d.reason !== 'anchor' && d.cfi !== lastCfi && !hostMoving
+    lastCfi = d.cfi
+    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi, dir: pagedDir(), moved })
     // A selection moved (or left the screen) with the view, a font or flow change's re-layout included: sent
     // again, or cleared.
     settleSelection()
-    const moved = d.reason !== 'anchor' && d.cfi !== lastCfi
-    lastCfi = d.cfi
-    const position = moved && !hostMoving && entry ? positionOf(d) : null
+    const position = moved && entry ? positionOf(d) : null
     if (!position) return
     entry = withPosition(entry, position)
     persist(400)
@@ -572,11 +603,25 @@ async function open(bytes, name, kind, mine) {
     // reflowable: false for a fixed-layout book (CBZ, a pre-paginated EPUB), where flow() changes nothing.
     // annotatable: false where highlights and the translation label are refused (CBZ, PDF).
     type: 'opened', book, format, textual, annotatable, reflowable: !view.isFixedLayout,
+    dir: pagedDir(),
     // Either may be missing, a string, or a language map ({ en: … }); the host falls back to the file name.
     title: text(b.metadata?.title), author: text(firstAuthor(b.metadata)),
     sections: b.sections.length, toc: flat(b.toc ?? []),
   })
   return true
+}
+
+/**
+ * The direction the renderer pages in (#1263). A fixed layout spreads by the book's page-progression direction
+ * (EPUB spine, MOBI EXTH 527); a reflowable book lays its columns out by the section's own direction, as the
+ * paginator's getDirection reads it (the book's language sets it where no attribute does). Left to right if unknown.
+ */
+function pagedDir() {
+  if (view.isFixedLayout) return view.book.dir === 'rtl' ? 'rtl' : 'ltr'
+  const doc = view.renderer.getContents?.()[0]?.doc
+  const body = doc?.body
+  if (!body) return 'ltr'
+  return body.dir === 'rtl' || doc.documentElement.dir === 'rtl' || doc.defaultView.getComputedStyle(body).direction === 'rtl' ? 'rtl' : 'ltr'
 }
 
 /** The text a CFI points at in this book's own section document (not the rendered one): verification. */
@@ -743,7 +788,13 @@ function openFor(bytes, name) {
   })
 }
 
+// A save still debounced is written before the page may go away: hidden (backgrounded, a tab switch) or unloaded.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saves.flush() })
+addEventListener('pagehide', () => saves.flush())
+
 window.__fol = {
+  // The host is leaving (backgrounded, unmounted, closed): a save still debounced is written at once.
+  flush: () => saves.flush(),
   // Read by the page itself (Android: the host's interceptor, bookOrigin.mjs; web: a blob: URL): no book bytes
   // cross the bridge. `open-failed`: unreadable, not a book this page reads, DRM- or password-protected.
   openUrl: (url, name) => {

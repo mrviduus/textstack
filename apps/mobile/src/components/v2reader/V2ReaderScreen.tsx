@@ -21,6 +21,7 @@ import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
+import { keyAction, readDir, readKey, readTap } from '../../lib/v2reader/chrome.mjs'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
@@ -217,6 +218,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const { user } = useAuth()
   const userId = user?.id ?? null
   /** The open book as ADR-019 sees it (R6): restored yet, the first CFI after the restore, the one now. */
+  /** The direction the open book pages in (`opened`, then every `relocate`): the arrow keys follow it. */
+  const pageDir = useRef<'ltr' | 'rtl'>('ltr')
   const reading = useRef({ bookId: null as string | null, restored: false, baseline: null as string | null, cfi: null as string | null, index: null as number | null })
 
   const call = (js: string) => webView.current?.injectJavaScript(`${js};true`)
@@ -407,6 +410,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         if (t) {
           deadlines.answered()
           strikes.clear()
+          pageDir.current = readDir(m) ?? 'ltr'
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
         return
@@ -434,6 +438,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         v2Storage().writeStore(m.key, m.json).then(syncSoon, fail('store', setError))
         return
       case 'relocate':
+        pageDir.current = readDir(m) ?? pageDir.current
         if (reading.current.restored) {
           reading.current.baseline ??= m.cfi ?? null
           reading.current.cfi = m.cfi ?? null
@@ -453,6 +458,21 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // No toolbar in this slice (#1268): the selection reaches the host and stops here.
         const s = readSelection(m)
         if (s) console.log(`[v2] selection ${s.text.length} chars, section ${s.index}`)
+        return
+      }
+      case 'tap': {
+        // Where it landed (#1263), through readTap; no tap zones yet.
+        const p = readTap(m)
+        if (p) console.log(`[v2] tap ${p.x},${p.y}`)
+        return
+      }
+      case 'key': {
+        // A navigation key pressed in the page (#1263), through readKey: one press, one turn (a held key's
+        // repeats are dropped). Escape ('bars') does nothing until the bars land.
+        const k = readKey(m)
+        if (!k || k.repeat) return
+        const a = keyAction({ ...k, dir: pageDir.current })
+        if (a === 'prev' || a === 'next') call(`window.__fol.${a}()`)
         return
       }
       case 'openLink':

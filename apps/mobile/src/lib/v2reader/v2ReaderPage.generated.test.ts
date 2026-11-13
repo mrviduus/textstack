@@ -78,7 +78,10 @@ describe('v2ReaderPageHtml', () => {
     // #1182 fork commits. view.js: the view's relocate carries the renderer's reason; the page reads it there
     // and keeps no capture listener of its own on the renderer.
     expect(html).toContain('this.#emit("relocate", { ...this.lastLocation, reason });')
-    expect(html).toMatch(/const moved = (\w+)\.reason !== "anchor" && \1\.cfi !== lastCfi;/)
+    // The save rule's test, sent as `relocate.moved` (#1263) and used for the save: one rule.
+    expect(html).toMatch(/const moved = (\w+)\.reason !== "anchor" && \1\.cfi !== lastCfi && !hostMoving;/)
+    expect(html).toMatch(/dir: pagedDir\(\), moved \}\);/)
+    expect(html).toMatch(/const position = moved && entry \? positionOf\(/)
     expect(html).not.toContain('rendererReason')
     expect(html).not.toMatch(/view\.renderer\.addEventListener\("relocate"/)
     // mobi.js, the carried MOBI reader (a JSON string, read back as JS): typed KF8 resource blobs, and KF8
@@ -115,7 +118,7 @@ describe('v2ReaderPageHtml', () => {
     // A replaced view's events are dropped: each view's listeners carry the seq of the open that made them
     // and compare it with the view on screen, which turns over at the swap, before the dying view's close()
     // fires relocate (#1168). A newer open still being made does not silence the view on screen (#1128 S5).
-    expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+ \}\) => \{\s*(var [^;]*;\s*)?if \(mine !== viewSeq\) return;\s*post\(\{\s*type: "relocate"/)
+    expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+ \}\) => \{\s*(var [^;]*;\s*)?if \(mine !== viewSeq\) return;[\s\S]{0,200}?post\(\{\s*type: "relocate"/)
     expect(html).toMatch(/view\.addEventListener\("create-overlay", [\s\S]{0,80}?if \(mine !== viewSeq\) return;/)
     expect(html).toMatch(/endSession\(\);\s*book = \{ sha256[^}]*\};\s*entry = null;\s*hostMoving = true;\s*lastCfi = null;\s*viewSeq = mine;\s*navigating = Promise\.resolve\(\);/)
     // A restore is for the view on screen that answered `opened`, whatever is being made meanwhile.
@@ -143,8 +146,9 @@ describe('v2ReaderPageHtml', () => {
     for (const k of ['mobi', 'fb2', 'cbz', 'pdf', 'pdfcmaps']) expect(carried).toMatch(new RegExp(`window\\.__tsFormats\\.${k} ?=`))
     expect(html).toMatch(/var NONCE = \(\w+ = document\.currentScript\) == null \? void 0 : \w+\.nonce;/)
     expect(html).toMatch(/(\w+)\.nonce = NONCE;\s*\1\.textContent = /)
-    // A comic book has no text: its frames post only `tap`, and a translation is never drawn on it.
-    expect(html).toMatch(/function onLoad\(\{ detail: \{ doc, index \} \}\) \{\s*if \(!textual\) return doc\.addEventListener\("click", \(\) => post\(\{ type: "tap" \}\)\);/)
+    // A comic book has no text: its frames forward keys and post `tap` (where it landed, #1263) and return before
+    // any selection or press listener; a translation is never drawn on it.
+    expect(html).toMatch(/function onLoad\(\{ detail: \{ doc, index \} \}\) \{\s*doc\.addEventListener\("keydown", onKey\);\s*if \(!textual\) return doc\.addEventListener\("click", \((\w+)\) => post\(tapAt\(doc, \1\)\)\);\s*sectionIndex\.set\(doc, index\);/)
     // Nor on a PDF (#1128 S5): `annotatable` is false for both, and `opened` says so.
     expect(html).toMatch(/showTranslation: \(cfi, index, \w+\) => view && annotatable && annotate\(/)
     expect(html).toContain('annotatable = textual && format !== "pdf";')

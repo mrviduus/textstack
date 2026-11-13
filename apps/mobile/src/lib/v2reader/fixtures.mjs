@@ -22,7 +22,7 @@ export const EVIL = 'https://evil.tst:44443'
 const LOCAL = `${BOOK_ORIGIN}/v2`
 const UUID = '2c4a3b8e-5d1f-4e6a-9b7c-0123456789ab'
 
-function epub(out, name, { files, manifest, spine, encryption, meta = '' }) {
+function epub(out, name, { files, manifest, spine, spineAttrs = '', lang = 'en', encryption, meta = '' }) {
   const dir = mkdtempSync(resolve(tmpdir(), 'tsepub-'))
   const put = (p, data) => { mkdirSync(dirname(resolve(dir, p)), { recursive: true }); writeFileSync(resolve(dir, p), data) }
   put('mimetype', 'application/epub+zip')
@@ -30,8 +30,8 @@ function epub(out, name, { files, manifest, spine, encryption, meta = '' }) {
   if (encryption) put('META-INF/encryption.xml', `<?xml version="1.0"?><encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:enc="http://www.w3.org/2001/04/xmlenc#">${encryption.map(([alg, uri]) =>
     `<enc:EncryptedData><enc:EncryptionMethod Algorithm="${alg}"/><enc:CipherData><enc:CipherReference URI="${uri}"/></enc:CipherData></enc:EncryptedData>`).join('')}</encryption>`)
   put('OEBPS/content.opf', `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-<dc:identifier id="uid">urn:uuid:${UUID}</dc:identifier><dc:title>${name}</dc:title><dc:language>en</dc:language><meta property="dcterms:modified">2026-10-29T00:00:00Z</meta>${meta}</metadata>
-<manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>${manifest}</manifest><spine>${spine}</spine></package>`)
+<dc:identifier id="uid">urn:uuid:${UUID}</dc:identifier><dc:title>${name}</dc:title><dc:language>${lang}</dc:language><meta property="dcterms:modified">2026-10-29T00:00:00Z</meta>${meta}</metadata>
+<manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>${manifest}</manifest><spine${spineAttrs}>${spine}</spine></package>`)
   put('OEBPS/nav.xhtml', `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>nav</title></head><body><nav epub:type="toc"><ol><li><a href="s1.xhtml">One</a></li></ol></nav></body></html>`)
   for (const [p, data] of Object.entries(files)) put(`OEBPS/${p}`, data)
   zipEpub(dir, out)
@@ -350,12 +350,27 @@ export function hostilePdf(evil) {
   })
 }
 
-/** tscover.epub (a non-linear cover first), tsfixed.epub (pre-paginated text), tsthree.cbz, tsformat.epub, tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages), tsformat.pdf, tscjk.pdf, tslocked.pdf. */
+/** tscover.epub (a non-linear cover first), tsfixed.epub (pre-paginated text), tsthree.cbz, tsformat.epub, tsrtl.epub (spine rtl, English text), tshe.epub (Hebrew, no spine direction), tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages), tsformat.pdf, tscjk.pdf, tslocked.pdf. */
 export function writeFormatFixtures(dir) {
   epub(resolve(dir, 'tsformat.epub'), 'TS EPUB', {
     files: { 's1.xhtml': xhtml('', `<h1>Chapter One</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}`) },
     manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/>',
     spine: '<itemref idref="s1"/>',
+  })
+  // A spine page-progression-direction of rtl over English text (#1263): foliate's paginator lays it out left to
+  // right (by the text's direction); only a fixed layout spreads by the spine's.
+  epub(resolve(dir, 'tsrtl.epub'), 'TS RTL', {
+    files: { 's1.xhtml': xhtml('', `<p>${para}</p>`) },
+    manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/>',
+    spine: '<itemref idref="s1"/>',
+    spineAttrs: ' page-progression-direction="rtl"',
+  })
+  // Right to left by language only (#1263): no spine attribute; foliate sets each section's dir from it.
+  epub(resolve(dir, 'tshe.epub'), 'TS HE', {
+    files: { 's1.xhtml': xhtml('', `<p>${para}</p>`) },
+    manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/>',
+    spine: '<itemref idref="s1"/>',
+    lang: 'he',
   })
   const html = `<html><head><guide></guide></head><body><h1>Chapter One</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}<mbp:pagebreak/><h1>Chapter Two</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}</body></html>`
   writeFileSync(resolve(dir, 'tsformat.mobi'), mobi('TS MOBI', html))
@@ -390,7 +405,7 @@ export function writeFormatFixtures(dir) {
   writeFileSync(resolve(dir, 'tsformat.pdf'), pdf(5))
   writeFileSync(resolve(dir, 'tscjk.pdf'), pdf(1, { title: 'TS CJK', cjk: true }))
   writeFileSync(resolve(dir, 'tslocked.pdf'), pdf(1, { title: 'TS LOCKED', locked: true }))
-  return ['tsformat.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsthree.cbz', 'tsformat.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
+  return ['tsformat.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsthree.cbz', 'tsformat.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
