@@ -68,6 +68,8 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toMatch(/if \(!\(\((\w+) = \((\w+) = this\.#view\) == null \? void 0 : \2\.document\) == null \? void 0 : \1\.body\)\) return;/)
     // Fork commit b3386ef (#1182): setStyles' frame callback does nothing once destroy() nulled the view.
     expect(html).toMatch(/requestAnimationFrame\(\(\) => \{\s*if \(this\.#view\) this\.#background\.style\.background = getBackground\(this\.#view\.document\);\s*\}\);/)
+    // Fork commit 73d4259 (#1291): afterScroll does nothing once destroy() nulled the view.
+    expect(html).toMatch(/#afterScroll\(reason\) \{\s*if \(!this\.#view\) return;/)
     expect(html).toContain('var flow = "paginated";')
     expect(html).not.toContain('reproRenderDuringLoad')
     expect(html).not.toContain('currentView')
