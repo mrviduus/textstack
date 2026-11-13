@@ -69,7 +69,12 @@ public class V2ReadingEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         var finishedAt = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 300);
         object Finished(long expectedRevision, int step, DateTimeOffset completedAt) => new
         {
-            expectedRevision, fileId, currentLocator = Position(step), bookFraction = step / 10m, completedAt, clientRecordedAt = DateTimeOffset.UtcNow,
+            expectedRevision,
+            fileId,
+            currentLocator = Position(step),
+            bookFraction = step / 10m,
+            completedAt,
+            clientRecordedAt = DateTimeOffset.UtcNow,
         };
         static DateTimeOffset? CompletedAt(V2Response r) =>
             r.Body.TryGetProperty("completedAt", out var c) && c.ValueKind != System.Text.Json.JsonValueKind.Null ? c.GetDateTimeOffset() : null;
