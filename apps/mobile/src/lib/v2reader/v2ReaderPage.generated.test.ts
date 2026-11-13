@@ -82,7 +82,7 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toContain('this.#emit("relocate", { ...this.lastLocation, reason });')
     // The save rule's test, sent as `relocate.moved` (#1263) and used for the save: one rule.
     expect(html).toMatch(/const moved = (\w+)\.reason !== "anchor" && \1\.cfi !== lastCfi && !hostMoving;/)
-    expect(html).toMatch(/dir: pagedDir\(\), moved \}\);/)
+    expect(html).toMatch(/dir: pagedDir\(\), moved, atEnd: atBookEnd\(.*\) \}\);/)
     expect(html).toMatch(/const position = moved && entry \? positionOf\(/)
     expect(html).not.toContain('rendererReason')
     expect(html).not.toMatch(/view\.renderer\.addEventListener\("relocate"/)

@@ -296,6 +296,22 @@ const navigate = (fn) => {
 }
 
 /**
+ * The end of the book is on screen (#1266): the end of its last linear section, or for a fixed layout that
+ * section's spread. Not the renderer's own `atEnd`, which applies the paged rule in scrolled flow too. A host
+ * cannot tell this from `fraction` (scrolled flow reports the top of the viewport, a spread its current side).
+ */
+function atBookEnd(index) {
+  try {
+    const r = view.renderer
+    const last = view.book.sections.map((s) => s.linear !== 'no').lastIndexOf(true)
+    if (last < 0) return false
+    if (view.isFixedLayout) return arrivedAt(last)
+    if (index !== last) return false
+    return r.scrolled ? r.end >= r.viewSize - 1 : r.page >= r.pages - 2
+  } catch { return false }
+}
+
+/**
  * foliate's goTo resolves with the target it resolved, arrived or not (a locked paginator, a section that
  * failed to load): the renderer is asked whether that section is on screen. A fixed-layout renderer's
  * contents carry no index, and a target in the spread already shown emits no relocate, so it is asked
@@ -342,7 +358,8 @@ function positionOf(d) {
  */
 const fits = (p) => (format === 'pdf') === isPdfPage(p)
 
-const flat = (items) => items.flatMap((t) => [{ label: t.label?.trim(), href: t.href }, ...flat(t.subitems ?? [])])
+// Pre-order, as foliate numbers its TOC items (progress.js assignIDs): `relocate.tocIndex` indexes this list.
+const flat = (items, depth = 0) => items.flatMap((t) => [{ label: t.label?.trim(), href: t.href, depth }, ...flat(t.subitems ?? [], depth + 1)])
 
 /** Saves the entry through the host. Addressed to the book it is called for, not the one open later. */
 function persist(delay = 0) {
@@ -540,7 +557,7 @@ async function open(bytes, name, kind, mine) {
     // host moving the view). Sent as `moved`, so a host never guesses it from CFIs.
     const moved = d.reason !== 'anchor' && d.cfi !== lastCfi && !hostMoving
     lastCfi = d.cfi
-    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi, dir: pagedDir(), moved })
+    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, atEnd: atBookEnd(d.section?.current) })
     // A selection moved (or left the screen) with the view, a font or flow change's re-layout included: sent
     // again, or cleared.
     settleSelection()

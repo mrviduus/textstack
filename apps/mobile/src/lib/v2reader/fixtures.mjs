@@ -365,6 +365,15 @@ export function writeFormatFixtures(dir) {
     spine: '<itemref idref="s1"/>',
     spineAttrs: ' page-progression-direction="rtl"',
   })
+  // A nested TOC with a repeated label (#1261): `opened.toc` carries depth, `relocate.tocIndex` tells the two "Notes" apart.
+  epub(resolve(dir, 'tstoc.epub'), 'TS TOC', {
+    files: {
+      ...Object.fromEntries([1, 2, 3].map((i) => [`s${i}.xhtml`, xhtml('', `<h1>Section ${i}</h1><p>${para}</p>`)])),
+      'nav.xhtml': `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>nav</title></head><body><nav epub:type="toc"><ol><li><a href="s1.xhtml">Part One</a><ol><li><a href="s2.xhtml">Notes</a></li></ol></li><li><a href="s3.xhtml">Notes</a></li></ol></nav></body></html>`,
+    },
+    manifest: [1, 2, 3].map((i) => `<item id="s${i}" href="s${i}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: [1, 2, 3].map((i) => `<itemref idref="s${i}"/>`).join(''),
+  })
   // Right to left by language only (#1263): no spine attribute; foliate sets each section's dir from it.
   epub(resolve(dir, 'tshe.epub'), 'TS HE', {
     files: { 's1.xhtml': xhtml('', `<p>${para}</p>`) },
