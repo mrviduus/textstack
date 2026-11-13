@@ -5,6 +5,8 @@ import {
   estimateTimeLeft,
   formatMinutesLeft,
   bookMinutesLeft,
+  timeLeftAt,
+  placeTimeLeftLabel,
   FALLBACK_WPM,
 } from './readingTime'
 
@@ -155,5 +157,74 @@ describe('bookMinutesLeft', () => {
   it('null without a word count', () => {
     expect(bookMinutesLeft(null, 0.1, 200)).toBeNull()
     expect(bookMinutesLeft(0, 0, 200)).toBeNull()
+  })
+})
+
+describe('timeLeftAt', () => {
+  // 60,000 words at 200 wpm: the whole book is 300 minutes.
+  const at = { fraction: 0.5, sectionEnd: 0.6, totalWords: 60_000, wpm: 200 }
+
+  it('counts the chapter to the section end and the book to its end', () => {
+    expect(timeLeftAt(at)).toEqual({ chapterMinutes: 30, bookMinutes: 150 })
+  })
+
+  it('is null without a pace: no fallback pace here', () => {
+    for (const wpm of [null, undefined, 0, -200, NaN, Infinity]) expect(timeLeftAt({ ...at, wpm })).toBeNull()
+  })
+
+  it('is the whole book at fraction zero', () => {
+    expect(timeLeftAt({ ...at, fraction: 0 })).toEqual({ chapterMinutes: 180, bookMinutes: 300 })
+  })
+
+  it('is zero at the end of the book', () => {
+    expect(timeLeftAt({ ...at, fraction: 1, sectionEnd: 1 })).toEqual({ chapterMinutes: 0, bookMinutes: 0 })
+  })
+
+  it('is null without a book length', () => {
+    for (const totalWords of [null, undefined, 0, -1, NaN]) expect(timeLeftAt({ ...at, totalWords })).toBeNull()
+  })
+
+  it('is null without a place in 0..1', () => {
+    for (const fraction of [null, undefined, NaN, -0.1, 1.1]) expect(timeLeftAt({ ...at, fraction })).toBeNull()
+  })
+
+  it('gives the book alone when the section end is unknown', () => {
+    for (const sectionEnd of [null, undefined, NaN, 1.5]) expect(timeLeftAt({ ...at, sectionEnd })).toEqual({ chapterMinutes: null, bookMinutes: 150 })
+  })
+
+  it('never goes negative past the section end', () => {
+    expect(timeLeftAt({ ...at, fraction: 0.7 })).toEqual({ chapterMinutes: 0, bookMinutes: 90 })
+  })
+
+  it('halves the minutes at twice the pace', () => {
+    expect(timeLeftAt({ ...at, wpm: 400 })).toEqual({ chapterMinutes: 15, bookMinutes: 75 })
+  })
+})
+
+describe('placeTimeLeftLabel', () => {
+  const strings: Record<string, string> = {
+    'reader.timeLeft.under': 'Less than a minute left',
+    'reader.timeLeft.minutes': '{minutes} min left',
+    'reader.timeLeft.hours': '{hours} hr left',
+    'reader.timeLeft.hoursMinutes': '{hours} hr {minutes} min left',
+    'reader.timeLeft.inChapter': '{time} in chapter',
+    'reader.timeLeft.inBook': '{time} in book',
+  }
+  const t = (key: string) => strings[key] ?? key
+
+  it('names the chapter, then the book', () => {
+    expect(placeTimeLeftLabel({ chapterMinutes: 12, bookMinutes: 180 }, t)).toBe('12 min left in chapter · 3 hr left in book')
+  })
+
+  it('is the book alone without a chapter estimate', () => {
+    expect(placeTimeLeftLabel({ chapterMinutes: null, bookMinutes: 45 }, t)).toBe('45 min left in book')
+  })
+
+  it('keeps a chapter estimate of zero: the last stretch, not a missing one', () => {
+    expect(placeTimeLeftLabel({ chapterMinutes: 0, bookMinutes: 45 }, t)).toBe('Less than a minute left in chapter · 45 min left in book')
+  })
+
+  it('is null without an estimate', () => {
+    expect(placeTimeLeftLabel(null, t)).toBeNull()
   })
 })

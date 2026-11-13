@@ -350,6 +350,8 @@
   "reader.rareWordNotice.title": "Rare word — saved to reference",
   "reader.timeLeft.hours": "{hours} hr left",
   "reader.timeLeft.hoursMinutes": "{hours} hr {minutes} min left",
+  "reader.timeLeft.inBook": "{time} in book",
+  "reader.timeLeft.inChapter": "{time} in chapter",
   "reader.timeLeft.minutes": "{minutes} min left",
   "reader.timeLeft.under": "Less than a minute left",
   "reader.toastTapToReview": "Tap to review",
