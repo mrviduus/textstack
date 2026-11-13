@@ -158,3 +158,20 @@ export function timeLeftAt(at: {
     bookMinutes: minutesForWords(totalWords * (1 - fraction), wpm),
   }
 }
+
+/**
+ * The chrome's line for `timeLeftAt`'s answer, both hosts: "12 min left in chapter · 3 hr left in book", the
+ * book alone without a chapter estimate, `null` (show nothing) without an estimate. `t` resolves the shared keys.
+ */
+export function placeTimeLeftLabel(left: PlaceTimeLeft | null, t: (key: string) => string): string | null {
+  if (!left) return null
+  const labels = {
+    under: t('reader.timeLeft.under'),
+    minutes: t('reader.timeLeft.minutes'),
+    hours: t('reader.timeLeft.hours'),
+    hoursMinutes: t('reader.timeLeft.hoursMinutes'),
+  }
+  const book = t('reader.timeLeft.inBook').replace('{time}', formatMinutesLeft(left.bookMinutes, labels))
+  if (left.chapterMinutes == null) return book
+  return `${t('reader.timeLeft.inChapter').replace('{time}', formatMinutesLeft(left.chapterMinutes, labels))} · ${book}`
+}

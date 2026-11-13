@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import type { OpenReader, PagePosition, V2ClientFormat } from '@textstack/shared'
+import { placeTimeLeftLabel, timeLeftAt, type OpenReader, type PagePosition, type V2ClientFormat } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
@@ -34,6 +34,7 @@ import { openPlayStorePage } from '../../lib/playStore'
 import { USER_AGENT_PROBE, createWebViewCheck, webViewStorePackage, type WebViewVerdict } from '../../lib/v2reader/webViewVersion'
 import { useReaderBars } from '../../hooks/useReaderBars'
 import { useKeepReaderAwake } from '../../hooks/useKeepReaderAwake'
+import { useFetchedReadingPace } from '../../hooks/useReadingPace'
 import { useFlushOnLeave } from '../../hooks/useFlushOnLeave'
 import { ReaderTopBar } from '../reader/ReaderTopBar'
 import { ReaderFooter } from '../reader/ReaderFooter'
@@ -183,7 +184,7 @@ function UpdateWebViewScreen() {
 }
 
 /** Where the reader is, from the last `relocate` through `readRelocate`; null: nothing to show yet. */
-type Place = { fraction: number | null; index: number | null; sections: number | null; toc: string } | null
+type Place = { fraction: number | null; index: number | null; sections: number | null; toc: string; sectionEnd: number | null; words: number | null } | null
 
 /**
  * The bottom bar (the legacy reader's footer): re-renders alone on every `relocate`, not the WebView beside it.
@@ -195,6 +196,9 @@ function V2Footer({ setter, ...props }: { setter: MutableRefObject<(p: Place) =>
 >) {
   const [place, setPlace] = useState<Place>(null)
   useEffect(() => { setter.current = setPlace }, [setter])
+  const { t } = useLanguage()
+  // Never waited for: no answer (offline, no session) is no time left, nothing else (#1262).
+  const wpm = useFetchedReadingPace(true)
   return (
     <ReaderFooter
       {...props}
@@ -202,7 +206,7 @@ function V2Footer({ setter, ...props }: { setter: MutableRefObject<(p: Place) =>
       chapterTitle={place?.toc ?? ''}
       currentChapterIndex={place?.index ?? -1}
       totalChapters={place?.sections ?? 0}
-      timeLeftLabel={null}
+      timeLeftLabel={placeTimeLeftLabel(timeLeftAt({ fraction: place?.fraction, sectionEnd: place?.sectionEnd, totalWords: place?.words, wpm }), t)}
       hasPrev={!!place}
       hasNext={!!place}
     />
@@ -567,7 +571,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         }
         // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
         if (!tracker.showsPosition()) return
-        if (shown) setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc })
+        if (shown) setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc, sectionEnd: shown.sectionEnd, words: shown.words })
         return
       }
       case 'word':

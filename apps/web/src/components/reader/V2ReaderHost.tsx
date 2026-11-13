@@ -10,6 +10,7 @@ import { tapAction } from '../../../../mobile/src/lib/v2reader/tapZone.mjs'
 import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs'
 import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readRelocate, readTap, readWordTap, takenWithoutBook, type V2NavKey } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
+import { V2TimeLeft, v2Percent, type V2TimePlace } from './V2TimeLeft'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
 import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
@@ -132,6 +133,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   /** False for a fixed-layout book (CBZ): flow changes nothing there. */
   const [reflowable, setReflowable] = useState(true)
   const [status, setStatus] = useState('')
+  /** The place of the relocate `status` shows, for the time left (#1262). */
+  const [timePlace, setTimePlace] = useState<V2TimePlace | null>(null)
   const [restored, setRestored] = useState('')
   const [error, setError] = useState<string | null>(null)
   /** A deadline the frame missed (deadlines.mjs); a late answer clears it. */
@@ -365,7 +368,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (readingRef.current && hidesBarsOnRelocate({ moved: r.moved, msSinceHostMove })) hideBars()
           // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
           if (!tracker.showsPosition()) return
-          setStatus(t('v2Reader.position', { percent: Math.round((r.fraction ?? 0) * 100), index: (r.index ?? 0) + 1, sections: r.sections ?? '?' })
+          setTimePlace({ fraction: r.fraction, sectionEnd: r.sectionEnd, words: r.words })
+          setStatus(t('v2Reader.position', { percent: v2Percent(r.fraction), index: (r.index ?? 0) + 1, sections: r.sections ?? '?' })
             + (r.toc ? ` · ${r.toc}` : ''))
           return
         }
@@ -507,6 +511,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         <div className="reader-footer__info v2-reader__footer">
           <button className="reader-top-bar__btn" onClick={() => hostMove('prev')}>{t('v2Reader.prev')}</button>
           <span className="reader-footer__counter" data-testid="v2-status">{status}</span>
+          {status && timePlace && <V2TimeLeft {...timePlace} />}
           <button className="reader-top-bar__btn" onClick={() => hostMove('next')}>{t('v2Reader.next')}</button>
         </div>
       </footer>

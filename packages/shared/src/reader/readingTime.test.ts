@@ -6,6 +6,7 @@ import {
   formatMinutesLeft,
   bookMinutesLeft,
   timeLeftAt,
+  placeTimeLeftLabel,
   FALLBACK_WPM,
 } from './readingTime'
 
@@ -197,5 +198,33 @@ describe('timeLeftAt', () => {
 
   it('halves the minutes at twice the pace', () => {
     expect(timeLeftAt({ ...at, wpm: 400 })).toEqual({ chapterMinutes: 15, bookMinutes: 75 })
+  })
+})
+
+describe('placeTimeLeftLabel', () => {
+  const strings: Record<string, string> = {
+    'reader.timeLeft.under': 'Less than a minute left',
+    'reader.timeLeft.minutes': '{minutes} min left',
+    'reader.timeLeft.hours': '{hours} hr left',
+    'reader.timeLeft.hoursMinutes': '{hours} hr {minutes} min left',
+    'reader.timeLeft.inChapter': '{time} in chapter',
+    'reader.timeLeft.inBook': '{time} in book',
+  }
+  const t = (key: string) => strings[key] ?? key
+
+  it('names the chapter, then the book', () => {
+    expect(placeTimeLeftLabel({ chapterMinutes: 12, bookMinutes: 180 }, t)).toBe('12 min left in chapter · 3 hr left in book')
+  })
+
+  it('is the book alone without a chapter estimate', () => {
+    expect(placeTimeLeftLabel({ chapterMinutes: null, bookMinutes: 45 }, t)).toBe('45 min left in book')
+  })
+
+  it('keeps a chapter estimate of zero: the last stretch, not a missing one', () => {
+    expect(placeTimeLeftLabel({ chapterMinutes: 0, bookMinutes: 45 }, t)).toBe('Less than a minute left in chapter · 45 min left in book')
+  })
+
+  it('is null without an estimate', () => {
+    expect(placeTimeLeftLabel(null, t)).toBeNull()
   })
 })
