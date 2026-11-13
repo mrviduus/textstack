@@ -1926,14 +1926,9 @@ try {
   check(telemetry().length === 1 && telemetry()[0].switchedInFirst5Min === true && telemetry()[0].mode === 'scrolled',
     `a switch at 4:59 counts, the timer sends it at 5:00: ${JSON.stringify(telemetry())}`)
   check(!!(await openTimed('tsformat.fb2')), 'the same book reopened')
-  // #1291: the closed book's paginator can still fire its debounced scroll handler on a destroyed view
-  // (a fork race, about half the runs). That one error is let through by its stack; the clock runs again
-  // so the 5 minutes still pass. Remove with the fork fix.
-  await timed.clock.runFor(5 * 60 * 1000 + 1000).catch((e) => {
-    if (!/#getVisibleRange/.test(`${e?.message} ${e?.stack}`)) throw e
-    console.log('  flake #1291: the closed book\'s paginator ran afterScroll on a destroyed view')
-    return timed.clock.runFor(5 * 60 * 1000 + 1000)
-  })
+  // The closed book's paginator still has its debounced scroll handler pending here (it was in scrolled
+  // flow): the fork's afterScroll guard (#1291) is what keeps this runFor from throwing.
+  await timed.clock.runFor(5 * 60 * 1000 + 1000)
   await timed.evaluate(() => window.__fol.flow('paginated'))
   await timed.clock.runFor(1000)
   check(telemetry().length === 2 && telemetry()[1].switchedInFirst5Min === false && telemetry()[1].mode === 'scrolled',

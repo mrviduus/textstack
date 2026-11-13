@@ -66,7 +66,7 @@ pnpm -C apps/web check:v2-reader-formats   # CI: every format opens as Formats s
 node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.repro.html (test only)
 ```
 
-- **foliate-js fork** `https://github.com/mrviduus/foliate-js` @ `b3386ef90b806dc3667941d9c26db12cce98b064`
+- **foliate-js fork** `https://github.com/mrviduus/foliate-js` @ `73d42595074f0f5914c00ccb7172a0a8bdfecf26`
   (branch `textstack-pin` = upstream `78914aef` 2026-05-01 + our commits, ADR-032), cloned into the gitignored
   `.vendor/`. Every build checks out the pin and resets the tree (`git checkout -- .`); an untracked file in
   that tree fails the build by name (delete `.vendor/` to rebuild from the pin). A bump is a PR that re-runs
@@ -84,7 +84,8 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   `ce10f08`); `b38d07c` pdf: nothing fetched or resolved at import time (`makePDF(file, { css, params })`,
   `isEvalSupported: false` forced; what lets the page carry it, Formats, PDF); `b3386ef` paginator: `setStyles`' frame callback
   does nothing once `destroy()` nulled the view (a book closed within a frame of a section load threw
-  "reading 'document'"; predates #1182).
+  "reading 'document'"; predates #1182); `73d4259` paginator: `afterScroll` does nothing once `destroy()` nulled
+  the view (the scroll listener's 250 ms debounce fired after a book closed in scrolled flow, #1291).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. view.js's own format imports, PDF, TTS and search are
   stubbed out of the page; MOBI/FB2/CBZ/PDF come in as format readers (Formats).

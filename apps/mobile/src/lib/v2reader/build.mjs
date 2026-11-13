@@ -21,8 +21,9 @@ const FOLIATE_REPO = 'https://github.com/mrviduus/foliate-js.git'
 // Branch textstack-pin: 78914aef + d73682a (paginator render-while-loading) + #1182: typed KF8 resource
 // blobs, KF8 sections through transformTarget, view relocate carries `reason`, PDF null outline
 // destination (upstream ce10f08), PDF nothing at import time (pdf.js is stubbed out of the page),
-// paginator: setStyles' frame callback does nothing once destroy() nulled the view.
-const FOLIATE_SHA = 'b3386ef90b806dc3667941d9c26db12cce98b064'
+// paginator: setStyles' frame callback does nothing once destroy() nulled the view; #1291: nor does
+// afterScroll (the debounced scroll listener outlives a closed book).
+const FOLIATE_SHA = '73d42595074f0f5914c00ccb7172a0a8bdfecf26'
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // reader-engine's 64 KB budget.
@@ -74,7 +75,8 @@ const FOLIATE_SHA = 'b3386ef90b806dc3667941d9c26db12cce98b064'
 // +742 (#1263 review): `tap` from the page's own document (margins, letterbox), keys forwarded from it too, only on
 // the document itself (no control, no Shift+arrow) with `repeat`, `dir` as the renderer pages (`pagedDir`) on `relocate` too.
 // +7 (#1263): `relocate.moved`, the save rule's own test sent to the hosts.
-const BUDGET = 264410
+// +35 (#1291): the fork's afterScroll guard.
+const BUDGET = 264445
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
