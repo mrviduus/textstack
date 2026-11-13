@@ -803,8 +803,9 @@ jobs:
 
   e2e:
     needs: changes
-    if: ${{ !cancelled() && inputs.scope != 'merged-tree' && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.web == 'true') }}
+    if: ${{ !cancelled() && inputs.scope != 'merged-tree' && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.v2reader == 'true') }}
     runs-on: ubuntu-latest
+    # v2reader: the web build ships the V2 page from apps/mobile/src/lib/v2reader; a page-only PR must meet "E2E on V2".
     # 11m typical uncached; same layer cache as `docker` (unmeasured).
     timeout-minutes: 30
     steps:

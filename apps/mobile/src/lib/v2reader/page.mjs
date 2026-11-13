@@ -296,6 +296,42 @@ const navigate = (fn) => {
 }
 
 /**
+ * The end of the book is on screen (#1266): the end of its last linear section, or for a fixed layout that
+ * section's spread. Not the renderer's own `atEnd`, which applies the paged rule in scrolled flow too. A host
+ * cannot tell this from `fraction` (scrolled flow reports the top of the viewport, a spread its current side).
+ */
+function atBookEnd(index) {
+  try {
+    const r = view.renderer
+    const last = view.book.sections.map((s) => s.linear !== 'no').lastIndexOf(true)
+    if (last < 0) return false
+    if (view.isFixedLayout) return arrivedAt(last)
+    if (index !== last) return false
+    return r.scrolled ? r.end >= r.viewSize - 1 : r.page >= r.pages - 2
+  } catch { return false }
+}
+
+const wordCounts = new WeakMap()
+/**
+ * For a host's "time left" (#1262), which a book fraction alone cannot give: `sectionEnd`, the book fraction where
+ * the shown section ends, and `words`, the book's length in words, estimated from the shown section (its words
+ * over its share of the book), so it shifts a little from section to section. Either is null when unknown; `words`
+ * always for a book with no text layer of its own (CBZ, PDF).
+ */
+function lengthAt(index) {
+  try {
+    const f = view.getSectionFractions()
+    // getSectionFractions adds an epsilon: the last one is a hair over 1.
+    const sectionEnd = f[index + 1] >= 0 ? Math.min(1, f[index + 1]) : null
+    const share = f[index + 1] - f[index]
+    const doc = !view.isFixedLayout && textual && view.renderer.getContents?.().find((c) => c.index === index)?.doc
+    if (!doc?.body || !(share > 0)) return { sectionEnd, words: null }
+    if (!wordCounts.has(doc)) wordCounts.set(doc, tokenizeVocabWords(doc.body.textContent ?? '').length)
+    return { sectionEnd, words: Math.round(wordCounts.get(doc) / share) || null }
+  } catch { return { sectionEnd: null, words: null } }
+}
+
+/**
  * foliate's goTo resolves with the target it resolved, arrived or not (a locked paginator, a section that
  * failed to load): the renderer is asked whether that section is on screen. A fixed-layout renderer's
  * contents carry no index, and a target in the spread already shown emits no relocate, so it is asked
@@ -342,7 +378,8 @@ function positionOf(d) {
  */
 const fits = (p) => (format === 'pdf') === isPdfPage(p)
 
-const flat = (items) => items.flatMap((t) => [{ label: t.label?.trim(), href: t.href }, ...flat(t.subitems ?? [])])
+// Pre-order, as foliate numbers its TOC items (progress.js assignIDs): `relocate.tocIndex` indexes this list.
+const flat = (items, depth = 0) => items.flatMap((t) => [{ label: t.label?.trim(), href: t.href, depth }, ...flat(t.subitems ?? [], depth + 1)])
 
 /** Saves the entry through the host. Addressed to the book it is called for, not the one open later. */
 function persist(delay = 0) {
@@ -540,7 +577,7 @@ async function open(bytes, name, kind, mine) {
     // host moving the view). Sent as `moved`, so a host never guesses it from CFIs.
     const moved = d.reason !== 'anchor' && d.cfi !== lastCfi && !hostMoving
     lastCfi = d.cfi
-    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, cfi: d.cfi, dir: pagedDir(), moved })
+    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, atEnd: atBookEnd(d.section?.current), ...lengthAt(d.section?.current) })
     // A selection moved (or left the screen) with the view, a font or flow change's re-layout included: sent
     // again, or cleared.
     settleSelection()
