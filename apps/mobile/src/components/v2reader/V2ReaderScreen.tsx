@@ -4,15 +4,16 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
-import { Directory, File, Paths } from 'expo-file-system'
+import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
 import type { OpenReader, PagePosition, V2ClientFormat } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
-import { deviceUploadIo, sha256Of, uploadV2Book } from '../../lib/v2'
+import { deviceUploadIo, resetSince, sha256Of, uploadV2Book } from '../../lib/v2'
 import { bookFile, createV2Storage, nonceFromUuid, type LibraryBook, type V2Files, type V2Storage } from '../../lib/v2reader/hostStorage'
-import { deviceLocalLibrary } from '../../lib/v2reader/deviceLibrary'
+import { deviceLocalLibrary, makeV2Dirs, v2Root } from '../../lib/v2reader/deviceLibrary'
+import { capabilitiesFor } from '../../lib/capabilities'
 import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
 import { downloadV2Book, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
 import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
@@ -31,17 +32,14 @@ import { USER_AGENT_PROBE, createWebViewCheck, webViewStorePackage, type WebView
  * ready → openUrl → opened → restore → restored, then store / relocate / word / openLink.
  */
 
-// Built on use: at module scope it threw on the web bundle (expo-file-system web has no paths), which loads every route.
-const v2Root = () => new Directory(Paths.document, 'v2')
-
-/** `name` under <documents>/v2/, e.g. `books/<sha256>.epub`. */
+/** `name` under <documents>/v2/ (`v2Root`, shared with the wipe and the measure), e.g. `books/<sha256>.epub`. */
 const v2File = (name: string) => new File(v2Root(), ...name.split('/'))
 
 function deviceFiles(): V2Files {
   // Anything still staged belongs to an open that never finished in an earlier process.
   const staging = new Directory(v2Root(), 'staging')
   if (staging.exists) staging.delete()
-  for (const dir of ['books', 'store', 'staging']) new Directory(v2Root(), dir).create({ intermediates: true, idempotent: true })
+  makeV2Dirs()
   return {
     read: async (name) => {
       const file = v2File(name)
@@ -60,7 +58,7 @@ function deviceFiles(): V2Files {
 
 // One storage for the process, so every read and write goes through its one queue.
 let storage: V2Storage | null = null
-const v2Storage = () => (storage ??= createV2Storage(deviceFiles(), uuid.v4, deviceLocalLibrary()))
+const v2Storage = () => (storage ??= createV2Storage(deviceFiles(), uuid.v4, deviceLocalLibrary(), resetSince))
 
 /**
  * File sync (opt-in): the retained copy's bytes through the shared upload sequence, with the format
@@ -256,6 +254,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         else goTo(a.position)
       },
       upload: uploadRetained,
+      guest: capabilitiesFor(user).isGuest,
     }).then(refreshBooks, fail('sync'))
   }
   const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)

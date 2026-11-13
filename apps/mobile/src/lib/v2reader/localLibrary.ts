@@ -17,7 +17,7 @@
  *                  push time, so one entry per row; `gen` grows on every re-queue, so a push only
  *                  clears the entry it read (a save landing mid-push stays queued); `failures` counts
                   transient failures of that gen (a re-queue resets it; sync.ts `MAX_FAILURES`)
- *   meta           cursors per feed, the file-sync setting, the identity these rows synced with
+ *   meta           cursors per feed, the file-sync setting, the identity these rows belong to
  *
  * One serial queue runs every read and write (one connection: a read inside another job's open
  * transaction would see its uncommitted rows). A job is queued when its function is called, so a
@@ -161,6 +161,55 @@ const parse = <T>(json: string | null): T | null => {
 const SERVER_FILE = 'server_file_id = ?, server_sha256 = ?, server_size = ?, server_format = ?, has_content = ?'
 const serverFile = (f: V2BookFile | null | undefined) => [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0]
 
+/** `meta` key: '1' when the owner (`meta.account`) is a guest. */
+const OWNER_GUEST = 'account_guest'
+/** Whom the library belongs to; null: nobody (never synced, or wiped). */
+export type Owner = { id: string; guest: boolean } | null
+
+/**
+ * The library and an identity (#1070, owner 2026-11-12): `same` owner; `claim` an un-owned library;
+ * `carry` a guest's library to whoever comes next (never wiped by an identity change); `foreign`
+ * another real account's — wiped at sign-in (sync.ts `claimV2LibraryFor`), a sync pass only refuses.
+ */
+export function identityStep(owner: Owner, userId: string): 'same' | 'claim' | 'carry' | 'foreign' {
+  if (!owner) return 'claim'
+  if (owner.id === userId) return 'same'
+  return owner.guest ? 'carry' : 'foreign'
+}
+
+/** What a wipe deletes that the server does not hold (#1070): device books, and other changes only here. */
+export interface SignOutLoss { books: number; writes: number }
+export const NOTHING_LOST: SignOutLoss = { books: 0, writes: 0 }
+
+/**
+ * Changes only on this device, one row per change, by book: queued positions and highlights, and own
+ * highlights the server never took and nothing will send (over the cap, dropped after a refusal:
+ * `mine`, no revision, not queued). Not counted (README "Sign-out"): a CBZ position (never sent), an
+ * edit of a synced highlight dropped after a refusal.
+ */
+const UNSENT_CHANGES = `
+  SELECT target AS book_id FROM outbox WHERE kind = 'state'
+  UNION ALL SELECT a.book_id FROM outbox o LEFT JOIN annotations a ON a.id = o.target WHERE o.kind = 'annotation'
+  UNION ALL SELECT book_id FROM annotations WHERE mine = 1 AND revision IS NULL AND deleted_at IS NULL
+    AND id NOT IN (SELECT target FROM outbox WHERE kind = 'annotation')`
+
+/**
+ * A book on this device is lost with its copy unless the server holds this very file with its bytes:
+ * never pushed, pushed without bytes (file sync is opt-in), replaced since, bytes removed there, or the
+ * book removed there (a hide: the server keeps no listed copy). A book not imported here has nothing to
+ * lose. A change counts only when its book is not counted: a never-pushed book is one book, not also
+ * its position and highlights.
+ */
+export function signOutLoss(
+  books: Pick<BookRow, 'id' | 'imported_at' | 'file_id' | 'server_file_id' | 'has_content' | 'content_removed' | 'removed_at'>[],
+  changes: { book_id: string | null }[],
+): SignOutLoss {
+  const onServer = (b: (typeof books)[number]) =>
+    b.server_file_id !== null && b.server_file_id === b.file_id && !!b.has_content && !b.content_removed && !b.removed_at
+  const lost = new Set(books.filter((b) => b.imported_at != null && !onServer(b)).map((b) => b.id))
+  return { books: lost.size, writes: changes.filter((c) => !c.book_id || !lost.has(c.book_id)).length }
+}
+
 export function createLocalLibrary(db: Db) {
   const queue = createWriteQueue()
   let ready: Promise<void> | null = null
@@ -219,6 +268,10 @@ export function createLocalLibrary(db: Db) {
   const setMeta = (key: string, value: string | null) =>
     value === null ? run('DELETE FROM meta WHERE key = ?', [key]) : run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [key, value])
   const clearCursors = () => run(`DELETE FROM meta WHERE key LIKE 'cursor:%'`)
+  const setOwner = async (userId: string, guest: boolean) => {
+    await setMeta('account', userId)
+    await setMeta(OWNER_GUEST, guest ? '1' : null)
+  }
 
   /**
    * The server's book onto its row: current file, removal, title and author (the server's metadata
@@ -480,9 +533,14 @@ export function createLocalLibrary(db: Db) {
       return id
     }),
 
-    /** The identity these rows last synced with. */
+    /** The identity these rows belong to (null: nobody, e.g. after a wipe). */
     account: () => job(() => getMeta('account')),
-    setAccount: (userId: string) => job(() => setMeta('account', userId)),
+    /** The owner and whether it is a guest (#1070: a guest's library carries over, an account's does not). */
+    owner: () => job(async (): Promise<Owner> => {
+      const id = await getMeta('account')
+      return id === null ? null : { id, guest: (await getMeta(OWNER_GUEST)) === '1' }
+    }),
+    setAccount: (userId: string, guest = false) => job(() => setOwner(userId, guest)),
 
     /**
      * PDD "Guest → account merge": the rows the guest `fromId` synced become the account's, in one
@@ -494,7 +552,7 @@ export function createLocalLibrary(db: Db) {
       if ((await getMeta('account')) !== fromId) return false
       await rekeyIn(books, files)
       await clearCursors()
-      await setMeta('account', accountId)
+      await setOwner(accountId, false)
       return true
     }),
 
@@ -623,14 +681,22 @@ export function createLocalLibrary(db: Db) {
       `SELECT * FROM books WHERE imported_at IS NOT NULL AND server_file_id = file_id AND has_content = 0 AND content_removed = 0 AND removed_at IS NULL`,
     )),
 
+    // ---- Sign-out and another account (#1070: V2 books belong to the account) ------------------
+
+    /** What a wipe deletes that the server lacks (`signOutLoss`). */
+    signOutLoss: () => job(async () => signOutLoss(
+      await all<BookRow>('SELECT * FROM books'),
+      await all<{ book_id: string | null }>(UNSENT_CHANGES),
+    )),
+
     /**
-     * Another identity syncs this device now (sign-out, then another session): what the server told
-     * the previous one goes — pulled books not imported here, others' highlights, revisions, server
-     * files, parks, failure counts, cursors — and the new identity is recorded. This device's own books, positions,
-     * highlights and queued writes stay: nothing unpushed is dropped (owner decision 3; #1070).
+     * A guest-owned library under the next identity (#1070 rule C, when `adoptAccount` failed or did not
+     * run): what the server told the guest goes — pulled books not imported here, others' highlights,
+     * revisions, server files, parks, failure counts, cursors — and the new owner is recorded. The
+     * device's own books, positions, highlights and queued writes stay and go to the new identity.
      */
-    forgetServerState: (userId: string) => tx(async () => {
-      await setMeta('account', userId)
+    forgetServerState: (userId: string, guest: boolean) => tx(async () => {
+      await setOwner(userId, guest)
       await run('DELETE FROM books WHERE imported_at IS NULL')
       await run(`DELETE FROM annotations WHERE mine = 0 AND id NOT IN (SELECT target FROM outbox WHERE kind = 'annotation')`)
       await run('DELETE FROM reading_state WHERE book_id NOT IN (SELECT id FROM books)')
@@ -642,7 +708,25 @@ export function createLocalLibrary(db: Db) {
       await run('UPDATE outbox SET failures = 0')
       await clearCursors()
     }),
+
+    /**
+     * Every row in one transaction, the owner included (#1070 rule A): an emptied library belongs to
+     * nobody; rows that appear after it are taken by the first identity that syncs.
+     */
+    wipe: () => tx(async () => {
+      for (const table of ['books', 'reading_state', 'annotations', 'outbox', 'meta']) await run(`DELETE FROM ${table}`)
+    }),
   }
+}
+
+/**
+ * Rows, then files (`clearFiles`: everything under the v2 root). A failed row wipe stops before the
+ * files: rows never name missing files, and the owner left in place keeps every pass of another
+ * account refused until the next sign-in wipes again (#1070).
+ */
+export async function wipeV2Library(lib: Pick<LocalLibrary, 'wipe'>, clearFiles: () => void): Promise<void> {
+  await lib.wipe()
+  clearFiles()
 }
 
 export type LocalLibrary = ReturnType<typeof createLocalLibrary>

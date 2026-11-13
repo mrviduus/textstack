@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ActivityIndicator, ScrollView, Linking, Platform } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Image } from 'expo-image'
@@ -17,7 +17,9 @@ import { useLanguage } from '../../src/context/LanguageContext'
 import { useOnline } from '../../src/hooks/useOnline'
 import { useNativeLanguage } from '../../src/context/NativeLanguageContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
-import { deleteGuestData, signOutIntent } from '../../src/lib/profileActions'
+import { createAccountSignOut, deleteGuestData, signOutIntent } from '../../src/lib/profileActions'
+import { pushV2BeforeSignOut } from '../../src/lib/v2reader/sync'
+import { deviceV2SignOutLoss } from '../../src/lib/v2reader/deviceLibrary'
 import { getLanguage } from '@textstack/shared'
 import { LanguagePickerModal } from '../../src/components/LanguagePickerModal'
 import { VocabReminderSettingsRow } from '../../src/components/profile/VocabReminderSettingsRow'
@@ -205,7 +207,30 @@ export default function ProfileScreen() {
     }
   }
 
-  const leave = async () => { await signOut(); router.replace('/') }
+  // Sign-out wipes the V2 reader's books (#1070): one push, then, when something is only on this
+  // phone (or that could not be checked), the confirm. Unit-tested as `createAccountSignOut`.
+  const accountSignOut = useRef(createAccountSignOut()).current
+  const [signingOut, setSigningOut] = useState(false)
+  const confirmV2LossThenLeave = async () => {
+    const left = await accountSignOut({
+      onBusy: setSigningOut,
+      syncFirst: () => (user ? pushV2BeforeSignOut(user.id, capabilitiesFor(user).isGuest) : Promise.resolve()),
+      loss: deviceV2SignOutLoss,
+      confirm: (loss) => new Promise<boolean>((resolve) => Alert.alert(
+        t('profile.signOutLossTitle'),
+        loss
+          ? t('profile.signOutLossMessage').replace('{{books}}', String(loss.books)).replace('{{writes}}', String(loss.writes))
+          : t('profile.signOutLossUnknownMessage'),
+        [
+          { text: t('profile.signOutLossCancel'), style: 'cancel', onPress: () => resolve(false) },
+          { text: t('profile.signOutLossConfirm'), style: 'destructive', onPress: () => resolve(true) },
+        ],
+        { cancelable: true, onDismiss: () => resolve(false) },
+      )),
+      signOut,
+    })
+    if (left) router.replace('/')
+  }
 
   // For an account this is the row it has always been: tap, tokens cleared, back
   // to the front door. A guest has no sign-out, only "Delete guest data": a
@@ -214,7 +239,7 @@ export default function ProfileScreen() {
   // offline (`deleteGuestData`). The branch is `signOutIntent`; both are
   // unit-tested in `src/lib/profileActions.test.ts`.
   const handleSignOut = () => {
-    if (signOutIntent(user) === 'immediate') { void leave(); return }
+    if (signOutIntent(user) === 'immediate') { void confirmV2LossThenLeave(); return }
     Alert.alert(
       t('guest.deleteTitle'),
       t('guest.deleteMessage'),
@@ -503,10 +528,15 @@ export default function ProfileScreen() {
             // user on Profile's own signed-out state, and Library — the first
             // tab — is now a sign-in wall for them; `/` routes a guest to Discover.
             onPress={handleSignOut}
+            // Busy while the V2 push and check run (up to a few seconds): no second tap, visible progress.
+            disabled={signingOut}
+            accessibilityState={{ busy: signingOut, disabled: signingOut }}
             activeOpacity={0.7}
           >
-            <Ionicons name="log-out-outline" size={20} color={colors.error} style={styles.menuIcon} />
-            <Text style={[styles.menuText, { color: colors.error }]}>Sign Out</Text>
+            {signingOut
+              ? <ActivityIndicator size="small" color={colors.error} style={styles.menuIcon} />
+              : <Ionicons name="log-out-outline" size={20} color={colors.error} style={styles.menuIcon} />}
+            <Text style={[styles.menuText, { color: colors.error, opacity: signingOut ? 0.6 : 1 }]}>Sign Out</Text>
           </TouchableOpacity>
         ) : (
           /* Small and grey on purpose: the way forward is the card at the top;
