@@ -12,6 +12,7 @@ import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, rea
 import { readToc, tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
 import { V2SectionNav, V2TocDrawer } from './V2ReaderToc'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
+import { V2TimeLeft, v2Percent, type V2TimePlace } from './V2TimeLeft'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
 import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
@@ -135,6 +136,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [reflowable, setReflowable] = useState(true)
   /** The percent read, of the last relocate shown ('' : none); the current contents entry's title is added where it is drawn. */
   const [status, setStatus] = useState('')
+  /** The place of the relocate `status` shows, for the time left (#1262). */
+  const [timePlace, setTimePlace] = useState<V2TimePlace | null>(null)
   const [restored, setRestored] = useState('')
   const [error, setError] = useState<string | null>(null)
   /** A deadline the frame missed (deadlines.mjs); a late answer clears it. */
@@ -381,7 +384,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
           if (!tracker.showsPosition()) return
           setTocIndex(r.tocIndex)
-          setStatus(`${Math.round((r.fraction ?? 0) * 100)}%`)
+          setTimePlace({ fraction: r.fraction, sectionEnd: r.sectionEnd, words: r.words })
+          setStatus(v2Percent(r.fraction))
           return
         }
         case 'tap':
@@ -536,6 +540,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         <div className="reader-footer__info v2-reader__footer">
           <button className="reader-top-bar__btn" onClick={() => hostMove('prev')}>{t('v2Reader.prev')}</button>
           <span className="reader-footer__counter" data-testid="v2-status">{statusLine}</span>
+          {status && timePlace && <V2TimeLeft {...timePlace} />}
           <button className="reader-top-bar__btn" onClick={() => hostMove('next')}>{t('v2Reader.next')}</button>
         </div>
       </footer>

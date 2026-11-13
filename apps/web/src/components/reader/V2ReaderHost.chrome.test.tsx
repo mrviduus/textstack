@@ -233,7 +233,7 @@ describe('V2ReaderHost bars and tap zones', () => {
   it('relocate_TheChromeReadsItThroughReadRelocate', () => {
     opened()
     fromPage({ type: 'relocate', fraction: 5, index: -1, sections: 'x', toc: 7, moved: 'yes' })
-    expect(screen.getByTestId('v2-status')).toHaveTextContent(/^0%$/)
+    expect(screen.getByTestId('v2-status')).toHaveTextContent(/^—$/)
     expect(bars()).toBe('shown')
   })
 

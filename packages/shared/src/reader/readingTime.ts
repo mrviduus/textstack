@@ -128,3 +128,50 @@ export function formatMinutesLeft(
   if (m === 0) return labels.hours.replace('{hours}', String(h))
   return labels.hoursMinutes.replace('{hours}', String(h)).replace('{minutes}', String(m))
 }
+
+/** Minutes left from a place in the book; `chapterMinutes` is null when the section's end is not known. */
+export interface PlaceTimeLeft {
+  chapterMinutes: number | null
+  bookMinutes: number
+}
+
+const positive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0
+const unit = (v: unknown): v is number => typeof v === 'number' && v >= 0 && v <= 1
+
+/**
+ * Time left from a 0..1 place in the whole book (the V2 reader's `relocate.fraction`, #1262), one rule for
+ * both hosts. `sectionEnd`: the fraction of the book at which the current section ends.
+ *
+ * `null` (show nothing) without the reader's pace, a book length in words or a place: unlike
+ * `minutesForWords`, a missing pace is not replaced by `FALLBACK_WPM` here.
+ */
+export function timeLeftAt(at: {
+  fraction: number | null | undefined
+  sectionEnd: number | null | undefined
+  totalWords: number | null | undefined
+  wpm: number | null | undefined
+}): PlaceTimeLeft | null {
+  const { fraction, sectionEnd, totalWords, wpm } = at
+  if (!positive(wpm) || !positive(totalWords) || !unit(fraction)) return null
+  return {
+    chapterMinutes: unit(sectionEnd) ? minutesForWords(totalWords * (sectionEnd - fraction), wpm) : null,
+    bookMinutes: minutesForWords(totalWords * (1 - fraction), wpm),
+  }
+}
+
+/**
+ * The chrome's line for `timeLeftAt`'s answer, both hosts: "12 min left in chapter · 3 hr left in book", the
+ * book alone without a chapter estimate, `null` (show nothing) without an estimate. `t` resolves the shared keys.
+ */
+export function placeTimeLeftLabel(left: PlaceTimeLeft | null, t: (key: string) => string): string | null {
+  if (!left) return null
+  const labels = {
+    under: t('reader.timeLeft.under'),
+    minutes: t('reader.timeLeft.minutes'),
+    hours: t('reader.timeLeft.hours'),
+    hoursMinutes: t('reader.timeLeft.hoursMinutes'),
+  }
+  const book = t('reader.timeLeft.inBook').replace('{time}', formatMinutesLeft(left.bookMinutes, labels))
+  if (left.chapterMinutes == null) return book
+  return `${t('reader.timeLeft.inChapter').replace('{time}', formatMinutesLeft(left.chapterMinutes, labels))} · ${book}`
+}

@@ -623,7 +623,9 @@
       "under": "Less than a minute left",
       "minutes": "{minutes} min left",
       "hours": "{hours} hr left",
-      "hoursMinutes": "{hours} hr {minutes} min left"
+      "hoursMinutes": "{hours} hr {minutes} min left",
+      "inChapter": "{time} in chapter",
+      "inBook": "{time} in book"
     },
     "exitSummary": {
       "reviewNow": "Review Now",
