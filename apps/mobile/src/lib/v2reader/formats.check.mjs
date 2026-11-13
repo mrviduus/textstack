@@ -26,7 +26,7 @@ const TIMEOUT_MS = 15000
 // packages/shared, whose extensionless TS imports plain node does not resolve.
 const { build: esbuild } = createRequire(resolve(here, '../../../../web/package.json'))('esbuild')
 const bundled = await esbuild({ stdin: { contents: `export * from './selection.mjs'; export * from './chrome.mjs'`, resolveDir: here, loader: 'js' }, bundle: true, write: false, format: 'esm', logLevel: 'silent' })
-const { readSelection, readDir, readTap, readKey } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`)
+const { readSelection, readDir, readTap, readKey, readRelocate } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`)
 
 const failures = []
 const check = (ok, what) => { console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}`); if (!ok) failures.push(what) }
@@ -244,6 +244,60 @@ try {
     call('window.__fol.flow("scrolled")')
     m = await open('tsformat.epub')
     check(m.dir === 'ltr' && readDir(m) === 'ltr', `a left-to-right EPUB opens with dir ltr (${m.dir})`)
+    // The TOC (#1261): flat in reading order with depth; every relocate names its entry by index, labels repeat.
+    m = await open('tstoc.epub')
+    check(JSON.stringify(m.toc?.map((t) => [t.label, t.depth])) === '[["Part One",0],["Notes",1],["Notes",0]]', `a nested TOC opens flat with depth (${JSON.stringify(m.toc)})`)
+    for (const [i, t] of (m.toc ?? []).entries()) {
+      const at = messages.length
+      call(`window.__fol.goTo(${JSON.stringify(t.href)})`)
+      const rel = await waitFor(at, (x) => x.type === 'relocate' && x.index === i, `the TOC entry ${i}`).catch(() => null)
+      check(rel?.tocIndex === i && readRelocate(rel)?.tocIndex === i && rel.toc === t.label, `relocate.tocIndex is the entry's index in opened.toc (${i}: ${rel?.tocIndex}, ${rel?.toc})`)
+      // Three equal sections of 50 words: each ends a third further on, and each gives the book's 150 words.
+      const len = readRelocate(rel)
+      check(Math.abs((len?.sectionEnd ?? 0) - (i + 1) / 3) < 0.02 && len?.words > 130 && len.words < 170, `relocate carries the section's end and the book's words (${i}: ${rel?.sectionEnd}, ${rel?.words})`)
+      check(rel?.atEnd === (i === 2), `a short section is the end of the book only when it is the last (${i}: ${rel?.atEnd})`)
+    }
+    // The end of the book (#1266): `relocate.atEnd`, which a host cannot tell from `fraction`.
+    {
+      const lastRel = (from) => messages.slice(from).filter((x) => x.type === 'relocate').at(-1)
+      // Scrolled flow (set above): the fraction is the top of the viewport, never 1.
+      m = await open('tsformat.mobi')
+      let at = messages.length
+      call('window.__fol.section(1)')
+      let rel = await waitFor(at, (x) => x.type === 'relocate' && x.index === 1, 'the last section, scrolled').catch(() => null)
+      check(rel?.atEnd === false, `scrolled: the top of a long last section is not the end (${rel?.atEnd})`)
+      await page.mouse.move(640, 360)
+      // The first scroll after a navigation sends no relocate (foliate's `#justAnchored`, README): spent here.
+      await page.mouse.wheel(0, 100)
+      await page.waitForTimeout(600)
+      for (let k = 0; k < 40; k++) { await page.mouse.wheel(0, 2000); await page.waitForTimeout(60) }
+      await page.waitForTimeout(1200)
+      rel = lastRel(at)
+      check(rel?.atEnd === true && readRelocate(rel)?.atEnd === true && rel.fraction < 1, `scrolled: its bottom is the end, with a fraction under 1 (${rel?.atEnd}, ${rel?.fraction})`)
+      // Paginated flow: only the last page of the last section.
+      call('window.__fol.flow("paginated")')
+      m = await open('tsformat.mobi')
+      at = messages.length
+      call('window.__fol.section(1)')
+      rel = await waitFor(at, (x) => x.type === 'relocate' && x.index === 1, 'the last section, paginated').catch(() => null)
+      check(rel?.atEnd === false, `paginated: the first page of a long last section is not the end (${rel?.atEnd})`)
+      let turns = 0
+      for (; turns < 300 && !lastRel(at)?.atEnd; turns++) {
+        const from = messages.length
+        await call('window.__fol.next()')
+        if (!(await waitFor(from, (x) => x.type === 'relocate', 'a page turn').catch(() => null))) break
+      }
+      check(lastRel(at)?.atEnd === true && turns > 1, `paginated: the last page is the end, after ${turns} turns (${lastRel(at)?.atEnd})`)
+      // A fixed layout: the last page's spread.
+      m = await open('tsformat.pdf')
+      await page.waitForTimeout(500)
+      check(lastRel(m.from)?.atEnd === false, `a PDF's first page is not the end (${lastRel(m.from)?.atEnd})`)
+      at = messages.length
+      call(`window.__fol.goTo({ page: ${m.sections} })`)
+      rel = await waitFor(at, (x) => x.type === 'relocate' && x.atEnd === true, 'the last PDF page').catch(() => null)
+      check(!!rel && rel.words === null && readRelocate(rel)?.sectionEnd === 1, `a PDF's last page is the end, with no word estimate (${m.sections} pages, ${JSON.stringify(lastRel(at))})`)
+      call('window.__fol.flow("scrolled")')
+    }
     // Right to left by language only: the renderer pages it right to left, and says so.
     m = await open('tshe.epub')
     const heRel = messages.slice(m.from).filter((x) => x.type === 'relocate').at(-1)
