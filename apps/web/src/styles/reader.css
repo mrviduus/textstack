@@ -949,6 +949,11 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   outline: none;
 }
 
+/* An unanswered cookie banner (fixed, bottom) would cover the bottom bar and take its clicks (#1292). */
+.v2-reader .reader-footer {
+  bottom: var(--cookie-banner-height, 0px);
+}
+
 .v2-reader__frame {
   flex: 1;
   min-height: 0;

@@ -34,10 +34,10 @@ async function expectOpened(page: Page) {
 }
 
 /** A signed-in context for `email`; skipped when V2 is off (unless V2_E2E=1). */
-async function v2Context(browser: { newContext(): Promise<BrowserContext> }, email: string) {
+async function v2Context(browser: { newContext(): Promise<BrowserContext> }, email: string, answerBanner = true) {
   const context = await browser.newContext()
-  // The cookie banner sits over the reader's bottom bar (Prev / Next) until it is answered.
-  await context.addInitScript(() => localStorage.setItem('cookieConsent', 'rejected'))
+  // Answered, so the cookie banner is out of the way; #1292's spec leaves it up.
+  if (answerBanner) await context.addInitScript(() => localStorage.setItem('cookieConsent', 'rejected'))
   await testLogin(context.request, email)
   const probe = await context.request.get(`${API_URL}/me/v2/status`, { headers: API_HEADERS })
   test.skip(probe.status() === 404 && process.env.V2_E2E !== '1', 'Features:V2Api is off: /me/v2 is not mapped')
@@ -217,6 +217,31 @@ test.describe('V2 reader page @v2', () => {
   })
 
   // #1226: position and highlights on /me/v2 through the shared client, not in this browser's storage.
+  test('readV2Chrome_CookieBannerUnanswered_TheBottomBarSitsAboveItAndNextTurns', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2banner'), false)
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    const banner = page.locator('.cookie-banner')
+    await expect(banner).toBeVisible()
+    const first = (await status(page).textContent()) ?? ''
+    await page.keyboard.press('Escape')
+    const next = page.getByRole('button', { name: 'Next ›', exact: true })
+    // Polled: the bar slides in.
+    await expect.poll(async () => {
+      const [bar, box] = [await page.locator('.reader-footer').boundingBox(), await banner.boundingBox()]
+      return !!bar && !!box && bar.y + bar.height <= box.y + 1
+    }).toBe(true)
+    await next.click()
+    await expect(status(page)).not.toHaveText(first)
+    // Answered: the bar is back at the bottom edge.
+    await page.getByRole('button', { name: 'Reject analytics', exact: true }).click()
+    await expect(banner).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect.poll(async () => { const b = await page.locator('.reader-footer').boundingBox(); return b ? Math.round(b.y + b.height) : 0 }).toBe(page.viewportSize()!.height)
+  })
+
   test('readV2Sync_ReloadThenASecondBrowserContext_SamePlaceAndTheHighlightDrawn', async ({ browser }) => {
     const who = email('v2rs')
     const context = await v2Context(browser, who)
