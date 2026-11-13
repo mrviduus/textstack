@@ -139,6 +139,7 @@
     "openSource1": "TextStack is licensed under GNU AGPL-3.0. The full codebase — .NET 10 backend, React frontend, React Native mobile app — lives at github.com/mrviduus/textstack. You can self-host the entire stack on a $20/month consumer VPS, no GPU required.",
     "starOnGitHub": "Star on GitHub",
     "selfHostGuide": "Self-host guide",
+    "docs": "Documentation",
     "techHeading": "How It Works",
     "tech1": "Local Gemma 4 model (via Ollama) generates the multiple-choice distractors, vocabulary hints, and book metadata enrichment on your own server — no per-user cloud LLM costs. OpenAI's gpt-4.1-mini handles the translation layer where multilingual quality matters.",
     "techStackLabel": "Stack",

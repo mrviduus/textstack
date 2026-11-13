@@ -2,8 +2,8 @@ import { LocalizedLink } from './LocalizedLink'
 import { useTranslation } from '../hooks/useTranslation'
 import { PLAY_URL } from './AndroidAppBanner'
 
-// Developer docs live in the repo for now; a docs site comes later (#1237).
-const DOCS_URL = 'https://github.com/mrviduus/textstack/blob/main/docs/README.md'
+// The docs site, built from docs/ (#1275).
+const DOCS_URL = 'https://mrviduus.github.io/textstack/'
 
 export function Footer() {
   const { t } = useTranslation()

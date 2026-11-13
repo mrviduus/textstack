@@ -6,6 +6,7 @@
   "about.creator.email": "Email",
   "about.creator.heading": "The Creator",
   "about.creator.linkedin": "LinkedIn",
+  "about.docs": "Documentation",
   "about.intro": "TextStack is an open-source reader for developers who want to finish dense English technical books in their native language.",
   "about.mission1": "Real understanding of a technical book comes from finishing it — not from skipping unfamiliar terms or summarizing it away. TextStack is built around that: keep the book in front of you, let the friction (vocabulary, terminology, domain) get out of the way.",
   "about.mission2": "Every feature — domain-aware translation, vocabulary builder, spaced repetition, reading stats — exists for one job: get you to the last page of the kind of book you usually quit halfway through.",
