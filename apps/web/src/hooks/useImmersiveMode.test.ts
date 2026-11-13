@@ -65,4 +65,13 @@ describe('useImmersiveMode', () => {
     scrollBy(50)
     expect(result.current.immersiveMode).toBe(true)
   })
+
+  it('hideBars_HidesAtOnce_ThenShowBarsKeepsThemPast3s', () => {
+    const { result } = renderHook(() => useImmersiveMode(true, false))
+    act(() => result.current.hideBars())
+    expect(result.current.immersiveMode).toBe(true)
+    act(() => result.current.showBars())
+    act(() => { vi.advanceTimersByTime(5000) })
+    expect(result.current.immersiveMode).toBe(false)
+  })
 })

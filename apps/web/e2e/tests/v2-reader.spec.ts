@@ -20,6 +20,11 @@ const sectionText = (page: Page) =>
   Promise.all(page.frames().filter((f) => f.url().startsWith('blob:')).map((f) => f.evaluate(() => document.body?.innerText ?? '').catch(() => '')))
     .then((texts) => texts.join('\n'))
 const status = (page: Page) => page.getByTestId('v2-status')
+/** A button on the reader's bars: they hide while reading (#1263), Esc shows them. */
+async function clickBar(page: Page, name: string) {
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name, exact: true }).click()
+}
 
 async function expectOpened(page: Page) {
   await expect(page.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
@@ -31,6 +36,8 @@ async function expectOpened(page: Page) {
 /** A signed-in context for `email`; skipped when V2 is off (unless V2_E2E=1). */
 async function v2Context(browser: { newContext(): Promise<BrowserContext> }, email: string) {
   const context = await browser.newContext()
+  // The cookie banner sits over the reader's bottom bar (Prev / Next) until it is answered.
+  await context.addInitScript(() => localStorage.setItem('cookieConsent', 'rejected'))
   await testLogin(context.request, email)
   const probe = await context.request.get(`${API_URL}/me/v2/status`, { headers: API_HEADERS })
   test.skip(probe.status() === 404 && process.env.V2_E2E !== '1', 'Features:V2Api is off: /me/v2 is not mapped')
@@ -93,7 +100,7 @@ test.describe('V2 reader page @v2', () => {
     await expectOpened(page)
 
     const before = await status(page).textContent()
-    await page.getByRole('button', { name: 'Next ›' }).click()
+    await clickBar(page, 'Next ›')
     await expect(status(page)).not.toHaveText(before ?? '')
 
     // The page script is cached (immutable), the shell never is.
@@ -105,6 +112,68 @@ test.describe('V2 reader page @v2', () => {
 
     await page.reload()
     await expectOpened(page)
+    await context.close()
+  })
+
+  // #1263: the bars hide while reading; keys and an edge tap turn the page; a tap off any word toggles the bars.
+  test('readV2Chrome_TextAndEdgeTapsKeysAndTheBarsNext_TurnAndToggleAsTheyShould', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2bars'))
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    const main = page.locator('main.v2-reader')
+    await expect(main).toHaveAttribute('data-bars', 'hidden', { timeout: 10_000 })
+    await expect(page.getByRole('link', { name: 'Back to the library' })).toHaveAttribute('href', '/en/library')
+
+    const first = (await status(page).textContent()) ?? ''
+    await page.keyboard.press('ArrowRight')
+    await expect(status(page)).not.toHaveText(first)
+    await page.keyboard.press('PageUp')
+    await expect(status(page)).toHaveText(first)
+
+    // Taps on the text (a word acts as a tap at its centre until the word popup, #1269): the centre toggles the
+    // bars, an edge turns; focus stays in the book.
+    const frames = page.frames().filter((f) => f.url().startsWith('blob:'))
+    const texts = await Promise.all(frames.map((f) => f.evaluate(() => document.body?.innerText ?? '').catch(() => '')))
+    const section = frames[texts.findIndex((t) => t.includes(FIRST_SECTION_TEXT))]
+    const a = (await section.locator('p').nth(0).boundingBox())!
+    const width = page.viewportSize()!.width
+    const line = a.y + 12
+    await page.mouse.click(width / 2 - 200, line)
+    await expect(main).toHaveAttribute('data-bars', 'shown')
+    await page.mouse.click(width / 2 - 200, line)
+    await expect(main).toHaveAttribute('data-bars', 'hidden')
+    await page.mouse.click(width - a.x - 30, line)
+    await expect(status(page)).not.toHaveText(first)
+    await page.mouse.click(a.x + 15, line)
+    await expect(status(page)).toHaveText(first)
+
+    // Keys with focus inside the book: the page forwards them (`key`).
+    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('IFRAME')
+    await page.keyboard.press('ArrowRight')
+    await expect(status(page)).not.toHaveText(first)
+    await page.keyboard.press('Escape')
+    await expect(main).toHaveAttribute('data-bars', 'shown')
+
+    // The very edges (the page's own margin): left back, right on; a turn hides the bars.
+    await page.mouse.click(10, line)
+    await expect(status(page)).toHaveText(first)
+    await expect(main).toHaveAttribute('data-bars', 'hidden')
+    await page.mouse.click(width - 10, line)
+    await expect(status(page)).not.toHaveText(first)
+    // A key after a click in the page's margin: forwarded from the page's own document.
+    const turned = (await status(page).textContent()) ?? ''
+    await page.keyboard.press('ArrowLeft')
+    await expect(status(page)).toHaveText(first)
+
+    // The bar's Next keeps the bars under the cursor; a key after it still turns (and hides them).
+    await clickBar(page, 'Next ›')
+    await expect(status(page)).toHaveText(turned)
+    await expect(main).toHaveAttribute('data-bars', 'shown')
+    await page.keyboard.press('ArrowRight')
+    await expect(status(page)).not.toHaveText(turned)
+    await expect(main).toHaveAttribute('data-bars', 'hidden')
     await context.close()
   })
 
@@ -121,7 +190,7 @@ test.describe('V2 reader page @v2', () => {
     // Read: the moved-to place is written to the server on the book's revision.
     const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith(`/me/v2/books/${bookId}/reading-state`))
     const before = await status(page).textContent()
-    await page.getByRole('button', { name: 'Next ›' }).click()
+    await clickBar(page, 'Next ›')
     await expect(status(page)).not.toHaveText(before ?? '')
     expect((await saved).ok()).toBeTruthy()
     const place = await status(page).textContent()
@@ -147,7 +216,7 @@ test.describe('V2 reader page @v2', () => {
     const put = page.waitForResponse((r) => r.request().method() === 'PUT' && /\/me\/v2\/annotations\/[0-9a-f-]{36}$/.test(r.url()))
     // selectionchange is async: the page keeps the last selection it saw.
     await page.waitForTimeout(200)
-    await page.getByRole('button', { name: 'Highlight', exact: true }).click()
+    await clickBar(page, 'Highlight')
     const answer = await put
     expect(answer.ok(), `PUT annotation: ${answer.status()}`).toBeTruthy()
     const { id } = (await answer.json()) as { id: string }
@@ -163,7 +232,7 @@ test.describe('V2 reader page @v2', () => {
     await expect.poll(async () => (await there()).highlights.flatMap((m) => m.highlights), { timeout: 20_000 }).toContainEqual({ id, status: 'restored' })
     const annotationPut = second.waitForRequest((r) => r.method() === 'PUT' && r.url().includes('/me/v2/annotations/'), { timeout: 3_000 }).then(() => true, () => false)
     await expect.poll(async () => {
-      await second.getByRole('button', { name: 'Next ›' }).click()
+      await clickBar(second, 'Next ›')
       return (await there()).store.some((m) => (JSON.parse(m.json).highlights as { id: string }[]).some((h) => h.id === id))
     }, { timeout: 20_000 }).toBe(true)
     expect(await annotationPut, 'the drawn highlight is not written back').toBe(false)
@@ -185,7 +254,7 @@ test.describe('V2 reader page @v2', () => {
     const turn = async (p: Page) => {
       const before = await status(p).textContent()
       const saved = p.waitForResponse((r) => isStatePut(r.request()) && r.ok())
-      await p.getByRole('button', { name: 'Next ›' }).click()
+      await clickBar(p, 'Next ›')
       await expect(status(p)).not.toHaveText(before ?? '')
       return (await saved).request().postDataJSON() as { currentLocator: unknown }
     }

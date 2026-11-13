@@ -223,6 +223,7 @@ describe('V2ReaderHost', () => {
   it.each([[false, 0], [true, 1]])('dev %s: the word stub label and the restore line, %i times', (dev, shown) => {
     mount(book(), { dev })
     fromPage({ type: 'ready' })
+    fromPage(opened('1/a.epub'))
     fromPage({ type: 'word', word: 'pond', cfi: 'epubcfi(/6/2)', index: 0 })
     expect(posted.filter((m) => m.call === 'showTranslation')).toHaveLength(shown)
     expect(screen.queryAllByTestId('v2-restore')).toHaveLength(shown)

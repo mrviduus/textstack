@@ -502,7 +502,8 @@
     "newerPlaceLabel": "Newer reading place",
     "newerPlace": "Another device saved a newer place in this book ({{percent}}%).",
     "stayHere": "Stay here",
-    "goThere": "Go to their place"
+    "goThere": "Go to their place",
+    "back": "Back to the library"
   },
   "library": {
     "continue": "Continue",

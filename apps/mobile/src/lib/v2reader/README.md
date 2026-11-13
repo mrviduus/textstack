@@ -36,6 +36,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `frame.mjs`, `framePath.mjs` (+ `.d.mts`) | Web only (#1219, #1225): the page as a no-store shell + a content-hashed page script, and the one handler that serves both (dev, preview, the check; the build writes the same files for nginx). See Host responsibilities, "Web, its own document". `frame.test.ts` pins the split. |
 | `prodCsp.check.mjs` | The production-CSP gate (CI): shell + script under the app CSP read from nginx; the refused variants; nginx's reader locations against the handler's headers. |
 | `openTracker.mjs` (+ `.d.mts`) | Pure, both hosts: which page answer belongs to which open — the open in flight, a book the page kept on screen while a newer open failed, a stale `restored` (dropped). |
+| `tapZone.mjs` (+ `.d.mts`) | Pure, both hosts (#1263): what a page `tap` does (turn back, turn on, toggle the bars). See Host responsibilities, "Reader chrome" and "Bars and tap zones, web". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
 | `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
@@ -455,6 +456,28 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   process, the copy says to reopen the app). No readable version: not blocked, and a missed `ready` names an
   outdated WebView as a likely cause (not when the version is known to be fine).
 - Errors are `role="alert"` (web) / `accessibilityRole="alert"` with a polite live region (Android); Retry is a button.
+
+**Bars and tap zones, web** (#1263; the same decisions as Android's "Reader chrome" above, `tapZone.mjs` and
+`chrome.mjs`; the bars are the legacy reader's `useImmersiveMode` and `reader.css` bar rules):
+
+- Layout: the states box (not saved, the newer place, read-failed Retry, a deadline or open error, the route's load
+  error; on the dev route the restore line and the library) sits in layout space under the top bar's height, the
+  frame takes the rest; nothing covers the book but the bars. The top bar (back to the library, the title, the
+  reader's buttons) and the bottom bar (‹ Prev, the place, Next ›) float over the frame.
+- The opening and downloading states are the top bar's title: a new open (and a fresh frame) shows the bars and
+  they do not auto-hide until `opened`; then they hide 3 s later. Until a book is on screen (`opened`), taps, keys,
+  words and selections from the page do nothing (`takenWithoutBook`), and the host's own keys turn nothing.
+- Hiding: a page turn by tap or key, and a `relocate` with `moved` in either flow (`readRelocate`,
+  `hidesBarsOnRelocate`), except one a bar button or the taken offer caused (`createHostMoves`): Next › keeps the bars
+  under the cursor; a resize, a flow switch, a sync `goTo` never hide them. A centre tap toggles them, Esc and focus
+  on a bar show them; when they hide with focus inside, focus moves to the reader's main region, so no invisible
+  control is focused. Reduced motion: no transition.
+- Taps (`tapAction` on `readTap`, or `readWordTap` for a `word` until the popup, #1269), with the effective flow (a
+  fixed-layout book pages whatever the setting) and the latest `dir`; a malformed one is dropped.
+- Keys: chrome.mjs `keyAction` with the latest `dir`, for the page's `key` (`readKey`, focus in the book) and the
+  host's own keydown (`hostNavKey`: no Ctrl/Alt/Meta, no Shift+arrow; a focused control keeps only the keys it uses,
+  Space on a button or link and every key in a field, so after a click on Next › the arrows still turn; Escape
+  always shows the bars). A held key turns once per press on both paths.
 
 **WebView** (Android, #1228; ADR-029 Decision 4 as amended): `source={{ html: v2ReaderPageHtml(nonce), baseUrl:
 'https://appassets.androidplatform.net/' }}`, no file access at all (the library's defaults: `allowFileAccess`,

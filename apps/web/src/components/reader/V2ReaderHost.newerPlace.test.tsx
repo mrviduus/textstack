@@ -50,4 +50,12 @@ it('firstMoveLosesToAnotherDevicesNewerPlace_OursWrittenOnTheirRevision_TheirsOf
   expect(screen.getByRole('status', { name: 'Newer reading place' })).toHaveTextContent('(50%)')
   expect(screen.queryByTestId('v2-not-saved')).toBeNull()
   expect(posted.some((m) => m.call === 'goTo')).toBe(false)
+
+  // Taken: the page goes there, and its landing (a `moved` relocate) keeps the bars up (#1263).
+  const main = document.querySelector('main')!
+  expect(main).toHaveAttribute('data-bars', 'shown')
+  act(() => { screen.getByRole('button', { name: 'Go to their place' }).click() })
+  expect(posted.some((m) => m.call === 'goTo')).toBe(true)
+  await fromPage({ type: 'relocate', cfi: cfi(5), index: 5, fraction: 0.5, moved: true })
+  expect(main).toHaveAttribute('data-bars', 'shown')
 })

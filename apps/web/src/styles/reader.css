@@ -932,6 +932,66 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   transition: transform 0.3s ease, opacity 0.3s ease;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .reader-top-bar,
+  .reader-footer {
+    transition: none;
+  }
+}
+
+/* The V2 reader (#1263): the states box, then the frame taking the rest of the viewport; the bars float over the
+   frame. The states take layout space (below the top bar's height), never cover the book. */
+.v2-reader {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+
+.v2-reader__frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+}
+
+.v2-reader__notices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 56px;
+  padding: 6px 16px;
+  max-height: 40vh;
+  overflow: auto;
+  font-size: 14px;
+  border-bottom: 1px solid var(--reader-border);
+}
+
+.v2-reader__notices:empty,
+.v2-reader__notices > :empty {
+  display: none;
+}
+
+.v2-reader__notices > * {
+  margin: 0;
+}
+
+/* Prev | position | Next: Prev and Next alike, at the two ends. */
+.v2-reader__footer > :first-child {
+  justify-self: start;
+}
+
+.v2-reader__footer > :last-child {
+  grid-column: 3;
+  justify-self: end;
+}
+
+.v2-reader__footer .reader-footer__counter {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ===========================================
    Mobile Continuous Scroll Mode
    =========================================== */
