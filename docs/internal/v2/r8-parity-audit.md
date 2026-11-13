@@ -216,8 +216,8 @@ say no before code depends on it.
 | Wave | Work | Depends on |
 |---|---|---|
 | A | **Done, wave 13 (2026-11-11), dark behind the flag.** Production hosting: Android native https serving (no `file://`), web prod route behind the flag, web host on the shared V2 sync client, error/loading states, `ready`/`opened` deadlines (#1080, #1081) | owner: WebView ≥117 screen |
-| B | Reader chrome: TOC, settings (size, family, line height, align, theme), progress + time left, immersive bars, back/exit, keep-awake, lightbox, finish book, a11y + i18n baseline | A |
-| C | Word layer: selection event in the protocol, word popup/translate/explain via the host, vocabulary save + outcomes, saved-word marks, inline glosses, backfill, guest nudges, TTS for word/selection | A |
+| B | **Started, wave 14 (2026-11-12):** the frame is built — bars, tap zones, keys, Android back / keep-awake / save on close (#1263, #1264), the web newer-place offer (#1232). Open: TOC #1261, settings #1260, progress #1262, lightbox #1265, finish book #1266, a11y + i18n #1267. Reader chrome: TOC, settings (size, family, line height, align, theme), progress + time left, immersive bars, back/exit, keep-awake, lightbox, finish book, a11y + i18n baseline | A |
+| C | **Started, wave 14:** the selection event (#1268). Open: popup #1269, vocabulary save #1270, marks and glosses #1271, TTS #1272. Word layer: selection event in the protocol, word popup/translate/explain via the host, vocabulary save + outcomes, saved-word marks, inline glosses, backfill, guest nudges, TTS for word/selection | A |
 | D | Annotations: colours, notes, delete, list, `?highlight=` jump, fixed-layout EPUB position (#1196), sessions to `/me/v2/sessions`, chapter-discuss handoff on sections | B, C |
 | E | PDF: R7 host + server round trip (#1039), device half of the gate (#1128), PDF page chrome + highlights, fork fixes (#1203), ADR-012 viewer deleted | A; owner's corpus; fork yes |
 | F | R8 deletion: port reader-engine helpers, delete legacy readers + transitional backend + M6.4 drop | M5, old-client window, A–E |
