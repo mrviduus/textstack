@@ -644,7 +644,9 @@
       "back": "Back",
       "prevPage": "Previous page",
       "nextPage": "Next page",
-      "dismiss": "Dismiss"
+      "dismiss": "Dismiss",
+      "finishBook": "Finish book",
+      "finished": "Finished"
     },
     "newerElsewhere": {
       "message": "You read further on another device: {target}",

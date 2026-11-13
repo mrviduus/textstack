@@ -28,6 +28,8 @@ import {
   reopensOnReady, takenWithoutBook,
 } from '../../lib/v2reader/chrome.mjs'
 import { tapAction } from '../../lib/v2reader/tapZone.mjs'
+import { showsFinishBook } from '../../lib/v2reader/finishBook.mjs'
+import { V2FinishBook } from './V2FinishBook'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
@@ -232,6 +234,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   useEffect(() => { storedFlow().then(setFlow) }, [])
   /** False for a fixed-layout book (CBZ): flow changes nothing there, so the toggle is off. */
   const [reflowable, setReflowable] = useState(true)
+  /** Finish book (#1266): the book's end is on screen (`relocate.atEnd`), and the open book's format (`opened`). */
+  const [atEnd, setAtEnd] = useState(false)
+  const [format, setFormat] = useState<string | null>(null)
   /** The book open at the last renderer crash: one that crashes it twice is not reopened again. */
   const crashedFile = useRef<string | null>(null)
   /**
@@ -309,6 +314,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     opening.current = null
     reading.current = { bookId: null, restored: false, baseline: null, cfi: null, index: null }
     setReflowable(true)
+    setAtEnd(false)
     pageDir.current = 'ltr'
     setProgress.current(null)
     setOffer(null)
@@ -426,6 +432,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setError(null)
     setHeading(`Opening ${target.name}`)
     setProgress.current(null)
+    setAtEnd(false)
     setBook(true)
     showBars()
     setOpens((n) => n + 1)
@@ -439,6 +446,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     for (const o of t.dropped) if (isStaged(o.file) && o.file !== t.open.file) v2Storage().dropStaged(o.file).catch(fail('drop'))
     opening.current = t.open
     setReflowable(t.opened.reflowable !== false)
+    setFormat(typeof t.opened.format === 'string' ? t.opened.format : null)
+    setAtEnd(false)
     onOpened(t.open, t.opened).catch(fail('opened', setOpenError))
   }
 
@@ -568,6 +577,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
         if (!tracker.showsPosition()) return
         if (shown) setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc })
+        if (shown) setAtEnd(shown.atEnd)
         return
       }
       case 'word':
@@ -610,6 +620,21 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       case 'log':
         console.log(`[v2 page] ${m.level}: ${m.msg}`)
     }
+  }
+
+  /**
+   * Finish book (#1266): local first (no token, no network), then the outbox carries it. The page's pending
+   * save is flushed so the place the completion is sent with is the one on screen.
+   */
+  const openBook = books.find((b) => b.id === reading.current.bookId)
+  const finishBook = () => {
+    const id = reading.current.bookId
+    if (!id) return
+    flushPage()
+    v2Storage().finishBook(id).then((list) => {
+      setBooks(list)
+      sync.current()
+    }, fail('finish book', setError))
   }
 
   const toggleFlow = () => {
@@ -762,6 +787,18 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             nextLabel={t('reader.chrome.nextPage')}
             onHeight={(h) => { if (h > 0 && h !== footerHeight) setFooterHeight(h) }}
           />
+          {openBook && showsFinishBook({ atEnd, format }) && (
+            <V2FinishBook
+              finished={openBook.finished}
+              onFinish={finishBook}
+              bottom={(barsVisible ? footerHeight || 60 + insets.bottom : insets.bottom) + 12}
+              background={colors.background}
+              color={colors.text}
+              accent={colors.primary}
+              finishLabel={t('reader.chrome.finishBook')}
+              finishedLabel={t('reader.chrome.finished')}
+            />
+          )}
           {hasNotices && (
             <View style={[styles.notices, { top: barsVisible ? 56 + insets.top : insets.top, backgroundColor: colors.background }]}>
               <View style={styles.noticesText}>{notices}</View>
@@ -794,6 +831,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
                   style={[styles.book, { borderColor: colors.border }]}
                 >
                   <Text numberOfLines={1} style={[styles.meta, { color: colors.textSecondary }]}>{b.local ? b.title : `↓ ${b.title}`}</Text>
+                  {b.finished && <Text style={[styles.meta, { color: colors.primary }]}>{t('reader.chrome.finished')}</Text>}
                   {b.notSynced && (
                     <>
                       <Text numberOfLines={2} style={[styles.meta, { color: colors.error }]}>Not synced: {b.notSynced}</Text>

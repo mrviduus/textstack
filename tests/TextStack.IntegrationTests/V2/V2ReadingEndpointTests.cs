@@ -60,6 +60,37 @@ public class V2ReadingEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
     }
 
     [Fact]
+    public async Task PutState_WithCompletedAt_IsSetOnceKeptByLaterWritesAndClearedByAReset()
+    {
+        // #1266 "Finish book" (PDD "Reading state": set once, cleared only by a reset), as both hosts write it:
+        // the place as it stands plus completedAt; the real fraction is kept, not forced to 1.
+        v2.Require();
+        var (bookId, fileId, _) = await v2.ImportAsync(v2.Alice);
+        var finishedAt = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 300);
+        object Finished(long expectedRevision, int step, DateTimeOffset completedAt) => new
+        {
+            expectedRevision, fileId, currentLocator = Position(step), bookFraction = step / 10m, completedAt, clientRecordedAt = DateTimeOffset.UtcNow,
+        };
+        static DateTimeOffset? CompletedAt(V2Response r) =>
+            r.Body.TryGetProperty("completedAt", out var c) && c.ValueKind != System.Text.Json.JsonValueKind.Null ? c.GetDateTimeOffset() : null;
+        await v2.WriteStateAsync(v2.Alice, bookId, State(fileId, null, step: 9));
+
+        var finished = await v2.WriteStateAsync(v2.Alice, bookId, Finished(1, 9, finishedAt));
+        var moved = await v2.WriteStateAsync(v2.Alice, bookId, State(fileId, 2, step: 3));
+        var finishedAgain = await v2.WriteStateAsync(v2.Alice, bookId, Finished(3, 3, finishedAt.AddMinutes(1)));
+        var read = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"/me/v2/books/{bookId}/reading-state");
+        var reset = await v2.SendAsync(v2.Alice, HttpMethod.Post, $"/me/v2/books/{bookId}/reading-state/reset", new { expectedRevision = 4 });
+        var afterReset = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"/me/v2/books/{bookId}/reading-state");
+
+        Assert.Equal((HttpStatusCode.OK, 2L, finishedAt, 0.9m), (finished.Status, finished.Body.GetProperty("revision").GetInt64(), CompletedAt(finished), finished.Body.GetProperty("bookFraction").GetDecimal()));
+        Assert.Equal((HttpStatusCode.OK, finishedAt), (moved.Status, CompletedAt(moved)));
+        Assert.Equal((HttpStatusCode.OK, finishedAt), (finishedAgain.Status, CompletedAt(finishedAgain)));
+        Assert.Equal((HttpStatusCode.OK, 4L, finishedAt), (read.Status, read.Body.GetProperty("revision").GetInt64(), CompletedAt(read)));
+        Assert.Equal((HttpStatusCode.OK, null), (reset.Status, CompletedAt(reset)));
+        Assert.Equal((HttpStatusCode.OK, 5L, null), (afterReset.Status, afterReset.Body.GetProperty("revision").GetInt64(), CompletedAt(afterReset)));
+    }
+
+    [Fact]
     public async Task PutState_OnTheReplacedFile_IsFileReplacedWithTheNewFile()
     {
         v2.Require();

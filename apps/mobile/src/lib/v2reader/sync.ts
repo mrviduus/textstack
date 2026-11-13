@@ -346,7 +346,7 @@ async function refusedChild(lib: LocalLibrary, reset: Reset, item: OutboxItem, b
  * PDD "Reading state" + "The revision rule": the position on this device's file, `expectedRevision`
  * the one last seen on that file. Lost: an own write is success; `stale_revision` runs ADR-019
  * (`applyStates`: adopt/move take theirs; keep/prompt write ours once more on their revision);
- * `reset` writes again on the new revision (no local frontier to drop); `file_replaced` drops the
+ * `reset` drops the local completion and writes again on the new revision; `file_replaced` drops the
  * write (the old copy keeps reading offline); `unknown_file` / `book_not_found` push the book first.
  */
 async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: OutboxItem, retried = false): Promise<void> {
@@ -358,7 +358,9 @@ async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: 
   // Replaced on another device: no write on this file can land (rule 6).
   if (b.server_file_id !== b.file_id) return drop(lib, reset, item)
   // The scheme fits the file: pdf-page on a PDF, epub-cfi on any other (#1128 S5).
-  const write = positionWrite(JSON.parse(st.position), b.file_id!, st.revision_file_id === b.file_id ? st.revision : null, Date.now(), b.format)
+  const place = positionWrite(JSON.parse(st.position), b.file_id!, st.revision_file_id === b.file_id ? st.revision : null, Date.now(), b.format)
+  // "Finish book" (#1266): sent with every write while it stands; the server keeps the first (`COALESCE`).
+  const write = place && st.completed_at ? { ...place, completedAt: st.completed_at } : place
   // A CBZ page has no quote: no position the server takes yet (PDD "CBZ positions: open question").
   // (A fraction-only position, #1187, is never queued: localLibrary.applyEntry.)
   if (!write) return drop(lib, reset, item)
@@ -375,7 +377,8 @@ async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: 
     }
     switch (err?.code) {
       case 'stale_revision': {
-        if (cur && ownStateWrite(cur, write)) return void (await checked(reset, () => landed(cur)))
+        // Ours only if it holds what we sent: the same place without our completion is not that write.
+        if (cur && ownStateWrite(cur, write) && (!write.completedAt || cur.completedAt)) return void (await checked(reset, () => landed(cur)))
         if (!cur) {
           await checked(reset, () => lib.setStateRevision(b.id, null, null))
           return again()
@@ -385,7 +388,7 @@ async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: 
         return !owed.length || owed[0].action === 'prompt' ? again() : undefined
       }
       case 'reset':
-        await checked(reset, () => lib.setStateRevision(b.id, cur?.revision ?? null, cur?.fileId ?? null))
+        await checked(reset, () => lib.stateReset(b.id, cur?.revision ?? null, cur?.fileId ?? null))
         return again()
       case 'file_replaced':
         return void (await checked(reset, () => Promise.all([lib.setServerFile(b.id, (err.currentFile ?? null) as V2BookFile | null), lib.done(item)])))

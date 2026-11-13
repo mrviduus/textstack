@@ -16,6 +16,10 @@
  * - Another device's place on a lost write (#1232): ours is written again on their revision, and when theirs is
  *   provably newer than this tab's last saved (or restored) place (ADR-019, `decideServerState`) it is offered
  *   (`onNewerPlace`). The reader is never moved by the session: a position write exists only because they moved.
+ * - **Finish book** (#1266, `complete`): the state the server holds, written again with `completedAt` on its
+ *   revision, which the session then holds (a write from outside the session would make its next position
+ *   write lose and offer the reader their own place as another device's). Online-only: a failure is the host's
+ *   error with a retry.
  *
  * The one local exception: a CBZ page position (no server form yet, #1188) is kept in this browser per book.
  *
@@ -94,6 +98,11 @@ export interface V2ReaderSync {
   flush(): Promise<void>
   /** The tab is going away: what is unsaved, by keepalive writes (the position first, within the budget). */
   flushKeepalive(): void
+  /**
+   * Finish book (#1266): resolves to the book's `completedAt` once the server holds it (its own, when the book
+   * was already finished: set once). Rejects when it did not land; calling again is the retry.
+   */
+  complete(): Promise<string>
   /** Another open, or the host unmounted: one last pass of what is unsaved, then nothing more is written. */
   close(): Promise<void>
 }
@@ -120,6 +129,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   onHighlights(list: PageHighlight[]): void
   /** Another device's place, provably newer than this tab's last save: offered (ours is written anyway). */
   onNewerPlace(p: PagePosition): void
+  /** The book's completion as the restore's read found it (null: not finished): the host's Finish book block (#1266). */
+  onCompleted?(completedAt: string | null): void
   /** Waited for before the first read; by default the last session of this book still writing (a reopen). */
   after?: Promise<unknown>
   /** False where the page offers no highlights (a PDF, a CBZ): no annotations pull. */
@@ -325,6 +336,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       // A CBZ page lives in this browser only (#1188).
       position = t.format === 'cbz' ? imagePage(t.bookId) : onFile && statePosition(onFile, t.format)
       ready = true
+      o.onCompleted?.(onFile?.completedAt ?? null)
       return JSON.stringify(pageEntry({ sha256: t.sha256, size: t.size, name: t.name }, position, []))
     },
     loadHighlights,
@@ -361,6 +373,26 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
         left -= size
         send(body)
       }
+    },
+    async complete() {
+      if (!current() || !ready) throw new Error('the book is not open')
+      // The place on screen first: the completion is written with the place the server then holds.
+      await (running ?? (latest ? kick() : undefined))
+      if (gone) throw new Error('the book changed on the server')
+      const s = await api.getReadingState(t.bookId)
+      // ponytail: a book finished without ever moving in it (one screen long) has no state to complete; the
+      // first-locator write `completeV2Book` makes for the shelf can be added here if that is ever met.
+      if (s?.fileId !== t.fileId) throw new Error('no reading state on this file yet')
+      // As it stands (owner 2026-11-13: the real fraction; the same locator and instant, so no device takes
+      // this for a newer place), plus the completion. Already finished: nothing written (set once).
+      const done = s.completedAt ? s : await api.putReadingState(t.bookId, {
+        expectedRevision: s.revision, fileId: s.fileId, currentLocator: s.currentLocator, bookFraction: s.bookFraction,
+        completedAt: new Date().toISOString(), clientRecordedAt: s.clientRecordedAt,
+      })
+      if (!done.completedAt) throw new Error('the server did not keep the completion')
+      // Read before a position write of this session landed (one sent meanwhile): never a revision back.
+      if (live() && (revision ?? 0) < done.revision) revision = done.revision
+      return done.completedAt
     },
     close() {
       if (closing) return closing

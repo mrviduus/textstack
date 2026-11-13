@@ -37,6 +37,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `prodCsp.check.mjs` | The production-CSP gate (CI): shell + script under the app CSP read from nginx; the refused variants; nginx's reader locations against the handler's headers. |
 | `openTracker.mjs` (+ `.d.mts`) | Pure, both hosts: which page answer belongs to which open — the open in flight, a book the page kept on screen while a newer open failed, a stale `restored` (dropped). |
 | `tapZone.mjs` (+ `.d.mts`) | Pure, both hosts (#1263): what a page `tap` does (turn back, turn on, toggle the bars). See Host responsibilities, "Reader chrome" and "Bars and tap zones, web". |
+| `finishBook.mjs` (+ `.d.mts`) | Pure, both hosts (#1266): `showsFinishBook`, when the end-of-book block shows. See Host responsibilities, "Finish book". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
 | `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
@@ -393,6 +394,18 @@ target in the spread already shown counts as arrived (foliate shows it without a
 - **Serialise library writes.** `library.mjs` is pure; two concurrent imports writing `library.json` can still lose one (web dev host). The web dev host never writes over a stored library that does not parse: it says so and adds nothing (#1081). The Android host runs every row write on one queue.
 - The R2 host passes its file path (`staging/<ts>.epub` or `books/<sha256>.epub`) as `openUrl`'s `name` to match each answer to its open, so the page's stored `book.name` is that path until the contract gains an explicit open id (#1069).
 - **Sync (R6, Android):** opportunistic, never on the reading path: with a session, on screen open, on each book open and 10 s after a save. ADR-019 needs the host's view of the open book (restored yet, the first CFI after the restore, the one now, the spine index from `relocate`); a newer position from another device is gone to (`adopt`/`move`) or offered (`prompt`). File sync is a per-device setting, off by default.
+- **Finish book (#1266), both hosts:** host UI, never injected into the book. The block shows while `relocate.atEnd`
+  is true (`showsFinishBook`; never guessed from the fraction) and is hidden on CBZ until its state can be written
+  (#1188). A finished book shows the finished label instead of the button, and keeps its real fraction. Known limit
+  (#1297): in scrolled flow one continuous scroll right after a jump sends no `relocate`, so the block can come late.
+  - Android: local first (`localLibrary.finish`: `reading_state.completed_at`, set once), no token and no network;
+    the `state` outbox entry carries it (`pushState` sends `completedAt` with the place while it stands). A pull takes
+    the server's `completedAt`; a reset the device has not seen (a pull's `resetRevision` past the revision last seen,
+    or a `reset` 409) clears it; an adopted position keeps a finish the server does not have queued. The list shows
+    "Finished".
+  - Web: online, through the open book's session (`v2ReaderSync.complete`: the state as the server holds it plus
+    `completedAt`, on its revision, which the session then holds). A failure is said with a retry. The library reads
+    `completedAt` from the reading feed.
 - `<documents>/v2/` is not yet counted in Device Storage nor wiped on sign-out (#1070): local books belong to the device until the owner decides otherwise; a sign-out forgets what the server told that identity, never unpushed rows.
 
 **Reader chrome** (Android, #1263/#1264; the decisions are `tapZone.mjs` and `chrome.mjs`, the bars and footer are the legacy

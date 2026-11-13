@@ -9,6 +9,8 @@ import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } fr
 import { tapAction } from '../../../../mobile/src/lib/v2reader/tapZone.mjs'
 import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs'
 import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readRelocate, readTap, readWordTap, takenWithoutBook, type V2NavKey } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
+import { showsFinishBook } from '../../../../mobile/src/lib/v2reader/finishBook.mjs'
+import { V2FinishBook } from './V2FinishBook'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
@@ -152,6 +154,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   /** Another device's newer place, offered (#1232, ADR-019 `prompt`); the newest one shown until answered or a new open. */
   const [offer, setOffer] = useState<PagePosition | null>(null)
   /**
+   * Finish book (#1266): the book's end is on screen (`relocate.atEnd`); the synced book's format and its
+   * completion (undefined: no session, or its reading state not read yet: no block; null: not finished).
+   */
+  const [atEnd, setAtEnd] = useState(false)
+  const [finish, setFinish] = useState<{ format: string; completedAt?: string | null } | null>(null)
+  /**
    * The bars (#1263): hidden 3 s after `opened`, by a page turn (tap, key) and by the reader moving the place
    * (`relocate.moved`, either flow) unless a bar button or the taken offer moved it; a centre tap toggles them,
    * Esc and focus on a bar show them. A new open shows them (its title is the opening state) and they stay up
@@ -221,6 +229,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setHeading(t('v2Reader.opening', { name: book.name }))
     setStatus('')
     setRestored('')
+    setAtEnd(false)
     // The opening state is the top bar's title: shown, and kept up until `opened`.
     setReading(false)
     showBars()
@@ -261,6 +270,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       setSaveStatus('saved')
       setHighlightsReady(false)
       setReadFailed(false)
+      setAtEnd(false)
+      setFinish(null)
       const target = current.sync
       if (dev) call('restore', [readItem(storeKey(m.book.sha256))])
       else if (!target) call('restore', [null])
@@ -280,6 +291,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           highlights: m.annotatable !== false,
           // A later offer replaces the one shown (the newest place).
           onNewerPlace: setOffer,
+          onCompleted: (completedAt) => { if (sync.current === s) setFinish({ format: target.format, completedAt }) },
         })
         sync.current = s
         // Only while this take is the open one: a later take closed `s`, and its answers are none of this book's.
@@ -367,6 +379,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (!tracker.showsPosition()) return
           setStatus(t('v2Reader.position', { percent: Math.round((r.fraction ?? 0) * 100), index: (r.index ?? 0) + 1, sections: r.sections ?? '?' })
             + (r.toc ? ` · ${r.toc}` : ''))
+          setAtEnd(r.atEnd)
           return
         }
         case 'tap':
@@ -436,6 +449,14 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     if (barsHidden && at && (header.current?.contains(at) || footer.current?.contains(at))) main.current?.focus({ preventScroll: true })
   }, [barsHidden])
 
+  /** Finish book: through the open book's session; an answer for a book no longer the open one changes nothing. */
+  const finishBook = async () => {
+    const s = sync.current
+    if (!s) throw new Error('no book to finish')
+    const completedAt = await s.complete()
+    if (sync.current === s) setFinish({ format: s.target.format, completedAt })
+  }
+
   const toggleFlow = () => {
     const next: Flow = flow === 'paginated' ? 'scrolled' : 'paginated'
     setFlow(next)
@@ -478,6 +499,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             {/* Chosen: the page saves where it lands (README, `goTo`). */}
             <button onClick={() => { hostMove('goTo', [offer, true]); setOffer(null) }}>{t('v2Reader.goThere')}</button>
           </div>
+        )}
+        {finish && finish.completedAt !== undefined && showsFinishBook({ atEnd, format: finish.format }) && (
+          <V2FinishBook finished={!!finish.completedAt} onFinish={finishBook} />
         )}
         {readFailed && (
           <span role="alert" data-testid="v2-read-failed">

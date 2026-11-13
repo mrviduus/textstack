@@ -634,6 +634,8 @@
   "reader.chrome.prevPage": "Previous page",
   "reader.chrome.nextPage": "Next page",
   "reader.chrome.dismiss": "Dismiss",
+  "reader.chrome.finishBook": "Finish book",
+  "reader.chrome.finished": "Finished",
   "reader.newerElsewhere.message": "You read further on another device: {target}",
   "reader.newerElsewhere.action": "Go there",
   "reader.newerElsewhere.page": "page {page}",

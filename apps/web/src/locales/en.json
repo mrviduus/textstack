@@ -503,6 +503,10 @@
     "newerPlace": "Another device saved a newer place in this book ({{percent}}%).",
     "stayHere": "Stay here",
     "goThere": "Go to their place",
+    "finishBook": "Finish book",
+    "finishing": "Saving…",
+    "finished": "You finished this book.",
+    "finishFailed": "Could not mark the book as finished. Check your connection and try again.",
     "back": "Back to the library"
   },
   "library": {
