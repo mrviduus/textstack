@@ -36,6 +36,8 @@ async function expectOpened(page: Page) {
 /** A signed-in context for `email`; skipped when V2 is off (unless V2_E2E=1). */
 async function v2Context(browser: { newContext(): Promise<BrowserContext> }, email: string) {
   const context = await browser.newContext()
+  // The cookie banner sits over the reader's bottom bar (Prev / Next) until it is answered.
+  await context.addInitScript(() => localStorage.setItem('cookieConsent', 'rejected'))
   await testLogin(context.request, email)
   const probe = await context.request.get(`${API_URL}/me/v2/status`, { headers: API_HEADERS })
   test.skip(probe.status() === 404 && process.env.V2_E2E !== '1', 'Features:V2Api is off: /me/v2 is not mapped')
