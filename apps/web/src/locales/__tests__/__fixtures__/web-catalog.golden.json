@@ -1354,6 +1354,7 @@
   "v2Reader.finishing": "Saving…",
   "v2Reader.finished": "You finished this book.",
   "v2Reader.finishFailed": "Could not mark the book as finished. Check your connection and try again.",
+  "v2Reader.finishNoPlace": "Your place in this book is not saved yet. Turn a page or scroll a little, then try again.",
     "v2Reader.back": "Back to the library",
   "v2Reader.contents": "Contents",
   "v2Reader.closeContents": "Close contents",

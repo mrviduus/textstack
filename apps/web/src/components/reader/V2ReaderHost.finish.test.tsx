@@ -53,7 +53,8 @@ async function reader(o: { target?: V2SyncTarget; server?: V2ReadingState | null
     screen.getByRole('button', { name }).click()
     await new Promise((r) => setTimeout(r, 0))
   })
-  return { put, relocate, click, openBook, pick, fromPage }
+  const setServer = (st: V2ReadingState | null) => { server = st }
+  return { put, relocate, click, openBook, pick, fromPage, setServer }
 }
 const block = () => screen.queryByTestId('v2-finish')
 
@@ -154,5 +155,49 @@ describe('V2ReaderHost finish book (#1266)', () => {
     expect(block()).toBeNull()
     await relocate({ atEnd: true })
     expect(block()).not.toBeNull()
+  })
+
+  it('block_OutOfTheNoticesBox_ShowingItNeverResizesTheFrame', async () => {
+    const { relocate } = await reader()
+    await relocate({ atEnd: true })
+    const b = screen.getByTestId('v2-finish-block')
+    expect(b).toContainElement(block())
+    // Not in the states box (in layout above the frame): its own fixed strip over the frame.
+    expect(b.closest('.v2-reader__notices')).toBeNull()
+    expect(b.parentElement).toBe(document.querySelector('main.v2-reader'))
+    expect(b).toHaveClass('v2-reader__finish')
+  })
+
+  it('open_TheBooksFirstRelocateIsItsEndAndComesBeforeOpened_BlockShown', async () => {
+    const { pick, fromPage } = await reader()
+    const answer = pick({ ...T, name: 'short.epub' })
+    // A book one screen long: its only relocate (atEnd) comes before its `opened`.
+    await fromPage({ type: 'relocate', cfi: cfi(0), index: 0, sections: 1, fraction: 0, atEnd: true })
+    await answer()
+    expect(block()).not.toBeNull()
+  })
+
+  it('finished_ThenAResetElsewhere_ButtonBackWithoutReopening', async () => {
+    const { put, relocate, click, fromPage, setServer } = await reader()
+    await relocate({ atEnd: true })
+    await click('Finish book')
+    expect(screen.getByTestId('v2-finished')).toBeInTheDocument()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const reset = state(9, { resetRevision: 9 })
+    setServer(reset)
+    put.mockImplementationOnce(async () => { throw Object.assign(new ApiError(409, 'reset'), { body: { code: 'reset', message: '', current: reset } }) })
+    const entry = JSON.stringify({ v: 1, book: { sha256: SHA, size: 8, name: T.name }, position: { cfi: cfi(8), quote: 'quote 8', index: 8, fraction: 0.9, at: Date.now() }, highlights: [] })
+    await fromPage({ type: 'store', key: SHA, json: entry })
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+    expect(screen.queryByTestId('v2-finished')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Finish book' })).toBeEnabled()
+  })
+
+  it('finish_NoPlaceSavedYet_SaysWhatToDo', async () => {
+    const { relocate, click } = await reader({ server: null })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await relocate({ atEnd: true })
+    await click('Finish book')
+    expect(screen.getByRole('alert')).toHaveTextContent('Turn a page or scroll a little, then try again.')
   })
 })

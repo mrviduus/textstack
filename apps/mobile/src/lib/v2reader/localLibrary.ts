@@ -468,18 +468,20 @@ export function createLocalLibrary(db: Db) {
 
     /**
      * "Finish book" (#1266): the book is finished on this device now, and the state is queued so the server
-     * learns it (sync.ts `pushState` sends `completedAt` with the position). Set once (PDD "Reading state"):
-     * a finished book stays as it is and nothing is queued again (a double tap). False: no such book, or
-     * already finished.
+     * learns it (sync.ts `pushState` sends `completedAt` with the position). Keyed by the bytes, not an id: a
+     * sync can re-key the open book (an adopt by sha256) while it is read, and the row found here is its
+     * current one. Set once (PDD "Reading state"): a finished book stays as it is and nothing is queued again
+     * (a double tap). False: no such book here, or already finished.
      */
-    finish: (bookId: string, at = new Date().toISOString()) => tx(async () => {
-      if (!(await bookById(bookId)) || (await stateOf(bookId))?.completed_at) return false
+    finish: (sha256: string, at = new Date().toISOString()) => tx(async () => {
+      const b = await bookBySha(sha256)
+      if (!b || (await stateOf(b.id))?.completed_at) return false
       await run(
         `INSERT INTO reading_state (book_id, completed_at) VALUES (?, ?)
          ON CONFLICT (book_id) DO UPDATE SET completed_at = excluded.completed_at`,
-        [bookId, at],
+        [b.id, at],
       )
-      await enqueue('state', bookId)
+      await enqueue('state', b.id)
       return true
     }),
 
@@ -590,10 +592,19 @@ export function createLocalLibrary(db: Db) {
     /** A reading-state write landed or lost to a row we keep ours over: the revision the next write names. */
     setStateRevision: (bookId: string, revision: number | null, fileId: string | null) => job(() => upsertRevision(bookId, revision, fileId)),
 
-    /** A write lost to a `reset` (PDD: the book was restarted elsewhere): the new revision, and the completion dropped. */
-    stateReset: (bookId: string, revision: number | null, fileId: string | null) => tx(async () => {
-      await upsertRevision(bookId, revision, fileId)
-      await run('UPDATE reading_state SET completed_at = NULL WHERE book_id = ?', [bookId])
+    /**
+     * A reading-state write's answer as the server holds it (it landed, our own write found on a conflict, a
+     * `reset` 409's current; null: none): its revision, and its `completedAt` (PDD: set once, cleared only by a
+     * reset). `sent` is the completion that write carried: a finish tapped here while it was in flight is not
+     * the write's to clear, so it stays unless the server has one.
+     */
+    takeState: (bookId: string, s: V2ReadingState | null, sent: string | null) => tx(async () => {
+      await upsertRevision(bookId, s?.revision ?? null, s?.fileId ?? null)
+      const theirs = s?.completedAt ?? null
+      await run(
+        'UPDATE reading_state SET completed_at = CASE WHEN completed_at IS ? THEN ? ELSE COALESCE(?, completed_at) END WHERE book_id = ?',
+        [sent, theirs, theirs, bookId],
+      )
     }),
 
     /** An annotation as the server holds it (accepted, own write, kept server's, tombstone). */
@@ -669,7 +680,9 @@ export function createLocalLibrary(db: Db) {
           [s.bookId, JSON.stringify(position), s.fileId, s.revision, s.fileId],
         )
         const wasReset = s.resetRevision != null && st?.revision != null && st.revision_file_id === s.fileId && s.resetRevision > st.revision
-        const completed = s.completedAt ?? (wasReset ? null : st?.completed_at ?? null)
+        // Finished here on another file version (replaced since): not this file's completion.
+        const otherFile = st?.revision_file_id != null && st.revision_file_id !== s.fileId
+        const completed = s.completedAt ?? (wasReset || otherFile ? null : st?.completed_at ?? null)
         const setCompleted = () => run('UPDATE reading_state SET completed_at = ? WHERE book_id = ?', [completed, s.bookId])
         if (book.imported_at == null) {
           await (position ? setAll() : upsertRevision(s.bookId, s.revision, s.fileId))

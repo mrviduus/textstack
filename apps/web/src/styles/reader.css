@@ -982,6 +982,43 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   margin: 0;
 }
 
+/* Finish book (#1266): over the frame, just above the bottom bar (its height measured by the host), out of flow so
+   showing it never resizes the frame. Only the pill takes clicks; the rest of the strip lets them reach the book. */
+.v2-reader__finish {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--cookie-banner-height, 0px) + var(--v2-finish-above, 0px) + 12px);
+  z-index: 51;
+  display: flex;
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+  transition: bottom 0.3s ease;
+}
+
+.v2-reader__finish > * {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 8px 16px;
+  border-radius: 22px;
+  background: var(--reader-bar-bg);
+  border: 1px solid var(--reader-border);
+  backdrop-filter: blur(10px);
+  font-size: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v2-reader__finish {
+    transition: none;
+  }
+}
+
 /* The entries before and after the reader's place (#1261), by title: one line each, at the two ends. */
 .v2-reader__sections {
   display: flex;

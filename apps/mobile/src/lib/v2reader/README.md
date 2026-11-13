@@ -400,14 +400,25 @@ target in the spread already shown counts as arrived (foliate shows it without a
   is true (`showsFinishBook`; never guessed from the fraction) and is hidden on CBZ until its state can be written
   (#1188). A finished book shows the finished label instead of the button, and keeps its real fraction. Known limit
   (#1297): in scrolled flow one continuous scroll right after a jump sends no `relocate`, so the block can come late.
-  - Android: local first (`localLibrary.finish`: `reading_state.completed_at`, set once), no token and no network;
-    the `state` outbox entry carries it (`pushState` sends `completedAt` with the place while it stands). A pull takes
-    the server's `completedAt`; a reset the device has not seen (a pull's `resetRevision` past the revision last seen,
-    or a `reset` 409) clears it; an adopted position keeps a finish the server does not have queued. The list shows
-    "Finished".
+  `atEnd` is cleared where an open starts, never on `opened`: a book one screen long sends its only relocate (its
+  end) before `opened`. The block is out of flow over the book (web: fixed above the bottom bar, its height
+  measured; Android: the pill), never in the states box: resizing the frame re-lays out the book, `atEnd` turns
+  false, the block hides, and it loops.
+  - Android: local first (`localLibrary.finish`, keyed by the bytes' sha256 so a sync re-keying the open book still
+    finishes its current row: `reading_state.completed_at`, set once), no token and no network; the `state` outbox
+    entry carries it (`pushState` sends `completedAt` with the place while it stands). With no place the server takes
+    (none yet, fraction-only) the entry stays queued, never dropped, and a sign-out counts it. Every server state
+    taken (a pull, a write's answer, an own write on a conflict, a `reset` 409's current) takes the server's
+    `completedAt` (`takeState`: a finish tapped while a write without it was in flight is kept); a reset the device
+    has not seen (a pull's `resetRevision` past the revision last seen) clears it; a completion made on another file
+    version is not carried to a new one; an adopted position keeps a finish the server does not have queued. The
+    list shows "Finished".
   - Web: online, through the open book's session (`v2ReaderSync.complete`: the state as the server holds it plus
-    `completedAt`, on its revision, which the session then holds). A failure is said with a retry. The library reads
-    `completedAt` from the reading feed.
+    `completedAt`, on its revision, which the session then holds). A state read there on an unseen revision goes
+    through the lost-write check (own write, or another device's place offered); lost to the session's own position
+    write, it is written once more; a close waits for it. Every state the session takes tells the host the
+    completion, so a reset elsewhere brings the button back. A failure is said with a retry; no place saved yet says
+    to move first. The library reads `completedAt` from the reading feed.
 - `<documents>/v2/` is not yet counted in Device Storage nor wiped on sign-out (#1070): local books belong to the device until the owner decides otherwise; a sign-out forgets what the server told that identity, never unpushed rows.
 
 **Reader chrome** (Android, #1263/#1264; the decisions are `tapZone.mjs` and `chrome.mjs`, the bars and footer are the legacy

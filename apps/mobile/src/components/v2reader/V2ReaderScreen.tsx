@@ -267,8 +267,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const userId = user?.id ?? null
   /** The direction the open book pages in (`opened`, then every `relocate`): the keys and the tap zones follow it. */
   const pageDir = useRef<'ltr' | 'rtl'>('ltr')
-  /** The open book as ADR-019 sees it (R6): its row, and whether the reader moved since the restore (movedTracker.mjs). */
-  const reading = useRef({ bookId: null as string | null })
+  /**
+   * The open book as ADR-019 sees it (R6): its row, and whether the reader moved since the restore (movedTracker.mjs).
+   * `sha256`: its bytes, the key Finish book uses (#1266): a sync can re-key the row while it is read.
+   */
+  const reading = useRef({ bookId: null as string | null, sha256: null as string | null })
   const [place] = useState(createMovedTracker)
   /** The open book's contents (#1261, toc.mjs); the reader's place in them as of the last relocate, read when the sheet opens. */
   const [toc, setToc] = useState<V2TocEntry[]>([])
@@ -343,6 +346,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const endBook = () => {
     opening.current = null
     reading.current.bookId = null
+    reading.current.sha256 = null
     place.open()
     setReflowable(true)
     setAtEnd(false)
@@ -461,6 +465,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
     tracker.open(target.file, opening.current)
     reading.current.bookId = null
+    reading.current.sha256 = null
     place.open()
     setOffer(null)
     setOpenError(null)
@@ -483,7 +488,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     opening.current = t.open
     setReflowable(t.opened.reflowable !== false)
     setFormat(typeof t.opened.format === 'string' ? t.opened.format : null)
-    setAtEnd(false)
+    // Not `atEnd`: it was cleared where the open started; the book's first relocate (its end, for a book one
+    // screen long) comes before this `opened` and must stand.
     onOpened(t.open, t.opened).catch(fail('opened', setOpenError))
   }
 
@@ -531,6 +537,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (superseded()) return
     opening.current = { ...current, file: retained }
     reading.current.bookId = bookId
+    reading.current.sha256 = m.book.sha256
     sync.current()
   }
 
@@ -666,15 +673,19 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
 
   /**
-   * Finish book (#1266): local first (no token, no network), then the outbox carries it. The page's pending
-   * save is flushed so the place the completion is sent with is the one on screen.
+   * Finish book (#1266): local first (no token, no network), then the outbox carries it. The open book is found
+   * by its bytes, so a re-key by a sync while it is read still finishes it. `flushPage()` only asks the page for
+   * its pending save: that `store` comes back as a message after this write, and is queued again when it lands.
+   * The completion goes with whatever place is stored when the push runs, and the flushed place follows on the
+   * next pass, still carrying `completedAt` (sent with every write while it stands).
    */
-  const openBook = books.find((b) => b.id === reading.current.bookId)
+  const openSha = reading.current.sha256
+  const openBook = openSha ? books.find((b) => b.local && b.sha256 === openSha) : undefined
   const finishBook = () => {
-    const id = reading.current.bookId
-    if (!id) return
+    const sha = reading.current.sha256
+    if (!sha) return
     flushPage()
-    v2Storage().finishBook(id).then((list) => {
+    v2Storage().finishBook(sha).then((list) => {
       setBooks(list)
       sync.current()
     }, fail('finish book', setError))

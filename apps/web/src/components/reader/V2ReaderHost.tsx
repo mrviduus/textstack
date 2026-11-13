@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { PagePosition } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
@@ -286,7 +286,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       setSaveStatus('saved')
       setHighlightsReady(false)
       setReadFailed(false)
-      setAtEnd(false)
+      // Not `atEnd`: cleared where the open started; this book's first relocate (its end, for a book one screen
+      // long) comes before its `opened` and must stand.
       setFinish(null)
       const target = current.sync
       if (dev) call('restore', [readItem(storeKey(m.book.sha256))])
@@ -307,7 +308,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           highlights: m.annotatable !== false,
           // A later offer replaces the one shown (the newest place).
           onNewerPlace: setOffer,
-          onCompleted: (completedAt) => { if (sync.current === s) setFinish({ format: target.format, completedAt }) },
+          // Every server state the session takes: a reset elsewhere brings the button back.
+          onCompleted: (completedAt) => {
+            if (sync.current === s) setFinish((f) => (f?.completedAt === completedAt ? f : { format: target.format, completedAt }))
+          },
         })
         sync.current = s
         // Only while this take is the open one: a later take closed `s`, and its answers are none of this book's.
@@ -462,6 +466,16 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     return () => removeEventListener('keydown', onKey)
   }, [])
 
+  /** The bottom bar's height: the Finish book block sits just above it. */
+  const [footerHeight, setFooterHeight] = useState(0)
+  useEffect(() => {
+    const f = footer.current
+    if (!f || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => setFooterHeight(f.offsetHeight))
+    ro.observe(f)
+    return () => ro.disconnect()
+  }, [])
+
   // Hidden bars keep no focus: an invisible control must not be activated by a key.
   useEffect(() => {
     const at = document.activeElement
@@ -532,9 +546,6 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             <button onClick={() => { hostMove('goTo', [offer, true]); setOffer(null) }}>{t('v2Reader.goThere')}</button>
           </div>
         )}
-        {finish && finish.completedAt !== undefined && showsFinishBook({ atEnd, format: finish.format }) && (
-          <V2FinishBook finished={!!finish.completedAt} onFinish={finishBook} />
-        )}
         {readFailed && (
           <span role="alert" data-testid="v2-read-failed">
             {t('v2Reader.readFailed')} <button onClick={() => retryRead.current?.()}>{t('v2Reader.retry')}</button>
@@ -568,6 +579,13 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           <button className="reader-top-bar__btn" onClick={() => hostMove('next')}>{t('v2Reader.next')}</button>
         </div>
       </footer>
+      {/* Over the frame, above the bottom bar (or the screen's edge with the bars hidden), out of flow: showing it
+          must never resize the frame, or foliate re-lays out, `atEnd` turns false, the block hides, and it loops. */}
+      {finish && finish.completedAt !== undefined && showsFinishBook({ atEnd, format: finish.format }) && (
+        <div className="v2-reader__finish" data-testid="v2-finish-block" style={{ '--v2-finish-above': `${barsHidden ? 0 : footerHeight}px` } as CSSProperties}>
+          <V2FinishBook finished={!!finish.completedAt} onFinish={finishBook} />
+        </div>
+      )}
       <V2TocDrawer open={tocOpen && reading} toc={toc} tocIndex={tocIndex} onGo={goToc} onClose={() => setTocOpen(false)} />
     </main>
   )

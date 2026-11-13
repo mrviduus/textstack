@@ -136,17 +136,88 @@ describe('createV2ReaderSync complete (#1266)', () => {
     expect(writes()).toEqual([])
   })
 
-  it('complete_LostToAnotherWriter_RejectsAndARetryWritesOnTheNewRevision', async () => {
+  it('complete_LostToAnotherWriter_ReadAgainAndWrittenOnceMoreOnTheNewRevision', async () => {
     const s = await opened()
     api.getReadingState.mockImplementationOnce(async () => {
       const read = server
       server = state(5, 9)
       return read
     })
-    await expect(s.complete()).rejects.toMatchObject({ status: 409 })
-    await s.complete()
+    expect(await s.complete()).toBe(server!.completedAt)
     expect(writes().map((w) => w.expectedRevision)).toEqual([4, 5])
     expect(server!.completedAt).not.toBeNull()
+  })
+
+  it('complete_LostTwice_RejectsAndARetryLands', async () => {
+    const s = await opened()
+    const bump = async () => {
+      const read = server
+      server = state(server!.revision + 1, 9)
+      return read
+    }
+    api.getReadingState.mockImplementationOnce(bump).mockImplementationOnce(bump)
+    await expect(s.complete()).rejects.toMatchObject({ status: 409 })
+    expect(await s.complete()).toBe(server!.completedAt)
+  })
+
+  it('complete_ADebouncedStoreLandsBetweenTheReadAndTheWriteThenTheHostUnmounts_TheCompletionStillLands', async () => {
+    const s = await opened()
+    const before = server
+    let read!: () => void
+    api.getReadingState.mockImplementationOnce(() => new Promise((ok) => { read = () => ok(before) }))
+    const done = s.complete()
+    // The page's debounced save, then the host unmounts right after the click.
+    s.store(entry(pos(8, Date.now())))
+    const closed = s.close()
+    await new Promise((r) => setTimeout(r, 0))
+    read()
+    await expect(done).resolves.toEqual(expect.any(String))
+    await closed
+    expect(writes().map((w) => [w.expectedRevision, !!w.completedAt])).toEqual([[4, false], [4, true], [5, true]])
+    expect(server).toMatchObject({ revision: 6, bookFraction: 0.8, completedAt: expect.any(String) })
+    expect(newer).toEqual([])
+  })
+
+  it('complete_ReadsAnotherDevicesNewerPlace_OfferedThenWrittenOnItsRevision', async () => {
+    const s = await opened()
+    server = state(6, 3, { clientRecordedAt: '2026-11-12T00:00:00.000Z' })
+    await s.complete()
+    expect(newer).toEqual([expect.objectContaining({ cfi: cfi(3) })])
+    expect(writes().map((w) => w.expectedRevision)).toEqual([6])
+  })
+
+  it('complete_ReadsItsOwnLostWrite_NoOffer', async () => {
+    const s = await opened()
+    // Our move landed, its answer lost: the read finds it on a revision the session has not seen.
+    api.putReadingState.mockImplementationOnce(async (_b: string, w: V2ReadingStateWrite) => {
+      server = { ...state(5, 8), currentLocator: w.currentLocator, bookFraction: w.bookFraction, clientRecordedAt: w.clientRecordedAt }
+      throw new ApiError(0, 'offline')
+    })
+    s.store(entry(pos(8, Date.now())))
+    await s.flush()
+    await s.complete()
+    // The unsaved place goes first and finds its own write; the completion on that revision, nothing offered.
+    expect(newer).toEqual([])
+    expect(writes().map((w) => [w.expectedRevision, !!w.completedAt])).toEqual([[4, false], [4, false], [5, true]])
+  })
+
+  it('positionWrites_TheServersCompletionEachTime_HostToldIncludingAResetElsewhere', async () => {
+    const s = await opened()
+    // Finished on another device meanwhile: the next write's answer carries it.
+    server = { ...server!, completedAt: DONE }
+    s.store(entry(pos(8, Date.now())))
+    await s.flush()
+    expect(completed).toEqual([null, DONE])
+    // Restarted elsewhere: the write loses to a reset, its current has no completion.
+    server = state(9, 2, { resetRevision: 9 })
+    api.putReadingState.mockImplementationOnce(async () => {
+      throw Object.assign(new ApiError(409, 'reset'), { body: { code: 'reset', message: '', current: server } })
+    }).mockRejectedValueOnce(new ApiError(0, 'offline'))
+    // The retry does not land either: the conflict's own state is what tells the host.
+    s.store(entry(pos(7, Date.now())))
+    await s.flush()
+    expect(completed[completed.length - 1]).toBeNull()
+    expect(completed).not.toContain(undefined)
   })
 
   it('complete_NoStateOnThisFile_RejectsNothingWritten', async () => {
