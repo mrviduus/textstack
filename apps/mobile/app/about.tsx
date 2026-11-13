@@ -6,7 +6,8 @@ import { useLanguage } from '../src/context/LanguageContext'
 import { fonts } from '../src/theme/typography'
 
 const REPO_URL = 'https://github.com/mrviduus/textstack'
-const SELF_HOST_URL = 'https://mrviduus.github.io/textstack/self-host/'
+const DOCS_URL = 'https://mrviduus.github.io/textstack/'
+const SELF_HOST_URL = `${DOCS_URL}self-host/`
 const CONTACT_EMAIL = 'vasyl.vdov@gmail.com'
 
 export default function AboutScreen() {
@@ -59,6 +60,18 @@ export default function AboutScreen() {
             <Ionicons name="server-outline" size={18} color={colors.text} />
             <Text style={{ fontFamily: fonts.sansMedium, fontSize: 14, color: colors.text }}>
               {t('about.selfHostGuide')}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.osBtn, { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }]}
+            onPress={() => Linking.openURL(DOCS_URL)}
+            accessibilityRole="link"
+            accessibilityLabel={t('about.docs')}
+          >
+            <Ionicons name="book-outline" size={18} color={colors.text} />
+            <Text style={{ fontFamily: fonts.sansMedium, fontSize: 14, color: colors.text }}>
+              {t('about.docs')}
             </Text>
           </TouchableOpacity>
         </View>
