@@ -503,7 +503,11 @@
     "newerPlace": "Another device saved a newer place in this book ({{percent}}%).",
     "stayHere": "Stay here",
     "goThere": "Go to their place",
-    "back": "Back to the library"
+    "back": "Back to the library",
+    "contents": "Contents",
+    "closeContents": "Close contents",
+    "prevSection": "Previous section: {{title}}",
+    "nextSection": "Next section: {{title}}"
   },
   "library": {
     "continue": "Continue",

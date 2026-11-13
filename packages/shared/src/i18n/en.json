@@ -644,7 +644,11 @@
       "back": "Back",
       "prevPage": "Previous page",
       "nextPage": "Next page",
-      "dismiss": "Dismiss"
+      "dismiss": "Dismiss",
+      "contents": "Contents",
+      "closeContents": "Close contents",
+      "prevSection": "Previous section: {title}",
+      "nextSection": "Next section: {title}"
     },
     "newerElsewhere": {
       "message": "You read further on another device: {target}",

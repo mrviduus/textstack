@@ -9,6 +9,8 @@ import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } fr
 import { tapAction } from '../../../../mobile/src/lib/v2reader/tapZone.mjs'
 import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs'
 import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readRelocate, readTap, readWordTap, takenWithoutBook, type V2NavKey } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
+import { readToc, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
+import { V2SectionNav, V2TocDrawer } from './V2ReaderToc'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
@@ -151,6 +153,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const retryRead = useRef<(() => void) | null>(null)
   /** Another device's newer place, offered (#1232, ADR-019 `prompt`); the newest one shown until answered or a new open. */
   const [offer, setOffer] = useState<PagePosition | null>(null)
+  /** The open book's contents (#1261, toc.mjs) and the reader's place in them; shown only while `reading`. */
+  const [toc, setToc] = useState<V2TocEntry[]>([])
+  const [tocIndex, setTocIndex] = useState<number | null>(null)
+  const [tocOpen, setTocOpen] = useState(false)
   /**
    * The bars (#1263): hidden 3 s after `opened`, by a page turn (tap, key) and by the reader moving the place
    * (`relocate.moved`, either flow) unless a bar button or the taken offer moved it; a centre tap toggles them,
@@ -299,6 +305,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       }
       setAnnotatable(m.annotatable !== false)
       setReflowable(m.reflowable !== false)
+      // Untrusted: only what readToc takes. The place comes with this book's first relocate.
+      setToc(readToc(m))
+      setTocIndex(null)
+      setTocOpen(false)
       setReading(true)
       // Untrusted (the page renders the book): only what readDir takes; none is left to right.
       pageDir.current = readDir(m) ?? 'ltr'
@@ -365,6 +375,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (readingRef.current && hidesBarsOnRelocate({ moved: r.moved, msSinceHostMove })) hideBars()
           // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
           if (!tracker.showsPosition()) return
+          setTocIndex(r.tocIndex)
           setStatus(t('v2Reader.position', { percent: Math.round((r.fraction ?? 0) * 100), index: (r.index ?? 0) + 1, sections: r.sections ?? '?' })
             + (r.toc ? ` · ${r.toc}` : ''))
           return
@@ -462,6 +473,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         </div>
         <div className="reader-top-bar__right">
           {toolbar}
+          {reading && toc.length > 0 && <button className="reader-top-bar__btn" onClick={() => setTocOpen(true)}>{t('v2Reader.contents')}</button>}
           {annotatable && (dev || highlightsReady) && <button className="reader-top-bar__btn" onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
           <button className="reader-top-bar__btn" onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
         </div>
@@ -504,12 +516,15 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           A second origin is revisited before M5 (docs/01-architecture/v2-reader-web-hosting.md). */}
       <iframe key={frameLoad} ref={frame} title="V2 reader" sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} className="v2-reader__frame" />
       <footer ref={footer} className="reader-footer" onFocus={showBars}>
+        {/* Chosen: the page saves where it lands (README, `goTo`). */}
+        {reading && <V2SectionNav toc={toc} tocIndex={tocIndex} onGo={(href) => hostMove('goTo', [href, true])} />}
         <div className="reader-footer__info v2-reader__footer">
           <button className="reader-top-bar__btn" onClick={() => hostMove('prev')}>{t('v2Reader.prev')}</button>
           <span className="reader-footer__counter" data-testid="v2-status">{status}</span>
           <button className="reader-top-bar__btn" onClick={() => hostMove('next')}>{t('v2Reader.next')}</button>
         </div>
       </footer>
+      <V2TocDrawer open={tocOpen && reading} toc={toc} tocIndex={tocIndex} onGo={(href) => hostMove('goTo', [href, true])} onClose={() => setTocOpen(false)} />
     </main>
   )
 }
