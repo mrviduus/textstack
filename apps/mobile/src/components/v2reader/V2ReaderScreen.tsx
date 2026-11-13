@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
-import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Stack } from 'expo-router'
+import { StatusBar } from 'expo-status-bar'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
@@ -21,11 +23,20 @@ import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
-import { keyAction, readDir, readKey, readTap } from '../../lib/v2reader/chrome.mjs'
+import {
+  BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readRelocate, readTap, readWordTap,
+  reopensOnReady, takenWithoutBook,
+} from '../../lib/v2reader/chrome.mjs'
+import { tapAction } from '../../lib/v2reader/tapZone.mjs'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
 import { USER_AGENT_PROBE, createWebViewCheck, webViewStorePackage, type WebViewVerdict } from '../../lib/v2reader/webViewVersion'
+import { useReaderBars } from '../../hooks/useReaderBars'
+import { useKeepReaderAwake } from '../../hooks/useKeepReaderAwake'
+import { useFlushOnLeave } from '../../hooks/useFlushOnLeave'
+import { ReaderTopBar } from '../reader/ReaderTopBar'
+import { ReaderFooter } from '../reader/ReaderFooter'
 
 /**
  * The V2 reader (ADR-029) on Android, dev builds only: reached through `app/dev/epub-v2.tsx`.
@@ -171,16 +182,39 @@ function UpdateWebViewScreen() {
   )
 }
 
-/** Re-renders alone on every `relocate`, not the WebView beside it. */
-function ProgressLine({ setter, color }: { setter: MutableRefObject<(text: string) => void>; color: string }) {
-  const [text, setText] = useState('')
-  useEffect(() => { setter.current = setText }, [setter])
-  return <Text style={[styles.meta, { color }]}>{text}</Text>
+/** Where the reader is, from the last `relocate` through `readRelocate`; null: nothing to show yet. */
+type Place = { fraction: number | null; index: number | null; sections: number | null; toc: string } | null
+
+/**
+ * The bottom bar (the legacy reader's footer): re-renders alone on every `relocate`, not the WebView beside it.
+ * Its prev/next are page turns for now.
+ */
+function V2Footer({ setter, ...props }: { setter: MutableRefObject<(p: Place) => void> } & Omit<
+  Parameters<typeof ReaderFooter>[0],
+  'bookProgress' | 'chapterTitle' | 'currentChapterIndex' | 'totalChapters' | 'timeLeftLabel' | 'hasPrev' | 'hasNext'
+>) {
+  const [place, setPlace] = useState<Place>(null)
+  useEffect(() => { setter.current = setPlace }, [setter])
+  return (
+    <ReaderFooter
+      {...props}
+      bookProgress={place?.fraction ?? null}
+      chapterTitle={place?.toc ?? ''}
+      currentChapterIndex={place?.index ?? -1}
+      totalChapters={place?.sections ?? 0}
+      timeLeftLabel={null}
+      hasPrev={!!place}
+      hasNext={!!place}
+    />
+  )
 }
+
+/** The page writes a save it still holds back (README `flush()`); `__fol` is absent only before the page ran. */
+const FLUSH_JS = 'window.__fol && window.__fol.flush();true'
 
 /** `verdict` other than `ok` (no or no readable answer yet): an old WebView is a likely cause of a missed `ready`. */
 function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; onUserAgent: (ua: unknown) => void }) {
-  const { colors } = useTheme()
+  const { colors, isDark } = useTheme()
   const { t } = useLanguage()
   const webView = useRef<WebView>(null)
   const [nonce, setNonce] = useState(freshNonce)
@@ -190,7 +224,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const opening = useRef<Opening | null>(null)
   /** Which page answer belongs to which open (openTracker.mjs): a book kept on screen, a stale `restored`. */
   const [tracker] = useState(() => createOpenTracker<Opening>())
-  const setProgress = useRef<(text: string) => void>(() => {})
+  const setProgress = useRef<(p: Place) => void>(() => {})
   const [books, setBooks] = useState<LibraryBook[]>([])
   const [heading, setHeading] = useState(IDLE_HEADING)
   // null until the stored choice is read: the toggle is off until then, so no toggle can race the read.
@@ -217,12 +251,81 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const [fileSync, setFileSync] = useState(false)
   const { user } = useAuth()
   const userId = user?.id ?? null
-  /** The open book as ADR-019 sees it (R6): restored yet, the first CFI after the restore, the one now. */
-  /** The direction the open book pages in (`opened`, then every `relocate`): the arrow keys follow it. */
+  /** The direction the open book pages in (`opened`, then every `relocate`): the keys and the tap zones follow it. */
   const pageDir = useRef<'ltr' | 'rtl'>('ltr')
+  /** The open book as ADR-019 sees it (R6): restored yet, the first CFI after the restore, the one now. */
   const reading = useRef({ bookId: null as string | null, restored: false, baseline: null as string | null, cfi: null as string | null, index: null as number | null })
 
   const call = (js: string) => webView.current?.injectJavaScript(`${js};true`)
+
+  /** A book is on screen (the reader, with its bars) rather than the list; the ref for the message handler. */
+  const [inBook, setInBook] = useState(false)
+  const inBookRef = useRef(false)
+  const setBook = (v: boolean) => {
+    inBookRef.current = v
+    setInBook(v)
+  }
+  /** Counts opens: each one shows the bars and re-arms their auto-hide, also when replayed in the book. */
+  const [opens, setOpens] = useState(0)
+  /** The flow the book pages by: a fixed-layout book pages whatever the setting. */
+  const effectiveFlow: Flow = reflowable ? flow ?? 'scrolled' : 'paginated'
+  const insets = useSafeAreaInsets()
+  // The page keeps the inset it had with the status bar shown: hiding the bars must not resize (re-lay out) the book.
+  const topPad = useRef(0)
+  topPad.current = Math.max(topPad.current, insets.top)
+  const [footerHeight, setFooterHeight] = useState(0)
+  const { barsVisible, barsAnim, topBarTranslateY, footerTranslateY, showBars, hideBars, toggleBars } = useReaderBars({
+    topBarHeight: 56 + insets.top,
+    footerHeight: footerHeight || 60 + insets.bottom,
+    autoHideTrigger: inBook ? opens : 0,
+  })
+  useKeepReaderAwake(inBook)
+  /** The page viewport's width (the WebView's), the space of `tap.x`. */
+  const pageWidth = useRef(0)
+  /** Bar buttons and the taken offer: the page counts their moves as the reader's, but they keep the bars up. */
+  const [hostMoves] = useState(createHostMoves)
+  const barTurn = (dir: 'prev' | 'next') => {
+    hostMoves.start()
+    call(`window.__fol.${dir}()`)
+  }
+
+  // The page's debounced save (400 ms) is written on background (the page also flushes itself when its document
+  // turns hidden); the unmount call is best effort (useFlushOnLeave). Closing a book flushes through CLOSE_BOOK_JS.
+  const flushPage = useCallback(() => { webView.current?.injectJavaScript(FLUSH_JS) }, [])
+  useFlushOnLeave(flushPage)
+
+  /**
+   * Back or the top bar: the list at once (the hidden page takes no tap or key from here), then the book ends
+   * once the page's pending save is in (`CLOSE_BOOK_JS`: `store`, then `book-closed`). No page to flush: at once.
+   */
+  const closeBook = () => {
+    setBook(false)
+    deadlines.answered()
+    if (ready.current) webView.current?.injectJavaScript(CLOSE_BOOK_JS)
+    else endBook()
+  }
+  /** The closed book is no longer the open one: a later `ready` opens nothing, and its per-book state goes. */
+  const endBook = () => {
+    opening.current = null
+    reading.current = { bookId: null, restored: false, baseline: null, cfi: null, index: null }
+    setReflowable(true)
+    pageDir.current = 'ltr'
+    setProgress.current(null)
+    setOffer(null)
+    setHeading(IDLE_HEADING)
+  }
+
+  /**
+   * A `tap` (never a link or a press that dismissed a selection: the page sends none for those), or a `word` at its
+   * rect's centre: an edge turns the page, the centre toggles the bars (tapZone.mjs). A fixed-layout book pages
+   * whatever the flow setting.
+   */
+  const onTap = (p: { x: number; y: number } | null) => {
+    const action = tapAction({ x: p?.x, width: pageWidth.current, flow: effectiveFlow, dir: pageDir.current })
+    if (action === 'toggle') return toggleBars()
+    call(`window.__fol.${action}()`)
+    hideBars()
+  }
   const refreshBooks = () => v2Storage().books().then(setBooks, fail('library', setError))
   useEffect(() => {
     refreshBooks()
@@ -236,6 +339,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    */
   const goTo = (p: PagePosition, chosen = false) => {
     reading.current.baseline = null
+    // A chosen goTo (the taken offer) is `moved` to the page; a sync adopt/move is not.
+    if (chosen) hostMoves.start()
     call(`window.__fol.goTo(${JSON.stringify(p)}, ${chosen})`)
   }
 
@@ -320,7 +425,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setOpenError(null)
     setError(null)
     setHeading(`Opening ${target.name}`)
-    setProgress.current('')
+    setProgress.current(null)
+    setBook(true)
+    showBars()
+    setOpens((n) => n + 1)
     if (!ready.current) return
     deadlines.waitOpened(sizeOf(target.file))
     call(`window.__fol.openUrl(${JSON.stringify(url)}, ${JSON.stringify(target.file)})`)
@@ -379,7 +487,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (isStaged(o.file)) v2Storage().dropStaged(o.file).catch(fail('drop'))
     // The old book may still post a relocate until the page takes up this open (file read + messages in
     // flight); a failure must not leave it standing after open() cleared it (#1168).
-    setProgress.current('')
+    setProgress.current(null)
+    setBook(false)
     // Not the previous book's title (#1080 item 6): the error line names this file.
     setHeading(IDLE_HEADING)
     setOpenError(`cannot open ${o.name}: ${reason}`)
@@ -392,6 +501,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // Until the WebView said what it is, only that answer is taken: on an engine without frame-aware messaging
     // (the patch's fallback bridge) any frame can post, and those engines never get past the update screen.
     if (webViewCheck.verdict() === null && m.type !== 'ua') return
+    // No book on screen: the hidden page's taps, keys, words and selections are not the reader's.
+    if (!inBookRef.current && !takenWithoutBook(m.type)) return
     switch (m.type) {
       case 'ua':
         onUserAgent(m.ua)
@@ -402,10 +513,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         storedFlow().then((f) => {
           call(`window.__fol.flow(${JSON.stringify(f)})`)
           ready.current = true
-          if (opening.current) open(opening.current)
+          if (reopensOnReady({ opening: opening.current, inBook: inBookRef.current })) open(opening.current!)
+          else if (opening.current) endBook() // closed while the page was gone: its book-closed never came
         })
         return
       case 'opened': {
+        // A book closed before its page answered: not taken (no restore, so the page saves nothing for it).
+        if (!inBookRef.current) return deadlines.answered()
         const t = tracker.opened(m)
         if (t) {
           deadlines.answered()
@@ -432,13 +546,20 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         console.log('[v2] restored', JSON.stringify(m))
         reading.current.restored = true
         reading.current.baseline = null
-        setProgress.current(`restore: ${m.position}`)
         return
       case 'store':
         v2Storage().writeStore(m.key, m.json).then(syncSoon, fail('store', setError))
         return
-      case 'relocate':
-        pageDir.current = readDir(m) ?? pageDir.current
+      case BOOK_CLOSED:
+        // The closed book's pending save came first (CLOSE_BOOK_JS); a reopen meanwhile keeps it.
+        if (!inBookRef.current) endBook()
+        return
+      case 'relocate': {
+        // What the chrome shows and follows is read through readRelocate (the page renders untrusted content).
+        const shown = readRelocate(m)
+        // The reader moving the place (the page's `moved`), in either flow, hides the bars; not under a bar button.
+        if (hidesBarsOnRelocate({ moved: !!shown?.moved, msSinceHostMove: hostMoves.onRelocate(Date.now()) })) hideBars()
+        pageDir.current = shown?.dir ?? pageDir.current
         if (reading.current.restored) {
           reading.current.baseline ??= m.cfi ?? null
           reading.current.cfi = m.cfi ?? null
@@ -446,12 +567,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         }
         // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
         if (!tracker.showsPosition()) return
-        setProgress.current(`${Math.round((m.fraction ?? 0) * 100)}% · section ${(m.index ?? 0) + 1}/${m.sections ?? '?'}${m.toc ? ` · ${m.toc}` : ''}`)
+        if (shown) setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc })
         return
+      }
       case 'word':
         // Translation is not this slice: the tap reaches the host and stops here. This host offers no
         // highlight or translation yet, so `opened.annotatable` (false: CBZ, PDF) has nothing to hide here.
         console.log('[v2] word', m.word)
+        onTap(readWordTap(m)) // until the word popup (#1269) replaces it: text is most of the screen
         return
       case 'selection': {
         // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
@@ -460,19 +583,20 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         if (s) console.log(`[v2] selection ${s.text.length} chars, section ${s.index}`)
         return
       }
-      case 'tap': {
-        // Where it landed (#1263), through readTap; no tap zones yet.
-        const p = readTap(m)
-        if (p) console.log(`[v2] tap ${p.x},${p.y}`)
+      case 'tap':
+        onTap(readTap(m))
         return
-      }
       case 'key': {
         // A navigation key pressed in the page (#1263), through readKey: one press, one turn (a held key's
-        // repeats are dropped). Escape ('bars') does nothing until the bars land.
+        // repeats are dropped). A turn hides the bars, as an edge tap does; Escape ('bars') shows them.
         const k = readKey(m)
         if (!k || k.repeat) return
         const a = keyAction({ ...k, dir: pageDir.current })
-        if (a === 'prev' || a === 'next') call(`window.__fol.${a}()`)
+        if (a === 'bars') showBars()
+        else if (a) {
+          call(`window.__fol.${a}()`)
+          hideBars()
+        }
         return
       }
       case 'openLink':
@@ -504,7 +628,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const reload = useCallback(() => {
     ready.current = false
     const o = opening.current
-    if (o) {
+    // Only a book on screen counts a crash; a closed one is ended on the next `ready`.
+    if (o && inBookRef.current) {
       const again = crashedFile.current === o.file
       crashedFile.current = again ? null : o.file
       if (again) giveUp(o, 'this book crashes the reader')
@@ -536,20 +661,20 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setNonce(freshNonce())
   }
 
+  // Android back: the offer, then the book (back to the list), then the route (chrome.mjs backAction).
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      const action = backAction({ offer: !!offer, reading: inBook })
+      if (action === 'close-offer') setOffer(null)
+      else if (action === 'close-book') closeBook()
+      return action !== 'leave'
+    })
+    return () => sub.remove()
+  }, [offer, inBook])
+
   const button = [styles.button, { backgroundColor: colors.primary }]
-  return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]}>
-      <View style={styles.bar}>
-        <Pressable onPress={pick} style={button}><Text style={styles.buttonText}>Pick book</Text></Pressable>
-        <Pressable onPress={() => call('window.__fol.prev()')} style={button}><Text style={styles.buttonText}>‹</Text></Pressable>
-        <Pressable onPress={() => call('window.__fol.next()')} style={button}><Text style={styles.buttonText}>›</Text></Pressable>
-        <Pressable onPress={toggleFlow} disabled={!flow || !reflowable} style={[button, (!flow || !reflowable) && styles.disabled]}><Text style={styles.buttonText}>{flow === 'paginated' ? 'Scrolled' : 'Paginated'}</Text></Pressable>
-        {userId && (
-          <Pressable onPress={toggleFileSync} style={button}><Text style={styles.buttonText}>{fileSync ? 'Files: sync' : 'Files: local'}</Text></Pressable>
-        )}
-      </View>
-      <Text style={[styles.heading, { color: colors.text }]} numberOfLines={1}>{heading}</Text>
-      <ProgressLine setter={setProgress} color={colors.textSecondary} />
+  const notices = (
+    <>
       {overdue && (
         <View style={styles.alert} accessibilityRole="alert" accessibilityLiveRegion="polite">
           <Text style={[styles.meta, { color: colors.error }]}>
@@ -563,49 +688,127 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       {openError && <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{openError}</Text>}
       {error && <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{error}</Text>}
       {offer && (
-        <Pressable onPress={() => { goTo(offer, true); setOffer(null) }} style={styles.offer}>
+        <Pressable onPress={() => { goTo(offer, true); setOffer(null) }} accessibilityRole="button" style={styles.offer}>
           <Text style={[styles.meta, { color: colors.primary }]}>Read further on another device ({Math.round((offer.fraction ?? 0) * 100)}%): go there</Text>
         </Pressable>
       )}
-      {books.length > 0 && (
-        <ScrollView horizontal style={styles.books} contentContainerStyle={styles.booksRow}>
-          {books.map((b) => (
-            <Pressable
-              key={b.id}
-              onPress={() => (b.local ? open({ file: bookFile(b.sha256), name: b.originalName }) : download(b))}
-              style={[styles.book, { borderColor: colors.border }]}
-            >
-              <Text numberOfLines={1} style={[styles.meta, { color: colors.textSecondary }]}>{b.local ? b.title : `↓ ${b.title}`}</Text>
-              {b.notSynced && (
-                <>
-                  <Text numberOfLines={2} style={[styles.meta, { color: colors.error }]}>Not synced: {b.notSynced}</Text>
-                  <Pressable onPress={() => unpark(b)}>
-                    <Text style={[styles.meta, { color: colors.primary }]}>Try again</Text>
-                  </Pressable>
-                </>
+    </>
+  )
+  const hasNotices = !!(overdue || openError || error || offer)
+  const dismissNotices = () => {
+    setError(null)
+    setOpenError(null)
+    setOffer(null)
+  }
+  return (
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <StatusBar hidden={inBook && !barsVisible} style={isDark ? 'light' : 'dark'} />
+      <View
+        // No book on screen: the list covers the page, and TalkBack must not reach the book behind it.
+        importantForAccessibility={inBook ? 'auto' : 'no-hide-descendants'}
+        accessibilityElementsHidden={!inBook}
+        style={[styles.page, { paddingTop: topPad.current, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right }]}
+      >
+        <WebView
+          key={nonce}
+          ref={webView}
+          style={styles.page}
+          onLayout={(e) => { pageWidth.current = e.nativeEvent.layout.width }}
+          // README "WebView": no file access at all (the library's defaults, all off); the page reads its book by
+          // XHR from the interceptor, so no book bytes cross the bridge. `*`: react-native-webview opens a
+          // navigation outside originWhitelist in another app, so the filter is onShouldStartLoadWithRequest below.
+          source={source}
+          originWhitelist={['*']}
+          onMessage={onMessage}
+          // Runs as its own script on page start, so it answers even where the page fails to parse (#1228).
+          injectedJavaScriptBeforeContentLoaded={USER_AGENT_PROBE}
+          onRenderProcessGone={reload}
+          onContentProcessDidTerminate={reload}
+          // The page never navigates; only its own about:/blob:/data: loads pass.
+          onShouldStartLoadWithRequest={({ url }) => /^(about|blob|data):/.test(url)}
+        />
+      </View>
+      {inBook ? (
+        <>
+          <ReaderTopBar
+            barBg={colors.background}
+            barText={colors.text}
+            barsAnim={barsAnim}
+            topBarTranslateY={topBarTranslateY}
+            barsVisible={barsVisible}
+            topInset={insets.top}
+            bookTitle={heading}
+            chapterTitle=""
+            sessionWordCount={0}
+            isAuthenticated={!!user}
+            hasChapters={false}
+            isCurrentBookmarked={false}
+            onExit={closeBook}
+            backLabel={t('reader.chrome.back')}
+          />
+          <V2Footer
+            setter={setProgress}
+            barBg={colors.background}
+            barText={colors.text}
+            trackColor={colors.border}
+            barsAnim={barsAnim}
+            footerTranslateY={footerTranslateY}
+            barsVisible={barsVisible}
+            bottomInset={insets.bottom}
+            onPrev={() => barTurn('prev')}
+            onNext={() => barTurn('next')}
+            prevLabel={t('reader.chrome.prevPage')}
+            nextLabel={t('reader.chrome.nextPage')}
+            onHeight={(h) => { if (h > 0 && h !== footerHeight) setFooterHeight(h) }}
+          />
+          {hasNotices && (
+            <View style={[styles.notices, { top: barsVisible ? 56 + insets.top : insets.top, backgroundColor: colors.background }]}>
+              <View style={styles.noticesText}>{notices}</View>
+              {!overdue && (
+                <Pressable onPress={dismissNotices} accessibilityRole="button" accessibilityLabel={t('reader.chrome.dismiss')} style={styles.dismiss}>
+                  <Text style={[styles.dismissText, { color: colors.text }]}>×</Text>
+                </Pressable>
               )}
-            </Pressable>
-          ))}
-        </ScrollView>
+            </View>
+          )}
+        </>
+      ) : (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          <View style={styles.bar}>
+            <Pressable onPress={pick} accessibilityRole="button" style={button}><Text style={styles.buttonText}>Pick book</Text></Pressable>
+            <Pressable onPress={toggleFlow} accessibilityRole="button" disabled={!flow || !reflowable} style={[button, (!flow || !reflowable) && styles.disabled]}><Text style={styles.buttonText}>{flow === 'paginated' ? 'Scrolled' : 'Paginated'}</Text></Pressable>
+            {userId && (
+              <Pressable onPress={toggleFileSync} accessibilityRole="button" style={button}><Text style={styles.buttonText}>{fileSync ? 'Files: sync' : 'Files: local'}</Text></Pressable>
+            )}
+          </View>
+          <Text style={[styles.heading, { color: colors.text }]} numberOfLines={1}>{heading}</Text>
+          {notices}
+          {books.length > 0 && (
+            <ScrollView horizontal style={styles.books} contentContainerStyle={styles.booksRow}>
+              {books.map((b) => (
+                <Pressable
+                  key={b.id}
+                  onPress={() => (b.local ? open({ file: bookFile(b.sha256), name: b.originalName }) : download(b))}
+                  accessibilityRole="button"
+                  style={[styles.book, { borderColor: colors.border }]}
+                >
+                  <Text numberOfLines={1} style={[styles.meta, { color: colors.textSecondary }]}>{b.local ? b.title : `↓ ${b.title}`}</Text>
+                  {b.notSynced && (
+                    <>
+                      <Text numberOfLines={2} style={[styles.meta, { color: colors.error }]}>Not synced: {b.notSynced}</Text>
+                      <Pressable onPress={() => unpark(b)} accessibilityRole="button">
+                        <Text style={[styles.meta, { color: colors.primary }]}>Try again</Text>
+                      </Pressable>
+                    </>
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+        </View>
       )}
-      <WebView
-        key={nonce}
-        ref={webView}
-        style={styles.page}
-        // README "WebView": no file access at all (the library's defaults, all off); the page reads its book by
-        // XHR from the interceptor, so no book bytes cross the bridge. `*`: react-native-webview opens a
-        // navigation outside originWhitelist in another app, so the filter is onShouldStartLoadWithRequest below.
-        source={source}
-        originWhitelist={['*']}
-        onMessage={onMessage}
-        // Runs as its own script on page start, so it answers even where the page fails to parse (#1228).
-        injectedJavaScriptBeforeContentLoaded={USER_AGENT_PROBE}
-        onRenderProcessGone={reload}
-        onContentProcessDidTerminate={reload}
-        // The page never navigates; only its own about:/blob:/data: loads pass.
-        onShouldStartLoadWithRequest={({ url }) => /^(about|blob|data):/.test(url)}
-      />
-    </SafeAreaView>
+    </View>
   )
 }
 
@@ -623,6 +826,10 @@ const styles = StyleSheet.create({
   booksRow: { gap: 6, paddingHorizontal: 8 },
   book: { borderWidth: 1, borderRadius: 6, paddingVertical: 4, maxWidth: 160 },
   page: { flex: 1 },
+  notices: { position: 'absolute', left: 0, right: 0, zIndex: 11, paddingVertical: 4, flexDirection: 'row', alignItems: 'flex-start' },
+  noticesText: { flex: 1 },
+  dismiss: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  dismissText: { fontSize: 22 },
   update: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 14 },
   updateText: { alignItems: 'center', gap: 14 },
   updateTitle: { fontSize: 20, fontWeight: '700', textAlign: 'center' },

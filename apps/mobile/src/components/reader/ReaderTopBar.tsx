@@ -18,9 +18,12 @@ type Props = {
   onExit: () => void
   /** Absent: no bookmarks here (a V2 upload, V2_FEATURES). */
   onBookmarksPress?: () => void
-  onHighlightsPress: () => void
-  onTocPress: () => void
-  onSettingsPress: () => void
+  /** Absent: not offered (the V2 reader, for now). */
+  onHighlightsPress?: () => void
+  onTocPress?: () => void
+  onSettingsPress?: () => void
+  /** The back button's accessible name. */
+  backLabel?: string
 }
 
 /**
@@ -46,6 +49,7 @@ export function ReaderTopBar({
   onHighlightsPress,
   onTocPress,
   onSettingsPress,
+  backLabel,
 }: Props) {
   return (
     <Animated.View
@@ -55,7 +59,7 @@ export function ReaderTopBar({
       ]}
       pointerEvents={barsVisible ? 'auto' : 'none'}
     >
-      <TouchableOpacity onPress={onExit} style={styles.topBarBtn}>
+      <TouchableOpacity onPress={onExit} style={styles.topBarBtn} accessibilityRole="button" accessibilityLabel={backLabel}>
         <Ionicons name="chevron-back" size={24} color={barText} />
       </TouchableOpacity>
       <View style={styles.titleStack}>
@@ -78,19 +82,21 @@ export function ReaderTopBar({
             <Ionicons name={isCurrentBookmarked ? 'bookmark' : 'bookmark-outline'} size={20} color={barText} />
           </TouchableOpacity>
         )}
-        {isAuthenticated && (
+        {isAuthenticated && onHighlightsPress && (
           <TouchableOpacity onPress={onHighlightsPress} style={styles.iconBtn} accessibilityLabel="Highlights">
             <Ionicons name="color-wand-outline" size={20} color={barText} />
           </TouchableOpacity>
         )}
-        {hasChapters && (
+        {hasChapters && onTocPress && (
           <TouchableOpacity onPress={onTocPress} style={styles.iconBtn}>
             <Ionicons name="list-outline" size={20} color={barText} />
           </TouchableOpacity>
         )}
-        <TouchableOpacity onPress={onSettingsPress} style={styles.iconBtn}>
-          <Ionicons name="options-outline" size={20} color={barText} />
-        </TouchableOpacity>
+        {onSettingsPress && (
+          <TouchableOpacity onPress={onSettingsPress} style={styles.iconBtn}>
+            <Ionicons name="options-outline" size={20} color={barText} />
+          </TouchableOpacity>
+        )}
       </View>
     </Animated.View>
   )

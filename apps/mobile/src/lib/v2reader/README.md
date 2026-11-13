@@ -12,7 +12,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `store.mjs` | Reader data shape (v1), one entry per book **file** (SHA-256 + size); the quote fold; pure-JS SHA-256 / SHA-1. |
 | `tap.mjs` | What a tap hands the host: the word's sentence (reader-engine's `sentenceAround`) and an external link, only if `http(s)`. For a selection (#1268): its range without edge whitespace (`trimRange`) and its sentence (`sentenceOfRange`, element points too, never throws). `rectInPage`: a box in a section frame as the page viewport shows it, the fixed-layout renderer's `scale()` of a pre-paginated page included (`word` and `selection`). |
 | `selection.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1268): the `selection` message's builder (`selectionMessage`) and the hosts' validator (`readSelection`), with the caps they share; the text cap and its cut are `packages/shared`'s (`MAX_SELECTED_TEXT`, `clip`). The format check bundles it with esbuild first: plain node does not resolve `packages/shared`'s extensionless imports. |
-| `chrome.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1263, #1264): `navKey` (the page: which keydown becomes a `key` message, a closed list), the hosts' readers `readTap`, `readDir`, `readKey` in `readSelection`'s style, and `keyAction` (what a key does: `prev`, `next`, `bars`), the one rule both hosts follow. |
+| `chrome.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1263, #1264): `navKey` (the page: which keydown becomes a `key` message, a closed list), the hosts' readers `readTap`, `readDir`, `readKey` in `readSelection`'s style, and `keyAction` (what a key does: `prev`, `next`, `bars`), the one rule both hosts follow; the host decisions `hidesBarsOnRelocate` and Android back's order `backAction` (Host responsibilities, "Reader chrome"). |
 | `saveScheduler.mjs` | The debounced `store` message: key and payload are fixed when the save is asked for, so a save can never land on the next book; `flush()` writes a pending one at once (the swap). |
 | `overlays.mjs` | What is drawn over a range. foliate keys an overlay by its CFI, so a highlight and a word's translation over the same range are one overlay carrying both. |
 | `library.mjs` | V2 local library (pure): identical bytes → the existing entry, never a duplicate or reset. |
@@ -392,6 +392,36 @@ target in the spread already shown counts as arrived (foliate shows it without a
 - The R2 host passes its file path (`staging/<ts>.epub` or `books/<sha256>.epub`) as `openUrl`'s `name` to match each answer to its open, so the page's stored `book.name` is that path until the contract gains an explicit open id (#1069).
 - **Sync (R6, Android):** opportunistic, never on the reading path: with a session, on screen open, on each book open and 10 s after a save. ADR-019 needs the host's view of the open book (restored yet, the first CFI after the restore, the one now, the spine index from `relocate`); a newer position from another device is gone to (`adopt`/`move`) or offered (`prompt`). File sync is a per-device setting, off by default.
 - `<documents>/v2/` is not yet counted in Device Storage nor wiped on sign-out (#1070): local books belong to the device until the owner decides otherwise; a sign-out forgets what the server told that identity, never unpushed rows.
+
+**Reader chrome** (Android, #1263/#1264; the decisions are `tapZone.mjs` and `chrome.mjs`, the bars and footer are the legacy
+reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReaderAwake`, all already in the app):
+
+- A book on screen shows a top bar (back, title) and a bottom bar (place from `relocate`, prev/next page) over the
+  WebView; they auto-hide 3 s after each open (a replayed open too); a centre tap toggles them; in either flow a
+  relocate with `moved` (the reader's swipe or scroll; never a re-layout, an open/restore or a sync `goTo`) hides
+  them, except one a bar button or the taken offer caused (`createHostMoves`: its first relocate plus 1 s for the
+  snap after it), so the bars stay under the finger. Reduced motion: no slide or fade. What the chrome shows and
+  follows comes through `readRelocate` (bounded numbers, a capped string, strict `moved`); the position code reads
+  `relocate` as before.
+- Tap zones (`tapZone.mjs` `tapAction`, the web host's too): in paginated flow, and always on a fixed-layout book,
+  the outer 25 % of each side turns the page, the middle toggles. `tap.x` (through `readTap`) against the WebView's
+  width; the latest direction (`opened.dir`, then every `relocate.dir`, through `readDir`) swaps the edges of an rtl
+  book. A link and a press that dismissed a selection send no `tap`. Until the word popup (#1269), a `word` acts as
+  a tap at the centre of its rect (`readWordTap`): text is most of the screen.
+- Keys (a hardware keyboard): `key` through `readKey` (a held key's repeats dropped) and `keyAction` with the same
+  direction: `prev`/`next` turn the page and hide the bars, `bars` (Escape) shows them.
+- Android back: the offer, then the book (back to the list), then the route. No exit prompt.
+- **Closing a book** (back, the top bar) shows the list at once and injects `CLOSE_BOOK_JS`: `flush()` (its `store`
+  is posted synchronously), then a `book-closed` marker; on the marker the book ends as the open one (no `ready`
+  reopens it, its per-book state is reset). No page loaded: it ends at once; a page gone before the marker: the
+  next `ready` ends it. With no book on screen the page is hidden from accessibility, and its `tap`, `key`, `word`,
+  `selection` and a late `opened` are dropped.
+- Notices over a book (a failed save, an offer) have a Dismiss button; the overdue alert keeps its Retry.
+- The screen stays awake and the status bar follows the bars while a book is on screen; the page keeps the top
+  inset it had with the status bar shown, so a toggle never re-lays the book out.
+- **Save on leave:** `flush()` on background lands (`useFlushOnLeave`). On unmount it is called too, but saves
+  nothing: the `store` comes back to a handler that is gone. The path that saves is closing the book first (above),
+  which back and the top bar do.
 
 **Deadlines and states** (#1227, `deadlines.mjs`, one rule for both hosts; the numbers are its named constants):
 

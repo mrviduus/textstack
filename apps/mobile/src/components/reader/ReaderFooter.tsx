@@ -20,6 +20,9 @@ interface Props {
   hasNext: boolean
   onPrev: () => void
   onNext: () => void
+  /** The chevrons' accessible names; default: chapter. */
+  prevLabel?: string
+  nextLabel?: string
   /** The footer's measured height, rounded — it grows a line with the time-left label. */
   onHeight: (height: number) => void
 }
@@ -28,6 +31,7 @@ interface Props {
 export function ReaderFooter({
   barBg, barText, trackColor, barsAnim, footerTranslateY, barsVisible, bottomInset, bookProgress,
   chapterTitle, currentChapterIndex, totalChapters, timeLeftLabel, hasPrev, hasNext, onPrev, onNext, onHeight,
+  prevLabel = 'Previous chapter', nextLabel = 'Next chapter',
 }: Props) {
   return (
     <Animated.View
@@ -57,7 +61,7 @@ export function ReaderFooter({
           onPress={onPrev}
           disabled={!hasPrev}
           style={styles.chevronBtn}
-          accessibilityLabel="Previous chapter"
+          accessibilityLabel={prevLabel}
           accessibilityRole="button"
         >
           <Text style={[styles.chevron, { color: barText + (hasPrev ? 'CC' : '40') }]}>‹</Text>
@@ -88,7 +92,7 @@ export function ReaderFooter({
           onPress={onNext}
           disabled={!hasNext}
           style={styles.chevronBtn}
-          accessibilityLabel="Next chapter"
+          accessibilityLabel={nextLabel}
           accessibilityRole="button"
         >
           <Text style={[styles.chevron, { color: barText + (hasNext ? 'CC' : '40') }]}>›</Text>
