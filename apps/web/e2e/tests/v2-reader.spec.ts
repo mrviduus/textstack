@@ -186,7 +186,6 @@ test.describe('V2 reader page @v2', () => {
     }
     await expect.poll(look).toBe('20px rgb(255, 255, 255)')
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
-    const place = await status(page).textContent()
 
     await clickBar(page, 'Reading settings')
     const panel = page.getByTestId('v2-settings')
@@ -196,7 +195,10 @@ test.describe('V2 reader page @v2', () => {
     await expect.poll(look).toBe('22px rgb(26, 26, 26)')
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
     await expect(page.locator('.reader-top-bar')).toHaveCSS('color', 'rgb(224, 224, 224)')
-    await expect(status(page)).toHaveText(place ?? '')
+    // The place held: same entry, its text still on screen. Not the percent: larger text makes more pages, so the
+    // same place reads a lower percent.
+    await expect(status(page)).toHaveText(/ · The Pond$/)
+    await expect.poll(() => sectionText(page)).toContain(FIRST_SECTION_TEXT)
     await expect(page.getByRole('alert')).toHaveCount(0)
     await panel.getByRole('button', { name: 'Close reading settings' }).click()
     await expect(panel).toHaveCount(0)
