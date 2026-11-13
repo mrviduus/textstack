@@ -81,12 +81,12 @@ Legend — **Need**: `R8` must exist before R8 · `owner` needs a decision (§6)
 
 | Behaviour | Web | Mobile | V2 | Need |
 |---|---|---|---|---|
-| Word tap → popup (translation or definition by native language) | `WordPopup` | `SelectionActionBar` inline gloss | `word` event out; host logs it | R8 |
-| Native-language picker inside the popup | yes | yes | absent | R8 |
-| Multi-word selection toolbar (highlight, translate, explain, listen, copy) | yes | yes | `selection` / `selection-cleared` events out, validated by both hosts (#1268); no toolbar | R8 |
-| Translation popup / sheet | yes | yes | absent | R8 |
-| Explain (streamed) | yes | yes | absent | R8 |
-| `tooLong` (>500 chars) notice | yes | yes | absent | R8 |
+| Word tap → popup (translation or definition by native language) | `WordPopup` | `SelectionActionBar` inline gloss | popup on both hosts (#1269); an edge word in paginated flow turns the page | R8 |
+| Native-language picker inside the popup | yes | yes | legacy's: web in the popup, Android through the gloss line's sheet (#1269) | R8 |
+| Multi-word selection toolbar (highlight, translate, explain, listen, copy) | yes | yes | toolbar on both hosts (#1269): highlight, translate, explain, copy; listen with TTS (#1272) | R8 |
+| Translation popup / sheet | yes | yes | yes, fetched by the host (#1269) | R8 |
+| Explain (streamed) | yes | yes | web streamed; Android one answer, as its legacy sheet (#1269) | R8 |
+| `tooLong` (>500 chars) notice | yes | yes | yes (#1269) | R8 |
 | Page has no network (CSP) — every lookup through the host | — | — | by design | constraint |
 
 ### 2.5 Vocabulary

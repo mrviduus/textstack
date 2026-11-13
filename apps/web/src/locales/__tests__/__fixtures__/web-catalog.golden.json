@@ -1004,6 +1004,7 @@
   "v2Reader.scrolled": "Scrolled",
   "v2Reader.stalled": "The download stopped: nothing arrived for {{seconds}} s.",
   "v2Reader.sessionEnded":"Your session has ended: sign in again to read this book.",
+  "v2Reader.translationFailed": "Could not translate this word.",
   "v2Reader.unavailable": "The library is unavailable right now. Try again in a moment.",
   "v2Reader.unsaved": "Not saved yet: your place and highlights are saved again as you read.",
   "vocabulary.banner.budgetReached": "Weekly goal reached. See you next week!",

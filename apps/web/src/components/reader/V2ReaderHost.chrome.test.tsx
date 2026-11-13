@@ -121,16 +121,17 @@ describe('V2ReaderHost bars and tap zones', () => {
     expect(turns()).toEqual(['next'])
   })
 
-  it('wordTap_UntilThePopupATapAtItsCentre_EdgeTurnsCentreToggles_AMalformedRectDropped', () => {
+  it('wordTap_AnEdgeWordTurns_ACentreWordNeitherTurnsNorToggles_AMalformedRectDropped', () => {
+    // #1269 (wordPopup.mjs popupStep): an edge word in paginated flow turns the page; a centre one opens its popup.
     opened()
-    const word = (x: number, w = 30) => ({ type: 'word', word: 'pond', cfi: 'epubcfi(/6/2)', index: 0, rect: { x, y: 10, w, h: 10 } })
+    const word = (x: number, w = 30) => ({ type: 'word', word: 'pond', sentence: 'The pond.', cfi: 'epubcfi(/6/2)', index: 0, rect: { x, y: 10, w, h: 10 } })
     fromPage(word(WIDTH - 40))
     expect(turns()).toEqual(['next'])
     fromPage(word(WIDTH / 2 - 15))
-    expect(bars()).toBe('shown')
+    expect(bars()).toBe('hidden')
+    expect(turns()).toEqual(['next'])
     fromPage(word(5, -3))
     expect(turns()).toEqual(['next'])
-    expect(bars()).toBe('shown')
   })
 
   it('keyFromInsideTheBook_TurnsPages_EscShowsTheBars_AMalformedOneDropped', () => {
@@ -247,7 +248,7 @@ describe('V2ReaderHost bars and tap zones', () => {
     fromPage(tap(WIDTH - 5))
     fromPage(key('ArrowRight'))
     press('PageDown')
-    fromPage({ type: 'word', word: 'x', index: 0, rect: { x: WIDTH - 40, y: 10, w: 30, h: 10 } })
+    fromPage({ type: 'word', word: 'x', sentence: 'x', cfi: null, index: 0, rect: { x: WIDTH - 40, y: 10, w: 30, h: 10 } })
     fromPage(relocate(0.4, true))
     act(() => { vi.advanceTimersByTime(10_000) })
     expect(turns()).toEqual([])
