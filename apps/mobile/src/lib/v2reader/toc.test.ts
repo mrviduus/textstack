@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_TOC_DEPTH, MAX_TOC_ENTRIES, readToc, tocAround } from './toc.mjs'
+import { MAX_TOC_DEPTH, MAX_TOC_ENTRIES, readToc, tocAround, withTitle } from './toc.mjs'
 
 const opened = (toc: unknown) => ({ type: 'opened', toc })
 const entry = (index: number, label = `e${index}`, depth = 0) => ({ index, label, href: `${label}.xhtml`, depth })
@@ -105,7 +105,41 @@ describe('v2 reader current entry', () => {
     expect(tocAround(toc, 99)).toEqual({ prev: toc[2], current: null, next: null })
   })
 
+  it('tocAround_NeighboursWithTheCurrentHref_SkippedForTheNearestOtherPlace', () => {
+    // "Part I" and "Chapter 1" open the same file: the page names the last of them, and the other is no way back.
+    const at = (index: number, label: string, href: string) => ({ index, label, href, depth: 0 })
+    const same = [at(0, 'Preface', 'pre.xhtml'), at(1, 'Part I', 'ch1.xhtml'), at(2, 'Chapter 1', 'ch1.xhtml'), at(3, 'Epigraph', 'ch1.xhtml'), at(4, 'Chapter 2', 'ch2.xhtml')]
+    expect(tocAround(same, 2)).toEqual({ prev: same[0], current: same[2], next: same[4] })
+    expect(tocAround(same, 1)).toEqual({ prev: same[0], current: same[1], next: same[4] })
+    expect(tocAround(same, 3)).toEqual({ prev: same[0], current: same[3], next: same[4] })
+    // Only the current entry's own href is skipped: fragments are other places, and so are equal neighbours of another entry.
+    expect(tocAround(same, 4)).toEqual({ prev: same[3], current: same[4], next: null })
+    const anchors = [at(0, 'One', 'c.xhtml#a'), at(1, 'Two', 'c.xhtml#b'), at(2, 'Three', 'c.xhtml#c')]
+    expect(tocAround(anchors, 1)).toEqual({ prev: anchors[0], current: anchors[1], next: anchors[2] })
+  })
+
+  it('tocAround_EveryEntryOnTheCurrentHref_NoNeighbours', () => {
+    const one = [entry(0, 'a'), { ...entry(1), href: 'a.xhtml' }]
+    expect(tocAround(one, 1)).toEqual({ prev: null, current: one[1], next: null })
+  })
+
+  it('tocAround_NoCurrentEntry_NothingSkipped', () => {
+    const kept = [{ ...entry(0), href: 'x.xhtml' }, { ...entry(2), href: 'x.xhtml' }]
+    expect(tocAround(kept, 1)).toEqual({ prev: kept[0], current: null, next: kept[1] })
+    expect(tocAround(kept, null)).toEqual({ prev: null, current: null, next: kept[0] })
+  })
+
   it('tocAround_EmptyToc_Nothing', () => {
     expect(tocAround([], 0)).toEqual({ prev: null, current: null, next: null })
+  })
+})
+
+describe('v2 reader title labels', () => {
+  it('withTitle_APlainTitle_Filled', () => {
+    expect(withTitle('Next section: {title}', 'The Pond')).toBe('Next section: The Pond')
+  })
+
+  it.each([['Earn $$ fast'], ['$& and $1'], ["$` $'"], ['{title}']])('withTitle_%s_KeptAsText', (title) => {
+    expect(withTitle('Next section: {title}', title)).toBe(`Next section: ${title}`)
   })
 })

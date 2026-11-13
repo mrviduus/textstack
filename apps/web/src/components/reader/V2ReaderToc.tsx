@@ -3,11 +3,11 @@ import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
 import { tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
 
-/** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo` takes an entry's href. */
+/** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo`: the entry the reader chose. */
 interface Props {
   toc: V2TocEntry[]
   tocIndex: number | null
-  onGo: (href: string) => void
+  onGo: (entry: V2TocEntry) => void
 }
 
 /**
@@ -56,7 +56,7 @@ export function V2TocDrawer({ open, toc, tocIndex, onGo, onClose }: Props & { op
                 data-depth={e.depth}
                 style={{ paddingLeft: 16 + e.depth * 16 }}
                 onClick={() => {
-                  onGo(e.href)
+                  onGo(e)
                   onClose()
                 }}
               >
@@ -78,12 +78,12 @@ export function V2SectionNav({ toc, tocIndex, onGo }: Props) {
   return (
     <div className="v2-reader__sections">
       {prev && (
-        <button className="reader-top-bar__btn" data-testid="v2-prev-section" aria-label={t('v2Reader.prevSection', { title: prev.label })} onClick={() => onGo(prev.href)}>
+        <button className="reader-top-bar__btn" data-testid="v2-prev-section" aria-label={t('v2Reader.prevSection', { title: prev.label })} onClick={() => onGo(prev)}>
           ‹ {prev.label}
         </button>
       )}
       {next && (
-        <button className="reader-top-bar__btn v2-reader__section-next" data-testid="v2-next-section" aria-label={t('v2Reader.nextSection', { title: next.label })} onClick={() => onGo(next.href)}>
+        <button className="reader-top-bar__btn v2-reader__section-next" data-testid="v2-next-section" aria-label={t('v2Reader.nextSection', { title: next.label })} onClick={() => onGo(next)}>
           {next.label} ›
         </button>
       )}

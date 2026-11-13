@@ -994,7 +994,6 @@
   "v2Reader.opening": "Opening {{name}}",
   "v2Reader.paginated": "Paginated",
   "v2Reader.pick": "Pick a book",
-  "v2Reader.position": "{{percent}}% · section {{index}}/{{sections}}",
   "v2Reader.prev": "‹ Prev",
   "v2Reader.readFailed": "Could not load your place in this book.",
   "v2Reader.reopen": "This book changed on another device: reopen it to keep saving your place and highlights.",

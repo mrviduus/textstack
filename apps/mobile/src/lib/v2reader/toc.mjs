@@ -28,21 +28,31 @@ export function readToc(m) {
 
 /**
  * The entries around the reader's place, of `readToc`'s list: `current` is the entry `tocIndex` names (null: none,
- * or that entry was dropped), `prev` and `next` the nearest entries before and after that place. A `tocIndex` that
- * is no whole number (null: before the first entry) has no `prev` and the first entry as `next`.
+ * or that entry was dropped), `prev` and `next` the nearest entries before and after that place that lead somewhere
+ * else: one with the current entry's href ("Part I" and "Chapter 1" on one file) is the same place, and going
+ * there would never move the reader. A `tocIndex` that is no whole number (null: before the first entry) has no
+ * `prev` and the first entry as `next`.
  */
 export function tocAround(toc, tocIndex) {
   const at = Number.isInteger(tocIndex) ? tocIndex : -1
+  const current = toc.find((e) => e.index === at) ?? null
   let prev = null
-  let current = null
   let next = null
   for (const e of toc) {
+    if (e.href === current?.href) continue
     if (e.index < at) prev = e
-    else if (e.index === at) current = e
     else {
       next = e
       break
     }
   }
   return { prev, current, next }
+}
+
+/**
+ * A string's `{title}` filled with an entry's label (the Android host's labels). A function replacer: `$` in a
+ * book's title is text, never a replacement pattern (`$&`, `$$`).
+ */
+export function withTitle(text, title) {
+  return text.replace('{title}', () => title)
 }

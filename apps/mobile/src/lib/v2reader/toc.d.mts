@@ -6,3 +6,4 @@ export const MAX_TOC_DEPTH: number
 export function readToc(m: unknown): V2TocEntry[]
 export function tocAround(toc: readonly V2TocEntry[], tocIndex: number | null):
   { prev: V2TocEntry | null; current: V2TocEntry | null; next: V2TocEntry | null }
+export function withTitle(text: string, title: string): string

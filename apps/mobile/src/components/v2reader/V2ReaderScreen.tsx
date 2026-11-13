@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import { BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Stack } from 'expo-router'
@@ -28,7 +28,7 @@ import {
   reopensOnReady, takenWithoutBook,
 } from '../../lib/v2reader/chrome.mjs'
 import { tapAction } from '../../lib/v2reader/tapZone.mjs'
-import { readToc, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
+import { readToc, tocAround, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
 import { V2SectionNav, V2TocSheet } from './V2ReaderToc'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
@@ -191,7 +191,7 @@ type Place = { fraction: number | null; index: number | null; sections: number |
  * The bottom bar (the legacy reader's footer): re-renders alone on every `relocate`, not the WebView beside it.
  * Its prev/next are page turns for now.
  */
-function V2Footer({ setter, toc, onGoToc, ...props }: { setter: MutableRefObject<(p: Place) => void>; toc: V2TocEntry[]; onGoToc: (href: string) => void } & Omit<
+function V2Footer({ setter, toc, onGoToc, ...props }: { setter: MutableRefObject<Dispatch<SetStateAction<Place>>>; toc: V2TocEntry[]; onGoToc: (entry: V2TocEntry) => void } & Omit<
   Parameters<typeof ReaderFooter>[0],
   'bookProgress' | 'chapterTitle' | 'currentChapterIndex' | 'totalChapters' | 'timeLeftLabel' | 'hasPrev' | 'hasNext' | 'above'
 >) {
@@ -201,9 +201,10 @@ function V2Footer({ setter, toc, onGoToc, ...props }: { setter: MutableRefObject
     <ReaderFooter
       {...props}
       bookProgress={place?.fraction ?? null}
-      chapterTitle={place?.toc ?? ''}
-      currentChapterIndex={place?.index ?? -1}
-      totalChapters={place?.sections ?? 0}
+      // The current contents entry's title; never a section number (#1261): no index, no counter.
+      chapterTitle={tocAround(toc, place?.tocIndex ?? null).current?.label ?? ''}
+      currentChapterIndex={-1}
+      totalChapters={0}
       timeLeftLabel={null}
       hasPrev={!!place}
       hasNext={!!place}
@@ -227,7 +228,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const opening = useRef<Opening | null>(null)
   /** Which page answer belongs to which open (openTracker.mjs): a book kept on screen, a stale `restored`. */
   const [tracker] = useState(() => createOpenTracker<Opening>())
-  const setProgress = useRef<(p: Place) => void>(() => {})
+  const setProgress = useRef<Dispatch<SetStateAction<Place>>>(() => {})
   const [books, setBooks] = useState<LibraryBook[]>([])
   const [heading, setHeading] = useState(IDLE_HEADING)
   // null until the stored choice is read: the toggle is off until then, so no toggle can race the read.
@@ -301,10 +302,15 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     hostMoves.start()
     call(`window.__fol.${dir}()`)
   }
-  /** A contents entry the reader chose (the sheet, the footer's section controls): the page saves where it lands. */
-  const goToc = (href: string) => {
+  /**
+   * A contents entry the reader chose (the sheet, the footer's section controls): the page saves where it lands.
+   * It is the current one at once: a jump within the view on screen may send no relocate.
+   */
+  const goToc = (e: V2TocEntry) => {
+    tocIndex.current = e.index
+    setProgress.current((p) => p && { ...p, tocIndex: e.index })
     hostMoves.start()
-    call(`window.__fol.goTo(${JSON.stringify(href)}, true)`)
+    call(`window.__fol.goTo(${JSON.stringify(e.href)}, true)`)
   }
 
   // The page's debounced save (400 ms) is written on background (the page also flushes itself when its document

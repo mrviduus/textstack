@@ -29,7 +29,8 @@ async function clickBar(page: Page, name: string) {
 async function expectOpened(page: Page) {
   await expect(page.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
   await expect.poll(() => sectionText(page), { timeout: 15_000 }).toContain(FIRST_SECTION_TEXT)
-  await expect(status(page)).toContainText('section')
+  // The percent read, then the current contents entry's title (#1261): never a section number.
+  await expect(status(page)).toHaveText(/^\d+% · The (Pond|Woods|Village)$/)
   await expect(page.getByRole('alert')).toHaveCount(0)
 }
 
@@ -202,6 +203,12 @@ test.describe('V2 reader page @v2', () => {
     // The last entry: only the one before it is offered, by its title.
     await expect(page.getByTestId('v2-prev-section')).toHaveText('‹ The Woods')
     await expect(page.getByTestId('v2-next-section')).toHaveCount(0)
+    // The host marks a chosen entry at once; a page turn's relocate is the page's own word for the place.
+    const landed = (await status(page).textContent()) ?? ''
+    expect(landed).toMatch(/^\d+% · The Village$/)
+    await page.keyboard.press('ArrowRight')
+    await expect(status(page)).not.toHaveText(landed)
+    await expect(status(page)).toHaveText(/^\d+% · The Village$/)
 
     await clickBar(page, 'Previous section: The Woods')
     await expect.poll(() => sectionText(page), { timeout: 15_000 }).toContain('The Woods, paragraph 1.')

@@ -4,13 +4,13 @@ import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
-import { tocAround, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
+import { tocAround, withTitle, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
 
-/** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo` takes an entry's href. */
+/** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo`: the entry the reader chose. */
 interface Props {
   toc: V2TocEntry[]
   tocIndex: number | null
-  onGo: (href: string) => void
+  onGo: (entry: V2TocEntry) => void
 }
 
 /**
@@ -48,7 +48,7 @@ export function V2TocSheet({ visible, toc, tocIndex, onGo, onClose }: Props & { 
                 <TouchableOpacity
                   style={[styles.row, { borderBottomColor: colors.border, paddingLeft: 16 + item.depth * 16 }, isCurrent && { backgroundColor: colors.primaryLight }]}
                   onPress={() => {
-                    onGo(item.href)
+                    onGo(item)
                     onClose()
                   }}
                   accessibilityRole="button"
@@ -94,9 +94,9 @@ export function V2SectionNav({ toc, tocIndex, onGo, color }: Props & { color: st
       {prev ? (
         <TouchableOpacity
           style={styles.section}
-          onPress={() => onGo(prev.href)}
+          onPress={() => onGo(prev)}
           accessibilityRole="button"
-          accessibilityLabel={t('reader.chrome.prevSection').replace('{title}', prev.label)}
+          accessibilityLabel={withTitle(t('reader.chrome.prevSection'), prev.label)}
         >
           <Text style={[styles.sectionText, { color }]} numberOfLines={1}>‹ {prev.label}</Text>
         </TouchableOpacity>
@@ -104,9 +104,9 @@ export function V2SectionNav({ toc, tocIndex, onGo, color }: Props & { color: st
       {next ? (
         <TouchableOpacity
           style={styles.section}
-          onPress={() => onGo(next.href)}
+          onPress={() => onGo(next)}
           accessibilityRole="button"
-          accessibilityLabel={t('reader.chrome.nextSection').replace('{title}', next.label)}
+          accessibilityLabel={withTitle(t('reader.chrome.nextSection'), next.label)}
         >
           <Text style={[styles.sectionText, styles.sectionNext, { color }]} numberOfLines={1}>{next.label} ›</Text>
         </TouchableOpacity>

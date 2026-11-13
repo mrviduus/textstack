@@ -168,6 +168,90 @@ describe('V2ReaderHost table of contents', () => {
   })
 })
 
+describe('V2ReaderHost place in the contents', () => {
+  const status = () => screen.getByTestId('v2-status').textContent
+  const A = { type: 'opened', title: 'Walden', toc: TOC, book: { sha256: 'aa', size: 8, name: '1/a.epub' } }
+
+  /** As the page does it: a book's first relocate comes before its `opened`, and a fixed-layout book sends no other. */
+  function openedAfterItsRelocate(tocIndex: number) {
+    const view = render(host({ bytes: new ArrayBuffer(8), name: 'a.epub' }))
+    vi.spyOn(frame().contentWindow!, 'postMessage').mockImplementation(((m: { call: string; args: unknown[] }) => { posted.push(m) }) as never)
+    fromPage({ type: 'ready' })
+    fromPage(relocate(tocIndex))
+    fromPage(A)
+    posted = []
+    return view
+  }
+
+  it('current_TheRelocateBeforeOpened_IsThisBooksPlace', () => {
+    openedAfterItsRelocate(2)
+    expect(screen.getByTestId('v2-prev-section').textContent).toBe('‹ The Pond')
+    expect(screen.getByTestId('v2-next-section').textContent).toBe('Part Two ›')
+    openDrawer()
+    expect(current()).toEqual(['The Woods'])
+  })
+
+  it('current_ABookKeptAfterAFailedOpen_ItsOwnListAndPlace', () => {
+    const view = render(host({ bytes: new ArrayBuffer(8), name: 'a.epub' }))
+    vi.spyOn(frame().contentWindow!, 'postMessage').mockImplementation(((m: { call: string; args: unknown[] }) => { posted.push(m) }) as never)
+    fromPage({ type: 'ready' })
+    // A newer open starts before the first book answered; the page still shows the first one, which then answers.
+    view.rerender(host({ bytes: new ArrayBuffer(8), name: 'b.epub' }))
+    fromPage(relocate(2))
+    fromPage(A)
+    expect(contents()).toBeNull()
+    fromPage({ type: 'open-failed', name: '2/b.epub', error: 'not a book' })
+    // The failed open cleared the position: no title without its percent.
+    expect(status()).toBe('')
+    openDrawer()
+    expect(entries().map((b) => b.textContent)).toEqual(['Part One', 'The Pond', 'The Woods', 'Part Two'])
+    expect(current()).toEqual(['The Woods'])
+  })
+
+  it('chosenEntry_NoRelocateFollows_IsTheCurrentOneAtOnce_UntilARelocateSaysOtherwise', () => {
+    opened(TOC, 0)
+    // The section control: a jump within the view on screen may send no relocate.
+    act(() => { fireEvent.click(screen.getByTestId('v2-next-section')) })
+    expect(screen.getByTestId('v2-prev-section').textContent).toBe('‹ Part One')
+    expect(screen.getByTestId('v2-next-section').textContent).toBe('The Woods ›')
+    expect(status()).toBe('40% · The Pond')
+    // The dialog.
+    openDrawer()
+    expect(current()).toEqual(['The Pond'])
+    act(() => { fireEvent.click(entries()[3]) })
+    openDrawer()
+    expect(current()).toEqual(['Part Two'])
+    act(() => { fireEvent.keyDown(document.activeElement!, { key: 'Escape' }) })
+    expect(goTos()).toEqual([['c1.xhtml', true], ['p2.xhtml', true]])
+    fromPage(relocate(2))
+    expect(status()).toBe('40% · The Woods')
+  })
+
+  it('sections_NeighboursOnTheCurrentHref_GoToAnotherPlace', () => {
+    opened([{ label: 'Preface', href: 'pre.xhtml', depth: 0 }, { label: 'Part I', href: 'ch1.xhtml', depth: 0 }, { label: 'Chapter 1', href: 'ch1.xhtml', depth: 1 }, { label: 'Chapter 2', href: 'ch2.xhtml', depth: 1 }], 2)
+    expect(screen.getByTestId('v2-prev-section').textContent).toBe('‹ Preface')
+    expect(screen.getByTestId('v2-next-section').textContent).toBe('Chapter 2 ›')
+  })
+
+  it('status_ThePercentAndTheCurrentEntrysTitle_NeverASectionNumber', () => {
+    opened(TOC, 2)
+    // The resolved entry's label, not the relocate's raw one ('x'); no "section 2/4".
+    expect(status()).toBe('40% · The Woods')
+    fromPage({ ...relocate(3), fraction: 0.416, index: 3 })
+    expect(status()).toBe('42% · Part Two')
+  })
+
+  it.each([['no entry yet', TOC, null], ['an index past the list', TOC, 99], ['a book with no contents', [], 1]])('status_%s_ThePercentAlone', (_name, toc, tocIndex) => {
+    opened(toc, tocIndex)
+    expect(status()).toBe('40%')
+  })
+
+  it('status_BeforeAnyRelocate_Empty', () => {
+    opened(TOC)
+    expect(status()).toBe('')
+  })
+})
+
 describe('V2ReaderHost section controls', () => {
   const prev = () => screen.queryByTestId('v2-prev-section')
   const next = () => screen.queryByTestId('v2-next-section')
@@ -180,8 +264,9 @@ describe('V2ReaderHost section controls', () => {
     expect(next()!.getAttribute('aria-label')).toBe('Next section: The Woods')
     expect(`${prev()!.textContent}${next()!.textContent}${prev()!.getAttribute('aria-label')}${next()!.getAttribute('aria-label')}`).not.toMatch(/\d/)
     act(() => { fireEvent.click(next()!) })
+    // The chosen entry is the place at once: the one before it is now The Pond.
     act(() => { fireEvent.click(prev()!) })
-    expect(goTos()).toEqual([['c2.xhtml#woods', true], ['p1.xhtml', true]])
+    expect(goTos()).toEqual([['c2.xhtml#woods', true], ['c1.xhtml', true]])
   })
 
   it('sections_AtTheEnds_OnlyTheOneThatExists', () => {
