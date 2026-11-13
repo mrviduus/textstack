@@ -61,6 +61,29 @@ describe('v2 host storage', () => {
     return { ...m, lib, storage: createV2Storage(m.files, newId, lib) }
   }
 
+  it('addOpened_SessionEndsWhileTheFileMoves_NoRowNoFile_NextSessionAddsIt', async () => {
+    const m = memoryFiles()
+    let ended = false
+    const lib = createLocalLibrary(memoryDb())
+    const s = createV2Storage(m.files, randomUUID, lib, () => {
+      const at = ended
+      return () => ended !== at
+    })
+    m.data.set('staging/1.epub', 'bytes')
+    const move = m.files.move
+    m.files.move = async (from, to) => {
+      await move(from, to)
+      ended = true // sign-out between the move and the row: its wipe is queued next (#1070)
+    }
+    await expect(s.addOpened(book(SHA_B), 'staging/1.epub')).rejects.toThrow('session ended')
+    expect(await lib.books()).toEqual([])
+    expect(await lib.outbox()).toEqual([])
+    expect(m.data.has(`books/${SHA_B}.epub`)).toBe(false)
+    m.files.move = move
+    m.data.set('staging/2.epub', 'bytes')
+    expect((await s.addOpened(book(SHA_B), 'staging/2.epub')).books.map((b) => b.sha256)).toEqual([SHA_B])
+  })
+
   it('addOpened_TwoConcurrentImports_BothLand', async () => {
     const { storage: s } = storage()
     await Promise.all([s.addOpened(book(SHA_A), null), s.addOpened(book(SHA_B), null)])

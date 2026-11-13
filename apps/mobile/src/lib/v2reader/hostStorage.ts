@@ -103,8 +103,10 @@ export const bookFile = (sha256: string) => `books/${sha256}.epub`
  * mints v4 UUIDs (library.mjs's default needs `crypto`, which Hermes lacks: the RN host passes Expo's).
  * The first call imports R2's JSON library (library.json + store/<sha256>.json) into the rows, once,
  * then deletes those files; a failed import is logged and tried again on the next start.
+ * `sessionSince` is the V2 epoch guard (`resetSince` on the device): an open whose session ended
+ * before its row was queued is refused (#1070: the sign-out wipe may have deleted its file).
  */
-export function createV2Storage(files: V2Files, newId: () => string, lib: LocalLibrary) {
+export function createV2Storage(files: V2Files, newId: () => string, lib: LocalLibrary, sessionSince: () => () => boolean = () => () => false) {
   // ponytail: one in-process queue for the file side (two imports of the same bytes move one copy).
   // sha256Key runs inside each job, so a bad key from the page is that job's rejection, never a
   // throw out of the message handler.
@@ -126,15 +128,20 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
      * retained. The copy lands before the row, so a kill between the two leaves a file that the next
      * import of the same bytes adopts, never a row without its file. A failed row write removes the
      * copy this call moved unless the library lists those bytes (the transaction left no row naming it).
+     * The session the open started in must still be current when the row is queued — checked in the
+     * tick it is queued, so a sign-out's wipe (queued after its epoch bump) either deletes the row with
+     * the file or never sees it (#1070).
      */
-    addOpened: (book: { sha256: string; size: number; title: string; author: string; originalName: string; format?: string | null }, staged: string | null) =>
-      afterMigration(() => queue.run(async () => {
+    addOpened: (book: { sha256: string; size: number; title: string; author: string; originalName: string; format?: string | null }, staged: string | null) => {
+      const over = sessionSince()
+      return afterMigration(() => queue.run(async () => {
         const sha256 = sha256Key(book.sha256)
         const retained = bookFile(sha256)
         const moved = staged !== null && !files.exists(retained)
         if (moved) await files.move(staged, retained)
         else if (staged) files.remove(staged)
         try {
+          if (over()) throw new Error('the session ended during the open: not added')
           const bookId = await lib.addOpened({ ...book, sha256, format: book.format ?? null }, newId)
           return { retained, bookId, books: await lib.books() }
         } catch (e) {
@@ -142,7 +149,8 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
           if (moved && !listed) try { files.remove(retained) } catch { /* best effort; rethrow the real error */ }
           throw e
         }
-      })),
+      }))
+    },
 
     /**
      * A picked file (the picker's own URI, no cache copy: #1080 items 4–5) copied straight into `staging/`; resolves to its staged name. A failed

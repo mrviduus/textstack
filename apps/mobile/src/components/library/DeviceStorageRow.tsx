@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
 import { useTheme } from '../../context/ThemeContext'
+import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 import { formatBytes } from '../../lib/formatBytes'
 import { clearTtsCache, measureDeviceStorage, type DeviceStorageReport } from '../../lib/deviceStorage'
@@ -20,6 +21,7 @@ import { clearTtsCache, measureDeviceStorage, type DeviceStorageReport } from '.
  */
 export function DeviceStorageRow() {
   const { colors } = useTheme()
+  const { t } = useLanguage()
   const [report, setReport] = useState<DeviceStorageReport | null>(null)
   const [clearing, setClearing] = useState(false)
 
@@ -53,6 +55,7 @@ export function DeviceStorageRow() {
       <Text style={[styles.detail, { color: colors.textSecondary }]}>
         {`Books ${formatBytes(report.originalsBytes)}`}
         {report.ttsBytes > 0 ? ` · Speech ${formatBytes(report.ttsBytes)}` : ''}
+        {report.v2Bytes > 0 ? ` · ${t('profile.deviceStorageV2').replace('{{size}}', formatBytes(report.v2Bytes))}` : ''}
       </Text>
 
       {report.ttsBytes > 0 && (
