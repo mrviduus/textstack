@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import type { UserDto } from '@textstack/shared'
-import { deleteGuestData, signOutIntent } from './profileActions'
+import { createAccountSignOut, deleteGuestData, signOutIntent, type V2SignOutDeps } from './profileActions'
 
 const guest: UserDto = {
   id: 'g-1',
@@ -74,5 +74,74 @@ describe('deleteGuestData', () => {
     const { calls, d } = deps({ getToken: async () => { throw new Error('keychain') } })
     await deleteGuestData(d)
     expect(calls).toEqual(['signOut'])
+  })
+})
+
+describe('createAccountSignOut (#1070: sign-out wipes the V2 library)', () => {
+  const v2 = (over: (calls: string[]) => Partial<V2SignOutDeps> = () => ({})) => {
+    const calls: string[] = []
+    const d: V2SignOutDeps = {
+      syncFirst: async () => { calls.push('sync') },
+      loss: async () => { calls.push('loss'); return { books: 0, writes: 0 } },
+      confirm: async (loss) => { calls.push(`confirm:${JSON.stringify(loss)}`); return true },
+      signOut: async () => { calls.push('signOut') },
+      ...over(calls),
+    }
+    return { calls, d }
+  }
+
+  it('nothingLost_SyncedFirstThenSignedOutWithoutAConfirm', async () => {
+    const { calls, d } = v2()
+    expect(await createAccountSignOut()(d)).toBe(true)
+    expect(calls).toEqual(['sync', 'loss', 'signOut'])
+  })
+
+  it('somethingLost_ConfirmWithTheCounts_CancelKeepsTheSession', async () => {
+    const { calls, d } = v2((c) => ({
+      loss: async () => ({ books: 2, writes: 1 }),
+      confirm: async (l) => { c.push(`confirm:${JSON.stringify(l)}`); return false },
+    }))
+    expect(await createAccountSignOut()(d)).toBe(false)
+    expect(calls).toEqual(['sync', 'confirm:{"books":2,"writes":1}'])
+  })
+
+  it('lossCheckFails_FailsClosed_GenericConfirmNeverStraightToTheWipe', async () => {
+    const { calls, d } = v2(() => ({ loss: async () => { throw new Error('db') } }))
+    expect(await createAccountSignOut()(d)).toBe(true)
+    expect(calls).toEqual(['sync', 'confirm:null', 'signOut'])
+  })
+
+  it('syncFails_StillChecksAndSignsOut', async () => {
+    const { calls, d } = v2(() => ({ syncFirst: async () => { throw new Error('offline') } }))
+    expect(await createAccountSignOut()(d)).toBe(true)
+    expect(calls).toEqual(['loss', 'signOut'])
+  })
+
+  it('doubleTap_OneSyncOneConfirmOneSignOut', async () => {
+    let answer!: (yes: boolean) => void
+    const { calls, d } = v2((c) => ({
+      loss: async () => ({ books: 1, writes: 0 }),
+      confirm: () => { c.push('confirm'); return new Promise<boolean>((r) => { answer = r }) },
+    }))
+    const signOut = createAccountSignOut()
+    const first = signOut(d)
+    const second = signOut(d)
+    await vi.waitFor(() => expect(calls).toContain('confirm'))
+    answer(true)
+    expect(await Promise.all([first, second])).toEqual([true, true])
+    expect(calls).toEqual(['sync', 'confirm', 'signOut'])
+  })
+
+  it('lossCheckHangs_FailsClosedAtTheDeadline', async () => {
+    const { calls, d } = v2(() => ({ loss: () => new Promise<never>(() => {}) }))
+    expect(await createAccountSignOut(20)(d)).toBe(true)
+    expect(calls).toEqual(['sync', 'confirm:null', 'signOut'])
+  })
+
+  it('busy_TrueWhileItRuns_FalseAfter_EvenWhenCancelled', async () => {
+    const busy: boolean[] = []
+    const { d } = v2(() => ({ loss: async () => ({ books: 1, writes: 0 }), confirm: async () => false, onBusy: (b) => busy.push(b) }))
+    expect(await createAccountSignOut()(d)).toBe(false)
+    expect(busy).toEqual([true, false])
   })
 })

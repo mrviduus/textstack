@@ -3,6 +3,7 @@ import { budgetedBytes, chooseEvictions, type CacheEntry } from './originalFileP
 import { listOriginalSizes, originalsTotalBytes } from './originalFileCache'
 import { listDeletedOnServer } from './deletedOnServer'
 import { userBookRowBytes } from './offlineDb'
+import { deviceV2Bytes } from './v2reader/deviceLibrary'
 
 /**
  * What the app is holding on this device, and how to get some of it back.
@@ -36,6 +37,8 @@ export interface DeviceStorageReport {
   originalsBytes: number
   /** Cached text-to-speech audio. */
   ttsBytes: number
+  /** The V2 reader's book files under `<documents>/v2/` (#1070). Its database is not counted, as the legacy one is not. */
+  v2Bytes: number
   totalBytes: number
 }
 
@@ -66,12 +69,13 @@ async function directoryBytes(dir: ReturnType<typeof ttsDirectory>): Promise<num
  *  an error state, and 0 reads as "nothing", which is the honest answer when
  *  the directory cannot be read. */
 export async function measureDeviceStorage(): Promise<DeviceStorageReport> {
-  if (Platform.OS === 'web') return { originalsBytes: 0, ttsBytes: 0, totalBytes: 0 }
+  if (Platform.OS === 'web') return { originalsBytes: 0, ttsBytes: 0, v2Bytes: 0, totalBytes: 0 }
   const [originalsBytes, ttsBytes] = await Promise.all([
     originalsTotalBytes(),
     directoryBytes(ttsDirectory()),
   ])
-  return { originalsBytes, ttsBytes, totalBytes: originalsBytes + ttsBytes }
+  const v2Bytes = deviceV2Bytes()
+  return { originalsBytes, ttsBytes, v2Bytes, totalBytes: originalsBytes + ttsBytes + v2Bytes }
 }
 
 /**
