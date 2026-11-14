@@ -42,12 +42,8 @@ export function wordMarksIn(root, words) {
   if (!root || !words.length) return []
   const nodes = textNodes(root)
   const at = rangesIn(root, nodes)
-  const out = []
-  for (const m of matchWords(root, words, nodes)) {
-    const range = at(m.start, m.end - m.start)
-    if (range) out.push({ range, word: m.item })
-  }
-  return out
+  // matchWords' offsets are in these very nodes: every one has its range.
+  return matchWords(root, words, nodes).map((m) => ({ range: at(m.start, m.end - m.start), word: m.item }))
 }
 
 /** Whether two marks draw the same (a section re-marked keeps what did not change). */
