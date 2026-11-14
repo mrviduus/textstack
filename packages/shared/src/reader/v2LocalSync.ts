@@ -115,7 +115,8 @@ export function positionWrite(p: PagePosition, fileId: string, expectedRevision:
 export function pageNameRefusal(p: PagePosition, format: string | null): string | null {
   if (typeof p.page !== 'string' || p.quote !== undefined) return null
   if (!PAGE_NAMED.has(format)) return `a named page does not fit a ${format ?? 'unknown-format'} file`
-  if (!isPageName(p.page)) return `its page key (${p.page.length} UTF-16 units) is blank, over ${MAX_PAGE_NAME}, or has a control character or lone surrogate`
+  const units = p.page.length
+  if (!isPageName(p.page)) return `its page key (${units} UTF-16 units) is blank, over ${MAX_PAGE_NAME}, or has a control character or lone surrogate`
   if (!isIndex(p.index)) return 'its section index is not an Int32 ≥ 0'
   return null
 }

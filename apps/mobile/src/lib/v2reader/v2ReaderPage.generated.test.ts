@@ -138,7 +138,7 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toMatch(/function settingsCss\((\w+), fontUrl2?\) \{\s*const (\w+) = readSettings\(\1\);/)
     // A position is reported restored only if the renderer really shows that section, a fraction's too (#1187).
     expect(html).toContain('result.position = arrivedAt(index) ? "restored" : "navigation failed, stayed at start"')
-    expect(html).toContain('return !!resolved && arrivedAt(resolved.index)')
+    expect(html).toContain('return resolved && arrivedAt(resolved.index) ? resolved.index : -1')
   })
 
   it('formatReaders_CarriedAsEscapedStrings_RunOnlyUnderThePageNonce', () => {
