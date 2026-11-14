@@ -198,7 +198,7 @@ annotation is anchored in one scheme for life: the V2 reader lists a `textstack-
 annotation as a quotation (its `selectedText`), the rule ADR-031 applies to catalog highlights.
 
 **Removal.** The `textstack-*` write path goes when the V2 reader is ready on every client **and**
-the old-client support window (plan §5.4: 60 days, closed only after the last 14 are silent) has
+the old-client support window (plan §5.4, amended 2026-11-14 in #1330: until the owner's devices run the new build) has
 closed — that is R8 ([#1040](https://github.com/mrviduus/textstack/issues/1040)), which also drops
 `book_chapters` (M6.4). After it these schemes are refused again and survive only in migrated rows.
 
