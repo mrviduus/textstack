@@ -1725,6 +1725,78 @@ try {
   const movedHl = await storeFrom(from, 'a store after a move with a highlight')
   check(movedHl?.highlights?.[0]?.id === hl.id && movedHl.position.cfi?.startsWith('epubcfi('), 'and so does the first real move')
 
+  // #1312: colours, recolour, removal, the list and a tap on a highlight.
+  console.log('highlight colours')
+  m = await open('tsformat.fb2', byFraction(null))
+  const twoHl = await call(`(() => {
+    const v = document.querySelector('foliate-view')
+    const c = v.renderer.getContents().find((x) => x.doc.querySelector('p'))
+    const t = c.doc.querySelector('p').firstChild
+    const at = (w, id, color, time) => { const i = t.data.indexOf(w), r = c.doc.createRange(); r.setStart(t, i); r.setEnd(t, i + w.length)
+      return { id, cfi: v.getCFI(c.index, r), index: c.index, quote: w, selectedText: w, prefix: '', suffix: '', color, at: time } }
+    return [at('judge', '22222222-2222-4222-8222-222222222222', 'green', 1), at('Sphinx', '33333333-3333-4333-8333-333333333333', 'mauve', 2)]
+  })()`)
+  m = await open('tsformat.fb2', JSON.stringify({ v: 1, book: fb2Book, highlights: twoHl, position: null }))
+  const listAfter = (from) => waitFor(from, (x) => x.type === 'highlight-list', 'highlight-list').catch(() => null)
+  /** The fills drawn over the shown sections, in document order of their overlays. */
+  const fills = () => call(`[...document.querySelector('foliate-view').renderer.getContents()].flatMap((c) => [...(c.overlayer?.element.querySelectorAll('g[fill]') ?? [])].map((g) => g.getAttribute('fill')))`)
+  const opened = await listAfter(m.from)
+  check(JSON.stringify(opened?.highlights.map((h) => [h.text, h.color])) === JSON.stringify([['Sphinx', 'yellow'], ['judge', 'green']]),
+    `the list after restore is in book order, an unknown colour drawn yellow (${JSON.stringify(opened?.highlights.map((h) => [h.text, h.color]))})`)
+  check(JSON.stringify((await fills()).sort()) === JSON.stringify(['#4ade80', '#facc15']), `each colour is drawn in its fill (${JSON.stringify(await fills())})`)
+  from = messages.length
+  call(`window.__fol.recolorHighlight(${JSON.stringify(twoHl[0].id)}, 'blue')`)
+  const recoloured = await storeFrom(from, 'a store after a recolour')
+  check(recoloured?.highlights.find((h) => h.id === twoHl[0].id)?.color === 'blue' && recoloured.highlights.length === 2, `a recolour is saved on that highlight (${JSON.stringify(recoloured?.highlights.map((h) => h.color))})`)
+  await page.waitForTimeout(300)
+  check((await fills()).includes('#60a5fa') && !(await fills()).includes('#4ade80'), `and redrawn in its new fill (${JSON.stringify(await fills())})`)
+  check((await listAfter(from))?.highlights.find((h) => h.id === twoHl[0].id)?.color === 'blue', 'and the list says so')
+  from = messages.length
+  call(`window.__fol.recolorHighlight(${JSON.stringify(twoHl[0].id)}, 'red')`)
+  call(`window.__fol.recolorHighlight('44444444-4444-4444-8444-444444444444', 'pink')`)
+  await page.waitForTimeout(400)
+  check(storesFrom(from).length === 0 && messages.slice(from).filter((x) => x.type === 'log' && /recolorHighlight ignored/.test(x.msg)).length === 2,
+    'a colour off the list, or a highlight not drawn here, is ignored with a warn and saves nothing')
+  // A tap on a drawn highlight is its `highlight-tap`, never a word.
+  const judgeAt = await wordAt(await frameWith('judge'), 'judge')
+  from = messages.length
+  await page.mouse.click(judgeAt.x, judgeAt.y)
+  await settled()
+  const tapped = messages.slice(from).find((x) => x.type === 'highlight-tap')
+  check(tapped?.id === twoHl[0].id && !kinds(from).includes('word') && near({ x: judgeAt.x, y: judgeAt.y, w: 0, h: 0 }, { x: tapped.x, y: tapped.y, width: 0, height: 0 }),
+    `a tap on a highlight is its highlight-tap, not a word (${JSON.stringify(tapped)}; ${kinds(from)})`)
+  from = messages.length
+  call(`window.__fol.removeHighlight(${JSON.stringify(twoHl[0].id)})`)
+  const removedStore = await storeFrom(from, 'a store after a removal')
+  const removedMsg = messages.slice(from).find((x) => x.type === 'highlight-removed')
+  check(removedMsg?.id === twoHl[0].id && removedMsg.key === fb2Book.sha256 && JSON.stringify(removedStore?.highlights.map((h) => h.id)) === JSON.stringify([twoHl[1].id]),
+    `a removal says highlight-removed and saves the entry without it (${JSON.stringify(removedMsg)}, ${JSON.stringify(removedStore?.highlights.map((h) => h.id))})`)
+  await page.waitForTimeout(300)
+  check(JSON.stringify(await fills()) === JSON.stringify(['#facc15']), `and it is no longer drawn (${JSON.stringify(await fills())})`)
+  check(JSON.stringify((await listAfter(from))?.highlights.map((h) => h.id)) === JSON.stringify([twoHl[1].id]), 'and the list drops it')
+  from = messages.length
+  await page.mouse.click(judgeAt.x, judgeAt.y)
+  await settled()
+  check(!messages.slice(from).some((x) => x.type === 'highlight-tap') && kinds(from).includes('word'), `a tap where it was is a word again (${kinds(from)})`)
+  from = messages.length
+  call(`window.__fol.removeHighlight(${JSON.stringify(twoHl[0].id)})`)
+  await page.waitForTimeout(400)
+  check(storesFrom(from).length === 0 && !messages.slice(from).some((x) => x.type === 'highlight-removed'), 'removing it again does nothing')
+  // A new highlight in the colour chosen.
+  await call(`(() => { const c = document.querySelector('foliate-view').renderer.getContents()[0]; const t = c.doc.querySelector('p').firstChild, i = t.data.indexOf('quartz'), r = c.doc.createRange(); r.setStart(t, i); r.setEnd(t, i + 6); c.doc.getSelection().removeAllRanges(); c.doc.getSelection().addRange(r) })()`)
+  await page.waitForTimeout(150)
+  from = messages.length
+  call(`window.__fol.highlightSelection('pink')`)
+  const pinkStore = await storeFrom(from, 'a store after a pink highlight')
+  const pink = pinkStore?.highlights.find((h) => h.selectedText === 'quartz')
+  check(pink?.color === 'pink' && messages.slice(from).find((x) => x.type === 'highlighted')?.color === 'pink', `a highlight is made in the colour chosen (${JSON.stringify(pink)})`)
+  await page.waitForTimeout(300)
+  check((await fills()).includes('#f472b6'), `and drawn in it (${JSON.stringify(await fills())})`)
+  from = messages.length
+  call(`window.__fol.highlightSelection('red')`)
+  await page.waitForTimeout(300)
+  check(storesFrom(from).length === 0, 'a highlight in a colour off the list is refused')
+
   // A fixed-layout book (CBZ) lands a fraction on its page, quietly too, and saves its page once moved.
   m = await open('tsformat.cbz', JSON.stringify({ v: 1, book: cbzBook, highlights: [], position: { fraction: 0.9, at: 1 } }))
   await settle()

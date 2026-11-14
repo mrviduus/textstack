@@ -1,7 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
 import { tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
+import type { V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
+import { COLOR_MAP } from './decorationColors'
 
 /** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo`: the entry the reader chose. */
 interface Props {
@@ -10,13 +12,26 @@ interface Props {
   onGo: (entry: V2TocEntry) => void
 }
 
+/** #1312: the Highlights tab (absent where the host offers no highlights: an image or PDF book, the server's not in yet). */
+interface HighlightsTab {
+  /** The page's `highlight-list` (in book order, drawn ones only). */
+  items: V2HighlightItem[]
+  /** The host's note of one (the page holds none). */
+  noteOf: (id: string) => string | null
+  onGo: (item: V2HighlightItem) => void
+}
+
 /**
  * The V2 reader's table of contents (#1261): the legacy drawer's dialog (reader.css, `useFocusTrap`), the entries
  * indented by depth, the current one marked and focused on open (which scrolls it into view). Closing gives focus back.
+ * With `highlights` (#1312) a Highlights tab beside Contents, the legacy drawer's (a book with no contents opens on
+ * it): each highlight's text and note as text, in book order; a tap jumps there.
  */
-export function V2TocDrawer({ open, toc, tocIndex, onGo, onClose }: Props & { open: boolean; onClose: () => void }) {
+export function V2TocDrawer({ open, toc, tocIndex, onGo, onClose, highlights }: Props & { open: boolean; onClose: () => void; highlights?: HighlightsTab | null }) {
   const container = useFocusTrap(open)
   const { t } = useTranslation()
+  const [chosenTab, setTab] = useState<'contents' | 'highlights'>('contents')
+  const tab = !highlights || (chosenTab === 'contents' && toc.length > 0) ? 'contents' : 'highlights'
   // After the trap's own focus (the close button).
   useEffect(() => {
     if (open) container.current?.querySelector<HTMLElement>('[aria-current]')?.focus()
@@ -39,14 +54,47 @@ export function V2TocDrawer({ open, toc, tocIndex, onGo, onClose }: Props & { op
         }}
       >
         <div className="reader-toc-drawer__header">
-          <h3>{t('v2Reader.contents')}</h3>
+          {highlights ? (
+            <div className="reader-toc-drawer__tabs" role="tablist">
+              {toc.length > 0 && (
+                <button role="tab" aria-selected={tab === 'contents'} className={`reader-toc-drawer__tab${tab === 'contents' ? ' active' : ''}`} onClick={() => setTab('contents')}>
+                  {t('v2Reader.contents')}
+                </button>
+              )}
+              <button role="tab" aria-selected={tab === 'highlights'} className={`reader-toc-drawer__tab${tab === 'highlights' ? ' active' : ''}`} onClick={() => setTab('highlights')} data-testid="v2-highlights-tab">
+                {t('reader.toc.highlightsTab')} {highlights.items.length > 0 && `(${highlights.items.length})`}
+              </button>
+            </div>
+          ) : (
+            <h3>{t('v2Reader.contents')}</h3>
+          )}
           <button onClick={onClose} className="reader-toc-drawer__close" aria-label={t('v2Reader.closeContents')}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
         </div>
-        <ul className="reader-toc-drawer__list">
+        {tab === 'highlights' && highlights && (
+          <ul className="reader-toc-drawer__list" data-testid="v2-highlights-list">
+            {highlights.items.map((h) => {
+              const note = highlights.noteOf(h.id)
+              return (
+                <li key={h.id} className="reader-toc-drawer__bookmark-item">
+                  <button type="button" className="reader-toc-drawer__item reader-toc-drawer__hl-item" onClick={() => { highlights.onGo(h); onClose() }}>
+                    <span className="reader-toc-drawer__hl-swatch" style={{ backgroundColor: COLOR_MAP[h.color] }} aria-hidden="true" />
+                    {/* The book's text and the reader's note: React text only (untrusted). */}
+                    <span className="reader-toc-drawer__hl-body">
+                      <span className="reader-toc-drawer__hl-text">{h.text}</span>
+                      {note && <span className="reader-toc-drawer__hl-note">{note}</span>}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+            {highlights.items.length === 0 && <li className="reader-toc-drawer__empty">{t('reader.toc.highlightsEmpty')}</li>}
+          </ul>
+        )}
+        {tab === 'contents' && <ul className="reader-toc-drawer__list">
           {toc.map((e) => (
             <li key={e.index}>
               <button
@@ -64,7 +112,7 @@ export function V2TocDrawer({ open, toc, tocIndex, onGo, onClose }: Props & { op
               </button>
             </li>
           ))}
-        </ul>
+        </ul>}
       </div>
     </>
   )

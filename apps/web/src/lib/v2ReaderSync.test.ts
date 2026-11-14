@@ -52,9 +52,11 @@ beforeEach(() => {
     getReadingState: vi.fn().mockResolvedValue(null),
     annotations: vi.fn().mockResolvedValue([]),
     putReadingState: vi.fn(async (_b: string, w: V2ReadingStateWrite) => ({ ...state((w.expectedRevision ?? 0) + 1), currentLocator: w.currentLocator, clientRecordedAt: w.clientRecordedAt })),
-    putAnnotation: vi.fn(async (id: string, w: V2AnnotationWrite) => annotation({ id, color: w.color, revision: (w.expectedRevision ?? 0) + 1 })),
+    putAnnotation: vi.fn(async (id: string, w: V2AnnotationWrite) => annotation({ id, color: w.color, noteText: w.noteText ?? null, revision: (w.expectedRevision ?? 0) + 1 })),
+    deleteAnnotation: vi.fn(async (id: string) => annotation({ id, deletedAt: '2026-11-03T00:00:00.000Z', revision: 9 })),
     keepalivePutState: vi.fn(),
     keepalivePutAnnotation: vi.fn(),
+    keepaliveDeleteAnnotation: vi.fn(),
   }
 })
 
@@ -771,6 +773,145 @@ describe('createV2ReaderSync', () => {
       expect(k).toBeLessThan(20)
       const sent = [...api.keepalivePutState.mock.calls, ...api.keepalivePutAnnotation.mock.calls].reduce((n, c) => n + new TextEncoder().encode(c[1]).length, 0)
       expect(sent).toBeLessThanOrEqual(KEEPALIVE_BUDGET)
+    })
+  })
+
+  // #1312: notes (the host's), recolours (the page's form) and removals (a DELETE), against the server's rows.
+  describe('notes and removals', () => {
+    const body = (n = 0) => api.putAnnotation.mock.calls[n][1] as V2AnnotationWrite
+    async function withServerRow(row: Partial<V2Annotation> = {}) {
+      api.annotations.mockResolvedValue([annotation({ id: H1, revision: 2, ...row })])
+      return opened()
+    }
+
+    it('setNote_AHighlightTheServerHolds_WrittenOnItsRevisionWithItsForm_NotAgain', async () => {
+      const s = await withServerRow()
+      s.setNote(H1, 'my note')
+      await s.flush()
+      expect(api.putAnnotation).toHaveBeenCalledTimes(1)
+      expect(body()).toMatchObject({ expectedRevision: 2, noteText: 'my note', color: 'yellow', selectedText: 'Hello' })
+      expect(s.note(H1)).toBe('my note')
+      expect(last()).toBe('saved')
+      // The page's form of it (as drawn from the pull) in a later store: nothing to write.
+      await stored(s, entry(pos(2), [drawnLists[0][0]]))
+      expect(api.putAnnotation).toHaveBeenCalledTimes(1)
+    })
+
+    it('recolour_TheServersNoteKept_APutNeverClearsIt', async () => {
+      const s = await withServerRow({ noteText: 'their note' })
+      await stored(s, entry(null, [hl(H1, 'green')]))
+      expect(body()).toMatchObject({ expectedRevision: 2, color: 'green', noteText: 'their note' })
+    })
+
+    it('staleRevision_NoteNotEditedHere_TheRetryKeepsTheirNote', async () => {
+      const s = await withServerRow()
+      api.putAnnotation.mockRejectedValueOnce(conflict('stale_revision', annotation({ id: H1, revision: 3, noteText: 'written elsewhere' })))
+      await stored(s, entry(null, [hl(H1, 'pink')]))
+      expect(body(1)).toMatchObject({ expectedRevision: 3, color: 'pink', noteText: 'written elsewhere' })
+      expect(s.note(H1)).toBe('written elsewhere')
+    })
+
+    it('staleRevision_NoteEditedHere_OursReappliedOnce', async () => {
+      const s = await withServerRow()
+      api.putAnnotation.mockRejectedValueOnce(conflict('stale_revision', annotation({ id: H1, revision: 3, noteText: 'written elsewhere' })))
+      s.setNote(H1, 'mine')
+      await s.flush()
+      expect(body(1)).toMatchObject({ expectedRevision: 3, noteText: 'mine' })
+      expect(s.note(H1)).toBe('mine')
+    })
+
+    it('noteEditedWhileItsWriteIsInFlight_TheNewerOneWrittenNext', async () => {
+      const s = await withServerRow()
+      const put = deferred<V2Annotation>()
+      api.putAnnotation.mockReturnValueOnce(put.promise)
+      s.setNote(H1, 'first')
+      await Promise.resolve()
+      s.setNote(H1, 'second')
+      put.resolve(annotation({ id: H1, revision: 3, noteText: 'first' }))
+      await s.flush()
+      expect(api.putAnnotation.mock.calls.map((c) => [(c[1] as V2AnnotationWrite).noteText, expectedOf(c)])).toEqual([['first', 2], ['second', 3]])
+      expect(s.note(H1)).toBe('second')
+    })
+
+    it('noteRefused_NotResentUntilItChanges_Unsaved', async () => {
+      const s = await withServerRow()
+      api.putAnnotation.mockRejectedValueOnce(fail(422, 'invalid_payload'))
+      s.setNote(H1, 'bad')
+      await s.flush()
+      await s.flush()
+      expect(api.putAnnotation).toHaveBeenCalledTimes(1)
+      expect(last()).toBe('unsaved')
+      s.setNote(H1, 'good')
+      await s.flush()
+      expect(body(1).noteText).toBe('good')
+      expect(last()).toBe('saved')
+    })
+
+    it('remove_ADeleteBeforeAnyWriteOfIt_AStoreSentBeforeTheRemovalNeverWritesItAgain', async () => {
+      const s = await withServerRow()
+      s.remove(H1)
+      // The page's store from before the removal (its recolour) arrives after it.
+      await stored(s, entry(null, [hl(H1, 'green')]))
+      expect(api.deleteAnnotation.mock.calls.map((c) => c[0])).toEqual([H1])
+      expect(api.putAnnotation).not.toHaveBeenCalled()
+      await stored(s, entry(pos(2), [hl(H1, 'blue')]))
+      expect(api.putAnnotation).not.toHaveBeenCalled()
+      s.setNote(H1, 'too late')
+      await s.flush()
+      expect(api.putAnnotation).not.toHaveBeenCalled()
+      expect(last()).toBe('saved')
+    })
+
+    it('remove_ServerNeverHadIt404_Done', async () => {
+      const s = await opened()
+      api.deleteAnnotation.mockRejectedValueOnce(fail(404, 'not_found'))
+      await stored(s, entry(null, [hl(H2)]))
+      s.remove(H2)
+      await stored(s, entry(null, [hl(H2)]))
+      await s.flush()
+      expect(api.deleteAnnotation).toHaveBeenCalledTimes(1)
+      expect(api.putAnnotation).toHaveBeenCalledTimes(1)
+      expect(last()).toBe('saved')
+    })
+
+    it('remove_Offline_KeptUnsaved_DeletedOnTheNextFlush', async () => {
+      const s = await withServerRow()
+      api.deleteAnnotation.mockRejectedValueOnce(offline())
+      s.remove(H1)
+      await s.flush()
+      expect(last()).toBe('unsaved')
+      await s.flush()
+      expect(api.deleteAnnotation).toHaveBeenCalledTimes(2)
+      expect(last()).toBe('saved')
+    })
+
+    it('keepalive_ARemovalAndANoteStillPending_SentBeforeTheTabGoes', async () => {
+      const s = await withServerRow()
+      api.deleteAnnotation.mockRejectedValue(offline())
+      api.putAnnotation.mockRejectedValue(offline())
+      // Another place than H1's (the same CFI and text would be its twin).
+      await stored(s, entry(null, [{ ...hl(H2), cfi: 'epubcfi(/6/6!/4/2,/1:0,/1:5)' }]))
+      s.remove(H1)
+      s.setNote(H2, 'kept')
+      await s.flush()
+      s.flushKeepalive()
+      expect(api.keepaliveDeleteAnnotation.mock.calls.map((c) => c[0])).toEqual([H1])
+      expect(api.keepalivePutAnnotation.mock.calls.map((c) => [c[0], JSON.parse(c[1]).noteText])).toEqual([[H2, 'kept']])
+    })
+
+    it('setNote_BeforeTheHighlightsLoaded_WrittenOnceTheyLand', async () => {
+      const pull = deferred<V2Annotation[]>()
+      api.annotations.mockReturnValue(pull.promise)
+      const s = open()
+      await s.restore()
+      const loading = s.loadHighlights()
+      s.setNote(H1, 'early')
+      await Promise.resolve()
+      expect(api.putAnnotation).not.toHaveBeenCalled()
+      pull.resolve([annotation({ id: H1, revision: 5 })])
+      await loading
+      await s.flush()
+      expect(body()).toMatchObject({ expectedRevision: 5, noteText: 'early' })
     })
   })
 })

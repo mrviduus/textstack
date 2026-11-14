@@ -123,17 +123,17 @@ describe('V2ReaderHost word popup and selection toolbar', () => {
     fromPage(selection())
     expect(document.querySelector('.word-popup')).toBeNull()
     for (const name of ['Highlight yellow', 'Translate selected text', 'Explain in context', 'Copy selected text']) expect(screen.getByRole('button', { name })).toBeEnabled()
-    // One colour: the page draws one.
-    expect(screen.queryByRole('button', { name: 'Highlight green' })).toBeNull()
+    // The legacy four colours (#1312): the page draws each.
+    for (const name of ['Highlight green', 'Highlight pink', 'Highlight blue']) expect(screen.getByRole('button', { name })).toBeEnabled()
     // Listen is the TTS slice's (#1272).
     expect(screen.queryByRole('button', { name: 'Listen to pronunciation' })).toBeNull()
   })
 
-  it('selection_Highlight_TheOneDescribedHighlighted_ToolbarClosed', () => {
+  it('selection_Highlight_TheOneDescribedHighlightedInTheColourChosen_ToolbarClosed', () => {
     opened()
     fromPage(selection())
-    fireEvent.click(screen.getByRole('button', { name: 'Highlight yellow' }))
-    expect(calls('highlightSelection')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Highlight pink' }))
+    expect(calls('highlightSelection').map((c) => c.args)).toEqual([['pink']])
     expect(document.querySelector('.selection-toolbar')).toBeNull()
   })
 

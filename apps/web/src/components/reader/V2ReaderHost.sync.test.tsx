@@ -22,6 +22,9 @@ interface FakeSync {
   flush: ReturnType<typeof vi.fn>
   flushKeepalive: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
+  note: ReturnType<typeof vi.fn>
+  setNote: ReturnType<typeof vi.fn>
+  remove: ReturnType<typeof vi.fn>
 }
 const sessions: FakeSync[] = []
 vi.mock('../../lib/v2ReaderSync', () => ({
@@ -33,6 +36,7 @@ vi.mock('../../lib/v2ReaderSync', () => ({
       answer: (json) => settle?.ok(json), fail: () => settle?.no(new Error('offline')),
       restore: vi.fn(() => new Promise((ok, no) => { settle = { ok, no } })), loadHighlights: vi.fn(async () => {}),
       store: vi.fn(), flush: vi.fn(async () => {}), flushKeepalive: vi.fn(), close: vi.fn(() => closed),
+      note: vi.fn(() => 'their note'), setNote: vi.fn(), remove: vi.fn(),
     }
     sessions.push(s)
     return s
@@ -312,6 +316,44 @@ describe('V2ReaderHost, server sync', () => {
       open(synced('b2', SHA('b')))
       // Gone while b2 is still opening, before its `opened`.
       expect(bar()).toBeNull()
+    })
+  })
+
+  // #1312: the page's removal is the session's tombstone; a note is the session's; nothing before the pull lands.
+  describe('highlights', () => {
+    const ID = '11111111-1111-4111-8111-111111111111'
+    const item = { id: ID, cfi: 'epubcfi(/6/2!/4/2,/1:0,/1:5)', color: 'green', text: 'pond', at: 1 }
+    async function reading() {
+      const { open } = mount()
+      fromPage({ type: 'ready' })
+      open(synced('b1', SHA('a')))
+      fromPage({ ...opened('1/b1.epub', SHA('a')), annotatable: true })
+      sessions[0].answer('{"v":1}')
+      await flushAll()
+      return sessions[0]
+    }
+
+    it('beforeThePullLands_NoEditorOnATap_AfterIt_TheSessionsNote', async () => {
+      const s = await reading()
+      fromPage({ type: 'highlight-list', key: SHA('a'), highlights: [item] })
+      Object.defineProperty(screen.getByTitle('V2 reader'), 'clientWidth', { value: 1000, configurable: true })
+      fromPage({ type: 'highlight-tap', id: ID, x: 500, y: 100, rect: { x: 480, y: 90, w: 40, h: 20 } })
+      expect(document.querySelector('.pdf-hl-popup')).toBeNull()
+      act(() => s.onHighlights([]))
+      fromPage({ type: 'highlight-tap', id: ID, x: 500, y: 100, rect: { x: 480, y: 90, w: 40, h: 20 } })
+      expect(screen.getByPlaceholderText('Add a note...')).toHaveValue('their note')
+      fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'mine ' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      expect(s.setNote.mock.calls).toEqual([[ID, 'mine']])
+    })
+
+    it('highlightRemoved_ThisBooks_TheSessionTombstonesIt_AnotherBooksIgnored', async () => {
+      const s = await reading()
+      fromPage({ type: 'highlight-removed', key: SHA('b'), id: ID })
+      fromPage({ type: 'highlight-removed', key: SHA('a'), id: '../x' })
+      expect(s.remove).not.toHaveBeenCalled()
+      fromPage({ type: 'highlight-removed', key: SHA('a'), id: ID })
+      expect(s.remove.mock.calls).toEqual([[ID]])
     })
   })
 })

@@ -10,7 +10,8 @@ import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs
 import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readRelocate, readTap, takenWithoutBook, type V2NavKey } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
 import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../../../mobile/src/lib/v2reader/wordPopup.mjs'
 import { savesWords } from '../../../../mobile/src/lib/v2reader/vocabSave.mjs'
-import { V2ReaderPopups } from './V2ReaderPopups'
+import { V2ReaderPopups, type V2HighlightEditor } from './V2ReaderPopups'
+import { noteOf, readHighlightList, readHighlightRemoved, readHighlightTap, type V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
 import { showsFinishBook } from '../../../../mobile/src/lib/v2reader/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
 import { readToc, tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
@@ -140,9 +141,11 @@ interface Props {
   dev?: boolean
   /** The top bar's back link (none without it: the dev route). */
   backUrl?: string
+  /** #1312: `?highlight=<id>`: the open book jumps to that highlight once the page lists it (drawn). */
+  highlightId?: string | null
 }
 
-export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, onReload, dev = false, backUrl }: Props) {
+export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, onReload, dev = false, backUrl, highlightId }: Props) {
   const { t } = useTranslation()
   const frame = useRef<HTMLIFrameElement>(null)
   const ready = useRef(false)
@@ -245,6 +248,16 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [bookLanguage, setBookLanguage] = useState('en')
   /** The server book a tapped word is saved with (#1270): the production route's, when the bytes are its file's. */
   const [vocabBook, setVocabBook] = useState<{ id: string; title: string } | null>(null)
+  /**
+   * #1312: the open book's drawn highlights (the page's `highlight-list`, for the book taken last), the notes the dev
+   * route keeps in memory (the production route's are the session's), a counter that re-renders after a note edit,
+   * and the deep link's highlight still to jump to (once per open).
+   */
+  const [highlightList, setHighlightList] = useState<V2HighlightItem[]>([])
+  const openedSha = useRef<string | null>(null)
+  const devNotes = useRef(new Map<string, string | null>())
+  const [, setNotesSeen] = useState(0)
+  const pendingHighlight = useRef<string | null>(null)
   const main = useRef<HTMLElement>(null)
   const header = useRef<HTMLElement>(null)
   const footer = useRef<HTMLElement>(null)
@@ -323,6 +336,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setPopup(null)
     setRestored('')
     setAtEnd(false)
+    setHighlightList([])
+    openedSha.current = null
+    pendingHighlight.current = highlightId ?? null
     // The previous book's session stays until `takeOpened`: no Finish block (and no click finishing that book)
     // from a relocate of it still on its way.
     setFinish(null)
@@ -371,6 +387,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       // Not `atEnd`: cleared where the open started; this book's first relocate (its end, for a book one screen
       // long) comes before its `opened` and must stand.
       setFinish(null)
+      // The previous book's list goes; this one's comes with its `restored`.
+      openedSha.current = m.book.sha256
+      setHighlightList([])
+      devNotes.current = new Map()
       const target = current.sync
       // A language that does not read (`deu`) saves nothing: the fallback `en` would file its words under English cards.
       setVocabBook(!dev && target && target.sha256.toLowerCase() === m.book.sha256 && savesWords(m) ? { id: target.bookId, title: m.title || current.originalName } : null)
@@ -466,6 +486,34 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           // addHighlights' answer: one not drawn is the server's but not where its text is in this file.
           for (const h of m.highlights ?? []) if (h.status !== 'restored') console.warn(`[v2] highlight ${h.id} not drawn: ${h.status}`)
           return
+        case 'highlight-list': {
+          // Untrusted: only what readHighlightList takes; another book's (a previous open's) is dropped.
+          const l = readHighlightList(m)
+          if (!l || l.key !== openedSha.current) return
+          setHighlightList(l.highlights)
+          const want = pendingHighlight.current && l.highlights.find((h) => h.id === pendingHighlight.current)
+          if (want) {
+            pendingHighlight.current = null
+            // The reader's own choice (they followed the link): saved where it lands (README, `goTo`).
+            hostMove('goTo', [want.cfi, true])
+          }
+          return
+        }
+        case 'highlight-tap': {
+          // A tap on a drawn highlight: its editor where the toolbar would be (popupStep: an edge still turns).
+          // Where no highlight is offered yet (the server's not in), a tap like any other.
+          const h = readHighlightTap(m)
+          if (h) onPopupEvent(offersRef.current ? { type: 'highlight', highlight: h } : { type: 'tap', x: h.x })
+          return
+        }
+        case 'highlight-removed': {
+          // The page removed it (its editor's Delete): a tombstone on the server, for the synced book only.
+          const r = readHighlightRemoved(m)
+          if (!r || r.key !== openedSha.current) return
+          if (dev) devNotes.current.delete(r.id)
+          else if (sync.current?.target.sha256.toLowerCase() === r.key) sync.current.remove(r.id)
+          return
+        }
         case 'restored':
           // Only for the book taken last: a stale answer must not show another book as restored.
           if (!tracker.restored(m)) return
@@ -607,6 +655,27 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setTocIndex(e.index)
     hostMove('goTo', [e.href, true])
   }
+  /** #1312: highlights are offered (the dev route always; the production route once the server's are in). */
+  const offersHighlights = annotatable && (dev || highlightsReady)
+  const offersRef = useRef(false)
+  offersRef.current = offersHighlights
+  const noteFor = (id: string) => (dev ? devNotes.current.get(id) ?? null : sync.current?.note(id) ?? null)
+  const tapped = popup?.kind === 'highlight' ? highlightList.find((h) => h.id === popup.id) : undefined
+  const editor: V2HighlightEditor | null = tapped && offersHighlights ? {
+    item: tapped,
+    note: noteFor(tapped.id),
+    onRecolor: (color) => call('recolorHighlight', [tapped.id, color]),
+    onNoteSave: (text) => {
+      const note = noteOf(text)
+      if (dev) devNotes.current.set(tapped.id, note)
+      else sync.current?.setNote(tapped.id, note)
+      setNotesSeen((n) => n + 1)
+    },
+    onDelete: () => call('removeHighlight', [tapped.id]),
+  } : null
+  /** A highlight chosen in the list: the reader's choice, saved where it lands. */
+  const goHighlight = (h: V2HighlightItem) => hostMove('goTo', [h.cfi, true])
+
   /** Never a section number (#1261): the percent, then the current entry's title when there is one. */
   const currentEntry = tocAround(toc, tocIndex).current
   const statusLine = status && currentEntry ? `${status} · ${currentEntry.label}` : status
@@ -637,8 +706,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         </div>
         <div className="reader-top-bar__right">
           {toolbar}
-          {reading && toc.length > 0 && <button className="reader-top-bar__btn" onClick={() => setTocOpen(true)}>{t('v2Reader.contents')}</button>}
-          {annotatable && (dev || highlightsReady) && <button className="reader-top-bar__btn" onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
+          {reading && (toc.length > 0 || offersHighlights) && <button className="reader-top-bar__btn" onClick={() => setTocOpen(true)}>{t('v2Reader.contents')}</button>}
+          {offersHighlights && <button className="reader-top-bar__btn" onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
           <button className="reader-top-bar__btn" onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
           <button className="reader-top-bar__btn" onClick={() => setSettingsOpen(true)} aria-label={t('v2Reader.settings')} title={t('v2Reader.settings')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -712,12 +781,20 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           bookLanguage={bookLanguage}
           bookId={vocabBook?.id}
           bookTitle={vocabBook?.title}
-          onHighlight={annotatable && (dev || highlightsReady) ? () => call('highlightSelection') : undefined}
+          onHighlight={offersHighlights ? (color) => call('highlightSelection', [color]) : undefined}
+          highlight={editor}
           onClose={closePopup}
         />
       )}
       <V2ReaderSettingsDrawer open={settingsOpen} settings={settings} onUpdate={updateSettings} onClose={() => setSettingsOpen(false)} typography={reflowable} />
-      <V2TocDrawer open={tocOpen && reading} toc={toc} tocIndex={tocIndex} onGo={goToc} onClose={() => setTocOpen(false)} />
+      <V2TocDrawer
+        open={tocOpen && reading}
+        toc={toc}
+        tocIndex={tocIndex}
+        onGo={goToc}
+        onClose={() => setTocOpen(false)}
+        highlights={offersHighlights ? { items: highlightList, noteOf: noteFor, onGo: goHighlight } : null}
+      />
     </main>
   )
 }

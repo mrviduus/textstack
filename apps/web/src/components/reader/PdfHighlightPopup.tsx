@@ -20,7 +20,8 @@ const SWATCH: Record<HighlightColor, string> = {
 }
 
 interface Props {
-  highlight: StoredHighlight
+  /** What the popup shows and edits: the legacy PDF highlight, or a V2 one (#1312). */
+  highlight: Pick<StoredHighlight, 'id' | 'color' | 'selectedText' | 'noteText'>
   rect: DOMRect | null
   containerRef: React.RefObject<HTMLElement | null>
   onRecolor: (color: HighlightColor) => void

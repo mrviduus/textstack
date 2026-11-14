@@ -37,7 +37,9 @@ beforeEach(() => {
       })
     }),
     putAnnotation: vi.fn(),
+    deleteAnnotation: vi.fn(),
     keepalivePutState: vi.fn(),
+    keepaliveDeleteAnnotation: vi.fn(),
     keepalivePutAnnotation: vi.fn(),
   }
 })

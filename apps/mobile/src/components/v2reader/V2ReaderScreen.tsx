@@ -1031,7 +1031,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               finishedLabel={t('reader.chrome.finished')}
             />
           )}
-          {popup && (
+          {popup && popup.kind !== 'highlight' && (
             // The legacy reader's bar (#1269): the word's gloss (or the picker's line) on a tap; on a selection highlight,
             // copy, translate, explain; Save on a word (#1270). No Listen (TTS, #1272). Nothing here needs the network to
             // read on: a failed gloss says so, the sheets and a failed save show their own errors.

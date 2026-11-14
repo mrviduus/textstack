@@ -15,8 +15,6 @@ interface SelectionToolbarProps {
   containerRef: React.RefObject<HTMLElement | null>
   /** Original-layout PDF mode: highlights are reflow-only, so hide the color swatches. */
   hideHighlight?: boolean
-  /** The swatches offered (all four when absent): the V2 reader draws one colour. */
-  colors?: HighlightColor[]
   onHighlight: (color: HighlightColor) => void
   onTranslate?: () => void
   onExplain?: () => void
@@ -31,7 +29,6 @@ export function SelectionToolbar({
   text,
   containerRef,
   hideHighlight = false,
-  colors,
   onHighlight,
   onTranslate,
   onExplain,
@@ -100,7 +97,7 @@ export function SelectionToolbar({
       {!hideHighlight && (
         <>
           <div className="selection-toolbar__colors">
-            {HIGHLIGHT_COLORS.filter((c) => !colors || colors.includes(c.color)).map(({ color, labelKey, hex }) => {
+            {HIGHLIGHT_COLORS.map(({ color, labelKey, hex }) => {
               const label = t(labelKey)
               return (
                 <button

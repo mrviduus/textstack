@@ -34,13 +34,16 @@ export function readLang(m) {
  * What a page event does to what is open (`popup`: null, `{ kind: 'word', …readWord }` or `{ kind: 'selection',
  * …readSelection }`) and to the chrome (`turn`: tapZone's 'prev' / 'next' / 'toggle', or null). `zone`: tapAction's
  * `{ width, flow, dir }`. Events: `{ type: 'word', word }`, `{ type: 'tap', x }`, `{ type: 'selection', selection }`,
- * `{ type: 'selection-cleared' }`, `{ type: 'moved' }` (a relocate with `moved`).
+ * `{ type: 'selection-cleared' }`, `{ type: 'moved' }` (a relocate with `moved`), `{ type: 'highlight', highlight }`
+ * (#1312: a tap on a drawn highlight, `readHighlightTap`'s; its popup is the highlight editor).
  * - A word on an edge in paginated flow turns the page, as a tap there would: page turning stays reliable on text.
  *   Anywhere else (the centre, scrolled flow) it opens its popup, replacing what was open.
  * - A tap closes what is open; an edge still turns, a centre tap does nothing more (it was the dismissal).
  * - A selection replaces what is open (a double-click is `word`, then `selection`).
  * - `selection-cleared` closes the toolbar, never a word popup; a move closes a word popup (its word left the
- *   place it points at), never the toolbar (the page sends the selection again where it moved, or clears it).
+ *   place it points at), never the toolbar (the page sends the selection again where it moved, or clears it), never
+ *   the highlight editor (a note being typed is not lost to a scroll).
+ * - A highlight tapped is a word for the edge rule; elsewhere it opens its editor, replacing what was open.
  */
 export function popupStep(popup, e, zone) {
   switch (e.type) {
@@ -48,6 +51,11 @@ export function popupStep(popup, e, zone) {
       const { x, w } = e.word.rect
       const turn = tapAction({ ...zone, x: x + w / 2 })
       return turn === 'toggle' ? { popup: { kind: 'word', ...e.word }, turn: null } : { popup: null, turn }
+    }
+    case 'highlight': {
+      // As a word: a highlight on an edge in paginated flow turns the page (the list still reaches it).
+      const turn = tapAction({ ...zone, x: e.highlight.x })
+      return turn === 'toggle' ? { popup: { kind: 'highlight', ...e.highlight }, turn: null } : { popup: null, turn }
     }
     case 'tap': {
       const turn = tapAction({ ...zone, x: e.x })
