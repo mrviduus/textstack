@@ -591,12 +591,16 @@ test.describe('V2 reader page @v2', () => {
     const context = await v2Context(browser, email('v2img'))
     const page = await context.newPage()
     const bookId = await uploadFixture(page, IMAGE_FIXTURE)
-    // The host's calls into the page, as the reader frame receives them.
+    // The page's taps, as the host window receives them.
     await page.addInitScript(() => {
-      if (window.top === window || !location.pathname.startsWith('/reader-v2/')) return
+      if (window.top !== window) return
+      const w = window as unknown as { __taps: number[] }
+      w.__taps = []
       addEventListener('message', (e) => {
-        const c = (e.data as { call?: unknown } | null)?.call
-        if (typeof c === 'string') ((window.top as unknown as { __calls?: string[] }).__calls ??= []).push(c)
+        try {
+          const m = typeof e.data === 'string' ? JSON.parse(e.data) : null
+          if (m?.type === 'tap') w.__taps.push(m.x)
+        } catch { /* not the page's */ }
       })
     })
     await page.goto(`/en/library/my/${bookId}/read-v2`)
@@ -654,12 +658,14 @@ test.describe('V2 reader page @v2', () => {
     await expect(dialog).toHaveCount(0)
     await expect(status(page)).toHaveText(before)
 
-    // On the left edge zone: a `tap` the host turns by (`prev`, asked of the page), not the lightbox.
-    expect(img.left + 8, 'the image reaches into the left edge zone').toBeLessThan(page.viewportSize()!.width * 0.25)
-    const calls = () => page.evaluate(() => (window as unknown as { __calls?: string[] }).__calls ?? [])
-    const asked = (await calls()).length
+    // On the left edge zone: a `tap` there (the host's edge rule turns by it, the chrome spec above), not the lightbox.
+    const width = page.viewportSize()!.width
+    expect(img.left + 8, 'the image reaches into the left edge zone').toBeLessThan(width * 0.25)
+    const taps = () => page.evaluate(() => (window as unknown as { __taps: number[] }).__taps)
+    const seen = (await taps()).length
     await page.mouse.click(img.left + 8, img.y)
-    await expect.poll(async () => (await calls()).slice(asked)).toContain('prev')
+    await expect.poll(async () => (await taps()).slice(seen)).toEqual([expect.any(Number)])
+    expect((await taps()).at(-1)!).toBeLessThan(width * 0.25)
     await expect(dialog).toHaveCount(0)
     await context.close()
   })
