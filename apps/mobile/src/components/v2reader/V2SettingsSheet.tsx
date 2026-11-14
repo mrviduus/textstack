@@ -8,6 +8,7 @@ import {
   ALIGNS, FAMILIES, FONT_MAX, FONT_MIN, FONT_STEP, LINE_HEIGHTS, SETTINGS_KEY, THEMES, choose, parseChosen, readSettings,
   type V2FontFamily, type V2Settings, type V2TextAlign, type V2Theme,
 } from '../../lib/v2reader/settings.mjs'
+import { TTS_SPEEDS, TTS_SPEED_KEY, readSpeed } from '../../lib/v2reader/listen.mjs'
 
 /**
  * The reader's choices (#1260), read once for the process and replaced by every change (as the flow choice):
@@ -33,6 +34,17 @@ export function useV2Settings() {
   return { settings, update }
 }
 
+/** #1272: Listen's speed on this device (the host's alone, never the page's); 1 until the stored one is read. */
+export function useV2TtsSpeed() {
+  const [speed, setSpeed] = useState(1)
+  useEffect(() => { AsyncStorage.getItem(TTS_SPEED_KEY).then((v) => setSpeed(readSpeed(v)), () => {}) }, [])
+  const update = (v: number) => {
+    setSpeed(readSpeed(v))
+    AsyncStorage.setItem(TTS_SPEED_KEY, String(readSpeed(v))).catch((e) => console.log(`[v2] speech speed not saved: ${e}`))
+  }
+  return { speed, update }
+}
+
 const FAMILY_LABEL: Record<V2FontFamily, string> = { serif: 'Serif', sans: 'Sans', dyslexic: 'Dyslexic' }
 // `book`: the book's own alignment, the default (no rule of ours).
 const ALIGN_LABEL: Record<V2TextAlign, string> = { book: 'Book', left: 'Left', center: 'Center', justify: 'Justify' }
@@ -45,10 +57,13 @@ interface Props {
   onUpdate: (patch: Partial<V2Settings>) => void
   /** False for a fixed-layout book (PDF, CBZ, a pre-paginated EPUB): only the theme applies, the rest is disabled. */
   typography: boolean
+  /** #1272: Listen's speed and its change. */
+  ttsSpeed: number
+  onTtsSpeed: (v: number) => void
 }
 
 /** The settings sheet: the legacy reader's drawer (ReaderSettingsDrawer.tsx) with the five V2 settings. */
-export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typography }: Props) {
+export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typography, ttsSpeed, onTtsSpeed }: Props) {
   const { colors } = useTheme()
   const chip = (selected: boolean) => [styles.chip, { backgroundColor: colors.surface, borderColor: colors.border }, selected && { backgroundColor: colors.primary, borderColor: colors.primary }]
   const chipText = (selected: boolean) => [styles.chipText, { color: colors.text }, selected && { color: '#fff' }]
@@ -144,6 +159,16 @@ export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typograp
                   </TouchableOpacity>
                 ))}
               </View>
+            </View>
+
+            {label('SPEECH SPEED')}
+            <View style={styles.row}>
+              {TTS_SPEEDS.map((v) => (
+                <TouchableOpacity key={v} style={chip(ttsSpeed === v)} onPress={() => onTtsSpeed(v)}
+                  accessibilityRole="button" accessibilityLabel={`Speech speed ${v}x`} accessibilityState={{ selected: ttsSpeed === v }}>
+                  <Text style={chipText(ttsSpeed === v)}>{v}x</Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </ScrollView>
         </View>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
-import { BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { AppState, BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
@@ -60,7 +60,9 @@ import { useFlushOnLeave } from '../../hooks/useFlushOnLeave'
 import { ReaderTopBar } from '../reader/ReaderTopBar'
 import { ReaderFooter } from '../reader/ReaderFooter'
 import { THEMES, readSettings } from '../../lib/v2reader/settings.mjs'
-import { V2SettingsSheet, storedV2Settings, useV2Settings } from './V2SettingsSheet'
+import { V2SettingsSheet, storedV2Settings, useV2Settings, useV2TtsSpeed } from './V2SettingsSheet'
+import { useTts } from '../../hooks/useTts'
+import { createListener, speakingJs, ttsVoice, type V2TtsVoice } from '../../lib/v2reader/listen.mjs'
 
 /**
  * The V2 reader (ADR-029) on Android, dev builds only: reached through `app/dev/epub-v2.tsx`.
@@ -374,6 +376,30 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     call(`window.__fol.goTo(${JSON.stringify(h.cfi)}, true)`)
   }
   const [bookLang, setBookLang] = useState<string | null>(null)
+  /**
+   * #1272: Listen. `opened.lang` as written (ttsVoice reads it, a three-letter code too), the chosen speed, the legacy
+   * player, and listen.mjs `createListener` (the web host's rule): a press speaks or stops, the page marks the range
+   * (`speaking`) until playback is idle. The voice is set where the fallback language is known (below).
+   */
+  const [ttsBookLang, setTtsBookLang] = useState<string | null>(null)
+  const { speed: ttsSpeed, update: updateTtsSpeed } = useV2TtsSpeed()
+  const tts = useTts()
+  const ttsRef = useRef<{ tts: typeof tts; voice: V2TtsVoice | null; speed: number; call: (js: string) => void }>({ tts, voice: null, speed: 1, call })
+  ttsRef.current = { ...ttsRef.current, tts, speed: ttsSpeed, call }
+  const [listener] = useState(() => createListener({
+    speak: (text) => {
+      const { tts: x, voice, speed } = ttsRef.current
+      return voice ? x.speak(text, { lang: voice.lang, rate: speed, voice: voice.voice ?? undefined }) : false
+    },
+    stop: () => ttsRef.current.tts.stop(),
+    mark: (at) => ttsRef.current.call(speakingJs(at)),
+  }))
+  useEffect(() => { listener.phase(tts.phase) }, [tts.phase])
+  // No background audio (audit §2.7): the app leaving the foreground ends the speech.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (st) => { if (st !== 'active') ttsRef.current.tts.stop() })
+    return () => sub.remove()
+  }, [])
   const [annotatable, setAnnotatable] = useState(true)
   /** Counts opens: each one shows the bars and re-arms their auto-hide, also when replayed in the book. */
   const [opens, setOpens] = useState(0)
@@ -426,6 +452,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
   /** The closed book is no longer the open one: a later `ready` opens nothing, and its per-book state goes. */
   const endBook = () => {
+    tts.stop()
     opening.current = null
     setOpenSha(null)
     place.open()
@@ -673,6 +700,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // A deep link's highlight belongs to its book: another book's open drops it; this book opened again (the reopen on a
     // page's `ready`, #1312 review) keeps it.
     if (target.file !== opening.current?.file) pendingHighlight.current = null
+    // The previous book's speech ends with it (its mark goes with the page's swap).
+    tts.stop()
     // A superseded open's staged file is dropped once another book is taken (`takeOpened`): until then the
     // page may still keep that book on screen, if this newer open fails before its swap.
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
@@ -710,6 +739,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // The previous book's highlights go; this one's list follows its `restored`.
     setHighlightList([])
     setBookLang(readLang(t.opened))
+    setTtsBookLang(typeof t.opened.lang === 'string' ? t.opened.lang.slice(0, 35) : null)
     setLangSaves(savesWords(t.opened))
     setSavedWords(new Set())
     onOpened(t.open, t.opened).catch(fail('opened', setOpenError))
@@ -1059,6 +1089,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
 
   /** What translate and explain read the book as: its own language, else the app's (the legacy reader's rule). */
   const textLang = readerTextLanguage(bookLang, language)
+  /** Null: no Listen (Ukrainian, no language at all). */
+  const voice = ttsVoice(ttsBookLang, textLang)
+  ttsRef.current.voice = voice
   const button = [styles.button, { backgroundColor: colors.primary }]
   const notices = (
     <>
@@ -1171,7 +1204,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           )}
           {popup && popup.kind !== 'highlight' && (
             // The legacy reader's bar (#1269): the word's gloss (or the picker's line) on a tap; on a selection highlight,
-            // copy, translate, explain; Save on a word (#1270). No Listen (TTS, #1272). Nothing here needs the network to
+            // copy, translate, explain; Save on a word (#1270); Listen (#1272). Nothing here needs the network to
             // read on: a failed gloss says so, the sheets and a failed save show their own errors.
             <SelectionActionBar
               selectedText={popup.kind === 'word' ? popup.word : popup.text}
@@ -1184,6 +1217,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               highlightColor={highlightColor}
               onHighlight={popup.kind === 'selection' && annotatable ? (c) => { call(`window.__fol.highlightSelection(${JSON.stringify(colorOf(c))})`); setPopup(null) } : undefined}
               tooLong={popup.kind === 'selection' && popup.tooLong}
+              onSpeak={voice ? () => listener.press(popup.kind === 'word' ? popup.word : popup.text, popup) : undefined}
+              isSpeaking={listener.speaking(popup.kind === 'word' ? popup.word : popup.text) && tts.phase === 'playing'}
+              isTtsLoading={listener.speaking(popup.kind === 'word' ? popup.word : popup.text) && tts.phase === 'loading'}
               isAuthenticated={!!user}
               // No Save where the book's language does not read (savesWords): the gloss still uses the fallback.
               onSaveWord={popup.kind === 'word' && langSaves ? () => { void saveWord(popup) } : undefined}
@@ -1209,7 +1245,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             fromLang={textLang}
             onClose={closeSheet}
           />
-          <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} />
+          <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} ttsSpeed={ttsSpeed} onTtsSpeed={updateTtsSpeed} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
           <V2HighlightsSheet visible={highlightsOpen} items={highlightList} noteOf={(id) => notes?.known.get(id) ?? null} onGo={goHighlight} onClose={() => setHighlightsOpen(false)} />
           {popup?.kind === 'highlight' && tapped && (

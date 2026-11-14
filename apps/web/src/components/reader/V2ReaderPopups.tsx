@@ -19,7 +19,7 @@ import { TranslationPopup } from './TranslationPopup'
 import { ExplanationPopup } from './ExplanationPopup'
 import { PdfHighlightPopup } from './PdfHighlightPopup'
 import type { V2HighlightColor, V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
-import type { V2TtsVoice } from '../../../../mobile/src/lib/v2reader/listen.mjs'
+import { createListener, type V2TtsVoice } from '../../../../mobile/src/lib/v2reader/listen.mjs'
 import { useTts } from '../../hooks/useTts'
 
 /** #1312: the highlight a tap opened (`popup.kind === 'highlight'`), as the host knows it, and what its editor does. */
@@ -167,25 +167,22 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
   const lookupHere = word && lookup?.word === word.word ? lookup : null
 
   // #1272: Listen, a word or a selection, played here (the page has no network); the page marks the range while it is
-  // fetched and played. The same text pressed again stops it (the legacy rule); unmounting (a new open) stops it.
+  // fetched and played (listen.mjs `createListener`: one rule for both hosts). Unmounting (a new open) stops it.
   const tts = useTts()
-  const speaking = useRef<string | null>(null)
-  const onSpokenRef = useRef(onSpoken)
-  onSpokenRef.current = onSpoken
-  const listen = (text: string, at: { cfi: string | null; index: number }) => {
-    if (!voice) return
-    if (speaking.current === text && (tts.isPlaying || tts.isLoading)) return tts.stop()
-    speaking.current = text
-    onSpoken?.(at.cfi ? { cfi: at.cfi, index: at.index } : null)
-    void tts.speak(text, voice.lang, voice.voice ?? undefined, ttsSpeed)
-  }
-  useEffect(() => {
-    if (tts.isPlaying || tts.isLoading || speaking.current === null) return
-    speaking.current = null
-    onSpokenRef.current?.(null)
-  }, [tts.isPlaying, tts.isLoading])
-  useEffect(() => () => { if (speaking.current !== null) onSpokenRef.current?.(null) }, [])
+  const ttsRef = useRef({ tts, voice, ttsSpeed, onSpoken })
+  ttsRef.current = { tts, voice, ttsSpeed, onSpoken }
+  const [listener] = useState(() => createListener({
+    speak: (text) => {
+      const { tts: x, voice: v, ttsSpeed: speed } = ttsRef.current
+      return v ? x.speak(text, v.lang, v.voice ?? undefined, speed) : false
+    },
+    stop: () => ttsRef.current.tts.stop(),
+    mark: (at) => ttsRef.current.onSpoken?.(at?.cfi ? { cfi: at.cfi, index: at.index } : null),
+  }))
+  useEffect(() => { listener.phase(tts.isLoading ? 'loading' : tts.isPlaying ? 'playing' : 'idle') }, [tts.isLoading, tts.isPlaying])
+  useEffect(() => () => listener.phase('idle'), [])
   useEffect(() => { if (tts.error) setToast(t('v2Reader.listenFailed')) }, [tts.error])
+  const listen = (text: string, at: { cfi: string | null; index: number }) => { if (voice) listener.press(text, at) }
 
   const selection = popup?.kind === 'selection' ? popup : null
   // Their own close ends the selection in the page (the legacy reader's clearSelection on close).

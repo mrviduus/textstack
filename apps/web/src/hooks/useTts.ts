@@ -155,7 +155,8 @@ export function useTts(stopKey?: unknown) {
     }
   }, [stopKey, localReset, stop])
 
-  const speak = useCallback(async (text: string, lang: string, voice?: string, speed?: number) => {
+  /** Resolves true once the audio plays; false when nothing did (failed, blocked, superseded by a newer call). */
+  const speak = useCallback(async (text: string, lang: string, voice?: string, speed?: number): Promise<boolean> => {
     // Stop any current playback
     stop()
     // If another instance of useTts currently owns the shared audio, reset
@@ -185,14 +186,14 @@ export function useTts(stopKey?: unknown) {
         if (cached) audioData = cached.audioData
       } catch { /* ignore cache errors */ }
 
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted) return false
 
       // Fetch from API if not cached. Pass signal so abort during fetch
       // actually cancels the network request — otherwise stop() sets the flag
       // but the fetch still downloads to completion (wasted bandwidth).
       if (!audioData) {
         audioData = await fetchTtsAudio(text, lang, voice, speed, controller.signal)
-        if (controller.signal.aborted) return
+        if (controller.signal.aborted) return false
         // Cache for offline
         try { await cacheTtsAudio(cacheLang, text, audioData) } catch { /* ignore */ }
       }
@@ -210,7 +211,7 @@ export function useTts(stopKey?: unknown) {
         })
         .catch(() => { /* non-fatal */ })
 
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted) return false
 
       // Play
       cleanup()
@@ -268,6 +269,7 @@ export function useTts(stopKey?: unknown) {
 
       try {
         await audio.play()
+        return true
       } catch (err) {
         // NotAllowedError = browser blocked autoplay (no user gesture yet, or unlock missed).
         const name = (err as { name?: string })?.name
@@ -295,6 +297,7 @@ export function useTts(stopKey?: unknown) {
         }
       }
     }
+    return false
   }, [stop, localReset, stopTracking])
 
   return { speak, stop, isPlaying, isLoading, error, retryAfterSeconds, timestamps, currentWordIndex }

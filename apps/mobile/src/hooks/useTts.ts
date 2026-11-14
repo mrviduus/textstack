@@ -80,11 +80,12 @@ async function audioModeReady(audio: ExpoAudioModule) {
 
 /** Resolve the on-disk path for a cached MP3, downloading if needed. Returns
  *  null on download failure so the caller can degrade gracefully. */
-async function getOrFetchAudio(fs: FileSystemModule, text: string, lang: string, rate: number): Promise<string | null> {
+async function getOrFetchAudio(fs: FileSystemModule, text: string, lang: string, rate: number, voice?: string): Promise<string | null> {
   await ensureCacheDir(fs)
   const dir = cacheDir(fs)
   const speed = rate.toFixed(2)
-  const cacheKey = hashKey(`${lang}|${speed}|${text}`)
+  // The voice joins the key only when one is asked for (#1272): the files cached so far stay hits.
+  const cacheKey = hashKey(voice ? `${lang}|${voice}|${speed}|${text}` : `${lang}|${speed}|${text}`)
   const file = `${dir}${cacheKey}.mp3`
   try {
     const info = await fs.getInfoAsync(file)
@@ -92,7 +93,7 @@ async function getOrFetchAudio(fs: FileSystemModule, text: string, lang: string,
   } catch {
     // Treat read errors as cache miss; we'll attempt to download below.
   }
-  const url = `${API_URL}/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(lang)}&speed=${encodeURIComponent(speed)}`
+  const url = `${API_URL}/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(lang)}&speed=${encodeURIComponent(speed)}${voice ? `&voice=${encodeURIComponent(voice)}` : ''}`
   try {
     const res = await fs.downloadAsync(url, file)
     if (res.status >= 200 && res.status < 300) return file
@@ -108,6 +109,8 @@ async function getOrFetchAudio(fs: FileSystemModule, text: string, lang: string,
 export interface TtsSpeakOptions {
   lang?: string
   rate?: number
+  /** An explicit voice (the V2 reader's, listen.mjs `ttsVoice`); none: the server's for `lang`. */
+  voice?: string
 }
 
 export function useTts() {
@@ -145,15 +148,16 @@ export function useTts() {
     setPhase('idle')
   }, [releasePlayer])
 
+  /** Resolves true once the audio plays; false when nothing did (no audio module, a failed fetch, a newer call). */
   const speak = useCallback(
-    async (text: string, opts: TtsSpeakOptions | number = {}) => {
+    async (text: string, opts: TtsSpeakOptions | number = {}): Promise<boolean> => {
       const trimmed = text.trim()
-      if (!trimmed) return
+      if (!trimmed) return false
       // If the dev/prod build was assembled before expo-audio /
       // expo-file-system landed, just no-op cleanly — the rest of the
       // reader keeps working.
       const { audio, fs } = loadNativeOnce()
-      if (!audio || !fs) return
+      if (!audio || !fs) return false
       const normalized: TtsSpeakOptions = typeof opts === 'number' ? { rate: opts } : opts
       const rate = normalized.rate ?? 1.0
       const bcp47 = ttsLang(normalized.lang)
@@ -166,13 +170,13 @@ export function useTts() {
       setPhase('loading')
 
       await audioModeReady(audio)
-      const file = await getOrFetchAudio(fs, trimmed, bcp47, rate)
+      const file = await getOrFetchAudio(fs, trimmed, bcp47, rate, normalized.voice)
       // Another speak() ran while we were downloading — drop this one.
-      if (req !== reqRef.current) return
+      if (req !== reqRef.current) return false
       if (!file) {
         currentTextRef.current = null
         setPhase('idle')
-        return
+        return false
       }
 
       try {
@@ -192,10 +196,12 @@ export function useTts() {
         // button with no player behind it. This way the listener wins.
         setPhase('playing')
         player.play()
+        return true
       } catch {
         currentTextRef.current = null
         setPhase('idle')
         releasePlayer()
+        return false
       }
     },
     [releasePlayer],

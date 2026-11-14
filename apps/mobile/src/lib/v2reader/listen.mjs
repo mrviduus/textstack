@@ -57,3 +57,45 @@ export function ttsVoice(lang, fallback) {
   if (!code || code === 'uk') return null
   return { lang: code, voice: TTS_VOICES[code] ?? null }
 }
+
+/**
+ * The Android host's injected call for the mark (`injectJavaScript`): the range spoken, or null when the speech ended
+ * or stopped. The CFI came from the page (untrusted, through readWord / readSelection): a JSON string here, never code.
+ */
+export function speakingJs(at) {
+  const cfi = at && typeof at.cfi === 'string' && Number.isInteger(at.index) ? at.cfi : null
+  return cfi === null ? 'window.__fol.speaking(null)' : `window.__fol.speaking(${JSON.stringify(cfi)}, ${at.index})`
+}
+
+/**
+ * Listen's one rule, both hosts: what a press does and when the page's mark goes. `speak(text)` starts the host's
+ * playback (resolves `false` when nothing played: failed, superseded, no audio module), `stop()` ends it, `mark(at | null)` asks the page to mark a range
+ * (`speaking`) or clear it. The host reports every playback phase (`idle` / `loading` / `playing`) to `phase`.
+ * The text speaking pressed again stops it; another text replaces it (the legacy rule, mobile ttsRequest.ts). The
+ * mark is drawn at the press (the fetch takes a second: the press shows it registered) and goes when playback is idle
+ * again (ended, stopped, failed) or `speak` says nothing played.
+ */
+export function createListener({ speak, stop, mark }) {
+  let current = null
+  let phase = 'idle'
+  const clear = () => {
+    current = null
+    mark(null)
+  }
+  return {
+    press(text, at) {
+      const t = typeof text === 'string' ? text.trim() : ''
+      if (!t) return
+      if (phase !== 'idle' && current?.text === t) return stop()
+      const mine = (current = { text: t })
+      mark(at)
+      Promise.resolve(speak(t)).catch(() => false).then((played) => { if (played === false && current === mine) clear() })
+    },
+    phase(p) {
+      phase = p
+      if (p === 'idle' && current) clear()
+    },
+    /** That text is being fetched or played (the button says Stop). */
+    speaking: (text) => phase !== 'idle' && typeof text === 'string' && current?.text === text.trim(),
+  }
+}
