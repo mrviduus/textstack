@@ -65,9 +65,11 @@ preserved set: `user_chapters`, 131 MB), so moving it in one event costs minutes
    [catalog-retirement-plan.md](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/catalog-retirement-plan.md) §7). It translates edition-keyed and
    `user_books`-keyed routes to V2 (upload ids are unchanged, so most map 1:1; edition writes → the
    pair's V2 book or 410; catalog reads → 410). Every hit is logged with `X-App-Version`, route and
-   outcome. Window: 60 days, closed only after the log has been silent for the last 14. iOS is
-   treated as in production until the owner says otherwise — it cannot be forced by
-   `MOBILE_MIN_SUPPORTED_BUILD`, so the log, not the calendar, ends the shim.
+   outcome. ~~Window: 60 days, closed only after the log has been silent for the last 14. iOS is
+   treated as in production until the owner says otherwise.~~ **Amended 2026-11-14 (owner, #1330):**
+   production has one user, the owner, and Android updates arrive by OTA, so the window is
+   closed as soon as the owner's devices run the new build and the log shows no old-client call after that; no fixed number of days. iOS is not in production (nothing shipped to
+   the App Store). The log, not the calendar, still ends the shim.
 7. **Retirement is by whole units** (plan §5.5, M6). The legacy database is dropped whole, only after
    a restore of the cutover archive is proven. EF Core, `AppDbContext`, `SchemaDriftTests`, and the
    catalog/SEO/SSG code are deleted as units, one PR each — never ported. `database/v2/` then becomes
@@ -115,7 +117,8 @@ preserved set: `user_chapters`, 131 MB), so moving it in one event costs minutes
 - A transitional `book_chapters` (+ `ingestion_jobs`) lives in V2 until the V2 reader serves EPUB and
   PDF on all clients (plan open question 2); its sunset is written into ADR-031, the table comment,
   and the M6.4 gate on R8.
-- The shim is server code kept alive for at least 60 days after cutover.
+- The shim is server code kept alive until the owner's devices run the new build (amended 2026-11-14,
+  #1330; was at least 60 days). The rollback table's "during the shim window" row is short as a result.
 
 ## Alternatives considered
 

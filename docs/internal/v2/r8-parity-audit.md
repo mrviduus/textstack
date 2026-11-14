@@ -174,7 +174,7 @@ The V2 work should not reproduce these; whether to fix them in the legacy reader
   passes (#1128).
 - **Port first (ADR-032 D6):** the V2 page imports `rangeToLocator`, `textNodes`, `blockOf`, `sentenceAround` from
   `packages/reader-engine`; they move into the wrapper before the package goes.
-- **Blocked by:** M5 cutover; the old-client window (60 days, last 14 silent) before `textstack-*` is refused
+- **Blocked by:** M5 cutover; the old-client window (until the owner's devices run the new build, #1330) before `textstack-*` is refused
   (`v2-sync-protocol.md` "Transitional locators"); R4 device gates (#1036); R7 + the PDF gate (#1039, #1128); and,
   for the catalog half of the legacy readers, M6.1.
 
@@ -223,5 +223,5 @@ say no before code depends on it.
 | F | R8 deletion: port reader-engine helpers, delete legacy readers + transitional backend + M6.4 drop | M5, old-client window, A–E |
 
 **Estimate: 6 engineering waves (A–F)**, inside the earlier 5–7 guess, now with named contents; B and C can run in
-parallel after A. The calendar is bound by M5 and the 60-day old-client window, not by the waves.
+parallel after A. The calendar is bound by M5, not by the waves (the old-client window is short since #1330).
 Owner answers in §6 can remove work (search, bookmarks, iOS, stats) but cannot remove wave A.
