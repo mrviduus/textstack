@@ -16,6 +16,14 @@
  * - Another device's place on a lost write (#1232): ours is written again on their revision, and when theirs is
  *   provably newer than this tab's last saved (or restored) place (ADR-019, `decideServerState`) it is offered
  *   (`onNewerPlace`). The reader is never moved by the session: a position write exists only because they moved.
+ * - **Finish book** (#1266, `complete`): the state the server holds, written again with `completedAt` on its
+ *   revision, which the session then holds (a write from outside the session would make its next position
+ *   write lose and offer the reader their own place as another device's). A state read there on a revision this
+ *   session has not seen goes through the same check as a lost write's (own write, or another device's place
+ *   offered). Lost to one of the session's own position writes: written once more after it. A close waits for it
+ *   (the host unmounted right after the click). Online-only: a failure is the host's error with a retry.
+ * - Every server state the session takes (the restore's read, a write's answer, a conflict's `current`, the
+ *   completion's) tells the host the book's completion (`onCompleted`): a reset elsewhere brings the button back.
  *
  * The one local exception: a CBZ page position (no server form yet, #1188) is kept in this browser per book.
  *
@@ -77,6 +85,9 @@ export const KEEPALIVE_BUDGET = 60_000
 /** A CBZ page position, kept in this browser (#1188). */
 const imagePageKey = (bookId: string) => `v2reader:cbz-position:${bookId}`
 
+/** `complete` before the server holds any place of this file version: the host says what to do. */
+export const NO_PLACE_YET = 'no reading state on this file yet'
+
 /** The last session of each book still writing: the next one of that book reads after it, whatever was open between. */
 const closingByBook = new Map<string, Promise<void>>()
 
@@ -94,6 +105,11 @@ export interface V2ReaderSync {
   flush(): Promise<void>
   /** The tab is going away: what is unsaved, by keepalive writes (the position first, within the budget). */
   flushKeepalive(): void
+  /**
+   * Finish book (#1266): resolves to the book's `completedAt` once the server holds it (its own, when the book
+   * was already finished: set once). Rejects when it did not land; calling again is the retry.
+   */
+  complete(): Promise<string>
   /** Another open, or the host unmounted: one last pass of what is unsaved, then nothing more is written. */
   close(): Promise<void>
 }
@@ -120,6 +136,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   onHighlights(list: PageHighlight[]): void
   /** Another device's place, provably newer than this tab's last save: offered (ours is written anyway). */
   onNewerPlace(p: PagePosition): void
+  /** The book's completion as the server holds it, from every state the session takes (null: not finished): the host's Finish book block (#1266). */
+  onCompleted?(completedAt: string | null): void
   /** Waited for before the first read; by default the last session of this book still writing (a reopen). */
   after?: Promise<unknown>
   /** False where the page offers no highlights (a PDF, a CBZ): no annotations pull. */
@@ -156,8 +174,25 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   let latest: PageEntry | null = null
   let running: Promise<void> | null = null
   let again = false
+  /** The completion being written (`complete`): a close waits for it. */
+  let completing: Promise<string> | null = null
 
   const status = (s: V2SaveStatus) => { if (current()) o.onStatus(s) }
+  /** A state of this file the server holds: the host is told its completion. Another file's (a `file_replaced`
+   * 409 carries the new file's state) is not this book's. */
+  const completion = (s: V2ReadingState) => { if (current() && s.fileId === t.fileId) o.onCompleted?.(s.completedAt ?? null) }
+  /**
+   * A server state this session did not see written (ADR-019, a reader who moved: only `keep` or `prompt`)
+   * against this tab's last saved place: `own`'s state (a write whose answer was lost) is ours; theirs provably
+   * newer is offered. The move being written is never the comparison (always the newest).
+   */
+  const theirs = (cur: V2ReadingState, own: typeof lastSent) => {
+    if (own && ownStateWrite(cur, own.write)) position = own.p
+    else if (current() && decideServerState({ local: position, localFileId: t.fileId, server: cur, reader: MOVED, format: t.format }) === 'prompt') {
+      // `prompt`: their state is a position on this file (decideServerState).
+      o.onNewerPlace(statePosition(cur, t.format)!)
+    }
+  }
   const keep = (a: V2Annotation, highlight = annotationHighlight(a)) =>
     held.set(a.id, { id: a.id, highlight, fileId: a.fileId, deleted: !!a.deletedAt, revision: a.revision })
 
@@ -171,27 +206,24 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     try {
       const s = await api.putReadingState(t.bookId, write)
       if (live()) { position = p; revision = s.revision }
+      completion(s)
       return true
     } catch (e) {
       if (!live()) return true
       const err = v2Api.v2ErrorOf(e)
       const cur = (err?.current ?? null) as V2ReadingState | null
+      if (cur) completion(cur)
       if (err?.code === 'stale_revision' && cur && ownStateWrite(cur, write)) {
         position = p
         revision = cur.revision
         return true
       }
       // Lost write (#1232): ours again on their revision (`reset` too: the frontier is gone, our position stays, PDD).
-      // ADR-019 (`decideServerState`, a reader who moved: only `keep` or `prompt`) against this tab's last saved place,
-      // never the move being written (always the newest): theirs provably newer is offered. The state of our previous
-      // write whose answer was lost is ours: no offer. Lost twice: the next `store` or flush writes on the revision last seen.
+      // Their state checked against this tab's last saved place (`theirs`); the state of our previous write whose
+      // answer was lost is ours: no offer. Lost twice: the next `store` or flush writes on the revision last seen.
       if (err?.code === 'stale_revision' || err?.code === 'reset') {
         revision = cur?.revision ?? null
-        if (cur && prev && ownStateWrite(cur, prev.write)) position = prev.p
-        else if (cur && current() && decideServerState({ local: position, localFileId: t.fileId, server: cur, reader: MOVED, format: t.format }) === 'prompt') {
-          // `prompt`: their state is a position on this file (decideServerState).
-          o.onNewerPlace(statePosition(cur, t.format)!)
-        }
+        if (cur) theirs(cur, prev)
         if (!retried) return pushPosition(p, revision, true)
       } else if (err && BOOK_GONE.has(err.code)) gone = true
       // Held as sent so it is not resent; unsaved until the reader moves.
@@ -288,6 +320,47 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     })())
   }
 
+  /**
+   * Finish book: the place on screen written first, then the state as the server holds it plus `completedAt`.
+   * Lost on `stale_revision` (a debounced `store` of this session, or another device's write, landed meanwhile):
+   * after the running pass, once more; a second loss is the host's error, with its Retry.
+   */
+  async function completeOnce(retried = false): Promise<string> {
+    await (running ?? (latest ? kick() : undefined))
+    if (gone) throw new Error('the book changed on the server')
+    const s = await api.getReadingState(t.bookId)
+    if (!live()) throw new Error('the book is not open')
+    // ponytail: a book finished without ever moving in it (one screen long) has no state to complete; the
+    // first-locator write `completeV2Book` makes for the shelf can be added here if that is ever met.
+    if (s?.fileId !== t.fileId) throw new Error(NO_PLACE_YET)
+    // Written since this session last saw it (another device): checked as a lost write's state, then adopted.
+    // An older one (a write of this session landed after the read) is never a revision back.
+    if (s.revision > (revision ?? 0)) {
+      theirs(s, lastSent)
+      revision = s.revision
+    }
+    if (s.completedAt) {
+      completion(s)
+      return s.completedAt
+    }
+    // As it stands (owner 2026-11-13: the real fraction; the same locator and instant, so no device takes
+    // this for a newer place), plus the completion.
+    let done: V2ReadingState
+    try {
+      done = await api.putReadingState(t.bookId, {
+        expectedRevision: s.revision, fileId: s.fileId, currentLocator: s.currentLocator, bookFraction: s.bookFraction,
+        completedAt: new Date().toISOString(), clientRecordedAt: s.clientRecordedAt,
+      })
+    } catch (e) {
+      if (!retried && live() && v2Api.v2ErrorOf(e)?.code === 'stale_revision') return completeOnce(true)
+      throw e
+    }
+    if (!done.completedAt) throw new Error('the server did not keep the completion')
+    if (live() && (revision ?? 0) < done.revision) revision = done.revision
+    completion(done)
+    return done.completedAt
+  }
+
   function loadHighlights(): Promise<void> {
     if (highlightsLoaded || !current()) return Promise.resolve()
     return (pulling ??= (async () => {
@@ -325,6 +398,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       // A CBZ page lives in this browser only (#1188).
       position = t.format === 'cbz' ? imagePage(t.bookId) : onFile && statePosition(onFile, t.format)
       ready = true
+      o.onCompleted?.(onFile?.completedAt ?? null)
       return JSON.stringify(pageEntry({ sha256: t.sha256, size: t.size, name: t.name }, position, []))
     },
     loadHighlights,
@@ -362,9 +436,17 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
         send(body)
       }
     },
+    complete() {
+      if (!current() || !ready) return Promise.reject(new Error('the book is not open'))
+      return (completing ??= completeOnce().finally(() => { completing = null }))
+    },
     close() {
       if (closing) return closing
-      const done = closing = (running ?? (latest && !gone ? kick() : Promise.resolve())).catch(() => {}).finally(() => {
+      // A completion in flight (the host unmounted right after the click) is waited for: it still lands.
+      const done = closing = Promise.all([
+        (running ?? (latest && !gone ? kick() : Promise.resolve())).catch(() => {}),
+        completing?.catch(() => {}),
+      ]).then(() => {}).finally(() => {
         closed = true
         if (closingByBook.get(t.bookId) === done) closingByBook.delete(t.bookId)
       })

@@ -650,6 +650,8 @@
       "prevPage": "Previous page",
       "nextPage": "Next page",
       "dismiss": "Dismiss",
+      "finishBook": "Finish book",
+      "finished": "Finished",
       "contents": "Contents",
       "closeContents": "Close contents",
       "prevSection": "Previous section: {title}",

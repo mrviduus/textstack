@@ -40,6 +40,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `toc.mjs` (+ `.d.mts`) | Pure, both hosts (#1261): `readToc` (a host's read of `opened.toc`: malformed entries dropped, each kept one with its `index` in the page's list, the one `relocate.tocIndex` names; at most 5000 places, labels cut to 200, depth 0 to 6) and `tocAround` (the current entry and the nearest ones before and after that lead somewhere else, an entry with the current one's href being the same place: the contents dialog's mark, the title beside the percent, and the section controls, which go by title with `goTo(href, true)`; a host marks a chosen entry at once, since a jump within the view on screen may send no relocate, and clears the place where an open starts, since a book's first relocate comes before its `opened`). `withTitle` fills a label with a title as text. A book with no entries has no contents button and no section controls; no host shows a section number. |
 | `movedTracker.mjs` (+ `.d.mts`) | Pure, any host: the open book as ADR-019 sees it (`decideServerState`'s `reader`): restored yet, whether the reader moved since (the page's `relocate.moved`, never a CFI comparison; a host `goTo` clears it), the spine index of the last relocate, the opening one included (#1278). |
 | `tapZone.mjs` (+ `.d.mts`) | Pure, both hosts (#1263): what a page `tap` does (turn back, turn on, toggle the bars). See Host responsibilities, "Reader chrome" and "Bars and tap zones, web". |
+| `finishBook.mjs` (+ `.d.mts`) | Pure, both hosts (#1266): `showsFinishBook`, when the end-of-book block shows. See Host responsibilities, "Finish book". |
 | `vocabSave.mjs` (+ `.d.mts`) | Pure, both hosts (#1270): `saveOutcome`, a vocabulary save's answer as the host shows it (saved, deleted → restore, pending, lookup); `savesWords`, whether a book's `opened.lang` lets its words be saved. See Host responsibilities, "Saving a word". |
 | `wordPopup.mjs` (+ `.d.mts`) | Pure, both hosts (#1269): `readWord` (a host's read of `word`, `readSelection`'s caps; the rect through `selection.mjs` `readRect`), `readLang` (`opened.lang` as a two-letter primary subtag, or null: a three-letter code gives the host's fallback), and `popupStep`: what a `word`, `tap`, `selection`, `selection-cleared` or a move does to the word popup / selection toolbar and to the tap zones. See Host responsibilities, "Word popup and selection toolbar". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
@@ -426,6 +427,29 @@ it through `readSettings`, so only numbers and members of the module's own lists
 - **Serialise library writes.** `library.mjs` is pure; two concurrent imports writing `library.json` can still lose one (web dev host). The web dev host never writes over a stored library that does not parse: it says so and adds nothing (#1081). The Android host runs every row write on one queue.
 - The R2 host passes its file path (`staging/<ts>.epub` or `books/<sha256>.epub`) as `openUrl`'s `name` to match each answer to its open, so the page's stored `book.name` is that path until the contract gains an explicit open id (#1069).
 - **Sync (R6, Android):** opportunistic, never on the reading path: with a session, on screen open, on each book open and 10 s after a save. ADR-019 needs the host's view of the open book, kept by `movedTracker.mjs` (restored yet, moved since by `relocate.moved`, the spine index of the last `relocate`); a newer position from another device is gone to (`adopt`/`move`) or offered (`prompt`). File sync is a per-device setting, off by default.
+- **Finish book (#1266), both hosts:** host UI, never injected into the book. The block shows while `relocate.atEnd`
+  is true (`showsFinishBook`; never guessed from the fraction) and is hidden on CBZ until its state can be written
+  (#1188). A finished book shows the finished label instead of the button, and keeps its real fraction. Known limit
+  (#1297): in scrolled flow one continuous scroll right after a jump sends no `relocate`, so the block can come late.
+  `atEnd` is cleared where an open starts, never on `opened`: a book one screen long sends its only relocate (its
+  end) before `opened`. The block is out of flow over the book (web: fixed above the bottom bar, its height
+  measured; Android: the pill), never in the states box: resizing the frame re-lays out the book, `atEnd` turns
+  false, the block hides, and it loops.
+  - Android: local first (`localLibrary.finish`, keyed by the bytes' sha256 so a sync re-keying the open book still
+    finishes its current row: `reading_state.completed_at`, set once), no token and no network; the `state` outbox
+    entry carries it (`pushState` sends `completedAt` with the place while it stands). With no place the server takes
+    (none yet, fraction-only) the entry stays queued, never dropped, and a sign-out counts it. Every server state
+    taken (a pull, a write's answer, an own write on a conflict, a `reset` 409's current) takes the server's
+    `completedAt` (`takeState`: a finish tapped while a write without it was in flight is kept); a reset the device
+    has not seen (a pull's `resetRevision` past the revision last seen) clears it; a completion made on another file
+    version is not carried to a new one; an adopted position keeps a finish the server does not have queued. The
+    list shows "Finished".
+  - Web: online, through the open book's session (`v2ReaderSync.complete`: the state as the server holds it plus
+    `completedAt`, on its revision, which the session then holds). A state read there on an unseen revision goes
+    through the lost-write check (own write, or another device's place offered); lost to the session's own position
+    write, it is written once more; a close waits for it. Every state the session takes tells the host the
+    completion, so a reset elsewhere brings the button back. A failure is said with a retry; no place saved yet says
+    to move first. The library reads `completedAt` from the reading feed.
 - `<documents>/v2/` is not yet counted in Device Storage nor wiped on sign-out (#1070): local books belong to the device until the owner decides otherwise; a sign-out forgets what the server told that identity, never unpushed rows.
 
 **Reader chrome** (Android, #1263/#1264; the decisions are `tapZone.mjs` and `chrome.mjs`, the bars and footer are the legacy

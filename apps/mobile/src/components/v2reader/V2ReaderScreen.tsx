@@ -28,6 +28,8 @@ import {
   BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readRelocate, readTap,
   reopensOnReady, takenWithoutBook,
 } from '../../lib/v2reader/chrome.mjs'
+import { showsFinishBook } from '../../lib/v2reader/finishBook.mjs'
+import { V2FinishBook } from './V2FinishBook'
 import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../lib/v2reader/wordPopup.mjs'
 import { readerTextLanguage } from '../../lib/bookLanguage'
 import { saveOutcome, savesWords } from '../../lib/v2reader/vocabSave.mjs'
@@ -256,6 +258,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   useEffect(() => { storedFlow().then(setFlow) }, [])
   /** False for a fixed-layout book (CBZ): flow changes nothing there, so the toggle is off. */
   const [reflowable, setReflowable] = useState(true)
+  /** Finish book (#1266): the book's end is on screen (`relocate.atEnd`), and the open book's format (`opened`). */
+  const [atEnd, setAtEnd] = useState(false)
+  const [format, setFormat] = useState<string | null>(null)
   /** The reading settings (#1260): sent whole on `ready` and on every change; the theme colours the bars. */
   const { settings, update: updateSettings } = useV2Settings()
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -281,8 +286,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const userId = user?.id ?? null
   /** The direction the open book pages in (`opened`, then every `relocate`): the keys and the tap zones follow it. */
   const pageDir = useRef<'ltr' | 'rtl'>('ltr')
-  /** The open book as ADR-019 sees it (R6): its row, and whether the reader moved since the restore (movedTracker.mjs). */
-  const reading = useRef({ bookId: null as string | null })
+  /**
+   * The open book as ADR-019 sees it (R6): its row, and whether the reader moved since the restore (movedTracker.mjs).
+   * `sha256`: its bytes, the key Finish book uses (#1266): a sync can re-key the row while it is read.
+   */
+  const reading = useRef({ bookId: null as string | null, sha256: null as string | null })
   const [place] = useState(createMovedTracker)
   /** The open book's contents (#1261, toc.mjs); the reader's place in them as of the last relocate, read when the sheet opens. */
   const [toc, setToc] = useState<V2TocEntry[]>([])
@@ -371,8 +379,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const endBook = () => {
     opening.current = null
     reading.current.bookId = null
+    reading.current.sha256 = null
     place.open()
     setReflowable(true)
+    setAtEnd(false)
     pageDir.current = 'ltr'
     setProgress.current(null)
     clearToc()
@@ -605,12 +615,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
     tracker.open(target.file, opening.current)
     reading.current.bookId = null
+    reading.current.sha256 = null
     place.open()
     setOffer(null)
     setOpenError(null)
     setError(null)
     setHeading(`Opening ${target.name}`)
     setProgress.current(null)
+    setAtEnd(false)
     clearToc()
     setPopup(null)
     setBook(true)
@@ -626,6 +638,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     for (const o of t.dropped) if (isStaged(o.file) && o.file !== t.open.file) v2Storage().dropStaged(o.file).catch(fail('drop'))
     opening.current = t.open
     setReflowable(t.opened.reflowable !== false)
+    setFormat(typeof t.opened.format === 'string' ? t.opened.format : null)
+    // Not `atEnd`: it was cleared where the open started; the book's first relocate (its end, for a book one
+    // screen long) comes before this `opened` and must stand.
     setAnnotatable(t.opened.annotatable !== false)
     setBookLang(readLang(t.opened))
     setLangSaves(savesWords(t.opened))
@@ -678,6 +693,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (superseded()) return
     opening.current = { ...current, file: retained }
     reading.current.bookId = bookId
+    reading.current.sha256 = m.book.sha256
     sync.current()
   }
 
@@ -770,6 +786,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         if (!shown) return
         tocIndex.current = shown.tocIndex
         setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc, tocIndex: shown.tocIndex, sectionEnd: shown.sectionEnd, words: shown.words })
+        setAtEnd(shown.atEnd)
         return
       }
       case 'word': {
@@ -820,6 +837,24 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     }
   }
 
+  /**
+   * Finish book (#1266): local first (no token, no network), then the outbox carries it. The open book is found
+   * by its bytes, so a re-key by a sync while it is read still finishes it. `flushPage()` only asks the page for
+   * its pending save: that `store` comes back as a message after this write, and is queued again when it lands.
+   * The completion goes with whatever place is stored when the push runs, and the flushed place follows on the
+   * next pass, still carrying `completedAt` (sent with every write while it stands).
+   */
+  const openSha = reading.current.sha256
+  const openBook = openSha ? books.find((b) => b.local && b.sha256 === openSha) : undefined
+  const finishBook = () => {
+    const sha = reading.current.sha256
+    if (!sha) return
+    flushPage()
+    v2Storage().finishBook(sha).then((list) => {
+      setBooks(list)
+      sync.current()
+    }, fail('finish book', setError))
+  }
   // Applied live: the page re-lays the book out where it is (README, `settings`). Before `ready` the pending
   // ready handler applies the stored choices instead.
   useEffect(() => {
@@ -984,6 +1019,18 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             nextLabel={t('reader.chrome.nextPage')}
             onHeight={(h) => { if (h > 0 && h !== footerHeight) setFooterHeight(h) }}
           />
+          {openBook && showsFinishBook({ atEnd, format }) && (
+            <V2FinishBook
+              finished={openBook.finished}
+              onFinish={finishBook}
+              bottom={(barsVisible ? footerHeight || 60 + insets.bottom : insets.bottom) + 12}
+              background={colors.background}
+              color={colors.text}
+              accent={colors.primary}
+              finishLabel={t('reader.chrome.finishBook')}
+              finishedLabel={t('reader.chrome.finished')}
+            />
+          )}
           {popup && (
             // The legacy reader's bar (#1269): the word's gloss (or the picker's line) on a tap; on a selection highlight,
             // copy, translate, explain; Save on a word (#1270). No Listen (TTS, #1272). Nothing here needs the network to
@@ -1057,6 +1104,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
                   style={[styles.book, { borderColor: colors.border }]}
                 >
                   <Text numberOfLines={1} style={[styles.meta, { color: colors.textSecondary }]}>{b.local ? b.title : `↓ ${b.title}`}</Text>
+                  {b.finished && <Text style={[styles.meta, { color: colors.primary }]}>{t('reader.chrome.finished')}</Text>}
                   {b.notSynced && (
                     <>
                       <Text numberOfLines={2} style={[styles.meta, { color: colors.error }]}>Not synced: {b.notSynced}</Text>
