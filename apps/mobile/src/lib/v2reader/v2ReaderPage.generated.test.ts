@@ -129,8 +129,12 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toMatch(/\} finally \{[\s\S]{0,200}?hostMoving = false;/)
     // The renderer exists only after view.open() resolved.
     // The renderer exists only after view.open() resolved; the fixed-layout one (CBZ) has no setStyles (#1128).
-    expect(html).toMatch(/view\.renderer\) == null \? void 0 : (\w+)\.setStyles\) == null \? void 0 : \w+\.call\(\1, css\(\)\)/)
-    expect(html).toMatch(/\((\w+) = \((\w+) = view\.renderer\)\.setStyles\) == null \? void 0 : \1\.call\(\2, css\(\)\)/)
+    // One place sets them (#1260, applyLook): at the open, on `settings`, and once before any book.
+    expect(html).toMatch(/view\.renderer\) == null \? void 0 : (\w+)\.setStyles\) == null \? void 0 : \w+\.call\(\1, settingsCss\(look, fontUrl\(\)\)\)/)
+    expect(html).toMatch(/view\.renderer\.setAttribute\("margin", "24px"\);\s*applyLook\(\);\s*await view\.init\(/)
+    // #1260: whatever the host sends is read through settings.mjs before it is the page's, and before any CSS is built from it.
+    expect(html).toMatch(/settings: \((\w+)\) => \{\s*look = readSettings\(\1\);\s*applyLook\(\);\s*return look;\s*\}/)
+    expect(html).toMatch(/function settingsCss\((\w+), fontUrl2?\) \{\s*const (\w+) = readSettings\(\1\);/)
     // A position is reported restored only if the renderer really shows that section, a fraction's too (#1187).
     expect(html).toContain('result.position = arrivedAt(index) ? "restored" : "navigation failed, stayed at start"')
     expect(html).toContain('return !!resolved && arrivedAt(resolved.index)')
@@ -142,10 +146,10 @@ describe('v2ReaderPageHtml', () => {
     // (nothing in them can end or bend the script element), and are run by page.mjs on first use
     // through a script element carrying the page's own nonce: no CSP directive is widened.
     const str = '"[^"\\\\]*(?:\\\\.[^"\\\\]*)*"'
-    const carried = html.match(new RegExp(`<script nonce="[^"]+">(var __TS_FORMATS = \\{mobi: ${str},\\nfb2: ${str},\\ncbz: ${str},\\npdf: ${str},\\npdfcmaps: ${str}\\};\\n)`))?.[1]
+    const carried = html.match(new RegExp(`<script nonce="[^"]+">(var __TS_FORMATS = \\{mobi: ${str},\\nfb2: ${str},\\ncbz: ${str},\\npdf: ${str},\\npdfcmaps: ${str},\\ndyslexic: ${str}\\};\\n)`))?.[1]
     expect(carried).toBeDefined()
     expect(carried).not.toContain('<')
-    for (const k of ['mobi', 'fb2', 'cbz', 'pdf', 'pdfcmaps']) expect(carried).toMatch(new RegExp(`window\\.__tsFormats\\.${k} ?=`))
+    for (const k of ['mobi', 'fb2', 'cbz', 'pdf', 'pdfcmaps', 'dyslexic']) expect(carried).toMatch(new RegExp(`window\\.__tsFormats\\.${k} ?=`))
     expect(html).toMatch(/var NONCE = \(\w+ = document\.currentScript\) == null \? void 0 : \w+\.nonce;/)
     expect(html).toMatch(/(\w+)\.nonce = NONCE;\s*\1\.textContent = /)
     // A comic book has no text: its frames forward keys and post `tap` (where it landed, #1263) and return before
@@ -179,7 +183,7 @@ describe('v2ReaderPageHtml', () => {
     expect(pdf).toContain('Copyright 2024 Mozilla Foundation')
     expect(pdf).toContain('Licensed under the Apache License, Version 2.0')
     // The page: no wasm, cMaps from its own chunk, no URL for anything.
-    expect(html).toMatch(/makePDF\(new File\(\[bytes\], name\), \{ css: \w+, params: \{ useWasm: false, CMapReaderFactory: PdfCMaps \} \}\)/)
+    expect(html).toMatch(/makePDF\(new File\(\[bytes\], name\), \{ css(?:: \w+)?, params: \{ useWasm: false, CMapReaderFactory: PdfCMaps \} \}\)/)
     expect(html).toMatch(/book\d*\.rendition\.spread = "none";/)
     const cmaps = JSON.parse(html.match(/\npdfcmaps: ("(?:[^"\\]|\\.)*")/)![1]) as string
     expect(cmaps).toContain('Adobe Systems Incorporated')

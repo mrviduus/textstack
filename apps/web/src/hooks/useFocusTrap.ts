@@ -2,6 +2,10 @@ import { useEffect, useRef } from 'react'
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
 
+/** The focusable controls in `container`; a disabled one (or one in a disabled fieldset) is not. */
+const focusablesIn = (container: HTMLElement) =>
+  Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => !el.matches(':disabled'))
+
 export function useFocusTrap(open: boolean) {
   const containerRef = useRef<HTMLDivElement>(null)
   const previousActiveRef = useRef<HTMLElement | null>(null)
@@ -16,7 +20,7 @@ export function useFocusTrap(open: boolean) {
     if (!container) return
 
     // Focus first focusable element
-    const focusables = container.querySelectorAll<HTMLElement>(FOCUSABLE)
+    const focusables = focusablesIn(container)
     if (focusables.length > 0) {
       focusables[0].focus()
     }
@@ -24,7 +28,7 @@ export function useFocusTrap(open: boolean) {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return
 
-      const focusableElements = container.querySelectorAll<HTMLElement>(FOCUSABLE)
+      const focusableElements = focusablesIn(container)
       if (focusableElements.length === 0) return
 
       const first = focusableElements[0]

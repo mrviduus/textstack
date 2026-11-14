@@ -116,6 +116,49 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
+  // #1260: the theme and the size, changed in the settings panel, restyle the open book at once (the place
+  // holds) and are this device's after a reload; the theme colours the bars too.
+  test('readV2Settings_ThemeAndSizeChanged_AppliedLive_KeptAfterAReload', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2set'))
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    /** The first section's text size and background, as the frame renders them. */
+    const look = async () => {
+      for (const f of page.frames().filter((x) => x.url().startsWith('blob:'))) {
+        const l = await f.evaluate((text) => (document.body?.innerText.includes(text)
+          ? `${getComputedStyle(document.querySelector('p')!).fontSize} ${getComputedStyle(document.documentElement).backgroundColor}` : null), FIRST_SECTION_TEXT).catch(() => null)
+        if (l) return l
+      }
+      return null
+    }
+    await expect.poll(look).toBe('20px rgb(255, 255, 255)')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+
+    await clickBar(page, 'Reading settings')
+    const panel = page.getByTestId('v2-settings')
+    await panel.getByRole('button', { name: 'Dark' }).click()
+    await panel.getByRole('button', { name: 'Larger text' }).click()
+    await expect(panel.getByTestId('v2-font-size')).toHaveText('22px')
+    await expect.poll(look).toBe('22px rgb(26, 26, 26)')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+    await expect(page.locator('.reader-top-bar')).toHaveCSS('color', 'rgb(224, 224, 224)')
+    // The place held: same entry, its text still on screen. Not the percent: larger text makes more pages, so the
+    // same place reads a lower percent.
+    await expect(status(page)).toHaveText(/ · The Pond$/)
+    await expect.poll(() => sectionText(page)).toContain(FIRST_SECTION_TEXT)
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    await panel.getByRole('button', { name: 'Close reading settings' }).click()
+    await expect(panel).toHaveCount(0)
+
+    await page.reload()
+    await expectOpened(page)
+    await expect.poll(look).toBe('22px rgb(26, 26, 26)')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+    await context.close()
+  })
+
   // #1263: the bars hide while reading; keys and an edge tap turn the page; a tap off any word toggles the bars.
   test('readV2Chrome_TextAndEdgeTapsKeysAndTheBarsNext_TurnAndToggleAsTheyShould', async ({ browser }) => {
     const context = await v2Context(browser, email('v2bars'))
