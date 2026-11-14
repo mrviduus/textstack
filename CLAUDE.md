@@ -22,6 +22,11 @@ The project is mid-migration to **V2**: two databases, one cutover ([ADR-030](do
 - **ETL** legacy → V2: `etl-v2` CLI, built, validated, rehearsed on real backups (M3 done). Cutover (M5) and legacy retirement (M6, drops EF Core + catalog) are not executed yet.
 - **V2 reader** ([ADR-029](docs/architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `apps/mobile/src/lib/v2reader/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android dev route (`__DEV__`) and web `/dev/reader-v2` (dev server only) and `/:lang/library/my/:id/read-v2` (behind `Features:V2Api`). The web build ships `dist/reader-v2/` = a no-store frame shell (nonce filled by nginx `sub_filter`) + the content-hashed page script, asserted on build; nginx locations in `textstack.conf`, checked by `prodCsp.check.mjs`. Own README in `apps/mobile/src/lib/v2reader/`. Replaces `packages/reader-engine` only at R8 — until then the engine rules below still hold.
 - **Work runs in waves**: kickoff files `.claude/wave-<N>-prompt.md` (pipeline, quality bar, standing rules); current state in [`docs/STATUS.md`](docs/STATUS.md) and #1013 checkboxes. Locator schemes and roles: ADR-031.
+- **Keep the V2 status true, until M6 is done** (owner, 2026-11-14). Three places, one picture:
+  - **#1013:** a PR that finishes a milestone ticks its box (`Fixes #N` on the milestone issue). A new owner decision or blocker that moves the timeline gets its own issue, linked from #1013.
+  - **`docs/STATUS.md`:** updated in every wave-close PR.
+  - **The public road on `/changelog`:** `MOVE_STEPS` and `MOVE_UPDATED` in `apps/web/src/lib/changelog.ts`. Every wave-close PR sets each step's `state` (`done` / `now` / `next`) and the date, and adds or removes a `MOVE_OPEN` question when one opens or closes. Reader words, from the glossary; nothing owner-only, nothing about security. The close PR says which steps moved.
+  - When M6 is done: the last update marks every step `done`, then this rule and the `/changelog` block go.
 
 ## Where to write things down
 
