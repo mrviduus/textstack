@@ -21,6 +21,21 @@ export const withTranslation = (words: readonly ReaderWord[], id: string, transl
   words.map((w) => (w.id === id && !w.translation ? { ...w, translation } : w))
 
 /**
+ * The rows read again after a sync pass (another device's words, this device's first pull) over the open's words:
+ * the rows win, a word saved in this open and not pulled yet is kept, and a translation this open filled stays on a
+ * row that has none yet (its PATCH not pulled back).
+ */
+export function mergeWords(rows: readonly ReaderWord[], open: readonly ReaderWord[]): ReaderWord[] {
+  const byKey = new Map(open.map((w) => [vocabMapKey(w.word), w]))
+  const out = rows.map((r) => {
+    const mine = byKey.get(vocabMapKey(r.word))
+    byKey.delete(vocabMapKey(r.word))
+    return !r.translation && mine?.translation ? { ...r, translation: mine.translation } : r
+  })
+  return [...out, ...byKey.values()]
+}
+
+/**
  * The legacy backfill, once per open: each word without a translation is translated (`translate`, from the book's
  * language into the reader's) one at a time, stored on its card (`persist`: `onlyIfEmpty`, a failure ignored) and
  * handed to `onWord` as it lands. Nothing when there is no other language to translate into. A word that fails is

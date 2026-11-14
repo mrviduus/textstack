@@ -38,7 +38,7 @@ import { fillSavedTranslation, saveWordWithRetry } from '../../lib/savedWord'
 import { saveWordForBook } from '../../lib/v2reader/wordBook'
 import { vocabMapKey } from '../../lib/vocabMapKey'
 import { markWordsOf } from '../../lib/v2reader/wordMarks.mjs'
-import { backfillTranslations, withSaved, withTranslation, type ReaderWord } from '../../lib/v2reader/readerVocab'
+import { backfillTranslations, mergeWords, withSaved, withTranslation, type ReaderWord } from '../../lib/v2reader/readerVocab'
 import { cachedTranslate } from '../../lib/translateCache'
 import { useReaderSettings } from '../../hooks/useReaderSettings'
 import { saveWordIntent } from '../../lib/saveWordIntent'
@@ -512,6 +512,18 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       setVocabOpen(seq)
     }, fail('vocabulary'))
   }
+  /** After a sync pass: the rows again (the first pull after a sign-in, another device's words), over this open's. */
+  const refreshVocab = () => {
+    const seq = vocabSeq.current
+    if (!seq) return
+    deviceLocalLibrary().savedWords().then((rows) => {
+      if (seq !== vocabSeq.current) return
+      const next = mergeWords(rows.map(({ id, word, stage, translation }) => ({ id, word, stage, translation })), vocab.current)
+      if (JSON.stringify(next) === JSON.stringify(vocab.current)) return
+      vocab.current = next
+      sendMarks()
+    }, fail('vocabulary'))
+  }
   const takeWord = (w: { id: string; word: string; stage: number; translation: string | null }) => {
     vocab.current = withSaved(vocab.current, { id: w.id, word: w.word, stage: w.stage, translation: w.translation })
     sendMarks()
@@ -652,6 +664,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       refreshBooks()
       // A pull may have brought another device's notes (#1312 review): the editor and the sheet read them again.
       refreshNotes()
+      // And saved words (#1271): the marks too.
+      refreshVocab()
     }, fail('sync'))
   }
   const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)

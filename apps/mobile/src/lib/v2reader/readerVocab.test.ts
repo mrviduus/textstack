@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { backfillTranslations, withSaved, withTranslation, type ReaderWord } from './readerVocab'
+import { backfillTranslations, mergeWords, withSaved, withTranslation, type ReaderWord } from './readerVocab'
 
 const w = (id: string, word: string, stage = 0, translation: string | null = null): ReaderWord => ({ id, word, stage, translation })
 
@@ -58,5 +58,13 @@ describe('backfillTranslations', () => {
     await backfillTranslations([w('1', 'a'), w('2', 'b')], 'en', 'uk', x)
     expect(x.translate).toHaveBeenCalledTimes(1)
     expect(x.onWord).not.toHaveBeenCalled()
+  })
+})
+
+describe('mergeWords', () => {
+  it('the rows win; a word saved in this open and not pulled yet stays; a translation filled here stays on a row without one', () => {
+    const rows = [w('1', 'pond', 2), w('2', 'reed', 1, 'очерет'), w('3', 'heron', 0)]
+    const open = [w('1', 'Pond', 0, 'ставок'), w('2', 'reed', 0, 'old'), w('9', 'otter', 0)]
+    expect(mergeWords(rows, open)).toEqual([w('1', 'pond', 2, 'ставок'), w('2', 'reed', 1, 'очерет'), w('3', 'heron', 0), w('9', 'otter', 0)])
   })
 })
