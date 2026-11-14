@@ -130,7 +130,7 @@ function glossOf(rects, text, el) {
   const first = rects[0]
   if (!first) return g
   // The book's size at draw time (options are reused on redraw, so read it here, not when added).
-  const fs = parseFloat(el.ownerDocument.defaultView.getComputedStyle(el).fontSize) || 16
+  const fs = parseFloat(el?.ownerDocument?.defaultView?.getComputedStyle(el).fontSize) || 16
   const t = document.createElementNS(SVG, 'text')
   t.setAttribute('x', first.left + first.width / 2)
   t.setAttribute('y', first.top - 2)
@@ -146,12 +146,24 @@ function glossOf(rects, text, el) {
  * Foliate draw fn, called again with fresh rects on every expand (font size, viewport), so both
  * decorations follow the text without our own layout code. One overlay carries both: see overlays.mjs.
  */
+/**
+ * A section's writing mode (vertical underlines run beside the column), read once per section document; undefined when
+ * its window is gone (a section unloading mid-draw: never an error out of foliate's overlayer loop).
+ */
+const writingModes = new WeakMap()
+function writingModeOf(el) {
+  const doc = el?.ownerDocument
+  if (!doc) return undefined
+  if (!writingModes.has(doc)) writingModes.set(doc, doc.defaultView?.getComputedStyle(doc.body ?? el).writingMode)
+  return writingModes.get(doc)
+}
+
 function decorate(rects, { hl, gloss, mark, spoken, el }) {
   const g = document.createElementNS(SVG, 'g')
   if (hl) g.append(Overlayer.highlight(rects, { color: HIGHLIGHT_FILL[colorOf(hl.color)] }))
   // A saved word (#1271) is underlined in its stage's colour; a word the host glossed on a tap, in the label's. foliate's
   // underline, so a vertical book's runs beside its column.
-  const writingMode = el.ownerDocument.defaultView.getComputedStyle(el).writingMode
+  const writingMode = mark || gloss || spoken ? writingModeOf(el) : undefined
   if (mark || gloss) g.append(Overlayer.underline(rects, { color: mark ? STAGE_COLORS[mark.stage] : GLOSS_COLOR, width: 2, writingMode }))
   // The range spoken (#1272) last, over a saved word's underline: it stays visible.
   if (spoken) g.append(Overlayer.underline(rects, { color: SPOKEN_FILL, width: 3, writingMode }))

@@ -45,8 +45,8 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `listen.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1272): `ttsLang` (the book's language → the `lang` `/tts` is sent, the V2 reader on both hosts (the legacy readers keep their own): the primary subtag only, ISO 639-2 codes in both forms, `nb`/`nn`/`iw`/`in` and `tl` → `fil` folded, `und`/`mul`/`zxx`/`mis` to the fallback, never English for another language, null for Ukrainian), `TTS_SPEEDS` / `readSpeed` / `TTS_SPEED_KEY` / `createSpeedChoice` (Android's async store: a pick before the read wins), `createListener` (Listen's rule: it owns the phase), `speakingJs` (Android's injected call), `SPOKEN_FILL`. See Host responsibilities, "Listen". |
 | `vocabSave.mjs` (+ `.d.mts`) | Pure, both hosts (#1270): `saveOutcome`, a vocabulary save's answer as the host shows it (saved, deleted → restore, pending, lookup); `savesWords`, whether a book's `opened.lang` lets its words be saved. See Host responsibilities, "Saving a word". |
 | `wordMarks.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1271): saved-word marks. `readMarkWords` (the page's read of `markWords`: word ≤ 200, gloss ≤ 500, at most 20,000; a stage off 0–4 is new), `STAGE_COLORS` (the legacy readers' five underlines), `wordMarksIn` (where words stand in a section, reader-engine's `matchWords` + `rangesIn`), `sameMark`; the gloss setting `readGlosses` / `withGlosses` (the legacy `showInlineTranslations`). See Host responsibilities, "Saved-word marks". |
-| `vocabWords.mjs` (+ `.d.mts`) | Pure, DOM-free, both hosts (#1271): `langOf`, `ofBook` (a card is the book's language), `wordId` (key + language), `markWordsOf` (what a host sends). |
-| `readerVocab.ts` | Android (#1271): the saved words in memory (`withSaved`, `withTranslation`, `mergeWords` with this session's saves and fills, `forBook`), the once-per-open backfill (`backfillTranslations`) and the guest nudge's count (`nudgeCount`). |
+| `vocabWords.mjs` (+ `.d.mts`) | Pure, DOM-free, both hosts (#1271): `langOf`, `ofBook` (a card is the book's language), `wordId` (key + language), `markWordsOf` (what a host sends), `backfillTranslations` (the once-per-open rule: serial writes, a 429 stops it, cancelled by the host). |
+| `readerVocab.ts` | Android (#1271): the saved words in memory (`withSaved`, `withTranslation`, `mergeWords` with this session's saves and fills, `forBook`), the once-per-open backfill (`backfillTranslations`) and the guest nudge's count (`nudgeCount`), `backfillable`. |
 | `wordPopup.mjs` (+ `.d.mts`) | Pure, both hosts (#1269): `readWord` (a host's read of `word`, `readSelection`'s caps; the rect through `selection.mjs` `readRect`), `readLang` (`opened.lang` as a two-letter primary subtag, or null: a three-letter code gives the host's fallback), and `popupStep`: what a `word`, `tap`, `selection`, `selection-cleared` or a move does to the word popup / selection toolbar and to the tap zones. See Host responsibilities, "Word popup and selection toolbar". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
 | `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
@@ -562,9 +562,11 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
 **Saved-word marks** (#1271, `wordMarks.mjs`, `vocabWords.mjs`; audit §2.5). The page draws; the host sends the words.
 
 - *Which words*: the cards of the book's language only (`vocabWords.mjs` `ofBook`: primary subtags compared, `en-GB`
-  is `en`; the book's side is the language its words are saved under, `opened.lang` through `readLang`, else the host's
-  fallback). A card with no language (the legacy reader list's) passes; a book with none takes none. The same rule
-  bounds the backfill: no translation is ever written to a card of another language.
+  is `en`), the V2 reader only: the legacy reader's map keeps every card, as before. The language is the one words are
+  saved under (`savesWords`' rule): `opened.lang` through `readLang`, else the host's fallback when the book declares
+  none; a declared language that does not read (`deu`, `fre`) marks and fills nothing. A card with no language (the
+  legacy reader list's) passes. The same rule bounds the backfill: no translation is ever written to a card of
+  another language.
 - *What the host sends*: `markWordsOf` (word, stage, translation as the gloss), oldest first, a word just saved last
   (over 20,000 the page keeps the newest); never a sentence or any book text. Sent after each open's words are in,
   after each change (a save, a restore, an "add anyway", a backfilled translation), on a `ready` (a new frame) when
@@ -575,21 +577,27 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   `useReaderSettings`. The switch is in the V2 settings panel where `annotatable`.
 - *Drawn*: foliate's underline (vertical writing included) in the stage's colour; the range being spoken (#1272)
   over it, so it stays visible; the gloss as SVG text.
-- *Web*: `useReaderVocabulary` as the legacy reader (V2ReaderPopups): one read per load (V2: each card with its
-  language, filtered to the book's), kept in memory, a save or a footer-picked translation updates it. Missing
-  translations are backfilled once per authenticated load, over the words it brought (never on the no-session branch,
-  never for a word saved later: the save's TR-2 fill has it), one card written before the next, stopped by a 429 or
-  an unmount (the legacy reader takes the same rules). The map goes to the host through `onMarks`.
+- *Web*: `useReaderVocabulary` (V2ReaderPopups passes `marks: { language }`; without it the hook is the legacy
+  reader's, unchanged): one read per load, each V2 card with its language, kept in memory, a save, a flushed guest word
+  or a footer-picked translation updates it (another book's queued word is not added). Missing translations are
+  backfilled once per authenticated load, for the language it was filtered for (a language change waits for its own
+  load), over the words it brought (never on the no-session branch, never for a word saved later: the save's TR-2 fill
+  has it), by the shared `backfillTranslations`, cancelled by a newer load (identity, language, retry) or the unmount.
+  A guest's nudge counts the whole vocabulary, every language. The map goes to the host through `onMarks`.
 - *Android* (`readerVocab.ts`): the local library's `vocabulary` rows (the vocabulary feed, offline too: no token or
   network on the reading path) read at each open and after each sync pass; `mergeWords`: the rows are the truth (a
-  tombstone, an adoption, a wipe: gone), this session's saves no row has yet are kept (tracked until a read has them,
-  across opens), a translation this session filled stays on its row until the pull brings it. A word is its key and
-  its language (`wordId`). Missing translations backfilled once per open (`backfillTranslations`: `cachedTranslate`,
-  then the card's `onlyIfEmpty` PATCH awaited before the next word; a 429 stops it, so do a new open and leaving the
-  screen; sends coalesced 300 ms). A guest's nudge counts the words in memory once the feed was pulled (V2 on, a
-  vocabulary cursor), else the server's list as before (`nudgeCount`).
+  tombstone, an adoption, a wipe: gone), this session's saves no row has yet are owed (across opens) until a read has
+  them, or until a vocabulary pull that started after the save was read to its end without it (deleted before this
+  device pulled it: `vocabularyReadFrom`); a translation this session filled stays on its row until the pull brings it.
+  A word is its key and its language (`wordId`). A new user (sign-out, another account) starts with none of it.
+  Missing translations backfilled once per open by the shared `backfillTranslations` (`backfillable`: the book's
+  language, never an owed save whose own fill may be in flight; `cachedTranslate`, then the card's `onlyIfEmpty` PATCH
+  awaited before the next word; a 429 stops it, so do a new open and leaving the screen; sends coalesced 300 ms). A
+  guest's nudge counts the words in memory once the feed was pulled (V2 on, a vocabulary cursor), else the server's
+  list as before (`nudgeCount`).
 - *The feed*: pull-only; a tombstone removes the row, the server's row replaces it. Pulled after the pushes, and its
-  failure is its own: it never holds a write back or fails the pass (a session change still ends it). A wipe deletes
+  failure is its own: it never holds a write back or fails the pass (offline, the server down or a session change end
+  the pass as for any pull). A wipe deletes
   the rows (nothing counted as lost: they are the server's); a guest carried to the next identity and a guest →
   account adoption drop them and pull from the start (the merge keeps the account's card ids).
 - *Measured* (desktop Chromium, Frankenstein, 78,499 words in 32 sections; the page's `markWords` on the section on

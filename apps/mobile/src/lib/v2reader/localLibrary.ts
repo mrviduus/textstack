@@ -210,6 +210,8 @@ const parse = <T>(json: string | null): T | null => {
 const SERVER_FILE = 'server_file_id = ?, server_sha256 = ?, server_size = ?, server_format = ?, has_content = ?'
 const serverFile = (f: V2BookFile | null | undefined) => [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0]
 
+/** `meta` key (#1271): when the last vocabulary pull read to its end started; a `cursor:` key, cleared with the cursors. */
+const VOCABULARY_READ = 'cursor:vocabulary:read_from'
 /** `meta` key: '1' when the owner (`meta.account`) is a guest. */
 const OWNER_GUEST = 'account_guest'
 /** Whom the library belongs to; null: nobody (never synced, or wiped). */
@@ -909,6 +911,18 @@ export function createLocalLibrary(db: Db) {
 
     /** #1271: every live saved word on this device, for the reader's marks (one read per open). */
     savedWords: () => job(() => all<SavedWord>('SELECT id, word, language, stage, translation FROM vocabulary ORDER BY rowid')),
+
+    /**
+     * #1271 review: a vocabulary pull that started at `startedAt` (this device's clock) was read to its end: a save taken
+     * before it that the rows lack was deleted before this device pulled it. Kept under a `cursor:` key, so a wipe, a
+     * guest carried on and an adoption forget it with the cursors.
+     */
+    vocabularyRead: (startedAt: number) => job(() => setMeta(VOCABULARY_READ, String(startedAt))),
+    /** When the last vocabulary pull read to its end started; null: none since the cursors were last cleared. */
+    vocabularyReadFrom: () => job(async () => {
+      const v = await getMeta(VOCABULARY_READ)
+      return v === null ? null : Number(v)
+    }),
 
     cursor: (feed: LocalFeed) => job(() => getMeta(`cursor:${feed}`)),
 

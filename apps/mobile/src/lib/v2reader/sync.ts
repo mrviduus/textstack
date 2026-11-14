@@ -171,7 +171,8 @@ async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset, pushOnly = 
       try {
         await pull(lib, host, reset, 'vocabulary')
       } catch (e) {
-        if (e === DROPPED || reset()) throw e
+        // Offline, the server down, the session changed: the pass ends as for any pull. Anything else is this feed's own.
+        if (endsPass(e) || reset()) throw e
         console.warn('[v2 sync] vocabulary not pulled, retried next pass:', brief(e))
       }
     }
@@ -270,6 +271,7 @@ export async function pushV2BeforeSignOut(userId: string, guest: boolean, ms = S
  * (a page that fails to land is pulled again), queued in the tick its answer was checked.
  */
 async function pull(lib: LocalLibrary, host: SyncHost, reset: Reset, feed: LocalFeed) {
+  const startedAt = Date.now()
   let cursor = await lib.cursor(feed)
   for (;;) {
     let owed: PositionAction[] = []
@@ -285,6 +287,8 @@ async function pull(lib: LocalLibrary, host: SyncHost, reset: Reset, feed: Local
     if (!page.hasMore) {
       // The feed read to its end: a row whose note was never read (before notes were kept) is not on the server.
       if (feed === 'annotations') await checked(reset, () => lib.annotationsPulled())
+      // #1271 review: read to its end, so a save taken before it and missing now was deleted (readerVocab mergeWords).
+      if (feed === 'vocabulary') await checked(reset, () => lib.vocabularyRead(startedAt))
       return
     }
   }

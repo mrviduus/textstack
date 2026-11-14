@@ -37,8 +37,8 @@ import { vocabularyApi } from '../../lib/vocabularyApi'
 import { fillSavedTranslation, saveWordWithRetry } from '../../lib/savedWord'
 import { saveWordForBook } from '../../lib/v2reader/wordBook'
 import { vocabMapKey } from '../../lib/vocabMapKey'
-import { markWordsOf } from '../../lib/v2reader/vocabWords.mjs'
-import { backfillTranslations, forBook, mergeWords, nudgeCount, withSaved, withTranslation, type ReaderWord } from '../../lib/v2reader/readerVocab'
+import { backfillTranslations, markWordsOf } from '../../lib/v2reader/vocabWords.mjs'
+import { backfillable, forBook, mergeWords, nudgeCount, withSaved, withTranslation, type OwedSave, type ReaderWord } from '../../lib/v2reader/readerVocab'
 import { onV2 } from '../../lib/v2'
 import { cachedTranslate } from '../../lib/translateCache'
 import { useReaderSettings } from '../../hooks/useReaderSettings'
@@ -536,7 +536,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const glosses = useRef(legacySettings.showInlineTranslations)
   glosses.current = legacySettings.showInlineTranslations
   const vocab = useRef<ReaderWord[]>([])
-  const saves = useRef<ReaderWord[]>([])
+  const saves = useRef<OwedSave[]>([])
   const filled = useRef(new Map<string, string>())
   /** The language the book's words are saved under (`textLang`, set each render): what is marked and filled. */
   const vocabLang = useRef<string | null>(null)
@@ -554,9 +554,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
   /** The rows read (an open, a sync pass) over this session's saves and fills. */
   const readVocab = (seq: number, then?: () => void) => {
-    deviceLocalLibrary().savedWords().then((rows) => {
+    const lib = deviceLocalLibrary()
+    Promise.all([lib.savedWords(), lib.vocabularyReadFrom()]).then(([rows, readFrom]) => {
       if (seq !== vocabSeq.current) return
-      const m = mergeWords(rows, saves.current, filled.current)
+      const m = mergeWords(rows, saves.current, filled.current, readFrom)
       vocab.current = m.words
       saves.current = m.saves
       sendMarks()
@@ -574,7 +575,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (!w) return
     const word: ReaderWord = { id: w.id, word: w.word, language: w.language ?? null, stage: w.stage, translation: w.translation }
     vocab.current = withSaved(vocab.current, word)
-    saves.current = withSaved(saves.current, word)
+    saves.current = withSaved(saves.current, { ...word, at: Date.now() })
     sendMarks()
   }
   const takeTranslation = (id: string, translation: string | null) => {
@@ -584,6 +585,17 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     sendMarks()
   }
   useEffect(() => { sendMarks() }, [legacySettings.showInlineTranslations])
+  // #1271 review: another session (a sign-out's wipe, another account): nothing of the last one's words is owed or kept.
+  const vocabUser = useRef(userId)
+  useEffect(() => {
+    if (vocabUser.current === userId) return
+    vocabUser.current = userId
+    vocab.current = []
+    saves.current = []
+    filled.current = new Map()
+    vocabSeq.current++
+    sendMarks()
+  }, [userId])
   /** False when the book's `opened.lang` does not read (savesWords): its words would be filed under the fallback. */
   const [langSaves, setLangSaves] = useState(true)
   /** The one answered `lookup` (the rare-word notice). */
@@ -1175,15 +1187,16 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
 
   /** What translate and explain read the book as: its own language, else the app's (the legacy reader's rule). */
   const textLang = readerTextLanguage(bookLang, language)
-  vocabLang.current = textLang
-  useEffect(() => { sendMarks() }, [textLang])
+  // A book whose language does not read (savesWords) marks and fills none: its words would be another language's.
+  vocabLang.current = langSaves ? textLang : null
+  useEffect(() => { sendMarks() }, [textLang, langSaves])
   // #1271: missing translations filled once per open (the legacy readers' backfill, the book's language's words only),
   // each sent as it lands, coalesced; stopped by a new open or the screen going.
   useEffect(() => {
     if (!vocabOpen) return
     let timer: ReturnType<typeof setTimeout> | undefined
     let gone = false
-    void backfillTranslations(vocab.current, textLang, nativeLanguage, {
+    void backfillTranslations(backfillable(vocab.current, saves.current, vocabLang.current), vocabLang.current, nativeLanguage, {
       translate: (w) => cachedTranslate(w, textLang, nativeLanguage).then((r) => r.translation || null),
       persist: (id, tr) => vocabularyApi.updateWord(id, { translation: tr, onlyIfEmpty: true }),
       onWord: (id, tr) => {

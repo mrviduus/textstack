@@ -1,6 +1,5 @@
-import { StrictMode, createElement, type ReactNode } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, act, waitFor } from '@testing-library/react'
+import { renderHook, act, waitFor, configure } from '@testing-library/react'
 
 // #1271 review: the V2 reader's language-filtered map (`marks`) and the backfill rule (vocabWords.mjs), against the
 // legacy reader's unfiltered map.
@@ -83,6 +82,17 @@ describe('useReaderVocabulary: V2 marks', () => {
     expect(api.updateWord.mock.calls.map((c) => c[0])).toEqual(['id-pond'])
   })
 
+  it('backfill_ALoadDoneForDe_ThenLanguageAndTargetChangeInOneCommit_OnlyTheNewLoadIsFilled', async () => {
+    api.getReaderVocab.mockResolvedValueOnce([card('hund', 'de')]).mockResolvedValue([card('pond', 'en')])
+    const { rerender } = renderHook(({ lang, target }) => useReaderVocabulary(lang, target, { language: lang }), { initialProps: { lang: 'de', target: null as string | null } })
+    await flush()
+    // The 'de' load is in (no target: nothing filled yet); the book is now English, a target too, in the same render.
+    rerender({ lang: 'en', target: 'uk' })
+    await flush()
+    expect(translate.mock.calls.map((c) => [c[0], c[1]])).toEqual([['pond', 'en']])
+    expect(api.updateWord.mock.calls.map((c) => c[0])).toEqual(['id-pond'])
+  })
+
   it('backfill_ASecondLoadCancelsTheFirst_NoWriteFromItAfter', async () => {
     api.getReaderVocab.mockResolvedValue([card('pond', 'en'), card('reed', 'en')])
     const slow = deferred<{ translatedText: string }>()
@@ -107,11 +117,16 @@ describe('useReaderVocabulary: V2 marks', () => {
     expect(api.updateWord).not.toHaveBeenCalled()
   })
 
-  it('backfill_UnderStrictMode_StillRuns', async () => {
+  it('backfill_UnderStrictMode_ItsMountUnmountMount_StillRuns', async () => {
     api.getReaderVocab.mockResolvedValue([card('pond', 'en')])
-    const wrapper = ({ children }: { children: ReactNode }) => createElement(StrictMode, null, children)
-    renderHook(() => useReaderVocabulary('en', 'uk', { language: 'en' }), { wrapper })
-    await flush()
+    // RTL's StrictMode: every effect mounts, unmounts and mounts again, as the dev server does.
+    configure({ reactStrictMode: true })
+    try {
+      renderHook(() => useReaderVocabulary('en', 'uk', { language: 'en' }))
+      await flush()
+    } finally {
+      configure({ reactStrictMode: false })
+    }
     expect(api.updateWord.mock.calls.map((c) => c[0])).toEqual(['id-pond'])
   })
 

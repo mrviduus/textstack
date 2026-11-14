@@ -895,6 +895,29 @@ describe('V2 local library sync (R6)', () => {
       expect(order.indexOf('GET /vocabulary/changes')).toBeGreaterThan(order.indexOf(`PUT /annotations/${HL}`))
     })
 
+    it('pull_ReadToItsEnd_RecordsWhenItStarted_APageThatFailedRecordsNothing', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({ 'GET /vocabulary/changes': [ok({ items: [card(W1)], cursor: 'p1', hasMore: true }), { status: 500 }] })
+      await syncV2Library(lib, host())
+      expect(await lib.vocabularyReadFrom()).toBeNull()
+      const before = Date.now()
+      fakeApi({ 'GET /vocabulary/changes': feed(card(W1)) })
+      await syncV2Library(lib, host())
+      const from = await lib.vocabularyReadFrom()
+      expect(from).not.toBeNull()
+      expect(from!).toBeGreaterThanOrEqual(before)
+      expect(from!).toBeLessThanOrEqual(Date.now())
+      // Forgotten with the cursors (a guest carried on: the next identity reads from the start).
+      await lib.forgetServerState('u2', false)
+      expect(await lib.vocabularyReadFrom()).toBeNull()
+    })
+
+    it('pull_Answered503_ThePassEnds_AsForAnyPull', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({ 'GET /vocabulary/changes': [{ status: 503 }] })
+      expect(await syncV2Library(lib, host())).toBe('failed')
+    })
+
     it('signOutWipe_WordsGo_NothingCountedAsLost', async () => {
       const lib = createLocalLibrary(memoryDb())
       fakeApi({ 'GET /vocabulary/changes': feed(card(W1)) })
