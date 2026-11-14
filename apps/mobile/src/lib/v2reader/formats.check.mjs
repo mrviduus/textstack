@@ -1833,6 +1833,94 @@ try {
   const drawnBack = await call('window.__fol.drawnRanges()')
   check(drawnHere >= 3 && drawnAway === 0 && drawnBack === drawnHere, `a section's highlight ranges go with it and come back with it (${drawnHere} → ${drawnAway} → ${drawnBack})`)
 
+  // #1271: saved-word marks, drawn by the page from the host's list, one section at a time.
+  console.log('saved-word marks')
+  const judgeHl = await call(`(() => {
+    const v = document.querySelector('foliate-view')
+    const c = v.renderer.getContents().find((x) => x.doc.querySelector('p'))
+    const t = c.doc.querySelector('p').firstChild, i = t.data.indexOf('judge')
+    const r = c.doc.createRange(); r.setStart(t, i); r.setEnd(t, i + 5)
+    return { id: '55555555-5555-4555-8555-555555555555', cfi: v.getCFI(c.index, r), index: c.index, quote: 'judge', selectedText: 'judge', prefix: '', suffix: '', color: 'green', at: 1 }
+  })()`)
+  m = await open('tsformat.fb2', JSON.stringify({ v: 1, book: fb2Book, highlights: [judgeHl], position: null }))
+  await settle()
+  /** What the shown sections' overlays draw: each overlay's highlight fill, underline colours and label text. */
+  const ink = () => call(`[...document.querySelector('foliate-view').renderer.getContents()].flatMap((c) => [...(c.overlayer?.element.children ?? [])].map((g) => ({
+    hl: g.querySelector('g[fill]')?.getAttribute('fill') ?? null,
+    line: [...new Set([...g.querySelectorAll('rect[height="2"]')].map((r) => r.getAttribute('fill')))].join(),
+    label: g.querySelector('text')?.textContent ?? null,
+    tags: [...g.querySelectorAll('*')].map((e) => e.localName).filter((n) => !['g', 'rect', 'text'].includes(n)).join(),
+  })))`)
+  /** Occurrences of `w` in the shown sections' text (whole words), the count the marks must have. */
+  const occurrences = (w) => call(`[...document.querySelector('foliate-view').renderer.getContents()].reduce((n, c) => n + (c.doc.body.textContent.match(/\\b${w}\\b/gi) ?? []).length, 0)`)
+  const words = [{ word: 'sphinx', stage: 0, gloss: 'сфинкс' }, { word: 'Judge', stage: 3, gloss: '<img src=x onerror="top.__marked=1">' }]
+  check(await call('window.__fol.markedWords()') === 0, 'no marks before the host sends its words')
+  call(`window.__fol.markWords(${JSON.stringify(words)}, true)`)
+  await page.waitForTimeout(400)
+  const marked = await call('window.__fol.markedWords()')
+  const both = (await occurrences('sphinx')) + (await occurrences('judge'))
+  check(both > 2 && marked === both, `every occurrence in the section on screen is marked, any case (${marked} of ${both})`)
+  let drawn = await ink()
+  const sphinxInk = drawn.filter((d) => d.label === 'сфинкс')
+  check(sphinxInk.length === (await occurrences('sphinx')) && sphinxInk.every((d) => d.line === 'rgba(59,130,246,0.5)' && !d.hl),
+    `a new word is underlined blue, its translation above it (${JSON.stringify(sphinxInk[0])} ×${sphinxInk.length})`)
+  const judgeInk = drawn.filter((d) => d.line === 'rgba(34,197,94,0.4)')
+  check(judgeInk.length === (await occurrences('judge')) && judgeInk.every((d) => d.label === words[1].gloss && !d.tags),
+    `a word at stage 3 is underlined green; a gloss is text only, never markup (${JSON.stringify(judgeInk[0])})`)
+  check(await call('top.__marked') === undefined, 'and nothing in it ran')
+  // The highlight over one "judge" and its mark are one overlay (foliate keys an overlay by its CFI).
+  const merged = drawn.filter((d) => d.hl)
+  check(merged.length === 1 && merged[0].hl === '#4ade80' && merged[0].line === 'rgba(34,197,94,0.4)' && merged[0].label === words[1].gloss,
+    `a mark over a highlight's range is one overlay drawing both (${JSON.stringify(merged)})`)
+  // The setting off: no label; on again: back. The marks stay.
+  call(`window.__fol.markWords(${JSON.stringify(words)}, false)`)
+  await page.waitForTimeout(300)
+  drawn = await ink()
+  check(drawn.every((d) => d.label === null) && await call('window.__fol.markedWords()') === marked, `the setting off hides every gloss, the marks stay (${drawn.filter((d) => d.label).length} labels)`)
+  call(`window.__fol.markWords(${JSON.stringify(words)}, true)`)
+  await page.waitForTimeout(300)
+  check((await ink()).filter((d) => d.label).length === marked, 'on again, every gloss is back')
+  // A stage change redraws; a word no longer saved goes, the highlight under it stays.
+  call(`window.__fol.markWords(${JSON.stringify([{ ...words[0], stage: 4 }])}, true)`)
+  await page.waitForTimeout(300)
+  drawn = await ink()
+  check(drawn.filter((d) => d.label === 'сфинкс').every((d) => d.line === 'rgba(34,197,94,0.25)') && !drawn.some((d) => d.line === 'rgba(34,197,94,0.4)'),
+    'a new stage is drawn in its colour; a word no longer sent is unmarked')
+  const hlAlone = drawn.filter((d) => d.hl)
+  check(hlAlone.length === 1 && hlAlone[0].line === '' && hlAlone[0].label === null, `and the highlight under it stays, alone (${JSON.stringify(hlAlone)})`)
+  // Removing a highlight keeps the mark over the same range.
+  call(`window.__fol.markWords(${JSON.stringify(words)}, true)`)
+  await page.waitForTimeout(300)
+  call(`window.__fol.removeHighlight(${JSON.stringify(judgeHl.id)})`)
+  await page.waitForTimeout(400)
+  drawn = await ink()
+  check(!drawn.some((d) => d.hl) && drawn.filter((d) => d.line === 'rgba(34,197,94,0.4)').length === (await occurrences('judge')), 'a highlight removed keeps the mark under it')
+  // Per section: the next section is marked when it loads, the previous one's marks go; back, they come back.
+  const hereMarks = await call('window.__fol.markedWords()')
+  from = messages.length
+  call('window.__fol.section(1)')
+  await waitFor(from, (x) => x.type === 'relocate' && x.index === 1, 'the next section').catch(() => null)
+  await page.waitForTimeout(800)
+  const awayMarks = await call('window.__fol.markedWords()')
+  const awayWant = (await occurrences('sphinx')) + (await occurrences('judge'))
+  from = messages.length
+  call('window.__fol.section(-1)')
+  await waitFor(from, (x) => x.type === 'relocate' && x.index === 0, 'back').catch(() => null)
+  await page.waitForTimeout(800)
+  check(awayMarks === awayWant && awayWant > 0 && await call('window.__fol.markedWords()') === hereMarks,
+    `marks are placed per section as it loads, none kept for a section gone (${hereMarks} → ${awayMarks} of ${awayWant} → ${await call('window.__fol.markedWords()')})`)
+  // A word tapped on a saved word still reaches the host; marks draw nothing on a book with no overlays (CBZ).
+  const sphinxAt = await wordAt(await frameWith('Sphinx'), 'Sphinx')
+  from = messages.length
+  await page.mouse.click(sphinxAt.x, sphinxAt.y)
+  await settled()
+  check(messages.slice(from).find((x) => x.type === 'word')?.word === 'Sphinx', `a tap on a marked word is its word (${kinds(from)})`)
+  m = await open('tsformat.cbz')
+  call(`window.__fol.markWords(${JSON.stringify(words)}, true)`)
+  await page.waitForTimeout(300)
+  check(await call('window.__fol.markedWords()') === 0, 'a CBZ draws no marks')
+  call('window.__fol.markWords([], false)')
+
   // A fixed-layout book (CBZ) lands a fraction on its page, quietly too, and saves its page once moved.
   m = await open('tsformat.cbz', JSON.stringify({ v: 1, book: cbzBook, highlights: [], position: { fraction: 0.9, at: 1 } }))
   await settle()

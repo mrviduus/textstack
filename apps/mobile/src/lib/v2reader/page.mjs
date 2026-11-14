@@ -11,6 +11,7 @@ import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from './.ven
 import { tokenizeVocabWords } from '../../../../../packages/shared/src/text/vocabKey'
 import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
 import { mergeOverlay } from './overlays.mjs'
+import { STAGE_COLORS, readMarkWords, sameMark, wordMarksIn } from './wordMarks.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
 import { isFractionOnly } from '../../../../../packages/shared/src/reader/fractionPosition'
 import { emptyEntry, entryFor, foldText, isPdfPage, isPosition, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
@@ -46,6 +47,9 @@ let annotatable = true
 const overlays = new Map()
 /** cfi → the range foliate last drew it over (its section document's): where a tap finds a highlight (#1312). */
 const drawnRanges = new Map()
+/** #1271: the reader's saved words (wordMarks.mjs `readMarkWords`), as the host last sent them, and whether their glosses show. */
+let vocab = []
+let showGlosses = false
 /** This file's identity and its entry. No save until the stored one is restored. */
 let book = null
 let entry = null
@@ -118,17 +122,21 @@ const GLOSS_COLOR = 'rgba(59, 130, 246, 0.8)'
  * above the word (reader-engine LABEL_LOOK, E44). foliate calls it again with fresh rects on every
  * expand (font size, viewport), so the label follows the word without our own layout code.
  */
+function underline(rects, color) {
+  const g = document.createElementNS(SVG, 'g')
+  for (const r of rects) {
+    const u = document.createElementNS(SVG, 'rect')
+    Object.entries({ x: r.left, y: r.bottom - 2, width: r.width, height: 2, fill: color }).forEach(([k, v]) => u.setAttribute(k, v))
+    g.append(u)
+  }
+  return g
+}
 function glossOf(rects, text, el) {
   const g = document.createElementNS(SVG, 'g')
   const first = rects[0]
   if (!first) return g
   // The book's size at draw time (options are reused on redraw, so read it here, not when added).
   const fs = parseFloat(el.ownerDocument.defaultView.getComputedStyle(el).fontSize) || 16
-  for (const r of rects) {
-    const u = document.createElementNS(SVG, 'rect')
-    Object.entries({ x: r.left, y: r.bottom - 2, width: r.width, height: 2, fill: GLOSS_COLOR }).forEach(([k, v]) => u.setAttribute(k, v))
-    g.append(u)
-  }
   const t = document.createElementNS(SVG, 'text')
   t.setAttribute('x', first.left + first.width / 2)
   t.setAttribute('y', first.top - 2)
@@ -144,10 +152,14 @@ function glossOf(rects, text, el) {
  * Foliate draw fn, called again with fresh rects on every expand (font size, viewport), so both
  * decorations follow the text without our own layout code. One overlay carries both: see overlays.mjs.
  */
-function decorate(rects, { hl, gloss, el }) {
+function decorate(rects, { hl, gloss, mark, el }) {
   const g = document.createElementNS(SVG, 'g')
   if (hl) g.append(Overlayer.highlight(rects, { color: HIGHLIGHT_FILL[colorOf(hl.color)] }))
-  if (gloss) g.append(glossOf(rects, gloss, el))
+  // A saved word (#1271) is underlined in its stage's colour; a word the host glossed on a tap, in the label's.
+  if (mark || gloss) g.append(underline(rects, mark ? STAGE_COLORS[mark.stage] : GLOSS_COLOR))
+  // The tap's translation, else the saved word's own behind the reader's setting (read at draw time).
+  const label = gloss || (showGlosses && mark?.gloss)
+  if (label) g.append(glossOf(rects, label, el))
   return g
 }
 
@@ -459,13 +471,43 @@ function annotate(patch) {
   return view.addAnnotation(a)
 }
 
-/** The highlight drawn over `cfi` goes; a translation label over the same range stays (one overlay, overlays.mjs). */
-function unhighlight(cfi) {
-  const a = { ...overlays.get(cfi), hl: undefined }
-  drawnRanges.delete(cfi)
-  if (a.gloss) return annotate(a)
+/** The element a range starts in: whose font size a label is drawn at. */
+const elementOf = (range) => (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer)
+
+/**
+ * One decoration over `cfi` goes (`hl`, `mark`); the others over the same range stay (one overlay, overlays.mjs): a
+ * removed highlight keeps the word's mark and translation, a word no longer saved keeps its highlight.
+ */
+function undecorate(cfi, field) {
+  const a = { ...overlays.get(cfi), [field]: undefined }
+  if (field === 'hl') drawnRanges.delete(cfi)
+  if (a.hl || a.gloss || a.mark) return annotate(a)
   overlays.delete(cfi)
   return view.deleteAnnotation({ value: cfi })
+}
+const unhighlight = (cfi) => undecorate(cfi, 'hl')
+
+/**
+ * #1271: the saved words in section `index` (its document `doc`), as `vocab` says now: a mark drawn for each occurrence
+ * (by its CFI, so one over a highlight's range is that overlay), one no longer saved removed, an unchanged one left as
+ * drawn; `glosses`: the setting changed, so every mark with a gloss is drawn again. Sections are marked as they load
+ * (`create-overlay`), never the whole book.
+ */
+function markSection({ index, doc, overlayer } = {}, glosses = false) {
+  if (!annotatable || !doc?.body || !overlayer) return
+  const want = new Map()
+  for (const { range, word } of wordMarksIn(doc.body, vocab)) want.set(view.getCFI(index, range), { range, mark: { stage: word.stage, gloss: word.gloss } })
+  for (const [cfi, a] of overlays) if (a.index === index && a.mark && !want.has(cfi)) undecorate(cfi, 'mark')
+  for (const [cfi, { range, mark }] of want) {
+    const prev = overlays.get(cfi)
+    if (sameMark(prev?.mark, mark) && !(glosses && mark.gloss)) continue
+    const a = mergeOverlay(prev, { value: cfi, index, mark })
+    overlays.set(cfi, a)
+    // Straight to the section's overlayer with the range in hand, under the overlay's key (what foliate's
+    // `addAnnotation` would do after resolving the CFI again: measured, that doubled a dense section's time).
+    if (a.hl) drawnRanges.set(cfi, range)
+    overlayer.add(cfi, range, decorate, { hl: a.hl, gloss: a.gloss, mark, el: elementOf(range) })
+  }
 }
 
 /**
@@ -733,12 +775,24 @@ async function open(bytes, name, kind, mine) {
   view.addEventListener('create-overlay', ({ detail: { index } }) => {
     if (mine !== viewSeq) return
     pruneDrawn()
+    // #1271: marks are kept for the section on screen only (paginated and scrolled alike show one): the ones of a
+    // section that left go, this one's are placed again from `vocab` once its document is the view's (after this
+    // event, foliate attaches the overlayer and makes the view current).
+    for (const [cfi, a] of overlays) {
+      if (!a.mark) continue
+      const rest = { ...a, mark: undefined }
+      if (rest.hl || rest.gloss) overlays.set(cfi, rest)
+      else overlays.delete(cfi)
+    }
     for (const a of overlays.values()) if (a.index === index) view.addAnnotation(a)
+    // A task, not a microtask: the turn is painted (and its relocate sent) first, the marks right after.
+    if (vocab.length) setTimeout(() => {
+      if (mine === viewSeq) markSection(view.renderer.getContents().find((c) => c.index === index && c.overlayer))
+    })
   })
   view.addEventListener('draw-annotation', ({ detail: { draw, annotation: a, range } }) => {
-    const el = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer
     if (a.hl) drawnRanges.set(a.value, range)
-    draw(decorate, { hl: a.hl, gloss: a.gloss, el })
+    draw(decorate, { hl: a.hl, gloss: a.gloss, mark: a.mark, el: elementOf(range) })
   })
   view.addEventListener('external-link', (e) => {
     e.preventDefault()
@@ -1092,6 +1146,20 @@ window.__fol = {
   clearSelection: () => endSelection(),
   // Test-only (formats.check.mjs): how many drawn highlight ranges the page holds. A count, no book data.
   drawnRanges: () => drawnRanges.size,
+  /**
+   * #1271: the reader's saved words, `[{ word, stage, gloss }]` (read through wordMarks.mjs `readMarkWords`), and whether
+   * their glosses show (the reader's setting). Replaces the list held; the section on screen is marked again at once,
+   * every later one as it loads. Before `opened` it sets what the next open marks. Not where `annotatable` is false.
+   */
+  markWords: (words, show) => {
+    const glosses = !!show !== showGlosses
+    vocab = readMarkWords(words)
+    showGlosses = !!show
+    if (!view || !annotatable) return
+    for (const c of view.renderer?.getContents?.() ?? []) markSection(c, glosses)
+  },
+  // Test-only (formats.check.mjs): how many saved-word marks the page holds. A count, no book data.
+  markedWords: () => [...overlays.values()].filter((a) => a.mark).length,
   /** The host answers a `word` with its translation; drawn above that word. Not where `annotatable` is false. */
   showTranslation: (cfi, index, text) => view && annotatable && annotate({ value: cfi, index, gloss: text }),
 }
