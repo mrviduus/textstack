@@ -42,7 +42,7 @@ interface SelectionActionBarProps {
   onExplain?: () => void
   /** Absent: no Listen (the V2 reader until its TTS slice, #1272). */
   onSpeak?: () => void
-  /** Absent: no Save (the V2 reader until its vocabulary slice). */
+  /** Absent: no Save. */
   onSaveWord?: () => void
   onHighlight?: (color: HighlightColorKey) => void
   /** Last color the user picked — used as the single highlight button's

@@ -259,10 +259,7 @@
     },
     "idbUnavailable": "Can't save offline here. Tap to create a free account and keep your words.",
     "vocab": {
-      "tapAgainToStudy": "Tap again to study ({{n}} left)",
-      "deletedEarlier": "You deleted “{{word}}” earlier.",
-      "restore": "Restore",
-      "restoreFailed": "Couldn't restore the word. Try again."
+      "tapAgainToStudy": "Tap again to study ({{n}} left)"
     }
   },
   "auth": {

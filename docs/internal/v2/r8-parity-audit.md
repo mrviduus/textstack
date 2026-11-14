@@ -93,11 +93,11 @@ Legend — **Need**: `R8` must exist before R8 · `owner` needs a decision (§6)
 
 | Behaviour | Web | Mobile | V2 | Need |
 |---|---|---|---|---|
-| Save word on tap (sentence, book, translation) + outcomes (`pending`, `lookup`, `deleted` restore) | yes | yes | absent | R8 |
+| Save word on tap (sentence, book, translation) + outcomes (`pending`, `lookup`, `deleted` restore) | yes | yes | yes (#1270): web on a tap, Android the bar's Save; `deleted` offers Restore on both | R8 |
 | Inline saved-word marks by SRS stage | yes | yes | absent (only a gloss for one tapped word) | R8 |
 | Inline translation above saved words (setting) | yes | yes | `showTranslation` per word only | R8 |
 | Backfill missing translations once per open | yes | yes | absent | R8 |
-| Guest: 3rd word mints a session (web), nudges at 3/10 | yes | nudges | absent | R8 |
+| Guest: 3rd word mints a session (web), nudges at 3/10 | yes | nudges | as legacy (#1270) | R8 |
 | Mark as known | hook unwired | yes, hidden on V2 | absent | drop (`V2_FEATURES.markAsKnown` false) |
 | Vocabulary feed in the V2 local sync (Android) | — | — | absent (feeds: library, reading, annotations) | R8 |
 

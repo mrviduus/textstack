@@ -33,4 +33,6 @@ export const vocabularyApi = {
   deleteWord: switched(v2.deleteV2Word, legacy.deleteWord),
   getReviewQueue: switched(v2.getV2ReviewQueue, legacy.getReviewQueue),
   submitReview: switched(v2.submitV2Review, legacy.submitReview),
+  /** V2 only: a save answered `deleted` (the reader deleted the word earlier) offers this (#1270). */
+  restoreWord: v2.restoreV2Word,
 }

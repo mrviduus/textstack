@@ -338,6 +338,41 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
+  // #1270: a word tapped is saved to the vocabulary (the legacy reader's auto-save), with its sentence, this book, its
+  // title and the translation the popup fetched; the vocabulary list shows it.
+  test('readV2VocabSave_ACentreWordTapped_SavedWithItsSentenceAndBook_InTheVocabularyList', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2vocab'))
+    await withTranslation(context)
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+
+    const width = page.viewportSize()!.width
+    const word = (await firstParagraphWords(page)).find((w) => w.x > width * 0.35 && w.x < width * 0.65 && w.word.length > 2)
+    expect(word, 'a word in the centre zone').toBeTruthy()
+    const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith('/me/v2/vocabulary/words'))
+    const patched = page.waitForResponse((r) => r.request().method() === 'PATCH' && /\/me\/v2\/vocabulary\/words\/[0-9a-f-]{36}$/.test(r.url()))
+    await page.mouse.click(word!.x, word!.y)
+    const put = await saved
+    expect(put.ok(), `PUT word: ${put.status()} ${await put.text()}`).toBeTruthy()
+    // The context is the tapped word's own sentence (C2's e2e, 32ca405e): it holds the word as a whole word.
+    const own = new RegExp(`\\b${word!.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
+    expect(put.request().postDataJSON()).toMatchObject({
+      word: word!.word, language: 'en',
+      example: { bookId, bookTitle: 'E2E V2 sync', sentence: expect.stringMatching(own) },
+    })
+    // The translation follows the save (TR-2: it fills the untranslated card).
+    await expect(page.locator('.word-popup__translation')).toHaveText('MOCK-TRANSLATION')
+    const patch = await patched
+    expect(patch.ok(), `PATCH word: ${patch.status()} ${await patch.text()}`).toBeTruthy()
+    expect(patch.request().postDataJSON()).toMatchObject({ translation: 'MOCK-TRANSLATION' })
+
+    await page.goto('/en/vocabulary')
+    await expect(page.getByText(word!.word, { exact: true }).first()).toBeVisible({ timeout: 15_000 })
+    await context.close()
+  })
+
   // #1269: a selection opens the toolbar (highlight, translate, explain, copy; Listen comes with TTS, #1272);
   // Translate shows the host's translation; its close and Copy each end the selection in the book.
   test('readV2Selection_TheToolbar_TranslateThenCopy_EachEndsTheSelection', async ({ browser }) => {
