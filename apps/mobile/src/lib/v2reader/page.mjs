@@ -71,12 +71,14 @@ let lastCfi = null
  * their relocates are `cause` `nav`. Foliate reports a turn across a section with the same reason ('navigation') as a
  * jump, so only the page knows which navigations it asked for. Reset at the swap; one of a closed view never counts
  * again, however it ends.
- * ponytail: one that has not settled after NAV_BOUND_MS stops counting (a hung load must not make the rest of the
- * book a navigation); a landing slower than that is counted as the reader's. Raise it if real books land slower.
+ * ponytail: one that has not settled after NAV_BOUND_MS stops counting: the bound exists only for a navigation that
+ * never settles (a hung load must not make the rest of the book a navigation); a landing slower than it (a 2 MB
+ * single-file section can lay out for seconds on Android) is counted as the reader's. A restore is not bounded: its
+ * own end clears `awaitingRestore`, and while it runs its relocates are `nav`.
  */
 let navs = 0
-const NAV_BOUND_MS = 5000
-const asNav = async (fn) => {
+const NAV_BOUND_MS = 15_000
+const asNav = async (fn, bounded = true) => {
   const mine = viewSeq
   let counting = true
   const stop = () => {
@@ -84,9 +86,11 @@ const asNav = async (fn) => {
     counting = false
   }
   navs++
-  const bound = setTimeout(stop, NAV_BOUND_MS)
+  const bound = bounded ? setTimeout(stop, NAV_BOUND_MS) : 0
   try { return await fn() } finally { clearTimeout(bound); stop() }
 }
+/** Test-only (formats.check.mjs; the build has no test mode): ms every restore waits before it runs. */
+let testRestoreDelay = 0
 /**
  * #1313: from the swap until the restore has landed, the open itself is a navigation, unless the reader acts first
  * (`readerActed`: any input the page sees, or a turn): an open whose restore never comes (the web host's failed read)
@@ -903,7 +907,10 @@ function restore(json) {
   // One slot of the navigation chain, taken when called: a host goTo made meanwhile runs after it and wins.
   return navigate(async () => {
     try {
-      return await asNav(() => restoreInto(json, () => mine !== viewSeq))
+      return await asNav(async () => {
+        if (testRestoreDelay) await new Promise((done) => setTimeout(done, testRestoreDelay))
+        return restoreInto(json, () => mine !== viewSeq)
+      }, false)
     } finally {
       // Whatever happened, the page saves again: a restore that threw used to silence every save. Not
       // for a view opened since: that one is still restoring.
@@ -1151,6 +1158,7 @@ window.__fol = {
   // Test-only (formats.check.mjs; the build has no test mode): a navigation of the view on screen that lands after
   // `ms`, or never.
   __testHoldNav: (ms) => void asNav(() => new Promise((done) => { if (ms) setTimeout(done, ms) })),
+  __testRestoreDelay: (ms) => { testRestoreDelay = ms },
   // #1260: the whole settings object, read through settings.mjs (closed lists, a clamped size): nothing of the
   // host's reaches the CSS as it came. Applied live; before `opened` it sets what the next open uses.
   settings: (raw) => { look = readSettings(raw); applyLook(); return look },

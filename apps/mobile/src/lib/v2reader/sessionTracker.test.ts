@@ -199,6 +199,18 @@ describe('sessionTracker', () => {
     expect(u.end(at(7230))?.wordsRead).toBe(0)
   })
 
+  it('relocate_TurnsNotMovedByTheSaveRule_NoRestore_ASessionWithWords', () => {
+    // The restore never came (the web host's failed read): the page's save rule keeps `moved` false, `cause` says turn.
+    const t = createSessionTracker()
+    t.open(at(0))
+    t.relocate(rel(0.1, false, 'nav'), at(0))
+    t.bind('b1', at(0))
+    t.relocate(rel(0.101, false, 'turn'), at(30)) // a wheel scroll: starts the session
+    t.relocate(rel(0.102, false, 'turn'), at(60)) // 100 words
+    t.relocate(rel(0.103, false, 'turn'), at(90)) // 100 words
+    expect(t.end(at(90))).toMatchObject({ durationSeconds: 60, wordsRead: 200, startPercent: 0.1, endPercent: 0.103 })
+  })
+
   it('relocate_CbzOrPdfWithoutWords_TimeOnly', () => {
     const t = opened()
     t.relocate(turn(0.2, null), at(30))

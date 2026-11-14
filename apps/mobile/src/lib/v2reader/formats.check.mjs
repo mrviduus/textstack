@@ -480,11 +480,11 @@ try {
       await call('window.__fol.next()')
       await page.waitForTimeout(800)
       check(rels(from).length > 0 && rels(from).every((x) => x.cause === 'nav'), `a navigation still landing: a turn meanwhile is nav (${causes(from)})`)
-      await page.waitForTimeout(5200)
-      await turnAfter('a navigation that never lands stops counting after its bound (5 s): the next turn is cause turn')
+      await page.waitForTimeout(15_200)
+      await turnAfter('a navigation that never lands stops counting after its bound (15 s): the next turn is cause turn')
       // One that settles after its bound is not taken off the count twice: a later navigation still counts.
-      await call('window.__fol.__testHoldNav(5600)')
-      await page.waitForTimeout(6000)
+      await call('window.__fol.__testHoldNav(15_600)')
+      await page.waitForTimeout(16_000)
       from = messages.length
       await call('window.__fol.goTo({ fraction: 0.2, at: 1 }, true)')
       await page.waitForTimeout(800)
@@ -504,6 +504,20 @@ try {
       await waitFor(from, (x) => x.type === 'restored', 'the late restore')
       await page.waitForTimeout(400)
       check(landedAsNav(from, before), `a late restore after the reader acted: its landing is nav (${causes(from)})`)
+      // A restore slower than the bound, the reader tapping meanwhile: a restore is never bounded, its landing is nav.
+      u = await openUnrestored('tsformat.epub')
+      before = rels(0).at(-1)?.cfi
+      await call('window.__fol.__testRestoreDelay(16_000)')
+      from = messages.length
+      void call(`window.__fol.restore(${JSON.stringify(JSON.stringify({ v: 1, book: u.opened.book, position: { fraction: 0.6, at: 1 }, highlights: [] }))})`)
+      await page.waitForTimeout(1000)
+      await page.evaluate(() => document.dispatchEvent(new PointerEvent('pointerdown')))
+      // Past the bound (and waitFor's own 15 s) before waiting for its answer.
+      await page.waitForTimeout(15_500)
+      await waitFor(from, (x) => x.type === 'restored', 'the slow restore')
+      await call('window.__fol.__testRestoreDelay(0)')
+      await page.waitForTimeout(400)
+      check(landedAsNav(from, before), `a restore slower than the bound, a tap meanwhile: its landing is nav (${causes(from)})`)
       // An open with its restore: the restore's landing is a navigation.
       m = await open('tsformat.epub', JSON.stringify({ v: 1, book: u.opened.book, position: { fraction: 0.4, at: 1 }, highlights: [] }))
       await page.waitForTimeout(400)

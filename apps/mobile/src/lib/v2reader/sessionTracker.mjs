@@ -86,7 +86,8 @@ export function createSessionTracker() {
     /** A relocate as `readRelocate` (chrome.mjs) returns it; null is dropped. */
     relocate(r, now) {
       if (!r) return
-      if (r.moved) activity(now)
+      // A turn is the reader's even when the save rule says not moved (`moved` stays false while a restore never came).
+      if (r.moved || r.cause === 'turn') activity(now)
       if (r.fraction === null) return
       const from = place
       place = r.fraction
