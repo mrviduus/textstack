@@ -327,7 +327,9 @@ test.describe('V2 reader page @v2', () => {
     const popup = page.locator('.word-popup')
     await expect(popup).toContainText(word!.word)
     await expect(popup.locator('.word-popup__translation')).toHaveText('MOCK-TRANSLATION')
-    expect(asked.at(-1)).toMatchObject({ text: word!.word, sourceLang: 'en', targetLang: 'uk', sentence: expect.stringContaining('The Pond, paragraph 1.') })
+    // The context is the tapped word's own sentence (not the paragraph's label sentence).
+    const own = new RegExp(`\\b${word!.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
+    expect(asked.at(-1)).toMatchObject({ text: word!.word, sourceLang: 'en', targetLang: 'uk', sentence: expect.stringMatching(own) })
     await expect(main).toHaveAttribute('data-bars', 'hidden')
     await expect(status(page)).toHaveText(before)
 
