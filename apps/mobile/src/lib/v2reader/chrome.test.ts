@@ -275,6 +275,9 @@ describe('v2 reader Android back order (#1264)', () => {
     expect(backAction({ offer: false, lightbox: true, popup: true, reading: true })).toBe('close-lightbox')
     expect(backAction({ offer: true, lightbox: true, popup: true, reading: true })).toBe('close-offer')
     expect(backAction({ offer: false, lightbox: false, popup: false, reading: true })).toBe('close-book')
+    // A page reloading (not ready) has no lightbox: back goes on to the popup, then the book.
+    expect(backAction({ offer: false, lightbox: true, ready: false, popup: true, reading: true })).toBe('close-popup')
+    expect(backAction({ offer: false, lightbox: true, ready: false, reading: true })).toBe('close-book')
   })
 })
 

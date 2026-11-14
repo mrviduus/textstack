@@ -25,6 +25,7 @@ import { MAX_SELECTED_TEXT } from '../../../../../packages/shared/src/reader/v2L
 import { THEMES, readSettings, settingsCss } from './settings.mjs'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
 import { createLightbox, imageAt } from './lightbox.mjs'
+import { tapAction } from './tapZone.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
 const log = (level, msg) => post({ type: 'log', level, msg })
@@ -163,10 +164,11 @@ function onTap(doc, index, e) {
   if (e.target.closest?.('a[href]')) return   // foliate owns links
   if (!doc.getSelection().isCollapsed) return   // a selection, not a word tap
   if (dismissing) return   // it ended the selection sent (`selection-cleared`), nothing else
-  // An image (reflowable EPUB only: not a comic, not a fixed-layout page) opens the lightbox, an edge zone's too: an
-  // image is a deliberate target. No `tap`, `word` or `highlight-tap` then.
+  // An image (reflowable EPUB only: not a comic, not a fixed-layout page) opens the lightbox from the middle zone only
+  // (tapZone.mjs, the hosts' rule): an edge still turns the page, so a page-filling image does not take every tap.
+  // No `tap`, `word` or `highlight-tap` then.
   const img = format === 'epub' && !view.isFixedLayout && imageAt(e.target)
-  if (img) return lightbox.open(img, doc.defaultView.frameElement)
+  if (img && tapAction({ x: tapAt(doc, e).x, width: innerWidth, flow, dir: pagedDir() }) === 'toggle') return lightbox.open(img, doc.defaultView.frameElement)
   // A drawn highlight under the tap (#1312): the host's editor for it, not a word or a chrome tap.
   const hit = highlightAt(doc, e.clientX, e.clientY)
   if (hit) return post({ ...tapAt(doc, e), type: 'highlight-tap', id: hit.id, rect: rectInPage(doc.defaultView.frameElement, hit.range.getBoundingClientRect()) })

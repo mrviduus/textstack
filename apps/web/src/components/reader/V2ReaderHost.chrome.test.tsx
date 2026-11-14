@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
+import { openedDeadlineMs } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
 
 // #1263: the bars and tap zones of the V2 reader on the web, driven through a fake frame as V2ReaderHost.test.tsx.
 
@@ -310,6 +311,19 @@ describe('V2ReaderHost image lightbox (#1265)', () => {
     expect(document.querySelector('.word-popup')).not.toBeNull()
     fromPage({ type: 'lightbox', open: true })
     expect(document.querySelector('.word-popup')).toBeNull()
+  })
+
+  it('lightboxOpen_ThenAnOverdueOpenRetried_AFreshFrame_EscapeIsNoLongerTheLightboxs', () => {
+    const view = opened()
+    fromPage({ type: 'lightbox', open: true })
+    // Another book whose open never answers: its deadline, then Retry (a fresh frame, the old one's lightbox gone).
+    view.rerender(<MemoryRouter><V2ReaderHost book={{ bytes: new ArrayBuffer(8), name: 'b.epub' }} idleHeading="idle" /></MemoryRouter>)
+    act(() => { vi.advanceTimersByTime(openedDeadlineMs(8)) })
+    act(() => { screen.getByRole('button', { name: 'Retry' }).click() })
+    vi.spyOn(frame().contentWindow!, 'postMessage').mockImplementation(((m: { call: string; args: unknown[] }) => { posted.push(m) }) as never)
+    posted = []
+    press('Escape')
+    expect(calls('closeLightbox')).toEqual([])
   })
 
   it('malformedLightbox_Dropped_AFreshFrameShowsNone', () => {

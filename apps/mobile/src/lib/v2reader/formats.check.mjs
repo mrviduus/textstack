@@ -386,82 +386,101 @@ try {
   }
 
   /**
-   * #1263, #1264: what the reader chrome needs. A `tap` says where it landed (page viewport, a scaled page
-   * too, an image book too); an edge tap that dismisses a selection is only `selection-cleared`; `opened`
-   * says the reading direction; `flush()`, a hidden page and `pagehide` write a debounced save at once, once;
-   * the navigation keys, and only they, are forwarded from a section.
-   */
-  /**
-   * #1265: an EPUB image tapped opens the lightbox in the page's own document (the same blob: URL, no CSP change), an
-   * edge zone's too; that tap is no `tap`/`word`; keys stay in it; wheel, double click and drag zoom and pan; Esc, its
-   * close button and `closeLightbox()` close it; it opens at scale 1; never on a fixed layout or a comic; a new open
-   * closes it.
+   * #1265: an EPUB image tapped in the middle zone opens the lightbox in the page's own document (the same blob: URL,
+   * no CSP change), and that tap is no `tap`/`word`; an edge tap on an image is a `tap` (the host turns). Keys stay in
+   * it, Tab on its one control; wheel and double click zoom about the pointer, drag pans, clamped to the image's
+   * edges; Esc, its close button and `closeLightbox()` close it, focus back in the book without moving the place; it
+   * opens at scale 1; never on a fixed layout or a comic; a new open closes it.
    */
   async function checkLightbox() {
     console.log('lightbox')
-    await page.setViewportSize({ width: 1280, height: 720 })
+    const W = 1280
+    await page.setViewportSize({ width: W, height: 720 })
     call('window.__fol.flow("paginated")')
-    let m = await open('tsimage.epub')
+    await open('tsimage.epub')
     const f = await frameWith('Paragraph 1.')
-    /** The box of the first element matching `sel` in the section, in page px. */
-    const boxOf = async (sel) => inPage(f, await f.evaluate((s) => document.querySelector(s).getBoundingClientRect().toJSON(), sel))
-    const img = await boxOf('img')
+    /** The box of the first element matching `sel` in `fr`, in page px. */
+    const boxOf = async (fr, sel) => inPage(fr, await fr.evaluate((s) => document.querySelector(s).getBoundingClientRect().toJSON(), sel))
+    /** A point of `b` in the middle zone (the hosts' tap zones: the outer 25 % of each side turns), or null. */
+    const middleOf = (b) => {
+      const x = Math.min(b.x + b.w - 8, Math.max(b.x + b.w / 2, W * 0.25 + 20), W * 0.75 - 20)
+      return x > b.x && x < b.x + b.w ? { x, y: b.y + b.h / 2 } : null
+    }
     const lb = (from) => messages.slice(from).filter((x) => x.type === 'lightbox')
     const dialog = () => page.evaluate(() => {
       const d = document.querySelector('[role="dialog"]')
-      return d && { label: d.getAttribute('aria-label'), src: d.querySelector('img')?.src, transform: d.querySelector('img')?.style.transform, focused: document.activeElement === d, inert: document.querySelector('foliate-view')?.inert }
+      const i = d?.querySelector('img')
+      return d && {
+        label: d.getAttribute('aria-label'), src: i.src, transform: i.style.transform, focused: document.activeElement === d,
+        onButton: document.activeElement === d.querySelector('button'), inert: document.querySelector('foliate-view')?.inert,
+        box: { w: d.clientWidth, h: d.clientHeight, iw: i.offsetWidth, ih: i.offsetHeight },
+      }
     })
     const scaleOf = (d) => Number(/scale\(([\d.]+)\)/.exec(d?.transform ?? '')?.[1])
-    const tapOpen = async (x, y, what) => {
+    const panOf = (d) => (/translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(d?.transform ?? '') ?? []).slice(1).map(Number)
+    const tapOpen = async (p, what) => {
       const from = messages.length
-      await page.mouse.click(x, y)
+      await page.mouse.click(p.x, p.y)
       const o = await waitFor(from, (x) => x.type === 'lightbox', `the lightbox to open (${what})`).catch(() => null)
       await settled()
       return { o, from }
     }
-    // The image's centre: in the middle zone at this width.
-    let { o, from } = await tapOpen(img.x + img.w / 2, img.y + img.h / 2, 'img')
+    const img = await boxOf(f, 'img')
+    const mid = middleOf(img)
+    let { o, from } = await tapOpen(mid, 'img')
     const src = await f.evaluate(() => document.querySelector('img').currentSrc)
     let d = await dialog()
-    check(readLightbox(o) === true && d?.label === 'A red square' && d.src === src && src.startsWith('blob:'), `an image tapped opens the lightbox with the section's own blob: image, labelled by its alt (${JSON.stringify(o)}, ${JSON.stringify(d)})`)
+    check(readLightbox(o) === true && d?.label === 'A red square' && d.src === src && src.startsWith('blob:'), `an image tapped in the middle opens the lightbox with the section's own blob: image, labelled by its alt (${JSON.stringify(o)}, ${d?.label})`)
     check(kinds(from).length === 0 && !messages.slice(from).some((x) => x.type === 'relocate' || x.type === 'highlight-tap'), `the image tap is no tap, word or turn (${kinds(from)})`)
-    check(d?.focused === true && d.inert === true && scaleOf(d) === 1, `focus is on the dialog, the book behind it inert, scale 1 (${JSON.stringify(d)})`)
+    check(d?.focused === true && d.inert === true && scaleOf(d) === 1, `focus is on the dialog, the book behind it inert, scale 1 (${d?.focused}, ${d?.inert}, ${d?.transform})`)
+    // Tab stays on its one control (aria-modal).
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Shift+Tab')
+    check((await dialog())?.onButton === true, 'Tab and Shift+Tab keep focus on the dialog\'s close button')
     // Keys stay in the dialog: no `key`, no turn.
     from = messages.length
     await page.keyboard.press('ArrowRight')
     await settled()
     check(!messages.slice(from).some((x) => x.type === 'key' || x.type === 'relocate'), 'a key with the lightbox open is not forwarded, nothing turns')
-    // Zoom and pan.
-    const cx = 640, cy = 360
+    // Zoom and pan (the viewport's centre is the box's).
+    const cx = W / 2, cy = 360
     await page.mouse.move(cx, cy)
     await page.mouse.wheel(0, -300)
     await page.waitForTimeout(100)
-    const wheeled = scaleOf(await dialog())
-    check(wheeled > 1.5, `the wheel zooms in (scale ${wheeled})`)
+    d = await dialog()
+    check(scaleOf(d) > 2.7 && scaleOf(d) < 2.72 && panOf(d).join() === '0,0', `the wheel at the centre zooms in about it (${d?.transform})`)
     await page.mouse.down()
     await page.mouse.move(cx + 60, cy + 40, { steps: 5 })
     await page.mouse.up()
     d = await dialog()
-    check(/translate\(60px, 40px\)/.test(d?.transform ?? ''), `a drag pans the zoomed image (${d?.transform})`)
+    check(panOf(d).join() === '60,40', `a drag pans the zoomed image (${d?.transform})`)
+    await page.mouse.down()
+    await page.mouse.move(cx + 3000, cy + 3000, { steps: 5 })
+    await page.mouse.up()
+    d = await dialog()
+    const [mx, my] = [(scaleOf(d) * d.box.iw - d.box.w) / 2, (scaleOf(d) * d.box.ih - d.box.h) / 2]
+    check(Math.abs(panOf(d)[0] - mx) < 0.5 && Math.abs(panOf(d)[1] - my) < 0.5, `a long drag stops where the image's edge meets the screen's (${d?.transform}, edge at ${mx.toFixed(1)}, ${my.toFixed(1)})`)
     await page.mouse.dblclick(cx, cy)
     d = await dialog()
-    check(scaleOf(d) === 1 && /translate\(0px, 0px\)/.test(d?.transform ?? ''), `a double click on a zoomed image fits it again (${d?.transform})`)
-    await page.mouse.dblclick(cx, cy)
-    check(scaleOf(await dialog()) === 2.5, `a double click on a fitted image zooms in (${(await dialog())?.transform})`)
+    check(scaleOf(d) === 1 && panOf(d).join() === '0,0', `a double click on a zoomed image fits it again (${d?.transform})`)
+    await page.mouse.dblclick(cx + 100, cy)
+    d = await dialog()
+    check(scaleOf(d) === 2.5 && panOf(d).join() === '-150,0', `a double click zooms in about the point clicked (${d?.transform})`)
     from = messages.length
     await page.keyboard.press('Escape')
     await settled()
     check(lb(from).length === 1 && lb(from)[0].open === false && !(await dialog()) && !messages.slice(from).some((x) => x.type === 'key'), `Escape closes it, and is not forwarded (${JSON.stringify(messages.slice(from).map((x) => x.type))})`)
     check(await page.evaluate(() => document.querySelector('foliate-view')?.inert === false), 'the book is no longer inert')
     // Reopened: back to scale 1. The close button closes.
-    await tapOpen(img.x + img.w / 2, img.y + img.h / 2, 'img again')
+    await tapOpen(mid, 'img again')
     check(scaleOf(await dialog()) === 1, `reopened at scale 1 (${(await dialog())?.transform})`)
     from = messages.length
     await page.getByRole('button', { name: 'Close' }).click()
     await settled()
     check(lb(from).at(-1)?.open === false && !(await dialog()), 'its close button closes it')
     // The host's close (Android back).
-    await tapOpen(img.x + img.w / 2, img.y + img.h / 2, 'img for closeLightbox')
+    await tapOpen(mid, 'img for closeLightbox')
     from = messages.length
     await call('window.__fol.closeLightbox()')
     check(lb(from).at(-1)?.open === false && !(await dialog()), 'closeLightbox() closes it')
@@ -469,28 +488,71 @@ try {
     await call('window.__fol.closeLightbox()')
     await settled()
     check(lb(from).length === 0, 'closeLightbox() with none open sends nothing')
-    // An image in an edge zone (the outer 25 %): the lightbox, not a turn.
-    check(img.x + 8 < 1280 * 0.25, `the image reaches into the left edge zone (${img.x})`)
-    ;({ o, from } = await tapOpen(img.x + 8, img.y + img.h / 2, 'img in an edge zone'))
-    check(o?.open === true && kinds(from).length === 0 && !messages.slice(from).some((x) => x.type === 'relocate'), `an image in an edge zone opens the lightbox, no tap or turn (${kinds(from)})`)
-    await call('window.__fol.closeLightbox()')
-    // An SVG <image>, labelled by its <title>.
-    const svg = await boxOf('svg')
-    ;({ o, from } = await tapOpen(svg.x + svg.w / 2, svg.y + svg.h / 2, 'svg image'))
-    d = await dialog()
-    check(o?.open === true && d?.label === 'A blue square' && !!d.src?.startsWith('blob:'), `an SVG <image> opens it, labelled by the SVG's title (${JSON.stringify(d)})`)
-    // A new open closes it first.
+    // An image tapped in an edge zone (the outer 25 %): a `tap` for the host to turn by, not the lightbox.
+    check(img.x + 8 < W * 0.25, `the image reaches into the left edge zone (${img.x})`)
     from = messages.length
-    m = await open('tsformat.cbz')
+    await page.mouse.click(img.x + 8, img.y + img.h / 2)
+    await settled()
+    const edge = messages.slice(from).find((x) => x.type === 'tap')
+    check(lb(from).length === 0 && !(await dialog()) && kinds(from).join() === 'tap' && readTap(edge)?.x < W * 0.25, `an image tapped in an edge zone is a tap there, not the lightbox (${kinds(from)}, x ${edge?.x})`)
+    // An SVG <image>, labelled by its <title>.
+    ;({ o } = await tapOpen(middleOf(await boxOf(f, 'svg')), 'svg image'))
+    d = await dialog()
+    check(o?.open === true && d?.label === 'A blue square' && !!d.src?.startsWith('blob:'), `an SVG <image> opens it, labelled by the SVG's title (${d?.label}, ${d?.src?.slice(0, 5)})`)
+    await call('window.__fol.closeLightbox()')
+    await settled()
+
+    // Focus goes back without moving the place: the section's last image (its last page; scrolled, the end), closed.
+    const lastRel = (from) => messages.slice(from).filter((x) => x.type === 'relocate').at(-1)
+    /** The last image, if on screen: its middle-zone point. */
+    const lastImage = async () => {
+      const b = await boxOf(f, 'img[alt="A green square"]').catch(() => null)
+      return b && b.x >= 0 && b.x + b.w <= W && b.y >= 0 && b.y + b.h <= 720 ? middleOf(b) : null
+    }
+    const closesInPlace = async (what) => {
+      const p = await lastImage()
+      check(!!p, `${what}: the last image is on screen`)
+      if (!p) return
+      const before = lastRel(0)?.cfi
+      ;({ o } = await tapOpen(p, `the last image, ${what}`))
+      from = messages.length
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(1200)
+      const rel = messages.slice(from).filter((x) => x.type === 'relocate')
+      check(o?.open === true && !(await dialog()) && rel.length === 0 && lastRel(0)?.cfi === before, `${what}: closed, focus back in the book, no relocate, the same place (${rel.length} relocates, ${lastRel(0)?.cfi === before})`)
+    }
+    {
+      let at = messages.length
+      for (let k = 0; k < 100 && !lastRel(at)?.atEnd; k++) {
+        const from = messages.length
+        await call('window.__fol.next()')
+        if (!(await waitFor(from, (x) => x.type === 'relocate', 'a page turn').catch(() => null))) break
+      }
+      await settled()
+      await closesInPlace('paginated, its last page')
+      call('window.__fol.flow("scrolled")')
+      await page.waitForTimeout(800)
+      await page.mouse.move(W / 2, 360)
+      for (let k = 0; k < 40; k++) { await page.mouse.wheel(0, 2000); await page.waitForTimeout(60) }
+      await page.waitForTimeout(1200)
+      await closesInPlace('scrolled, its end')
+      call('window.__fol.flow("paginated")')
+    }
+
+    // A new open closes it first.
+    await open('tsimage.epub')
+    await tapOpen(middleOf(await boxOf(await frameWith('Paragraph 1.'), 'img')), 'img before a new open')
+    from = messages.length
+    await open('tsformat.cbz')
     const order = messages.slice(from).map((x) => x.type)
     check(lb(from)[0]?.open === false && order.indexOf('lightbox') < order.indexOf('opened') && !(await dialog()), `a new open closes the lightbox before opened (${order.join(',')})`)
     // A comic page tapped: a `tap`, never the lightbox.
     from = messages.length
-    await page.mouse.click(640, 360)
+    await page.mouse.click(W / 2, 360)
     await settled()
     check(lb(from).length === 0 && kinds(from).includes('tap') && !(await dialog()), `a comic page tapped is a tap, not the lightbox (${kinds(from)})`)
     // A fixed-layout page's image: no lightbox.
-    m = await open('tsfixedimg.epub')
+    await open('tsfixedimg.epub')
     await page.waitForTimeout(500)
     const fx = await frameWith('Page 1.')
     const fimg = fx && await fx.evaluate(() => {
@@ -505,6 +567,12 @@ try {
     check(!!fimg && lb(from).length === 0 && kinds(from).includes('tap') && !(await dialog()), `a fixed-layout page's image tapped is a tap, no lightbox (${kinds(from)})`)
   }
 
+  /**
+   * #1263, #1264: what the reader chrome needs. A `tap` says where it landed (page viewport, a scaled page
+   * too, an image book too); an edge tap that dismisses a selection is only `selection-cleared`; `opened`
+   * says the reading direction; `flush()`, a hidden page and `pagehide` write a debounced save at once, once;
+   * the navigation keys, and only they, are forwarded from a section.
+   */
   async function checkChrome() {
     console.log('chrome')
     await page.setViewportSize({ width: 1280, height: 720 })
@@ -542,11 +610,15 @@ try {
       let rel = await waitFor(at, (x) => x.type === 'relocate' && x.index === 1, 'the last section, scrolled').catch(() => null)
       check(rel?.atEnd === false, `scrolled: the top of a long last section is not the end (${rel?.atEnd})`)
       await page.mouse.move(640, 360)
-      // The first scroll after a navigation sends no relocate (foliate's `#justAnchored`, README): spent here.
-      await page.mouse.wheel(0, 100)
-      await page.waitForTimeout(600)
+      // #1297: right after the jump, ONE continuous scroll to the bottom (wheel steps closer than the paginator's
+      // 250 ms scroll debounce), then stop: it sends a relocate with the new place, the reader's move.
+      const jumped = rel
+      const scrolled = messages.length
       for (let k = 0; k < 40; k++) { await page.mouse.wheel(0, 2000); await page.waitForTimeout(60) }
       await page.waitForTimeout(1200)
+      const moves = messages.slice(scrolled).filter((x) => x.type === 'relocate')
+      check(moves.some((x) => x.moved === true && x.index === 1 && x.cfi && x.cfi !== jumped?.cfi),
+        `scrolled: one continuous scroll right after a jump sends the new place, moved (${JSON.stringify(moves.map((x) => [x.moved, x.cfi]))} from ${jumped?.cfi})`)
       rel = lastRel(at)
       check(rel?.atEnd === true && readRelocate(rel)?.atEnd === true && rel.fraction < 1, `scrolled: its bottom is the end, with a fraction under 1 (${rel?.atEnd}, ${rel?.fraction})`)
       // Paginated flow: only the last page of the last section.
@@ -773,17 +845,13 @@ try {
       check(rels(from).length > 0 && rels(from).every((x) => x.moved === false), `a resize: moved: false (${rels(from).map((x) => x.moved)})`)
       await page.setViewportSize({ width: 1280, height: 720 })
       await page.waitForTimeout(1000)
-      // foliate's scrolled paginator sends no relocate at all for the first scroll after an anchored re-layout
-      // (`#justAnchored`, known: README): the scroll after it is the reader's move.
+      // #1297: the first scroll after an anchored re-layout is the reader's move (the fork's `#justAnchored`
+      // swallows only the anchoring's own scroll).
       await page.mouse.move(640, 360)
       from = messages.length
       await page.mouse.wheel(0, 400)
       await page.waitForTimeout(1200)
-      const swallowed = rels(from).length
-      from = messages.length
-      await page.mouse.wheel(0, 400)
-      await page.waitForTimeout(1200)
-      check(rels(from).some((x) => x.moved === true), `a scroll in scrolled flow: moved: true (${rels(from).map((x) => x.moved)}; the first scroll after the re-layout sent ${swallowed} relocates)`)
+      check(rels(from).some((x) => x.moved === true), `the first scroll after a re-layout in scrolled flow: moved: true (${rels(from).map((x) => x.moved)})`)
       await call('window.__fol.font(-1)')
       call('window.__fol.flow("paginated")')
     }

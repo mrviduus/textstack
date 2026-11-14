@@ -22,8 +22,9 @@ const FOLIATE_REPO = 'https://github.com/mrviduus/foliate-js.git'
 // blobs, KF8 sections through transformTarget, view relocate carries `reason`, PDF null outline
 // destination (upstream ce10f08), PDF nothing at import time (pdf.js is stubbed out of the page),
 // paginator: setStyles' frame callback does nothing once destroy() nulled the view; #1291: nor does
-// afterScroll (the debounced scroll listener outlives a closed book).
-const FOLIATE_SHA = '73d42595074f0f5914c00ccb7172a0a8bdfecf26'
+// afterScroll (the debounced scroll listener outlives a closed book); #1297: justAnchored swallows only the
+// anchoring's own scroll, not the reader's next one.
+const FOLIATE_SHA = 'fe04665d650332f4017f92c5d45d98ee2a84e363'
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // reader-engine's 64 KB budget.
@@ -99,9 +100,10 @@ const FOLIATE_SHA = '73d42595074f0f5914c00ccb7172a0a8bdfecf26'
 // until the next open, the hosts resolve it.
 // +879 (#1272): `speaking(cfi, index)`: the range the host speaks underlined in SPOKEN_FILL (listen.mjs) until
 // `speaking(null)`; one decoration of an overlay goes without the others (`undecorate`).
-// +6478 (#1265): the image lightbox (lightbox.mjs): an EPUB image tapped opens full screen in the page's own document,
-// pinch / wheel / double-tap zoom, drag to pan; `closeLightbox()`, `lightbox` posted on open and close.
-const BUDGET = 284080
+// +164 (#1297): the fork's justAnchored keeps the anchored scroll offset, swallowing only the anchoring's own scroll.
+// +8169 (#1265): the image lightbox (lightbox.mjs): an EPUB image tapped in the middle zone opens full screen in the page's own document,
+// pinch / wheel / double-tap zoom about the focus, drag to pan, clamped; Tab kept; `closeLightbox()`, `lightbox` on open and close.
+const BUDGET = 285935
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

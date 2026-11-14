@@ -117,7 +117,8 @@ async function firstParagraphWords(page: Page) {
 async function blankCentrePoint(page: Page) {
   const { width, height } = page.viewportSize()!
   for (const f of page.frames().filter((x) => x.url().startsWith('blob:'))) {
-    const box = await (await f.frameElement()).boundingBox().catch(() => null)
+    // A frame can detach mid-loop (a section unloaded): skip it.
+    const box = await f.frameElement().then((e) => e.boundingBox()).catch(() => null)
     if (!box) continue
     const p = await f.evaluate(({ ox, oy, width, height }) => {
       const boxes: DOMRect[] = []
@@ -473,7 +474,8 @@ test.describe('V2 reader page @v2', () => {
     const centreWord = async () => {
       const width = page.viewportSize()!.width
       for (const f of page.frames().filter((x) => x.url().startsWith('blob:'))) {
-        const box = await (await f.frameElement()).boundingBox().catch(() => null)
+        // A frame can detach mid-loop (a section unloaded after a reload): skip it.
+        const box = await f.frameElement().then((e) => e.boundingBox()).catch(() => null)
         if (!box) continue
         const w = await f.evaluate(({ text, ox, lo, hi }) => {
           const node = Array.from(document.querySelectorAll('p')).find((x) => x.textContent?.includes(text))?.firstChild as Text | undefined
@@ -582,12 +584,21 @@ test.describe('V2 reader page @v2', () => {
     await expect.poll(async () => { const b = await page.locator('.reader-footer').boundingBox(); return b ? Math.round(b.y + b.height) : 0 }).toBe(page.viewportSize()!.height)
   })
 
-  // #1265: an image tapped opens full screen inside the reader frame (no CSP change: the section's own blob: image),
-  // never a turn or a word; the wheel zooms; Escape and the close button close it, and the place stays.
-  test('readV2Lightbox_AnImageTapped_OpensFullScreen_ZoomsAndClosesByEscapeAndClose_ThePlaceStays', async ({ browser }) => {
+  // #1265: an image tapped in the middle zone opens full screen inside the reader frame (no CSP change: the section's
+  // own blob: image), never a turn or a word; the wheel zooms; Escape and the close button close it, and the place
+  // stays. Tapped on an edge, it is a tap the host turns by.
+  test('readV2Lightbox_AnImageTapped_OpensFullScreen_ZoomsAndClosesByEscapeAndClose_ThePlaceStays_AnEdgeTapTurns', async ({ browser }) => {
     const context = await v2Context(browser, email('v2img'))
     const page = await context.newPage()
     const bookId = await uploadFixture(page, IMAGE_FIXTURE)
+    // The host's calls into the page, as the reader frame receives them.
+    await page.addInitScript(() => {
+      if (window.top === window || !location.pathname.startsWith('/reader-v2/')) return
+      addEventListener('message', (e) => {
+        const c = (e.data as { call?: unknown } | null)?.call
+        if (typeof c === 'string') ((window.top as unknown as { __calls?: string[] }).__calls ??= []).push(c)
+      })
+    })
     await page.goto(`/en/library/my/${bookId}/read-v2`)
     await expect(page.getByTestId('v2-heading')).toHaveText('TS IMAGE', { timeout: 20_000 })
     await expect(page.getByRole('alert')).toHaveCount(0)
@@ -596,17 +607,20 @@ test.describe('V2 reader page @v2', () => {
     await expect(status(page)).toHaveText(/^\d+%/)
     const before = (await status(page).textContent()) ?? ''
 
-    /** The image's centre in page px (its section frame sits in the reader frame), and its blob: source. */
+    /** The image in page px (its section frame sits in the reader frame): a point of it in the middle zone, its left, its blob: source. */
     const image = async () => {
       for (const f of page.frames().filter((x) => x.url().startsWith('blob:'))) {
         const r = await f.evaluate(() => {
           const img = document.querySelector('img')
           const b = img?.getBoundingClientRect()
-          return img && b && b.width > 0 && b.left >= 0 && b.right <= innerWidth ? { x: b.left + b.width / 2, y: b.top + b.height / 2, src: img.currentSrc } : null
+          return img && b && b.width > 0 && b.left >= 0 && b.right <= innerWidth ? { left: b.left, right: b.right, y: b.top + b.height / 2, src: img.currentSrc } : null
         }).catch(() => null)
         if (!r) continue
         const box = (await (await f.frameElement()).boundingBox())!
-        return { ...r, x: box.x + r.x, y: box.y + r.y }
+        const width = page.viewportSize()!.width
+        const [left, right] = [box.x + r.left, box.x + r.right]
+        // The middle zone is 25-75 % of the width (tapZone.mjs).
+        return { src: r.src, left, x: Math.min(right - 8, Math.max((left + right) / 2, width * 0.25 + 20)), y: box.y + r.y }
       }
       return null
     }
@@ -639,6 +653,14 @@ test.describe('V2 reader page @v2', () => {
     await dialog.getByRole('button', { name: 'Close' }).click()
     await expect(dialog).toHaveCount(0)
     await expect(status(page)).toHaveText(before)
+
+    // On the left edge zone: a `tap` the host turns by (`prev`, asked of the page), not the lightbox.
+    expect(img.left + 8, 'the image reaches into the left edge zone').toBeLessThan(page.viewportSize()!.width * 0.25)
+    const calls = () => page.evaluate(() => (window as unknown as { __calls?: string[] }).__calls ?? [])
+    const asked = (await calls()).length
+    await page.mouse.click(img.left + 8, img.y)
+    await expect.poll(async () => (await calls()).slice(asked)).toContain('prev')
+    await expect(dialog).toHaveCount(0)
     await context.close()
   })
 

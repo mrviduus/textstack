@@ -125,11 +125,12 @@ export function readLightbox(m) {
 
 /**
  * Android back, in order: the offer, then the image lightbox (#1265, the page's: `closeLightbox()`), then the word popup
- * or selection toolbar (#1269), then the open book (back to the list), then the route.
+ * or selection toolbar (#1269), then the open book (back to the list), then the route. A lightbox counts only while the
+ * page is `ready` (a page reloading has none, and no `__fol` to call).
  */
-export function backAction({ offer, lightbox = false, popup = false, reading }) {
+export function backAction({ offer, lightbox = false, ready = true, popup = false, reading }) {
   if (offer) return 'close-offer'
-  if (lightbox) return 'close-lightbox'
+  if (lightbox && ready) return 'close-lightbox'
   if (popup) return 'close-popup'
   if (reading) return 'close-book'
   return 'leave'

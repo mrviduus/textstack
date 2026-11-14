@@ -351,20 +351,23 @@ export function hostilePdf(evil) {
 }
 
 /**
- * #1265: the lightbox's book. An `<img>` with alt text and an SVG `<image>` with a `<title>`, each between paragraphs on
- * the first page, then prose. The format check's tsimage.epub, and (committed) apps/web/e2e/fixtures/v2-image.epub:
+ * #1265: the lightbox's book. An `<img>` with alt text (1600×1000: larger than a phone or laptop screen, so a zoomed
+ * one has room to pan) and an SVG `<image>` with a `<title>`, each between paragraphs on the first page, then prose,
+ * then a last `<img>` at the section's end. The format check's tsimage.epub, and (committed) apps/web/e2e/fixtures/v2-image.epub:
  *   node -e "import('./fixtures.mjs').then((f) => f.writeImageEpub(require('path').resolve('../../../../web/e2e/fixtures/v2-image.epub')))"
  */
 export function writeImageEpub(out, name = 'TS IMAGE') {
   return epub(out, name, {
     files: {
-      'red.png': png(240, 160, [200, 40, 40]),
+      'red.png': png(1600, 1000, [200, 40, 40]),
       'blue.png': png(240, 160, [40, 40, 200]),
+      'green.png': png(240, 160, [40, 200, 40]),
       's1.xhtml': xhtml('', `<p>${prose(1)[0]}</p><p style="text-align:center"><img src="red.png" alt="A red square" style="width:60%"/></p>`
         + `<p>${para}</p><p style="text-align:center"><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="240" height="160" viewBox="0 0 240 160">`
-        + `<title>A blue square</title><image xlink:href="blue.png" width="240" height="160"/></svg></p>${prose(20).map((p) => `<p>${p}</p>`).join('')}`),
+        + `<title>A blue square</title><image xlink:href="blue.png" width="240" height="160"/></svg></p>${prose(20).map((p) => `<p>${p}</p>`).join('')}`
+        + '<p style="text-align:center"><img src="green.png" alt="A green square" style="width:30%"/></p>'),
     },
-    manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml" properties="svg"/><item id="red" href="red.png" media-type="image/png"/><item id="blue" href="blue.png" media-type="image/png"/>',
+    manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml" properties="svg"/><item id="red" href="red.png" media-type="image/png"/><item id="blue" href="blue.png" media-type="image/png"/><item id="green" href="green.png" media-type="image/png"/>',
     spine: '<itemref idref="s1"/>',
   })
 }

@@ -1039,10 +1039,16 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (ready.current) call(`window.__fol.flow(${JSON.stringify(next)})`)
   }
 
+  /** A new page load: not ready until it says so, and no lightbox (#1265: the old page's went with it, unannounced). */
+  function newPage() {
+    ready.current = false
+    setLightbox(false)
+    setNonce(freshNonce())
+  }
+
   // A page that is gone is a new load: a new nonce, and the open starts again from `ready`. The second
   // crash while the same book is open stops that: it is not reopened, and the reader is told why.
   const reload = useCallback(() => {
-    ready.current = false
     const o = opening.current
     // Only a book on screen counts a crash; a closed one is ended on the next `ready`.
     if (o && inBookRef.current) {
@@ -1050,7 +1056,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       crashedFile.current = again ? null : o.file
       if (again) giveUp(o, 'this book crashes the reader')
     }
-    setNonce(freshNonce())
+    newPage()
   }, [])
 
   // Every page load (first mount, a crash reload, Retry) owes a `ready`: on a WebView too old for the page
@@ -1067,20 +1073,16 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     const o = opening.current
     if (!o || !strikes.strike(o.file)) return
     giveUp(o, 'it did not open in time, twice')
-    ready.current = false
-    setNonce(freshNonce())
+    newPage()
   }, [overdue])
 
   /** Retry after a deadline: a new page load; the open in flight (its file is still on disk) goes again on `ready`. */
-  const retry = () => {
-    ready.current = false
-    setNonce(freshNonce())
-  }
+  const retry = () => newPage()
 
   // Android back: the offer, the lightbox, the popup, then the book (back to the list), then the route (chrome.mjs backAction).
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      const action = backAction({ offer: !!offer, lightbox, popup: !!popup, reading: inBook })
+      const action = backAction({ offer: !!offer, lightbox, ready: ready.current, popup: !!popup, reading: inBook })
       if (action === 'close-offer') setOffer(null)
       else if (action === 'close-lightbox') call('window.__fol.closeLightbox()')
       else if (action === 'close-popup') closePopup()

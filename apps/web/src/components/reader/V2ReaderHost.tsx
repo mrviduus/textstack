@@ -401,6 +401,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   /** Retry after a deadline: a fresh frame; an open whose bytes the old one took is asked for again (`onReload`). */
   const reloadFrame = () => {
     ready.current = false
+    // #1265: the old frame's lightbox went with it, unannounced.
+    lightboxRef.current = false
     // A fresh frame has no book on screen.
     setReading(false)
     setAtEnd(false)
