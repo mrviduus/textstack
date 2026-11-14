@@ -1,3 +1,5 @@
+import { useTranslation } from '../../hooks/useTranslation'
+
 interface SpeakButtonProps {
   onClick: () => void
   isPlaying?: boolean
@@ -10,17 +12,18 @@ interface SpeakButtonProps {
   className?: string
 }
 
-const LABEL = { idle: 'Listen to pronunciation', loading: 'Loading speech, tap to cancel', playing: 'Stop speech' }
+const LABEL = { idle: 'reader.selectionToolbar.listen', loading: 'reader.selectionToolbar.listenLoading', playing: 'reader.selectionToolbar.listenStop' } as const
 
 export function SpeakButton({ onClick, isPlaying, state, size = 16, className = '' }: SpeakButtonProps) {
+  const { t } = useTranslation()
   const s = state ?? 'idle'
   return (
     <button
-      className={`speak-btn ${isPlaying ? 'speak-btn--playing' : ''} ${className}`}
+      className={`speak-btn ${isPlaying || s === 'playing' ? 'speak-btn--playing' : ''} ${className}`}
       onMouseDown={e => e.preventDefault()}
       onClick={e => { e.stopPropagation(); onClick() }}
-      title={s === 'idle' ? 'Listen' : LABEL[s]}
-      aria-label={LABEL[s]}
+      title={t(LABEL[s])}
+      aria-label={t(LABEL[s])}
       aria-busy={s === 'loading' || undefined}
       type="button"
     >

@@ -177,7 +177,7 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
   const [listener] = useState(() => createListener({
     speak: (text, done) => {
       const { tts: x, lang: l, ttsSpeed: speed } = ttsRef.current
-      return l ? x.speak(text, l, undefined, speed, { timestamps: false, onEnd: done }) : false
+      return l ? x.speak(text, l, speed, { timestamps: false, onEnd: done }) : false
     },
     stop: () => ttsRef.current.tts.stop(),
     mark: (at) => ttsRef.current.onSpoken?.(at?.cfi ? { cfi: at.cfi, index: at.index } : null),
@@ -185,6 +185,10 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
     failed: () => setToast(t('reader.listenFailed')),
   }))
   useEffect(() => () => listener.stop(), [])
+  // The word popup or toolbar that started a Listen closed (or another opened): its speech stops, its mark goes.
+  useEffect(() => {
+    listener.follow(popup?.kind === 'word' ? { text: popup.word, at: popup } : popup?.kind === 'selection' ? { text: popup.text, at: popup } : null)
+  }, [popup])
   const listen = (text: string, at: { cfi: string | null; index: number }) => { if (lang) listener.press(text, at) }
 
   const selection = popup?.kind === 'selection' ? popup : null

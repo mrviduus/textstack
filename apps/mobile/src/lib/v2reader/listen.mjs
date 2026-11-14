@@ -30,48 +30,60 @@ export function createSpeedChoice({ load, save, show }) {
   }
 }
 
-/** ISO 639-2 codes books carry (`deu`, `fre`) → their two-letter code. */
-const ALPHA3 = {
+/**
+ * ISO 639-2 codes (bibliographic and terminology forms) and deprecated or macro two-letter codes → the ISO 639-1
+ * code the server keys its voices by. Norwegian Bokmål and Nynorsk are the server's `no`.
+ */
+const FOLD = {
   eng: 'en', rus: 'ru', spa: 'es', fra: 'fr', fre: 'fr', deu: 'de', ger: 'de', ita: 'it', por: 'pt', pol: 'pl',
-  nld: 'nl', dut: 'nl', tur: 'tr', jpn: 'ja', kor: 'ko', zho: 'zh', chi: 'zh', ces: 'cs', cze: 'cs', swe: 'sv',
-  ukr: 'uk', nob: 'no', nor: 'no', ell: 'el', gre: 'el', heb: 'he', ara: 'ar', fin: 'fi', dan: 'da', hun: 'hu',
+  nld: 'nl', dut: 'nl', tur: 'tr', jpn: 'ja', kor: 'ko', zho: 'zh', chi: 'zh', ara: 'ar', hin: 'hi', ces: 'cs',
+  cze: 'cs', slk: 'sk', slo: 'sk', ron: 'ro', rum: 'ro', hun: 'hu', swe: 'sv', nor: 'no', nob: 'no', nno: 'no',
+  nb: 'no', nn: 'no', dan: 'da', fin: 'fi', ell: 'el', gre: 'el', heb: 'he', iw: 'he', ind: 'id', in: 'id',
+  vie: 'vi', tha: 'th', bul: 'bg', hrv: 'hr', srp: 'sr', lit: 'lt', lav: 'lv', est: 'et', slv: 'sl', cat: 'ca',
+  fas: 'fa', per: 'fa', ukr: 'uk', msa: 'ms', may: 'ms', isl: 'is', ice: 'is', eus: 'eu', baq: 'eu', glg: 'gl',
+  sqi: 'sq', alb: 'sq', mkd: 'mk', mac: 'mk', hye: 'hy', arm: 'hy', kat: 'ka', geo: 'ka', cym: 'cy', wel: 'cy',
+  gle: 'ga', bel: 'be', kaz: 'kk', ben: 'bn', urd: 'ur', tam: 'ta', tel: 'te', mar: 'mr', swa: 'sw', afr: 'af',
+  tgl: 'tl', aze: 'az', uzb: 'uz', mon: 'mn', nep: 'ne', sin: 'si', khm: 'km', lao: 'lo', mya: 'my', bur: 'my',
+  amh: 'am', som: 'so', zul: 'zu', pus: 'ps', guj: 'gu', kan: 'kn', mal: 'ml', pan: 'pa', jav: 'jv', sun: 'su',
 }
 /** ISO 639 codes that name no language: undetermined, multiple, no linguistic content, uncoded. */
 const NOT_A_LANGUAGE = new Set(['und', 'mul', 'zxx', 'mis'])
 
-/** A tag as a language tag (`pt-BR`, `de-AT` of `deu_AT`), or null: not a tag, or one that names no language. */
-function languageTag(tag) {
+/** A tag's language (`pt` of `pt-BR`, `de` of `deu_AT`), or null: not a tag, or one that names no language. */
+function language(tag) {
   if (typeof tag !== 'string') return null
   const t = tag.trim()
   if (!/^[a-z]{2,3}([-_][a-z0-9]{1,8})*$/i.test(t)) return null
-  const [p, ...rest] = t.split(/[-_]/)
-  const code = ALPHA3[p.toLowerCase()] ?? p.toLowerCase()
-  return NOT_A_LANGUAGE.has(code) ? null : [code, ...rest].join('-')
+  const p = t.split(/[-_]/)[0].toLowerCase()
+  const code = FOLD[p] ?? p
+  return NOT_A_LANGUAGE.has(code) ? null : code
 }
 
 /**
- * The `lang` a host sends `/tts` for a book (#1272): `opened.lang` as written (its region kept, a three-letter code
- * folded: `pt-BR`, `deu` → `de`), else the host's fallback (the translation's: web `en`, Android the app's language).
- * The server picks the voice (`TtsConfiguration.DefaultVoices`, by the language part). A language is never turned
+ * The `lang` sent to `/tts` (#1272; the legacy mobile player's too): the language of `lang` (its primary subtag, a
+ * three-letter code folded: `pt-BR` → `pt`, `deu` → `de`, `nb` → `no`), else the fallback's (the hosts': the
+ * translation's, web `en`, Android the app's language). Only the language: the server picks the voice by it
+ * (`TtsConfiguration.DefaultVoices`), and one spelling per language keeps one cache entry. A language is never turned
  * into English (the legacy mobile defect: `uk` and `de` books read by an en-US voice).
  * Null: no Listen. Ukrainian (the server refuses it, #103), or nothing that reads as a language.
  */
 export function ttsLang(lang, fallback) {
-  const tag = languageTag(lang) ?? languageTag(fallback)
-  return tag && tag.split('-')[0] !== 'uk' ? tag : null
+  const code = language(lang) ?? language(fallback)
+  return code && code !== 'uk' ? code : null
 }
 
 /**
  * Listen's one rule, both hosts. `speak(text, done)` starts the host's playback: resolves true once it plays, false
- * when nothing did (failed, superseded, no audio module); `done()` is called once when that playback ends for any
- * reason. `stop()` ends playback. `mark(at | null)` asks the page to mark a range (`speaking`) or clear it.
- * `changed()` re-renders the host (its buttons read `state`); `failed()` says the speech could not play.
+ * when nothing did; `done(failed)` is called once when that playback ends for any reason, `failed` true when it
+ * could not play (a fetch or player error), false when it ended (played out, stopped, superseded, the host gone).
+ * `stop()` ends playback. `mark(at | null)` asks the page to mark a range (`speaking`) or clear it. `changed()`
+ * re-renders the host (its buttons read `state`); `failed()` says the speech could not play.
  *
  * The listener owns the phase, set synchronously: `loading` at the press, `playing` once `speak` resolves true, `idle`
- * when it resolves false, at `done`, or at a stop. A press on the range speaking (its text, CFI and section) stops it,
- * also while loading (the button says so: a spinner, "tap to cancel"); any other press replaces it. The mark is drawn
- * at the press and goes with the playback. `speak` resolving false is a failure unless the listener ended it itself
- * (a stop, or another press replacing it): a host stops through `stop()` here, never its player directly.
+ * at `done`, a false answer or a stop. A press on the range speaking (its text, CFI and section) stops it, also while
+ * loading (the button says so); any other press replaces it. `follow(open)`: the host's word popup or toolbar now
+ * shows `open` (`{ text, at }`, or null): a speech that is not its own stops. The mark is drawn at the press and goes
+ * with the playback. A failure is `done(true)`, a throw or a false answer with no `done` before it (no audio module).
  */
 export function createListener({ speak, stop, mark, changed = () => {}, failed = () => {} }) {
   let current = null
@@ -84,22 +96,31 @@ export function createListener({ speak, stop, mark, changed = () => {}, failed =
     mark(null)
     changed()
   }
-  return {
+  /** `mine` is over: a failure is said once, whatever says it first. */
+  const finish = (mine, failure) => {
+    end(mine)
+    if (mine.ended) return
+    mine.ended = true
+    if (failure) failed()
+  }
+  const listener = {
     press(text, at) {
       const t = typeof text === 'string' ? text.trim() : ''
       if (!t) return
-      if (phase !== 'idle' && same(t, at)) return this.stop()
+      if (phase !== 'idle' && same(t, at)) return listener.stop()
       if (current) current.ended = true
       const mine = (current = { text: t, cfi: at?.cfi ?? null, index: at?.index ?? null, ended: false })
       phase = 'loading'
       mark(at ?? null)
       changed()
-      Promise.resolve(speak(t, () => end(mine))).catch(() => false).then((played) => {
-        if (played === false) {
-          end(mine)
-          if (!mine.ended) failed()
-          return
-        }
+      let started
+      try {
+        started = Promise.resolve(speak(t, (failure) => finish(mine, failure === true)))
+      } catch {
+        started = Promise.resolve(false)
+      }
+      started.catch(() => false).then((played) => {
+        if (played === false) return finish(mine, true)
         if (current !== mine || phase !== 'loading') return
         phase = 'playing'
         changed()
@@ -112,9 +133,13 @@ export function createListener({ speak, stop, mark, changed = () => {}, failed =
       end(mine)
       stop()
     },
+    follow(open) {
+      if (current && !(open && same(typeof open.text === 'string' ? open.text.trim() : '', open.at))) listener.stop()
+    },
     /** What the button for that text and range shows: `idle` unless it is the one fetched or played. */
     state: (text, at) => (typeof text === 'string' && same(text.trim(), at) ? phase : 'idle'),
   }
+  return listener
 }
 
 /**

@@ -107,13 +107,13 @@ export function useTts(stopKey?: unknown) {
   // state. State is still surfaced via `timestamps` for consumers that want
   // to render the word list.
   const timestampsRef = useRef<WordTimestamp[]>([])
-  // #1272: the caller's `onEnd` for the playback in flight, called once whatever ends it (ended, failed, stopped,
-  // superseded, taken over by another instance, unmounted).
-  const endRef = useRef<(() => void) | null>(null)
-  const finish = useCallback(() => {
+  // #1272: the caller's `onEnd` for the playback in flight, called once whatever ends it: `failed` true when it could
+  // not play (a fetch or player error), false when it ended (played out, stopped, superseded, taken over, unmounted).
+  const endRef = useRef<((failed: boolean) => void) | null>(null)
+  const finish = useCallback((failed = false) => {
     const f = endRef.current
     endRef.current = null
-    f?.()
+    f?.(failed)
   }, [])
 
   // Stable per-instance callback — used as identity to tell owner-me apart
@@ -172,8 +172,8 @@ export function useTts(stopKey?: unknown) {
    * and no per-frame word tracking. `opts.onEnd`: called once when this playback ends, for any reason.
    */
   const speak = useCallback(async (
-    text: string, lang: string, voice?: string, speed?: number,
-    opts: { timestamps?: boolean; onEnd?: () => void } = {},
+    text: string, lang: string, speed?: number,
+    opts: { timestamps?: boolean; onEnd?: (failed: boolean) => void } = {},
   ): Promise<boolean> => {
     const words = opts.timestamps !== false
     // Stop any current playback (its onEnd is called)
@@ -210,7 +210,7 @@ export function useTts(stopKey?: unknown) {
       // actually cancels the network request — otherwise stop() sets the flag
       // but the fetch still downloads to completion (wasted bandwidth).
       if (!audioData) {
-        audioData = await fetchTtsAudio(text, lang, voice, speed, controller.signal)
+        audioData = await fetchTtsAudio(text, lang, undefined, speed, controller.signal)
         if (controller.signal.aborted) return false
         // Cache for offline
         try { await cacheTtsAudio(lang, text, audioData, speed ?? 1) } catch { /* ignore */ }
@@ -221,7 +221,7 @@ export function useTts(stopKey?: unknown) {
       // timestamps endpoint fails we still play audio without highlighting.
       // IndexedDB is NOT used for timestamps today — the HTTP ETag/304 path
       // is sufficient given the small JSON payload.
-      if (words) fetchTtsTimestamps(text, lang, voice, speed, controller.signal)
+      if (words) fetchTtsTimestamps(text, lang, undefined, speed, controller.signal)
         .then(ts => {
           if (controller.signal.aborted) return
           timestampsRef.current = ts
@@ -253,7 +253,7 @@ export function useTts(stopKey?: unknown) {
         stopTracking()
         setError('failed')
         if (currentOwnerReset === localReset) currentOwnerReset = null
-        finish()
+        finish(true)
       }
 
       // Claim ownership of the shared audio right before playing. A later
@@ -291,6 +291,9 @@ export function useTts(stopKey?: unknown) {
         await audio.play()
         return true
       } catch (err) {
+        // A newer speak() or stop() paused this audio, which rejects this play() (AbortError): that call owns the state
+        // and the audio element now; touching either here would end the newer playback (#1272 review).
+        if (controller.signal.aborted) return false
         // NotAllowedError = browser blocked autoplay (no user gesture yet, or unlock missed).
         const name = (err as { name?: string })?.name
         setIsPlaying(false)
@@ -302,7 +305,7 @@ export function useTts(stopKey?: unknown) {
         // subsequent speak() fails the same way until full reload.
         if (name === 'NotAllowedError') resetUnlock()
         if (currentOwnerReset === localReset) currentOwnerReset = null
-        finish()
+        finish(true)
       }
     } catch (err) {
       if (!controller.signal.aborted) {
@@ -316,7 +319,7 @@ export function useTts(stopKey?: unknown) {
         } else {
           setError('failed')
         }
-        finish()
+        finish(true)
       }
     }
     return false

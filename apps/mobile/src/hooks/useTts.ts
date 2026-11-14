@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { API_URL } from '../lib/api'
-import { ttsRequestDecision, ttsLang, TtsPhase } from '../lib/ttsRequest'
+import { ttsRequestDecision, TtsPhase } from '../lib/ttsRequest'
+import { ttsLang } from '../lib/v2reader/listen.mjs'
 
 // Lazy + safe loads — these native modules ship with the dev build only
 // after their respective `expo install`. An older dev build (before the
@@ -108,8 +109,9 @@ async function getOrFetchAudio(fs: FileSystemModule, text: string, lang: string,
 export interface TtsSpeakOptions {
   lang?: string
   rate?: number
-  /** #1272: called once when this playback ends, for any reason (finished, failed, stopped, superseded, unmounted). */
-  onEnd?: () => void
+  /** #1272: called once when this playback ends: `failed` true when it could not play (no audio, a player error), false
+   *  when it ended (finished, stopped, superseded, unmounted). */
+  onEnd?: (failed: boolean) => void
 }
 
 export function useTts() {
@@ -126,12 +128,12 @@ export function useTts() {
   // Monotonic counter — every new speak() call invalidates any pending
   // download from a previous call, so the user's latest word wins races.
   const reqRef = useRef(0)
-  // The `onEnd` of the playback in flight (#1272), called once.
-  const endRef = useRef<(() => void) | null>(null)
-  const finish = useCallback(() => {
+  // The `onEnd` of the playback in flight (#1272), called once: `failed` true when it could not play.
+  const endRef = useRef<((failed: boolean) => void) | null>(null)
+  const finish = useCallback((failed = false) => {
     const f = endRef.current
     endRef.current = null
-    f?.()
+    f?.(failed)
   }, [])
 
   const releasePlayer = useCallback(() => {
@@ -166,11 +168,14 @@ export function useTts() {
       const { audio, fs } = loadNativeOnce()
       if (!audio || !fs) return false
       const normalized: TtsSpeakOptions = typeof opts === 'number' ? { rate: opts } : opts
+      // listen.mjs `ttsLang`, the V2 reader's too: the language only, never English for another one; none (Ukrainian,
+      // which the server refuses) speaks nothing.
+      const lang = ttsLang(normalized.lang, 'en')
+      if (!lang) return false
       // The previous playback is superseded: its onEnd now, this one's from here.
       finish()
       endRef.current = normalized.onEnd ?? null
       const rate = normalized.rate ?? 1.0
-      const bcp47 = ttsLang(normalized.lang)
       const req = ++reqRef.current
 
       // Tear down any current playback before starting another download —
@@ -180,13 +185,13 @@ export function useTts() {
       setPhase('loading')
 
       await audioModeReady(audio)
-      const file = await getOrFetchAudio(fs, trimmed, bcp47, rate)
+      const file = await getOrFetchAudio(fs, trimmed, lang, rate)
       // Another speak() ran while we were downloading — drop this one.
       if (req !== reqRef.current) return false
       if (!file) {
         currentTextRef.current = null
         setPhase('idle')
-        finish()
+        finish(true)
         return false
       }
 
@@ -195,7 +200,8 @@ export function useTts() {
         playerRef.current = player
         try { player.setPlaybackRate?.(1.0) } catch { /* rate already baked in by server */ }
         player.addListener('playbackStatusUpdate', status => {
-          if (status.didJustFinish) {
+          // A released player's late event must not end a newer playback.
+          if (status.didJustFinish && req === reqRef.current) {
             currentTextRef.current = null
             setPhase('idle')
             releasePlayer()
@@ -213,7 +219,7 @@ export function useTts() {
         currentTextRef.current = null
         setPhase('idle')
         releasePlayer()
-        finish()
+        finish(true)
         return false
       }
     },

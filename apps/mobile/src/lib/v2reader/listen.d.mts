@@ -10,10 +10,11 @@ export interface V2SpokenAt { cfi: string | null; index: number }
 export interface V2Listener {
   press(text: string, at: V2SpokenAt | null): void
   stop(): void
+  follow(open: { text: string; at: V2SpokenAt | null } | null): void
   state(text: string, at: V2SpokenAt | null): V2TtsPhase
 }
 export function createListener(host: {
-  speak: (text: string, done: () => void) => Promise<boolean> | boolean
+  speak: (text: string, done: (failed?: boolean) => void) => Promise<boolean> | boolean
   stop: () => void
   mark: (at: V2SpokenAt | null) => void
   changed?: () => void

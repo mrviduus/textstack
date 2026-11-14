@@ -22,6 +22,8 @@ const frame = () => screen.getByTitle('V2 reader') as HTMLIFrameElement
 let posted: { call: string; args: unknown[] }[]
 let playing: HTMLMediaElement | null
 let audioAnswer: (v: ArrayBuffer) => void
+/** A play() held pending; pausing the element rejects it (AbortError), as browsers do. */
+let pendingPlay: ((e: unknown) => void) | null
 
 beforeEach(() => {
   localStorage.clear()
@@ -36,7 +38,12 @@ beforeEach(() => {
     playing = this
     return Promise.resolve()
   })
-  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+  pendingPlay = null
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {
+    const reject = pendingPlay
+    pendingPlay = null
+    reject?.(new DOMException('The play() request was interrupted by a call to pause().', 'AbortError'))
+  })
 })
 afterEach(cleanup)
 
@@ -81,6 +88,7 @@ describe('V2ReaderHost Listen', () => {
     await act(async () => { audioAnswer(new ArrayBuffer(4)) })
     await settle()
     expect(popupButton()).toHaveAccessibleName('Stop speech')
+    expect(popupButton()).toHaveClass('speak-btn--playing')
     act(() => { playing!.onended?.(new Event('ended')) })
     await settle()
     expect(spoken()).toEqual([[WORD_CFI, 2], [null]])
@@ -118,7 +126,8 @@ describe('V2ReaderHost Listen', () => {
     await settle()
     fireEvent.click(toolbarButton()!)
     await settle()
-    expect(fetchTtsAudio).toHaveBeenCalledWith('a lagoa', 'pt-BR', undefined, 1, expect.anything())
+    // The language only (the server picks the voice by it): pt-BR is sent as pt.
+    expect(fetchTtsAudio).toHaveBeenCalledWith('a lagoa', 'pt', undefined, 1, expect.anything())
     expect(spoken()).toEqual([[SEL_CFI, 2]])
     expect(toolbarButton()).toHaveAccessibleName('Stop speech')
     fireEvent.click(toolbarButton()!)
@@ -140,7 +149,8 @@ describe('V2ReaderHost Listen', () => {
     fireEvent.click(popupButton()!)
     await settle()
     expect(fetchTtsAudio).toHaveBeenCalledTimes(2)
-    expect(spoken()).toEqual([[WORD_CFI, 2], ['epubcfi(/6/4!/4/8/1:0)', 2]])
+    // The first word's popup closing ended its speech; the second is spoken where it is.
+    expect(spoken()).toEqual([[WORD_CFI, 2], [null], ['epubcfi(/6/4!/4/8/1:0)', 2]])
   })
 
   it('threeLetterLanguage_ItsLanguage_NeverEnglish', async () => {
@@ -184,6 +194,57 @@ describe('V2ReaderHost Listen', () => {
     await settle()
     expect(screen.getByText('Could not play the speech. Try again.')).toBeInTheDocument()
     expect(spoken()).toEqual([[WORD_CFI, 2], [null]])
+  })
+
+  it('aNewListenWhileTheOldPlayIsPending_TheNewOneKeepsPlaying', async () => {
+    // A's play() is still pending when B starts: B pauses the element, A's play() rejects (AbortError). That rejection
+    // belongs to A: it must not end B, nor say B failed.
+    opened('de')
+    fromPage(word('Teich'))
+    await settle()
+    vi.mocked(HTMLMediaElement.prototype.play).mockImplementationOnce(function (this: HTMLMediaElement) {
+      playing = this
+      return new Promise<void>((_, reject) => { pendingPlay = reject })
+    })
+    fireEvent.click(popupButton()!)
+    await settle()
+    expect(pendingPlay).not.toBeNull()
+    fromPage(word('Wald', 'epubcfi(/6/4!/4/8/1:0)'))
+    fireEvent.click(popupButton()!)
+    await settle()
+    expect(fetchTtsAudio).toHaveBeenLastCalledWith('Wald', 'de', undefined, 1, expect.anything())
+    expect(popupButton()).toHaveAccessibleName('Stop speech')
+    expect(spoken().at(-1)).toEqual(['epubcfi(/6/4!/4/8/1:0)', 2])
+    expect(screen.queryByText('Could not play the speech. Try again.')).toBeNull()
+  })
+
+  it('closingThePopupThatStartedIt_StopsIt_TheMarkGoes', async () => {
+    opened('de')
+    fromPage(word())
+    await settle()
+    fireEvent.click(popupButton()!)
+    await settle()
+    expect(popupButton()).toHaveAccessibleName('Stop speech')
+    const pauses = vi.mocked(HTMLMediaElement.prototype.pause).mock.calls.length
+    // A tap in the book closes the popup.
+    fromPage({ type: 'tap', x: WIDTH / 2, y: 300 })
+    await settle()
+    expect(document.querySelector('.word-popup')).toBeNull()
+    expect(spoken()).toEqual([[WORD_CFI, 2], [null]])
+    expect(vi.mocked(HTMLMediaElement.prototype.pause).mock.calls.length).toBeGreaterThan(pauses)
+    expect(screen.queryByText('Could not play the speech. Try again.')).toBeNull()
+  })
+
+  it('closingTheToolbarThatStartedIt_StopsIt', async () => {
+    opened('de')
+    fromPage(selection())
+    await settle()
+    fireEvent.click(toolbarButton()!)
+    await settle()
+    fromPage({ type: 'selection-cleared' })
+    await settle()
+    expect(document.querySelector('.selection-toolbar')).toBeNull()
+    expect(spoken()).toEqual([[SEL_CFI, 2], [null]])
   })
 
   it('aPdfWord_NoCfi_SpokenWithNoMark', async () => {

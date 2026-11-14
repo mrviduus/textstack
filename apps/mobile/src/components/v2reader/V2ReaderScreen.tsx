@@ -398,6 +398,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     changed: rerender,
     failed: () => ttsRef.current.fail(),
   }))
+  // Leaving the screen ends the speech through the listener: a host-side end is never a failure toast elsewhere.
+  useEffect(() => () => listener.stop(), [])
+  // The word bar or selection toolbar that started a Listen closed (or another opened): its speech stops, its mark goes.
+  useEffect(() => {
+    listener.follow(popup?.kind === 'word' ? { text: popup.word, at: popup } : popup?.kind === 'selection' ? { text: popup.text, at: popup } : null)
+  }, [popup])
   // No background audio (audit §2.7): the app leaving the foreground ends the speech.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (st) => { if (st !== 'active') listener.stop() })

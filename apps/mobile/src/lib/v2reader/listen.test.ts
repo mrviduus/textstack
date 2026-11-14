@@ -4,21 +4,32 @@ import { createListener, createSpeedChoice, readSpeed, speakingJs, ttsLang } fro
 // #1272: the language a book is spoken in, the speed, and Listen's press / mark rule, on both hosts.
 
 describe('ttsLang', () => {
-  it('aLanguage_AsWritten', () => {
+  it('aLanguage_ItsCode', () => {
     expect(ttsLang('de', 'en')).toBe('de')
     expect(ttsLang('pt', 'en')).toBe('pt')
   })
 
-  it('aRegion_Kept', () => {
-    expect(ttsLang('pt-BR', 'en')).toBe('pt-BR')
-    expect(ttsLang('de_AT', 'en')).toBe('de-AT')
-    expect(ttsLang(' FR-CA ', 'en')).toBe('fr-CA')
+  it('aRegionOrScript_TheLanguageOnly_OneCacheEntryPerLanguage', () => {
+    expect(['pt-BR', 'de_AT', ' FR-CA ', 'zh-Hant-TW', 'en-GB'].map((l) => ttsLang(l, 'en'))).toEqual(['pt', 'de', 'fr', 'zh', 'en'])
   })
 
-  it('aThreeLetterCode_FoldedToItsLanguage', () => {
-    expect(ttsLang('deu', 'en')).toBe('de')
-    expect(ttsLang('fre', 'en')).toBe('fr')
-    expect(ttsLang('por-BR', 'en')).toBe('pt-BR')
+  it('threeLetterCodes_BothForms_Folded', () => {
+    const pairs: [string, string][] = [
+      ['deu', 'de'], ['ger', 'de'], ['fra', 'fr'], ['fre', 'fr'], ['ron', 'ro'], ['rum', 'ro'], ['hin', 'hi'],
+      ['vie', 'vi'], ['ind', 'id'], ['cat', 'ca'], ['bul', 'bg'], ['hrv', 'hr'], ['srp', 'sr'], ['slk', 'sk'],
+      ['slo', 'sk'], ['lit', 'lt'], ['lav', 'lv'], ['est', 'et'], ['slv', 'sl'], ['fas', 'fa'], ['per', 'fa'],
+      ['tha', 'th'], ['ces', 'cs'], ['cze', 'cs'], ['ell', 'el'], ['gre', 'el'], ['nld', 'nl'], ['dut', 'nl'],
+      ['zho', 'zh'], ['chi', 'zh'], ['msa', 'ms'], ['may', 'ms'], ['por-BR', 'pt'],
+    ]
+    expect(pairs.map(([l]) => ttsLang(l, 'en'))).toEqual(pairs.map(([, c]) => c))
+  })
+
+  it('norwegian_AllForms_TheServersNo', () => {
+    expect(['nb', 'nn', 'no', 'nob', 'nno', 'nor', 'nb-NO'].map((l) => ttsLang(l, 'en'))).toEqual(['no', 'no', 'no', 'no', 'no', 'no', 'no'])
+  })
+
+  it('deprecatedCodes_Folded', () => {
+    expect([ttsLang('iw', 'en'), ttsLang('in', 'en')]).toEqual(['he', 'id'])
   })
 
   it('anUnlistedLanguage_ItsOwnCode_NeverEnglish', () => {
@@ -32,21 +43,14 @@ describe('ttsLang', () => {
 
   it('noLanguageOrNoTag_TheFallback', () => {
     expect(ttsLang('', 'es')).toBe('es')
-    expect(ttsLang(undefined, 'en')).toBe('en')
+    expect(ttsLang(undefined, 'en-US')).toBe('en')
     expect(ttsLang('12', 'it')).toBe('it')
     expect(ttsLang('<b>', 'it')).toBe('it')
     expect(ttsLang('english', 'it')).toBe('it')
   })
 
-  it('english_English', () => {
-    expect(ttsLang('en-GB', 'de')).toBe('en-GB')
-    expect(ttsLang('eng', 'de')).toBe('en')
-  })
-
   it('ukrainian_NoListen', () => {
-    expect(ttsLang('uk', 'en')).toBeNull()
-    expect(ttsLang('uk-UA', 'en')).toBeNull()
-    expect(ttsLang('ukr', 'en')).toBeNull()
+    expect(['uk', 'uk-UA', 'ukr'].map((l) => ttsLang(l, 'en'))).toEqual([null, null, null])
     expect(ttsLang('', 'uk')).toBeNull()
   })
 
@@ -124,9 +128,9 @@ describe('createListener', () => {
   /** A host whose speak resolves when the test says; `done` kept per call. */
   function host() {
     const marks: unknown[] = []
-    const calls: { text: string; done: () => void; resolve: (played: boolean) => void }[] = []
+    const calls: { text: string; done: (failed?: boolean) => void; resolve: (played: boolean) => void }[] = []
     const h = {
-      speak: vi.fn((text: string, done: () => void) => new Promise<boolean>((resolve) => { calls.push({ text, done, resolve }) })),
+      speak: vi.fn((text: string, done: (failed?: boolean) => void) => new Promise<boolean>((resolve) => { calls.push({ text, done, resolve }) })),
       stop: vi.fn(),
       mark: (at: unknown) => { marks.push(at) },
       changed: vi.fn(),
@@ -220,15 +224,61 @@ describe('createListener', () => {
     expect(marks).toEqual([A, B])
   })
 
-  it('theHostEndedItBeforeResolvingFalse_StillAFailure', async () => {
-    // A hook calls done (its playback ended, failed) before its promise answers false.
+  it('theHostSaysItFailed_ThenFalse_OneFailure', async () => {
+    // A hook ends a failed playback (done(true)) before its promise answers false.
     const { h, calls, marks, l } = host()
     l.press('pond', A)
-    calls[0].done()
+    calls[0].done(true)
     calls[0].resolve(false)
     await tick()
     expect(h.failed).toHaveBeenCalledTimes(1)
     expect(marks).toEqual([A, null])
+  })
+
+  it('theHostCancelledIt_ThenFalse_NotAFailure', async () => {
+    // A host-side cancel (the mobile player unmounting: a newer request id, then done(false)): no toast elsewhere.
+    const { h, calls, marks, l } = host()
+    l.press('pond', A)
+    calls[0].done(false)
+    calls[0].resolve(false)
+    await tick()
+    expect(h.failed).not.toHaveBeenCalled()
+    expect(marks).toEqual([A, null])
+  })
+
+  it('aSynchronousThrow_AFailure', async () => {
+    const { h, marks, l } = host()
+    h.speak.mockImplementationOnce(() => { throw new Error('sync') })
+    expect(() => l.press('pond', A)).not.toThrow()
+    await tick()
+    expect(h.failed).toHaveBeenCalledTimes(1)
+    expect(marks).toEqual([A, null])
+    expect(l.state('pond', A)).toBe('idle')
+  })
+
+  it('follow_ThePopupThatStartedItStillOpen_KeepsIt', () => {
+    const { h, l } = host()
+    l.press('pond', A)
+    l.follow({ text: 'pond', at: A })
+    expect(h.stop).not.toHaveBeenCalled()
+    expect(l.state('pond', A)).toBe('loading')
+  })
+
+  it('follow_ItsPopupClosedOrAnotherOpen_StopsIt_TheMarkGoes', () => {
+    for (const open of [null, { text: 'pond', at: B }, { text: 'lake', at: A }]) {
+      const { h, marks, l } = host()
+      l.press('pond', A)
+      l.follow(open)
+      expect(h.stop).toHaveBeenCalledTimes(1)
+      expect(marks).toEqual([A, null])
+      expect(h.failed).not.toHaveBeenCalled()
+    }
+  })
+
+  it('follow_NothingSpeaking_Nothing', () => {
+    const { h, l } = host()
+    l.follow(null)
+    expect(h.stop).not.toHaveBeenCalled()
   })
 
   it('stoppedThenResolvedFalse_NotAFailure', async () => {
