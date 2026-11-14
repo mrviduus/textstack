@@ -451,48 +451,98 @@ try {
       check(back?.cause === 'nav' && messages.slice(at).filter((x) => x.type === 'relocate').every((x) => x.cause !== 'turn'),
         `${flow}: a chosen contents entry, back a section: cause nav (${messages.slice(at).filter((x) => x.type === 'relocate').map((x) => x.cause)})`)
     }
-    // #1313 review: what keeps a relocate from being `nav` when no navigation is landing.
+    // #1313 review: a relocate is `nav` while a navigation lands, and only then.
     {
       call('window.__fol.flow("paginated")')
       const rels = (from) => messages.slice(from).filter((x) => x.type === 'relocate')
+      const causes = (from) => rels(from).map((x) => `${x.cause}@${x.fraction?.toFixed(2)}`)
+      /** A landing: a `nav` relocate at another place than `before` (the place shown before it), and no turn. */
+      const landedAsNav = (from, before) => rels(from).some((x) => x.cause === 'nav' && x.cfi !== before) && rels(from).every((x) => x.cause !== 'turn')
       const turnAfter = async (what) => {
         const from = messages.length
         await call('window.__fol.next()')
         await page.waitForTimeout(800)
-        check(rels(from).some((x) => x.cause === 'turn') && rels(from).every((x) => x.cause !== 'nav'), `${what} (${rels(from).map((x) => x.cause)})`)
+        check(rels(from).some((x) => x.cause === 'turn') && rels(from).every((x) => x.cause !== 'nav'), `${what} (${causes(from)})`)
       }
-      // A navigation of the view on screen that never lands keeps its relocates `nav`; a swap ends it with its view.
+      /** Opens `file` and answers no restore (the web host's failed read). */
+      const openUnrestored = async (file) => {
+        const from = messages.length
+        await call(`window.__fol.openUrl(${JSON.stringify(bookAt(file))}, ${JSON.stringify(file)})`)
+        const opened = await waitFor(from, (x) => x.type === 'opened' && x.book?.name === file, `${file} opened, not restored`)
+        await page.waitForTimeout(600)
+        return { opened, from }
+      }
+      // A navigation that never lands keeps the turns meanwhile `nav`, until its bound; a swap ends it with its view.
       m = await open('tsformat.epub')
       await page.waitForTimeout(600)
-      await call('window.__fol.holdNav()')
+      await call('window.__fol.__testHoldNav()')
       let from = messages.length
       await call('window.__fol.next()')
       await page.waitForTimeout(800)
-      check(rels(from).length > 0 && rels(from).every((x) => x.cause === 'nav'), `a navigation still landing: a turn meanwhile is nav (${rels(from).map((x) => x.cause)})`)
+      check(rels(from).length > 0 && rels(from).every((x) => x.cause === 'nav'), `a navigation still landing: a turn meanwhile is nav (${causes(from)})`)
+      await page.waitForTimeout(5200)
+      await turnAfter('a navigation that never lands stops counting after its bound (5 s): the next turn is cause turn')
+      // One that settles after its bound is not taken off the count twice: a later navigation still counts.
+      await call('window.__fol.__testHoldNav(5600)')
+      await page.waitForTimeout(6000)
+      from = messages.length
+      await call('window.__fol.goTo({ fraction: 0.2, at: 1 }, true)')
+      await page.waitForTimeout(800)
+      check(rels(from).some((x) => x.cause === 'nav') && rels(from).every((x) => x.cause !== 'turn'), `a navigation settled after its bound, then a host goTo: its landing is nav (${causes(from)})`)
+      await call('window.__fol.__testHoldNav()')
       m = await open('tstoc.epub')
       await page.waitForTimeout(600)
       await turnAfter('a navigation of the closed view still pending at the swap: a turn in the next book is cause turn')
-      // An open whose restore never comes (the web host's failed read): the reader's turn is still a turn.
-      from = messages.length
-      await call(`window.__fol.openUrl(${JSON.stringify(bookAt('tsformat.epub'))}, "tsformat.epub")`)
-      await waitFor(from, (x) => x.type === 'opened' && x.book?.name === 'tsformat.epub', 'tsformat.epub opened, not restored')
-      await page.waitForTimeout(600)
-      check(rels(from)[0]?.cause === 'nav' && rels(from).every((x) => x.cause !== 'turn'), `opened, no restore: its own relocates are nav, never turn (${rels(from).map((x) => x.cause)})`)
+      // An open whose restore never comes: its own relocates are nav, the reader's turn is a turn.
+      let u = await openUnrestored('tsformat.epub')
+      check(rels(u.from)[0]?.cause === 'nav' && rels(u.from).every((x) => x.cause !== 'turn'), `opened, no restore: its own relocates are nav, never turn (${causes(u.from)})`)
       await turnAfter('no restore, then the reader turns: cause turn')
-      // The restore comes after all, the reader having acted: its landing is still a navigation.
-      const opened = messages.slice(from).find((x) => x.type === 'opened')
+      // The restore comes after all, the reader having acted: its landing is a navigation.
+      let before = rels(0).at(-1)?.cfi
       from = messages.length
-      await call(`window.__fol.restore(${JSON.stringify(JSON.stringify({ v: 1, book: opened.book, position: { fraction: 0.6, at: 1 }, highlights: [] }))})`)
+      await call(`window.__fol.restore(${JSON.stringify(JSON.stringify({ v: 1, book: u.opened.book, position: { fraction: 0.6, at: 1 }, highlights: [] }))})`)
       await waitFor(from, (x) => x.type === 'restored', 'the late restore')
       await page.waitForTimeout(400)
-      check(rels(from).length > 0 && rels(from).every((x) => x.cause !== 'turn'), `a late restore after the reader acted: nav, not turn (${rels(from).map((x) => x.cause)})`)
+      check(landedAsNav(from, before), `a late restore after the reader acted: its landing is nav (${causes(from)})`)
+      // An open with its restore: the restore's landing is a navigation.
+      m = await open('tsformat.epub', JSON.stringify({ v: 1, book: u.opened.book, position: { fraction: 0.4, at: 1 }, highlights: [] }))
+      await page.waitForTimeout(400)
+      // The open shows the start first; the restore's landing is the relocate at another place.
+      check(landedAsNav(m.from, rels(m.from)[0]?.cfi), `open and restore: the restore's landing is nav (${causes(m.from)})`)
+      // A press while a host goTo lands: the landing is still a navigation.
+      before = rels(0).at(-1)?.cfi
+      from = messages.length
+      await page.evaluate(() => {
+        const landing = window.__fol.goTo({ fraction: 0.8, at: 1 }, true)
+        document.dispatchEvent(new PointerEvent('pointerdown'))
+        return landing
+      })
+      await page.waitForTimeout(600)
+      check(landedAsNav(from, before), `a press while a host goTo lands: still nav (${causes(from)})`)
+      // No restore, a host goTo, and a turn queued behind it: the landing is nav, the turn a turn.
+      u = await openUnrestored('tstoc.epub')
+      from = messages.length
+      await page.evaluate(() => {
+        void window.__fol.goTo(0)
+        return window.__fol.next()
+      })
+      await page.waitForTimeout(800)
+      check(rels(from).some((x) => x.cause === 'turn'), `no restore, a turn queued behind a host goTo: cause turn (${causes(from)})`)
       // A navigation to where the reader already is moves nothing: layout, whatever asked for it.
       const here = rels(0).at(-1)?.cfi
       from = messages.length
       await call(`window.__fol.goTo(${JSON.stringify(here)}, true)`)
       await page.waitForTimeout(800)
-      check(rels(from).every((x) => x.cfi !== here || x.cause === 'layout') && rels(from).every((x) => x.cause !== 'turn'),
-        `a goTo of the place on screen: layout, not nav (${rels(from).map((x) => `${x.cause}${x.cfi === here ? '@here' : ''}`)})`)
+      const atHere = rels(from).filter((x) => x.cfi === here)
+      check(atHere.length > 0 && atHere.every((x) => x.cause === 'layout') && rels(from).every((x) => x.cause !== 'turn'),
+        `a goTo of the place on screen: a relocate there, layout (${rels(from).map((x) => `${x.cause}${x.cfi === here ? '@here' : ''}`)})`)
+      // No restore, the reader scrolls with the wheel (scrolled flow): a turn.
+      call('window.__fol.flow("scrolled")')
+      u = await openUnrestored('tsformat.epub')
+      await page.mouse.move(640, 360)
+      from = messages.length
+      for (let k = 0; k < 3; k++) { await page.mouse.wheel(0, 400); await page.waitForTimeout(700) }
+      check(rels(from).some((x) => x.cause === 'turn') && rels(from).every((x) => x.cause !== 'nav'), `no restore, a wheel scroll: cause turn (${causes(from)})`)
     }
     call('window.__fol.flow("scrolled")')
     // The end of the book (#1266): `relocate.atEnd`, which a host cannot tell from `fraction`.
