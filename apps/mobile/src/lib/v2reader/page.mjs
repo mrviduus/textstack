@@ -944,11 +944,21 @@ function highlightSelection(color = 'yellow') {
   entry = withHighlight(entry, h)
   persist()
   annotate({ value: h.cfi, index: s.index, hl: { id: h.id, color } })
-  s.doc.getSelection().removeAllRanges()
-  lastSelection = null
+  // The selection is done, as `clearSelection` ends it: at once, not after the settle time, or the next press within it
+  // would be taken for its dismissal and its tap (a tap on the new highlight) dropped (#1312).
+  endSelection()
   post({ type: 'highlighted', id: h.id, cfi: h.cfi, quote: h.quote, selectedText, color })
   postList()
   return h
+}
+
+/** The selection is over: gone from every shown section, `selection-cleared` at once if one was sent, nothing to fall back on. */
+function endSelection() {
+  clearTimeout(selectionTimer)
+  for (const d of shownDocs()) d.getSelection()?.removeAllRanges()
+  lastSelection = null
+  if (selectionSent) post({ type: 'selection-cleared' })
+  selectionSent = null
 }
 
 const openFailed = (name, error) => post({ type: 'open-failed', name, error })
@@ -1056,13 +1066,7 @@ window.__fol = {
   },
   // #1269: the host is done with the selection (an action ran, its toolbar closed): gone from every shown section,
   // `selection-cleared` at once (none if none was sent). highlightSelection has nothing to fall back on after it.
-  clearSelection: () => {
-    clearTimeout(selectionTimer)
-    for (const d of shownDocs()) d.getSelection()?.removeAllRanges()
-    lastSelection = null
-    if (selectionSent) post({ type: 'selection-cleared' })
-    selectionSent = null
-  },
+  clearSelection: () => endSelection(),
   /** The host answers a `word` with its translation; drawn above that word. Not where `annotatable` is false. */
   showTranslation: (cfi, index, text) => view && annotatable && annotate({ value: cfi, index, gloss: text }),
 }

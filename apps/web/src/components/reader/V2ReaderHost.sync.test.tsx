@@ -337,8 +337,12 @@ describe('V2ReaderHost, server sync', () => {
       const s = await reading()
       fromPage({ type: 'highlight-list', key: SHA('a'), highlights: [item] })
       Object.defineProperty(screen.getByTitle('V2 reader'), 'clientWidth', { value: 1000, configurable: true })
+      // Not offered yet: a centre tap like any other (it toggles the bars).
+      const bars = () => document.querySelector('main')!.getAttribute('data-bars')
+      const before = bars()
       fromPage({ type: 'highlight-tap', id: ID, x: 500, y: 100, rect: { x: 480, y: 90, w: 40, h: 20 } })
       expect(document.querySelector('.pdf-hl-popup')).toBeNull()
+      expect(bars()).not.toBe(before)
       act(() => s.onHighlights([]))
       fromPage({ type: 'highlight-tap', id: ID, x: 500, y: 100, rect: { x: 480, y: 90, w: 40, h: 20 } })
       expect(screen.getByPlaceholderText('Add a note...')).toHaveValue('their note')

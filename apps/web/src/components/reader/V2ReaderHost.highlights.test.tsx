@@ -56,9 +56,31 @@ describe('V2ReaderHost highlights', () => {
 
   it('list_AnotherBooksList_Dropped_AMalformedItemDropped', () => {
     opened()
-    list([item(ID1, 'other book')], 'bb')
     list([item(ID2, 'kept'), { ...item(ID1, 'bad'), cfi: 'javascript:alert(1)' }])
+    // A previous open's list, arriving late, replaces nothing.
+    list([item(ID1, 'other book')], 'bb')
     expect(within(openList()).getAllByRole('button').map((b) => b.textContent)).toEqual(['kept'])
+  })
+
+  it('anotherBooksRemoval_ThisBooksNoteKept', () => {
+    opened()
+    list([item(ID1, 'by the pond')])
+    tap()
+    fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'kept' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    fromPage({ type: 'highlight-removed', key: 'bb', id: ID1 })
+    tap()
+    expect(screen.getByPlaceholderText('Add a note...')).toHaveValue('kept')
+  })
+
+  it('note_OverTheCap_SavedCut', () => {
+    opened()
+    list([item(ID1, 'by the pond')])
+    tap()
+    fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'x'.repeat(2100) } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    tap()
+    expect((screen.getByPlaceholderText('Add a note...') as HTMLTextAreaElement).value).toHaveLength(2000)
   })
 
   it('untrustedTextAndNote_RenderedAsText', () => {

@@ -1796,6 +1796,19 @@ try {
   call(`window.__fol.highlightSelection('red')`)
   await page.waitForTimeout(300)
   check(storesFrom(from).length === 0, 'a highlight in a colour off the list is refused')
+  // A tap on a highlight right after making it (within the selection's settle time) is its tap, not the dismissal of
+  // the selection it was made from: that one ends at once.
+  await call(`(() => { const c = document.querySelector('foliate-view').renderer.getContents()[0]; const t = c.doc.querySelector('p').firstChild, i = t.data.indexOf('black'), r = c.doc.createRange(); r.setStart(t, i); r.setEnd(t, i + 5); c.doc.getSelection().removeAllRanges(); c.doc.getSelection().addRange(r) })()`)
+  await page.waitForTimeout(500)
+  const blackAt = await wordAt(await frameWith('black'), 'black')
+  from = messages.length
+  await call(`window.__fol.highlightSelection('blue')`)
+  await page.mouse.click(blackAt.x, blackAt.y)
+  await settled()
+  const madeBlack = messages.slice(from).find((x) => x.type === 'highlighted')
+  const kindsNow = messages.slice(from).map((x) => x.type).filter((x) => ['selection-cleared', 'highlighted', 'highlight-tap', 'word', 'tap'].includes(x))
+  check(!!madeBlack && JSON.stringify(kindsNow) === JSON.stringify(['selection-cleared', 'highlighted', 'highlight-tap']) && messages.slice(from).find((x) => x.type === 'highlight-tap')?.id === madeBlack.id,
+    `a tap at once on the highlight just made is its highlight-tap (${kindsNow})`)
 
   // A fixed-layout book (CBZ) lands a fraction on its page, quietly too, and saves its page once moved.
   m = await open('tsformat.cbz', JSON.stringify({ v: 1, book: cbzBook, highlights: [], position: { fraction: 0.9, at: 1 } }))

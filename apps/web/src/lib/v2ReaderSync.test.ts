@@ -857,6 +857,7 @@ describe('createV2ReaderSync', () => {
       await stored(s, entry(pos(2), [hl(H1, 'blue')]))
       expect(api.putAnnotation).not.toHaveBeenCalled()
       s.setNote(H1, 'too late')
+      expect(s.note(H1)).toBeNull()
       await s.flush()
       expect(api.putAnnotation).not.toHaveBeenCalled()
       expect(last()).toBe('saved')
@@ -889,12 +890,13 @@ describe('createV2ReaderSync', () => {
       const s = await withServerRow()
       api.deleteAnnotation.mockRejectedValue(offline())
       api.putAnnotation.mockRejectedValue(offline())
-      // Another place than H1's (the same CFI and text would be its twin).
-      await stored(s, entry(null, [{ ...hl(H2), cfi: 'epubcfi(/6/6!/4/2,/1:0,/1:5)' }]))
+      // H1 recoloured in the page's last store, then removed; H2 at another place (the same CFI and text would be H1's twin).
+      await stored(s, entry(null, [hl(H1, 'green'), { ...hl(H2), cfi: 'epubcfi(/6/6!/4/2,/1:0,/1:5)' }]))
       s.remove(H1)
       s.setNote(H2, 'kept')
       await s.flush()
       s.flushKeepalive()
+      // The removal is sent, never the removed one's form.
       expect(api.keepaliveDeleteAnnotation.mock.calls.map((c) => c[0])).toEqual([H1])
       expect(api.keepalivePutAnnotation.mock.calls.map((c) => [c[0], JSON.parse(c[1]).noteText])).toEqual([[H2, 'kept']])
     })
