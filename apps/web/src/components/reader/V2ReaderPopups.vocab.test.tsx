@@ -285,4 +285,18 @@ describe('V2ReaderPopups saved-word marks (#1271)', () => {
     expect(onMarks).toHaveBeenLastCalledWith([{ word: 'reed', stage: 1, gloss: 'uk:reed' }])
     expect(api.updateWord).toHaveBeenCalledWith('id-reed', { translation: 'uk:reed', onlyIfEmpty: true })
   })
+
+  it('aWordSavedDuringTheOpen_NotBackfilled_OnlyTheLoadedOnesAre', async () => {
+    api.getReaderVocab.mockResolvedValue([])
+    const asked = vi.fn((a: unknown[]) => ({ translatedText: `uk:${a[0]}` }))
+    backfill = asked
+    api.saveWord.mockResolvedValue(saved('heron'))
+    const view = mount(vi.fn())
+    await settle()
+    view.rerender(<V2ReaderPopups frame={frame} bookLanguage="en" bookTitle="Walden" bookId="book-1" onClose={() => {}} popup={popup('heron')} onMarks={vi.fn()} />)
+    await settle()
+    await settle()
+    expect(api.saveWord).toHaveBeenCalledTimes(1)
+    expect(asked).not.toHaveBeenCalled()
+  })
 })

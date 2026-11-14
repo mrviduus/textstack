@@ -84,10 +84,13 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     return () => { cancelled = true }
   }, [isAuthenticated, commitMap, loadAttempt])
 
-  // Backfill translations for words missing them
+  // Backfill translations for words missing them: once, over the words the load brought (#1271: once per open). A word
+  // saved afterwards gets its translation from the save itself (TR-2), never a second, sentence-less request here.
   useEffect(() => {
     if (!targetLang || !bookLanguage || backfillDone.current) return
-    if (vocabMap.size === 0 || loading) return
+    // No session yet: nothing loaded to fill (a sign-in loads, then this runs).
+    if (!isAuthenticated || !loaded || loading) return
+    backfillDone.current = true
 
     const missing: { word: string; id?: string }[] = []
     for (const [key, entry] of vocabMap) {
@@ -97,7 +100,6 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     }
     if (missing.length === 0) return
 
-    backfillDone.current = true
     const lang = bookLanguage
     const target = targetLang
 
@@ -117,7 +119,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
         } catch { /* skip */ }
       }
     })()
-  }, [vocabMap, loading, targetLang, bookLanguage, updateMap])
+  }, [vocabMap, loading, loaded, isAuthenticated, targetLang, bookLanguage, updateMap])
 
   // I4: flush pending local vocab into backend. Called:
   //   (a) on threshold-crossing after ensureSession succeeds;
