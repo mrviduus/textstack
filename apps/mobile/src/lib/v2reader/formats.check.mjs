@@ -1858,11 +1858,16 @@ try {
   await page.waitForTimeout(300)
   const overHl = await fills()
   check(overHl.filter((f) => f === SPOKEN).length === 1 && blue(overHl) === blueBefore, `a new one replaces it, a highlight under it stays drawn (${JSON.stringify(overHl)})`)
+  // The highlight under the mark removed: the mark stays.
+  call(`window.__fol.removeHighlight(${JSON.stringify(pink?.id)})`)
+  await page.waitForTimeout(400)
+  const hlGone = await fills()
+  check(hlGone.filter((f) => f === SPOKEN).length === 1 && blue(hlGone) === blueBefore - 1, `a highlight removed under it leaves the mark (${JSON.stringify(hlGone)})`)
   from = messages.length
   check(await call('window.__fol.speaking(null)') === false, 'speaking(null) ends it')
   await page.waitForTimeout(300)
   const afterEnd = await fills()
-  check(!afterEnd.includes(SPOKEN) && blue(afterEnd) === blueBefore && blueBefore >= 1 && storesFrom(from).length === 0, `cleared, the highlight under it kept, nothing saved (${JSON.stringify(afterEnd)})`)
+  check(!afterEnd.includes(SPOKEN) && blue(afterEnd) === blueBefore - 1 && blueBefore >= 2 && storesFrom(from).length === 0, `cleared, the other highlights kept, nothing saved (${JSON.stringify(afterEnd)})`)
   check(await call(`window.__fol.speaking('not a cfi', 0)`) === false && messages.slice(from).some((x) => x.type === 'log' && /speaking ignored/.test(x.msg)) && await spokenFills() === 0,
     'a value that is no range CFI is ignored with a warn')
   call(`window.__fol.speaking(${JSON.stringify(judgeRange.cfi)}, ${judgeRange.index})`)

@@ -12,7 +12,8 @@ vi.mock('../../api/tts', () => ({
   fetchTtsTimestamps: async () => [],
   TtsRateLimitError: class extends Error {},
 }))
-vi.mock('../../lib/offlineDb', async (orig) => ({ ...(await orig<object>()), getCachedTtsAudio: async () => null, cacheTtsAudio: async () => {} }))
+const cachedTts = vi.fn()
+vi.mock('../../lib/offlineDb', async (orig) => ({ ...(await orig<object>()), getCachedTtsAudio: (...a: unknown[]) => cachedTts(...a), cacheTtsAudio: async () => {} }))
 vi.mock('../../api/translation', () => ({ translate: async () => ({ translatedText: 'x' }), getLanguages: async () => [] }))
 
 const WIDTH = 1000
@@ -25,6 +26,7 @@ beforeEach(() => {
   posted = []
   playing = null
   fetchTtsAudio.mockReset().mockResolvedValue(new ArrayBuffer(4))
+  cachedTts.mockReset().mockResolvedValue(null)
   URL.createObjectURL = () => 'blob:tts'
   URL.revokeObjectURL = () => {}
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
@@ -101,6 +103,18 @@ describe('V2ReaderHost Listen', () => {
     fireEvent.click(speaker()!)
     await settle()
     expect(fetchTtsAudio).toHaveBeenCalledWith('Teich', 'de', 'de-DE-KatjaNeural', 1.5, expect.anything())
+  })
+
+  it('audioCachedForTheDefaultVoiceAt1x_NotPlayedForAnotherVoiceOrSpeed', async () => {
+    // The legacy cache key was the language alone: a changed speed played the old speed's audio.
+    cachedTts.mockImplementation(async (lang: string) => (lang === 'de' ? { audioData: new ArrayBuffer(2) } : null))
+    opened('de')
+    fromPage(word())
+    await settle()
+    fireEvent.click(speaker()!)
+    await settle()
+    expect(cachedTts).toHaveBeenCalledWith('de|de-DE-KatjaNeural|1', 'Teich')
+    expect(fetchTtsAudio).toHaveBeenCalledTimes(1)
   })
 
   it('ukrainianBook_NoListen', async () => {
