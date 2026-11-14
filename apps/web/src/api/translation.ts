@@ -43,7 +43,8 @@ export async function translate(
       const json = JSON.parse(text)
       if (json.detail) error = json.detail
     } catch {}
-    throw new Error(error)
+    // The status on the error (#1271): a caller can tell a 429 (rate limited) from other failures.
+    throw Object.assign(new Error(error), { status: res.status })
   }
 
   return res.json()

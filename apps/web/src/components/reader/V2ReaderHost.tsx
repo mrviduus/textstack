@@ -265,6 +265,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setPopupState(p)
   }
   const [bookLanguage, setBookLanguage] = useState('en')
+  /** #1271: the language whose saved words are marked: the one words are saved under, none where it does not read (savesWords). */
+  const [marksLanguage, setMarksLanguage] = useState<string | null>(null)
   /** #1272: the language Listen speaks the open book in (`opened.lang` as written, else `en`); null: no Listen. */
   const [ttsLanguage, setTtsLanguage] = useState<string | null>(null)
   /** The server book a tapped word is saved with (#1270): the production route's, when the bytes are its file's. */
@@ -484,6 +486,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       // Untrusted: only what readToc takes. Its place came with the relocate before this message.
       setToc(readToc(m))
       setBookLanguage(readLang(m) ?? 'en')
+      setMarksLanguage(savesWords(m) ? readLang(m) ?? 'en' : null)
       setTtsLanguage(ttsLang(m.lang, 'en'))
       setPopup(null)
       setReading(true)
@@ -852,6 +855,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           popup={popup}
           frame={frame}
           bookLanguage={bookLanguage}
+          marksLanguage={marksLanguage}
           bookId={vocabBook?.id}
           bookTitle={vocabBook?.title}
           onHighlight={offersHighlights ? (color) => call('highlightSelection', [color]) : undefined}

@@ -30,3 +30,24 @@ export const wordId = (key, word, language) => `${key(word)}\u0000${langOf(langu
  * sends a sentence or any book text.
  */
 export const markWordsOf = (entries) => entries.map(({ word, stage, translation }) => ({ word, stage, gloss: translation || null }))
+
+const limited = (e) => e?.status === 429
+
+/**
+ * The once-per-open backfill, both hosts' (the legacy readers' rule): each of `words` (the caller's: the book's language,
+ * no translation, a server card) is translated (`translate`, from the book's language into the reader's), handed to
+ * `onWord`, and stored on its card (`persist`: `onlyIfEmpty`) before the next one: never a burst of writes. Nothing when
+ * there is no other language to translate into. A word that fails is skipped; a 429 (translate or write) stops it, and
+ * so does `cancelled` (a newer load, identity or language; the host gone).
+ */
+export async function backfillTranslations(words, from, to, io) {
+  if (!from || !to || to === from) return
+  for (const w of words) {
+    if (io.cancelled()) return
+    let t = null
+    try { t = await io.translate(w.word) } catch (e) { if (limited(e)) return }
+    if (!t || io.cancelled()) continue
+    io.onWord(w.id, t)
+    try { await io.persist(w.id, t) } catch (e) { if (limited(e)) return }
+  }
+}
