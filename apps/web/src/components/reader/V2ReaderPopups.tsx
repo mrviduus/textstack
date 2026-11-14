@@ -19,6 +19,7 @@ import { TranslationPopup } from './TranslationPopup'
 import { ExplanationPopup } from './ExplanationPopup'
 import { PdfHighlightPopup } from './PdfHighlightPopup'
 import type { V2HighlightColor, V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
+import { markWordsOf, type V2MarkWord } from '../../../../mobile/src/lib/v2reader/wordMarks.mjs'
 
 /** #1312: the highlight a tap opened (`popup.kind === 'highlight'`), as the host knows it, and what its editor does. */
 export interface V2HighlightEditor {
@@ -46,6 +47,11 @@ interface Props {
   onHighlight?: (color: V2HighlightColor) => void
   /** #1312: the editor of the highlight tapped, when the host knows it. */
   highlight?: V2HighlightEditor | null
+  /**
+   * #1271: the reader's saved words as the page marks them, each time they change (loaded, saved, a translation
+   * backfilled): `useReaderVocabulary` reads them once per mount, keeps them in memory and fills missing translations once.
+   */
+  onMarks?: (words: V2MarkWord[]) => void
   /** The word popup or the toolbar closed (`selectionDone` false), or the selection's actions are done (true): the page's selection goes, and the toolbar if it is still what is open (never a newer word popup). */
   onClose: (selectionDone: boolean) => void
 }
@@ -57,7 +63,7 @@ interface Props {
  * vocabulary as the legacy reader saves it (#1270): `useReaderVocabulary` (guests' words, the session minted on the
  * third, nudges at 3 and 10), the outcomes through vocabSave.mjs.
  */
-export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, onHighlight, highlight, onClose }: Props) {
+export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, onHighlight, highlight, onMarks, onClose }: Props) {
   const { t } = useTranslation()
   const { openAuthModal } = useAuth()
   const { nativeLanguage, setNativeLanguage, hasConfirmedLanguage } = useNativeLanguage()
@@ -96,6 +102,9 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
   // saves the word on screen). Once per word key while this book is open, unless the save failed (a re-tap retries).
   const vocab = useReaderVocabulary(bookLanguage, targetLang)
   const { vocabMap, addWord, updateTranslation, recordSavedWord, loaded, loadFailed, retryLoad } = vocab
+  useEffect(() => {
+    onMarks?.(markWordsOf([...vocabMap].map(([word, v]) => ({ word, stage: v.stage, translation: v.translation }))))
+  }, [vocabMap])
   const tried = useRef(new Set<string>())
   const [saving, setSaving] = useState<string | null>(null)
   const [lookup, setLookup] = useState<{ word: string; id: string; kind: 'lookup' | 'lookup_pending'; tapsRemaining: number | null } | null>(null)

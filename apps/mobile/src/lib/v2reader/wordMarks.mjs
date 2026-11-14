@@ -52,3 +52,18 @@ export function wordMarksIn(root, words) {
 
 /** Whether two marks draw the same (a section re-marked keeps what did not change). */
 export const sameMark = (a, b) => !!a && !!b && a.stage === b.stage && a.gloss === b.gloss
+
+/**
+ * The legacy readers' setting, reused ("the existing setting"): `showInlineTranslations` in their stored settings
+ * JSON (web `reader.settings.v1`; Android's `useReaderSettings` reads its own). On unless the reader turned it off.
+ */
+export const GLOSS_SETTING = 'showInlineTranslations'
+export function readGlosses(json) {
+  try { return JSON.parse(json)?.[GLOSS_SETTING] !== false } catch { return true }
+}
+/** That stored JSON with the setting changed, every other field kept (a damaged value: only the setting). */
+export function withGlosses(json, on) {
+  let o = null
+  try { o = JSON.parse(json) } catch { /* none */ }
+  return JSON.stringify({ ...(o && typeof o === 'object' && !Array.isArray(o) ? o : {}), [GLOSS_SETTING]: !!on })
+}

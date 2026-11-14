@@ -9,4 +9,7 @@ export function stageOf(s: unknown): number
 export function readMarkWords(raw: unknown): V2MarkWord[]
 export function markWordsOf(entries: { word: string; stage: number; translation?: string | null }[]): V2MarkWord[]
 export function wordMarksIn(root: Node | null | undefined, words: V2MarkWord[]): { range: Range; word: V2MarkWord }[]
+export const GLOSS_SETTING: 'showInlineTranslations'
+export function readGlosses(json: string | null): boolean
+export function withGlosses(json: string | null, on: boolean): string
 export function sameMark(a: { stage: number; gloss: string | null } | undefined, b: { stage: number; gloss: string | null } | undefined): boolean

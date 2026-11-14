@@ -31,10 +31,12 @@ vi.mock('../../api/vocabulary', () => ({
   markAsKnown: vi.fn(),
 }))
 let translation: (v: unknown) => void
+/** #1271: what the hook's backfill (word, from, to) is answered; unset, it never answers. */
+let backfill: ((a: unknown[]) => unknown) | null = null
 vi.mock('../../api/translation', () => ({
   // The popup's own request (it passes a signal) resolves through `translation`; the hook's backfill (three
   // arguments) never answers, so a test sees only the popup's translation path.
-  translate: (...a: unknown[]) => new Promise((r) => { if (a.length > 3) translation = r }),
+  translate: (...a: unknown[]) => new Promise((r) => { if (a.length > 3) translation = r; else if (backfill) r(backfill(a)) }),
   getLanguages: async () => [],
 }))
 const pending: Record<string, { id: string }> = {}
@@ -69,6 +71,7 @@ beforeEach(() => {
   api.updateWord.mockResolvedValue(card('pond', { translation: 'ставок' }))
   for (const k of Object.keys(pending)) delete pending[k]
   localStorage.clear()
+  backfill = null
 })
 afterEach(cleanup)
 
@@ -249,5 +252,37 @@ describe('V2ReaderPopups vocabulary save', () => {
     await settle()
     expect(auth.ensureSession).toHaveBeenCalledTimes(1)
     expect(api.saveWord).not.toHaveBeenCalled()
+  })
+})
+
+describe('V2ReaderPopups saved-word marks (#1271)', () => {
+  const frame = createRef<HTMLIFrameElement>()
+  const mount = (onMarks: (w: unknown) => void) =>
+    render(<V2ReaderPopups frame={frame} bookLanguage="en" bookTitle="Walden" bookId="book-1" onClose={() => {}} popup={null} onMarks={onMarks} />)
+
+  it('theReadersWords_ReadOnce_SentWithStageAndTranslation_ThenASavedWord', async () => {
+    api.getReaderVocab.mockResolvedValue([card('pond', { stage: 3, translation: 'ставок' }), card('reed', { stage: 1 })])
+    const onMarks = vi.fn()
+    const view = mount(onMarks)
+    await settle()
+    expect(api.getReaderVocab).toHaveBeenCalledTimes(1)
+    expect(onMarks).toHaveBeenLastCalledWith([{ word: 'pond', stage: 3, gloss: 'ставок' }, { word: 'reed', stage: 1, gloss: null }])
+    // A word saved: kept in memory and marked, no second read.
+    api.saveWord.mockResolvedValue(saved('heron'))
+    view.rerender(<V2ReaderPopups frame={frame} bookLanguage="en" bookTitle="Walden" bookId="book-1" onClose={() => {}} popup={popup('heron')} onMarks={onMarks} />)
+    await settle()
+    expect(onMarks.mock.lastCall![0]).toContainEqual({ word: 'heron', stage: 0, gloss: null })
+    expect(api.getReaderVocab).toHaveBeenCalledTimes(1)
+  })
+
+  it('missingTranslations_BackfilledOnce_ThenMarkedWithThem', async () => {
+    api.getReaderVocab.mockResolvedValue([card('reed', { stage: 1 })])
+    backfill = (a) => ({ translatedText: `uk:${a[0]}` })
+    const onMarks = vi.fn()
+    mount(onMarks)
+    await settle()
+    await settle()
+    expect(onMarks).toHaveBeenLastCalledWith([{ word: 'reed', stage: 1, gloss: 'uk:reed' }])
+    expect(api.updateWord).toHaveBeenCalledWith('id-reed', { translation: 'uk:reed', onlyIfEmpty: true })
   })
 })

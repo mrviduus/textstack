@@ -524,6 +524,8 @@
     "alignLeft": "Left",
     "alignCenter": "Center",
     "alignJustify": "Justify",
+    "inlineTranslations": "Inline translations",
+    "inlineTranslationsDesc": "Show translations for saved words",
     "fixedLayout": "This book has a fixed layout: only the theme applies.",
     "contents": "Contents",
     "closeContents": "Close contents",

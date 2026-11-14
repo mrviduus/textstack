@@ -1,6 +1,17 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { MAX_GLOSS, MAX_WORD, MAX_WORDS, STAGE_COLORS, markWordsOf, readMarkWords, sameMark, stageOf, wordMarksIn } from './wordMarks.mjs'
+import { MAX_GLOSS, MAX_WORD, MAX_WORDS, STAGE_COLORS, markWordsOf, readGlosses, readMarkWords, sameMark, stageOf, withGlosses, wordMarksIn } from './wordMarks.mjs'
+
+describe('the gloss setting (legacy showInlineTranslations)', () => {
+  it('is on unless stored false; a damaged value is on', () => {
+    expect([null, '{}', '{"showInlineTranslations":true}', '{"showInlineTranslations":false}', 'nope', '[]'].map(readGlosses)).toEqual([true, true, true, false, true, true])
+  })
+  it('a change keeps every other stored field', () => {
+    expect(JSON.parse(withGlosses('{"fontSize":22,"showInlineTranslations":true}', false))).toEqual({ fontSize: 22, showInlineTranslations: false })
+    expect(JSON.parse(withGlosses('broken', true))).toEqual({ showInlineTranslations: true })
+    expect(JSON.parse(withGlosses(null, false))).toEqual({ showInlineTranslations: false })
+  })
+})
 
 /** The marks in a body of `html`, as `[text under the mark, word, stage]`. */
 function marks(html: string, words: { word: string; stage?: number; gloss?: string | null }[]) {

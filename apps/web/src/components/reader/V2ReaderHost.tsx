@@ -20,7 +20,8 @@ import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { V2TimeLeft, v2Percent, type V2TimePlace } from './V2TimeLeft'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
-import { useV2ReaderSettings, V2ReaderSettingsDrawer } from './V2ReaderSettings'
+import { useV2Glosses, useV2ReaderSettings, V2ReaderSettingsDrawer } from './V2ReaderSettings'
+import type { V2MarkWord } from '../../../../mobile/src/lib/v2reader/wordMarks.mjs'
 import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
 
 /**
@@ -171,6 +172,14 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const settingsRef = useRef(settings)
   settingsRef.current = settings
   const [settingsOpen, setSettingsOpen] = useState(false)
+  /**
+   * #1271: the saved words the page marks (V2ReaderPopups' vocabulary, in memory) and whether their translations show
+   * (the legacy reader's setting). Sent whenever either changes and to every new frame (`ready`): the page keeps them
+   * across opens and marks each section as it loads.
+   */
+  const [glosses, setGlosses] = useV2Glosses()
+  const marks = useRef<{ words: V2MarkWord[]; show: boolean }>({ words: [], show: glosses })
+  const sendMarks = () => { if (ready.current) call('markWords', [marks.current.words, marks.current.show]) }
   /** The direction the open book pages in (`opened`, then every `relocate`): the arrow keys follow it. */
   const pageDir = useRef<'ltr' | 'rtl'>('ltr')
   /** `opened.annotatable`: false on a CBZ (images only) and a PDF (no highlights yet): no highlight button (the page refuses it too). */
@@ -490,6 +499,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           call('flow', [flowRef.current])
           call('settings', [settingsRef.current])
           ready.current = true
+          sendMarks()
           flushOpen()
           return
         case 'opened': {
@@ -690,6 +700,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   useEffect(() => {
     if (ready.current) call('settings', [settings])
   }, [settings])
+  // #1271: the setting switched: the page draws or hides the glosses on screen at once.
+  useEffect(() => {
+    if (marks.current.show === glosses) return
+    marks.current = { ...marks.current, show: glosses }
+    sendMarks()
+  }, [glosses])
   /**
    * A contents entry the reader chose (the dialog, the section controls). Chosen: the page saves where it lands
    * (README, `goTo`). It is the current one at once: a jump within the view on screen may send no relocate.
@@ -833,10 +849,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           bookTitle={vocabBook?.title}
           onHighlight={offersHighlights ? (color) => call('highlightSelection', [color]) : undefined}
           highlight={editor}
+          onMarks={(words) => { marks.current = { ...marks.current, words }; sendMarks() }}
           onClose={closePopup}
         />
       )}
-      <V2ReaderSettingsDrawer open={settingsOpen} settings={settings} onUpdate={updateSettings} onClose={() => setSettingsOpen(false)} typography={reflowable} />
+      <V2ReaderSettingsDrawer open={settingsOpen} settings={settings} onUpdate={updateSettings} onClose={() => setSettingsOpen(false)} typography={reflowable}
+        glosses={annotatable ? { on: glosses, onChange: setGlosses } : undefined} />
       <V2TocDrawer
         open={tocOpen && reading}
         toc={toc}
