@@ -129,6 +129,18 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, PageName, 0.3m), 1, default, Ct)).Accepted);
     }
 
+    // The position's own guard: a fitting frontier further on is what the write stores as the frontier.
+    [Fact]
+    public async Task AdvanceAsync_PageNamePositionBehindAFittingFrontierOnAnEpub_Loses()
+    {
+        var (user, book, file) = await ReaderWithFileAsync("epub");
+        var write = Locating(file, PageName, 0.2m);
+        write.FrontierLocator = Cfi(9);
+        write.FrontierFraction = 0.9m;
+
+        Assert.False((await _repo.AdvanceAsync(user, book, write, null, default, Ct)).Accepted);
+    }
+
     [Fact]
     public async Task AdvanceAsync_PageNameFrontierOnAnEpub_Loses()
     {
