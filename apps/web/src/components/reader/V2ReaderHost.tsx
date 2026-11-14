@@ -14,6 +14,8 @@ import { V2ReaderPopups } from './V2ReaderPopups'
 import { showsFinishBook } from '../../../../mobile/src/lib/v2reader/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
 import { readToc, tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
+import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../../../mobile/src/lib/v2reader/sessionTracker.mjs'
+import { flushPendingSessions, queueReadingSession } from '../../hooks/useReadingSession'
 import { V2SectionNav, V2TocDrawer } from './V2ReaderToc'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { V2TimeLeft, v2Percent, type V2TimePlace } from './V2TimeLeft'
@@ -119,6 +121,13 @@ export function pageLastStore(frame: HTMLIFrameElement | null): { key: string; j
   }
 }
 
+/** An ended reading session (#1313) to the session queue, under an id of its own: a resend is the same session. */
+function sendSession(e: EndedSession | null) {
+  if (!e) return
+  const { book, ...session } = e
+  queueReadingSession({ ...session, userBookId: book, clientSessionId: crypto.randomUUID() })
+}
+
 interface Props {
   book: V2HostBook | null
   /** The page took a book (after the open tracker's checks): the dev route records it in its library. */
@@ -149,6 +158,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const opening = useRef<Opening | null>(null)
   /** Which page answer belongs to which open (openTracker.mjs): a book kept on screen, a stale `restored`. */
   const [tracker] = useState(() => createOpenTracker<Opening, V2OpenedMessage>())
+  /** The reading session (#1313, sessionTracker.mjs): only a synced book's, sent through the session queue. */
+  const [sessions] = useState(createSessionTracker)
   const opens = useRef(0)
   const lastBook = useRef<V2HostBook | null>(null)
   const onOpenedRef = useRef(onOpened)
@@ -313,6 +324,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     // The same object again (a re-render, StrictMode's second run) is not a new open: its bytes may be gone.
     if (!book || book === lastBook.current) return
     lastBook.current = book
+    sendSession(sessions.open(Date.now()))
     // Nothing of the previous book may stay on screen beside this one's answer (or its error).
     setError(null)
     setOffer(null)
@@ -372,6 +384,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       // long) comes before its `opened` and must stand.
       setFinish(null)
       const target = current.sync
+      // Bytes that are not the server file's record no session either (below: nothing of that book's is saved).
+      sendSession(sessions.bind(!dev && target && target.sha256.toLowerCase() === m.book.sha256 ? target.bookId : null, Date.now()))
       // A language that does not read (`deu`) saves nothing: the fallback `en` would file its words under English cards.
       setVocabBook(!dev && target && target.sha256.toLowerCase() === m.book.sha256 && savesWords(m) ? { id: target.bookId, title: m.title || current.originalName } : null)
       if (dev) call('restore', [readItem(storeKey(m.book.sha256))])
@@ -488,6 +502,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (readingRef.current && hidesBarsOnRelocate({ moved: r.moved, msSinceHostMove })) hideBars()
           // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
           if (!tracker.showsPosition()) return
+          sessions.relocate(r, Date.now())
           setTocIndex(r.tocIndex)
           setTimePlace({ fraction: r.fraction, sectionEnd: r.sectionEnd, words: r.words })
           setStatus(v2Percent(r.fraction))
@@ -498,6 +513,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           // A press that dismissed a selection sends no `tap`, a link none either. Untrusted: only what readTap
           // takes. Page-viewport px = this frame's.
           const p = readTap(m)
+          sessions.activity(Date.now())
           if (p) onPopupEvent({ type: 'tap', x: p.x })
           return
         }
@@ -506,6 +522,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           // only what readWord takes.
           const w = readWord(m)
           if (!w) return
+          sessions.activity(Date.now())
           // Dev stub: the label proves the word → showTranslation round trip (no CFI: none).
           if (dev && w.cfi) call('showTranslation', [w.cfi, w.index, `dev: ${w.word}`])
           onPopupEvent({ type: 'word', word: w })
@@ -513,13 +530,16 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         }
         case 'key': {
           // A key pressed in the page (its frames keep focus): only what readKey takes.
+          sessions.activity(Date.now())
           onNavKey(readKey(m))
           return
         }
         case 'selection': {
           // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
           const s = readSelection(m)
-          if (s) onPopupEvent({ type: 'selection', selection: s })
+          if (!s) return
+          sessions.activity(Date.now())
+          onPopupEvent({ type: 'selection', selection: s })
           return
         }
         case 'selection-cleared':
@@ -538,11 +558,18 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     }
     addEventListener('message', onMessage)
     // Online-first: what did not land is written again when the tab is hidden, and by a keepalive write as it goes.
-    const onVisibility = () => { if (document.visibilityState === 'hidden') void sync.current?.flush() }
+    // A hidden tab ends the reading session too (the legacy reader's rule); the next activity starts another.
+    const onVisibility = () => {
+      if (document.visibilityState !== 'hidden') return
+      void sync.current?.flush()
+      sendSession(sessions.end(Date.now()))
+    }
     // The page's last turn (#1286): its own pagehide `store` would reach a document that is unloading; taken here first.
     const onPageHide = () => {
       const last = storeFor(pageLastStore(frame.current))
       sync.current?.flushKeepalive(last)
+      // Queued synchronously (localStorage); a send cut by the unload goes at the next reader's flush.
+      sendSession(sessions.end(Date.now()))
     }
     document.addEventListener('visibilitychange', onVisibility)
     addEventListener('pagehide', onPageHide)
@@ -553,7 +580,15 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       // Leaving the route (SPA navigation): the session's last pass still writes what is unsaved.
       void sync.current?.close()
       sync.current = null
+      sendSession(sessions.end(Date.now()))
     }
+  }, [])
+
+  // The reading session's heartbeat (5 min idle ends it), and what earlier visits left queued (#1313).
+  useEffect(() => {
+    if (!dev) void flushPendingSessions()
+    const id = setInterval(() => sendSession(sessions.tick(Date.now())), SESSION_HEARTBEAT_MS)
+    return () => clearInterval(id)
   }, [])
 
   // Leaving the route (#1286): the page's last turn, taken while the frame is still in the document (a layout
