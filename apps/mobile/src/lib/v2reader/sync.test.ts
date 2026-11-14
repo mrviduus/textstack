@@ -540,6 +540,41 @@ describe('V2 local library sync (R6)', () => {
         expect(await lib.outbox()).toEqual([])
       })
     })
+
+    // #1196: a pre-paginated EPUB's page is page-name (its spine href); a reflowable EPUB's place stays epub-cfi.
+    describe('a pre-paginated EPUB page (page-name, #1196)', () => {
+      const fixedPage = { cfi: 'epubcfi(/6/4[p2])', page: 'OEBPS/p2.xhtml', index: 1, fraction: 0.5, at: NOW - 1000 }
+      const pageName = { version: 1, scheme: 'page-name', value: { page: 'OEBPS/p2.xhtml', index: 1 } }
+
+      it('fixedLayoutPosition_SentAsPageName', async () => {
+        const { lib, bookId, fileId } = await synced()
+        await lib.writeEntry(SHA, entry(fixedPage), newId)
+        const calls = fakeApi({ [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 2, { currentLocator: pageName, bookFraction: 0.5 }))] })
+        await syncV2Library(lib, host())
+        expect(calls.find((c) => c.path.endsWith('/reading-state'))!.body).toMatchObject({ fileId, currentLocator: pageName, bookFraction: 0.5 })
+      })
+
+      it('pageKeyTheServerRefuses_NotSentAndSaidSoWithoutTheKey', async () => {
+        const { lib, bookId } = await synced()
+        await lib.writeEntry(SHA, entry({ ...fixedPage, page: 'x'.repeat(600) }), newId)
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const calls = fakeApi({})
+        await syncV2Library(lib, host())
+        expect(calls.some((c) => c.path === `/books/${bookId}/reading-state`)).toBe(false)
+        const said = warn.mock.calls.map((c) => String(c[0]))
+        warn.mockRestore()
+        expect(said).toEqual([expect.stringMatching(/^\[v2 sync\] page position not synced \(epub\): its page key \(600 UTF-16 units\)/)])
+        expect(said[0]).not.toContain('xxxx')
+      })
+
+      it('reflowablePosition_SentAsEpubCfi', async () => {
+        const { lib, bookId, fileId } = await synced()
+        await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 1000 }), newId)
+        const calls = fakeApi({ [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 2))] })
+        await syncV2Library(lib, host())
+        expect(calls.find((c) => c.path.endsWith('/reading-state'))!.body.currentLocator).toEqual({ version: 1, scheme: 'epub-cfi', value: pos.cfi, quote: pos.quote })
+      })
+    })
   })
 
   describe('annotation conflicts', () => {

@@ -351,8 +351,8 @@ public class ReadingSyncServiceTests
     [InlineData(PdfPage, "epub")]
     [InlineData(PdfPage, "html")]
     [InlineData(Cfi, "pdf")]
-    [InlineData(PageName, "epub")]
     [InlineData(PageName, "pdf")]
+    [InlineData(PageName, "mobi")]
     public async Task WriteAsync_LostOnASchemeThatDoesNotFitTheFile_IsInvalidPayload(string locator, string format)
     {
         CurrentFileIs(format);
@@ -371,6 +371,7 @@ public class ReadingSyncServiceTests
     [InlineData(TextPositionV1, "epub")]
     [InlineData(TextPositionV1, "pdf")]
     [InlineData(PageName, "cbz")]
+    [InlineData(PageName, "epub")]
     public async Task WriteAsync_LostOnASchemeThatFitsTheFile_IsStaleRevisionNotInvalid(string locator, string format)
     {
         CurrentFileIs(format);

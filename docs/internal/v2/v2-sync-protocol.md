@@ -124,7 +124,7 @@ reader (M2.7a, owner decision 2026-11-02, #1112). Only `epub-cfi` carries `quote
 
 **Scheme fits the file** (#1122, #1128; `SyncValidation.FitsFile`, and `ReadingStateRepository`'s
 write SQL): `pdf-page` only on a `pdf`; `epub-cfi` on every other format (`epub`, `html`, `mobi`,
-`azw3`, `fb2`, `cbz`), never on a `pdf`; `page-name` only on a `cbz`; `textstack-*` on any (its guard
+`azw3`, `fb2`, `cbz`), never on a `pdf`; `page-name` only on a `cbz` or an `epub`; `textstack-*` on any (its guard
 is the chapter check).
 
 **Page positions: `page-name` (#1188, owner decision 2026-11-13; ADR-031 "Amended 2026-11-13").** An
@@ -137,22 +137,26 @@ A page-based position is its own scheme instead, never a quote-less `epub-cfi`:
 
 | Member | Rule |
 |---|---|
-| `page` | the page's stable key: a CBZ image's entry name in the archive (as the page reads it: its extension lower-cased, `comicName`). 1–512 UTF-16 units, not blank, no control character (Unicode Cc), no NUL or lone surrogate |
+| `page` | the page's stable key: a CBZ image's entry name in the archive (as the page reads it: its extension lower-cased, `comicName`); a pre-paginated EPUB page's spine item href (the manifest href resolved against the OPF, e.g. `OEBPS/p2.xhtml`: foliate's section id), #1196. Both come from the file's bytes alone. 1–512 UTF-16 units, not blank, no control character (Unicode Cc), no NUL or lone surrogate |
 | `index` | its 0-based section, an Int32 ≥ 0: a hint (ADR-019's same-page test, the CFI the page keeps beside it). Restore goes by `page` only |
 
 No other member and no `quote` (400). The fraction is the state's `bookFraction`. Reading-state
 `currentLocator` / `frontierLocator` only: an annotation with it is 400 (a CBZ has no text to
-highlight). It fits only a `cbz` file (400 `invalid_payload` on any other, the first write's and a
-lost write's alike). A pre-paginated EPUB page ([#1196](https://github.com/mrviduus/textstack/issues/1196))
-will use the same scheme with the spine item's href as `page`; until #1196 lands, `page-name` on an
-`epub` is refused.
+highlight). It fits a `cbz` or an `epub` file (400 `invalid_payload` on any other, the first write's and a
+lost write's alike). On an `epub` it is a pre-paginated EPUB's page ([#1196](https://github.com/mrviduus/textstack/issues/1196),
+owner rule 2026-11-13: any `epub`). The server cannot tell a pre-paginated EPUB from a reflowable one
+(it never parses the OPF), so it takes `page-name` on any `epub`; a reflowable EPUB's position always
+has text and a quote, so its clients write `epub-cfi` and never `page-name`. An `epub-cfi` position
+without a quote is still refused on every format.
 
-Clients (`packages/shared` `positionWrite` / `statePosition`): the page saves a CBZ position as
-`{cfi, page, index, fraction, at}`; it is written as `page-name` `{page, index}` (the CFI is not sent)
-only when the file is a `cbz` and the key passes the rules above (else nothing is written, as for any
-position the server would refuse), and read back as `{cfi: epubcfi(/6/2·(index+1)), page, index,
-fraction}`, which the page restores by `page`. Both hosts sync it like any other position: no CBZ
-exception is left on Android or the web.
+Clients (`packages/shared` `positionWrite` / `statePosition`): the page saves a CBZ or pre-paginated
+EPUB position as `{cfi, page, index, fraction, at}` (no `quote`); it is written as `page-name` `{page, index}`
+(the CFI is not sent) only when the file is a `cbz` or an `epub`, the position has no quote and the key
+passes the rules above (else nothing is written, as for any position the server would refuse), and read
+back as `{cfi: epubcfi(/6/2·(index+1)), page, index, fraction}`, which the page restores by `page`. A
+host's move to it (`goTo`) also lands by `page`, never by the index's CFI: two devices may list a CBZ's
+entries in different orders. ADR-019's same-page test compares `page` when the local place has one too,
+else the index. Both hosts sync it like any other position: no CBZ exception is left on Android or the web.
 
 **Transitional locators (until R8).** The two `textstack-*` schemes, as `textPosition.ts` and
 `textAnchor.ts` serialize them; members a value does not name pass, as on `epub-cfi` (the serialized

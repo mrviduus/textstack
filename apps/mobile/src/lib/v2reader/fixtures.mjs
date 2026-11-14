@@ -350,7 +350,7 @@ export function hostilePdf(evil) {
   })
 }
 
-/** tscover.epub (a non-linear cover first), tsfixed.epub (pre-paginated text), tsthree.cbz, tsformat.epub, tsrtl.epub (spine rtl, English text), tshe.epub (Hebrew, no spine direction), tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages), tsformat.pdf, tscjk.pdf, tslocked.pdf. */
+/** tscover.epub (a non-linear cover first), tsfixed.epub (pre-paginated text), tsdup.epub (one href twice in its spine), tsthree.cbz, tsformat.epub, tsrtl.epub (spine rtl, English text), tshe.epub (Hebrew, no spine direction), tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages), tsformat.pdf, tscjk.pdf, tslocked.pdf. */
 export function writeFormatFixtures(dir) {
   epub(resolve(dir, 'tsformat.epub'), 'TS EPUB', {
     files: { 's1.xhtml': xhtml('', `<h1>Chapter One</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}`) },
@@ -408,13 +408,20 @@ export function writeFormatFixtures(dir) {
     manifest: [1, 2, 3].map((n) => `<item id="p${n}" href="p${n}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
     spine: '<itemref idref="p1"/><itemref idref="p2"/><itemref idref="p3"/>',
   })
+  // A pre-paginated EPUB whose spine lists p1 twice (#1196 review): the same page key at sections 0 and 2.
+  epub(resolve(dir, 'tsdup.epub'), 'TS DUP', {
+    meta: '<meta property="rendition:layout">pre-paginated</meta>',
+    files: Object.fromEntries([1, 2].map((n) => [`p${n}.xhtml`, xhtml('<meta name="viewport" content="width=600, height=800"/>', `<p>Page ${n}. ${para}</p>`)])),
+    manifest: [1, 2].map((n) => `<item id="p${n}" href="p${n}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: '<itemref idref="p1"/><itemref idref="p2"/><itemref idref="p1"/>',
+  })
   // Three pages: the 2nd and 3rd share a spread in a landscape view (foliate pairs pages after the first).
   zipFiles(resolve(dir, 'tsthree.cbz'), { 'p01.png': png(60, 80, [200, 40, 40]), 'p02.png': png(60, 80, [40, 200, 40]), 'p03.png': png(60, 80, [40, 40, 200]) })
   // PDF (#1128 S5): five text pages; one CJK page on a predefined cMap; one that needs a password.
   writeFileSync(resolve(dir, 'tsformat.pdf'), pdf(5))
   writeFileSync(resolve(dir, 'tscjk.pdf'), pdf(1, { title: 'TS CJK', cjk: true }))
   writeFileSync(resolve(dir, 'tslocked.pdf'), pdf(1, { title: 'TS LOCKED', locked: true }))
-  return ['tsformat.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsthree.cbz', 'tsformat.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
+  return ['tsformat.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsthree.cbz', 'tsformat.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
