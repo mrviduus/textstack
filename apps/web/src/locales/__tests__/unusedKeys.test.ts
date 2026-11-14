@@ -19,7 +19,7 @@ const DYNAMIC = [
   /^vocabulary\.(review|stages|filters)\.\w+$/,
   /^tutor\.exercise\.\w+$/,
   /^stats\.(short|medium|long|slow|fast)$/,
-  /^changelog\.(area|kind)\.\w+$/,
+  /^changelog\.(area|kind|move\.state)\.\w+$/,
   // DeviceVerifyPage builds `${ns}.${suffix}` with ns chosen at runtime
   /^(deviceVerify|connectExtension)\./,
 ]

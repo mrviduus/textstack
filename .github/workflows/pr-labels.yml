@@ -2,7 +2,9 @@ name: PR labels
 
 # Every PR needs an area label: it picks the PR's section on the /changelog page (#1220). The allowed labels are read from .github/release.yml,
 # so the list lives in one place. Dependabot PRs pass by their `dependencies` label,
-# which release.yml excludes from the changelog.
+# which release.yml excludes from the changelog. PRs from forks skip the area check
+# (#1244): their authors cannot set labels, and an unlabelled PR still lands under
+# "Other" on /changelog. The `public` check below still runs for them.
 on:
   pull_request:
     types: [opened, reopened, edited, labeled, unlabeled, synchronize]
@@ -22,7 +24,8 @@ jobs:
             scripts/changelog-data.mjs
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - env:
+      - if: ${{ !github.event.pull_request.head.repo.fork }}
+        env:
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           # yq (mikefarah) ships with the runner image.

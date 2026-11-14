@@ -86,7 +86,9 @@ jobs:
   # directory is that directory's (Application embeds ChapterReview/ReviewMethod.md;
   # the MCP package ships its README). Anything shared or unrecognised —
   # packages/, scripts/, .github/, root package/lock files, .nvmrc — is
-  # everything.
+  # everything. Except in .github/: other workflows, issue forms, its *.md pages,
+  # release.yml and dependabot.yml touch nothing (node-version and area-label still
+  # read workflows and release.yml, and they always run).
   changes:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -124,6 +126,10 @@ jobs:
               '') ;;
               docs/*|site/*) docs=true ;;
               internal/*) ;;
+              # Another workflow, a form, a repo page: no job here builds or tests it.
+              # ci.yml itself stays everything, and so do the compose overrides.
+              .github/workflows/ci.yml) everything ;;
+              .github/workflows/*|.github/ISSUE_TEMPLATE/*|.github/*.md|.github/release.yml|.github/dependabot.yml) ;;
               backend/*|database/*|tests/*|*.sln|Directory.*.props|NuGet.Config|global.json|docker-compose*.yml) backend=true ;;
               apps/web/*|apps/admin/*) web=true ;;
               apps/mobile/*) mobile=true ;;
@@ -679,9 +685,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
-          docker system prune -af
+        run: scripts/ci-free-disk.sh
 
       # Layer cache in the Actions cache (.github/docker-compose.ci.yml). buildx
       # gives compose a builder that can export to it; the runtime action hands
@@ -812,9 +816,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
-          docker system prune -af
+        run: scripts/ci-free-disk.sh
 
       # Layer cache in the Actions cache (.github/docker-compose.ci.yml). buildx
       # gives compose a builder that can export to it; the runtime action hands

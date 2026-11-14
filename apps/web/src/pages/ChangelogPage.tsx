@@ -3,13 +3,49 @@ import { useSearchParams } from 'react-router-dom'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
 import { useTranslation } from '../hooks/useTranslation'
-import { AREAS, areaOf, byWeek, readerEntries, type Area, type ChangelogData } from '../lib/changelog'
+import { AREAS, MOVE_OPEN, MOVE_STEPS, MOVE_UPDATED, areaOf, byWeek, moveProgress, readerEntries, type Area, type ChangelogData } from '../lib/changelog'
 import './ChangelogPage.css'
 
 const FROZEN_URL = 'https://github.com/mrviduus/textstack/blob/main/CHANGELOG.md'
 
 const formatDate = (iso: string) =>
   new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en', { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' })
+
+/** The whole road of the move to V2: progress, every step, what is still open (#1013). */
+function MoveToV2({ t }: { t: ReturnType<typeof useTranslation>['t'] }) {
+  const percent = moveProgress(MOVE_STEPS)
+  const done = MOVE_STEPS.filter((s) => s.state === 'done').length
+  return (
+    <section className="move" aria-labelledby="move-heading">
+      <h2 id="move-heading" className="move__heading">{t('changelog.move.heading')}</h2>
+      <p className="move__intro">{t('changelog.move.intro')}</p>
+      <div className="move__bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
+        aria-labelledby="move-heading">
+        <div className="move__fill" style={{ width: `${percent}%` }} />
+      </div>
+      <p className="move__progress">
+        {t('changelog.move.progress', { percent, done, total: MOVE_STEPS.length })}
+        {' · '}
+        <time dateTime={MOVE_UPDATED}>{t('changelog.move.updated', { date: formatDate(MOVE_UPDATED) })}</time>
+      </p>
+      <ol className="move__steps">
+        {MOVE_STEPS.map((s) => (
+          <li key={s.title} className={`move__step move__step--${s.state}`}>
+            <span className="move__state">{t(`changelog.move.state.${s.state}`)}</span>
+            <div>
+              <h3 className="move__title">{s.title}</h3>
+              <p className="move__text">{s.text}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <h3 className="move__open-heading">{t('changelog.move.open')}</h3>
+      <ul className="move__open">
+        {MOVE_OPEN.map((q) => <li key={q}>{q}</li>)}
+      </ul>
+    </section>
+  )
+}
 
 export function ChangelogPage() {
   const { t } = useTranslation()
@@ -59,6 +95,8 @@ export function ChangelogPage() {
           <h1 className="changelog__title">{t('changelog.title')}</h1>
           <p className="changelog__intro">{t('changelog.intro')}</p>
         </header>
+
+        <MoveToV2 t={t} />
 
         <div className="changelog__controls">
           <div className="changelog__switch" role="group" aria-label={t('changelog.viewLabel')}>
