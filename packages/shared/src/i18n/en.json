@@ -611,7 +611,10 @@
       "savedAs": "Saved as:",
       "useThisTranslation": "Use this translation",
       "useTranslationFailed": "Couldn't update the translation — please try again",
-      "saveNeedsAccount": "Saving words needs an account — this one wasn't kept. Sign in from Profile."
+      "saveNeedsAccount": "Saving words needs an account — this one wasn't kept. Sign in from Profile.",
+      "deletedEarlier": "You deleted “{{word}}” earlier.",
+      "restore": "Restore",
+      "restoreFailed": "Couldn't restore the word. Try again."
     },
     "rareWordNotice": {
       "title": "Rare word — saved to reference",

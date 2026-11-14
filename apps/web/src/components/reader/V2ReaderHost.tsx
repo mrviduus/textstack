@@ -9,6 +9,7 @@ import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } fr
 import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs'
 import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readRelocate, readTap, takenWithoutBook, type V2NavKey } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
 import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../../../mobile/src/lib/v2reader/wordPopup.mjs'
+import { savesWords } from '../../../../mobile/src/lib/v2reader/vocabSave.mjs'
 import { V2ReaderPopups } from './V2ReaderPopups'
 import { readToc, tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
 import { V2SectionNav, V2TocDrawer } from './V2ReaderToc'
@@ -234,6 +235,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setPopupState(p)
   }
   const [bookLanguage, setBookLanguage] = useState('en')
+  /** The server book a tapped word is saved with (#1270): the production route's, when the bytes are its file's. */
+  const [vocabBook, setVocabBook] = useState<{ id: string; title: string } | null>(null)
   const main = useRef<HTMLElement>(null)
   const header = useRef<HTMLElement>(null)
   const footer = useRef<HTMLElement>(null)
@@ -353,6 +356,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       setHighlightsReady(false)
       setReadFailed(false)
       const target = current.sync
+      // A language that does not read (`deu`) saves nothing: the fallback `en` would file its words under English cards.
+      setVocabBook(!dev && target && target.sha256.toLowerCase() === m.book.sha256 && savesWords(m) ? { id: target.bookId, title: m.title || current.originalName } : null)
       if (dev) call('restore', [readItem(storeKey(m.book.sha256))])
       else if (!target) call('restore', [null])
       else if (target.sha256.toLowerCase() !== m.book.sha256) {
@@ -659,6 +664,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           popup={popup}
           frame={frame}
           bookLanguage={bookLanguage}
+          bookId={vocabBook?.id}
+          bookTitle={vocabBook?.title}
           onHighlight={annotatable && (dev || highlightsReady) ? () => call('highlightSelection') : undefined}
           onClose={closePopup}
         />

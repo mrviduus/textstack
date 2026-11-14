@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const api = vi.hoisted(() => ({ saveWord: vi.fn(), updateWord: vi.fn(), promoteLookup: vi.fn() }))
-vi.mock('@textstack/shared', () => ({ t: (_l: string, k: string) => k }))
+vi.mock('@textstack/shared', async (orig) => ({ ...(await orig<object>()), t: (_l: string, k: string) => k }))
 vi.mock('../lib/vocabularyApi', () => ({ vocabularyApi: api }))
 const cachedTranslate = vi.hoisted(() => vi.fn(() => new Promise(() => {})))
 vi.mock('../lib/translateCache', () => ({ cachedTranslate }))
