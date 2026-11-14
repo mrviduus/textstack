@@ -123,7 +123,7 @@ export function createLightbox(doc, post, behind = () => null) {
     close_.setAttribute('aria-label', 'Close')
     close_.textContent = '×'
     close_.style.cssText = 'position:absolute;top:12px;right:12px;width:44px;height:44px;border:0;border-radius:22px;background:rgba(255,255,255,.2);color:#fff;font:28px/44px system-ui,sans-serif;cursor:pointer'
-    close_.addEventListener('click', (e) => { e.stopPropagation(); close() })
+    close_.addEventListener('click', () => close())
     box.append(img, close_)
     box.addEventListener('pointerdown', onDown)
     box.addEventListener('pointermove', onMove)

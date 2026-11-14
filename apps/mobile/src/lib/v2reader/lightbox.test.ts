@@ -39,7 +39,10 @@ describe('v2 lightbox imageAt', () => {
     svg.setAttribute('aria-label', 'Labelled')
     expect(imageAt(image)?.alt).toBe('Labelled')
     // An `image` that is not SVG's (an unknown HTML element) is nothing.
-    expect(imageAt(html('<image href="blob:null/x"></image>'))).toBeNull()
+    const htmlImage = document.createElement('image')
+    htmlImage.setAttribute('href', 'blob:null/x')
+    document.body.append(htmlImage)
+    expect(imageAt(htmlImage)).toBeNull()
   })
 
   it('clampScale_OneToMax', () => {
