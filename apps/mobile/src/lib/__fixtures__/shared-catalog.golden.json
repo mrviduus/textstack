@@ -356,6 +356,7 @@
   "reader.timeLeft.under": "Less than a minute left",
   "reader.toastTapToReview": "Tap to review",
   "reader.toastWordAdded": "Added to vocabulary",
+  "reader.listenFailed": "Could not play the speech. Try again.",
   "reader.toastWordAddedCount": "Added · {count} this session",
   "reader.vocab.addAnywayFailed": "Couldn't add word — please try again",
   "reader.vocab.savedAs": "Saved as:",

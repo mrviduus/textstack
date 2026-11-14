@@ -43,6 +43,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `tapZone.mjs` (+ `.d.mts`) | Pure, both hosts (#1263): what a page `tap` does (turn back, turn on, toggle the bars). See Host responsibilities, "Reader chrome" and "Bars and tap zones, web". |
 | `highlights.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1312): the four colours (`HIGHLIGHT_COLORS`, the legacy readers'; `HIGHLIGHT_FILL` what the page draws; `colorOf`: one off the list, another client's, is drawn yellow), the page's `highlightList` (drawn ones, in book order by foliate's CFI compare, text cut to 200 code points), the hosts' readers `readHighlightList`, `readHighlightTap`, `readHighlightRemoved` in `readSelection`'s style, `noteOf` (a note as saved: trimmed, never cut: the server has no cap; blank is none) and `noteChange` (what a save writes: nothing when the draft is the note it was typed over). See Host responsibilities, "Highlights". |
 | `finishBook.mjs` (+ `.d.mts`) | Pure, both hosts (#1266): `showsFinishBook`, when the end-of-book block shows. See Host responsibilities, "Finish book". |
+| `listen.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1272): `ttsLang` (the book's language → the `lang` `/tts` is sent, the V2 reader on both hosts (the legacy readers keep their own): the primary subtag only, ISO 639-2 codes in both forms, `nb`/`nn`/`iw`/`in` and `tl` → `fil` folded, `und`/`mul`/`zxx`/`mis` to the fallback, never English for another language, null for Ukrainian), `TTS_SPEEDS` / `readSpeed` / `TTS_SPEED_KEY` / `createSpeedChoice` (Android's async store: a pick before the read wins), `createListener` (Listen's rule: it owns the phase), `speakingJs` (Android's injected call), `SPOKEN_FILL`. See Host responsibilities, "Listen". |
 | `vocabSave.mjs` (+ `.d.mts`) | Pure, both hosts (#1270): `saveOutcome`, a vocabulary save's answer as the host shows it (saved, deleted → restore, pending, lookup); `savesWords`, whether a book's `opened.lang` lets its words be saved. See Host responsibilities, "Saving a word". |
 | `wordPopup.mjs` (+ `.d.mts`) | Pure, both hosts (#1269): `readWord` (a host's read of `word`, `readSelection`'s caps; the rect through `selection.mjs` `readRect`), `readLang` (`opened.lang` as a two-letter primary subtag, or null: a three-letter code gives the host's fallback), and `popupStep`: what a `word`, `tap`, `selection`, `selection-cleared` or a move does to the word popup / selection toolbar and to the tap zones. See Host responsibilities, "Word popup and selection toolbar". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
@@ -349,6 +350,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `flow('paginated' \| 'scrolled')` | foliate layout; default `paginated` (ADR-029 Decision 1). Switches the open book in place (no reload, position kept). Before `opened` it sets what the next open uses: hosts send the reader's stored setting right after `ready`. Anything else is ignored with a `warn`. |
 | `flush()` | #1264: a `store` still debounced (a page turn's, 400 ms) is written now; nothing pending, nothing sent. Hosts call it on background, unmount and close. The page also flushes by itself when its document turns hidden (`visibilitychange`: a tab switch, the app backgrounded) and on `pagehide`. **Returns** the latest `store` message (`{ type, key, json }`: the pending one, now posted, or the last one sent; `null` before any, and after a new open until the reader moves: the swap forgets it): #1286, the web host calls it synchronously (the frame is same-origin) where a posted `store` comes too late — its own `pagehide` (the page's is a postMessage to a window that is unloading) and its unmount (a layout cleanup, while the frame is still in the document; the message listener is gone after). The host reads the value as an untrusted `store` (`readStore`: each field once, strings only, the synced book's key) inside a try: any failure is today's behaviour. The session takes it without a pass on `pagehide` (the keepalive write is the one write) and joins it to its last pass on close; the same payload posted again later is no change. Android ignores the value. |
 | `showTranslation(cfi, index, text)` | Draws `text` above that word (the web dev route's stub label only; no host draws a translation yet). Ignored where `annotatable` is false (CBZ, PDF). |
+| `speaking(cfi, index)` | #1272: the host speaks that range (a `word`'s or `selection`'s CFI and section): underlined in `SPOKEN_FILL` (listen.mjs), the previous one removed (one at a time), kept over section reloads; a highlight or label over the same range stays (one overlay). `speaking(null)`: the speech ended or stopped, the mark goes. Saves nothing, sends nothing. Ignored with a `warn` where `annotatable` is false (a PDF word has no CFI) or for a value that is no range CFI (over 1024 chars, a non-integer index). Returns true when drawn. A new open drops it. |
 | `drawnRanges()` | Test-only (`formats.check.mjs`): how many drawn highlight ranges the page holds, a count and no book data. The ranges of a section no longer loaded (its frame gone) are dropped when a section's overlayer is made and on every tap (#1312 review). |
 | `clearSelection()` | #1269: the host is done with the selection (its toolbar closed after Copy, a translation or explanation closed): removed from every shown section, `selection-cleared` sent at once if a `selection` was sent (none otherwise), and `highlightSelection()` has no last selection to fall back on. |
 | `closeLightbox()` | #1265: the image lightbox closes (Android back, a host Escape with focus outside the frame), `lightbox` closed sent. None open: nothing sent. |
@@ -533,7 +535,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   `TranslationSheet`, whose picker asks), `TranslationSheet`, `ExplanationSheet` (one answer, not streamed: the
   mobile client has no streaming). Highlight on a selection where `annotatable`, signed in (the legacy bar's gate).
   A failed gloss shows "Could not translate"; nothing on it touches the reading path.
-- *Listen* is the TTS slice's (#1272): omitted on both hosts (no speaker in the popup, no Listen in the toolbar).
+- *Listen* (#1272): the web popup's speaker and the toolbar's Listen, the Android bar's Listen; see "Listen" below.
 - *Over 500 characters* (`readSelection`'s `tooLong`): translate and explain are disabled with the legacy notice.
 - *Closing*, both hosts: Copy, a translation's or explanation's close, Escape with the toolbar open, and on Android
   the bar's × and back, call `clearSelection()` (on Android a closed sheet closes its bar too); Highlight is
@@ -568,6 +570,38 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
     them. Mark as known stays out (`V2_FEATURES.markAsKnown` false).
 - Untrusted text (word, sentence, selection) reaches the screen only as React / React Native text, and no host
   injects any of it into the page: the calls the hosts inject carry no book text.
+
+**Listen** (#1272, `listen.mjs`; audit §2.7). The host fetches and plays (the page has no network); the page marks.
+
+- *What:* a tapped word (the popup's speaker on the web, the bar's Listen on Android) or a selection (the toolbar's
+  Listen), up to 500 characters (`tooLong`: none, the server's cap). Through the legacy players (`useTts`, web and
+  mobile) and `GET /tts`. No continuous read-aloud, no word-by-word overlay, no background audio (Android stops on
+  leaving the foreground), no Listen in the translation sheet.
+- *Language:* `ttsLang(opened.lang, fallback)`: the book's language, its primary subtag only (`pt-BR` → `pt`; ISO
+  639-2 codes in both forms folded: `deu`/`ger` → `de`, `ron`/`rum` → `ro`; `nb`/`nn` → `no`, the server's key), else
+  the translation's fallback (web `en`, Android the app's language); a code that names no language (`und`, `mul`,
+  `zxx`, `mis`) is the fallback; Tagalog is `fil` (the Edge voices' code). Only the language is sent: the server picks
+  the voice by it (`TtsConfiguration.DefaultVoices`), and one spelling per language keeps one V2 cache entry. The
+  players keep their legacy handling of what they are given (mobile: English as `en-US`, its cache file names), and
+  the legacy readers send their own language as before; a V2 word shares a legacy cache entry only where both send
+  the same spelling (mobile: always, through the same player; web: a two-letter `bookLanguage`). A language without a region is never mapped to `en-US`
+  (audit §3, the legacy mobile defect). Ukrainian: no Listen (the server refuses it). Known server gap: a language
+  outside its defaults, on a server that has not loaded its voice list yet, still gets en-US there.
+- *Speed:* 0.75–2× (`TTS_SPEEDS`), the settings panel's last row, kept by the host under `TTS_SPEED_KEY` (never sent
+  to the page); on Android a speed picked before the stored one is read wins (`createSpeedChoice`). The web audio
+  cache is keyed by speed (`makeTtsKey(lang, text, speed)`; 1× keeps the key used so far); mobile's already was.
+- *No word tracking:* V2 asks `useTts` for no word timestamps (`timestamps: false`): no `/tts/timestamps` request
+  (it takes the same rate-limit permits) and no per-frame loop.
+- *The rule* (`createListener`, both hosts; it owns the phase, set synchronously, the hosts only render it): a press
+  is `loading` at once (web: a spinner, "Loading speech, tap to cancel"; Android: the bar's spinner), `playing` once
+  the player says it plays (Stop), `idle` when it ends (the players' `onEnd(failed)`, once per playback), fails or is
+  stopped. A press on the range speaking (its text, CFI and section) stops it, also while loading; the same word
+  elsewhere is spoken there. Closing the word popup or toolbar that started it (or opening another) stops it
+  (`follow`; `spokenOf` is what each host's open popup speaks). The host calls `speaking(cfi, index)` at the press and `speaking(null)` when it is idle again; a range
+  with no CFI (a PDF) is spoken unmarked. A new open, closing the book, leaving the route and (Android) the app
+  leaving the foreground stop it, through the listener. A failure (`onEnd(true)`, a throw, no audio module) says so on
+  both hosts (`reader.listenFailed`); an end the host caused (a stop, a newer request, unmounting) never does. A
+  rejected `play()` of audio a newer call paused belongs to that older call: it touches nothing (web `useTts`).
 
 **Highlights** (#1312, `highlights.mjs`; audit §2.6). The page draws and lists; the host keeps notes and writes.
 

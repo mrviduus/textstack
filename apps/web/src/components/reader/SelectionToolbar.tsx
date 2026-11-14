@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { HighlightColor } from '../../lib/offlineDb'
 import { useTranslation } from '../../hooks/useTranslation'
+import { SpeakStateIcon } from '../vocabulary/SpeakButton'
 
 const HIGHLIGHT_COLORS: { color: HighlightColor; labelKey: string; hex: string }[] = [
   { color: 'yellow', labelKey: 'reader.selectionToolbar.highlightYellow', hex: '#fef08a' },
@@ -19,6 +20,8 @@ interface SelectionToolbarProps {
   onTranslate?: () => void
   onExplain?: () => void
   onSpeak?: () => void
+  /** #1272: the V2 reader's Listen state: a spinner while the audio is fetched (a press cancels), Stop while it plays. */
+  speakState?: 'idle' | 'loading' | 'playing'
   onCopy?: () => void
   /** The engine's selection is over its limit: Translate and Explain are off, a notice says why (as mobile). */
   tooLong?: boolean
@@ -33,6 +36,7 @@ export function SelectionToolbar({
   onTranslate,
   onExplain,
   onSpeak,
+  speakState = 'idle',
   onCopy,
   tooLong = false,
 }: SelectionToolbarProps) {
@@ -148,10 +152,11 @@ export function SelectionToolbar({
           onMouseDown={(e) => e.preventDefault()}
           onTouchStart={(e) => e.preventDefault()}
           onClick={onSpeak}
-          title={t('reader.selectionToolbar.listen')}
-          aria-label={t('reader.selectionToolbar.listen')}
+          title={t(SPEAK_LABEL[speakState])}
+          aria-label={t(SPEAK_LABEL[speakState])}
+          aria-busy={speakState === 'loading' || undefined}
         >
-          <SpeakIcon />
+          <SpeakStateIcon state={speakState} />
         </button>
       )}
       <button
@@ -202,12 +207,4 @@ function ExplainIcon() {
 }
 
 
-function SpeakIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-    </svg>
-  )
-}
+const SPEAK_LABEL = { idle: 'reader.selectionToolbar.listen', loading: 'reader.selectionToolbar.listenLoading', playing: 'reader.selectionToolbar.listenStop' } as const

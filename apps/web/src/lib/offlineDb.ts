@@ -535,16 +535,21 @@ export async function clearExpiredCaches(): Promise<void> {
 
 // ============ TTS AUDIO CACHE ============
 
-function makeTtsKey(lang: string, text: string): string {
-  return `${lang}:${hashText(text)}`
+/**
+ * One cache entry per language, speed and text (#1272: the key was the language and text alone, so a changed speed
+ * replayed the old speed's audio). At 1× the key is the one used so far, so those entries stay hits.
+ */
+export function makeTtsKey(lang: string, text: string, speed = 1): string {
+  return speed === 1 ? `${lang}:${hashText(text)}` : `${lang}:${speed.toFixed(2)}:${hashText(text)}`
 }
 
 export async function getCachedTtsAudio(
   lang: string,
-  text: string
+  text: string,
+  speed = 1,
 ): Promise<CachedTtsAudio | null> {
   const db = await openOfflineDb()
-  const key = makeTtsKey(lang, text)
+  const key = makeTtsKey(lang, text, speed)
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(TTS_STORE, 'readonly')
@@ -566,11 +571,12 @@ export async function getCachedTtsAudio(
 export async function cacheTtsAudio(
   lang: string,
   text: string,
-  audioData: ArrayBuffer
+  audioData: ArrayBuffer,
+  speed = 1,
 ): Promise<void> {
   const db = await openOfflineDb()
   const cached: CachedTtsAudio = {
-    key: makeTtsKey(lang, text),
+    key: makeTtsKey(lang, text, speed),
     audioData,
     lang,
     cachedAt: Date.now(),

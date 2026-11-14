@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
@@ -116,7 +116,7 @@ describe('V2ReaderHost word popup and selection toolbar', () => {
     expect(document.querySelector('.word-popup')).toBeNull()
   })
 
-  it('selection_TheToolbar_HighlightTranslateExplainCopy_NoListenYet_ASelectionSupersedesTheWord', async () => {
+  it('selection_TheToolbar_HighlightTranslateExplainCopyListen_ASelectionSupersedesTheWord', async () => {
     opened()
     fromPage(word())
     await settle()
@@ -125,8 +125,8 @@ describe('V2ReaderHost word popup and selection toolbar', () => {
     for (const name of ['Highlight yellow', 'Translate selected text', 'Explain in context', 'Copy selected text']) expect(screen.getByRole('button', { name })).toBeEnabled()
     // The legacy four colours (#1312): the page draws each.
     for (const name of ['Highlight green', 'Highlight pink', 'Highlight blue']) expect(screen.getByRole('button', { name })).toBeEnabled()
-    // Listen is the TTS slice's (#1272).
-    expect(screen.queryByRole('button', { name: 'Listen to pronunciation' })).toBeNull()
+    // #1272 (V2ReaderHost.listen.test.tsx).
+    expect(within(document.querySelector('.selection-toolbar') as HTMLElement).getByRole('button', { name: 'Listen to pronunciation' })).toBeInTheDocument()
   })
 
   it('selection_Highlight_TheOneDescribedHighlightedInTheColourChosen_ToolbarClosed', () => {
