@@ -132,7 +132,8 @@ function sendSession(e: EndedSession | null, authenticated: boolean) {
   const { book, ...session } = e
   queueReadingSession({ ...session, userBookId: book, clientSessionId: crypto.randomUUID() })
   const { durationSeconds, wordsRead, startPercent, endPercent } = session
-  if (authenticated) trackReadingSessionEnd({ durationSeconds, wordsRead, startPercent, endPercent, editionId: null, userBookId: book })
+  // No ids: V2 book ids are not legacy's UserBook ids, which `user_book_id` holds.
+  if (authenticated) trackReadingSessionEnd({ durationSeconds, wordsRead, startPercent, endPercent, editionId: null, userBookId: null })
 }
 
 interface Props {
@@ -296,6 +297,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   /** A bar button or the taken offer moving the book: the bars stay. */
   const hostMove = (name: string, args: unknown[] = []) => {
     hostMoves.start()
+    // A navigation (contents, section, the taken offer), not a turn: its landing is no reading (#1313).
+    if (name === 'goTo') sessions.jump(Date.now())
     call(name, args)
   }
   /** A tap, word or selection from the page (validated): what is open, and what the tap zones do (`popupStep`). */
@@ -653,7 +656,6 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    */
   const goToc = (e: V2TocEntry) => {
     setTocIndex(e.index)
-    sessions.jump(Date.now())
     hostMove('goTo', [e.href, true])
   }
   /** Never a section number (#1261): the percent, then the current entry's title when there is one. */
@@ -709,7 +711,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             {t('v2Reader.newerPlace', { percent: Math.round((offer.fraction ?? 0) * 100) })}{' '}
             <button onClick={() => setOffer(null)}>{t('v2Reader.stayHere')}</button>{' '}
             {/* Chosen: the page saves where it lands (README, `goTo`). */}
-            <button onClick={() => { sessions.jump(Date.now()); hostMove('goTo', [offer, true]); setOffer(null) }}>{t('v2Reader.goThere')}</button>
+            <button onClick={() => { hostMove('goTo', [offer, true]); setOffer(null) }}>{t('v2Reader.goThere')}</button>
           </div>
         )}
         {readFailed && (

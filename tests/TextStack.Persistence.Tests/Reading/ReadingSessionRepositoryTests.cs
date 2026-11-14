@@ -89,7 +89,7 @@ public class ReadingSessionRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task PaceTotalsAsync_OwnSessionsWithWordsAndTime_CountedNotEtlCarriedOnesNorAnotherUsers()
+    public async Task NativePaceTotalsAsync_OwnSessionsWithWordsAndTime_CountedNotEtlCarriedOnesNorAnotherUsers()
     {
         var mine = await db.NewReaderWithBookAsync();
         var bobs = await db.NewReaderWithBookAsync();
@@ -107,7 +107,6 @@ public class ReadingSessionRepositoryTests(V2PostgresFixture db)
             VALUES (@carried, @userId, @carried, NULL, now(), now(), 300, 900, 0, 0, now())
             """, new { carried, userId = mine.UserId });
 
-        Assert.Equal(new PaceTotals(2, 300, 600), await _repo.PaceTotalsAsync(mine.UserId, excludeEtlCarried: true, Ct));
-        Assert.Equal(new PaceTotals(3, 1200, 900), await _repo.PaceTotalsAsync(mine.UserId, excludeEtlCarried: false, Ct));
+        Assert.Equal(new PaceTotals(2, 300, 600), await _repo.NativePaceTotalsAsync(mine.UserId, Ct));
     }
 }

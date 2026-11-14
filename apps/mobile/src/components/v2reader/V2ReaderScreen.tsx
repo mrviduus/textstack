@@ -368,6 +368,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const pageWidth = useRef(0)
   /** Bar buttons and the taken offer: the page counts their moves as the reader's, but they keep the bars up. */
   const [hostMoves] = useState(createHostMoves)
+  /** The host's own navigation (contents, section, the taken offer), not a turn: bars kept, its landing no reading (#1313). */
+  const hostNavigates = () => {
+    hostMoves.start()
+    sessions.jump(Date.now())
+  }
   const barTurn = (dir: 'prev' | 'next') => {
     hostMoves.start()
     call(`window.__fol.${dir}()`)
@@ -379,8 +384,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const goToc = (e: V2TocEntry) => {
     tocIndex.current = e.index
     setProgress.current((p) => p && { ...p, tocIndex: e.index })
-    hostMoves.start()
-    sessions.jump(Date.now())
+    hostNavigates()
     call(`window.__fol.goTo(${JSON.stringify(e.href)}, true)`)
   }
 
@@ -557,9 +561,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const goTo = (p: PagePosition, chosen = false) => {
     place.hostMove()
     // A chosen goTo (the taken offer) is `moved` to the page; a sync adopt/move is not.
-    if (chosen) hostMoves.start()
-    // The taken offer is the host's navigation: its landing is not reading (sessionTracker.mjs `jump`).
-    if (chosen) sessions.jump(Date.now())
+    if (chosen) hostNavigates()
     call(`window.__fol.goTo(${JSON.stringify(p)}, ${chosen})`)
   }
 
@@ -597,7 +599,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   // The reading session (#1313): the heartbeat ends an idle one; the background, another identity and the
   // unmount end it (the legacy reader's rules). The next activity starts another.
   // ponytail: a sign-out from inside the reader ends the session after its library is wiped or handed on, so up to
-  // one session per sign-out is lost; end it in the sign-out flow (before pushV2BeforeSignOut) if that matters.
+  // one session per sign-out is lost (#1322); end it in the sign-out flow (before pushV2BeforeSignOut) if that matters.
   useEffect(() => {
     const beat = setInterval(() => saveSession(sessions.tick(Date.now())), SESSION_HEARTBEAT_MS)
     const sub = AppState.addEventListener('change', (state) => {

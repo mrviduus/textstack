@@ -21,12 +21,10 @@ public class V2PaceTotalsTests
     private sealed class Sessions(Func<CancellationToken, Task<PaceTotals>> totals) : IReadingSessionRepository
     {
         public int Calls { get; private set; }
-        public bool? ExcludedEtlCarried { get; private set; }
         public Task<WriteResult<ReadingSession>> SaveAsync(Guid userId, ReadingSession session, CancellationToken ct) => throw new NotSupportedException();
-        public Task<PaceTotals> PaceTotalsAsync(Guid userId, bool excludeEtlCarried, CancellationToken ct)
+        public Task<PaceTotals> NativePaceTotalsAsync(Guid userId, CancellationToken ct)
         {
             Calls++;
-            ExcludedEtlCarried = excludeEtlCarried;
             return totals(ct);
         }
     }
@@ -38,11 +36,9 @@ public class V2PaceTotalsTests
     { Timeout = TimeSpan.FromMilliseconds(timeoutMs) };
 
     [Fact]
-    public async Task GetAsync_OnAndReady_TheRepositorysTotalsWithoutTheEtlCarriedRows()
+    public async Task GetAsync_OnAndReady_TheRepositorysTotals()
     {
-        var sessions = new Sessions(_ => Task.FromResult(Some));
-
-        Assert.Equal((Some, true), (await Totals(sessions).GetAsync(Guid.NewGuid(), Ct), sessions.ExcludedEtlCarried));
+        Assert.Equal(Some, await Totals(new Sessions(_ => Task.FromResult(Some))).GetAsync(Guid.NewGuid(), Ct));
     }
 
     [Fact]
@@ -59,23 +55,47 @@ public class V2PaceTotalsTests
     }
 
     [Fact]
-    public async Task GetAsync_QueryTimesOut_TheNextCallChecksReadinessAgain_ACallersOwnCancelDoesNot()
+    public async Task GetAsync_QueryTimesOut_V2UnreachableForTheTtlSoTheNextCallsAnswerAtOnceWithoutAsking()
     {
         var checks = 0;
         var readiness = V2ReadinessTests.Readiness(_ => { checks++; return Task.FromResult(new List<string>()); });
-        var hanging = Totals(new Sessions(async ct => { await Task.Delay(Timeout.Infinite, ct); return Some; }), readiness: readiness);
+        var sessions = new Sessions(async ct => { await Task.Delay(Timeout.Infinite, ct); return Some; });
+        var totals = Totals(sessions, readiness: readiness);
 
-        Assert.Equal(default, await hanging.GetAsync(Guid.NewGuid(), Ct));
-        Assert.Equal(default, await hanging.GetAsync(Guid.NewGuid(), Ct));
-        Assert.Equal(2, checks);
+        Assert.Equal(default, await totals.GetAsync(Guid.NewGuid(), Ct));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Equal(default, await totals.GetAsync(Guid.NewGuid(), Ct));
 
-        // The caller's own cancel: thrown, and V2 is not taken for down (the next call reuses the check it made).
+        Assert.True(watch.Elapsed < TimeSpan.FromMilliseconds(100), $"took {watch.Elapsed}");
+        Assert.Equal((1, 1, V2State.Unreachable), (checks, sessions.Calls, (await readiness.GetAsync()).Status));
+    }
+
+    [Fact]
+    public async Task GetAsync_QueryIgnoresItsToken_NoneWithinTheLimit()
+    {
+        var never = new TaskCompletionSource<PaceTotals>();
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var totals = await Totals(new Sessions(_ => never.Task)).GetAsync(Guid.NewGuid(), Ct).WaitAsync(TimeSpan.FromSeconds(5), Ct);
+
+        Assert.Equal(default, totals);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+    }
+
+    [Fact]
+    public async Task GetAsync_CallersOwnCancel_ThrownAndNothingRecorded()
+    {
+        var checks = 0;
+        var readiness = V2ReadinessTests.Readiness(_ => { checks++; return Task.FromResult(new List<string>()); });
         using var mine = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         mine.CancelAfter(TimeSpan.FromMilliseconds(100));
         var patient = Totals(new Sessions(async ct => { await Task.Delay(Timeout.Infinite, ct); return Some; }), readiness: readiness, timeoutMs: 10_000);
+
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => patient.GetAsync(Guid.NewGuid(), mine.Token));
-        await hanging.GetAsync(Guid.NewGuid(), Ct);
-        Assert.Equal(3, checks);
+
+        // V2 is not taken for down: the next call asks it, on the check already made.
+        Assert.Equal(Some, await Totals(new Sessions(_ => Task.FromResult(Some)), readiness: readiness).GetAsync(Guid.NewGuid(), Ct));
+        Assert.Equal(1, checks);
     }
 
     [Fact]

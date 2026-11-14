@@ -5,7 +5,6 @@ export const SESSION_HEARTBEAT_MS: number
 export const MIN_SESSION_SECONDS: number
 export const MAX_SESSION_SECONDS: number
 export const MAX_WPM: number
-export const JUMP_GRACE_MS: number
 
 /** A finished session, the body of `PUT /me/v2/reading/sessions/{id}` but for `book` (the host's key) and the id. */
 export interface EndedSession {

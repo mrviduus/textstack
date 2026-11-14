@@ -66,6 +66,13 @@ public sealed class V2Readiness(
     public void Invalidate() => Volatile.Write(ref _cached, null);
 
     /// <summary>
+    /// A V2 call ran out of its caller's time limit: V2 is taken as unreachable for <see cref="Ttl"/>, so the next
+    /// callers answer without it at once instead of each waiting out the same limit (#1313).
+    /// </summary>
+    public void ObserveTimeout() =>
+        Volatile.Write(ref _cached, new Cached(new Lazy<Task<V2State>>(Task.FromResult(new V2State(V2State.Unreachable, Error: "Timeout"))), clock.GetUtcNow()));
+
+    /// <summary>
     /// A V2 call failed with <paramref name="error"/>: anything from the database or its connection
     /// that is not an answer about the data (a constraint, a deadlock, a serialization failure) may be
     /// an outage, so the next caller checks again.

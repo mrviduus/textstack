@@ -50,9 +50,9 @@ async function reader(o: { dev?: boolean } = {}) {
     await new Promise((r) => setTimeout(r, 0))
   })
   let opens = 0
-  /** A book handed to the host and opened by the page (its bytes `sha256`), landing at 10 %. */
   /** A book handed to the host; the page has not answered. */
   const ask = async (t: V2SyncTarget) => { view.rerender(host({ bytes: new ArrayBuffer(8), name: t.name, sync: o.dev ? undefined : t })) }
+  /** A book handed to the host and opened by the page (its bytes `sha256`), landing at 10 %. */
   const open = async (t: V2SyncTarget, sha256 = t.sha256) => {
     await ask(t)
     await fromPage({ type: 'opened', title: 'T', format: 'epub', toc: [{ label: 'One', href: 'c1.xhtml', depth: 0 }, { label: 'Two', href: 'c2.xhtml', depth: 0 }], book: { sha256, size: 8, name: `${++opens}/${t.name}` } })
@@ -64,7 +64,7 @@ async function reader(o: { dev?: boolean } = {}) {
 }
 
 describe('V2ReaderHost reading sessions (#1313)', () => {
-  it('session_ReadThenLeave_QueuedForTheServerBookWithItsOwnId', async () => {
+  it('unmount_AfterReading_SessionQueuedForTheServerBookUnderItsOwnId', async () => {
     const r = await reader()
     await r.open(target(1))
     later(60)
@@ -79,7 +79,7 @@ describe('V2ReaderHost reading sessions (#1313)', () => {
     }])
   })
 
-  it('session_AnotherBookOpened_TheFirstBooksSessionEndsThere', async () => {
+  it('open_AnotherBook_TheFirstBooksSessionEndsThere', async () => {
     const r = await reader()
     await r.open(target(1))
     await r.relocate(0.2)
@@ -92,7 +92,7 @@ describe('V2ReaderHost reading sessions (#1313)', () => {
     expect(queued.map((s) => [s.userBookId, s.durationSeconds])).toEqual([['b1', 20], ['b2', 15]])
   })
 
-  it('session_AnotherBookAskedFor_TheSessionEndsThereEvenIfThatOpenFails', async () => {
+  it('open_AnotherBookThatFails_TheSessionEndsAtTheAsk', async () => {
     const r = await reader()
     await r.open(target(1))
     await r.relocate(0.2)
@@ -104,7 +104,7 @@ describe('V2ReaderHost reading sessions (#1313)', () => {
     expect(queued.map((s) => [s.userBookId, s.durationSeconds])).toEqual([['b1', 20]])
   })
 
-  it('session_SectionControlAfterTwoHours_ItsLandingCountsNoWordsTheNextTurnDoes', async () => {
+  it('sectionControl_AfterTwoHours_ItsLandingCountsNoWordsTheNextTurnDoes', async () => {
     const r = await reader()
     await r.open(target(1))
     await r.relocate(0.1001) // starts the session
@@ -119,13 +119,24 @@ describe('V2ReaderHost reading sessions (#1313)', () => {
     expect(queued.map((s) => s.wordsRead)).toEqual([190])
   })
 
-  it('session_Ended_Ga4SessionEndForASignedInReaderOnly', async () => {
+  it('nextButton_BarTurn_ItsPageCounts', async () => {
+    const r = await reader()
+    await r.open(target(1))
+    await r.relocate(0.1001) // starts the session
+    later(60)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Next ›' })) })
+    await r.relocate(0.1011) // the turn the button made: 100 words
+    r.unmount()
+    expect(queued.map((s) => s.wordsRead)).toEqual([100])
+  })
+
+  it('unmount_SignedInOrNot_Ga4SessionEndForASignedInReaderOnlyWithoutIds', async () => {
     const r = await reader()
     await r.open(target(1))
     await r.relocate(0.2)
     later(30)
     r.unmount()
-    expect(track.mock.calls).toEqual([[{ durationSeconds: 30, wordsRead: 0, startPercent: 0.1, endPercent: 0.2, editionId: null, userBookId: 'b1' }]])
+    expect(track.mock.calls).toEqual([[{ durationSeconds: 30, wordsRead: 0, startPercent: 0.1, endPercent: 0.2, editionId: null, userBookId: null }]])
     signedIn = false
     const s = await reader()
     await s.open(target(2))
@@ -136,7 +147,7 @@ describe('V2ReaderHost reading sessions (#1313)', () => {
     expect(queued.map((q) => q.userBookId)).toEqual(['b1', 'b2'])
   })
 
-  it('session_MalformedTapOrKey_NoActivity', async () => {
+  it('tapOrKey_Malformed_NoActivity', async () => {
     const r = await reader()
     await r.open(target(1))
     await r.fromPage({ type: 'tap' })
@@ -149,7 +160,7 @@ describe('V2ReaderHost reading sessions (#1313)', () => {
     expect(queued.map((q) => [q.startedAt, q.durationSeconds])).toEqual([['2026-11-14T10:01:00.000Z', 30]])
   })
 
-  it('session_TabHidden_Ended', async () => {
+  it('visibilityChange_Hidden_SessionEnded', async () => {
     const r = await reader()
     await r.open(target(1))
     await r.relocate(0.2)
@@ -161,7 +172,7 @@ describe('V2ReaderHost reading sessions (#1313)', () => {
     expect(queued).toHaveLength(1)
   })
 
-  it('session_DevRouteOrBytesNotTheServerFile_NoneRecorded', async () => {
+  it('open_DevRouteOrBytesNotTheServerFile_NoSession', async () => {
     const dev = await reader({ dev: true })
     await dev.open(target(1))
     await dev.relocate(0.2)

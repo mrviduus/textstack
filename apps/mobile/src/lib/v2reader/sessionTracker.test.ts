@@ -19,7 +19,7 @@ function opened(b: string | null = 'b1', fraction = 0.1) {
 }
 
 describe('sessionTracker', () => {
-  it('a session from the first turn to the end: time, the words the turns covered, start and end place', () => {
+  it('end_TurnsThenLeave_TimeWordsAndPlaces', () => {
     const t = opened()
     // The first turn starts the session: no counted time behind it, so its page is neither time nor words.
     t.relocate(rel(0.101, true), at(60))
@@ -30,46 +30,34 @@ describe('sessionTracker', () => {
     })
   })
 
-  it('nothing before the first activity: an open and a restore are no reading', () => {
+  it('end_OpenAndRestoreOnly_None', () => {
     const t = opened()
     expect(t.end(at(600))).toBeNull()
   })
 
-  it('time before a jump funds no long move after it', () => {
-    const t = opened()
-    t.activity(at(0))
-    t.relocate(rel(0.101, true), at(60)) // 100 words
-    t.jump(at(240)) // 3 min of reading behind it
-    t.relocate(rel(0.3, true), at(241)) // the landing
-    t.relocate(rel(0.6, true), at(256)) // a followed link: 15 s at 800 wpm = 200 words
-    expect(t.end(at(256))?.wordsRead).toBe(300)
-  })
-
-  it('a session under 10 s is not kept', () => {
+  it('end_UnderTenSeconds_None', () => {
     const t = opened()
     t.relocate(rel(0.101, true), at(1))
     expect(t.end(at(9))).toBeNull()
   })
 
-  it('time stops 3 min after the last activity, and 5 min without any ends the session', () => {
+  it('tick_FiveMinutesIdle_EndsWithThreeMinutesCounted_NextActivityStartsAnother', () => {
     const t = opened()
     t.activity(at(0))
     expect(t.tick(at(299))).toBeNull()
-    const ended = t.tick(at(300))
-    expect(ended).toMatchObject({ durationSeconds: 180, endedAt: iso(300) })
-    // Ended: the next activity is a new session.
+    expect(t.tick(at(300))).toMatchObject({ durationSeconds: 180, endedAt: iso(300) })
     t.activity(at(400))
     expect(t.end(at(430))).toMatchObject({ startedAt: iso(400), durationSeconds: 30 })
   })
 
-  it('a gap over 3 min between activities counts 3 min', () => {
+  it('end_GapOverThreeMinutes_CountsThreeMinutes', () => {
     const t = opened()
     t.activity(at(0))
     t.activity(at(250))
     expect(t.end(at(260))?.durationSeconds).toBe(190)
   })
 
-  it('a clock set back never subtracts, nor ends before it started', () => {
+  it('end_ClockSetBack_NeverSubtractsNorEndsBeforeItStarted', () => {
     const t = opened()
     t.activity(at(100))
     t.activity(at(130))
@@ -88,13 +76,15 @@ describe('sessionTracker', () => {
     expect(v.end(at(300))?.durationSeconds).toBe(280)
   })
 
-  it('at most 4 h', () => {
+  it('end_OverFourHours_TimeCappedAndWordsScaledToThePaceRead', () => {
     const t = opened()
-    for (let s = 0; s <= 5 * 3600; s += 60) t.activity(at(s))
-    expect(t.end(at(5 * 3600))?.durationSeconds).toBe(14_400)
+    // 8 h at 200 wpm: a page of 200 words a minute.
+    for (let m = 1; m <= 480; m++) t.relocate(rel(0.1 + m * 0.001, true, 200_000), at(m * 60))
+    // The first turn started the session: 479 counted minutes, 95 800 words.
+    expect(t.end(at(480 * 60))).toMatchObject({ durationSeconds: 14_400, wordsRead: Math.round((95_800 * 14_400) / (479 * 60)) })
   })
 
-  it('moves not by the reader (a sync move, a re-layout) count no words; the next turn counts from there', () => {
+  it('relocate_NotTheReadersMove_NoWordsAndTheNextTurnCountsFromThere', () => {
     const t = opened()
     t.activity(at(0))
     t.activity(at(30)) // 30 s counted: a step could take 400 words
@@ -103,7 +93,16 @@ describe('sessionTracker', () => {
     expect(t.end(at(60))).toMatchObject({ wordsRead: 100, startPercent: 0.1, endPercent: 0.501 })
   })
 
-  it('back then forward again counts the ground once, then what lies past it', () => {
+  it('relocate_NotTheReadersMoveBack_TurnsFromTheLandingCount', () => {
+    const t = opened()
+    t.activity(at(0))
+    t.relocate(rel(0.3, true), at(60)) // up to 800 words in 60 s
+    t.relocate(rel(0.2, false), at(60)) // a sync move or a restore, back
+    t.relocate(rel(0.201, true), at(120)) // 100 words, under the old furthest place
+    expect(t.end(at(120))?.wordsRead).toBe(900)
+  })
+
+  it('relocate_OwnBackThenForward_GroundCountedOnceThenWhatLiesPast', () => {
     const t = opened()
     t.activity(at(0))
     t.relocate(rel(0.102, true), at(60)) // 200 words
@@ -118,7 +117,7 @@ describe('sessionTracker', () => {
     expect(u.end(at(90))?.wordsRead).toBe(200)
   })
 
-  it("a move the page calls the reader's (a link, a long scroll) counts no more than 800 wpm of the time since the last counted step", () => {
+  it('relocate_LongMovedStep_AtMost800WpmOfCountedTime', () => {
     const t = opened()
     t.activity(at(0))
     t.relocate(rel(0.101, true), at(60)) // 100 words
@@ -126,7 +125,7 @@ describe('sessionTracker', () => {
     expect(t.end(at(80))?.wordsRead).toBe(300)
   })
 
-  it('that time is the counted time: 2 h idle in between gives 3 min, and a new session none', () => {
+  it('relocate_LongMoveAfterTwoHoursIdle_ThreeMinutesWorth_NewSessionNone', () => {
     const t = opened()
     t.activity(at(0))
     t.relocate(rel(0.101, true), at(60)) // 100 words
@@ -139,31 +138,81 @@ describe('sessionTracker', () => {
     expect(u.end(at(7230))?.wordsRead).toBe(0)
   })
 
-  it("the host's own navigation (Go there, a contents entry) only moves the baseline, its landing relocates too", () => {
+  it('jump_GoThereTwoHoursLater_LandingCountsNothingNextTurnCounts', () => {
     const t = opened()
     t.activity(at(0))
     t.relocate(rel(0.101, true), at(60)) // 100 words
     t.jump(at(60 + 7200)) // 2 h later: "Go there", 20 % on
-    t.relocate(rel(0.301, true), at(60 + 7201))
-    t.relocate(rel(0.3012, true), at(60 + 7201.5)) // the same landing, relocated again
+    t.relocate(rel(0.301, true), at(60 + 7200.2))
+    t.relocate(rel(0.3012, true), at(60 + 7200.7)) // the same landing, relocated again
     t.relocate(rel(0.3022, true), at(60 + 7260)) // the next turn: 100 words
     expect(t.end(at(60 + 7260))).toMatchObject({ wordsRead: 200, endPercent: 0.3022 })
   })
 
-  it('no words where the page has none (CBZ, PDF): time only', () => {
+  it('jump_BackToAnEarlierChapter_TurnsThereCount', () => {
+    const t = opened('b1', 0.5)
+    t.activity(at(0))
+    t.relocate(rel(0.501, true), at(60)) // 100 words
+    t.jump(at(60))
+    t.relocate(rel(0.2, true), at(60.2)) // the landing, far behind the furthest place
+    t.relocate(rel(0.201, true), at(120)) // 100 words
+    t.relocate(rel(0.202, true), at(180)) // 100 words
+    expect(t.end(at(180))?.wordsRead).toBe(300)
+  })
+
+  it('jump_TimeBeforeIt_FundsNoLongMoveAfter', () => {
+    const t = opened()
+    t.activity(at(0))
+    t.relocate(rel(0.101, true), at(60)) // 100 words
+    t.jump(at(240)) // 3 min of reading behind it
+    t.relocate(rel(0.3, true), at(240.5)) // the landing
+    t.relocate(rel(0.6, true), at(255.5)) // a followed link: 15 s at 800 wpm = 200 words
+    expect(t.end(at(256))?.wordsRead).toBe(300)
+  })
+
+  it('jump_NoRelocateWithinTheGrace_TheAskExpiresAndTheReadersTurnsCount', () => {
+    const t = opened()
+    t.activity(at(0))
+    t.jump(at(30)) // a target already on screen: no relocate
+    t.relocate(rel(0.101, true), at(60)) // the reader's own turn: 100 words
+    expect(t.end(at(60))?.wordsRead).toBe(100)
+  })
+
+  it('jump_ClockSetBackAfterTheLanding_LaterTurnsCount', () => {
+    const t = opened()
+    t.activity(at(0))
+    t.jump(at(100))
+    t.relocate(rel(0.2, true), at(100)) // the landing
+    t.activity(at(160)) // a minute read there
+    // The clock set back past the landing: the reader's own turn still, 0.0008 × 100 000 = 80 words.
+    t.relocate(rel(0.2008, true), at(99.5))
+    expect(t.end(at(161))?.wordsRead).toBe(80)
+  })
+
+  it('jump_StartsTheSessionWithNoPlace_LandingIsTheStartAndTheNextTurnCounts', () => {
+    const t = createSessionTracker()
+    t.open(at(0))
+    t.bind('b1', at(0))
+    t.jump(at(0)) // a contents entry before any relocate: the session starts with no place
+    t.relocate(rel(0.4, true), at(0.3)) // the landing
+    t.relocate(rel(0.401, true), at(60)) // 100 words
+    expect(t.end(at(60))).toMatchObject({ wordsRead: 100, startPercent: 0.4, endPercent: 0.401 })
+  })
+
+  it('relocate_CbzOrPdfWithoutWords_TimeOnly', () => {
     const t = opened()
     t.relocate(rel(0.2, true, null), at(30))
     t.relocate(rel(0.3, true, null), at(60))
     expect(t.end(at(60))).toMatchObject({ durationSeconds: 30, wordsRead: 0, endPercent: 0.3 })
   })
 
-  it('a book not recorded (bound to null) starts no session', () => {
+  it('bind_NullBook_NoSession', () => {
     const t = opened(null)
     t.relocate(rel(0.2, true), at(30))
     expect(t.end(at(60))).toBeNull()
   })
 
-  it('another open ends the session of the book before; nothing of it counts to the next', () => {
+  it('open_AnotherBook_EndsTheFirstAndNothingOfItCountsToTheNext', () => {
     const t = opened('b1')
     t.activity(at(0))
     t.relocate(rel(0.101, true), at(30))
@@ -177,7 +226,7 @@ describe('sessionTracker', () => {
     expect(t.end(at(150))).toMatchObject({ book: 'b2', startedAt: iso(63), wordsRead: 50, startPercent: 0.75, endPercent: 0.7505 })
   })
 
-  it("the book before's place is not the next one's baseline: its first move counts no words", () => {
+  it('open_ThenFirstMoveOfTheNextBook_ThePlaceBeforeIsNoBaseline', () => {
     const t = opened('b1')
     t.relocate(rel(0.101, true), at(30))
     t.open(at(60))
@@ -187,7 +236,7 @@ describe('sessionTracker', () => {
     expect(t.end(at(150))).toMatchObject({ book: 'b2', wordsRead: 0, startPercent: 0.75 })
   })
 
-  it('a bind to another book ends the session of the one before', () => {
+  it('bind_AnotherBook_EndsTheSessionBefore', () => {
     const t = opened('b1')
     t.relocate(rel(0.101, true), at(30))
     expect(t.bind('b2', at(60))).toMatchObject({ book: 'b1', durationSeconds: 30 })

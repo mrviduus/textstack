@@ -19,9 +19,9 @@ public interface IReadingSessionRepository
     Task<WriteResult<ReadingSession>> SaveAsync(Guid userId, ReadingSession session, CancellationToken ct);
 
     /// <summary>
-    /// The pace rule's totals over the user's sessions with words and seconds (#1313). <paramref name="excludeEtlCarried"/>:
-    /// without the rows the ETL carried from legacy (<c>id = client_session_id</c>, EtlV2Sessions), for a sum with
-    /// legacy's own (transitional, until M6).
+    /// The pace rule's totals over the user's sessions with words and seconds that the V2 API wrote, not the ETL's
+    /// copies of legacy's (<c>id = client_session_id</c>, EtlV2Sessions): a sum with legacy's own counts each once
+    /// (#1313). Transitional: goes at M6, when legacy's sessions are retired.
     /// </summary>
-    Task<PaceTotals> PaceTotalsAsync(Guid userId, bool excludeEtlCarried, CancellationToken ct);
+    Task<PaceTotals> NativePaceTotalsAsync(Guid userId, CancellationToken ct);
 }

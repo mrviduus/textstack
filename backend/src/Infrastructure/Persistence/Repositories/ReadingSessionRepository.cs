@@ -26,16 +26,16 @@ public sealed class ReadingSessionRepository(V2DataSource dataSource) : IReading
         """;
 
     // An ETL-carried row keeps its legacy id as both ids (EtlV2Sessions); the API mints its own id.
-    private const string SelectPaceTotals = """
+    private const string SelectNativePaceTotals = """
         SELECT count(*)::int AS Sessions, coalesce(sum(words_read), 0)::bigint AS Words, coalesce(sum(duration_seconds), 0)::bigint AS Seconds
         FROM reading_sessions
-        WHERE user_id = @userId AND words_read > 0 AND duration_seconds > 0 AND (NOT @excludeEtlCarried OR id <> client_session_id)
+        WHERE user_id = @userId AND words_read > 0 AND duration_seconds > 0 AND id <> client_session_id
         """;
 
-    public async Task<PaceTotals> PaceTotalsAsync(Guid userId, bool excludeEtlCarried, CancellationToken ct)
+    public async Task<PaceTotals> NativePaceTotalsAsync(Guid userId, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleAsync<PaceTotals>(new CommandDefinition(SelectPaceTotals, new { userId, excludeEtlCarried }, cancellationToken: ct));
+        return await conn.QuerySingleAsync<PaceTotals>(new CommandDefinition(SelectNativePaceTotals, new { userId }, cancellationToken: ct));
     }
 
     public async Task<WriteResult<ReadingSession>> SaveAsync(Guid userId, ReadingSession session, CancellationToken ct)
