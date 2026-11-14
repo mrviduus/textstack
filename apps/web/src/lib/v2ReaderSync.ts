@@ -362,8 +362,11 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       const bodies: [send: (body: string) => void, body: string][] = []
       // ponytail: a position PUT still in flight on the same revision makes this one lose (stale_revision, never
       // read): on a slow link the last page turn before closing the tab can be lost; the next open is one turn back.
-      const write = changes.position && positionWrite(changes.position, t.fileId, revision, Date.now(), t.format)
-      if (write) bodies.push([(b) => api.keepalivePutState(t.bookId, b), JSON.stringify(write)])
+      const p = changes.position
+      const write = p && positionWrite(p, t.fileId, revision, Date.now(), t.format)
+      // Sent, it is the last position write (its answer never read): if the tab is kept (bfcache), a later write that
+      // loses to it knows the server's state as ours, not another device's newer place (pushPosition's `prev`).
+      if (p && write) bodies.push([(b) => { lastSent = { p, write }; api.keepalivePutState(t.bookId, b) }, JSON.stringify(write)])
       if (highlightsLoaded) {
         for (const { highlight: h } of changes.highlights) {
           const w = highlightWrite(h, t.bookId, t.fileId, held.get(h.id)?.revision ?? null)

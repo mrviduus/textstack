@@ -644,6 +644,23 @@ describe('createV2ReaderSync', () => {
       expect(api.putReadingState).toHaveBeenCalledTimes(1)
     })
 
+    it('keepaliveThenTheTabKept_ANextTurnLosesToTheKeepalivesWrite_OursNoOffer_ItsRevisionAdopted', async () => {
+      // bfcache: the page survives pagehide and the reader turns on. The keepalive's answer is never read, so the next
+      // turn's PUT goes on the old revision and loses to the keepalive's own write: ours, never offered as another
+      // device's newer place; the turn is written again on its revision.
+      api.getReadingState.mockResolvedValue(state(4, 1))
+      const s = await opened()
+      // Turns recorded after the restored state (2026-11-01T00:00Z), as a reader's are.
+      const later = (min: number) => Date.parse('2026-11-01T00:00:00.000Z') + min * 60_000
+      s.flushKeepalive(entry(pos(3, later(1))))
+      const kept = JSON.parse(api.keepalivePutState.mock.calls[0][1]) as V2ReadingStateWrite
+      api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', { ...state(5, 3), currentLocator: kept.currentLocator, clientRecordedAt: kept.clientRecordedAt }))
+      await stored(s, entry(pos(4, later(2))))
+      expect(newer).toEqual([])
+      expect(api.putReadingState.mock.calls.map(expectedOf)).toEqual([4, 5])
+      expect((api.putReadingState.mock.calls[1][1] as V2ReadingStateWrite).currentLocator.value).toBe(cfi(4))
+    })
+
     it('takenAtCloseThenPostedAgain_OneWrite', async () => {
       const s = await opened()
       const last = entry(pos(3))
