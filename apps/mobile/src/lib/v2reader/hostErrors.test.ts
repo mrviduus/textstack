@@ -17,6 +17,13 @@ describe('v2 Android host errors (#1080 item 6)', () => {
     expect(hostError(e)).toBe(NOT_READABLE)
   })
 
+  it('theTwoMessages_SaidThroughTheCallersT_AnythingElseNot (#1267)', () => {
+    const t = (k: string) => `T:${k}`
+    expect(hostError(new Error('ENOSPC'), t)).toBe(`T:${DISK_FULL}`)
+    expect(hostError('NotReadableError', t)).toBe(`T:${NOT_READABLE}`)
+    expect(hostError('not a zip', t)).toBe('not a zip')
+  })
+
   it('anythingElse_ShownAsItIs', () => {
     expect(hostError('not a zip')).toBe('not a zip')
     expect(hostError(new TypeError('boom'))).toBe('TypeError: boom')
