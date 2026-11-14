@@ -23,9 +23,9 @@ afterEach(cleanup)
 function fromPage(m: object) {
   act(() => { window.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(m), origin: location.origin, source: frame().contentWindow })) })
 }
-function opened({ highlightId, toc = [] as object[] }: { highlightId?: string; toc?: object[] } = {}) {
+function opened({ highlightId, toc = [] as object[], onHighlightShown }: { highlightId?: string; toc?: object[]; onHighlightShown?: () => void } = {}) {
   const book: V2HostBook = { bytes: new ArrayBuffer(8), name: 'a.epub' }
-  render(<MemoryRouter><V2ReaderHost book={book} idleHeading="idle" dev highlightId={highlightId} /></MemoryRouter>)
+  render(<MemoryRouter><V2ReaderHost book={book} idleHeading="idle" dev highlightId={highlightId} onHighlightShown={onHighlightShown} /></MemoryRouter>)
   Object.defineProperty(frame(), 'clientWidth', { value: WIDTH, configurable: true })
   vi.spyOn(frame().contentWindow!, 'postMessage').mockImplementation(((m: { call: string; args: unknown[] }) => { posted.push(m) }) as never)
   fromPage({ type: 'ready' })
@@ -133,13 +133,44 @@ describe('V2ReaderHost highlights', () => {
     expect(document.querySelector('.pdf-hl-popup')).toBeNull()
   })
 
-  it('deepLink_JumpsOnceTheHighlightIsListed_Once', () => {
-    opened({ highlightId: ID1 })
+  it('deepLink_JumpsOnceTheHighlightIsListed_Once_TheRouteToldToDropTheParameter', () => {
+    const shown = vi.fn()
+    opened({ highlightId: ID1, onHighlightShown: shown })
     list([item(ID2, 'not it')])
     expect(calls('goTo')).toEqual([])
+    expect(shown).not.toHaveBeenCalled()
     list([item(ID2, 'not it'), item(ID1, 'it', 'pink', 6)])
     expect(calls('goTo')).toEqual([[item(ID1, 'it', 'pink', 6).cfi, true]])
+    expect(shown).toHaveBeenCalledTimes(1)
     list([item(ID1, 'it', 'blue', 6)])
     expect(calls('goTo')).toHaveLength(1)
+    expect(shown).toHaveBeenCalledTimes(1)
+  })
+
+  // #1312 review: whatever closes the editor, a changed note is kept; Cancel and Delete discard it.
+  it('noteTyped_ThenATapInTheBookClosesTheEditor_TheNoteSavedAnyway', () => {
+    opened()
+    list([item(ID1, 'by the pond')])
+    tap()
+    expect(screen.getByPlaceholderText('Add a note...')).toHaveAttribute('maxLength', '2000')
+    fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'typed, never saved by hand' } })
+    fromPage({ type: 'tap', x: WIDTH / 2, y: 10 })
+    expect(document.querySelector('.pdf-hl-popup')).toBeNull()
+    tap()
+    expect(screen.getByPlaceholderText('Add a note...')).toHaveValue('typed, never saved by hand')
+  })
+
+  it('noteTyped_ThenCancel_OrDelete_NotSaved', () => {
+    opened()
+    list([item(ID1, 'by the pond'), item(ID2, 'other', 'green', 4)])
+    tap()
+    fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'dropped' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    tap()
+    expect(screen.getByPlaceholderText('Add a note...')).toHaveValue('')
+    fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'dropped too' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete highlight' }))
+    tap()
+    expect(screen.getByPlaceholderText('Add a note...')).toHaveValue('')
   })
 })

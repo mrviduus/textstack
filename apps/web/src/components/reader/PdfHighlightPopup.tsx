@@ -28,6 +28,13 @@ interface Props {
   onNoteSave: (noteText: string | null) => void
   onDelete: () => void
   onClose: () => void
+  /**
+   * #1312 review (the V2 reader): a changed note is saved whenever the popup goes away (a tap in the book, Escape, ×),
+   * not only by Save or a click outside this document; Cancel and Delete discard it.
+   */
+  saveOnClose?: boolean
+  /** The note's length cap (the V2 reader's MAX_NOTE); none when absent. */
+  maxLength?: number
 }
 
 export function PdfHighlightPopup({
@@ -38,12 +45,24 @@ export function PdfHighlightPopup({
   onNoteSave,
   onDelete,
   onClose,
+  saveOnClose = false,
+  maxLength,
 }: Props) {
   const { t } = useTranslation()
   const editorRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [noteText, setNoteText] = useState(highlight.noteText ?? '')
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
+  /** For `saveOnClose`: the draft, the note it started from, and whether it was already saved or discarded. */
+  const draft = useRef({ text: noteText, from: highlight.noteText ?? '', done: false, save: onNoteSave })
+  draft.current.text = noteText
+  draft.current.save = onNoteSave
+  useEffect(() => () => {
+    const d = draft.current
+    if (!saveOnClose || d.done) return
+    const trimmed = d.text.trim()
+    if (trimmed !== d.from) d.save(trimmed || null)
+  }, [])
 
   // Reposition before paint (mirrors NoteEditor) so there's no mount flash.
   useLayoutEffect(() => {
@@ -74,9 +93,15 @@ export function PdfHighlightPopup({
     // Only PUT when the note actually changed. Recoloring then dismissing (or a
     // click-outside) must NOT fire a redundant note save — that churns the
     // highlight version and can flash the pre-recolor color back for a frame.
+    draft.current.done = true
     if (trimmed !== (highlight.noteText ?? '')) onNoteSave(trimmed || null)
     onClose()
   }, [noteText, onNoteSave, onClose, highlight.noteText])
+  /** Cancel and Delete: the draft is not saved on the way out. */
+  const discard = (then: () => void) => () => {
+    draft.current.done = true
+    then()
+  }
 
   // Close (persisting the note) on click-outside.
   useEffect(() => {
@@ -145,6 +170,7 @@ export function PdfHighlightPopup({
       <textarea
         ref={textareaRef}
         className="note-editor__textarea"
+        maxLength={maxLength}
         value={noteText}
         onChange={(e) => setNoteText(e.target.value)}
         placeholder={t('reader.noteEditor.placeholder')}
@@ -154,14 +180,14 @@ export function PdfHighlightPopup({
       <div className="note-editor__footer">
         <button
           className="note-editor__delete"
-          onClick={onDelete}
+          onClick={discard(onDelete)}
           title={t('reader.noteEditor.deleteHighlight')}
           aria-label={t('reader.noteEditor.deleteHighlight')}
         >
           <TrashIcon />
         </button>
         <div className="note-editor__actions">
-          <button className="note-editor__cancel" onClick={onClose}>
+          <button className="note-editor__cancel" onClick={discard(onClose)}>
             {t('reader.noteEditor.cancel')}
           </button>
           <button className="note-editor__save" onClick={handleSaveNote}>

@@ -34,7 +34,9 @@ function loadError(e: unknown, t: (key: string, vars?: Record<string, string | n
 export function V2ReaderPage() {
   const { id = '' } = useParams<{ id: string }>()
   // #1312: a link to one highlight (the highlights page, audit §2.1): the book jumps there once it is drawn.
-  const [search] = useSearchParams()
+  const [search, setSearch] = useSearchParams()
+  /** Once jumped there, the link's parameter goes (replaced, no history entry): a reload reopens at the saved place. */
+  const highlightShown = () => setSearch((p) => { const n = new URLSearchParams(p); n.delete('highlight'); return n }, { replace: true })
   const { language } = useLanguage()
   const { t } = useTranslation()
   const [enabled, setEnabled] = useState<boolean | null>(null)
@@ -113,7 +115,7 @@ export function V2ReaderPage() {
   return (
     <>
       <SeoHead title={book?.name} noindex />
-      <V2ReaderHost book={book} highlightId={search.get('highlight')} idleHeading={idleHeading} readyDeadlineMs={PROD_READY_DEADLINE_MS} backUrl={`/${language}/library`} onReload={() => setAttempt((a) => a + 1)}>
+      <V2ReaderHost book={book} highlightId={search.get('highlight')} onHighlightShown={highlightShown} idleHeading={idleHeading} readyDeadlineMs={PROD_READY_DEADLINE_MS} backUrl={`/${language}/library`} onReload={() => setAttempt((a) => a + 1)}>
         {failed && (
           <span role="alert" data-testid="v2-load-error">
             {failed.error} {failed.retry && <button onClick={() => setAttempt((a) => a + 1)}>{t('v2Reader.retry')}</button>}

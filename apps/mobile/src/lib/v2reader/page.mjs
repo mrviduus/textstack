@@ -468,8 +468,18 @@ function unhighlight(cfi) {
   return view.deleteAnnotation({ value: cfi })
 }
 
+/**
+ * Ranges of sections no longer loaded go (their frame removed: no window). Run when a section's overlayer is made
+ * and on every tap, so the map holds the loaded sections' highlights only (#1312 review: it grew with every section
+ * visited, and every tap scanned it).
+ */
+function pruneDrawn() {
+  for (const [cfi, range] of drawnRanges) if (!range.startContainer.ownerDocument?.defaultView) drawnRanges.delete(cfi)
+}
+
 /** The drawn highlight under a point of `doc` (its own coordinates), or null. */
 function highlightAt(doc, x, y) {
+  pruneDrawn()
   for (const [cfi, range] of drawnRanges) {
     const hl = overlays.get(cfi)?.hl
     if (!hl || range.startContainer.ownerDocument !== doc) continue
@@ -720,6 +730,7 @@ async function open(bytes, name, kind, mine) {
   })
   view.addEventListener('create-overlay', ({ detail: { index } }) => {
     if (mine !== viewSeq) return
+    pruneDrawn()
     for (const a of overlays.values()) if (a.index === index) view.addAnnotation(a)
   })
   view.addEventListener('draw-annotation', ({ detail: { draw, annotation: a, range } }) => {
@@ -1067,6 +1078,8 @@ window.__fol = {
   // #1269: the host is done with the selection (an action ran, its toolbar closed): gone from every shown section,
   // `selection-cleared` at once (none if none was sent). highlightSelection has nothing to fall back on after it.
   clearSelection: () => endSelection(),
+  // Test-only (formats.check.mjs): how many drawn highlight ranges the page holds. A count, no book data.
+  drawnRanges: () => drawnRanges.size,
   /** The host answers a `word` with its translation; drawn above that word. Not where `annotatable` is false. */
   showTranslation: (cfi, index, text) => view && annotatable && annotate({ value: cfi, index, gloss: text }),
 }

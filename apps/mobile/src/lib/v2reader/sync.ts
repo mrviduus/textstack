@@ -254,7 +254,11 @@ async function pull(lib: LocalLibrary, host: SyncHost, reset: Reset, feed: Local
     })
     owe(host, reset, owed)
     cursor = page.cursor ?? cursor
-    if (!page.hasMore) return
+    if (!page.hasMore) {
+      // The feed read to its end: a row whose note was never read (before notes were kept) is not on the server.
+      if (feed === 'annotations') await checked(reset, () => lib.annotationsPulled())
+      return
+    }
   }
 }
 
@@ -419,6 +423,9 @@ async function pushAnnotation(lib: LocalLibrary, host: SyncHost, reset: Reset, i
   if (a?.deleted_at) return pushRemoval(lib, reset, item, a.id)
   const local = a && (await lib.book(a.book_id))
   if (!a || !local) return drop(lib, reset, item)
+  // A row from before notes were kept: its server note is not read yet, and this write would clear it. Kept queued
+  // until the pull reads it (the upgrade restarts that feed), never pushed meanwhile (#1312 review).
+  if (!a.note_known) return
   const b = await pushedBook(lib, reset, local)
   if (!b) return
   const write = highlightWrite(JSON.parse(a.highlight) as PageHighlight, a.book_id, (a.file_id ?? b.file_id)!, a.revision, a.note ?? null)

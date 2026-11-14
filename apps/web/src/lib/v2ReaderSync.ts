@@ -85,7 +85,7 @@ export const v2ReaderSyncApi: V2ReaderSyncApi = {
   deleteAnnotation: v2Api.deleteAnnotation,
   keepalivePutState: (id, body) => void keepalivePut(v2Api.readingStateUrl(id), body).catch(() => {}),
   keepalivePutAnnotation: (id, body) => void keepalivePut(v2Api.annotationUrl(id), body).catch(() => {}),
-  keepaliveDeleteAnnotation: (id) => void fetch(v2Api.annotationUrl(id), { method: 'DELETE', credentials: 'include', keepalive: true }).catch(() => {}),
+  keepaliveDeleteAnnotation: (id) => void keepalivePut(v2Api.annotationUrl(id), null, 'DELETE').catch(() => {}),
 }
 
 /** The browser's keepalive budget is 64 KiB for every request in flight; headroom kept. */
@@ -226,7 +226,16 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   /** This tab's note edits not yet on the server (id → note, null: cleared), and its removals not yet tombstoned. */
   const notes = new Map<string, string | null>()
   const removals = new Set<string>()
-  const noteFor = (id: string) => (notes.has(id) ? notes.get(id)! : held.get(id)?.note ?? null)
+  /**
+   * A page id re-keyed after `id_conflict` → the id the server holds it under. The page keeps the old id until the
+   * next open; its recolours, notes and removals reach the new row through this (#1312 review).
+   */
+  const aliases = new Map<string, string>()
+  const real = (id: string) => aliases.get(id) ?? id
+  const noteFor = (pageId: string) => {
+    const id = real(pageId)
+    return notes.has(id) ? notes.get(id)! : held.get(id)?.note ?? null
+  }
   const noted = (h: PageHighlight, note = noteFor(h.id)): Noted => ({ ...h, noteText: note })
 
   /** The position written; false when it did not land or was refused. One retry after a lost revision. */
@@ -280,6 +289,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     /** The note sent is what this tab holds now: its edit is done (a newer edit meanwhile stays). */
     const landed = (a: V2Annotation) => {
       keep(a, pageFormOf(h))
+      if (h.id !== pageId) aliases.set(pageId, h.id)
       if (notes.has(pageId) && notes.get(pageId) === (a.noteText ?? null)) notes.delete(pageId)
     }
     try {
@@ -344,7 +354,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
    * a note edit that `entry` lacks (drawn by `addHighlights`, which the page does not save), in its held form.
    */
   function notedForms(entry: PageEntry | null): Noted[] {
-    const forms = (entry?.highlights ?? []).filter((h) => !removals.has(h.id)).map((h) => noted(h))
+    // Under the id the server holds them by (an alias after a re-key): diffed against that row.
+    const forms = (entry?.highlights ?? []).map((h) => noted(aliases.has(h.id) ? { ...h, id: real(h.id) } : h)).filter((h) => !removals.has(h.id))
     const ids = new Set(forms.map((h) => h.id))
     for (const id of notes.keys()) {
       const r = held.get(id)
@@ -357,7 +368,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   function changesOf(entry: PageEntry | null) {
     const highlights = notedForms(entry).filter((h) => !isHeldAs(overridden, h) && !isHeldAs(refused, h))
     const heldNoted = [...held.values()].map((r) => ({ ...r, highlight: r.highlight && noted(r.highlight, r.note) }))
-    return entryChanges(t.fileId, { position, highlights: heldNoted }, { position: entry?.position ?? null, highlights }, newId)
+    return entryChanges<Noted>(t.fileId, { position, highlights: heldNoted }, { position: entry?.position ?? null, highlights }, newId)
   }
 
   async function pass() {
@@ -379,7 +390,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
         if (!live() || gone) break
         // Read again: a removal may have been asked for since the diff.
         if (removals.has(highlight.id) || held.get(highlight.id)?.deleted) continue
-        if (!(await pushHighlight(highlight as Noted, held.get(highlight.id)?.revision ?? null))) saved = false
+        if (!(await pushHighlight(highlight, held.get(highlight.id)?.revision ?? null))) saved = false
       }
     }
     // A refused value this tab still holds stays unsaved, though it is not resent.
@@ -520,8 +531,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       // Removals before any highlight write (each counted as a small request: no body).
       for (const id of removals) bodies.push([() => api.keepaliveDeleteAnnotation(id), ' '.repeat(100)])
       if (highlightsLoaded) {
-        for (const { highlight } of changes.highlights) {
-          const h = highlight as Noted
+        for (const { highlight: h } of changes.highlights) {
           const w = highlightWrite(h, t.bookId, t.fileId, held.get(h.id)?.revision ?? null, h.noteText)
           if (w) bodies.push([(b) => api.keepalivePutAnnotation(h.id, b), JSON.stringify(w)])
         }
@@ -540,12 +550,14 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       return (completing ??= completeOnce().finally(() => { completing = null }))
     },
     note: noteFor,
-    setNote(id, note) {
+    setNote(pageId, note) {
+      const id = real(pageId)
       if (!current() || removals.has(id) || held.get(id)?.deleted || noteFor(id) === note) return
       notes.set(id, note)
       void kick()
     },
-    remove(id) {
+    remove(pageId) {
+      const id = real(pageId)
       if (!current() || removals.has(id)) return
       removals.add(id)
       notes.delete(id)

@@ -15,7 +15,7 @@ export const colorOf = (c) => (isHighlightColor(c) ? c : 'yellow')
 /** At most this many items in a `highlight-list`; text cut to this many code points (display only). */
 export const MAX_LIST = 5000
 export const MAX_LIST_TEXT = 200
-/** A note's length cap in UTF-16 units (the server has none; a textarea's maxLength). */
+/** A note's length cap (the server has none): the editors' maxLength (UTF-16 units), and `noteOf`'s cut (code points). */
 export const MAX_NOTE = 2000
 /** A highlight id as the page holds it: a v4 or the server's UUID, or a pre-#1078 `h…` one. */
 const isId = (id) => typeof id === 'string' && /^[0-9A-Za-z-]{1,64}$/.test(id)
@@ -60,8 +60,17 @@ export function readHighlightRemoved(m) {
   return m && typeof m === 'object' && m.type === 'highlight-removed' && typeof m.key === 'string' && isId(m.id) ? { key: m.key, id: m.id } : null
 }
 
-/** A note as a host saves it: trimmed, at most MAX_NOTE; blank is none (null). */
+/** A note as a host saves it: trimmed, at most MAX_NOTE code points (a surrogate pair is never split); blank is none (null). */
 export function noteOf(text) {
-  const t = typeof text === 'string' ? text.trim().slice(0, MAX_NOTE) : ''
+  const t = typeof text === 'string' ? Array.from(text.trim()).slice(0, MAX_NOTE).join('') : ''
   return t ? t : null
+}
+
+/**
+ * What an editor's save writes: the note, or undefined when the draft is the note the editor opened with (#1312
+ * review: nothing to write, so a note the host had not read yet is never cleared by a save that changed nothing).
+ */
+export function noteChange(draft, shown) {
+  const n = noteOf(draft)
+  return n === noteOf(shown) ? undefined : n
 }

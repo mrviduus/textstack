@@ -131,9 +131,14 @@ export function timeoutSignal(ms: number): AbortSignal {
   return c.signal
 }
 
-/** A PUT that survives the page unloading (like sendBeacon, but a PUT), with the session cookie. */
-export function keepalivePut(url: string, body: string): Promise<Response> {
-  return fetch(url, { method: 'PUT', body, headers: { 'Content-Type': 'application/json' }, credentials: 'include', keepalive: true })
+/**
+ * A write that survives the page unloading (like sendBeacon, but a PUT, or a bodiless DELETE), with the session cookie.
+ */
+export function keepalivePut(url: string, body: string | null, method: 'PUT' | 'DELETE' = 'PUT'): Promise<Response> {
+  return fetch(url, {
+    method, credentials: 'include', keepalive: true,
+    ...(body === null ? {} : { body, headers: { 'Content-Type': 'application/json' } }),
+  })
 }
 
 export function preferLocalProgress(local: { synced?: boolean } | null, hasServer: boolean): boolean {

@@ -2047,6 +2047,104 @@ describe('V2 local library sync (R6)', () => {
       expect(await lib.outbox()).toEqual([])
     })
 
+    // #1312 review: a device that synced highlights before notes were kept.
+    it('upgrade_RowsFromBeforeNotes_FeedReadAgainFromTheStart_TheirNoteKept_NeverClearedByAPush', async () => {
+      const db = memoryDb()
+      const old = createLocalLibrary(db)
+      const bookId = await old.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      await old.writeEntry(SHA, entry(), newId)
+      const fileId = (await old.book(bookId))!.file_id!
+      fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId), 201)],
+        [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 1))],
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 1), 201)],
+      })
+      await syncV2Library(old, host())
+      // The build before notes: no note columns, a cursor past the row (the web wrote a note on it since).
+      db.raw.exec(`ALTER TABLE annotations DROP COLUMN note_known; ALTER TABLE annotations DROP COLUMN note_dirty; ALTER TABLE annotations DROP COLUMN note;
+        INSERT OR REPLACE INTO meta (key, value) VALUES ('cursor:annotations', 'past-the-row')`)
+      const lib = createLocalLibrary(db)
+      // Recoloured on this device after the upgrade, before any pull: queued.
+      await lib.writeEntry(SHA, entry(pos, [{ ...highlight, color: 'green' }]), newId)
+      expect(await lib.cursor('annotations')).toBeNull()
+      expect(await lib.annotation(HL)).toMatchObject({ note: null, note_known: 0 })
+      const theirs = serverAnnotation(bookId, fileId, 2, { noteText: 'from the web' })
+      const calls = fakeApi({
+        'GET /annotations/changes': feed(theirs),
+        [`PUT /annotations/${HL}`]: [conflict('stale_revision', { revision: 2, current: theirs }), ok(serverAnnotation(bookId, fileId, 3, { color: 'green', noteText: 'from the web' }))],
+      })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      const puts = calls.filter((c) => c.method === 'PUT' && c.path === `/annotations/${HL}`).map((c) => [c.body.color, c.body.noteText])
+      expect(puts.length).toBeGreaterThan(0)
+      expect(puts.every(([, n]) => n === 'from the web')).toBe(true)
+      expect(await lib.annotation(HL)).toMatchObject({ note: 'from the web', note_known: 1, revision: 3 })
+    })
+
+    it('upgrade_ARowTheFeedNeverBrings_NotPushedUntilTheFeedWasReadToItsEnd', async () => {
+      const db = memoryDb()
+      const old = createLocalLibrary(db)
+      const bookId = await old.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      await old.writeEntry(SHA, entry(), newId)
+      const fileId = (await old.book(bookId))!.file_id!
+      fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId), 201)],
+        [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 1))],
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 1), 201)],
+      })
+      await syncV2Library(old, host())
+      db.raw.exec('ALTER TABLE annotations DROP COLUMN note_known; ALTER TABLE annotations DROP COLUMN note_dirty; ALTER TABLE annotations DROP COLUMN note')
+      const lib = createLocalLibrary(db)
+      await lib.writeEntry(SHA, entry(pos, [{ ...highlight, color: 'pink' }]), newId)
+      // The pull fails: nothing pushed for the unknown row, it stays queued.
+      let calls = fakeApi({ 'GET /annotations/changes': [{ status: 500 }] })
+      await syncV2Library(lib, host())
+      expect(calls.some((c) => c.method === 'PUT' && c.path === `/annotations/${HL}`)).toBe(false)
+      expect(await lib.outbox()).toEqual([expect.objectContaining({ kind: 'annotation', target: HL })])
+      // Read to its end without it: not on the server, so no note there to keep; pushed.
+      calls = fakeApi({ [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 2, { color: 'pink' }))] })
+      await syncV2Library(lib, host())
+      expect(calls.filter((c) => c.method === 'PUT' && c.path === `/annotations/${HL}`).map((c) => c.body.noteText)).toEqual([null])
+    })
+
+    it('idConflict_ThePagesOldId_RecolourNoteAndRemovalReachTheReKeyedRow', async () => {
+      const { lib, bookId, fileId } = await seeded()
+      const NEW = '00000000-0000-4000-8000-0000000000ff'
+      fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId), 201)],
+        [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 1))],
+        [`PUT /annotations/${HL}`]: [conflict('id_conflict')],
+        [`PUT /annotations/${NEW}`]: [ok(serverAnnotation(bookId, fileId, 1, { id: NEW }), 201)],
+      })
+      await syncV2Library(lib, host({ newId: () => NEW }))
+      expect(await lib.annotation(NEW)).toMatchObject({ revision: 1 })
+      // The page still holds the old id: its recolour, note and removal.
+      await lib.writeEntry(SHA, entry(pos, [{ ...highlight, color: 'blue' }]), newId)
+      expect(JSON.parse((await lib.annotation(NEW))!.highlight).color).toBe('blue')
+      expect(await lib.setNote(HL, 'mine')).toBe(true)
+      expect(await lib.notes(SHA)).toEqual(new Map([[NEW, 'mine'], [HL, 'mine']]))
+      const calls = fakeApi({ [`PUT /annotations/${NEW}`]: [ok(serverAnnotation(bookId, fileId, 2, { id: NEW, color: 'blue', noteText: 'mine' }))] })
+      await syncV2Library(lib, host())
+      expect(calls.filter((c) => c.method === 'PUT').map((c) => [c.path, c.body.color, c.body.noteText])).toEqual([[`/annotations/${NEW}`, 'blue', 'mine']])
+      expect(await lib.removeHighlight(HL)).toBe(true)
+      const del = fakeApi({ [`DELETE /annotations/${NEW}`]: [ok(serverAnnotation(bookId, fileId, 3, { id: NEW, deletedAt: '2026-11-14T00:00:01.000Z' }))] })
+      await syncV2Library(lib, host())
+      expect(writes(del)).toEqual([`DELETE /annotations/${NEW}`])
+    })
+
+    it('notes_ABookPulledNotImportedYet_ItsNotesByItsBytes', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      const B = '11111111-2222-4333-8444-555555555555', F = '66666666-7777-4888-8999-aaaaaaaaaaaa'
+      fakeApi({
+        'GET /library/changes': feed(serverBook(B, F, {}, { hasContent: true })),
+        'GET /annotations/changes': feed(serverAnnotation(B, F, 1, { noteText: 'from the server' })),
+      })
+      await syncV2Library(lib, host())
+      expect(await lib.notes(SHA)).toEqual(new Map([[HL, 'from the server']]))
+    })
+
     it('deviceHighlights_LiveOnesOfBooksHereWithTheirNotes_ARemovedOneGone', async () => {
       const { lib, bookId } = await seeded()
       await lib.setNote(HL, 'n')

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  HIGHLIGHT_COLORS, HIGHLIGHT_FILL, MAX_LIST, MAX_LIST_TEXT, MAX_NOTE, colorOf, highlightList, noteOf, readHighlightList, readHighlightRemoved,
+  HIGHLIGHT_COLORS, HIGHLIGHT_FILL, MAX_LIST, MAX_LIST_TEXT, MAX_NOTE, colorOf, highlightList, noteChange, noteOf, readHighlightList, readHighlightRemoved,
   readHighlightTap,
 } from './highlights.mjs'
 import { MAX_SELECTION_CFI, MAX_SELECTION_PX } from './selection.mjs'
@@ -74,6 +74,17 @@ describe('v2 reader highlights', () => {
     expect(noteOf('   ')).toBeNull()
     expect(noteOf(undefined)).toBeNull()
     expect(noteOf('x'.repeat(MAX_NOTE + 10))).toHaveLength(MAX_NOTE)
+    // Cut by code points: a surrogate pair at the cut is kept whole, never half.
+    const emoji = noteOf('😀'.repeat(MAX_NOTE + 1))!
+    expect(Array.from(emoji)).toHaveLength(MAX_NOTE)
+    expect(emoji.endsWith('😀')).toBe(true)
+  })
+
+  it('noteChange_TheDraftTheEditorOpenedWith_NothingToWrite_ElseTheNote', () => {
+    expect(noteChange('', null)).toBeUndefined()
+    expect(noteChange('  kept ', 'kept')).toBeUndefined()
+    expect(noteChange('', 'their note')).toBeNull()
+    expect(noteChange('new', null)).toBe('new')
   })
 
   it('highlightTap_NoBookOnScreen_Dropped', () => {

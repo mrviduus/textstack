@@ -143,9 +143,11 @@ interface Props {
   backUrl?: string
   /** #1312: `?highlight=<id>`: the open book jumps to that highlight once the page lists it (drawn). */
   highlightId?: string | null
+  /** The jump to `highlightId` was made: the route drops the parameter, so a reload does not jump (and save) again. */
+  onHighlightShown?: () => void
 }
 
-export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, onReload, dev = false, backUrl, highlightId }: Props) {
+export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, onReload, dev = false, backUrl, highlightId, onHighlightShown }: Props) {
   const { t } = useTranslation()
   const frame = useRef<HTMLIFrameElement>(null)
   const ready = useRef(false)
@@ -158,6 +160,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   onOpenedRef.current = onOpened
   const onReloadRef = useRef(onReload)
   onReloadRef.current = onReload
+  const onHighlightShownRef = useRef(onHighlightShown)
+  onHighlightShownRef.current = onHighlightShown
   /** null: `idleHeading` (nothing opened, or the open was given up); '' after a failed open: no title of another book (#1168). */
   const [heading, setHeading] = useState<string | null>(null)
   const [flow, setFlow] = useState<Flow>(() => (readItem(FLOW_KEY) === 'scrolled' ? 'scrolled' : 'paginated'))
@@ -496,6 +500,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             pendingHighlight.current = null
             // The reader's own choice (they followed the link): saved where it lands (README, `goTo`).
             hostMove('goTo', [want.cfi, true])
+            onHighlightShownRef.current?.()
           }
           return
         }
@@ -661,6 +666,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   offersRef.current = offersHighlights
   const noteFor = (id: string) => (dev ? devNotes.current.get(id) ?? null : sync.current?.note(id) ?? null)
   const tapped = popup?.kind === 'highlight' ? highlightList.find((h) => h.id === popup.id) : undefined
+  const editorSession = sync.current
   const editor: V2HighlightEditor | null = tapped && offersHighlights ? {
     item: tapped,
     note: noteFor(tapped.id),
@@ -668,7 +674,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     onNoteSave: (text) => {
       const note = noteOf(text)
       if (dev) devNotes.current.set(tapped.id, note)
-      else sync.current?.setNote(tapped.id, note)
+      // The session of the book the editor was opened in: a save on the way out of a closing book is never another's.
+      else editorSession?.setNote(tapped.id, note)
       setNotesSeen((n) => n + 1)
     },
     onDelete: () => call('removeHighlight', [tapped.id]),

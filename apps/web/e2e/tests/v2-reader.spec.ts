@@ -536,6 +536,8 @@ test.describe('V2 reader page @v2', () => {
     await page.goto(`/en/library/my/${bookId}/read-v2?highlight=${id}`)
     await expect(page.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
     await expect(status(page)).toHaveText(/^\d+% · The Pond$/, { timeout: 20_000 })
+    // Handled: the parameter is gone (replaced, no history entry), so a reload opens at the saved place, no jump.
+    await expect(page).not.toHaveURL(/[?&]highlight=/)
 
     // Delete from its editor: a DELETE, the tombstone; the list is empty.
     const again = await centreWord()

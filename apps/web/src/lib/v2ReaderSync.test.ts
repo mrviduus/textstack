@@ -530,6 +530,23 @@ describe('createV2ReaderSync', () => {
       expect(api.putAnnotation).toHaveBeenCalledTimes(2)
     })
 
+    // #1312 review: the page keeps the old id until the next open; its edits reach the re-keyed row.
+    it('idConflict_ThePagesRecolourNoteAndRemovalOfTheOldId_ReachTheNewRow', async () => {
+      const s = await opened()
+      api.putAnnotation.mockRejectedValueOnce(conflict('id_conflict', null))
+      await stored(s, entry(null, [hl()]))
+      await stored(s, entry(null, [hl(H1, 'green')]))
+      expect(api.putAnnotation.mock.calls.slice(2).map((c) => [c[0], expectedOf(c), (c[1] as V2AnnotationWrite).color])).toEqual([[MINTED, 1, 'green']])
+      s.setNote(H1, 'a note')
+      expect(s.note(H1)).toBe('a note')
+      await s.flush()
+      expect(api.putAnnotation.mock.calls.slice(3).map((c) => [c[0], (c[1] as V2AnnotationWrite).noteText])).toEqual([[MINTED, 'a note']])
+      s.remove(H1)
+      await s.flush()
+      expect(api.deleteAnnotation.mock.calls.map((c) => c[0])).toEqual([MINTED])
+      expect(last()).toBe('saved')
+    })
+
     it('idConflictTwice_UnsavedNotResentUntilChanged', async () => {
       const s = await opened()
       api.putAnnotation.mockRejectedValueOnce(conflict('id_conflict', null)).mockRejectedValueOnce(conflict('id_conflict', null))

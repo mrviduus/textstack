@@ -22,3 +22,5 @@ export interface V2HighlightTap { id: string; rect: V2Rect; x: number; y: number
 export function readHighlightTap(m: unknown): V2HighlightTap | null
 export function readHighlightRemoved(m: unknown): { key: string; id: string } | null
 export function noteOf(text: unknown): string | null
+/** The note a save writes; undefined when the draft is the note the editor opened with. */
+export function noteChange(draft: unknown, shown: unknown): string | null | undefined

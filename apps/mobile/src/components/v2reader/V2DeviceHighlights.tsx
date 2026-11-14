@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { useTheme } from '../../context/ThemeContext'
 import { fonts } from '../../theme/typography'
 import { deviceLocalLibrary } from '../../lib/v2reader/deviceLibrary'
@@ -18,9 +18,12 @@ export function V2DeviceHighlights() {
   const router = useRouter()
   const { colors } = useTheme()
   const [items, setItems] = useState<Item[]>([])
-  useEffect(() => {
-    deviceLocalLibrary().deviceHighlights().then(setItems, (e) => console.warn('[v2] device highlights:', e))
-  }, [])
+  // Read again each time the screen is shown: back from the reader, its edits and removals are in (#1312 review).
+  useFocusEffect(useCallback(() => {
+    let live = true
+    deviceLocalLibrary().deviceHighlights().then((x) => { if (live) setItems(x) }, (e) => console.warn('[v2] device highlights:', e))
+    return () => { live = false }
+  }, []))
   if (!items.length) return null
   return (
     <View style={styles.box}>

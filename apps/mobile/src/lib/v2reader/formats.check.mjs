@@ -1809,6 +1809,19 @@ try {
   const kindsNow = messages.slice(from).map((x) => x.type).filter((x) => ['selection-cleared', 'highlighted', 'highlight-tap', 'word', 'tap'].includes(x))
   check(!!madeBlack && JSON.stringify(kindsNow) === JSON.stringify(['selection-cleared', 'highlighted', 'highlight-tap']) && messages.slice(from).find((x) => x.type === 'highlight-tap')?.id === madeBlack.id,
     `a tap at once on the highlight just made is its highlight-tap (${kindsNow})`)
+  // The ranges of a section that left the screen are dropped, and drawn again when it comes back (#1312 review).
+  const drawnHere = await call('window.__fol.drawnRanges()')
+  from = messages.length
+  call('window.__fol.section(1)')
+  await waitFor(from, (x) => x.type === 'relocate' && x.index === 1, 'the next section').catch(() => null)
+  await page.waitForTimeout(800)
+  const drawnAway = await call('window.__fol.drawnRanges()')
+  from = messages.length
+  call('window.__fol.section(-1)')
+  await waitFor(from, (x) => x.type === 'relocate' && x.index === 0, 'back').catch(() => null)
+  await page.waitForTimeout(800)
+  const drawnBack = await call('window.__fol.drawnRanges()')
+  check(drawnHere >= 3 && drawnAway === 0 && drawnBack === drawnHere, `a section's highlight ranges go with it and come back with it (${drawnHere} → ${drawnAway} → ${drawnBack})`)
 
   // A fixed-layout book (CBZ) lands a fraction on its page, quietly too, and saves its page once moved.
   m = await open('tsformat.cbz', JSON.stringify({ v: 1, book: cbzBook, highlights: [], position: { fraction: 0.9, at: 1 } }))

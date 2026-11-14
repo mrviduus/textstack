@@ -37,6 +37,8 @@ export interface HighlightNoteModalProps {
    *  Save covers the note text only. */
   onColorChange?: (color: HighlightColor) => void
   onDelete: () => void
+  /** The note's length cap (the V2 reader's MAX_NOTE); none when absent. */
+  maxLength?: number
 }
 
 /**
@@ -61,18 +63,23 @@ export function HighlightNoteModal({
   onSave,
   onColorChange,
   onDelete,
+  maxLength,
 }: HighlightNoteModalProps) {
   const { colors } = useTheme()
   const [note, setNote] = useState(initialNote || '')
   const [color, setColor] = useState<HighlightColor | undefined>(initialColor)
   const inputRef = useRef<TextInput>(null)
 
+  // The draft starts from the highlight's note when the editor opens, and only then: a colour tap re-renders the
+  // caller with a new `initialColor`, which must not wipe a note being typed (#1312 review). A caller showing another
+  // highlight closes the editor first (or keys it).
   useEffect(() => {
     if (visible) {
       setNote(initialNote || '')
       setColor(initialColor)
     }
-  }, [visible, initialNote, initialColor])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible])
 
   const handleColorPick = (c: HighlightColor) => {
     setColor(c)
@@ -140,6 +147,7 @@ export function HighlightNoteModal({
               ref={inputRef}
               value={note}
               onChangeText={setNote}
+              maxLength={maxLength}
               placeholder="Add a note…"
               placeholderTextColor={colors.textSecondary}
               multiline
