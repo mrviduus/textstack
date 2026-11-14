@@ -577,19 +577,25 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   `useReaderSettings`. The switch is in the V2 settings panel where `annotatable`.
 - *Drawn*: foliate's underline (vertical writing included) in the stage's colour; the range being spoken (#1272)
   over it, so it stays visible; the gloss as SVG text.
-- *Web*: `useReaderVocabulary` (V2ReaderPopups passes `marks: { language }`; without it the hook is the legacy
-  reader's, unchanged): one read per load, each V2 card with its language, kept in memory, a save, a flushed guest word
-  or a footer-picked translation updates it (another book's queued word is not added). Missing translations are
-  backfilled once per authenticated load, for the language it was filtered for (a language change waits for its own
-  load), over the words it brought (never on the no-session branch, never for a word saved later: the save's TR-2 fill
-  has it), by the shared `backfillTranslations`, cancelled by a newer load (identity, language, retry) or the unmount.
-  A guest's nudge counts the whole vocabulary, every language. The map goes to the host through `onMarks`.
+- *Web*: its own hook, `useV2ReaderVocabulary` (V2ReaderPopups; the legacy reader's `useReaderVocabulary` is not
+  touched): the legacy saves, guest queue and mint, with V2's rules. One read per load, each card with its language,
+  filtered to the book's; kept in memory; a save, a flushed guest word or a footer-picked translation updates it
+  (another language's queued word is not added, nor given this book's card's translation by key). Missing
+  translations are backfilled once per authenticated load, for the language it was filtered for (a language change
+  waits for its own load), over the words it brought (never on the no-session branch, never for a word saved later:
+  the save's TR-2 fill has it), by the shared `backfillTranslations`, cancelled by a newer load (identity, language,
+  retry) or the unmount. A guest's nudge counts the whole vocabulary, every language. The map goes to the host
+  through `onMarks`.
 - *Android* (`readerVocab.ts`): the local library's `vocabulary` rows (the vocabulary feed, offline too: no token or
   network on the reading path) read at each open and after each sync pass; `mergeWords`: the rows are the truth (a
   tombstone, an adoption, a wipe: gone), this session's saves no row has yet are owed (across opens) until a read has
   them, or until a vocabulary pull that started after the save was read to its end without it (deleted before this
-  device pulled it: `vocabularyReadFrom`); a translation this session filled stays on its row until the pull brings it.
-  A word is its key and its language (`wordId`). A new user (sign-out, another account) starts with none of it.
+  device pulled it). Pulls are numbered as they start (`vocabularyPulls`, a local counter under `cursor:` keys, never a
+  clock): a save records how many had started, and expires once a later-numbered one was read to its end. ponytail:
+  this relies on the change feed's overlap (`ChangeFeed.Overlap`, 30 s) covering the save's commit lag; a longer server
+  transaction could expire a just-saved mark until its row changes. A translation this session filled stays on its
+  row until the pull brings it. A word is its key and its language (`wordId`). A new user (sign-out, another account)
+  starts with none of it: no word shows ✓, and a save still in flight from the last session lands nowhere.
   Missing translations backfilled once per open by the shared `backfillTranslations` (`backfillable`: the book's
   language, never an owed save whose own fill may be in flight; `cachedTranslate`, then the card's `onlyIfEmpty` PATCH
   awaited before the next word; a 429 stops it, so do a new open and leaving the screen; sends coalesced 300 ms). A
