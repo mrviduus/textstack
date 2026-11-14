@@ -456,10 +456,26 @@ describe('createV2ReaderSync', () => {
       expect(api.keepalivePutState.mock.calls.map((c) => JSON.parse(c[1] as string).currentLocator)).toEqual([pageName('p4.jpg', 2)])
     })
 
-    it('imagePageOnABookThatIsNotACbz_NeverPut', async () => {
-      const s = await opened()
-      await stored(s, entry(page('p3.jpg'), []))
+    it('namedPageOnABookThatIsNeitherCbzNorEpub_NeverPut', async () => {
+      const MOBI: V2SyncTarget = { ...T, format: 'mobi' }
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const s = await opened(MOBI)
+      await stored(s, entry(page('p3.jpg'), [], MOBI))
       expect(api.putReadingState).not.toHaveBeenCalled()
+      // Not silent (#1196 review): the reason, never the key.
+      expect(warn.mock.calls.map((c) => String(c[0]))).toEqual(['[v2 sync] page position not synced (mobi): a named page does not fit a mobi file'])
+      warn.mockRestore()
+    })
+
+    // #1196: a pre-paginated EPUB's page goes as page-name (its spine href); a reflowable EPUB's place stays epub-cfi.
+    it('prePaginatedEpubPage_PutAsPageName_ReflowablePositionAsEpubCfi', async () => {
+      const s = await opened()
+      await stored(s, entry(page('OEBPS/p2.xhtml'), []))
+      await stored(s, entry(pos(3), []))
+      expect(api.putReadingState.mock.calls.map((c) => (c[1] as V2ReadingStateWrite).currentLocator.scheme)).toEqual(['page-name', 'epub-cfi'])
+      expect((api.putReadingState.mock.calls[0][1] as V2ReadingStateWrite).currentLocator).toEqual(pageName('OEBPS/p2.xhtml'))
+      api.getReadingState.mockResolvedValue({ ...state(2), currentLocator: pageName('OEBPS/p2.xhtml'), bookFraction: 0.1 })
+      expect(JSON.parse((await open(T).restore())!).position).toMatchObject({ page: 'OEBPS/p2.xhtml', index: 1 })
     })
   })
 

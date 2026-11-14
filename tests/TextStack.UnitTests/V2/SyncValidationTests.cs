@@ -89,9 +89,11 @@ public class SyncValidationTests
     [InlineData("epub-cfi", "cbz", true)]
     [InlineData("textstack-position-v1", "pdf", true)]
     [InlineData("textstack-anchor-v1", "cbz", true)]
-    // #1188: page-name only on a CBZ; a fixed-layout EPUB (#1196) is not enabled yet.
+    // page-name on a CBZ (#1188) and an EPUB (#1196: a pre-paginated one; the server cannot tell which).
     [InlineData("page-name", "cbz", true)]
-    [InlineData("page-name", "epub", false)]
+    [InlineData("page-name", "epub", true)]
+    [InlineData("page-name", "azw3", false)]
+    [InlineData("page-name", "fb2", false)]
     [InlineData("page-name", "pdf", false)]
     [InlineData("page-name", "mobi", false)]
     [InlineData("page-name", "html", false)]

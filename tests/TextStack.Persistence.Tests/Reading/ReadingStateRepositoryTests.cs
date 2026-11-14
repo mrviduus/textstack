@@ -90,7 +90,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         Assert.True((await _repo.AdvanceAsync(user, book.Id, At(file, 1), null, default, Ct)).Accepted);
     }
 
-    // #1188: a CBZ page by its entry name; page-name fits a cbz only (a fixed-layout epub joins with #1196).
+    // #1188: a CBZ page by its entry name; page-name fits a cbz and an epub (#1196: a pre-paginated one's spine href).
     private const string PageName = """{"version":1,"scheme":"page-name","value":{"page":"p02.png","index":1}}""";
 
     private async Task<(Guid User, Guid Book, Guid File)> ReaderWithFileAsync(string format)
@@ -101,10 +101,12 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         return (user, book.Id, book.CurrentFile!.Id);
     }
 
-    [Fact]
-    public async Task AdvanceAsync_PageNameOnACbz_WinsAndReadsBackAsSent()
+    [Theory]
+    [InlineData("cbz")]
+    [InlineData("epub")]
+    public async Task AdvanceAsync_PageNameOnACbzOrAnEpub_WinsAndReadsBackAsSent(string format)
     {
-        var (user, book, file) = await ReaderWithFileAsync("cbz");
+        var (user, book, file) = await ReaderWithFileAsync(format);
         var write = Locating(file, PageName, 0.5m);
         write.FrontierLocator = PageName;
         write.FrontierFraction = 0.5m;
@@ -117,9 +119,9 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     }
 
     [Theory]
-    [InlineData("epub")]
     [InlineData("pdf")]
     [InlineData("mobi")]
+    [InlineData("fb2")]
     public async Task AdvanceAsync_PageNameOnAnotherFormat_LosesFirstAndLater(string format)
     {
         var (user, book, file) = await ReaderWithFileAsync(format);
@@ -131,9 +133,9 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
 
     // The position's own guard: a fitting frontier further on is what the write stores as the frontier.
     [Fact]
-    public async Task AdvanceAsync_PageNamePositionBehindAFittingFrontierOnAnEpub_Loses()
+    public async Task AdvanceAsync_PageNamePositionBehindAFittingFrontierOnAMobi_Loses()
     {
-        var (user, book, file) = await ReaderWithFileAsync("epub");
+        var (user, book, file) = await ReaderWithFileAsync("mobi");
         var write = Locating(file, PageName, 0.2m);
         write.FrontierLocator = Cfi(9);
         write.FrontierFraction = 0.9m;
@@ -142,9 +144,9 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task AdvanceAsync_PageNameFrontierOnAnEpub_Loses()
+    public async Task AdvanceAsync_PageNameFrontierOnAMobi_Loses()
     {
-        var (user, book, file) = await ReaderWithFileAsync("epub");
+        var (user, book, file) = await ReaderWithFileAsync("mobi");
         var write = At(file, 1);
         write.FrontierLocator = PageName;
         write.FrontierFraction = 0.9m;

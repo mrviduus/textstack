@@ -110,7 +110,7 @@ Allowed in `reading_state.current_locator` / `frontier_locator` and `annotations
 |---|---|---|
 | `epub-cfi` | an `epubcfi(...)` string, plus a sibling **`quote`**: the first ≤64 characters of text at the CFI — `{"version":1,"scheme":"epub-cfi","value":"epubcfi(...)","quote":"…"}`. `quote` is **required** in `reading_state.current_locator` (resume restores only if the text at the CFI still starts with it) and **optional** in `annotations.locator` (annotations carry `selected_text`) | the V2 EPUB reader (ADR-029, R0); CFIs are not sortable, so fractions sit beside them |
 | `pdf-page` | position: `{"page":N}` (1-based). Annotation: legacy `PdfAnchor` `{page, rects:[{x,y,w,h}], exact}`, page-relative unscaled rects (`pdfHighlightAnchor.ts`) | the PDF viewer; ETL from legacy `page:<n>` progress and `kind:'pdf'` highlights |
-| `page-name` | position only: `{"page":"<stable page key>","index":N}` — a CBZ image's archive entry name (later a fixed-layout EPUB page, #1196), its 0-based section; no `quote` (amended 2026-11-13) | the V2 reader on a CBZ ([#1188](https://github.com/mrviduus/textstack/issues/1188)) |
+| `page-name` | position only: `{"page":"<stable page key>","index":N}` — a CBZ image's archive entry name, or a pre-paginated EPUB page's spine href (#1196), its 0-based section; no `quote` (amended 2026-11-13) | the V2 reader on a CBZ ([#1188](https://github.com/mrviduus/textstack/issues/1188)) or a pre-paginated EPUB ([#1196](https://github.com/mrviduus/textstack/issues/1196)) |
 | `textstack-position-v1` | legacy `TextPosition` `{chapterSlug, anchor:{prefix,exact,suffix,startOffset,endOffset}, charOffset, chapterFraction}` — a 64-char quote with 30 chars of context each side; offsets are hints (`textPosition.ts`) | ETL from `user_books.progress_position_json`, or from a scroll-only locator as `{chapterSlug, chapterFraction}` with no `anchor` (decided item 5); the transitional reader, until R8 (M2.7a); resolves only against `book_chapters` |
 | `textstack-anchor-v1` | legacy `TextAnchor` `{chapterKey, prefix, exact, suffix, startOffset, endOffset}` — `chapterKey` is the chapter slug (legacy `chapterId` replaced; ids change on re-ingest) (`textAnchor.ts`) | ETL from reflow `highlights.anchor_json` on uploads; the transitional reader, until R8 (M2.7a) |
 
@@ -416,8 +416,10 @@ stable key: `{"version":1,"scheme":"page-name","value":{"page":"<key>","index":N
 - No other member, no `quote`: the position's fraction is the reading state's `book_fraction`.
 - Reading-state `current_locator` / `frontier_locator` only. Never an annotation locator: a CBZ has no
   text to highlight, and a fixed-layout EPUB's highlights would be `epub-cfi`.
-- Fits only a `cbz` file (the scheme-fits-file check, `SyncValidation.FitsFile` and the reading-state
-  write SQL). `epub` is written here for #1196 and **not enabled**: #1196 widens the fit when it lands.
+- Fits a `cbz` file (the scheme-fits-file check, `SyncValidation.FitsFile` and the reading-state
+  write SQL), and since #1196 (2026-11-13) an `epub`: the server cannot tell a pre-paginated EPUB from a
+  reflowable one, so it takes `page-name` on any `epub`; a reflowable EPUB's clients always write
+  `epub-cfi` (its positions have a quote). No migration: `is_locator()` never checked the format.
 - SQL: migration `0006_page_name_scheme` adds `page-name` to `is_locator()`'s list (the envelope only;
   the quote rule already refuses a `quote` on it). Its down refuses while any row holds one.
 
