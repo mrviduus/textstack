@@ -14,6 +14,8 @@ const API_HEADERS = { Host: 'general.localhost' }
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURE = path.resolve(__dirname, '../fixtures/v2-sync.epub')
 const FIRST_SECTION_TEXT = 'The Pond, paragraph 1.'
+/** #1265: an `<img>` (alt "A red square") and an SVG `<image>` on its first page (fixtures.mjs `writeImageEpub`). */
+const IMAGE_FIXTURE = path.resolve(__dirname, '../fixtures/v2-image.epub')
 
 /** The text of every section frame foliate has loaded (its frames sit in a closed shadow root). */
 const sectionText = (page: Page) =>
@@ -47,12 +49,12 @@ async function v2Context(browser: { newContext(): Promise<BrowserContext> }, ema
 }
 
 /** Upload on V2 (sha256, import, parts, complete); the bytes are readable once the content is complete. */
-async function uploadFixture(page: Page): Promise<string> {
+async function uploadFixture(page: Page, file = FIXTURE): Promise<string> {
   await page.goto('/en/library')
   await page.locator('.site-header__upload-btn').click()
   const imported = page.waitForResponse((r) => r.request().method() === 'PUT' && /\/me\/v2\/books\/[0-9a-f-]{36}$/.test(r.url()))
   const completed = page.waitForResponse((r) => r.request().method() === 'POST' && /\/me\/v2\/books\/[0-9a-f-]{36}\/files\/[0-9a-f-]{36}\/content$/.test(r.url()))
-  await page.locator('.upload-modal input[type="file"]').setInputFiles(FIXTURE)
+  await page.locator('.upload-modal input[type="file"]').setInputFiles(file)
   const { id } = (await (await imported).json()) as { id: string }
   expect((await completed).ok()).toBeTruthy()
   return id
@@ -578,6 +580,66 @@ test.describe('V2 reader page @v2', () => {
     await expect(banner).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect.poll(async () => { const b = await page.locator('.reader-footer').boundingBox(); return b ? Math.round(b.y + b.height) : 0 }).toBe(page.viewportSize()!.height)
+  })
+
+  // #1265: an image tapped opens full screen inside the reader frame (no CSP change: the section's own blob: image),
+  // never a turn or a word; the wheel zooms; Escape and the close button close it, and the place stays.
+  test('readV2Lightbox_AnImageTapped_OpensFullScreen_ZoomsAndClosesByEscapeAndClose_ThePlaceStays', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2img'))
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page, IMAGE_FIXTURE)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expect(page.getByTestId('v2-heading')).toHaveText('TS IMAGE', { timeout: 20_000 })
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    const main = page.locator('main.v2-reader')
+    await expect(main).toHaveAttribute('data-bars', 'hidden', { timeout: 10_000 })
+    await expect(status(page)).toHaveText(/^\d+%/)
+    const before = (await status(page).textContent()) ?? ''
+
+    /** The image's centre in page px (its section frame sits in the reader frame), and its blob: source. */
+    const image = async () => {
+      for (const f of page.frames().filter((x) => x.url().startsWith('blob:'))) {
+        const r = await f.evaluate(() => {
+          const img = document.querySelector('img')
+          const b = img?.getBoundingClientRect()
+          return img && b && b.width > 0 && b.left >= 0 && b.right <= innerWidth ? { x: b.left + b.width / 2, y: b.top + b.height / 2, src: img.currentSrc } : null
+        }).catch(() => null)
+        if (!r) continue
+        const box = (await (await f.frameElement()).boundingBox())!
+        return { ...r, x: box.x + r.x, y: box.y + r.y }
+      }
+      return null
+    }
+    await expect.poll(image, { timeout: 15_000 }).not.toBeNull()
+    const img = (await image())!
+    const reader = page.frameLocator('iframe[title="V2 reader"]')
+    const dialog = reader.getByRole('dialog', { name: 'A red square' })
+    const scale = () => dialog.locator('img').evaluate((el) => Number(/scale\(([\d.]+)\)/.exec((el as HTMLElement).style.transform)?.[1]))
+
+    await page.mouse.click(img.x, img.y)
+    await expect(dialog).toBeVisible()
+    expect(await dialog.locator('img').getAttribute('src')).toBe(img.src)
+    expect(img.src).toMatch(/^blob:/)
+    await expect(page.locator('.word-popup')).toHaveCount(0)
+    expect(await scale()).toBe(1)
+    await page.mouse.move(img.x, img.y)
+    await page.mouse.wheel(0, -300)
+    await expect.poll(scale).toBeGreaterThan(1.5)
+    // A key while it is open turns nothing; Escape closes it.
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(status(page)).toHaveText(before)
+    await expect(main).toHaveAttribute('data-bars', 'hidden')
+
+    // Reopened at scale 1; its close button closes it.
+    await page.mouse.click(img.x, img.y)
+    await expect(dialog).toBeVisible()
+    expect(await scale()).toBe(1)
+    await dialog.getByRole('button', { name: 'Close' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(status(page)).toHaveText(before)
+    await context.close()
   })
 
   test('readV2Sync_ReloadThenASecondBrowserContext_SamePlaceAndTheHighlightDrawn', async ({ browser }) => {

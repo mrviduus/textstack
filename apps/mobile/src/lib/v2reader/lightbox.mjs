@@ -20,7 +20,7 @@ export function imageAt(target) {
   const img = target?.closest?.('img')
   if (img) {
     const src = shownUrl(img.currentSrc || img.src)
-    return src && { src, alt: img.getAttribute('alt') ?? '' }
+    return src ? { src, alt: img.getAttribute('alt') ?? '' } : null
   }
   const image = target?.closest?.('image')
   if (!image || image.namespaceURI !== SVG) return null
