@@ -118,7 +118,7 @@ Legend — **Need**: `R8` must exist before R8 · `owner` needs a decision (§6)
 
 | Behaviour | Web | Mobile | V2 | Need |
 |---|---|---|---|---|
-| Speak word / selection, speed 0.75–2× | yes (word-by-word overlay on web) | yes | absent (TTS stubbed in the build) | R8 (host-side audio, page highlights the range) |
+| Speak word / selection, speed 0.75–2× | yes (word-by-word overlay on web) | yes | both hosts (#1272): host-side audio, the page underlines the range spoken; no word-by-word overlay | R8 |
 | Continuous read-aloud, background audio | no | no | no | drop |
 | Font size | 14–28 | 14–28 | 12–32 via `font(±)`, no UI | R8 |
 | Font family (serif, sans, OpenDyslexic) | yes | yes | absent | R8 (OpenDyslexic is an accessibility feature) |
