@@ -2,6 +2,10 @@
 -- reading_state or annotations row holding a page-name locator raises below, with the counts, before
 -- anything changes. A function swap re-runs no CHECK, so without this those rows would stay, now
 -- breaking constraints nothing reports. Nothing is deleted here: which positions may go is a human's call.
+-- The lock (until this file's transaction ends) keeps a page-name write from landing between the count and
+-- the swap, under the still-wide CHECK.
+
+LOCK TABLE public.reading_state, public.annotations IN SHARE MODE;
 
 DO $$
 DECLARE

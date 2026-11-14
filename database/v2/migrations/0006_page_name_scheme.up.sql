@@ -9,8 +9,8 @@
 -- Issue: https://github.com/mrviduus/textstack/issues/1188
 -- Compatibility: the function only widens, so every stored locator stays valid and no CHECK fails.
 --                CREATE OR REPLACE keeps the function's oid: the three CHECKs that call it keep
---                working. Deploy the migration before the code (the API would otherwise get 23514
---                on a page-name write; it validates first, so a misordered deploy fails loud).
+--                working. Deploy the migration before the code: until it is applied, V2Readiness sees
+--                it pending and every /me/v2 call answers 503 (a misordered deploy fails loud).
 -- Down:  0006_page_name_scheme.down.sql restores the baseline's list. It fails, on purpose, while any
 --        reading_state or annotations row holds a page-name locator: the CHECKs are not re-run by a
 --        function swap, so those rows would silently stop satisfying their constraints. Clear them
