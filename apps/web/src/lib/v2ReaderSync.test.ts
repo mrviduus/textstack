@@ -616,6 +616,113 @@ describe('createV2ReaderSync', () => {
     })
   })
 
+  // #1286: the page's latest `store`, taken by the host synchronously (pagehide, unmount) as a `store` is.
+  describe('the last turn', () => {
+    it('flushKeepalive_TheLastEntry_KeptAliveOnly_NoOtherPut', async () => {
+      api.getReadingState.mockResolvedValue(state(4, 1))
+      const s = await opened()
+      s.flushKeepalive(entry(pos(3)))
+      expect(api.putReadingState).not.toHaveBeenCalled()
+      expect(api.keepalivePutState).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(api.keepalivePutState.mock.calls[0][1])).toMatchObject({ expectedRevision: 4, currentLocator: { value: cfi(3) } })
+    })
+
+    it('close_TheLastEntryWritten', async () => {
+      const s = await opened()
+      await s.close(entry(pos(3)))
+      expect(api.putReadingState.mock.calls.map((c) => (c[1] as V2ReadingStateWrite).currentLocator.value)).toEqual([cfi(3)])
+    })
+
+    it('close_WhileAPassRuns_TheLastEntryOneMorePass_InOrder', async () => {
+      const s = await opened()
+      const put = deferred<V2ReadingState>()
+      api.putReadingState.mockReturnValueOnce(put.promise)
+      s.store(entry(pos(2)))
+      const closed = s.close(entry(pos(3)))
+      put.resolve(state(1, 2))
+      await closed
+      expect(api.putReadingState.mock.calls.map((c) => (c[1] as V2ReadingStateWrite).currentLocator.value)).toEqual([cfi(2), cfi(3)])
+      expect(expectedOf(api.putReadingState.mock.calls[1])).toBe(1)
+    })
+
+    it('thePostedStoreAfterTheKeepaliveTookIt_NotWrittenAgain', async () => {
+      // The page kept (bfcache) after pagehide: its own posted `store` of the same entry arrives. The keepalive
+      // answer is never read, so a pass would PUT it again on the old revision (a lost write, maybe our own place offered).
+      api.getReadingState.mockResolvedValue(state(4, 1))
+      const s = await opened()
+      const last = entry(pos(3))
+      s.flushKeepalive(last)
+      s.store(last)
+      await new Promise((r) => setTimeout(r, 0))
+      expect(api.keepalivePutState).toHaveBeenCalledTimes(1)
+      expect(api.putReadingState).not.toHaveBeenCalled()
+      // The next turn is written as usual.
+      await stored(s, entry(pos(4)))
+      expect(api.putReadingState).toHaveBeenCalledTimes(1)
+    })
+
+    it('keepaliveThenTheTabKept_ANextTurnLosesToTheKeepalivesWrite_OursNoOffer_ItsRevisionAdopted', async () => {
+      // bfcache: the page survives pagehide and the reader turns on. The keepalive's answer is never read, so the next
+      // turn's PUT goes on the old revision and loses to the keepalive's own write: ours, never offered as another
+      // device's newer place; the turn is written again on its revision.
+      api.getReadingState.mockResolvedValue(state(4, 1))
+      const s = await opened()
+      // Turns recorded after the restored state (2026-11-01T00:00Z), as a reader's are.
+      const later = (min: number) => Date.parse('2026-11-01T00:00:00.000Z') + min * 60_000
+      s.flushKeepalive(entry(pos(3, later(1))))
+      const kept = JSON.parse(api.keepalivePutState.mock.calls[0][1]) as V2ReadingStateWrite
+      api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', { ...state(5, 3), currentLocator: kept.currentLocator, clientRecordedAt: kept.clientRecordedAt }))
+      await stored(s, entry(pos(4, later(2))))
+      expect(newer).toEqual([])
+      expect(api.putReadingState.mock.calls.map(expectedOf)).toEqual([4, 5])
+      expect((api.putReadingState.mock.calls[1][1] as V2ReadingStateWrite).currentLocator.value).toBe(cfi(4))
+    })
+
+    it('keepaliveWhileAPassWriteIsInFlight_ThatWriteLandsItsAnswerLost_ANextTurnLosesToIt_OursNoOffer', async () => {
+      // W1 (a pass, P1) in flight; the keepalive W2 (the page's last turn, P2) sent meanwhile. W1 lands and W2 loses,
+      // W1's answer never read (the tab frozen in bfcache). The next turn loses to W1's state: ours, never offered.
+      api.getReadingState.mockResolvedValue(state(4, 1))
+      const s = await opened()
+      const later = (min: number) => Date.parse('2026-11-01T00:00:00.000Z') + min * 60_000
+      const w1 = deferred<V2ReadingState>()
+      api.putReadingState.mockReturnValueOnce(w1.promise)
+      s.store(entry(pos(2, later(1))))
+      await vi.waitFor(() => expect(api.putReadingState).toHaveBeenCalledTimes(1))
+      const sent = api.putReadingState.mock.calls[0][1] as V2ReadingStateWrite
+      s.flushKeepalive(entry(pos(3, later(2))))
+      expect(api.keepalivePutState).toHaveBeenCalledTimes(1)
+      w1.reject(offline())
+      await new Promise((r) => setTimeout(r, 0))
+      api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', { ...state(5, 2), currentLocator: sent.currentLocator, clientRecordedAt: sent.clientRecordedAt }))
+      await stored(s, entry(pos(4, later(3))))
+      expect(newer).toEqual([])
+      expect(api.putReadingState.mock.calls.slice(-2).map(expectedOf)).toEqual([4, 5])
+    })
+
+    it('takenAtCloseThenPostedAgain_OneWrite', async () => {
+      const s = await opened()
+      const last = entry(pos(3))
+      const closed = s.close(last)
+      s.store(last)
+      await closed
+      expect(api.putReadingState).toHaveBeenCalledTimes(1)
+    })
+
+    it('anotherBooksOrBeforeTheRestore_NotTaken', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const early = open()
+      early.flushKeepalive(entry(pos(3)))
+      expect(api.keepalivePutState).not.toHaveBeenCalled()
+      const s = await opened()
+      s.flushKeepalive(entry(pos(3), [], { ...T, sha256: 'cd'.repeat(32) }))
+      s.flushKeepalive('not json')
+      await s.close(entry(pos(3), [], { ...T, size: 1 }))
+      expect(api.keepalivePutState).not.toHaveBeenCalled()
+      expect(api.putReadingState).not.toHaveBeenCalled()
+      warn.mockRestore()
+    })
+  })
+
   describe('flushKeepalive', () => {
     it('unsavedPositionAndHighlight_SentOnTheKnownRevisions_SavedOnesNot', async () => {
       api.getReadingState.mockResolvedValue(state(4, 1))

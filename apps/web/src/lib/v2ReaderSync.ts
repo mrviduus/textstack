@@ -97,15 +97,19 @@ export interface V2ReaderSync {
   store(json: string): void
   /** Writes what is still unsaved now (the tab hidden). */
   flush(): Promise<void>
-  /** The tab is going away: what is unsaved, by keepalive writes (the position first, within the budget). */
-  flushKeepalive(): void
+  /**
+   * The tab is going away: what is unsaved, by keepalive writes (the position first, within the budget). `last`
+   * (#1286): the page's latest `store` payload, taken by the host synchronously where its posted one comes too late;
+   * checked as a `store` is, and written by the keepalive only.
+   */
+  flushKeepalive(last?: string): void
   /**
    * Finish book (#1266): resolves to the book's `completedAt` once the server holds it (its own, when the book
    * was already finished: set once). Rejects when it did not land; calling again is the retry.
    */
   complete(): Promise<string>
-  /** Another open, or the host unmounted: one last pass of what is unsaved, then nothing more is written. */
-  close(): Promise<void>
+  /** Another open, or the host unmounted: one last pass of what is unsaved (`last` too, as above), then nothing more is written. */
+  close(last?: string): Promise<void>
 }
 
 /** A position write exists only because the reader moved (or took an offer): ADR-019 then keeps or asks. */
@@ -165,7 +169,14 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   let refusedPosition: PagePosition | null = null
   /** The last position write sent: a later `stale_revision` whose state is this one is ours (its answer was lost). */
   let lastSent: { p: PagePosition; write: V2ReadingStateWrite } | null = null
+  /**
+   * The last keepalive position write (#1286), its answer never read: ours too if the tab is kept (bfcache). Its own
+   * variable: a pass's write still in flight (`lastSent`) may be the one that lands.
+   */
+  let keptAlive: { p: PagePosition; write: V2ReadingStateWrite } | null = null
   let latest: PageEntry | null = null
+  /** The payload `latest` came from: the same one again (the page's posted `store` after the host took it) is not a change. */
+  let latestJson: string | null = null
   let running: Promise<void> | null = null
   let again = false
   /** The completion being written (`complete`): a close waits for it. */
@@ -181,7 +192,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
    * newer is offered. The move being written is never the comparison (always the newest).
    */
   const theirs = (cur: V2ReadingState, own: typeof lastSent) => {
-    if (own && ownStateWrite(cur, own.write)) position = own.p
+    const mine = [own, keptAlive].find((x) => x && ownStateWrite(cur, x.write))
+    if (mine) position = mine.p
     else if (current() && decideServerState({ local: position, localFileId: t.fileId, server: cur, reader: MOVED, format: t.format }) === 'prompt') {
       // `prompt`: their state is a position on this file (decideServerState).
       o.onNewerPlace(statePosition(cur, t.format)!)
@@ -375,6 +387,19 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     })())
   }
 
+  /** The page's payload as `latest`; false when not taken (closing, not restored, not this book's, the same one again). */
+  function take(json: string): boolean {
+    if (!current() || !ready || json === latestJson) return false
+    const entry = entryFor(json, t)
+    if (!entry) {
+      console.warn('[v2 sync] store: not an entry for this book')
+      return false
+    }
+    latest = entry
+    latestJson = json
+    return true
+  }
+
   return {
     target: t,
     async restore() {
@@ -391,22 +416,23 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     },
     loadHighlights,
     store(json) {
-      if (!current() || !ready) return
-      const entry = entryFor(json, t)
-      if (!entry) return void console.warn('[v2 sync] store: not an entry for this book')
-      latest = entry
-      void kick()
+      if (take(json)) void kick()
     },
     // A pass running already writes the latest entry: joined, not asked for again.
     flush: () => (!current() ? Promise.resolve() : running ?? kick()),
-    flushKeepalive() {
+    flushKeepalive(last) {
+      // Taken without a pass: its PUT and the keepalive one would be the same write twice.
+      if (last !== undefined) take(last)
       if (!live() || gone || !latest) return
       const changes = changesOf(latest)
       const bodies: [send: (body: string) => void, body: string][] = []
       // ponytail: a position PUT still in flight on the same revision makes this one lose (stale_revision, never
       // read): on a slow link the last page turn before closing the tab can be lost; the next open is one turn back.
-      const write = changes.position && positionWrite(changes.position, t.fileId, revision, Date.now(), t.format)
-      if (write) bodies.push([(b) => api.keepalivePutState(t.bookId, b), JSON.stringify(write)])
+      const p = changes.position
+      const write = p && positionWrite(p, t.fileId, revision, Date.now(), t.format)
+      // Sent, it is ours (`keptAlive`, its answer never read): if the tab is kept (bfcache), a later write that loses to
+      // it knows the server's state as ours, not another device's newer place (`theirs`).
+      if (p && write) bodies.push([(b) => { keptAlive = { p, write }; api.keepalivePutState(t.bookId, b) }, JSON.stringify(write)])
       if (highlightsLoaded) {
         for (const { highlight: h } of changes.highlights) {
           const w = highlightWrite(h, t.bookId, t.fileId, held.get(h.id)?.revision ?? null)
@@ -426,11 +452,13 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       if (!current() || !ready) return Promise.reject(new Error('the book is not open'))
       return (completing ??= completeOnce().finally(() => { completing = null }))
     },
-    close() {
+    close(last) {
       if (closing) return closing
+      // A newer entry taken joins the running pass as one more (kick), else as before.
+      const taken = last !== undefined && take(last)
       // A completion in flight (the host unmounted right after the click) is waited for: it still lands.
       const done = closing = Promise.all([
-        (running ?? (latest && !gone ? kick() : Promise.resolve())).catch(() => {}),
+        (taken ? kick() : running ?? (latest && !gone ? kick() : Promise.resolve())).catch(() => {}),
         completing?.catch(() => {}),
       ]).then(() => {}).finally(() => {
         closed = true

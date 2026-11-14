@@ -98,8 +98,9 @@ describe('v2ReaderPageHtml', () => {
     const html = v2ReaderPageHtml(NONCE)
     // The call sites of the two data-loss guards; the scheduler itself is unit-tested.
     // #1128 S5: the book is made before the swap; a superseded or empty one is destroyed and never swapped
-    // in; at the swap the book on screen's pending save is flushed under its own key, then the new one is assigned.
-    expect(html).toMatch(/const made = await makeBookFor\(bytes, name, kind\);\s*const empty = [^;]*;\s*if \(mine !== openSeq \|\| empty\) destroy\(made\.book\);\s*if \(mine !== openSeq\) return false;\s*if \(empty\) throw [^;]*;\s*saves\.flush\(\);\s*endSession\(\);\s*book = \{ sha256/)
+    // in; at the swap the book on screen's pending save is flushed under its own key, then forgotten (#1286 review: flush()
+    // hands a host nothing of a previous open), then the new one is assigned.
+    expect(html).toMatch(/const made = await makeBookFor\(bytes, name, kind\);\s*const empty = [^;]*;\s*if \(mine !== openSeq \|\| empty\) destroy\(made\.book\);\s*if \(mine !== openSeq\) return false;\s*if \(empty\) throw [^;]*;\s*saves\.flush\(\);\s*saves\.forget\(\);\s*endSession\(\);\s*book = \{ sha256/)
     // The replaced book is destroyed (view.close() leaves it alive).
     expect(html).toMatch(/view\.close\(\);\s*\} catch \(\w+\) \{[\s\S]{0,200}?\}\s*destroy\(view == null \? void 0 : view\.book\);/)
     expect(html).not.toContain('saves.cancel')

@@ -570,8 +570,10 @@ async function open(bytes, name, kind, mine) {
   if (mine !== openSeq || empty) destroy(made.book)
   if (mine !== openSeq) return false
   if (empty) throw new Error(kind === 'pdf' ? 'this PDF has no pages' : 'this book has no sections')
-  // The swap. The book on screen's last turn (a save still debounced) is written under its own key first.
+  // The swap. The book on screen's last turn (a save still debounced) is written under its own key first, then
+  // forgotten: flush() hands a host nothing of a previous open (the same book opened again, unmoved, #1286 review).
   saves.flush()
+  saves.forget()
   endSession()
   book = { sha256, size: bytes.length, name }
   entry = null
@@ -857,7 +859,8 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 addEventListener('pagehide', () => saves.flush())
 
 window.__fol = {
-  // The host is leaving (backgrounded, unmounted, closed): a save still debounced is written at once.
+  // The host is leaving (backgrounded, unmounted, closed): a save still debounced is written at once. Returns the
+  // latest `store` (#1286: the web host takes it synchronously; untrusted there, read as a `store` message).
   flush: () => saves.flush(),
   // Read by the page itself (Android: the host's interceptor, bookOrigin.mjs; web: a blob: URL): no book bytes
   // cross the bridge. `open-failed`: unreadable, not a book this page reads, DRM- or password-protected.
