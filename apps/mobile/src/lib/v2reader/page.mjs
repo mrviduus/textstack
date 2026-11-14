@@ -570,8 +570,10 @@ async function open(bytes, name, kind, mine) {
   if (mine !== openSeq || empty) destroy(made.book)
   if (mine !== openSeq) return false
   if (empty) throw new Error(kind === 'pdf' ? 'this PDF has no pages' : 'this book has no sections')
-  // The swap. The book on screen's last turn (a save still debounced) is written under its own key first.
+  // The swap. The book on screen's last turn (a save still debounced) is written under its own key first, then
+  // forgotten: flush() hands a host nothing of a previous open (the same book opened again, unmoved, #1286 review).
   saves.flush()
+  saves.forget()
   endSession()
   book = { sha256, size: bytes.length, name }
   entry = null

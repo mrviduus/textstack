@@ -26,5 +26,9 @@ export function createSaveScheduler(post) {
       if (m) post(m)
       return last
     },
+    // The swap (#1286 review): after its flush, nothing of the previous open is the latest store any more.
+    forget() {
+      last = null
+    },
   }
 }

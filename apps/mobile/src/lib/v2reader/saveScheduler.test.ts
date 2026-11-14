@@ -47,6 +47,19 @@ describe('v2 reader save scheduler', () => {
     expect(sent.map((m) => m.json)).toEqual(['{"n":1}', '{"n":2}'])
   })
 
+  it('forget_AtTheSwap_FlushReturnsNullUntilTheNextSave', () => {
+    // #1286 review: a book opened again without a move must not hand the host its previous open's last turn.
+    const sent: Store[] = []
+    const saves = createSaveScheduler((m: Store) => sent.push(m))
+    saves.save('a'.repeat(64), '{"n":1}', 400)
+    saves.flush()
+    saves.forget()
+    expect(saves.flush()).toBeNull()
+    saves.save('a'.repeat(64), '{"n":2}', 400)
+    expect(saves.flush()).toEqual({ type: 'store', key: 'a'.repeat(64), json: '{"n":2}' })
+    expect(sent.map((m) => m.json)).toEqual(['{"n":1}', '{"n":2}'])
+  })
+
   it('save_KeyAndPayloadReadWhenCalled_NotWhenTheTimerFires', () => {
     const sent: Store[] = []
     const saves = createSaveScheduler((m: Store) => sent.push(m))

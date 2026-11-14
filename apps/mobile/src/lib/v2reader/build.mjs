@@ -86,7 +86,8 @@ const FOLIATE_SHA = '73d42595074f0f5914c00ccb7172a0a8bdfecf26'
 // +773 (#1269): `opened.lang` (the book's language, for the word popup's translation) and `clearSelection()` (the
 // host's toolbar closed after an action: the selection gone, `selection-cleared` at once).
 // +173 (#1286): `flush()` returns the latest `store` (pending or already sent), read synchronously by the web host.
-const BUDGET = 270395
+// +177 (#1286 review): the swap forgets the previous open's last store (`saves.forget()`).
+const BUDGET = 270572
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

@@ -65,7 +65,8 @@ interface PageMessages {
   /** The answers to `addHighlights`: one status per highlight. */
   highlights: { highlights: { id: string; status: string }[] }[]
   /** The places the page reported (`moved`: the reader moved it, the save rule's own test). */
-  relocate: { cfi: string; moved: boolean }[]
+  /** `at`: the host window's performance.now() when it arrived. */
+  relocate: { cfi: string; moved: boolean; at: number }[]
 }
 
 /** The page's `restored`, `store` and `highlights` messages, as the host's window receives them (the host shows neither here). */
@@ -77,7 +78,7 @@ async function collectPageMessages(page: Page) {
     addEventListener('message', (e) => {
       try {
         const m = typeof e.data === 'string' ? JSON.parse(e.data) : null
-        if (m?.type === 'restored' || m?.type === 'store' || m?.type === 'highlights' || m?.type === 'relocate') w.__page[m.type].push(m)
+        if (m?.type === 'restored' || m?.type === 'store' || m?.type === 'highlights' || m?.type === 'relocate') w.__page[m.type].push(m.type === 'relocate' ? { ...m, at: performance.now() } : m)
       } catch { /* not the page's */ }
     })
   })
@@ -615,18 +616,30 @@ test.describe('V2 reader page @v2', () => {
     page.on('request', (r) => {
       if (r.method() === 'PUT' && r.url().endsWith(statePath)) statePuts.push(String((r.postDataJSON() as { currentLocator: { value: unknown } }).currentLocator.value))
     })
-    /** Turns a page and returns its place as soon as the page reports it, while its `store` is still debounced. */
-    const turnUnsaved = async () => {
-      const { relocate, store } = await messages()
-      await clickBar(page, 'Next ›')
-      const got = await page.waitForFunction(([r, s]) => {
-        const w = (window as unknown as { __page: PageMessages }).__page
-        const moved = w.relocate.slice(r).find((m) => m.moved)
-        return moved ? { cfi: moved.cfi, stores: w.store.length - s } : null
-      }, [relocate.length, store.length] as const, { polling: 'raf' })
-      const { cfi, stores } = (await got.jsonValue())!
-      expect(stores, 'the turn is still unsaved (inside the debounce)').toBe(0)
-      return cfi
+    /**
+     * Turns a page and runs `act` (a reload, a link away) while that turn's `store` is still debounced (400 ms): less
+     * than 350 ms after its relocate reached the host, by the page's own clock. Late (CI latency): the turn is saved
+     * the usual way, so it is waited out and done again, up to 3 times. Returns the turn's place.
+     */
+    const turnThen = async (act: () => Promise<unknown>) => {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const { relocate, store } = await messages()
+        await clickBar(page, 'Next ›')
+        const got = await page.waitForFunction(([r, s]) => {
+          const w = (window as unknown as { __page: PageMessages }).__page
+          const moved = w.relocate.slice(r).find((m) => m.moved)
+          return moved ? { cfi: moved.cfi, at: moved.at, stores: w.store.length - s } : null
+        }, [relocate.length, store.length] as const, { polling: 'raf' })
+        const { cfi, at, stores } = (await got.jsonValue())!
+        const age = await page.evaluate((t) => performance.now() - t, at)
+        if (stores === 0 && age < 350) {
+          await act()
+          return cfi
+        }
+        console.log(`[#1286 e2e] attempt ${attempt}: ${Math.round(age)} ms after the relocate (${stores} stores): too late, again`)
+        await settled()
+      }
+      throw new Error('three page turns in a row could not be followed within 350 ms: the debounce path was never exercised')
     }
     const settled = async () => {
       // Nothing of the open (or an earlier turn) left in flight: the next write is the turn's.
@@ -640,15 +653,13 @@ test.describe('V2 reader page @v2', () => {
     await settled()
 
     // A reload: the keepalive write carries the turn.
-    const reloaded = await turnUnsaved()
-    await page.reload()
+    const reloaded = await turnThen(() => page.reload())
     await expect.poll(serverCfi, { timeout: 15_000 }).toBe(reloaded)
     await expect(page.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
     await settled()
 
     // A route change (the top bar's link to the library): the session's last pass writes it, once.
-    const left = await turnUnsaved()
-    await page.getByRole('link', { name: 'Back to the library' }).click()
+    const left = await turnThen(() => page.getByRole('link', { name: 'Back to the library' }).click())
     await expect(page).toHaveURL(/\/en\/library\/?$/)
     await expect.poll(serverCfi, { timeout: 15_000 }).toBe(left)
     await page.waitForTimeout(1_000)
