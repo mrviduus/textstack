@@ -110,6 +110,7 @@ Allowed in `reading_state.current_locator` / `frontier_locator` and `annotations
 |---|---|---|
 | `epub-cfi` | an `epubcfi(...)` string, plus a sibling **`quote`**: the first ≤64 characters of text at the CFI — `{"version":1,"scheme":"epub-cfi","value":"epubcfi(...)","quote":"…"}`. `quote` is **required** in `reading_state.current_locator` (resume restores only if the text at the CFI still starts with it) and **optional** in `annotations.locator` (annotations carry `selected_text`) | the V2 EPUB reader (ADR-029, R0); CFIs are not sortable, so fractions sit beside them |
 | `pdf-page` | position: `{"page":N}` (1-based). Annotation: legacy `PdfAnchor` `{page, rects:[{x,y,w,h}], exact}`, page-relative unscaled rects (`pdfHighlightAnchor.ts`) | the PDF viewer; ETL from legacy `page:<n>` progress and `kind:'pdf'` highlights |
+| `page-name` | position only: `{"page":"<stable page key>","index":N}` — a CBZ image's archive entry name (later a fixed-layout EPUB page, #1196), its 0-based section; no `quote` (amended 2026-11-13) | the V2 reader on a CBZ ([#1188](https://github.com/mrviduus/textstack/issues/1188)) |
 | `textstack-position-v1` | legacy `TextPosition` `{chapterSlug, anchor:{prefix,exact,suffix,startOffset,endOffset}, charOffset, chapterFraction}` — a 64-char quote with 30 chars of context each side; offsets are hints (`textPosition.ts`) | ETL from `user_books.progress_position_json`, or from a scroll-only locator as `{chapterSlug, chapterFraction}` with no `anchor` (decided item 5); the transitional reader, until R8 (M2.7a); resolves only against `book_chapters` |
 | `textstack-anchor-v1` | legacy `TextAnchor` `{chapterKey, prefix, exact, suffix, startOffset, endOffset}` — `chapterKey` is the chapter slug (legacy `chapterId` replaced; ids change on re-ingest) (`textAnchor.ts`) | ETL from reflow `highlights.anchor_json` on uploads; the transitional reader, until R8 (M2.7a) |
 
@@ -399,6 +400,28 @@ Carried by migration `0005_book_formats`, which also widens `ck_ingestion_jobs_s
 `mobi`, `azw3`, `cbz` (the list stays `book_files.format` plus `unknown`). The locator rule moves with it: `epub-cfi` fits the new formats,
 `pdf-page` stays PDF-only (#1122's scheme-fits-file check, in `SyncValidation` and the reading-state
 write SQL). No `ingestion_jobs` row is enqueued for the new formats.
+
+## Amended 2026-11-13 — the `page-name` locator scheme ([#1188](https://github.com/mrviduus/textstack/issues/1188))
+
+Owner decision 2026-11-13: a page-based position is its own scheme, not a quote-less exception on
+`epub-cfi` (which keeps requiring `quote` on every reading position). `page-name` names a page by a
+stable key: `{"version":1,"scheme":"page-name","value":{"page":"<key>","index":N}}`.
+
+- `page`: the page's key, as the file names it — a CBZ image's entry name in the archive (the page
+  restores only if the book still has an entry of that name); for a pre-paginated EPUB ([#1196](https://github.com/mrviduus/textstack/issues/1196))
+  the spine item's href, which foliate uses as the section id. 1–512 UTF-16 units, not blank, no
+  control character (Unicode Cc), storable (no NUL, no lone surrogate).
+- `index`: the page's 0-based section (Int32 ≥ 0): a hint for "same page" (ADR-019 by section) and the
+  CFI the page's store keeps beside the name. Restore never trusts it over `page`.
+- No other member, no `quote`: the position's fraction is the reading state's `book_fraction`.
+- Reading-state `current_locator` / `frontier_locator` only. Never an annotation locator: a CBZ has no
+  text to highlight, and a fixed-layout EPUB's highlights would be `epub-cfi`.
+- Fits only a `cbz` file (the scheme-fits-file check, `SyncValidation.FitsFile` and the reading-state
+  write SQL). `epub` is written here for #1196 and **not enabled**: #1196 widens the fit when it lands.
+- SQL: migration `0006_page_name_scheme` adds `page-name` to `is_locator()`'s list (the envelope only;
+  the quote rule already refuses a `quote` on it). Its down refuses while any row holds one.
+
+Wire rules: [v2-sync-protocol.md](../../internal/v2/v2-sync-protocol.md) "Page positions".
 
 ## Amended 2026-11-08 — `takedown_at` ([#1027](https://github.com/mrviduus/textstack/issues/1027))
 

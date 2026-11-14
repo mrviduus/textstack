@@ -74,7 +74,7 @@ Legend — **Need**: `R8` must exist before R8 · `owner` needs a decision (§6)
 | Time left (chapter / book) from personal WPM | book, `/me/reading/pace` | chapter | absent | R8 |
 | PDF page counter, go-to-page, scrubber | web toolbar | mobile chrome | absent | R8 (with R7) |
 | Fixed-layout EPUB saves a position | n/a | n/a | **never** (#1196) | R8 |
-| CBZ position synced | n/a | n/a | local only (#1188) | owner |
+| CBZ position synced | n/a | n/a | yes, `page-name` (#1188) | owner |
 | "Finish book" | local overlay only (bug, §5) | finished-book block | `completeV2Book` exists, no UI | R8 |
 
 ### 2.4 Selection, word tap, translation, explain

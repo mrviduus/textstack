@@ -24,7 +24,7 @@ import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTa
  * Android host drives (apps/mobile/src/lib/v2reader/README.md): ready → openBytes → opened → restore → restored,
  * then store / relocate / word / openLink. Reader data (position, highlights): in localStorage on the dev route
  * (`dev`) only; on the production route on the server, for a book with a `sync` target (#1226:
- * lib/v2ReaderSync.ts; its one local exception, a CBZ page position, is named there; another device's newer place
+ * lib/v2ReaderSync.ts, a CBZ page position too (`page-name`, #1188); another device's newer place
  * is offered, #1232). The layout is a
  * localStorage setting on both.
  */

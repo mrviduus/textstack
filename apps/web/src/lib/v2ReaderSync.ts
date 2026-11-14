@@ -17,20 +17,17 @@
  *   provably newer than this tab's last saved (or restored) place (ADR-019, `decideServerState`) it is offered
  *   (`onNewerPlace`). The reader is never moved by the session: a position write exists only because they moved.
  *
- * The one local exception: a CBZ page position (no server form yet, #1188) is kept in this browser per book.
- *
  * Answers land while the session is live; the host is told nothing once it is closing (another open, the host
  * unmounted), and nothing lands once the account store reset (`resetSince`, the shared epoch guard).
  */
 import {
-  annotationHighlight, ApiError, entryChanges, entryFor, highlightWrite, isImagePage, normalisedHighlight, ownAnnotationWrite,
+  annotationHighlight, ApiError, entryChanges, entryFor, highlightWrite, normalisedHighlight, ownAnnotationWrite,
   decideServerState, ownStateWrite, pageEntry, positionWrite, sameJson, statePosition, v2Api,
   type HeldHighlight, type PageEntry, type PageHighlight, type PagePosition, type V2Annotation, type V2AnnotationWrite, type V2ReadingState,
   type V2ReadingStateWrite,
 } from '@textstack/shared'
 import { resetSince } from '../api/v2'
 import { keepalivePut } from './progressSync'
-import { readItem, writeItem } from './safeLocalStorage'
 
 /** The open book on the server: its current file, as the page's entry names it. */
 export interface V2SyncTarget {
@@ -73,9 +70,6 @@ export const v2ReaderSyncApi: V2ReaderSyncApi = {
 
 /** The browser's keepalive budget is 64 KiB for every request in flight; headroom kept. */
 export const KEEPALIVE_BUDGET = 60_000
-
-/** A CBZ page position, kept in this browser (#1188). */
-const imagePageKey = (bookId: string) => `v2reader:cbz-position:${bookId}`
 
 /** The last session of each book still writing: the next one of that book reads after it, whatever was open between. */
 const closingByBook = new Map<string, Promise<void>>()
@@ -163,7 +157,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
 
   /** The position written; false when it did not land or was refused. One retry after a lost revision. */
   async function pushPosition(p: PagePosition, expected: number | null, retried = false): Promise<boolean> {
-    // A fraction-only position has no write the server takes (and a CBZ page never reaches here).
+    // A fraction-only position has no write the server takes; a CBZ page is `page-name` (#1188).
     const write = positionWrite(p, t.fileId, expected, Date.now(), t.format)
     if (!write) return false
     const prev = lastSent
@@ -252,12 +246,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     if (!latest) return
     const changes = changesOf(latest)
     let saved = true
-    if (changes.position) {
-      if (isImagePage(changes.position)) {
-        writeItem(imagePageKey(t.bookId), JSON.stringify(changes.position))
-        position = changes.position
-      } else if (!(await pushPosition(changes.position, revision))) saved = false
-    }
+    if (changes.position && !(await pushPosition(changes.position, revision))) saved = false
     // Highlight writes wait for the pull: without the server's rows a write would duplicate or overwrite one.
     if (highlightsLoaded) {
       for (const { highlight } of changes.highlights) {
@@ -322,8 +311,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       if (!current()) return null
       const onFile = s?.fileId === t.fileId ? s : null
       revision = onFile?.revision ?? null
-      // A CBZ page lives in this browser only (#1188).
-      position = t.format === 'cbz' ? imagePage(t.bookId) : onFile && statePosition(onFile, t.format)
+      position = onFile && statePosition(onFile, t.format)
       ready = true
       return JSON.stringify(pageEntry({ sha256: t.sha256, size: t.size, name: t.name }, position, []))
     },
@@ -340,8 +328,6 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     flushKeepalive() {
       if (!live() || gone || !latest) return
       const changes = changesOf(latest)
-      // A CBZ page a pass has not kept yet (one was running).
-      if (changes.position && isImagePage(changes.position)) writeItem(imagePageKey(t.bookId), JSON.stringify(changes.position))
       const bodies: [send: (body: string) => void, body: string][] = []
       // ponytail: a position PUT still in flight on the same revision makes this one lose (stale_revision, never
       // read): on a slow link the last page turn before closing the tab can be lost; the next open is one turn back.
@@ -371,14 +357,5 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       closingByBook.set(t.bookId, done)
       return done
     },
-  }
-}
-
-function imagePage(bookId: string): PagePosition | null {
-  try {
-    const p = JSON.parse(readItem(imagePageKey(bookId)) ?? 'null')
-    return isImagePage(p) ? p : null
-  } catch {
-    return null
   }
 }
