@@ -16,7 +16,8 @@ import { isFractionOnly } from '../../../../../packages/shared/src/reader/fracti
 import { emptyEntry, entryFor, foldText, isPdfPage, isPosition, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 import { openableHref, rectInPage, sentenceOf, sentenceOfRange, trimRange } from './tap.mjs'
-import { selectionMessage } from './selection.mjs'
+import { MAX_SELECTION_CFI, selectionMessage } from './selection.mjs'
+import { SPOKEN_FILL } from './listen.mjs'
 import { navKey } from './chrome.mjs'
 import { HIGHLIGHT_FILL, colorOf, highlightList, isHighlightColor, sameRangeHighlight } from './highlights.mjs'
 import { SELECTION_SETTLE_MS } from '../../../../../packages/reader-engine/src/timing'
@@ -46,6 +47,8 @@ let annotatable = true
 const overlays = new Map()
 /** cfi → the range foliate last drew it over (its section document's): where a tap finds a highlight (#1312). */
 const drawnRanges = new Map()
+/** #1272: the CFI of the range the host is speaking (`speaking`), drawn underlined until it says it ended; or null. */
+let spokenCfi = null
 /** This file's identity and its entry. No save until the stored one is restored. */
 let book = null
 let entry = null
@@ -144,9 +147,10 @@ function glossOf(rects, text, el) {
  * Foliate draw fn, called again with fresh rects on every expand (font size, viewport), so both
  * decorations follow the text without our own layout code. One overlay carries both: see overlays.mjs.
  */
-function decorate(rects, { hl, gloss, el }) {
+function decorate(rects, { hl, gloss, spoken, el }) {
   const g = document.createElementNS(SVG, 'g')
   if (hl) g.append(Overlayer.highlight(rects, { color: HIGHLIGHT_FILL[colorOf(hl.color)] }))
+  if (spoken) g.append(Overlayer.underline(rects, { color: SPOKEN_FILL, width: 3 }))
   if (gloss) g.append(glossOf(rects, gloss, el))
   return g
 }
@@ -459,13 +463,35 @@ function annotate(patch) {
   return view.addAnnotation(a)
 }
 
-/** The highlight drawn over `cfi` goes; a translation label over the same range stays (one overlay, overlays.mjs). */
-function unhighlight(cfi) {
-  const a = { ...overlays.get(cfi), hl: undefined }
-  drawnRanges.delete(cfi)
-  if (a.gloss) return annotate(a)
+/** One decoration over `cfi` goes (`patch` unsets it); the others over the same range stay (one overlay, overlays.mjs). */
+function undecorate(cfi, patch) {
+  if (!overlays.has(cfi)) return
+  const a = { ...overlays.get(cfi), ...patch }
+  if (!a.hl) drawnRanges.delete(cfi)
+  if (a.hl || a.gloss || a.spoken) return annotate(a)
   overlays.delete(cfi)
   return view.deleteAnnotation({ value: cfi })
+}
+/** The highlight drawn over `cfi` goes; a translation label or the spoken mark over the same range stays. */
+const unhighlight = (cfi) => undecorate(cfi, { hl: undefined })
+
+/**
+ * #1272: the host speaks the range at `cfi` (a `word`'s or `selection`'s, in section `index`): it is underlined, the
+ * previous one goes (one at a time). `null`: the speech ended or stopped, the mark goes. Not where `annotatable` is
+ * false, nor for a value that is no range CFI (a `warn`). True when drawn.
+ */
+function speaking(cfi, index) {
+  if (spokenCfi) undecorate(spokenCfi, { spoken: undefined })
+  spokenCfi = null
+  if (cfi === null || cfi === undefined) return false
+  if (!view || !annotatable || typeof cfi !== 'string' || !cfi.startsWith('epubcfi(') || cfi.length > MAX_SELECTION_CFI
+    || !Number.isInteger(index) || index < 0) {
+    log('warn', 'speaking ignored: no range to mark here')
+    return false
+  }
+  spokenCfi = cfi
+  annotate({ value: cfi, index, spoken: true })
+  return true
 }
 
 /**
@@ -709,6 +735,7 @@ async function open(bytes, name, kind, mine) {
   view?.remove()
   overlays.clear()
   drawnRanges.clear()
+  spokenCfi = null
   view = document.createElement('foliate-view')
   document.body.append(view)
   view.addEventListener('load', onLoad)
@@ -738,7 +765,7 @@ async function open(bytes, name, kind, mine) {
   view.addEventListener('draw-annotation', ({ detail: { draw, annotation: a, range } }) => {
     const el = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer
     if (a.hl) drawnRanges.set(a.value, range)
-    draw(decorate, { hl: a.hl, gloss: a.gloss, el })
+    draw(decorate, { hl: a.hl, gloss: a.gloss, spoken: a.spoken, el })
   })
   view.addEventListener('external-link', (e) => {
     e.preventDefault()
@@ -1094,6 +1121,7 @@ window.__fol = {
   drawnRanges: () => drawnRanges.size,
   /** The host answers a `word` with its translation; drawn above that word. Not where `annotatable` is false. */
   showTranslation: (cfi, index, text) => view && annotatable && annotate({ value: cfi, index, gloss: text }),
+  speaking,
 }
 
 applyLook()

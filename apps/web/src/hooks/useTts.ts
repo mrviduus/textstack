@@ -37,8 +37,9 @@ function unlockAudio() {
   a.muted = true
   a.src = SILENT_WAV
   // Synchronous .play() in a user-gesture handler primes the element on iOS.
-  // We swallow the promise; both resolve and reject count as the unlock on iOS.
-  a.play()
+  // We swallow the promise; both resolve and reject count as the unlock on iOS. An engine whose play() returns no
+  // promise (older ones, jsdom) is fine too.
+  Promise.resolve(a.play())
     .catch(() => {})
     .finally(() => {
       a.pause()
@@ -175,10 +176,12 @@ export function useTts(stopKey?: unknown) {
 
     setIsLoading(true)
     try {
-      // Try IndexedDB cache first
+      // Try IndexedDB cache first. Keyed by the voice and speed too (#1272): a speed change once played the cached
+      // audio at its old speed. The plain language stays the key of the default voice at 1×, the entries kept so far.
+      const cacheLang = voice || (speed && speed !== 1) ? `${lang}|${voice ?? ''}|${speed ?? 1}` : lang
       let audioData: ArrayBuffer | null = null
       try {
-        const cached = await getCachedTtsAudio(lang, text)
+        const cached = await getCachedTtsAudio(cacheLang, text)
         if (cached) audioData = cached.audioData
       } catch { /* ignore cache errors */ }
 
@@ -191,7 +194,7 @@ export function useTts(stopKey?: unknown) {
         audioData = await fetchTtsAudio(text, lang, voice, speed, controller.signal)
         if (controller.signal.aborted) return
         // Cache for offline
-        try { await cacheTtsAudio(lang, text, audioData) } catch { /* ignore */ }
+        try { await cacheTtsAudio(cacheLang, text, audioData) } catch { /* ignore */ }
       }
 
       // Timestamps are cheap on cache hit (same key as audio) — fetch in
