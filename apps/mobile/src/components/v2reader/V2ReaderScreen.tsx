@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { placeTimeLeftLabel, timeLeftAt, v2Api, type OpenReader, type PagePosition, type V2ClientFormat } from '@textstack/shared'
+import { placeTimeLeftLabel, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
@@ -16,8 +16,8 @@ import { deviceUploadIo, resetSince, sha256Of, uploadV2Book } from '../../lib/v2
 import { bookFile, createV2Storage, nonceFromUuid, type LibraryBook, type V2Files, type V2Storage } from '../../lib/v2reader/hostStorage'
 import { deviceLocalLibrary, makeV2Dirs, v2Root } from '../../lib/v2reader/deviceLibrary'
 import { capabilitiesFor } from '../../lib/capabilities'
-import type { BookRow, PositionAction } from '../../lib/v2reader/localLibrary'
-import { downloadV2Book, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
+import type { BookRow } from '../../lib/v2reader/localLibrary'
+import { downloadV2Book, openBookHost, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
 import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
 import { createMovedTracker } from '../../lib/v2reader/movedTracker.mjs'
@@ -290,7 +290,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * The open book as ADR-019 sees it (R6): its row, and whether the reader moved since the restore (movedTracker.mjs).
    * `sha256`: its bytes, the key Finish book uses (#1266): a sync can re-key the row while it is read.
    */
-  const reading = useRef({ bookId: null as string | null, sha256: null as string | null })
+  const reading = useRef({ sha256: null as string | null })
   const [place] = useState(createMovedTracker)
   /** The open book's contents (#1261, toc.mjs); the reader's place in them as of the last relocate, read when the sheet opens. */
   const [toc, setToc] = useState<V2TocEntry[]>([])
@@ -378,7 +378,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** The closed book is no longer the open one: a later `ready` opens nothing, and its per-book state goes. */
   const endBook = () => {
     opening.current = null
-    reading.current.bookId = null
     reading.current.sha256 = null
     place.open()
     setReflowable(true)
@@ -465,7 +464,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (intent !== 'save' || savingWords.current.has(key)) return
     savingWords.current.add(key)
     const body = { word: p.word, language: textLang, nativeLanguage, sentence: p.sentence || null, bookTitle: bookTitle.current }
-    const bookId = reading.current.bookId
+    // The open book's current id (a sync may have re-keyed it since the open, #1303).
+    const bookId = openBook?.id ?? null
     try {
       // A book the server does not have (imported here, not synced yet): the word is saved without it.
       const resp = await saveWordWithRetry({ ...body, userBookId: bookId }).catch((e: unknown) => {
@@ -544,14 +544,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       userId,
       retryFailed,
       newId: uuid.v4,
-      reader: (bookId): OpenReader | null => {
-        return reading.current.bookId === bookId ? place.reader() : null
-      },
-      onPosition: (a: PositionAction) => {
-        if (reading.current.bookId !== a.bookId) return
+      // By the open book's bytes, not an id taken at open: this pass may re-key it (#1303).
+      ...openBookHost(() => reading.current.sha256, () => place.reader(), (a) => {
         if (a.action === 'prompt') setOffer(a.position)
         else goTo(a.position)
-      },
+      }),
       upload: uploadRetained,
       guest: capabilitiesFor(user).isGuest,
     }).then(refreshBooks, fail('sync'))
@@ -614,7 +611,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // page may still keep that book on screen, if this newer open fails before its swap.
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
     tracker.open(target.file, opening.current)
-    reading.current.bookId = null
     reading.current.sha256 = null
     place.open()
     setOffer(null)
@@ -680,7 +676,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     const stored = await s.readStore(m.book.sha256)
     if (superseded()) return
     call(`window.__fol.restore(${JSON.stringify(stored)})`)
-    const { retained, bookId, books } = await s.addOpened(
+    const { retained, books } = await s.addOpened(
       { ...m.book, title: m.title, author: m.author, originalName: current.name, format: m.format ?? null },
       isStaged(current.file) ? current.file : null,
     ).catch((e) => {
@@ -692,7 +688,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // From here on this book is the retained copy: a reloaded page reopens that, not the moved staging file.
     if (superseded()) return
     opening.current = { ...current, file: retained }
-    reading.current.bookId = bookId
     reading.current.sha256 = m.book.sha256
     sync.current()
   }

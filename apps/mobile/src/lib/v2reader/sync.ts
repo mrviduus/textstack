@@ -26,8 +26,11 @@ export interface SyncHost {
   /** The session's user id (a guest's too: ADR-014). */
   userId: string
   newId(): string
-  /** The open reader of a book, for ADR-019's adopt/move/prompt; null when that book is not open. */
-  reader(bookId: string): OpenReader | null
+  /**
+   * The open reader of a book (its id, its bytes here), for ADR-019's adopt/move/prompt; null when that book is
+   * not open. A host knows its open book by the bytes (`openBookHost`): the id can change mid-read.
+   */
+  reader(bookId: string, sha256: string | null): OpenReader | null
   /** What a pulled or lost-to position owes the open reader (go there, or ask). */
   onPosition?(a: PositionAction): void
   /**
@@ -39,6 +42,19 @@ export interface SyncHost {
   retryFailed?: boolean
   /** Whether the session's user is a guest (`capabilitiesFor(user).isGuest`): a guest's library carries over (#1070). */
   guest: boolean
+}
+
+/**
+ * The reader screen's `reader` / `onPosition`, keyed by the open book's bytes (#1303): a pass can re-key the book
+ * while it is read (an `applyBooks` twin, `findBySha256` → `adoptServerBook`), so an id taken at open goes stale.
+ * books_sha256 is UNIQUE: one local book per bytes.
+ */
+export function openBookHost(openSha: () => string | null, reader: () => OpenReader | null, apply: (a: PositionAction) => void) {
+  const isOpen = (sha: string | null) => sha != null && sha === openSha()
+  return {
+    reader: (_bookId: string, sha256: string | null) => (isOpen(sha256) ? reader() : null),
+    onPosition: (a: PositionAction) => { if (isOpen(a.sha256)) apply(a) },
+  }
 }
 
 /** `refused`: the library belongs to another real account (#1070 rule D); nothing pulled, pushed or recorded. */

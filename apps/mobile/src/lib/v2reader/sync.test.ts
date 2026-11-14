@@ -10,7 +10,7 @@ import { resetV2ForTests, v2Store, V2UploadError } from '../v2'
 import { CHANGES_NOT_SYNCED, createLocalLibrary, identityStep, wipeV2Library, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createV2Storage } from './hostStorage'
-import { adoptV2LocalAccount, claimV2LibraryFor, downloadV2Book, MAX_FAILURES, pushV2BeforeSignOut, syncV2Library, tryAgainV2Book, type SyncHost } from './sync'
+import { adoptV2LocalAccount, claimV2LibraryFor, downloadV2Book, MAX_FAILURES, openBookHost, pushV2BeforeSignOut, syncV2Library, tryAgainV2Book, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, conflict, feed, resetMidCall, type Answer, type Call,
 } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
@@ -688,6 +688,62 @@ describe('V2 local library sync (R6)', () => {
       await lib.writeEntry(SHA, entry(pos, [highlight, mine]), newId)
       expect((await lib.outbox()).map((o) => o.target)).toContain(mine.id)
       expect(await lib.annotation(mine.id)).toMatchObject({ book_id: bookId })
+    })
+  })
+
+  describe('the open book after a re-key (#1303)', () => {
+    const sid = 'aaaaaaaa-0000-4000-8000-000000000001'
+    const sfid = 'aaaaaaaa-0000-4000-8000-000000000002'
+    const theirs = (bookId: string, fileId: string, revision: number) => serverState(bookId, fileId, revision, {
+      currentLocator: { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/14!/4/2/9:0)', quote: 'theirs' }, clientRecordedAt: new Date(NOW - 1000).toISOString(),
+    })
+    /** The reader screen's host for the open book SHA (read at open under its first id), as V2ReaderScreen builds it. */
+    const openHost = (open: OpenReader) => {
+      const applied: PositionAction[] = []
+      const readerAsked: (OpenReader | null)[] = []
+      const h = openBookHost(() => SHA, () => open, (a) => applied.push(a))
+      return { ...host({ reader: (id, sha) => { const r = h.reader(id, sha); readerAsked.push(r); return r }, onPosition: h.onPosition }), applied, readerAsked }
+    }
+
+    it('pull_TwinReKeysTheOpenBookThenANewerPlace_ReaderSeenAndTheMoveApplied', async () => {
+      const { lib, bookId } = await seeded()
+      fakeApi({
+        'GET /library/changes': feed(serverBook(sid, sfid)),
+        'GET /reading/changes': feed(theirs(sid, sfid, 3)),
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(sid, sfid, 1), 201)],
+      })
+      const h = openHost({ restoreApplied: true, moved: false, index: 6 })
+      await syncV2Library(lib, h)
+      expect(await lib.book(bookId)).toBeNull() // re-keyed during the pass
+      expect(h.readerAsked).toEqual([{ restoreApplied: true, moved: false, index: 6 }])
+      expect(h.applied).toEqual([{ bookId: sid, sha256: SHA, action: 'move', position: expect.objectContaining({ quote: 'theirs' }) }])
+    })
+
+    it('push_ShaLookupReKeysTheOpenBookThenStaleRevision_ReaderSeenAndTheOfferApplied', async () => {
+      const { lib, bookId } = await seeded()
+      fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [ok(serverBook(sid, sfid))],
+        [`PUT /books/${sid}/reading-state`]: [conflict('stale_revision', { revision: 3, current: theirs(sid, sfid, 3) }), ok(serverState(sid, sfid, 4))],
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(sid, sfid, 1), 201)],
+      })
+      const h = openHost({ restoreApplied: true, moved: true, index: 6 })
+      await syncV2Library(lib, h)
+      expect(await lib.book(bookId)).toBeNull()
+      expect(h.readerAsked).toEqual([{ restoreApplied: true, moved: true, index: 6 }])
+      expect(h.applied).toEqual([{ bookId: sid, sha256: SHA, action: 'prompt', position: expect.objectContaining({ quote: 'theirs' }) }])
+    })
+
+    it('openBookHost_AnotherBookOrNoBytes_NoReaderNothingApplied', () => {
+      const applied: PositionAction[] = []
+      const h = openBookHost(() => SHA, () => ({ restoreApplied: true, moved: false, index: 1 }), (a) => applied.push(a))
+      expect(h.reader(sid, 'cd'.repeat(32))).toBeNull()
+      expect(h.reader(sid, null)).toBeNull()
+      h.onPosition({ bookId: sid, sha256: 'cd'.repeat(32), action: 'move', position: pos })
+      h.onPosition({ bookId: sid, sha256: null, action: 'move', position: pos })
+      const none = openBookHost(() => null, () => ({ restoreApplied: true, moved: false, index: 1 }), (a) => applied.push(a))
+      expect(none.reader(sid, null)).toBeNull()
+      none.onPosition({ bookId: sid, sha256: null, action: 'move', position: pos })
+      expect(applied).toEqual([])
     })
   })
 
