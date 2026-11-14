@@ -169,3 +169,112 @@ html.dark .changelog__area--vocabulary { color: #f2cd5c; }
 .changelog__earlier a {
   color: inherit;
 }
+
+/* The move to V2: progress bar, every step, what is still open. */
+.move {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  padding: 24px 20px;
+  margin: 0 0 40px;
+}
+
+.move__heading {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  margin: 0 0 8px;
+}
+
+.move__intro,
+.move__progress {
+  color: var(--color-text-secondary);
+  margin: 0 0 16px;
+}
+
+.move__bar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--color-border);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.move__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-brand);
+}
+
+.move__progress {
+  font-size: 0.875rem;
+}
+
+.move__steps {
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+}
+
+.move__step {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.move__state {
+  align-self: start;
+  justify-self: start;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.move__step--done .move__state {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--color-bg);
+}
+
+.move__step--now .move__state {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+
+.move__step--next .move__title,
+.move__step--next .move__text {
+  opacity: 0.7;
+}
+
+.move__title {
+  font-size: 1rem;
+  margin: 0 0 4px;
+}
+
+.move__text {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.9375rem;
+}
+
+.move__open-heading {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-secondary);
+  margin: 0 0 8px;
+}
+
+.move__open {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.move__open li {
+  margin-bottom: 6px;
+}

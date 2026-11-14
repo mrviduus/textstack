@@ -64,3 +64,41 @@ export const SEED: ReaderEntry[] = [
   { date: '2026-10-06', area: 'ops', kind: 'New', where: ['Android'], title: 'See app updates arrive',
     text: 'A thin progress bar shows while an update downloads, and the app tells you before it restarts.' },
 ]
+
+// The move to V2 (#1013), in reader words. Updated by hand at each wave close; the page shows
+// every step so a reader sees the whole road, not only what shipped.
+export type StepState = 'done' | 'now' | 'next'
+export interface MoveStep { title: string; text: string; state: StepState }
+
+export const MOVE_UPDATED = '2026-11-14'
+
+export const MOVE_STEPS: MoveStep[] = [
+  { state: 'done', title: 'A new home for your data',
+    text: 'A new, simpler database for your library, reading positions, highlights and words. It runs beside the old one.' },
+  { state: 'done', title: 'The apps can use it',
+    text: 'The web app and the Android app can read and save everything in the new home. It stays off for readers until the switch.' },
+  { state: 'done', title: 'Moving your data, rehearsed',
+    text: 'We copied real backups into the new home three times and checked that every book, highlight and word arrived.' },
+  { state: 'done', title: 'A new reading screen',
+    text: 'It opens the book file straight from your device: no waiting, no network, no account needed. On the web and Android.' },
+  { state: 'now', title: 'The new reading screen catches up',
+    text: 'Everything the old one does: menus, page turns, highlights, your place on every device. Most of it is in; we check the rest one by one.' },
+  { state: 'next', title: 'PDF books on the new reading screen',
+    text: 'PDF books open in the new reading screen too, with their pages as they are.' },
+  { state: 'next', title: 'Tests on real phones',
+    text: 'Very large books, a full phone, older Android versions. The switch waits until these pass.' },
+  { state: 'next', title: 'The switch',
+    text: 'Your books, reading positions, highlights and words move to the new home. You keep reading where you were.' },
+  { state: 'next', title: 'Old parts retire',
+    text: 'The old reading screen and the public catalogue go away. TextStack becomes your own library, nothing else.' },
+]
+
+/** Questions still open about the move, in reader words. Nothing private goes here. */
+export const MOVE_OPEN: string[] = [
+  'What the reading screen says when you read further on another device. What it does is decided; the exact words are not.',
+  'The date of the switch. It comes after the tests on real phones.',
+]
+
+/** Percent of the road: a step in progress counts as half. */
+export const moveProgress = (steps: MoveStep[]): number =>
+  steps.length ? Math.round((100 * steps.reduce((n, s) => n + (s.state === 'done' ? 1 : s.state === 'now' ? 0.5 : 0), 0)) / steps.length) : 0

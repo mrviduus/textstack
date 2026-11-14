@@ -1382,5 +1382,13 @@
   "v2Reader.contents": "Contents",
   "v2Reader.closeContents": "Close contents",
   "v2Reader.prevSection": "Previous section: {{title}}",
-  "v2Reader.nextSection": "Next section: {{title}}"
+  "v2Reader.nextSection": "Next section: {{title}}",
+  "changelog.move.heading": "The move to the new TextStack",
+  "changelog.move.intro": "TextStack is moving to a new foundation: your own books first, faster, and readable with no network. Here is the whole road.",
+  "changelog.move.progress": "{{percent}}% of the way · {{done}} of {{total}} steps done",
+  "changelog.move.updated": "Updated {{date}}",
+  "changelog.move.state.done": "Done",
+  "changelog.move.state.now": "Now",
+  "changelog.move.state.next": "Next",
+  "changelog.move.open": "Still open"
 }
