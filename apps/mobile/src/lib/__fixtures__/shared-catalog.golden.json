@@ -643,6 +643,8 @@
   "reader.chrome.finished": "Finished",
   "reader.chrome.contents": "Contents",
   "reader.chrome.closeContents": "Close contents",
+  "reader.chrome.highlights": "Highlights",
+  "reader.chrome.closeHighlights": "Close highlights",
   "reader.chrome.prevSection": "Previous section: {title}",
   "reader.chrome.nextSection": "Next section: {title}",
   "reader.v2.copying": "Copying the book…",

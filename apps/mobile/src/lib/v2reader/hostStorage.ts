@@ -43,6 +43,12 @@ export interface LocalLibrary {
   readEntry(sha256: string): Promise<string | null>
   writeEntry(sha256: string, json: string, newId: () => string): Promise<void>
   finish(sha256: string): Promise<boolean>
+  /** #1312: a highlight's note (null: none), its removal, a book's notes (id → note). */
+  setNote(id: string, note: string | null): Promise<boolean>
+  removeHighlight(id: string): Promise<boolean>
+  /** The id a page id is held under (in memory: after a re-key, the new one). */
+  realId(id: string): string
+  notes(sha256: string): Promise<{ known: Map<string, string | null>; unknown: Set<string>; deleted: Set<string> }>
   /** Resolves to the sha256s whose store entries the rows now hold. */
   importLegacy(books: LibraryEntry[], storeOf: Map<string, string>, newId: () => string): Promise<string[]>
 }
@@ -180,6 +186,15 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
     readStore: (key: string) => afterMigration(() => lib.readEntry(sha256Key(key))),
 
     writeStore: (key: string, json: string) => afterMigration(() => lib.writeEntry(sha256Key(key), json, newId)),
+
+    /**
+     * #1312: a highlight's note, its removal (the page's `highlight-removed`), the open book's notes: after the store
+     * writes queued before them (the page's `store` and `highlight-removed` arrive in its order).
+     */
+    setNote: (id: string, note: string | null) => afterMigration(() => lib.setNote(id, note)),
+    removeHighlight: (id: string) => afterMigration(() => lib.removeHighlight(id)),
+    notes: (key: string) => afterMigration(() => lib.notes(sha256Key(key))),
+    realId: (id: string) => lib.realId(id),
 
     /** "Finish book" (#1266): the book with these bytes finished on this device and queued for the server; resolves to the library's books. */
     finishBook: (sha256: string) => afterMigration(async () => {

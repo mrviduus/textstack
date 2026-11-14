@@ -12,21 +12,24 @@ export const pageEntry = (book: PageEntryBook, position: PagePosition | null, hi
   ({ ...emptyEntry(book), position, highlights })
 
 /** An old (#1078-less) highlight: `quote` held the whole selection; now `selectedText` does and `quote` is its start. */
-export function normalisedHighlight(h: PageHighlight): PageHighlight {
+export function normalisedHighlight<H extends PageHighlight>(h: H): H {
   return h.selectedText === undefined ? { ...h, selectedText: h.quote, quote: codePoints(h.quote, 64) } : h
 }
 
 /** A highlight's identity for the twin lookup: where it is and what it says. */
 const twinKey = (h: PageHighlight | null) => (h ? `${h.cfi}\u0000${h.selectedText ?? h.quote}` : '')
 
-/** A highlight the host holds: its last saved page form (null: unreadable), its file version, whether it is tombstoned. */
-export interface HeldHighlight { id: string; highlight: PageHighlight | null; fileId: string | null; deleted: boolean }
+/**
+ * A highlight the host holds: its last saved page form (null: unreadable), its file version, whether it is tombstoned.
+ * `H`: the form a host diffs (the web session's carries its note, #1312), the same type on both sides.
+ */
+export interface HeldHighlight<H extends PageHighlight = PageHighlight> { id: string; highlight: H | null; fileId: string | null; deleted: boolean }
 
-export interface EntryChanges {
+export interface EntryChanges<H extends PageHighlight = PageHighlight> {
   /** The entry's position when it differs from the held one; null when unchanged or absent. */
   position: PagePosition | null
   /** Highlights to save, normalised, under the id they are saved by; `isNew`: nothing held under that id. */
-  highlights: { highlight: PageHighlight; isNew: boolean }[]
+  highlights: { highlight: H; isNew: boolean }[]
 }
 
 /**
@@ -36,16 +39,16 @@ export interface EntryChanges {
  * text IN THIS FILE VERSION when there is one (skipped; a CFI means nothing in another version), else saved,
  * under a new v4 id when its own is not one. `fileId`: the file version the entry is for.
  */
-export function entryChanges(
+export function entryChanges<H extends PageHighlight = PageHighlight>(
   fileId: string | null,
-  held: { position: PagePosition | null; highlights: HeldHighlight[] },
-  entry: { position: PagePosition | null; highlights: PageHighlight[] },
+  held: { position: PagePosition | null; highlights: HeldHighlight<H>[] },
+  entry: { position: PagePosition | null; highlights: H[] },
   newId: () => string,
-): EntryChanges {
+): EntryChanges<H> {
   const position = entry.position && !sameJson(held.position, entry.position) ? entry.position : null
   const byId = new Map(held.highlights.map((r) => [r.id, r]))
   const live = new Set(held.highlights.filter((r) => !r.deleted && r.fileId === fileId).map((r) => twinKey(r.highlight)))
-  const highlights: EntryChanges['highlights'] = []
+  const highlights: EntryChanges<H>['highlights'] = []
   for (const raw of entry.highlights) {
     let h = normalisedHighlight(raw)
     const row = isUuid(h.id) ? byId.get(h.id) : undefined

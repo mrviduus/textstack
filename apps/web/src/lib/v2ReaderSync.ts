@@ -24,6 +24,13 @@
  *   (the host unmounted right after the click). Online-only: a failure is the host's error with a retry.
  * - Every server state the session takes (the restore's read, a write's answer, a conflict's `current`, the
  *   completion's) tells the host the book's completion (`onCompleted`): a reset elsewhere brings the button back.
+ * - **Notes and removals** (#1312). A note is the host's (the page holds none): `setNote` keeps it as this tab's edit
+ *   until a write carrying it lands, and every highlight write carries the note (the PUT replaces the row). A note
+ *   is diffed with the page's form (`entryChanges` on the form plus `noteText`), so a refused note is not resent
+ *   until it changes. On `stale_revision` the retry keeps the server's note unless this tab edited it (its colour is
+ *   the page's, re-applied once, as before). `remove` (the page's `highlight-removed`) is a `DELETE`, before any
+ *   write of that highlight; a 404 (never on the server) is done; a failure stays queued and unsaved. The tombstone
+ *   then wins: the page's form is never written again.
  *
  * Answers land while the session is live; the host is told nothing once it is closing (another open, the host
  * unmounted), and nothing lands once the account store reset (`resetSince`, the shared epoch guard).
@@ -35,7 +42,7 @@ import {
   type V2ReadingStateWrite,
 } from '@textstack/shared'
 import { resetSince } from '../api/v2'
-import { keepalivePut } from './progressSync'
+import { keepaliveWrite } from './progressSync'
 
 /** The open book on the server: its current file, as the page's entry names it. */
 export interface V2SyncTarget {
@@ -60,9 +67,12 @@ export interface V2ReaderSyncApi {
   annotations(): Promise<V2Annotation[]>
   putReadingState(bookId: string, body: V2ReadingStateWrite): Promise<V2ReadingState>
   putAnnotation(id: string, body: V2AnnotationWrite): Promise<V2Annotation>
+  /** The tombstone (200, idempotent); 404 when the server never had it. */
+  deleteAnnotation(id: string): Promise<V2Annotation>
   /** Writes that outlive the page (`pagehide`); their answers are not read. */
   keepalivePutState(bookId: string, body: string): void
   keepalivePutAnnotation(id: string, body: string): void
+  keepaliveDeleteAnnotation(id: string): void
 }
 
 export const v2ReaderSyncApi: V2ReaderSyncApi = {
@@ -72,8 +82,10 @@ export const v2ReaderSyncApi: V2ReaderSyncApi = {
   annotations: async () => (await v2Api.pullAll<V2Annotation>('annotations')).items,
   putReadingState: v2Api.putReadingState,
   putAnnotation: v2Api.putAnnotation,
-  keepalivePutState: (id, body) => void keepalivePut(v2Api.readingStateUrl(id), body).catch(() => {}),
-  keepalivePutAnnotation: (id, body) => void keepalivePut(v2Api.annotationUrl(id), body).catch(() => {}),
+  deleteAnnotation: v2Api.deleteAnnotation,
+  keepalivePutState: (id, body) => void keepaliveWrite(v2Api.readingStateUrl(id), body).catch(() => {}),
+  keepalivePutAnnotation: (id, body) => void keepaliveWrite(v2Api.annotationUrl(id), body).catch(() => {}),
+  keepaliveDeleteAnnotation: (id) => void keepaliveWrite(v2Api.annotationUrl(id), null, 'DELETE').catch(() => {}),
 }
 
 /** The browser's keepalive budget is 64 KiB for every request in flight; headroom kept. */
@@ -85,7 +97,11 @@ export const NO_PLACE_YET = 'no reading state on this file yet'
 /** The last session of each book still writing: the next one of that book reads after it, whatever was open between. */
 const closingByBook = new Map<string, Promise<void>>()
 
-interface Held extends HeldHighlight { revision: number | null }
+interface Held extends HeldHighlight { revision: number | null; note: string | null }
+/** A highlight as this session diffs and writes it: the page's form plus the host's note. */
+type Noted = PageHighlight & { noteText: string | null }
+/** The page's form of a noted highlight (what the page holds and `held` keeps). */
+const pageFormOf = ({ noteText: _, ...h }: Noted): PageHighlight => h
 
 export interface V2ReaderSync {
   readonly target: V2SyncTarget
@@ -108,6 +124,16 @@ export interface V2ReaderSync {
    * was already finished: set once). Rejects when it did not land; calling again is the retry.
    */
   complete(): Promise<string>
+  /** #1312: the note of highlight `id` as this tab holds it (its own edit, else the server's), null for none. */
+  note(id: string): string | null
+  /** #1312: the reader's note (null: none) for highlight `id`, written with it. Ignored for one removed. */
+  setNote(id: string, note: string | null): void
+  /** #1312: the page removed highlight `id` (`highlight-removed`): tombstoned on the server. */
+  remove(id: string): void
+  /** #1312 review: the id the server holds a page id under (after an `id_conflict` re-key, the new one). */
+  real(id: string): string
+  /** #1312 review: the server's row for this page id is a tombstone (deleted elsewhere): not editable. */
+  deleted(id: string): boolean
   /** Another open, or the host unmounted: one last pass of what is unsaved (`last` too, as above), then nothing more is written. */
   close(last?: string): Promise<void>
 }
@@ -200,7 +226,22 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     }
   }
   const keep = (a: V2Annotation, highlight = annotationHighlight(a)) =>
-    held.set(a.id, { id: a.id, highlight, fileId: a.fileId, deleted: !!a.deletedAt, revision: a.revision })
+    held.set(a.id, { id: a.id, highlight, fileId: a.fileId, deleted: !!a.deletedAt, revision: a.revision, note: a.noteText ?? null })
+  /** This tab's note edits not yet on the server (id → note, null: cleared), and its removals not yet tombstoned. */
+  const notes = new Map<string, string | null>()
+  const removals = new Set<string>()
+  /**
+   * Re-keys of this session (`id_conflict`), old → new, in memory only. Every way in resolves through it: the page's forms
+   * (its stores carry the old id until it renames the highlight, and the last one may come with the close) and the
+   * host's `setNote` / `remove` / `note` for it (#1312 review).
+   */
+  const rekeyed = new Map<string, string>()
+  const real = (id: string) => rekeyed.get(id) ?? id
+  const noteFor = (pageId: string) => {
+    const id = real(pageId)
+    return notes.has(id) ? notes.get(id)! : held.get(id)?.note ?? null
+  }
+  const noted = (h: PageHighlight, note = noteFor(h.id)): Noted => ({ ...h, noteText: note })
 
   /** The position written; false when it did not land or was refused. One retry after a lost revision. */
   async function pushPosition(p: PagePosition, expected: number | null, retried = false): Promise<boolean> {
@@ -247,63 +288,126 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
    * A highlight written; false when it did not land or was refused. PDD "Annotations": own write, re-apply once,
    * a tombstone wins. `pageId`: the id the page holds it under (another after an `id_conflict` re-key).
    */
-  async function pushHighlight(h: PageHighlight, expected: number | null, retried = false, pageId = h.id): Promise<boolean> {
-    const write = highlightWrite(h, t.bookId, t.fileId, expected)
+  async function pushHighlight(h: Noted, expected: number | null, retried = false, pageId = h.id): Promise<boolean> {
+    const write = highlightWrite(h, t.bookId, t.fileId, expected, h.noteText)
     if (!write) return false
+    /** The note sent is what this tab holds now: its edit is done (a newer edit meanwhile stays). */
+    const landed = (a: V2Annotation) => {
+      keep(a, pageFormOf(h))
+      if (h.id !== pageId) {
+        // A re-key (`id_conflict`) landed: the page keeps the old id until the next open (its restore carries the new
+        // one); every way in resolves through `rekeyed` from now on, and this tab's edits made under the old id while it
+        // was in flight move to the new one.
+        if (notes.has(pageId)) notes.set(h.id, notes.get(pageId)!)
+        notes.delete(pageId)
+        if (removals.delete(pageId)) removals.add(h.id)
+        rekeyed.set(pageId, h.id)
+      }
+      if (notes.has(h.id) && notes.get(h.id) === (a.noteText ?? null)) notes.delete(h.id)
+    }
     try {
       const a = await api.putAnnotation(h.id, write)
-      if (live()) keep(a, h)
+      if (live()) landed(a)
       return true
     } catch (e) {
       if (!live()) return true
       const err = v2Api.v2ErrorOf(e)
       const cur = (err?.current ?? null) as V2Annotation | null
-      const pageForm = { ...h, id: pageId }
-      if (err?.code === 'stale_revision' && cur && !retried && !ownAnnotationWrite(cur, write)) return pushHighlight(h, cur.revision, true, pageId)
+      const sentForm = { ...h, id: pageId }
+      // Re-applied once on their revision: the page's form, and the note only if this tab edited it.
+      if (err?.code === 'stale_revision' && cur && !retried && !ownAnnotationWrite(cur, write)) {
+        return pushHighlight({ ...h, noteText: notes.has(pageId) ? notes.get(pageId)! : cur.noteText ?? null }, cur.revision, true, pageId)
+      }
       if ((err?.code === 'stale_revision' || err?.code === 'deleted') && cur) {
         if (ownAnnotationWrite(cur, write)) {
-          keep(cur, h)
+          landed(cur)
           return true
         }
-        // Lost twice, or deleted elsewhere: the server's row is kept, and the page's form (still on screen until the
-        // next open) is not written over it again until the reader changes it.
+        // Lost twice, or deleted elsewhere: the server's row (its note too) is kept, and the page's form (still on
+        // screen until the next open) is not written over it again until the reader changes it.
         keep(cur)
-        overridden.set(pageId, pageForm)
+        notes.delete(pageId)
+        overridden.set(pageId, noted(pageFormOf(sentForm), cur.noteText ?? null))
         return true
       }
       // The id is someone else's (PDD `id_conflict`): a new one, once. The page keeps the old id; the same CFI +
       // text under the new one is its twin (entryChanges), so it is not sent again.
       if (err?.code === 'id_conflict' && !retried) return pushHighlight({ ...h, id: newId() }, null, true, pageId)
       if (err && BOOK_GONE.has(err.code)) gone = true
-      else if (refusedAsSent(e) || err?.code === 'id_conflict') refused.set(pageId, pageForm)
+      else if (refusedAsSent(e) || err?.code === 'id_conflict') refused.set(pageId, sentForm)
       console.warn('[v2 sync] highlight not saved:', errorCode(e))
       return false
     }
   }
 
-  /** The changes the latest entry makes, highlights held as the page has them (overridden, refused) left out. */
-  function changesOf(entry: PageEntry) {
-    const highlights = entry.highlights.filter((h) => !isHeldAs(overridden, h) && !isHeldAs(refused, h))
-    return entryChanges(t.fileId, { position, highlights: [...held.values()] }, { position: entry.position, highlights }, newId)
+  /** A removal tombstoned; false when it did not land (kept for the next pass). A 404: the server never had it. */
+  async function pushRemoval(id: string): Promise<boolean> {
+    try {
+      const a = await api.deleteAnnotation(id)
+      if (live()) {
+        keep(a)
+        removals.delete(id)
+      }
+      return true
+    } catch (e) {
+      if (!live()) return true
+      if (e instanceof ApiError && e.status === 404) {
+        // Held as deleted: a form of it still in a `store` (one sent before the removal) is never written.
+        held.set(id, { id, highlight: null, fileId: t.fileId, deleted: true, revision: null, note: null })
+        removals.delete(id)
+        return true
+      }
+      console.warn('[v2 sync] highlight not deleted:', errorCode(e))
+      return false
+    }
+  }
+
+  /**
+   * The highlights to diff: the page's forms in `entry` (none being removed) with their notes, plus a highlight with
+   * a note edit that `entry` lacks (drawn by `addHighlights`, which the page does not save), in its held form.
+   */
+  function notedForms(entry: PageEntry | null): Noted[] {
+    // Under the id the server holds them by (an alias after a re-key): diffed against that row.
+    const forms = (entry?.highlights ?? []).map((h) => (rekeyed.has(h.id) ? { ...h, id: real(h.id) } : h)).filter((h) => !removals.has(h.id)).map((h) => noted(h))
+    const ids = new Set(forms.map((h) => h.id))
+    for (const id of notes.keys()) {
+      const r = held.get(id)
+      if (!ids.has(id) && !removals.has(id) && r?.highlight && !r.deleted && r.fileId === t.fileId) forms.push(noted(r.highlight))
+    }
+    return forms
+  }
+
+  /** The changes the latest entry and the notes make, forms held as this tab has them (overridden, refused) left out. */
+  function changesOf(entry: PageEntry | null) {
+    const highlights = notedForms(entry).filter((h) => !isHeldAs(overridden, h) && !isHeldAs(refused, h))
+    const heldNoted = [...held.values()].map((r) => ({ ...r, highlight: r.highlight && noted(r.highlight, r.note) }))
+    return entryChanges<Noted>(t.fileId, { position, highlights: heldNoted }, { position: entry?.position ?? null, highlights }, newId)
   }
 
   async function pass() {
     if (gone) return
     // Not waited for: the position is written now, the highlights by one more pass when the pull lands.
-    if (!highlightsLoaded) void loadHighlights().then(() => { if (highlightsLoaded && latest && current()) void kick() })
-    if (!latest) return
-    const changes = changesOf(latest)
+    if (!highlightsLoaded) void loadHighlights().then(() => { if (highlightsLoaded && (latest || notes.size) && current()) void kick() })
+    if (!latest && !notes.size && !removals.size) return
     let saved = true
+    // Removals first: a tombstone wins over every write of that highlight after it.
+    for (const id of [...removals]) {
+      if (!live() || gone) break
+      if (!(await pushRemoval(id))) saved = false
+    }
+    const changes = changesOf(latest)
     if (changes.position && !(await pushPosition(changes.position, revision))) saved = false
     // Highlight writes wait for the pull: without the server's rows a write would duplicate or overwrite one.
     if (highlightsLoaded) {
       for (const { highlight } of changes.highlights) {
         if (!live() || gone) break
+        // Read again: a removal may have been asked for since the diff.
+        if (removals.has(highlight.id) || held.get(highlight.id)?.deleted) continue
         if (!(await pushHighlight(highlight, held.get(highlight.id)?.revision ?? null))) saved = false
       }
     }
-    // A refused value the page still holds stays unsaved, though it is not resent.
-    const stuck = (!!refusedPosition && sameJson(refusedPosition, latest.position)) || latest.highlights.some((h) => isHeldAs(refused, h))
+    // A refused value this tab still holds stays unsaved, though it is not resent.
+    const stuck = (!!refusedPosition && !!latest && sameJson(refusedPosition, latest.position)) || notedForms(latest).some((h) => isHeldAs(refused, h))
     status(gone ? 'reopen' : !saved || stuck ? 'unsaved' : highlightsLoaded ? 'saved' : 'noHighlights')
   }
 
@@ -427,7 +531,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     flushKeepalive(last) {
       // Taken without a pass: its PUT and the keepalive one would be the same write twice.
       if (last !== undefined) take(last)
-      if (!live() || gone || !latest) return
+      if (!live() || gone || (!latest && !notes.size && !removals.size)) return
       const changes = changesOf(latest)
       const bodies: [send: (body: string) => void, body: string][] = []
       // ponytail: a position PUT still in flight on the same revision makes this one lose (stale_revision, never
@@ -437,9 +541,11 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       // Sent, it is ours (`keptAlive`, its answer never read): if the tab is kept (bfcache), a later write that loses to
       // it knows the server's state as ours, not another device's newer place (`theirs`).
       if (p && write) bodies.push([(b) => { keptAlive = { p, write }; api.keepalivePutState(t.bookId, b) }, JSON.stringify(write)])
+      // Removals before any highlight write (each counted as a small request: no body).
+      for (const id of removals) bodies.push([() => api.keepaliveDeleteAnnotation(id), ' '.repeat(100)])
       if (highlightsLoaded) {
         for (const { highlight: h } of changes.highlights) {
-          const w = highlightWrite(h, t.bookId, t.fileId, held.get(h.id)?.revision ?? null)
+          const w = highlightWrite(h, t.bookId, t.fileId, held.get(h.id)?.revision ?? null, h.noteText)
           if (w) bodies.push([(b) => api.keepalivePutAnnotation(h.id, b), JSON.stringify(w)])
         }
       }
@@ -447,7 +553,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       let left = KEEPALIVE_BUDGET
       for (const [send, body] of bodies) {
         const size = new TextEncoder().encode(body).length
-        if (size > left) break
+        // One body over what is left (a long note) is skipped, not the end: the writes after it still go.
+        if (size > left) continue
         left -= size
         send(body)
       }
@@ -456,13 +563,30 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       if (!current() || !ready) return Promise.reject(new Error('the book is not open'))
       return (completing ??= completeOnce().finally(() => { completing = null }))
     },
+    note: noteFor,
+    setNote(pageId, note) {
+      const id = real(pageId)
+      if (!current() || removals.has(id) || held.get(id)?.deleted || noteFor(id) === note) return
+      notes.set(id, note)
+      void kick()
+    },
+    real,
+    deleted: (pageId) => !!held.get(real(pageId))?.deleted,
+    remove(pageId) {
+      const id = real(pageId)
+      // A tombstone already (deleted elsewhere, or by this tab): nothing to send.
+      if (!current() || removals.has(id) || held.get(id)?.deleted) return
+      removals.add(id)
+      notes.delete(id)
+      void kick()
+    },
     close(last) {
       if (closing) return closing
       // A newer entry taken joins the running pass as one more (kick), else as before.
       const taken = last !== undefined && take(last)
       // A completion in flight (the host unmounted right after the click) is waited for: it still lands.
       const done = closing = Promise.all([
-        (taken ? kick() : running ?? (latest && !gone ? kick() : Promise.resolve())).catch(() => {}),
+        (taken ? kick() : running ?? ((latest || notes.size || removals.size) && !gone ? kick() : Promise.resolve())).catch(() => {}),
         completing?.catch(() => {}),
       ]).then(() => {}).finally(() => {
         closed = true

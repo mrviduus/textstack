@@ -17,6 +17,19 @@ import { WordPopup } from './WordPopup'
 import { SelectionToolbar } from './SelectionToolbar'
 import { TranslationPopup } from './TranslationPopup'
 import { ExplanationPopup } from './ExplanationPopup'
+import { PdfHighlightPopup } from './PdfHighlightPopup'
+import type { V2HighlightColor, V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
+
+/** #1312: the highlight a tap opened (`popup.kind === 'highlight'`), as the host knows it, and what its editor does. */
+export interface V2HighlightEditor {
+  item: V2HighlightItem
+  /** The host's note (the page holds none); null: none. */
+  note: string | null
+  onRecolor: (color: V2HighlightColor) => void
+  /** The draft as typed, Save's and Cancel's included (null: Delete, nothing to write): the host writes a changed one whatever closes the editor. */
+  onDraft: (draft: { text: string; from: string | null } | null) => void
+  onDelete: () => void
+}
 
 interface Props {
   /** What is open (wordPopup.mjs `popupStep`, run by the host on the page's messages). */
@@ -29,8 +42,10 @@ interface Props {
   bookId?: string
   /** Its title as the page read it (untrusted: React text, and the example's `bookTitle`, clipped by the save). */
   bookTitle?: string
-  /** The toolbar's Highlight; absent where the host offers none (an image or PDF book, the server's highlights not in yet). */
-  onHighlight?: () => void
+  /** The toolbar's Highlight in the colour chosen; absent where the host offers none (an image or PDF book, the server's highlights not in yet). */
+  onHighlight?: (color: V2HighlightColor) => void
+  /** #1312: the editor of the highlight tapped, when the host knows it. */
+  highlight?: V2HighlightEditor | null
   /** The word popup or the toolbar closed (`selectionDone` false), or the selection's actions are done (true): the page's selection goes, and the toolbar if it is still what is open (never a newer word popup). */
   onClose: (selectionDone: boolean) => void
 }
@@ -42,7 +57,7 @@ interface Props {
  * vocabulary as the legacy reader saves it (#1270): `useReaderVocabulary` (guests' words, the session minted on the
  * third, nudges at 3 and 10), the outcomes through vocabSave.mjs.
  */
-export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, onHighlight, onClose }: Props) {
+export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, onHighlight, highlight, onClose }: Props) {
   const { t } = useTranslation()
   const { openAuthModal } = useAuth()
   const { nativeLanguage, setNativeLanguage, hasConfirmedLanguage } = useNativeLanguage()
@@ -183,13 +198,25 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
           rect={rect}
           text={selection.text}
           containerRef={frame}
-          colors={['yellow']}
           hideHighlight={!onHighlight}
-          onHighlight={() => { onHighlight?.(); onClose(false) }}
+          onHighlight={(color) => { onHighlight?.(color); onClose(false) }}
           onTranslate={() => translationPopup.open(selection.text, rect, { sentence: selection.sentence })}
           onExplain={() => explainPopup.openFromSelection(selection.text, rect, selection.sentence)}
           onCopy={() => onClose(true)}
           tooLong={selection.tooLong}
+        />
+      )}
+      {popup?.kind === 'highlight' && highlight?.item.id === popup.id && (
+        // Keyed: its note field starts from the highlight's note, once.
+        <PdfHighlightPopup
+          key={popup.id}
+          highlight={{ id: popup.id, color: highlight.item.color, selectedText: highlight.item.text, noteText: highlight.note ?? undefined }}
+          rect={rect}
+          containerRef={frame}
+          onRecolor={highlight.onRecolor}
+          onDelete={() => { highlight.onDelete(); onClose(false) }}
+          onClose={() => onClose(false)}
+          onDraft={highlight.onDraft}
         />
       )}
       {translationPopup.show && (

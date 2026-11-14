@@ -456,6 +456,104 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
+  // #1312: a highlight in a colour, recoloured, given a note, listed, jumped to (from the list and by `?highlight=`),
+  // deleted: each change one write on /me/v2, the deletion a tombstone.
+  test('readV2Highlights_CreateRecolourNoteJumpAndDelete_EachWrittenTheDeletionATombstone', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2hl'))
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    // Offered once the server's highlights are in (the Highlight button).
+    await expect(page.getByRole('button', { name: 'Highlight', exact: true })).toHaveCount(1, { timeout: 15_000 })
+
+    /** A word of the first paragraph in the centre tap zone (an edge turns the page): its offsets and page point. */
+    const centreWord = async () => {
+      const width = page.viewportSize()!.width
+      for (const f of page.frames().filter((x) => x.url().startsWith('blob:'))) {
+        const box = await (await f.frameElement()).boundingBox().catch(() => null)
+        if (!box) continue
+        const w = await f.evaluate(({ text, ox, lo, hi }) => {
+          const node = Array.from(document.querySelectorAll('p')).find((x) => x.textContent?.includes(text))?.firstChild as Text | undefined
+          for (const m of node ? node.data.matchAll(/\p{L}{4,}/gu) : []) {
+            const r = document.createRange()
+            r.setStart(node!, m.index!)
+            r.setEnd(node!, m.index! + m[0].length)
+            const b = r.getBoundingClientRect()
+            const x = ox + b.left + b.width / 2
+            if (x > lo && x < hi && b.width > 0) return { word: m[0], start: m.index!, end: m.index! + m[0].length, x: b.left + b.width / 2, y: b.top + b.height / 2 }
+          }
+          return null
+        }, { text: FIRST_SECTION_TEXT, ox: box.x, lo: width * 0.35, hi: width * 0.65 }).catch(() => null)
+        if (w) return { ...w, x: box.x + w.x, y: box.y + w.y }
+      }
+      throw new Error('no word of the first paragraph in the centre zone')
+    }
+    const annotationWrite = (method: string) => page.waitForResponse((r) => r.request().method() === method && /\/me\/v2\/annotations\/[0-9a-f-]{36}$/.test(r.url()))
+
+    // Create, green, from the selection toolbar.
+    const w = await centreWord()
+    const created = annotationWrite('PUT')
+    await selectInFirstParagraph(page, w.start, w.end)
+    await page.getByRole('button', { name: 'Highlight green' }).click()
+    const createdAnswer = await created
+    expect(createdAnswer.ok(), `PUT annotation: ${createdAnswer.status()}`).toBeTruthy()
+    const { id, color, selectedText } = (await createdAnswer.json()) as { id: string; color: string; selectedText: string }
+    expect([color, selectedText]).toEqual(['green', w.word])
+
+    // A tap on it: its editor. Recolour, then a note: each one write, the note kept with the colour.
+    await page.mouse.click(w.x, w.y)
+    const editor = page.locator('.pdf-hl-popup')
+    await expect(editor).toContainText(w.word)
+    const recoloured = annotationWrite('PUT')
+    await editor.getByRole('button', { name: 'blue' }).click()
+    expect(await (await recoloured).json()).toMatchObject({ id, color: 'blue', noteText: null })
+    const noted = annotationWrite('PUT')
+    await editor.getByPlaceholder('Add a note...').fill('an e2e note')
+    await editor.getByRole('button', { name: 'Save' }).click()
+    expect(await (await noted).json()).toMatchObject({ id, color: 'blue', noteText: 'an e2e note' })
+    await expect(editor).toHaveCount(0)
+
+    // Away to another section, then back by the list (the Highlights tab beside Contents).
+    await clickBar(page, 'Next section: The Woods')
+    await expect(status(page)).toHaveText(/^\d+% · The Woods$/)
+    await clickBar(page, 'Contents')
+    await page.getByRole('tab', { name: /Highlights/ }).click()
+    const item = page.getByTestId('v2-highlights-list').getByRole('button')
+    await expect(item).toHaveCount(1)
+    await expect(item).toContainText(w.word)
+    await expect(item).toContainText('an e2e note')
+    const jumped = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith(`/me/v2/books/${bookId}/reading-state`))
+    await item.click()
+    await expect(status(page)).toHaveText(/^\d+% · The Pond$/)
+    // The jump is the reader's choice: its place is saved.
+    expect((await jumped).ok()).toBeTruthy()
+
+    // The deep link: the book saved at The Woods, opened at the highlight.
+    const away = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith(`/me/v2/books/${bookId}/reading-state`))
+    await clickBar(page, 'Next section: The Woods')
+    expect((await away).ok()).toBeTruthy()
+    await page.goto(`/en/library/my/${bookId}/read-v2?highlight=${id}`)
+    await expect(page.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
+    await expect(status(page)).toHaveText(/^\d+% · The Pond$/, { timeout: 20_000 })
+    // Handled: the parameter is gone (replaced, no history entry), so a reload opens at the saved place, no jump.
+    await expect(page).not.toHaveURL(/[?&]highlight=/)
+
+    // Delete from its editor: a DELETE, the tombstone; the list is empty.
+    const again = await centreWord()
+    await page.mouse.click(again.x, again.y)
+    const deleted = annotationWrite('DELETE')
+    await page.locator('.pdf-hl-popup').getByRole('button', { name: 'Delete highlight' }).click()
+    const tomb = (await (await deleted).json()) as { id: string; deletedAt: string | null }
+    expect(tomb.id).toBe(id)
+    expect(tomb.deletedAt).not.toBeNull()
+    await clickBar(page, 'Contents')
+    await page.getByRole('tab', { name: /Highlights/ }).click()
+    await expect(page.getByTestId('v2-highlights-list').getByRole('button')).toHaveCount(0)
+    await expect(page.getByTestId('v2-not-saved')).toHaveCount(0)
+    await context.close()
+  })
+
   // #1226: position and highlights on /me/v2 through the shared client, not in this browser's storage.
   test('readV2Chrome_CookieBannerUnanswered_TheBottomBarSitsAboveItAndNextTurns', async ({ browser }) => {
     const context = await v2Context(browser, email('v2banner'), false)

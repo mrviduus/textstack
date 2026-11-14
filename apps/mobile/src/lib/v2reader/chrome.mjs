@@ -141,7 +141,7 @@ export function reopensOnReady({ opening, inBook }) {
   return !!opening && inBook
 }
 
-/** Page messages acted on with no book on screen: a `tap`, `key`, `word` or `selection` from the hidden page is dropped. */
+/** Page messages acted on with no book on screen: a `tap`, `key`, `word`, `selection` or `highlight-tap` from the hidden page is dropped. */
 export function takenWithoutBook(type) {
-  return type !== 'tap' && type !== 'key' && type !== 'word' && type !== 'selection'
+  return type !== 'tap' && type !== 'key' && type !== 'word' && type !== 'selection' && type !== 'highlight-tap'
 }

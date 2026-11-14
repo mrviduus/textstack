@@ -21,7 +21,7 @@ describe('v2 page entry', () => {
 
   it('normalisedHighlight_Pre1078_QuoteBecomesSelectedTextAndIsCut', () => {
     const long = 'x'.repeat(70)
-    const h = normalisedHighlight({ id: U1, cfi: 'epubcfi(/6/2!/4)', quote: long })
+    const h = normalisedHighlight<PageHighlight>({ id: U1, cfi: 'epubcfi(/6/2!/4)', quote: long })
     expect(h.selectedText).toBe(long)
     expect(h.quote).toBe('x'.repeat(64))
     const now = hl(U1)

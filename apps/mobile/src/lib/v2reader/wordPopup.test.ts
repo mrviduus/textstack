@@ -112,4 +112,23 @@ describe('v2 reader word popup', () => {
     const open = { kind: 'selection' as const, ...selection }
     expect(popupStep(open, { type: 'moved' }, paged)).toEqual({ popup: open, turn: null })
   })
+
+  // #1312: a tap on a drawn highlight opens its editor, by the word's edge rule.
+  const hlTap = (x: number) => ({ id: 'h1', rect: RECT, x, y: 110 })
+  it('highlightTapped_InTheCentre_OpensItsEditor_ReplacingWhatWasOpen', () => {
+    expect(popupStep({ kind: 'selection', ...selection }, { type: 'highlight', highlight: hlTap(500) }, paged)).toEqual({ popup: { kind: 'highlight', ...hlTap(500) }, turn: null })
+  })
+
+  it('highlightTapped_OnAnEdge_Paginated_TurnsThePage_Scrolled_OpensIt', () => {
+    expect(popupStep(null, { type: 'highlight', highlight: hlTap(10) }, paged)).toEqual({ popup: null, turn: 'prev' })
+    expect(popupStep(null, { type: 'highlight', highlight: hlTap(990) }, paged)).toEqual({ popup: null, turn: 'next' })
+    expect(popupStep(null, { type: 'highlight', highlight: hlTap(10) }, scrolled).popup).toEqual({ kind: 'highlight', ...hlTap(10) })
+  })
+
+  it('highlightEditor_KeptByAMoveAndASelectionCleared_ClosedByATap', () => {
+    const open = { kind: 'highlight' as const, ...hlTap(500) }
+    expect(popupStep(open, { type: 'moved' }, paged).popup).toBe(open)
+    expect(popupStep(open, { type: 'selection-cleared' }, paged).popup).toBe(open)
+    expect(popupStep(open, { type: 'tap', x: 500 }, paged)).toEqual({ popup: null, turn: null })
+  })
 })

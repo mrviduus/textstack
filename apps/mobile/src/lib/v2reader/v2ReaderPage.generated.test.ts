@@ -107,7 +107,7 @@ describe('v2ReaderPageHtml', () => {
     // #1128: the format is sniffed (and a refusal answered) BEFORE the seq turns over, so a refused
     // file leaves the open book reading and saving, like a failed read (#1168).
     expect(html).toMatch(/function openFor\(bytes, name\) \{\s*let kind;\s*try \{\s*kind = sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*const mine = \+\+openSeq;\s*return open\(bytes, name, kind, mine\)/)
-    expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,500}?if \(!entry\) return log\("warn"/)
+    expect(html).toMatch(/function highlightSelection\(color = "yellow"\) \{[\s\S]{0,600}?if \(!entry\) return log\("warn"/)
     // The open seq only goes up: a failed open answers `open-failed` and hands nothing back.
     expect(html).toMatch(/if \(mine === openSeq\) openFailed\(name, [^;]*;\s*\}\);/)
     expect(html).not.toMatch(/(?<!var )openSeq = /)
@@ -207,8 +207,8 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toMatch(/id: uuidV4\(\),[\s\S]{0,120}?quote: quoteOf\(selectedText\),\s*selectedText,/)
     expect(html).toMatch(/const ok = foldText\(\w+\) === foldText\((\w+)\.selectedText \?\? \1\.quote\);/)
     expect(html).not.toMatch(/\.slice\(0, 64\)/)
-    // The `highlighted` message carries the full selection (README protocol table).
-    expect(html).toMatch(/type: "highlighted", id: \w+\.id, cfi: \w+\.cfi, quote: \w+\.quote, selectedText \}/)
+    // The `highlighted` message carries the full selection and its colour (README protocol table).
+    expect(html).toMatch(/type: "highlighted", id: \w+\.id, cfi: \w+\.cfi, quote: \w+\.quote, selectedText, color \}/)
     // A selection with no text, or one the server would refuse (SyncLimits.MaxSelectedText), is not
     // stored, and nothing is drawn or announced for it.
     // The cap is the shared one (packages/shared v2Locators, SyncLimits.MaxSelectedText), bundled once.

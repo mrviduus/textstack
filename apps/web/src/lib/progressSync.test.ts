@@ -3,8 +3,22 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 const { upsertProgressMock } = vi.hoisted(() => ({ upsertProgressMock: vi.fn() }))
 vi.mock('../api/auth', () => ({ upsertProgress: upsertProgressMock }))
 
-import { flushLocalProgress, preferLocalProgress, markProgressSynced } from './progressSync'
+import { flushLocalProgress, keepaliveWrite, preferLocalProgress, markProgressSynced } from './progressSync'
 import { ApiError } from '../api/client'
+
+describe('keepaliveWrite', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  it('keepaliveWrite_PutWithItsJsonBody_DeleteWithNone_BothKeptAliveWithTheCookie', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await keepaliveWrite('/a', '{"x":1}')
+    await keepaliveWrite('/b', null, 'DELETE')
+    expect(fetchMock.mock.calls).toEqual([
+      ['/a', { method: 'PUT', credentials: 'include', keepalive: true, body: '{"x":1}', headers: { 'Content-Type': 'application/json' } }],
+      ['/b', { method: 'DELETE', credentials: 'include', keepalive: true }],
+    ])
+  })
+})
 
 const ED1 = '11111111-1111-1111-1111-111111111111'
 const ED2 = '22222222-2222-2222-2222-222222222222'

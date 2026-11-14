@@ -654,6 +654,8 @@
       "finished": "Finished",
       "contents": "Contents",
       "closeContents": "Close contents",
+      "highlights": "Highlights",
+      "closeHighlights": "Close highlights",
       "prevSection": "Previous section: {title}",
       "nextSection": "Next section: {title}"
     },

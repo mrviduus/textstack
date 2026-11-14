@@ -22,6 +22,11 @@ interface FakeSync {
   flush: ReturnType<typeof vi.fn>
   flushKeepalive: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
+  note: ReturnType<typeof vi.fn>
+  real: ReturnType<typeof vi.fn>
+  deleted: ReturnType<typeof vi.fn>
+  setNote: ReturnType<typeof vi.fn>
+  remove: ReturnType<typeof vi.fn>
 }
 const sessions: FakeSync[] = []
 vi.mock('../../lib/v2ReaderSync', () => ({
@@ -33,6 +38,7 @@ vi.mock('../../lib/v2ReaderSync', () => ({
       answer: (json) => settle?.ok(json), fail: () => settle?.no(new Error('offline')),
       restore: vi.fn(() => new Promise((ok, no) => { settle = { ok, no } })), loadHighlights: vi.fn(async () => {}),
       store: vi.fn(), flush: vi.fn(async () => {}), flushKeepalive: vi.fn(), close: vi.fn(() => closed),
+      note: vi.fn(() => 'their note'), setNote: vi.fn(), remove: vi.fn(), real: vi.fn((id: string) => id), deleted: vi.fn(() => false),
     }
     sessions.push(s)
     return s
@@ -312,6 +318,123 @@ describe('V2ReaderHost, server sync', () => {
       open(synced('b2', SHA('b')))
       // Gone while b2 is still opening, before its `opened`.
       expect(bar()).toBeNull()
+    })
+  })
+
+  // #1312: the page's removal is the session's tombstone; a note is the session's; nothing before the pull lands.
+  describe('highlights', () => {
+    const ID = '11111111-1111-4111-8111-111111111111'
+    const item = { id: ID, cfi: 'epubcfi(/6/2!/4/2,/1:0,/1:5)', color: 'green', text: 'pond', at: 1 }
+    async function reading() {
+      const view = mount()
+      fromPage({ type: 'ready' })
+      view.open(synced('b1', SHA('a')))
+      fromPage({ ...opened('1/b1.epub', SHA('a')), annotatable: true })
+      sessions[0].answer('{"v":1}')
+      await flushAll()
+      return Object.assign(sessions[0], { view })
+    }
+    /** The editor open on the highlight with a note typed, never saved by hand. */
+    async function typing() {
+      const s = await reading()
+      act(() => s.onHighlights([]))
+      fromPage({ type: 'highlight-list', key: SHA('a'), highlights: [item] })
+      Object.defineProperty(screen.getByTitle('V2 reader'), 'clientWidth', { value: 1000, configurable: true })
+      fromPage({ type: 'highlight-tap', id: ID, x: 500, y: 100, rect: { x: 480, y: 90, w: 40, h: 20 } })
+      fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: '  typed  ' } })
+      const order: string[] = []
+      s.setNote.mockImplementation((id: string, n: string | null) => { order.push(`setNote ${id} ${n}`) })
+      s.close.mockImplementation(() => { order.push('close'); return Promise.resolve() })
+      s.flushKeepalive.mockImplementation(() => { order.push('flushKeepalive') })
+      return { s, order }
+    }
+
+    // #1312 review: the editor's draft is the host's, written whatever ends it, before the session's last writes.
+    it('aTypedNote_LeavingTheRoute_WrittenBeforeTheSessionsClose', async () => {
+      const { s, order } = await typing()
+      s.view.unmount()
+      expect(order.slice(0, 2)).toEqual([`setNote ${ID} typed`, 'close'])
+    })
+
+    it('aTypedNote_ClosingTheTab_WrittenBeforeTheKeepaliveWrites_Once', async () => {
+      const { order } = await typing()
+      act(() => { window.dispatchEvent(new Event('pagehide')) })
+      expect(order).toEqual([`setNote ${ID} typed`, 'flushKeepalive'])
+    })
+
+    it('theNoteChangesUnderAnOpenEditor_SavingTheDraftItOpenedWith_WritesNothing', async () => {
+      const { s, order } = await typing()
+      fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'their note' } })
+      // Another device's note lands while the editor is open (the session's note, re-rendered).
+      s.note.mockReturnValue('newer, from the web')
+      fromPage({ type: 'highlight-list', key: SHA('a'), highlights: [{ ...item, color: 'blue' }] })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      expect(order).toEqual([])
+    })
+
+    it('aDraftWrittenWhenTheTabHid_ThenEditedBackAndSaved_TheOpeningNoteWrittenBack', async () => {
+      const { order } = await typing()
+      act(() => { Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true }); document.dispatchEvent(new Event('visibilitychange')) })
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+      expect(order).toEqual([`setNote ${ID} typed`])
+      fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'their note' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      expect(order).toEqual([`setNote ${ID} typed`, `setNote ${ID} their note`])
+    })
+
+    it('aDraftWrittenWhenTheTabClosed_ThenCancel_TheOpeningNoteWrittenBack', async () => {
+      const { order } = await typing()
+      act(() => { window.dispatchEvent(new Event('pagehide')) })
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(order).toEqual([`setNote ${ID} typed`, 'flushKeepalive', `setNote ${ID} their note`])
+    })
+
+    // #1312 review: one the server holds as deleted (a 409 `deleted`, another device) is not edited: it leaves the page.
+    it('aHighlightDeletedElsewhere_TappedOrSaved_NoEditorNothingSaved_ItLeavesThePage', async () => {
+      const { s, order } = await typing()
+      posted.length = 0
+      s.deleted.mockReturnValue(true)
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      expect(order).toEqual([])
+      expect(posted.filter((m) => m.call === 'removeHighlight').map((m) => m.args)).toEqual([[ID]])
+      posted.length = 0
+      fromPage({ type: 'highlight-tap', id: ID, x: 500, y: 100, rect: { x: 480, y: 90, w: 40, h: 20 } })
+      expect(document.querySelector('.pdf-hl-popup')).toBeNull()
+      expect(posted.filter((m) => m.call === 'removeHighlight').map((m) => m.args)).toEqual([[ID]])
+    })
+
+    it('anUntouchedDraft_LeavingTheRoute_WritesNothing', async () => {
+      const { s, order } = await typing()
+      fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'their note ' } })
+      s.view.unmount()
+      expect(order[0]).toBe('close')
+    })
+
+    it('beforeThePullLands_NoEditorOnATap_AfterIt_TheSessionsNote', async () => {
+      const s = await reading()
+      fromPage({ type: 'highlight-list', key: SHA('a'), highlights: [item] })
+      Object.defineProperty(screen.getByTitle('V2 reader'), 'clientWidth', { value: 1000, configurable: true })
+      // Not offered yet: a centre tap like any other (it toggles the bars).
+      const bars = () => document.querySelector('main')!.getAttribute('data-bars')
+      const before = bars()
+      fromPage({ type: 'highlight-tap', id: ID, x: 500, y: 100, rect: { x: 480, y: 90, w: 40, h: 20 } })
+      expect(document.querySelector('.pdf-hl-popup')).toBeNull()
+      expect(bars()).not.toBe(before)
+      act(() => s.onHighlights([]))
+      fromPage({ type: 'highlight-tap', id: ID, x: 500, y: 100, rect: { x: 480, y: 90, w: 40, h: 20 } })
+      expect(screen.getByPlaceholderText('Add a note...')).toHaveValue('their note')
+      fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'mine ' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      expect(s.setNote.mock.calls).toEqual([[ID, 'mine']])
+    })
+
+    it('highlightRemoved_ThisBooks_TheSessionTombstonesIt_AnotherBooksIgnored', async () => {
+      const s = await reading()
+      fromPage({ type: 'highlight-removed', key: SHA('b'), id: ID })
+      fromPage({ type: 'highlight-removed', key: SHA('a'), id: '../x' })
+      expect(s.remove).not.toHaveBeenCalled()
+      fromPage({ type: 'highlight-removed', key: SHA('a'), id: ID })
+      expect(s.remove.mock.calls).toEqual([[ID]])
     })
   })
 })
