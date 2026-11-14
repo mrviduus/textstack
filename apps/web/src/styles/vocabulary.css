@@ -1629,6 +1629,16 @@
   animation: speak-pulse 1s ease-in-out infinite;
 }
 
+/* #1272: the audio is fetched; a press cancels it. */
+.speak-btn__spinner {
+  transform-origin: 12px 12px;
+  animation: speak-spin 0.9s linear infinite;
+}
+
+@keyframes speak-spin {
+  to { transform: rotate(360deg); }
+}
+
 @keyframes speak-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
@@ -1984,6 +1994,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .speak-btn--playing { animation: none; }
+  .speak-btn__spinner { animation: none; }
   .flash-card { transition: none; }
   .review-mc__option { transition: none; }
   .review-summary__banner { animation: none; }

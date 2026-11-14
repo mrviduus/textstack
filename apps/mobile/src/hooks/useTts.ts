@@ -80,12 +80,11 @@ async function audioModeReady(audio: ExpoAudioModule) {
 
 /** Resolve the on-disk path for a cached MP3, downloading if needed. Returns
  *  null on download failure so the caller can degrade gracefully. */
-async function getOrFetchAudio(fs: FileSystemModule, text: string, lang: string, rate: number, voice?: string): Promise<string | null> {
+async function getOrFetchAudio(fs: FileSystemModule, text: string, lang: string, rate: number): Promise<string | null> {
   await ensureCacheDir(fs)
   const dir = cacheDir(fs)
   const speed = rate.toFixed(2)
-  // The voice joins the key only when one is asked for (#1272): the files cached so far stay hits.
-  const cacheKey = hashKey(voice ? `${lang}|${voice}|${speed}|${text}` : `${lang}|${speed}|${text}`)
+  const cacheKey = hashKey(`${lang}|${speed}|${text}`)
   const file = `${dir}${cacheKey}.mp3`
   try {
     const info = await fs.getInfoAsync(file)
@@ -93,7 +92,7 @@ async function getOrFetchAudio(fs: FileSystemModule, text: string, lang: string,
   } catch {
     // Treat read errors as cache miss; we'll attempt to download below.
   }
-  const url = `${API_URL}/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(lang)}&speed=${encodeURIComponent(speed)}${voice ? `&voice=${encodeURIComponent(voice)}` : ''}`
+  const url = `${API_URL}/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(lang)}&speed=${encodeURIComponent(speed)}`
   try {
     const res = await fs.downloadAsync(url, file)
     if (res.status >= 200 && res.status < 300) return file
@@ -109,8 +108,8 @@ async function getOrFetchAudio(fs: FileSystemModule, text: string, lang: string,
 export interface TtsSpeakOptions {
   lang?: string
   rate?: number
-  /** An explicit voice (the V2 reader's, listen.mjs `ttsVoice`); none: the server's for `lang`. */
-  voice?: string
+  /** #1272: called once when this playback ends, for any reason (finished, failed, stopped, superseded, unmounted). */
+  onEnd?: () => void
 }
 
 export function useTts() {
@@ -127,6 +126,13 @@ export function useTts() {
   // Monotonic counter — every new speak() call invalidates any pending
   // download from a previous call, so the user's latest word wins races.
   const reqRef = useRef(0)
+  // The `onEnd` of the playback in flight (#1272), called once.
+  const endRef = useRef<(() => void) | null>(null)
+  const finish = useCallback(() => {
+    const f = endRef.current
+    endRef.current = null
+    f?.()
+  }, [])
 
   const releasePlayer = useCallback(() => {
     const p = playerRef.current
@@ -146,7 +152,8 @@ export function useTts() {
     releasePlayer()
     currentTextRef.current = null
     setPhase('idle')
-  }, [releasePlayer])
+    finish()
+  }, [releasePlayer, finish])
 
   /** Resolves true once the audio plays; false when nothing did (no audio module, a failed fetch, a newer call). */
   const speak = useCallback(
@@ -159,6 +166,9 @@ export function useTts() {
       const { audio, fs } = loadNativeOnce()
       if (!audio || !fs) return false
       const normalized: TtsSpeakOptions = typeof opts === 'number' ? { rate: opts } : opts
+      // The previous playback is superseded: its onEnd now, this one's from here.
+      finish()
+      endRef.current = normalized.onEnd ?? null
       const rate = normalized.rate ?? 1.0
       const bcp47 = ttsLang(normalized.lang)
       const req = ++reqRef.current
@@ -170,12 +180,13 @@ export function useTts() {
       setPhase('loading')
 
       await audioModeReady(audio)
-      const file = await getOrFetchAudio(fs, trimmed, bcp47, rate, normalized.voice)
+      const file = await getOrFetchAudio(fs, trimmed, bcp47, rate)
       // Another speak() ran while we were downloading — drop this one.
       if (req !== reqRef.current) return false
       if (!file) {
         currentTextRef.current = null
         setPhase('idle')
+        finish()
         return false
       }
 
@@ -188,6 +199,7 @@ export function useTts() {
             currentTextRef.current = null
             setPhase('idle')
             releasePlayer()
+            finish()
           }
         })
         // Phase before play(), not after. The listener above is already
@@ -201,10 +213,11 @@ export function useTts() {
         currentTextRef.current = null
         setPhase('idle')
         releasePlayer()
+        finish()
         return false
       }
     },
-    [releasePlayer],
+    [releasePlayer, finish],
   )
 
   const toggle = useCallback(
@@ -224,8 +237,9 @@ export function useTts() {
     return () => {
       reqRef.current++
       releasePlayer()
+      finish()
     }
-  }, [releasePlayer])
+  }, [releasePlayer, finish])
 
   return {
     speak,

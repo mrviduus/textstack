@@ -8,7 +8,7 @@ import {
   ALIGNS, FAMILIES, FONT_MAX, FONT_MIN, FONT_STEP, LINE_HEIGHTS, SETTINGS_KEY, THEMES, choose, parseChosen, readSettings,
   type V2FontFamily, type V2Settings, type V2TextAlign, type V2Theme,
 } from '../../lib/v2reader/settings.mjs'
-import { TTS_SPEEDS, TTS_SPEED_KEY, readSpeed } from '../../lib/v2reader/listen.mjs'
+import { TTS_SPEEDS, TTS_SPEED_KEY, createSpeedChoice } from '../../lib/v2reader/listen.mjs'
 
 /**
  * The reader's choices (#1260), read once for the process and replaced by every change (as the flow choice):
@@ -37,11 +37,12 @@ export function useV2Settings() {
 /** #1272: Listen's speed on this device (the host's alone, never the page's); 1 until the stored one is read. */
 export function useV2TtsSpeed() {
   const [speed, setSpeed] = useState(1)
-  useEffect(() => { AsyncStorage.getItem(TTS_SPEED_KEY).then((v) => setSpeed(readSpeed(v)), () => {}) }, [])
-  const update = (v: number) => {
-    setSpeed(readSpeed(v))
-    AsyncStorage.setItem(TTS_SPEED_KEY, String(readSpeed(v))).catch((e) => console.log(`[v2] speech speed not saved: ${e}`))
-  }
+  // createSpeedChoice: a speed picked before the stored one is read wins.
+  const [update] = useState(() => createSpeedChoice({
+    load: () => AsyncStorage.getItem(TTS_SPEED_KEY),
+    save: (v) => { AsyncStorage.setItem(TTS_SPEED_KEY, v).catch((e) => console.log(`[v2] speech speed not saved: ${e}`)) },
+    show: setSpeed,
+  }))
   return { speed, update }
 }
 

@@ -210,6 +210,8 @@
       "translate": "Translate selected text",
       "explain": "Explain in context",
       "listen": "Listen to pronunciation",
+      "listenLoading": "Loading speech, tap to cancel",
+      "listenStop": "Stop speech",
       "copy": "Copy selected text",
       "tooLong": "Too long to listen, translate or explain"
     },
@@ -530,7 +532,6 @@
     "prevSection": "Previous section: {{title}}",
     "nextSection": "Next section: {{title}}",
     "translationFailed": "Could not translate this word.",
-    "listenFailed": "Could not play the speech. Try again.",
     "speechSpeed": "Speech speed"
   },
   "library": {

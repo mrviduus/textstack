@@ -10,7 +10,7 @@ import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs
 import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readRelocate, readTap, takenWithoutBook, type V2NavKey } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
 import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../../../mobile/src/lib/v2reader/wordPopup.mjs'
 import { savesWords } from '../../../../mobile/src/lib/v2reader/vocabSave.mjs'
-import { ttsVoice, type V2TtsVoice } from '../../../../mobile/src/lib/v2reader/listen.mjs'
+import { ttsLang } from '../../../../mobile/src/lib/v2reader/listen.mjs'
 import { V2ReaderPopups, type V2HighlightEditor } from './V2ReaderPopups'
 import { noteChange, readHighlightList, readHighlightRemoved, readHighlightTap, type V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
 import { showsFinishBook } from '../../../../mobile/src/lib/v2reader/finishBook.mjs'
@@ -256,8 +256,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setPopupState(p)
   }
   const [bookLanguage, setBookLanguage] = useState('en')
-  /** #1272: the voice Listen speaks the open book in (`opened.lang` as written, else `en`); null: no Listen. */
-  const [voice, setVoice] = useState<V2TtsVoice | null>(null)
+  /** #1272: the language Listen speaks the open book in (`opened.lang` as written, else `en`); null: no Listen. */
+  const [ttsLanguage, setTtsLanguage] = useState<string | null>(null)
   /** The server book a tapped word is saved with (#1270): the production route's, when the bytes are its file's. */
   const [vocabBook, setVocabBook] = useState<{ id: string; title: string } | null>(null)
   /**
@@ -475,7 +475,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       // Untrusted: only what readToc takes. Its place came with the relocate before this message.
       setToc(readToc(m))
       setBookLanguage(readLang(m) ?? 'en')
-      setVoice(ttsVoice(m.lang, 'en'))
+      setTtsLanguage(ttsLang(m.lang, 'en'))
       setPopup(null)
       setReading(true)
       // Untrusted (the page renders the book): only what readDir takes; none is left to right.
@@ -840,7 +840,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           onHighlight={offersHighlights ? (color) => call('highlightSelection', [color]) : undefined}
           highlight={editor}
           onClose={closePopup}
-          voice={voice}
+          lang={ttsLanguage}
           ttsSpeed={ttsSpeed}
           onSpoken={(r) => call('speaking', r ? [r.cfi, r.index] : [null])}
         />

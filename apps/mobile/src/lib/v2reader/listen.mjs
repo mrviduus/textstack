@@ -1,5 +1,5 @@
 // Listen (#1272): pure, the page and both hosts. The host fetches and plays the audio (the page has no network) and
-// asks the page to mark the range it speaks (`speaking`); this module is what both hosts send and how it is drawn.
+// asks the page to mark the range it speaks (`speaking`); this module is what both hosts send and when.
 
 /** The spoken range's underline (the page's `speaking`): no highlight colour, so it never reads as one. */
 export const SPOKEN_FILL = '#7c3aed'
@@ -15,20 +15,19 @@ export function readSpeed(v) {
 }
 
 /**
- * A language's voice, the server's own defaults (`TtsConfiguration.DefaultVoices`; listen.test.ts holds the two
- * equal). Sent explicitly so the voice never depends on the server's voice list being loaded.
+ * A speed kept in an async store (Android's AsyncStorage): `load()` the stored value, `save(string)`, `show(speed)`
+ * the one in effect. Returns the reader's pick. A pick made before the stored value is read wins: the late read is
+ * dropped, never written over the pick.
  */
-export const TTS_VOICES = {
-  en: 'en-US-AriaNeural', ru: 'ru-RU-SvetlanaNeural', es: 'es-ES-ElviraNeural', fr: 'fr-FR-DeniseNeural',
-  de: 'de-DE-KatjaNeural', it: 'it-IT-ElsaNeural', pt: 'pt-BR-FranciscaNeural', pl: 'pl-PL-ZofiaNeural',
-  nl: 'nl-NL-ColetteNeural', tr: 'tr-TR-EmelNeural', ja: 'ja-JP-NanamiNeural', ko: 'ko-KR-SunHiNeural',
-  zh: 'zh-CN-XiaoxiaoNeural', ar: 'ar-SA-ZariyahNeural', hi: 'hi-IN-SwaraNeural', cs: 'cs-CZ-VlastaNeural',
-  sk: 'sk-SK-ViktoriaNeural', ro: 'ro-RO-AlinaNeural', hu: 'hu-HU-NoemiNeural', sv: 'sv-SE-SofieNeural',
-  no: 'nb-NO-PernilleNeural', da: 'da-DK-ChristelNeural', fi: 'fi-FI-NooraNeural', el: 'el-GR-AthinaNeural',
-  he: 'he-IL-HilaNeural', id: 'id-ID-GadisNeural', vi: 'vi-VN-HoaiMyNeural', th: 'th-TH-PremwadeeNeural',
-  bg: 'bg-BG-KalinaNeural', hr: 'hr-HR-GabrijelaNeural', sr: 'sr-RS-SophieNeural', lt: 'lt-LT-OnaNeural',
-  lv: 'lv-LV-EveritaNeural', et: 'et-EE-AnuNeural', sl: 'sl-SI-PetraNeural', ca: 'ca-ES-JoanaNeural',
-  fa: 'fa-IR-DilaraNeural',
+export function createSpeedChoice({ load, save, show }) {
+  let picked = false
+  Promise.resolve().then(load).then((v) => { if (!picked) show(readSpeed(v)) }, () => {})
+  return (v) => {
+    picked = true
+    const s = readSpeed(v)
+    show(s)
+    save(String(s))
+  }
 }
 
 /** ISO 639-2 codes books carry (`deu`, `fre`) → their two-letter code. */
@@ -37,25 +36,85 @@ const ALPHA3 = {
   nld: 'nl', dut: 'nl', tur: 'tr', jpn: 'ja', kor: 'ko', zho: 'zh', chi: 'zh', ces: 'cs', cze: 'cs', swe: 'sv',
   ukr: 'uk', nob: 'no', nor: 'no', ell: 'el', gre: 'el', heb: 'he', ara: 'ar', fin: 'fi', dan: 'da', hun: 'hu',
 }
+/** ISO 639 codes that name no language: undetermined, multiple, no linguistic content, uncoded. */
+const NOT_A_LANGUAGE = new Set(['und', 'mul', 'zxx', 'mis'])
 
-/** A tag's language as two (or an unknown three) letters, or null when it is no language tag. */
-function primary(tag) {
+/** A tag as a language tag (`pt-BR`, `de-AT` of `deu_AT`), or null: not a tag, or one that names no language. */
+function languageTag(tag) {
   if (typeof tag !== 'string') return null
-  const p = tag.trim().split(/[-_]/)[0].toLowerCase()
-  return /^[a-z]{2,3}$/.test(p) ? ALPHA3[p] ?? p : null
+  const t = tag.trim()
+  if (!/^[a-z]{2,3}([-_][a-z0-9]{1,8})*$/i.test(t)) return null
+  const [p, ...rest] = t.split(/[-_]/)
+  const code = ALPHA3[p.toLowerCase()] ?? p.toLowerCase()
+  return NOT_A_LANGUAGE.has(code) ? null : [code, ...rest].join('-')
 }
 
 /**
- * What a host sends `/tts` for a book (#1272): `opened.lang` as written (a region, a three-letter code: `pt-BR`,
- * `deu`), else the host's fallback (the translation's: web `en`, Android the app's language). `{ lang, voice }`:
- * a language the server knows gets its voice; another goes as its own code with no voice (the server's default for
- * it). A language never becomes English (the legacy mobile defect: `uk` and `de` books read by an en-US voice).
- * Null: no Listen. Ukrainian (the server refuses it, #103) or nothing that reads as a language.
+ * The `lang` a host sends `/tts` for a book (#1272): `opened.lang` as written (its region kept, a three-letter code
+ * folded: `pt-BR`, `deu` → `de`), else the host's fallback (the translation's: web `en`, Android the app's language).
+ * The server picks the voice (`TtsConfiguration.DefaultVoices`, by the language part). A language is never turned
+ * into English (the legacy mobile defect: `uk` and `de` books read by an en-US voice).
+ * Null: no Listen. Ukrainian (the server refuses it, #103), or nothing that reads as a language.
  */
-export function ttsVoice(lang, fallback) {
-  const code = primary(lang) ?? primary(fallback)
-  if (!code || code === 'uk') return null
-  return { lang: code, voice: TTS_VOICES[code] ?? null }
+export function ttsLang(lang, fallback) {
+  const tag = languageTag(lang) ?? languageTag(fallback)
+  return tag && tag.split('-')[0] !== 'uk' ? tag : null
+}
+
+/**
+ * Listen's one rule, both hosts. `speak(text, done)` starts the host's playback: resolves true once it plays, false
+ * when nothing did (failed, superseded, no audio module); `done()` is called once when that playback ends for any
+ * reason. `stop()` ends playback. `mark(at | null)` asks the page to mark a range (`speaking`) or clear it.
+ * `changed()` re-renders the host (its buttons read `state`); `failed()` says the speech could not play.
+ *
+ * The listener owns the phase, set synchronously: `loading` at the press, `playing` once `speak` resolves true, `idle`
+ * when it resolves false, at `done`, or at a stop. A press on the range speaking (its text, CFI and section) stops it,
+ * also while loading (the button says so: a spinner, "tap to cancel"); any other press replaces it. The mark is drawn
+ * at the press and goes with the playback. `speak` resolving false is a failure unless the listener ended it itself
+ * (a stop, or another press replacing it): a host stops through `stop()` here, never its player directly.
+ */
+export function createListener({ speak, stop, mark, changed = () => {}, failed = () => {} }) {
+  let current = null
+  let phase = 'idle'
+  const same = (t, at) => current && current.text === t && current.cfi === (at?.cfi ?? null) && current.index === (at?.index ?? null)
+  const end = (mine) => {
+    if (current !== mine) return
+    current = null
+    phase = 'idle'
+    mark(null)
+    changed()
+  }
+  return {
+    press(text, at) {
+      const t = typeof text === 'string' ? text.trim() : ''
+      if (!t) return
+      if (phase !== 'idle' && same(t, at)) return this.stop()
+      if (current) current.ended = true
+      const mine = (current = { text: t, cfi: at?.cfi ?? null, index: at?.index ?? null, ended: false })
+      phase = 'loading'
+      mark(at ?? null)
+      changed()
+      Promise.resolve(speak(t, () => end(mine))).catch(() => false).then((played) => {
+        if (played === false) {
+          end(mine)
+          if (!mine.ended) failed()
+          return
+        }
+        if (current !== mine || phase !== 'loading') return
+        phase = 'playing'
+        changed()
+      })
+    },
+    stop() {
+      const mine = current
+      if (!mine) return
+      mine.ended = true
+      end(mine)
+      stop()
+    },
+    /** What the button for that text and range shows: `idle` unless it is the one fetched or played. */
+    state: (text, at) => (typeof text === 'string' && same(text.trim(), at) ? phase : 'idle'),
+  }
 }
 
 /**
@@ -65,37 +124,4 @@ export function ttsVoice(lang, fallback) {
 export function speakingJs(at) {
   const cfi = at && typeof at.cfi === 'string' && Number.isInteger(at.index) ? at.cfi : null
   return cfi === null ? 'window.__fol.speaking(null)' : `window.__fol.speaking(${JSON.stringify(cfi)}, ${at.index})`
-}
-
-/**
- * Listen's one rule, both hosts: what a press does and when the page's mark goes. `speak(text)` starts the host's
- * playback (resolves `false` when nothing played: failed, superseded, no audio module), `stop()` ends it, `mark(at | null)` asks the page to mark a range
- * (`speaking`) or clear it. The host reports every playback phase (`idle` / `loading` / `playing`) to `phase`.
- * The text speaking pressed again stops it; another text replaces it (the legacy rule, mobile ttsRequest.ts). The
- * mark is drawn at the press (the fetch takes a second: the press shows it registered) and goes when playback is idle
- * again (ended, stopped, failed) or `speak` says nothing played.
- */
-export function createListener({ speak, stop, mark }) {
-  let current = null
-  let phase = 'idle'
-  const clear = () => {
-    current = null
-    mark(null)
-  }
-  return {
-    press(text, at) {
-      const t = typeof text === 'string' ? text.trim() : ''
-      if (!t) return
-      if (phase !== 'idle' && current?.text === t) return stop()
-      const mine = (current = { text: t })
-      mark(at)
-      Promise.resolve(speak(t)).catch(() => false).then((played) => { if (played === false && current === mine) clear() })
-    },
-    phase(p) {
-      phase = p
-      if (p === 'idle' && current) clear()
-    },
-    /** That text is being fetched or played (the button says Stop). */
-    speaking: (text) => phase !== 'idle' && typeof text === 'string' && current?.text === text.trim(),
-  }
 }

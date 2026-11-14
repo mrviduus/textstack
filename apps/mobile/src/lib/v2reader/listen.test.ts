@@ -1,67 +1,59 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { TTS_VOICES, createListener, readSpeed, speakingJs, ttsVoice } from './listen.mjs'
+import { createListener, createSpeedChoice, readSpeed, speakingJs, ttsLang } from './listen.mjs'
 
-// #1272: the voice a book is spoken in, and the speed, on both hosts.
+// #1272: the language a book is spoken in, the speed, and Listen's press / mark rule, on both hosts.
 
-describe('ttsVoice', () => {
-  it('german_AGermanVoice', () => {
-    expect(ttsVoice('de', 'en')).toEqual({ lang: 'de', voice: 'de-DE-KatjaNeural' })
+describe('ttsLang', () => {
+  it('aLanguage_AsWritten', () => {
+    expect(ttsLang('de', 'en')).toBe('de')
+    expect(ttsLang('pt', 'en')).toBe('pt')
   })
 
-  it('portuguese_APortugueseVoice', () => {
-    expect(ttsVoice('pt', 'en')).toEqual({ lang: 'pt', voice: 'pt-BR-FranciscaNeural' })
+  it('aRegion_Kept', () => {
+    expect(ttsLang('pt-BR', 'en')).toBe('pt-BR')
+    expect(ttsLang('de_AT', 'en')).toBe('de-AT')
+    expect(ttsLang(' FR-CA ', 'en')).toBe('fr-CA')
   })
 
-  it('regionOrUnderscore_ByItsLanguage', () => {
-    expect(ttsVoice('pt-PT', 'en')).toEqual({ lang: 'pt', voice: 'pt-BR-FranciscaNeural' })
-    expect(ttsVoice('de_AT', 'en')).toEqual({ lang: 'de', voice: 'de-DE-KatjaNeural' })
-    expect(ttsVoice(' FR-ca ', 'en')).toEqual({ lang: 'fr', voice: 'fr-FR-DeniseNeural' })
+  it('aThreeLetterCode_FoldedToItsLanguage', () => {
+    expect(ttsLang('deu', 'en')).toBe('de')
+    expect(ttsLang('fre', 'en')).toBe('fr')
+    expect(ttsLang('por-BR', 'en')).toBe('pt-BR')
   })
 
-  it('threeLetterCode_ItsLanguage', () => {
-    expect(ttsVoice('deu', 'en')).toEqual({ lang: 'de', voice: 'de-DE-KatjaNeural' })
-    expect(ttsVoice('fre', 'en')).toEqual({ lang: 'fr', voice: 'fr-FR-DeniseNeural' })
+  it('anUnlistedLanguage_ItsOwnCode_NeverEnglish', () => {
+    expect(ttsLang('sw', 'en')).toBe('sw')
+    expect(ttsLang('xyz', 'en')).toBe('xyz')
   })
 
-  it('english_TheEnglishVoice', () => {
-    expect(ttsVoice('en-GB', 'de')).toEqual({ lang: 'en', voice: 'en-US-AriaNeural' })
+  it('aCodeThatNamesNoLanguage_TheFallback', () => {
+    expect(['und', 'mul', 'zxx', 'mis', 'UND', 'und-Latn'].map((l) => ttsLang(l, 'es'))).toEqual(['es', 'es', 'es', 'es', 'es', 'es'])
   })
 
-  it('unknownLanguage_ItsOwnCodeNoVoice_NeverEnglish', () => {
-    expect(ttsVoice('sw', 'en')).toEqual({ lang: 'sw', voice: null })
-    expect(ttsVoice('xyz', 'en')).toEqual({ lang: 'xyz', voice: null })
+  it('noLanguageOrNoTag_TheFallback', () => {
+    expect(ttsLang('', 'es')).toBe('es')
+    expect(ttsLang(undefined, 'en')).toBe('en')
+    expect(ttsLang('12', 'it')).toBe('it')
+    expect(ttsLang('<b>', 'it')).toBe('it')
+    expect(ttsLang('english', 'it')).toBe('it')
   })
 
-  it('noLanguage_TheFallback', () => {
-    expect(ttsVoice('', 'es')).toEqual({ lang: 'es', voice: 'es-ES-ElviraNeural' })
-    expect(ttsVoice(undefined, 'en')).toEqual({ lang: 'en', voice: 'en-US-AriaNeural' })
-    expect(ttsVoice('12', 'it')).toEqual({ lang: 'it', voice: 'it-IT-ElsaNeural' })
+  it('english_English', () => {
+    expect(ttsLang('en-GB', 'de')).toBe('en-GB')
+    expect(ttsLang('eng', 'de')).toBe('en')
   })
 
   it('ukrainian_NoListen', () => {
-    expect(ttsVoice('uk', 'en')).toBeNull()
-    expect(ttsVoice('ukr', 'en')).toBeNull()
-    expect(ttsVoice('', 'uk')).toBeNull()
+    expect(ttsLang('uk', 'en')).toBeNull()
+    expect(ttsLang('uk-UA', 'en')).toBeNull()
+    expect(ttsLang('ukr', 'en')).toBeNull()
+    expect(ttsLang('', 'uk')).toBeNull()
   })
 
   it('nothingReadsAsALanguage_NoListen', () => {
-    expect(ttsVoice('', '')).toBeNull()
-    expect(ttsVoice(42, null)).toBeNull()
-  })
-
-  it('everyNonEnglishLanguage_NeverAnEnUsVoice', () => {
-    for (const [code, voice] of Object.entries(TTS_VOICES)) {
-      expect(voice.startsWith(code === 'no' ? 'nb-' : `${code}-`)).toBe(true)
-      expect(ttsVoice(code, 'en')?.voice).toBe(voice)
-    }
-  })
-
-  it('voices_AreTheServerDefaults', () => {
-    const cs = readFileSync(resolve(__dirname, '../../../../../backend/src/Tts/TextStack.Tts/TtsConfiguration.cs'), 'utf8')
-    const server = Object.fromEntries([...cs.matchAll(/\["(\w+)"\] = "([\w-]+)"/g)].map((m) => [m[1], m[2]]))
-    expect(TTS_VOICES).toEqual(server)
+    expect(ttsLang('', '')).toBeNull()
+    expect(ttsLang('und', 'zxx')).toBeNull()
+    expect(ttsLang(42, null)).toBeNull()
   })
 })
 
@@ -76,6 +68,37 @@ describe('readSpeed', () => {
   })
 })
 
+describe('createSpeedChoice', () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0))
+
+  it('theStoredSpeed_Shown', async () => {
+    const show = vi.fn()
+    createSpeedChoice({ load: async () => '1.5', save: () => {}, show })
+    await tick()
+    expect(show).toHaveBeenLastCalledWith(1.5)
+  })
+
+  it('aPickBeforeTheStoredOneIsRead_Wins', async () => {
+    let answer!: (v: string) => void
+    const show = vi.fn()
+    const save = vi.fn()
+    const pick = createSpeedChoice({ load: () => new Promise<string>((r) => { answer = r }), save, show })
+    pick(2)
+    await tick()
+    answer('0.75')
+    await tick()
+    expect(show.mock.calls.map((c) => c[0])).toEqual([2])
+    expect(save).toHaveBeenCalledWith('2')
+  })
+
+  it('aFailedRead_TheDefault', async () => {
+    const show = vi.fn()
+    createSpeedChoice({ load: async () => { throw new Error('io') }, save: () => {}, show })
+    await tick()
+    expect(show).not.toHaveBeenCalled()
+  })
+})
+
 describe('speakingJs', () => {
   it('aRange_TheCallWithItsCfiAndSection', () => {
     expect(speakingJs({ cfi: 'epubcfi(/6/4!/4/2/1:3)', index: 2 })).toBe('window.__fol.speaking("epubcfi(/6/4!/4/2/1:3)", 2)')
@@ -83,8 +106,6 @@ describe('speakingJs', () => {
 
   it('aCfiWithQuotes_AStringNeverCode', () => {
     const js = speakingJs({ cfi: 'epubcfi(/6/4!/4[a"),alert(1)//])', index: 0 })
-    expect(js).toBe('window.__fol.speaking("epubcfi(/6/4!/4[a\\"),alert(1)//])", 0)')
-    // Parses as one string argument.
     const args: unknown[] = []
     new Function('window', js)({ __fol: { speaking: (...a: unknown[]) => args.push(...a) } })
     expect(args).toEqual(['epubcfi(/6/4!/4[a"),alert(1)//])', 0])
@@ -100,102 +121,160 @@ describe('speakingJs', () => {
 describe('createListener', () => {
   const A = { cfi: 'epubcfi(/6/2!/4/2/1:0)', index: 1 }
   const B = { cfi: 'epubcfi(/6/2!/4/4/1:0)', index: 1 }
+  /** A host whose speak resolves when the test says; `done` kept per call. */
   function host() {
     const marks: unknown[] = []
-    const h = { speak: vi.fn(async (_t: string) => true), stop: vi.fn(), mark: (at: unknown) => { marks.push(at) } }
-    return { h, marks, l: createListener(h) }
+    const calls: { text: string; done: () => void; resolve: (played: boolean) => void }[] = []
+    const h = {
+      speak: vi.fn((text: string, done: () => void) => new Promise<boolean>((resolve) => { calls.push({ text, done, resolve }) })),
+      stop: vi.fn(),
+      mark: (at: unknown) => { marks.push(at) },
+      changed: vi.fn(),
+      failed: vi.fn(),
+    }
+    return { h, marks, calls, l: createListener(h) }
   }
   const tick = () => new Promise((r) => setTimeout(r, 0))
 
-  it('press_MarksTheRangeAndSpeaksTheText', async () => {
+  it('press_LoadingAtOnce_MarksTheRange_SpeaksTheText', () => {
     const { h, marks, l } = host()
     l.press(' pond ', A)
-    l.phase('loading')
-    await tick()
-    expect(h.speak).toHaveBeenCalledWith('pond')
+    expect(l.state('pond', A)).toBe('loading')
+    expect(h.speak).toHaveBeenCalledWith('pond', expect.any(Function))
     expect(marks).toEqual([A])
-    expect(l.speaking('pond')).toBe(true)
+    expect(h.changed).toHaveBeenCalled()
   })
 
-  it('playbackEnds_TheMarkGoes', async () => {
-    const { marks, l } = host()
-    l.press('pond', A)
-    l.phase('loading')
-    l.phase('playing')
-    l.phase('idle')
-    await tick()
-    expect(marks).toEqual([A, null])
-    expect(l.speaking('pond')).toBe(false)
-  })
-
-  it('theSameTextPressedAgain_Stops', async () => {
+  it('aQuickSecondPressWhileLoading_StopsIt_NeverASecondStart', () => {
     const { h, marks, l } = host()
     l.press('pond', A)
-    l.phase('playing')
     l.press('pond', A)
-    expect(h.stop).toHaveBeenCalledTimes(1)
     expect(h.speak).toHaveBeenCalledTimes(1)
-    l.phase('idle')
+    expect(h.stop).toHaveBeenCalledTimes(1)
+    expect(l.state('pond', A)).toBe('idle')
     expect(marks).toEqual([A, null])
   })
 
-  it('anotherText_ReplacesIt_NoStop', async () => {
-    const { h, marks, l } = host()
+  it('played_Playing_ThenDone_Idle_TheMarkGoes', async () => {
+    const { calls, marks, l } = host()
     l.press('pond', A)
-    l.phase('playing')
-    l.press('by the pond', B)
-    l.phase('loading')
+    calls[0].resolve(true)
     await tick()
-    expect(h.stop).not.toHaveBeenCalled()
-    expect(h.speak).toHaveBeenLastCalledWith('by the pond')
-    expect(marks).toEqual([A, B])
-    expect(l.speaking('by the pond')).toBe(true)
-    expect(l.speaking('pond')).toBe(false)
-  })
-
-  it('pressedAgainWhenIdle_SpeaksAgain', async () => {
-    const { h, l } = host()
-    l.press('pond', A)
-    l.phase('playing')
-    l.phase('idle')
-    l.press('pond', A)
-    expect(h.speak).toHaveBeenCalledTimes(2)
-    expect(h.stop).not.toHaveBeenCalled()
-  })
-
-  it('playbackNeverStarted_TheMarkGoes', async () => {
-    const { h, marks, l } = host()
-    h.speak.mockResolvedValueOnce(false)
-    l.press('pond', A)
-    await tick()
+    expect(l.state('pond', A)).toBe('playing')
+    calls[0].done()
+    expect(l.state('pond', A)).toBe('idle')
     expect(marks).toEqual([A, null])
   })
 
-  it('playingBeforeTheHostReportedAPhase_TheMarkStays', async () => {
-    const { marks, l } = host()
+  it('nothingPlayed_Idle_TheMarkGoes_Failed', async () => {
+    const { h, calls, marks, l } = host()
     l.press('pond', A)
+    calls[0].resolve(false)
     await tick()
-    expect(marks).toEqual([A])
+    expect(l.state('pond', A)).toBe('idle')
+    expect(marks).toEqual([A, null])
+    expect(h.failed).toHaveBeenCalledTimes(1)
   })
 
-  it('aSupersededStart_LeavesTheNewMark', async () => {
-    const { h, marks, l } = host()
-    let first!: () => void
-    h.speak.mockImplementationOnce(() => new Promise<boolean>((r) => { first = () => r(false) }))
-    l.press('pond', A)
-    l.press('by the pond', B)
-    l.phase('loading')
-    first()
-    await tick()
-    expect(marks).toEqual([A, B])
-  })
-
-  it('aThrowingSpeak_TheMarkGoes', async () => {
+  it('aThrowingSpeak_Failed', async () => {
     const { h, marks, l } = host()
     h.speak.mockRejectedValueOnce(new Error('x'))
     l.press('pond', A)
     await tick()
     expect(marks).toEqual([A, null])
+    expect(h.failed).toHaveBeenCalledTimes(1)
+  })
+
+  it('pressedWhilePlaying_Stops_NotAFailure', async () => {
+    const { h, calls, marks, l } = host()
+    l.press('pond', A)
+    calls[0].resolve(true)
+    await tick()
+    l.press('pond', A)
+    calls[0].done()
+    expect(h.stop).toHaveBeenCalledTimes(1)
+    expect(marks).toEqual([A, null])
+    expect(h.failed).not.toHaveBeenCalled()
+  })
+
+  it('theSameWordElsewhere_SpeaksThere_NoStop', () => {
+    const { h, marks, l } = host()
+    l.press('the', A)
+    l.press('the', B)
+    expect(h.stop).not.toHaveBeenCalled()
+    expect(h.speak).toHaveBeenCalledTimes(2)
+    expect(marks).toEqual([A, B])
+    expect(l.state('the', B)).toBe('loading')
+    expect(l.state('the', A)).toBe('idle')
+  })
+
+  it('anotherText_ReplacesIt_TheOldOnesEndChangesNothing', async () => {
+    const { h, calls, marks, l } = host()
+    l.press('pond', A)
+    l.press('by the pond', B)
+    calls[0].resolve(false)
+    calls[0].done()
+    await tick()
+    expect(h.failed).not.toHaveBeenCalled()
+    expect(l.state('by the pond', B)).toBe('loading')
+    expect(marks).toEqual([A, B])
+  })
+
+  it('theHostEndedItBeforeResolvingFalse_StillAFailure', async () => {
+    // A hook calls done (its playback ended, failed) before its promise answers false.
+    const { h, calls, marks, l } = host()
+    l.press('pond', A)
+    calls[0].done()
+    calls[0].resolve(false)
+    await tick()
+    expect(h.failed).toHaveBeenCalledTimes(1)
+    expect(marks).toEqual([A, null])
+  })
+
+  it('stoppedThenResolvedFalse_NotAFailure', async () => {
+    const { h, calls, l } = host()
+    l.press('pond', A)
+    l.stop()
+    calls[0].resolve(false)
+    await tick()
+    expect(h.failed).not.toHaveBeenCalled()
+  })
+
+  it('aLateResolveAfterDone_StaysIdle', async () => {
+    const { calls, l } = host()
+    l.press('pond', A)
+    calls[0].done()
+    calls[0].resolve(true)
+    await tick()
+    expect(l.state('pond', A)).toBe('idle')
+  })
+
+  it('pressedAgainWhenIdle_SpeaksAgain', async () => {
+    const { h, calls, l } = host()
+    l.press('pond', A)
+    calls[0].resolve(true)
+    await tick()
+    calls[0].done()
+    l.press('pond', A)
+    expect(h.speak).toHaveBeenCalledTimes(2)
+    expect(h.stop).not.toHaveBeenCalled()
+  })
+
+  it('stop_EndsWhatPlays_NothingWhenIdle', () => {
+    const { h, marks, l } = host()
+    l.stop()
+    expect(h.stop).not.toHaveBeenCalled()
+    l.press('pond', A)
+    l.stop()
+    expect(h.stop).toHaveBeenCalledTimes(1)
+    expect(marks).toEqual([A, null])
+  })
+
+  it('noRange_SpokenUnmarked', () => {
+    const { marks, l } = host()
+    l.press('pond', { cfi: null, index: 0 })
+    expect(marks).toEqual([{ cfi: null, index: 0 }])
+    expect(l.state('pond', { cfi: null, index: 0 })).toBe('loading')
   })
 
   it('blankText_Nothing', () => {

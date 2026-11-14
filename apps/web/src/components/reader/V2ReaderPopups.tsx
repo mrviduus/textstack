@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState, type RefObject } from 'react'
 import type { V2Popup } from '../../../../mobile/src/lib/v2reader/wordPopup.mjs'
 import type { V2Rect } from '../../../../mobile/src/lib/v2reader/selection.mjs'
 import { saveOutcome } from '../../../../mobile/src/lib/v2reader/vocabSave.mjs'
@@ -19,7 +19,7 @@ import { TranslationPopup } from './TranslationPopup'
 import { ExplanationPopup } from './ExplanationPopup'
 import { PdfHighlightPopup } from './PdfHighlightPopup'
 import type { V2HighlightColor, V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
-import { createListener, type V2TtsVoice } from '../../../../mobile/src/lib/v2reader/listen.mjs'
+import { createListener } from '../../../../mobile/src/lib/v2reader/listen.mjs'
 import { useTts } from '../../hooks/useTts'
 
 /** #1312: the highlight a tap opened (`popup.kind === 'highlight'`), as the host knows it, and what its editor does. */
@@ -50,8 +50,8 @@ interface Props {
   highlight?: V2HighlightEditor | null
   /** The word popup or the toolbar closed (`selectionDone` false), or the selection's actions are done (true): the page's selection goes, and the toolbar if it is still what is open (never a newer word popup). */
   onClose: (selectionDone: boolean) => void
-  /** #1272: the book's voice (listen.mjs `ttsVoice`); null: no Listen (Ukrainian, no language). */
-  voice?: V2TtsVoice | null
+  /** #1272: the language the book is spoken in (listen.mjs `ttsLang`); null: no Listen (Ukrainian, no language). */
+  lang?: string | null
   /** The chosen speed (listen.mjs `TTS_SPEEDS`). */
   ttsSpeed?: number
   /** The range spoken (the page underlines it, `speaking`), null when the speech ended or stopped. */
@@ -65,7 +65,7 @@ interface Props {
  * vocabulary as the legacy reader saves it (#1270): `useReaderVocabulary` (guests' words, the session minted on the
  * third, nudges at 3 and 10), the outcomes through vocabSave.mjs.
  */
-export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, onHighlight, highlight, onClose, voice = null, ttsSpeed = 1, onSpoken }: Props) {
+export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, onHighlight, highlight, onClose, lang = null, ttsSpeed = 1, onSpoken }: Props) {
   const { t } = useTranslation()
   const { openAuthModal } = useAuth()
   const { nativeLanguage, setNativeLanguage, hasConfirmedLanguage } = useNativeLanguage()
@@ -167,22 +167,25 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
   const lookupHere = word && lookup?.word === word.word ? lookup : null
 
   // #1272: Listen, a word or a selection, played here (the page has no network); the page marks the range while it is
-  // fetched and played (listen.mjs `createListener`: one rule for both hosts). Unmounting (a new open) stops it.
+  // fetched and played. listen.mjs `createListener` owns the phase (one rule for both hosts); this renders it. No word
+  // timestamps (their request takes the same rate-limit permits, and nothing here tracks words). Unmounting (a new open)
+  // stops it.
   const tts = useTts()
-  const ttsRef = useRef({ tts, voice, ttsSpeed, onSpoken })
-  ttsRef.current = { tts, voice, ttsSpeed, onSpoken }
+  const ttsRef = useRef({ tts, lang, ttsSpeed, onSpoken })
+  ttsRef.current = { tts, lang, ttsSpeed, onSpoken }
+  const [, rerender] = useReducer((n: number) => n + 1, 0)
   const [listener] = useState(() => createListener({
-    speak: (text) => {
-      const { tts: x, voice: v, ttsSpeed: speed } = ttsRef.current
-      return v ? x.speak(text, v.lang, v.voice ?? undefined, speed) : false
+    speak: (text, done) => {
+      const { tts: x, lang: l, ttsSpeed: speed } = ttsRef.current
+      return l ? x.speak(text, l, undefined, speed, { timestamps: false, onEnd: done }) : false
     },
     stop: () => ttsRef.current.tts.stop(),
     mark: (at) => ttsRef.current.onSpoken?.(at?.cfi ? { cfi: at.cfi, index: at.index } : null),
+    changed: rerender,
+    failed: () => setToast(t('reader.listenFailed')),
   }))
-  useEffect(() => { listener.phase(tts.isLoading ? 'loading' : tts.isPlaying ? 'playing' : 'idle') }, [tts.isLoading, tts.isPlaying])
-  useEffect(() => () => listener.phase('idle'), [])
-  useEffect(() => { if (tts.error) setToast(t('v2Reader.listenFailed')) }, [tts.error])
-  const listen = (text: string, at: { cfi: string | null; index: number }) => { if (voice) listener.press(text, at) }
+  useEffect(() => () => listener.stop(), [])
+  const listen = (text: string, at: { cfi: string | null; index: number }) => { if (lang) listener.press(text, at) }
 
   const selection = popup?.kind === 'selection' ? popup : null
   // Their own close ends the selection in the page (the legacy reader's clearSelection on close).
@@ -216,7 +219,8 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
           onChangeNativeLanguage={setNativeLanguage}
           hasConfirmedLanguage={hasConfirmedLanguage}
           bookLanguage={bookLanguage}
-          onSpeak={voice ? () => listen(word.word, word) : undefined}
+          onSpeak={lang ? () => listen(word.word, word) : undefined}
+          speakState={listener.state(word.word, word)}
           t={t}
         />
       )}
@@ -230,7 +234,8 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
           onTranslate={() => translationPopup.open(selection.text, rect, { sentence: selection.sentence })}
           onExplain={() => explainPopup.openFromSelection(selection.text, rect, selection.sentence)}
           onCopy={() => onClose(true)}
-          onSpeak={voice ? () => listen(selection.text, selection) : undefined}
+          onSpeak={lang ? () => listen(selection.text, selection) : undefined}
+          speakState={listener.state(selection.text, selection)}
           tooLong={selection.tooLong}
         />
       )}
