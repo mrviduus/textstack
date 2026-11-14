@@ -15,7 +15,7 @@ import { noteChange, readHighlightList, readHighlightRemoved, readHighlightTap, 
 import { showsFinishBook } from '../../../../mobile/src/lib/v2reader/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
 import { readToc, tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
-import { createSessionTracker, readCause, SESSION_HEARTBEAT_MS, type EndedSession } from '../../../../mobile/src/lib/v2reader/sessionTracker.mjs'
+import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../../../mobile/src/lib/v2reader/sessionTracker.mjs'
 import { flushPendingSessions, queueReadingSession } from '../../hooks/useReadingSession'
 import { useAuth } from '../../context/AuthContext'
 import { trackReadingSessionEnd } from '../../lib/analytics'
@@ -596,7 +596,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (readingRef.current && hidesBarsOnRelocate({ moved: r.moved, msSinceHostMove })) hideBars()
           // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
           if (!tracker.showsPosition()) return
-          sessions.relocate({ ...r, cause: readCause(m) }, Date.now())
+          sessions.relocate(r, Date.now())
           setTocIndex(r.tocIndex)
           setTimePlace({ fraction: r.fraction, sectionEnd: r.sectionEnd, words: r.words })
           setStatus(v2Percent(r.fraction))

@@ -1,15 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { readRelocate } from './chrome.mjs'
-import { createSessionTracker, readCause } from './sessionTracker.mjs'
+import { createSessionTracker } from './sessionTracker.mjs'
 
 const T0 = Date.parse('2026-11-14T10:00:00Z')
 const at = (s: number) => T0 + s * 1000
 const iso = (s: number) => new Date(at(s)).toISOString()
-/** A page `relocate` through the host's readers (`readRelocate` + `readCause`). */
-const rel = (fraction: number, moved: boolean, cause: string, words: number | null = 100_000) => {
-  const m = { type: 'relocate', index: 1, sections: 9, fraction, cfi: 'epubcfi(/6/2!/4/2)', moved, words, cause }
-  return { ...readRelocate(m)!, cause: readCause(m) }
-}
+/** A page `relocate` through the host's reader. */
+const rel = (fraction: number, moved: boolean, cause: string, words: number | null = 100_000) =>
+  readRelocate({ type: 'relocate', index: 1, sections: 9, fraction, cfi: 'epubcfi(/6/2!/4/2)', moved, words, cause })
 /** The reader's own page turn. */
 const turn = (fraction: number, words: number | null = 100_000) => rel(fraction, true, 'turn', words)
 /** The landing of a navigation (`moved`: the reader chose it; not: a sync move, a restore). */
@@ -208,9 +206,7 @@ describe('sessionTracker', () => {
     expect(t.end(at(60))).toMatchObject({ durationSeconds: 30, wordsRead: 0, endPercent: 0.3 })
   })
 
-  it('readCause_MissingOrUnknown_LayoutWhichCountsNothing', () => {
-    expect([readCause({ cause: 'turn' }), readCause({ cause: 'nav' }), readCause({}), readCause({ cause: 'TURN' }), readCause(null)])
-      .toEqual(['turn', 'nav', 'layout', 'layout', 'layout'])
+  it('relocate_UnknownCause_LayoutWhichCountsNothing', () => {
     const t = opened()
     t.activity(at(0))
     t.relocate(rel(0.105, true, 'scroll'), at(60))

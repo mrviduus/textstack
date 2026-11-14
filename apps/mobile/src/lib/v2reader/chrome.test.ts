@@ -176,9 +176,14 @@ describe('v2 reader bars on relocate (host)', () => {
 
 describe('v2 reader relocate read for the chrome (hostile payloads)', () => {
   it('readRelocate_Valid_Kept', () => {
-    expect(readRelocate({ type: 'relocate', fraction: 0.5, index: 3, sections: 9, toc: 'Ch 1', dir: 'rtl', moved: true, cfi: 'x' }))
-      .toEqual({ fraction: 0.5, index: 3, sections: 9, toc: 'Ch 1', tocIndex: null, dir: 'rtl', moved: true, atEnd: false, sectionEnd: null, words: null })
+    expect(readRelocate({ type: 'relocate', fraction: 0.5, index: 3, sections: 9, toc: 'Ch 1', dir: 'rtl', moved: true, cause: 'turn', cfi: 'x' }))
+      .toEqual({ fraction: 0.5, index: 3, sections: 9, toc: 'Ch 1', tocIndex: null, dir: 'rtl', moved: true, cause: 'turn', atEnd: false, sectionEnd: null, words: null })
   })
+
+  it.each([['turn', 'turn'], ['nav', 'nav'], ['layout', 'layout'], ['missing', undefined], ['another word', 'scroll'], ['another case', 'TURN'], ['a number', 1]])(
+    'readRelocate_cause %s_TurnNavOrElseLayout', (_, cause) => {
+      expect(readRelocate({ type: 'relocate', cause })?.cause).toBe(cause === 'turn' || cause === 'nav' ? cause : 'layout')
+    })
 
   it.each([['missing', undefined], ['false', false], ['a string', 'true'], ['1', 1], ['an object', {}]])('readRelocate_moved %s_False', (_, moved) => {
     expect(readRelocate({ type: 'relocate', moved })?.moved).toBe(false)

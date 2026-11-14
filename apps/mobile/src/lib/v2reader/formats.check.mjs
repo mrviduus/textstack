@@ -417,7 +417,40 @@ try {
       const len = readRelocate(rel)
       check(Math.abs((len?.sectionEnd ?? 0) - (i + 1) / 3) < 0.02 && len?.words > 130 && len.words < 170, `relocate carries the section's end and the book's words (${i}: ${rel?.sectionEnd}, ${rel?.words})`)
       check(rel?.atEnd === (i === 2), `a short section is the end of the book only when it is the last (${i}: ${rel?.atEnd})`)
+      check(rel?.cause === 'nav', `a contents entry's landing (host goTo of its href): cause nav (${i}: ${rel?.cause})`)
     }
+    // #1313: a turn across a section is the reader's own turn (foliate reports it with the reason a jump has); a
+    // section control and a chosen contents entry are navigations. One flow each (scrolled is set above).
+    for (const flow of ['scrolled', 'paginated']) {
+      call(`window.__fol.flow(${JSON.stringify(flow)})`)
+      m = await open('tstoc.epub')
+      await page.waitForTimeout(600)
+      let at = messages.length
+      for (let k = 0; k < 6 && !messages.slice(at).some((x) => x.type === 'relocate' && x.index === 1); k++) {
+        await call('window.__fol.next()')
+        await page.waitForTimeout(500)
+      }
+      // Its relocates there: the turn's own, and any re-layout of the section as it loads (layout); never a navigation.
+      // Scrolled flow: foliate shows the next section by re-anchoring it as it expands ('anchor'), then reports the
+      // same place again; neither is the reader's move to the save rule (`moved`) either. The baseline moves there,
+      // so the session's next turn counts from the section's start: nothing is lost, nothing counted twice.
+      const into = messages.slice(at).filter((x) => x.type === 'relocate' && x.index === 1)
+      const turned = flow === 'paginated' ? into.some((x) => x.cause === 'turn' && readRelocate(x)?.cause === 'turn') : into.length > 0
+      check(turned && into.every((x) => x.cause !== 'nav'),
+        `${flow}: a turn into the next section: ${flow === 'paginated' ? 'cause turn' : 'never nav'} (${into.map((x) => `${x.cause}${x.moved ? '/moved' : ''}`)})`)
+      at = messages.length
+      call('window.__fol.section(1)')
+      const sec = await waitFor(at, (x) => x.type === 'relocate' && x.index === 2, 'section(1)').catch(() => null)
+      check(sec?.cause === 'nav', `${flow}: section(1): cause nav (${sec?.cause})`)
+      at = messages.length
+      call(`window.__fol.goTo(${JSON.stringify(m.toc?.[0]?.href)}, true)`)
+      const back = await waitFor(at, (x) => x.type === 'relocate' && x.index === 0, 'a chosen contents entry').catch(() => null)
+      await page.waitForTimeout(400)
+      // The landing is nav; foliate may relocate again where it landed (the same place: layout), never as a turn.
+      check(back?.cause === 'nav' && messages.slice(at).filter((x) => x.type === 'relocate').every((x) => x.cause !== 'turn'),
+        `${flow}: a chosen contents entry, back a section: cause nav (${messages.slice(at).filter((x) => x.type === 'relocate').map((x) => x.cause)})`)
+    }
+    call('window.__fol.flow("scrolled")')
     // The end of the book (#1266): `relocate.atEnd`, which a host cannot tell from `fraction`.
     {
       const lastRel = (from) => messages.slice(from).filter((x) => x.type === 'relocate').at(-1)
@@ -631,32 +664,45 @@ try {
     {
       const rels = (from) => messages.slice(from).filter((x) => x.type === 'relocate')
       call('window.__fol.flow("paginated")')
+      // The book on screen re-lays out for the flow first: those relocates are its own (cause layout), not the open's.
+      await page.waitForTimeout(800)
       let from = messages.length
       m = await open('tsformat.epub')
       await page.waitForTimeout(800)
       check(rels(from).length > 0 && rels(from).every((x) => x.moved === false), `open and restore: every relocate is moved: false (${rels(from).map((x) => x.moved)})`)
+      // #1313 `relocate.cause`: what moved the place, as a host's session counts it.
+      check(rels(from).every((x) => x.cause === 'nav' && readRelocate(x).cause === 'nav'), `open and restore: every relocate is cause nav (${rels(from).map((x) => x.cause)})`)
       from = messages.length
       await call('window.__fol.next()')
       await page.waitForTimeout(800)
       check(rels(from).some((x) => x.moved === true), `next(): moved: true (${rels(from).map((x) => x.moved)})`)
+      check(rels(from).some((x) => x.cause === 'turn') && rels(from).every((x) => x.cause !== 'nav'), `next(): cause turn (${rels(from).map((x) => x.cause)})`)
       from = messages.length
       await call('window.__fol.goTo({ fraction: 0.5, at: 1 })')
       await page.waitForTimeout(1000)
       check(rels(from).length > 0 && rels(from).every((x) => x.moved === false), `a host goTo: moved: false (${rels(from).map((x) => x.moved)})`)
+      check(rels(from).every((x) => x.cause === 'nav'), `a host goTo: cause nav (${rels(from).map((x) => x.cause)})`)
+      from = messages.length
+      await call('window.__fol.goTo({ fraction: 0.2, at: 1 }, true)')
+      await page.waitForTimeout(1000)
+      check(rels(from).length > 0 && rels(from).every((x) => x.cause === 'nav'), `a chosen goTo (the taken offer): cause nav (${rels(from).map((x) => x.cause)})`)
       from = messages.length
       call('window.__fol.flow("scrolled")')
       await page.waitForTimeout(1000)
       check(rels(from).length > 0 && rels(from).every((x) => x.moved === false), `a flow toggle: moved: false (${rels(from).map((x) => x.moved)})`)
+      check(rels(from).every((x) => x.cause === 'layout'), `a flow toggle: cause layout (${rels(from).map((x) => x.cause)})`)
       const before = rels(0).at(-1)?.fraction
       from = messages.length
       await call('window.__fol.font(1)')
       await page.waitForTimeout(1000)
       check(rels(from).length > 0 && rels(from).every((x) => x.moved === false) && rels(from).at(-1).fraction !== before,
         `font(+1) in scrolled flow, the fraction changed: moved: false (${rels(from).map((x) => `${x.moved}@${x.fraction?.toFixed(3)}`)} from ${before?.toFixed(3)})`)
+      check(rels(from).every((x) => x.cause === 'layout'), `a font change: cause layout (${rels(from).map((x) => x.cause)})`)
       from = messages.length
       await page.setViewportSize({ width: 1100, height: 640 })
       await page.waitForTimeout(1000)
       check(rels(from).length > 0 && rels(from).every((x) => x.moved === false), `a resize: moved: false (${rels(from).map((x) => x.moved)})`)
+      check(rels(from).every((x) => x.cause === 'layout'), `a resize: cause layout (${rels(from).map((x) => x.cause)})`)
       await page.setViewportSize({ width: 1280, height: 720 })
       await page.waitForTimeout(1000)
       // foliate's scrolled paginator sends no relocate at all for the first scroll after an anchored re-layout
@@ -670,6 +716,7 @@ try {
       await page.mouse.wheel(0, 400)
       await page.waitForTimeout(1200)
       check(rels(from).some((x) => x.moved === true), `a scroll in scrolled flow: moved: true (${rels(from).map((x) => x.moved)}; the first scroll after the re-layout sent ${swallowed} relocates)`)
+      check(rels(from).some((x) => x.cause === 'turn') && rels(from).every((x) => x.cause !== 'nav'), `a scroll in scrolled flow: cause turn (${rels(from).map((x) => x.cause)})`)
       await call('window.__fol.font(-1)')
       call('window.__fol.flow("paginated")')
     }
@@ -1890,6 +1937,9 @@ try {
   const linked = await storeFrom(from, 'a store after the internal link')
   check(lastRelocate(from)?.index === 2 && linked?.position?.index === 2 && !messages.slice(from).some((x) => x.type === 'openLink'),
     `the internal link goes to section 3 and saves there, no openLink (${lastRelocate(from)?.index}, ${JSON.stringify(linked?.position)})`)
+  // The landing is nav; foliate may relocate again where it landed (the same place: layout), never as a turn.
+  check(messages.slice(from).find((x) => x.type === 'relocate')?.cause === 'nav' && messages.slice(from).filter((x) => x.type === 'relocate').every((x) => x.cause !== 'turn'),
+    `a followed link's landing: cause nav (${messages.slice(from).filter((x) => x.type === 'relocate').map((x) => x.cause)})`)
   m = await open('tssynthetic-kf8.azw3', JSON.stringify(linked))
   await settle()
   check(m.restored.position === 'restored' && lastRelocate(m.from)?.cfi === linked?.position?.cfi, `reopened, its position is restored (${m.restored.position}, ${lastRelocate(m.from)?.cfi} vs ${linked?.position?.cfi})`)

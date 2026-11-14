@@ -68,8 +68,13 @@ const count = (v) => Number.isInteger(v) && v >= 0 && v <= 100_000
  * `moved` (the reader moved the place, the page's save rule) and `atEnd` (the end of the book is on screen,
  * #1266) true only when exactly `true`; `sectionEnd` (the book fraction where the shown section ends) in [0, 1] and
  * `words` (the page's estimate of the book's length, #1262) a whole number in 1..100,000,000, else null.
+ * `cause` (#1313, what moved the place): `turn` the reader's own turn (a swipe, a scroll, a tap or key turn,
+ * `prev()`/`next()`, across a section too), `nav` the landing of a navigation (a `goTo`, chosen or not, a restore,
+ * `section()`, a followed link), `layout` anything else (a re-layout, the same place again); any other value, or
+ * none, is `layout`.
  * The position code (sync, ADR-019) keeps reading the message as before.
  */
+const CAUSES = ['turn', 'nav', 'layout']
 export function readRelocate(m) {
   if (m?.type !== 'relocate') return null
   const f = m.fraction
@@ -81,6 +86,7 @@ export function readRelocate(m) {
     tocIndex: count(m.tocIndex) ? m.tocIndex : null,
     dir: readDir(m),
     moved: m.moved === true,
+    cause: CAUSES.includes(m.cause) ? m.cause : 'layout',
     atEnd: m.atEnd === true,
     sectionEnd: typeof m.sectionEnd === 'number' && m.sectionEnd >= 0 && m.sectionEnd <= 1 ? m.sectionEnd : null,
     words: Number.isInteger(m.words) && m.words > 0 && m.words <= MAX_BOOK_WORDS ? m.words : null,

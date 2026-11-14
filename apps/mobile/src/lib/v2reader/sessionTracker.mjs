@@ -9,8 +9,8 @@
 // pace sent is the pace read.
 //
 // Words read come from the page's `relocate` (`fraction`, `words`: the book's length estimated from the shown
-// section; null for CBZ and PDF, so those count time only), by its `cause` (`readCause`): the page says what moved
-// the place; the host never guesses it.
+// section; null for CBZ and PDF, so those count time only), by its `cause` (chrome.mjs `readRelocate`): the page
+// says what moved the place; the host never guesses it.
 // - `turn`, the reader's own page turn: counts the ground past the session's furthest place times `words`, at most
 //   800 wpm (the server's top pace) of the counted time since the last step that counted. A turn back keeps the
 //   furthest place, so back then forward again counts the ground once.
@@ -26,17 +26,6 @@ export const MIN_SESSION_SECONDS = 10
 export const MAX_SESSION_SECONDS = 14_400
 /** ReadingPace.MaxWpm on the server: no step counts more words than this pace reads in its time. */
 export const MAX_WPM = 800
-
-const CAUSES = ['turn', 'nav', 'layout']
-/**
- * The page's `relocate.cause` (#1313; PLANNED page field: until the page sends it every relocate is `layout`, and
- * sessions count time only). Anything but `turn` / `nav` / `layout` is `layout`, which counts nothing.
- * ponytail: lives here while the page (and chrome.mjs, in its import graph) is another slice's; moves into
- * chrome.mjs `readRelocate` with the page change.
- */
-export function readCause(m) {
-  return CAUSES.includes(m?.cause) ? m.cause : 'layout'
-}
 
 const gap = (from, to) => Math.min(Math.max(to - from, 0), SESSION_IDLE_MS)
 
@@ -94,7 +83,7 @@ export function createSessionTracker() {
       book = key
       return ended
     },
-    /** A relocate as `readRelocate` (chrome.mjs) returns it, with `cause` (`readCause`); null is dropped. */
+    /** A relocate as `readRelocate` (chrome.mjs) returns it; null is dropped. */
     relocate(r, now) {
       if (!r) return
       if (r.moved) activity(now)

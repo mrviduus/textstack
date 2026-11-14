@@ -25,7 +25,6 @@ export interface SessionTracker {
   tick(now: number): EndedSession | null
   end(now: number): EndedSession | null
 }
-/** The page's `relocate.cause` (#1313, planned page field). */
+/** The page's `relocate.cause` (#1313, chrome.mjs `readRelocate`). */
 export type Cause = 'turn' | 'nav' | 'layout'
-export function readCause(m: unknown): Cause
 export function createSessionTracker(): SessionTracker

@@ -64,6 +64,16 @@ let hostMoving = false
  */
 let lastCfi = null
 /**
+ * #1313: navigations the page makes outside `hostMoving` (`section()`, a followed link) still landing. With
+ * `hostMoving` they make a relocate's `cause` `nav`: foliate reports a turn across a section with the same reason
+ * ('navigation') as a jump, so only the page knows which navigations it asked for.
+ */
+let navs = 0
+const asNav = async (fn) => {
+  navs++
+  try { return await fn() } finally { navs-- }
+}
+/**
  * The last `selection` sent: its range (edge whitespace dropped), text, CFI, sentence. What `highlightSelection`
  * highlights when no selection is live: kept after the selection is cleared (tapping a host button may clear the
  * WebView's selection first).
@@ -720,8 +730,11 @@ async function open(bytes, name, kind, mine) {
     // The save rule's own test: the reader moved the place (not a re-layout, not the same place again, not the
     // host moving the view). Sent as `moved`, so a host never guesses it from CFIs.
     const moved = d.reason !== 'anchor' && d.cfi !== lastCfi && !hostMoving
+    // #1313, what moved the place: the landing of a navigation, the reader's own turn (a swipe, a scroll, a tap or key
+    // turn, prev()/next(), across a section too), or neither (a re-layout, the same place again).
+    const cause = hostMoving || navs > 0 ? 'nav' : moved ? 'turn' : 'layout'
     lastCfi = d.cfi
-    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, atEnd: atBookEnd(d.section?.current), ...lengthAt(d.section?.current) })
+    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, cause, atEnd: atBookEnd(d.section?.current), ...lengthAt(d.section?.current) })
     // A selection moved (or left the screen) with the view, a font or flow change's re-layout included: sent
     // again, or cleared.
     settleSelection()
@@ -739,6 +752,13 @@ async function open(bytes, name, kind, mine) {
     const el = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer
     if (a.hl) drawnRanges.set(a.value, range)
     draw(decorate, { hl: a.hl, gloss: a.gloss, el })
+  })
+  // A link within the book: followed as view.js would, its landing a navigation (#1313).
+  view.addEventListener('link', (e) => {
+    if (mine !== viewSeq) return
+    e.preventDefault()
+    const { href } = e.detail
+    void navigate(() => asNav(() => view.goTo(href)))
   })
   view.addEventListener('external-link', (e) => {
     e.preventDefault()
@@ -1067,7 +1087,7 @@ window.__fol = {
   section: (delta) => navigate(() => {
     if (!view?.book) return
     const i = (view.lastLocation?.section?.current ?? 0) + delta
-    if (i >= 0 && i < view.book.sections.length) return view.goTo(i)
+    if (i >= 0 && i < view.book.sections.length) return asNav(() => view.goTo(i))
   }),
   next: () => navigate(() => view?.next()),
   prev: () => navigate(() => view?.prev()),
