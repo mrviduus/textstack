@@ -64,6 +64,8 @@ interface PageMessages {
   store: { json: string }[]
   /** The answers to `addHighlights`: one status per highlight. */
   highlights: { highlights: { id: string; status: string }[] }[]
+  /** The places the page reported (`moved`: the reader moved it, the save rule's own test). */
+  relocate: { cfi: string; moved: boolean }[]
 }
 
 /** The page's `restored`, `store` and `highlights` messages, as the host's window receives them (the host shows neither here). */
@@ -71,11 +73,11 @@ async function collectPageMessages(page: Page) {
   await page.addInitScript(() => {
     if (window.top !== window) return
     const w = window as unknown as { __page: Record<string, unknown[]> }
-    w.__page = { restored: [], store: [], highlights: [] }
+    w.__page = { restored: [], store: [], highlights: [], relocate: [] }
     addEventListener('message', (e) => {
       try {
         const m = typeof e.data === 'string' ? JSON.parse(e.data) : null
-        if (m?.type === 'restored' || m?.type === 'store' || m?.type === 'highlights') w.__page[m.type].push(m)
+        if (m?.type === 'restored' || m?.type === 'store' || m?.type === 'highlights' || m?.type === 'relocate') w.__page[m.type].push(m)
       } catch { /* not the page's */ }
     })
   })
@@ -558,6 +560,64 @@ test.describe('V2 reader page @v2', () => {
     await expect(status(page)).toHaveText(theirStatus)
     const there = (await landed).request().postDataJSON() as { currentLocator: unknown }
     expect(await serverPlace()).toEqual(there.currentLocator)
+    await context.close()
+  })
+
+  // #1286: a page turn and, inside the page's 400 ms save debounce, a reload or an in-app link away: the server holds
+  // the new place (the host takes the page's last `store` from its flush() on pagehide and on unmount). Compared by
+  // the saved locator, never the bottom bar's percent.
+  test('readV2Sync_APageTurnThenAReloadOrALinkAwayWithinTheDebounce_TheServerHoldsTheNewPlace', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2last'))
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    const messages = await collectPageMessages(page)
+    const statePath = `/me/v2/books/${bookId}/reading-state`
+    const serverCfi = async () => {
+      const r = await context.request.get(`${API_URL}${statePath}`, { headers: API_HEADERS })
+      return r.ok() ? ((await r.json()) as { currentLocator: { value: unknown } }).currentLocator.value : null
+    }
+    const statePuts: string[] = []
+    page.on('request', (r) => {
+      if (r.method() === 'PUT' && r.url().endsWith(statePath)) statePuts.push(String((r.postDataJSON() as { currentLocator: { value: unknown } }).currentLocator.value))
+    })
+    /** Turns a page and returns its place as soon as the page reports it, while its `store` is still debounced. */
+    const turnUnsaved = async () => {
+      const { relocate, store } = await messages()
+      await clickBar(page, 'Next ›')
+      const got = await page.waitForFunction(([r, s]) => {
+        const w = (window as unknown as { __page: PageMessages }).__page
+        const moved = w.relocate.slice(r).find((m) => m.moved)
+        return moved ? { cfi: moved.cfi, stores: w.store.length - s } : null
+      }, [relocate.length, store.length] as const, { polling: 'raf' })
+      const { cfi, stores } = (await got.jsonValue())!
+      expect(stores, 'the turn is still unsaved (inside the debounce)').toBe(0)
+      return cfi
+    }
+    const settled = async () => {
+      // Nothing of the open (or an earlier turn) left in flight: the next write is the turn's.
+      await expect.poll(async () => (await messages()).restored.at(-1)?.position, { timeout: 20_000 }).toBe('restored')
+      await page.waitForTimeout(1_000)
+      await expect(page.getByTestId('v2-not-saved')).toHaveCount(0)
+    }
+
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    await settled()
+
+    // A reload: the keepalive write carries the turn.
+    const reloaded = await turnUnsaved()
+    await page.reload()
+    await expect.poll(serverCfi, { timeout: 15_000 }).toBe(reloaded)
+    await expect(page.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
+    await settled()
+
+    // A route change (the top bar's link to the library): the session's last pass writes it, once.
+    const left = await turnUnsaved()
+    await page.getByRole('link', { name: 'Back to the library' }).click()
+    await expect(page).toHaveURL(/\/en\/library\/?$/)
+    await expect.poll(serverCfi, { timeout: 15_000 }).toBe(left)
+    await page.waitForTimeout(1_000)
+    expect(statePuts.filter((c) => c === left), 'the turn is written once').toHaveLength(1)
     await context.close()
   })
 

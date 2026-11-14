@@ -599,6 +599,24 @@ try {
       const n = messages.slice(from).filter((x) => x.type === 'store').length
       check(!!rel && !!st && ms < 200 && n === 1, `${what} writes the pending save at once, once (${ms} ms, ${n} stores)`)
     }
+    // #1286: flush() returns the latest `store` (the web host reads it synchronously): the pending one it posts, then,
+    // nothing pending (sent by its timer, or by the page's own pagehide), the last one sent, posting nothing again.
+    {
+      const from = messages.length
+      call('window.__fol.next()')
+      await waitFor(from, (x) => x.type === 'relocate', 'relocate').catch(() => null)
+      const got = await call('window.__fol.flush()')
+      const st = await waitFor(from, (x) => x.type === 'store', 'store').catch(() => null)
+      check(!!st && got?.type === 'store' && got.key === st.key && got.json === st.json, 'flush() returns the pending store it posts')
+      const from2 = messages.length
+      // Back a page: the small book may have no page after this one.
+      call('window.__fol.prev()')
+      const fired = await waitFor(from2, (x) => x.type === 'store', 'the debounced store').catch(() => null)
+      const again = await call('window.__fol.flush()')
+      await page.waitForTimeout(300)
+      const n = messages.slice(from2).filter((x) => x.type === 'store').length
+      check(!!fired && again?.json === fired.json && again?.key === fired.key && n === 1, `nothing pending: flush() returns the last store sent, posting nothing (${n} stores)`)
+    }
 
     // `relocate.moved`: the reader moved the place (the save rule's test), never a re-layout or the host.
     {

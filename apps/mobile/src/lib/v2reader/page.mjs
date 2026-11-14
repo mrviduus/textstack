@@ -857,7 +857,8 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 addEventListener('pagehide', () => saves.flush())
 
 window.__fol = {
-  // The host is leaving (backgrounded, unmounted, closed): a save still debounced is written at once.
+  // The host is leaving (backgrounded, unmounted, closed): a save still debounced is written at once. Returns the
+  // latest `store` (#1286: the web host takes it synchronously; untrusted there, read as a `store` message).
   flush: () => saves.flush(),
   // Read by the page itself (Android: the host's interceptor, bookOrigin.mjs; web: a blob: URL): no book bytes
   // cross the bridge. `open-failed`: unreadable, not a book this page reads, DRM- or password-protected.

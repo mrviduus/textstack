@@ -92,10 +92,14 @@ export interface V2ReaderSync {
   store(json: string): void
   /** Writes what is still unsaved now (the tab hidden). */
   flush(): Promise<void>
-  /** The tab is going away: what is unsaved, by keepalive writes (the position first, within the budget). */
-  flushKeepalive(): void
-  /** Another open, or the host unmounted: one last pass of what is unsaved, then nothing more is written. */
-  close(): Promise<void>
+  /**
+   * The tab is going away: what is unsaved, by keepalive writes (the position first, within the budget). `last`
+   * (#1286): the page's latest `store` payload, taken by the host synchronously where its posted one comes too late;
+   * checked as a `store` is, and written by the keepalive only.
+   */
+  flushKeepalive(last?: string): void
+  /** Another open, or the host unmounted: one last pass of what is unsaved (`last` too, as above), then nothing more is written. */
+  close(last?: string): Promise<void>
 }
 
 /** A position write exists only because the reader moved (or took an offer): ADR-019 then keeps or asks. */
@@ -154,6 +158,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   /** The last position write sent: a later `stale_revision` whose state is this one is ours (its answer was lost). */
   let lastSent: { p: PagePosition; write: V2ReadingStateWrite } | null = null
   let latest: PageEntry | null = null
+  /** The payload `latest` came from: the same one again (the page's posted `store` after the host took it) is not a change. */
+  let latestJson: string | null = null
   let running: Promise<void> | null = null
   let again = false
 
@@ -313,6 +319,19 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     })())
   }
 
+  /** The page's payload as `latest`; false when not taken (closing, not restored, not this book's, the same one again). */
+  function take(json: string): boolean {
+    if (!current() || !ready || json === latestJson) return false
+    const entry = entryFor(json, t)
+    if (!entry) {
+      console.warn('[v2 sync] store: not an entry for this book')
+      return false
+    }
+    latest = entry
+    latestJson = json
+    return true
+  }
+
   return {
     target: t,
     async restore() {
@@ -329,15 +348,13 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     },
     loadHighlights,
     store(json) {
-      if (!current() || !ready) return
-      const entry = entryFor(json, t)
-      if (!entry) return void console.warn('[v2 sync] store: not an entry for this book')
-      latest = entry
-      void kick()
+      if (take(json)) void kick()
     },
     // A pass running already writes the latest entry: joined, not asked for again.
     flush: () => (!current() ? Promise.resolve() : running ?? kick()),
-    flushKeepalive() {
+    flushKeepalive(last) {
+      // Taken without a pass: its PUT and the keepalive one would be the same write twice.
+      if (last !== undefined) take(last)
       if (!live() || gone || !latest) return
       const changes = changesOf(latest)
       // A CBZ page a pass has not kept yet (one was running).
@@ -362,9 +379,11 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
         send(body)
       }
     },
-    close() {
+    close(last) {
       if (closing) return closing
-      const done = closing = (running ?? (latest && !gone ? kick() : Promise.resolve())).catch(() => {}).finally(() => {
+      // A newer entry taken joins the running pass as one more (kick), else as before.
+      const taken = last !== undefined && take(last)
+      const done = closing = (taken ? kick() : running ?? (latest && !gone ? kick() : Promise.resolve())).catch(() => {}).finally(() => {
         closed = true
         if (closingByBook.get(t.bookId) === done) closingByBook.delete(t.bookId)
       })

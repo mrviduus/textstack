@@ -141,6 +141,66 @@ describe('V2ReaderHost, server sync', () => {
     expect(sessions[0].close).toHaveBeenCalled()
   })
 
+  // #1286: the page's latest `store`, taken synchronously from the frame (its `flush()`) on pagehide and unmount.
+  describe('the last turn', () => {
+    const LAST = '{"last":1}'
+    function reading(flush: () => unknown) {
+      const view = mount()
+      fromPage({ type: 'ready' })
+      view.open(synced('b1', SHA('a')))
+      fromPage(opened('1/b1.epub', SHA('a')))
+      const fol = vi.fn(flush);
+      (frameWindow() as unknown as { __fol: unknown }).__fol = { flush: fol }
+      return { ...view, fol }
+    }
+
+    it('pageHide_ThePagesLastStoreGoesIntoTheKeepaliveFlush', () => {
+      const { fol } = reading(() => ({ type: 'store', key: SHA('a'), json: LAST }))
+      window.dispatchEvent(new Event('pagehide'))
+      expect(fol).toHaveBeenCalledTimes(1)
+      expect(sessions[0].flushKeepalive.mock.calls).toEqual([[LAST]])
+    })
+
+    it('unmount_TakenWhileTheFrameIsStillThere_IntoClose', () => {
+      let attached: boolean | null = null
+      const { unmount } = reading(() => {
+        attached = !!(screen.queryByTitle('V2 reader') as HTMLIFrameElement | null)?.isConnected
+        return { type: 'store', key: SHA('a'), json: LAST }
+      })
+      unmount()
+      expect(attached).toBe(true)
+      expect(sessions[0].close.mock.calls[0]).toEqual([LAST])
+    })
+
+    it.each([
+      ['another book', () => ({ type: 'store', key: SHA('c'), json: LAST })],
+      ['not a store', () => ({ type: 'relocate', key: SHA('a'), json: LAST })],
+      ['a json that is not a string', () => ({ type: 'store', key: SHA('a'), json: { last: 1 } })],
+      ['nothing yet', () => null],
+      ['a throw', () => { throw new Error('gone') }],
+      ['a throwing getter', () => ({ type: 'store', key: SHA('a'), get json(): string { throw new Error('trap') } })],
+      ['a Proxy whose fields change per read', () => {
+        let n = 0
+        return new Proxy({}, { get: (_t, k) => (k === 'json' ? (n++ ? LAST : 1) : k === 'type' ? 'store' : SHA('a')) })
+      }],
+    ])('%s_NothingTaken_TodaysFlushNoThrow', (_what, flush) => {
+      const { unmount } = reading(flush)
+      expect(() => window.dispatchEvent(new Event('pagehide'))).not.toThrow()
+      expect(sessions[0].flushKeepalive.mock.calls).toEqual([[undefined]])
+      unmount()
+      expect(sessions[0].close.mock.calls[0]).toEqual([undefined])
+    })
+
+    it('noPageInTheFrame_TodaysFlush', () => {
+      const view = mount()
+      fromPage({ type: 'ready' })
+      view.open(synced('b1', SHA('a')))
+      fromPage(opened('1/b1.epub', SHA('a')))
+      window.dispatchEvent(new Event('pagehide'))
+      expect(sessions[0].flushKeepalive.mock.calls).toEqual([[undefined]])
+    })
+  })
+
   it('highlights_PulledAfterTheRestore_DrawnAndHighlightingOfferedOnlyThen', async () => {
     const { open } = mount()
     fromPage({ type: 'ready' })

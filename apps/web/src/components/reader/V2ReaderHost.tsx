@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { PagePosition } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
@@ -91,6 +91,29 @@ export function hostNavKey(e: HostKeyEvent): { key: V2NavKey; shift: boolean; re
   if (el?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return null
   if (key === 'Space' && el?.closest('button, a[href], summary, [role="button"]')) return null
   return k
+}
+
+/**
+ * A `store` from the page, untrusted (the frame renders the book): the message, or the page's `flush()` return value
+ * read across the same-origin frame (#1286), which may be any object (a getter, a Proxy). Each field is read once.
+ */
+export function readStore(m: unknown): { key: string; json: string } | null {
+  const o = m as { type?: unknown; key?: unknown; json?: unknown } | null | undefined
+  const type = o?.type, key = o?.key, json = o?.json
+  return type === 'store' && typeof key === 'string' && typeof json === 'string' ? { key, json } : null
+}
+
+/**
+ * The page's latest `store` (#1286), read synchronously by calling its `flush()` in the same-origin frame: where
+ * a posted `store` comes too late (this document's `pagehide`, the host's unmount). Any failure (no frame, mid
+ * navigation, a throw, a malformed answer) is null: today's behaviour, never an exception.
+ */
+export function pageLastStore(frame: HTMLIFrameElement | null): { key: string; json: string } | null {
+  try {
+    return readStore((frame?.contentWindow as { __fol?: { flush?: () => unknown } } | null | undefined)?.__fol?.flush?.())
+  } catch {
+    return null
+  }
 }
 
 interface Props {
@@ -257,6 +280,15 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     call('clearSelection')
     if (popupRef.current?.kind === 'selection') setPopup(null)
   }
+  /**
+   * A `store` from the page (readStore's): the dev route keeps it in localStorage; the production route returns the
+   * payload for the synced book (a store for another book is a previous open's, dropped).
+   */
+  const storeFor = (m: { key: string; json: string } | null) => {
+    if (!m) return undefined
+    if (dev) return void writeItem(storeKey(m.key), m.json)
+    return sync.current && m.key === sync.current.target.sha256 ? m.json : undefined
+  }
   const flushOpen = () => {
     const o = opening.current
     if (!ready.current || !o?.bytes) return
@@ -414,12 +446,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (!tracker.restored(m)) return
           setRestored(t('v2Reader.restore', { state: String(m.position) }))
           return
-        case 'store':
-          // Keyed on the route: the production route never keeps reader data in this browser (the server
-          // only; a store for another book than the synced one is a previous open's, dropped).
-          if (dev) writeItem(storeKey(m.key), m.json)
-          else if (sync.current && m.key === sync.current.target.sha256) sync.current.store(m.json)
+        case 'store': {
+          // Keyed on the route: the production route never keeps reader data in this browser (the server only).
+          const json = storeFor(readStore(m))
+          if (json !== undefined) sync.current?.store(json)
           return
+        }
         case 'relocate': {
           // Untrusted (the page renders the book): the chrome reads only what readRelocate takes.
           const r = readRelocate(m)
@@ -481,7 +513,11 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     addEventListener('message', onMessage)
     // Online-first: what did not land is written again when the tab is hidden, and by a keepalive write as it goes.
     const onVisibility = () => { if (document.visibilityState === 'hidden') void sync.current?.flush() }
-    const onPageHide = () => sync.current?.flushKeepalive()
+    // The page's last turn (#1286): its own pagehide `store` would reach a document that is unloading; taken here first.
+    const onPageHide = () => {
+      const last = storeFor(pageLastStore(frame.current))
+      sync.current?.flushKeepalive(last)
+    }
     document.addEventListener('visibilitychange', onVisibility)
     addEventListener('pagehide', onPageHide)
     return () => {
@@ -492,6 +528,13 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       void sync.current?.close()
       sync.current = null
     }
+  }, [])
+
+  // Leaving the route (#1286): the page's last turn, taken while the frame is still in the document (a layout
+  // cleanup runs before React removes it; the passive one below it, after). The session's close joins it.
+  useLayoutEffect(() => () => {
+    const last = storeFor(pageLastStore(frame.current))
+    void sync.current?.close(last)
   }, [])
 
   useEffect(() => {
