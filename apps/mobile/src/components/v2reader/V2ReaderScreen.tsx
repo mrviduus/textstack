@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import { BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Stack } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { placeTimeLeftLabel, timeLeftAt, type OpenReader, type PagePosition, type V2ClientFormat } from '@textstack/shared'
+import { placeTimeLeftLabel, timeLeftAt, v2Api, type OpenReader, type PagePosition, type V2ClientFormat } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
@@ -30,6 +30,14 @@ import {
 } from '../../lib/v2reader/chrome.mjs'
 import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../lib/v2reader/wordPopup.mjs'
 import { readerTextLanguage } from '../../lib/bookLanguage'
+import { saveOutcome } from '../../lib/v2reader/vocabSave.mjs'
+import { vocabularyApi } from '../../lib/vocabularyApi'
+import { saveWordWithRetry } from '../../hooks/useReaderVocabActions'
+import { saveWordIntent } from '../../lib/saveWordIntent'
+import { claimGuestNudge } from '../../lib/guestNudge'
+import { useToast } from '../../context/ToastContext'
+import { useHaptics } from '../../hooks/useHaptics'
+import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { SelectionActionBar } from '../SelectionActionBar'
 import { TranslationSheet } from '../TranslationSheet'
 import { ExplanationSheet } from '../ExplanationSheet'
@@ -390,6 +398,98 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (popupRef.current?.kind === 'selection') call('window.__fol.clearSelection()')
     setPopup(null)
   }
+  /**
+   * Saving a word (#1270): the legacy reader's Save, through the app's vocabulary API (V2 with the flag on), with the
+   * word's sentence, the book and its title; what the answer shows: vocabSave.mjs. Off the reading path: nothing here
+   * waits on it, a failure is a toast. No offline queue (the legacy reader has none).
+   */
+  const router = useRouter()
+  const haptics = useHaptics()
+  const { show: showToast } = useToast()
+  const { nativeLanguage } = useNativeLanguage()
+  const bookTitle = useRef<string | null>(null)
+  const savingWord = useRef(false)
+  /** The word popup whose word was saved (the bar's ✓), and the one answered `lookup` (the rare-word notice). */
+  const [savedPopup, setSavedPopup] = useState<V2Popup | null>(null)
+  const [lookup, setLookup] = useState<{ popup: V2Popup; kind: 'lookup' | 'lookup_pending'; id: string; tapsRemaining: number | null; busy: boolean } | null>(null)
+  const closeIfOpen = (p: V2Popup) => { if (popupRef.current === p) closePopup() }
+  const wordSavedToast = async () => {
+    haptics.play('complete')
+    const added = () => showToast({
+      variant: 'success', message: t('reader.toastWordAdded'), actionLabel: t('reader.toastTapToReview'),
+      onPress: () => router.push('/vocabulary'), duration: 2400,
+    })
+    if (!capabilitiesFor(user).isGuest) return added()
+    // A guest's 3rd and 10th word (legacy: counted on the reader's whole vocabulary). ponytail: one list read per
+    // guest save, no local vocabulary map until the saved-word marks (#1271) bring one.
+    const count = await vocabularyApi.getReaderVocab().then((w) => w.length, () => 0)
+    const nudge = await claimGuestNudge(true, count)
+    if (!nudge) return added()
+    showToast({
+      variant: 'success', message: t(nudge === 'ten' ? 'guest.nudgeTen' : 'guest.nudgeThree'), actionLabel: t('guest.nudgeCta'),
+      onPress: () => router.push({ pathname: '/(auth)/login', params: { mode: 'register', then: 'back' } }), duration: 6000,
+    })
+  }
+  const restoreWord = (p: V2Popup, id: string) => vocabularyApi.restoreWord(id).then(
+    () => { if (popupRef.current === p) setSavedPopup(p) },
+    () => showToast({ variant: 'error', message: t('reader.vocab.restoreFailed') }),
+  )
+  const saveWord = async (p: V2Popup) => {
+    if (p.kind !== 'word') return
+    const intent = saveWordIntent({ isAuthenticated: !!user, hasSelection: true })
+    if (intent === 'prompt') {
+      haptics.play('flip')
+      showToast({ variant: 'info', message: t('reader.vocab.saveNeedsAccount'), duration: 3600, bottomOffset: footerHeight })
+      return
+    }
+    if (intent !== 'save' || savingWord.current) return
+    savingWord.current = true
+    const body = { word: p.word, language: textLang, nativeLanguage, sentence: p.sentence || null, bookTitle: bookTitle.current }
+    const bookId = reading.current.bookId
+    try {
+      // A book the server does not have (imported here, not synced yet): the word is saved without it.
+      const resp = await saveWordWithRetry({ ...body, userBookId: bookId }).catch((e: unknown) => {
+        if (bookId && v2Api.v2ErrorOf(e)?.code === 'book_not_found') return saveWordWithRetry(body)
+        throw e
+      })
+      const o = saveOutcome(resp)
+      if (o.kind === 'saved') {
+        setSavedPopup(p)
+        void wordSavedToast()
+      } else if (o.kind === 'deleted') {
+        showToast({
+          variant: 'info', message: t('reader.vocab.deletedEarlier').replace('{{word}}', p.word), duration: 6000,
+          actionLabel: t('reader.vocab.restore'), onPress: () => { void restoreWord(p, o.id) },
+        })
+      } else if (o.kind === 'pending') {
+        showToast({ variant: 'info', message: t('reader.vocab.queuedForTomorrow') })
+        closeIfOpen(p)
+      } else if (o.kind === 'lookup') {
+        setLookup({ popup: p, kind: o.lookup, id: o.id, tapsRemaining: o.tapsRemaining, busy: false })
+      } else if (o.kind === 'already_saved') {
+        closeIfOpen(p)
+      }
+    } catch (e) {
+      console.warn('[v2] word not saved:', e)
+      showToast({ variant: 'error', message: 'Could not save word. Try again.' })
+    } finally {
+      savingWord.current = false
+    }
+  }
+  const addAnyway = async () => {
+    if (!lookup || lookup.busy) return
+    setLookup({ ...lookup, busy: true })
+    try {
+      await vocabularyApi.promoteLookup(lookup.id)
+      setLookup(null)
+      setSavedPopup(lookup.popup)
+      showToast({ variant: 'success', message: t('reader.vocab.addedToSrs') })
+      closeIfOpen(lookup.popup)
+    } catch {
+      setLookup({ ...lookup, busy: false })
+      showToast({ variant: 'error', message: t('reader.vocab.addAnywayFailed') })
+    }
+  }
   /** A translation or explanation closed: its selection is done, as on the web (the bar goes with it). */
   const closeSheet = () => {
     setSheet(null)
@@ -546,6 +646,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     const superseded = () => opening.current !== current
     // The page shows this book now: its title before any await, so a failed read below leaves no "Opening …".
     setHeading([m.title || current.name, m.author].filter(Boolean).join(' — '))
+    bookTitle.current = m.title || current.name
     const stored = await s.readStore(m.book.sha256)
     if (superseded()) return
     call(`window.__fol.restore(${JSON.stringify(stored)})`)
@@ -870,8 +971,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           />
           {popup && (
             // The legacy reader's bar (#1269): the word's gloss (or the picker's line) on a tap; on a selection highlight,
-            // copy, translate, explain. No Listen (TTS, #1272) and no Save (vocabulary) yet. Nothing here needs the network
-            // to read on: a failed gloss says so, the sheets show their own errors.
+            // copy, translate, explain; Save on a word (#1270). No Listen (TTS, #1272). Nothing here needs the network to
+            // read on: a failed gloss says so, the sheets and a failed save show their own errors.
             <SelectionActionBar
               selectedText={popup.kind === 'word' ? popup.word : popup.text}
               sentence={popup.sentence}
@@ -882,6 +983,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               onHighlight={popup.kind === 'selection' && annotatable ? () => { call('window.__fol.highlightSelection()'); setPopup(null) } : undefined}
               tooLong={popup.kind === 'selection' && popup.tooLong}
               isAuthenticated={!!user}
+              onSaveWord={popup.kind === 'word' ? () => { void saveWord(popup) } : undefined}
+              wordSaved={savedPopup === popup}
+              lookup={lookup?.popup === popup ? lookup : null}
+              onAddAnyway={() => { void addAnyway() }}
               bottomOffset={barsVisible ? footerHeight : insets.bottom}
               onClose={closePopup}
               onCopy={closePopup}

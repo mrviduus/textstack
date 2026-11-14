@@ -40,6 +40,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `toc.mjs` (+ `.d.mts`) | Pure, both hosts (#1261): `readToc` (a host's read of `opened.toc`: malformed entries dropped, each kept one with its `index` in the page's list, the one `relocate.tocIndex` names; at most 5000 places, labels cut to 200, depth 0 to 6) and `tocAround` (the current entry and the nearest ones before and after that lead somewhere else, an entry with the current one's href being the same place: the contents dialog's mark, the title beside the percent, and the section controls, which go by title with `goTo(href, true)`; a host marks a chosen entry at once, since a jump within the view on screen may send no relocate, and clears the place where an open starts, since a book's first relocate comes before its `opened`). `withTitle` fills a label with a title as text. A book with no entries has no contents button and no section controls; no host shows a section number. |
 | `movedTracker.mjs` (+ `.d.mts`) | Pure, any host: the open book as ADR-019 sees it (`decideServerState`'s `reader`): restored yet, whether the reader moved since (the page's `relocate.moved`, never a CFI comparison; a host `goTo` clears it), the spine index of the last relocate, the opening one included (#1278). |
 | `tapZone.mjs` (+ `.d.mts`) | Pure, both hosts (#1263): what a page `tap` does (turn back, turn on, toggle the bars). See Host responsibilities, "Reader chrome" and "Bars and tap zones, web". |
+| `vocabSave.mjs` (+ `.d.mts`) | Pure, both hosts (#1270): `saveOutcome`, a vocabulary save's answer as the host shows it (saved, deleted → restore, pending, lookup). See Host responsibilities, "Saving a word". |
 | `wordPopup.mjs` (+ `.d.mts`) | Pure, both hosts (#1269): `readWord` (a host's read of `word`, `readSelection`'s caps; the rect through `selection.mjs` `readRect`), `readLang` (`opened.lang` as a two-letter primary subtag, or null: a three-letter code gives the host's fallback), and `popupStep`: what a `word`, `tap`, `selection`, `selection-cleared` or a move does to the word popup / selection toolbar and to the tap zones. See Host responsibilities, "Word popup and selection toolbar". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
 | `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
@@ -467,7 +468,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
 - *Fetched by the host* (the page has no network): the translation from the book's language (`opened.lang` via
   `readLang`; else web `en`, Android the app's language through `readerTextLanguage`, the legacy readers' defaults)
   into the reader's native language, with the word's sentence; the same language is definition mode (the legacy
-  rule). No book id is sent. Nothing is saved to the vocabulary (§2.5, its own slice).
+  rule). No book id is sent with the translation.
 - *Web*: the legacy reader's `WordPopup` (the native-language picker inside), `SelectionToolbar` (one highlight
   colour: the page draws one), `TranslationPopup`, `ExplanationPopup` (explain streamed, `useExplain`), positioned by
   the page's rects plus the frame's offset (`V2ReaderPopups.tsx`). A failed word translation says so in the popup.
@@ -484,7 +485,23 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   `highlightSelection()`, which clears the selection itself. Escape with a popup open (a `key` from the book or the
   host's own keydown) closes it and does nothing else; with nothing open it shows the bars.
 - *The footer* "Pick your native language to save words" (legacy `WordPopup`, a reader who never confirmed a
-  language) is kept: saving comes with the vocabulary slice (C3).
+  language) is true on the web production route: picking a language saves the word on screen (below).
+- *Saving a word* (#1270, `vocabSave.mjs` `saveOutcome`: what each answer shows, one rule for both hosts). No page
+  message is added: `word` carries the sentence, the host knows the book. The save is the legacy reader's, through
+  the app's vocabulary API, which speaks V2 (`PUT /me/v2/vocabulary/words`, the shared `createV2Vocabulary`) with
+  the flag on: the word, the book's language, its sentence, the book (id and the `opened` title) and the translation.
+  - *Web*: as the legacy reader, automatic on a tap, once the reader confirmed a native language, and only for the
+    production route's server book (the bytes are its file's; the dev route saves nothing). `useReaderVocabulary`:
+    guests' words kept in IndexedDB until the third mints the session, nudges at 3 and 10. The translation follows
+    the save when it arrives (TR-2: fills an untranslated card; one switched to mid-popup is display-only).
+  - *Android*: as the legacy reader, the bar's Save (signed in or a guest session; without one `saveWordIntent`'s
+    "needs an account" toast), three tries, no offline queue (the legacy reader has none); a failure is a toast and
+    reading goes on. The book id is sent when the server has the book; `book_not_found` saves it without one. The
+    "Added" toast, or a guest's nudge at 3 and 10 (`claimGuestNudge`, counted on the reader's whole vocabulary).
+  - *Outcomes*: `deleted` offers Restore (the tombstone's id; never shown as saved: the legacy Android reader did,
+    not ported); `pending` says "queued for tomorrow"; `lookup`/`lookup_pending` show the rare-word notice with
+    "Add to SRS anyway". V2 answers only `srs` and `deleted`; the other two are legacy answers, kept as legacy shows
+    them. Mark as known stays out (`V2_FEATURES.markAsKnown` false).
 - Untrusted text (word, sentence, selection) reaches the screen only as React / React Native text, and no host
   injects any of it into the page: the calls the hosts inject carry no book text.
 

@@ -211,6 +211,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setPopupState(p)
   }
   const [bookLanguage, setBookLanguage] = useState('en')
+  /** The server book a tapped word is saved with (#1270): the production route's, when the bytes are its file's. */
+  const [vocabBook, setVocabBook] = useState<{ id: string; title: string } | null>(null)
   const main = useRef<HTMLElement>(null)
   const header = useRef<HTMLElement>(null)
   const footer = useRef<HTMLElement>(null)
@@ -321,6 +323,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       setHighlightsReady(false)
       setReadFailed(false)
       const target = current.sync
+      setVocabBook(!dev && target && target.sha256.toLowerCase() === m.book.sha256 ? { id: target.bookId, title: m.title || current.originalName } : null)
       if (dev) call('restore', [readItem(storeKey(m.book.sha256))])
       else if (!target) call('restore', [null])
       else if (target.sha256.toLowerCase() !== m.book.sha256) {
@@ -616,6 +619,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           popup={popup}
           frame={frame}
           bookLanguage={bookLanguage}
+          bookId={vocabBook?.id}
+          bookTitle={vocabBook?.title}
           onHighlight={annotatable && (dev || highlightsReady) ? () => call('highlightSelection') : undefined}
           onClose={closePopup}
         />

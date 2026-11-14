@@ -55,7 +55,7 @@ const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 /** Save with up to 3 attempts + backoff. Absorbs transient network/5xx blips
  *  that previously dropped a tapped word silently (no underline, no retry).
  *  Deterministic 4xx just exhausts the 3 attempts quickly, then rethrows. */
-async function saveWordWithRetry(body: Parameters<typeof vocabularyApi.saveWord>[0]) {
+export async function saveWordWithRetry(body: Parameters<typeof vocabularyApi.saveWord>[0]) {
   // V2: one card id and one operationId per save, reused by every retry (the server replays it).
   const once = { ...body, id: uuid.v4(), operationId: uuid.v4() }
   let lastErr: unknown
