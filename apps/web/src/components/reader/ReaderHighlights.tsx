@@ -185,7 +185,7 @@ export function ReaderHighlights({
   const [ttsSpokenText, setTtsSpokenText] = useState<string | null>(null)
   const handleSpeak = useCallback((text: string, lang?: string) => {
     setTtsSpokenText(text)
-    speak(text, lang || bookLanguage, undefined, ttsSpeed)
+    speak(text, lang || bookLanguage, ttsSpeed)
   }, [speak, bookLanguage, ttsSpeed])
   const handleStopTts = useCallback(() => {
     stopTts()

@@ -210,6 +210,8 @@
       "translate": "Translate selected text",
       "explain": "Explain in context",
       "listen": "Listen to pronunciation",
+      "listenLoading": "Loading speech, tap to cancel",
+      "listenStop": "Stop speech",
       "copy": "Copy selected text",
       "tooLong": "Too long to listen, translate or explain"
     },
@@ -468,6 +470,12 @@
     "enrichRetry": "Retry",
     "readV2": "Open in the V2 reader"
   },
+  "speakButton": {
+    "title": "Listen",
+    "listen": "Listen to pronunciation",
+    "loading": "Loading speech, tap to cancel",
+    "stop": "Stop speech"
+  },
   "v2Reader": {
     "pick": "Pick a book",
     "loading": "Loading the book…",
@@ -529,7 +537,8 @@
     "closeContents": "Close contents",
     "prevSection": "Previous section: {{title}}",
     "nextSection": "Next section: {{title}}",
-    "translationFailed": "Could not translate this word."
+    "translationFailed": "Could not translate this word.",
+    "speechSpeed": "Speech speed"
   },
   "library": {
     "continue": "Continue",

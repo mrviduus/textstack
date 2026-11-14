@@ -555,11 +555,15 @@ try {
       let rel = await waitFor(at, (x) => x.type === 'relocate' && x.index === 1, 'the last section, scrolled').catch(() => null)
       check(rel?.atEnd === false, `scrolled: the top of a long last section is not the end (${rel?.atEnd})`)
       await page.mouse.move(640, 360)
-      // The first scroll after a navigation sends no relocate (foliate's `#justAnchored`, README): spent here.
-      await page.mouse.wheel(0, 100)
-      await page.waitForTimeout(600)
+      // #1297: right after the jump, ONE continuous scroll to the bottom (wheel steps closer than the paginator's
+      // 250 ms scroll debounce), then stop: it sends a relocate with the new place, the reader's move.
+      const jumped = rel
+      const scrolled = messages.length
       for (let k = 0; k < 40; k++) { await page.mouse.wheel(0, 2000); await page.waitForTimeout(60) }
       await page.waitForTimeout(1200)
+      const moves = messages.slice(scrolled).filter((x) => x.type === 'relocate')
+      check(moves.some((x) => x.moved === true && x.index === 1 && x.cfi && x.cfi !== jumped?.cfi),
+        `scrolled: one continuous scroll right after a jump sends the new place, moved (${JSON.stringify(moves.map((x) => [x.moved, x.cfi]))} from ${jumped?.cfi})`)
       rel = lastRel(at)
       check(rel?.atEnd === true && readRelocate(rel)?.atEnd === true && rel.fraction < 1, `scrolled: its bottom is the end, with a fraction under 1 (${rel?.atEnd}, ${rel?.fraction})`)
       // Paginated flow: only the last page of the last section.
@@ -801,17 +805,13 @@ try {
       check(rels(from).every((x) => x.cause === 'layout'), `a resize: cause layout (${rels(from).map((x) => x.cause)})`)
       await page.setViewportSize({ width: 1280, height: 720 })
       await page.waitForTimeout(1000)
-      // foliate's scrolled paginator sends no relocate at all for the first scroll after an anchored re-layout
-      // (`#justAnchored`, known: README): the scroll after it is the reader's move.
+      // #1297: the first scroll after an anchored re-layout is the reader's move (the fork's `#justAnchored`
+      // swallows only the anchoring's own scroll).
       await page.mouse.move(640, 360)
       from = messages.length
       await page.mouse.wheel(0, 400)
       await page.waitForTimeout(1200)
-      const swallowed = rels(from).length
-      from = messages.length
-      await page.mouse.wheel(0, 400)
-      await page.waitForTimeout(1200)
-      check(rels(from).some((x) => x.moved === true), `a scroll in scrolled flow: moved: true (${rels(from).map((x) => x.moved)}; the first scroll after the re-layout sent ${swallowed} relocates)`)
+      check(rels(from).some((x) => x.moved === true), `the first scroll after a re-layout in scrolled flow: moved: true (${rels(from).map((x) => x.moved)})`)
       check(rels(from).some((x) => x.cause === 'turn') && rels(from).every((x) => x.cause !== 'nav'), `a scroll in scrolled flow: cause turn (${rels(from).map((x) => x.cause)})`)
       await call('window.__fol.font(-1)')
       call('window.__fol.flow("paginated")')
@@ -1467,6 +1467,7 @@ try {
     // I6: the label is refused where `annotatable` is false (the call answers false, nothing is drawn).
     const label = `window.__fol.showTranslation('epubcfi(/6/2!/4/2/1:0)', 0, 'x')`
     check(await run(label) === false, 'showTranslation is refused on a PDF')
+    check(await run(`window.__fol.speaking('epubcfi(/6/2!/4/2/1:0)', 0)`) === false, 'speaking is refused on a PDF (no range to mark)')
     let from = msgs.length
     for (const _ of [1, 2]) { run('window.__fol.next()'); await qa.waitForTimeout(500) }
     await settle()
@@ -1975,6 +1976,48 @@ try {
   await page.waitForTimeout(800)
   const drawnBack = await call('window.__fol.drawnRanges()')
   check(drawnHere >= 3 && drawnAway === 0 && drawnBack === drawnHere, `a section's highlight ranges go with it and come back with it (${drawnHere} → ${drawnAway} → ${drawnBack})`)
+
+  // #1272: the range the host speaks is underlined (SPOKEN_FILL) until the host says it ended; one at a time; a
+  // highlight over the same range stays when the mark goes.
+  console.log('spoken range')
+  const SPOKEN = '#7c3aed'
+  const rangeOf = (w) => call(`(() => {
+    const v = document.querySelector('foliate-view')
+    const c = v.renderer.getContents().find((x) => x.doc.querySelector('p'))
+    const t = c.doc.querySelector('p').firstChild, i = t.data.indexOf(${JSON.stringify(w)})
+    const r = c.doc.createRange(); r.setStart(t, i); r.setEnd(t, i + ${w.length})
+    return { cfi: v.getCFI(c.index, r), index: c.index }
+  })()`)
+  const spokenFills = async () => (await fills()).filter((f) => f === SPOKEN).length
+  const blue = (list) => list.filter((f) => f === '#60a5fa').length
+  const blueBefore = blue(await fills())
+  const judgeRange = await rangeOf('judge')
+  check(await call(`window.__fol.speaking(${JSON.stringify(judgeRange.cfi)}, ${judgeRange.index})`) === true, 'speaking(cfi, index) marks the spoken range')
+  await page.waitForTimeout(300)
+  check(await spokenFills() === 1, `it is drawn, underlined (${JSON.stringify(await fills())})`)
+  // The pink-then-blue highlight's own range (its CFI): one overlay carries both decorations.
+  const quartzHl = await rangeOf('quartz')
+  call(`window.__fol.speaking(${JSON.stringify(quartzHl?.cfi)}, ${quartzHl?.index})`)
+  await page.waitForTimeout(300)
+  const overHl = await fills()
+  check(overHl.filter((f) => f === SPOKEN).length === 1 && blue(overHl) === blueBefore, `a new one replaces it, a highlight under it stays drawn (${JSON.stringify(overHl)})`)
+  // The highlight under the mark removed: the mark stays.
+  call(`window.__fol.removeHighlight(${JSON.stringify(pink?.id)})`)
+  await page.waitForTimeout(400)
+  const hlGone = await fills()
+  check(hlGone.filter((f) => f === SPOKEN).length === 1 && blue(hlGone) === blueBefore - 1, `a highlight removed under it leaves the mark (${JSON.stringify(hlGone)})`)
+  from = messages.length
+  check(await call('window.__fol.speaking(null)') === false, 'speaking(null) ends it')
+  await page.waitForTimeout(300)
+  const afterEnd = await fills()
+  check(!afterEnd.includes(SPOKEN) && blue(afterEnd) === blueBefore - 1 && blueBefore >= 2 && storesFrom(from).length === 0, `cleared, the other highlights kept, nothing saved (${JSON.stringify(afterEnd)})`)
+  check(await call(`window.__fol.speaking('not a cfi', 0)`) === false && messages.slice(from).some((x) => x.type === 'log' && /speaking ignored/.test(x.msg)) && await spokenFills() === 0,
+    'a value that is no range CFI is ignored with a warn')
+  call(`window.__fol.speaking(${JSON.stringify(judgeRange.cfi)}, ${judgeRange.index})`)
+  await page.waitForTimeout(300)
+  m = await open('tsformat.fb2', byFraction(null))
+  await page.waitForTimeout(300)
+  check(await spokenFills() === 0, 'a new open leaves no spoken mark behind')
 
   // A fixed-layout book (CBZ) lands a fraction on its page, quietly too, and saves its page once moved.
   m = await open('tsformat.cbz', JSON.stringify({ v: 1, book: cbzBook, highlights: [], position: { fraction: 0.9, at: 1 } }))
