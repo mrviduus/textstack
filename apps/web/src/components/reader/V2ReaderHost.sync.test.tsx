@@ -381,6 +381,33 @@ describe('V2ReaderHost, server sync', () => {
       expect(order).toEqual([])
     })
 
+    it('aReKeyWhileTyping_ThenSave_TheTypedNoteWrittenToTheNewId', async () => {
+      const NEW = '99999999-9999-4999-8999-999999999999'
+      const { s, order } = await typing()
+      act(() => s.onRekey!(ID, NEW))
+      // The same editor (keyed per opening, not by id): the typed text is still there.
+      expect(screen.getByPlaceholderText('Add a note...')).toHaveValue('  typed  ')
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      expect(order).toEqual([`setNote ${NEW} typed`])
+    })
+
+    it('aDraftWrittenWhenTheTabHid_ThenEditedBackAndSaved_TheOpeningNoteWrittenBack', async () => {
+      const { order } = await typing()
+      act(() => { Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true }); document.dispatchEvent(new Event('visibilitychange')) })
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+      expect(order).toEqual([`setNote ${ID} typed`])
+      fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'their note' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      expect(order).toEqual([`setNote ${ID} typed`, `setNote ${ID} their note`])
+    })
+
+    it('aDraftWrittenWhenTheTabClosed_ThenCancel_TheOpeningNoteWrittenBack', async () => {
+      const { order } = await typing()
+      act(() => { window.dispatchEvent(new Event('pagehide')) })
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(order).toEqual([`setNote ${ID} typed`, 'flushKeepalive', `setNote ${ID} their note`])
+    })
+
     it('anUntouchedDraft_LeavingTheRoute_WritesNothing', async () => {
       const { s, order } = await typing()
       fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'their note ' } })

@@ -109,11 +109,12 @@ export function HighlightNoteModal({
   // Auto-focus the input shortly after mount so the keyboard comes up
   // without requiring a second tap. setTimeout avoids a race with the
   // Modal's open animation on iOS.
+  // …and once the note has loaded, when the field turns editable (#1312 review: never while it waits).
   useEffect(() => {
-    if (!visible) return
+    if (!visible || noteLoading) return
     const t = setTimeout(() => inputRef.current?.focus(), 150)
     return () => clearTimeout(t)
-  }, [visible])
+  }, [visible, noteLoading])
 
   const handleSave = () => { if (!noteLoading) onSave(note.trim(), base.current) }
 

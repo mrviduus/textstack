@@ -80,6 +80,7 @@ const SCHEMA = `
     note_known INTEGER NOT NULL DEFAULT 1
   );
   CREATE INDEX IF NOT EXISTS annotations_book ON annotations (book_id);
+  DROP TABLE IF EXISTS annotation_aliases; -- made by dev builds of #1312 before its review; never used since
   CREATE TABLE IF NOT EXISTS outbox (
     kind TEXT NOT NULL,
     target TEXT NOT NULL,
@@ -172,6 +173,8 @@ export interface AnnotationRow {
 }
 
 export type OutboxKind = 'book' | 'state' | 'annotation'
+/** #1312: a book's highlight notes as an editor needs them (`notes`). */
+export interface BookNotes { known: Map<string, string | null>; unknown: Set<string>; deleted: Set<string> }
 /** `failures`: transient push failures of this `gen` in a row (sync.ts `MAX_FAILURES`). */
 export interface OutboxItem { kind: OutboxKind; target: string; gen: number; failures: number }
 
@@ -284,6 +287,12 @@ export function createLocalLibrary(db: Db) {
   const sizeOf = (b: BookRow) => b.size ?? b.server_size
   const stateOf = (bookId: string) => one<StateRow>('SELECT * FROM reading_state WHERE book_id = ?', [bookId])
   const annotationById = (id: string) => one<AnnotationRow>('SELECT * FROM annotations WHERE id = ?', [id])
+  /**
+   * #1312 review: re-keys made in this process (`id_conflict`), old → new, in memory only. A page message naming the old
+   * id after the re-key (its removal or its editor's note, sent before it renamed the highlight) reaches the new row.
+   */
+  const rekeyed = new Map<string, string>()
+  const rekeyedTo = (id: string) => rekeyed.get(id) ?? id
   const queued = async (kind: OutboxKind, target: string) => !!(await one('SELECT 1 FROM outbox WHERE kind = ? AND target = ?', [kind, target]))
   /** A fresh save is a fresh attempt: a new gen, its failure count reset. */
   const enqueue = (kind: OutboxKind, target: string) =>
@@ -518,7 +527,8 @@ export function createLocalLibrary(db: Db) {
      * #1312: the reader's note (null: none) on highlight `id`: this device's edit (`note_dirty`), queued when the
      * highlight's text may sync. False: no such highlight here, or it is deleted.
      */
-    setNote: (id: string, note: string | null) => tx(async () => {
+    setNote: (pageId: string, note: string | null) => tx(async () => {
+      const id = rekeyedTo(pageId)
       const row = await annotationById(id)
       if (!row || row.deleted_at) return false
       if ((row.note ?? null) === note && row.note_known) return true
@@ -533,7 +543,8 @@ export function createLocalLibrary(db: Db) {
      * a later `store` holding it is skipped, `entryChanges`), and queued so the server tombstones it (sync.ts pushes a
      * DELETE). One whose text may not sync was never sent: nothing queued. False: no such highlight, or deleted.
      */
-    removeHighlight: (id: string, at = new Date().toISOString()) => tx(async () => {
+    removeHighlight: (pageId: string, at = new Date().toISOString()) => tx(async () => {
+      const id = rekeyedTo(pageId)
       const row = await annotationById(id)
       if (!row || row.deleted_at) return false
       await run('UPDATE annotations SET deleted_at = ? WHERE id = ?', [at, id])
@@ -563,9 +574,17 @@ export function createLocalLibrary(db: Db) {
     notes: (sha256: string) => job(async () => {
       // The book these bytes are, as `readEntry` finds it (a pulled book not imported here yet included).
       const b = await bookForBytes(sha256)
-      // Every live highlight whose note is known (null: none); one missing is not known yet (an editor waits for it).
-      const rows = b ? await all<{ id: string; note: string | null }>('SELECT id, note FROM annotations WHERE book_id = ? AND deleted_at IS NULL AND note_known = 1', [b.id]) : []
-      return new Map(rows.map((r) => [r.id, r.note]))
+      // `known`: live, note known (null: none). `unknown`: live, note not read yet (an editor waits). `deleted`: tombstoned
+      // (a drawn one's editor closes). An id in none has no row yet: a highlight just made, no note (#1312 review).
+      const rows = b ? await all<{ id: string; note: string | null; note_known: number; deleted_at: string | null }>(
+        'SELECT id, note, note_known, deleted_at FROM annotations WHERE book_id = ?', [b.id]) : []
+      const notes: BookNotes = { known: new Map(), unknown: new Set(), deleted: new Set() }
+      for (const r of rows) {
+        if (r.deleted_at) notes.deleted.add(r.id)
+        else if (r.note_known) notes.known.set(r.id, r.note)
+        else notes.unknown.add(r.id)
+      }
+      return notes
     }),
 
     /**
@@ -725,6 +744,7 @@ export function createLocalLibrary(db: Db) {
       const h = { ...parse<PageHighlight>(row.highlight)!, id: to }
       await run('UPDATE annotations SET id = ?, highlight = ? WHERE id = ?', [to, JSON.stringify(h), id])
       await run(`UPDATE outbox SET target = ? WHERE kind = 'annotation' AND target = ?`, [to, id])
+      rekeyed.set(id, to)
       return to
     }),
 
@@ -877,7 +897,11 @@ export function createLocalLibrary(db: Db) {
      * nobody; rows that appear after it are taken by the first identity that syncs.
      */
     wipe: () => tx(async () => {
-      for (const table of ['books', 'reading_state', 'annotations', 'outbox', 'meta']) await run(`DELETE FROM ${table}`)
+      for (const table of ['books', 'reading_state', 'annotations', 'outbox']) await run(`DELETE FROM ${table}`)
+      rekeyed.clear()
+      // The notes upgrade's marker stays (#1312 review): it is about this database, not its owner, and the rows a later
+      // sign-in pulls are known, never to be marked unknown again.
+      await run('DELETE FROM meta WHERE key <> ?', [NOTES_UPGRADE])
     }),
   }
 }

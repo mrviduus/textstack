@@ -348,7 +348,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `flow('paginated' \| 'scrolled')` | foliate layout; default `paginated` (ADR-029 Decision 1). Switches the open book in place (no reload, position kept). Before `opened` it sets what the next open uses: hosts send the reader's stored setting right after `ready`. Anything else is ignored with a `warn`. |
 | `flush()` | #1264: a `store` still debounced (a page turn's, 400 ms) is written now; nothing pending, nothing sent. Hosts call it on background, unmount and close. The page also flushes by itself when its document turns hidden (`visibilitychange`: a tab switch, the app backgrounded) and on `pagehide`. **Returns** the latest `store` message (`{ type, key, json }`: the pending one, now posted, or the last one sent; `null` before any, and after a new open until the reader moves: the swap forgets it): #1286, the web host calls it synchronously (the frame is same-origin) where a posted `store` comes too late — its own `pagehide` (the page's is a postMessage to a window that is unloading) and its unmount (a layout cleanup, while the frame is still in the document; the message listener is gone after). The host reads the value as an untrusted `store` (`readStore`: each field once, strings only, the synced book's key) inside a try: any failure is today's behaviour. The session takes it without a pass on `pagehide` (the keepalive write is the one write) and joins it to its last pass on close; the same payload posted again later is no change. Android ignores the value. |
 | `showTranslation(cfi, index, text)` | Draws `text` above that word (the web dev route's stub label only; no host draws a translation yet). Ignored where `annotatable` is false (CBZ, PDF). |
-| `rekeyHighlight(oldId, newId)` | #1312 review: the host re-keyed a highlight (`id_conflict`): renamed in the entry and on screen, saved (`store`), `highlight-list` sent. One not held here, or onto an id held, is ignored with a `warn`. |
+| `rekeyHighlight(oldId, newId)` | #1312 review: the host re-keyed a highlight (`id_conflict`). Queued behind the restore and `addHighlights` (a re-key sent with a restore finds its highlight). Renamed in the entry and on screen, saved (`store`), `highlight-list` sent. One not held here, or onto an id held, is ignored with a `warn`. |
 | `drawnRanges()` | Test-only (`formats.check.mjs`): how many drawn highlight ranges the page holds, a count and no book data. The ranges of a section no longer loaded (its frame gone) are dropped when a section's overlayer is made and on every tap (#1312 review). |
 | `clearSelection()` | #1269: the host is done with the selection (its toolbar closed after Copy, a translation or explanation closed): removed from every shown section, `selection-cleared` sent at once if a `selection` was sent (none otherwise), and `highlightSelection()` has no last selection to fall back on. |
 
@@ -577,21 +577,27 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
     the note it was typed over (`from`: web, the note when the popup opened; Android, the note shown when typing began,
     the editor following the note while untouched). A note is never cut (the server has no cap; one written elsewhere
     may be long).
-  - A recolour in the open editor keeps the draft. Web: the draft is the host's (`PdfHighlightPopup` `onDraft`), written
-    whatever ends the editor: another popup, a tap or a word in the book, Escape, ×, a new open, leaving the route
-    (before the session's close), the tab hidden or closed (before the keepalive writes); Cancel and Delete discard it.
-    Android: while a highlight's note is not known (`notes()` lacks it: a row from before notes, not pulled yet) its
-    editor's field waits and Save is off.
-  - An `id_conflict` re-key is told to the page (`rekeyHighlight(old, new)`): it renames the highlight in its entry and
-    on screen, and its stores, list and taps carry the new id. Web: the session's `onRekey` when the re-keyed write
-    lands; a note or removal made under the old id while it flew moves to the new id then, and the old id's forms (the
-    page's stores until it renames) are never written. Android: `SyncHost.onRekey` once `rekeyAnnotation` renamed the
-    row, before the retried write; the page's old-id stores are the new row's twin (applied in the page's order, before
-    any later edit). A book not open needs nothing: its next open reads the rows.
+  - A recolour or a re-key in the open editor keeps the draft (both editors are keyed per opening, never by id). Web:
+    the draft is the host's (`PdfHighlightPopup` `onDraft`), written whatever ends the editor: another popup, a tap or
+    a word in the book, Escape, ×, Save, a new open, leaving the route (before the session's close), the tab hidden or
+    closed (before the keepalive writes; what it wrote becomes the baseline, so Cancel, back to the note at opening,
+    writes that back); Delete discards it. Android: `notes()` sorts a book's highlights into known (note or none),
+    unknown (a row from before notes, not pulled yet: the field waits, Save is off, focus comes when it turns editable)
+    and deleted (a drawn one tombstoned by a pull: its editor closes and the page drops it); an id in none is a highlight
+    just made, no note. The notes are read again after each `store` lands.
+  - An `id_conflict` re-key is told to the page (`rekeyHighlight(old, new)`, queued behind its restore): it renames the
+    highlight in its entry and on screen, and its stores, list and taps carry the new id. Messages the page sent under
+    the old id before it renamed reach the new row: an in-memory old → new map, never persisted (web: the session's,
+    every way in resolves through it: its forms, the last one with a close included, `setNote`, `remove`, `note`;
+    Android: the local library instance's, for `setNote` and `removeHighlight`, cleared by a wipe; the page's old-id
+    stores are the new row's twin). Web: the session's `onRekey` when the re-keyed write lands (edits made under the old
+    id meanwhile move then). Android: `SyncHost.onRekey` once `rekeyAnnotation` renamed the row, before the retried
+    write. A book not open needs nothing: its next open reads the rows.
+  - The keepalive writes skip a body over what is left of the budget (a long note) and send the ones after it.
 - *Web, the link*: once the jump to `?highlight=<id>` is made, the route drops the parameter (replace, no history
   entry): a reload opens at the saved place, never jumps (and saves) again.
 - *Android, the upgrade* (rows from before notes were kept): once per database, in one transaction with its `meta`
-  marker (`upgrade:notes`; a kill before it commits runs it at the next start), every row the server has with no note
+  marker (`upgrade:notes`; a kill before it commits runs it at the next start; a sign-out's wipe keeps it), every row the server has with no note
   edited here is marked not known (`note_known` 0) and the annotations feed restarts from the start. A row not known is never pushed (its PUT would clear
   the server's note; the sign-out push pulls nothing, so it skips it); the pull takes its note, a queued one's too
   (never over a note edited here);

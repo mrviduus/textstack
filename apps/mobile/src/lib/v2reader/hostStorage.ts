@@ -46,7 +46,7 @@ export interface LocalLibrary {
   /** #1312: a highlight's note (null: none), its removal, a book's notes (id → note). */
   setNote(id: string, note: string | null): Promise<boolean>
   removeHighlight(id: string): Promise<boolean>
-  notes(sha256: string): Promise<Map<string, string | null>>
+  notes(sha256: string): Promise<{ known: Map<string, string | null>; unknown: Set<string>; deleted: Set<string> }>
   /** Resolves to the sha256s whose store entries the rows now hold. */
   importLegacy(books: LibraryEntry[], storeOf: Map<string, string>, newId: () => string): Promise<string[]>
 }

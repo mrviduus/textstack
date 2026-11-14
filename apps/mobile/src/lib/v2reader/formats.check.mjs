@@ -1800,6 +1800,18 @@ try {
   await page.waitForTimeout(400)
   check(storesFrom(from).length === 0 && messages.slice(from).filter((x) => x.type === 'log' && /rekeyHighlight ignored/.test(x.msg)).length === 2,
     'a re-key of an id not held, or onto one held, is ignored with a warn')
+  // A re-key sent with the restore, before the entry exists: queued behind it, it lands (#1312 review).
+  const NEXT = '77777777-7777-4777-8777-777777777777'
+  from = messages.length
+  await call(`window.__fol.openUrl(${JSON.stringify(bookAt('tsformat.fb2'))}, 'tsformat.fb2')`)
+  await waitFor(from, (x) => x.type === 'opened', 'opened for an early re-key').catch(() => null)
+  from = messages.length
+  await call(`window.__fol.restore(${JSON.stringify(JSON.stringify({ v: 1, book: fb2Book, highlights: [twoHl[0]], position: null }))}); window.__fol.rekeyHighlight(${JSON.stringify(twoHl[0].id)}, ${JSON.stringify(NEXT)})`)
+  const earlyRekey = await storeFrom(from, 'a store after a re-key sent with the restore')
+  await waitFor(from, (x) => x.type === 'restored', 'restored').catch(() => null)
+  check(JSON.stringify(earlyRekey?.highlights.map((h) => h.id)) === JSON.stringify([NEXT]) && !messages.slice(from).some((x) => x.type === 'log' && /rekeyHighlight ignored/.test(x.msg)),
+    `a re-key sent with the restore waits for it and lands (${JSON.stringify(earlyRekey?.highlights.map((h) => h.id))})`)
+  m = await open('tsformat.fb2', JSON.stringify({ v: 1, book: fb2Book, highlights: [twoHl[1]], position: null }))
   // A new highlight in the colour chosen.
   await call(`(() => { const c = document.querySelector('foliate-view').renderer.getContents()[0]; const t = c.doc.querySelector('p').firstChild, i = t.data.indexOf('quartz'), r = c.doc.createRange(); r.setStart(t, i); r.setEnd(t, i + 6); c.doc.getSelection().removeAllRanges(); c.doc.getSelection().addRange(r) })()`)
   await page.waitForTimeout(150)

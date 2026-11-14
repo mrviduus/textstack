@@ -131,7 +131,9 @@ describe('device V2 local library', () => {
     const lib = await used(m)
     await m.wipeDeviceV2Library()
     // The owner too (#1070 rule A): an emptied library belongs to nobody.
-    for (const t of ['books', 'reading_state', 'annotations', 'outbox', 'meta']) expect(rows(t), t).toBe(0)
+    for (const t of ['books', 'reading_state', 'annotations', 'outbox']) expect(rows(t), t).toBe(0)
+    // Of meta, only the notes upgrade's marker stays (#1312 review: it is about the database, not its owner).
+    expect(rows('meta'), 'meta').toBe(1)
     expect([...files.keys()]).toEqual([])
     // Made again in the one place, so the host's next write (staging, books) finds them.
     expect([...dirs].sort()).toEqual([...HOST_DIRS].sort())

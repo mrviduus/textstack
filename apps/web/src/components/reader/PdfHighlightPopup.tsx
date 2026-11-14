@@ -31,8 +31,8 @@ interface Props {
   onClose: () => void
   /**
    * #1312 review (the V2 reader): the draft as it is typed, with the note the popup opened with, so the host can write a
-   * changed one whatever closes the popup (a tap in the book, Escape, ×, leaving the route, closing the tab). Null:
-   * nothing left to write (saved by Save, or discarded by Cancel or Delete).
+   * changed one whatever closes the popup (a tap in the book, Escape, ×, leaving the route, closing the tab); Save and
+   * Cancel (the note at opening) are drafts too, written by the host. Null: nothing left to write (Delete).
    */
   onDraft?: (draft: { text: string; from: string | null } | null) => void
 }
@@ -87,12 +87,22 @@ export function PdfHighlightPopup({
     // Only PUT when the note actually changed (`noteChange`: trimmed, against the note at opening). Recoloring then
     // dismissing (or a click-outside) must NOT fire a redundant note save — that churns the highlight version and can
     // flash the pre-recolor color back for a frame.
+    // The V2 reader's host owns the write (`onDraft`): it may have written a draft already (the tab hidden), so it
+    // decides against what it last wrote.
+    if (onDraft) {
+      onDraft({ text: noteText, from })
+      return onClose()
+    }
     const note = noteChange(noteText, from)
-    onDraft?.(null)
     if (note !== undefined) onNoteSave(note)
     onClose()
   }, [noteText, onNoteSave, onClose, onDraft, from])
-  /** Cancel and Delete: nothing of the draft is written. */
+  /** Cancel: back to the note at opening (the host writes it only if it wrote something else meanwhile). */
+  const cancel = () => {
+    onDraft?.({ text: from ?? '', from })
+    onClose()
+  }
+  /** Delete: nothing of the draft is written. */
   const discard = (then: () => void) => () => {
     onDraft?.(null)
     then()
@@ -181,7 +191,7 @@ export function PdfHighlightPopup({
           <TrashIcon />
         </button>
         <div className="note-editor__actions">
-          <button className="note-editor__cancel" onClick={discard(onClose)}>
+          <button className="note-editor__cancel" onClick={cancel}>
             {t('reader.noteEditor.cancel')}
           </button>
           <button className="note-editor__save" onClick={handleSaveNote}>

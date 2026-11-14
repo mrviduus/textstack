@@ -245,10 +245,14 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    */
   const [popup, setPopupState] = useState<V2Popup | null>(null)
   const popupRef = useRef<V2Popup | null>(null)
-  const setPopup = (p: V2Popup | null) => {
+  /** Counts highlight editor openings: the editor's key, so a re-key (a new id, `sameEditor`) keeps it and its draft. */
+  const editorOpening = useRef(0)
+  const setPopup = (p: V2Popup | null, o: { sameEditor?: boolean } = {}) => {
     // The highlight editor closing, whatever closes it: its changed draft is written (#1312 review).
     const was = popupRef.current
-    if (was?.kind === 'highlight' && !(p?.kind === 'highlight' && p.id === was.id)) flushDraft()
+    const same = was?.kind === 'highlight' && p?.kind === 'highlight' && (o.sameEditor || p.id === was.id)
+    if (was?.kind === 'highlight' && !same) flushDraft()
+    if (p?.kind === 'highlight' && !same) editorOpening.current++
     popupRef.current = p
     setPopupState(p)
   }
@@ -276,11 +280,16 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     else session?.setNote(id, note)
     setNotesSeen((n) => n + 1)
   }
-  function flushDraft() {
+  /**
+   * `keep`: the editor stays open (the tab hidden or closing, maybe kept): what was written becomes its baseline, so a
+   * later Save (or Cancel, back to the note at opening) is compared with it, never with the note it opened with.
+   */
+  function flushDraft(keep = false) {
     const d = editorDraft.current
     editorDraft.current = null
     const note = d && noteChange(d.text, d.from)
     if (d && note !== undefined) writeNote(d.id, note, d.session)
+    if (d && keep) editorDraft.current = { ...d, from: note === undefined ? d.from : note }
   }
   const main = useRef<HTMLElement>(null)
   const header = useRef<HTMLElement>(null)
@@ -445,10 +454,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             setHighlightList((l) => l.map((h) => (h.id === oldId ? { ...h, id: newId } : h)))
             if (editorDraft.current?.id === oldId) editorDraft.current = { ...editorDraft.current, id: newId }
             const p = popupRef.current
-            if (p?.kind === 'highlight' && p.id === oldId) {
-              popupRef.current = { ...p, id: newId }
-              setPopupState(popupRef.current)
-            }
+            if (p?.kind === 'highlight' && p.id === oldId) setPopup({ ...p, id: newId }, { sameEditor: true })
           },
           // Every server state the session takes: a reset elsewhere brings the button back.
           onCompleted: (completedAt) => {
@@ -627,14 +633,14 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     // Online-first: what did not land is written again when the tab is hidden, and by a keepalive write as it goes.
     const onVisibility = () => {
       if (document.visibilityState !== 'hidden') return
-      flushDraft()
+      flushDraft(true)
       void sync.current?.flush()
     }
     // The page's last turn (#1286): its own pagehide `store` would reach a document that is unloading; taken here first.
     const onPageHide = () => {
       const last = storeFor(pageLastStore(frame.current))
       // The open editor's changed note goes with the keepalive writes (the session's notes are sent by them).
-      flushDraft()
+      flushDraft(true)
       sync.current?.flushKeepalive(last)
     }
     document.addEventListener('visibilitychange', onVisibility)
@@ -715,7 +721,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     onRecolor: (color) => call('recolorHighlight', [tapped.id, color]),
     onNoteSave: (note) => writeNote(tapped.id, note, sync.current),
     // Held here, with the session of the book it was opened in: flushed whatever closes the editor.
-    onDraft: (d) => { editorDraft.current = d && { ...d, id: tapped.id, session: sync.current } },
+    // The baseline is the host's once set (a flush moves it); the session, the one the editor opened in.
+    onDraft: (d) => {
+      const was = editorDraft.current
+      editorDraft.current = d && { text: d.text, from: was ? was.from : d.from, id: tapped.id, session: was?.session ?? sync.current }
+    },
+    opening: editorOpening.current,
     onDelete: () => call('removeHighlight', [tapped.id]),
   } : null
   /** A highlight chosen in the list: the reader's choice, saved where it lands. */

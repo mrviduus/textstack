@@ -16,7 +16,7 @@ export const colorOf = (c) => (isHighlightColor(c) ? c : 'yellow')
 export const MAX_LIST = 5000
 export const MAX_LIST_TEXT = 200
 /** A highlight id as the page holds it: a v4 or the server's UUID, or a pre-#1078 `h…` one. */
-const isId = (id) => typeof id === 'string' && /^[0-9A-Za-z-]{1,64}$/.test(id)
+export const isId = (id) => typeof id === 'string' && /^[0-9A-Za-z-]{1,64}$/.test(id)
 const isCfi = (c) => typeof c === 'string' && c.length <= MAX_SELECTION_CFI && c.startsWith('epubcfi(')
 
 /**

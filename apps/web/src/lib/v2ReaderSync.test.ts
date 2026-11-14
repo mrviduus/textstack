@@ -559,6 +559,31 @@ describe('createV2ReaderSync', () => {
       expect(last()).toBe('saved')
     })
 
+    // #1312 review: the page's messages under the old id arriving after the re-key landed.
+    it('idConflict_ALateNoteAndALateRemovalUnderTheOldId_ReachTheNewRow', async () => {
+      const s = await rekeyInFlight(() => {})
+      s.setNote(H1, 'late')
+      expect(s.note(H1)).toBe('late')
+      await s.flush()
+      expect(api.putAnnotation.mock.calls.slice(2).map((c) => [c[0], (c[1] as V2AnnotationWrite).noteText])).toEqual([[MINTED, 'late']])
+      s.remove(H1)
+      await s.flush()
+      expect(api.deleteAnnotation.mock.calls.map((c) => c[0])).toEqual([MINTED])
+    })
+
+    it('idConflict_LandingWhileTheSessionCloses_TheLastStoresRecolourWrittenToTheNewId', async () => {
+      const s = await opened()
+      const retry = deferred<V2Annotation>()
+      api.putAnnotation.mockRejectedValueOnce(conflict('id_conflict', null)).mockReturnValueOnce(retry.promise)
+      s.store(entry(null, [hl()]))
+      await vi.waitFor(() => expect(api.putAnnotation).toHaveBeenCalledTimes(2))
+      // The tab leaves with the page's last store: recoloured, still under the old id.
+      const closing = s.close(entry(null, [hl(H1, 'green')]))
+      retry.resolve(annotation({ id: MINTED, revision: 1 }))
+      await closing
+      expect(api.putAnnotation.mock.calls.slice(2).map((c) => [c[0], (c[1] as V2AnnotationWrite).color])).toEqual([[MINTED, 'green']])
+    })
+
     it('idConflict_ARemovalOfTheOldIdWhileTheRetryFlew_DeletesTheNewRow', async () => {
       await rekeyInFlight((x) => x.remove(H1))
       expect(api.deleteAnnotation.mock.calls.map((c) => c[0])).toEqual([MINTED])
@@ -920,6 +945,19 @@ describe('createV2ReaderSync', () => {
       await s.flush()
       expect(api.deleteAnnotation).toHaveBeenCalledTimes(2)
       expect(last()).toBe('saved')
+    })
+
+    it('keepalive_ANoteOverTheBudget_Skipped_TheWritesAfterItStillSent', async () => {
+      const s = await opened()
+      api.putAnnotation.mockRejectedValue(offline())
+      api.putReadingState.mockRejectedValue(offline())
+      const H2_AT = { ...hl(H2), cfi: 'epubcfi(/6/6!/4/2,/1:0,/1:5)' }
+      await stored(s, entry(pos(2), [hl(H1), H2_AT]))
+      s.setNote(H1, 'x'.repeat(KEEPALIVE_BUDGET + 1))
+      await s.flush()
+      s.flushKeepalive()
+      expect(api.keepalivePutState).toHaveBeenCalledTimes(1)
+      expect(api.keepalivePutAnnotation.mock.calls.map((c) => c[0])).toEqual([H2])
     })
 
     it('keepalive_ARemovalAndANoteStillPending_SentBeforeTheTabGoes', async () => {

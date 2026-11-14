@@ -228,12 +228,17 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   /** This tab's note edits not yet on the server (id → note, null: cleared), and its removals not yet tombstoned. */
   const notes = new Map<string, string | null>()
   const removals = new Set<string>()
-  const noteFor = (id: string) => (notes.has(id) ? notes.get(id)! : held.get(id)?.note ?? null)
   /**
-   * Old ids of re-keyed highlights: until the page renames one, its stores still carry the old id, a form never
-   * written (it is the new row's; once that row is deleted it is no longer its twin, and would be created again).
+   * Re-keys of this session (`id_conflict`), old → new, in memory only. Every way in resolves through it: the page's forms
+   * (its stores carry the old id until it renames the highlight, and the last one may come with the close) and the
+   * host's `setNote` / `remove` / `note` for it (#1312 review).
    */
-  const rekeyedAway = new Set<string>()
+  const rekeyed = new Map<string, string>()
+  const real = (id: string) => rekeyed.get(id) ?? id
+  const noteFor = (pageId: string) => {
+    const id = real(pageId)
+    return notes.has(id) ? notes.get(id)! : held.get(id)?.note ?? null
+  }
   const noted = (h: PageHighlight, note = noteFor(h.id)): Noted => ({ ...h, noteText: note })
 
   /** The position written; false when it did not land or was refused. One retry after a lost revision. */
@@ -293,7 +298,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
         if (notes.has(pageId)) notes.set(h.id, notes.get(pageId)!)
         notes.delete(pageId)
         if (removals.delete(pageId)) removals.add(h.id)
-        rekeyedAway.add(pageId)
+        rekeyed.set(pageId, h.id)
         if (current()) o.onRekey?.(pageId, h.id)
       }
       if (notes.has(h.id) && notes.get(h.id) === (a.noteText ?? null)) notes.delete(h.id)
@@ -361,7 +366,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
    */
   function notedForms(entry: PageEntry | null): Noted[] {
     // Under the id the server holds them by (an alias after a re-key): diffed against that row.
-    const forms = (entry?.highlights ?? []).filter((h) => !removals.has(h.id) && !rekeyedAway.has(h.id)).map((h) => noted(h))
+    const forms = (entry?.highlights ?? []).map((h) => (rekeyed.has(h.id) ? { ...h, id: real(h.id) } : h)).filter((h) => !removals.has(h.id)).map((h) => noted(h))
     const ids = new Set(forms.map((h) => h.id))
     for (const id of notes.keys()) {
       const r = held.get(id)
@@ -546,7 +551,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       let left = KEEPALIVE_BUDGET
       for (const [send, body] of bodies) {
         const size = new TextEncoder().encode(body).length
-        if (size > left) break
+        // One body over what is left (a long note) is skipped, not the end: the writes after it still go.
+        if (size > left) continue
         left -= size
         send(body)
       }
@@ -556,12 +562,14 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       return (completing ??= completeOnce().finally(() => { completing = null }))
     },
     note: noteFor,
-    setNote(id, note) {
+    setNote(pageId, note) {
+      const id = real(pageId)
       if (!current() || removals.has(id) || held.get(id)?.deleted || noteFor(id) === note) return
       notes.set(id, note)
       void kick()
     },
-    remove(id) {
+    remove(pageId) {
+      const id = real(pageId)
       if (!current() || removals.has(id)) return
       removals.add(id)
       notes.delete(id)
