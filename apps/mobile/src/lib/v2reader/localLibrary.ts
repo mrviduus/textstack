@@ -192,8 +192,8 @@ export const NOTHING_LOST: SignOutLoss = { books: 0, writes: 0 }
 /**
  * Changes only on this device, one row per change, by book: queued positions and highlights, and own
  * highlights the server never took and nothing will send (over the cap, dropped after a refusal:
- * `mine`, no revision, not queued). Not counted (README "Sign-out"): a CBZ position (never sent), an
- * edit of a synced highlight dropped after a refusal.
+ * `mine`, no revision, not queued). Not counted (README "Sign-out"): an edit of a synced highlight dropped
+ * after a refusal.
  */
 const UNSENT_CHANGES = `
   SELECT target AS book_id FROM outbox WHERE kind = 'state'

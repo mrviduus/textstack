@@ -17,6 +17,7 @@ database/v2/
     0003_migration_runs         the etl-v2 run ledger (v2-plan §5.2)
     0004_migration_runs_fixes   its review fixes: interrupted outcome, typed jsonb, SHA-256 source_dump_sha
     0005_book_formats           book_files.format + fb2, mobi, azw3, cbz (ADR-031 "Amended 2026-11-07")
+    0006_page_name_scheme       is_locator() takes page-name, a page-based position (ADR-031 "Amended 2026-11-13")
   tests/invariants.sql          ADR-031's schema rules, checked against a migrated database
   tests/roundtrip.sh            -> ../../tests/roundtrip.sh (its steps 1, 2, 4, 5 plus invariants)
 ```

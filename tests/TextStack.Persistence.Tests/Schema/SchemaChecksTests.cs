@@ -74,4 +74,53 @@ public class SchemaChecksTests(V2PostgresFixture db)
         Assert.Contains("'cbz'", await db.ScalarAsync<string>(
             "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ck_book_files_format'", new { }));
     }
+
+    private const string PageName = """{"version":1,"scheme":"page-name","value":{"page":"p01.png","index":0}}""";
+
+    // #1188: 0006 widens is_locator(); its down narrows it back, refusing while a page-name locator is stored.
+    [Fact]
+    public async Task Down0006_PageNameStateStored_RefusesAndChangesNothing()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var down = await File.ReadAllTextAsync(Path.Combine(PostgresFixture.RepoRoot(), "database/v2/migrations/0006_page_name_scheme.down.sql"), Ct);
+        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var tx = await conn.BeginTransactionAsync(Ct);
+        await conn.ExecuteAsync(new CommandDefinition("UPDATE book_files SET format = 'cbz' WHERE book_id = @bookId", new { bookId = book.Id }, tx, cancellationToken: Ct));
+        await conn.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO reading_state (user_id, book_id, file_id, current_locator, book_fraction, client_recorded_at)
+            VALUES (@userId, @bookId, @fileId, CAST(@locator AS jsonb), 0.5, now())
+            """, new { userId = book.UserId, bookId = book.Id, fileId = book.CurrentFile!.Id, locator = PageName }, tx, cancellationToken: Ct));
+
+        var error = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(new CommandDefinition(down, transaction: tx, cancellationToken: Ct)));
+
+        // The count is the whole shared database's: other tests store page-name states too.
+        Assert.Matches("^0006 down refused: [1-9][0-9]* reading_state row", error.MessageText);
+        await tx.RollbackAsync(Ct);
+        Assert.True(await db.ScalarAsync<bool>("SELECT public.is_locator(CAST(@locator AS jsonb))", new { locator = PageName }));
+    }
+
+    [Fact]
+    public async Task Migration0006_DownThenUp_NarrowsThenWidensIsLocator()
+    {
+        var name = "scratch_0006_" + Guid.NewGuid().ToString("N")[..8];
+        await db.Databases.NewV2Async(name);
+        try
+        {
+            async Task<bool> Accepts()
+            {
+                await using var conn = new NpgsqlConnection(db.Databases.ConnectionString(name));
+                return await conn.ExecuteScalarAsync<bool>(new CommandDefinition("SELECT public.is_locator(CAST(@locator AS jsonb))", new { locator = PageName }, cancellationToken: Ct));
+            }
+
+            Assert.True(await Accepts());
+            await db.Databases.ShellAsync($"PGUSER=postgres PGDATABASE={name} sh /database/v2/run.sh down 5");
+            Assert.False(await Accepts());
+            await db.Databases.ShellAsync($"PGUSER=postgres PGDATABASE={name} sh /database/v2/run.sh up");
+            Assert.True(await Accepts());
+        }
+        finally
+        {
+            await db.Databases.DropAsync(name);
+        }
+    }
 }

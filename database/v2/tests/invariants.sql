@@ -103,7 +103,7 @@ BEGIN
     IF bad IS NOT NULL THEN RAISE EXCEPTION 'site_id or timestamp without time zone: %', bad; END IF;
 END $$;
 
--- Rule 6: is_locator() accepts the four schemes and rejects everything else listed.
+-- Rule 6: is_locator() accepts the five schemes (page-name since 0006) and rejects everything else listed.
 DO $$
 DECLARE bad text;
 BEGIN
@@ -111,6 +111,10 @@ BEGIN
         ('{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4)","quote":"abc"}', true),
         ('{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4)"}', true),
         ('{"version":1,"scheme":"pdf-page","value":{"page":3}}', true),
+        ('{"version":1,"scheme":"page-name","value":{"page":"p01.png","index":0}}', true),
+        ('{"version":1,"scheme":"page-name","value":{"page":"p01.png","index":0},"quote":"q"}', false),
+        ('{"version":1,"scheme":"page-name","value":null}', false),
+        ('{"version":1,"scheme":"Page-Name","value":{"page":"p01.png","index":0}}', false),
         ('{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"a"}}', true),
         ('{"version":1,"scheme":"textstack-anchor-v1","value":{"chapterKey":"a"}}', true),
         ('{"version":1,"scheme":"epub-cfi","value":"x","quote":"' || repeat('a', 64) || '"}', true),

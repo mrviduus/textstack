@@ -501,15 +501,44 @@ describe('V2 local library sync (R6)', () => {
       })
     })
 
-    it('cbzPosition_NoQuote_NeverSent', async () => {
-      const lib = createLocalLibrary(memoryDb())
-      const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'C', author: '', originalName: 'c.cbz', format: 'cbz' }, newId)
-      const fileId = (await lib.book(bookId))!.file_id!
-      await lib.writeEntry(SHA, entry({ cfi: 'epubcfi(/6/2!/4)', page: 'p1.jpg', index: 0, fraction: 0, at: NOW }, []), newId)
-      const calls = fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId, {}, { format: 'cbz' }), 201)] })
-      await syncV2Library(lib, host())
-      expect(writes(calls)).toEqual([`PUT /books/${bookId}`])
-      expect(await lib.outbox()).toEqual([])
+    describe('a CBZ page (page-name, #1188)', () => {
+      const cbzPage = { cfi: 'epubcfi(/6/4)', page: 'Vol 1/p02.jpg', index: 1, fraction: 0.5, at: NOW - 1000 }
+      const pageName = { version: 1, scheme: 'page-name', value: { page: 'Vol 1/p02.jpg', index: 1 } }
+      async function cbzBook() {
+        const lib = createLocalLibrary(memoryDb())
+        const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'C', author: '', originalName: 'c.cbz', format: 'cbz' }, newId)
+        return { lib, bookId, fileId: (await lib.book(bookId))!.file_id! }
+      }
+
+      it('cbzPosition_Sent_AsPageNameWithEntryNameAndIndex', async () => {
+        const { lib, bookId, fileId } = await cbzBook()
+        await lib.writeEntry(SHA, entry(cbzPage, []), newId)
+        const calls = fakeApi({
+          [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId, {}, { format: 'cbz' }), 201)],
+          [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 1, { currentLocator: pageName, bookFraction: 0.5 }))],
+        })
+        await syncV2Library(lib, host())
+        expect(writes(calls)).toEqual([`PUT /books/${bookId}`, `PUT /books/${bookId}/reading-state`])
+        expect(calls.find((c) => c.path.endsWith('/reading-state'))!.body).toMatchObject({ expectedRevision: null, fileId, currentLocator: pageName, bookFraction: 0.5 })
+        expect(await lib.outbox()).toEqual([])
+        expect(await lib.state(bookId)).toMatchObject({ revision: 1 })
+      })
+
+      it('pull_PageNameNewerBookNotOpen_ImagePositionRestoredNoWriteBack', async () => {
+        const { lib, bookId, fileId } = await cbzBook()
+        fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId, {}, { format: 'cbz' }), 201)] })
+        await syncV2Library(lib, host())
+        const at = NOW - 1000
+        fakeApi({ 'GET /reading/changes': feed(serverState(bookId, fileId, 3, { currentLocator: pageName, bookFraction: 0.5, clientRecordedAt: new Date(at).toISOString() })) })
+        const h = host()
+        await syncV2Library(lib, h)
+        const restored = (await restoredEntry(lib)).position
+        expect(restored).toEqual({ cfi: 'epubcfi(/6/4)', page: 'Vol 1/p02.jpg', index: 1, fraction: 0.5, at })
+        expect(h.owed).toEqual([expect.objectContaining({ action: 'adopt' })])
+        // The page restores it and sends back what it was given: nothing queued.
+        await lib.writeEntry(SHA, entry(restored, []), newId)
+        expect(await lib.outbox()).toEqual([])
+      })
     })
   })
 

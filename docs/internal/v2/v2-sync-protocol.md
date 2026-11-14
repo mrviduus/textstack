@@ -108,7 +108,7 @@ One per book (`reading_state`, PK `(user_id, book_id)`), always on one file vers
 |---|---|---|---|
 | `expectedRevision` | int64 \| null | yes (may be null) | null = first write; else the revision last read |
 | `fileId` | uuid | yes | first write: the book's **current** file; later: the stored `fileId` |
-| `currentLocator` | locator | yes | `epub-cfi` **must** carry `quote` (1–64 code points); `pdf-page` `{"page":N}` |
+| `currentLocator` | locator | yes | `epub-cfi` **must** carry `quote` (1–64 code points); `pdf-page` `{"page":N}`; `page-name` `{"page":"<key>","index":N}` |
 | `bookFraction` | number | yes | 0..1 |
 | `frontierLocator` | locator | no | sent with `frontierFraction` or not at all |
 | `frontierFraction` | number | no | ≥ `bookFraction`; otherwise the server uses the position as the offered frontier |
@@ -116,7 +116,7 @@ One per book (`reading_state`, PK `(user_id, book_id)`), always on one file vers
 | `clientRecordedAt` | time | yes | the client's clock, already clamped by the client to its now + 5 min (ADR-019 `MAX_CLIENT_SKEW_MS`); the server stores it as sent |
 | `revision`, `updatedAt`, `resetRevision` | | server | see [The revision rule](#the-revision-rule) |
 
-**Locator schemes on V2 writes:** `epub-cfi` and `pdf-page` from the V2 reader; the legacy
+**Locator schemes on V2 writes:** `epub-cfi`, `pdf-page` and `page-name` (positions only) from the V2 reader; the legacy
 reader's `textstack-position-v1` and `textstack-anchor-v1` from the transitional server-chapter
 reader (M2.7a, owner decision 2026-11-02, #1112). Only `epub-cfi` carries `quote`.
 `pdf-page` values: a position is `{"page":N}` (1-based int); an annotation is the legacy `PdfAnchor`
@@ -124,12 +124,35 @@ reader (M2.7a, owner decision 2026-11-02, #1112). Only `epub-cfi` carries `quote
 
 **Scheme fits the file** (#1122, #1128; `SyncValidation.FitsFile`, and `ReadingStateRepository`'s
 write SQL): `pdf-page` only on a `pdf`; `epub-cfi` on every other format (`epub`, `html`, `mobi`,
-`azw3`, `fb2`, `cbz`), never on a `pdf`; `textstack-*` on any (its guard is the chapter check).
+`azw3`, `fb2`, `cbz`), never on a `pdf`; `page-name` only on a `cbz`; `textstack-*` on any (its guard
+is the chapter check).
 
-**CBZ positions: open question (#1128).** `epub-cfi` fits a `cbz`, but an `epub-cfi` reading
-position **must** carry a 1–64 code-point `quote`, and an image-only CBZ has no text at any CFI. So
-no CBZ reading position validates today. The server rule is deliberately unchanged until the
-client slice decides what a CBZ position carries (a quote-less CFI, a page scheme, or other).
+**Page positions: `page-name` (#1188, owner decision 2026-11-13; ADR-031 "Amended 2026-11-13").** An
+image-only CBZ has no text at any CFI, so no `epub-cfi` position of it can carry the required `quote`.
+A page-based position is its own scheme instead, never a quote-less `epub-cfi`:
+
+```json
+{"version":1,"scheme":"page-name","value":{"page":"Vol 1/p02.jpg","index":1}}
+```
+
+| Member | Rule |
+|---|---|
+| `page` | the page's stable key: a CBZ image's entry name in the archive (as the page reads it: its extension lower-cased, `comicName`). 1–512 UTF-16 units, not blank, no control character (Unicode Cc), no NUL or lone surrogate |
+| `index` | its 0-based section, an Int32 ≥ 0: a hint (ADR-019's same-page test, the CFI the page keeps beside it). Restore goes by `page` only |
+
+No other member and no `quote` (400). The fraction is the state's `bookFraction`. Reading-state
+`currentLocator` / `frontierLocator` only: an annotation with it is 400 (a CBZ has no text to
+highlight). It fits only a `cbz` file (400 `invalid_payload` on any other, the first write's and a
+lost write's alike). A pre-paginated EPUB page ([#1196](https://github.com/mrviduus/textstack/issues/1196))
+will use the same scheme with the spine item's href as `page`; until #1196 lands, `page-name` on an
+`epub` is refused.
+
+Clients (`packages/shared` `positionWrite` / `statePosition`): the page saves a CBZ position as
+`{cfi, page, index, fraction, at}`; it is written as `page-name` `{page, index}` (the CFI is not sent)
+only when the file is a `cbz` and the key passes the rules above (else nothing is written, as for any
+position the server would refuse), and read back as `{cfi: epubcfi(/6/2·(index+1)), page, index,
+fraction}`, which the page restores by `page`. Both hosts sync it like any other position: no CBZ
+exception is left on Android or the web.
 
 **Transitional locators (until R8).** The two `textstack-*` schemes, as `textPosition.ts` and
 `textAnchor.ts` serialize them; members a value does not name pass, as on `epub-cfi` (the serialized

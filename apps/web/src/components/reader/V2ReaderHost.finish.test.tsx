@@ -115,10 +115,10 @@ describe('V2ReaderHost finish book (#1266)', () => {
     expect(put).not.toHaveBeenCalled()
   })
 
-  it('cbz_AtEnd_NoBlock', async () => {
+  it('cbz_AtEnd_BlockShown', async () => {
     const { relocate } = await reader({ target: { ...T, format: 'cbz' }, server: null })
     await relocate({ atEnd: true })
-    expect(block()).toBeNull()
+    expect(block()).not.toBeNull()
   })
 
   it('devRoute_NoServerBook_NoBlock', async () => {

@@ -5,7 +5,7 @@ import { createV2ReaderSync, KEEPALIVE_BUDGET, v2ReaderSyncApi, type V2ReaderSyn
 
 // #1226: the web V2 host's sync decisions against a fake server — restore (no read, no session), highlights after
 // their pull (none written before it), diff, the 409 paths, terminal refusals, the stale-open and account guards,
-// retry on the next store / flush, close's last pass, the keepalive writes, the CBZ local exception.
+// retry on the next store / flush, close's last pass, the keepalive writes, a CBZ page as `page-name` (#1188).
 
 const T: V2SyncTarget = { bookId: 'b1', fileId: 'f1', format: 'epub', sha256: 'ab'.repeat(32), size: 100, name: 'a.epub' }
 const H1 = '11111111-1111-4111-8111-111111111111'
@@ -423,26 +423,43 @@ describe('createV2ReaderSync', () => {
     })
   })
 
-  describe('cbz (#1188: local only)', () => {
+  describe('cbz (#1188: page-name)', () => {
     const CBZ: V2SyncTarget = { ...T, format: 'cbz' }
-    const page = (name: string) => ({ cfi: cfi(1), page: name, index: 1, fraction: 0.1, at: 1 })
+    const page = (name: string, index = 1) => ({ cfi: cfi(index).replace(/!.*/, ')'), page: name, index, fraction: 0.1, at: 1 })
+    const pageName = (name: string, index = 1) => ({ version: 1, scheme: 'page-name', value: { page: name, index } })
 
-    it('imagePage_KeptInThisBrowser_NeverPut_Saved_RestoredOnTheNextOpen', async () => {
+    it('imagePage_PutAsPageName_Saved_RestoredFromTheServerOnTheNextOpen', async () => {
       const s = await opened(CBZ)
       await stored(s, entry(page('p3.jpg'), [], CBZ))
-      expect(api.putReadingState).not.toHaveBeenCalled()
+      expect(api.putReadingState.mock.calls.map((c) => [expectedOf(c), (c[1] as V2ReadingStateWrite).currentLocator])).toEqual([[null, pageName('p3.jpg')]])
       expect(statuses).toEqual(['saved'])
-      const again = open(CBZ)
-      expect(JSON.parse((await again.restore())!).position).toEqual(page('p3.jpg'))
-      expect(JSON.parse((await open().restore())!).position).toBeNull()
+      expect(localStorage.length).toBe(0)
+      api.getReadingState.mockResolvedValue({ ...state(1), currentLocator: pageName('p3.jpg'), bookFraction: 0.1 })
+      expect(JSON.parse((await open(CBZ).restore())!).position).toMatchObject({ cfi: 'epubcfi(/6/4)', page: 'p3.jpg', index: 1, fraction: 0.1 })
     })
 
-    it('tabGoingAway_APassStillRunning_TheLatestImagePageIsKept', async () => {
+    it('restoredImagePage_NotWrittenBack_UntilTheReaderMoves', async () => {
+      api.getReadingState.mockResolvedValue({ ...state(2), currentLocator: pageName('p3.jpg'), bookFraction: 0.1 })
+      const s = open(CBZ)
+      const restored = JSON.parse((await s.restore())!).position
+      await stored(s, entry(restored, [], CBZ))
+      expect(api.putReadingState).not.toHaveBeenCalled()
+      await stored(s, entry(page('p4.jpg', 2), [], CBZ))
+      expect(api.putReadingState.mock.calls.map((c) => [expectedOf(c), (c[1] as V2ReadingStateWrite).currentLocator])).toEqual([[2, pageName('p4.jpg', 2)]])
+    })
+
+    it('tabGoingAway_TheLatestImagePageGoesByKeepalive', async () => {
       const s = await opened(CBZ)
       s.store(entry(page('p3.jpg'), [], CBZ))
-      s.store(entry(page('p4.jpg'), [], CBZ))
+      s.store(entry(page('p4.jpg', 2), [], CBZ))
       s.flushKeepalive()
-      expect(JSON.parse(localStorage.getItem(`v2reader:cbz-position:${CBZ.bookId}`)!)).toEqual(page('p4.jpg'))
+      expect(api.keepalivePutState.mock.calls.map((c) => JSON.parse(c[1] as string).currentLocator)).toEqual([pageName('p4.jpg', 2)])
+    })
+
+    it('imagePageOnABookThatIsNotACbz_NeverPut', async () => {
+      const s = await opened()
+      await stored(s, entry(page('p3.jpg'), []))
+      expect(api.putReadingState).not.toHaveBeenCalled()
     })
   })
 

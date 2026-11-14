@@ -194,8 +194,8 @@ public static class SyncValidation
     public enum LocatorUse { Position, Annotation }
 
     /// <summary>
-    /// The ADR-031 envelope. <c>epub-cfi</c> (the CFI is opaque, never parsed) and <c>pdf-page</c> are
-    /// what a V2 reader writes; <c>textstack-position-v1</c> (a position only) and <c>textstack-anchor-v1</c>
+    /// The ADR-031 envelope. <c>epub-cfi</c> (the CFI is opaque, never parsed), <c>pdf-page</c> and <c>page-name</c>
+    /// (a page by its stable key, a position only; ADR-031 "Amended 2026-11-13") are what a V2 reader writes; <c>textstack-position-v1</c> (a position only) and <c>textstack-anchor-v1</c>
     /// (an annotation only) are the transitional reader's until R8, checked as <c>textPosition.ts</c> and
     /// <c>textAnchor.ts</c> serialize them, and accepted only on a chapter of the file (<see cref="Transitional.TransitionalLocators"/>).
     /// Members a value does not name pass, as on <c>epub-cfi</c>: a serialized <c>TextPosition</c> carries its own <c>v</c>.
@@ -209,7 +209,7 @@ public static class SyncValidation
             return SyncResult.Invalid(field, "A locator is {\"version\":1,\"scheme\":…,\"value\":…}.");
         var scheme = locator.TryGetProperty("scheme", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
         // An unknown scheme is refused for its scheme below, not for a quote.
-        if (scheme is "pdf-page" or "textstack-position-v1" or "textstack-anchor-v1" && locator.TryGetProperty("quote", out _)) return SyncResult.Invalid(field, "Only epub-cfi carries a quote.");
+        if (scheme is "pdf-page" or "page-name" or "textstack-position-v1" or "textstack-anchor-v1" && locator.TryGetProperty("quote", out _)) return SyncResult.Invalid(field, "Only epub-cfi carries a quote.");
         return (scheme, use) switch
         {
             ("epub-cfi", _) => EpubCfi(locator, value, field, use),
@@ -217,13 +217,16 @@ public static class SyncValidation
                 : SyncResult.Invalid(field, "A pdf-page position is {\"page\":N}."),
             ("pdf-page", _) => IsPdfAnchor(value) ? null
                 : SyncResult.Invalid(field, "A pdf-page annotation is {\"page\":N,\"rects\":[{x,y,w,h}],\"exact\":…}."),
+            ("page-name", LocatorUse.Position) => IsPageName(value) ? null
+                : SyncResult.Invalid(field, $"A page-name value is {{\"page\":\"<1-{MaxPageName} characters, no control characters>\",\"index\":N}}."),
+            ("page-name", _) => SyncResult.Invalid(field, "page-name is a reading position only."),
             ("textstack-position-v1", LocatorUse.Position) => IsTextPosition(value) ? null
                 : SyncResult.Invalid(field, "A textstack-position-v1 value is {chapterSlug, chapterFraction 0..1, anchor?, charOffset?}."),
             ("textstack-anchor-v1", LocatorUse.Annotation) => IsChapterKey(value, "chapterKey") && IsTextAnchor(value, MaxSelectedText) ? null
                 : SyncResult.Invalid(field, "A textstack-anchor-v1 value is {chapterKey, prefix, exact, suffix, startOffset, endOffset}."),
             ("textstack-position-v1", _) => SyncResult.Invalid(field, "textstack-position-v1 is a reading position only."),
             ("textstack-anchor-v1", _) => SyncResult.Invalid(field, "textstack-anchor-v1 is an annotation locator only."),
-            _ => SyncResult.Invalid(field, "V2 writes take the epub-cfi, pdf-page and textstack-* schemes only."),
+            _ => SyncResult.Invalid(field, "V2 writes take the epub-cfi, pdf-page, page-name and textstack-* schemes only."),
         };
     }
 
@@ -239,13 +242,15 @@ public static class SyncValidation
 
     /// <summary>
     /// A locator's scheme fits the file it is written in (#1122): <c>pdf-page</c> only on a <c>pdf</c>, <c>epub-cfi</c>
-    /// on any other format (foliate's CFI addresses epub, html, mobi, azw3, fb2 and cbz alike, ADR-032). <c>textstack-*</c> fits any: the transitional reader writes it on PDFs
+    /// on any other format (foliate's CFI addresses epub, html, mobi, azw3, fb2 and cbz alike, ADR-032), <c>page-name</c> only on a
+    /// <c>cbz</c> (#1188; a fixed-layout <c>epub</c> joins with #1196). <c>textstack-*</c> fits any: the transitional reader writes it on PDFs
     /// too (reflow), and its real guard is the chapter check. <c>ReadingStateRepository</c>'s write asks the same in SQL.
     /// </summary>
     public static SyncResult? FitsFile(string? scheme, string format, string field) => scheme switch
     {
         "pdf-page" when format != "pdf" => Misfit(scheme, format, field),
         "epub-cfi" when format == "pdf" => Misfit(scheme, format, field),
+        "page-name" when format != "cbz" => Misfit(scheme, format, field),
         _ => null,
     };
 
@@ -299,6 +304,16 @@ public static class SyncValidation
     private static bool IsPage(JsonElement value) =>
         value.ValueKind == JsonValueKind.Object && value.TryGetProperty("page", out var page)
         && page.ValueKind == JsonValueKind.Number && page.TryGetInt32(out var n) && n >= 1;
+
+    /// <summary>
+    /// <c>{"page":"…","index":N}</c> and nothing else: <c>page</c> the page's stable key (non-blank, at most
+    /// <see cref="MaxPageName"/> UTF-16 units, no control character: Unicode Cc), <c>index</c> its 0-based section, a hint.
+    /// </summary>
+    private static bool IsPageName(JsonElement value) =>
+        value.ValueKind == JsonValueKind.Object && value.EnumerateObject().Count() == 2
+        && value.TryGetProperty("page", out var page) && page.ValueKind == JsonValueKind.String
+        && page.GetString() is { } key && RequiredText(key, "page", MaxPageName) is null && !key.Any(char.IsControl)
+        && IsOffset(value, "index", out _);
 
     private static bool IsPdfAnchor(JsonElement value) =>
         IsPage(value)

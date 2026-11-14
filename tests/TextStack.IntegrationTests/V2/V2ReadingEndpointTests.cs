@@ -44,6 +44,36 @@ public class V2ReadingEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
     }
 
     [Fact]
+    public async Task PutState_PageNameOnACbzRoundTrips_PageNameOnAnEpubOrAnAnnotationIsInvalidPayload()
+    {
+        // #1188: a CBZ page by its entry name, as both hosts send the V2 page's image position.
+        v2.Require();
+        var (cbzBook, cbzFile) = await v2.ImportBytesAsync(v2.Alice, Encoding.ASCII.GetBytes($"PK cbz {Guid.NewGuid()}"), "cbz");
+        var (epubBook, epubFile, _) = await v2.ImportAsync(v2.Alice);
+        var page = (string name, int index) => new { version = 1, scheme = "page-name", value = new { page = name, index } };
+
+        var first = await v2.WriteStateAsync(v2.Alice, cbzBook, State(cbzFile, null, locator: page("p01.png", 0), bookFraction: 0.1m));
+        var next = await v2.WriteStateAsync(v2.Alice, cbzBook, State(cbzFile, 1, locator: page("Vol 1/p07.png", 6), bookFraction: 0.7m));
+        var read = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"/me/v2/books/{cbzBook}/reading-state");
+        var misfit = await v2.WriteStateAsync(v2.Alice, epubBook, State(epubFile, null, locator: page("p01.png", 0), bookFraction: 0.1m));
+        var annotation = await v2.PutAnnotationAsync(v2.Alice, Guid.NewGuid(), new
+        {
+            expectedRevision = (long?)null,
+            bookId = cbzBook,
+            fileId = cbzFile,
+            selectedText = "a page",
+            locator = page("p01.png", 0),
+        });
+
+        Assert.Equal((HttpStatusCode.OK, HttpStatusCode.OK, 2L), (first.Status, next.Status, next.Body.GetProperty("revision").GetInt64()));
+        var locator = read.Body.GetProperty("currentLocator");
+        Assert.Equal((HttpStatusCode.OK, cbzFile, "page-name", "Vol 1/p07.png", 6), (read.Status, read.Body.GetProperty("fileId").GetGuid(),
+            locator.GetProperty("scheme").GetString(), locator.GetProperty("value").GetProperty("page").GetString(), locator.GetProperty("value").GetProperty("index").GetInt32()));
+        Assert.Equal((HttpStatusCode.BadRequest, "invalid_payload", "currentLocator"), (misfit.Status, misfit.Code, misfit.Body.GetProperty("field").GetString()));
+        Assert.Equal((HttpStatusCode.BadRequest, "invalid_payload", "locator"), (annotation.Status, annotation.Code, annotation.Body.GetProperty("field").GetString()));
+    }
+
+    [Fact]
     public async Task PutState_AfterAResetElsewhere_IsReset()
     {
         v2.Require();

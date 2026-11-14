@@ -195,7 +195,7 @@ export interface V2FileReplacement {
 /** The ADR-031 envelope. Only `epub-cfi` carries `quote` (and, on annotations, `prefix`/`suffix`). */
 export interface V2Locator {
   version: 1
-  scheme: 'epub-cfi' | 'pdf-page' | 'textstack-position-v1' | 'textstack-anchor-v1' | (string & {})
+  scheme: 'epub-cfi' | 'pdf-page' | 'page-name' | 'textstack-position-v1' | 'textstack-anchor-v1' | (string & {})
   value: unknown
   quote?: string
   prefix?: string

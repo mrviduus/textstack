@@ -4,6 +4,7 @@ import {
   annotationHighlight, codePoints, decideServerState, highlightWrite, isUuid, ownAnnotationWrite, ownStateWrite,
   positionWrite, sameJson, spineIndexOf, statePosition, syncableText, type PageHighlight,
 } from './v2LocalSync'
+import { isPosition } from './v2PageStore'
 
 const CFI = 'epubcfi(/6/14!/4/2/1:0)'
 const pos = { cfi: CFI, quote: 'It was a bright cold day', index: 6, fraction: 0.41, at: Date.parse('2026-11-10T10:00:00Z') }
@@ -43,8 +44,63 @@ describe('v2LocalSync', () => {
     })
   })
 
-  it('positionWrite_CbzPageWithoutQuote_Null', () => {
-    expect(positionWrite({ cfi: CFI, page: 'p1.jpg', index: 0, fraction: 0, at: 1 }, 'f', null)).toBeNull()
+  // #1188: a CBZ page is `page-name`, its entry name and section; never on another format, never by its CFI.
+  const cbzPos = { cfi: 'epubcfi(/6/4)', page: 'Vol 1/p02.png', index: 1, fraction: 0.5, at: Date.parse('2026-11-10T10:00:00Z') }
+  const pageState = (value: unknown, bookFraction = 0.5) =>
+    state({ currentLocator: { version: 1, scheme: 'page-name', value } as V2ReadingState['currentLocator'], bookFraction })
+
+  it('positionWrite_CbzPageOnACbz_PageNameWithEntryNameAndIndex', () => {
+    expect(positionWrite(cbzPos, 'f', 3, Date.parse('2026-11-10T12:00:00Z'), 'cbz')).toEqual({
+      expectedRevision: 3, fileId: 'f', bookFraction: 0.5, clientRecordedAt: '2026-11-10T10:00:00.000Z',
+      currentLocator: { version: 1, scheme: 'page-name', value: { page: 'Vol 1/p02.png', index: 1 } },
+    })
+  })
+
+  it('positionWrite_CbzPageOffACbz_Null', () => {
+    // A fixed-layout EPUB's page (#1196) is not enabled: the server refuses page-name there.
+    for (const format of ['epub', 'mobi', 'fb2', 'pdf', null]) expect(positionWrite(cbzPos, 'f', null, Date.now(), format), String(format)).toBeNull()
+  })
+
+  it('positionWrite_CbzPageTheServerWouldRefuse_Null', () => {
+    for (const p of [
+      { ...cbzPos, page: '' }, { ...cbzPos, page: '   ' }, { ...cbzPos, page: 'a'.repeat(513) }, { ...cbzPos, page: 'a\nb.png' },
+      { ...cbzPos, page: 'a\u0085.png' }, { ...cbzPos, page: 'a\u007f.png' }, { ...cbzPos, page: 'a\ud800.png' }, { ...cbzPos, page: 'a\udc00.png' },
+      { ...cbzPos, index: undefined }, { ...cbzPos, index: -1 }, { ...cbzPos, index: 1.5 }, { ...cbzPos, index: 2 ** 31 },
+      { fraction: 0.5, at: 1 },
+    ]) expect(positionWrite(p, 'f', null, Date.now(), 'cbz'), JSON.stringify(p)).toBeNull()
+    // The edges that pass: 512 units, an astral character (a whole pair), the largest Int32 index.
+    for (const p of [{ ...cbzPos, page: 'a'.repeat(512) }, { ...cbzPos, page: '😀.png' }, { ...cbzPos, index: 2 ** 31 - 1 }])
+      expect(positionWrite(p, 'f', null, Date.now(), 'cbz')?.currentLocator.scheme, JSON.stringify(p)).toBe('page-name')
+  })
+
+  it('statePosition_PageName_RoundTripsAWriteAsThePagesImagePosition', () => {
+    const w = positionWrite(cbzPos, 'f', null, Date.now(), 'cbz')!
+    const back = statePosition(state({ currentLocator: w.currentLocator, bookFraction: w.bookFraction }), 'cbz')
+    expect(back).toEqual({ cfi: 'epubcfi(/6/4)', page: 'Vol 1/p02.png', index: 1, fraction: 0.5, at: Date.parse('2026-11-10T11:00:00.000Z') })
+    // The page store takes it (an image position: a CFI, the entry name, no quote), and its section is the CFI's.
+    expect(isPosition(back)).toBe(true)
+    expect(spineIndexOf(back!.cfi!)).toBe(1)
+    expect(statePosition(pageState({ page: 'p01.png', index: 0 }), null)).toMatchObject({ cfi: 'epubcfi(/6/2)', page: 'p01.png', index: 0 })
+  })
+
+  it('statePosition_PageNameOffACbzOrMalformed_Null', () => {
+    for (const format of ['epub', 'pdf', 'mobi']) expect(statePosition(pageState({ page: 'p01.png', index: 0 }), format), format).toBeNull()
+    for (const value of [null, 'p01.png', {}, { page: 'p01.png' }, { index: 0 }, { page: '', index: 0 }, { page: 7, index: 0 }, { page: 'p', index: -1 }, { page: 'p', index: '0' }])
+      expect(statePosition(pageState(value), 'cbz'), JSON.stringify(value)).toBeNull()
+  })
+
+  it('decideServerState_PageName_BySectionIndex', () => {
+    const now = Date.parse('2026-11-10T12:00:00Z')
+    const local = { ...cbzPos, at: Date.parse('2026-11-10T09:00:00Z') }
+    const reader = { restoreApplied: true, moved: false, index: 1 }
+    expect(decideServerState({ local, localFileId: 'f', server: pageState({ page: 'Vol 1/p02.png', index: 1 }), reader, format: 'cbz', now })).toBe('move')
+    expect(decideServerState({ local, localFileId: 'f', server: pageState({ page: 'Vol 1/p09.png', index: 8 }), reader, format: 'cbz', now })).toBe('prompt')
+    expect(decideServerState({ local, localFileId: 'f', server: pageState({ page: 'p', index: 8 }), reader, format: 'epub', now })).toBe('keep')
+  })
+
+  it('ownStateWrite_PageNameEchoedBack_IsOurs', () => {
+    const w = positionWrite(cbzPos, 'f', null, Date.now(), 'cbz')!
+    expect(ownStateWrite(state({ currentLocator: { ...w.currentLocator }, clientRecordedAt: w.clientRecordedAt }), w)).toBe(true)
   })
 
   it('statePosition_RoundTripsAPositionWrite_MalformedPdfPageNull', () => {

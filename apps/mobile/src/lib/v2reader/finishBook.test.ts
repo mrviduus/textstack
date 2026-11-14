@@ -11,8 +11,8 @@ describe('showsFinishBook (#1266)', () => {
     expect(showsFinishBook({ atEnd: false, format: 'epub' })).toBe(false)
   })
 
-  it('showsFinishBook_Cbz_HiddenUntilItsStateCanBeWritten', () => {
-    expect(showsFinishBook({ atEnd: true, format: 'cbz' })).toBe(false)
+  it('showsFinishBook_Cbz_Shown_ItsStateIsAPageNamePosition', () => {
+    expect(showsFinishBook({ atEnd: true, format: 'cbz' })).toBe(true)
   })
 
   it('showsFinishBook_FormatNotKnown_Hidden', () => {

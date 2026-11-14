@@ -36,11 +36,10 @@ type Loose = { cfi?: unknown; quote?: unknown; page?: unknown; selectedText?: un
 const isQuoted = (x: Loose) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && typeof x.quote === 'string' && x.quote.length > 0
 /**
  * An image-only book's position (CBZ, #1128): there is no text at any CFI, so no quote. `page` is the
- * image's entry name in the archive, checked on restore instead; `cfi` is foliate's section CFI.
+ * image's entry name in the archive, checked on restore instead; `cfi` is foliate's section CFI. Synced as a
+ * `page-name` locator (#1188, `positionWrite` / `statePosition`).
  */
 const isPaged = (x: Loose) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && x.quote === undefined && typeof x.page === 'string' && x.page.length > 0
-/** A CBZ page position: kept by the host only, the server has no form for it yet (#1188). */
-export const isImagePage = (x: unknown): boolean => isPaged(x as Loose)
 /** A transitional server position by book fraction alone (#1187), a PDF page (#1128 S5), a CBZ page, or CFI + quote. */
 export const isPosition = (x: unknown): x is PagePosition => isQuoted(x as Loose) || isPaged(x as Loose) || isPdfPage(x) || isFractionOnly(x)
 /** A highlight's `selectedText` is optional (older entries), but when present it is what restore compares. */
