@@ -72,13 +72,16 @@ export function createLightbox(doc, post, behind = () => null) {
   let lastTap = null
 
   /**
-   * The box and the image as laid out at scale 1. Before the image has decoded it has no layout size yet: its natural
+   * The box and the image as laid out at scale 1 (box px: `clientWidth` is whole px, the dialog is the viewport, which is
+   * too). Before the image has decoded it has no layout size yet: its natural
    * size fitted into the box as its CSS fits it (`max-width/max-height: 100%`, never upscaled), so the first gesture
    * already keeps its focus and its pan.
    */
   const size = () => {
     const [w, h] = [box.clientWidth, box.clientHeight]
-    if (img.offsetWidth && img.offsetHeight) return { w, h, iw: img.offsetWidth, ih: img.offsetHeight }
+    // Its box on screen over the scale: fractional (offsetWidth rounds to whole px, and the clamp would miss the edge).
+    const r = img.getBoundingClientRect()
+    if (r.width && r.height) return { w, h, iw: r.width / t.s, ih: r.height / t.s }
     const k = img.naturalWidth && img.naturalHeight ? Math.min(1, w / img.naturalWidth, h / img.naturalHeight) : 0
     return { w, h, iw: img.naturalWidth * k, ih: img.naturalHeight * k }
   }

@@ -402,8 +402,8 @@ try {
     /** The box of the first element matching `sel` in `fr`, in page px. */
     const boxOf = async (fr, sel) => inPage(fr, await fr.evaluate((s) => document.querySelector(s).getBoundingClientRect().toJSON(), sel))
     /** A point of `b` in the middle zone (the hosts' tap zones: the outer 25 % of each side turns), or null. */
-    const middleOf = (b) => {
-      const x = Math.min(b.x + b.w - 8, Math.max(b.x + b.w / 2, W * 0.25 + 20), W * 0.75 - 20)
+    const middleOf = (b, w = W) => {
+      const x = Math.min(b.x + b.w - 8, Math.max(b.x + b.w / 2, w * 0.25 + 20), w * 0.75 - 20)
       return x > b.x && x < b.x + b.w ? { x, y: b.y + b.h / 2 } : null
     }
     const lb = (from) => messages.slice(from).filter((x) => x.type === 'lightbox')
@@ -413,17 +413,77 @@ try {
       return d && {
         label: d.getAttribute('aria-label'), src: i.src, transform: i.style.transform, focused: document.activeElement === d,
         onButton: document.activeElement === d.querySelector('button'), inert: document.querySelector('foliate-view')?.inert,
-        box: { w: d.clientWidth, h: d.clientHeight, iw: i.offsetWidth, ih: i.offsetHeight },
       }
     })
     const scaleOf = (d) => Number(/scale\(([\d.]+)\)/.exec(d?.transform ?? '')?.[1])
-    const panOf = (d) => (/translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(d?.transform ?? '') ?? []).slice(1).map(Number)
     const tapOpen = async (p, what) => {
       const from = messages.length
       await page.mouse.click(p.x, p.y)
       const o = await waitFor(from, (x) => x.type === 'lightbox', `the lightbox to open (${what})`).catch(() => null)
       await settled()
       return { o, from }
+    }
+    /** The dialog's box and its image's box on screen (transform included), and the scale. */
+    const geo = () => page.evaluate(() => {
+      const d = document.querySelector('[role="dialog"]')
+      const i = d?.querySelector('img')
+      return d && { box: d.getBoundingClientRect().toJSON(), img: i.getBoundingClientRect().toJSON(), s: Number(/scale\(([\d.]+)\)/.exec(i.style.transform)?.[1]) }
+    })
+    const near = (a, b) => Math.abs(a - b) <= 1
+    const show = (g) => `img ${['left', 'top', 'right', 'bottom'].map((k) => g?.img[k].toFixed(1)).join(',')} in ${g?.box.width}×${g?.box.height}, ×${g?.s}`
+    /** The image point under (x, y) in `g0` is under it in `g1` too. */
+    const keepsPoint = (g0, g1, x, y) => {
+      const [u, v] = [(x - g0.img.left) / g0.img.width, (y - g0.img.top) / g0.img.height]
+      return near(g1.img.left + u * g1.img.width, x) && near(g1.img.top + v * g1.img.height, y)
+    }
+    const centred = (g, ax) => (ax === 'x' ? near(g.img.left + g.img.width / 2, g.box.left + g.box.width / 2) : near(g.img.top + g.img.height / 2, g.box.top + g.box.height / 2))
+    const drag = async (x0, y0, x1, y1) => {
+      await page.mouse.move(x0, y0)
+      await page.mouse.down()
+      await page.mouse.move(x1, y1, { steps: 5 })
+      await page.mouse.up()
+    }
+    /**
+     * Zoom and pan with the lightbox open, asserted on the live geometry (never a number of this layout): the point under
+     * the wheel or a double click stays under it, a drag moves the image by as much, a long drag stops where the image's
+     * edge meets the screen's, and a side the image does not fill stays centred.
+     */
+    async function zoomRows(at) {
+      const { width: vw, height: vh } = page.viewportSize()
+      const [cx, cy] = [vw / 2, vh / 2]
+      const fit = await geo()
+      check(fit?.s === 1 && centred(fit, 'x') && centred(fit, 'y'), `${at}: opened fitted and centred (${show(fit)})`)
+      await page.mouse.move(cx + 40, cy + 20)
+      await page.mouse.wheel(0, -300)
+      await page.waitForTimeout(100)
+      const wheeled = await geo()
+      check(wheeled?.s > 1.5 && keepsPoint(fit, wheeled, cx + 40, cy + 20), `${at}: the wheel zooms in about the pointer (${show(wheeled)})`)
+      await drag(cx, cy, cx + 60, cy + 40)
+      let g = await geo()
+      check(near(g.img.left - wheeled.img.left, 60) && near(g.img.top - wheeled.img.top, 40), `${at}: a drag moves the zoomed image by as much (${show(g)})`)
+      for (let k = 0; k < 6; k++) await drag(cx, cy, cx + vw * 0.35, cy + vh * 0.35)
+      g = await geo()
+      check(near(g.img.left, g.box.left) && near(g.img.top, g.box.top), `${at}: a long drag stops where the image's left and top edges meet the screen's (${show(g)})`)
+      for (let k = 0; k < 6; k++) await drag(cx, cy, cx - vw * 0.35, cy - vh * 0.35)
+      g = await geo()
+      check(near(g.img.right, g.box.right) && near(g.img.bottom, g.box.bottom), `${at}: and back, where its right and bottom edges do (${show(g)})`)
+      await page.mouse.dblclick(cx, cy)
+      g = await geo()
+      check(g.s === 1 && centred(g, 'x') && centred(g, 'y'), `${at}: a double click on a zoomed image fits it again, centred (${show(g)})`)
+      // Zoomed a little: one side may still not fill the screen; that side stays centred under a drag, the other pans to its edge.
+      await page.mouse.move(cx, cy)
+      await page.mouse.wheel(0, -15)
+      await page.waitForTimeout(100)
+      await drag(cx, cy, cx + vw * 0.3, cy + vh * 0.3)
+      g = await geo()
+      const sides = [['x', g.img.width < g.box.width - 1, g.img.left, g.box.left], ['y', g.img.height < g.box.height - 1, g.img.top, g.box.top]]
+      check(sides.some(([, unfilled]) => unfilled) && sides.every(([ax, unfilled, edge, boxEdge]) => (unfilled ? centred(g, ax) : near(edge, boxEdge))),
+        `${at}: a side the image does not fill stays centred, the other pans to its edge (${show(g)})`)
+      await page.mouse.dblclick(cx, cy)
+      const fitted = await geo()
+      await page.mouse.dblclick(cx + 100, cy)
+      g = await geo()
+      check(fitted.s === 1 && g.s === 2.5 && keepsPoint(fitted, g, cx + 100, cy), `${at}: a double click zooms in about the point clicked (${show(g)})`)
     }
     const img = await boxOf(f, 'img')
     const mid = middleOf(img)
@@ -443,30 +503,7 @@ try {
     await page.keyboard.press('ArrowRight')
     await settled()
     check(!messages.slice(from).some((x) => x.type === 'key' || x.type === 'relocate'), 'a key with the lightbox open is not forwarded, nothing turns')
-    // Zoom and pan (the viewport's centre is the box's).
-    const cx = W / 2, cy = 360
-    await page.mouse.move(cx, cy)
-    await page.mouse.wheel(0, -300)
-    await page.waitForTimeout(100)
-    d = await dialog()
-    check(scaleOf(d) > 2.7 && scaleOf(d) < 2.72 && panOf(d).join() === '0,0', `the wheel at the centre zooms in about it (${d?.transform})`)
-    await page.mouse.down()
-    await page.mouse.move(cx + 60, cy + 40, { steps: 5 })
-    await page.mouse.up()
-    d = await dialog()
-    check(panOf(d).join() === '60,40', `a drag pans the zoomed image (${d?.transform})`)
-    await page.mouse.down()
-    await page.mouse.move(cx + 3000, cy + 3000, { steps: 5 })
-    await page.mouse.up()
-    d = await dialog()
-    const [mx, my] = [(scaleOf(d) * d.box.iw - d.box.w) / 2, (scaleOf(d) * d.box.ih - d.box.h) / 2]
-    check(Math.abs(panOf(d)[0] - mx) < 0.5 && Math.abs(panOf(d)[1] - my) < 0.5, `a long drag stops where the image's edge meets the screen's (${d?.transform}, edge at ${mx.toFixed(1)}, ${my.toFixed(1)})`)
-    await page.mouse.dblclick(cx, cy)
-    d = await dialog()
-    check(scaleOf(d) === 1 && panOf(d).join() === '0,0', `a double click on a zoomed image fits it again (${d?.transform})`)
-    await page.mouse.dblclick(cx + 100, cy)
-    d = await dialog()
-    check(scaleOf(d) === 2.5 && panOf(d).join() === '-150,0', `a double click zooms in about the point clicked (${d?.transform})`)
+    await zoomRows(`${W}×720`)
     from = messages.length
     await page.keyboard.press('Escape')
     await settled()
@@ -501,6 +538,15 @@ try {
     check(o?.open === true && d?.label === 'A blue square' && !!d.src?.startsWith('blob:'), `an SVG <image> opens it, labelled by the SVG's title (${d?.label}, ${d?.src?.slice(0, 5)})`)
     await call('window.__fol.closeLightbox()')
     await settled()
+
+    // The same zoom and pan rows at another window size (a portrait one: the image fits by its width there).
+    await page.setViewportSize({ width: 900, height: 800 })
+    await page.waitForTimeout(800)
+    await tapOpen(middleOf(await boxOf(await frameWith('Paragraph 1.'), 'img'), 900), 'img at 900×800')
+    await zoomRows('900×800')
+    await call('window.__fol.closeLightbox()')
+    await page.setViewportSize({ width: W, height: 720 })
+    await page.waitForTimeout(800)
 
     // Focus goes back without moving the place: the section's last image (its last page; scrolled, the end), closed.
     const lastRel = (from) => messages.slice(from).filter((x) => x.type === 'relocate').at(-1)
