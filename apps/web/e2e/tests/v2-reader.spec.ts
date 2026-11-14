@@ -82,6 +82,90 @@ async function collectPageMessages(page: Page) {
   return () => page.evaluate(() => (window as unknown as { __page: PageMessages }).__page)
 }
 
+/** The words of the first paragraph on screen, centred, in page coordinates (the section frames sit in the reader frame). */
+async function firstParagraphWords(page: Page) {
+  for (const f of page.frames().filter((x) => x.url().startsWith('blob:'))) {
+    const list = await f.evaluate((text) => {
+      const p = Array.from(document.querySelectorAll('p')).find((x) => x.textContent?.includes(text))
+      const node = p?.firstChild as Text | undefined
+      if (!node) return null
+      return Array.from(node.data.matchAll(/\p{L}+/gu)).map((m) => {
+        const r = document.createRange()
+        r.setStart(node, m.index!)
+        r.setEnd(node, m.index! + m[0].length)
+        const b = r.getBoundingClientRect()
+        return { word: m[0], x: b.left + b.width / 2, y: b.top + b.height / 2 }
+      })
+    }, FIRST_SECTION_TEXT).catch(() => null)
+    if (!list) continue
+    const box = (await (await f.frameElement()).boundingBox())!
+    return list.map((w) => ({ ...w, x: box.x + w.x, y: box.y + w.y }))
+  }
+  return []
+}
+
+/**
+ * A point in the centre tap zone (30-70 % of the width) of the section on screen with no text within 10 px, between
+ * the shown top bar (56 px) and footer (the bottom 100 px): a tap there is a `tap`, never a word, and reaches the page
+ * whether the bars are shown or not. From the frame's own layout (its text boxes), not a constant.
+ */
+async function blankCentrePoint(page: Page) {
+  const { width, height } = page.viewportSize()!
+  for (const f of page.frames().filter((x) => x.url().startsWith('blob:'))) {
+    const box = await (await f.frameElement()).boundingBox().catch(() => null)
+    if (!box) continue
+    const p = await f.evaluate(({ ox, oy, width, height }) => {
+      const boxes: DOMRect[] = []
+      const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+      while (w.nextNode()) {
+        if (!w.currentNode.textContent?.trim()) continue
+        const r = document.createRange()
+        r.selectNodeContents(w.currentNode)
+        boxes.push(...Array.from(r.getClientRects()))
+      }
+      const near = (x: number, y: number) => boxes.some((b) => x > b.left - 10 && x < b.right + 10 && y > b.top - 10 && y < b.bottom + 10)
+      for (let py = 76; py < height - 100; py += 4) {
+        for (const px of [0.5, 0.45, 0.55, 0.4, 0.6].map((k) => width * k)) {
+          const x = px - ox, y = py - oy
+          if (x >= 0 && y >= 0 && x < innerWidth && y < innerHeight && !near(x, y)) return { x: px, y: py }
+        }
+      }
+      return null
+    }, { ox: box.x, oy: box.y, width, height }).catch(() => null)
+    if (p) return p
+  }
+  throw new Error('no blank point in the centre zone of the section on screen')
+}
+
+/** Selects the first paragraph's characters `from`..`to` in the section on screen. */
+async function selectInFirstParagraph(page: Page, from: number, to: number) {
+  const done = await Promise.all(page.frames().filter((f) => f.url().startsWith('blob:')).map((f) => f.evaluate(([text, a, b]) => {
+    const p = Array.from(document.querySelectorAll('p')).find((x) => x.textContent?.includes(text as string))
+    if (!p?.firstChild) return false
+    const range = document.createRange()
+    range.setStart(p.firstChild, a as number)
+    range.setEnd(p.firstChild, b as number)
+    document.getSelection()!.removeAllRanges()
+    document.getSelection()!.addRange(range)
+    return true
+  }, [FIRST_SECTION_TEXT, from, to]).catch(() => false)))
+  expect(done.some(Boolean), 'the first paragraph to select').toBe(true)
+}
+
+/** A reader whose native language is Ukrainian (confirmed), and the translate service answered by this test. */
+async function withTranslation(context: BrowserContext) {
+  await context.addInitScript(() => {
+    localStorage.setItem('textstack_native_language', 'uk')
+    localStorage.setItem('textstack_native_language_confirmed', '1')
+  })
+  const asked: { text: string; sourceLang: string; targetLang: string; sentence?: string }[] = []
+  await context.route('**/translate', async (route) => {
+    asked.push(route.request().postDataJSON())
+    await route.fulfill({ json: { translatedText: 'MOCK-TRANSLATION', sourceLang: 'en', targetLang: 'uk' } })
+  })
+  return asked
+}
+
 const email = (tag: string) => `e2e-${tag}-${Date.now()}-${test.info().repeatEachIndex}@textstack.app`
 
 test.describe('V2 reader page @v2', () => {
@@ -176,17 +260,19 @@ test.describe('V2 reader page @v2', () => {
     await page.keyboard.press('PageUp')
     await expect(status(page)).toHaveText(first)
 
-    // Taps on the text (a word acts as a tap at its centre until the word popup, #1269): the centre toggles the
-    // bars, an edge turns; focus stays in the book.
+    // A tap off any word in the centre toggles the bars (a blank point of the book: between paragraphs, the spread's
+    // column gap; never under the shown bars); a word on an edge turns (a word in the centre opens its popup, #1269:
+    // the word popup spec below); focus stays in the book.
     const frames = page.frames().filter((f) => f.url().startsWith('blob:'))
     const texts = await Promise.all(frames.map((f) => f.evaluate(() => document.body?.innerText ?? '').catch(() => '')))
     const section = frames[texts.findIndex((t) => t.includes(FIRST_SECTION_TEXT))]
     const a = (await section.locator('p').nth(0).boundingBox())!
     const width = page.viewportSize()!.width
     const line = a.y + 12
-    await page.mouse.click(width / 2 - 200, line)
+    const blank = await blankCentrePoint(page)
+    await page.mouse.click(blank.x, blank.y)
     await expect(main).toHaveAttribute('data-bars', 'shown')
-    await page.mouse.click(width / 2 - 200, line)
+    await page.mouse.click(blank.x, blank.y)
     await expect(main).toHaveAttribute('data-bars', 'hidden')
     await page.mouse.click(width - a.x - 30, line)
     await expect(status(page)).not.toHaveText(first)
@@ -218,6 +304,72 @@ test.describe('V2 reader page @v2', () => {
     await page.keyboard.press('ArrowRight')
     await expect(status(page)).not.toHaveText(turned)
     await expect(main).toHaveAttribute('data-bars', 'hidden')
+    await context.close()
+  })
+
+  // #1269: a word in the centre opens its popup, translated by the host (the page has no network) from the book's
+  // language into the reader's, with the sentence; the bars and the place stay; its close closes it.
+  test('readV2WordPopup_ACentreWordTapped_ItsTranslationInAPopup_TheBarsAndThePlaceStay', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2word'))
+    const asked = await withTranslation(context)
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    const main = page.locator('main.v2-reader')
+    await expect(main).toHaveAttribute('data-bars', 'hidden', { timeout: 10_000 })
+    const before = (await status(page).textContent()) ?? ''
+
+    const width = page.viewportSize()!.width
+    const word = (await firstParagraphWords(page)).find((w) => w.x > width * 0.35 && w.x < width * 0.65)
+    expect(word, 'a word in the centre zone').toBeTruthy()
+    await page.mouse.click(word!.x, word!.y)
+    const popup = page.locator('.word-popup')
+    await expect(popup).toContainText(word!.word)
+    await expect(popup.locator('.word-popup__translation')).toHaveText('MOCK-TRANSLATION')
+    // The context is the tapped word's own sentence (not the paragraph's label sentence).
+    const own = new RegExp(`\\b${word!.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
+    expect(asked.at(-1)).toMatchObject({ text: word!.word, sourceLang: 'en', targetLang: 'uk', sentence: expect.stringMatching(own) })
+    await expect(main).toHaveAttribute('data-bars', 'hidden')
+    await expect(status(page)).toHaveText(before)
+
+    await popup.getByRole('button', { name: 'Close' }).first().click()
+    await expect(popup).toHaveCount(0)
+    await context.close()
+  })
+
+  // #1269: a selection opens the toolbar (highlight, translate, explain, copy; Listen comes with TTS, #1272);
+  // Translate shows the host's translation; its close and Copy each end the selection in the book.
+  test('readV2Selection_TheToolbar_TranslateThenCopy_EachEndsTheSelection', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2sel'))
+    const asked = await withTranslation(context)
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    const collapsed = () => Promise.all(page.frames().filter((f) => f.url().startsWith('blob:')).map((f) => f.evaluate(() => document.getSelection()?.isCollapsed ?? true).catch(() => true)))
+      .then((all) => all.every(Boolean))
+
+    // "I went to the woods" (characters 23..42 of "The Pond, paragraph 1. I went to the woods …").
+    await selectInFirstParagraph(page, 23, 42)
+    const toolbar = page.locator('.selection-toolbar')
+    await expect(toolbar).toBeVisible()
+    for (const name of ['Translate selected text', 'Explain in context', 'Copy selected text']) await expect(toolbar.getByRole('button', { name })).toBeEnabled()
+    await expect(toolbar.getByRole('button', { name: 'Listen to pronunciation' })).toHaveCount(0)
+
+    await toolbar.getByRole('button', { name: 'Translate selected text' }).click()
+    const translation = page.locator('.translation-popup')
+    await expect(translation).toContainText('MOCK-TRANSLATION')
+    expect(asked.at(-1)).toMatchObject({ text: 'I went to the woods', sourceLang: 'en', targetLang: 'uk' })
+    await translation.getByRole('button', { name: 'Close' }).first().click()
+    await expect(translation).toHaveCount(0)
+    await expect.poll(collapsed).toBe(true)
+
+    await selectInFirstParagraph(page, 23, 42)
+    await expect(toolbar).toBeVisible()
+    await toolbar.getByRole('button', { name: 'Copy selected text' }).click()
+    await expect(toolbar).toHaveCount(0)
+    await expect.poll(collapsed).toBe(true)
     await context.close()
   })
 

@@ -87,16 +87,6 @@ export function readRelocate(m) {
   }
 }
 
-/**
- * Until the word popup (#1269): a `word` acts as a tap at the centre of its `rect`, `{ x, y }` in page-viewport px,
- * or null (dropped: not a `word`, or a rect `readTap` would refuse). Never throws.
- */
-export function readWordTap(m) {
-  const r = m?.type === 'word' ? m.rect : null
-  if (!r || ![r.x, r.y, r.w, r.h].every(coord) || r.w < 0 || r.h < 0) return null
-  return readTap({ type: 'tap', x: r.x + r.w / 2, y: r.y + r.h / 2 })
-}
-
 /** A relocate this soon after one a bar button caused keeps the bars up (a landing can relocate more than once). */
 export const HOST_MOVE_GRACE_MS = 1000
 
@@ -128,9 +118,10 @@ export function createHostMoves() {
   }
 }
 
-/** Android back, in order: the offer, then the open book (back to the list), then the route. */
-export function backAction({ offer, reading }) {
+/** Android back, in order: the offer, then the word popup or selection toolbar (#1269), then the open book (back to the list), then the route. */
+export function backAction({ offer, popup = false, reading }) {
   if (offer) return 'close-offer'
+  if (popup) return 'close-popup'
   if (reading) return 'close-book'
   return 'leave'
 }

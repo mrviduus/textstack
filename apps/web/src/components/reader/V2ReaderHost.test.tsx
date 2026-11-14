@@ -224,7 +224,7 @@ describe('V2ReaderHost', () => {
     mount(book(), { dev })
     fromPage({ type: 'ready' })
     fromPage(opened('1/a.epub'))
-    fromPage({ type: 'word', word: 'pond', cfi: 'epubcfi(/6/2)', index: 0 })
+    fromPage({ type: 'word', word: 'pond', sentence: 'The pond.', cfi: 'epubcfi(/6/2)', index: 0, rect: { x: 10, y: 10, w: 30, h: 10 } })
     expect(posted.filter((m) => m.call === 'showTranslation')).toHaveLength(shown)
     expect(screen.queryAllByTestId('v2-restore')).toHaveLength(shown)
   })

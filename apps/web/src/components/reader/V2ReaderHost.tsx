@@ -6,9 +6,10 @@ import type { PagePosition } from '@textstack/shared'
 import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reader/openTracker.mjs'
 import { V2_READER_FRAME_PATH } from '../../../../mobile/src/lib/v2reader/framePath.mjs'
 import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
-import { tapAction } from '../../../../mobile/src/lib/v2reader/tapZone.mjs'
 import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs'
-import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readRelocate, readTap, readWordTap, takenWithoutBook, type V2NavKey } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
+import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readRelocate, readTap, takenWithoutBook, type V2NavKey } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
+import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../../../mobile/src/lib/v2reader/wordPopup.mjs'
+import { V2ReaderPopups } from './V2ReaderPopups'
 import { readToc, tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
 import { V2SectionNav, V2TocDrawer } from './V2ReaderToc'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
@@ -199,6 +200,17 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const effectiveFlow = (): Flow => (reflowableRef.current ? flowRef.current : 'paginated')
   /** A bar button's or the taken offer's move: its relocates keep the bars up (chrome.mjs). */
   const [hostMoves] = useState(() => createHostMoves())
+  /**
+   * The word popup or the selection toolbar (#1269, wordPopup.mjs `popupStep`: one rule for both hosts); the ref for
+   * the message handler, set with the state. The book's language (`opened.lang`), `en` when it says none.
+   */
+  const [popup, setPopupState] = useState<V2Popup | null>(null)
+  const popupRef = useRef<V2Popup | null>(null)
+  const setPopup = (p: V2Popup | null) => {
+    popupRef.current = p
+    setPopupState(p)
+  }
+  const [bookLanguage, setBookLanguage] = useState('en')
   const main = useRef<HTMLElement>(null)
   const header = useRef<HTMLElement>(null)
   const footer = useRef<HTMLElement>(null)
@@ -209,8 +221,13 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    * A navigation key (chrome.mjs: forwarded by the page, or this document's own through navKey): one press, one
    * turn (a held key's repeats are dropped); 'bars' shows the bars. True: the key was the reader's.
    */
-  const onNavKey = (k: ReturnType<typeof readKey>) => {
+  const onNavKey = (k: ReturnType<typeof readKey>, inPopup = false) => {
     if (!k) return false
+    // #1269: Escape with a popup open closes it and does nothing else (focus inside the word popup: its own keys).
+    if (k.key === 'Escape' && popupRef.current) {
+      if (!inPopup) closePopup(popupRef.current.kind === 'selection')
+      return true
+    }
     if (k.repeat) return true
     const action = keyAction({ ...k, dir: pageDir.current })
     if (action === 'bars') showBars()
@@ -224,6 +241,21 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const hostMove = (name: string, args: unknown[] = []) => {
     hostMoves.start()
     call(name, args)
+  }
+  /** A tap, word or selection from the page (validated): what is open, and what the tap zones do (`popupStep`). */
+  const onPopupEvent = (e: V2PopupEvent) => {
+    const { popup: next, turn } = popupStep(popupRef.current, e, { width: frame.current?.clientWidth, flow: effectiveFlow(), dir: pageDir.current })
+    setPopup(next)
+    if (turn === 'toggle') return barsHiddenRef.current ? showBars() : hideBars()
+    if (!turn) return
+    call(turn)
+    hideBars()
+  }
+  /** The popups' close; `selectionDone`: the page's selection goes too, and the toolbar if it is still what is open. */
+  const closePopup = (selectionDone: boolean) => {
+    if (!selectionDone) return setPopup(null)
+    call('clearSelection')
+    if (popupRef.current?.kind === 'selection') setPopup(null)
   }
   const flushOpen = () => {
     const o = opening.current
@@ -245,6 +277,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setStatus('')
     setTocIndex(null)
     setTocOpen(false)
+    setPopup(null)
     setRestored('')
     // The opening state is the top bar's title: shown, and kept up until `opened`.
     setReading(false)
@@ -264,6 +297,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     ready.current = false
     // A fresh frame has no book on screen.
     setReading(false)
+    setPopup(null)
     showBars()
     const o = opening.current
     if (o && !o.bytes) {
@@ -326,6 +360,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       setReflowable(m.reflowable !== false)
       // Untrusted: only what readToc takes. Its place came with the relocate before this message.
       setToc(readToc(m))
+      setBookLanguage(readLang(m) ?? 'en')
+      setPopup(null)
       setReading(true)
       // Untrusted (the page renders the book): only what readDir takes; none is left to right.
       pageDir.current = readDir(m) ?? 'ltr'
@@ -389,6 +425,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           const r = readRelocate(m)
           if (!r) return
           pageDir.current = r.dir ?? pageDir.current
+          // The reader moved the place: a word popup's word left it (the toolbar follows the page's selection messages).
+          if (r.moved) onPopupEvent({ type: 'moved' })
           const msSinceHostMove = hostMoves.onRelocate(Date.now())
           if (readingRef.current && hidesBarsOnRelocate({ moved: r.moved, msSinceHostMove })) hideBars()
           // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
@@ -398,18 +436,21 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           setStatus(v2Percent(r.fraction))
           return
         }
-        case 'tap':
+        case 'tap': {
+          // A press that dismissed a selection sends no `tap`, a link none either. Untrusted: only what readTap
+          // takes. Page-viewport px = this frame's.
+          const p = readTap(m)
+          if (p) onPopupEvent({ type: 'tap', x: p.x })
+          return
+        }
         case 'word': {
-          // A press that dismissed a selection sends no `tap`, a link none either. Until the word popup (#1269)
-          // a word is a tap at its centre. Untrusted: only what readTap / readWordTap take. Page-viewport px = this frame's.
-          // Dev stub: no translation service yet; the label proves the word → showTranslation round trip (no CFI: none).
-          if (m.type === 'word' && dev && m.cfi) call('showTranslation', [m.cfi, m.index, `dev: ${m.word}`])
-          const p = m.type === 'tap' ? readTap(m) : readWordTap(m)
-          if (!p) return
-          const action = tapAction({ x: p.x, width: frame.current?.clientWidth, flow: effectiveFlow(), dir: pageDir.current })
-          if (action === 'toggle') return barsHiddenRef.current ? showBars() : hideBars()
-          call(action)
-          hideBars()
+          // #1269: an edge word in paginated flow turns the page, any other opens its popup (popupStep). Untrusted:
+          // only what readWord takes.
+          const w = readWord(m)
+          if (!w) return
+          // Dev stub: the label proves the word → showTranslation round trip (no CFI: none).
+          if (dev && w.cfi) call('showTranslation', [w.cfi, w.index, `dev: ${w.word}`])
+          onPopupEvent({ type: 'word', word: w })
           return
         }
         case 'key': {
@@ -419,11 +460,13 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         }
         case 'selection': {
           // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
-          // No toolbar in this slice (#1268): the dev route logs it, the production route takes it no further.
           const s = readSelection(m)
-          if (s && dev) console.log(`[v2] selection ${s.text.length} chars, section ${s.index}`)
+          if (s) onPopupEvent({ type: 'selection', selection: s })
           return
         }
+        case 'selection-cleared':
+          onPopupEvent({ type: 'selection-cleared' })
+          return
         case 'openLink':
           if (/^https?:\/\//i.test(m.href)) window.open(m.href, '_blank', 'noopener,noreferrer')
           return
@@ -453,7 +496,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (onNavKey(hostNavKey(e))) e.preventDefault()
+      if (onNavKey(hostNavKey(e), e.target instanceof Element && !!e.target.closest('.word-popup'))) e.preventDefault()
     }
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
@@ -566,6 +609,17 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           <button className="reader-top-bar__btn" onClick={() => hostMove('next')}>{t('v2Reader.next')}</button>
         </div>
       </footer>
+      {reading && (
+        // Keyed: the legacy translation hooks take their languages once, at mount.
+        <V2ReaderPopups
+          key={bookLanguage}
+          popup={popup}
+          frame={frame}
+          bookLanguage={bookLanguage}
+          onHighlight={annotatable && (dev || highlightsReady) ? () => call('highlightSelection') : undefined}
+          onClose={closePopup}
+        />
+      )}
       <V2ReaderSettingsDrawer open={settingsOpen} settings={settings} onUpdate={updateSettings} onClose={() => setSettingsOpen(false)} typography={reflowable} />
       <V2TocDrawer open={tocOpen && reading} toc={toc} tocIndex={tocIndex} onGo={goToc} onClose={() => setTocOpen(false)} />
     </main>

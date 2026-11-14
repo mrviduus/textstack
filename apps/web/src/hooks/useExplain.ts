@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { explain as explainApi, API_BASE, type ExplainRequest } from '../api/explain'
 import { postSse, SseUnsupportedError } from '../lib/sse'
 import { getCachedExplain, cacheExplain } from '../lib/offlineDb'
@@ -26,6 +26,8 @@ const INITIAL: ExplainState = {
 export function useExplain() {
   const [state, setState] = useState<ExplainState>(INITIAL)
   const abortRef = useRef<AbortController | null>(null)
+  // An unmounted reader (its popup or route gone) stops the stream it started.
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   const explain = useCallback(async (req: ExplainRequest): Promise<string | null> => {
     abortRef.current?.abort()

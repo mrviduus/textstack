@@ -114,3 +114,20 @@ describe('useExplain (streaming)', () => {
     expect(result.current.explanation).toBeNull()
   })
 })
+
+describe('useExplain — unmount (#1269 review)', () => {
+  it('explain_Unmounted_TheStreamIsAborted', async () => {
+    mockGetCached.mockReset().mockResolvedValue(null)
+    let signal: AbortSignal | undefined
+    mockPostSse.mockReset().mockImplementationOnce((_u: string, _b: unknown, _e: unknown, s: AbortSignal) => {
+      signal = s
+      return new Promise(() => {})
+    })
+    const { result, unmount } = renderHook(() => useExplain())
+    act(() => { void result.current.explain(REQ) })
+    await waitFor(() => expect(signal).toBeDefined())
+    expect(signal!.aborted).toBe(false)
+    unmount()
+    expect(signal!.aborted).toBe(true)
+  })
+})
