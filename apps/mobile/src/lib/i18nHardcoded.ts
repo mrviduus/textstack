@@ -2,7 +2,7 @@ import ts from 'typescript'
 
 /**
  * #1267: user-visible English written into a component instead of through `t()`, and (React Native) a touchable with
- * no accessible name. Test-only (`i18nKeys.test.ts` here, web's `missing-keys.test.ts`): parses TSX with the
+ * no accessible name or a `Modal` that Android back does not close (no `onRequestClose`). Test-only (`i18nKeys.test.ts` here, web's `missing-keys.test.ts`): parses TSX with the
  * TypeScript compiler, so code (`a < b`, generics) is never read as text.
  *
  * A string is "shown" when it is JSX text, a naming attribute (`aria-label`, `title`, `accessibilityLabel`, …), the
@@ -11,7 +11,7 @@ import ts from 'typescript'
  * words; `‹`, `×`, `A+`, `1.6`, `{v}x`, `{size}px` are not. A comparison operand (`flow === 'paginated'`) and a
  * `t()` key are never shown.
  */
-export interface Finding { line: number; kind: 'text' | 'unnamed'; text: string }
+export interface Finding { line: number; kind: 'text' | 'unnamed' | 'noBack'; text: string }
 
 const LETTERS = /\p{L}{2,}/u
 /** Words, not a unit after a number (`{size}px`). */
@@ -56,7 +56,7 @@ function named(n: ts.JsxElement | ts.JsxSelfClosingElement): boolean {
   return text
 }
 
-/** Hard-coded shown strings (and, with `touchables`, unnamed React Native touchables) in one TSX source. */
+/** Hard-coded shown strings (and, with `touchables`, React Native touchables with no name and modals back leaves open) in one TSX source. */
 export function findHardcoded(source: string, { touchables = false } = {}): Finding[] {
   const file = ts.createSourceFile('x.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const out: Finding[] = []
@@ -76,6 +76,8 @@ export function findHardcoded(source: string, { touchables = false } = {}): Find
     else if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && SHOWN_CALLS.test(n.expression.text)) check(n, n.arguments[0])
     else if (ts.isPropertyAssignment(n) && SHOWN_FIELDS.has(n.name.getText())) check(n, n.initializer)
     if (touchables && (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) && TOUCHABLES.has(tagName(n)) && !named(n)) add(n, 'unnamed', tagName(n))
+    if (touchables && (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) && tagName(n) === 'Modal'
+      && !attrs(n).some((a) => ts.isJsxAttribute(a) && a.name.getText() === 'onRequestClose')) add(n, 'noBack', 'Modal')
     ts.forEachChild(n, visit)
   }
   visit(file)

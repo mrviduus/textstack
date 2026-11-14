@@ -70,8 +70,9 @@ describe('mobile i18n keys', () => {
 
 /**
  * #1267: the V2 reader's host files (and the legacy bars, action bar and sheets it reuses) say nothing in English
- * of their own: every shown string goes through `t()`, every touchable has a name (i18nHardcoded.ts). A new
- * hard-coded string or an icon-only button without `accessibilityLabel` fails here, by file and line.
+ * of their own: every shown string goes through `t()`, every touchable has a name, every sheet closes on back
+ * (i18nHardcoded.ts). A new hard-coded string, an icon-only button without `accessibilityLabel` or a `Modal` without
+ * `onRequestClose` fails here, by file and line.
  */
 const V2_DIR = resolve(__dirname, '../components/v2reader')
 const V2_HOST_FILES = [
@@ -80,7 +81,7 @@ const V2_HOST_FILES = [
     .map(f => resolve(__dirname, `../components/${f}.tsx`)),
 ]
 
-describe('V2 reader host: no hard-coded strings, no unnamed controls (#1267)', () => {
+describe('V2 reader host: no hard-coded strings, no unnamed controls, back closes every sheet (#1267)', () => {
   it('scans the V2 host files', () => {
     expect(V2_HOST_FILES.length).toBeGreaterThan(8)
   })
@@ -105,6 +106,8 @@ describe('V2 reader host: no hard-coded strings, no unnamed controls (#1267)', (
           <Pressable accessible={false} onPress={go} />
           <Text>{t('reader.v2.pick')} {size}px ‹ ×</Text>
           <span aria-hidden="true">check</span>
+          <Modal visible onRequestClose={close}><View /></Modal>
+          <Modal visible><View /></Modal>
         </View>
       )
       showToast({ message: 'Could not save word.' })
@@ -113,7 +116,7 @@ describe('V2 reader host: no hard-coded strings, no unnamed controls (#1267)', (
     `
     expect(findHardcoded(src, { touchables: true }).map(x => `${x.kind} ${x.text}`)).toEqual([
       'text Pick book', 'text Scrolled', 'text Not synced:', 'text The book', 'text Close it',
-      'unnamed TouchableOpacity', 'text Could not save word.', 'text Opening',
+      'unnamed TouchableOpacity', 'noBack Modal', 'text Could not save word.', 'text Opening',
     ])
   })
 })
