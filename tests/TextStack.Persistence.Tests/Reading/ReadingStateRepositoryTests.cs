@@ -90,6 +90,68 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         Assert.True((await _repo.AdvanceAsync(user, book.Id, At(file, 1), null, default, Ct)).Accepted);
     }
 
+    // #1188: a CBZ page by its entry name; page-name fits a cbz only (a fixed-layout epub joins with #1196).
+    private const string PageName = """{"version":1,"scheme":"page-name","value":{"page":"p02.png","index":1}}""";
+
+    private async Task<(Guid User, Guid Book, Guid File)> ReaderWithFileAsync(string format)
+    {
+        var user = await db.NewReaderAsync();
+        var imported = new Domain.Library.Book { Id = Guid.NewGuid(), Title = "A " + format };
+        var book = (await _library.ImportAsync(user, imported, V2PostgresFixture.NewFile(user, imported.Id, format: format), Ct)).Book!;
+        return (user, book.Id, book.CurrentFile!.Id);
+    }
+
+    [Fact]
+    public async Task AdvanceAsync_PageNameOnACbz_WinsAndReadsBackAsSent()
+    {
+        var (user, book, file) = await ReaderWithFileAsync("cbz");
+        var write = Locating(file, PageName, 0.5m);
+        write.FrontierLocator = PageName;
+        write.FrontierFraction = 0.5m;
+
+        Assert.True((await _repo.AdvanceAsync(user, book, write, null, default, Ct)).Accepted);
+
+        var stored = (await _repo.GetAsync(user, book, Ct))!;
+        AssertSameJson(PageName, stored.CurrentLocator);
+        AssertSameJson(PageName, stored.FrontierLocator);
+    }
+
+    [Theory]
+    [InlineData("epub")]
+    [InlineData("pdf")]
+    [InlineData("mobi")]
+    public async Task AdvanceAsync_PageNameOnAnotherFormat_LosesFirstAndLater(string format)
+    {
+        var (user, book, file) = await ReaderWithFileAsync(format);
+
+        Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, PageName), null, default, Ct)).Accepted);
+        Assert.True((await _repo.AdvanceAsync(user, book, Locating(file, format == "pdf" ? PdfPage : Cfi(1)), null, default, Ct)).Accepted);
+        Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, PageName, 0.3m), 1, default, Ct)).Accepted);
+    }
+
+    // The position's own guard: a fitting frontier further on is what the write stores as the frontier.
+    [Fact]
+    public async Task AdvanceAsync_PageNamePositionBehindAFittingFrontierOnAnEpub_Loses()
+    {
+        var (user, book, file) = await ReaderWithFileAsync("epub");
+        var write = Locating(file, PageName, 0.2m);
+        write.FrontierLocator = Cfi(9);
+        write.FrontierFraction = 0.9m;
+
+        Assert.False((await _repo.AdvanceAsync(user, book, write, null, default, Ct)).Accepted);
+    }
+
+    [Fact]
+    public async Task AdvanceAsync_PageNameFrontierOnAnEpub_Loses()
+    {
+        var (user, book, file) = await ReaderWithFileAsync("epub");
+        var write = At(file, 1);
+        write.FrontierLocator = PageName;
+        write.FrontierFraction = 0.9m;
+
+        Assert.False((await _repo.AdvanceAsync(user, book, write, null, default, Ct)).Accepted);
+    }
+
     [Fact]
     public async Task AdvanceAsync_FirstWriteOnAChapterTheFileLacks_LosesAndOnItsChapterWins()
     {

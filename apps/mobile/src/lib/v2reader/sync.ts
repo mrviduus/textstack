@@ -360,12 +360,12 @@ async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: 
   if (!b) return
   // Replaced on another device: no write on this file can land (rule 6).
   if (b.server_file_id !== b.file_id) return drop(lib, reset, item)
-  // The scheme fits the file: pdf-page on a PDF, epub-cfi on any other (#1128 S5).
+  // The scheme fits the file: pdf-page on a PDF, page-name on a CBZ (#1188), epub-cfi on any other (#1128 S5).
   const place = positionWrite(JSON.parse(st.position), b.file_id!, st.revision_file_id === b.file_id ? st.revision : null, Date.now(), b.format)
   // "Finish book" (#1266): sent with every write while it stands; the server keeps the first (`COALESCE`).
   const write = place && st.completed_at ? { ...place, completedAt: st.completed_at } : place
-  // A CBZ page has no quote: no position the server takes yet (PDD "CBZ positions: open question").
-  // (A fraction-only position, #1187, is never queued: localLibrary.applyEntry.)
+  // No write the server would take (a page key it refuses; a fraction-only position, #1187, is never queued:
+  // localLibrary.applyEntry). An unsent finish stays queued for the first place the server takes.
   if (!write) return owesFinish ? undefined : drop(lib, reset, item)
   // The server's `completedAt` with its revision: a finish elsewhere shows here without waiting for a pull.
   const landed = (s: V2ReadingState) => Promise.all([lib.takeState(b.id, s, write.completedAt ?? null), lib.done(item)])

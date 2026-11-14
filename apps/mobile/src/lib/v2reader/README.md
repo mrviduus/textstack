@@ -60,7 +60,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 - *The wipe* (`wipeV2Library`): rows, the owner included (every table, one transaction, on the library's queue: a write queued before it is wiped with it), then files (`clearV2Files`: the root deleted and the three directories made again, whenever it ran). A failed row wipe stops before the files.
 - *Sign-in* (`claimV2LibraryFor`): `signInWithTokens` (before the guest adoption), a guest mint, and a restored session at start (not awaited; retries a wipe that failed or ran late). Before the session's user is set; needs no server.
 - *Late rows*: a pass asked before a session change is dropped unrun (`syncV2Library` keeps the asker's epoch); an open whose session ended before its row was queued is refused and its moved file removed (`createV2Storage`'s `sessionSince`). Rows added with no session belong to nobody until the first pass claims them.
-- *What `signOutLoss` counts*: a device book unless the server holds this very file with its bytes (never pushed, file sync off, replaced, bytes removed, book removed there); changes of books not counted: queued positions and highlights, and own highlights the server never took and nothing will send (over the cap, dropped after a refusal). *Not counted*: a CBZ position (never sent, no quote), a fraction-only position (the server's own), an edit of an already-synced highlight dropped after a refusal. The warning is a lower bound for those.
+- *What `signOutLoss` counts*: a device book unless the server holds this very file with its bytes (never pushed, file sync off, replaced, bytes removed, book removed there); changes of books not counted: queued positions and highlights, and own highlights the server never took and nothing will send (over the cap, dropped after a refusal). *Not counted*: a fraction-only position (the server's own), an edit of an already-synced highlight dropped after a refusal. The warning is a lower bound for those.
 
 ## Build
 
@@ -428,8 +428,8 @@ it through `readSettings`, so only numbers and members of the module's own lists
 - The R2 host passes its file path (`staging/<ts>.epub` or `books/<sha256>.epub`) as `openUrl`'s `name` to match each answer to its open, so the page's stored `book.name` is that path until the contract gains an explicit open id (#1069).
 - **Sync (R6, Android):** opportunistic, never on the reading path: with a session, on screen open, on each book open and 10 s after a save. ADR-019 needs the host's view of the open book, kept by `movedTracker.mjs` (restored yet, moved since by `relocate.moved`, the spine index of the last `relocate`); a newer position from another device is gone to (`adopt`/`move`) or offered (`prompt`). File sync is a per-device setting, off by default.
 - **Finish book (#1266), both hosts:** host UI, never injected into the book. The block shows while `relocate.atEnd`
-  is true (`showsFinishBook`; never guessed from the fraction) and is hidden on CBZ until its state can be written
-  (#1188). A finished book shows the finished label instead of the button, and keeps its real fraction. Known limit
+  is true (`showsFinishBook`; never guessed from the fraction), on every format: a CBZ's completion travels on its
+  `page-name` position (#1188). A finished book shows the finished label instead of the button, and keeps its real fraction. Known limit
   (#1297): in scrolled flow one continuous scroll right after a jump sends no `relocate`, so the block can come late.
   `atEnd` is cleared where an open starts, never on `opened`: a book one screen long sends its only relocate (its
   end) before `opened`. The block is out of flow over the book (web: fixed above the bottom bar, its height
@@ -657,8 +657,8 @@ left by keepalive (position first, highlights within a 60 KB budget); a "not sav
 take or leaving the route closes the session after one last pass; a later open of the same book reads after
 it, whatever was open between (another book never waits). The position never waits for the annotations pull;
 a book without highlights (a PDF, a CBZ) pulls none.
-Bytes that are not the server file's are not synced. The one local exception: a CBZ page position (no server
-form yet, #1188) is kept in this browser per book. The shim posts to `self.origin` only and takes messages from `parent` at that origin
+Bytes that are not the server file's are not synced. A CBZ page position syncs as `page-name` (#1188), as on
+Android. The shim posts to `self.origin` only and takes messages from `parent` at that origin
 only; the frame is same-origin with its host, so that is the host's origin. **Android keeps the inline page**
 (`v2ReaderPageHtml(nonce)`): nothing here changes it.
 

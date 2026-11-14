@@ -89,6 +89,12 @@ public class SyncValidationTests
     [InlineData("epub-cfi", "cbz", true)]
     [InlineData("textstack-position-v1", "pdf", true)]
     [InlineData("textstack-anchor-v1", "cbz", true)]
+    // #1188: page-name only on a CBZ; a fixed-layout EPUB (#1196) is not enabled yet.
+    [InlineData("page-name", "cbz", true)]
+    [InlineData("page-name", "epub", false)]
+    [InlineData("page-name", "pdf", false)]
+    [InlineData("page-name", "mobi", false)]
+    [InlineData("page-name", "html", false)]
     public void FitsFile_SchemeOnFormat_FitsOrIsRefused(string scheme, string format, bool fits) =>
         Assert.Equal(fits, FitsFile(scheme, format, "locator") is null);
 
@@ -119,6 +125,67 @@ public class SyncValidationTests
         Assert.Null(Locator(Json($$"""{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4)","quote":"{{quote}}"}"""), "l", LocatorUse.Position));
         Assert.Equal("l", FieldOf(Locator(Json($$"""{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4)","quote":"{{quote}}a"}"""), "l", LocatorUse.Position)));
     }
+
+    // #1188: a page by its stable key (a CBZ entry name), its 0-based section beside it, nothing else.
+    private static SyncResult? PageName(string value, LocatorUse use = LocatorUse.Position, string extra = "") =>
+        Locator(Json($$"""{"version":1,"scheme":"page-name","value":{{value}}{{extra}}}"""), "currentLocator", use);
+
+    [Theory]
+    [InlineData("""{"page":"p01.png","index":0}""")]
+    [InlineData("""{"index":41,"page":"Vol 1/Ch 3/042.jpg"}""")]
+    [InlineData("""{"page":"страница 1.webp","index":0}""")]
+    [InlineData("""{"page":"😀.png","index":2147483647}""")]
+    public void Locator_PageNamePosition_Passes(string value) => Assert.Null(PageName(value));
+
+    [Fact]
+    public void Locator_PageNameAtTheCap_PassesAndOneMoreIsRefused()
+    {
+        Assert.Null(PageName($$"""{"page":"{{new string('a', MaxPageName)}}","index":0}"""));
+        Assert.Equal("currentLocator", FieldOf(PageName($$"""{"page":"{{new string('a', MaxPageName + 1)}}","index":0}""")));
+    }
+
+    [Theory]
+    [InlineData("""{"page":"","index":0}""")]
+    [InlineData("""{"page":"   ","index":0}""")]
+    [InlineData("""{"page":"a\nb.png","index":0}""")]
+    [InlineData("""{"page":"a\u0001.png","index":0}""")]
+    [InlineData("""{"page":"a\u007f.png","index":0}""")]
+    [InlineData("""{"page":"a\u0085.png","index":0}""")]
+    [InlineData("""{"page":"a\u0000.png","index":0}""")]
+    [InlineData("""{"page":"a\ud800.png","index":0}""")]
+    [InlineData("""{"page":7,"index":0}""")]
+    [InlineData("""{"page":null,"index":0}""")]
+    [InlineData("""{"page":"p01.png"}""")]
+    [InlineData("""{"index":0}""")]
+    [InlineData("""{"page":"p01.png","index":-1}""")]
+    [InlineData("""{"page":"p01.png","index":1.5}""")]
+    [InlineData("""{"page":"p01.png","index":"0"}""")]
+    [InlineData("""{"page":"p01.png","index":2147483648}""")]
+    [InlineData("""{"page":"p01.png","index":0,"fraction":0.5}""")]
+    [InlineData("""{"page":"p01.png","index":0,"cfi":"epubcfi(/6/2)"}""")]
+    [InlineData("""["p01.png",0]""")]
+    [InlineData("\"p01.png\"")]
+    [InlineData("3")]
+    public void Locator_PageNameValueOutsideItsShape_IsRefused(string value) =>
+        Assert.Equal("currentLocator", FieldOf(PageName(value)));
+
+    [Fact]
+    public void Locator_PageNameWithQuote_IsRefused() =>
+        Assert.Equal("currentLocator", FieldOf(PageName("""{"page":"p01.png","index":0}""", extra: ""","quote":"x" """)));
+
+    // A CBZ has no text to highlight: page-name never anchors an annotation.
+    [Fact]
+    public void Locator_PageNameOnAnAnnotation_IsRefused() =>
+        Assert.Equal("currentLocator", FieldOf(PageName("""{"page":"p01.png","index":0}""", LocatorUse.Annotation)));
+
+    // The CBZ position is its own scheme, not an exception on epub-cfi: a quoteless CFI position is still refused.
+    [Fact]
+    public void Locator_EpubCfiPositionWithPageButNoQuote_IsStillRefused() =>
+        Assert.Equal("currentLocator", FieldOf(Locator(Json("""{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4)","page":"p01.png"}"""), "currentLocator", LocatorUse.Position)));
+
+    [Fact]
+    public void Locator_SchemeNameInAnotherCase_IsRefused() =>
+        Assert.Equal("currentLocator", FieldOf(Locator(Json("""{"version":1,"scheme":"Page-Name","value":{"page":"p01.png","index":0}}"""), "currentLocator", LocatorUse.Position)));
 
     [Fact]
     public void Locator_AnnotationWithoutQuoteAndWithContext_Passes() =>

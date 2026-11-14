@@ -334,6 +334,7 @@ public class ReadingSyncServiceTests
     private const string PdfPage = """{"version":1,"scheme":"pdf-page","value":{"page":2}}""";
     private const string Cfi = """{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4!/4/2/1:0)","quote":"It was a bright cold day"}""";
     private const string TextPositionV1 = """{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"ch-1","chapterFraction":0.5}}""";
+    private const string PageName = """{"version":1,"scheme":"page-name","value":{"page":"p02.png","index":1}}""";
 
     private void CurrentFileIs(string format)
     {
@@ -350,6 +351,8 @@ public class ReadingSyncServiceTests
     [InlineData(PdfPage, "epub")]
     [InlineData(PdfPage, "html")]
     [InlineData(Cfi, "pdf")]
+    [InlineData(PageName, "epub")]
+    [InlineData(PageName, "pdf")]
     public async Task WriteAsync_LostOnASchemeThatDoesNotFitTheFile_IsInvalidPayload(string locator, string format)
     {
         CurrentFileIs(format);
@@ -367,6 +370,7 @@ public class ReadingSyncServiceTests
     [InlineData(Cfi, "html")]
     [InlineData(TextPositionV1, "epub")]
     [InlineData(TextPositionV1, "pdf")]
+    [InlineData(PageName, "cbz")]
     public async Task WriteAsync_LostOnASchemeThatFitsTheFile_IsStaleRevisionNotInvalid(string locator, string format)
     {
         CurrentFileIs(format);

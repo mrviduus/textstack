@@ -20,6 +20,9 @@ public static class SyncLimits
     // Annotations: legacy has no cap on highlight text; a selection past this is not a highlight.
     public const int MaxSelectedText = 4000;
 
+    // A page-name locator's page key (a CBZ entry name, a fixed-layout EPUB section): a zip path, not prose.
+    public const int MaxPageName = 512;
+
     // A text anchor's prefix/suffix, in code points.
     public const int MaxContextCodePoints = 32;
 
