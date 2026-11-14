@@ -12,7 +12,10 @@
  *   reading_state  per book: the page's position JSON, the server revision this device last saw, and
  *                  `completed_at` (#1266: the reader finished the book; set once, cleared only by a reset)
  *   annotations    the page's highlight JSON per id, its file version, revision and tombstone; `mine`
- *                  = made on this device
+ *                  = made on this device; `note` the reader's note (#1312: the host's, the page holds none),
+ *                  `note_dirty` = edited here and not yet on the server (a lost write's retry keeps the server's
+ *                  note otherwise). A `deleted_at` with the row still queued is this device's removal, pushed
+ *                  as a DELETE (#1312)
  *   outbox         what still has to be pushed: (kind, target), kind 'book' | 'state' | 'annotation',
  *                  pushed in that order (PDD "Push"). Coalescing: the payload is read from the row at
  *                  push time, so one entry per row; `gen` grows on every re-queue, so a push only
@@ -71,7 +74,9 @@ const SCHEMA = `
     highlight TEXT NOT NULL,
     revision INTEGER,
     deleted_at TEXT,
-    mine INTEGER NOT NULL DEFAULT 0
+    mine INTEGER NOT NULL DEFAULT 0,
+    note TEXT,
+    note_dirty INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS annotations_book ON annotations (book_id);
   CREATE TABLE IF NOT EXISTS outbox (
@@ -88,6 +93,8 @@ const ADDED_COLUMNS = [
   'ALTER TABLE books ADD COLUMN blocked TEXT',
   'ALTER TABLE outbox ADD COLUMN failures INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE reading_state ADD COLUMN completed_at TEXT',
+  'ALTER TABLE annotations ADD COLUMN note TEXT',
+  'ALTER TABLE annotations ADD COLUMN note_dirty INTEGER NOT NULL DEFAULT 0',
 ]
 /** SQLite's own text (sqlite3_errmsg), in node:sqlite's message and expo-sqlite's "Error code 1: …" alike. */
 const isDuplicateColumn = (e: unknown) => /duplicate column name/i.test(String((e as Error | null)?.message ?? e))
@@ -144,6 +151,9 @@ export interface AnnotationRow {
   revision: number | null
   deleted_at: string | null
   mine: number
+  /** #1312: the reader's note (null: none), and whether it was edited here since the server last had it. */
+  note: string | null
+  note_dirty: number
 }
 
 export type OutboxKind = 'book' | 'state' | 'annotation'
@@ -486,6 +496,58 @@ export function createLocalLibrary(db: Db) {
     }),
 
     /**
+     * #1312: the reader's note (null: none) on highlight `id`: this device's edit (`note_dirty`), queued when the
+     * highlight's text may sync. False: no such highlight here, or it is deleted.
+     */
+    setNote: (id: string, note: string | null) => tx(async () => {
+      const row = await annotationById(id)
+      if (!row || row.deleted_at) return false
+      if ((row.note ?? null) === note) return true
+      await run('UPDATE annotations SET note = ?, note_dirty = 1 WHERE id = ?', [note, id])
+      const h = parse<PageHighlight>(row.highlight)
+      if (h && syncableText(h)) await enqueue('annotation', id)
+      return true
+    }),
+
+    /**
+     * #1312: the page removed highlight `id` (`highlight-removed`): deleted here at once (restore draws it no more and
+     * a later `store` holding it is skipped, `entryChanges`), and queued so the server tombstones it (sync.ts pushes a
+     * DELETE). One whose text may not sync was never sent: nothing queued. False: no such highlight, or deleted.
+     */
+    removeHighlight: (id: string, at = new Date().toISOString()) => tx(async () => {
+      const row = await annotationById(id)
+      if (!row || row.deleted_at) return false
+      await run('UPDATE annotations SET deleted_at = ? WHERE id = ?', [at, id])
+      const h = parse<PageHighlight>(row.highlight)
+      if (h && syncableText(h)) await enqueue('annotation', id)
+      else await dequeue('annotation', id)
+      return true
+    }),
+
+    /**
+     * #1312: this device's live highlights in books on this device, in their current file version, newest first (at
+     * most `limit`): the highlights screen's V2 section (dev route), which opens the reader at one.
+     */
+    deviceHighlights: (limit = 50) => job(async () => {
+      const rows = await all<{ id: string; book_id: string; title: string; highlight: string; note: string | null }>(
+        `SELECT a.id, a.book_id, b.title, a.highlight, a.note FROM annotations a JOIN books b ON b.id = a.book_id
+         WHERE a.deleted_at IS NULL AND b.imported_at IS NOT NULL AND a.file_id = b.file_id ORDER BY a.rowid DESC LIMIT ?`,
+        [limit],
+      )
+      return rows.flatMap((r) => {
+        const h = parse<PageHighlight>(r.highlight)
+        return h ? [{ id: r.id, bookId: r.book_id, bookTitle: r.title, text: h.selectedText ?? h.quote, color: h.color ?? 'yellow', note: r.note }] : []
+      })
+    }),
+
+    /** #1312: the notes on the live highlights of the book with these bytes (id → note), for its list and editor. */
+    notes: (sha256: string) => job(async () => {
+      const b = await bookBySha(sha256)
+      const rows = b ? await all<{ id: string; note: string }>('SELECT id, note FROM annotations WHERE book_id = ? AND deleted_at IS NULL AND note IS NOT NULL', [b.id]) : []
+      return new Map(rows.map((r) => [r.id, r.note]))
+    }),
+
+    /**
      * `downloadV2Book` landed the server's bytes: the book is imported here. Never a second local row
      * for bytes another book already holds (books_sha256 is UNIQUE): false then, nothing changed.
      */
@@ -611,11 +673,22 @@ export function createLocalLibrary(db: Db) {
     setAnnotation: (a: V2Annotation) => tx(async () => {
       const h = annotationHighlight(a)
       if (a.deletedAt) await run('UPDATE annotations SET revision = ?, deleted_at = ? WHERE id = ?', [a.revision, a.deletedAt, a.id])
-      else if (h) await run('UPDATE annotations SET revision = ?, highlight = ?, file_id = ? WHERE id = ?', [a.revision, JSON.stringify(h), a.fileId, a.id])
-      else await run('UPDATE annotations SET revision = ? WHERE id = ?', [a.revision, a.id])
+      else if (h) await run('UPDATE annotations SET revision = ?, highlight = ?, file_id = ?, note = ?, note_dirty = 0 WHERE id = ?', [a.revision, JSON.stringify(h), a.fileId, a.noteText ?? null, a.id])
+      else await run('UPDATE annotations SET revision = ?, note = ?, note_dirty = 0 WHERE id = ?', [a.revision, a.noteText ?? null, a.id])
     }),
 
     setAnnotationRevision: (id: string, revision: number) => job(() => run('UPDATE annotations SET revision = ? WHERE id = ?', [revision, id])),
+
+    /**
+     * #1312: a write lost to another device's (`stale_revision`): its revision, and its note unless this device edited
+     * the note (`note_dirty`, decided in the statement: an edit landing meanwhile is kept).
+     */
+    takeServerRevision: (id: string, revision: number, note: string | null) => job(() =>
+      run('UPDATE annotations SET revision = ?, note = CASE WHEN note_dirty = 1 THEN note ELSE ? END WHERE id = ?', [revision, note, id])),
+
+    /** #1312: a write landed with note `sent`: its revision; the note is no longer this device's edit unless it changed since. */
+    annotationLanded: (id: string, revision: number, sent: string | null) => job(() =>
+      run('UPDATE annotations SET revision = ?, note_dirty = CASE WHEN note IS ? THEN 0 ELSE note_dirty END WHERE id = ?', [revision, sent, id])),
 
     /** `id_conflict` on an annotation create: a new v4 id for it, here and in the outbox. */
     rekeyAnnotation: (id: string, newId: () => string) => tx(async () => {
@@ -722,8 +795,8 @@ export function createLocalLibrary(db: Db) {
         if (await queued('annotation', a.id)) continue
         const h = annotationHighlight(a)
         if (!h) continue
-        if (row) await run('UPDATE annotations SET highlight = ?, file_id = ?, revision = ? WHERE id = ?', [JSON.stringify(h), a.fileId, a.revision, a.id])
-        else await run('INSERT INTO annotations (id, book_id, file_id, highlight, revision) VALUES (?, ?, ?, ?, ?)', [a.id, a.bookId, a.fileId, JSON.stringify(h), a.revision])
+        if (row) await run('UPDATE annotations SET highlight = ?, file_id = ?, revision = ?, note = ?, note_dirty = 0 WHERE id = ?', [JSON.stringify(h), a.fileId, a.revision, a.noteText ?? null, a.id])
+        else await run('INSERT INTO annotations (id, book_id, file_id, highlight, revision, note) VALUES (?, ?, ?, ?, ?, ?)', [a.id, a.bookId, a.fileId, JSON.stringify(h), a.revision, a.noteText ?? null])
       }
       if (cursor !== undefined) await setMeta('cursor:annotations', cursor)
     }),

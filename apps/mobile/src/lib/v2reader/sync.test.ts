@@ -1932,4 +1932,141 @@ describe('V2 local library sync (R6)', () => {
       expect(await lib.outbox()).toEqual([])
     })
   })
+
+  // #1312: notes (the host's) ride every write; a removal here is a DELETE; a lost write keeps the server's note
+  // unless this device edited it.
+  describe('notes and removals', () => {
+    const putsOf = (calls: Call[]) => calls.filter((c) => c.method === 'PUT' && c.path === `/annotations/${HL}`).map((c) => c.body)
+
+    it('note_SetHere_WrittenWithTheHighlightOnItsRevision_NoLongerAnEditAfter', async () => {
+      const { lib, bookId, fileId } = await synced()
+      expect(await lib.setNote(HL, 'a thought')).toBe(true)
+      expect(await lib.outbox()).toEqual([expect.objectContaining({ kind: 'annotation', target: HL })])
+      const calls = fakeApi({ [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 2, { noteText: 'a thought' }))] })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(putsOf(calls)).toEqual([expect.objectContaining({ expectedRevision: 1, noteText: 'a thought', color: 'yellow', selectedText: 'bright cold' })])
+      expect(await lib.annotation(HL)).toMatchObject({ revision: 2, note: 'a thought', note_dirty: 0 })
+      expect(await lib.notes(SHA)).toEqual(new Map([[HL, 'a thought']]))
+      expect(await lib.outbox()).toEqual([])
+    })
+
+    it('recolour_ThePulledNoteKept_APutNeverClearsIt', async () => {
+      const { lib, bookId, fileId } = await synced()
+      fakeApi({ 'GET /annotations/changes': feed(serverAnnotation(bookId, fileId, 2, { noteText: 'from the web' })) })
+      await syncV2Library(lib, host())
+      expect(await lib.annotation(HL)).toMatchObject({ note: 'from the web', note_dirty: 0 })
+      await lib.writeEntry(SHA, entry(pos, [{ ...highlight, color: 'green' }]), newId)
+      const calls = fakeApi({ [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 3, { color: 'green', noteText: 'from the web' }))] })
+      await syncV2Library(lib, host())
+      expect(putsOf(calls)).toEqual([expect.objectContaining({ expectedRevision: 2, color: 'green', noteText: 'from the web' })])
+    })
+
+    it('staleRevision_NoteNotEditedHere_TheRetryTakesTheirNote', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.writeEntry(SHA, entry(pos, [{ ...highlight, color: 'pink' }]), newId)
+      const theirs = serverAnnotation(bookId, fileId, 3, { noteText: 'written elsewhere' })
+      const calls = fakeApi({
+        [`PUT /annotations/${HL}`]: [conflict('stale_revision', { revision: 3, current: theirs }), ok(serverAnnotation(bookId, fileId, 4, { color: 'pink', noteText: 'written elsewhere' }))],
+      })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(putsOf(calls).map((b) => [b.expectedRevision, b.color, b.noteText])).toEqual([[1, 'pink', null], [3, 'pink', 'written elsewhere']])
+      expect(await lib.annotation(HL)).toMatchObject({ revision: 4, note: 'written elsewhere' })
+    })
+
+    it('staleRevision_NoteEditedHere_OursReappliedOnce', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.setNote(HL, 'mine')
+      const calls = fakeApi({
+        [`PUT /annotations/${HL}`]: [conflict('stale_revision', { revision: 3, current: serverAnnotation(bookId, fileId, 3, { noteText: 'theirs' }) }), ok(serverAnnotation(bookId, fileId, 4, { noteText: 'mine' }))],
+      })
+      await syncV2Library(lib, host())
+      expect(putsOf(calls).map((b) => [b.expectedRevision, b.noteText])).toEqual([[1, 'mine'], [3, 'mine']])
+      expect(await lib.annotation(HL)).toMatchObject({ revision: 4, note: 'mine', note_dirty: 0 })
+    })
+
+    it('noteEditedWhileItsWriteIsInFlight_StillAnEdit_WrittenNext', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.setNote(HL, 'first')
+      const failing = fakeApi({ [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 2, { noteText: 'first' }))] })
+      const real = globalThis.fetch
+      vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
+        if (init.method === 'PUT') await lib.setNote(HL, 'second')
+        return real(url, init)
+      }))
+      await syncV2Library(lib, host())
+      expect(putsOf(failing)).toHaveLength(1)
+      expect(await lib.annotation(HL)).toMatchObject({ revision: 2, note: 'second', note_dirty: 1 })
+      vi.unstubAllGlobals()
+      const next = fakeApi({ [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 3, { noteText: 'second' }))] })
+      await syncV2Library(lib, host())
+      expect(putsOf(next).map((b) => [b.expectedRevision, b.noteText])).toEqual([[2, 'second']])
+    })
+
+    it('removal_ADeleteNeverAPut_AStoreHoldingItAfterwardsSkipped_TheTombstoneKept', async () => {
+      const { lib, bookId, fileId } = await synced()
+      expect(await lib.removeHighlight(HL, '2026-11-14T00:00:00.000Z')).toBe(true)
+      expect((await restoredEntry(lib)).highlights).toEqual([])
+      // The page's store from before the removal (a recolour) lands after it.
+      await lib.writeEntry(SHA, entry(pos, [{ ...highlight, color: 'blue' }]), newId)
+      expect(await lib.setNote(HL, 'too late')).toBe(false)
+      const tomb = serverAnnotation(bookId, fileId, 2, { deletedAt: '2026-11-14T00:00:01.000Z' })
+      const calls = fakeApi({ [`DELETE /annotations/${HL}`]: [ok(tomb)] })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(writes(calls)).toEqual([`DELETE /annotations/${HL}`])
+      expect(await lib.annotation(HL)).toMatchObject({ revision: 2, deleted_at: '2026-11-14T00:00:01.000Z' })
+      expect(await lib.outbox()).toEqual([])
+      // A pull of their older live row never brings it back.
+      fakeApi({ 'GET /annotations/changes': feed(serverAnnotation(bookId, fileId, 1)) })
+      await syncV2Library(lib, host())
+      expect((await restoredEntry(lib)).highlights).toEqual([])
+    })
+
+    it('removal_PendingWhileAPullBringsItLive_StaysRemoved_DeletedOnPush', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.removeHighlight(HL)
+      const calls = fakeApi({
+        'GET /annotations/changes': feed(serverAnnotation(bookId, fileId, 2, { color: 'green' })),
+        [`DELETE /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 3, { deletedAt: '2026-11-14T00:00:01.000Z' }))],
+      })
+      await syncV2Library(lib, host())
+      expect(writes(calls)).toEqual([`DELETE /annotations/${HL}`])
+      expect((await restoredEntry(lib)).highlights).toEqual([])
+    })
+
+    it('removal_NeverOnTheServer_404_Done_NoPutOfIt', async () => {
+      const { lib, bookId, fileId } = await seeded()
+      await lib.removeHighlight(HL)
+      const calls = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId), 201)],
+        [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 1))],
+        [`DELETE /annotations/${HL}`]: [{ status: 404, body: { code: 'not_found', message: 'not_found' } }],
+      })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(writes(calls)).toEqual([`PUT /books/${bookId}`, `PUT /books/${bookId}/reading-state`, `DELETE /annotations/${HL}`])
+      expect(await lib.outbox()).toEqual([])
+    })
+
+    it('deviceHighlights_LiveOnesOfBooksHereWithTheirNotes_ARemovedOneGone', async () => {
+      const { lib, bookId } = await seeded()
+      await lib.setNote(HL, 'n')
+      expect(await lib.deviceHighlights()).toEqual([{ id: HL, bookId, bookTitle: 'T', text: 'bright cold', color: 'yellow', note: 'n' }])
+      expect(await lib.removeHighlight(HL)).toBe(true)
+      expect(await lib.removeHighlight(HL)).toBe(false)
+      expect(await lib.deviceHighlights()).toEqual([])
+      expect(await lib.notes(SHA)).toEqual(new Map())
+    })
+
+    it('removal_Refused500_KeptQueuedAndRemovedHere_RetriedNextPass', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.removeHighlight(HL)
+      fakeApi({ [`DELETE /annotations/${HL}`]: [{ status: 500 }] })
+      expect(await syncV2Library(lib, host())).toBe('failed')
+      expect(await lib.outbox()).toEqual([expect.objectContaining({ kind: 'annotation', target: HL })])
+      expect((await restoredEntry(lib)).highlights).toEqual([])
+      const calls = fakeApi({ [`DELETE /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 2, { deletedAt: '2026-11-14T00:00:01.000Z' }))] })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(writes(calls)).toEqual([`DELETE /annotations/${HL}`])
+    })
+  })
 })

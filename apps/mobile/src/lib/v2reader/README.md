@@ -337,7 +337,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.â€
 |---|---|
 | `openUrl(url, name)` | Reads the book by XHR (Android: the host's served URL, `bookOrigin.mjs`; web: a `blob:` URL) and opens it, whatever its format (Formats). Answers `opened` or `open-failed`. A second call supersedes the first, which then answers nothing. |
 | `restore(json \| null)` | The answer to `opened`: the JSON last sent in `store` for that `book.sha256`, or null. Its position may be fraction-only, `{ fraction, at }` (a transitional `textstack-*` server locator, #1187), or a PDF page `{ page, index, fraction, at }`. Ignored (a `warn`) unless the view on screen is the one that answered `opened` (not one still opening); answered for the book on screen even while a newer open is being made. Takes its slot in the navigation queue when called: a `goTo` sent after it runs after it. |
-| `addHighlights(list)` | Highlights the host learned after `restore` (the web host draws the server's when their pull lands, #1226): each drawn where its text still is (the restore check), added to the entry, not saved (the host holds them). The reader is not moved. Queued behind the restore. Ignored where `annotatable` is false. Answered by `highlights`. |
+| `addHighlights(list)` | Highlights the host learned after `restore` (the web host draws the server's when their pull lands, #1226): each drawn where its text still is (the restore check), added to the entry, not saved (the host holds them). The reader is not moved. Queued behind the restore. Ignored where `annotatable` is false. Answered by `highlights`, then `highlight-list`. |
 | `highlightSelection(color = 'yellow')` | The live selection becomes a highlight in `color` (#1312: one of `HIGHLIGHT_COLORS`; any other is refused with a `warn`), settled or not, on screen or not, described exactly as a `selection` message for it would be (#1268: its range and text, edge whitespace dropped; the same refusals); with no live selection (a host's button press may collapse it first), the last `selection` sent. Sends `store`, `highlighted` and `highlight-list`. Ignored on a CBZ and a PDF (`annotatable: false`). A selection with no text (an image) or over 4000 UTF-16 units (`SyncLimits.MaxSelectedText`) is ignored with a `warn` log. |
 | `recolorHighlight(id, color)` | #1312: a highlight drawn here takes `color` (one of `HIGHLIGHT_COLORS`): redrawn, saved (`store`), `highlight-list` sent. A colour off the list, an id not drawn here (another book's, one not drawn for its text, one removed), or before `restored`: ignored with a `warn`. The same colour again: nothing. |
 | `removeHighlight(id)` | #1312: a highlight drawn here leaves the entry and the screen (a translation label over the same range stays), saved (`store`), then `highlight-removed` and `highlight-list`. Refused as `recolorHighlight` is. The entry's absence alone is never a delete (`entryChanges` reads a missing highlight as nothing): the host tombstones on `highlight-removed`. |
@@ -570,6 +570,15 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   `note`): a note diffed with the page's form, a removal a `DELETE` before any write of that highlight (a 404, never on
   the server, is done), both retried on the next pass and sent by keepalive on `pagehide`. The dev route keeps notes
   in memory only.
+- *Android*: local first, no token or network on any of it. A new highlight takes the last colour chosen (the legacy
+  bar's one swatch, `lastHighlightColor`'s rule: a colour tap in the editor sets it for the next). The editor is the
+  legacy `HighlightNoteModal`. Notes and removals are rows (`localLibrary.ts`: `note`, `note_dirty`; a removal sets
+  `deleted_at` and queues the row, so restore draws it no more and a later `store` holding it is skipped), written in
+  the page's message order (`hostStorage.ts`, after the queued `store`s). The push (`sync.ts`) sends the note with
+  every write and a DELETE for a removal (404: the server never had it, done); a pull of a live row never undoes a
+  queued removal (the queued-row rule). The list is a sheet (the top bar's Highlights button: signed in, the legacy
+  gate). The highlights screen of a dev build lists this device's V2 highlights (`V2DeviceHighlights`) and opens the dev
+  route at one (`?book=<id>&highlight=<id>`: the book from this device, then the jump once listed).
 
 **Deadlines and states** (#1227, `deadlines.mjs`, one rule for both hosts; the numbers are its named constants):
 
