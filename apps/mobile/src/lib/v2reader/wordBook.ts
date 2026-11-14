@@ -13,7 +13,7 @@ export async function saveWordForBook<T>(
   },
 ): Promise<T> {
   const { save, resolve, isNotFound } = deps
-  const tryWith = async (id: string): Promise<{ saved: T } | null> => {
+  const tryWith = async (id: string | null): Promise<{ saved: T } | null> => {
     try {
       return { saved: await save(id) }
     } catch (e) {
@@ -21,7 +21,6 @@ export async function saveWordForBook<T>(
       throw e
     }
   }
-  if (!bookId) return save(null)
   const first = await tryWith(bookId)
   if (first) return first.saved
   const now = await resolve().catch((e: unknown) => {

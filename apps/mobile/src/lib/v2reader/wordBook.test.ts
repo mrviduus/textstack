@@ -53,8 +53,10 @@ describe('saveWordForBook (#1303)', () => {
 
   it('saveWordForBook_NoId_SavedWithoutABook', async () => {
     const s = server(null)
-    await saveWordForBook(null, { ...s, resolve: async () => 'new' })
+    const resolve = vi.fn(async () => 'new')
+    await saveWordForBook(null, { ...s, resolve })
     expect(s.sent).toEqual([null])
+    expect(resolve).not.toHaveBeenCalled()
   })
 
   it('saveWordForBook_OtherError_RethrownNoFallback', async () => {
