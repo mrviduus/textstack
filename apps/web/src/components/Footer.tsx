@@ -3,7 +3,7 @@ import { useTranslation } from '../hooks/useTranslation'
 import { PLAY_URL } from './AndroidAppBanner'
 
 // The docs site, built from docs/ (#1275).
-const DOCS_URL = 'https://mrviduus.github.io/textstack/'
+const DOCS_URL = 'https://docs.textstack.app/'
 
 export function Footer() {
   const { t } = useTranslation()

@@ -4,7 +4,7 @@ import starlight from '@astrojs/starlight'
 
 export default defineConfig({
   // GitHub Pages serves a project under /<repo>/; a custom domain serves it at /.
-  site: process.env.DOCS_SITE || 'https://mrviduus.github.io',
+  site: process.env.DOCS_SITE || 'https://docs.textstack.app',
   base: process.env.DOCS_BASE || '/',
   integrations: [
     {

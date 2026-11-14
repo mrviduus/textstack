@@ -36,7 +36,8 @@ const sessionRows = (lib: LocalLibrary, id: string) => lib.session(id)
 /** A book opened here; `pushed`: the server holds it (nothing queued). */
 async function library(pushed: boolean) {
   const lib = createLocalLibrary(memoryDb())
-  const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+  await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+  const bookId = (await lib.localBookId(SHA))!
   const fileId = (await lib.book(bookId))!.file_id!
   if (pushed) {
     fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId), 201)] })
@@ -73,7 +74,7 @@ describe('reading sessions on the device (#1313)', () => {
     expect(await lib.outbox()).toEqual([])
   })
 
-  it('session_BookNotOnTheServerYet_TheBookFirst_ThenTheSessionUnderTheIdTheServerGave', async () => {
+  it('sync_BookNotOnTheServerYet_TheBookFirst_ThenTheSessionUnderTheIdTheServerGave', async () => {
     const { lib, bookId, fileId } = await library(false)
     await lib.addSession(SHA, SESSION, newId)
     const [, entry] = await lib.outbox()
@@ -90,7 +91,7 @@ describe('reading sessions on the device (#1313)', () => {
     expect(await lib.outbox()).toEqual([])
   })
 
-  it('session_ItsBookNotPushedThisPass_NotSentBeforeIt', async () => {
+  it('sync_ItsBookNotPushedThisPass_NotSentBeforeIt', async () => {
     const { lib } = await library(false)
     await lib.addSession(SHA, SESSION, newId)
     const calls = fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 500 }] })
@@ -99,7 +100,7 @@ describe('reading sessions on the device (#1313)', () => {
     expect((await lib.outbox()).map((e) => e.kind)).toEqual(['book', 'session'])
   })
 
-  it('session_Offline_KeptQueued_SentOnTheNextPass', async () => {
+  it('sync_Offline_KeptQueued_SentOnTheNextPass', async () => {
     const { lib, bookId } = await library(true)
     await lib.addSession(SHA, SESSION, newId)
     const [entry] = await lib.outbox()
@@ -113,7 +114,7 @@ describe('reading sessions on the device (#1313)', () => {
     expect(await lib.outbox()).toEqual([])
   })
 
-  it('session_BookNotFound_KeptAndTheBookAskedForAgain', async () => {
+  it('sync_BookNotFound_KeptAndTheBookAskedForAgain', async () => {
     const { lib, bookId } = await library(true)
     await lib.addSession(SHA, SESSION, newId)
     const [entry] = await lib.outbox()
@@ -123,7 +124,7 @@ describe('reading sessions on the device (#1313)', () => {
     expect(await sessionRows(lib, entry.target)).not.toBeNull()
   })
 
-  it('session_FailingEveryPass_StopsBeingRetriedAndItsBookSaysNotSynced', async () => {
+  it('sync_FailingEveryPass_StopsBeingRetriedAndItsBookSaysNotSynced', async () => {
     const { lib } = await library(true)
     await lib.addSession(SHA, SESSION, newId)
     const [entry] = await lib.outbox()
@@ -133,7 +134,7 @@ describe('reading sessions on the device (#1313)', () => {
     expect((await lib.books()).map((b) => b.notSynced)).toEqual([CHANGES_NOT_SYNCED])
   })
 
-  it('session_InvalidPayload_DroppedWithItsRow', async () => {
+  it('sync_InvalidPayload_DroppedWithItsRow', async () => {
     const { lib } = await library(true)
     await lib.addSession(SHA, SESSION, newId)
     const [entry] = await lib.outbox()

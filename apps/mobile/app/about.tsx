@@ -6,7 +6,7 @@ import { useLanguage } from '../src/context/LanguageContext'
 import { fonts } from '../src/theme/typography'
 
 const REPO_URL = 'https://github.com/mrviduus/textstack'
-const DOCS_URL = 'https://mrviduus.github.io/textstack/'
+const DOCS_URL = 'https://docs.textstack.app/'
 const SELF_HOST_URL = `${DOCS_URL}self-host/`
 const CONTACT_EMAIL = 'vasyl.vdov@gmail.com'
 
