@@ -39,7 +39,7 @@ export interface LocalLibrary {
   books(): Promise<LibraryBook[]>
   hasLocalBytes(sha256: string): Promise<boolean>
   localBookId(sha256: string): Promise<string | null>
-  addOpened(b: { sha256: string; size: number; title: string; author: string; originalName: string; format: string | null }, newId: () => string): Promise<string>
+  addOpened(b: { sha256: string; size: number; title: string; author: string; originalName: string; format: string | null }, newId: () => string): Promise<void>
   readEntry(sha256: string): Promise<string | null>
   writeEntry(sha256: string, json: string, newId: () => string): Promise<void>
   finish(sha256: string): Promise<boolean>
@@ -127,13 +127,14 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
     books: (): Promise<LibraryBook[]> => afterMigration(() => lib.books()),
 
     /**
-     * The opened file into the library; resolves to the retained file and the library's books. A staged file becomes the retained copy unless those bytes are already
-     * retained. The copy lands before the row, so a kill between the two leaves a file that the next
-     * import of the same bytes adopts, never a row without its file. A failed row write removes the
-     * copy this call moved unless the library lists those bytes (the transaction left no row naming it).
-     * The session the open started in must still be current when the row is queued — checked in the
-     * tick it is queued, so a sign-out's wipe (queued after its epoch bump) either deletes the row with
-     * the file or never sees it (#1070).
+     * The opened file into the library; resolves to the retained file and the library's books. A
+     * staged file becomes the retained copy unless those bytes are already retained. The copy lands
+     * before the row, so a kill between the two leaves a file that the next import of the same bytes
+     * adopts, never a row without its file. A failed row write removes the copy this call moved unless
+     * the library lists those bytes (the transaction left no row naming it). The session the open
+     * started in must still be current when the row is queued — checked in the tick it is queued, so a
+     * sign-out's wipe (queued after its epoch bump) either deletes the row with the file or never sees
+     * it (#1070).
      */
     addOpened: (book: { sha256: string; size: number; title: string; author: string; originalName: string; format?: string | null }, staged: string | null) => {
       const over = sessionSince()

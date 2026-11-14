@@ -472,12 +472,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     savingWords.current.add(key)
     const body = { word: p.word, language: textLang, nativeLanguage, sentence: p.sentence || null, bookTitle: bookTitle.current }
     try {
-      // The open book's id from the list in memory; a re-key since then is asked of the row on `book_not_found`
-      // only (wordBook.ts, #1303). A book the server does not have (not synced yet): the word is saved without it.
+      // The open book's id from the list in memory, else from its row; a re-key since then is asked of the row on
+      // `book_not_found` (wordBook.ts, #1303). A book the server does not have: the word is saved without it.
       const sha = openShaRef.current
-      let bookId: string | null = null
-      const resp = await saveWordForBook(openBook?.id ?? null, {
-        save: (id) => { bookId = id; return saveWordWithRetry(id ? { ...body, userBookId: id } : body) },
+      const { saved: resp, bookId } = await saveWordForBook(openBook?.id ?? null, {
+        save: (id) => saveWordWithRetry(id ? { ...body, userBookId: id } : body),
         resolve: () => (sha ? v2Storage().bookIdOf(sha) : Promise.resolve(null)),
         isNotFound: (e) => v2Api.v2ErrorOf(e)?.code === 'book_not_found',
       })
@@ -682,12 +681,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // The page shows this book now: its title before any await, so a failed read below leaves no "Opening …".
     setHeading([m.title || current.name, m.author].filter(Boolean).join(' — '))
     bookTitle.current = m.title || current.name
-    // The bytes on screen are this book's from here on (a word saved, Finish shown before its row lands), even if
-    // addOpened fails. A key that is no sha256 throws here, as readStore would.
-    setOpenSha(sha256Key(m.book.sha256))
     const stored = await s.readStore(m.book.sha256)
     if (superseded()) return
     call(`window.__fol.restore(${JSON.stringify(stored)})`)
+    // From here a sync pass matches this book by its bytes (openBookHost), even if addOpened fails. Only after the
+    // restore is posted: the page runs navigations in order, so a sync's goTo for this book can only follow it.
+    setOpenSha(sha256Key(m.book.sha256))
     const { retained, books } = await s.addOpened(
       { ...m.book, title: m.title, author: m.author, originalName: current.name, format: m.format ?? null },
       isStaged(current.file) ? current.file : null,

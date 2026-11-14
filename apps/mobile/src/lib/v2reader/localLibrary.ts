@@ -400,27 +400,26 @@ export function createLocalLibrary(db: Db) {
      * The opened file as a book: identical bytes are the existing book (its format learned if it was
      * not known; a parked book whose format changed is sent again); bytes a pulled book has (Story B4:
      * imported on another device) become that book with its ids; else a new book with new v4 ids,
-     * queued for the server.
+     * queued for the server. Its id is `localBookId(sha256)` (a sync may change it, #1303).
      */
     addOpened: (b: { sha256: string; size: number; title: string; author: string; originalName: string; format: string | null }, newId: () => string, now = Date.now()) =>
-      tx(async () => {
+      tx(async (): Promise<void> => {
         const existing = await bookBySha(b.sha256)
         if (existing) {
           await run('UPDATE books SET opened_at = ?, format = COALESCE(?, format) WHERE id = ?', [now, b.format, existing.id])
           if (existing.blocked && b.format && b.format !== existing.format) await unblock(existing.id)
-          return existing.id
+          return
         }
         const pulled = await one<BookRow>('SELECT * FROM books WHERE imported_at IS NULL AND server_sha256 = ? AND server_size = ?', [b.sha256, b.size])
         if (pulled) {
           await importServerCopy(pulled.id, b.format, now, now)
-          return pulled.id
+          return
         }
         const id = newId()
         await run('INSERT INTO books (id, title, author, original_name, file_id, sha256, size, format, imported_at, opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
           id, b.title.trim() || b.originalName.replace(/\.[a-z0-9]+$/i, ''), b.author.trim(), b.originalName, newId(), b.sha256, b.size, b.format, now, now,
         ])
         await enqueue('book', id)
-        return id
       }),
 
     /** The page's entry for these bytes, rebuilt from the rows (null: no such book). Only highlights drawn in this file version. */
