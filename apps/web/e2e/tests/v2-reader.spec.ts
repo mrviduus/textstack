@@ -115,7 +115,8 @@ async function firstParagraphWords(page: Page) {
 async function blankCentrePoint(page: Page) {
   const { width, height } = page.viewportSize()!
   for (const f of page.frames().filter((x) => x.url().startsWith('blob:'))) {
-    const box = await (await f.frameElement()).boundingBox().catch(() => null)
+    // A frame can detach mid-loop (a section unloaded): skip it.
+    const box = await f.frameElement().then((e) => e.boundingBox()).catch(() => null)
     if (!box) continue
     const p = await f.evaluate(({ ox, oy, width, height }) => {
       const boxes: DOMRect[] = []
@@ -471,7 +472,8 @@ test.describe('V2 reader page @v2', () => {
     const centreWord = async () => {
       const width = page.viewportSize()!.width
       for (const f of page.frames().filter((x) => x.url().startsWith('blob:'))) {
-        const box = await (await f.frameElement()).boundingBox().catch(() => null)
+        // A frame can detach mid-loop (a section unloaded after a reload): skip it.
+        const box = await f.frameElement().then((e) => e.boundingBox()).catch(() => null)
         if (!box) continue
         const w = await f.evaluate(({ text, ox, lo, hi }) => {
           const node = Array.from(document.querySelectorAll('p')).find((x) => x.textContent?.includes(text))?.firstChild as Text | undefined

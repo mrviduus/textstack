@@ -428,11 +428,15 @@ try {
       let rel = await waitFor(at, (x) => x.type === 'relocate' && x.index === 1, 'the last section, scrolled').catch(() => null)
       check(rel?.atEnd === false, `scrolled: the top of a long last section is not the end (${rel?.atEnd})`)
       await page.mouse.move(640, 360)
-      // The first scroll after a navigation sends no relocate (foliate's `#justAnchored`, README): spent here.
-      await page.mouse.wheel(0, 100)
-      await page.waitForTimeout(600)
+      // #1297: right after the jump, ONE continuous scroll to the bottom (wheel steps closer than the paginator's
+      // 250 ms scroll debounce), then stop: it sends a relocate with the new place, the reader's move.
+      const jumped = rel
+      const scrolled = messages.length
       for (let k = 0; k < 40; k++) { await page.mouse.wheel(0, 2000); await page.waitForTimeout(60) }
       await page.waitForTimeout(1200)
+      const moves = messages.slice(scrolled).filter((x) => x.type === 'relocate')
+      check(moves.some((x) => x.moved === true && x.index === 1 && x.cfi && x.cfi !== jumped?.cfi),
+        `scrolled: one continuous scroll right after a jump sends the new place, moved (${JSON.stringify(moves.map((x) => [x.moved, x.cfi]))} from ${jumped?.cfi})`)
       rel = lastRel(at)
       check(rel?.atEnd === true && readRelocate(rel)?.atEnd === true && rel.fraction < 1, `scrolled: its bottom is the end, with a fraction under 1 (${rel?.atEnd}, ${rel?.fraction})`)
       // Paginated flow: only the last page of the last section.
@@ -659,17 +663,13 @@ try {
       check(rels(from).length > 0 && rels(from).every((x) => x.moved === false), `a resize: moved: false (${rels(from).map((x) => x.moved)})`)
       await page.setViewportSize({ width: 1280, height: 720 })
       await page.waitForTimeout(1000)
-      // foliate's scrolled paginator sends no relocate at all for the first scroll after an anchored re-layout
-      // (`#justAnchored`, known: README): the scroll after it is the reader's move.
+      // #1297: the first scroll after an anchored re-layout is the reader's move (the fork's `#justAnchored`
+      // swallows only the anchoring's own scroll).
       await page.mouse.move(640, 360)
       from = messages.length
       await page.mouse.wheel(0, 400)
       await page.waitForTimeout(1200)
-      const swallowed = rels(from).length
-      from = messages.length
-      await page.mouse.wheel(0, 400)
-      await page.waitForTimeout(1200)
-      check(rels(from).some((x) => x.moved === true), `a scroll in scrolled flow: moved: true (${rels(from).map((x) => x.moved)}; the first scroll after the re-layout sent ${swallowed} relocates)`)
+      check(rels(from).some((x) => x.moved === true), `the first scroll after a re-layout in scrolled flow: moved: true (${rels(from).map((x) => x.moved)})`)
       await call('window.__fol.font(-1)')
       call('window.__fol.flow("paginated")')
     }

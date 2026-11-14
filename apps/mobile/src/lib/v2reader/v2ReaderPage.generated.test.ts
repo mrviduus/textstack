@@ -70,6 +70,9 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toMatch(/requestAnimationFrame\(\(\) => \{\s*if \(this\.#view\) this\.#background\.style\.background = getBackground\(this\.#view\.document\);\s*\}\);/)
     // Fork commit 73d4259 (#1291): afterScroll does nothing once destroy() nulled the view.
     expect(html).toMatch(/#afterScroll\(reason\) \{\s*if \(!this\.#view\) return;/)
+    // Fork commit fe04665 (#1297): justAnchored swallows only the anchoring's own scroll (its offset), not the reader's next one.
+    expect(html).toContain('const anchored = this.#justAnchored === this.#container[this.scrollProp];')
+    expect(html).toContain('else this.#justAnchored = this.#container[this.scrollProp];')
     expect(html).toContain('var flow = "paginated";')
     expect(html).not.toContain('reproRenderDuringLoad')
     expect(html).not.toContain('currentView')
