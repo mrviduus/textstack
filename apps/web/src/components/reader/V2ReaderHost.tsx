@@ -499,7 +499,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           call('flow', [flowRef.current])
           call('settings', [settingsRef.current])
           ready.current = true
-          sendMarks()
+          // A fresh frame holds no words: sent only when there are some.
+          if (marks.current.words.length) sendMarks()
           flushOpen()
           return
         case 'opened': {
@@ -849,7 +850,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           bookTitle={vocabBook?.title}
           onHighlight={offersHighlights ? (color) => call('highlightSelection', [color]) : undefined}
           highlight={editor}
-          onMarks={(words) => { marks.current = { ...marks.current, words }; sendMarks() }}
+          onMarks={(words) => {
+            // None over none changes nothing on the page.
+            if (!words.length && !marks.current.words.length) return
+            marks.current = { ...marks.current, words }
+            sendMarks()
+          }}
           onClose={closePopup}
         />
       )}

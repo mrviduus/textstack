@@ -42,7 +42,17 @@ describe('V2ReaderHost saved-word marks', () => {
   it('vocabulary_Changes_SentToThePage_WithTheSetting', () => {
     opened()
     act(() => onMarks!(WORDS))
-    expect(marksSent().at(-1)).toEqual([WORDS, true])
+    expect(marksSent()[marksSent().length - 1]).toEqual([WORDS, true])
+  })
+
+  it('noWords_NothingSent_WordsThenNone_TheNoneIsSent', () => {
+    opened()
+    act(() => onMarks!([]))
+    fromPage({ type: 'ready' })
+    expect(marksSent()).toEqual([])
+    act(() => onMarks!(WORDS))
+    act(() => onMarks!([]))
+    expect(marksSent()).toEqual([[WORDS, true], [[], true]])
   })
 
   it('newFrame_Ready_TheWordsHeldAreSentAgain', () => {
@@ -57,7 +67,7 @@ describe('V2ReaderHost saved-word marks', () => {
     localStorage.setItem(LEGACY, JSON.stringify({ fontSize: 22, showInlineTranslations: false }))
     opened()
     act(() => onMarks!(WORDS))
-    expect(marksSent().at(-1)).toEqual([WORDS, false])
+    expect(marksSent()[marksSent().length - 1]).toEqual([WORDS, false])
   })
 
   it('toggle_SentLive_StoredInTheLegacySetting_OtherFieldsKept', () => {

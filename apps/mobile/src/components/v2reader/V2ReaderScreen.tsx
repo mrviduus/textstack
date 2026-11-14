@@ -854,7 +854,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           call(`window.__fol.flow(${JSON.stringify(f)})`)
           call(`window.__fol.settings(${JSON.stringify(readSettings(chosen))})`)
           ready.current = true
-          sendMarks()
+          // A fresh page holds no words: sent only when there are some.
+          if (vocab.current.length) sendMarks()
           if (reopensOnReady({ opening: opening.current, inBook: inBookRef.current })) open(opening.current!)
           else if (opening.current) endBook() // closed while the page was gone: its book-closed never came
         })
