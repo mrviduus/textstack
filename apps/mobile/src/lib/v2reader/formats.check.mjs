@@ -1834,6 +1834,48 @@ try {
   const drawnBack = await call('window.__fol.drawnRanges()')
   check(drawnHere >= 3 && drawnAway === 0 && drawnBack === drawnHere, `a section's highlight ranges go with it and come back with it (${drawnHere} → ${drawnAway} → ${drawnBack})`)
 
+  // #1272: the range the host speaks is underlined (SPOKEN_FILL) until the host says it ended; one at a time; a
+  // highlight over the same range stays when the mark goes.
+  console.log('spoken range')
+  const SPOKEN = '#7c3aed'
+  const rangeOf = (w) => call(`(() => {
+    const v = document.querySelector('foliate-view')
+    const c = v.renderer.getContents().find((x) => x.doc.querySelector('p'))
+    const t = c.doc.querySelector('p').firstChild, i = t.data.indexOf(${JSON.stringify(w)})
+    const r = c.doc.createRange(); r.setStart(t, i); r.setEnd(t, i + ${w.length})
+    return { cfi: v.getCFI(c.index, r), index: c.index }
+  })()`)
+  const spokenFills = async () => (await fills()).filter((f) => f === SPOKEN).length
+  const blue = (list) => list.filter((f) => f === '#60a5fa').length
+  const blueBefore = blue(await fills())
+  const judgeRange = await rangeOf('judge')
+  check(await call(`window.__fol.speaking(${JSON.stringify(judgeRange.cfi)}, ${judgeRange.index})`) === true, 'speaking(cfi, index) marks the spoken range')
+  await page.waitForTimeout(300)
+  check(await spokenFills() === 1, `it is drawn, underlined (${JSON.stringify(await fills())})`)
+  // The pink-then-blue highlight's own range (its CFI): one overlay carries both decorations.
+  const quartzHl = await rangeOf('quartz')
+  call(`window.__fol.speaking(${JSON.stringify(quartzHl?.cfi)}, ${quartzHl?.index})`)
+  await page.waitForTimeout(300)
+  const overHl = await fills()
+  check(overHl.filter((f) => f === SPOKEN).length === 1 && blue(overHl) === blueBefore, `a new one replaces it, a highlight under it stays drawn (${JSON.stringify(overHl)})`)
+  // The highlight under the mark removed: the mark stays.
+  call(`window.__fol.removeHighlight(${JSON.stringify(pink?.id)})`)
+  await page.waitForTimeout(400)
+  const hlGone = await fills()
+  check(hlGone.filter((f) => f === SPOKEN).length === 1 && blue(hlGone) === blueBefore - 1, `a highlight removed under it leaves the mark (${JSON.stringify(hlGone)})`)
+  from = messages.length
+  check(await call('window.__fol.speaking(null)') === false, 'speaking(null) ends it')
+  await page.waitForTimeout(300)
+  const afterEnd = await fills()
+  check(!afterEnd.includes(SPOKEN) && blue(afterEnd) === blueBefore - 1 && blueBefore >= 2 && storesFrom(from).length === 0, `cleared, the other highlights kept, nothing saved (${JSON.stringify(afterEnd)})`)
+  check(await call(`window.__fol.speaking('not a cfi', 0)`) === false && messages.slice(from).some((x) => x.type === 'log' && /speaking ignored/.test(x.msg)) && await spokenFills() === 0,
+    'a value that is no range CFI is ignored with a warn')
+  call(`window.__fol.speaking(${JSON.stringify(judgeRange.cfi)}, ${judgeRange.index})`)
+  await page.waitForTimeout(300)
+  m = await open('tsformat.fb2', byFraction(null))
+  await page.waitForTimeout(300)
+  check(await spokenFills() === 0, 'a new open leaves no spoken mark behind')
+
   // #1271: saved-word marks, drawn by the page from the host's list, one section at a time.
   console.log('saved-word marks')
   const judgeHl = await call(`(() => {
@@ -1921,48 +1963,6 @@ try {
   await page.waitForTimeout(300)
   check(await call('window.__fol.markedWords()') === 0, 'a CBZ draws no marks')
   call('window.__fol.markWords([], false)')
-
-  // #1272: the range the host speaks is underlined (SPOKEN_FILL) until the host says it ended; one at a time; a
-  // highlight over the same range stays when the mark goes.
-  console.log('spoken range')
-  const SPOKEN = '#7c3aed'
-  const rangeOf = (w) => call(`(() => {
-    const v = document.querySelector('foliate-view')
-    const c = v.renderer.getContents().find((x) => x.doc.querySelector('p'))
-    const t = c.doc.querySelector('p').firstChild, i = t.data.indexOf(${JSON.stringify(w)})
-    const r = c.doc.createRange(); r.setStart(t, i); r.setEnd(t, i + ${w.length})
-    return { cfi: v.getCFI(c.index, r), index: c.index }
-  })()`)
-  const spokenFills = async () => (await fills()).filter((f) => f === SPOKEN).length
-  const blue = (list) => list.filter((f) => f === '#60a5fa').length
-  const blueBefore = blue(await fills())
-  const judgeRange = await rangeOf('judge')
-  check(await call(`window.__fol.speaking(${JSON.stringify(judgeRange.cfi)}, ${judgeRange.index})`) === true, 'speaking(cfi, index) marks the spoken range')
-  await page.waitForTimeout(300)
-  check(await spokenFills() === 1, `it is drawn, underlined (${JSON.stringify(await fills())})`)
-  // The pink-then-blue highlight's own range (its CFI): one overlay carries both decorations.
-  const quartzHl = await rangeOf('quartz')
-  call(`window.__fol.speaking(${JSON.stringify(quartzHl?.cfi)}, ${quartzHl?.index})`)
-  await page.waitForTimeout(300)
-  const overHl = await fills()
-  check(overHl.filter((f) => f === SPOKEN).length === 1 && blue(overHl) === blueBefore, `a new one replaces it, a highlight under it stays drawn (${JSON.stringify(overHl)})`)
-  // The highlight under the mark removed: the mark stays.
-  call(`window.__fol.removeHighlight(${JSON.stringify(pink?.id)})`)
-  await page.waitForTimeout(400)
-  const hlGone = await fills()
-  check(hlGone.filter((f) => f === SPOKEN).length === 1 && blue(hlGone) === blueBefore - 1, `a highlight removed under it leaves the mark (${JSON.stringify(hlGone)})`)
-  from = messages.length
-  check(await call('window.__fol.speaking(null)') === false, 'speaking(null) ends it')
-  await page.waitForTimeout(300)
-  const afterEnd = await fills()
-  check(!afterEnd.includes(SPOKEN) && blue(afterEnd) === blueBefore - 1 && blueBefore >= 2 && storesFrom(from).length === 0, `cleared, the other highlights kept, nothing saved (${JSON.stringify(afterEnd)})`)
-  check(await call(`window.__fol.speaking('not a cfi', 0)`) === false && messages.slice(from).some((x) => x.type === 'log' && /speaking ignored/.test(x.msg)) && await spokenFills() === 0,
-    'a value that is no range CFI is ignored with a warn')
-  call(`window.__fol.speaking(${JSON.stringify(judgeRange.cfi)}, ${judgeRange.index})`)
-  await page.waitForTimeout(300)
-  m = await open('tsformat.fb2', byFraction(null))
-  await page.waitForTimeout(300)
-  check(await spokenFills() === 0, 'a new open leaves no spoken mark behind')
 
   // A fixed-layout book (CBZ) lands a fraction on its page, quietly too, and saves its page once moved.
   m = await open('tsformat.cbz', JSON.stringify({ v: 1, book: cbzBook, highlights: [], position: { fraction: 0.9, at: 1 } }))
