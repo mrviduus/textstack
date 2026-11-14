@@ -259,10 +259,7 @@
     },
     "idbUnavailable": "Can't save offline here. Tap to create a free account and keep your words.",
     "vocab": {
-      "tapAgainToStudy": "Tap again to study ({{n}} left)",
-      "deletedEarlier": "You deleted “{{word}}” earlier.",
-      "restore": "Restore",
-      "restoreFailed": "Couldn't restore the word. Try again."
+      "tapAgainToStudy": "Tap again to study ({{n}} left)"
     }
   },
   "auth": {
@@ -502,6 +499,11 @@
     "newerPlace": "Another device saved a newer place in this book ({{percent}}%).",
     "stayHere": "Stay here",
     "goThere": "Go to their place",
+    "finishBook": "Finish book",
+    "finishing": "Saving…",
+    "finished": "You finished this book.",
+    "finishFailed": "Could not mark the book as finished. Check your connection and try again.",
+    "finishNoPlace": "Your place in this book is not saved yet. Turn a page or scroll a little, then try again.",
     "back": "Back to the library",
     "settings": "Reading settings",
     "settingsClose": "Close reading settings",
@@ -526,7 +528,8 @@
     "contents": "Contents",
     "closeContents": "Close contents",
     "prevSection": "Previous section: {{title}}",
-    "nextSection": "Next section: {{title}}"
+    "nextSection": "Next section: {{title}}",
+    "translationFailed": "Could not translate this word."
   },
   "library": {
     "continue": "Continue",

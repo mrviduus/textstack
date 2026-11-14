@@ -55,7 +55,8 @@ interface WordPopupProps {
   definitionLoading: boolean
   rect: DOMRect | null
   containerRef: React.RefObject<HTMLElement | null>
-  onSpeak: () => void
+  /** Absent: no speaker (the V2 reader until its TTS slice). */
+  onSpeak?: () => void
   onRemove?: () => void
   onClose: () => void
   isSaved: boolean
@@ -434,7 +435,7 @@ export function WordPopup({
       )}
 
       <div className="word-popup__actions">
-        <SpeakButton onClick={onSpeak} size={16} />
+        {onSpeak && <SpeakButton onClick={onSpeak} size={16} />}
         {isSaved && (
           <span className="word-popup__saved-status" aria-live="polite">
             <span className="material-icons-outlined" aria-hidden="true">check</span>

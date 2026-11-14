@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   BOOK_CLOSED, CLOSE_BOOK_JS, HOST_MOVE_GRACE_MS, NAV_KEYS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, navKey,
-  readDir, readKey, readRelocate, readTap, readWordTap, reopensOnReady, takenWithoutBook,
+  readDir, readKey, readRelocate, readTap, reopensOnReady, takenWithoutBook,
 } from './chrome.mjs'
 import { MAX_SELECTION_PX } from './selection.mjs'
 
@@ -184,25 +184,6 @@ describe('v2 reader relocate read for the chrome (hostile payloads)', () => {
     expect(readRelocate({ type: 'relocate', moved })?.moved).toBe(false)
   })
 
-  it('readWordTap_CentreOfTheRect', () => {
-    expect(readWordTap({ type: 'word', word: 'a', rect: { x: 300, y: 100, w: 40, h: 20 } })).toEqual({ x: 320, y: 110 })
-  })
-
-  it.each([
-    ['another type', { type: 'tap', rect: { x: 1, y: 1, w: 1, h: 1 } }],
-    ['no rect', { type: 'word' }],
-    ['rect a string', { type: 'word', rect: 'x' }],
-    ['x NaN', { type: 'word', rect: { x: NaN, y: 1, w: 1, h: 1 } }],
-    ['w missing', { type: 'word', rect: { x: 1, y: 1, h: 1 } }],
-    ['w negative', { type: 'word', rect: { x: 1, y: 1, w: -1, h: 1 } }],
-    ['x past its bound', { type: 'word', rect: { x: MAX_SELECTION_PX + 1, y: 1, w: 1, h: 1 } }],
-    ['w past its bound (centre inside)', { type: 'word', rect: { x: 0, y: 1, w: MAX_SELECTION_PX + 1, h: 1 } }],
-    ['null', null],
-  ])('readWordTap_%s_Dropped', (_, m) => {
-    expect(() => readWordTap(m)).not.toThrow()
-    expect(readWordTap(m)).toBeNull()
-  })
-
   it.each([
     ['a toc object', { toc: { a: 1 } }, { toc: '' }],
     ['a toc index', { tocIndex: 2 }, { tocIndex: 2 }],
@@ -285,5 +266,8 @@ describe('v2 reader Android back order (#1264)', () => {
     expect(backAction({ offer: true, reading: false })).toBe('close-offer')
     expect(backAction({ offer: false, reading: true })).toBe('close-book')
     expect(backAction({ offer: false, reading: false })).toBe('leave')
+    // #1269: the popup closes before the book, after the offer.
+    expect(backAction({ offer: false, popup: true, reading: true })).toBe('close-popup')
+    expect(backAction({ offer: true, popup: true, reading: true })).toBe('close-offer')
   })
 })

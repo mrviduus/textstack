@@ -18,7 +18,8 @@ interface TranslationSheetProps {
   sentence?: string
   bookId?: string
   onClose: () => void
-  onSpeak: (text: string) => void
+  /** Absent: no speaker (the V2 reader until its TTS slice, #1272). */
+  onSpeak?: (text: string) => void
   /**
    * Override the source language (book language). Falls back to the UI
    * reading language from `useLanguage()` when omitted.
@@ -104,13 +105,15 @@ export function TranslationSheet({ visible, text, sentence, bookId, onClose, onS
             <View style={styles.textBlock}>
               <View style={styles.langRow}>
                 <Text style={[styles.langLabel, { color: colors.primary }]}>{fromLabel}</Text>
-                <TouchableOpacity
-                  onPress={() => onSpeak(text)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Pronounce in ${fromLabel}`}
-                >
-                  <Ionicons name="volume-high-outline" size={20} color={colors.primary} />
-                </TouchableOpacity>
+                {onSpeak && (
+                  <TouchableOpacity
+                    onPress={() => onSpeak(text)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Pronounce in ${fromLabel}`}
+                  >
+                    <Ionicons name="volume-high-outline" size={20} color={colors.primary} />
+                  </TouchableOpacity>
+                )}
               </View>
               <Text
                 style={[styles.originalText, { color: colors.text }]}

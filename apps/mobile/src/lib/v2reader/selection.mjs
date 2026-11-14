@@ -49,8 +49,14 @@ export function readSelection(m) {
   if (!str(text, MAX_SELECTED_TEXT) || !/\S/.test(text)) return null
   if (!str(sentence, MAX_SELECTION_SENTENCE)) return null
   if (cfi !== null && !(str(cfi, MAX_SELECTION_CFI) && cfi.startsWith('epubcfi('))) return null
+  const r = readRect(rect)
+  return r && { index, text, cfi, sentence, tooLong: text.length > SELECTION_MAX_CHARS, rect: r }
+}
+
+/** A box in page-viewport px, `{ x, y, w, h }` fresh, or null: |x|, |y| over MAX_SELECTION_PX, w or h negative or over it, not a number. */
+export function readRect(rect) {
   if (!rect) return null   // a primitive has no x, y, w, h below
   const { x, y, w, h } = rect
   if (!px(x, -MAX_SELECTION_PX) || !px(y, -MAX_SELECTION_PX) || !px(w, 0) || !px(h, 0)) return null
-  return { index, text, cfi, sentence, tooLong: text.length > SELECTION_MAX_CHARS, rect: { x, y, w, h } }
+  return { x, y, w, h }
 }

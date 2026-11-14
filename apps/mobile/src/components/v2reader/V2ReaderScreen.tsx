@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import { BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Stack } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { placeTimeLeftLabel, timeLeftAt, type OpenReader, type PagePosition, type V2ClientFormat } from '@textstack/shared'
+import { placeTimeLeftLabel, timeLeftAt, v2Api, type OpenReader, type PagePosition, type V2ClientFormat } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
@@ -25,10 +25,25 @@ import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue 
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
 import {
-  BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readRelocate, readTap, readWordTap,
+  BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readRelocate, readTap,
   reopensOnReady, takenWithoutBook,
 } from '../../lib/v2reader/chrome.mjs'
-import { tapAction } from '../../lib/v2reader/tapZone.mjs'
+import { showsFinishBook } from '../../lib/v2reader/finishBook.mjs'
+import { V2FinishBook } from './V2FinishBook'
+import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../lib/v2reader/wordPopup.mjs'
+import { readerTextLanguage } from '../../lib/bookLanguage'
+import { saveOutcome, savesWords } from '../../lib/v2reader/vocabSave.mjs'
+import { vocabularyApi } from '../../lib/vocabularyApi'
+import { fillSavedTranslation, saveWordWithRetry } from '../../lib/savedWord'
+import { vocabMapKey } from '../../lib/vocabMapKey'
+import { saveWordIntent } from '../../lib/saveWordIntent'
+import { claimGuestNudge } from '../../lib/guestNudge'
+import { useToast } from '../../context/ToastContext'
+import { useHaptics } from '../../hooks/useHaptics'
+import { useNativeLanguage } from '../../context/NativeLanguageContext'
+import { SelectionActionBar } from '../SelectionActionBar'
+import { TranslationSheet } from '../TranslationSheet'
+import { ExplanationSheet } from '../ExplanationSheet'
 import { readToc, tocAround, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
 import { V2SectionNav, V2TocSheet } from './V2ReaderToc'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
@@ -226,7 +241,7 @@ const FLUSH_JS = 'window.__fol && window.__fol.flush();true'
 /** `verdict` other than `ok` (no or no readable answer yet): an old WebView is a likely cause of a missed `ready`. */
 function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; onUserAgent: (ua: unknown) => void }) {
   const { colors, isDark } = useTheme()
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const webView = useRef<WebView>(null)
   const [nonce, setNonce] = useState(freshNonce)
   // The base URL arms the patched WebView's book interceptor (bookOrigin.mjs) and gives the page that https origin.
@@ -243,6 +258,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   useEffect(() => { storedFlow().then(setFlow) }, [])
   /** False for a fixed-layout book (CBZ): flow changes nothing there, so the toggle is off. */
   const [reflowable, setReflowable] = useState(true)
+  /** Finish book (#1266): the book's end is on screen (`relocate.atEnd`), and the open book's format (`opened`). */
+  const [atEnd, setAtEnd] = useState(false)
+  const [format, setFormat] = useState<string | null>(null)
   /** The reading settings (#1260): sent whole on `ready` and on every change; the theme colours the bars. */
   const { settings, update: updateSettings } = useV2Settings()
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -268,8 +286,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const userId = user?.id ?? null
   /** The direction the open book pages in (`opened`, then every `relocate`): the keys and the tap zones follow it. */
   const pageDir = useRef<'ltr' | 'rtl'>('ltr')
-  /** The open book as ADR-019 sees it (R6): its row, and whether the reader moved since the restore (movedTracker.mjs). */
-  const reading = useRef({ bookId: null as string | null })
+  /**
+   * The open book as ADR-019 sees it (R6): its row, and whether the reader moved since the restore (movedTracker.mjs).
+   * `sha256`: its bytes, the key Finish book uses (#1266): a sync can re-key the row while it is read.
+   */
+  const reading = useRef({ bookId: null as string | null, sha256: null as string | null })
   const [place] = useState(createMovedTracker)
   /** The open book's contents (#1261, toc.mjs); the reader's place in them as of the last relocate, read when the sheet opens. */
   const [toc, setToc] = useState<V2TocEntry[]>([])
@@ -291,6 +312,20 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     inBookRef.current = v
     setInBook(v)
   }
+  /**
+   * The word popup or selection toolbar (#1269, wordPopup.mjs `popupStep`, the web host's rule); the ref for the
+   * message handler, set with the state. The sheet a toolbar button opened, with the text it acts on. The open book's
+   * language (`opened.lang`, else the app's, as the legacy reader) and whether it takes highlights.
+   */
+  const [popup, setPopupState] = useState<V2Popup | null>(null)
+  const popupRef = useRef<V2Popup | null>(null)
+  const setPopup = (p: V2Popup | null) => {
+    popupRef.current = p
+    setPopupState(p)
+  }
+  const [sheet, setSheet] = useState<{ kind: 'translate' | 'explain'; text: string; sentence: string } | null>(null)
+  const [bookLang, setBookLang] = useState<string | null>(null)
+  const [annotatable, setAnnotatable] = useState(true)
   /** Counts opens: each one shows the bars and re-arms their auto-hide, also when replayed in the book. */
   const [opens, setOpens] = useState(0)
   /** The flow the book pages by: a fixed-layout book pages whatever the setting. */
@@ -344,25 +379,144 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const endBook = () => {
     opening.current = null
     reading.current.bookId = null
+    reading.current.sha256 = null
     place.open()
     setReflowable(true)
+    setAtEnd(false)
     pageDir.current = 'ltr'
     setProgress.current(null)
     clearToc()
+    setPopup(null)
     setOffer(null)
     setHeading(IDLE_HEADING)
   }
 
   /**
-   * A `tap` (never a link or a press that dismissed a selection: the page sends none for those), or a `word` at its
-   * rect's centre: an edge turns the page, the centre toggles the bars (tapZone.mjs). A fixed-layout book pages
-   * whatever the flow setting.
+   * A `tap` (never a link or a press that dismissed a selection: the page sends none for those), a `word` or a
+   * selection (validated): what is open and what the tap zones do (wordPopup.mjs `popupStep`): an edge turns the page,
+   * a word elsewhere opens its popup, the centre toggles the bars. A fixed-layout book pages whatever the flow setting.
    */
-  const onTap = (p: { x: number; y: number } | null) => {
-    const action = tapAction({ x: p?.x, width: pageWidth.current, flow: effectiveFlow, dir: pageDir.current })
-    if (action === 'toggle') return toggleBars()
-    call(`window.__fol.${action}()`)
+  const onPopupEvent = (e: V2PopupEvent) => {
+    const { popup: next, turn } = popupStep(popupRef.current, e, { width: pageWidth.current, flow: effectiveFlow, dir: pageDir.current })
+    setPopup(next)
+    if (turn === 'toggle') return toggleBars()
+    if (!turn) return
+    call(`window.__fol.${turn}()`)
     hideBars()
+  }
+  /** The bar closed (its ×, Copy, back, Escape); a selection's goes in the page too (clearSelection, as the web host). */
+  const closePopup = () => {
+    if (popupRef.current?.kind === 'selection') call('window.__fol.clearSelection()')
+    setPopup(null)
+  }
+  /**
+   * Saving a word (#1270): the legacy reader's Save, through the app's vocabulary API (V2 with the flag on), with the
+   * word's sentence, the book and its title; what the answer shows: vocabSave.mjs. Off the reading path: nothing here
+   * waits on it, a failure is a toast. No offline queue (the legacy reader has none).
+   */
+  const router = useRouter()
+  const haptics = useHaptics()
+  const { show: showToast } = useToast()
+  const { nativeLanguage } = useNativeLanguage()
+  const bookTitle = useRef<string | null>(null)
+  /** The words (vocabMapKey) whose save is in flight: a second press of the same word waits, another word saves. */
+  const savingWords = useRef(new Set<string>())
+  /**
+   * The open book's words saved here (vocabMapKey; saved, already saved, restored, added anyway): the bar shows ✓, not
+   * Save, so a second tap never adds another example. Emptied by a new open.
+   */
+  const [savedWords, setSavedWords] = useState<ReadonlySet<string>>(new Set())
+  const markSaved = (word: string) => setSavedWords((s) => new Set(s).add(vocabMapKey(word)))
+  /** False when the book's `opened.lang` does not read (savesWords): its words would be filed under the fallback. */
+  const [langSaves, setLangSaves] = useState(true)
+  /** The one answered `lookup` (the rare-word notice). */
+  const [lookup, setLookup] = useState<{ popup: V2Popup; kind: 'lookup' | 'lookup_pending'; id: string; tapsRemaining: number | null; busy: boolean } | null>(null)
+  const closeIfOpen = (p: V2Popup) => { if (popupRef.current === p) closePopup() }
+  const wordSavedToast = async () => {
+    haptics.play('complete')
+    const added = () => showToast({
+      variant: 'success', message: t('reader.toastWordAdded'), actionLabel: t('reader.toastTapToReview'),
+      onPress: () => router.push('/vocabulary'), duration: 2400,
+    })
+    if (!capabilitiesFor(user).isGuest) return added()
+    // A guest's 3rd and 10th word (legacy: counted on the reader's whole vocabulary). ponytail: one list read per
+    // guest save, no local vocabulary map until the saved-word marks (#1271) bring one.
+    const count = await vocabularyApi.getReaderVocab().then((w) => w.length, () => 0)
+    const nudge = await claimGuestNudge(true, count)
+    if (!nudge) return added()
+    showToast({
+      variant: 'success', message: t(nudge === 'ten' ? 'guest.nudgeTen' : 'guest.nudgeThree'), actionLabel: t('guest.nudgeCta'),
+      onPress: () => router.push({ pathname: '/(auth)/login', params: { mode: 'register', then: 'back' } }), duration: 6000,
+    })
+  }
+  const restoreWord = (p: V2Popup, id: string) => vocabularyApi.restoreWord(id).then(
+    () => { if (p.kind === 'word') markSaved(p.word) },
+    () => showToast({ variant: 'error', message: t('reader.vocab.restoreFailed') }),
+  )
+  const saveWord = async (p: V2Popup) => {
+    if (p.kind !== 'word' || !langSaves) return
+    const intent = saveWordIntent({ isAuthenticated: !!user, hasSelection: true })
+    if (intent === 'prompt') {
+      haptics.play('flip')
+      showToast({ variant: 'info', message: t('reader.vocab.saveNeedsAccount'), duration: 3600, bottomOffset: footerHeight })
+      return
+    }
+    const key = vocabMapKey(p.word)
+    if (intent !== 'save' || savingWords.current.has(key)) return
+    savingWords.current.add(key)
+    const body = { word: p.word, language: textLang, nativeLanguage, sentence: p.sentence || null, bookTitle: bookTitle.current }
+    const bookId = reading.current.bookId
+    try {
+      // A book the server does not have (imported here, not synced yet): the word is saved without it.
+      const resp = await saveWordWithRetry({ ...body, userBookId: bookId }).catch((e: unknown) => {
+        if (bookId && v2Api.v2ErrorOf(e)?.code === 'book_not_found') return saveWordWithRetry(body)
+        throw e
+      })
+      const o = saveOutcome(resp)
+      if (o.kind === 'saved') {
+        markSaved(p.word)
+        void wordSavedToast()
+        // TR-2, as the legacy reader: a card saved without a translation gets one in the reader's language.
+        fillSavedTranslation(o.word, p.word, textLang, nativeLanguage, { sentence: p.sentence, bookId: bookId ?? undefined }).catch(() => {})
+      } else if (o.kind === 'deleted') {
+        showToast({
+          variant: 'info', message: t('reader.vocab.deletedEarlier').replace('{{word}}', p.word), duration: 6000,
+          actionLabel: t('reader.vocab.restore'), onPress: () => { void restoreWord(p, o.id) },
+        })
+      } else if (o.kind === 'pending') {
+        showToast({ variant: 'info', message: t('reader.vocab.queuedForTomorrow') })
+        closeIfOpen(p)
+      } else if (o.kind === 'lookup') {
+        setLookup({ popup: p, kind: o.lookup, id: o.id, tapsRemaining: o.tapsRemaining, busy: false })
+      } else if (o.kind === 'already_saved') {
+        markSaved(p.word)
+        closeIfOpen(p)
+      }
+    } catch (e) {
+      console.warn('[v2] word not saved:', e)
+      showToast({ variant: 'error', message: 'Could not save word. Try again.' })
+    } finally {
+      savingWords.current.delete(key)
+    }
+  }
+  const addAnyway = async () => {
+    if (!lookup || lookup.busy) return
+    setLookup({ ...lookup, busy: true })
+    try {
+      await vocabularyApi.promoteLookup(lookup.id)
+      setLookup(null)
+      if (lookup.popup.kind === 'word') markSaved(lookup.popup.word)
+      showToast({ variant: 'success', message: t('reader.vocab.addedToSrs') })
+      closeIfOpen(lookup.popup)
+    } catch {
+      setLookup({ ...lookup, busy: false })
+      showToast({ variant: 'error', message: t('reader.vocab.addAnywayFailed') })
+    }
+  }
+  /** A translation or explanation closed: its selection is done, as on the web (the bar goes with it). */
+  const closeSheet = () => {
+    setSheet(null)
+    closePopup()
   }
   const refreshBooks = () => v2Storage().books().then(setBooks, fail('library', setError))
   useEffect(() => {
@@ -461,13 +615,16 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
     tracker.open(target.file, opening.current)
     reading.current.bookId = null
+    reading.current.sha256 = null
     place.open()
     setOffer(null)
     setOpenError(null)
     setError(null)
     setHeading(`Opening ${target.name}`)
     setProgress.current(null)
+    setAtEnd(false)
     clearToc()
+    setPopup(null)
     setBook(true)
     showBars()
     setOpens((n) => n + 1)
@@ -481,6 +638,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     for (const o of t.dropped) if (isStaged(o.file) && o.file !== t.open.file) v2Storage().dropStaged(o.file).catch(fail('drop'))
     opening.current = t.open
     setReflowable(t.opened.reflowable !== false)
+    setFormat(typeof t.opened.format === 'string' ? t.opened.format : null)
+    // Not `atEnd`: it was cleared where the open started; the book's first relocate (its end, for a book one
+    // screen long) comes before this `opened` and must stand.
+    setAnnotatable(t.opened.annotatable !== false)
+    setBookLang(readLang(t.opened))
+    setLangSaves(savesWords(t.opened))
+    setSavedWords(new Set())
     onOpened(t.open, t.opened).catch(fail('opened', setOpenError))
   }
 
@@ -512,6 +676,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     const superseded = () => opening.current !== current
     // The page shows this book now: its title before any await, so a failed read below leaves no "Opening …".
     setHeading([m.title || current.name, m.author].filter(Boolean).join(' — '))
+    bookTitle.current = m.title || current.name
     const stored = await s.readStore(m.book.sha256)
     if (superseded()) return
     call(`window.__fol.restore(${JSON.stringify(stored)})`)
@@ -528,6 +693,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (superseded()) return
     opening.current = { ...current, file: retained }
     reading.current.bookId = bookId
+    reading.current.sha256 = m.book.sha256
     sync.current()
   }
 
@@ -612,34 +778,43 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // The reader moving the place (the page's `moved`), in either flow, hides the bars; not under a bar button.
         if (hidesBarsOnRelocate({ moved: !!shown?.moved, msSinceHostMove: hostMoves.onRelocate(Date.now()) })) hideBars()
         pageDir.current = shown?.dir ?? pageDir.current
+        // The reader moved the place: a word popup's word left it (the toolbar follows the page's selection messages).
+        if (shown?.moved) onPopupEvent({ type: 'moved' })
         place.relocate(shown)
         // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
         if (!tracker.showsPosition()) return
         if (!shown) return
         tocIndex.current = shown.tocIndex
         setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc, tocIndex: shown.tocIndex, sectionEnd: shown.sectionEnd, words: shown.words })
+        setAtEnd(shown.atEnd)
         return
       }
-      case 'word':
-        // Translation is not this slice: the tap reaches the host and stops here. This host offers no
-        // highlight or translation yet, so `opened.annotatable` (false: CBZ, PDF) has nothing to hide here.
-        console.log('[v2] word', m.word)
-        onTap(readWordTap(m)) // until the word popup (#1269) replaces it: text is most of the screen
+      case 'word': {
+        // Untrusted (the page renders the book): only what readWord takes.
+        const w = readWord(m)
+        if (w) onPopupEvent({ type: 'word', word: w })
         return
+      }
       case 'selection': {
         // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
-        // No toolbar in this slice (#1268): the selection reaches the host and stops here.
         const s = readSelection(m)
-        if (s) console.log(`[v2] selection ${s.text.length} chars, section ${s.index}`)
+        if (s) onPopupEvent({ type: 'selection', selection: s })
         return
       }
-      case 'tap':
-        onTap(readTap(m))
+      case 'selection-cleared':
+        onPopupEvent({ type: 'selection-cleared' })
         return
+      case 'tap': {
+        const p = readTap(m)
+        if (p) onPopupEvent({ type: 'tap', x: p.x })
+        return
+      }
       case 'key': {
         // A navigation key pressed in the page (#1263), through readKey: one press, one turn (a held key's
         // repeats are dropped). A turn hides the bars, as an edge tap does; Escape ('bars') shows them.
         const k = readKey(m)
+        // #1269: Escape with the word popup or toolbar open closes it and does nothing else.
+        if (k?.key === 'Escape' && popupRef.current) return closePopup()
         if (!k || k.repeat) return
         const a = keyAction({ ...k, dir: pageDir.current })
         if (a === 'bars') showBars()
@@ -662,6 +837,24 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     }
   }
 
+  /**
+   * Finish book (#1266): local first (no token, no network), then the outbox carries it. The open book is found
+   * by its bytes, so a re-key by a sync while it is read still finishes it. `flushPage()` only asks the page for
+   * its pending save: that `store` comes back as a message after this write, and is queued again when it lands.
+   * The completion goes with whatever place is stored when the push runs, and the flushed place follows on the
+   * next pass, still carrying `completedAt` (sent with every write while it stands).
+   */
+  const openSha = reading.current.sha256
+  const openBook = openSha ? books.find((b) => b.local && b.sha256 === openSha) : undefined
+  const finishBook = () => {
+    const sha = reading.current.sha256
+    if (!sha) return
+    flushPage()
+    v2Storage().finishBook(sha).then((list) => {
+      setBooks(list)
+      sync.current()
+    }, fail('finish book', setError))
+  }
   // Applied live: the page re-lays the book out where it is (README, `settings`). Before `ready` the pending
   // ready handler applies the stored choices instead.
   useEffect(() => {
@@ -720,14 +913,17 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   // Android back: the offer, then the book (back to the list), then the route (chrome.mjs backAction).
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      const action = backAction({ offer: !!offer, reading: inBook })
+      const action = backAction({ offer: !!offer, popup: !!popup, reading: inBook })
       if (action === 'close-offer') setOffer(null)
+      else if (action === 'close-popup') closePopup()
       else if (action === 'close-book') closeBook()
       return action !== 'leave'
     })
     return () => sub.remove()
-  }, [offer, inBook])
+  }, [offer, popup, inBook])
 
+  /** What translate and explain read the book as: its own language, else the app's (the legacy reader's rule). */
+  const textLang = readerTextLanguage(bookLang, language)
   const button = [styles.button, { backgroundColor: colors.primary }]
   const notices = (
     <>
@@ -823,6 +1019,56 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             nextLabel={t('reader.chrome.nextPage')}
             onHeight={(h) => { if (h > 0 && h !== footerHeight) setFooterHeight(h) }}
           />
+          {openBook && showsFinishBook({ atEnd, format }) && (
+            <V2FinishBook
+              finished={openBook.finished}
+              onFinish={finishBook}
+              bottom={(barsVisible ? footerHeight || 60 + insets.bottom : insets.bottom) + 12}
+              background={colors.background}
+              color={colors.text}
+              accent={colors.primary}
+              finishLabel={t('reader.chrome.finishBook')}
+              finishedLabel={t('reader.chrome.finished')}
+            />
+          )}
+          {popup && (
+            // The legacy reader's bar (#1269): the word's gloss (or the picker's line) on a tap; on a selection highlight,
+            // copy, translate, explain; Save on a word (#1270). No Listen (TTS, #1272). Nothing here needs the network to
+            // read on: a failed gloss says so, the sheets and a failed save show their own errors.
+            <SelectionActionBar
+              selectedText={popup.kind === 'word' ? popup.word : popup.text}
+              sentence={popup.sentence}
+              isMultiWord={popup.kind === 'selection' && /\s/.test(popup.text)}
+              language={textLang}
+              onTranslate={() => setSheet({ kind: 'translate', text: popup.kind === 'word' ? popup.word : popup.text, sentence: popup.sentence })}
+              onExplain={() => setSheet({ kind: 'explain', text: popup.kind === 'word' ? popup.word : popup.text, sentence: popup.sentence })}
+              onHighlight={popup.kind === 'selection' && annotatable ? () => { call('window.__fol.highlightSelection()'); setPopup(null) } : undefined}
+              tooLong={popup.kind === 'selection' && popup.tooLong}
+              isAuthenticated={!!user}
+              // No Save where the book's language does not read (savesWords): the gloss still uses the fallback.
+              onSaveWord={popup.kind === 'word' && langSaves ? () => { void saveWord(popup) } : undefined}
+              wordSaved={popup.kind === 'word' && savedWords.has(vocabMapKey(popup.word))}
+              lookup={lookup?.popup === popup ? lookup : null}
+              onAddAnyway={() => { void addAnyway() }}
+              bottomOffset={barsVisible ? footerHeight : insets.bottom}
+              onClose={closePopup}
+              onCopy={closePopup}
+            />
+          )}
+          <TranslationSheet
+            visible={sheet?.kind === 'translate'}
+            text={sheet?.text ?? ''}
+            sentence={sheet?.sentence}
+            fromLang={textLang}
+            onClose={closeSheet}
+          />
+          <ExplanationSheet
+            visible={sheet?.kind === 'explain'}
+            word={sheet?.text ?? ''}
+            sentence={sheet?.sentence || sheet?.text || ''}
+            fromLang={textLang}
+            onClose={closeSheet}
+          />
           <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
           {hasNotices && (
@@ -858,6 +1104,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
                   style={[styles.book, { borderColor: colors.border }]}
                 >
                   <Text numberOfLines={1} style={[styles.meta, { color: colors.textSecondary }]}>{b.local ? b.title : `↓ ${b.title}`}</Text>
+                  {b.finished && <Text style={[styles.meta, { color: colors.primary }]}>{t('reader.chrome.finished')}</Text>}
                   {b.notSynced && (
                     <>
                       <Text numberOfLines={2} style={[styles.meta, { color: colors.error }]}>Not synced: {b.notSynced}</Text>

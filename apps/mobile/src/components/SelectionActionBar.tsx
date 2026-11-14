@@ -40,8 +40,10 @@ interface SelectionActionBarProps {
   language?: string
   onTranslate: () => void
   onExplain?: () => void
-  onSpeak: () => void
-  onSaveWord: () => void
+  /** Absent: no Listen (the V2 reader until its TTS slice, #1272). */
+  onSpeak?: () => void
+  /** Absent: no Save. */
+  onSaveWord?: () => void
   onHighlight?: (color: HighlightColorKey) => void
   /** Last color the user picked — used as the single highlight button's
    *  fill. Tapping commits this color; change via HighlightNoteModal after. */
@@ -68,6 +70,8 @@ interface SelectionActionBarProps {
    *  bug sweep). Optional for back-compat with screens that haven't wired
    *  it yet — those just lose the close affordance. */
   onClose?: () => void
+  /** After Copy (the V2 reader ends the selection, as the web toolbar does). */
+  onCopy?: () => void
   /** Set when the save came back `lookup`/`lookup_pending` (rare word): the
    *  bar shows RareWordNotice with "Add to SRS anyway". Web: WordPopup lookupInfo. */
   lookup?: { kind: 'lookup' | 'lookup_pending'; tapsRemaining: number | null; busy: boolean } | null
@@ -112,6 +116,7 @@ export function SelectionActionBar({
   isAuthenticated,
   bottomOffset = 0,
   onClose,
+  onCopy,
   lookup,
   onAddAnyway,
   savedTranslation,
@@ -136,12 +141,15 @@ export function SelectionActionBar({
   // user re-taps mid-fetch.
   const [translation, setTranslation] = useState('')
   const [translating, setTranslating] = useState(false)
+  /** The gloss fetch failed: said in the bar, never a reason to stop reading. */
+  const [failed, setFailed] = useState(false)
   // TR-3: the language `translation` was fetched in — for one render after a native-language
   // change it is still the old one, and must not be offered as "Use this translation".
   const [translationLang, setTranslationLang] = useState<string | null>(null)
   // Backend frequency hint for the tapped word — drives Save-button emphasis.
   const [category, setCategory] = useState<SaveCategory | undefined>(undefined)
   useEffect(() => {
+    setFailed(false)
     if (isMultiWord || !selectedText || isSameLang) {
       setTranslation('')
       setTranslating(false)
@@ -164,13 +172,14 @@ export function SelectionActionBar({
     setTranslating(true)
     cachedTranslate(selectedText, fromLang, translationTarget!, ctx)
       .then((r) => { if (!cancelled) { setTranslation(r.translation); setTranslationLang(translationTarget); setCategory(r.category) } })
-      .catch(() => { if (!cancelled) setTranslation('') })
+      .catch(() => { if (!cancelled) { setTranslation(''); setFailed(true) } })
       .finally(() => { if (!cancelled) setTranslating(false) })
     return () => { cancelled = true }
   }, [selectedText, sentence, bookId, isMultiWord, fromLang, translationTarget, isSameLang])
 
   const handleCopy = () => {
     if (selectedText) Clipboard.setStringAsync(selectedText)
+    onCopy?.()
   }
 
   const stage = !isMultiWord && vocabStage != null ? STAGE_LABELS[vocabStage] : null
@@ -227,7 +236,7 @@ export function SelectionActionBar({
             <ActivityIndicator size="small" color={colors.textSecondary} />
           ) : (
             <Text style={[styles.translation, { color: colors.text }]} numberOfLines={1}>
-              {translation || '—'}
+              {failed ? 'Could not translate' : translation || '—'}
             </Text>
           )}
         </View>
@@ -308,7 +317,7 @@ export function SelectionActionBar({
         {/* One control, three states: idle → fetching → playing. The spinner
             stays pressable and cancels, so a download that never lands can't
             trap the reader in a button that does nothing. */}
-        <TouchableOpacity
+        {onSpeak && <TouchableOpacity
           style={[styles.btn, tooLong && styles.btnDisabled]}
           onPress={onSpeak}
           disabled={tooLong}
@@ -331,7 +340,7 @@ export function SelectionActionBar({
           <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>
             {isTtsLoading ? 'Loading' : isSpeaking ? 'Stop' : 'Listen'}
           </Text>
-        </TouchableOpacity>
+        </TouchableOpacity>}
 
 
         {/* Per-word vocab affordances (save / mark known / stage badge).

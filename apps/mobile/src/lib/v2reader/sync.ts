@@ -346,23 +346,29 @@ async function refusedChild(lib: LocalLibrary, reset: Reset, item: OutboxItem, b
  * PDD "Reading state" + "The revision rule": the position on this device's file, `expectedRevision`
  * the one last seen on that file. Lost: an own write is success; `stale_revision` runs ADR-019
  * (`applyStates`: adopt/move take theirs; keep/prompt write ours once more on their revision);
- * `reset` writes again on the new revision (no local frontier to drop); `file_replaced` drops the
+ * `reset` drops the local completion and writes again on the new revision; `file_replaced` drops the
  * write (the old copy keeps reading offline); `unknown_file` / `book_not_found` push the book first.
  */
 async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: OutboxItem, retried = false): Promise<void> {
   const local = await lib.book(item.target)
   const st = await lib.state(item.target)
-  if (!local?.file_id || !st?.position) return drop(lib, reset, item)
+  // A finish with no place the server takes (no position yet, a fraction-only one): kept queued, never dropped
+  // while it stands, so the first place that can be written carries it and a sign-out counts it (UNSENT_CHANGES).
+  const owesFinish = !!st?.completed_at
+  if (!local?.file_id || !st?.position) return owesFinish && local?.file_id ? undefined : drop(lib, reset, item)
   const b = await pushedBook(lib, reset, local)
   if (!b) return
   // Replaced on another device: no write on this file can land (rule 6).
   if (b.server_file_id !== b.file_id) return drop(lib, reset, item)
   // The scheme fits the file: pdf-page on a PDF, page-name on a CBZ (#1188), epub-cfi on any other (#1128 S5).
-  const write = positionWrite(JSON.parse(st.position), b.file_id!, st.revision_file_id === b.file_id ? st.revision : null, Date.now(), b.format)
+  const place = positionWrite(JSON.parse(st.position), b.file_id!, st.revision_file_id === b.file_id ? st.revision : null, Date.now(), b.format)
+  // "Finish book" (#1266): sent with every write while it stands; the server keeps the first (`COALESCE`).
+  const write = place && st.completed_at ? { ...place, completedAt: st.completed_at } : place
   // No write the server would take (a page key it refuses; a fraction-only position, #1187, is never queued:
-  // localLibrary.applyEntry).
-  if (!write) return drop(lib, reset, item)
-  const landed = (s: V2ReadingState) => Promise.all([lib.setStateRevision(b.id, s.revision, s.fileId), lib.done(item)])
+  // localLibrary.applyEntry). An unsent finish stays queued for the first place the server takes.
+  if (!write) return owesFinish ? undefined : drop(lib, reset, item)
+  // The server's `completedAt` with its revision: a finish elsewhere shows here without waiting for a pull.
+  const landed = (s: V2ReadingState) => Promise.all([lib.takeState(b.id, s, write.completedAt ?? null), lib.done(item)])
   try {
     await current(reset, v2Api.putReadingState(b.id, write), landed)
   } catch (e) {
@@ -375,7 +381,8 @@ async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: 
     }
     switch (err?.code) {
       case 'stale_revision': {
-        if (cur && ownStateWrite(cur, write)) return void (await checked(reset, () => landed(cur)))
+        // Ours only if it holds what we sent: the same place without our completion is not that write.
+        if (cur && ownStateWrite(cur, write) && (!write.completedAt || cur.completedAt)) return void (await checked(reset, () => landed(cur)))
         if (!cur) {
           await checked(reset, () => lib.setStateRevision(b.id, null, null))
           return again()
@@ -385,7 +392,8 @@ async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: 
         return !owed.length || owed[0].action === 'prompt' ? again() : undefined
       }
       case 'reset':
-        await checked(reset, () => lib.setStateRevision(b.id, cur?.revision ?? null, cur?.fileId ?? null))
+        // The reset's state: its completion (none, or a finish after the reset) replaces the one we sent.
+        await checked(reset, () => lib.takeState(b.id, cur, write.completedAt ?? null))
         return again()
       case 'file_replaced':
         return void (await checked(reset, () => Promise.all([lib.setServerFile(b.id, (err.currentFile ?? null) as V2BookFile | null), lib.done(item)])))

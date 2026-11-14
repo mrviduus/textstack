@@ -81,23 +81,23 @@ Legend — **Need**: `R8` must exist before R8 · `owner` needs a decision (§6)
 
 | Behaviour | Web | Mobile | V2 | Need |
 |---|---|---|---|---|
-| Word tap → popup (translation or definition by native language) | `WordPopup` | `SelectionActionBar` inline gloss | `word` event out; host logs it | R8 |
-| Native-language picker inside the popup | yes | yes | absent | R8 |
-| Multi-word selection toolbar (highlight, translate, explain, listen, copy) | yes | yes | `selection` / `selection-cleared` events out, validated by both hosts (#1268); no toolbar | R8 |
-| Translation popup / sheet | yes | yes | absent | R8 |
-| Explain (streamed) | yes | yes | absent | R8 |
-| `tooLong` (>500 chars) notice | yes | yes | absent | R8 |
+| Word tap → popup (translation or definition by native language) | `WordPopup` | `SelectionActionBar` inline gloss | popup on both hosts (#1269); an edge word in paginated flow turns the page | R8 |
+| Native-language picker inside the popup | yes | yes | legacy's: web in the popup, Android through the gloss line's sheet (#1269) | R8 |
+| Multi-word selection toolbar (highlight, translate, explain, listen, copy) | yes | yes | toolbar on both hosts (#1269): highlight, translate, explain, copy; listen with TTS (#1272) | R8 |
+| Translation popup / sheet | yes | yes | yes, fetched by the host (#1269) | R8 |
+| Explain (streamed) | yes | yes | web streamed; Android one answer, as its legacy sheet (#1269) | R8 |
+| `tooLong` (>500 chars) notice | yes | yes | yes (#1269) | R8 |
 | Page has no network (CSP) — every lookup through the host | — | — | by design | constraint |
 
 ### 2.5 Vocabulary
 
 | Behaviour | Web | Mobile | V2 | Need |
 |---|---|---|---|---|
-| Save word on tap (sentence, book, translation) + outcomes (`pending`, `lookup`, `deleted` restore) | yes | yes | absent | R8 |
+| Save word on tap (sentence, book, translation) + outcomes (`pending`, `lookup`, `deleted` restore) | yes | yes | yes (#1270): web on a tap, Android the bar's Save; `deleted` offers Restore on both | R8 |
 | Inline saved-word marks by SRS stage | yes | yes | absent (only a gloss for one tapped word) | R8 |
 | Inline translation above saved words (setting) | yes | yes | `showTranslation` per word only | R8 |
 | Backfill missing translations once per open | yes | yes | absent | R8 |
-| Guest: 3rd word mints a session (web), nudges at 3/10 | yes | nudges | absent | R8 |
+| Guest: 3rd word mints a session (web), nudges at 3/10 | yes | nudges | as legacy (#1270) | R8 |
 | Mark as known | hook unwired | yes, hidden on V2 | absent | drop (`V2_FEATURES.markAsKnown` false) |
 | Vocabulary feed in the V2 local sync (Android) | — | — | absent (feeds: library, reading, annotations) | R8 |
 
