@@ -1,38 +1,33 @@
 using Application.Identity;
 using Application.Reading;
 using Application.ReadingTracking;
+using Npgsql;
 
 namespace Api.V2;
 
 /// <summary>
-/// The V2 reader's sessions for the legacy pace (#1313). Legacy never depends on V2: with <c>Features:V2Api</c>
-/// off, V2 not ready (<see cref="V2Readiness"/>'s answer, awaited within the same bound), or the query failing or
-/// slower than <see cref="Timeout"/> (one limit for both, the query's waited out whether or not it honours its
-/// token), the answer is no sessions, logged at Warning. A query out of time marks V2 unreachable for the readiness
-/// TTL (the next calls answer at once); one that failed goes to <see cref="V2Readiness.Observe"/>; a limit spent
-/// waiting on the readiness check leaves it alone, since that check caches its own answer. Only the caller's own
-/// cancellation is thrown, and records nothing.
+/// The V2 reader's sessions for the legacy pace (#1313). Legacy never depends on V2, and this stats path never
+/// decides for others whether V2 is up: it does not read the shared <see cref="V2Readiness"/> (a read can probe)
+/// nor write it beyond what every V2 caller does (<see cref="V2Readiness.Observe"/> on an <see cref="NpgsqlException"/>).
+/// With <c>Features:V2Api</c> off the answer is none; otherwise the query runs within <see cref="Timeout"/> (waited
+/// out whether or not it honours its token), and a timeout or any failure answers none and skips V2 here for
+/// <see cref="SkipFor"/> (this singleton's own state), logged at Warning. Only the caller's own cancellation is
+/// thrown, and it skips nothing.
 /// </summary>
-public sealed class V2PaceTotals(IConfiguration config, V2Readiness readiness, IReadingSessionRepository sessions, ILogger<V2PaceTotals> logger) : IV2PaceTotals
+public sealed class V2PaceTotals(
+    IConfiguration config, IReadingSessionRepository sessions, V2Readiness readiness, TimeProvider clock, ILogger<V2PaceTotals> logger) : IV2PaceTotals
 {
+    public static readonly TimeSpan SkipFor = TimeSpan.FromSeconds(30);
+
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(2);
+
+    private long _skipUntilTicks;
 
     public async Task<PaceTotals> GetAsync(Guid userId, CancellationToken ct)
     {
-        if (!V2Follow.IsOn(config)) return default;
+        if (!V2Follow.IsOn(config) || clock.GetUtcNow().UtcTicks < Interlocked.Read(ref _skipUntilTicks)) return default;
         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct);
         bounded.CancelAfter(Timeout);
-        V2State state;
-        try
-        {
-            state = await readiness.GetAsync().WaitAsync(bounded.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            logger.LogWarning("V2 sessions not counted in the pace of {UserId}: the V2 readiness check is still running", userId);
-            return default;
-        }
-        if (!state.IsReady) return default;
         try
         {
             // Added to legacy's own sessions (ReadingPace): the sessions the V2 API wrote, not the ETL's copies.
@@ -40,10 +35,10 @@ public sealed class V2PaceTotals(IConfiguration config, V2Readiness readiness, I
         }
         catch (Exception e) when (!ct.IsCancellationRequested)
         {
-            // Out of our time (Npgsql's cancel included): V2 is slow or gone; the next calls skip it for the TTL.
-            if (e is OperationCanceledException) readiness.ObserveTimeout();
-            else readiness.Observe(e);
-            logger.LogWarning(e, "V2 sessions not counted in the pace of {UserId}", userId);
+            // As every V2 caller: Observe acts on an NpgsqlException only (a possible outage), never on anything else.
+            readiness.Observe(e);
+            Interlocked.Exchange(ref _skipUntilTicks, (clock.GetUtcNow() + SkipFor).UtcTicks);
+            logger.LogWarning(e, "V2 sessions not counted in the pace of {UserId}; V2 skipped here for {SkipFor}", userId, SkipFor);
             return default;
         }
     }

@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using Npgsql;
 
 namespace TextStack.UnitTests.V2;
 
@@ -29,45 +30,35 @@ public class V2PaceTotalsTests
         }
     }
 
-    private static V2PaceTotals Totals(Sessions sessions, bool on = true, bool ready = true, V2Readiness? readiness = null, int timeoutMs = 200) => new(
+    /// <summary>A readiness that counts its probes: this stats path must never cause one.</summary>
+    private sealed class Probes
+    {
+        public int Count;
+        public V2Readiness Readiness { get; }
+        public Probes() => Readiness = V2ReadinessTests.Readiness(_ => { Count++; return Task.FromResult(new List<string>()); });
+    }
+
+    private static V2PaceTotals Totals(Sessions sessions, bool on = true, Probes? probes = null, SteppedClock? clock = null, int timeoutMs = 200) => new(
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Features:V2Api"] = on ? "true" : "false" }).Build(),
-        readiness ?? V2ReadinessTests.Readiness(_ => Task.FromResult(ready ? new List<string>() : ["0099_next"])),
-        sessions, NullLogger<V2PaceTotals>.Instance)
+        sessions, (probes ?? new Probes()).Readiness, clock ?? new SteppedClock(), NullLogger<V2PaceTotals>.Instance)
     { Timeout = TimeSpan.FromMilliseconds(timeoutMs) };
 
+    private static Sessions Hanging() => new(async ct => { await Task.Delay(Timeout.Infinite, ct); return Some; });
+
     [Fact]
-    public async Task GetAsync_OnAndReady_TheRepositorysTotals()
+    public async Task GetAsync_On_TheRepositorysTotalsWithoutProbingReadiness()
     {
-        Assert.Equal(Some, await Totals(new Sessions(_ => Task.FromResult(Some))).GetAsync(Guid.NewGuid(), Ct));
+        var probes = new Probes();
+
+        Assert.Equal((Some, 0), (await Totals(new Sessions(_ => Task.FromResult(Some)), probes: probes).GetAsync(Guid.NewGuid(), Ct), probes.Count));
     }
 
     [Fact]
-    public async Task GetAsync_ReadinessCheckHangs_NoneWithinTheBoundWithoutAsking()
+    public async Task GetAsync_FeatureOff_NoneWithoutAsking()
     {
         var sessions = new Sessions(_ => Task.FromResult(Some));
-        var hung = V2ReadinessTests.Readiness(async ct => { await Task.Delay(Timeout.Infinite, ct); return []; }, checkTimeout: TimeSpan.FromSeconds(30));
 
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-        var totals = await Totals(sessions, readiness: hung).GetAsync(Guid.NewGuid(), Ct).WaitAsync(TimeSpan.FromSeconds(5), Ct);
-
-        Assert.Equal((default(PaceTotals), 0), (totals, sessions.Calls));
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
-    }
-
-    [Fact]
-    public async Task GetAsync_QueryTimesOut_V2UnreachableForTheTtlSoTheNextCallsAnswerAtOnceWithoutAsking()
-    {
-        var checks = 0;
-        var readiness = V2ReadinessTests.Readiness(_ => { checks++; return Task.FromResult(new List<string>()); });
-        var sessions = new Sessions(async ct => { await Task.Delay(Timeout.Infinite, ct); return Some; });
-        var totals = Totals(sessions, readiness: readiness);
-
-        Assert.Equal(default, await totals.GetAsync(Guid.NewGuid(), Ct));
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-        Assert.Equal(default, await totals.GetAsync(Guid.NewGuid(), Ct));
-
-        Assert.True(watch.Elapsed < TimeSpan.FromMilliseconds(100), $"took {watch.Elapsed}");
-        Assert.Equal((1, 1, V2State.Unreachable), (checks, sessions.Calls, (await readiness.GetAsync()).Status));
+        Assert.Equal((default(PaceTotals), 0), (await Totals(sessions, on: false).GetAsync(Guid.NewGuid(), Ct), sessions.Calls));
     }
 
     [Fact]
@@ -83,45 +74,67 @@ public class V2PaceTotalsTests
     }
 
     [Fact]
-    public async Task GetAsync_CallersOwnCancel_ThrownAndNothingRecorded()
+    public async Task GetAsync_AfterATimeout_SkipsV2For30sThenAsksAgain_ReadinessUntouched()
     {
-        var checks = 0;
-        var readiness = V2ReadinessTests.Readiness(_ => { checks++; return Task.FromResult(new List<string>()); });
+        var clock = new SteppedClock();
+        var probes = new Probes();
+        var sessions = Hanging();
+        var totals = Totals(sessions, probes: probes, clock: clock);
+
+        Assert.Equal(default, await totals.GetAsync(Guid.NewGuid(), Ct));
+        clock.Now += V2PaceTotals.SkipFor - TimeSpan.FromSeconds(1);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Equal(default, await totals.GetAsync(Guid.NewGuid(), Ct));
+        Assert.True(watch.Elapsed < TimeSpan.FromMilliseconds(100), $"took {watch.Elapsed}");
+        Assert.Equal(1, sessions.Calls);
+        clock.Now += TimeSpan.FromSeconds(2);
+        await totals.GetAsync(Guid.NewGuid(), Ct);
+
+        Assert.Equal((2, 0, V2State.Ready), (sessions.Calls, probes.Count, (await probes.Readiness.GetAsync()).Status));
+    }
+
+    [Fact]
+    public async Task GetAsync_AnyFailure_NoneAndSkipped()
+    {
+        var sessions = new Sessions(_ => throw new InvalidOperationException("v2 down"));
+        var totals = Totals(sessions);
+
+        Assert.Equal(default, await totals.GetAsync(Guid.NewGuid(), Ct));
+        Assert.Equal(default, await totals.GetAsync(Guid.NewGuid(), Ct));
+        Assert.Equal(1, sessions.Calls);
+    }
+
+    [Fact]
+    public async Task GetAsync_NpgsqlFailure_ObservedByReadiness_OtherFailureNot()
+    {
+        var npgsql = new Probes();
+        var other = new Probes();
+        await npgsql.Readiness.GetAsync();
+        await other.Readiness.GetAsync();
+
+        await Totals(new Sessions(_ => throw new NpgsqlException("connection refused")), probes: npgsql).GetAsync(Guid.NewGuid(), Ct);
+        await Totals(new Sessions(_ => throw new InvalidOperationException("v2 down")), probes: other).GetAsync(Guid.NewGuid(), Ct);
+        await npgsql.Readiness.GetAsync();
+        await other.Readiness.GetAsync();
+
+        // Observe drops the cached check: the next reader of readiness checks again.
+        Assert.Equal((2, 1), (npgsql.Count, other.Count));
+    }
+
+    [Fact]
+    public async Task GetAsync_CallersOwnCancel_ThrownAndNothingSkipped()
+    {
         using var mine = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         mine.CancelAfter(TimeSpan.FromMilliseconds(100));
-        var patient = Totals(new Sessions(async ct => { await Task.Delay(Timeout.Infinite, ct); return Some; }), readiness: readiness, timeoutMs: 10_000);
+        var sessions = new Sessions(async ct => { await Task.Delay(Timeout.Infinite, ct); return Some; });
+        var totals = Totals(sessions, timeoutMs: 10_000);
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => patient.GetAsync(Guid.NewGuid(), mine.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => totals.GetAsync(Guid.NewGuid(), mine.Token));
+        using var later = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        later.CancelAfter(TimeSpan.FromMilliseconds(100));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => totals.GetAsync(Guid.NewGuid(), later.Token));
 
-        // V2 is not taken for down: the next call asks it, on the check already made.
-        Assert.Equal(Some, await Totals(new Sessions(_ => Task.FromResult(Some)), readiness: readiness).GetAsync(Guid.NewGuid(), Ct));
-        Assert.Equal(1, checks);
-    }
-
-    [Fact]
-    public async Task GetAsync_FeatureOff_NoneWithoutAsking()
-    {
-        var sessions = new Sessions(_ => Task.FromResult(Some));
-
-        Assert.Equal((default(PaceTotals), 0), (await Totals(sessions, on: false).GetAsync(Guid.NewGuid(), Ct), sessions.Calls));
-    }
-
-    [Fact]
-    public async Task GetAsync_NotReady_NoneWithoutAsking()
-    {
-        var sessions = new Sessions(_ => Task.FromResult(Some));
-
-        Assert.Equal((default(PaceTotals), 0), (await Totals(sessions, ready: false).GetAsync(Guid.NewGuid(), Ct), sessions.Calls));
-    }
-
-    [Fact]
-    public async Task GetAsync_QueryFailsOrHangs_None()
-    {
-        var failing = Totals(new Sessions(_ => throw new InvalidOperationException("v2 down")));
-        var hanging = Totals(new Sessions(async ct => { await Task.Delay(Timeout.Infinite, ct); return Some; }));
-
-        Assert.Equal(default, await failing.GetAsync(Guid.NewGuid(), Ct));
-        Assert.Equal(default, await hanging.GetAsync(Guid.NewGuid(), Ct).WaitAsync(TimeSpan.FromSeconds(3), Ct));
+        Assert.Equal(2, sessions.Calls);
     }
 
     [Fact]
