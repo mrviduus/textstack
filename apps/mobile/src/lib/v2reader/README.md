@@ -566,7 +566,8 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   footer-picked translation updates it, missing translations backfilled once (`onlyIfEmpty`); the map goes to the
   host through `onMarks`.
 - *Android*: one read per open of the local library's `vocabulary` rows (the vocabulary feed of the sync, offline too:
-  no token or network on the reading path), kept in memory (`readerVocab.ts`), a save or restore updates it, missing
+  no token or network on the reading path), kept in memory (`readerVocab.ts`), a save or restore updates it, the rows
+  read again after each sync pass (`mergeWords`: the first pull after a sign-in, another device's words), missing
   translations backfilled once per open (`backfillTranslations`: `cachedTranslate`, then the card's `onlyIfEmpty`
   PATCH; sends coalesced 300 ms). The feed is pull-only: a tombstone removes the row, the server's row replaces it;
   a wipe deletes the rows (nothing counted as lost: they are the server's); a guest carried to the next identity and a
