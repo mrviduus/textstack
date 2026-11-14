@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createListener, createSpeedChoice, readSpeed, speakingJs, ttsLang } from './listen.mjs'
+import { createListener, createSpeedChoice, readSpeed, speakingJs, spokenOf, ttsLang } from './listen.mjs'
 
 // #1272: the language a book is spoken in, the speed, and Listen's press / mark rule, on both hosts.
 
@@ -26,6 +26,10 @@ describe('ttsLang', () => {
 
   it('norwegian_AllForms_TheServersNo', () => {
     expect(['nb', 'nn', 'no', 'nob', 'nno', 'nor', 'nb-NO'].map((l) => ttsLang(l, 'en'))).toEqual(['no', 'no', 'no', 'no', 'no', 'no', 'no'])
+  })
+
+  it('tagalog_Filipino_TheEdgeVoicesCode', () => {
+    expect(['tl', 'tgl', 'fil', 'tl-PH'].map((l) => ttsLang(l, 'en'))).toEqual(['fil', 'fil', 'fil', 'fil'])
   })
 
   it('deprecatedCodes_Folded', () => {
@@ -103,6 +107,18 @@ describe('createSpeedChoice', () => {
   })
 })
 
+describe('spokenOf', () => {
+  const rect = { x: 0, y: 0, w: 1, h: 1 }
+  it('aWordOrASelection_ItsTextAndRange', () => {
+    expect(spokenOf({ kind: 'word', index: 2, word: 'pond', sentence: 's', cfi: 'epubcfi(/6/2)', rect })).toEqual({ text: 'pond', at: { cfi: 'epubcfi(/6/2)', index: 2 } })
+    expect(spokenOf({ kind: 'selection', index: 1, text: 'by the pond', sentence: 's', cfi: null, rect, tooLong: false })).toEqual({ text: 'by the pond', at: { cfi: null, index: 1 } })
+  })
+
+  it('anythingElse_Null', () => {
+    expect([spokenOf({ kind: 'highlight', id: 'x', rect, x: 0, y: 0 }), spokenOf(null), spokenOf(undefined)]).toEqual([null, null, null])
+  })
+})
+
 describe('speakingJs', () => {
   it('aRange_TheCallWithItsCfiAndSection', () => {
     expect(speakingJs({ cfi: 'epubcfi(/6/4!/4/2/1:3)', index: 2 })).toBe('window.__fol.speaking("epubcfi(/6/4!/4/2/1:3)", 2)')
@@ -142,8 +158,8 @@ describe('createListener', () => {
 
   it('press_LoadingAtOnce_MarksTheRange_SpeaksTheText', () => {
     const { h, marks, l } = host()
-    l.press(' pond ', A)
-    expect(l.state('pond', A)).toBe('loading')
+    l.press({ text: ' pond ', at: A })
+    expect(l.state({ text: 'pond', at: A })).toBe('loading')
     expect(h.speak).toHaveBeenCalledWith('pond', expect.any(Function))
     expect(marks).toEqual([A])
     expect(h.changed).toHaveBeenCalled()
@@ -151,31 +167,31 @@ describe('createListener', () => {
 
   it('aQuickSecondPressWhileLoading_StopsIt_NeverASecondStart', () => {
     const { h, marks, l } = host()
-    l.press('pond', A)
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
+    l.press({ text: 'pond', at: A })
     expect(h.speak).toHaveBeenCalledTimes(1)
     expect(h.stop).toHaveBeenCalledTimes(1)
-    expect(l.state('pond', A)).toBe('idle')
+    expect(l.state({ text: 'pond', at: A })).toBe('idle')
     expect(marks).toEqual([A, null])
   })
 
   it('played_Playing_ThenDone_Idle_TheMarkGoes', async () => {
     const { calls, marks, l } = host()
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
     calls[0].resolve(true)
     await tick()
-    expect(l.state('pond', A)).toBe('playing')
+    expect(l.state({ text: 'pond', at: A })).toBe('playing')
     calls[0].done()
-    expect(l.state('pond', A)).toBe('idle')
+    expect(l.state({ text: 'pond', at: A })).toBe('idle')
     expect(marks).toEqual([A, null])
   })
 
   it('nothingPlayed_Idle_TheMarkGoes_Failed', async () => {
     const { h, calls, marks, l } = host()
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
     calls[0].resolve(false)
     await tick()
-    expect(l.state('pond', A)).toBe('idle')
+    expect(l.state({ text: 'pond', at: A })).toBe('idle')
     expect(marks).toEqual([A, null])
     expect(h.failed).toHaveBeenCalledTimes(1)
   })
@@ -183,7 +199,7 @@ describe('createListener', () => {
   it('aThrowingSpeak_Failed', async () => {
     const { h, marks, l } = host()
     h.speak.mockRejectedValueOnce(new Error('x'))
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
     await tick()
     expect(marks).toEqual([A, null])
     expect(h.failed).toHaveBeenCalledTimes(1)
@@ -191,10 +207,10 @@ describe('createListener', () => {
 
   it('pressedWhilePlaying_Stops_NotAFailure', async () => {
     const { h, calls, marks, l } = host()
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
     calls[0].resolve(true)
     await tick()
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
     calls[0].done()
     expect(h.stop).toHaveBeenCalledTimes(1)
     expect(marks).toEqual([A, null])
@@ -203,31 +219,31 @@ describe('createListener', () => {
 
   it('theSameWordElsewhere_SpeaksThere_NoStop', () => {
     const { h, marks, l } = host()
-    l.press('the', A)
-    l.press('the', B)
+    l.press({ text: 'the', at: A })
+    l.press({ text: 'the', at: B })
     expect(h.stop).not.toHaveBeenCalled()
     expect(h.speak).toHaveBeenCalledTimes(2)
     expect(marks).toEqual([A, B])
-    expect(l.state('the', B)).toBe('loading')
-    expect(l.state('the', A)).toBe('idle')
+    expect(l.state({ text: 'the', at: B })).toBe('loading')
+    expect(l.state({ text: 'the', at: A })).toBe('idle')
   })
 
   it('anotherText_ReplacesIt_TheOldOnesEndChangesNothing', async () => {
     const { h, calls, marks, l } = host()
-    l.press('pond', A)
-    l.press('by the pond', B)
+    l.press({ text: 'pond', at: A })
+    l.press({ text: 'by the pond', at: B })
     calls[0].resolve(false)
     calls[0].done()
     await tick()
     expect(h.failed).not.toHaveBeenCalled()
-    expect(l.state('by the pond', B)).toBe('loading')
+    expect(l.state({ text: 'by the pond', at: B })).toBe('loading')
     expect(marks).toEqual([A, B])
   })
 
   it('theHostSaysItFailed_ThenFalse_OneFailure', async () => {
     // A hook ends a failed playback (done(true)) before its promise answers false.
     const { h, calls, marks, l } = host()
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
     calls[0].done(true)
     calls[0].resolve(false)
     await tick()
@@ -238,7 +254,7 @@ describe('createListener', () => {
   it('theHostCancelledIt_ThenFalse_NotAFailure', async () => {
     // A host-side cancel (the mobile player unmounting: a newer request id, then done(false)): no toast elsewhere.
     const { h, calls, marks, l } = host()
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
     calls[0].done(false)
     calls[0].resolve(false)
     await tick()
@@ -249,25 +265,25 @@ describe('createListener', () => {
   it('aSynchronousThrow_AFailure', async () => {
     const { h, marks, l } = host()
     h.speak.mockImplementationOnce(() => { throw new Error('sync') })
-    expect(() => l.press('pond', A)).not.toThrow()
+    expect(() => l.press({ text: 'pond', at: A })).not.toThrow()
     await tick()
     expect(h.failed).toHaveBeenCalledTimes(1)
     expect(marks).toEqual([A, null])
-    expect(l.state('pond', A)).toBe('idle')
+    expect(l.state({ text: 'pond', at: A })).toBe('idle')
   })
 
   it('follow_ThePopupThatStartedItStillOpen_KeepsIt', () => {
     const { h, l } = host()
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
     l.follow({ text: 'pond', at: A })
     expect(h.stop).not.toHaveBeenCalled()
-    expect(l.state('pond', A)).toBe('loading')
+    expect(l.state({ text: 'pond', at: A })).toBe('loading')
   })
 
   it('follow_ItsPopupClosedOrAnotherOpen_StopsIt_TheMarkGoes', () => {
     for (const open of [null, { text: 'pond', at: B }, { text: 'lake', at: A }]) {
       const { h, marks, l } = host()
-      l.press('pond', A)
+      l.press({ text: 'pond', at: A })
       l.follow(open)
       expect(h.stop).toHaveBeenCalledTimes(1)
       expect(marks).toEqual([A, null])
@@ -283,7 +299,7 @@ describe('createListener', () => {
 
   it('stoppedThenResolvedFalse_NotAFailure', async () => {
     const { h, calls, l } = host()
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
     l.stop()
     calls[0].resolve(false)
     await tick()
@@ -292,20 +308,20 @@ describe('createListener', () => {
 
   it('aLateResolveAfterDone_StaysIdle', async () => {
     const { calls, l } = host()
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
     calls[0].done()
     calls[0].resolve(true)
     await tick()
-    expect(l.state('pond', A)).toBe('idle')
+    expect(l.state({ text: 'pond', at: A })).toBe('idle')
   })
 
   it('pressedAgainWhenIdle_SpeaksAgain', async () => {
     const { h, calls, l } = host()
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
     calls[0].resolve(true)
     await tick()
     calls[0].done()
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
     expect(h.speak).toHaveBeenCalledTimes(2)
     expect(h.stop).not.toHaveBeenCalled()
   })
@@ -314,7 +330,7 @@ describe('createListener', () => {
     const { h, marks, l } = host()
     l.stop()
     expect(h.stop).not.toHaveBeenCalled()
-    l.press('pond', A)
+    l.press({ text: 'pond', at: A })
     l.stop()
     expect(h.stop).toHaveBeenCalledTimes(1)
     expect(marks).toEqual([A, null])
@@ -322,14 +338,14 @@ describe('createListener', () => {
 
   it('noRange_SpokenUnmarked', () => {
     const { marks, l } = host()
-    l.press('pond', { cfi: null, index: 0 })
+    l.press({ text: 'pond', at: { cfi: null, index: 0 } })
     expect(marks).toEqual([{ cfi: null, index: 0 }])
-    expect(l.state('pond', { cfi: null, index: 0 })).toBe('loading')
+    expect(l.state({ text: 'pond', at: { cfi: null, index: 0 } })).toBe('loading')
   })
 
   it('blankText_Nothing', () => {
     const { h, marks, l } = host()
-    l.press('  ', A)
+    l.press({ text: '  ', at: A })
     expect(h.speak).not.toHaveBeenCalled()
     expect(marks).toEqual([])
   })

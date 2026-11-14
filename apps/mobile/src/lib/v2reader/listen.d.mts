@@ -7,12 +7,14 @@ export function createSpeedChoice(store: { load: () => Promise<unknown> | unknow
 export function ttsLang(lang: unknown, fallback?: unknown): string | null
 export type V2TtsPhase = 'idle' | 'loading' | 'playing'
 export interface V2SpokenAt { cfi: string | null; index: number }
+export interface V2Spoken { text: string; at: V2SpokenAt | null }
 export interface V2Listener {
-  press(text: string, at: V2SpokenAt | null): void
+  press(spoken: V2Spoken | null): void
   stop(): void
-  follow(open: { text: string; at: V2SpokenAt | null } | null): void
-  state(text: string, at: V2SpokenAt | null): V2TtsPhase
+  follow(open: V2Spoken | null): void
+  state(spoken: V2Spoken | null): V2TtsPhase
 }
+export function spokenOf(popup: unknown): V2Spoken | null
 export function createListener(host: {
   speak: (text: string, done: (failed?: boolean) => void) => Promise<boolean> | boolean
   stop: () => void

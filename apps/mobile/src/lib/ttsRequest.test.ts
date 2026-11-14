@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ttsRequestDecision, TtsPhase } from './ttsRequest'
+import { ttsRequestDecision, ttsLang, TtsPhase } from './ttsRequest'
 
 const SENTENCE = 'It is a truth universally acknowledged, that a single man must be in want of a wife.'
 
@@ -60,5 +60,15 @@ describe('ttsRequestDecision', () => {
     expect(ttsRequestDecision({
       phase: 'playing', currentText: null, requestedText: SENTENCE,
     })).toBe('start')
+  })
+})
+
+describe('ttsLang', () => {
+  it('ttsLang_NoRegion_GoesThroughAsItIs', () => {
+    expect([ttsLang('uk'), ttsLang('de'), ttsLang('pt-BR')]).toEqual(['uk', 'de', 'pt-BR'])
+  })
+
+  it('ttsLang_EnglishOrMissing_IsEnUS', () => {
+    expect([ttsLang('en'), ttsLang('EN-gb'), ttsLang(undefined), ttsLang(' ')]).toEqual(['en-US', 'en-US', 'en-US', 'en-US'])
   })
 })

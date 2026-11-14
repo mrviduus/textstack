@@ -93,6 +93,8 @@ describe('V2ReaderHost Listen', () => {
     await settle()
     expect(spoken()).toEqual([[WORD_CFI, 2], [null]])
     expect(popupButton()).toHaveAccessibleName('Listen to pronunciation')
+    // The speaker's own strings (speakButton.*), its title as before; the toolbar keeps its keys.
+    expect(popupButton()).toHaveAttribute('title', 'Listen')
   })
 
   it('noWordTimestamps_NoTrackingRequest', async () => {
@@ -214,7 +216,7 @@ describe('V2ReaderHost Listen', () => {
     await settle()
     expect(fetchTtsAudio).toHaveBeenLastCalledWith('Wald', 'de', undefined, 1, expect.anything())
     expect(popupButton()).toHaveAccessibleName('Stop speech')
-    expect(spoken().at(-1)).toEqual(['epubcfi(/6/4!/4/8/1:0)', 2])
+    expect(spoken()[spoken().length - 1]).toEqual(['epubcfi(/6/4!/4/8/1:0)', 2])
     expect(screen.queryByText('Could not play the speech. Try again.')).toBeNull()
   })
 

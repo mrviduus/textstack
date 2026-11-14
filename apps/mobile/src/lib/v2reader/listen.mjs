@@ -32,7 +32,8 @@ export function createSpeedChoice({ load, save, show }) {
 
 /**
  * ISO 639-2 codes (bibliographic and terminology forms) and deprecated or macro two-letter codes → the ISO 639-1
- * code the server keys its voices by. Norwegian Bokmål and Nynorsk are the server's `no`.
+ * code the server keys its voices by. Norwegian Bokmål and Nynorsk are the server's `no`; Tagalog is Filipino (`fil`,
+ * the Edge voices' `fil-PH`: `tl` has none and would fall to en-US).
  */
 const FOLD = {
   eng: 'en', rus: 'ru', spa: 'es', fra: 'fr', fre: 'fr', deu: 'de', ger: 'de', ita: 'it', por: 'pt', pol: 'pl',
@@ -43,7 +44,7 @@ const FOLD = {
   fas: 'fa', per: 'fa', ukr: 'uk', msa: 'ms', may: 'ms', isl: 'is', ice: 'is', eus: 'eu', baq: 'eu', glg: 'gl',
   sqi: 'sq', alb: 'sq', mkd: 'mk', mac: 'mk', hye: 'hy', arm: 'hy', kat: 'ka', geo: 'ka', cym: 'cy', wel: 'cy',
   gle: 'ga', bel: 'be', kaz: 'kk', ben: 'bn', urd: 'ur', tam: 'ta', tel: 'te', mar: 'mr', swa: 'sw', afr: 'af',
-  tgl: 'tl', aze: 'az', uzb: 'uz', mon: 'mn', nep: 'ne', sin: 'si', khm: 'km', lao: 'lo', mya: 'my', bur: 'my',
+  tgl: 'fil', tl: 'fil', aze: 'az', uzb: 'uz', mon: 'mn', nep: 'ne', sin: 'si', khm: 'km', lao: 'lo', mya: 'my', bur: 'my',
   amh: 'am', som: 'so', zul: 'zu', pus: 'ps', guj: 'gu', kan: 'kn', mal: 'ml', pan: 'pa', jav: 'jv', sun: 'su',
 }
 /** ISO 639 codes that name no language: undetermined, multiple, no linguistic content, uncoded. */
@@ -77,7 +78,8 @@ export function ttsLang(lang, fallback) {
  * when nothing did; `done(failed)` is called once when that playback ends for any reason, `failed` true when it
  * could not play (a fetch or player error), false when it ended (played out, stopped, superseded, the host gone).
  * `stop()` ends playback. `mark(at | null)` asks the page to mark a range (`speaking`) or clear it. `changed()`
- * re-renders the host (its buttons read `state`); `failed()` says the speech could not play.
+ * re-renders the host (its buttons read `state`); `failed()` says the speech could not play. `press`, `state` and
+ * `follow` take what `spokenOf` makes of the host's open word popup or toolbar.
  *
  * The listener owns the phase, set synchronously: `loading` at the press, `playing` once `speak` resolves true, `idle`
  * at `done`, a false answer or a stop. A press on the range speaking (its text, CFI and section) stops it, also while
@@ -104,9 +106,10 @@ export function createListener({ speak, stop, mark, changed = () => {}, failed =
     if (failure) failed()
   }
   const listener = {
-    press(text, at) {
-      const t = typeof text === 'string' ? text.trim() : ''
+    press(spoken) {
+      const t = typeof spoken?.text === 'string' ? spoken.text.trim() : ''
       if (!t) return
+      const at = spoken.at
       if (phase !== 'idle' && same(t, at)) return listener.stop()
       if (current) current.ended = true
       const mine = (current = { text: t, cfi: at?.cfi ?? null, index: at?.index ?? null, ended: false })
@@ -137,9 +140,19 @@ export function createListener({ speak, stop, mark, changed = () => {}, failed =
       if (current && !(open && same(typeof open.text === 'string' ? open.text.trim() : '', open.at))) listener.stop()
     },
     /** What the button for that text and range shows: `idle` unless it is the one fetched or played. */
-    state: (text, at) => (typeof text === 'string' && same(text.trim(), at) ? phase : 'idle'),
+    state: (spoken) => (typeof spoken?.text === 'string' && same(spoken.text.trim(), spoken.at) ? phase : 'idle'),
   }
   return listener
+}
+
+/**
+ * What Listen speaks for the word popup or selection toolbar open (`popupStep`'s): its text and range, or null for
+ * anything else (a highlight's editor, nothing open).
+ */
+export function spokenOf(popup) {
+  if (popup?.kind === 'word') return { text: popup.word, at: { cfi: popup.cfi, index: popup.index } }
+  if (popup?.kind === 'selection') return { text: popup.text, at: { cfi: popup.cfi, index: popup.index } }
+  return null
 }
 
 /**

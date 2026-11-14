@@ -42,7 +42,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `tapZone.mjs` (+ `.d.mts`) | Pure, both hosts (#1263): what a page `tap` does (turn back, turn on, toggle the bars). See Host responsibilities, "Reader chrome" and "Bars and tap zones, web". |
 | `highlights.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1312): the four colours (`HIGHLIGHT_COLORS`, the legacy readers'; `HIGHLIGHT_FILL` what the page draws; `colorOf`: one off the list, another client's, is drawn yellow), the page's `highlightList` (drawn ones, in book order by foliate's CFI compare, text cut to 200 code points), the hosts' readers `readHighlightList`, `readHighlightTap`, `readHighlightRemoved` in `readSelection`'s style, `noteOf` (a note as saved: trimmed, never cut: the server has no cap; blank is none) and `noteChange` (what a save writes: nothing when the draft is the note it was typed over). See Host responsibilities, "Highlights". |
 | `finishBook.mjs` (+ `.d.mts`) | Pure, both hosts (#1266): `showsFinishBook`, when the end-of-book block shows. See Host responsibilities, "Finish book". |
-| `listen.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1272): `ttsLang` (the book's language → the `lang` `/tts` is sent, on both hosts and the legacy mobile player: the primary subtag only, ISO 639-2 codes in both forms and `nb`/`nn`/`iw`/`in` folded, `und`/`mul`/`zxx`/`mis` to the fallback, never English for another language, null for Ukrainian), `TTS_SPEEDS` / `readSpeed` / `TTS_SPEED_KEY` / `createSpeedChoice` (Android's async store: a pick before the read wins), `createListener` (Listen's rule: it owns the phase), `speakingJs` (Android's injected call), `SPOKEN_FILL`. See Host responsibilities, "Listen". |
+| `listen.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1272): `ttsLang` (the book's language → the `lang` `/tts` is sent, the V2 reader on both hosts (the legacy readers keep their own): the primary subtag only, ISO 639-2 codes in both forms, `nb`/`nn`/`iw`/`in` and `tl` → `fil` folded, `und`/`mul`/`zxx`/`mis` to the fallback, never English for another language, null for Ukrainian), `TTS_SPEEDS` / `readSpeed` / `TTS_SPEED_KEY` / `createSpeedChoice` (Android's async store: a pick before the read wins), `createListener` (Listen's rule: it owns the phase), `speakingJs` (Android's injected call), `SPOKEN_FILL`. See Host responsibilities, "Listen". |
 | `vocabSave.mjs` (+ `.d.mts`) | Pure, both hosts (#1270): `saveOutcome`, a vocabulary save's answer as the host shows it (saved, deleted → restore, pending, lookup); `savesWords`, whether a book's `opened.lang` lets its words be saved. See Host responsibilities, "Saving a word". |
 | `wordPopup.mjs` (+ `.d.mts`) | Pure, both hosts (#1269): `readWord` (a host's read of `word`, `readSelection`'s caps; the rect through `selection.mjs` `readRect`), `readLang` (`opened.lang` as a two-letter primary subtag, or null: a three-letter code gives the host's fallback), and `popupStep`: what a `word`, `tap`, `selection`, `selection-cleared` or a move does to the word popup / selection toolbar and to the tap zones. See Host responsibilities, "Word popup and selection toolbar". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
@@ -560,9 +560,11 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
 - *Language:* `ttsLang(opened.lang, fallback)`: the book's language, its primary subtag only (`pt-BR` → `pt`; ISO
   639-2 codes in both forms folded: `deu`/`ger` → `de`, `ron`/`rum` → `ro`; `nb`/`nn` → `no`, the server's key), else
   the translation's fallback (web `en`, Android the app's language); a code that names no language (`und`, `mul`,
-  `zxx`, `mis`) is the fallback. Only the language is sent: the server picks the voice by it
-  (`TtsConfiguration.DefaultVoices`), and one spelling per language keeps one cache entry, shared with the legacy
-  readers (the legacy mobile player uses the same `ttsLang`). A language without a region is never mapped to `en-US`
+  `zxx`, `mis`) is the fallback; Tagalog is `fil` (the Edge voices' code). Only the language is sent: the server picks
+  the voice by it (`TtsConfiguration.DefaultVoices`), and one spelling per language keeps one V2 cache entry. The
+  players keep their legacy handling of what they are given (mobile: English as `en-US`, its cache file names), and
+  the legacy readers send their own language as before; a V2 word shares a legacy cache entry only where both send
+  the same spelling (mobile: always, through the same player; web: a two-letter `bookLanguage`). A language without a region is never mapped to `en-US`
   (audit §3, the legacy mobile defect). Ukrainian: no Listen (the server refuses it). Known server gap: a language
   outside its defaults, on a server that has not loaded its voice list yet, still gets en-US there.
 - *Speed:* 0.75–2× (`TTS_SPEEDS`), the settings panel's last row, kept by the host under `TTS_SPEED_KEY` (never sent
@@ -575,7 +577,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   the player says it plays (Stop), `idle` when it ends (the players' `onEnd(failed)`, once per playback), fails or is
   stopped. A press on the range speaking (its text, CFI and section) stops it, also while loading; the same word
   elsewhere is spoken there. Closing the word popup or toolbar that started it (or opening another) stops it
-  (`follow`). The host calls `speaking(cfi, index)` at the press and `speaking(null)` when it is idle again; a range
+  (`follow`; `spokenOf` is what each host's open popup speaks). The host calls `speaking(cfi, index)` at the press and `speaking(null)` when it is idle again; a range
   with no CFI (a PDF) is spoken unmarked. A new open, closing the book, leaving the route and (Android) the app
   leaving the foreground stop it, through the listener. A failure (`onEnd(true)`, a throw, no audio module) says so on
   both hosts (`reader.listenFailed`); an end the host caused (a stop, a newer request, unmounting) never does. A

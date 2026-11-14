@@ -46,3 +46,15 @@ export function ttsRequestDecision(s: TtsRequestInput): TtsRequestDecision {
   // the reader is asking for the new one, not to silence the old one.
   return requested === (s.currentText ?? '').trim() ? 'stop' : 'start'
 }
+
+/**
+ * The `lang` sent to `/api/tts`. The server picks the voice from the language part (`uk`, `de-AT` →
+ * `uk`, `de`; EdgeTtsService.ResolveDefaultVoice), so a code without a region goes through as it is.
+ * It used to become `en-US`, and a Ukrainian or German book was read by an English voice. English
+ * stays `en-US` (the audio cache file name carries this value); no language at all is English.
+ */
+export function ttsLang(lang?: string): string {
+  const code = lang?.trim()
+  if (!code || code.toLowerCase().startsWith('en')) return 'en-US'
+  return code
+}

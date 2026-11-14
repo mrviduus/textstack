@@ -12,7 +12,7 @@ interface SpeakButtonProps {
   className?: string
 }
 
-const LABEL = { idle: 'reader.selectionToolbar.listen', loading: 'reader.selectionToolbar.listenLoading', playing: 'reader.selectionToolbar.listenStop' } as const
+const LABEL = { idle: 'speakButton.listen', loading: 'speakButton.loading', playing: 'speakButton.stop' } as const
 
 export function SpeakButton({ onClick, isPlaying, state, size = 16, className = '' }: SpeakButtonProps) {
   const { t } = useTranslation()
@@ -22,7 +22,7 @@ export function SpeakButton({ onClick, isPlaying, state, size = 16, className = 
       className={`speak-btn ${isPlaying || s === 'playing' ? 'speak-btn--playing' : ''} ${className}`}
       onMouseDown={e => e.preventDefault()}
       onClick={e => { e.stopPropagation(); onClick() }}
-      title={t(LABEL[s])}
+      title={t(s === 'idle' ? 'speakButton.title' : LABEL[s])}
       aria-label={t(LABEL[s])}
       aria-busy={s === 'loading' || undefined}
       type="button"

@@ -62,7 +62,7 @@ import { ReaderFooter } from '../reader/ReaderFooter'
 import { THEMES, readSettings } from '../../lib/v2reader/settings.mjs'
 import { V2SettingsSheet, storedV2Settings, useV2Settings, useV2TtsSpeed } from './V2SettingsSheet'
 import { useTts } from '../../hooks/useTts'
-import { createListener, speakingJs, ttsLang } from '../../lib/v2reader/listen.mjs'
+import { createListener, speakingJs, spokenOf, ttsLang } from '../../lib/v2reader/listen.mjs'
 
 /**
  * The V2 reader (ADR-029) on Android, dev builds only: reached through `app/dev/epub-v2.tsx`.
@@ -402,7 +402,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   useEffect(() => () => listener.stop(), [])
   // The word bar or selection toolbar that started a Listen closed (or another opened): its speech stops, its mark goes.
   useEffect(() => {
-    listener.follow(popup?.kind === 'word' ? { text: popup.word, at: popup } : popup?.kind === 'selection' ? { text: popup.text, at: popup } : null)
+    listener.follow(spokenOf(popup))
   }, [popup])
   // No background audio (audit §2.7): the app leaving the foreground ends the speech.
   useEffect(() => {
@@ -1224,9 +1224,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               highlightColor={highlightColor}
               onHighlight={popup.kind === 'selection' && annotatable ? (c) => { call(`window.__fol.highlightSelection(${JSON.stringify(colorOf(c))})`); setPopup(null) } : undefined}
               tooLong={popup.kind === 'selection' && popup.tooLong}
-              onSpeak={ttsLanguage ? () => listener.press(popup.kind === 'word' ? popup.word : popup.text, popup) : undefined}
-              isSpeaking={listener.state(popup.kind === 'word' ? popup.word : popup.text, popup) === 'playing'}
-              isTtsLoading={listener.state(popup.kind === 'word' ? popup.word : popup.text, popup) === 'loading'}
+              onSpeak={ttsLanguage ? () => listener.press(spokenOf(popup)) : undefined}
+              isSpeaking={listener.state(spokenOf(popup)) === 'playing'}
+              isTtsLoading={listener.state(spokenOf(popup)) === 'loading'}
               isAuthenticated={!!user}
               // No Save where the book's language does not read (savesWords): the gloss still uses the fallback.
               onSaveWord={popup.kind === 'word' && langSaves ? () => { void saveWord(popup) } : undefined}

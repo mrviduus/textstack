@@ -19,7 +19,7 @@ import { TranslationPopup } from './TranslationPopup'
 import { ExplanationPopup } from './ExplanationPopup'
 import { PdfHighlightPopup } from './PdfHighlightPopup'
 import type { V2HighlightColor, V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
-import { createListener } from '../../../../mobile/src/lib/v2reader/listen.mjs'
+import { createListener, spokenOf } from '../../../../mobile/src/lib/v2reader/listen.mjs'
 import { useTts } from '../../hooks/useTts'
 
 /** #1312: the highlight a tap opened (`popup.kind === 'highlight'`), as the host knows it, and what its editor does. */
@@ -187,9 +187,10 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
   useEffect(() => () => listener.stop(), [])
   // The word popup or toolbar that started a Listen closed (or another opened): its speech stops, its mark goes.
   useEffect(() => {
-    listener.follow(popup?.kind === 'word' ? { text: popup.word, at: popup } : popup?.kind === 'selection' ? { text: popup.text, at: popup } : null)
+    listener.follow(spokenOf(popup))
   }, [popup])
-  const listen = (text: string, at: { cfi: string | null; index: number }) => { if (lang) listener.press(text, at) }
+  // What Listen speaks for what is open (the popup or the toolbar: one at a time).
+  const spoken = spokenOf(popup)
 
   const selection = popup?.kind === 'selection' ? popup : null
   // Their own close ends the selection in the page (the legacy reader's clearSelection on close).
@@ -223,8 +224,8 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
           onChangeNativeLanguage={setNativeLanguage}
           hasConfirmedLanguage={hasConfirmedLanguage}
           bookLanguage={bookLanguage}
-          onSpeak={lang ? () => listen(word.word, word) : undefined}
-          speakState={listener.state(word.word, word)}
+          onSpeak={lang ? () => listener.press(spoken) : undefined}
+          speakState={listener.state(spoken)}
           t={t}
         />
       )}
@@ -238,8 +239,8 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
           onTranslate={() => translationPopup.open(selection.text, rect, { sentence: selection.sentence })}
           onExplain={() => explainPopup.openFromSelection(selection.text, rect, selection.sentence)}
           onCopy={() => onClose(true)}
-          onSpeak={lang ? () => listen(selection.text, selection) : undefined}
-          speakState={listener.state(selection.text, selection)}
+          onSpeak={lang ? () => listener.press(spoken) : undefined}
+          speakState={listener.state(spoken)}
           tooLong={selection.tooLong}
         />
       )}

@@ -470,6 +470,12 @@
     "enrichRetry": "Retry",
     "readV2": "Open in the V2 reader"
   },
+  "speakButton": {
+    "title": "Listen",
+    "listen": "Listen to pronunciation",
+    "loading": "Loading speech, tap to cancel",
+    "stop": "Stop speech"
+  },
   "v2Reader": {
     "pick": "Pick a book",
     "loading": "Loading the book…",

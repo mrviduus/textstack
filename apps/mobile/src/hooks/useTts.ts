@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { API_URL } from '../lib/api'
-import { ttsRequestDecision, TtsPhase } from '../lib/ttsRequest'
-import { ttsLang } from '../lib/v2reader/listen.mjs'
+import { ttsRequestDecision, ttsLang, TtsPhase } from '../lib/ttsRequest'
 
 // Lazy + safe loads — these native modules ship with the dev build only
 // after their respective `expo install`. An older dev build (before the
@@ -168,10 +167,9 @@ export function useTts() {
       const { audio, fs } = loadNativeOnce()
       if (!audio || !fs) return false
       const normalized: TtsSpeakOptions = typeof opts === 'number' ? { rate: opts } : opts
-      // listen.mjs `ttsLang`, the V2 reader's too: the language only, never English for another one; none (Ukrainian,
-      // which the server refuses) speaks nothing.
-      const lang = ttsLang(normalized.lang, 'en')
-      if (!lang) return false
+      // The legacy readers' normalisation (English as en-US, the cache file names); the V2 reader normalises with
+      // listen.mjs before it calls.
+      const lang = ttsLang(normalized.lang)
       // The previous playback is superseded: its onEnd now, this one's from here.
       finish()
       endRef.current = normalized.onEnd ?? null

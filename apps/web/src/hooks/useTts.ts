@@ -120,6 +120,10 @@ export function useTts(stopKey?: unknown) {
   // from owner-other-instance in currentOwnerReset.
   const localResetRef = useRef<() => void>(() => {})
   localResetRef.current = () => {
+    // Another instance took the shared audio: this call is over, so its pending play() rejection touches nothing (the
+    // newer call's blob URL and state included).
+    abortRef.current?.abort()
+    abortRef.current = null
     setIsPlaying(false)
     setIsLoading(false)
     finish()
