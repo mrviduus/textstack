@@ -28,6 +28,8 @@ public static class ReadingPace
             .Select(g => new { Sessions = g.Count(), Words = g.Sum(s => (long)s.WordsRead), Seconds = g.Sum(s => (long)s.DurationSeconds) })
             .FirstOrDefaultAsync(ct);
 
+        // ponytail: a session sent to both stores (legacy mobile picks the store at send time) counts twice; an average
+        // barely moves. Dedupe by client_session_id if the pace drifts.
         var more = v2 is null ? default : await v2.GetAsync(userId, ct);
         return FromTotals((agg?.Sessions ?? 0) + more.Sessions, (agg?.Words ?? 0) + more.Words, (agg?.Seconds ?? 0) + more.Seconds);
     }

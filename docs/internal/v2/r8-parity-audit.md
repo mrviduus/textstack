@@ -132,7 +132,7 @@ Legend — **Need**: `R8` must exist before R8 · `owner` needs a decision (§6)
 
 | Behaviour | Web | Mobile | V2 | Need |
 |---|---|---|---|---|
-| Reading sessions (heartbeat, idle, queue; V2 `PUT /me/v2/reading/sessions/{id}`) | yes | yes | yes (#1313; in `/me/reading/pace`) | done |
+| Reading sessions (heartbeat, idle, queue; V2 `PUT /me/v2/reading/sessions/{id}`) | yes | yes | yes (#1313): recorded, and in `/me/reading/pace` | pace done; stats page (totals, streak, avg wpm, time, books finished) legacy-only (follow-up) |
 | Stats widget (session min, daily goal, streak) | yes | yes | absent | owner (keep or drop) |
 | "Discuss chapter" handoff at chapter end / exit prompt | yes | yes | absent | R8 — needs a rule for "chapter" on foliate sections (no `chapterSlug`) |
 | Exit prompt "review N words" | — | yes | absent | owner |

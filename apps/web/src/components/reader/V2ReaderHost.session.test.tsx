@@ -1,5 +1,5 @@
 import type { PendingSession } from '@textstack/shared'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { v2ReaderSyncApi, type V2SyncTarget } from '../../lib/v2ReaderSync'
@@ -14,12 +14,26 @@ vi.mock('../../hooks/useReadingSession', () => ({
   flushPendingSessions: async () => {},
 }))
 
+const track = vi.fn()
+vi.mock('../../lib/analytics', async (original) => ({
+  ...(await original<typeof import('../../lib/analytics')>()),
+  trackReadingSessionEnd: (a: unknown) => track(a),
+}))
+let signedIn = true
+vi.mock('../../context/AuthContext', async (original) => ({
+  ...(await original<typeof import('../../context/AuthContext')>()),
+  useAuth: () => ({ isAuthenticated: signedIn }),
+}))
+
 const target = (n: number): V2SyncTarget => ({ bookId: `b${n}`, fileId: `f${n}`, format: 'epub', sha256: String(n).repeat(64), size: 8, name: `b${n}.epub` })
 let now = Date.parse('2026-11-14T10:00:00Z')
 const later = (s: number) => { now += s * 1000 }
 
 beforeEach(() => {
   queued.length = 0
+  now = Date.parse('2026-11-14T10:00:00Z')
+  track.mockClear()
+  signedIn = true
   vi.spyOn(Date, 'now').mockImplementation(() => now)
   vi.spyOn(v2ReaderSyncApi, 'getReadingState').mockResolvedValue(null)
   vi.spyOn(v2ReaderSyncApi, 'annotations').mockResolvedValue([])
@@ -41,10 +55,10 @@ async function reader(o: { dev?: boolean } = {}) {
   const ask = async (t: V2SyncTarget) => { view.rerender(host({ bytes: new ArrayBuffer(8), name: t.name, sync: o.dev ? undefined : t })) }
   const open = async (t: V2SyncTarget, sha256 = t.sha256) => {
     await ask(t)
-    await fromPage({ type: 'opened', title: 'T', format: 'epub', book: { sha256, size: 8, name: `${++opens}/${t.name}` } })
+    await fromPage({ type: 'opened', title: 'T', format: 'epub', toc: [{ label: 'One', href: 'c1.xhtml', depth: 0 }, { label: 'Two', href: 'c2.xhtml', depth: 0 }], book: { sha256, size: 8, name: `${++opens}/${t.name}` } })
     await relocate(0.1, false)
   }
-  const relocate = (fraction: number, moved = true) => fromPage({ type: 'relocate', cfi: 'epubcfi(/6/2!/4/2)', index: 1, sections: 3, fraction, moved, words: 100_000 })
+  const relocate = (fraction: number, moved = true) => fromPage({ type: 'relocate', cfi: 'epubcfi(/6/2!/4/2)', index: 1, sections: 3, fraction, moved, words: 100_000, tocIndex: 0 })
   await fromPage({ type: 'ready' })
   return { ask, open, relocate, fromPage, unmount: view.unmount }
 }
@@ -54,12 +68,14 @@ describe('V2ReaderHost reading sessions (#1313)', () => {
     const r = await reader()
     await r.open(target(1))
     later(60)
-    await r.relocate(0.101) // 100 words
+    await r.relocate(0.1005) // the first turn starts the session
+    later(60)
+    await r.relocate(0.1015) // 100 words
     later(30)
     r.unmount()
     expect(queued).toEqual([{
-      userBookId: 'b1', clientSessionId: expect.stringMatching(/^[0-9a-f-]{36}$/), startedAt: '2026-11-14T10:01:00.000Z', endedAt: '2026-11-14T10:01:30.000Z',
-      durationSeconds: 30, wordsRead: 100, startPercent: 0.1, endPercent: 0.101,
+      userBookId: 'b1', clientSessionId: expect.stringMatching(/^[0-9a-f-]{36}$/), startedAt: '2026-11-14T10:01:00.000Z', endedAt: '2026-11-14T10:02:30.000Z',
+      durationSeconds: 90, wordsRead: 100, startPercent: 0.1, endPercent: 0.1015,
     }])
   })
 
@@ -86,6 +102,51 @@ describe('V2ReaderHost reading sessions (#1313)', () => {
     later(100)
     r.unmount()
     expect(queued.map((s) => [s.userBookId, s.durationSeconds])).toEqual([['b1', 20]])
+  })
+
+  it('session_SectionControlAfterTwoHours_ItsLandingCountsNoWordsTheNextTurnDoes', async () => {
+    const r = await reader()
+    await r.open(target(1))
+    await r.relocate(0.1001) // starts the session
+    later(60)
+    await r.relocate(0.101) // 90 words
+    later(7200)
+    await act(async () => { fireEvent.click(screen.getByTestId('v2-next-section')) })
+    await r.relocate(0.301) // the landing, 20 % on
+    later(60)
+    await r.relocate(0.302) // 100 words
+    r.unmount()
+    expect(queued.map((s) => s.wordsRead)).toEqual([190])
+  })
+
+  it('session_Ended_Ga4SessionEndForASignedInReaderOnly', async () => {
+    const r = await reader()
+    await r.open(target(1))
+    await r.relocate(0.2)
+    later(30)
+    r.unmount()
+    expect(track.mock.calls).toEqual([[{ durationSeconds: 30, wordsRead: 0, startPercent: 0.1, endPercent: 0.2, editionId: null, userBookId: 'b1' }]])
+    signedIn = false
+    const s = await reader()
+    await s.open(target(2))
+    await s.relocate(0.2)
+    later(30)
+    s.unmount()
+    expect(track).toHaveBeenCalledTimes(1)
+    expect(queued.map((q) => q.userBookId)).toEqual(['b1', 'b2'])
+  })
+
+  it('session_MalformedTapOrKey_NoActivity', async () => {
+    const r = await reader()
+    await r.open(target(1))
+    await r.fromPage({ type: 'tap' })
+    later(30)
+    await r.fromPage({ type: 'key' })
+    later(30)
+    await r.relocate(0.2) // the first real activity
+    later(30)
+    r.unmount()
+    expect(queued.map((q) => [q.startedAt, q.durationSeconds])).toEqual([['2026-11-14T10:01:00.000Z', 30]])
   })
 
   it('session_TabHidden_Ended', async () => {

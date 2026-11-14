@@ -19,8 +19,9 @@ public interface IReadingSessionRepository
     Task<WriteResult<ReadingSession>> SaveAsync(Guid userId, ReadingSession session, CancellationToken ct);
 
     /// <summary>
-    /// The pace rule's totals over the user's V2-native sessions with words and seconds (#1313). An ETL-carried
-    /// row (<c>id = client_session_id</c>, EtlV2Sessions) is legacy's own and counted there, never twice.
+    /// The pace rule's totals over the user's sessions with words and seconds (#1313). <paramref name="excludeEtlCarried"/>:
+    /// without the rows the ETL carried from legacy (<c>id = client_session_id</c>, EtlV2Sessions), for a sum with
+    /// legacy's own (transitional, until M6).
     /// </summary>
-    Task<PaceTotals> PaceTotalsAsync(Guid userId, CancellationToken ct);
+    Task<PaceTotals> PaceTotalsAsync(Guid userId, bool excludeEtlCarried, CancellationToken ct);
 }

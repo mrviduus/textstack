@@ -107,6 +107,7 @@ public class ReadingSessionRepositoryTests(V2PostgresFixture db)
             VALUES (@carried, @userId, @carried, NULL, now(), now(), 300, 900, 0, 0, now())
             """, new { carried, userId = mine.UserId });
 
-        Assert.Equal(new PaceTotals(2, 300, 600), await _repo.PaceTotalsAsync(mine.UserId, Ct));
+        Assert.Equal(new PaceTotals(2, 300, 600), await _repo.PaceTotalsAsync(mine.UserId, excludeEtlCarried: true, Ct));
+        Assert.Equal(new PaceTotals(3, 1200, 900), await _repo.PaceTotalsAsync(mine.UserId, excludeEtlCarried: false, Ct));
     }
 }
