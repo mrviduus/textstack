@@ -13,23 +13,12 @@ import {
   type PendingVocabWord,
 } from '../lib/offlineDb'
 import { normalizeVocabKey } from '../lib/vocabKey'
-import { backfillTranslations, ofBook, wordId } from '../../../mobile/src/lib/v2reader/vocabWords.mjs'
 import { trackVocabSaved } from '../lib/analytics'
 import { takeGuestNudge, type GuestNudge } from '../lib/guestNudge'
 
 export type VocabMap = Map<string, { stage: number; id?: string; translation?: string; isPending?: boolean }>
 
-/**
- * `marks` (#1271, the V2 reader only): the map holds the cards of `marks.language` only (vocabWords.mjs `ofBook`; null: a
- * book whose language does not read, none), and the backfill fills those. Absent (the legacy reader): every card, as
- * before.
- */
-export function useReaderVocabulary(bookLanguage?: string, targetLang?: string | null, marks?: { language: string | null }) {
-  const marksOn = marks !== undefined
-  const marksLang = marks?.language ?? null
-  /** The language the map is for and the backfill translates from. */
-  const mapLang = marksOn ? marksLang : bookLanguage ?? null
-  const takes = useCallback((language: string | null | undefined) => !marksOn || ofBook(language, marksLang), [marksOn, marksLang])
+export function useReaderVocabulary(bookLanguage?: string, targetLang?: string | null) {
   const { isAuthenticated, isGuest, waitForSession, ensureSession } = useAuth()
   const { commitmentThreshold } = useGuestLimits()
   const [vocabMap, setVocabMap] = useState<VocabMap>(new Map())
@@ -42,16 +31,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
   const [guestNudge, setGuestNudge] = useState<GuestNudge | null>(null)
   const dismissGuestNudge = useCallback(() => setGuestNudge(null), [])
   const mapRef = useRef<VocabMap>(new Map())
-  /** The authenticated load (`authLoad.id`) whose words were backfilled; 0: none. */
-  const backfillDone = useRef(0)
-  /** Bumped by every load (a new identity, language, retry) and at unmount: a backfill of an older one stops. */
-  const loadGen = useRef(0)
-  /**
-   * #1271 review: the whole vocabulary's words (key + language, unfiltered), for a guest's nudge: it counts them all, as
-   * legacy does, whatever the map is filtered to.
-   */
-  const allWords = useRef(new Set<string>())
-  const remember = (word: string, language: string | null | undefined) => allWords.current.add(wordId(normalizeVocabKey, word, language))
+  const backfillDone = useRef(false)
   // Keep auth state available inside async callbacks without stale-closure races.
   const isAuthRef = useRef(isAuthenticated)
   isAuthRef.current = isAuthenticated
@@ -75,36 +55,17 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
   const [loaded, setLoaded] = useState(false)
   const [loadFailed, setLoadFailed] = useState(false)
   const [loadAttempt, setLoadAttempt] = useState(0)
-  /**
-   * #1271 review: the authenticated load whose words are in (its number and the language it was filtered for), null while
-   * none is: the backfill latches on this, never on `loaded` (the no-session branch sets it too), and only for the language
-   * the map is for now (a language change in the same commit is not this load's).
-   */
-  const [authLoad, setAuthLoad] = useState<{ id: number; lang: string | null } | null>(null)
-  const loads = useRef(0)
-  const alive = useRef(true)
-  // Set in the body: StrictMode's dev mount runs the cleanup once, then the effect again.
-  useEffect(() => {
-    alive.current = true
-    return () => { alive.current = false; loadGen.current++ }
-  }, [])
   const retryLoad = useCallback(() => setLoadAttempt((n) => n + 1), [])
 
   // Load vocab from API once a session exists (guest or real).
   useEffect(() => {
-    loadGen.current++
     if (!isAuthenticated) {
       commitMap(new Map())
-      allWords.current = new Set()
-      setAuthLoad(null)
       setLoaded(true)
       setLoadFailed(false)
       return
     }
     let cancelled = false
-    const load = ++loads.current
-    const lang = mapLang
-    setAuthLoad(null)
     setLoading(true)
     setLoaded(false)
     setLoadFailed(false)
@@ -112,43 +73,51 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       .then((words) => {
         if (cancelled) return
         const m: VocabMap = new Map()
-        allWords.current = new Set()
         for (const w of words) {
-          remember(w.word, w.language)
-          // #1271, the V2 reader: only the book's language's cards (`takes`): a German card is not an English book's
-          // saved word, nor filled with a translation from English. The legacy reader keeps them all.
-          if (!takes(w.language)) continue
           m.set(normalizeVocabKey(w.word), { stage: w.stage, id: w.id, translation: w.translation })
         }
         commitMap(m)
-        setAuthLoad({ id: load, lang })
         setLoaded(true)
       })
       .catch(() => { if (!cancelled) setLoadFailed(true) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [isAuthenticated, commitMap, loadAttempt, mapLang, takes])
+  }, [isAuthenticated, commitMap, loadAttempt])
 
-  // Backfill translations for words missing them: once per authenticated load, over the words it brought, for the
-  // language it was filtered for (#1271: once per open). A word saved afterwards gets its translation from the save
-  // itself (TR-2), never a second, sentence-less request here. vocabWords.mjs `backfillTranslations`: one card written
-  // before the next, a 429 stops it, and so do a newer load (identity, language, retry) and the unmount.
+  // Backfill translations for words missing them
   useEffect(() => {
-    if (!targetLang || !authLoad || authLoad.lang !== mapLang || backfillDone.current === authLoad.id) return
-    backfillDone.current = authLoad.id
-    const from = authLoad.lang
-    const gen = loadGen.current
-    // Pending entries have a local UUID, not a backend row.
-    const missing = [...vocabMap].flatMap(([word, e]) => (!e.isPending && !e.translation && e.id ? [{ id: e.id, word }] : []))
-    void backfillTranslations(missing, from, targetLang, {
-      translate: (word) => translateWord(word, from!, targetLang).then((r) => r.translatedText || null),
-      persist: (id, translation) => updateWord(id, { translation, onlyIfEmpty: true }),
-      onWord: (id, translation) => updateMap((m) => {
-        for (const [k, e] of m) if (e.id === id && !e.translation) m.set(k, { ...e, translation })
-      }),
-      cancelled: () => !alive.current || gen !== loadGen.current,
-    })
-  }, [vocabMap, authLoad, targetLang, mapLang, updateMap])
+    if (!targetLang || !bookLanguage || backfillDone.current) return
+    if (vocabMap.size === 0 || loading) return
+
+    const missing: { word: string; id?: string }[] = []
+    for (const [key, entry] of vocabMap) {
+      // Skip pending entries — their `id` is a local UUID, not a backend row.
+      if (entry.isPending) continue
+      if (!entry.translation) missing.push({ word: key, id: entry.id })
+    }
+    if (missing.length === 0) return
+
+    backfillDone.current = true
+    const lang = bookLanguage
+    const target = targetLang
+
+    // Translate in small batches to avoid overwhelming the API
+    ;(async () => {
+      for (let i = 0; i < missing.length; i++) {
+        const { word, id } = missing[i]
+        try {
+          const res = await translateWord(word, lang, target)
+          const translation = res.translatedText
+          if (!translation) continue
+          updateMap(m => {
+            const entry = m.get(word)
+            if (entry) m.set(word, { ...entry, translation })
+          })
+          if (id) updateWord(id, { translation, onlyIfEmpty: true }).catch(() => {})
+        } catch { /* skip */ }
+      }
+    })()
+  }, [vocabMap, loading, targetLang, bookLanguage, updateMap])
 
   // I4: flush pending local vocab into backend. Called:
   //   (a) on threshold-crossing after ensureSession succeeds;
@@ -191,9 +160,6 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
           // until then, but we also don't want to re-flush it repeatedly.
           continue
         }
-        remember(saved.word, saved.language ?? p.language)
-        // #1271: another book's queued word is not this book's saved word (the V2 reader's map is the book's language).
-        if (!takes(saved.language ?? p.language)) continue
         updateMap(m => {
           // Preserve any translation accumulated in map (from translateApi) over backend's null.
           const preserved = m.get(key)?.translation ?? saved.translation ?? p.translation ?? undefined
@@ -216,7 +182,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
         break
       }
     }
-  }, [updateMap, takes])
+  }, [updateMap])
 
   const addWord = useCallback(async (req: SaveWordRequest): Promise<SaveWordResponse | null> => {
     // Gate: block first tap until AuthContext has finished bootstrapping (B2).
@@ -226,8 +192,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     const isAccount = isAuthRef.current && !isGuestRef.current
     const nudge = () => {
       if (isAccount) return
-      // The whole vocabulary (legacy counts every card; the V2 map holds the book's language's only).
-      const n = takeGuestNudge(marksOn ? allWords.current.size : mapRef.current.size)
+      const n = takeGuestNudge(mapRef.current.size)
       if (n) setGuestNudge(n)
     }
 
@@ -242,8 +207,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       if (saved) {
         const key = normalizeVocabKey(saved.word)
         const existing = mapRef.current.get(key)
-        remember(saved.word, saved.language ?? req.language)
-        if (takes(saved.language ?? req.language) && !(existing && existing.id === saved.id && existing.stage === saved.stage && !existing.isPending)) {
+        if (!(existing && existing.id === saved.id && existing.stage === saved.stage && !existing.isPending)) {
           updateMap(m => m.set(key, {
             stage: saved.stage, id: saved.id,
             translation: existing?.translation || saved.translation || undefined,
@@ -283,7 +247,6 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     }
     // I8: synthetic map entry so WordPopup can show "saved" state immediately.
     // `isPending` flag prevents backfill from hitting backend with a local UUID.
-    remember(req.word, req.language)
     updateMap(m => m.set(normalizeVocabKey(req.word), {
       stage: 0,
       id: pending.id,                // local UUID; replaced with backend id after flush
@@ -311,7 +274,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
 
     // Path B returns null — caller (ReaderHighlights) tolerates null result.
     return null
-  }, [waitForSession, ensureSession, updateMap, commitmentThreshold, flushPendingIfAny, takes, marksOn])
+  }, [waitForSession, ensureSession, updateMap, commitmentThreshold, flushPendingIfAny])
 
   const markAsKnown = useCallback(async (id: string, word: string) => {
     if (!isAuthenticated) return null
@@ -340,14 +303,12 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
   const recordSavedWord = useCallback((dto: VocabWordDto) => {
     const key = normalizeVocabKey(dto.word)
     const existing = mapRef.current.get(key)
-    remember(dto.word, dto.language)
-    if (!takes(dto.language)) return
     updateMap(m => m.set(key, {
       stage: dto.stage,
       id: dto.id,
       translation: existing?.translation || dto.translation || undefined,
     }))
-  }, [updateMap, takes])
+  }, [updateMap])
 
   /** TR-2: the bubble's automatic path — fills an UNTRANSLATED saved word (map + PATCH), and never
    *  changes an existing translation. Replacing one is only ever `replaceTranslation` (TR-3). */

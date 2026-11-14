@@ -4,7 +4,7 @@ import type { V2Rect } from '../../../../mobile/src/lib/v2reader/selection.mjs'
 import { saveOutcome } from '../../../../mobile/src/lib/v2reader/vocabSave.mjs'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { useAuth } from '../../context/AuthContext'
-import { useReaderVocabulary } from '../../hooks/useReaderVocabulary'
+import { useV2ReaderVocabulary } from '../../hooks/useV2ReaderVocabulary'
 import { promoteLookup, restoreWord } from '../../api/vocabulary'
 import { emitDataChange } from '../../lib/dataEvents'
 import { normalizeVocabKey } from '../../lib/vocabKey'
@@ -111,8 +111,7 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
   // #1270: the legacy reader's auto-save. A word tapped is saved with its sentence, the book and (once fetched) its
   // translation, after the reader confirmed a native language (otherwise the popup's footer asks, and picking one
   // saves the word on screen). Once per word key while this book is open, unless the save failed (a re-tap retries).
-  const marks = useMemo(() => ({ language: marksLanguage }), [marksLanguage])
-  const vocab = useReaderVocabulary(bookLanguage, targetLang, marks)
+  const vocab = useV2ReaderVocabulary(marksLanguage, targetLang)
   const { vocabMap, addWord, updateTranslation, recordSavedWord, loaded, loadFailed, retryLoad } = vocab
   useEffect(() => {
     onMarks?.(markWordsOf([...vocabMap].map(([word, v]) => ({ word, stage: v.stage, translation: v.translation }))))
