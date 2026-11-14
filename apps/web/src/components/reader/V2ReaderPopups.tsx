@@ -80,7 +80,7 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
   // translation, after the reader confirmed a native language (otherwise the popup's footer asks, and picking one
   // saves the word on screen). Once per word key while this book is open, unless the save failed (a re-tap retries).
   const vocab = useReaderVocabulary(bookLanguage, targetLang)
-  const { vocabMap, addWord, updateTranslation, recordSavedWord } = vocab
+  const { vocabMap, addWord, updateTranslation, recordSavedWord, loaded, loadFailed, retryLoad } = vocab
   const tried = useRef(new Set<string>())
   const [saving, setSaving] = useState<string | null>(null)
   const [lookup, setLookup] = useState<{ word: string; id: string; kind: 'lookup' | 'lookup_pending'; tapsRemaining: number | null } | null>(null)
@@ -89,6 +89,12 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
   const [toast, setToast] = useState<string | null>(null)
   useEffect(() => {
     if (!word || !bookId || !hasConfirmedLanguage) return
+    // Not before the reader's words are in (a word already saved would get another example): a tap while they load
+    // saves when they land; after a failed load, a tap retries the load rather than saving blind.
+    if (!loaded) {
+      if (loadFailed) retryLoad()
+      return
+    }
     const key = normalizeVocabKey(word.word)
     if (vocabMap.has(key) || tried.current.has(key)) return
     tried.current.add(key)
@@ -103,10 +109,11 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
       else if (o.kind === 'lookup') setLookup({ word: word.word, id: o.id, kind: o.lookup, tapsRemaining: o.tapsRemaining })
     }, () => { tried.current.delete(key) })
       .finally(() => setSaving((s) => (s === word.word ? null : s)))
-  }, [word, bookId, hasConfirmedLanguage])
+  }, [word, bookId, hasConfirmedLanguage, loaded])
   // The translation follows the save (TR-2: it fills an untranslated word, never replaces one), in the language the
-  // popup opened in: one switched to mid-popup is display-only, as in the legacy reader.
-  const openedLang = useMemo(() => targetLang, [word])
+  // popup opened in: one switched to mid-popup is display-only, as in the legacy reader. A language picked in the
+  // footer (the first confirmed one) is the popup's own, not a switch.
+  const openedLang = useMemo(() => targetLang, [word, hasConfirmedLanguage])
   useEffect(() => {
     if (word && shown.translation && !shown.failed && targetLang === openedLang) updateTranslation(word.word, shown.translation)
   }, [word, shown.translation, vocabMap])

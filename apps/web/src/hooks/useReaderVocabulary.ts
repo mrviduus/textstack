@@ -49,14 +49,26 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     commitMap(next)
   }, [commitMap])
 
+  // `loaded`: the map holds the reader's saved words (a load succeeded, or there is no session to load for);
+  // `loadFailed`: the last load failed, and `retryLoad` starts another. A caller that must not save a word twice
+  // (the V2 reader's auto-save, #1270) waits for `loaded`.
+  const [loaded, setLoaded] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const retryLoad = useCallback(() => setLoadAttempt((n) => n + 1), [])
+
   // Load vocab from API once a session exists (guest or real).
   useEffect(() => {
     if (!isAuthenticated) {
       commitMap(new Map())
+      setLoaded(true)
+      setLoadFailed(false)
       return
     }
     let cancelled = false
     setLoading(true)
+    setLoaded(false)
+    setLoadFailed(false)
     getReaderVocab()
       .then((words) => {
         if (cancelled) return
@@ -65,11 +77,12 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
           m.set(normalizeVocabKey(w.word), { stage: w.stage, id: w.id, translation: w.translation })
         }
         commitMap(m)
+        setLoaded(true)
       })
-      .catch(() => {})
+      .catch(() => { if (!cancelled) setLoadFailed(true) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [isAuthenticated, commitMap])
+  }, [isAuthenticated, commitMap, loadAttempt])
 
   // Backfill translations for words missing them
   useEffect(() => {
@@ -334,5 +347,5 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     setVocabMap(new Map(mapRef.current))
   }, [])
 
-  return { vocabMap, loading, addWord, markAsKnown, removeWord, updateTranslation, replaceTranslation, recordSavedWord, refreshMarks, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge }
+  return { vocabMap, loading, loaded, loadFailed, retryLoad, addWord, markAsKnown, removeWord, updateTranslation, replaceTranslation, recordSavedWord, refreshMarks, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge }
 }

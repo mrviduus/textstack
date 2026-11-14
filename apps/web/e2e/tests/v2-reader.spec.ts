@@ -352,15 +352,21 @@ test.describe('V2 reader page @v2', () => {
     const word = (await firstParagraphWords(page)).find((w) => w.x > width * 0.35 && w.x < width * 0.65 && w.word.length > 2)
     expect(word, 'a word in the centre zone').toBeTruthy()
     const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith('/me/v2/vocabulary/words'))
+    const patched = page.waitForResponse((r) => r.request().method() === 'PATCH' && /\/me\/v2\/vocabulary\/words\/[0-9a-f-]{36}$/.test(r.url()))
     await page.mouse.click(word!.x, word!.y)
     const put = await saved
     expect(put.ok(), `PUT word: ${put.status()} ${await put.text()}`).toBeTruthy()
+    // The context is the tapped word's own sentence (C2's e2e, 32ca405e): it holds the word as a whole word.
+    const own = new RegExp(`\\b${word!.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
     expect(put.request().postDataJSON()).toMatchObject({
       word: word!.word, language: 'en',
-      example: { bookId, bookTitle: 'E2E V2 sync', sentence: expect.stringContaining(FIRST_SECTION_TEXT) },
+      example: { bookId, bookTitle: 'E2E V2 sync', sentence: expect.stringMatching(own) },
     })
     // The translation follows the save (TR-2: it fills the untranslated card).
     await expect(page.locator('.word-popup__translation')).toHaveText('MOCK-TRANSLATION')
+    const patch = await patched
+    expect(patch.ok(), `PATCH word: ${patch.status()} ${await patch.text()}`).toBeTruthy()
+    expect(patch.request().postDataJSON()).toMatchObject({ translation: 'MOCK-TRANSLATION' })
 
     await page.goto('/en/vocabulary')
     await expect(page.getByText(word!.word, { exact: true }).first()).toBeVisible({ timeout: 15_000 })

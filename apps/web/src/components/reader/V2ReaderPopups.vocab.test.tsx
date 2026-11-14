@@ -119,6 +119,57 @@ describe('V2ReaderPopups vocabulary save', () => {
     }
   })
 
+  it('aTapWhileTheReadersWordsLoad_SavedOnceTheyLand_NotWhenTheWordIsAmongThem', async () => {
+    let land: (w: unknown[]) => void = () => {}
+    api.getReaderVocab.mockReturnValue(new Promise((r) => { land = r }))
+    api.saveWord.mockImplementation(async (r: { word: string }) => saved(r.word))
+    show('pond')
+    await settle()
+    expect(api.saveWord).not.toHaveBeenCalled()
+    await act(async () => { land([card('pond')]) })
+    await settle()
+    expect(api.saveWord).not.toHaveBeenCalled()
+    cleanup()
+    api.getReaderVocab.mockReturnValue(new Promise((r) => { land = r }))
+    show('woods')
+    await settle()
+    await act(async () => { land([]) })
+    await settle()
+    expect(api.saveWord.mock.calls.map((c) => c[0].word)).toEqual(['woods'])
+  })
+
+  it('aFailedLoad_NothingSaved_TheNextTapRetriesTheLoad_ThenSaves', async () => {
+    api.getReaderVocab.mockRejectedValueOnce(new Error('503')).mockResolvedValue([])
+    api.saveWord.mockImplementation(async (r: { word: string }) => saved(r.word))
+    const v = show('pond')
+    await settle()
+    expect(api.saveWord).not.toHaveBeenCalled()
+    expect(api.getReaderVocab).toHaveBeenCalledTimes(1)
+    v.next('woods')
+    await settle()
+    expect(api.getReaderVocab).toHaveBeenCalledTimes(2)
+    expect(api.saveWord.mock.calls.map((c) => c[0].word)).toEqual(['woods'])
+  })
+
+  it('aLanguagePickedInTheFooter_ItsTranslationFillsTheCard', async () => {
+    Object.assign(native, { nativeLanguage: 'uk', hasConfirmedLanguage: false })
+    api.saveWord.mockResolvedValue(saved('pond'))
+    const v = show('pond')
+    await settle()
+    expect(api.saveWord).not.toHaveBeenCalled()
+    Object.assign(native, { nativeLanguage: 'de', hasConfirmedLanguage: true })
+    try {
+      v.rerender(<V2ReaderPopups frame={createRef()} bookLanguage="en" bookTitle="Walden" bookId="book-1" onClose={() => {}} popup={v.popup} />)
+      await settle()
+      expect(api.saveWord).toHaveBeenCalledTimes(1)
+      await act(async () => { translation({ translatedText: 'Teich' }) })
+      await settle()
+      expect(api.updateWord).toHaveBeenCalledWith('id-pond', { translation: 'Teich', onlyIfEmpty: true })
+    } finally {
+      native.nativeLanguage = 'uk'
+    }
+  })
+
   it('aFailedSave_ARetapRetries', async () => {
     api.saveWord.mockRejectedValueOnce(new Error('503')).mockImplementation(async (r: { word: string }) => saved(r.word))
     const v = show('pond')

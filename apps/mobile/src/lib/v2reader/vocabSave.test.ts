@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { saveOutcome } from './vocabSave.mjs'
+import { saveOutcome, savesWords } from './vocabSave.mjs'
 
 // #1270: what each answer of a vocabulary save shows in the V2 reader (both hosts).
 
@@ -46,5 +46,22 @@ describe('saveOutcome', () => {
   it('noAnswer_Nothing', () => {
     expect(saveOutcome(null)).toEqual({ kind: 'none' })
     expect(saveOutcome(undefined)).toEqual({ kind: 'none' })
+  })
+})
+
+describe('savesWords', () => {
+  it.each([['en'], ['en-GB'], ['de']])('%s_Saves', (lang) => {
+    expect(savesWords({ lang })).toBe(true)
+  })
+
+  it('noLanguage_Saves_UnderTheHostsFallback', () => {
+    expect(savesWords({})).toBe(true)
+    expect(savesWords({ lang: null })).toBe(true)
+    expect(savesWords({ lang: '' })).toBe(true)
+    expect(savesWords(null)).toBe(true)
+  })
+
+  it.each([['deu'], ['fre'], ['<b>'], [42]])('%s_ALanguageThatDoesNotRead_NothingSaved', (lang) => {
+    expect(savesWords({ lang })).toBe(false)
   })
 })

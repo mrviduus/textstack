@@ -1,6 +1,17 @@
 // A vocabulary save's answer as the V2 reader's hosts act on it (#1270): the legacy readers' outcomes, one rule for
 // both hosts. Pure. The save itself is the app's (web `useReaderVocabulary.addWord`, Android `vocabularyApi.saveWord`):
 // on V2 it answers `srs` or `deleted`; `pending` and `lookup*` are legacy answers, kept as the legacy readers show them.
+import { readLang } from './wordPopup.mjs'
+
+/**
+ * Whether a book's words may be saved, by its `opened` message: yes when `lang` reads (`readLang`) or is absent (the
+ * host's fallback, as the legacy readers). No when it is there and does not read (`deu`, `fre`, junk): the fallback
+ * would file the book's words under another language's cards. Translate and explain may still use the fallback.
+ */
+export function savesWords(opened) {
+  const l = opened?.lang
+  return l === undefined || l === null || l === '' || readLang(opened) !== null
+}
 
 /**
  * `resp`: the save's response (`SaveWordResponse`), or null (nothing came back: a failure, or a word kept on the

@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, MutableRefObject } from 'react'
 import { t } from '@textstack/shared'
-import { uuid } from 'expo-modules-core'
 import { vocabularyApi } from '../lib/vocabularyApi'
-import { cachedTranslate } from '../lib/translateCache'
+import { fillSavedTranslation, saveWordWithRetry } from '../lib/savedWord'
 import type { Chapter, VocabularyWordDto, Language } from '@textstack/shared'
 import type { VocabMap } from './useReaderVocabMap'
 import { vocabPaintJs } from '../lib/vocabPaintJs'
@@ -50,26 +49,6 @@ type Options = {
  * screen — it shares state plumbing with selection lifecycle that's hard
  * to lift cleanly. This hook covers the four user-initiated handlers.
  */
-const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
-
-/** Save with up to 3 attempts + backoff. Absorbs transient network/5xx blips
- *  that previously dropped a tapped word silently (no underline, no retry).
- *  Deterministic 4xx just exhausts the 3 attempts quickly, then rethrows. */
-export async function saveWordWithRetry(body: Parameters<typeof vocabularyApi.saveWord>[0]) {
-  // V2: one card id and one operationId per save, reused by every retry (the server replays it).
-  const once = { ...body, id: uuid.v4(), operationId: uuid.v4() }
-  let lastErr: unknown
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      return await vocabularyApi.saveWord(once)
-    } catch (e) {
-      lastErr = e
-      if (attempt < 2) await delay(350 * (attempt + 1))
-    }
-  }
-  throw lastErr
-}
-
 export function useReaderVocabActions({
   vocabMapRef,
   bookTitleRef,
@@ -114,32 +93,15 @@ export function useReaderVocabActions({
     setSessionWordCount(c => c + 1)
     notifyWordSaved()
     // TR-2: an existing translation is never changed here — bumpVocab paints it; replacing it is
-    // only ever the reader's "Use this translation" (replaceTranslation, TR-3).
-    if (saved.translation) return
-
-    // A word saved with nothing to translate into is saved as it is. The old
-    // line here was `nativeLanguage !== language ? nativeLanguage : 'en'` — the
-    // exact 'en' fallback `useTargetLanguage` was rewritten to delete, because
-    // it turns "there is no translation to make" into "translate English into
-    // English". QA read the result off a real card: `lucius → Lucius`. The
-    // reader is still learning the word; the app just has no second language to
-    // show it in yet, and saying so by omission is honest.
-    const targetLang = nativeLanguage !== textLanguage ? nativeLanguage : null
-    if (!targetLang) return
-
-    // cachedTranslate (not translationApi) so this reuses the gloss the
-    // selection toolbar just fetched for the same word — no 2nd round-trip.
+    // only ever the reader's "Use this translation" (replaceTranslation, TR-3). The fill: lib/savedWord.
     const bookId = (editionIdRef ?? userBookIdRef)?.current || undefined
-    cachedTranslate(sourceText, textLanguage, targetLang, { sentence, bookId })
-      .then(({ translation }) => {
-        if (!translation || !saved.id) return
+    fillSavedTranslation(saved, sourceText, textLanguage, nativeLanguage, { sentence, bookId })
+      .then((translation) => {
+        if (!translation) return
         vocabMapRef.current[key] = { ...vocabMapRef.current[key], translation }
         // Push full map so the inline-translation span renders above the underline.
         // addVocabWord alone only carries {stage}, wiping any prior translation.
         injectJs(vocabPaintJs(vocabMapRef.current))
-        // Painted first: the gloss never depends on the PATCH. onlyIfEmpty: the server writes it only
-        // while the word still has no translation (TR-2), so a race with another device cannot replace one.
-        vocabularyApi.updateWord(saved.id, { translation, onlyIfEmpty: true }).catch(() => {})
       })
       .catch(() => {})
   }, [vocabMapRef, injectJs, bumpVocab, setWordSaved, setSessionWordCount, notifyWordSaved, textLanguage, nativeLanguage, editionIdRef, userBookIdRef])

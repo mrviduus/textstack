@@ -30,9 +30,10 @@ import {
 } from '../../lib/v2reader/chrome.mjs'
 import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../lib/v2reader/wordPopup.mjs'
 import { readerTextLanguage } from '../../lib/bookLanguage'
-import { saveOutcome } from '../../lib/v2reader/vocabSave.mjs'
+import { saveOutcome, savesWords } from '../../lib/v2reader/vocabSave.mjs'
 import { vocabularyApi } from '../../lib/vocabularyApi'
-import { saveWordWithRetry } from '../../hooks/useReaderVocabActions'
+import { fillSavedTranslation, saveWordWithRetry } from '../../lib/savedWord'
+import { vocabMapKey } from '../../lib/vocabMapKey'
 import { saveWordIntent } from '../../lib/saveWordIntent'
 import { claimGuestNudge } from '../../lib/guestNudge'
 import { useToast } from '../../context/ToastContext'
@@ -408,9 +409,17 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const { show: showToast } = useToast()
   const { nativeLanguage } = useNativeLanguage()
   const bookTitle = useRef<string | null>(null)
-  const savingWord = useRef(false)
-  /** The word popup whose word was saved (the bar's ✓), and the one answered `lookup` (the rare-word notice). */
-  const [savedPopup, setSavedPopup] = useState<V2Popup | null>(null)
+  /** The words (vocabMapKey) whose save is in flight: a second press of the same word waits, another word saves. */
+  const savingWords = useRef(new Set<string>())
+  /**
+   * The open book's words saved here (vocabMapKey; saved, already saved, restored, added anyway): the bar shows ✓, not
+   * Save, so a second tap never adds another example. Emptied by a new open.
+   */
+  const [savedWords, setSavedWords] = useState<ReadonlySet<string>>(new Set())
+  const markSaved = (word: string) => setSavedWords((s) => new Set(s).add(vocabMapKey(word)))
+  /** False when the book's `opened.lang` does not read (savesWords): its words would be filed under the fallback. */
+  const [langSaves, setLangSaves] = useState(true)
+  /** The one answered `lookup` (the rare-word notice). */
   const [lookup, setLookup] = useState<{ popup: V2Popup; kind: 'lookup' | 'lookup_pending'; id: string; tapsRemaining: number | null; busy: boolean } | null>(null)
   const closeIfOpen = (p: V2Popup) => { if (popupRef.current === p) closePopup() }
   const wordSavedToast = async () => {
@@ -431,19 +440,20 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     })
   }
   const restoreWord = (p: V2Popup, id: string) => vocabularyApi.restoreWord(id).then(
-    () => { if (popupRef.current === p) setSavedPopup(p) },
+    () => { if (p.kind === 'word') markSaved(p.word) },
     () => showToast({ variant: 'error', message: t('reader.vocab.restoreFailed') }),
   )
   const saveWord = async (p: V2Popup) => {
-    if (p.kind !== 'word') return
+    if (p.kind !== 'word' || !langSaves) return
     const intent = saveWordIntent({ isAuthenticated: !!user, hasSelection: true })
     if (intent === 'prompt') {
       haptics.play('flip')
       showToast({ variant: 'info', message: t('reader.vocab.saveNeedsAccount'), duration: 3600, bottomOffset: footerHeight })
       return
     }
-    if (intent !== 'save' || savingWord.current) return
-    savingWord.current = true
+    const key = vocabMapKey(p.word)
+    if (intent !== 'save' || savingWords.current.has(key)) return
+    savingWords.current.add(key)
     const body = { word: p.word, language: textLang, nativeLanguage, sentence: p.sentence || null, bookTitle: bookTitle.current }
     const bookId = reading.current.bookId
     try {
@@ -454,8 +464,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       })
       const o = saveOutcome(resp)
       if (o.kind === 'saved') {
-        setSavedPopup(p)
+        markSaved(p.word)
         void wordSavedToast()
+        // TR-2, as the legacy reader: a card saved without a translation gets one in the reader's language.
+        fillSavedTranslation(o.word, p.word, textLang, nativeLanguage, { sentence: p.sentence, bookId: bookId ?? undefined }).catch(() => {})
       } else if (o.kind === 'deleted') {
         showToast({
           variant: 'info', message: t('reader.vocab.deletedEarlier').replace('{{word}}', p.word), duration: 6000,
@@ -467,13 +479,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       } else if (o.kind === 'lookup') {
         setLookup({ popup: p, kind: o.lookup, id: o.id, tapsRemaining: o.tapsRemaining, busy: false })
       } else if (o.kind === 'already_saved') {
+        markSaved(p.word)
         closeIfOpen(p)
       }
     } catch (e) {
       console.warn('[v2] word not saved:', e)
       showToast({ variant: 'error', message: 'Could not save word. Try again.' })
     } finally {
-      savingWord.current = false
+      savingWords.current.delete(key)
     }
   }
   const addAnyway = async () => {
@@ -482,7 +495,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     try {
       await vocabularyApi.promoteLookup(lookup.id)
       setLookup(null)
-      setSavedPopup(lookup.popup)
+      if (lookup.popup.kind === 'word') markSaved(lookup.popup.word)
       showToast({ variant: 'success', message: t('reader.vocab.addedToSrs') })
       closeIfOpen(lookup.popup)
     } catch {
@@ -615,6 +628,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setReflowable(t.opened.reflowable !== false)
     setAnnotatable(t.opened.annotatable !== false)
     setBookLang(readLang(t.opened))
+    setLangSaves(savesWords(t.opened))
+    setSavedWords(new Set())
     onOpened(t.open, t.opened).catch(fail('opened', setOpenError))
   }
 
@@ -983,8 +998,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               onHighlight={popup.kind === 'selection' && annotatable ? () => { call('window.__fol.highlightSelection()'); setPopup(null) } : undefined}
               tooLong={popup.kind === 'selection' && popup.tooLong}
               isAuthenticated={!!user}
-              onSaveWord={popup.kind === 'word' ? () => { void saveWord(popup) } : undefined}
-              wordSaved={savedPopup === popup}
+              // No Save where the book's language does not read (savesWords): the gloss still uses the fallback.
+              onSaveWord={popup.kind === 'word' && langSaves ? () => { void saveWord(popup) } : undefined}
+              wordSaved={popup.kind === 'word' && savedWords.has(vocabMapKey(popup.word))}
               lookup={lookup?.popup === popup ? lookup : null}
               onAddAnyway={() => { void addAnyway() }}
               bottomOffset={barsVisible ? footerHeight : insets.bottom}

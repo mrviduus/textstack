@@ -15,3 +15,4 @@ export type V2SaveOutcome<W> =
   | { kind: 'lookup'; lookup: 'lookup' | 'lookup_pending'; id: string; tapsRemaining: number | null }
   | { kind: 'none' }
 export function saveOutcome<W extends { id: string }>(resp: V2SaveResponse<W> | null | undefined): V2SaveOutcome<W>
+export function savesWords(opened: unknown): boolean
