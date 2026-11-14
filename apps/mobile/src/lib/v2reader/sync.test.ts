@@ -2285,6 +2285,18 @@ describe('V2 local library sync (R6)', () => {
       return { lib, bookId, fileId, NEW }
     }
 
+    it('rekey_Twice_OldMidNew_EveryOldIdReachesTheRow', async () => {
+      const { lib } = await seeded()
+      const MID = '00000000-0000-4000-8000-0000000000aa', NEW = '00000000-0000-4000-8000-0000000000bb'
+      await lib.rekeyAnnotation(HL, () => MID)
+      await lib.rekeyAnnotation(MID, () => NEW)
+      expect([lib.realId(HL), lib.realId(MID)]).toEqual([NEW, NEW])
+      expect(await lib.setNote(HL, 'deep')).toBe(true)
+      expect(await lib.annotation(NEW)).toMatchObject({ note: 'deep' })
+      const n = await lib.notes(SHA)
+      expect([n.known.get(HL), n.known.get(MID), n.known.get(NEW)]).toEqual(['deep', 'deep', 'deep'])
+    })
+
     it('rekey_ATransactionThatFails_NoMappingKept', async () => {
       const { lib } = await seeded()
       const OTHER = '0b6a2c1e-1111-4222-8333-444455557777'

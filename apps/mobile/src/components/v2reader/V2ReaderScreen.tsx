@@ -453,6 +453,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // the same, and its typed draft (#1312 review).
     const was = popupRef.current
     if (next?.kind === 'highlight' && !(was?.kind === 'highlight' && was.id === next.id)) editorOpening.current++
+    // An editor opening while this open's notes were never read (both reads failed): read again, it waits meanwhile.
+    if (next?.kind === 'highlight' && !notesRead.current) refreshNotes()
     setPopup(next)
     if (turn === 'toggle') return toggleBars()
     if (!turn) return

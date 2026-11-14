@@ -293,7 +293,15 @@ export function createLocalLibrary(db: Db) {
    * stores (`applyEntry`), `setNote`, `removeHighlight`, and the host's lookups (`realId`).
    */
   const rekeyed = new Map<string, string>()
-  const rekeyedTo = (id: string) => rekeyed.get(id) ?? id
+  /** Followed to its end (a row re-keyed twice: old → mid → new), a cycle stopping it. */
+  const rekeyedTo = (id: string) => {
+    const seen = new Set<string>()
+    while (rekeyed.has(id) && !seen.has(id)) {
+      seen.add(id)
+      id = rekeyed.get(id)!
+    }
+    return id
+  }
   const queued = async (kind: OutboxKind, target: string) => !!(await one('SELECT 1 FROM outbox WHERE kind = ? AND target = ?', [kind, target]))
   /** A fresh save is a fresh attempt: a new gen, its failure count reset. */
   const enqueue = (kind: OutboxKind, target: string) =>
@@ -593,7 +601,8 @@ export function createLocalLibrary(db: Db) {
         else if (r.note_known) notes.known.set(r.id, r.note)
         else notes.unknown.add(r.id)
       }
-      for (const [old, now] of rekeyed) {
+      for (const old of rekeyed.keys()) {
+        const now = rekeyedTo(old)
         if (notes.deleted.has(now)) notes.deleted.add(old)
         else if (notes.known.has(now)) notes.known.set(old, notes.known.get(now)!)
         else if (notes.unknown.has(now)) notes.unknown.add(old)
