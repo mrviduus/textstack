@@ -13,7 +13,11 @@ Run it:
 cd site
 pnpm install --ignore-workspace
 pnpm dev                              # http://localhost:4321
-DOCS_BASE=/textstack pnpm build       # what CI builds
+DOCS_BASE=/textstack pnpm build       # what CI checks: links still work under a sub-path
 ```
+
+Live at https://docs.textstack.app (GitHub Pages, `.github/workflows/docs-site.yml`). The DNS record
+is a `CNAME docs → mrviduus.github.io`, DNS only, in Cloudflare. The old address
+`mrviduus.github.io/textstack` redirects here.
 
 `--ignore-workspace` matters: this folder has its own lockfile and is not part of the apps' workspace.
