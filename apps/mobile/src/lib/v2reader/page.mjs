@@ -64,15 +64,22 @@ let hostMoving = false
  */
 let lastCfi = null
 /**
- * #1313: navigations the page makes outside `hostMoving` (`section()`, a followed link) still landing. With
- * `hostMoving` they make a relocate's `cause` `nav`: foliate reports a turn across a section with the same reason
- * ('navigation') as a jump, so only the page knows which navigations it asked for.
+ * #1313: the navigations of the view on screen still landing (a restore, `section()`, a followed link; a host `goTo`
+ * is `hostMoving`): their relocates are `cause` `nav`. Foliate reports a turn across a section with the same reason
+ * ('navigation') as a jump, so only the page knows which navigations it asked for. Reset at the swap; one of a
+ * closed view never counts again, however it ends.
  */
 let navs = 0
 const asNav = async (fn) => {
+  const mine = viewSeq
   navs++
-  try { return await fn() } finally { navs-- }
+  try { return await fn() } finally { if (mine === viewSeq) navs-- }
 }
+/**
+ * #1313: the reader acted (a turn, a press) since the host's move began: an open whose restore never comes (the
+ * web host's failed read) no longer makes the reader's own turns a navigation.
+ */
+let readerActed = false
 /**
  * The last `selection` sent: its range (edge whitespace dropped), text, CFI, sentence. What `highlightSelection`
  * highlights when no selection is live: kept after the selection is cleared (tapping a host button may clear the
@@ -216,6 +223,7 @@ document.addEventListener('keydown', onKey)
 
 /** A press while a selection is sent ends it, in every shown section, at once; its click is no tap. */
 function onPress() {
+  readerActed = true
   dismissing = !!selectionSent
   if (!dismissing) return
   for (const d of shownDocs()) d.getSelection()?.removeAllRanges()
@@ -703,6 +711,8 @@ async function open(bytes, name, kind, mine) {
   book = { sha256, size: bytes.length, name }
   entry = null
   hostMoving = true
+  readerActed = false
+  navs = 0
   lastCfi = null
   viewSeq = mine
   navigating = Promise.resolve()
@@ -730,9 +740,13 @@ async function open(bytes, name, kind, mine) {
     // The save rule's own test: the reader moved the place (not a re-layout, not the same place again, not the
     // host moving the view). Sent as `moved`, so a host never guesses it from CFIs.
     const moved = d.reason !== 'anchor' && d.cfi !== lastCfi && !hostMoving
-    // #1313, what moved the place: the landing of a navigation, the reader's own turn (a swipe, a scroll, a tap or key
-    // turn, prev()/next(), across a section too), or neither (a re-layout, the same place again).
-    const cause = hostMoving || navs > 0 ? 'nav' : moved ? 'turn' : 'layout'
+    // #1313, what moved the place: nothing (the same place again: `layout`, whatever asked for it); the landing of a
+    // navigation (`nav`; foliate often reports a landing with reason 'anchor', as the new section expands); outside one,
+    // a re-layout ('anchor': `layout`) or the reader's own turn (a swipe, a scroll, a tap or key turn, prev()/next()).
+    // ponytail: a turn across a section in scrolled flow is foliate's re-anchoring (`layout`, about a screen uncounted
+    // per section), and a swipe while a navigation lands is `nav`; the root fix is the fork tagging its own turn
+    // crossings (paginator #turnPage/snap passing reason 'turn').
+    const cause = d.cfi === lastCfi ? 'layout' : navs > 0 || (hostMoving && !readerActed) ? 'nav' : d.reason === 'anchor' ? 'layout' : 'turn'
     lastCfi = d.cfi
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, cause, atEnd: atBookEnd(d.section?.current), ...lengthAt(d.section?.current) })
     // A selection moved (or left the screen) with the view, a font or flow change's re-layout included: sent
@@ -755,8 +769,8 @@ async function open(bytes, name, kind, mine) {
   })
   // A link within the book: followed as view.js would, its landing a navigation (#1313).
   view.addEventListener('link', (e) => {
-    if (mine !== viewSeq) return
     e.preventDefault()
+    if (mine !== viewSeq) return
     const { href } = e.detail
     void navigate(() => asNav(() => view.goTo(href)))
   })
@@ -847,7 +861,7 @@ function restore(json) {
   // One slot of the navigation chain, taken when called: a host goTo made meanwhile runs after it and wins.
   return navigate(async () => {
     try {
-      return await restoreInto(json, () => mine !== viewSeq)
+      return await asNav(() => restoreInto(json, () => mine !== viewSeq))
     } finally {
       // Whatever happened, the page saves again: a restore that threw used to silence every save. Not
       // for a view opened since: that one is still restoring.
@@ -1064,6 +1078,7 @@ window.__fol = {
     const mine = viewSeq
     hostMoving = true
     let at = -1
+    readerActed = false
     try { at = await land(target) } finally { if (mine === viewSeq) hostMoving = !entry }
     if (mine !== viewSeq || !entry) return
     if (at < 0) return log('warn', 'goTo: the target did not land, position kept')
@@ -1089,8 +1104,10 @@ window.__fol = {
     const i = (view.lastLocation?.section?.current ?? 0) + delta
     if (i >= 0 && i < view.book.sections.length) return asNav(() => view.goTo(i))
   }),
-  next: () => navigate(() => view?.next()),
-  prev: () => navigate(() => view?.prev()),
+  next: () => { readerActed = true; return navigate(() => view?.next()) },
+  prev: () => { readerActed = true; return navigate(() => view?.prev()) },
+  // Test-only (formats.check.mjs): a navigation of the view on screen that never lands.
+  holdNav: () => void asNav(() => new Promise(() => {})),
   // #1260: the whole settings object, read through settings.mjs (closed lists, a clamped size): nothing of the
   // host's reaches the CSS as it came. Applied live; before `opened` it sets what the next open uses.
   settings: (raw) => { look = readSettings(raw); applyLook(); return look },

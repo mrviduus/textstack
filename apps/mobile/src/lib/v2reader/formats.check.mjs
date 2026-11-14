@@ -417,7 +417,8 @@ try {
       const len = readRelocate(rel)
       check(Math.abs((len?.sectionEnd ?? 0) - (i + 1) / 3) < 0.02 && len?.words > 130 && len.words < 170, `relocate carries the section's end and the book's words (${i}: ${rel?.sectionEnd}, ${rel?.words})`)
       check(rel?.atEnd === (i === 2), `a short section is the end of the book only when it is the last (${i}: ${rel?.atEnd})`)
-      check(rel?.cause === 'nav', `a contents entry's landing (host goTo of its href): cause nav (${i}: ${rel?.cause})`)
+      // The book opens at entry 0: going there moves nothing (layout); every other entry's landing is a navigation.
+      check(rel?.cause === (i === 0 ? 'layout' : 'nav'), `a contents entry's landing (host goTo of its href): ${i === 0 ? 'the place shown, layout' : 'cause nav'} (${i}: ${rel?.cause})`)
     }
     // #1313: a turn across a section is the reader's own turn (foliate reports it with the reason a jump has); a
     // section control and a chosen contents entry are navigations. One flow each (scrolled is set above).
@@ -431,13 +432,13 @@ try {
         await page.waitForTimeout(500)
       }
       // Its relocates there: the turn's own, and any re-layout of the section as it loads (layout); never a navigation.
-      // Scrolled flow: foliate shows the next section by re-anchoring it as it expands ('anchor'), then reports the
-      // same place again; neither is the reader's move to the save rule (`moved`) either. The baseline moves there,
-      // so the session's next turn counts from the section's start: nothing is lost, nothing counted twice.
+      // Scrolled flow, known (page.mjs ponytail): foliate shows the next section by re-anchoring it as it expands
+      // ('anchor'), then reports the same place again; neither is a move to the save rule (`moved`) either, so the
+      // crossing is all `layout` (about a screen uncounted per section). Asserted as it is, so a fork fix shows here.
       const into = messages.slice(at).filter((x) => x.type === 'relocate' && x.index === 1)
-      const turned = flow === 'paginated' ? into.some((x) => x.cause === 'turn' && readRelocate(x)?.cause === 'turn') : into.length > 0
-      check(turned && into.every((x) => x.cause !== 'nav'),
-        `${flow}: a turn into the next section: ${flow === 'paginated' ? 'cause turn' : 'never nav'} (${into.map((x) => `${x.cause}${x.moved ? '/moved' : ''}`)})`)
+      const as = flow === 'paginated' ? into.some((x) => x.cause === 'turn' && readRelocate(x)?.cause === 'turn') && into.every((x) => x.cause !== 'nav')
+        : into.length > 0 && into.every((x) => x.cause === 'layout')
+      check(as, `${flow}: a turn into the next section: ${flow === 'paginated' ? 'cause turn' : 'all layout (known)'} (${into.map((x) => `${x.cause}${x.moved ? '/moved' : ''}`)})`)
       at = messages.length
       call('window.__fol.section(1)')
       const sec = await waitFor(at, (x) => x.type === 'relocate' && x.index === 2, 'section(1)').catch(() => null)
@@ -449,6 +450,49 @@ try {
       // The landing is nav; foliate may relocate again where it landed (the same place: layout), never as a turn.
       check(back?.cause === 'nav' && messages.slice(at).filter((x) => x.type === 'relocate').every((x) => x.cause !== 'turn'),
         `${flow}: a chosen contents entry, back a section: cause nav (${messages.slice(at).filter((x) => x.type === 'relocate').map((x) => x.cause)})`)
+    }
+    // #1313 review: what keeps a relocate from being `nav` when no navigation is landing.
+    {
+      call('window.__fol.flow("paginated")')
+      const rels = (from) => messages.slice(from).filter((x) => x.type === 'relocate')
+      const turnAfter = async (what) => {
+        const from = messages.length
+        await call('window.__fol.next()')
+        await page.waitForTimeout(800)
+        check(rels(from).some((x) => x.cause === 'turn') && rels(from).every((x) => x.cause !== 'nav'), `${what} (${rels(from).map((x) => x.cause)})`)
+      }
+      // A navigation of the view on screen that never lands keeps its relocates `nav`; a swap ends it with its view.
+      m = await open('tsformat.epub')
+      await page.waitForTimeout(600)
+      await call('window.__fol.holdNav()')
+      let from = messages.length
+      await call('window.__fol.next()')
+      await page.waitForTimeout(800)
+      check(rels(from).length > 0 && rels(from).every((x) => x.cause === 'nav'), `a navigation still landing: a turn meanwhile is nav (${rels(from).map((x) => x.cause)})`)
+      m = await open('tstoc.epub')
+      await page.waitForTimeout(600)
+      await turnAfter('a navigation of the closed view still pending at the swap: a turn in the next book is cause turn')
+      // An open whose restore never comes (the web host's failed read): the reader's turn is still a turn.
+      from = messages.length
+      await call(`window.__fol.openUrl(${JSON.stringify(bookAt('tsformat.epub'))}, "tsformat.epub")`)
+      await waitFor(from, (x) => x.type === 'opened' && x.book?.name === 'tsformat.epub', 'tsformat.epub opened, not restored')
+      await page.waitForTimeout(600)
+      check(rels(from)[0]?.cause === 'nav' && rels(from).every((x) => x.cause !== 'turn'), `opened, no restore: its own relocates are nav, never turn (${rels(from).map((x) => x.cause)})`)
+      await turnAfter('no restore, then the reader turns: cause turn')
+      // The restore comes after all, the reader having acted: its landing is still a navigation.
+      const opened = messages.slice(from).find((x) => x.type === 'opened')
+      from = messages.length
+      await call(`window.__fol.restore(${JSON.stringify(JSON.stringify({ v: 1, book: opened.book, position: { fraction: 0.6, at: 1 }, highlights: [] }))})`)
+      await waitFor(from, (x) => x.type === 'restored', 'the late restore')
+      await page.waitForTimeout(400)
+      check(rels(from).length > 0 && rels(from).every((x) => x.cause !== 'turn'), `a late restore after the reader acted: nav, not turn (${rels(from).map((x) => x.cause)})`)
+      // A navigation to where the reader already is moves nothing: layout, whatever asked for it.
+      const here = rels(0).at(-1)?.cfi
+      from = messages.length
+      await call(`window.__fol.goTo(${JSON.stringify(here)}, true)`)
+      await page.waitForTimeout(800)
+      check(rels(from).every((x) => x.cfi !== here || x.cause === 'layout') && rels(from).every((x) => x.cause !== 'turn'),
+        `a goTo of the place on screen: layout, not nav (${rels(from).map((x) => `${x.cause}${x.cfi === here ? '@here' : ''}`)})`)
     }
     call('window.__fol.flow("scrolled")')
     // The end of the book (#1266): `relocate.atEnd`, which a host cannot tell from `fraction`.
@@ -671,7 +715,9 @@ try {
       await page.waitForTimeout(800)
       check(rels(from).length > 0 && rels(from).every((x) => x.moved === false), `open and restore: every relocate is moved: false (${rels(from).map((x) => x.moved)})`)
       // #1313 `relocate.cause`: what moved the place, as a host's session counts it.
-      check(rels(from).every((x) => x.cause === 'nav' && readRelocate(x).cause === 'nav'), `open and restore: every relocate is cause nav (${rels(from).map((x) => x.cause)})`)
+      // The open's and the restore's new places are nav; foliate's repeats of the same place are layout; never a turn.
+      check(rels(from)[0]?.cause === 'nav' && readRelocate(rels(from)[0]).cause === 'nav' && rels(from).every((x) => x.cause !== 'turn'),
+        `open and restore: cause nav, never turn (${rels(from).map((x) => x.cause)})`)
       from = messages.length
       await call('window.__fol.next()')
       await page.waitForTimeout(800)

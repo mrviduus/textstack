@@ -1,4 +1,5 @@
 // Types for sessionTracker.mjs (apps/web type-checks it without allowJs); a change to one must update the other.
+import type { Cause } from './chrome.mjs'
 export const SESSION_IDLE_MS: number
 export const SESSION_END_IDLE_MS: number
 export const SESSION_HEARTBEAT_MS: number
@@ -25,6 +26,4 @@ export interface SessionTracker {
   tick(now: number): EndedSession | null
   end(now: number): EndedSession | null
 }
-/** The page's `relocate.cause` (#1313, chrome.mjs `readRelocate`). */
-export type Cause = 'turn' | 'nav' | 'layout'
 export function createSessionTracker(): SessionTracker

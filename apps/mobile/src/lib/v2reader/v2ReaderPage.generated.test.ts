@@ -84,7 +84,7 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toMatch(/const moved = (\w+)\.reason !== "anchor" && \1\.cfi !== lastCfi && !hostMoving;/)
     expect(html).toMatch(/dir: pagedDir\(\), moved, cause, atEnd: atBookEnd\(.*\), \.\.\.lengthAt\(.*\) \}\);/)
     // #1313: what moved the place, from the page's own navigations (`hostMoving`, `asNav`), never a host's guess.
-    expect(html).toContain('const cause = hostMoving || navs > 0 ? "nav" : moved ? "turn" : "layout";')
+    expect(html).toMatch(/const cause = (\w+)\.cfi === lastCfi \? "layout" : navs > 0 \|\| hostMoving && !readerActed \? "nav" : \1\.reason === "anchor" \? "layout" : "turn";/)
     expect(html).toMatch(/const position = moved && entry \? positionOf\(/)
     expect(html).not.toContain('rendererReason')
     expect(html).not.toMatch(/view\.renderer\.addEventListener\("relocate"/)
@@ -123,9 +123,9 @@ describe('v2ReaderPageHtml', () => {
     // A replaced view's events are dropped: each view's listeners carry the seq of the open that made them
     // and compare it with the view on screen, which turns over at the swap, before the dying view's close()
     // fires relocate (#1168). A newer open still being made does not silence the view on screen (#1128 S5).
-    expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+ \}\) => \{\s*(var [^;]*;\s*)?if \(mine !== viewSeq\) return;[\s\S]{0,200}?post\(\{\s*type: "relocate"/)
+    expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+ \}\) => \{\s*(var [^;]*;\s*)?if \(mine !== viewSeq\) return;[\s\S]{0,400}?post\(\{\s*type: "relocate"/)
     expect(html).toMatch(/view\.addEventListener\("create-overlay", [\s\S]{0,80}?if \(mine !== viewSeq\) return;/)
-    expect(html).toMatch(/endSession\(\);\s*book = \{ sha256[^}]*\};\s*entry = null;\s*hostMoving = true;\s*lastCfi = null;\s*viewSeq = mine;\s*navigating = Promise\.resolve\(\);/)
+    expect(html).toMatch(/endSession\(\);\s*book = \{ sha256[^}]*\};\s*entry = null;\s*hostMoving = true;\s*readerActed = false;\s*navs = 0;\s*lastCfi = null;\s*viewSeq = mine;\s*navigating = Promise\.resolve\(\);/)
     // A restore is for the view on screen that answered `opened`, whatever is being made meanwhile.
     expect(html).toMatch(/if \(!book \|\| readySeq !== viewSeq\) return log\("warn", "restore ignored/)
     // The host-move guard is cleared however restore ends, or the page saves nothing for the rest of the session.

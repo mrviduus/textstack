@@ -61,6 +61,9 @@ const MAX_TOC_LABEL = 200
 const MAX_BOOK_WORDS = 100_000_000
 const count = (v) => Number.isInteger(v) && v >= 0 && v <= 100_000
 
+/** The page's `relocate.cause` values (#1313); `readRelocate` takes nothing else. */
+const CAUSES = ['turn', 'nav', 'layout']
+
 /**
  * A host's read of `relocate` for what the chrome shows and follows (never throws): `fraction` in [0, 1], `index`
  * and `sections` whole numbers ≤ 100,000, else null; `toc` a string cut to 200, else ''; `tocIndex` (the current entry's index in
@@ -69,12 +72,11 @@ const count = (v) => Number.isInteger(v) && v >= 0 && v <= 100_000
  * #1266) true only when exactly `true`; `sectionEnd` (the book fraction where the shown section ends) in [0, 1] and
  * `words` (the page's estimate of the book's length, #1262) a whole number in 1..100,000,000, else null.
  * `cause` (#1313, what moved the place): `turn` the reader's own turn (a swipe, a scroll, a tap or key turn,
- * `prev()`/`next()`, across a section too), `nav` the landing of a navigation (a `goTo`, chosen or not, a restore,
- * `section()`, a followed link), `layout` anything else (a re-layout, the same place again); any other value, or
- * none, is `layout`.
+ * `prev()`/`next()`; across a section in paginated flow only: scrolled flow's crossing is `layout`), `nav` the landing
+ * of a navigation (a `goTo`, chosen or not, a restore, `section()`, a followed link), `layout` anything that did not
+ * move the place (a re-layout, the same place again); any other value, or none, is `layout`.
  * The position code (sync, ADR-019) keeps reading the message as before.
  */
-const CAUSES = ['turn', 'nav', 'layout']
 export function readRelocate(m) {
   if (m?.type !== 'relocate') return null
   const f = m.fraction
