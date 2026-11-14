@@ -37,14 +37,16 @@ async function reader(o: { dev?: boolean } = {}) {
   })
   let opens = 0
   /** A book handed to the host and opened by the page (its bytes `sha256`), landing at 10 %. */
+  /** A book handed to the host; the page has not answered. */
+  const ask = async (t: V2SyncTarget) => { view.rerender(host({ bytes: new ArrayBuffer(8), name: t.name, sync: o.dev ? undefined : t })) }
   const open = async (t: V2SyncTarget, sha256 = t.sha256) => {
-    view.rerender(host({ bytes: new ArrayBuffer(8), name: t.name, sync: o.dev ? undefined : t }))
+    await ask(t)
     await fromPage({ type: 'opened', title: 'T', format: 'epub', book: { sha256, size: 8, name: `${++opens}/${t.name}` } })
     await relocate(0.1, false)
   }
   const relocate = (fraction: number, moved = true) => fromPage({ type: 'relocate', cfi: 'epubcfi(/6/2!/4/2)', index: 1, sections: 3, fraction, moved, words: 100_000 })
   await fromPage({ type: 'ready' })
-  return { open, relocate, unmount: view.unmount }
+  return { ask, open, relocate, fromPage, unmount: view.unmount }
 }
 
 describe('V2ReaderHost reading sessions (#1313)', () => {
@@ -72,6 +74,18 @@ describe('V2ReaderHost reading sessions (#1313)', () => {
     later(15)
     r.unmount()
     expect(queued.map((s) => [s.userBookId, s.durationSeconds])).toEqual([['b1', 20], ['b2', 15]])
+  })
+
+  it('session_AnotherBookAskedFor_TheSessionEndsThereEvenIfThatOpenFails', async () => {
+    const r = await reader()
+    await r.open(target(1))
+    await r.relocate(0.2)
+    later(20)
+    await r.ask(target(2))
+    await r.fromPage({ type: 'open-failed', name: '2/b2.epub', error: 'bad file' })
+    later(100)
+    r.unmount()
+    expect(queued.map((s) => [s.userBookId, s.durationSeconds])).toEqual([['b1', 20]])
   })
 
   it('session_TabHidden_Ended', async () => {

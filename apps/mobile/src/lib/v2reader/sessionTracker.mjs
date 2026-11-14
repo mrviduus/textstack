@@ -41,14 +41,14 @@ export function createSessionTracker() {
     const s = session
     session = null
     if (!s) return null
-    const endedAt = Math.max(now, s.startedAt)
-    const seconds = Math.min(Math.round((s.activeMs + gap(s.lastActivity, now)) / 1000), MAX_SESSION_SECONDS, Math.floor((endedAt - s.startedAt) / 1000))
+    // Never more than the span: a clock set back before the start leaves none, and no session.
+    const seconds = Math.min(Math.round((s.activeMs + gap(s.lastActivity, now)) / 1000), MAX_SESSION_SECONDS, Math.floor((now - s.startedAt) / 1000))
     if (seconds < MIN_SESSION_SECONDS) return null
     const startPercent = s.start ?? place?.fraction ?? 0
     return {
       book: s.book,
       startedAt: new Date(s.startedAt).toISOString(),
-      endedAt: new Date(endedAt).toISOString(),
+      endedAt: new Date(now).toISOString(),
       durationSeconds: seconds,
       wordsRead: Math.round(s.words),
       startPercent,

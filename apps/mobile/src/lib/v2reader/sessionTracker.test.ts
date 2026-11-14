@@ -68,6 +68,12 @@ describe('sessionTracker', () => {
     u.activity(at(60))
     u.activity(at(30))
     expect(u.end(at(70))).toMatchObject({ durationSeconds: 70, startedAt: iso(0), endedAt: iso(70) })
+    // Set back 90 s mid-session: that step counts nothing, the rest as usual (100 + 0 + 180).
+    const v = opened()
+    v.activity(at(0))
+    v.activity(at(100))
+    v.activity(at(10))
+    expect(v.end(at(300))?.durationSeconds).toBe(280)
   })
 
   it('at most 4 h', () => {
@@ -115,6 +121,15 @@ describe('sessionTracker', () => {
     t.bind('b2', at(63))
     t.relocate(rel(0.7505, true), at(123)) // 50 words
     expect(t.end(at(150))).toMatchObject({ book: 'b2', startedAt: iso(123), wordsRead: 50, startPercent: 0.75, endPercent: 0.7505 })
+  })
+
+  it("the book before's place is not the next one's baseline: its first move counts no words", () => {
+    const t = opened('b1')
+    t.relocate(rel(0.101, true), at(30))
+    t.open(at(60))
+    t.bind('b2', at(61))
+    t.relocate(rel(0.75, true), at(121))
+    expect(t.end(at(150))).toMatchObject({ book: 'b2', wordsRead: 0, startPercent: 0.75 })
   })
 
   it('a bind to another book ends the session of the one before', () => {

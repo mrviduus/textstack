@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { initApi } from '@textstack/shared'
 import { resetV2ForTests } from '../v2'
-import { createLocalLibrary, type LocalLibrary } from './localLibrary'
+import { CHANGES_NOT_SYNCED, MAX_FAILURES, createLocalLibrary, type LocalLibrary } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { syncV2Library, type SyncHost } from './sync'
 import { fakeApi as fakeV2, feed, type Answer, type Call } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
@@ -90,6 +90,15 @@ describe('reading sessions on the device (#1313)', () => {
     expect(await lib.outbox()).toEqual([])
   })
 
+  it('session_ItsBookNotPushedThisPass_NotSentBeforeIt', async () => {
+    const { lib } = await library(false)
+    await lib.addSession(SHA, SESSION, newId)
+    const calls = fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 500 }] })
+    await syncV2Library(lib, host())
+    expect(sessionWrites(calls)).toEqual([])
+    expect((await lib.outbox()).map((e) => e.kind)).toEqual(['book', 'session'])
+  })
+
   it('session_Offline_KeptQueued_SentOnTheNextPass', async () => {
     const { lib, bookId } = await library(true)
     await lib.addSession(SHA, SESSION, newId)
@@ -112,6 +121,16 @@ describe('reading sessions on the device (#1313)', () => {
     expect(await syncV2Library(lib, host())).toBe('failed')
     expect((await lib.outbox()).map((e) => [e.kind, e.target])).toEqual([['book', bookId], ['session', entry.target]])
     expect(await sessionRows(lib, entry.target)).not.toBeNull()
+  })
+
+  it('session_FailingEveryPass_StopsBeingRetriedAndItsBookSaysNotSynced', async () => {
+    const { lib } = await library(true)
+    await lib.addSession(SHA, SESSION, newId)
+    const [entry] = await lib.outbox()
+    const calls = fakeApi({ [`PUT /reading/sessions/${entry.target}`]: [{ status: 500 }] })
+    for (let i = 0; i < MAX_FAILURES + 1; i++) await syncV2Library(lib, host())
+    expect(sessionWrites(calls)).toHaveLength(MAX_FAILURES)
+    expect((await lib.books()).map((b) => b.notSynced)).toEqual([CHANGES_NOT_SYNCED])
   })
 
   it('session_InvalidPayload_DroppedWithItsRow', async () => {
