@@ -180,6 +180,15 @@ export function useReadingSession(options: UseReadingSessionOptions) {
   }
 }
 
+/**
+ * The V2 reader's ended session (#1313): queued with this reader's sessions, then sent. Retried as theirs are
+ * (every flush, at the next reader's mount); a 404 or 400 drops it. Never awaited by the reading path.
+ */
+export function queueReadingSession(session: PendingSession) {
+  savePendingSession(session)
+  void flushPendingSessions()
+}
+
 function savePendingSession(session: PendingSession) {
   try {
     const existing = JSON.parse(localStorage.getItem(PENDING_SESSIONS_KEY) || '[]') as PendingSession[]
@@ -210,7 +219,7 @@ function removePendingSessions(done: PendingSession[]) {
 // Server rejects sessions older than 7 days — drop at 6 to give a safety margin.
 const MAX_SESSION_AGE_MS = 6 * 24 * 60 * 60 * 1000
 
-async function flushPendingSessions() {
+export async function flushPendingSessions() {
   try {
     const raw = localStorage.getItem(PENDING_SESSIONS_KEY)
     if (!raw) return

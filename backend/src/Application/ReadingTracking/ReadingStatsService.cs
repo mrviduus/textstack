@@ -10,7 +10,7 @@ namespace Application.ReadingTracking;
 /// boundaries and every in-memory aggregation are preserved byte-for-byte so the JSON response is
 /// identical. Site scope is enforced by the R1b EF query filter (no explicit SiteId here).
 /// </summary>
-public class ReadingStatsService(IAppDbContext db)
+public class ReadingStatsService(IAppDbContext db, IV2PaceTotals? v2Pace = null)
 {
     public async Task<BookStatsResponse> GetBookStatsAsync(Guid userId, int? year, CancellationToken ct)
     {
@@ -410,5 +410,5 @@ public class ReadingStatsService(IAppDbContext db)
 
     /// <summary>Reading pace — see <see cref="ReadingPace"/>, the one rule. Cache stays in the caller.</summary>
     public Task<ReadingPaceDto> GetPaceAsync(Guid userId, CancellationToken ct) =>
-        ReadingPace.GetAsync(db, userId, ct);
+        ReadingPace.GetAsync(db, userId, ct, v2Pace);
 }
