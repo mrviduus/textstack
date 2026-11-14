@@ -70,6 +70,8 @@ interface SelectionActionBarProps {
    *  bug sweep). Optional for back-compat with screens that haven't wired
    *  it yet — those just lose the close affordance. */
   onClose?: () => void
+  /** After Copy (the V2 reader ends the selection, as the web toolbar does). */
+  onCopy?: () => void
   /** Set when the save came back `lookup`/`lookup_pending` (rare word): the
    *  bar shows RareWordNotice with "Add to SRS anyway". Web: WordPopup lookupInfo. */
   lookup?: { kind: 'lookup' | 'lookup_pending'; tapsRemaining: number | null; busy: boolean } | null
@@ -114,6 +116,7 @@ export function SelectionActionBar({
   isAuthenticated,
   bottomOffset = 0,
   onClose,
+  onCopy,
   lookup,
   onAddAnyway,
   savedTranslation,
@@ -176,6 +179,7 @@ export function SelectionActionBar({
 
   const handleCopy = () => {
     if (selectedText) Clipboard.setStringAsync(selectedText)
+    onCopy?.()
   }
 
   const stage = !isMultiWord && vocabStage != null ? STAGE_LABELS[vocabStage] : null

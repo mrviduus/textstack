@@ -220,4 +220,44 @@ describe('V2ReaderHost word popup and selection toolbar', () => {
     fromPage({ type: 'relocate', fraction: 0.3, index: 0, sections: 3, toc: null, moved: true })
     expect(document.querySelector('.selection-toolbar')).not.toBeNull()
   })
+
+  it('escapeInTheBook_APopupOpen_ClosesIt_AndDoesNothingElse', async () => {
+    opened()
+    fromPage(word())
+    await settle()
+    const bars = document.querySelector('main')!.getAttribute('data-bars')
+    fromPage({ type: 'key', key: 'Escape', shift: false, repeat: false })
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)) })
+    expect(document.querySelector('.word-popup')).toBeNull()
+    expect(document.querySelector('main')!.getAttribute('data-bars')).toBe(bars)
+    // The toolbar: Escape ends the page's selection too.
+    fromPage(selection())
+    fromPage({ type: 'key', key: 'Escape', shift: false, repeat: false })
+    expect(document.querySelector('.selection-toolbar')).toBeNull()
+    expect(calls('clearSelection')).toHaveLength(1)
+  })
+
+  it('escapeOnTheHost_TheToolbarOpen_ClosesIt', () => {
+    opened()
+    fromPage(selection())
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(document.querySelector('.selection-toolbar')).toBeNull()
+    expect(calls('clearSelection')).toHaveLength(1)
+  })
+
+  it('escapeInTheBook_NothingOpen_ShowsTheBars', async () => {
+    opened()
+    await act(async () => { await new Promise((r) => setTimeout(r, 3100)) })
+    expect(document.querySelector('main')!.getAttribute('data-bars')).toBe('hidden')
+    fromPage({ type: 'key', key: 'Escape', shift: false, repeat: false })
+    expect(document.querySelector('main')!.getAttribute('data-bars')).toBe('shown')
+  })
+
+  it('aThreeLetterLanguage_TheFallback_DefinitionModeForAnEnglishReader', async () => {
+    // `eng` is not read as a language other than `en`: no en→en translation.
+    opened({ lang: 'eng' })
+    fromPage(word())
+    await settle()
+    expect(translate).not.toHaveBeenCalled()
+  })
 })

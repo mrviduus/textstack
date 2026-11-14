@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { translate as translateApi, type LanguageInfo, type TranslateContext } from '../api/translation'
 import { LANGUAGES } from '@textstack/shared'
 import { getCachedTranslation, cacheTranslation, clearOldTranslations } from '../lib/offlineDb'
@@ -42,16 +42,22 @@ export function useTextTranslation(options?: UseTextTranslationOptions) {
     clearOldTranslations().catch(() => {})
   }, [])
 
+  // Only the latest request's answer is taken: an earlier one answering late is not shown under the newer text.
+  const seq = useRef(0)
+
   const translate = useCallback(
     async (text: string, source?: string, target?: string, ctx?: TranslateContext) => {
       const srcLang = source || sourceLang
       const tgtLang = target || targetLang
+      const mine = ++seq.current
+      const stale = () => mine !== seq.current
 
       setState({ translatedText: null, isLoading: true, error: null })
 
       // Check cache first
       try {
         const cached = await getCachedTranslation(srcLang, tgtLang, text, ctx)
+        if (stale()) return null
         if (cached) {
           setState({
             translatedText: cached.translatedText,
@@ -76,6 +82,7 @@ export function useTextTranslation(options?: UseTextTranslationOptions) {
 
       try {
         const result = await translateApi(text, srcLang, tgtLang, undefined, ctx)
+        if (stale()) return null
 
         // Cache the result
         try {
@@ -83,6 +90,7 @@ export function useTextTranslation(options?: UseTextTranslationOptions) {
         } catch {
           // Cache write failed, continue
         }
+        if (stale()) return null
 
         setState({
           translatedText: result.translatedText,
@@ -92,6 +100,7 @@ export function useTextTranslation(options?: UseTextTranslationOptions) {
 
         return result.translatedText
       } catch (err) {
+        if (stale()) return null
         const error = err instanceof Error ? err.message : 'Translation failed'
         setState({
           translatedText: null,
@@ -105,6 +114,7 @@ export function useTextTranslation(options?: UseTextTranslationOptions) {
   )
 
   const reset = useCallback(() => {
+    seq.current++
     setState({
       translatedText: null,
       isLoading: false,

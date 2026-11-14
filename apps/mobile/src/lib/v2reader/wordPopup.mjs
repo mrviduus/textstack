@@ -20,14 +20,14 @@ export function readWord(m) {
 }
 
 /**
- * `opened.lang`: the book's language as its primary subtag, lower case (`en` of `en-GB`), or null: missing, `und`,
- * or not a language tag. The host falls back to its own default (the legacy readers': web `en`, Android the app's).
+ * `opened.lang`: the book's language as its two-letter primary subtag, lower case (`en` of `en-GB`), or null: missing,
+ * not a language tag, or a three-letter code (`eng`, `fre`, `und`): the translate service and the reader's native
+ * language are two-letter, so `eng` would read as another language than `en` (en→en instead of definition mode).
+ * The host falls back to its own default (the legacy readers': web `en`, Android the app's).
  */
 export function readLang(m) {
   const l = m?.lang
-  if (typeof l !== 'string' || !/^[a-z]{2,3}([-_][a-z0-9]{1,8})*$/i.test(l)) return null
-  const primary = l.split(/[-_]/)[0].toLowerCase()
-  return primary === 'und' ? null : primary
+  return typeof l === 'string' && /^[a-z]{2}([-_][a-z0-9]{1,8})*$/i.test(l) ? l.slice(0, 2).toLowerCase() : null
 }
 
 /**

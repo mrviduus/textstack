@@ -49,7 +49,9 @@ describe('v2 reader word popup', () => {
   })
 
   it.each([
-    ['en', 'en'], ['en-GB', 'en'], ['EN_us', 'en'], ['ukr', 'ukr'], ['he', 'he'],
+    ['en', 'en'], ['en-GB', 'en'], ['EN_us', 'en'], ['he', 'he'],
+    // Three letters: null, so the host's fallback applies (an English book tagged `eng` is not translated en→en).
+    ['eng', null], ['fre', null], ['ukr', null], ['eng-US', null],
     ['und', null], ['', null], ['e', null], ['english', null], ['en GB', null], ['en-<b>', null], [42, null], [undefined, null],
   ])('readLang_%s_%s', (lang, want) => {
     expect(readLang({ type: 'opened', lang })).toBe(want)

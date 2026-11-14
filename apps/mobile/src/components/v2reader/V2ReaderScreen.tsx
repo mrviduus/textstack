@@ -385,10 +385,15 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     call(`window.__fol.${turn}()`)
     hideBars()
   }
-  /** The bar closed; a selection's goes in the page too (the legacy reader's clearSelection on close). */
+  /** The bar closed (its ×, Copy, back, Escape); a selection's goes in the page too (clearSelection, as the web host). */
   const closePopup = () => {
     if (popupRef.current?.kind === 'selection') call('window.__fol.clearSelection()')
     setPopup(null)
+  }
+  /** A translation or explanation closed: its selection is done, as on the web (the bar goes with it). */
+  const closeSheet = () => {
+    setSheet(null)
+    closePopup()
   }
   const refreshBooks = () => v2Storage().books().then(setBooks, fail('library', setError))
   useEffect(() => {
@@ -675,6 +680,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // A navigation key pressed in the page (#1263), through readKey: one press, one turn (a held key's
         // repeats are dropped). A turn hides the bars, as an edge tap does; Escape ('bars') shows them.
         const k = readKey(m)
+        // #1269: Escape with the word popup or toolbar open closes it and does nothing else.
+        if (k?.key === 'Escape' && popupRef.current) return closePopup()
         if (!k || k.repeat) return
         const a = keyAction({ ...k, dir: pageDir.current })
         if (a === 'bars') showBars()
@@ -877,6 +884,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               isAuthenticated={!!user}
               bottomOffset={barsVisible ? footerHeight : insets.bottom}
               onClose={closePopup}
+              onCopy={closePopup}
             />
           )}
           <TranslationSheet
@@ -884,14 +892,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             text={sheet?.text ?? ''}
             sentence={sheet?.sentence}
             fromLang={textLang}
-            onClose={() => setSheet(null)}
+            onClose={closeSheet}
           />
           <ExplanationSheet
             visible={sheet?.kind === 'explain'}
             word={sheet?.text ?? ''}
             sentence={sheet?.sentence || sheet?.text || ''}
             fromLang={textLang}
-            onClose={() => setSheet(null)}
+            onClose={closeSheet}
           />
           <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />

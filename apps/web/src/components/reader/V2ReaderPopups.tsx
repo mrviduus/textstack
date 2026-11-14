@@ -42,20 +42,25 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, onHighlight, onClos
   const rect = useMemo(() => (popup ? toHost(popup.rect) : null), [popup])
 
   // The word: its translation (or, in definition mode, its contextual explanation), refetched on a language change.
+  // Keyed by the request: a new word (or language) renders loading from its first frame, never the previous gloss.
   const word = popup?.kind === 'word' ? popup : null
-  const [fetched, setFetched] = useState<WordBubbleFetchFields & { failed?: boolean }>({})
+  const explainInContext = !targetLang && hasConfirmedLanguage
+  const request = useMemo(() => word && { word, targetLang, explainInContext }, [word, targetLang, explainInContext])
+  const [fetched, setFetched] = useState<WordBubbleFetchFields & { for?: unknown; failed?: boolean }>({})
+  const shown = fetched.for === request ? fetched : { translationLoading: !!targetLang, definitionLoading: explainInContext }
   useEffect(() => {
-    if (!word) return
+    if (!request) return
     const ctrl = new AbortController()
-    const explainInContext = !targetLang && hasConfirmedLanguage
-    setFetched({ translation: null, translationLoading: !!targetLang, definition: null, definitionLoading: explainInContext })
     fetchWordBubble({
-      word: word.word, bookLanguage, targetLang, explainInContext, signal: ctrl.signal, sentence: word.sentence,
+      word: request.word.word, bookLanguage, targetLang, explainInContext, signal: ctrl.signal, sentence: request.word.sentence,
       // A failed translation is the one patch that ends the loading without a `translation`: said in the popup.
-      patch: (f) => setFetched((p) => ({ ...p, ...f, failed: 'translationLoading' in f && !('translation' in f) })),
+      patch: (f) => setFetched((p) => {
+        const mine = p.for === request ? p : { translationLoading: !!targetLang, definitionLoading: explainInContext }
+        return { ...mine, ...f, for: request, failed: !!mine.failed || ('translationLoading' in f && !('translation' in f)) }
+      }),
     })
     return () => ctrl.abort()
-  }, [word, targetLang, hasConfirmedLanguage, bookLanguage])
+  }, [request, bookLanguage])
 
   const selection = popup?.kind === 'selection' ? popup : null
   // Their own close ends the selection in the page (the legacy reader's clearSelection on close).
@@ -73,10 +78,10 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, onHighlight, onClos
       {word && !translationPopup.show && !explainPopup.show && (
         <WordPopup
           word={word.word}
-          translation={fetched.failed ? t('v2Reader.translationFailed') : fetched.translation ?? null}
-          translationLoading={!!fetched.translationLoading}
-          definition={fetched.definition ?? null}
-          definitionLoading={!!fetched.definitionLoading}
+          translation={shown.failed ? t('v2Reader.translationFailed') : shown.translation ?? null}
+          translationLoading={!!shown.translationLoading}
+          definition={shown.definition ?? null}
+          definitionLoading={!!shown.definitionLoading}
           rect={rect}
           containerRef={frame}
           onClose={() => onClose(false)}

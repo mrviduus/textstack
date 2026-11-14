@@ -221,8 +221,13 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    * A navigation key (chrome.mjs: forwarded by the page, or this document's own through navKey): one press, one
    * turn (a held key's repeats are dropped); 'bars' shows the bars. True: the key was the reader's.
    */
-  const onNavKey = (k: ReturnType<typeof readKey>) => {
+  const onNavKey = (k: ReturnType<typeof readKey>, inPopup = false) => {
     if (!k) return false
+    // #1269: Escape with a popup open closes it and does nothing else (focus inside the word popup: its own keys).
+    if (k.key === 'Escape' && popupRef.current) {
+      if (!inPopup) closePopup(popupRef.current.kind === 'selection')
+      return true
+    }
     if (k.repeat) return true
     const action = keyAction({ ...k, dir: pageDir.current })
     if (action === 'bars') showBars()
@@ -491,7 +496,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (onNavKey(hostNavKey(e))) e.preventDefault()
+      if (onNavKey(hostNavKey(e), e.target instanceof Element && !!e.target.closest('.word-popup'))) e.preventDefault()
     }
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
