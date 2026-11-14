@@ -54,8 +54,9 @@ const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)
 function show(w: string, props: { bookId?: string } = { bookId: 'book-1' }) {
   const frame = createRef<HTMLIFrameElement>()
   const el = (p: V2Popup) => <V2ReaderPopups frame={frame} bookLanguage="en" bookTitle="Walden" onClose={() => {}} {...props} popup={p} />
-  const view = render(el(popup(w)))
-  return { ...view, next: (x: string) => view.rerender(el(popup(x))) }
+  const first = popup(w)
+  const view = render(el(first))
+  return { ...view, popup: first, next: (x: string) => view.rerender(el(popup(x))) }
 }
 
 beforeEach(() => {
@@ -91,6 +92,31 @@ describe('V2ReaderPopups vocabulary save', () => {
     v.next('Pond')
     await settle()
     expect(api.saveWord).toHaveBeenCalledTimes(1)
+  })
+
+  it('aWordAlreadyInTheVocabulary_NotSavedAgain', async () => {
+    api.getReaderVocab.mockResolvedValue([card('pond')])
+    api.saveWord.mockImplementation(async (r: { word: string }) => saved(r.word))
+    const v = show('woods')
+    await settle()
+    v.next('Pond')
+    await settle()
+    expect(api.saveWord.mock.calls.map((c) => c[0].word)).toEqual(['woods'])
+  })
+
+  it('aLanguageSwitchedMidPopup_ItsTranslationIsDisplayOnly', async () => {
+    api.saveWord.mockResolvedValue(saved('pond'))
+    const v = show('pond')
+    await settle()
+    native.nativeLanguage = 'de'
+    try {
+      v.rerender(<V2ReaderPopups frame={createRef()} bookLanguage="en" bookTitle="Walden" bookId="book-1" onClose={() => {}} popup={v.popup} />)
+      await act(async () => { translation({ translatedText: 'Teich' }) })
+      await settle()
+      expect(api.updateWord).not.toHaveBeenCalled()
+    } finally {
+      native.nativeLanguage = 'uk'
+    }
   })
 
   it('aFailedSave_ARetapRetries', async () => {
