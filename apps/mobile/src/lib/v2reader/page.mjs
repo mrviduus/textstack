@@ -383,26 +383,35 @@ const pageForm = () => !textual || (format === 'epub' && view.isFixedLayout)
  * devices with the same file agree on it, whatever order they list the sections in.
  */
 const pageKey = (i) => String(view.book.sections[i]?.id ?? '')
-/** The section named `key`, -1 if none: restore and a host goTo find a page by name, never by its index. */
-const sectionNamed = (key) => view.book.sections.findIndex((s) => String(s.id) === key)
+/**
+ * The section named `key`, -1 if none: restore and a host goTo find a page by name, never by its index alone.
+ * The position's own index is taken when that section has the name (a spine may list one href twice), else the first.
+ */
+function sectionNamed(key, hint) {
+  const { sections } = view.book
+  return Number.isInteger(hint) && sections[hint] && String(sections[hint].id) === key ? hint : sections.findIndex((s) => String(s.id) === key)
+}
+/** A named-page position by its shape (a page key, no quote): found by `page`, whatever kind of book it is in. */
+const isNamedPage = (p) => typeof p?.page === 'string' && p.quote === undefined
 
 /**
- * Goes to a goTo target or a stored position and answers whether the view arrived. A fraction-only one
+ * Goes to a goTo target or a stored position. A fraction-only one
  * (#1187) by its fraction, 0 being the text start (not a cover before it); a PDF page by its section
  * (page − 1); a named page (CBZ, pre-paginated EPUB) by its name, never by the CFI its index rebuilds (two
- * devices may order a CBZ's entries differently); any other position by its CFI.
+ * devices may order a CBZ's entries differently); any other position by its CFI. Answers the section it
+ * arrived at, -1 if it did not.
  */
 async function land(target) {
-  if (isPosition(target) && typeof target.page === 'string') {
-    const index = sectionNamed(target.page)
-    if (index < 0) return false
+  if (isPosition(target) && isNamedPage(target)) {
+    const index = sectionNamed(target.page, target.index)
+    if (index < 0) return -1
     await view.goTo(index)
-    return arrivedAt(index)
+    return arrivedAt(index) ? index : -1
   }
   const resolved = await (isFractionOnly(target)
     ? (target.fraction === 0 ? view.goToTextStart() : view.goTo({ fraction: target.fraction }))
     : view.goTo(isPdfPage(target) ? target.page - 1 : isPosition(target) ? target.cfi : target))
-  return !!resolved && arrivedAt(resolved.index)
+  return resolved && arrivedAt(resolved.index) ? resolved.index : -1
 }
 
 /**
@@ -790,7 +799,7 @@ async function restoreInto(json, stale) {
   } else if (p && format === 'pdf') {
     if (p.page > view.book.sections.length) result.position = 'page not found, stayed at start'
     else {
-      const arrived = await land(p)
+      const arrived = (await land(p)) >= 0
       if (stale()) return result
       result.position = arrived ? 'restored' : 'navigation failed, stayed at start'
     }
@@ -799,12 +808,13 @@ async function restoreInto(json, stale) {
     // Approximate (the legacy fraction counts words, foliate's bytes). Fraction 0 (never read on the other
     // device) is the text start init already shows: no navigation. The entry keeps the fraction until
     // the reader moves (the save rule).
-    const arrived = p.fraction === 0 || (await land(p))
+    const arrived = p.fraction === 0 || (await land(p)) >= 0
     if (stale()) return result
     result.position = arrived ? 'restored by fraction' : 'navigation failed, stayed at start'
-  } else if (p && pageForm()) {
-    // A named page (CBZ, pre-paginated EPUB): the stored key must still be a page of this book.
-    const index = typeof p.page === 'string' ? sectionNamed(p.page) : -1
+  } else if (p && (isNamedPage(p) || pageForm())) {
+    // A named page, by its shape as `land()` takes it: the stored key must still be a page of this book. A
+    // quoted position on a page-form book (CBZ, pre-paginated EPUB) has no page to find.
+    const index = isNamedPage(p) ? sectionNamed(p.page, p.index) : -1
     if (index < 0) result.position = 'page not found, stayed at start'
     else {
       await view.goTo(index)
@@ -917,16 +927,23 @@ window.__fol = {
     if (isPdfPage(target) && target.page > view.book.sections.length) return log('warn', 'goTo ignored: page not in this book')
     const mine = viewSeq
     hostMoving = true
-    let arrived = false
-    try { arrived = await land(target) } finally { if (mine === viewSeq) hostMoving = !entry }
+    let at = -1
+    try { at = await land(target) } finally { if (mine === viewSeq) hostMoving = !entry }
     if (mine !== viewSeq || !entry) return
-    if (!arrived) return log('warn', 'goTo: the target did not land, position kept')
+    if (at < 0) return log('warn', 'goTo: the target did not land, position kept')
     if (!chosen) {
       if (isPosition(target)) entry = withPosition(entry, target)
       return
     }
-    const landed = positionOf(view.lastLocation)
+    // A fixed layout's target on the spread already shown is rendered without a relocate, and the renderer's own
+    // index keeps the side it had (`goToSpread` re-renders only): `lastLocation` names the side shown before. The
+    // place is built from the section the target landed on (#1196 review).
+    const loc = view.lastLocation
+    const shown = view.isFixedLayout && loc ? { ...loc, cfi: view.getCFI(at), section: { ...loc.section, current: at } } : loc
+    const landed = positionOf(shown)
     if (!landed) return log('warn', 'goTo: nothing to save here (no text position)')
+    // The save rule's previous place is the one saved: a turn back to the side shown before is a move.
+    if (shown !== loc) lastCfi = shown.cfi
     entry = withPosition(entry, landed)
     persist()
   }),

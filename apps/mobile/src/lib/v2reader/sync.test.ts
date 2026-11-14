@@ -554,6 +554,19 @@ describe('V2 local library sync (R6)', () => {
         expect(calls.find((c) => c.path.endsWith('/reading-state'))!.body).toMatchObject({ fileId, currentLocator: pageName, bookFraction: 0.5 })
       })
 
+      it('pageKeyTheServerRefuses_NotSentAndSaidSoWithoutTheKey', async () => {
+        const { lib, bookId } = await synced()
+        await lib.writeEntry(SHA, entry({ ...fixedPage, page: 'x'.repeat(600) }), newId)
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const calls = fakeApi({})
+        await syncV2Library(lib, host())
+        expect(calls.some((c) => c.path === `/books/${bookId}/reading-state`)).toBe(false)
+        const said = warn.mock.calls.map((c) => String(c[0]))
+        warn.mockRestore()
+        expect(said).toEqual([expect.stringMatching(/^\[v2 sync\] page position not synced \(epub\): its page key \(600 UTF-16 units\)/)])
+        expect(said[0]).not.toContain('xxxx')
+      })
+
       it('reflowablePosition_SentAsEpubCfi', async () => {
         const { lib, bookId, fileId } = await synced()
         await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 1000 }), newId)

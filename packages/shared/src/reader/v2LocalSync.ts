@@ -108,6 +108,18 @@ export function positionWrite(p: PagePosition, fileId: string, expectedRevision:
   }
 }
 
+/**
+ * Why a named-page position (a `page` key, no quote) gets no `positionWrite`, or null (it gets one, or it is not a
+ * named page). For a host's log: it names the key's length and the file's format, never the key itself.
+ */
+export function pageNameRefusal(p: PagePosition, format: string | null): string | null {
+  if (typeof p.page !== 'string' || p.quote !== undefined) return null
+  if (!PAGE_NAMED.has(format)) return `a named page does not fit a ${format ?? 'unknown-format'} file`
+  if (!isPageName(p.page)) return `its page key (${p.page.length} UTF-16 units) is blank, over ${MAX_PAGE_NAME}, or has a control character or lone surrogate`
+  if (!isIndex(p.index)) return 'its section index is not an Int32 ≥ 0'
+  return null
+}
+
 const FRACTION_SCHEMES = new Set<string>(['textstack-position-v1', 'textstack-anchor-v1', 'epub-cfi'])
 
 /**
@@ -223,12 +235,15 @@ export function decideServerState(o: {
   // Nothing restored yet: adopt, whatever spine item is on screen (none is reported before `restored`).
   if (!o.reader || !o.reader.restoreApplied) return 'adopt'
   // A named page (`page-name`) is compared by name when the local place has one too: two devices may order a
-  // CBZ's entries differently, so their indexes may disagree. The reader is on its local place unless it moved
-  // since the restore, and then it is asked anyway (`decideNewerPosition`). Otherwise by spine index.
+  // CBZ's entries differently, so their indexes may disagree. The local name is the reader's only while the reader
+  // is still on the local place's section (both indexes this device's own): a chosen jump (a TOC entry) moves it
+  // without `moved`, and this pass may still read the place before it. Otherwise by spine index.
   const named = typeof theirs.page === 'string' && typeof o.local?.page === 'string'
   return decideNewerPosition({
     // A fraction-only position, local or the server's, has no spine index: a restored reader is asked.
-    sameChapter: named ? o.local!.page === theirs.page : o.reader.index != null && o.reader.index === theirs.index,
+    sameChapter: named
+      ? o.local!.page === theirs.page && o.reader.index != null && o.reader.index === o.local!.index
+      : o.reader.index != null && o.reader.index === theirs.index,
     restoreApplied: o.reader.restoreApplied,
     readerMoved: o.reader.moved,
   })

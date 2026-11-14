@@ -30,7 +30,7 @@
  */
 import {
   annotationHighlight, ApiError, entryChanges, entryFor, highlightWrite, normalisedHighlight, ownAnnotationWrite,
-  decideServerState, ownStateWrite, pageEntry, positionWrite, sameJson, statePosition, v2Api,
+  decideServerState, ownStateWrite, pageEntry, pageNameRefusal, positionWrite, sameJson, statePosition, v2Api,
   type HeldHighlight, type PageEntry, type PageHighlight, type PagePosition, type V2Annotation, type V2AnnotationWrite, type V2ReadingState,
   type V2ReadingStateWrite,
 } from '@textstack/shared'
@@ -206,7 +206,11 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   async function pushPosition(p: PagePosition, expected: number | null, retried = false): Promise<boolean> {
     // A fraction-only position has no write the server takes; a CBZ or pre-paginated EPUB page is `page-name` (#1188, #1196).
     const write = positionWrite(p, t.fileId, expected, Date.now(), t.format)
-    if (!write) return false
+    if (!write) {
+      const why = pageNameRefusal(p, t.format)
+      if (why) console.warn(`[v2 sync] page position not synced (${t.format}): ${why}`)
+      return false
+    }
     const prev = lastSent
     lastSent = { p, write }
     try {

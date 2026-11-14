@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { V2Annotation, V2ReadingState } from '../api/v2'
 import {
-  annotationHighlight, codePoints, decideServerState, highlightWrite, isUuid, ownAnnotationWrite, ownStateWrite,
+  annotationHighlight, codePoints, decideServerState, pageNameRefusal, highlightWrite, isUuid, ownAnnotationWrite, ownStateWrite,
   positionWrite, sameJson, spineIndexOf, statePosition, syncableText, type PageHighlight,
 } from './v2LocalSync'
 import { isPosition } from './v2PageStore'
@@ -132,8 +132,28 @@ describe('v2LocalSync', () => {
     expect(decideServerState({ local: fixedLocal, localFileId: 'f', server: pageState({ page: 'OEBPS/p3.xhtml', index: 2 }), reader: fixedReader, format: 'epub', now })).toBe('prompt')
     // No local name (nothing saved here yet): by index, as before.
     expect(decideServerState({ local: { fraction: 0, at: local.at }, localFileId: 'f', server: pageState({ page: 'Vol 1/p02.png', index: 1 }), reader, format: 'cbz', now })).toBe('move')
+    // A chosen jump (a TOC entry: no `moved`) took the reader to another section before this pass read the
+    // place: the local name is no longer the reader's, so it is asked, never moved back (#1196 review).
+    expect(decideServerState({ local, localFileId: 'f', server: pageState({ page: 'Vol 1/p02.png', index: 1 }), reader: { ...reader, index: 5 }, format: 'cbz', now })).toBe('prompt')
     // Moved: asked, whatever the name.
     expect(decideServerState({ local, localFileId: 'f', server: pageState({ page: 'Vol 1/p02.png', index: 1 }), reader: { ...reader, moved: true }, format: 'cbz', now })).toBe('prompt')
+  })
+
+  it('pageNameRefusal_WhyANamedPageIsNotWritten_NeverTheKey', () => {
+    const long = 'k'.repeat(600)
+    expect(pageNameRefusal(fixedPos, 'epub')).toBeNull()
+    expect(pageNameRefusal(cbzPos, 'cbz')).toBeNull()
+    expect(pageNameRefusal(pos, 'epub')).toBeNull()
+    expect(pageNameRefusal({ fraction: 0.5, at: 1 }, 'epub')).toBeNull()
+    expect(pageNameRefusal(cbzPos, 'mobi')).toMatch(/does not fit a mobi file/)
+    expect(pageNameRefusal(cbzPos, null)).toMatch(/does not fit/)
+    const tooLong = pageNameRefusal({ ...cbzPos, page: long }, 'cbz')!
+    expect(tooLong).toMatch(/600 UTF-16 units/)
+    expect(tooLong).not.toContain('kkkk')
+    expect(pageNameRefusal({ ...cbzPos, index: -1 }, 'cbz')).toMatch(/section index/)
+    // Every refusal of positionWrite on a named page has a reason.
+    for (const [p, f] of [[cbzPos, 'mobi'], [{ ...cbzPos, page: long }, 'cbz'], [{ ...cbzPos, page: 'a\nb' }, 'epub'], [{ ...cbzPos, index: 1.5 }, 'epub']] as const)
+      expect(positionWrite(p, 'f', null, Date.now(), f) === null && pageNameRefusal(p, f) !== null, `${f} ${JSON.stringify(p).slice(0, 60)}`).toBe(true)
   })
 
   it('ownStateWrite_PageNameEchoedBack_IsOurs', () => {

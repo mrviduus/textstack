@@ -458,9 +458,13 @@ describe('createV2ReaderSync', () => {
 
     it('namedPageOnABookThatIsNeitherCbzNorEpub_NeverPut', async () => {
       const MOBI: V2SyncTarget = { ...T, format: 'mobi' }
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const s = await opened(MOBI)
       await stored(s, entry(page('p3.jpg'), [], MOBI))
       expect(api.putReadingState).not.toHaveBeenCalled()
+      // Not silent (#1196 review): the reason, never the key.
+      expect(warn.mock.calls.map((c) => String(c[0]))).toEqual(['[v2 sync] page position not synced (mobi): a named page does not fit a mobi file'])
+      warn.mockRestore()
     })
 
     // #1196: a pre-paginated EPUB's page goes as page-name (its spine href); a reflowable EPUB's place stays epub-cfi.

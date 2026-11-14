@@ -12,7 +12,7 @@
  */
 import { Platform } from 'react-native'
 import {
-  v2Api, ApiError, clip, highlightWrite, isOfflineError, ownAnnotationWrite, ownStateWrite, positionWrite, V2UploadNotOnServer,
+  v2Api, ApiError, clip, highlightWrite, isOfflineError, ownAnnotationWrite, ownStateWrite, pageNameRefusal, positionWrite, V2UploadNotOnServer,
   type OpenReader, type PageHighlight, type V2Annotation, type V2Book, type V2BookFile, type V2ClientFormat, type V2MergeMap, type V2ReadingState,
 } from '@textstack/shared'
 import { onV2, resetSince, startV2Probe, whileCurrent, V2UploadError } from '../v2'
@@ -366,7 +366,11 @@ async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: 
   const write = place && st.completed_at ? { ...place, completedAt: st.completed_at } : place
   // No write the server would take (a page key it refuses; a fraction-only position, #1187, is never queued:
   // localLibrary.applyEntry). An unsent finish stays queued for the first place the server takes.
-  if (!write) return owesFinish ? undefined : drop(lib, reset, item)
+  if (!write) {
+    const why = pageNameRefusal(JSON.parse(st.position), b.format)
+    if (why) console.warn(`[v2 sync] page position not synced (${b.format}): ${why}`)
+    return owesFinish ? undefined : drop(lib, reset, item)
+  }
   // The server's `completedAt` with its revision: a finish elsewhere shows here without waiting for a pull.
   const landed = (s: V2ReadingState) => Promise.all([lib.takeState(b.id, s, write.completedAt ?? null), lib.done(item)])
   try {

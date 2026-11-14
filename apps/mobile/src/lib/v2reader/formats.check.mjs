@@ -1605,7 +1605,8 @@ try {
   // A CFI that does point at text (the book's own first relocate), so only the missing quote can refuse it.
   const textCfi = (await waitFor(m.from, (x) => x.type === 'relocate' && x.cfi, 'a relocate with a CFI')).cfi
   m = await open('tsformat.fb2', JSON.stringify({ v: 1, book: m.book, highlights: [], position: { cfi: textCfi, page: 'p02.png', index: 0, fraction: 0, at: 1 } }))
-  check(m.restored.position === 'quote mismatch, stayed at start', `a page position on a textual book is not applied (${m.restored.position})`)
+  // Picked by the position's shape, as a host goTo is (#1196 review): a named page found by its name, here none.
+  check(m.restored.position === 'page not found, stayed at start', `a page position on a textual book is looked up by name, not applied (${m.restored.position})`)
 
   // A fraction-only position (a transitional server locator, #1187): restored by fraction, and nothing
   // saved until the reader moves (the server's locator is not rewritten by opening the book).
@@ -2144,14 +2145,48 @@ try {
   m = await open('tsthree.cbz', entryOf(m.book, null))
   const paired = await call(`(() => { const v = document.querySelector('foliate-view'), r = v.renderer, s = v.book.sections; return r.getSpreadOf(s[1]).index === r.getSpreadOf(s[2]).index })()`)
   check(paired, 'tsthree.cbz pairs its 2nd and 3rd pages in one spread')
-  call('window.__fol.goTo(1)')
-  await settle()
+  const threeBook = m.book
+  // The other side of the spread shown is rendered without a relocate: the side shown is what is saved (#1196 review).
+  const otherSide = async (file, b, second, what) => {
+    m = await open(file, entryOf(b, null))
+    call('window.__fol.goTo(1)')
+    await settle()
+    from = messages.length
+    call('window.__fol.goTo(2, true)')
+    await settle()
+    const saved = storesFrom(from)
+    check(!messages.slice(from).some((x) => x.type === 'log' && /did not land/.test(x.msg)) && saved.length === 1 && saved[0]?.page === second && saved[0].index === 2,
+      `${what}: a taken goTo to the other page of the shown spread saves that page (${JSON.stringify(saved)})`)
+  }
+  await otherSide('tsthree.cbz', threeBook, 'p03.png', 'CBZ')
+  await otherSide('tsfixed.epub', fixedBook, 'OEBPS/p3.xhtml', 'pre-paginated EPUB')
+  // Portrait: one side of a spread at a time, and a turn back to the side shown before relocates. It is a move:
+  // the save rule's previous place is the side saved, not the one before it.
+  {
+    const size = page.viewportSize()
+    await page.setViewportSize({ width: 500, height: 900 })
+    m = await open('tsthree.cbz', entryOf(threeBook, null))
+    call('window.__fol.goTo(1)')
+    await settle()
+    call('window.__fol.goTo(2, true)')
+    await settle()
+    from = messages.length
+    call('window.__fol.prev()')
+    const back = await storeFrom(from, 'a store after a turn back on a portrait spread')
+    check(back?.position?.page === 'p02.png', `portrait: after a taken goTo to the spread's other side, a turn back saves (${JSON.stringify(back?.position)})`)
+    await page.setViewportSize(size)
+  }
+  await byName('tsthree.cbz', threeBook, 'p03.png', 'CBZ')
+  // A spine that lists one href twice (#1196 review): the position's index picks which of them, when it names that page.
+  m = await open('tsdup.epub')
+  const dupBook = m.book
+  m = await open('tsdup.epub', entryOf(dupBook, null))
   from = messages.length
-  call('window.__fol.goTo(2, true)')
-  await settle()
-  check(!messages.slice(from).some((x) => x.type === 'log' && /did not land/.test(x.msg)) && storesFrom(from).length === 1,
-    `a taken goTo to the other page of the shown spread arrives and saves (${JSON.stringify(storesFrom(from))})`)
-  await byName('tsthree.cbz', m.book, 'p03.png', 'CBZ')
+  call(`window.__fol.goTo(${JSON.stringify({ cfi: 'epubcfi(/6/6)', page: 'OEBPS/p1.xhtml', index: 2, fraction: 0.9, at: 15 })}, true)`)
+  const dup = await storeFrom(from, 'a store after a goTo to a repeated page')
+  check(dup?.position?.page === 'OEBPS/p1.xhtml' && dup.position.index === 2, `a goTo of a page listed twice lands on the one its index names (${JSON.stringify(dup?.position)})`)
+  m = await open('tsdup.epub', JSON.stringify(dup))
+  check(m.restored.position === 'restored' && lastRelocate(m.from)?.index === 2, `and a restore does too (${m.restored.position}, ${lastRelocate(m.from)?.index})`)
 
   await checkSelectionEdges()
   await checkChrome()

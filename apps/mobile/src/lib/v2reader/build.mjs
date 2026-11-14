@@ -89,7 +89,9 @@ const FOLIATE_SHA = '73d42595074f0f5914c00ccb7172a0a8bdfecf26'
 // +177 (#1286 review): the swap forgets the previous open's last store (`saves.forget()`).
 // +484 (#1196): a pre-paginated EPUB saves a named page (`pageForm`, `pageKey`), and `land()` goes to a named page by
 // its name, not by the CFI its index rebuilds (CBZ too).
-const BUDGET = 271056
+// +491 (#1196 review): a taken goTo on a fixed layout saves the side shown; restore picks a named page by its shape;
+// `sectionNamed` takes the position's index when it names that page.
+const BUDGET = 271547
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
