@@ -14,7 +14,8 @@ const shownUrl = (u) => (typeof u === 'string' && /^(blob|data):/i.test(u) ? u :
 
 /**
  * The image under a tap in a section document, `{ src, alt }`, or null: an `<img>` (its current source) or an SVG
- * `<image>` (its href). `alt`: the img's alt, else the SVG's `aria-label` or its own `<title>`; '' when none.
+ * `<image>` (its href). `alt`: the img's alt, else the SVG's `aria-label`, else a `<title>` child of the `<image>` or of
+ * its nearest `<g>`/`<svg>`; '' when none.
  */
 export function imageAt(target) {
   const img = target?.closest?.('img')
@@ -26,8 +27,10 @@ export function imageAt(target) {
   if (!image || image.namespaceURI !== SVG) return null
   const src = shownUrl(image.getAttribute('href') || image.getAttributeNS(XLINK, 'href'))
   if (!src) return null
+  // A `<title>` that is the image's own child, else one of its nearest `<g>` or `<svg>`: direct children only.
+  const titleOf = (el) => (el ? [...el.children].find((c) => c.localName === 'title')?.textContent : undefined)
   const svg = image.closest('svg')
-  return { src, alt: svg?.getAttribute('aria-label') ?? svg?.querySelector(':scope > title')?.textContent ?? '' }
+  return { src, alt: svg?.getAttribute('aria-label') ?? titleOf(image) ?? titleOf(image.parentElement?.closest('g, svg')) ?? '' }
 }
 
 /** A scale in [1, MAX_SCALE]. */
@@ -68,7 +71,17 @@ export function createLightbox(doc, post, behind = () => null) {
   let gesture = null
   let lastTap = null
 
-  const size = () => ({ w: box.clientWidth, h: box.clientHeight, iw: img.offsetWidth, ih: img.offsetHeight })
+  /**
+   * The box and the image as laid out at scale 1. Before the image has decoded it has no layout size yet: its natural
+   * size fitted into the box as its CSS fits it (`max-width/max-height: 100%`, never upscaled), so the first gesture
+   * already keeps its focus and its pan.
+   */
+  const size = () => {
+    const [w, h] = [box.clientWidth, box.clientHeight]
+    if (img.offsetWidth && img.offsetHeight) return { w, h, iw: img.offsetWidth, ih: img.offsetHeight }
+    const k = img.naturalWidth && img.naturalHeight ? Math.min(1, w / img.naturalWidth, h / img.naturalHeight) : 0
+    return { w, h, iw: img.naturalWidth * k, ih: img.naturalHeight * k }
+  }
   /** A point of the viewport as box px from its centre. */
   const fromCentre = (p) => ({ x: p.x - box.clientWidth / 2, y: p.y - box.clientHeight / 2 })
   const show = (next) => {
@@ -116,10 +129,15 @@ export function createLightbox(doc, post, behind = () => null) {
     }
     lastTap = { at: now, x: e.clientX, y: e.clientY }
   }
-  /** A cancelled pointer (the system took the gesture) ends it: never a tap, never half of a double tap. */
+  /**
+   * A cancelled pointer (the system took it) is never a tap, nor half of a double tap. One of a pinch: the pointers
+   * still down go on (the other pans from here); the last one: the gesture ends.
+   */
   function onCancel(e) {
-    pointers.delete(e.pointerId)
-    gesture = lastTap = null
+    if (!pointers.delete(e.pointerId)) return
+    lastTap = null
+    if (pointers.size) startGesture(true)
+    else gesture = null
   }
   function onWheel(e) {
     e.preventDefault()

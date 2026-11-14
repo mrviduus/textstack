@@ -624,7 +624,9 @@ test.describe('V2 reader page @v2', () => {
         const width = page.viewportSize()!.width
         const [left, right] = [box.x + r.left, box.x + r.right]
         // The middle zone is 25-75 % of the width (tapZone.mjs).
-        return { src: r.src, left, x: Math.min(right - 8, Math.max((left + right) / 2, width * 0.25 + 20)), y: box.y + r.y }
+        const x = Math.min(right - 8, width * 0.75 - 20, Math.max((left + right) / 2, width * 0.25 + 20))
+        expect(x > left && x < right, 'a point of the image in the middle zone').toBe(true)
+        return { src: r.src, left, x, y: box.y + r.y }
       }
       return null
     }

@@ -44,6 +44,17 @@ describe('v2 lightbox imageAt', () => {
     expect(imageAt(image)?.alt).toBe('A chart')
     title.remove()
     expect(imageAt(image)?.alt).toBe('')
+    // In a group: the group's own title; the image's own title before it.
+    const group = document.createElementNS(SVG, 'g')
+    const groupTitle = document.createElementNS(SVG, 'title')
+    groupTitle.textContent = 'A group'
+    group.append(groupTitle, image)
+    svg.append(group)
+    expect(imageAt(image)?.alt).toBe('A group')
+    const own = document.createElementNS(SVG, 'title')
+    own.textContent = 'Its own'
+    image.append(own)
+    expect(imageAt(image)?.alt).toBe('Its own')
     svg.setAttribute('aria-label', 'Labelled')
     expect(imageAt(image)?.alt).toBe('Labelled')
     // An `image` that is not SVG's (an unknown HTML element) is nothing.
@@ -199,6 +210,50 @@ describe('v2 lightbox overlay', () => {
     pointer('pointerdown')
     pointer('pointerup')
     expect(scale()).toMatch(/scale\(2\.5\)/)
+  })
+
+  /** The dialog laid out 1000×600 and its image 1600×1000 natural, not decoded yet (no layout size: jsdom's 0). */
+  const sized = () => {
+    const d = dialog()!
+    const img = d.querySelector('img')!
+    Object.defineProperties(d, { clientWidth: { value: 1000 }, clientHeight: { value: 600 } })
+    Object.defineProperties(img, { naturalWidth: { value: 1600 }, naturalHeight: { value: 1000 } })
+    return { d, transform: () => img.style.transform }
+  }
+  const pointerOn = (d: Element, type: string, id: number, x: number, y: number) =>
+    d.dispatchEvent(Object.assign(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y }), { pointerId: id }))
+
+  it('beforeTheImageDecodes_ItsNaturalSizeFitted_TheWheelKeepsItsFocus', () => {
+    const { lb } = setup()
+    lb.open({ src: 'blob:null/a', alt: '' })
+    const { d, transform } = sized()
+    // Fitted: 960×600. ×e about a point 100 px right of the centre: pan 100 − e·100.
+    d.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, clientX: 600, clientY: 300, bubbles: true, cancelable: true }))
+    expect(transform()).toBe(`translate(${100 - Math.E * 100}px, 0px) scale(${Math.E})`)
+  })
+
+  it('beforeTheImageDecodes_ASmallImageIsNotUpscaled_ZoomedItStillFits_NoPan', () => {
+    const { lb } = setup()
+    lb.open({ src: 'blob:null/a', alt: '' })
+    const d = dialog()!
+    const img = d.querySelector('img')!
+    Object.defineProperties(d, { clientWidth: { value: 1000 }, clientHeight: { value: 600 } })
+    Object.defineProperties(img, { naturalWidth: { value: 200 }, naturalHeight: { value: 100 } })
+    // 200×100 as laid out (not 1000×500): ×e is 544×272, inside the box.
+    d.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, clientX: 600, clientY: 300, bubbles: true, cancelable: true }))
+    expect(img.style.transform).toBe(`translate(0px, 0px) scale(${Math.E})`)
+  })
+
+  it('aPinchWithOnePointerCancelled_TheOtherStillPans', () => {
+    const { lb } = setup()
+    lb.open({ src: 'blob:null/a', alt: '' })
+    const { d, transform } = sized()
+    d.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, clientX: 500, clientY: 300, bubbles: true, cancelable: true }))
+    pointerOn(d, 'pointerdown', 1, 400, 300)
+    pointerOn(d, 'pointerdown', 2, 600, 300)
+    pointerOn(d, 'pointercancel', 2, 600, 300)
+    pointerOn(d, 'pointermove', 1, 460, 340)
+    expect(transform()).toBe(`translate(60px, 40px) scale(${Math.E})`)
   })
 
   it('close_ASectionFrameGetsFocusThroughItsWindow_NotTheElement', () => {
