@@ -94,9 +94,8 @@ describe('v2 host storage', () => {
     const ids = [randomUUID(), randomUUID()]
     const { storage: s, lib } = storage(memoryFiles(), () => ids.shift()!)
     const [bookId, fileId] = ids
-    const { books, bookId: opened } = await s.addOpened({ ...book(SHA_B), format: 'mobi' }, null)
+    const { books } = await s.addOpened({ ...book(SHA_B), format: 'mobi' }, null)
     expect(books.map((b) => b.id)).toEqual([bookId])
-    expect(opened).toBe(bookId)
     expect(await lib.book(bookId)).toMatchObject({ file_id: fileId, format: 'mobi', sha256: SHA_B })
     expect(await lib.outbox()).toEqual([{ kind: 'book', target: bookId, gen: 1, failures: 0 }])
   })
@@ -108,6 +107,8 @@ describe('v2 host storage', () => {
     data.set('staging/2.epub', 'bytes')
     const { books } = await s.addOpened(book(SHA_A), 'staging/2.epub')
     expect(books).toHaveLength(1)
+    expect(await s.bookIdOf(SHA_A)).toBe(books[0].id)
+    expect(await s.bookIdOf(SHA_B)).toBeNull()
     expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${SHA_A_KEY}.epub`])
   })
 
@@ -167,7 +168,8 @@ describe('v2 host storage', () => {
 
   it('writeStore_PositionAndHighlight_ReadBackAsTheEntryAndQueued', async () => {
     const { storage: s, lib } = storage()
-    const { bookId } = await s.addOpened(book(SHA_A), null)
+    await s.addOpened(book(SHA_A), null)
+    const bookId = (await s.bookIdOf(SHA_A))!
     const h = { id: randomUUID(), cfi: CFI, index: 6, quote: 'bright', selectedText: 'bright cold', prefix: '', suffix: '', color: 'yellow', at: 1 }
     await s.writeStore(SHA_A, entry({ position: pos, highlights: [h] }))
     const back = JSON.parse((await s.readStore(SHA_A_KEY))!)
