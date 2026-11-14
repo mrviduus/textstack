@@ -16,7 +16,9 @@
  *                  `note_dirty` = edited here and not yet on the server (a lost write's retry keeps the server's
  *                  note otherwise). A `deleted_at` with the row still queued is this device's removal, pushed
  *                  as a DELETE (#1312)
- *   outbox         what still has to be pushed: (kind, target), kind 'book' | 'state' | 'annotation',
+ *   reading_sessions  the reader's ended sessions (#1313, sessionTracker.mjs) by client session id, until pushed
+ *                  (append-only facts: the row leaves with its outbox entry)
+ *   outbox         what still has to be pushed: (kind, target), kind 'book' | 'state' | 'session' | 'annotation',
  *                  pushed in that order (PDD "Push"). Coalescing: the payload is read from the row at
  *                  push time, so one entry per row; `gen` grows on every re-queue, so a push only
  *                  clears the entry it read (a save landing mid-push stays queued); `failures` counts
@@ -81,6 +83,16 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS annotations_book ON annotations (book_id);
   DROP TABLE IF EXISTS annotation_aliases; -- made by dev builds of #1312 before its review; never used since
+  CREATE TABLE IF NOT EXISTS reading_sessions (
+    id TEXT PRIMARY KEY,
+    book_id TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT NOT NULL,
+    duration_seconds INTEGER NOT NULL,
+    words_read INTEGER NOT NULL,
+    start_percent REAL NOT NULL,
+    end_percent REAL NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS outbox (
     kind TEXT NOT NULL,
     target TEXT NOT NULL,
@@ -123,8 +135,9 @@ const isDuplicateColumn = (e: unknown) => /duplicate column name/i.test(String((
 export const MAX_FAILURES = 5
 /** A book's not-synced text when its entry or a child's stopped being retried: fixed, no error text. */
 export const CHANGES_NOT_SYNCED = 'some changes not synced'
-/** The book an outbox entry belongs to (its own entry, its state, its annotation): the one definition. */
-const BOOK_OF = `CASE outbox.kind WHEN 'annotation' THEN (SELECT a.book_id FROM annotations a WHERE a.id = outbox.target) ELSE outbox.target END`
+/** The book an outbox entry belongs to (its own entry, its state, its annotation, its session): the one definition. */
+const BOOK_OF = `CASE outbox.kind WHEN 'annotation' THEN (SELECT a.book_id FROM annotations a WHERE a.id = outbox.target)
+  WHEN 'session' THEN (SELECT s.book_id FROM reading_sessions s WHERE s.id = outbox.target) ELSE outbox.target END`
 
 export interface BookRow {
   id: string
@@ -172,7 +185,18 @@ export interface AnnotationRow {
   note_known: number
 }
 
-export type OutboxKind = 'book' | 'state' | 'annotation'
+export interface SessionRow {
+  id: string
+  book_id: string
+  started_at: string
+  ended_at: string
+  duration_seconds: number
+  words_read: number
+  start_percent: number
+  end_percent: number
+}
+
+export type OutboxKind = 'book' | 'state' | 'session' | 'annotation'
 /** #1312: a book's highlight notes as an editor needs them (`notes`). */
 export interface BookNotes { known: Map<string, string | null>; unknown: Set<string>; deleted: Set<string> }
 /** `failures`: transient push failures of this `gen` in a row (sync.ts `MAX_FAILURES`). */
@@ -219,13 +243,14 @@ export interface SignOutLoss { books: number; writes: number }
 export const NOTHING_LOST: SignOutLoss = { books: 0, writes: 0 }
 
 /**
- * Changes only on this device, one row per change, by book: queued positions and highlights, and own
+ * Changes only on this device, one row per change, by book: queued positions, sessions and highlights, and own
  * highlights the server never took and nothing will send (over the cap, dropped after a refusal:
  * `mine`, no revision, not queued). Not counted (README "Sign-out"): an edit of a synced highlight dropped
  * after a refusal.
  */
 const UNSENT_CHANGES = `
   SELECT target AS book_id FROM outbox WHERE kind = 'state'
+  UNION ALL SELECT s.book_id FROM outbox o LEFT JOIN reading_sessions s ON s.id = o.target WHERE o.kind = 'session'
   UNION ALL SELECT a.book_id FROM outbox o LEFT JOIN annotations a ON a.id = o.target WHERE o.kind = 'annotation'
   UNION ALL SELECT book_id FROM annotations WHERE mine = 1 AND revision IS NULL AND deleted_at IS NULL
     AND id NOT IN (SELECT target FROM outbox WHERE kind = 'annotation')`
@@ -354,6 +379,7 @@ export function createLocalLibrary(db: Db) {
       await run('UPDATE OR REPLACE books SET id = ? WHERE id = ?', [to, from])
       await run('UPDATE OR REPLACE reading_state SET book_id = ? WHERE book_id = ?', [to, from])
       await run('UPDATE annotations SET book_id = ? WHERE book_id = ?', [to, from])
+      await run('UPDATE reading_sessions SET book_id = ? WHERE book_id = ?', [to, from])
       await run(`UPDATE OR REPLACE outbox SET target = ? WHERE target = ? AND kind IN ('book', 'state')`, [to, from])
     }
     for (const [from, to] of Object.entries(files)) {
@@ -535,6 +561,23 @@ export function createLocalLibrary(db: Db) {
     }),
 
     /**
+     * A reading session ended (#1313): kept under a new client session id and queued for the server, for the book
+     * with these bytes (its id at push time: a sync can re-key the open book while it is read). False: no such book.
+     */
+    addSession: (sha256: string, s: { startedAt: string; endedAt: string; durationSeconds: number; wordsRead: number; startPercent: number; endPercent: number }, newId: () => string) =>
+      tx(async () => {
+        const b = await bookBySha(sha256)
+        if (!b) return false
+        const id = newId()
+        await run(
+          'INSERT INTO reading_sessions (id, book_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [id, b.id, s.startedAt, s.endedAt, s.durationSeconds, s.wordsRead, s.startPercent, s.endPercent],
+        )
+        await enqueue('session', id)
+        return true
+      }),
+
+    /**
      * #1312: the reader's note (null: none) on highlight `id`: this device's edit (`note_dirty`), queued when the
      * highlight's text may sync. False: no such highlight here, or it is deleted.
      */
@@ -626,7 +669,7 @@ export function createLocalLibrary(db: Db) {
     /** The queue in push order; one kind's entries in queue order. */
     outbox: (kind?: OutboxKind) => job(() => (kind
       ? all<OutboxItem>('SELECT kind, target, gen, failures FROM outbox WHERE kind = ? ORDER BY rowid', [kind])
-      : all<OutboxItem>(`SELECT kind, target, gen, failures FROM outbox ORDER BY CASE kind WHEN 'book' THEN 0 WHEN 'state' THEN 1 ELSE 2 END, rowid`))),
+      : all<OutboxItem>(`SELECT kind, target, gen, failures FROM outbox ORDER BY CASE kind WHEN 'book' THEN 0 WHEN 'state' THEN 1 WHEN 'session' THEN 2 ELSE 3 END, rowid`))),
     /**
      * What a pass pushes, one kind in queue order: entries still retried (under MAX_FAILURES) whose book
      * is not parked — a stuck entry or a parked book's child costs no read at all.
@@ -638,8 +681,11 @@ export function createLocalLibrary(db: Db) {
     )),
     /** A session's first pass: every entry retried again (an outage heals itself on the next launch). */
     retryAll: () => job(() => run('UPDATE outbox SET failures = 0 WHERE failures > 0')),
-    /** The entry leaves the outbox only if it was not queued again since it was read. */
-    done: (item: OutboxItem) => job(() => run('DELETE FROM outbox WHERE kind = ? AND target = ? AND gen = ?', [item.kind, item.target, item.gen])),
+    /** The entry leaves the outbox only if it was not queued again since it was read; a session's row leaves with it. */
+    done: (item: OutboxItem) => tx(async () => {
+      await run('DELETE FROM outbox WHERE kind = ? AND target = ? AND gen = ?', [item.kind, item.target, item.gen])
+      if (item.kind === 'session') await run(`DELETE FROM reading_sessions WHERE id = ? AND NOT EXISTS (SELECT 1 FROM outbox WHERE kind = 'session' AND target = ?)`, [item.target, item.target])
+    }),
     /**
      * One more failed attempt, counted only against the gen that failed: the row's count now, or null
      * when it was queued again meanwhile (a save mid-push starts from zero).
@@ -671,6 +717,7 @@ export function createLocalLibrary(db: Db) {
     book: (id: string) => job(() => bookById(id)),
     state: (bookId: string) => job(() => stateOf(bookId)),
     annotation: (id: string) => job(() => annotationById(id)),
+    session: (id: string) => job(() => one<SessionRow>('SELECT * FROM reading_sessions WHERE id = ?', [id])),
 
     /** The server's book for a local one (import answer, `duplicate_file`, an adopt by sha256): its ids win. */
     adoptServerBook: (localId: string, server: V2Book) => tx(async () => {
@@ -920,7 +967,7 @@ export function createLocalLibrary(db: Db) {
      * nobody; rows that appear after it are taken by the first identity that syncs.
      */
     wipe: () => tx(async () => {
-      for (const table of ['books', 'reading_state', 'annotations', 'outbox']) await run(`DELETE FROM ${table}`)
+      for (const table of ['books', 'reading_state', 'annotations', 'reading_sessions', 'outbox']) await run(`DELETE FROM ${table}`)
       // The notes upgrade's marker stays (#1312 review): it is about this database, not its owner, and the rows a later
       // sign-in pulls are known, never to be marked unknown again.
       await run('DELETE FROM meta WHERE key <> ?', [NOTES_UPGRADE])

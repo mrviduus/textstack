@@ -21,6 +21,7 @@ import { downloadV2Book, openBookHost, syncV2Library, tryAgainV2Book, type SyncH
 import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
 import { createMovedTracker } from '../../lib/v2reader/movedTracker.mjs'
+import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../lib/v2reader/sessionTracker.mjs'
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
@@ -167,6 +168,26 @@ const fail = (what: string, show?: (text: string) => void) => (e: unknown) => {
   show?.(`${what}: ${hostError(e)}`)
 }
 
+/**
+ * An ended reading session (#1313) into the local library, keyed by the book's bytes, and queued: the outbox sends
+ * it on the next pass (a save's, an open's, the screen's). No account, no network: never on the reading path.
+ */
+const saveSession = (e: EndedSession | null) => {
+  if (!e) return
+  deviceLocalLibrary().addSession(e.book, e, uuid.v4).then(
+    (kept) => { if (!kept) console.warn(`[v2] reading session not kept: no book with bytes ${e.book}`) },
+    fail('reading session'),
+  )
+}
+/** The library's key for the page's sha256 (hostStorage `sha256Key`); null when it is none. */
+const sessionKey = (sha: unknown) => {
+  try {
+    return typeof sha === 'string' ? sha256Key(sha) : null
+  } catch {
+    return null
+  }
+}
+
 /** The file's size for its `opened` deadline; unknown (null) gives the floor. */
 const sizeOf = (file: string) => {
   try { return v2File(file).size } catch { return null }
@@ -305,6 +326,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setOpenShaState(sha)
   }
   const [place] = useState(createMovedTracker)
+  /** The reading session (#1313, sessionTracker.mjs), keyed by the open book's bytes as Finish book is. */
+  const [sessions] = useState(createSessionTracker)
   /** The open book's contents (#1261, toc.mjs); the reader's place in them as of the last relocate, read when the sheet opens. */
   const [toc, setToc] = useState<V2TocEntry[]>([])
   const tocIndex = useRef<number | null>(null)
@@ -461,6 +484,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
   /** The closed book is no longer the open one: a later `ready` opens nothing, and its per-book state goes. */
   const endBook = () => {
+    saveSession(sessions.open(Date.now()))
     listener.stop()
     opening.current = null
     setOpenSha(null)
@@ -664,6 +688,22 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     return () => clearTimeout(syncTimer.current)
   }, [userId])
 
+  // The reading session (#1313): the heartbeat ends an idle one; the background, another identity and the
+  // unmount end it (the legacy reader's rules). The next activity starts another.
+  // ponytail: a sign-out from inside the reader ends the session after its library is wiped or handed on, so up to
+  // one session per sign-out is lost (#1322); end it in the sign-out flow (before pushV2BeforeSignOut) if that matters.
+  useEffect(() => {
+    const beat = setInterval(() => saveSession(sessions.tick(Date.now())), SESSION_HEARTBEAT_MS)
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background' || state === 'inactive') saveSession(sessions.end(Date.now()))
+    })
+    return () => {
+      clearInterval(beat)
+      sub.remove()
+      saveSession(sessions.end(Date.now()))
+    }
+  }, [userId])
+
   const toggleFileSync = () => {
     const next = !fileSync
     setFileSync(next)
@@ -716,6 +756,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // page may still keep that book on screen, if this newer open fails before its swap.
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
     tracker.open(target.file, opening.current)
+    saveSession(sessions.open(Date.now()))
     setOpenSha(null)
     setHighlightList([])
     setNotes(null)
@@ -741,6 +782,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const takeOpened = (t: Take<Opening, any>) => {
     for (const o of t.dropped) if (isStaged(o.file) && o.file !== t.open.file) v2Storage().dropStaged(o.file).catch(fail('drop'))
     opening.current = t.open
+    saveSession(sessions.bind(sessionKey(t.opened.book?.sha256), Date.now()))
     setReflowable(t.opened.reflowable !== false)
     setFormat(typeof t.opened.format === 'string' ? t.opened.format : null)
     // Not `atEnd`: it was cleared where the open started; the book's first relocate (its end, for a book one
@@ -901,6 +943,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
         if (!tracker.showsPosition()) return
         if (!shown) return
+        sessions.relocate(shown, Date.now())
         tocIndex.current = shown.tocIndex
         setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc, tocIndex: shown.tocIndex, sectionEnd: shown.sectionEnd, words: shown.words })
         setAtEnd(shown.atEnd)
@@ -909,13 +952,17 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       case 'word': {
         // Untrusted (the page renders the book): only what readWord takes.
         const w = readWord(m)
-        if (w) onPopupEvent({ type: 'word', word: w })
+        if (!w) return
+        sessions.activity(Date.now())
+        onPopupEvent({ type: 'word', word: w })
         return
       }
       case 'selection': {
         // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
         const s = readSelection(m)
-        if (s) onPopupEvent({ type: 'selection', selection: s })
+        if (!s) return
+        sessions.activity(Date.now())
+        onPopupEvent({ type: 'selection', selection: s })
         return
       }
       case 'selection-cleared':
@@ -958,13 +1005,16 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       }
       case 'tap': {
         const p = readTap(m)
-        if (p) onPopupEvent({ type: 'tap', x: p.x })
+        if (!p) return
+        sessions.activity(Date.now())
+        onPopupEvent({ type: 'tap', x: p.x })
         return
       }
       case 'key': {
         // A navigation key pressed in the page (#1263), through readKey: one press, one turn (a held key's
         // repeats are dropped). A turn hides the bars, as an edge tap does; Escape ('bars') shows them.
         const k = readKey(m)
+        if (k) sessions.activity(Date.now())
         // #1269: Escape with the word popup or toolbar open closes it and does nothing else.
         if (k?.key === 'Escape' && popupRef.current) return closePopup()
         if (!k || k.repeat) return
