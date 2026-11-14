@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { PagePosition } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
@@ -11,6 +11,8 @@ import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, rea
 import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../../../mobile/src/lib/v2reader/wordPopup.mjs'
 import { savesWords } from '../../../../mobile/src/lib/v2reader/vocabSave.mjs'
 import { V2ReaderPopups } from './V2ReaderPopups'
+import { showsFinishBook } from '../../../../mobile/src/lib/v2reader/finishBook.mjs'
+import { V2FinishBook } from './V2FinishBook'
 import { readToc, tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
 import { V2SectionNav, V2TocDrawer } from './V2ReaderToc'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
@@ -192,6 +194,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   /** Another device's newer place, offered (#1232, ADR-019 `prompt`); the newest one shown until answered or a new open. */
   const [offer, setOffer] = useState<PagePosition | null>(null)
   /**
+   * Finish book (#1266): the book's end is on screen (`relocate.atEnd`); the synced book's format and its
+   * completion (undefined: no session, or its reading state not read yet: no block; null: not finished).
+   */
+  const [atEnd, setAtEnd] = useState(false)
+  const [finish, setFinish] = useState<{ format: string; completedAt?: string | null } | null>(null)
+  /**
    * The open book's contents (#1261, toc.mjs) and the reader's place in them; shown only while `reading`. The
    * place is cleared where an open starts, not on `opened`: the page posts a book's first relocate before its
    * `opened`, and a fixed-layout book sends no other until a page turn.
@@ -314,6 +322,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setTocOpen(false)
     setPopup(null)
     setRestored('')
+    setAtEnd(false)
+    // The previous book's session stays until `takeOpened`: no Finish block (and no click finishing that book)
+    // from a relocate of it still on its way.
+    setFinish(null)
     // The opening state is the top bar's title: shown, and kept up until `opened`.
     setReading(false)
     showBars()
@@ -332,6 +344,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     ready.current = false
     // A fresh frame has no book on screen.
     setReading(false)
+    setAtEnd(false)
     setPopup(null)
     showBars()
     const o = opening.current
@@ -355,6 +368,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       setSaveStatus('saved')
       setHighlightsReady(false)
       setReadFailed(false)
+      // Not `atEnd`: cleared where the open started; this book's first relocate (its end, for a book one screen
+      // long) comes before its `opened` and must stand.
+      setFinish(null)
       const target = current.sync
       // A language that does not read (`deu`) saves nothing: the fallback `en` would file its words under English cards.
       setVocabBook(!dev && target && target.sha256.toLowerCase() === m.book.sha256 && savesWords(m) ? { id: target.bookId, title: m.title || current.originalName } : null)
@@ -376,6 +392,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           highlights: m.annotatable !== false,
           // A later offer replaces the one shown (the newest place).
           onNewerPlace: setOffer,
+          // Every server state the session takes: a reset elsewhere brings the button back.
+          onCompleted: (completedAt) => {
+            if (sync.current === s) setFinish((f) => (f?.completedAt === completedAt ? f : { format: target.format, completedAt }))
+          },
         })
         sync.current = s
         // Only while this take is the open one: a later take closed `s`, and its answers are none of this book's.
@@ -471,6 +491,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           setTocIndex(r.tocIndex)
           setTimePlace({ fraction: r.fraction, sectionEnd: r.sectionEnd, words: r.words })
           setStatus(v2Percent(r.fraction))
+          setAtEnd(r.atEnd)
           return
         }
         case 'tap': {
@@ -550,11 +571,29 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     return () => removeEventListener('keydown', onKey)
   }, [])
 
+  /** The bottom bar's height: the Finish book block sits just above it. */
+  const [footerHeight, setFooterHeight] = useState(0)
+  useEffect(() => {
+    const f = footer.current
+    if (!f || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => setFooterHeight(f.offsetHeight))
+    ro.observe(f)
+    return () => ro.disconnect()
+  }, [])
+
   // Hidden bars keep no focus: an invisible control must not be activated by a key.
   useEffect(() => {
     const at = document.activeElement
     if (barsHidden && at && (header.current?.contains(at) || footer.current?.contains(at))) main.current?.focus({ preventScroll: true })
   }, [barsHidden])
+
+  /** Finish book: through the open book's session; an answer for a book no longer the open one changes nothing. */
+  const finishBook = async () => {
+    const s = sync.current
+    if (!s) throw new Error('no book to finish')
+    const completedAt = await s.complete()
+    if (sync.current === s) setFinish({ format: s.target.format, completedAt })
+  }
 
   // Applied live: the page re-lays the book out where it is (README, `settings`).
   useEffect(() => {
@@ -657,6 +696,13 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           <button className="reader-top-bar__btn" onClick={() => hostMove('next')}>{t('v2Reader.next')}</button>
         </div>
       </footer>
+      {/* Over the frame, above the bottom bar (or the screen's edge with the bars hidden), out of flow: showing it
+          must never resize the frame, or foliate re-lays out, `atEnd` turns false, the block hides, and it loops. */}
+      {finish && finish.completedAt !== undefined && showsFinishBook({ atEnd, format: finish.format }) && (
+        <div className="v2-reader__finish" data-testid="v2-finish-block" style={{ '--v2-finish-above': `${barsHidden ? 0 : footerHeight}px` } as CSSProperties}>
+          <V2FinishBook finished={!!finish.completedAt} onFinish={finishBook} />
+        </div>
+      )}
       {reading && (
         // Keyed: the legacy translation hooks take their languages once, at mount.
         <V2ReaderPopups

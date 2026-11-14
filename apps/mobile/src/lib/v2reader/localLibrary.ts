@@ -9,7 +9,8 @@
  *                  imported here), the server's current file as last seen (`server_*`; null when
  *                  the server has not seen the book), and `blocked`: why the server refused it for
  *                  good (it and its children are not sent until it changes)
- *   reading_state  per book: the page's position JSON and the server revision this device last saw
+ *   reading_state  per book: the page's position JSON, the server revision this device last saw, and
+ *                  `completed_at` (#1266: the reader finished the book; set once, cleared only by a reset)
  *   annotations    the page's highlight JSON per id, its file version, revision and tombstone; `mine`
  *                  = made on this device
  *   outbox         what still has to be pushed: (kind, target), kind 'book' | 'state' | 'annotation',
@@ -60,7 +61,8 @@ const SCHEMA = `
     position TEXT,
     file_id TEXT,
     revision INTEGER,
-    revision_file_id TEXT
+    revision_file_id TEXT,
+    completed_at TEXT
   );
   CREATE TABLE IF NOT EXISTS annotations (
     id TEXT PRIMARY KEY,
@@ -82,7 +84,11 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 `
 /** Columns added after a dev build created the table; the duplicate-column error is the check (as offlineDb). */
-const ADDED_COLUMNS = ['ALTER TABLE books ADD COLUMN blocked TEXT', 'ALTER TABLE outbox ADD COLUMN failures INTEGER NOT NULL DEFAULT 0']
+const ADDED_COLUMNS = [
+  'ALTER TABLE books ADD COLUMN blocked TEXT',
+  'ALTER TABLE outbox ADD COLUMN failures INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE reading_state ADD COLUMN completed_at TEXT',
+]
 /** SQLite's own text (sqlite3_errmsg), in node:sqlite's message and expo-sqlite's "Error code 1: …" alike. */
 const isDuplicateColumn = (e: unknown) => /duplicate column name/i.test(String((e as Error | null)?.message ?? e))
 
@@ -126,6 +132,8 @@ export interface StateRow {
   file_id: string | null
   revision: number | null
   revision_file_id: string | null
+  /** ISO time the reader finished the book (#1266); null: not finished. */
+  completed_at: string | null
 }
 
 export interface AnnotationRow {
@@ -362,6 +370,7 @@ export function createLocalLibrary(db: Db) {
     /** Books on this device, in import order, then the server's that can be downloaded (bytes not already here). */
     books: (): Promise<LibraryBook[]> => job(async () => {
       const stuck = new Set((await all<{ id: string }>(`SELECT ${BOOK_OF} AS id FROM outbox WHERE failures >= ? GROUP BY 1`, [MAX_FAILURES])).map((r) => r.id))
+      const finished = new Set((await all<{ book_id: string }>('SELECT book_id FROM reading_state WHERE completed_at IS NOT NULL')).map((r) => r.book_id))
       const rows = await all<BookRow>(
         `SELECT * FROM books WHERE imported_at IS NOT NULL
            OR (removed_at IS NULL AND has_content = 1 AND content_removed = 0 AND server_sha256 IS NOT NULL
@@ -375,6 +384,7 @@ export function createLocalLibrary(db: Db) {
           sha256: (local ? b.sha256 : b.server_sha256)!, size: (local ? b.size : b.server_size)!,
           importedAt: b.imported_at ?? 0, openedAt: b.opened_at ?? 0, local,
           notSynced: b.blocked ?? (stuck.has(b.id) ? CHANGES_NOT_SYNCED : null),
+          finished: finished.has(b.id),
         }
       })
     }),
@@ -454,6 +464,25 @@ export function createLocalLibrary(db: Db) {
       }
       await setMeta('legacy_imported', '1')
       return books.map((b) => b.sha256)
+    }),
+
+    /**
+     * "Finish book" (#1266): the book is finished on this device now, and the state is queued so the server
+     * learns it (sync.ts `pushState` sends `completedAt` with the position). Keyed by the bytes, not an id: a
+     * sync can re-key the open book (an adopt by sha256) while it is read, and the row found here is its
+     * current one. Set once (PDD "Reading state"): a finished book stays as it is and nothing is queued again
+     * (a double tap). False: no such book here, or already finished.
+     */
+    finish: (sha256: string, at = new Date().toISOString()) => tx(async () => {
+      const b = await bookBySha(sha256)
+      if (!b || (await stateOf(b.id))?.completed_at) return false
+      await run(
+        `INSERT INTO reading_state (book_id, completed_at) VALUES (?, ?)
+         ON CONFLICT (book_id) DO UPDATE SET completed_at = excluded.completed_at`,
+        [b.id, at],
+      )
+      await enqueue('state', b.id)
+      return true
     }),
 
     /**
@@ -563,6 +592,21 @@ export function createLocalLibrary(db: Db) {
     /** A reading-state write landed or lost to a row we keep ours over: the revision the next write names. */
     setStateRevision: (bookId: string, revision: number | null, fileId: string | null) => job(() => upsertRevision(bookId, revision, fileId)),
 
+    /**
+     * A reading-state write's answer as the server holds it (it landed, our own write found on a conflict, a
+     * `reset` 409's current; null: none): its revision, and its `completedAt` (PDD: set once, cleared only by a
+     * reset). `sent` is the completion that write carried: a finish tapped here while it was in flight is not
+     * the write's to clear, so it stays unless the server has one.
+     */
+    takeState: (bookId: string, s: V2ReadingState | null, sent: string | null) => tx(async () => {
+      await upsertRevision(bookId, s?.revision ?? null, s?.fileId ?? null)
+      const theirs = s?.completedAt ?? null
+      await run(
+        'UPDATE reading_state SET completed_at = CASE WHEN completed_at IS ? THEN ? ELSE COALESCE(?, completed_at) END WHERE book_id = ?',
+        [sent, theirs, theirs, bookId],
+      )
+    }),
+
     /** An annotation as the server holds it (accepted, own write, kept server's, tombstone). */
     setAnnotation: (a: V2Annotation) => tx(async () => {
       const h = annotationHighlight(a)
@@ -614,6 +658,11 @@ export function createLocalLibrary(db: Db) {
      * index): `keep` takes the revision only, `adopt`/`move` take the position and drop the queued
      * write, `prompt` takes the revision and keeps the reader's place queued. Returns what the open
      * reader is owed.
+     *
+     * Completion (#1266; PDD: set once, cleared only by a reset): the server's `completedAt` is taken; a
+     * reset this device has not seen (`resetRevision` past the revision last seen on that file: the test
+     * the server's `reset` 409 makes) drops the local one; otherwise the local one stays, and is still
+     * owed to the server: an adopted position keeps the state queued so it is sent.
      */
     applyStates: (items: V2ReadingState[], reader: (bookId: string) => OpenReader | null, cursor?: string | null) => tx(async () => {
       const owed: PositionAction[] = []
@@ -630,8 +679,14 @@ export function createLocalLibrary(db: Db) {
            ON CONFLICT (book_id) DO UPDATE SET position = excluded.position, file_id = excluded.file_id, revision = excluded.revision, revision_file_id = excluded.revision_file_id`,
           [s.bookId, JSON.stringify(position), s.fileId, s.revision, s.fileId],
         )
+        const wasReset = s.resetRevision != null && st?.revision != null && st.revision_file_id === s.fileId && s.resetRevision > st.revision
+        // Finished here on another file version (replaced since): not this file's completion.
+        const otherFile = st?.revision_file_id != null && st.revision_file_id !== s.fileId
+        const completed = s.completedAt ?? (wasReset || otherFile ? null : st?.completed_at ?? null)
+        const setCompleted = () => run('UPDATE reading_state SET completed_at = ? WHERE book_id = ?', [completed, s.bookId])
         if (book.imported_at == null) {
           await (position ? setAll() : upsertRevision(s.bookId, s.revision, s.fileId))
+          await setCompleted()
           continue
         }
         const local = st?.file_id === book.file_id ? parse<PagePosition>(st?.position ?? null) : null
@@ -639,8 +694,11 @@ export function createLocalLibrary(db: Db) {
         if (action === 'keep' || action === 'prompt') await upsertRevision(s.bookId, s.revision, s.fileId)
         else {
           await setAll()
-          await dequeue('state', s.bookId)
+          // Finished here and the server does not know yet: the write stays owed, on the adopted position.
+          if (completed && !s.completedAt) await enqueue('state', s.bookId)
+          else await dequeue('state', s.bookId)
         }
+        await setCompleted()
         if (action !== 'keep' && position) owed.push({ bookId: s.bookId, action, position })
       }
       if (cursor !== undefined) await setMeta('cursor:reading', cursor)

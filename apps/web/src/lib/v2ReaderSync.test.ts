@@ -661,6 +661,27 @@ describe('createV2ReaderSync', () => {
       expect((api.putReadingState.mock.calls[1][1] as V2ReadingStateWrite).currentLocator.value).toBe(cfi(4))
     })
 
+    it('keepaliveWhileAPassWriteIsInFlight_ThatWriteLandsItsAnswerLost_ANextTurnLosesToIt_OursNoOffer', async () => {
+      // W1 (a pass, P1) in flight; the keepalive W2 (the page's last turn, P2) sent meanwhile. W1 lands and W2 loses,
+      // W1's answer never read (the tab frozen in bfcache). The next turn loses to W1's state: ours, never offered.
+      api.getReadingState.mockResolvedValue(state(4, 1))
+      const s = await opened()
+      const later = (min: number) => Date.parse('2026-11-01T00:00:00.000Z') + min * 60_000
+      const w1 = deferred<V2ReadingState>()
+      api.putReadingState.mockReturnValueOnce(w1.promise)
+      s.store(entry(pos(2, later(1))))
+      await vi.waitFor(() => expect(api.putReadingState).toHaveBeenCalledTimes(1))
+      const sent = api.putReadingState.mock.calls[0][1] as V2ReadingStateWrite
+      s.flushKeepalive(entry(pos(3, later(2))))
+      expect(api.keepalivePutState).toHaveBeenCalledTimes(1)
+      w1.reject(offline())
+      await new Promise((r) => setTimeout(r, 0))
+      api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', { ...state(5, 2), currentLocator: sent.currentLocator, clientRecordedAt: sent.clientRecordedAt }))
+      await stored(s, entry(pos(4, later(3))))
+      expect(newer).toEqual([])
+      expect(api.putReadingState.mock.calls.slice(-2).map(expectedOf)).toEqual([4, 5])
+    })
+
     it('takenAtCloseThenPostedAgain_OneWrite', async () => {
       const s = await opened()
       const last = entry(pos(3))

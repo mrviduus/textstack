@@ -120,6 +120,14 @@ describe('the V2 library', () => {
     expect(calls.some((c) => c.path.includes('/chapters'))).toBe(false)
   })
 
+  it('shows a book finished on the shelf from the reading feed (#1266), with its real fraction', async () => {
+    fakeApi({
+      'GET /me/v2/library/changes': feed(book('done', 'f1'), book('open', 'f2')),
+      'GET /me/v2/reading/changes': feed(state('done', 3, { completedAt: '2026-11-13T10:00:00Z', bookFraction: 0.97 }), state('open', 1)),
+    })
+    expect((await getV2UserBooks()).map((b) => [b.id, b.completedAt, b.progressPercent])).toEqual([['done', '2026-11-13T10:00:00Z', 0.97], ['open', null, 0.7]])
+  })
+
   it('takes a user-book read to V2, with its cover as the API route', async () => {
     fakeApi({
       'GET /me/v2/library/changes': feed(book('b1', 'f1', { hasCover: true })),

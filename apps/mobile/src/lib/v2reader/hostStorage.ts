@@ -26,6 +26,8 @@ export interface LibraryBook {
    * retried; null otherwise.
    */
   notSynced: string | null
+  /** The reader finished it (#1266), here or on another device. */
+  finished: boolean
 }
 
 /**
@@ -39,6 +41,7 @@ export interface LocalLibrary {
   addOpened(b: { sha256: string; size: number; title: string; author: string; originalName: string; format: string | null }, newId: () => string): Promise<string>
   readEntry(sha256: string): Promise<string | null>
   writeEntry(sha256: string, json: string, newId: () => string): Promise<void>
+  finish(sha256: string): Promise<boolean>
   /** Resolves to the sha256s whose store entries the rows now hold. */
   importLegacy(books: LibraryEntry[], storeOf: Map<string, string>, newId: () => string): Promise<string[]>
 }
@@ -173,6 +176,12 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
     readStore: (key: string) => afterMigration(() => lib.readEntry(sha256Key(key))),
 
     writeStore: (key: string, json: string) => afterMigration(() => lib.writeEntry(sha256Key(key), json, newId)),
+
+    /** "Finish book" (#1266): the book with these bytes finished on this device and queued for the server; resolves to the library's books. */
+    finishBook: (sha256: string) => afterMigration(async () => {
+      await lib.finish(sha256)
+      return lib.books()
+    }),
   }
 }
 
