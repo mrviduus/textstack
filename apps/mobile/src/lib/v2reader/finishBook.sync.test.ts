@@ -48,7 +48,8 @@ function host(extra: Partial<SyncHost> = {}): SyncHost & { owed: PositionAction[
 /** A book with a position, pushed: the server holds its state at revision 1, nothing queued. */
 async function synced(db = memoryDb()): Promise<{ lib: LocalLibrary; bookId: string; fileId: string; state: string }> {
   const lib = createLocalLibrary(db)
-  const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+  await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+  const bookId = (await lib.localBookId(SHA))!
   await lib.writeEntry(SHA, entry(), newId)
   const fileId = (await lib.book(bookId))!.file_id!
   const state = `PUT /books/${bookId}/reading-state`
@@ -259,7 +260,8 @@ describe('finish book on the device (#1266)', () => {
       INSERT INTO reading_state (book_id, position, file_id, revision, revision_file_id) VALUES ('b1', '{"cfi":"x"}', 'f1', 7, 'f1')`)
     const first = createLocalLibrary(db)
     expect(await first.state('b1')).toEqual({ book_id: 'b1', position: '{"cfi":"x"}', file_id: 'f1', revision: 7, revision_file_id: 'f1', completed_at: null })
-    const bookId = await first.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+    await first.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+    const bookId = (await first.localBookId(SHA))!
     expect(await first.finish(SHA, AT)).toBe(true)
     // A second cold start: the duplicate column is the check, nothing is lost.
     const again = createLocalLibrary(db)
@@ -279,7 +281,8 @@ describe('finish book on the device (#1266)', () => {
 
   it('finish_NoPlaceTheServerTakes_StaysQueuedASignOutCountsItAndTheFirstPlaceCarriesIt', async () => {
     const lib = createLocalLibrary(memoryDb())
-    const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+    await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+    const bookId = (await lib.localBookId(SHA))!
     const fileId = (await lib.book(bookId))!.file_id!
     const withBytes = { ...serverBook(bookId, fileId), currentFile: { ...serverBook(bookId, fileId).currentFile, hasContent: true } }
     // No position at all, then a fraction-only one (#1187): neither is a write the server takes.
@@ -300,7 +303,8 @@ describe('finish book on the device (#1266)', () => {
 
   it('finish_AfterASyncReKeyedTheOpenBook_TheCurrentRowIsFinished', async () => {
     const lib = createLocalLibrary(memoryDb())
-    const localId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+    await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+    const localId = (await lib.localBookId(SHA))!
     // The server already has these bytes (picked here, imported elsewhere): the row takes the server's id.
     fakeApi({ [`GET /books/by-sha256/${SHA}`]: [ok(serverBook('srv', 'fsrv'))] })
     await syncV2Library(lib, host())

@@ -10,7 +10,7 @@ import { resetV2ForTests, v2Store, V2UploadError } from '../v2'
 import { CHANGES_NOT_SYNCED, createLocalLibrary, identityStep, wipeV2Library, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createV2Storage } from './hostStorage'
-import { adoptV2LocalAccount, claimV2LibraryFor, downloadV2Book, MAX_FAILURES, pushV2BeforeSignOut, syncV2Library, tryAgainV2Book, type SyncHost } from './sync'
+import { adoptV2LocalAccount, claimV2LibraryFor, downloadV2Book, MAX_FAILURES, openBookHost, pushV2BeforeSignOut, syncV2Library, tryAgainV2Book, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, conflict, feed, resetMidCall, type Answer, type Call,
 } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
@@ -64,7 +64,8 @@ function host(extra: Partial<SyncHost> = {}): SyncHost & { owed: PositionAction[
 /** A local book with a position and a highlight, never synced. */
 async function seeded(): Promise<{ lib: LocalLibrary; bookId: string; fileId: string }> {
   const lib = createLocalLibrary(memoryDb())
-  const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+  await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+  const bookId = (await lib.localBookId(SHA))!
   await lib.writeEntry(SHA, entry(), newId)
   return { lib, bookId, fileId: (await lib.book(bookId))!.file_id! }
 }
@@ -227,7 +228,8 @@ describe('V2 local library sync (R6)', () => {
     it('push_OnePoisonedBookEntry_LaterEntriesStillPushed', async () => {
       const { lib, bookId } = await seeded()
       const SHA2 = 'cd'.repeat(32)
-      const other = await lib.addOpened({ sha256: SHA2, size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      await lib.addOpened({ sha256: SHA2, size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      const other = (await lib.localBookId(SHA2))!
       const calls = fakeApi({
         [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
         [`GET /books/by-sha256/${SHA2}`]: [{ status: 404 }],
@@ -252,7 +254,7 @@ describe('V2 local library sync (R6)', () => {
       expect(writes(calls)).toEqual([`PUT /books/${bookId}/reading-state`])
       expect((await restoredEntry(lib)).position).toMatchObject({ quote: 'theirs', fraction: 0.55 })
       expect(await lib.state(bookId)).toMatchObject({ revision: 4 })
-      expect(h.owed).toEqual([expect.objectContaining({ bookId, action: 'adopt' })])
+      expect(h.owed).toEqual([expect.objectContaining({ sha256: SHA, action: 'adopt' })])
       expect(await lib.outbox()).toEqual([])
     })
 
@@ -266,7 +268,7 @@ describe('V2 local library sync (R6)', () => {
         ],
       })
       const reader: OpenReader = { restoreApplied: true, moved: true, index: 6 }
-      const h = host({ reader: (id) => (id === bookId ? reader : null) })
+      const h = host({ reader: (sha) => (sha === SHA ? reader : null) })
       await syncV2Library(lib, h)
       const puts = calls.filter((c) => c.method === 'PUT')
       expect(puts.map((c) => c.body.expectedRevision)).toEqual([1, 4])
@@ -472,7 +474,8 @@ describe('V2 local library sync (R6)', () => {
         await syncV2Library(lib, h)
         expect(h.owed).toEqual([])
         expect((await restoredEntry(lib)).position).toEqual({ fraction: 0.7, at })
-        expect(await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)).toBe(sid)
+        await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+        expect(await lib.localBookId(SHA)).toBe(sid)
         const restored = (await restoredEntry(lib)).position
         expect(restored).toEqual({ fraction: 0.7, at })
         await lib.writeEntry(SHA, entry(restored, []), newId)
@@ -506,7 +509,8 @@ describe('V2 local library sync (R6)', () => {
       const pageName = { version: 1, scheme: 'page-name', value: { page: 'Vol 1/p02.jpg', index: 1 } }
       async function cbzBook() {
         const lib = createLocalLibrary(memoryDb())
-        const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'C', author: '', originalName: 'c.cbz', format: 'cbz' }, newId)
+        await lib.addOpened({ sha256: SHA, size: 10, title: 'C', author: '', originalName: 'c.cbz', format: 'cbz' }, newId)
+        const bookId = (await lib.localBookId(SHA))!
         return { lib, bookId, fileId: (await lib.book(bookId))!.file_id! }
       }
 
@@ -691,6 +695,63 @@ describe('V2 local library sync (R6)', () => {
     })
   })
 
+  describe('the open book after a re-key (#1303)', () => {
+    const sid = 'aaaaaaaa-0000-4000-8000-000000000001'
+    const sfid = 'aaaaaaaa-0000-4000-8000-000000000002'
+    const theirs = (bookId: string, fileId: string, revision: number) => serverState(bookId, fileId, revision, {
+      currentLocator: { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/14!/4/2/9:0)', quote: 'theirs' }, clientRecordedAt: new Date(NOW - 1000).toISOString(),
+    })
+    /** The reader screen's host for the open book SHA (read at open under its first id), as V2ReaderScreen builds it. */
+    const openHost = (open: OpenReader) => {
+      const applied: PositionAction[] = []
+      const readerAsked: (OpenReader | null)[] = []
+      const h = openBookHost(() => SHA, () => open, (a) => applied.push(a))
+      return { ...host({ reader: (sha) => { const r = h.reader(sha); readerAsked.push(r); return r }, onPosition: h.onPosition }), applied, readerAsked }
+    }
+
+    it('pull_TwinReKeysTheOpenBookThenANewerPlace_ReaderSeenAndTheMoveApplied', async () => {
+      const { lib, bookId } = await seeded()
+      fakeApi({
+        'GET /library/changes': feed(serverBook(sid, sfid)),
+        'GET /reading/changes': feed(theirs(sid, sfid, 3)),
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(sid, sfid, 1), 201)],
+      })
+      const h = openHost({ restoreApplied: true, moved: false, index: 6 })
+      await syncV2Library(lib, h)
+      expect(await lib.book(bookId)).toBeNull() // re-keyed during the pass
+      expect(await lib.localBookId(SHA)).toBe(sid) // what a word save sends now
+      expect(h.readerAsked).toEqual([{ restoreApplied: true, moved: false, index: 6 }])
+      expect(h.applied).toEqual([{ sha256: SHA, action: 'move', position: expect.objectContaining({ quote: 'theirs' }) }])
+    })
+
+    it('push_ShaLookupReKeysTheOpenBookThenStaleRevision_ReaderSeenAndTheOfferApplied', async () => {
+      const { lib, bookId } = await seeded()
+      fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [ok(serverBook(sid, sfid))],
+        [`PUT /books/${sid}/reading-state`]: [conflict('stale_revision', { revision: 3, current: theirs(sid, sfid, 3) }), ok(serverState(sid, sfid, 4))],
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(sid, sfid, 1), 201)],
+      })
+      const h = openHost({ restoreApplied: true, moved: true, index: 6 })
+      await syncV2Library(lib, h)
+      expect(await lib.book(bookId)).toBeNull()
+      expect(h.readerAsked).toEqual([{ restoreApplied: true, moved: true, index: 6 }])
+      expect(h.applied).toEqual([{ sha256: SHA, action: 'prompt', position: expect.objectContaining({ quote: 'theirs' }) }])
+    })
+
+    it('openBookHost_AnotherBookOrNoBytes_NoReaderNothingApplied', () => {
+      const applied: PositionAction[] = []
+      const h = openBookHost(() => SHA, () => ({ restoreApplied: true, moved: false, index: 1 }), (a) => applied.push(a))
+      expect(h.reader('cd'.repeat(32))).toBeNull()
+      expect(h.reader(null)).toBeNull()
+      h.onPosition({ sha256: 'cd'.repeat(32), action: 'move', position: pos })
+      h.onPosition({ sha256: null, action: 'move', position: pos })
+      const none = openBookHost(() => null, () => ({ restoreApplied: true, moved: false, index: 1 }), (a) => applied.push(a))
+      expect(none.reader(null)).toBeNull()
+      none.onPosition({ sha256: null, action: 'move', position: pos })
+      expect(applied).toEqual([])
+    })
+  })
+
   describe('pull', () => {
     it('pull_SameBytesImportedOnAnotherDevice_LocalBookTakesTheServerIdsNoImport', async () => {
       const { lib, bookId } = await seeded()
@@ -778,7 +839,8 @@ describe('V2 local library sync (R6)', () => {
     /** A local PDF with a page position, pushed once: the server knows it, its state at revision 1. */
     async function syncedPdf() {
       const lib = createLocalLibrary(memoryDb())
-      const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.pdf', format: 'pdf' }, newId)
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.pdf', format: 'pdf' }, newId)
+      const bookId = (await lib.localBookId(SHA))!
       await lib.writeEntry(SHA, entry(page(3), []), newId)
       const fileId = (await lib.book(bookId))!.file_id!
       const calls = fakeApi({
@@ -824,7 +886,7 @@ describe('V2 local library sync (R6)', () => {
       await syncV2Library(lib, h)
       expect((await restoredEntry(lib)).position).toEqual({ page: 9, index: 8, fraction: 0.9, at: NOW - 1000 })
       expect(await lib.state(bookId)).toMatchObject({ revision: 3 })
-      expect(h.owed).toEqual([expect.objectContaining({ bookId, action: 'adopt', position: { page: 9, index: 8, fraction: 0.9, at: NOW - 1000 } })])
+      expect(h.owed).toEqual([expect.objectContaining({ sha256: SHA, action: 'adopt', position: { page: 9, index: 8, fraction: 0.9, at: NOW - 1000 } })])
     })
 
     it('pull_PdfPageOnTheOpenPage_MovedSilently_OtherPage_Prompted', async () => {
@@ -887,8 +949,8 @@ describe('V2 local library sync (R6)', () => {
       expect(await downloadV2Book(lib, sid, { fetch: async () => 'staging/dl.epub', retain: async () => {} })).toBe(true)
       // What the host hands `restore`: the other device's page.
       expect(JSON.parse((await storage.readStore(SHA))!).position).toEqual({ page: 4, index: 3, fraction: 0.4, at: NOW - 1000 })
-      const { bookId } = await storage.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.pdf', format: 'pdf' }, null)
-      expect(bookId).toBe(sid)
+      await storage.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.pdf', format: 'pdf' }, null)
+      expect(await storage.bookIdOf(SHA)).toBe(sid)
       await storage.writeStore(SHA, entry(page(7, NOW - 100), []))
       const calls = fakeApi({ [`PUT /books/${sid}/reading-state`]: [ok(pdfState(sid, sfid, 4, 7, NOW - 100))] })
       expect(await syncV2Library(lib, host())).toBe('done')
@@ -977,7 +1039,8 @@ describe('V2 local library sync (R6)', () => {
     it('signOutDuringUpload_NoLaterBookSentNothingMarked', async () => {
       const { lib, bookId } = await synced()
       const SHA2 = 'cd'.repeat(32)
-      const other = await lib.addOpened({ sha256: SHA2, size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      await lib.addOpened({ sha256: SHA2, size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      const other = (await lib.localBookId(SHA2))!
       const otherFile = (await lib.book(other))!.file_id!
       await lib.setServerFile(other, serverFile(otherFile, { sha256: SHA2 }) as never)
       await lib.done({ kind: 'book', target: other, gen: 1, failures: 0 })
@@ -1047,7 +1110,8 @@ describe('V2 local library sync (R6)', () => {
       await wipeV2Library(lib, clear)
       expect(await lib.owner()).toBeNull()
       // A book added with no session (or an open finishing late) belongs to nobody.
-      const late = await lib.addOpened({ sha256: 'ef'.repeat(32), size: 3, title: 'Late', author: '', originalName: 'l.epub', format: null }, newId)
+      await lib.addOpened({ sha256: 'ef'.repeat(32), size: 3, title: 'Late', author: '', originalName: 'l.epub', format: null }, newId)
+      const late = (await lib.localBookId('ef'.repeat(32)))!
       fakeApi({})
       expect(await syncV2Library(lib, host({ userId: 'u2' }))).toBe('done')
       expect(await lib.owner()).toEqual({ id: 'u2', guest: false })
@@ -1207,7 +1271,8 @@ describe('V2 local library sync (R6)', () => {
     it('staleUserIdAfterTheOwnerChanged_Refused_LibraryIntact', async () => {
       const { lib, bookId } = await withUnsent()
       await claimV2LibraryFor('u2', () => lib, clear) // u2 signs in: u1's library wiped
-      const u2Book = await lib.addOpened({ sha256: 'ef'.repeat(32), size: 3, title: 'U2', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      await lib.addOpened({ sha256: 'ef'.repeat(32), size: 3, title: 'U2', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      const u2Book = (await lib.localBookId('ef'.repeat(32)))!
       await lib.setAccount('u2')
       const w = warnings()
       // A pass asked between the epoch bump and the re-render: fresh epoch, the old user id.
@@ -1321,7 +1386,8 @@ describe('V2 local library sync (R6)', () => {
       await syncV2Library(lib, host())
       // The page opens the picked bytes and asks for its entry before addOpened adopts the row.
       expect((await restoredEntry(lib)).position).toMatchObject({ cfi: CFI, fraction: 0.66 })
-      expect(await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)).toBe(sid)
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      expect(await lib.localBookId(SHA)).toBe(sid)
       expect((await restoredEntry(lib)).position).toMatchObject({ fraction: 0.66 })
     })
 
@@ -1453,7 +1519,8 @@ describe('V2 local library sync (R6)', () => {
       const { lib, bookId, fileId } = await synced()
       await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }, [{ ...highlight, color: 'green' }]), newId)
       const SHA2 = 'cd'.repeat(32)
-      const other = await lib.addOpened({ sha256: SHA2, size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      await lib.addOpened({ sha256: SHA2, size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      const other = (await lib.localBookId(SHA2))!
       const E502 = [{ status: 502 }]
       fakeApi({
         [`GET /books/by-sha256/${SHA2}`]: [{ status: 404 }],
@@ -1665,7 +1732,8 @@ describe('V2 local library sync (R6)', () => {
     it('reasons_LocalErrorNameOnly_InvalidPayloadMessageClipped', async () => {
       const db = memoryDb()
       const lib = createLocalLibrary(db)
-      const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      const bookId = (await lib.localBookId(SHA))!
       await lib.writeEntry(SHA, entry(), newId)
       const fileId = (await lib.book(bookId))!.file_id!
       db.raw.exec(`UPDATE reading_state SET position = '{secret book text'`)
@@ -1679,7 +1747,8 @@ describe('V2 local library sync (R6)', () => {
       expect(logged).toContain('SyntaxError')
       expect(logged).not.toMatch(/secret|JSON/)
       // A refusal's server message is clipped like any other reason.
-      const other = await lib.addOpened({ sha256: 'cd'.repeat(32), size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      await lib.addOpened({ sha256: 'cd'.repeat(32), size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      const other = (await lib.localBookId('cd'.repeat(32)))!
       fakeApi({
         [`GET /books/by-sha256/${'cd'.repeat(32)}`]: [{ status: 404 }],
         [`PUT /books/${other}`]: [{ status: 400, body: { code: 'invalid_payload', field: 'title', message: 'y'.repeat(300) } }],
@@ -1718,7 +1787,8 @@ describe('V2 local library sync (R6)', () => {
 
     it('qa_queueBook_AlreadyQueued_KeepsItsGenAndCount', async () => {
       const lib = createLocalLibrary(memoryDb())
-      const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      const bookId = (await lib.localBookId(SHA))!
       await lib.failed({ kind: 'book', target: bookId, gen: 1, failures: 0 })
       await lib.queueBook(bookId)
       expect(await lib.outbox()).toEqual([{ kind: 'book', target: bookId, gen: 1, failures: 1 }])
@@ -1749,7 +1819,8 @@ describe('V2 local library sync (R6)', () => {
     it('qa_corruptLocalPosition_ThrowsLocally_CountedThenSkipped_AnnotationStillPushed', async () => {
       const db = memoryDb()
       const lib = createLocalLibrary(db)
-      const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      const bookId = (await lib.localBookId(SHA))!
       await lib.writeEntry(SHA, entry(), newId)
       const fileId = (await lib.book(bookId))!.file_id!
       db.raw.exec(`UPDATE reading_state SET position = '{not json'`)
@@ -1880,7 +1951,8 @@ describe('V2 local library sync (R6)', () => {
     // Another account's passes are refused (#1070 rule D): a parked book is not sent to it.
     it('qa_bookParkedByARefusal_AnotherAccount_RefusedNothingSent', async () => {
       const lib = createLocalLibrary(memoryDb())
-      const bookId = await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      const bookId = (await lib.localBookId(SHA))!
       fakeApi({ [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: [conflict('invalid_payload', { field: 'title' }, 400)] })
       await passes(lib, 1)
       expect((await lib.book(bookId))?.blocked).toMatch(/invalid_payload/)
@@ -1909,7 +1981,8 @@ describe('V2 local library sync (R6)', () => {
     it('qa_oneEntryAnswers503WithoutV2Unavailable_PassEndsNothingCounted', async () => {
       const { lib, bookId } = await seeded()
       const SHA2 = 'cd'.repeat(32)
-      const other = await lib.addOpened({ sha256: SHA2, size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      await lib.addOpened({ sha256: SHA2, size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
+      const other = (await lib.localBookId(SHA2))!
       const calls = fakeApi({
         [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
         [`GET /books/by-sha256/${SHA2}`]: [{ status: 404 }],
