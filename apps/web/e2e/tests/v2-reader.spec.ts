@@ -637,20 +637,23 @@ test.describe('V2 reader page @v2', () => {
           return cfi
         }
         console.log(`[#1286 e2e] attempt ${attempt}: ${Math.round(age)} ms after the relocate (${stores} stores): too late, again`)
-        await settled()
+        await settled(null)
       }
       throw new Error('three page turns in a row could not be followed within 350 ms: the debounce path was never exercised')
     }
-    const settled = async () => {
-      // Nothing of the open (or an earlier turn) left in flight: the next write is the turn's.
-      await expect.poll(async () => (await messages()).restored.at(-1)?.position, { timeout: 20_000 }).toBe('restored')
+    /**
+     * Nothing of the open (or an earlier turn) left in flight: the next write is the turn's. `restored`: what the
+     * last open must have restored (a fresh upload has no place, `'none'`); null: no open to wait for (a retried turn).
+     */
+    const settled = async (restored: string | null = 'restored') => {
+      if (restored !== null) await expect.poll(async () => (await messages()).restored.at(-1)?.position, { timeout: 20_000 }).toBe(restored)
       await page.waitForTimeout(1_000)
       await expect(page.getByTestId('v2-not-saved')).toHaveCount(0)
     }
 
     await page.goto(`/en/library/my/${bookId}/read-v2`)
     await expectOpened(page)
-    await settled()
+    await settled('none')
 
     // A reload: the keepalive write carries the turn.
     const reloaded = await turnThen(() => page.reload())
