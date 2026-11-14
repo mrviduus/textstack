@@ -1,6 +1,7 @@
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
 import { testLogin } from '../helpers/api'
 
 // @v2 — the V2 reader page on its production route (#1225): /:lang/library/my/:id/read-v2, behind
@@ -771,6 +772,56 @@ test.describe('V2 reader page @v2', () => {
   })
 
   // #1227: a load that fails says why; one that cannot be helped by trying again offers no Retry.
+  // #1267: every control on the reader has an accessible name and every drawer or popup is a dialog (axe, WCAG 2 A and
+  // 2.1 A: names, roles, ARIA; colour contrast is not this check): the bars, the settings and contents drawers, a word
+  // popup. The route is never indexed and has a title; the skip link takes focus past the bars to the book.
+  test('readV2A11y_TheBarsDrawersAndAWordPopup_NoAxeViolations_SkipLinkToTheBook_Noindex', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2a11y'))
+    await withTranslation(context)
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/)
+    await expect(page).toHaveTitle(/v2-sync\.epub/)
+    /** Each violation by rule and element, so a failure names what to fix. */
+    const violations = async () => (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag21a']).analyze()).violations
+      .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' > ')).join(' | ')}`)
+
+    await page.keyboard.press('Escape')
+    await expect(page.locator('main.v2-reader')).toHaveAttribute('data-bars', 'shown')
+    expect(await violations()).toEqual([])
+
+    await clickBar(page, 'Reading settings')
+    await expect(page.getByRole('dialog', { name: 'Reading settings' })).toBeVisible()
+    expect(await violations()).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    await clickBar(page, 'Contents')
+    await expect(page.getByRole('dialog', { name: 'Contents' })).toBeVisible()
+    expect(await violations()).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    const width = page.viewportSize()!.width
+    const word = (await firstParagraphWords(page)).find((w) => w.x > width * 0.35 && w.x < width * 0.65)
+    expect(word, 'a word in the centre zone').toBeTruthy()
+    await page.mouse.click(word!.x, word!.y)
+    await expect(page.locator('.word-popup .word-popup__translation')).toHaveText('MOCK-TRANSLATION')
+    expect(await violations()).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.word-popup')).toHaveCount(0)
+
+    // The skip link: the first stop from the top of the document, then the book (the frame) has focus.
+    await page.locator('main.v2-reader').focus()
+    await page.keyboard.press('Tab')
+    await expect(page.getByRole('link', { name: 'Skip to the book' })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('iframe[title="Book text"]')).toBeFocused()
+    await context.close()
+  })
+
   test('a file the server no longer has: the "gone" alert, no Retry', async ({ browser }) => {
     const context = await v2Context(browser, email('v2r404'))
     const page = await context.newPage()

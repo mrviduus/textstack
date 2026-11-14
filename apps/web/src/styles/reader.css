@@ -1028,6 +1028,11 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   }
 }
 
+/* #1267: the size steps' A-/A+ are generated, not text: their accessible names are the labels alone. */
+.v2-reader__font-step::before {
+  content: attr(data-glyph);
+}
+
 /* The settings panel's typography controls (#1260): one fieldset, disabled for a fixed-layout book. */
 .v2-reader__typography {
   border: 0;
