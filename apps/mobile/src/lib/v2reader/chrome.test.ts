@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import {
-  BOOK_CLOSED, CLOSE_BOOK_JS, HOST_MOVE_GRACE_MS, NAV_KEYS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, navKey,
+  BOOK_CLOSED, CLOSE_BOOK_JS, HOST_MOVE_GRACE_MS, NAV_KEYS, backAction, readLightbox, createHostMoves, hidesBarsOnRelocate, keyAction, navKey,
   readDir, readKey, readRelocate, readTap, reopensOnReady, takenWithoutBook,
 } from './chrome.mjs'
 import { MAX_SELECTION_PX } from './selection.mjs'
@@ -269,5 +269,19 @@ describe('v2 reader Android back order (#1264)', () => {
     // #1269: the popup closes before the book, after the offer.
     expect(backAction({ offer: false, popup: true, reading: true })).toBe('close-popup')
     expect(backAction({ offer: true, popup: true, reading: true })).toBe('close-offer')
+  })
+
+  it('lightbox_AfterTheOffer_BeforeThePopupAndTheBook', () => {
+    expect(backAction({ offer: false, lightbox: true, popup: true, reading: true })).toBe('close-lightbox')
+    expect(backAction({ offer: true, lightbox: true, popup: true, reading: true })).toBe('close-offer')
+    expect(backAction({ offer: false, lightbox: false, popup: false, reading: true })).toBe('close-book')
+  })
+})
+
+describe('v2 reader lightbox message (#1265)', () => {
+  it('readLightbox_OpenOrClosed_AnythingElseNull', () => {
+    expect(readLightbox({ type: 'lightbox', open: true })).toBe(true)
+    expect(readLightbox({ type: 'lightbox', open: false })).toBe(false)
+    for (const m of [null, {}, { type: 'lightbox' }, { type: 'lightbox', open: 'true' }, { type: 'lightbox', open: 1 }, { type: 'tap', open: true }]) expect(readLightbox(m)).toBeNull()
   })
 })

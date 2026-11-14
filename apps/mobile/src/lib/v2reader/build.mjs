@@ -97,7 +97,9 @@ const FOLIATE_SHA = '73d42595074f0f5914c00ccb7172a0a8bdfecf26'
 // (`pruneDrawn`), `drawnRanges()` a test-only count; the same range highlighted again is that highlight (`sameRangeHighlight`).
 // No re-key on the page: a re-keyed highlight keeps its old id here
 // until the next open, the hosts resolve it.
-const BUDGET = 276723
+// +6523 (#1265): the image lightbox (lightbox.mjs): an EPUB image tapped opens full screen in the page's own document,
+// pinch / wheel / double-tap zoom, drag to pan; `closeLightbox()`, `lightbox` posted on open and close.
+const BUDGET = 283246
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

@@ -23,6 +23,7 @@ import { SELECTION_SETTLE_MS } from '../../../../../packages/reader-engine/src/t
 import { MAX_SELECTED_TEXT } from '../../../../../packages/shared/src/reader/v2Locators'
 import { THEMES, readSettings, settingsCss } from './settings.mjs'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
+import { createLightbox, imageAt } from './lightbox.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
 const log = (level, msg) => post({ type: 'log', level, msg })
@@ -151,10 +152,17 @@ function decorate(rects, { hl, gloss, el }) {
   return g
 }
 
+/** #1265: a tapped EPUB image full screen, in this document (lightbox.mjs); the book behind it inert. */
+const lightbox = createLightbox(document, post, () => view)
+
 function onTap(doc, index, e) {
   if (e.target.closest?.('a[href]')) return   // foliate owns links
   if (!doc.getSelection().isCollapsed) return   // a selection, not a word tap
   if (dismissing) return   // it ended the selection sent (`selection-cleared`), nothing else
+  // An image (reflowable EPUB only: not a comic, not a fixed-layout page) opens the lightbox, an edge zone's too: an
+  // image is a deliberate target. No `tap`, `word` or `highlight-tap` then.
+  const img = format === 'epub' && !view.isFixedLayout && imageAt(e.target)
+  if (img) return lightbox.open(img, doc.defaultView.frameElement)
   // A drawn highlight under the tap (#1312): the host's editor for it, not a word or a chrome tap.
   const hit = highlightAt(doc, e.clientX, e.clientY)
   if (hit) return post({ ...tapAt(doc, e), type: 'highlight-tap', id: hit.id, rect: rectInPage(doc.defaultView.frameElement, hit.range.getBoundingClientRect()) })
@@ -701,6 +709,8 @@ async function open(bytes, name, kind, mine) {
   clearTimeout(selectionTimer)
   if (selectionSent) post({ type: 'selection-cleared' })
   selectionSent = null
+  // The old book's image goes with it (`lightbox` closed is posted).
+  lightbox.close()
   // A view that never rendered a section (a spine of linear="no", a book that failed to open) throws
   // from close(); letting that through would wedge the page and fail this good book instead.
   try { view?.close() } catch (e) { log('warn', `closing the previous book: ${e?.message ?? e}`) }
@@ -1090,6 +1100,8 @@ window.__fol = {
   // #1269: the host is done with the selection (an action ran, its toolbar closed): gone from every shown section,
   // `selection-cleared` at once (none if none was sent). highlightSelection has nothing to fall back on after it.
   clearSelection: () => endSelection(),
+  // #1265: the host closes the lightbox (Android back, a host Escape): `lightbox` closed is posted. None open: nothing.
+  closeLightbox: () => lightbox.close(),
   // Test-only (formats.check.mjs): how many drawn highlight ranges the page holds. A count, no book data.
   drawnRanges: () => drawnRanges.size,
   /** The host answers a `word` with its translation; drawn above that word. Not where `annotatable` is false. */

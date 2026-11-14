@@ -25,7 +25,7 @@ import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue 
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
 import {
-  BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readRelocate, readTap,
+  BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readLightbox, readRelocate, readTap,
   reopensOnReady, takenWithoutBook,
 } from '../../lib/v2reader/chrome.mjs'
 import { showsFinishBook } from '../../lib/v2reader/finishBook.mjs'
@@ -334,6 +334,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     popupRef.current = p
     setPopupState(p)
   }
+  /** #1265: the page shows an image full screen (its `lightbox` message); back closes it first (`closeLightbox()`). */
+  const [lightbox, setLightbox] = useState(false)
   const [sheet, setSheet] = useState<{ kind: 'translate' | 'explain'; text: string; sentence: string } | null>(null)
   /**
    * #1312: the open book's drawn highlights (the page's `highlight-list`, for the bytes `openShaRef` names), their notes
@@ -436,6 +438,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     clearToc()
     setPopup(null)
     setOffer(null)
+    setLightbox(false)
     setHeading(IDLE_HEADING)
     pendingHighlight.current = null
     setHighlightList([])
@@ -796,6 +799,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         return
       case 'ready':
         deadlines.ready()
+        // A fresh page shows no image (one open in the page it replaced said nothing as it went): back is not held by it.
+        setLightbox(false)
         // The layout goes in first: injected calls run in order, so the open below uses it.
         Promise.all([storedFlow(), storedV2Settings()]).then(([f, chosen]) => {
           call(`window.__fol.flow(${JSON.stringify(f)})`)
@@ -936,6 +941,17 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         }
         return
       }
+      case 'lightbox': {
+        // #1265: an image tapped in the page (never a `tap` or `word`): what was open closes, the bars hide while it shows.
+        const shown = readLightbox(m)
+        if (shown === null) return
+        setLightbox(shown)
+        if (shown) {
+          closePopup()
+          hideBars()
+        }
+        return
+      }
       case 'openLink':
         if (/^https?:\/\//i.test(m.href)) Linking.openURL(m.href).catch(fail('openLink'))
         return
@@ -1021,17 +1037,18 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setNonce(freshNonce())
   }
 
-  // Android back: the offer, then the book (back to the list), then the route (chrome.mjs backAction).
+  // Android back: the offer, the lightbox, the popup, then the book (back to the list), then the route (chrome.mjs backAction).
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      const action = backAction({ offer: !!offer, popup: !!popup, reading: inBook })
+      const action = backAction({ offer: !!offer, lightbox, popup: !!popup, reading: inBook })
       if (action === 'close-offer') setOffer(null)
+      else if (action === 'close-lightbox') call('window.__fol.closeLightbox()')
       else if (action === 'close-popup') closePopup()
       else if (action === 'close-book') closeBook()
       return action !== 'leave'
     })
     return () => sub.remove()
-  }, [offer, popup, inBook])
+  }, [offer, lightbox, popup, inBook])
 
   /** The highlight a tap opened (#1312), as the page lists it; none: no editor. */
   const tapped = popup?.kind === 'highlight' ? highlightList.find((h) => h.id === popup.id) : undefined

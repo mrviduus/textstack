@@ -118,9 +118,18 @@ export function createHostMoves() {
   }
 }
 
-/** Android back, in order: the offer, then the word popup or selection toolbar (#1269), then the open book (back to the list), then the route. */
-export function backAction({ offer, popup = false, reading }) {
+/** #1265: a host's read of `lightbox`: true (an image is shown full screen in the page), false (closed), or null (dropped). */
+export function readLightbox(m) {
+  return m?.type === 'lightbox' && typeof m.open === 'boolean' ? m.open : null
+}
+
+/**
+ * Android back, in order: the offer, then the image lightbox (#1265, the page's: `closeLightbox()`), then the word popup
+ * or selection toolbar (#1269), then the open book (back to the list), then the route.
+ */
+export function backAction({ offer, lightbox = false, popup = false, reading }) {
   if (offer) return 'close-offer'
+  if (lightbox) return 'close-lightbox'
   if (popup) return 'close-popup'
   if (reading) return 'close-book'
   return 'leave'

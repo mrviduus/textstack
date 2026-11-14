@@ -282,3 +282,45 @@ describe('V2ReaderHost bars and tap zones', () => {
     expect(screen.getByRole('link', { name: 'Back to the library' })).toHaveAttribute('href', '/en/library')
   })
 })
+
+describe('V2ReaderHost image lightbox (#1265)', () => {
+  const calls = (name: string) => posted.filter((m) => m.call === name)
+
+  it('lightboxOpen_HidesTheBars_HostKeysTurnNothing_EscapeClosesItInThePage', () => {
+    opened()
+    expect(bars()).toBe('shown')
+    fromPage({ type: 'lightbox', open: true })
+    expect(bars()).toBe('hidden')
+    press('ArrowRight')
+    press('PageDown')
+    expect(turns()).toEqual([])
+    press('Escape')
+    expect(calls('closeLightbox')).toHaveLength(1)
+    expect(bars()).toBe('hidden')
+    fromPage({ type: 'lightbox', open: false })
+    press('ArrowRight')
+    expect(turns()).toEqual(['next'])
+    press('Escape')
+    expect(calls('closeLightbox')).toHaveLength(1)
+  })
+
+  it('lightboxOpen_ClosesAWordPopup', () => {
+    opened()
+    fromPage({ type: 'word', index: 0, word: 'pond', sentence: 'The pond.', cfi: 'epubcfi(/6/2!/4/2,/1:0,/1:4)', rect: { x: 480, y: 300, w: 40, h: 20 } })
+    expect(document.querySelector('.word-popup')).not.toBeNull()
+    fromPage({ type: 'lightbox', open: true })
+    expect(document.querySelector('.word-popup')).toBeNull()
+  })
+
+  it('malformedLightbox_Dropped_AFreshFrameShowsNone', () => {
+    opened()
+    fromPage({ type: 'lightbox', open: 'yes' })
+    press('ArrowRight')
+    expect(turns()).toEqual(['next'])
+    fromPage({ type: 'lightbox', open: true })
+    fromPage({ type: 'ready' })
+    fromPage({ type: 'opened', title: 'Walden', book: { sha256: 'aa', size: 8, name: '1/a.epub' } })
+    press('ArrowRight')
+    expect(turns()).toEqual(['next', 'next'])
+  })
+})
