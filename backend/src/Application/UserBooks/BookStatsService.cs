@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Application.UserBooks;
 
-public class BookStatsService(IAppDbContext db)
+public class BookStatsService(IAppDbContext db, IV2PaceTotals? v2Pace = null)
 {
     public async Task<BookStatsResult?> GetStatsAsync(Guid userId, Guid userBookId, CancellationToken ct)
     {
@@ -26,7 +26,7 @@ public class BookStatsService(IAppDbContext db)
         var highlightsCount = await db.Highlights
             .CountAsync(h => h.UserId == userId && h.UserBookId == userBookId, ct);
 
-        var pace = await ReadingPace.GetAsync(db, userId, ct);
+        var pace = await ReadingPace.GetAsync(db, userId, ct, v2Pace);
         var minutesLeft = ReadingPace.MinutesLeft(book.TotalWordCount, book.ProgressPercent ?? 0, pace.Wpm);
 
         return new BookStatsResult(

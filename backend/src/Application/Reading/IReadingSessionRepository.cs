@@ -1,4 +1,5 @@
 using Application.Common;
+using Application.ReadingTracking;
 using Domain.Reading;
 
 namespace Application.Reading;
@@ -16,4 +17,10 @@ public interface IReadingSessionRepository
     /// not the user's throws (a <c>PostgresException</c>); callers check it first.
     /// </summary>
     Task<WriteResult<ReadingSession>> SaveAsync(Guid userId, ReadingSession session, CancellationToken ct);
+
+    /// <summary>
+    /// The pace rule's totals over the user's V2-native sessions with words and seconds (#1313). An ETL-carried
+    /// row (<c>id = client_session_id</c>, EtlV2Sessions) is legacy's own and counted there, never twice.
+    /// </summary>
+    Task<PaceTotals> PaceTotalsAsync(Guid userId, CancellationToken ct);
 }
