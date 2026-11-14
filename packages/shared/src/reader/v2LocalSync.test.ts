@@ -308,6 +308,16 @@ describe('v2LocalSync', () => {
     expect(w.locator!.prefix).toHaveLength(32)
   })
 
+  it('highlightWrite_NoteHeldOrNone_AlwaysSentSoAPutNeverClearsIt', () => {
+    expect(highlightWrite(hl(), 'b', 'f', 3, 'my note')).toMatchObject({ noteText: 'my note', expectedRevision: 3 })
+    // Sent as null, not left out: the PUT replaces the row either way, and the own-write check compares it.
+    expect(highlightWrite(hl(), 'b', 'f', null)).toHaveProperty('noteText', null)
+    const w = highlightWrite(hl(), 'b', 'f', null, 'n')!
+    const a = { id: 'x', bookId: 'b', fileId: 'f', selectedText: w.selectedText, noteText: 'n', locator: { ...w.locator! }, color: 'yellow', createdAt: '', updatedAt: '', deletedAt: null, revision: 1 }
+    expect(ownAnnotationWrite(a, w)).toBe(true)
+    expect(ownAnnotationWrite({ ...a, noteText: 'other' }, w)).toBe(false)
+  })
+
   it('annotationHighlight_PulledEpubCfi_PageShape_TransitionalAnchorNull', () => {
     const a: V2Annotation = {
       id: 'a', bookId: 'b', fileId: 'f', selectedText: 'bright cold', noteText: null, color: 'yellow',

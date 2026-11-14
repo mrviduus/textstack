@@ -155,15 +155,19 @@ export function statePosition(s: V2ReadingState, format: string | null = null): 
   return FRACTION_SCHEMES.has(l.scheme) && isFractionOnly(p) ? p : null
 }
 
-/** The page highlight as an annotation write; null when its text may not be synced (`syncableText`). */
-export function highlightWrite(h: PageHighlight, bookId: string, fileId: string, expectedRevision: number | null): V2AnnotationWrite | null {
+/**
+ * The page highlight as an annotation write; null when its text may not be synced (`syncableText`). `noteText`: the
+ * note the host holds for it (#1312; the page holds none), always sent: the PUT replaces the row, so a write without
+ * it would clear a note another device wrote.
+ */
+export function highlightWrite(h: PageHighlight, bookId: string, fileId: string, expectedRevision: number | null, noteText: string | null = null): V2AnnotationWrite | null {
   const selectedText = syncableText(h)
   if (!selectedText) return null
   const locator: V2Locator = { version: 1, scheme: 'epub-cfi', value: h.cfi, quote: codePoints(h.quote, 64) }
   // The page's 30 characters of context: the server bounds each at 32 code points, kept nearest the selection.
   if (h.prefix) locator.prefix = codePoints(h.prefix, 32, true)
   if (h.suffix) locator.suffix = codePoints(h.suffix, 32)
-  return { expectedRevision, bookId, fileId, selectedText, locator, color: h.color ?? 'yellow' }
+  return { expectedRevision, bookId, fileId, selectedText, noteText, locator, color: h.color ?? 'yellow' }
 }
 
 /**

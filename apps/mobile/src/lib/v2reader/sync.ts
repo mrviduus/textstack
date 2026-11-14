@@ -270,7 +270,11 @@ async function pull(lib: LocalLibrary, host: SyncHost, reset: Reset, feed: Local
     })
     owe(host, reset, owed)
     cursor = page.cursor ?? cursor
-    if (!page.hasMore) return
+    if (!page.hasMore) {
+      // The feed read to its end: a row whose note was never read (before notes were kept) is not on the server.
+      if (feed === 'annotations') await checked(reset, () => lib.annotationsPulled())
+      return
+    }
   }
 }
 
@@ -447,20 +451,25 @@ async function pushSession(lib: LocalLibrary, host: SyncHost, reset: Reset, item
 }
 
 /**
- * PDD "Annotations": created with `expectedRevision` null, edited on the revision last seen. Lost:
- * an own write is success; `stale_revision` re-applies this device's fields once on the server's
- * revision, then keeps the server's; `deleted` deletes here (a tombstone wins); `id_conflict` mints
- * a new id; `unknown_file` / `book_not_found` push the book first.
+ * PDD "Annotations": created with `expectedRevision` null, edited on the revision last seen, the note always sent
+ * (#1312: the PUT replaces the row). Lost: an own write is success; `stale_revision` re-applies this device's fields
+ * once on the server's revision (the note only if edited here, else the server's), then keeps the server's; `deleted`
+ * deletes here (a tombstone wins); `id_conflict` mints a new id; `unknown_file` / `book_not_found` push the book first.
+ * A row deleted here and still queued is this device's removal: a DELETE (#1312).
  */
 async function pushAnnotation(lib: LocalLibrary, host: SyncHost, reset: Reset, item: OutboxItem, retried = false): Promise<void> {
   const a = await lib.annotation(item.target)
+  if (a?.deleted_at) return pushRemoval(lib, reset, item, a.id)
   const local = a && (await lib.book(a.book_id))
-  if (!a || !local || a.deleted_at) return drop(lib, reset, item)
+  if (!a || !local) return drop(lib, reset, item)
+  // A row from before notes were kept: its server note is not read yet, and this write would clear it. Kept queued
+  // until the pull reads it (the upgrade restarts that feed), never pushed meanwhile (#1312 review).
+  if (!a.note_known) return
   const b = await pushedBook(lib, reset, local)
   if (!b) return
-  const write = highlightWrite(JSON.parse(a.highlight) as PageHighlight, a.book_id, (a.file_id ?? b.file_id)!, a.revision)
+  const write = highlightWrite(JSON.parse(a.highlight) as PageHighlight, a.book_id, (a.file_id ?? b.file_id)!, a.revision, a.note ?? null)
   if (!write) return drop(lib, reset, item)
-  const landed = (revision: number) => Promise.all([lib.setAnnotationRevision(a.id, revision), lib.done(item)])
+  const landed = (revision: number) => Promise.all([lib.annotationLanded(a.id, revision, write.noteText ?? null), lib.done(item)])
   try {
     await current(reset, v2Api.putAnnotation(a.id, write), (s) => landed(s.revision))
   } catch (e) {
@@ -470,7 +479,7 @@ async function pushAnnotation(lib: LocalLibrary, host: SyncHost, reset: Reset, i
       case 'stale_revision':
         if (cur && ownAnnotationWrite(cur, write)) return void (await checked(reset, () => landed(cur.revision)))
         if (cur && !retried) {
-          await checked(reset, () => lib.setAnnotationRevision(a.id, cur.revision))
+          await checked(reset, () => lib.takeServerRevision(a.id, cur.revision, cur.noteText ?? null))
           return pushAnnotation(lib, host, reset, item, true)
         }
       // Lost twice: keep the server's, as for a tombstone.
@@ -488,6 +497,20 @@ async function pushAnnotation(lib: LocalLibrary, host: SyncHost, reset: Reset, i
       default:
         if (!(await refusedChild(lib, reset, item, b, err))) throw e
     }
+  }
+}
+
+/**
+ * #1312: a removal made here: `DELETE /annotations/{id}`, the tombstone kept (idempotent: one deleted elsewhere first
+ * answers 200 too). 404: the server never had it (never pushed, or another identity's): done. Before the book: a
+ * removal needs nothing of it on the server.
+ */
+async function pushRemoval(lib: LocalLibrary, reset: Reset, item: OutboxItem, id: string): Promise<void> {
+  try {
+    await current(reset, v2Api.deleteAnnotation(id), (s) => Promise.all([lib.setAnnotation(s), lib.done(item)]))
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return drop(lib, reset, item)
+    throw e
   }
 }
 

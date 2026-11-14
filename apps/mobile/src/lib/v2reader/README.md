@@ -41,6 +41,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `movedTracker.mjs` (+ `.d.mts`) | Pure, any host: the open book as ADR-019 sees it (`decideServerState`'s `reader`): restored yet, whether the reader moved since (the page's `relocate.moved`, never a CFI comparison; a host `goTo` clears it), the spine index of the last relocate, the opening one included (#1278). |
 | `sessionTracker.mjs` (+ `.d.mts`) | Pure, both hosts (#1313): the reading session, the legacy readers' rules (starts on the first activity, time up to 3 min after the last, 5 min idle ends it, under 10 s not kept, at most 4 h), words read from `relocate` by the page's `cause` (planned page field, see `readCause`): `turn` counts the ground past the session's furthest place × `words` (at most 800 wpm of the counted time since the last counted step), `nav` (a navigation's landing) counts nothing and resets the baseline and furthest place, `layout` (anything else, the default) counts nothing and keeps the furthest place; whenever the seconds sent are fewer than the time counted, the words scale down with them. `readCause` / `open` / `bind` / `relocate` / `activity` / `tick` / `end`; an ended session is returned for the host to send. |
 | `tapZone.mjs` (+ `.d.mts`) | Pure, both hosts (#1263): what a page `tap` does (turn back, turn on, toggle the bars). See Host responsibilities, "Reader chrome" and "Bars and tap zones, web". |
+| `highlights.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1312): the four colours (`HIGHLIGHT_COLORS`, the legacy readers'; `HIGHLIGHT_FILL` what the page draws; `colorOf`: one off the list, another client's, is drawn yellow), the page's `highlightList` (drawn ones, in book order by foliate's CFI compare, text cut to 200 code points), the hosts' readers `readHighlightList`, `readHighlightTap`, `readHighlightRemoved` in `readSelection`'s style, `noteOf` (a note as saved: trimmed, never cut: the server has no cap; blank is none) and `noteChange` (what a save writes: nothing when the draft is the note it was typed over). See Host responsibilities, "Highlights". |
 | `finishBook.mjs` (+ `.d.mts`) | Pure, both hosts (#1266): `showsFinishBook`, when the end-of-book block shows. See Host responsibilities, "Finish book". |
 | `vocabSave.mjs` (+ `.d.mts`) | Pure, both hosts (#1270): `saveOutcome`, a vocabulary save's answer as the host shows it (saved, deleted → restore, pending, lookup); `savesWords`, whether a book's `opened.lang` lets its words be saved. See Host responsibilities, "Saving a word". |
 | `wordPopup.mjs` (+ `.d.mts`) | Pure, both hosts (#1269): `readWord` (a host's read of `word`, `readSelection`'s caps; the rect through `selection.mjs` `readRect`), `readLang` (`opened.lang` as a two-letter primary subtag, or null: a three-letter code gives the host's fallback), and `popupStep`: what a `word`, `tap`, `selection`, `selection-cleared` or a move does to the word popup / selection toolbar and to the tap zones. See Host responsibilities, "Word popup and selection toolbar". |
@@ -337,8 +338,10 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 |---|---|
 | `openUrl(url, name)` | Reads the book by XHR (Android: the host's served URL, `bookOrigin.mjs`; web: a `blob:` URL) and opens it, whatever its format (Formats). Answers `opened` or `open-failed`. A second call supersedes the first, which then answers nothing. |
 | `restore(json \| null)` | The answer to `opened`: the JSON last sent in `store` for that `book.sha256`, or null. Its position may be fraction-only, `{ fraction, at }` (a transitional `textstack-*` server locator, #1187), or a PDF page `{ page, index, fraction, at }`. Ignored (a `warn`) unless the view on screen is the one that answered `opened` (not one still opening); answered for the book on screen even while a newer open is being made. Takes its slot in the navigation queue when called: a `goTo` sent after it runs after it. |
-| `addHighlights(list)` | Highlights the host learned after `restore` (the web host draws the server's when their pull lands, #1226): each drawn where its text still is (the restore check), added to the entry, not saved (the host holds them). The reader is not moved. Queued behind the restore. Ignored where `annotatable` is false. Answered by `highlights`. |
-| `highlightSelection()` | The live selection becomes a highlight, settled or not, on screen or not, described exactly as a `selection` message for it would be (#1268: its range and text, edge whitespace dropped; the same refusals); with no live selection (a host's button press may collapse it first), the last `selection` sent. Sends `store` and `highlighted`; sends `store` and `highlighted`. Ignored on a CBZ and a PDF (`annotatable: false`). A selection with no text (an image) or over 4000 UTF-16 units (`SyncLimits.MaxSelectedText`) is ignored with a `warn` log. |
+| `addHighlights(list)` | Highlights the host learned after `restore` (the web host draws the server's when their pull lands, #1226): each drawn where its text still is (the restore check), added to the entry, not saved (the host holds them). The reader is not moved. Queued behind the restore. Ignored where `annotatable` is false. Answered by `highlights`, then `highlight-list`. |
+| `highlightSelection(color = 'yellow')` | The live selection becomes a highlight in `color` (#1312: one of `HIGHLIGHT_COLORS`; any other is refused with a `warn`), settled or not, on screen or not, described exactly as a `selection` message for it would be (#1268: its range and text, edge whitespace dropped; the same refusals); with no live selection (a host's button press may collapse it first), the last `selection` sent. Ends the selection at once as `clearSelection` does (`selection-cleared` if one was sent: a tap on the new highlight right after is its `highlight-tap`, never the selection's dismissal), then sends `store`, `highlighted` and `highlight-list`. A range that is exactly a drawn highlight's (its CFI) adds none: it is that highlight, recoloured if the colour differs, and `highlighted` names it (#1312 review: a second one over it would own the taps while the hosts' diff took it for the first's twin). Ignored on a CBZ and a PDF (`annotatable: false`). A selection with no text (an image) or over 4000 UTF-16 units (`SyncLimits.MaxSelectedText`) is ignored with a `warn` log. |
+| `recolorHighlight(id, color)` | #1312: a highlight drawn here takes `color` (one of `HIGHLIGHT_COLORS`): redrawn, saved (`store`), `highlight-list` sent. A colour off the list, an id not drawn here (another book's, one not drawn for its text, one removed), or before `restored`: ignored with a `warn`. The same colour again: nothing. |
+| `removeHighlight(id)` | #1312: a highlight drawn here leaves the entry and the screen (a translation label over the same range stays), saved (`store`), then `highlight-removed` and `highlight-list`. Refused as `recolorHighlight` is. The entry's absence alone is never a delete (`entryChanges` reads a missing highlight as nothing): the host tombstones on `highlight-removed`. |
 | `goTo(target, chosen = false)` | A position as stored (CFI + quote, a named page `{ cfi, page, index }` of a CBZ or pre-paginated EPUB, found by `page` only, PDF page `{ page }`, or fraction-only `{ fraction, at }` with 0 the text start), a CFI, an href or a section index; an object that is no valid position, or a position that does not fit the book (a CFI or fraction on a PDF, a page number elsewhere; a raw CFI string on a PDF too), or a PDF page past the book's end, is ignored with a `warn`. Queued behind the previous navigation; an open supersedes every queued or in-flight one. Not `chosen` (the host moving the view: a sync adopt or move): nothing is saved and no `store` is sent, the host already holds that position; a position target becomes the entry's own. `chosen` (the reader's own choice: a taken offer): the place it landed on is saved (one `store`), built exactly as a relocate's save. One that did not arrive changes nothing and logs a `warn`. |
 | `section(±1)`, `next()`, `prev()` | Section / page step, queued. |
 | `settings(raw)` | #1260: the whole reading settings object, `{ fontSize, lineHeight, fontFamily, textAlign, theme }`, read in the page through `readSettings` (settings.mjs): `fontSize` a number, rounded and clamped 14–28; `lineHeight` one of 1.5 / 1.6 / 1.65 / 1.8; `fontFamily` `serif` / `sans` / `dyslexic`; `textAlign` `book` (the book's own: no rule of ours) / `left` / `center` / `justify`; `theme` `light` / `sepia` / `dark`. A missing field, a value off its list or of another type is that field's default (20, 1.6, `serif`, `book`, `light`); anything that is not an object is all defaults; unknown fields are ignored. Applied live: the open book is restyled where it is (a re-layout: `relocate.moved` false, nothing saved). Before `opened` it sets what the next open uses: hosts send the reader's stored settings right after `ready`, and again on every change. Returns the settings in effect. A fixed-layout book takes the theme on the page around it and nothing else. See "Reading settings". |
@@ -346,6 +349,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `flow('paginated' \| 'scrolled')` | foliate layout; default `paginated` (ADR-029 Decision 1). Switches the open book in place (no reload, position kept). Before `opened` it sets what the next open uses: hosts send the reader's stored setting right after `ready`. Anything else is ignored with a `warn`. |
 | `flush()` | #1264: a `store` still debounced (a page turn's, 400 ms) is written now; nothing pending, nothing sent. Hosts call it on background, unmount and close. The page also flushes by itself when its document turns hidden (`visibilitychange`: a tab switch, the app backgrounded) and on `pagehide`. **Returns** the latest `store` message (`{ type, key, json }`: the pending one, now posted, or the last one sent; `null` before any, and after a new open until the reader moves: the swap forgets it): #1286, the web host calls it synchronously (the frame is same-origin) where a posted `store` comes too late — its own `pagehide` (the page's is a postMessage to a window that is unloading) and its unmount (a layout cleanup, while the frame is still in the document; the message listener is gone after). The host reads the value as an untrusted `store` (`readStore`: each field once, strings only, the synced book's key) inside a try: any failure is today's behaviour. The session takes it without a pass on `pagehide` (the keepalive write is the one write) and joins it to its last pass on close; the same payload posted again later is no change. Android ignores the value. |
 | `showTranslation(cfi, index, text)` | Draws `text` above that word (the web dev route's stub label only; no host draws a translation yet). Ignored where `annotatable` is false (CBZ, PDF). |
+| `drawnRanges()` | Test-only (`formats.check.mjs`): how many drawn highlight ranges the page holds, a count and no book data. The ranges of a section no longer loaded (its frame gone) are dropped when a section's overlayer is made and on every tap (#1312 review). |
 | `clearSelection()` | #1269: the host is done with the selection (its toolbar closed after Copy, a translation or explanation closed): removed from every shown section, `selection-cleared` sent at once if a `selection` was sent (none otherwise), and `highlightSelection()` has no last selection to fall back on. |
 
 **Page → host** (`{ type, … }`)
@@ -364,7 +368,10 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `key` | `key` (`ArrowLeft`, `ArrowRight`, `PageUp`, `PageDown`, `Space`, `Escape`), `shift`, `repeat` (the key is held) | #1263: a navigation key pressed in a section document (its own frame) or in the page's own document (where focus falls when foliate replaces the focused section). Only those keys; never with Ctrl/Alt/Meta; never an arrow with Shift (it extends a selection); only when pressed on the document itself (its `body` or root), so a focused control, link, `summary`, media, field or editable part of the book keeps its keys. The page prevents their default, so the frame does not move by itself. No other key is ever sent. Hosts read it through `readKey` (a key off the list, `shift` or `repeat` not a boolean: dropped), drop repeats (one press, one turn) and act by `keyAction` with the latest `dir`: `prev`/`next` turn the book; `bars` (Escape) does nothing until the bars land |
 | `selection` | `index`, `text` (the selection as rendered, `Selection.toString()`: blocks and a PDF's lines apart; edge whitespace dropped; at most 4000 UTF-16 units, `MAX_SELECTED_TEXT`, a longer one cut there by `clip`), `cfi` (the CFI of the range without its edge whitespace, the scheme highlights use; null where `annotatable` is false, where `highlightSelection` would refuse it (its DOM text over 4000: source whitespace the screen collapses counts), when the text was cut, or past 1024 chars), `sentence` (≤1000; the sentence around that range in its start's block, `sentenceAround`), `rect {x, y, w, h}` (the part of that range's box inside the page viewport, a scaled pre-paginated frame included, either flow) | #1268. Sent once the selection stops changing for reader-engine's `SELECTION_SETTLE_MS` (220 ms; a drag is one message), and again when it moved: after every `relocate` (a page turn, the re-layout of a `font` or `flow` change), scroll of the renderer and window resize, only if the message differs; its text, CFI and sentence are computed once per range, a move recomputes the box only. One selection at a time: a new one in one shown section document removes the one in another (a spread), and one timer reads every shown document (`getContents()`). A selection with no text (whitespace, an image), or with no part inside the page viewport (a page turned or scrolled away from it), is none. Not on a CBZ. Hosts take it only through `readSelection` (`selection.mjs`), which adds `tooLong` (over 500 UTF-16 units, reader-engine's `SELECTION_MAX_CHARS`, the translate/TTS cap) itself: a wrong type, whitespace-only text, a string over its cap, a CFI of another scheme, an index over 100,000, a non-finite coordinate, \|x\| or \|y\| over 100,000 px, w or h negative or over 100,000 px drops the whole message, never throws; only the known fields are kept. Opens the selection toolbar (#1269) |
 | `selection-cleared` | — | the selection last sent is gone: dismissed by a press (at once, below), collapsed, its section frame gone (a fixed-layout page turned away), its box off the page viewport, or the book replaced (sent at the swap, before the new book's `opened` or `open-failed`) |
-| `highlighted` | `id` (v4 UUID), `cfi`, `quote` (first ≤64 code points), `selectedText` (the full selection) | — |
+| `highlighted` | `id` (v4 UUID), `cfi`, `quote` (first ≤64 code points), `selectedText` (the full selection), `color` | — |
+| `highlight-list` | #1312: `key` (= `book.sha256`), `highlights [{id, cfi, color, text, at}]`: the highlights drawn on screen (a stored one whose text no longer reads at its CFI is not), in book order (foliate's CFI compare; a tie by `at`), `text` its first 200 code points, at most 5000. Sent after `restored`, `addHighlights`' answer, `highlightSelection`, `recolorHighlight` and `removeHighlight` | through `readHighlightList` (a malformed item dropped): the host's list, the jump target (`goTo(cfi, true)`) and the editor's text. Untrusted: shown as text only |
+| `highlight-tap` | #1312: `id`, `rect {x, y, w, h}` (the highlight's box, `rectInPage`), `x`, `y` (where the tap landed, `tap`'s space). A tap on a drawn highlight (its rects hit-tested, before the word): no `word` or `tap` then | through `readHighlightTap`: `popupStep`'s `highlight` event (a word's edge rule; elsewhere its editor). Dropped with no book on screen (`takenWithoutBook`) |
+| `highlight-removed` | #1312: `key`, `id` | through `readHighlightRemoved`: the host tombstones it (web: the session's `DELETE`; Android: the row's `deleted_at` + outbox) |
 | `openLink` | `href` | the page forwards only `http(s)` links and the host allowlists again before opening: a stated rule, not an accident. Any other scheme is dropped with a `warn` log (`mailto:`/`tel:` noted on #1069); the page never navigates |
 | `telemetry` | `event: 'reader-flow'`, `mode` (the flow in use), `format`, `switchedInFirst5Min` | one per opened book, 5 min after `opened` or when the next book opens first (a page that dies earlier sends none). Hosts log it: there is no analytics pipeline in the app yet |
 | `log` | `level`, `msg` | `error`: window errors and a failed open or restore. `warn`: a call that was ignored (a highlight or a restore before the book is ready) and a previous book that would not close. foliate logs its own navigation failures to the console, not here — a position that did not land is reported in `restored` instead. |
@@ -499,8 +506,8 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   `readLang`; else web `en`, Android the app's language through `readerTextLanguage`, the legacy readers' defaults)
   into the reader's native language, with the word's sentence; the same language is definition mode (the legacy
   rule). No book id is sent with the translation.
-- *Web*: the legacy reader's `WordPopup` (the native-language picker inside), `SelectionToolbar` (one highlight
-  colour: the page draws one), `TranslationPopup`, `ExplanationPopup` (explain streamed, `useExplain`), positioned by
+- *Web*: the legacy reader's `WordPopup` (the native-language picker inside), `SelectionToolbar` (the four highlight
+  colours, #1312), `TranslationPopup`, `ExplanationPopup` (explain streamed, `useExplain`), positioned by
   the page's rects plus the frame's offset (`V2ReaderPopups.tsx`). A failed word translation says so in the popup.
   Highlight is offered where the top bar's is (`annotatable`, and on the production route once the server's
   highlights are in).
@@ -543,6 +550,72 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
     them. Mark as known stays out (`V2_FEATURES.markAsKnown` false).
 - Untrusted text (word, sentence, selection) reaches the screen only as React / React Native text, and no host
   injects any of it into the page: the calls the hosts inject carry no book text.
+
+**Highlights** (#1312, `highlights.mjs`; audit §2.6). The page draws and lists; the host keeps notes and writes.
+
+- *Colours:* the legacy four (yellow, green, pink, blue), chosen in the selection toolbar; the page draws each in its
+  `HIGHLIGHT_FILL`. A stored colour off the list (the server does not enumerate them) is drawn and listed as yellow;
+  its row is not rewritten for that.
+- *A tap on a highlight* (`highlight-tap`) opens its editor where the toolbar would be: the four colours
+  (`recolorHighlight`: the change reaches the host as the page's `store`, like any highlight change), the note, Delete
+  (`removeHighlight` → `highlight-removed` → the host's tombstone). On an edge in paginated flow it turns the page as a
+  word does (the list still reaches it). A move or a cleared selection keeps the editor open (a note being typed).
+- *Notes are the host's*: the page never holds one (no user text is injected into it). Every annotation write carries
+  the note the host holds (`highlightWrite`'s `noteText`: the PUT replaces the row, so leaving it out would clear
+  another device's note). On `stale_revision` the retry keeps the server's note unless this device edited it; the
+  colour is the page's form, re-applied once (the PDD's rule, unchanged).
+- *The list* is the page's `highlight-list`: drawn ones only, in book order, the text and the note as text. A tap
+  jumps there, `goTo(cfi, true)` (the reader's choice: the place is saved).
+- *Web*: the editor is the legacy `PdfHighlightPopup`; the list is a Highlights tab beside Contents in the contents
+  drawer (the Contents button shows for a book with no contents too, then on that tab). The production route offers
+  highlights once the server's are in (as before); `?highlight=<id>` jumps to it once the page lists it (once per
+  open; never if it is not drawn). Notes and removals go through the session (`v2ReaderSync.ts`: `setNote`, `remove`,
+  `note`): a note diffed with the page's form, a removal a `DELETE` before any write of that highlight (a 404, never on
+  the server, is done), both retried on the next pass and sent by keepalive on `pagehide`. The dev route keeps notes
+  in memory only.
+- *Never losing a note* (#1312 review), both hosts:
+  - One rule for every save, every close path (`noteChange(draft, from)`): nothing is written when the trimmed draft is
+    the note it was typed over (`from`: web, the note when the popup opened; Android, the note shown when typing began,
+    the editor following the note while untouched). A note is never cut (the server has no cap; one written elsewhere
+    may be long).
+  - A recolour in the open editor keeps the draft. Web: the draft is the host's (`PdfHighlightPopup` `onDraft`), written
+    whatever ends the editor: another popup, a tap or a word in the book, Escape, ×, Save, a new open, leaving the route
+    (before the session's close), the tab hidden or closed (before the keepalive writes; what it wrote becomes the
+    baseline, so Cancel, back to the note at opening, writes that back); Delete discards it. One the server holds as
+    deleted (a 409 `deleted`, another device) is not edited: tapped or saved, it leaves the page, nothing is saved.
+    Android: `notes()` sorts a book's highlights into known (note or none), unknown (a row from before notes, not pulled
+    yet: the field waits, Save is off, focus comes when it turns editable) and deleted (tombstoned by a pull: it leaves
+    the page and the sheet, an editor on it closes); until this open's notes are read every editor waits; an id in none
+    is a highlight just made, no note. The notes are read again after a `store` that follows a changed highlight list,
+    and after each sync pass; an editor is new only for another highlight.
+  - No re-key on the page: after an `id_conflict` re-key the page and the UI keep the old id until the next open (its
+    restore reads the rows: the new id). Each host keeps one in-memory old → new map, never persisted, and one
+    `real(id)` that every way in goes through. Web: the session's (`real`), from the re-keyed write's landing: the page's
+    forms (the last one with a close included), `setNote`, `remove`, `note`, `deleted`, the deep link's match; edits made
+    under the old id while it flew move then. Android: the local library instance's (`realId`), recorded once the re-key
+    transaction committed, cleared once a wipe committed: `applyEntry` (the page's stores), `setNote`, `removeHighlight`
+    and the deep link's match; `notes()` answers a re-keyed row under its old page id too, so every lookup by page id
+    works. A failed notes read is tried once more, then again with the next highlight list (editors wait meanwhile).
+  - The keepalive writes skip a body over what is left of the budget (a long note) and send the ones after it.
+- *Web, the link*: once the jump to `?highlight=<id>` is made, the route drops the parameter (replace, no history
+  entry): a reload opens at the saved place, never jumps (and saves) again.
+- *Android, the upgrade* (rows from before notes were kept): once per database, in one transaction with its `meta`
+  marker (`upgrade:notes`; a kill before it commits runs it at the next start; a sign-out's wipe keeps it), every row the server has with no note
+  edited here is marked not known (`note_known` 0) and the annotations feed restarts from the start. A row not known is never pushed (its PUT would clear
+  the server's note; the sign-out push pulls nothing, so it skips it); the pull takes its note, a queued one's too
+  (never over a note edited here);
+  a feed read to its end marks the rest known (not on the server: no note to keep). The notes are read by the book's
+  bytes as `readEntry` finds it (a pulled book not imported yet included) and again after every sync pass.
+- *Android, the list* needs no account (the top bar's button shows for everyone on the V2 route; making a highlight
+  keeps the legacy bar's sign-in gate). The highlights screen's V2 section reads again each time it is shown.
+- *Android*: local first, no token or network on any of it. A new highlight takes the last colour chosen (the legacy
+  bar's one swatch, `lastHighlightColor`'s rule: a colour tap in the editor sets it for the next). The editor is the
+  legacy `HighlightNoteModal`. Notes and removals are rows (`localLibrary.ts`: `note`, `note_dirty`; a removal sets
+  `deleted_at` and queues the row, so restore draws it no more and a later `store` holding it is skipped), written in
+  the page's message order (`hostStorage.ts`, after the queued `store`s). The push (`sync.ts`) sends the note with
+  every write and a DELETE for a removal (404: the server never had it, done); a pull of a live row never undoes a
+  queued removal (the queued-row rule). The list is a sheet (the top bar's Highlights button, for everyone, above). The highlights screen of a dev build lists this device's V2 highlights (`V2DeviceHighlights`) and opens the dev
+  route at one (`?book=<id>&highlight=<id>`: the book from this device, then the jump once listed).
 
 **Deadlines and states** (#1227, `deadlines.mjs`, one rule for both hosts; the numbers are its named constants):
 
@@ -612,14 +685,14 @@ the whitelist in another app; `onShouldStartLoadWithRequest` (about:/blob:/data:
 **Web, its own document** (#1219, production route #1225): `frame.mjs` splits the page into two files under
 `/reader-v2/` (paths: `framePath.mjs`):
 
-- **the shell**, `/reader-v2/frame.html` (1,332 bytes): the page's head (its meta CSP), the host shim inline, and
+- **the shell**, `/reader-v2/frame.html` (1,326 bytes, #1312): the page's head (its meta CSP), the host shim inline, and
   `<script src="/reader-v2/page.<hash>.js" integrity="sha384-…">`, all under one nonce placeholder
   `%V2_READER_FRAME_NONCE%`. It fails closed: `%` is outside the CSP nonce grammar, so a shell served unfilled has
   no valid script source and runs nothing (not the shim, not the page script, not a script carrying the
   placeholder). Sent `no-store` with a fresh nonce per response (16 random bytes, hex, nginx's `$request_id`;
   `fillNonce` takes nothing else) and its own headers (`V2_READER_FRAME_HEADERS`: `frame-ancestors 'self'`,
   `no-store, no-transform`, nosniff, `no-referrer`, `X-Robots-Tag: noindex`).
-- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,830,394 bytes; 1,773,577 gzipped, #1269; #1260: OpenDyslexic adds about 120 KB of it):
+- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,836,424 bytes; 1,767,401 gzipped by node's zlib default, #1312; #1260: OpenDyslexic adds about 120 KB of it):
   the page's one script, byte for byte what the inline page runs, sent `public, max-age=31536000, immutable`,
   `text/javascript; charset=utf-8` (it is not ASCII), nosniff. A book open fetches the shell only; the script
   comes from the HTTP cache (ADR-029 Decision 4 as amended 2026-11-11). The format readers stay inside it as

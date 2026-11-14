@@ -6,6 +6,7 @@
 import './.vendor/foliate-js/view.js'
 import { Overlayer } from './.vendor/foliate-js/overlayer.js'
 import { EPUB } from './.vendor/foliate-js/epub.js'
+import { compare as compareCfi } from './.vendor/foliate-js/epubcfi.js'
 import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from './.vendor/foliate-js/vendor/zip.js'
 import { tokenizeVocabWords } from '../../../../../packages/shared/src/text/vocabKey'
 import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
@@ -17,6 +18,7 @@ import { uuidV4 } from './uuid.mjs'
 import { openableHref, rectInPage, sentenceOf, sentenceOfRange, trimRange } from './tap.mjs'
 import { selectionMessage } from './selection.mjs'
 import { navKey } from './chrome.mjs'
+import { HIGHLIGHT_FILL, colorOf, highlightList, isHighlightColor, sameRangeHighlight } from './highlights.mjs'
 import { SELECTION_SETTLE_MS } from '../../../../../packages/reader-engine/src/timing'
 import { MAX_SELECTED_TEXT } from '../../../../../packages/shared/src/reader/v2Locators'
 import { THEMES, readSettings, settingsCss } from './settings.mjs'
@@ -42,6 +44,8 @@ let textual = true
 let annotatable = true
 /** cfi → what is drawn over it; re-added when a section's overlayer is recreated (chapter navigation). */
 const overlays = new Map()
+/** cfi → the range foliate last drew it over (its section document's): where a tap finds a highlight (#1312). */
+const drawnRanges = new Map()
 /** This file's identity and its entry. No save until the stored one is restored. */
 let book = null
 let entry = null
@@ -136,14 +140,13 @@ function glossOf(rects, text, el) {
   return g
 }
 
-const HIGHLIGHT_COLOR = '#facc15'
 /**
  * Foliate draw fn, called again with fresh rects on every expand (font size, viewport), so both
  * decorations follow the text without our own layout code. One overlay carries both: see overlays.mjs.
  */
 function decorate(rects, { hl, gloss, el }) {
   const g = document.createElementNS(SVG, 'g')
-  if (hl) g.append(Overlayer.highlight(rects, { color: HIGHLIGHT_COLOR }))
+  if (hl) g.append(Overlayer.highlight(rects, { color: HIGHLIGHT_FILL[colorOf(hl.color)] }))
   if (gloss) g.append(glossOf(rects, gloss, el))
   return g
 }
@@ -152,6 +155,9 @@ function onTap(doc, index, e) {
   if (e.target.closest?.('a[href]')) return   // foliate owns links
   if (!doc.getSelection().isCollapsed) return   // a selection, not a word tap
   if (dismissing) return   // it ended the selection sent (`selection-cleared`), nothing else
+  // A drawn highlight under the tap (#1312): the host's editor for it, not a word or a chrome tap.
+  const hit = highlightAt(doc, e.clientX, e.clientY)
+  if (hit) return post({ ...tapAt(doc, e), type: 'highlight-tap', id: hit.id, rect: rectInPage(doc.defaultView.frameElement, hit.range.getBoundingClientRect()) })
   const c = doc.caretRangeFromPoint?.(e.clientX, e.clientY)
   const node = c?.startContainer
   if (!node || node.nodeType !== Node.TEXT_NODE) return post(tapAt(doc, e))
@@ -453,6 +459,81 @@ function annotate(patch) {
   return view.addAnnotation(a)
 }
 
+/** The highlight drawn over `cfi` goes; a translation label over the same range stays (one overlay, overlays.mjs). */
+function unhighlight(cfi) {
+  const a = { ...overlays.get(cfi), hl: undefined }
+  drawnRanges.delete(cfi)
+  if (a.gloss) return annotate(a)
+  overlays.delete(cfi)
+  return view.deleteAnnotation({ value: cfi })
+}
+
+/**
+ * Ranges of sections no longer loaded go (their frame removed: no window). Run when a section's overlayer is made
+ * and on every tap, so the map holds the loaded sections' highlights only (#1312 review: it grew with every section
+ * visited, and every tap scanned it).
+ */
+function pruneDrawn() {
+  for (const [cfi, range] of drawnRanges) if (!range.startContainer.ownerDocument?.defaultView) drawnRanges.delete(cfi)
+}
+
+/** The drawn highlight under a point of `doc` (its own coordinates), or null. */
+function highlightAt(doc, x, y) {
+  pruneDrawn()
+  for (const [cfi, range] of drawnRanges) {
+    const hl = overlays.get(cfi)?.hl
+    if (!hl || range.startContainer.ownerDocument !== doc) continue
+    for (const r of range.getClientRects()) if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return { id: hl.id, range }
+  }
+  return null
+}
+
+/** The ids of the highlights drawn now. */
+const drawnIds = () => new Set([...overlays.values()].flatMap((a) => (a.hl ? [a.hl.id] : [])))
+
+/**
+ * The open book's drawn highlights, in book order (#1312, highlights.mjs `highlightList`): sent whenever they change
+ * (restored, added, highlighted, recoloured, removed), so a host's list is the page's and needs no diff of its own.
+ */
+function postList() {
+  if (!entry) return
+  post({ type: 'highlight-list', key: book.sha256, highlights: highlightList(entry.highlights, drawnIds(), compareCfi) })
+}
+
+/** The entry's highlight `id` as drawn now (its overlay is this one's), or null with a `warn` naming the call. */
+function drawnHighlight(id, call) {
+  if (!entry || !annotatable) return void log('warn', `${call} ignored: no highlights here`)
+  const h = entry.highlights.find((x) => x.id === id)
+  const a = h && overlays.get(h.cfi)
+  if (a?.hl?.id !== id) return void log('warn', `${call} ignored: not a highlight drawn here`)
+  return { h, a }
+}
+
+/** #1312: a drawn highlight's colour (one of `HIGHLIGHT_COLORS`), redrawn and saved (`store`). */
+function recolorHighlight(id, color) {
+  if (!isHighlightColor(color)) return log('warn', 'recolorHighlight ignored: not a colour')
+  const d = drawnHighlight(id, 'recolorHighlight')
+  if (!d || d.h.color === color) return
+  entry = withHighlight(entry, { ...d.h, color })
+  persist()
+  annotate({ value: d.h.cfi, index: d.a.index, hl: { id, color } })
+  postList()
+}
+
+/**
+ * #1312: a drawn highlight removed from the entry and the screen; `highlight-removed` tells the host to tombstone it
+ * (the entry's absence alone tombstones nothing: entryChanges never reads a missing highlight as a delete).
+ */
+function removeHighlight(id) {
+  const d = drawnHighlight(id, 'removeHighlight')
+  if (!d) return
+  entry = { ...entry, highlights: entry.highlights.filter((x) => x.id !== id) }
+  persist()
+  unhighlight(d.h.cfi)
+  post({ type: 'highlight-removed', key: book.sha256, id })
+  postList()
+}
+
 /**
  * A format reader the page carries as text (build.mjs FORMATS), run on first use under the page's own
  * nonce: the CSP admits a nonce'd inline script whoever inserts it and nothing else, so no directive
@@ -627,6 +708,7 @@ async function open(bytes, name, kind, mine) {
   destroy(view?.book)
   view?.remove()
   overlays.clear()
+  drawnRanges.clear()
   view = document.createElement('foliate-view')
   document.body.append(view)
   view.addEventListener('load', onLoad)
@@ -650,10 +732,12 @@ async function open(bytes, name, kind, mine) {
   })
   view.addEventListener('create-overlay', ({ detail: { index } }) => {
     if (mine !== viewSeq) return
+    pruneDrawn()
     for (const a of overlays.values()) if (a.index === index) view.addAnnotation(a)
   })
   view.addEventListener('draw-annotation', ({ detail: { draw, annotation: a, range } }) => {
     const el = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer
+    if (a.hl) drawnRanges.set(a.value, range)
     draw(decorate, { hl: a.hl, gloss: a.gloss, el })
   })
   view.addEventListener('external-link', (e) => {
@@ -774,9 +858,10 @@ const addHighlights = (list) => navigate(async () => {
     result.push({ id: h.id, status: ok ? 'restored' : 'quote mismatch, not drawn' })
     if (!ok) continue
     entry = withHighlight(entry, h)
-    annotate({ value: h.cfi, index, hl: { id: h.id } })
+    annotate({ value: h.cfi, index, hl: { id: h.id, color: h.color } })
   }
   post({ type: 'highlights', key: book.sha256, highlights: result })
+  postList()
 })
 
 /** `stale()`: another view took over during an await; nothing more is done or answered for this one. */
@@ -790,7 +875,7 @@ async function restoreInto(json, stale) {
     // An entry written before selectedText (#1078) kept the whole selection in quote.
     const ok = foldText(text) === foldText(h.selectedText ?? h.quote)
     result.highlights.push({ id: h.id, status: ok ? 'restored' : 'quote mismatch, not drawn' })
-    if (ok) annotate({ value: h.cfi, index, hl: { id: h.id } })
+    if (ok) annotate({ value: h.cfi, index, hl: { id: h.id, color: h.color } })
   }
   const p = entry.position
   if (p && !fits(p)) {
@@ -834,13 +919,21 @@ async function restoreInto(json, stale) {
   }
   // For the view still on screen only (`stale` turns at the swap).
   // `key`: the book it is for (= `store`'s key), so a host drops one for a book it is not reading.
-  if (!stale()) post({ type: 'restored', key: book.sha256, ...result })
+  if (!stale()) {
+    post({ type: 'restored', key: book.sha256, ...result })
+    postList()
+  }
   return result
 }
 
 
-/** The live selection (else the last `selection` sent), exactly as a `selection` message describes it, as a highlight: CFI + selection (+ its ≤64-code-point quote) + 30 chars of context, saved. */
-function highlightSelection() {
+/**
+ * The live selection (else the last `selection` sent), exactly as a `selection` message describes it, as a highlight
+ * of `color` (#1312: one of `HIGHLIGHT_COLORS`, yellow by default): CFI + selection (+ its ≤64-code-point quote) + 30
+ * chars of context, saved.
+ */
+function highlightSelection(color = 'yellow') {
+  if (!isHighlightColor(color)) return log('warn', 'highlightSelection ignored: not a colour')
   if (!textual) return log('warn', 'highlightSelection ignored: this book has no text')
   if (!annotatable) return log('warn', 'highlightSelection ignored: no highlights on a PDF yet')
   // The live selection, settled or not, on screen or not, described as a `selection` message would describe it;
@@ -856,18 +949,39 @@ function highlightSelection() {
   if (!selectedText.trim()) return log('warn', 'highlightSelection ignored: the selection has no text')
   // Refused, not cut: a cut selectedText no longer reads as the text at the CFI, so it would never restore.
   if (selectedText.length > MAX_SELECTED_TEXT) return log('warn', `highlightSelection ignored: over ${MAX_SELECTED_TEXT} characters`)
+  const cfi = view.getCFI(s.index, s.range)
+  // Exactly a drawn highlight's range (#1312 review): that highlight, recoloured if need be, never a second one over it
+  // (it would own the taps while the host's diff took it for the first's twin, and write none of its edits).
+  const same = sameRangeHighlight(entry.highlights, cfi, drawnIds())
+  if (same) {
+    if (same.color !== color) recolorHighlight(same.id, color)
+    endSelection()
+    post({ type: 'highlighted', id: same.id, cfi, quote: same.quote, selectedText: same.selectedText ?? same.quote, color })
+    return same
+  }
   const loc = rangeToLocator(s.doc.body, s.range, String(s.index))
   const h = {
-    id: uuidV4(), cfi: view.getCFI(s.index, s.range), index: s.index,
-    quote: quoteOf(selectedText), selectedText, prefix: loc?.text?.before ?? '', suffix: loc?.text?.after ?? '', color: 'yellow', at: Date.now(),
+    id: uuidV4(), cfi, index: s.index,
+    quote: quoteOf(selectedText), selectedText, prefix: loc?.text?.before ?? '', suffix: loc?.text?.after ?? '', color, at: Date.now(),
   }
   entry = withHighlight(entry, h)
   persist()
-  annotate({ value: h.cfi, index: s.index, hl: { id: h.id } })
-  s.doc.getSelection().removeAllRanges()
-  lastSelection = null
-  post({ type: 'highlighted', id: h.id, cfi: h.cfi, quote: h.quote, selectedText })
+  annotate({ value: h.cfi, index: s.index, hl: { id: h.id, color } })
+  // The selection is done, as `clearSelection` ends it: at once, not after the settle time, or the next press within it
+  // would be taken for its dismissal and its tap (a tap on the new highlight) dropped (#1312).
+  endSelection()
+  post({ type: 'highlighted', id: h.id, cfi: h.cfi, quote: h.quote, selectedText, color })
+  postList()
   return h
+}
+
+/** The selection is over: gone from every shown section, `selection-cleared` at once if one was sent, nothing to fall back on. */
+function endSelection() {
+  clearTimeout(selectionTimer)
+  for (const d of shownDocs()) d.getSelection()?.removeAllRanges()
+  lastSelection = null
+  if (selectionSent) post({ type: 'selection-cleared' })
+  selectionSent = null
 }
 
 const openFailed = (name, error) => post({ type: 'open-failed', name, error })
@@ -914,6 +1028,8 @@ window.__fol = {
   restore: (json) => restore(json)?.catch((e) => log('error', `restore: ${e?.stack ?? e}`)),
   addHighlights: (list) => addHighlights(list).catch((e) => log('error', `addHighlights: ${e?.stack ?? e}`)),
   highlightSelection,
+  recolorHighlight,
+  removeHighlight,
   // A position (as stored: CFI, page or fraction-only, #1187; one that does not fit the book is ignored),
   // a CFI, an href or a section index. Not
   // `chosen` (the host moving the view: a sync adopt or move) nothing is saved or echoed back, the host
@@ -973,13 +1089,9 @@ window.__fol = {
   },
   // #1269: the host is done with the selection (an action ran, its toolbar closed): gone from every shown section,
   // `selection-cleared` at once (none if none was sent). highlightSelection has nothing to fall back on after it.
-  clearSelection: () => {
-    clearTimeout(selectionTimer)
-    for (const d of shownDocs()) d.getSelection()?.removeAllRanges()
-    lastSelection = null
-    if (selectionSent) post({ type: 'selection-cleared' })
-    selectionSent = null
-  },
+  clearSelection: () => endSelection(),
+  // Test-only (formats.check.mjs): how many drawn highlight ranges the page holds. A count, no book data.
+  drawnRanges: () => drawnRanges.size,
   /** The host answers a `word` with its translation; drawn above that word. Not where `annotatable` is false. */
   showTranslation: (cfi, index, text) => view && annotatable && annotate({ value: cfi, index, gloss: text }),
 }

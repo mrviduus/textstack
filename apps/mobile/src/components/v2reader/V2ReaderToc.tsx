@@ -5,6 +5,8 @@ import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 import { tocAround, withTitle, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
+import type { V2HighlightItem } from '../../lib/v2reader/highlights.mjs'
+import { HIGHLIGHT_BG } from '../../lib/readerColors'
 
 /** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo`: the entry the reader chose. */
 interface Props {
@@ -82,6 +84,65 @@ export function V2TocSheet({ visible, toc, tocIndex, onGo, onClose }: Props & { 
 }
 
 /**
+ * The open book's highlights (#1312): the contents sheet's modal, the page's `highlight-list` in book order, each
+ * highlight's text and note as text (untrusted), its colour as a swatch. A tap jumps there and closes the sheet.
+ */
+export function V2HighlightsSheet({ visible, items, noteOf, onGo, onClose }: {
+  visible: boolean
+  items: V2HighlightItem[]
+  /** A highlight's note (null: none), by the page's id. */
+  noteOf: (id: string) => string | null
+  onGo: (item: V2HighlightItem) => void
+  onClose: () => void
+}) {
+  const { colors } = useTheme()
+  const { t } = useLanguage()
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.overlay}>
+        <Pressable style={styles.outside} onPress={onClose} accessible={false} />
+        <View style={[styles.sheet, { backgroundColor: colors.background }]} accessibilityViewIsModal>
+          <View style={[styles.header, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">{t('reader.chrome.highlights')}</Text>
+            <TouchableOpacity onPress={onClose} style={styles.close} accessibilityRole="button" accessibilityLabel={t('reader.chrome.closeHighlights')}>
+              <Ionicons name="close" size={22} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          {items.length === 0 ? (
+            <Text style={[styles.empty, { color: colors.textSecondary }]}>{t('highlights.emptySubtitle')}</Text>
+          ) : (
+            <FlatList
+              data={items}
+              keyExtractor={(h) => h.id}
+              style={styles.list}
+              renderItem={({ item }) => {
+                const note = noteOf(item.id)
+                return (
+                  <TouchableOpacity
+                    style={[styles.row, styles.hlRow, { borderBottomColor: colors.border }]}
+                    onPress={() => {
+                      onGo(item)
+                      onClose()
+                    }}
+                    accessibilityRole="button"
+                  >
+                    <View style={[styles.swatch, { backgroundColor: HIGHLIGHT_BG[item.color] }]} />
+                    <View style={styles.hlBody}>
+                      <Text style={[styles.rowText, { color: colors.text }]} numberOfLines={3}>{item.text}</Text>
+                      {note ? <Text style={[styles.note, { color: colors.textSecondary }]} numberOfLines={2}>{note}</Text> : null}
+                    </View>
+                  </TouchableOpacity>
+                )
+              }}
+            />
+          )}
+        </View>
+      </View>
+    </Modal>
+  )
+}
+
+/**
  * The entries before and after the reader's place, by title (#1261): never a number. Nothing on a book with no
  * contents. A row of the footer (ReaderFooter `above`).
  */
@@ -130,4 +191,9 @@ const styles = StyleSheet.create({
   section: { flex: 1, minHeight: 44, justifyContent: 'center' },
   sectionText: { fontSize: 13, fontFamily: fonts.sans },
   sectionNext: { textAlign: 'right' },
+  hlRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingLeft: 16 },
+  hlBody: { flex: 1, gap: 4 },
+  swatch: { width: 6, alignSelf: 'stretch', borderRadius: 3 },
+  note: { fontSize: 13, fontFamily: fonts.sans, fontStyle: 'italic' },
+  empty: { padding: 24, fontSize: 14, fontFamily: fonts.sans, textAlign: 'center' },
 })
