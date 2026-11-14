@@ -7,7 +7,6 @@ export const MAX_GLOSS: number
 export const STAGE_COLORS: readonly string[]
 export function stageOf(s: unknown): number
 export function readMarkWords(raw: unknown): V2MarkWord[]
-export function markWordsOf(entries: { word: string; stage: number; translation?: string | null }[]): V2MarkWord[]
 export function wordMarksIn(root: Node | null | undefined, words: V2MarkWord[]): { range: Range; word: V2MarkWord }[]
 export const GLOSS_SETTING: 'showInlineTranslations'
 export function readGlosses(json: string | null): boolean

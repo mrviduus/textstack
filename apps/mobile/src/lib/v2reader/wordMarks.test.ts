@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { MAX_GLOSS, MAX_WORD, MAX_WORDS, STAGE_COLORS, markWordsOf, readGlosses, readMarkWords, sameMark, stageOf, withGlosses, wordMarksIn } from './wordMarks.mjs'
+import { MAX_GLOSS, MAX_WORD, MAX_WORDS, STAGE_COLORS, readGlosses, readMarkWords, sameMark, stageOf, withGlosses, wordMarksIn } from './wordMarks.mjs'
+import { langOf, markWordsOf, ofBook, wordId } from './vocabWords.mjs'
 
 describe('the gloss setting (legacy showInlineTranslations)', () => {
   it('is on unless stored false; a damaged value is on', () => {
@@ -68,8 +69,11 @@ describe('readMarkWords', () => {
     expect(readMarkWords(null)).toEqual([])
   })
 
-  it('takes at most MAX_WORDS', () => {
-    expect(readMarkWords(Array.from({ length: MAX_WORDS + 5 }, (_, i) => ({ word: `w${i}` })))).toHaveLength(MAX_WORDS)
+  it('takes at most MAX_WORDS, the newest (the last sent, a word just saved)', () => {
+    const read = readMarkWords(Array.from({ length: MAX_WORDS + 5 }, (_, i) => ({ word: `w${i}` })))
+    expect(read).toHaveLength(MAX_WORDS)
+    expect(read[0].word).toBe('w5')
+    expect(read[MAX_WORDS - 1].word).toBe(`w${MAX_WORDS + 4}`)
   })
 })
 
@@ -92,5 +96,22 @@ describe('markWordsOf / sameMark', () => {
     expect(sameMark({ stage: 1, gloss: 'x' }, { stage: 2, gloss: 'x' })).toBe(false)
     expect(sameMark({ stage: 1, gloss: 'x' }, { stage: 1, gloss: null })).toBe(false)
     expect(sameMark(undefined, { stage: 1, gloss: null })).toBe(false)
+  })
+})
+
+describe('vocabWords: the book\'s language', () => {
+  it('a tag compares by its primary subtag, any case', () => {
+    expect(['en', 'EN-us', ' pt_BR ', '', null, 3].map(langOf)).toEqual(['en', 'en', 'pt', null, null, null])
+  })
+  it('a card of another language is not the book\'s; one with no language passes; a book with none takes none', () => {
+    expect(ofBook('en-GB', 'en')).toBe(true)
+    expect(ofBook('de', 'en')).toBe(false)
+    expect(ofBook(undefined, 'en')).toBe(true)
+    expect(ofBook('en', null)).toBe(false)
+  })
+  it('a word is its key and its language', () => {
+    const key = (w: string) => w.toLowerCase()
+    expect(wordId(key, 'Die', 'de')).toBe(wordId(key, 'die', 'DE-at'))
+    expect(wordId(key, 'die', 'de')).not.toBe(wordId(key, 'die', 'en'))
   })
 })

@@ -871,12 +871,28 @@ describe('V2 local library sync (R6)', () => {
       expect(await lib.cursor('vocabulary')).toBe('p2')
     })
 
-    it('pull_PageFailsToApply_NothingKept_CursorNotAdvanced', async () => {
+    it('pull_PageFailsToApply_NothingKept_CursorNotAdvanced_ThePassNotFailed', async () => {
       const lib = createLocalLibrary(memoryDb())
       fakeApi({ 'GET /vocabulary/changes': [ok({ items: [card(W1), card(W2, { word: null })], cursor: 'v1', hasMore: false })] }) // word NOT NULL
-      expect(await syncV2Library(lib, host())).toBe('failed')
+      expect(await syncV2Library(lib, host())).toBe('done')
       expect(await words(lib)).toEqual([])
       expect(await lib.cursor('vocabulary')).toBeNull()
+    })
+
+    it('pull_Answered500_ThePushesStillSent_ThePassDone_PulledAfterThem', async () => {
+      const { lib, bookId, fileId } = await seeded()
+      const calls = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId), 201)],
+        [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 1))],
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 1), 201)],
+        'GET /vocabulary/changes': [{ status: 500 }],
+      })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(writes(calls)).toEqual([`PUT /books/${bookId}`, `PUT /books/${bookId}/reading-state`, `PUT /annotations/${HL}`])
+      expect(await lib.outbox()).toEqual([])
+      const order = calls.map((c) => `${c.method} ${c.path}`)
+      expect(order.indexOf('GET /vocabulary/changes')).toBeGreaterThan(order.indexOf(`PUT /annotations/${HL}`))
     })
 
     it('signOutWipe_WordsGo_NothingCountedAsLost', async () => {

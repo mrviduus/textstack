@@ -286,6 +286,49 @@ describe('V2ReaderPopups saved-word marks (#1271)', () => {
     expect(api.updateWord).toHaveBeenCalledWith('id-reed', { translation: 'uk:reed', onlyIfEmpty: true })
   })
 
+  it('onlyTheBooksLanguage_MarkedAndBackfilled_AnotherLanguagesCardNeverWritten', async () => {
+    api.getReaderVocab.mockResolvedValue([card('reed', { language: 'en-GB' }), card('hund', { language: 'de' }), card('pond', { stage: 2 })])
+    const asked = vi.fn((a: unknown[]) => ({ translatedText: `uk:${a[0]}` }))
+    backfill = asked
+    const onMarks = vi.fn()
+    mount(onMarks)
+    await settle()
+    await settle()
+    expect(onMarks.mock.lastCall![0].map((w: { word: string }) => w.word)).toEqual(['reed', 'pond'])
+    expect(asked.mock.calls.map((c) => (c[0] as unknown[])[0])).toEqual(['reed', 'pond'])
+    expect(api.updateWord.mock.calls.map((c) => c[0])).toEqual(['id-reed', 'id-pond'])
+  })
+
+  it('signedInAfterMount_TheLoadedWordsBackfilledOnce', async () => {
+    Object.assign(auth, { isAuthenticated: false })
+    api.getReaderVocab.mockResolvedValue([card('reed', { language: 'en' })])
+    const asked = vi.fn((a: unknown[]) => ({ translatedText: `uk:${a[0]}` }))
+    backfill = asked
+    const el = () => <V2ReaderPopups frame={frame} bookLanguage="en" bookTitle="Walden" bookId="book-1" onClose={() => {}} popup={null} onMarks={vi.fn()} />
+    const view = render(el())
+    await settle()
+    Object.assign(auth, { isAuthenticated: true })
+    view.rerender(el())
+    await settle()
+    await settle()
+    view.rerender(el())
+    await settle()
+    expect(asked).toHaveBeenCalledTimes(1)
+    expect(api.updateWord).toHaveBeenCalledTimes(1)
+  })
+
+  it('aWriteAnswered429_TheBackfillStops', async () => {
+    api.getReaderVocab.mockResolvedValue([card('reed'), card('pond')])
+    api.updateWord.mockRejectedValue(Object.assign(new Error('slow down'), { status: 429 }))
+    const asked = vi.fn((a: unknown[]) => ({ translatedText: `uk:${a[0]}` }))
+    backfill = asked
+    mount(vi.fn())
+    await settle()
+    await settle()
+    expect(asked).toHaveBeenCalledTimes(1)
+    expect(api.updateWord).toHaveBeenCalledTimes(1)
+  })
+
   it('aWordSavedDuringTheOpen_NotBackfilled_OnlyTheLoadedOnesAre', async () => {
     api.getReaderVocab.mockResolvedValue([])
     const asked = vi.fn((a: unknown[]) => ({ translatedText: `uk:${a[0]}` }))

@@ -1889,8 +1889,9 @@ try {
   await settle()
   /** What the shown sections' overlays draw: each overlay's highlight fill, underline colours and label text. */
   const ink = () => call(`[...document.querySelector('foliate-view').renderer.getContents()].flatMap((c) => [...(c.overlayer?.element.children ?? [])].map((g) => ({
-    hl: g.querySelector('g[fill]')?.getAttribute('fill') ?? null,
-    line: [...new Set([...g.querySelectorAll('rect[height="2"]')].map((r) => r.getAttribute('fill')))].join(),
+    hl: [...g.querySelectorAll(':scope > g[fill]')].find((u) => !u.querySelector('rect[height="2"], rect[height="3"]'))?.getAttribute('fill') ?? null,
+    line: [...g.querySelectorAll(':scope > g[fill]')].filter((u) => u.querySelector('rect[height="2"]')).map((u) => u.getAttribute('fill')).join(),
+    under: [...g.querySelectorAll(':scope > g[fill]')].filter((u) => u.querySelector('rect[height="2"], rect[height="3"]')).map((u) => u.getAttribute('fill')),
     label: g.querySelector('text')?.textContent ?? null,
     tags: [...g.querySelectorAll('*')].map((e) => e.localName).filter((n) => !['g', 'rect', 'text'].includes(n)).join(),
   })))`)
@@ -1952,6 +1953,22 @@ try {
   await page.waitForTimeout(800)
   check(awayMarks === awayWant && awayWant > 0 && await call('window.__fol.markedWords()') === hereMarks,
     `marks are placed per section as it loads, none kept for a section gone (${hereMarks} → ${awayMarks} of ${awayWant} → ${await call('window.__fol.markedWords()')})`)
+  // #1271 review: the range spoken over a saved word is drawn last (on top of its stage underline), and stays visible.
+  const sphinxRange = await call(`(() => {
+    const v = document.querySelector('foliate-view')
+    const c = v.renderer.getContents()[0]
+    const t = c.doc.querySelector('p').firstChild, i = t.data.indexOf('Sphinx')
+    const r = c.doc.createRange(); r.setStart(t, i); r.setEnd(t, i + 6)
+    return { cfi: v.getCFI(c.index, r), index: c.index }
+  })()`)
+  call(`window.__fol.speaking(${JSON.stringify(sphinxRange.cfi)}, ${sphinxRange.index})`)
+  await page.waitForTimeout(300)
+  const spokenWord = (await ink()).filter((d) => d.under.includes('#7c3aed'))
+  check(spokenWord.length === 1 && JSON.stringify(spokenWord[0].under) === JSON.stringify(['rgba(59,130,246,0.5)', '#7c3aed']) && spokenWord[0].label === 'сфинкс',
+    `a saved word spoken keeps its mark and gloss, the spoken underline drawn over its stage's (${JSON.stringify(spokenWord)})`)
+  call('window.__fol.speaking(null)')
+  await page.waitForTimeout(300)
+  check((await ink()).filter((d) => d.label === 'сфинкс').every((d) => d.line === 'rgba(59,130,246,0.5)' && d.under.length === 1), 'the speech ended, the mark stays')
   // A word tapped on a saved word still reaches the host; marks draw nothing on a book with no overlays (CBZ).
   const sphinxAt = await wordAt(await frameWith('Sphinx'), 'Sphinx')
   from = messages.length

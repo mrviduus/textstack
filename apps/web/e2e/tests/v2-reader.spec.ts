@@ -395,7 +395,8 @@ test.describe('V2 reader page @v2', () => {
       const frame = page.frames().find((f) => f.url().includes('/reader-v2/frame.html'))!
       return frame.evaluate(() => [...(document.querySelector('foliate-view') as unknown as { renderer: { getContents(): { overlayer?: { element: SVGElement } }[] } }).renderer.getContents()]
         .flatMap((c) => [...(c.overlayer?.element.children ?? [])].map((g) => ({
-          line: g.querySelector('rect[height="2"]')?.getAttribute('fill') ?? null,
+          // foliate's underline: the colour on the group of its rects.
+          line: g.querySelector('rect[height="2"]')?.parentElement?.getAttribute('fill') ?? null,
           label: g.querySelector('text')?.textContent ?? null,
         }))))
     }

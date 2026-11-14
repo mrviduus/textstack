@@ -125,15 +125,6 @@ const GLOSS_COLOR = 'rgba(59, 130, 246, 0.8)'
  * above the word (reader-engine LABEL_LOOK, E44). foliate calls it again with fresh rects on every
  * expand (font size, viewport), so the label follows the word without our own layout code.
  */
-function underline(rects, color) {
-  const g = document.createElementNS(SVG, 'g')
-  for (const r of rects) {
-    const u = document.createElementNS(SVG, 'rect')
-    Object.entries({ x: r.left, y: r.bottom - 2, width: r.width, height: 2, fill: color }).forEach(([k, v]) => u.setAttribute(k, v))
-    g.append(u)
-  }
-  return g
-}
 function glossOf(rects, text, el) {
   const g = document.createElementNS(SVG, 'g')
   const first = rects[0]
@@ -158,9 +149,12 @@ function glossOf(rects, text, el) {
 function decorate(rects, { hl, gloss, mark, spoken, el }) {
   const g = document.createElementNS(SVG, 'g')
   if (hl) g.append(Overlayer.highlight(rects, { color: HIGHLIGHT_FILL[colorOf(hl.color)] }))
-  if (spoken) g.append(Overlayer.underline(rects, { color: SPOKEN_FILL, width: 3 }))
-  // A saved word (#1271) is underlined in its stage's colour; a word the host glossed on a tap, in the label's.
-  if (mark || gloss) g.append(underline(rects, mark ? STAGE_COLORS[mark.stage] : GLOSS_COLOR))
+  // A saved word (#1271) is underlined in its stage's colour; a word the host glossed on a tap, in the label's. foliate's
+  // underline, so a vertical book's runs beside its column.
+  const writingMode = el.ownerDocument.defaultView.getComputedStyle(el).writingMode
+  if (mark || gloss) g.append(Overlayer.underline(rects, { color: mark ? STAGE_COLORS[mark.stage] : GLOSS_COLOR, width: 2, writingMode }))
+  // The range spoken (#1272) last, over a saved word's underline: it stays visible.
+  if (spoken) g.append(Overlayer.underline(rects, { color: SPOKEN_FILL, width: 3, writingMode }))
   // The tap's translation, else the saved word's own behind the reader's setting (read at draw time).
   const label = gloss || (showGlosses && mark?.gloss)
   if (label) g.append(glossOf(rects, label, el))
@@ -484,6 +478,8 @@ const elementOf = (range) => (range.startContainer.nodeType === Node.TEXT_NODE ?
  * drawn; `glosses`: the setting changed, so every mark with a gloss is drawn again. Sections are marked as they load
  * (`create-overlay`), never the whole book.
  */
+// ponytail: no cap on a section's occurrences (one overlay each: the commonest 50 words make 3,920 in one chapter, 391 ms
+// on desktop); draw only the ones near the viewport if real vocabularies make it felt.
 function markSection({ index, doc, overlayer } = {}, glosses = false) {
   if (!annotatable || !doc?.body || !overlayer) return
   const want = new Map()
@@ -1176,6 +1172,8 @@ window.__fol = {
    * #1271: the reader's saved words, `[{ word, stage, gloss }]` (read through wordMarks.mjs `readMarkWords`), and whether
    * their glosses show (the reader's setting). Replaces the list held; the section on screen is marked again at once,
    * every later one as it loads. Before `opened` it sets what the next open marks. Not where `annotatable` is false.
+   * ponytail: the whole list comes again with every change (a save, a backfilled translation) and the section on screen
+   * is matched again; delta calls (`addMarkWord`, `setGloss`) if a large vocabulary makes a save jank.
    */
   markWords: (words, show) => {
     const glosses = !!show !== showGlosses

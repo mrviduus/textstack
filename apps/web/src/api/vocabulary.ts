@@ -340,6 +340,8 @@ export interface ReaderVocabWordDto {
   word: string
   stage: number
   translation?: string
+  /** The card's language (V2 only: the legacy list has none). */
+  language?: string
 }
 
 /** V2 only: bring back a word deleted earlier (a save answered `deleted`). */

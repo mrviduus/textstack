@@ -13,6 +13,7 @@ import {
   type PendingVocabWord,
 } from '../lib/offlineDb'
 import { normalizeVocabKey } from '../lib/vocabKey'
+import { ofBook } from '../../../mobile/src/lib/v2reader/vocabWords.mjs'
 import { trackVocabSaved } from '../lib/analytics'
 import { takeGuestNudge, type GuestNudge } from '../lib/guestNudge'
 
@@ -31,7 +32,8 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
   const [guestNudge, setGuestNudge] = useState<GuestNudge | null>(null)
   const dismissGuestNudge = useCallback(() => setGuestNudge(null), [])
   const mapRef = useRef<VocabMap>(new Map())
-  const backfillDone = useRef(false)
+  /** The authenticated load (`authLoad`) whose words were backfilled; 0: none. */
+  const backfillDone = useRef(0)
   // Keep auth state available inside async callbacks without stale-closure races.
   const isAuthRef = useRef(isAuthenticated)
   isAuthRef.current = isAuthenticated
@@ -55,17 +57,28 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
   const [loaded, setLoaded] = useState(false)
   const [loadFailed, setLoadFailed] = useState(false)
   const [loadAttempt, setLoadAttempt] = useState(0)
+  /**
+   * #1271 review: the authenticated load whose words are in (its own number), 0 while none is: the backfill latches on this,
+   * never on `loaded`, which the no-session branch also sets (a sign-in after mount would latch on the empty map).
+   */
+  const [authLoad, setAuthLoad] = useState(0)
+  const loads = useRef(0)
+  const alive = useRef(true)
+  useEffect(() => () => { alive.current = false }, [])
   const retryLoad = useCallback(() => setLoadAttempt((n) => n + 1), [])
 
   // Load vocab from API once a session exists (guest or real).
   useEffect(() => {
     if (!isAuthenticated) {
       commitMap(new Map())
+      setAuthLoad(0)
       setLoaded(true)
       setLoadFailed(false)
       return
     }
     let cancelled = false
+    const load = ++loads.current
+    setAuthLoad(0)
     setLoading(true)
     setLoaded(false)
     setLoadFailed(false)
@@ -74,23 +87,26 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
         if (cancelled) return
         const m: VocabMap = new Map()
         for (const w of words) {
+          // #1271: only the book's language's cards (a card with none, the legacy list's, passes): a German card is not
+          // an English book's saved word, nor filled with a translation from English.
+          if (bookLanguage && !ofBook(w.language, bookLanguage)) continue
           m.set(normalizeVocabKey(w.word), { stage: w.stage, id: w.id, translation: w.translation })
         }
         commitMap(m)
+        setAuthLoad(load)
         setLoaded(true)
       })
       .catch(() => { if (!cancelled) setLoadFailed(true) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [isAuthenticated, commitMap, loadAttempt])
+  }, [isAuthenticated, commitMap, loadAttempt, bookLanguage])
 
   // Backfill translations for words missing them: once, over the words the load brought (#1271: once per open). A word
   // saved afterwards gets its translation from the save itself (TR-2), never a second, sentence-less request here.
   useEffect(() => {
-    if (!targetLang || !bookLanguage || backfillDone.current) return
-    // No session yet: nothing loaded to fill (a sign-in loads, then this runs).
-    if (!isAuthenticated || !loaded || loading) return
-    backfillDone.current = true
+    // Once per authenticated load: none before it is in (no session, a load in flight), never again for it.
+    if (!targetLang || !bookLanguage || !authLoad || backfillDone.current === authLoad) return
+    backfillDone.current = authLoad
 
     const missing: { word: string; id?: string }[] = []
     for (const [key, entry] of vocabMap) {
@@ -103,23 +119,27 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     const lang = bookLanguage
     const target = targetLang
 
-    // Translate in small batches to avoid overwhelming the API
+    // One word at a time, its card written before the next (#1271 review: a cached translation made the writes a burst);
+    // a 429 on either stops it. Unmounted: stops.
+    const limited = (e: unknown) => (e as { status?: number } | null)?.status === 429
     ;(async () => {
-      for (let i = 0; i < missing.length; i++) {
-        const { word, id } = missing[i]
+      for (const { word, id } of missing) {
+        if (!alive.current) return
         try {
           const res = await translateWord(word, lang, target)
           const translation = res.translatedText
-          if (!translation) continue
+          if (!translation || !alive.current) continue
           updateMap(m => {
             const entry = m.get(word)
             if (entry) m.set(word, { ...entry, translation })
           })
-          if (id) updateWord(id, { translation, onlyIfEmpty: true }).catch(() => {})
-        } catch { /* skip */ }
+          if (id) await updateWord(id, { translation, onlyIfEmpty: true }).catch((e) => { if (limited(e)) throw e })
+        } catch (e) {
+          if (limited(e)) return
+        }
       }
     })()
-  }, [vocabMap, loading, loaded, isAuthenticated, targetLang, bookLanguage, updateMap])
+  }, [vocabMap, authLoad, targetLang, bookLanguage, updateMap])
 
   // I4: flush pending local vocab into backend. Called:
   //   (a) on threshold-crossing after ensureSession succeeds;

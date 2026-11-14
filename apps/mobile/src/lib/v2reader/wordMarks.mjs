@@ -15,24 +15,19 @@ export const stageOf = (s) => (Number.isInteger(s) && s >= 0 && s < STAGE_COLORS
 
 /**
  * The page's read of a host's `markWords` list: `{ word, stage, gloss }`, malformed items dropped (not a string, blank,
- * too long), a gloss off its cap or blank is none. Anything that is not a list is none.
+ * too long), a gloss off its cap or blank is none. Anything that is not a list is none. Over MAX_WORDS, the newest are
+ * kept: hosts send their words oldest first, a word just saved last.
  */
 export function readMarkWords(raw) {
   if (!Array.isArray(raw)) return []
   const out = []
-  for (const w of raw.slice(0, MAX_WORDS)) {
+  for (const w of raw.slice(-MAX_WORDS)) {
     if (!w || typeof w !== 'object' || typeof w.word !== 'string' || !w.word.trim() || w.word.length > MAX_WORD) continue
     const gloss = typeof w.gloss === 'string' && w.gloss.trim() && w.gloss.length <= MAX_GLOSS ? w.gloss.trim() : null
     out.push({ word: w.word, stage: stageOf(w.stage), gloss })
   }
   return out
 }
-
-/**
- * What a host sends for its saved words (`{ word, stage, translation }`, its vocabulary map's entries): the page's
- * `markWords` list. A host never sends a sentence or any book text.
- */
-export const markWordsOf = (entries) => entries.map(({ word, stage, translation }) => ({ word, stage, gloss: translation || null }))
 
 /**
  * Where `words` stand in `root` (a section's body): one `{ range, word }` per occurrence, in document order. A block or
