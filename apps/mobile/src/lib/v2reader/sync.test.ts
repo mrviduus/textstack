@@ -12,7 +12,7 @@ import { memoryDb } from './sqliteShim'
 import { createV2Storage } from './hostStorage'
 import { adoptV2LocalAccount, claimV2LibraryFor, downloadV2Book, MAX_FAILURES, openBookHost, pushV2BeforeSignOut, syncV2Library, tryAgainV2Book, type SyncHost } from './sync'
 import {
-  fakeApi as fakeV2, conflict, feed, resetMidCall, type Answer, type Call,
+  fakeApi as fakeV2, card, conflict, feed, resetMidCall, type Answer, type Call,
 } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' } }))
@@ -49,7 +49,7 @@ const serverAnnotation = (bookId: string, fileId: string, revision: number, extr
 })
 
 const ok = (body: unknown, status = 200): Answer => ({ status, body })
-const EMPTY_FEEDS = { 'GET /library/changes': feed(), 'GET /reading/changes': feed(), 'GET /annotations/changes': feed() }
+const EMPTY_FEEDS = { 'GET /library/changes': feed(), 'GET /reading/changes': feed(), 'GET /annotations/changes': feed(), 'GET /vocabulary/changes': feed() }
 const fakeApi = (routes: Record<string, Answer[]>) => fakeV2({ 'GET /status': [ok({ maxPartBytes: 1024 })], ...EMPTY_FEEDS, ...routes }, V2)
 const writes = (calls: Call[]) => calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path}`)
 
@@ -120,7 +120,7 @@ describe('V2 local library sync (R6)', () => {
     expect(await lib.state(bookId)).toMatchObject({ revision: 1, revision_file_id: fileId })
     expect(await lib.annotation(HL)).toMatchObject({ revision: 1 })
     // Cursors stored per feed (null from the fake: a full pull again next time).
-    expect(calls.filter((c) => c.path.endsWith('/changes')).map((c) => c.path)).toEqual(['/library/changes', '/reading/changes', '/annotations/changes'])
+    expect(calls.filter((c) => c.path.endsWith('/changes')).map((c) => c.path)).toEqual(['/library/changes', '/reading/changes', '/annotations/changes', '/vocabulary/changes'])
   })
 
   it('sync_NextPositionAfterASync_NamesTheRevisionLastSeen', async () => {
@@ -832,6 +832,96 @@ describe('V2 local library sync (R6)', () => {
     })
   })
 
+  // #1271: the reader's saved words, pulled so the marks work offline. Pull-only: nothing is ever pushed from it.
+  describe('vocabulary feed', () => {
+    const W1 = 'cccccccc-0000-4000-8000-000000000001'
+    const W2 = 'cccccccc-0000-4000-8000-000000000002'
+    const clear = () => { cleared++ }
+    const words = async (lib: LocalLibrary) => (await lib.savedWords()).map((w) => [w.id, w.word, w.language, w.stage, w.translation])
+
+    it('pull_LiveWords_KeptWithStageAndTranslation_NothingPushed', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      const calls = fakeApi({
+        'GET /vocabulary/changes': [ok({ items: [card(W1, { word: 'Quiver', stage: 2, translation: 'сагайдак' }), card(W2, { word: 'vicinity', language: 'de' })], cursor: 'v1', hasMore: false })],
+      })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(await words(lib)).toEqual([[W1, 'Quiver', 'en', 2, 'сагайдак'], [W2, 'vicinity', 'de', 0, null]])
+      expect(await lib.cursor('vocabulary')).toBe('v1')
+      expect(writes(calls)).toEqual([])
+      expect(await lib.outbox()).toEqual([])
+    })
+
+    it('pull_ANewerRowReplacesTheCopy_ATombstoneRemovesIt_FromTheCursor', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({ 'GET /vocabulary/changes': [ok({ items: [card(W1), card(W2)], cursor: 'v1', hasMore: false })] })
+      await syncV2Library(lib, host())
+      fakeApi({ 'GET /vocabulary/changes': [ok({ items: [card(W1, { stage: 4, translation: 'x' }), card(W2, { deletedAt: '2026-11-03T00:00:00Z' })], cursor: 'v2', hasMore: false })] })
+      await syncV2Library(lib, host())
+      expect(await words(lib)).toEqual([[W1, 'quiver', 'en', 4, 'x']])
+      const urls = vi.mocked(fetch).mock.calls.map(([u]) => String(u))
+      expect(urls.find((u) => u.includes('/vocabulary/changes'))).toContain('cursor=v1')
+      expect(await lib.cursor('vocabulary')).toBe('v2')
+    })
+
+    it('pull_PagedFeed_EveryPageKept', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({ 'GET /vocabulary/changes': [ok({ items: [card(W1)], cursor: 'p1', hasMore: true }), ok({ items: [card(W2)], cursor: 'p2', hasMore: false })] })
+      await syncV2Library(lib, host())
+      expect((await words(lib)).map((w) => w[0])).toEqual([W1, W2])
+      expect(await lib.cursor('vocabulary')).toBe('p2')
+    })
+
+    it('pull_PageFailsToApply_NothingKept_CursorNotAdvanced', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({ 'GET /vocabulary/changes': [ok({ items: [card(W1), card(W2, { word: null })], cursor: 'v1', hasMore: false })] }) // word NOT NULL
+      expect(await syncV2Library(lib, host())).toBe('failed')
+      expect(await words(lib)).toEqual([])
+      expect(await lib.cursor('vocabulary')).toBeNull()
+    })
+
+    it('signOutWipe_WordsGo_NothingCountedAsLost', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({ 'GET /vocabulary/changes': feed(card(W1)) })
+      await syncV2Library(lib, host())
+      expect(await lib.signOutLoss()).toEqual({ books: 0, writes: 0 })
+      await wipeV2Library(lib, clear)
+      expect(await words(lib)).toEqual([])
+      expect(await lib.cursor('vocabulary')).toBeNull()
+    })
+
+    it('anotherAccountSignsIn_TheWordsAreWipedWithTheLibrary', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({ 'GET /vocabulary/changes': feed(card(W1)) })
+      await syncV2Library(lib, host({ userId: 'u1' }))
+      await claimV2LibraryFor('u2', () => lib, clear)
+      expect(await words(lib)).toEqual([])
+    })
+
+    it('guestCarriedToTheNextIdentity_TheGuestsWordsGo_PulledAgainFromTheStart', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({ 'GET /vocabulary/changes': [ok({ items: [card(W1)], cursor: 'g', hasMore: false })] })
+      await syncV2Library(lib, host({ userId: 'g1', guest: true }))
+      fakeApi({ 'GET /vocabulary/changes': feed(card(W2)) })
+      await syncV2Library(lib, host({ userId: 'g2', guest: true }))
+      expect((await words(lib)).map((w) => w[0])).toEqual([W2])
+      const urls = vi.mocked(fetch).mock.calls.map(([u]) => String(u))
+      expect(urls.find((u) => u.includes('/vocabulary/changes'))).not.toContain('cursor=')
+    })
+
+    it('guestToAccountAdoption_TheGuestCopyGoes_TheAccountsCardsPulledFromTheStart', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({ 'GET /vocabulary/changes': [ok({ items: [card(W1)], cursor: 'g', hasMore: false })] })
+      await syncV2Library(lib, host({ userId: 'g1', guest: true }))
+      await adoptV2LocalAccount('g1', 'acct', { books: {}, files: {} }, () => lib)
+      expect(await words(lib)).toEqual([])
+      expect(await lib.cursor('vocabulary')).toBeNull()
+      // The merge kept the account's card for the same key under its own id.
+      fakeApi({ 'GET /vocabulary/changes': feed(card(W2)) })
+      await syncV2Library(lib, host({ userId: 'acct' }))
+      expect((await words(lib)).map((w) => w[0])).toEqual([W2])
+    })
+  })
+
   describe('PDF positions: pdf-page, never a CFI (#1128 S5)', () => {
     const page = (n: number, at = NOW - 60_000) => ({ page: n, index: n - 1, fraction: n / 10, at })
     const pdfState = (bookId: string, fileId: string, revision: number, n: number, at: number) =>
@@ -969,7 +1059,7 @@ describe('V2 local library sync (R6)', () => {
       const { lib, bookId, fileId } = await seeded()
       const result = await resetMidCall(() => v2Store.reset(), {
         'GET /status': ok({ maxPartBytes: 1024 }),
-        'GET /library/changes': feed()[0], 'GET /reading/changes': feed()[0], 'GET /annotations/changes': feed()[0],
+        'GET /library/changes': feed()[0], 'GET /reading/changes': feed()[0], 'GET /annotations/changes': feed()[0], 'GET /vocabulary/changes': feed()[0],
         [`GET /books/by-sha256/${SHA}`]: { status: 404 },
         [`PUT /books/${bookId}`]: ok(serverBook(bookId, fileId), 201),
       }, () => syncV2Library(lib, host()), `/books/${bookId}`)
@@ -994,7 +1084,7 @@ describe('V2 local library sync (R6)', () => {
       await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 30_000 }), newId)
       const result = await resetMidCall(() => v2Store.reset(), {
         'GET /status': ok({ maxPartBytes: 1024 }),
-        'GET /library/changes': feed()[0], 'GET /reading/changes': feed()[0], 'GET /annotations/changes': feed()[0],
+        'GET /library/changes': feed()[0], 'GET /reading/changes': feed()[0], 'GET /annotations/changes': feed()[0], 'GET /vocabulary/changes': feed()[0],
         [`PUT /books/${bookId}/reading-state`]: conflict('stale_revision', { revision: 4, current: serverState(bookId, fileId, 4, { clientRecordedAt: new Date(NOW).toISOString(), bookFraction: 0.9 }) }),
       }, () => syncV2Library(lib, host()), '/reading-state')
       expect(result).toBe('dropped')
@@ -1004,7 +1094,7 @@ describe('V2 local library sync (R6)', () => {
 
     const pushRoutes = (bookId: string, fileId: string) => ({
       'GET /status': ok({ maxPartBytes: 1024 }),
-      'GET /library/changes': feed()[0], 'GET /reading/changes': feed()[0], 'GET /annotations/changes': feed()[0],
+      'GET /library/changes': feed()[0], 'GET /reading/changes': feed()[0], 'GET /annotations/changes': feed()[0], 'GET /vocabulary/changes': feed()[0],
       [`PUT /books/${bookId}/reading-state`]: ok(serverState(bookId, fileId, 2)),
       [`PUT /annotations/${HL}`]: ok(serverAnnotation(bookId, fileId, 2, { color: 'green' })),
     })
@@ -1621,7 +1711,7 @@ describe('V2 local library sync (R6)', () => {
       expect(await syncV2Library(lib, host())).toBe('failed')
       expect(await resetMidCall(() => v2Store.reset(), {
         'GET /status': ok({ maxPartBytes: 1024 }),
-        'GET /library/changes': feed()[0], 'GET /reading/changes': feed()[0], 'GET /annotations/changes': feed()[0],
+        'GET /library/changes': feed()[0], 'GET /reading/changes': feed()[0], 'GET /annotations/changes': feed()[0], 'GET /vocabulary/changes': feed()[0],
         [`PUT /books/${bookId}/reading-state`]: { status: 500 },
       }, () => syncV2Library(lib, host()), '/reading-state')).toBe('dropped')
       expect((await lib.outbox()).map((o) => `${o.kind}:${o.failures}`)).toEqual(['state:0'])
@@ -1800,7 +1890,7 @@ describe('V2 local library sync (R6)', () => {
       warn.mockClear()
       expect(await resetMidCall(() => v2Store.reset(), {
         'GET /status': ok({ maxPartBytes: 1024 }),
-        'GET /library/changes': feed()[0], 'GET /reading/changes': feed()[0], 'GET /annotations/changes': feed()[0],
+        'GET /library/changes': feed()[0], 'GET /reading/changes': feed()[0], 'GET /annotations/changes': feed()[0], 'GET /vocabulary/changes': feed()[0],
         [`PUT /books/${bookId}/reading-state`]: { status: 500 },
       }, () => syncV2Library(lib, host()), '/reading-state')).toBe('dropped')
       expect(await counts(lib)).toEqual(['state:0'])

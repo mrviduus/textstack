@@ -37,6 +37,10 @@ import { vocabularyApi } from '../../lib/vocabularyApi'
 import { fillSavedTranslation, saveWordWithRetry } from '../../lib/savedWord'
 import { saveWordForBook } from '../../lib/v2reader/wordBook'
 import { vocabMapKey } from '../../lib/vocabMapKey'
+import { markWordsOf } from '../../lib/v2reader/wordMarks.mjs'
+import { backfillTranslations, withSaved, withTranslation, type ReaderWord } from '../../lib/v2reader/readerVocab'
+import { cachedTranslate } from '../../lib/translateCache'
+import { useReaderSettings } from '../../hooks/useReaderSettings'
 import { saveWordIntent } from '../../lib/saveWordIntent'
 import { claimGuestNudge } from '../../lib/guestNudge'
 import { useToast } from '../../context/ToastContext'
@@ -484,6 +488,40 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    */
   const [savedWords, setSavedWords] = useState<ReadonlySet<string>>(new Set())
   const markSaved = (word: string) => setSavedWords((s) => new Set(s).add(vocabMapKey(word)))
+  /**
+   * #1271: the reader's saved words for this open (readerVocab.ts): read once from the local library's vocabulary feed
+   * (offline too), updated by this open's saves and its backfill, sent to the page with the gloss setting (the legacy
+   * reader's own `showInlineTranslations`); the page marks each section as it loads.
+   */
+  const { settings: legacySettings, update: updateLegacySettings } = useReaderSettings()
+  const glosses = useRef(legacySettings.showInlineTranslations)
+  glosses.current = legacySettings.showInlineTranslations
+  const vocab = useRef<ReaderWord[]>([])
+  /** Bumped by each open; the open whose words are in, for its one backfill. */
+  const vocabSeq = useRef(0)
+  const [vocabOpen, setVocabOpen] = useState(0)
+  const sendMarks = () => {
+    if (ready.current) call(`window.__fol.markWords(${JSON.stringify(markWordsOf(vocab.current))}, ${glosses.current})`)
+  }
+  const loadVocab = () => {
+    const seq = ++vocabSeq.current
+    deviceLocalLibrary().savedWords().then((rows) => {
+      if (seq !== vocabSeq.current) return
+      vocab.current = rows.map(({ id, word, stage, translation }) => ({ id, word, stage, translation }))
+      sendMarks()
+      setVocabOpen(seq)
+    }, fail('vocabulary'))
+  }
+  const takeWord = (w: { id: string; word: string; stage: number; translation: string | null }) => {
+    vocab.current = withSaved(vocab.current, { id: w.id, word: w.word, stage: w.stage, translation: w.translation })
+    sendMarks()
+  }
+  const takeTranslation = (id: string, translation: string | null) => {
+    if (!translation) return
+    vocab.current = withTranslation(vocab.current, id, translation)
+    sendMarks()
+  }
+  useEffect(() => { sendMarks() }, [legacySettings.showInlineTranslations])
   /** False when the book's `opened.lang` does not read (savesWords): its words would be filed under the fallback. */
   const [langSaves, setLangSaves] = useState(true)
   /** The one answered `lookup` (the rare-word notice). */
@@ -496,10 +534,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       onPress: () => router.push('/vocabulary'), duration: 2400,
     })
     if (!capabilitiesFor(user).isGuest) return added()
-    // A guest's 3rd and 10th word (legacy: counted on the reader's whole vocabulary). ponytail: one list read per
-    // guest save, no local vocabulary map until the saved-word marks (#1271) bring one.
-    const count = await vocabularyApi.getReaderVocab().then((w) => w.length, () => 0)
-    const nudge = await claimGuestNudge(true, count)
+    // A guest's 3rd and 10th word (legacy: counted on the reader's whole vocabulary): the open's words in memory (#1271).
+    const nudge = await claimGuestNudge(true, vocab.current.length)
     if (!nudge) return added()
     showToast({
       variant: 'success', message: t(nudge === 'ten' ? 'guest.nudgeTen' : 'guest.nudgeThree'), actionLabel: t('guest.nudgeCta'),
@@ -507,7 +543,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     })
   }
   const restoreWord = (p: V2Popup, id: string) => vocabularyApi.restoreWord(id).then(
-    () => { if (p.kind === 'word') markSaved(p.word) },
+    (w) => { if (p.kind === 'word') markSaved(p.word); takeWord(w) },
     () => showToast({ variant: 'error', message: t('reader.vocab.restoreFailed') }),
   )
   const saveWord = async (p: V2Popup) => {
@@ -534,9 +570,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       const o = saveOutcome(resp)
       if (o.kind === 'saved') {
         markSaved(p.word)
+        takeWord(o.word)
         void wordSavedToast()
         // TR-2, as the legacy reader: a card saved without a translation gets one in the reader's language.
-        fillSavedTranslation(o.word, p.word, textLang, nativeLanguage, { sentence: p.sentence, bookId: bookId ?? undefined }).catch(() => {})
+        fillSavedTranslation(o.word, p.word, textLang, nativeLanguage, { sentence: p.sentence, bookId: bookId ?? undefined })
+          .then((tr) => takeTranslation(o.word.id, tr), () => {})
       } else if (o.kind === 'deleted') {
         showToast({
           variant: 'info', message: t('reader.vocab.deletedEarlier').replace('{{word}}', p.word), duration: 6000,
@@ -712,6 +750,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setBookLang(readLang(t.opened))
     setLangSaves(savesWords(t.opened))
     setSavedWords(new Set())
+    loadVocab()
     onOpened(t.open, t.opened).catch(fail('opened', setOpenError))
   }
 
@@ -801,6 +840,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           call(`window.__fol.flow(${JSON.stringify(f)})`)
           call(`window.__fol.settings(${JSON.stringify(readSettings(chosen))})`)
           ready.current = true
+          sendMarks()
           if (reopensOnReady({ opening: opening.current, inBook: inBookRef.current })) open(opening.current!)
           else if (opening.current) endBook() // closed while the page was gone: its book-closed never came
         })
@@ -1059,6 +1099,21 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
 
   /** What translate and explain read the book as: its own language, else the app's (the legacy reader's rule). */
   const textLang = readerTextLanguage(bookLang, language)
+  // #1271: missing translations filled once per open (the legacy readers' backfill), each sent as it lands, coalesced.
+  useEffect(() => {
+    if (!vocabOpen) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    void backfillTranslations(vocab.current, textLang, nativeLanguage, {
+      translate: (w) => cachedTranslate(w, textLang, nativeLanguage).then((r) => r.translation || null),
+      persist: (id, tr) => vocabularyApi.updateWord(id, { translation: tr, onlyIfEmpty: true }),
+      onWord: (id, tr) => {
+        vocab.current = withTranslation(vocab.current, id, tr)
+        clearTimeout(timer)
+        timer = setTimeout(sendMarks, 300)
+      },
+      cancelled: () => vocabOpen !== vocabSeq.current,
+    })
+  }, [vocabOpen])
   const button = [styles.button, { backgroundColor: colors.primary }]
   const notices = (
     <>
@@ -1209,7 +1264,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             fromLang={textLang}
             onClose={closeSheet}
           />
-          <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} />
+          <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable}
+            glosses={annotatable ? { on: legacySettings.showInlineTranslations, onChange: (on) => updateLegacySettings({ showInlineTranslations: on }) } : undefined} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
           <V2HighlightsSheet visible={highlightsOpen} items={highlightList} noteOf={(id) => notes?.known.get(id) ?? null} onGo={goHighlight} onClose={() => setHighlightsOpen(false)} />
           {popup?.kind === 'highlight' && tapped && (

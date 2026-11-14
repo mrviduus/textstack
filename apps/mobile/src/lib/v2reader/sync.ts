@@ -1,6 +1,7 @@
 /**
  * The V2 local library's sync client (R6, #1038; PDD v2-sync-protocol.md "Pull and push", "The
- * revision rule", "Conflict codes", "File sync upload protocol"). One pass: pull the three feeds
+ * revision rule", "Conflict codes", "File sync upload protocol"). One pass: pull the four feeds (library, reading,
+ * annotations, and the vocabulary the reader's marks read offline, #1271)
  * from their cursors, page by page, push the outbox kind by kind (books → states → annotations),
  * then — only with file sync on — send the bytes the server lacks. Opportunistic: the reading path
  * never waits for it. Offline or 503 `v2_unavailable` ends the pass; any other failure of one
@@ -13,7 +14,7 @@
 import { Platform } from 'react-native'
 import {
   v2Api, ApiError, clip, highlightWrite, isOfflineError, ownAnnotationWrite, ownStateWrite, pageNameRefusal, positionWrite, V2UploadNotOnServer,
-  type OpenReader, type PageHighlight, type V2Annotation, type V2Book, type V2BookFile, type V2ClientFormat, type V2MergeMap, type V2ReadingState,
+  type OpenReader, type PageHighlight, type V2Annotation, type V2Book, type V2BookFile, type V2ClientFormat, type V2MergeMap, type V2ReadingState, type V2Word,
 } from '@textstack/shared'
 import { onV2, resetSince, startV2Probe, whileCurrent, V2UploadError } from '../v2'
 import { uuid } from 'expo-modules-core'
@@ -266,6 +267,7 @@ async function pull(lib: LocalLibrary, host: SyncHost, reset: Reset, feed: Local
       const at = c ?? cursor
       if (feed === 'library') await lib.applyBooks(items as V2Book[], at)
       else if (feed === 'reading') owed = await lib.applyStates(items as V2ReadingState[], host.reader, at)
+      else if (feed === 'vocabulary') await lib.applyVocabulary(items as V2Word[], at)
       else await lib.applyAnnotations(items as V2Annotation[], at)
     })
     owe(host, reset, owed)

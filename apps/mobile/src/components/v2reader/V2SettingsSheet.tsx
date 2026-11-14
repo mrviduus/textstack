@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../../context/ThemeContext'
@@ -45,10 +45,12 @@ interface Props {
   onUpdate: (patch: Partial<V2Settings>) => void
   /** False for a fixed-layout book (PDF, CBZ, a pre-paginated EPUB): only the theme applies, the rest is disabled. */
   typography: boolean
+  /** #1271: saved words' translations shown (the legacy reader's `showInlineTranslations`); absent where nothing is marked. */
+  glosses?: { on: boolean; onChange: (on: boolean) => void }
 }
 
 /** The settings sheet: the legacy reader's drawer (ReaderSettingsDrawer.tsx) with the five V2 settings. */
-export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typography }: Props) {
+export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typography, glosses }: Props) {
   const { colors } = useTheme()
   const chip = (selected: boolean) => [styles.chip, { backgroundColor: colors.surface, borderColor: colors.border }, selected && { backgroundColor: colors.primary, borderColor: colors.primary }]
   const chipText = (selected: boolean) => [styles.chipText, { color: colors.text }, selected && { color: '#fff' }]
@@ -145,6 +147,23 @@ export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typograp
                 ))}
               </View>
             </View>
+
+            {glosses && (
+              // The legacy drawer's switch (ReaderSettingsDrawer.tsx), the same stored setting.
+              <>
+                {label('INLINE TRANSLATIONS')}
+                <View style={styles.toggleRow}>
+                  <Text style={[styles.toggleLabel, { color: colors.text }]}>Show translations for saved words</Text>
+                  <Switch
+                    value={glosses.on}
+                    onValueChange={glosses.onChange}
+                    trackColor={{ true: colors.primary, false: colors.border }}
+                    thumbColor="#fff"
+                    accessibilityLabel="Show translations for saved words"
+                  />
+                </View>
+              </>
+            )}
           </ScrollView>
         </View>
       </View>
@@ -171,4 +190,6 @@ const styles = StyleSheet.create({
   chipText: { fontFamily: fonts.sansMedium, fontSize: 14 },
   themeChip: { flex: 1, paddingVertical: 14, borderRadius: 10, alignItems: 'center', borderWidth: 2 },
   themeLabel: { fontFamily: fonts.sansMedium, fontSize: 12 },
+  toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
+  toggleLabel: { fontFamily: fonts.sans, fontSize: 14, flex: 1, marginRight: 12 },
 })
