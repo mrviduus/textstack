@@ -26,7 +26,7 @@ it('firstMoveLosesToAnotherDevicesNewerPlace_OursWrittenOnTheirRevision_TheirsOf
     .mockImplementationOnce(async (_b, w) => ({ ...state(10, 2, w.clientRecordedAt), currentLocator: w.currentLocator }))
 
   const view = render(<V2ReaderHost book={null} />)
-  const frame = (screen.getByTitle('V2 reader') as HTMLIFrameElement).contentWindow!
+  const frame = (screen.getByTitle('Book text') as HTMLIFrameElement).contentWindow!
   const posted: { call: string; args: unknown[] }[] = []
   vi.spyOn(frame, 'postMessage').mockImplementation(((m: { call: string; args: unknown[] }) => { posted.push(m) }) as never)
   const fromPage = (m: object) => act(async () => {

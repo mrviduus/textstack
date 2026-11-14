@@ -6,7 +6,7 @@ import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
 // #1263: the bars and tap zones of the V2 reader on the web, driven through a fake frame as V2ReaderHost.test.tsx.
 
 const WIDTH = 1000
-const frame = () => screen.getByTitle('V2 reader') as HTMLIFrameElement
+const frame = () => screen.getByTitle('Book text') as HTMLIFrameElement
 let posted: { call: string; args: unknown[] }[]
 
 beforeEach(() => {
@@ -271,7 +271,7 @@ describe('V2ReaderHost bars and tap zones', () => {
     view.rerender(<MemoryRouter><V2ReaderHost book={{ bytes: new ArrayBuffer(8), name: 'b.epub' }} idleHeading="idle" /></MemoryRouter>)
     fromPage({ type: 'open-failed', name: '2/b.epub', error: 'not a zip' })
     const alert = screen.getByRole('alert')
-    expect(alert).toHaveTextContent('cannot open b.epub')
+    expect(alert).toHaveTextContent('Cannot open b.epub')
     expect(alert.closest('header, footer')).toBeNull()
     expect(alert.compareDocumentPosition(frame()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(alert.closest('main')).toBe(frame().parentElement)

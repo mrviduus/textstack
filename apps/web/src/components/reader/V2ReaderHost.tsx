@@ -64,6 +64,8 @@ const SAVE_MESSAGE = { unsaved: 'v2Reader.unsaved', reopen: 'v2Reader.reopen', n
  * production). Not srcdoc: that inherits this document's CSP, which refuses the page's scripts.
  */
 const FRAME_SRC = V2_READER_FRAME_PATH
+/** The frame's id: the skip link's target. */
+const BOOK_ID = 'v2-reader-book'
 /**
  * No `ready` by then: the frame is not the page (a wrong path, an error, the SPA's own index.html nested in
  * it, a refused script). No `opened`/`open-failed` by the open's deadline: the page is stuck on the file. Both
@@ -746,6 +748,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
 
   return (
     <main ref={main} tabIndex={-1} className={`reader-page v2-reader${barsHidden ? ' immersive-mode' : ''}`} data-bars={barsHidden ? 'hidden' : 'shown'}>
+      {/* #1267: past the bars to the book (the legacy reader's skip link); the frame takes focus, its keys turn pages. */}
+      <a href={`#${BOOK_ID}`} className="skip-link" onClick={(e) => { e.preventDefault(); frame.current?.focus() }}>{t('v2Reader.skipToBook')}</a>
       {/* Legacy reader's bars (reader.css); hidden ones stay reachable by Tab, and focus shows them. */}
       <header ref={header} className="reader-top-bar" onFocus={showBars}>
         <div className="reader-top-bar__left">
@@ -797,7 +801,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         {overdue && (
           <span role="alert" data-testid="v2-overdue">
             {overdue === 'ready'
-              ? t('v2Reader.frameFailed', { path: FRAME_SRC, seconds: readyDeadlineMs / 1000 })
+              ? (dev ? t('v2Reader.frameFailedDev', { path: FRAME_SRC, seconds: readyDeadlineMs / 1000 }) : t('v2Reader.frameFailed', { seconds: readyDeadlineMs / 1000 }))
               : t('v2Reader.openTimeout', { name: opening.current?.originalName ?? '', seconds: Math.ceil(openedDeadlineMs(openedBytes.current) / 1000) })}{' '}
             <button onClick={reloadFrame}>{t('v2Reader.retry')}</button>
           </span>
@@ -811,7 +815,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           AND its /api session cookie. The shell itself is public (it carries no data, nginx serves it to
           anyone); what is gated is the route that hands it a book, behind Features:V2Api (off in production).
           A second origin is revisited before M5 (docs/01-architecture/v2-reader-web-hosting.md). */}
-      <iframe key={frameLoad} ref={frame} title="V2 reader" sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} className="v2-reader__frame" />
+      <iframe key={frameLoad} ref={frame} id={BOOK_ID} title={t('v2Reader.frameTitle')} sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} className="v2-reader__frame" />
       <footer ref={footer} className="reader-footer" onFocus={showBars}>
         {reading && <V2SectionNav toc={toc} tocIndex={tocIndex} onGo={goToc} />}
         <div className="reader-footer__info v2-reader__footer">

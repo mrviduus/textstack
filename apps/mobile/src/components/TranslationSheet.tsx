@@ -10,6 +10,8 @@ import { LanguageList } from './LanguageList'
 import { getLanguage } from '@textstack/shared'
 import { fonts } from '../theme/typography'
 import { cachedTranslate } from '../lib/translateCache'
+import { fill } from '../lib/fill'
+import { useReduceMotion } from '../hooks/useReduceMotion'
 
 interface TranslationSheetProps {
   visible: boolean
@@ -30,6 +32,7 @@ interface TranslationSheetProps {
 export function TranslationSheet({ visible, text, sentence, bookId, onClose, onSpeak, fromLang: fromOverride }: TranslationSheetProps) {
   const { colors } = useTheme()
   const { t } = useLanguage()
+  const reduceMotion = useReduceMotion()
   const { fromLang, translationTarget } = useTargetLanguage(fromOverride)
   /**
    * Where the language question is asked, and why here.
@@ -77,7 +80,7 @@ export function TranslationSheet({ visible, text, sentence, bookId, onClose, onS
       .then(({ translation }) => {
         setTranslated(translation)
       })
-      .catch(() => setError('Translation failed'))
+      .catch(() => setError(t('reader.translationSheet.failed')))
       .finally(() => setLoading(false))
     // `needsLanguage` is a dependency, not just a guard: answering with the
     // language we had already guessed leaves `translationTarget` unchanged, and
@@ -85,17 +88,17 @@ export function TranslationSheet({ visible, text, sentence, bookId, onClose, onS
   }, [visible, text, sentence, bookId, fromLang, translationTarget, needsLanguage])
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType={reduceMotion ? 'none' : 'slide'} transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={[styles.sheet, { backgroundColor: colors.background }]}>
           <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginTop: 12 }} />
           <View style={[styles.header, { borderBottomColor: colors.border }]}>
-            <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">Translation</Text>
+            <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">{t('reader.translationSheet.title')}</Text>
             <TouchableOpacity
               onPress={onClose}
               style={{ padding: 4 }}
               accessibilityRole="button"
-              accessibilityLabel="Close translation"
+              accessibilityLabel={t('reader.translationSheet.close')}
             >
               <Ionicons name="close" size={22} color={colors.textSecondary} />
             </TouchableOpacity>
@@ -109,7 +112,7 @@ export function TranslationSheet({ visible, text, sentence, bookId, onClose, onS
                   <TouchableOpacity
                     onPress={() => onSpeak(text)}
                     accessibilityRole="button"
-                    accessibilityLabel={`Pronounce in ${fromLabel}`}
+                    accessibilityLabel={fill(t('reader.translationSheet.pronounce'), { language: fromLabel })}
                   >
                     <Ionicons name="volume-high-outline" size={20} color={colors.primary} />
                   </TouchableOpacity>
@@ -147,13 +150,13 @@ export function TranslationSheet({ visible, text, sentence, bookId, onClose, onS
               ) : toLabel ? (
                 <>
                   <Text style={[styles.langLabel, { color: colors.primary }]}>{`\u2192 ${toLabel}`}</Text>
-                  {loading && <ActivityIndicator color={colors.primary} style={{ marginTop: 8 }} accessibilityLabel="Translating" />}
+                  {loading && <ActivityIndicator color={colors.primary} style={{ marginTop: 8 }} accessibilityLabel={t('reader.translationSheet.translating')} />}
                   {error ? <Text style={{ color: colors.error, marginTop: 8 }} accessibilityRole="alert">{error}</Text> : null}
                   {translated ? <Text style={[styles.translatedText, { color: colors.text }]}>{translated}</Text> : null}
                 </>
               ) : (
                 <Text style={[styles.translatedText, { color: colors.textSecondary }]}>
-                  {`You read ${fromLabel} natively, so there is nothing to translate into. Pick a different language in Profile.`}
+                  {fill(t('reader.translationSheet.sameLanguage'), { language: fromLabel })}
                 </Text>
               )}
             </View>

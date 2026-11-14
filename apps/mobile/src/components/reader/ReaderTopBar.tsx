@@ -1,6 +1,7 @@
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { fonts } from '../../theme/typography'
+import { useLanguage } from '../../context/LanguageContext'
 
 type Props = {
   barBg: string
@@ -54,6 +55,7 @@ export function ReaderTopBar({
   backLabel,
   tocLabel,
 }: Props) {
+  const { t } = useLanguage()
   return (
     <Animated.View
       style={[
@@ -81,12 +83,12 @@ export function ReaderTopBar({
       )}
       <View style={styles.topBarRight}>
         {isAuthenticated && onBookmarksPress && (
-          <TouchableOpacity onPress={onBookmarksPress} style={styles.iconBtn}>
+          <TouchableOpacity onPress={onBookmarksPress} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel={t('reader.chrome.bookmarks')}>
             <Ionicons name={isCurrentBookmarked ? 'bookmark' : 'bookmark-outline'} size={20} color={barText} />
           </TouchableOpacity>
         )}
         {isAuthenticated && onHighlightsPress && (
-          <TouchableOpacity onPress={onHighlightsPress} style={styles.iconBtn} accessibilityLabel="Highlights">
+          <TouchableOpacity onPress={onHighlightsPress} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel={t('reader.chrome.highlights')}>
             <Ionicons name="color-wand-outline" size={20} color={barText} />
           </TouchableOpacity>
         )}
@@ -96,7 +98,7 @@ export function ReaderTopBar({
           </TouchableOpacity>
         )}
         {onSettingsPress && (
-          <TouchableOpacity onPress={onSettingsPress} style={styles.iconBtn}>
+          <TouchableOpacity onPress={onSettingsPress} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel={t('reader.chrome.settings')}>
             <Ionicons name="options-outline" size={20} color={barText} />
           </TouchableOpacity>
         )}

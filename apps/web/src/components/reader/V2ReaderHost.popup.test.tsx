@@ -12,7 +12,7 @@ const postSse = vi.fn()
 vi.mock('../../lib/sse', () => ({ postSse: (...a: unknown[]) => postSse(...a), SseUnsupportedError: class extends Error {} }))
 
 const WIDTH = 1000
-const frame = () => screen.getByTitle('V2 reader') as HTMLIFrameElement
+const frame = () => screen.getByTitle('Book text') as HTMLIFrameElement
 let posted: { call: string; args: unknown[] }[]
 
 beforeEach(() => {

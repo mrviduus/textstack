@@ -45,7 +45,7 @@ vi.mock('../../lib/v2ReaderSync', () => ({
   },
 }))
 
-const frameWindow = () => (screen.getByTitle('V2 reader') as HTMLIFrameElement).contentWindow!
+const frameWindow = () => (screen.getByTitle('Book text') as HTMLIFrameElement).contentWindow!
 let posted: { call: string; args: unknown[] }[]
 
 beforeEach(() => {
@@ -170,7 +170,7 @@ describe('V2ReaderHost, server sync', () => {
     it('unmount_TakenWhileTheFrameIsStillThere_IntoClose', () => {
       let attached: boolean | null = null
       const { unmount } = reading(() => {
-        attached = !!(screen.queryByTitle('V2 reader') as HTMLIFrameElement | null)?.isConnected
+        attached = !!(screen.queryByTitle('Book text') as HTMLIFrameElement | null)?.isConnected
         return { type: 'store', key: SHA('a'), json: LAST }
       })
       unmount()
@@ -339,7 +339,7 @@ describe('V2ReaderHost, server sync', () => {
       const s = await reading()
       act(() => s.onHighlights([]))
       fromPage({ type: 'highlight-list', key: SHA('a'), highlights: [item] })
-      Object.defineProperty(screen.getByTitle('V2 reader'), 'clientWidth', { value: 1000, configurable: true })
+      Object.defineProperty(screen.getByTitle('Book text'), 'clientWidth', { value: 1000, configurable: true })
       fromPage({ type: 'highlight-tap', id: ID, x: 500, y: 100, rect: { x: 480, y: 90, w: 40, h: 20 } })
       fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: '  typed  ' } })
       const order: string[] = []
@@ -413,7 +413,7 @@ describe('V2ReaderHost, server sync', () => {
     it('beforeThePullLands_NoEditorOnATap_AfterIt_TheSessionsNote', async () => {
       const s = await reading()
       fromPage({ type: 'highlight-list', key: SHA('a'), highlights: [item] })
-      Object.defineProperty(screen.getByTitle('V2 reader'), 'clientWidth', { value: 1000, configurable: true })
+      Object.defineProperty(screen.getByTitle('Book text'), 'clientWidth', { value: 1000, configurable: true })
       // Not offered yet: a centre tap like any other (it toggles the bars).
       const bars = () => document.querySelector('main')!.getAttribute('data-bars')
       const before = bars()

@@ -23,6 +23,7 @@ import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs
 import { createMovedTracker } from '../../lib/v2reader/movedTracker.mjs'
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
+import { fill } from '../../lib/fill'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
 import {
   BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readRelocate, readTap,
@@ -161,10 +162,10 @@ const freshNonce = () => nonceFromUuid(uuid.v4())
 type Opening = { file: string; name: string }
 const isStaged = (file: string) => file.startsWith('staging/')
 
-/** Logs a failure; `show` also puts it on screen (a full disk as a human message, hostErrors.ts). */
-const fail = (what: string, show?: (text: string) => void) => (e: unknown) => {
+/** Logs a failure; `show` also puts it on screen (the screen's `showError`: a full disk as a human message, hostErrors.ts). */
+const fail = (what: string, show?: (e: unknown) => void) => (e: unknown) => {
   console.log(`[v2] ${what} failed: ${e}`)
-  show?.(`${what}: ${hostError(e)}`)
+  show?.(e)
 }
 
 /** The file's size for its `opened` deadline; unknown (null) gives the floor. */
@@ -172,7 +173,8 @@ const sizeOf = (file: string) => {
   try { return v2File(file).size } catch { return null }
 }
 
-const IDLE_HEADING = 'Pick a book'
+/** No book: the list's heading is `reader.v2.pick` (#1267). */
+const IDLE_HEADING = ''
 
 /** The WebView's verdict for the process (#1228, webViewVersion.ts): the reader page's first `ua` answer. */
 const webViewCheck = createWebViewCheck()
@@ -184,7 +186,8 @@ const webViewCheck = createWebViewCheck()
  */
 export default function V2ReaderScreen() {
   const [verdict, setVerdict] = useState(webViewCheck.verdict)
-  if (Platform.OS !== 'android') return <Text>Android dev route only (R2)</Text>
+  const { t } = useLanguage()
+  if (Platform.OS !== 'android') return <Text>{t('reader.v2.androidOnly')}</Text>
   if (verdict === 'outdated') return <UpdateWebViewScreen />
   return <V2Reader verdict={verdict} onUserAgent={(ua) => setVerdict(webViewCheck.answer(ua))} />
 }
@@ -281,6 +284,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    */
   const [openError, setOpenError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** A failure on screen (`fail`'s `show`): a full disk or an unreadable file in words, anything else as it is. */
+  const showError = (e: unknown) => setError(hostError(e, t))
+  const showOpenError = (e: unknown) => setOpenError(hostError(e, t))
   /** A deadline the page missed (deadlines.mjs, #1080 item 3); a late answer clears it. */
   const [overdue, setOverdue] = useState<Overdue>(null)
   const [deadlines] = useState(() => createDeadlines(setOverdue))
@@ -590,7 +596,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       }
     } catch (e) {
       console.warn('[v2] word not saved:', e)
-      showToast({ variant: 'error', message: 'Could not save word. Try again.' })
+      showToast({ variant: 'error', message: t('reader.v2.saveWordFailed') })
     } finally {
       savingWords.current.delete(key)
     }
@@ -614,7 +620,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setSheet(null)
     closePopup()
   }
-  const refreshBooks = () => v2Storage().books().then(setBooks, fail('library', setError))
+  const refreshBooks = () => v2Storage().books().then(setBooks, fail('library', showError))
   useEffect(() => {
     refreshBooks()
     deviceLocalLibrary().fileSync().then(setFileSync, fail('settings'))
@@ -672,7 +678,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       (e) => {
         // The setting did not land: the toggle shows what is stored, and the reader is told.
         setFileSync(!next)
-        fail('file sync setting', setError)(e)
+        fail('file sync setting', showError)(e)
       },
     )
   }
@@ -689,14 +695,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         if (!current()) return
         open({ file: bookFile(b.sha256), name: b.originalName })
       },
-      fail('download', setOpenError),
+      fail('download', showOpenError),
     )
   }
 
   /** "Try again" on a book not synced (sync.ts `tryAgainV2Book`). */
   const unpark = (b: LibraryBook) => {
     setError(null)
-    tryAgainV2Book(deviceLocalLibrary(), b.id, refreshBooks, () => sync.current()).catch(fail('unpark', setError))
+    tryAgainV2Book(deviceLocalLibrary(), b.id, refreshBooks, () => sync.current()).catch(fail('unpark', showError))
   }
 
   const open = (target: Opening) => {
@@ -705,7 +711,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     const url = bookUrl(target.file)
     if (!url) {
       if (isStaged(target.file)) v2Storage().dropStaged(target.file).catch(fail('drop'))
-      return setOpenError(`cannot open ${target.name}: not a file the reader serves`)
+      return setOpenError(fill(t('reader.v2.cannotOpen'), { name: target.name, reason: t('reader.v2.notServed') }))
     }
     // A deep link's highlight belongs to its book: another book's open drops it; this book opened again (the reopen on a
     // page's `ready`, #1312 review) keeps it.
@@ -724,7 +730,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setOffer(null)
     setOpenError(null)
     setError(null)
-    setHeading(`Opening ${target.name}`)
+    setHeading(fill(t('reader.v2.opening'), { name: target.name }))
     setProgress.current(null)
     setAtEnd(false)
     clearToc()
@@ -752,7 +758,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setTtsLanguage(ttsLang(t.opened.lang, readerTextLanguage(readLang(t.opened), language)))
     setLangSaves(savesWords(t.opened))
     setSavedWords(new Set())
-    onOpened(t.open, t.opened).catch(fail('opened', setOpenError))
+    onOpened(t.open, t.opened).catch(fail('opened', showOpenError))
   }
 
   /** Picks still copying their file into staging/ (#1273): shown, as a large or cloud file takes a while. */
@@ -773,7 +779,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       if (!current()) return void v2Storage().dropStaged(file).catch(fail('drop'))
       open({ file, name: asset.name })
     } catch (e) {
-      fail('pick', setOpenError)(e)
+      fail('pick', showOpenError)(e)
     }
   }
 
@@ -818,7 +824,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setBook(false)
     // Not the previous book's title (#1080 item 6): the error line names this file.
     setHeading(IDLE_HEADING)
-    setOpenError(`cannot open ${o.name}: ${reason}`)
+    setOpenError(fill(t('reader.v2.cannotOpen'), { name: o.name, reason }))
   }
 
   const onMessage = (event: WebViewMessageEvent) => {
@@ -865,7 +871,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         deadlines.answered()
         strikes.clear()
         console.log(`[v2] open-failed ${f.failed.name}: ${m.error}`)
-        giveUp(f.failed, hostError(m.error))
+        giveUp(f.failed, hostError(m.error, t))
         // The page kept a book on screen that answered meanwhile: it is the one read now.
         if (f.take) takeOpened(f.take)
         return
@@ -883,7 +889,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           // Not on every page turn: only after the page listed a changed highlight set.
           if (notesStale.current) refreshNotes()
           notesStale.current = false
-        }, fail('store', setError))
+        }, fail('store', showError))
         return
       case BOOK_CLOSED:
         // The closed book's pending save came first (CLOSE_BOOK_JS); a reopen meanwhile keeps it.
@@ -953,7 +959,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           if (!done) console.warn(`[v2] highlight ${r.id} not removed here: not held, or removed already`)
           refreshNotes()
           syncSoon()
-        }, fail('remove highlight', setError))
+        }, fail('remove highlight', showError))
         return
       }
       case 'tap': {
@@ -1004,7 +1010,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     v2Storage().finishBook(sha).then((list) => {
       setBooks(list)
       sync.current()
-    }, fail('finish book', setError))
+    }, fail('finish book', showError))
   }
   // Applied live: the page re-lays the book out where it is (README, `settings`). Before `ready` the pending
   // ready handler applies the stored choices instead.
@@ -1032,7 +1038,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (o && inBookRef.current) {
       const again = crashedFile.current === o.file
       crashedFile.current = again ? null : o.file
-      if (again) giveUp(o, 'this book crashes the reader')
+      if (again) giveUp(o, t('reader.v2.crashes'))
     }
     setNonce(freshNonce())
   }, [])
@@ -1050,7 +1056,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (overdue !== 'opened') return
     const o = opening.current
     if (!o || !strikes.strike(o.file)) return
-    giveUp(o, 'it did not open in time, twice')
+    giveUp(o, t('reader.v2.openedLateTwice'))
     ready.current = false
     setNonce(freshNonce())
   }, [overdue])
@@ -1106,17 +1112,17 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         <View style={styles.alert} accessibilityRole="alert" accessibilityLiveRegion="polite">
           <Text style={[styles.meta, { color: colors.error }]}>
             {overdue === 'opened'
-              ? `${opening.current?.name ?? 'The book'} is taking too long to open.`
-              : verdict === 'ok' ? 'The reader failed to load.' : t('updates.webView.readyFailed')}
+              ? fill(t('reader.v2.openTimeout'), { name: opening.current?.name ?? t('reader.v2.theBook') })
+              : verdict === 'ok' ? t('reader.v2.frameFailed') : t('updates.webView.readyFailed')}
           </Text>
-          <Pressable onPress={retry} accessibilityRole="button" style={button}><Text style={styles.buttonText}>Retry</Text></Pressable>
+          <Pressable onPress={retry} accessibilityRole="button" style={button}><Text style={styles.buttonText}>{t('common.retry')}</Text></Pressable>
         </View>
       )}
       {openError && <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{openError}</Text>}
       {error && <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{error}</Text>}
       {offer && (
         <Pressable onPress={() => { goTo(offer, true); setOffer(null) }} accessibilityRole="button" style={styles.offer}>
-          <Text style={[styles.meta, { color: colors.primary }]}>Read further on another device ({Math.round((offer.fraction ?? 0) * 100)}%): go there</Text>
+          <Text style={[styles.meta, { color: colors.primary }]}>{fill(t('reader.v2.newerPlace'), { percent: Math.round((offer.fraction ?? 0) * 100) })}</Text>
         </Pressable>
       )}
     </>
@@ -1282,7 +1288,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
                   if (!done) console.warn(`[v2] note not saved: highlight ${tapped.id} is not held here`)
                   refreshNotes()
                   syncSoon()
-                }, fail('note', setError))
+                }, fail('note', showError))
               }}
               onDelete={() => {
                 call(`window.__fol.removeHighlight(${JSON.stringify(tapped.id)})`)
@@ -1304,13 +1310,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       ) : (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <View style={styles.bar}>
-            <Pressable onPress={pick} accessibilityRole="button" style={button}><Text style={styles.buttonText}>Pick book</Text></Pressable>
-            <Pressable onPress={toggleFlow} accessibilityRole="button" disabled={!flow || !reflowable} style={[button, (!flow || !reflowable) && styles.disabled]}><Text style={styles.buttonText}>{flow === 'paginated' ? 'Scrolled' : 'Paginated'}</Text></Pressable>
+            <Pressable onPress={pick} accessibilityRole="button" style={button}><Text style={styles.buttonText}>{t('reader.v2.pickBook')}</Text></Pressable>
+            <Pressable onPress={toggleFlow} accessibilityRole="button" disabled={!flow || !reflowable} style={[button, (!flow || !reflowable) && styles.disabled]}><Text style={styles.buttonText}>{t(flow === 'paginated' ? 'reader.v2.scrolled' : 'reader.v2.paginated')}</Text></Pressable>
             {userId && (
-              <Pressable onPress={toggleFileSync} accessibilityRole="button" style={button}><Text style={styles.buttonText}>{fileSync ? 'Files: sync' : 'Files: local'}</Text></Pressable>
+              <Pressable onPress={toggleFileSync} accessibilityRole="button" style={button}><Text style={styles.buttonText}>{t(fileSync ? 'reader.v2.filesSync' : 'reader.v2.filesLocal')}</Text></Pressable>
             )}
           </View>
-          <Text style={[styles.heading, { color: colors.text }]} numberOfLines={1}>{heading}</Text>
+          <Text style={[styles.heading, { color: colors.text }]} numberOfLines={1}>{heading || t('reader.v2.pick')}</Text>
           {copying > 0 && <Text style={[styles.meta, { color: colors.textSecondary }]} accessibilityLiveRegion="polite">{t('reader.v2.copying')}</Text>}
           {notices}
           {books.length > 0 && (
@@ -1326,9 +1332,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
                   {b.finished && <Text style={[styles.meta, { color: colors.primary }]}>{t('reader.chrome.finished')}</Text>}
                   {b.notSynced && (
                     <>
-                      <Text numberOfLines={2} style={[styles.meta, { color: colors.error }]}>Not synced: {b.notSynced}</Text>
+                      <Text numberOfLines={2} style={[styles.meta, { color: colors.error }]}>{fill(t('reader.v2.notSynced'), { reason: b.notSynced })}</Text>
                       <Pressable onPress={() => unpark(b)} accessibilityRole="button">
-                        <Text style={[styles.meta, { color: colors.primary }]}>Try again</Text>
+                        <Text style={[styles.meta, { color: colors.primary }]}>{t('common.retry')}</Text>
                       </Pressable>
                     </>
                   )}

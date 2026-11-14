@@ -1017,6 +1017,15 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   .v2-reader__finish {
     transition: none;
   }
+  /* #1267: nothing in the V2 reader's chrome moves (drawers, popups, toasts, spinners). A near-zero duration, not
+     `none`: what waits for an animation's end still gets it. */
+  .v2-reader *,
+  .v2-reader *::before,
+  .v2-reader *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* The settings panel's typography controls (#1260): one fieldset, disabled for a fixed-layout book. */

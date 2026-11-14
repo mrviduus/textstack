@@ -7,7 +7,7 @@ import { V2ReaderHost, hostNavKey, type V2HostBook } from './V2ReaderHost'
 
 const KEY = 'v2reader.settings'
 const DEFAULTS = { fontSize: 20, lineHeight: 1.6, fontFamily: 'serif', textAlign: 'book', theme: 'light' }
-const frame = () => screen.getByTitle('V2 reader') as HTMLIFrameElement
+const frame = () => screen.getByTitle('Book text') as HTMLIFrameElement
 let posted: { call: string; args: unknown[] }[]
 const sent = () => posted.filter((m) => m.call === 'settings').map((m) => m.args[0])
 

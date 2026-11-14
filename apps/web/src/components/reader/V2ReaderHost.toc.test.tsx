@@ -6,7 +6,7 @@ import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
 // #1261: the table of contents and the section controls of the V2 reader on the web, through a fake frame as
 // V2ReaderHost.chrome.test.tsx.
 
-const frame = () => screen.getByTitle('V2 reader') as HTMLIFrameElement
+const frame = () => screen.getByTitle('Book text') as HTMLIFrameElement
 let posted: { call: string; args: unknown[] }[]
 
 beforeEach(() => {

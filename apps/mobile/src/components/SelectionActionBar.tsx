@@ -10,9 +10,11 @@ import { useNeedsNativeLanguage } from '../hooks/useNeedsNativeLanguage'
 import { fonts } from '../theme/typography'
 import { RareWordNotice } from './reader/RareWordNotice'
 import { savedTranslationOffer } from '@textstack/shared'
+import { fill } from '../lib/fill'
 
 const STAGE_LABELS: Record<number, { label: string; color: string }> = {
-  0: { label: 'New', color: '#3b82f6' },
+  // Stage 0's label is a word: said through `t` (reader.actionBar.stageNew).
+  0: { label: '', color: '#3b82f6' },
   1: { label: '★1', color: '#eab308' },
   2: { label: '★2', color: '#eab308' },
   3: { label: '★3', color: '#22c55e' },
@@ -185,6 +187,7 @@ export function SelectionActionBar({
   const stage = !isMultiWord && vocabStage != null ? STAGE_LABELS[vocabStage] : null
   const savedAs = !isMultiWord && !isSameLang ? savedTranslationOffer(savedTranslation, translating ? null : translation, translationLang, translationTarget) : null
   const highlightFill = HIGHLIGHT_FILLS[highlightColor] || HIGHLIGHT_FILLS.yellow
+  const stageLabel = stage && (stage.label || t('reader.actionBar.stageNew'))
 
   return (
     <View
@@ -213,7 +216,7 @@ export function SelectionActionBar({
           style={styles.translationRow}
           onPress={onTranslate}
           accessibilityRole="button"
-          accessibilityLabel="Choose the language to translate into"
+          accessibilityLabel={t('reader.actionBar.chooseLanguage')}
         >
           <Ionicons name="language-outline" size={13} color={colors.primary} />
           {/* Wider than a gloss: `styles.translation` caps at 55% to leave room
@@ -236,7 +239,7 @@ export function SelectionActionBar({
             <ActivityIndicator size="small" color={colors.textSecondary} />
           ) : (
             <Text style={[styles.translation, { color: colors.text }]} numberOfLines={1}>
-              {failed ? 'Could not translate' : translation || '—'}
+              {failed ? t('reader.actionBar.translateFailed') : translation || '—'}
             </Text>
           )}
         </View>
@@ -262,7 +265,7 @@ export function SelectionActionBar({
         <View style={styles.noticeRow}>
           <Ionicons name="information-circle-outline" size={13} color={colors.textSecondary} />
           <Text style={[styles.notice, { color: colors.textSecondary }]} numberOfLines={1}>
-            Too long to listen, translate or explain
+            {t('reader.actionBar.tooLong')}
           </Text>
         </View>
       )}
@@ -274,7 +277,7 @@ export function SelectionActionBar({
               style={[styles.highlightBtn, { backgroundColor: highlightFill }]}
               onPress={() => onHighlight(highlightColor)}
               accessibilityRole="button"
-              accessibilityLabel={`Highlight in ${highlightColor} (tap to change color in the note editor)`}
+              accessibilityLabel={fill(t('reader.actionBar.highlightIn'), { color: t(`reader.highlightColor.${highlightColor}`) })}
               hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             />
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
@@ -285,21 +288,21 @@ export function SelectionActionBar({
           style={styles.btn}
           onPress={handleCopy}
           accessibilityRole="button"
-          accessibilityLabel="Copy selection"
+          accessibilityLabel={t('reader.actionBar.copySelection')}
         >
           <Ionicons name="copy-outline" size={19} color={colors.text} />
-          <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>Copy</Text>
+          <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>{t('reader.actionBar.copy')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.btn, tooLong && styles.btnDisabled]}
           onPress={onTranslate}
           disabled={tooLong}
           accessibilityRole="button"
-          accessibilityLabel={tooLong ? 'Translate — selection too long' : 'Translate selection in full sheet'}
+          accessibilityLabel={t(tooLong ? 'reader.actionBar.translateTooLong' : 'reader.actionBar.translateFull')}
           accessibilityState={{ disabled: !!tooLong }}
         >
           <Ionicons name="language-outline" size={19} color={tooLong ? colors.textSecondary : colors.text} />
-          <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>Translate</Text>
+          <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>{t('reader.actionBar.translate')}</Text>
         </TouchableOpacity>
         {onExplain && (
           <TouchableOpacity
@@ -307,11 +310,11 @@ export function SelectionActionBar({
             onPress={onExplain}
             disabled={tooLong}
             accessibilityRole="button"
-            accessibilityLabel={tooLong ? 'Explain — selection too long' : 'Explain selection in context'}
+            accessibilityLabel={t(tooLong ? 'reader.actionBar.explainTooLong' : 'reader.actionBar.explainInContext')}
             accessibilityState={{ disabled: !!tooLong }}
           >
             <Ionicons name="bulb-outline" size={19} color={tooLong ? colors.textSecondary : colors.text} />
-            <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>Explain</Text>
+            <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>{t('reader.actionBar.explain')}</Text>
           </TouchableOpacity>
         )}
         {/* One control, three states: idle → fetching → playing. The spinner
@@ -322,12 +325,12 @@ export function SelectionActionBar({
           onPress={onSpeak}
           disabled={tooLong}
           accessibilityRole="button"
-          accessibilityLabel={
-            tooLong ? 'Listen — selection too long'
-              : isTtsLoading ? 'Loading speech, tap to cancel'
-              : isSpeaking ? 'Stop speech'
-              : 'Read selection aloud'
-          }
+          accessibilityLabel={t(
+            tooLong ? 'reader.actionBar.listenTooLong'
+              : isTtsLoading ? 'reader.actionBar.listenLoading'
+              : isSpeaking ? 'reader.actionBar.stopSpeech'
+              : 'reader.actionBar.readAloud',
+          )}
           accessibilityState={{ selected: !!isSpeaking, busy: !!isTtsLoading, disabled: !!tooLong }}
         >
           {isTtsLoading
@@ -338,7 +341,7 @@ export function SelectionActionBar({
                 color={tooLong ? colors.textSecondary : colors.text}
               />}
           <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>
-            {isTtsLoading ? 'Loading' : isSpeaking ? 'Stop' : 'Listen'}
+            {t(isTtsLoading ? 'reader.actionBar.loading' : isSpeaking ? 'reader.actionBar.stop' : 'reader.actionBar.listen')}
           </Text>
         </TouchableOpacity>}
 
@@ -359,9 +362,9 @@ export function SelectionActionBar({
             {isAuthenticated && stage && (
               <View
                 style={[styles.stageBadge, { backgroundColor: stage.color + '20', borderColor: stage.color + '40' }]}
-                accessibilityLabel={`Vocabulary stage ${stage.label}`}
+                accessibilityLabel={fill(t('reader.actionBar.stage'), { stage: stageLabel || '' })}
               >
-                <Text style={[styles.stageBadgeText, { color: stage.color }]}>{stage.label}</Text>
+                <Text style={[styles.stageBadgeText, { color: stage.color }]}>{stageLabel}</Text>
               </View>
             )}
             {isAuthenticated && stage && vocabStage !== 4 && onMarkKnown && (
@@ -369,16 +372,16 @@ export function SelectionActionBar({
                 style={styles.btn}
                 onPress={onMarkKnown}
                 accessibilityRole="button"
-                accessibilityLabel="Mark word as known"
+                accessibilityLabel={t('reader.actionBar.markKnown')}
               >
                 <Ionicons name="checkmark-done" size={19} color="#22c55e" />
-                <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>Known</Text>
+                <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>{t('reader.actionBar.known')}</Text>
               </TouchableOpacity>
             )}
             {/* Transient ✓ right after a save lands (before the stage badge
                 takes over on next render). */}
             {isAuthenticated && !stage && wordSaved && (
-              <View style={styles.btn} accessibilityLabel="Saved to vocabulary">
+              <View style={styles.btn} accessibilityLabel={t('reader.actionBar.saved')}>
                 <Ionicons name="checkmark-circle" size={20} color={colors.success} />
               </View>
             )}
@@ -392,14 +395,14 @@ export function SelectionActionBar({
                 style={styles.btn}
                 onPress={onSaveWord}
                 accessibilityRole="button"
-                accessibilityLabel={category === 'rare' ? 'Save word to vocabulary (rare word)' : 'Save word to vocabulary'}
+                accessibilityLabel={t(category === 'rare' ? 'reader.actionBar.saveRare' : 'reader.actionBar.saveWord')}
               >
                 <Ionicons
                   name="add-circle"
                   size={22}
                   color={category === 'common' ? colors.textSecondary : (category ? colors.success : colors.text)}
                 />
-                <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>Save</Text>
+                <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>{t('reader.actionBar.save')}</Text>
               </TouchableOpacity>
             )}
             {/* Remove — undo an accidental save. */}
@@ -408,10 +411,10 @@ export function SelectionActionBar({
                 style={styles.btn}
                 onPress={onRemove}
                 accessibilityRole="button"
-                accessibilityLabel="Remove word from vocabulary"
+                accessibilityLabel={t('reader.actionBar.removeWord')}
               >
                 <Ionicons name="trash-outline" size={19} color={colors.textSecondary} />
-                <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>Remove</Text>
+                <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>{t('reader.actionBar.remove')}</Text>
               </TouchableOpacity>
             )}
           </>
@@ -424,7 +427,7 @@ export function SelectionActionBar({
               style={styles.btn}
               onPress={onClose}
               accessibilityRole="button"
-              accessibilityLabel="Close selection toolbar"
+              accessibilityLabel={t('reader.actionBar.close')}
               hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
               <Ionicons name="close" size={20} color={colors.textSecondary} />

@@ -202,6 +202,9 @@
       "moreLanguages": "More languages…",
       "close": "Close"
     },
+    "translationPopup": {
+      "translating": "Translating..."
+    },
     "selectionToolbar": {
       "highlightYellow": "Highlight yellow",
       "highlightGreen": "Highlight green",
@@ -486,9 +489,10 @@
     "scrolled": "Scrolled",
     "paginated": "Paginated",
     "restore": "restore: {{state}}",
-    "cannotOpen": "cannot open {{name}}: {{error}}",
+    "cannotOpen": "Cannot open {{name}}: {{error}}",
     "libraryCorrupt": "The stored library ({{key}}) cannot be read: books are not added to it. Fix or remove it, then reload.",
-    "frameFailed": "The reader failed to load: no answer from {{path}} in {{seconds}} s.",
+    "frameFailed": "The reader failed to load: no answer in {{seconds}} s.",
+    "frameFailedDev": "The reader failed to load: no answer from {{path}} in {{seconds}} s.",
     "openTimeout": "{{name}} is taking too long to open (no answer in {{seconds}} s).",
     "loadFailed": "Could not load the book: {{error}}",
     "noFile": "This book has no file to read yet.",
@@ -538,7 +542,10 @@
     "prevSection": "Previous section: {{title}}",
     "nextSection": "Next section: {{title}}",
     "translationFailed": "Could not translate this word.",
-    "speechSpeed": "Speech speed"
+    "speechSpeed": "Speech speed",
+    "title": "Reading",
+    "frameTitle": "Book text",
+    "skipToBook": "Skip to the book"
   },
   "library": {
     "continue": "Continue",

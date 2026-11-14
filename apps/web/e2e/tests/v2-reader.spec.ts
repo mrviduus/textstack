@@ -185,7 +185,7 @@ test.describe('V2 reader page @v2', () => {
     await page.goto(`/en/library/my/${bookId}`)
     await page.getByRole('link', { name: 'Open in the V2 reader' }).click()
     await expect(page).toHaveURL(new RegExp(`/en/library/my/${bookId}/read-v2/?$`))
-    await expect(page.locator('iframe[title="V2 reader"]')).toHaveAttribute('src', '/reader-v2/frame.html')
+    await expect(page.locator('iframe[title="Book text"]')).toHaveAttribute('src', '/reader-v2/frame.html')
     await expectOpened(page)
 
     const before = await status(page).textContent()
