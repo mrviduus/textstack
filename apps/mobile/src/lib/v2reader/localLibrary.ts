@@ -152,7 +152,6 @@ export interface OutboxItem { kind: OutboxKind; target: string; gen: number; fai
 
 /** A host action the sync owes the open reader: go to `position` (`adopt`/`move`) or ask (`prompt`). */
 export interface PositionAction {
-  bookId: string
   /** The book's bytes on this device: how the host knows its open book (an id can be re-keyed while it is read, #1303). */
   sha256: string | null
   action: 'adopt' | 'move' | 'prompt'
@@ -393,6 +392,8 @@ export function createLocalLibrary(db: Db) {
 
     /** Whether a book on this device already holds these bytes. */
     hasLocalBytes: (sha256: string) => job(async () => !!(await bookBySha(sha256))),
+    /** The id of the book with these bytes here, as it is now (a sync may re-key it while it is read, #1303). */
+    localBookId: (sha256: string) => job(async () => (await bookBySha(sha256))?.id ?? null),
 
     /**
      * The opened file as a book: identical bytes are the existing book (its format learned if it was
@@ -666,7 +667,7 @@ export function createLocalLibrary(db: Db) {
      * the server's `reset` 409 makes) drops the local one; otherwise the local one stays, and is still
      * owed to the server: an adopted position keeps the state queued so it is sent.
      */
-    applyStates: (items: V2ReadingState[], reader: (bookId: string, sha256: string | null) => OpenReader | null, cursor?: string | null) => tx(async () => {
+    applyStates: (items: V2ReadingState[], reader: (sha256: string | null) => OpenReader | null, cursor?: string | null) => tx(async () => {
       const owed: PositionAction[] = []
       for (const s of items) {
         const book = await bookById(s.bookId)
@@ -692,7 +693,7 @@ export function createLocalLibrary(db: Db) {
           continue
         }
         const local = st?.file_id === book.file_id ? parse<PagePosition>(st?.position ?? null) : null
-        const action = decideServerState({ local, localFileId: book.file_id, server: s, reader: reader(s.bookId, book.sha256), format })
+        const action = decideServerState({ local, localFileId: book.file_id, server: s, reader: reader(book.sha256), format })
         if (action === 'keep' || action === 'prompt') await upsertRevision(s.bookId, s.revision, s.fileId)
         else {
           await setAll()
@@ -701,7 +702,7 @@ export function createLocalLibrary(db: Db) {
           else await dequeue('state', s.bookId)
         }
         await setCompleted()
-        if (action !== 'keep' && position) owed.push({ bookId: s.bookId, sha256: book.sha256, action, position })
+        if (action !== 'keep' && position) owed.push({ sha256: book.sha256, action, position })
       }
       if (cursor !== undefined) await setMeta('cursor:reading', cursor)
       return owed

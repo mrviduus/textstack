@@ -27,10 +27,10 @@ export interface SyncHost {
   userId: string
   newId(): string
   /**
-   * The open reader of a book (its id, its bytes here), for ADR-019's adopt/move/prompt; null when that book is
-   * not open. A host knows its open book by the bytes (`openBookHost`): the id can change mid-read.
+   * The open reader of the book with these bytes here, for ADR-019's adopt/move/prompt; null when that book is
+   * not open. By bytes, not id (`openBookHost`): the id can change mid-read.
    */
-  reader(bookId: string, sha256: string | null): OpenReader | null
+  reader(sha256: string | null): OpenReader | null
   /** What a pulled or lost-to position owes the open reader (go there, or ask). */
   onPosition?(a: PositionAction): void
   /**
@@ -52,7 +52,7 @@ export interface SyncHost {
 export function openBookHost(openSha: () => string | null, reader: () => OpenReader | null, apply: (a: PositionAction) => void) {
   const isOpen = (sha: string | null) => sha != null && sha === openSha()
   return {
-    reader: (_bookId: string, sha256: string | null) => (isOpen(sha256) ? reader() : null),
+    reader: (sha256: string | null) => (isOpen(sha256) ? reader() : null),
     onPosition: (a: PositionAction) => { if (isOpen(a.sha256)) apply(a) },
   }
 }

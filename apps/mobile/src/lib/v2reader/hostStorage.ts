@@ -38,6 +38,7 @@ export interface LibraryBook {
 export interface LocalLibrary {
   books(): Promise<LibraryBook[]>
   hasLocalBytes(sha256: string): Promise<boolean>
+  localBookId(sha256: string): Promise<string | null>
   addOpened(b: { sha256: string; size: number; title: string; author: string; originalName: string; format: string | null }, newId: () => string): Promise<string>
   readEntry(sha256: string): Promise<string | null>
   writeEntry(sha256: string, json: string, newId: () => string): Promise<void>
@@ -126,8 +127,8 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
     books: (): Promise<LibraryBook[]> => afterMigration(() => lib.books()),
 
     /**
-     * The opened file into the library; resolves to the retained file, the book's id and the
-     * library's books. A staged file becomes the retained copy unless those bytes are already
+     * The opened file into the library; resolves to the retained file, the book's normalised sha256
+     * (the key the host knows the open book by, #1303) and the library's books. A staged file becomes the retained copy unless those bytes are already
      * retained. The copy lands before the row, so a kill between the two leaves a file that the next
      * import of the same bytes adopts, never a row without its file. A failed row write removes the
      * copy this call moved unless the library lists those bytes (the transaction left no row naming it).
@@ -145,8 +146,8 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
         else if (staged) files.remove(staged)
         try {
           if (over()) throw new Error('the session ended during the open: not added')
-          const bookId = await lib.addOpened({ ...book, sha256, format: book.format ?? null }, newId)
-          return { retained, bookId, books: await lib.books() }
+          await lib.addOpened({ ...book, sha256, format: book.format ?? null }, newId)
+          return { retained, sha256, books: await lib.books() }
         } catch (e) {
           const listed = moved && (await lib.hasLocalBytes(sha256).catch(() => true))
           if (moved && !listed) try { files.remove(retained) } catch { /* best effort; rethrow the real error */ }
@@ -172,6 +173,9 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
 
     /** A staged file the page could not open: README "open-failed — must not keep the file". */
     dropStaged: (staged: string) => queue.run(async () => files.remove(staged)),
+
+    /** The open book's id now, by its bytes (#1303: a sync may have re-keyed it since the open); null: not here. */
+    bookIdOf: (sha256: string) => afterMigration(() => lib.localBookId(sha256Key(sha256))),
 
     readStore: (key: string) => afterMigration(() => lib.readEntry(sha256Key(key))),
 

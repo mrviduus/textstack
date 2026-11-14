@@ -287,10 +287,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** The direction the open book pages in (`opened`, then every `relocate`): the keys and the tap zones follow it. */
   const pageDir = useRef<'ltr' | 'rtl'>('ltr')
   /**
-   * The open book as ADR-019 sees it (R6): its row, and whether the reader moved since the restore (movedTracker.mjs).
-   * `sha256`: its bytes, the key Finish book uses (#1266): a sync can re-key the row while it is read.
+   * The open book's bytes (normalised, hostStorage `sha256Key`): how the host knows it (finish book, sync, word
+   * saves), never by id: a sync can re-key the row while it is read (#1266, #1303).
    */
-  const reading = useRef({ sha256: null as string | null })
+  const openShaRef = useRef<string | null>(null)
   const [place] = useState(createMovedTracker)
   /** The open book's contents (#1261, toc.mjs); the reader's place in them as of the last relocate, read when the sheet opens. */
   const [toc, setToc] = useState<V2TocEntry[]>([])
@@ -378,7 +378,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** The closed book is no longer the open one: a later `ready` opens nothing, and its per-book state goes. */
   const endBook = () => {
     opening.current = null
-    reading.current.sha256 = null
+    openShaRef.current = null
     place.open()
     setReflowable(true)
     setAtEnd(false)
@@ -464,9 +464,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (intent !== 'save' || savingWords.current.has(key)) return
     savingWords.current.add(key)
     const body = { word: p.word, language: textLang, nativeLanguage, sentence: p.sentence || null, bookTitle: bookTitle.current }
-    // The open book's current id (a sync may have re-keyed it since the open, #1303).
-    const bookId = openBook?.id ?? null
     try {
+      // The open book's id now, from its row (a sync may have re-keyed it since the open, #1303).
+      const sha = openShaRef.current
+      const bookId = sha ? await v2Storage().bookIdOf(sha).catch(() => null) : null
       // A book the server does not have (imported here, not synced yet): the word is saved without it.
       const resp = await saveWordWithRetry({ ...body, userBookId: bookId }).catch((e: unknown) => {
         if (bookId && v2Api.v2ErrorOf(e)?.code === 'book_not_found') return saveWordWithRetry(body)
@@ -545,7 +546,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       retryFailed,
       newId: uuid.v4,
       // By the open book's bytes, not an id taken at open: this pass may re-key it (#1303).
-      ...openBookHost(() => reading.current.sha256, () => place.reader(), (a) => {
+      ...openBookHost(() => openShaRef.current, () => place.reader(), (a) => {
         if (a.action === 'prompt') setOffer(a.position)
         else goTo(a.position)
       }),
@@ -611,7 +612,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // page may still keep that book on screen, if this newer open fails before its swap.
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
     tracker.open(target.file, opening.current)
-    reading.current.sha256 = null
+    openShaRef.current = null
     place.open()
     setOffer(null)
     setOpenError(null)
@@ -676,7 +677,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     const stored = await s.readStore(m.book.sha256)
     if (superseded()) return
     call(`window.__fol.restore(${JSON.stringify(stored)})`)
-    const { retained, books } = await s.addOpened(
+    const { retained, sha256, books } = await s.addOpened(
       { ...m.book, title: m.title, author: m.author, originalName: current.name, format: m.format ?? null },
       isStaged(current.file) ? current.file : null,
     ).catch((e) => {
@@ -688,7 +689,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // From here on this book is the retained copy: a reloaded page reopens that, not the moved staging file.
     if (superseded()) return
     opening.current = { ...current, file: retained }
-    reading.current.sha256 = m.book.sha256
+    openShaRef.current = sha256
     sync.current()
   }
 
@@ -839,10 +840,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * The completion goes with whatever place is stored when the push runs, and the flushed place follows on the
    * next pass, still carrying `completedAt` (sent with every write while it stands).
    */
-  const openSha = reading.current.sha256
+  const openSha = openShaRef.current
   const openBook = openSha ? books.find((b) => b.local && b.sha256 === openSha) : undefined
   const finishBook = () => {
-    const sha = reading.current.sha256
+    const sha = openShaRef.current
     if (!sha) return
     flushPage()
     v2Storage().finishBook(sha).then((list) => {

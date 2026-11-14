@@ -252,7 +252,7 @@ describe('V2 local library sync (R6)', () => {
       expect(writes(calls)).toEqual([`PUT /books/${bookId}/reading-state`])
       expect((await restoredEntry(lib)).position).toMatchObject({ quote: 'theirs', fraction: 0.55 })
       expect(await lib.state(bookId)).toMatchObject({ revision: 4 })
-      expect(h.owed).toEqual([expect.objectContaining({ bookId, action: 'adopt' })])
+      expect(h.owed).toEqual([expect.objectContaining({ sha256: SHA, action: 'adopt' })])
       expect(await lib.outbox()).toEqual([])
     })
 
@@ -266,7 +266,7 @@ describe('V2 local library sync (R6)', () => {
         ],
       })
       const reader: OpenReader = { restoreApplied: true, moved: true, index: 6 }
-      const h = host({ reader: (id) => (id === bookId ? reader : null) })
+      const h = host({ reader: (sha) => (sha === SHA ? reader : null) })
       await syncV2Library(lib, h)
       const puts = calls.filter((c) => c.method === 'PUT')
       expect(puts.map((c) => c.body.expectedRevision)).toEqual([1, 4])
@@ -702,7 +702,7 @@ describe('V2 local library sync (R6)', () => {
       const applied: PositionAction[] = []
       const readerAsked: (OpenReader | null)[] = []
       const h = openBookHost(() => SHA, () => open, (a) => applied.push(a))
-      return { ...host({ reader: (id, sha) => { const r = h.reader(id, sha); readerAsked.push(r); return r }, onPosition: h.onPosition }), applied, readerAsked }
+      return { ...host({ reader: (sha) => { const r = h.reader(sha); readerAsked.push(r); return r }, onPosition: h.onPosition }), applied, readerAsked }
     }
 
     it('pull_TwinReKeysTheOpenBookThenANewerPlace_ReaderSeenAndTheMoveApplied', async () => {
@@ -715,8 +715,9 @@ describe('V2 local library sync (R6)', () => {
       const h = openHost({ restoreApplied: true, moved: false, index: 6 })
       await syncV2Library(lib, h)
       expect(await lib.book(bookId)).toBeNull() // re-keyed during the pass
+      expect(await lib.localBookId(SHA)).toBe(sid) // what a word save sends now
       expect(h.readerAsked).toEqual([{ restoreApplied: true, moved: false, index: 6 }])
-      expect(h.applied).toEqual([{ bookId: sid, sha256: SHA, action: 'move', position: expect.objectContaining({ quote: 'theirs' }) }])
+      expect(h.applied).toEqual([{ sha256: SHA, action: 'move', position: expect.objectContaining({ quote: 'theirs' }) }])
     })
 
     it('push_ShaLookupReKeysTheOpenBookThenStaleRevision_ReaderSeenAndTheOfferApplied', async () => {
@@ -730,19 +731,19 @@ describe('V2 local library sync (R6)', () => {
       await syncV2Library(lib, h)
       expect(await lib.book(bookId)).toBeNull()
       expect(h.readerAsked).toEqual([{ restoreApplied: true, moved: true, index: 6 }])
-      expect(h.applied).toEqual([{ bookId: sid, sha256: SHA, action: 'prompt', position: expect.objectContaining({ quote: 'theirs' }) }])
+      expect(h.applied).toEqual([{ sha256: SHA, action: 'prompt', position: expect.objectContaining({ quote: 'theirs' }) }])
     })
 
     it('openBookHost_AnotherBookOrNoBytes_NoReaderNothingApplied', () => {
       const applied: PositionAction[] = []
       const h = openBookHost(() => SHA, () => ({ restoreApplied: true, moved: false, index: 1 }), (a) => applied.push(a))
-      expect(h.reader(sid, 'cd'.repeat(32))).toBeNull()
-      expect(h.reader(sid, null)).toBeNull()
-      h.onPosition({ bookId: sid, sha256: 'cd'.repeat(32), action: 'move', position: pos })
-      h.onPosition({ bookId: sid, sha256: null, action: 'move', position: pos })
+      expect(h.reader('cd'.repeat(32))).toBeNull()
+      expect(h.reader(null)).toBeNull()
+      h.onPosition({ sha256: 'cd'.repeat(32), action: 'move', position: pos })
+      h.onPosition({ sha256: null, action: 'move', position: pos })
       const none = openBookHost(() => null, () => ({ restoreApplied: true, moved: false, index: 1 }), (a) => applied.push(a))
-      expect(none.reader(sid, null)).toBeNull()
-      none.onPosition({ bookId: sid, sha256: null, action: 'move', position: pos })
+      expect(none.reader(null)).toBeNull()
+      none.onPosition({ sha256: null, action: 'move', position: pos })
       expect(applied).toEqual([])
     })
   })
@@ -880,7 +881,7 @@ describe('V2 local library sync (R6)', () => {
       await syncV2Library(lib, h)
       expect((await restoredEntry(lib)).position).toEqual({ page: 9, index: 8, fraction: 0.9, at: NOW - 1000 })
       expect(await lib.state(bookId)).toMatchObject({ revision: 3 })
-      expect(h.owed).toEqual([expect.objectContaining({ bookId, action: 'adopt', position: { page: 9, index: 8, fraction: 0.9, at: NOW - 1000 } })])
+      expect(h.owed).toEqual([expect.objectContaining({ sha256: SHA, action: 'adopt', position: { page: 9, index: 8, fraction: 0.9, at: NOW - 1000 } })])
     })
 
     it('pull_PdfPageOnTheOpenPage_MovedSilently_OtherPage_Prompted', async () => {
@@ -943,8 +944,8 @@ describe('V2 local library sync (R6)', () => {
       expect(await downloadV2Book(lib, sid, { fetch: async () => 'staging/dl.epub', retain: async () => {} })).toBe(true)
       // What the host hands `restore`: the other device's page.
       expect(JSON.parse((await storage.readStore(SHA))!).position).toEqual({ page: 4, index: 3, fraction: 0.4, at: NOW - 1000 })
-      const { bookId } = await storage.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.pdf', format: 'pdf' }, null)
-      expect(bookId).toBe(sid)
+      await storage.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.pdf', format: 'pdf' }, null)
+      expect(await storage.bookIdOf(SHA)).toBe(sid)
       await storage.writeStore(SHA, entry(page(7, NOW - 100), []))
       const calls = fakeApi({ [`PUT /books/${sid}/reading-state`]: [ok(pdfState(sid, sfid, 4, 7, NOW - 100))] })
       expect(await syncV2Library(lib, host())).toBe('done')
