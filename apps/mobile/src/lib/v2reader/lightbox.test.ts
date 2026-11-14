@@ -84,6 +84,8 @@ describe('v2 lightbox zoom and pan', () => {
     expect(zoomAt({ s: 2, x: 0, y: 0 }, 2, { x: 0, y: 0 }, { x: 50, y: 20 }, box)).toEqual({ s: 2, x: 50, y: 20 })
     expect(zoomAt({ s: 2, x: 0, y: 0 }, 2, { x: 0, y: 0 }, { x: 5000, y: 0 }, box).x).toBe(300)
     expect(zoomAt({ s: 2, x: 0, y: 0 }, 99, { x: 0, y: 0 }, { x: 0, y: 0 }, box).s).toBe(MAX_SCALE)
+    // The focus is kept for the scale reached (×4 from ×2), not the one asked for.
+    expect(zoomAt({ s: 2, x: 0, y: 0 }, 99, { x: 100, y: 0 }, { x: 100, y: 0 }, box)).toEqual({ s: MAX_SCALE, x: -300, y: 0 })
     expect(zoomAt({ s: 2, x: 100, y: 0 }, 0.1, { x: 0, y: 0 }, { x: 0, y: 0 }, box)).toEqual({ s: 1, x: 0, y: 0 })
   })
 })
@@ -189,9 +191,11 @@ describe('v2 lightbox overlay', () => {
     pointer('pointerdown')
     pointer('pointercancel')
     expect(scale()).toBe('translate(0px, 0px) scale(1)')
-    // A real second tap right after the first does zoom in.
+    // The tap after the cancel is a first tap, not the second of the one before it.
     pointer('pointerdown')
     pointer('pointerup')
+    expect(scale()).toBe('translate(0px, 0px) scale(1)')
+    // A real second tap right after it does zoom in.
     pointer('pointerdown')
     pointer('pointerup')
     expect(scale()).toMatch(/scale\(2\.5\)/)
