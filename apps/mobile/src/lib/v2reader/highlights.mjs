@@ -31,6 +31,9 @@ export function highlightList(highlights, drawn, compare) {
     .slice(0, MAX_LIST)
 }
 
+/** The drawn highlight over exactly `cfi` (`drawn`: the drawn ids), or undefined: a new highlight there would be a twin (#1312 review). */
+export const sameRangeHighlight = (highlights, cfi, drawn) => highlights.find((h) => h.cfi === cfi && drawn.has(h.id))
+
 /** A host's read of `highlight-list`: `{ key, highlights }`, malformed items dropped; null for a malformed message. */
 export function readHighlightList(m) {
   if (!m || typeof m !== 'object' || m.type !== 'highlight-list' || typeof m.key !== 'string' || !Array.isArray(m.highlights)) return null

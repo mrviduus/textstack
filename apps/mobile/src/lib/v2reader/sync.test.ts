@@ -2275,8 +2275,11 @@ describe('V2 local library sync (R6)', () => {
         }
         return real(url, init)
       }))
-      await syncV2Library(lib, host({ newId: () => NEW }))
-      vi.unstubAllGlobals()
+      try {
+        await syncV2Library(lib, host({ newId: () => NEW }))
+      } finally {
+        vi.unstubAllGlobals()
+      }
       expect(flying.filter((c) => c.method === 'PUT' && c.path.startsWith('/annotations/')).map((c) => c.path)).toEqual([`/annotations/${HL}`, `/annotations/${NEW}`])
       expect(await lib.annotation(HL)).toBeNull()
       return { lib, bookId, fileId, NEW }
@@ -2316,10 +2319,17 @@ describe('V2 local library sync (R6)', () => {
       const { lib, bookId, fileId, NEW } = await rekeyedWhile(async () => {})
       expect(await lib.setNote(HL, 'late')).toBe(true)
       expect(await lib.annotation(NEW)).toMatchObject({ note: 'late', note_dirty: 1 })
+      // Looked up by the page's (old) id as well as the row's: the editor and the sheet see it (#1312 review).
+      const n = await lib.notes(SHA)
+      expect([n.known.get(HL), n.known.get(NEW)]).toEqual(['late', 'late'])
       expect(await lib.removeHighlight(HL)).toBe(true)
       const del = fakeApi({ [`DELETE /annotations/${NEW}`]: [ok(serverAnnotation(bookId, fileId, 2, { id: NEW, deletedAt: '2026-11-14T00:00:01.000Z' }))] })
       await syncV2Library(lib, host())
       expect(writes(del)).toEqual([`DELETE /annotations/${NEW}`])
+      expect((await lib.notes(SHA)).deleted).toEqual(new Set([NEW, HL]))
+      // A wipe ends the map with the rows it named.
+      await lib.wipe()
+      expect(lib.realId(HL)).toBe(HL)
     })
 
     it('idConflict_ARemovalWhileTheRetriedWriteFlew_DeletesTheNewRow', async () => {

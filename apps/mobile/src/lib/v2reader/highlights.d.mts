@@ -15,6 +15,7 @@ export function highlightList(
   drawn: Set<string>,
   compare: (a: string, b: string) => number,
 ): V2HighlightItem[]
+export function sameRangeHighlight<H extends { id: string; cfi: string }>(highlights: H[], cfi: string, drawn: Set<string>): H | undefined
 export function readHighlightList(m: unknown): { key: string; highlights: V2HighlightItem[] } | null
 /** A tap on a drawn highlight: its id, the highlight's box and where the tap landed (page-viewport px, `tap`'s space). */
 export interface V2HighlightTap { id: string; rect: V2Rect; x: number; y: number }

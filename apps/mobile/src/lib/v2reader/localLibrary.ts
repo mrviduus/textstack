@@ -573,10 +573,13 @@ export function createLocalLibrary(db: Db) {
       })
     }),
 
-    /** #1312: the notes on the live highlights of the book with these bytes (id → note), for its list and editor. */
     /** #1312 review: the id a page id is held under (after a re-key this process made, the new one). */
     realId: (id: string) => rekeyedTo(id),
 
+    /**
+     * #1312: the notes of the book with these bytes' highlights, for its list and editor, by the row's id and, for a row
+     * re-keyed this process, by its old page id too (the page keeps that one until the next open).
+     */
     notes: (sha256: string) => job(async () => {
       // The book these bytes are, as `readEntry` finds it (a pulled book not imported here yet included).
       const b = await bookForBytes(sha256)
@@ -589,6 +592,11 @@ export function createLocalLibrary(db: Db) {
         if (r.deleted_at) notes.deleted.add(r.id)
         else if (r.note_known) notes.known.set(r.id, r.note)
         else notes.unknown.add(r.id)
+      }
+      for (const [old, now] of rekeyed) {
+        if (notes.deleted.has(now)) notes.deleted.add(old)
+        else if (notes.known.has(now)) notes.known.set(old, notes.known.get(now)!)
+        else if (notes.unknown.has(now)) notes.unknown.add(old)
       }
       return notes
     }),
@@ -904,11 +912,11 @@ export function createLocalLibrary(db: Db) {
      */
     wipe: () => tx(async () => {
       for (const table of ['books', 'reading_state', 'annotations', 'outbox']) await run(`DELETE FROM ${table}`)
-      rekeyed.clear()
       // The notes upgrade's marker stays (#1312 review): it is about this database, not its owner, and the rows a later
       // sign-in pulls are known, never to be marked unknown again.
       await run('DELETE FROM meta WHERE key <> ?', [NOTES_UPGRADE])
-    }),
+      // The re-key map once the rows it names are gone for good (committed).
+    }).then(() => rekeyed.clear()),
   }
 }
 

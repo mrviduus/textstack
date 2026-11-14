@@ -18,7 +18,7 @@ import { uuidV4 } from './uuid.mjs'
 import { openableHref, rectInPage, sentenceOf, sentenceOfRange, trimRange } from './tap.mjs'
 import { selectionMessage } from './selection.mjs'
 import { navKey } from './chrome.mjs'
-import { HIGHLIGHT_FILL, colorOf, highlightList, isHighlightColor } from './highlights.mjs'
+import { HIGHLIGHT_FILL, colorOf, highlightList, isHighlightColor, sameRangeHighlight } from './highlights.mjs'
 import { SELECTION_SETTLE_MS } from '../../../../../packages/reader-engine/src/timing'
 import { MAX_SELECTED_TEXT } from '../../../../../packages/shared/src/reader/v2Locators'
 import { THEMES, readSettings, settingsCss } from './settings.mjs'
@@ -488,14 +488,16 @@ function highlightAt(doc, x, y) {
   return null
 }
 
+/** The ids of the highlights drawn now. */
+const drawnIds = () => new Set([...overlays.values()].flatMap((a) => (a.hl ? [a.hl.id] : [])))
+
 /**
  * The open book's drawn highlights, in book order (#1312, highlights.mjs `highlightList`): sent whenever they change
  * (restored, added, highlighted, recoloured, removed), so a host's list is the page's and needs no diff of its own.
  */
 function postList() {
   if (!entry) return
-  const drawn = new Set([...overlays.values()].flatMap((a) => (a.hl ? [a.hl.id] : [])))
-  post({ type: 'highlight-list', key: book.sha256, highlights: highlightList(entry.highlights, drawn, compareCfi) })
+  post({ type: 'highlight-list', key: book.sha256, highlights: highlightList(entry.highlights, drawnIds(), compareCfi) })
 }
 
 /** The entry's highlight `id` as drawn now (its overlay is this one's), or null with a `warn` naming the call. */
@@ -947,9 +949,19 @@ function highlightSelection(color = 'yellow') {
   if (!selectedText.trim()) return log('warn', 'highlightSelection ignored: the selection has no text')
   // Refused, not cut: a cut selectedText no longer reads as the text at the CFI, so it would never restore.
   if (selectedText.length > MAX_SELECTED_TEXT) return log('warn', `highlightSelection ignored: over ${MAX_SELECTED_TEXT} characters`)
+  const cfi = view.getCFI(s.index, s.range)
+  // Exactly a drawn highlight's range (#1312 review): that highlight, recoloured if need be, never a second one over it
+  // (it would own the taps while the host's diff took it for the first's twin, and write none of its edits).
+  const same = sameRangeHighlight(entry.highlights, cfi, drawnIds())
+  if (same) {
+    if (same.color !== color) recolorHighlight(same.id, color)
+    endSelection()
+    post({ type: 'highlighted', id: same.id, cfi, quote: same.quote, selectedText: same.selectedText ?? same.quote, color })
+    return same
+  }
   const loc = rangeToLocator(s.doc.body, s.range, String(s.index))
   const h = {
-    id: uuidV4(), cfi: view.getCFI(s.index, s.range), index: s.index,
+    id: uuidV4(), cfi, index: s.index,
     quote: quoteOf(selectedText), selectedText, prefix: loc?.text?.before ?? '', suffix: loc?.text?.after ?? '', color, at: Date.now(),
   }
   entry = withHighlight(entry, h)

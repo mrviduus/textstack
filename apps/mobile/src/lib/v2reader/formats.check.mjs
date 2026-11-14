@@ -1792,6 +1792,16 @@ try {
   check(pink?.color === 'pink' && messages.slice(from).find((x) => x.type === 'highlighted')?.color === 'pink', `a highlight is made in the colour chosen (${JSON.stringify(pink)})`)
   await page.waitForTimeout(300)
   check((await fills()).includes('#f472b6'), `and drawn in it (${JSON.stringify(await fills())})`)
+  // The same range highlighted again (#1312 review): that highlight, recoloured, never a second one over it.
+  await call(`(() => { const c = document.querySelector('foliate-view').renderer.getContents()[0]; const t = c.doc.querySelector('p').firstChild, i = t.data.indexOf('quartz'), r = c.doc.createRange(); r.setStart(t, i); r.setEnd(t, i + 6); c.doc.getSelection().removeAllRanges(); c.doc.getSelection().addRange(r) })()`)
+  await page.waitForTimeout(150)
+  from = messages.length
+  call(`window.__fol.highlightSelection('blue')`)
+  const again = await storeFrom(from, 'a store after highlighting the same range')
+  const againMsg = messages.slice(from).find((x) => x.type === 'highlighted')
+  const quartz = again?.highlights.filter((h) => h.selectedText === 'quartz')
+  check(againMsg?.id === pink?.id && quartz?.length === 1 && quartz[0].id === pink?.id && quartz[0].color === 'blue',
+    `the same range again is that highlight, recoloured (${JSON.stringify(quartz?.map((h) => [h.id === pink?.id, h.color]))}, answered ${againMsg?.id === pink?.id})`)
   from = messages.length
   call(`window.__fol.highlightSelection('red')`)
   await page.waitForTimeout(300)

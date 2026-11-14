@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  HIGHLIGHT_COLORS, HIGHLIGHT_FILL, MAX_LIST, MAX_LIST_TEXT, colorOf, highlightList, noteChange, noteOf, readHighlightList, readHighlightRemoved,
+  HIGHLIGHT_COLORS, HIGHLIGHT_FILL, MAX_LIST, MAX_LIST_TEXT, colorOf, highlightList, noteChange, noteOf, readHighlightList, readHighlightRemoved, sameRangeHighlight,
   readHighlightTap,
 } from './highlights.mjs'
 import { MAX_SELECTION_CFI, MAX_SELECTION_PX } from './selection.mjs'
@@ -34,6 +34,14 @@ describe('v2 reader highlights', () => {
     expect(Array.from(long)).toHaveLength(MAX_LIST_TEXT)
     // A pre-#1078 highlight: its quote is the selection.
     expect(highlightList([{ id: 'o', cfi: 'a', quote: 'old', color: 'mauve' }], new Set(['o']), compare)[0]).toMatchObject({ text: 'old', color: 'yellow', at: null })
+  })
+
+  it('sameRangeHighlight_ExactlyADrawnOnesCfi_ThatOne_ElseNone', () => {
+    const a = { id: 'a', cfi: 'epubcfi(/6/2!/4,/1:0,/1:5)' }, b = { id: 'b', cfi: 'epubcfi(/6/2!/4,/1:0,/1:6)' }
+    expect(sameRangeHighlight([a, b], a.cfi, new Set(['a', 'b']))).toBe(a)
+    // Not drawn (its text no longer there), or another range: none.
+    expect(sameRangeHighlight([a, b], a.cfi, new Set(['b']))).toBeUndefined()
+    expect(sameRangeHighlight([a, b], 'epubcfi(/6/2!/4,/1:0,/1:7)', new Set(['a', 'b']))).toBeUndefined()
   })
 
   it('readHighlightList_KnownFieldsOnly_MalformedItemsDropped', () => {
