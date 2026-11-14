@@ -87,10 +87,11 @@ export function V2TocSheet({ visible, toc, tocIndex, onGo, onClose }: Props & { 
  * The open book's highlights (#1312): the contents sheet's modal, the page's `highlight-list` in book order, each
  * highlight's text and note as text (untrusted), its colour as a swatch. A tap jumps there and closes the sheet.
  */
-export function V2HighlightsSheet({ visible, items, notes, onGo, onClose }: {
+export function V2HighlightsSheet({ visible, items, noteOf, onGo, onClose }: {
   visible: boolean
   items: V2HighlightItem[]
-  notes: Map<string, string | null>
+  /** A highlight's note (null: none), by the page's id. */
+  noteOf: (id: string) => string | null
   onGo: (item: V2HighlightItem) => void
   onClose: () => void
 }) {
@@ -115,7 +116,7 @@ export function V2HighlightsSheet({ visible, items, notes, onGo, onClose }: {
               keyExtractor={(h) => h.id}
               style={styles.list}
               renderItem={({ item }) => {
-                const note = notes.get(item.id)
+                const note = noteOf(item.id)
                 return (
                   <TouchableOpacity
                     style={[styles.row, styles.hlRow, { borderBottomColor: colors.border }]}

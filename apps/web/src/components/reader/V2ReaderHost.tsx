@@ -245,14 +245,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    */
   const [popup, setPopupState] = useState<V2Popup | null>(null)
   const popupRef = useRef<V2Popup | null>(null)
-  /** Counts highlight editor openings: the editor's key, so a re-key (a new id, `sameEditor`) keeps it and its draft. */
-  const editorOpening = useRef(0)
-  const setPopup = (p: V2Popup | null, o: { sameEditor?: boolean } = {}) => {
+  const setPopup = (p: V2Popup | null) => {
     // The highlight editor closing, whatever closes it: its changed draft is written (#1312 review).
     const was = popupRef.current
-    const same = was?.kind === 'highlight' && p?.kind === 'highlight' && (o.sameEditor || p.id === was.id)
-    if (was?.kind === 'highlight' && !same) flushDraft()
-    if (p?.kind === 'highlight' && !same) editorOpening.current++
+    if (was?.kind === 'highlight' && !(p?.kind === 'highlight' && p.id === was.id)) flushDraft()
     popupRef.current = p
     setPopupState(p)
   }
@@ -288,7 +284,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     const d = editorDraft.current
     editorDraft.current = null
     const note = d && noteChange(d.text, d.from)
-    if (d && note !== undefined) writeNote(d.id, note, d.session)
+    // One the server holds as deleted (elsewhere) is not edited: it leaves the page, nothing is saved (#1312 review).
+    if (d && note !== undefined && d.session?.deleted(d.id)) call('removeHighlight', [d.id])
+    else if (d && note !== undefined) writeNote(d.id, note, d.session)
     if (d && keep) editorDraft.current = { ...d, from: note === undefined ? d.from : note }
   }
   const main = useRef<HTMLElement>(null)
@@ -446,16 +444,6 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           highlights: m.annotatable !== false,
           // A later offer replaces the one shown (the newest place).
           onNewerPlace: setOffer,
-          // #1312 review: renamed on the page (its later stores, list and taps carry the new id), and here at once: the
-          // list, an editor open on it and its draft.
-          onRekey: (oldId, newId) => {
-            if (sync.current !== s) return
-            call('rekeyHighlight', [oldId, newId])
-            setHighlightList((l) => l.map((h) => (h.id === oldId ? { ...h, id: newId } : h)))
-            if (editorDraft.current?.id === oldId) editorDraft.current = { ...editorDraft.current, id: newId }
-            const p = popupRef.current
-            if (p?.kind === 'highlight' && p.id === oldId) setPopup({ ...p, id: newId }, { sameEditor: true })
-          },
           // Every server state the session takes: a reset elsewhere brings the button back.
           onCompleted: (completedAt) => {
             if (sync.current === s) setFinish((f) => (f?.completedAt === completedAt ? f : { format: target.format, completedAt }))
@@ -535,7 +523,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           const l = readHighlightList(m)
           if (!l || l.key !== openedSha.current) return
           setHighlightList(l.highlights)
-          const want = pendingHighlight.current && l.highlights.find((h) => h.id === pendingHighlight.current)
+          // By the id the server holds (a page id re-keyed this open is still the old one on the page).
+          const want = pendingHighlight.current && l.highlights.find((h) => (sync.current?.real(h.id) ?? h.id) === pendingHighlight.current)
           if (want) {
             pendingHighlight.current = null
             // The reader's own choice (they followed the link): saved where it lands (README, `goTo`).
@@ -715,18 +704,23 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   offersRef.current = offersHighlights
   const noteFor = (id: string) => (dev ? devNotes.current.get(id) ?? null : sync.current?.note(id) ?? null)
   const tapped = popup?.kind === 'highlight' ? highlightList.find((h) => h.id === popup.id) : undefined
-  const editor: V2HighlightEditor | null = tapped && offersHighlights ? {
+  // #1312 review: tapped while the server holds it as deleted (a 409 `deleted`, another device): no editor; it leaves the page.
+  const tappedDeleted = !!tapped && !dev && !!sync.current?.deleted(tapped.id)
+  useEffect(() => {
+    if (!tappedDeleted || !tapped) return
+    call('removeHighlight', [tapped.id])
+    setPopup(null)
+  }, [tappedDeleted])
+  const editor: V2HighlightEditor | null = tapped && offersHighlights && !tappedDeleted ? {
     item: tapped,
     note: noteFor(tapped.id),
     onRecolor: (color) => call('recolorHighlight', [tapped.id, color]),
-    onNoteSave: (note) => writeNote(tapped.id, note, sync.current),
-    // Held here, with the session of the book it was opened in: flushed whatever closes the editor.
+    // Held here, with the session of the book it was opened in: written whatever closes the editor (Save included).
     // The baseline is the host's once set (a flush moves it); the session, the one the editor opened in.
     onDraft: (d) => {
       const was = editorDraft.current
       editorDraft.current = d && { text: d.text, from: was ? was.from : d.from, id: tapped.id, session: was?.session ?? sync.current }
     },
-    opening: editorOpening.current,
     onDelete: () => call('removeHighlight', [tapped.id]),
   } : null
   /** A highlight chosen in the list: the reader's choice, saved where it lands. */

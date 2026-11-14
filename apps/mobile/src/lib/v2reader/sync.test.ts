@@ -2253,12 +2253,11 @@ describe('V2 local library sync (R6)', () => {
       expect(calls.filter((c) => c.method === 'PUT' && c.path === `/annotations/${HL}`).map((c) => c.body.noteText)).toEqual([null])
     })
 
-    // #1312 review: the re-key is told to the open reader (it renames the highlight on its page) before the retried
-    // write; edits the reader makes meanwhile, under the new id, reach the new row.
+    // #1312 review: the page keeps the old id until the next open; every way in (its stores, notes, removals) reaches the
+    // re-keyed row through the library's in-memory map, recorded once the re-key committed.
     async function rekeyedWhile(during: (lib: LocalLibrary, newId: string) => Promise<unknown>) {
       const { lib, bookId, fileId } = await seeded()
       const NEW = '00000000-0000-4000-8000-0000000000ff'
-      const events: string[] = []
       const flying = fakeApi({
         [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
         [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId), 201)],
@@ -2269,21 +2268,40 @@ describe('V2 local library sync (R6)', () => {
       const real = globalThis.fetch
       vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
         if (init.method === 'PUT' && String(url).endsWith(`/annotations/${NEW}`)) {
-          events.push('retry')
-          // The page's last store from before its rename (the old id), applied in order before the reader's next edit:
-          // the new row's twin, nothing written for it.
+          expect(lib.realId(HL)).toBe(NEW)
+          // The page's store, still under the old id: the new row's form, nothing new written.
           await lib.writeEntry(SHA, entry(pos, [highlight]), newId)
-          await during(lib, NEW)
+          await during(lib, HL)
         }
         return real(url, init)
       }))
-      await syncV2Library(lib, host({ newId: () => NEW, onRekey: (sha, a, b) => events.push(`rekey ${sha === SHA} ${a}→${b}`) }))
+      await syncV2Library(lib, host({ newId: () => NEW }))
       vi.unstubAllGlobals()
-      expect(events).toEqual([`rekey true ${HL}→${NEW}`, 'retry'])
       expect(flying.filter((c) => c.method === 'PUT' && c.path.startsWith('/annotations/')).map((c) => c.path)).toEqual([`/annotations/${HL}`, `/annotations/${NEW}`])
       expect(await lib.annotation(HL)).toBeNull()
       return { lib, bookId, fileId, NEW }
     }
+
+    it('rekey_ATransactionThatFails_NoMappingKept', async () => {
+      const { lib } = await seeded()
+      const OTHER = '0b6a2c1e-1111-4222-8333-444455557777'
+      await lib.writeEntry(SHA, entry(pos, [highlight, { ...highlight, id: OTHER, cfi: 'epubcfi(/6/16!/4/2/1:0)' }]), newId)
+      // The new id is taken: the rename fails and rolls back, so the old id still names the row.
+      await expect(lib.rekeyAnnotation(HL, () => OTHER)).rejects.toThrow()
+      expect(lib.realId(HL)).toBe(HL)
+      expect(await lib.annotation(HL)).not.toBeNull()
+    })
+
+    it('idConflict_ThePageStillOnTheOldId_ItsRecolourReachesTheNewRow_TheNextOpenCarriesTheNewId', async () => {
+      const { lib, bookId, fileId, NEW } = await rekeyedWhile(async () => {})
+      await lib.writeEntry(SHA, entry(pos, [{ ...highlight, color: 'green' }]), newId)
+      expect(await lib.annotation(HL)).toBeNull()
+      expect(JSON.parse((await lib.annotation(NEW))!.highlight)).toMatchObject({ id: NEW, color: 'green' })
+      const calls = fakeApi({ [`PUT /annotations/${NEW}`]: [ok(serverAnnotation(bookId, fileId, 2, { id: NEW, color: 'green' }))] })
+      await syncV2Library(lib, host())
+      expect(calls.filter((c) => c.method === 'PUT').map((c) => [c.path, c.body.color])).toEqual([[`/annotations/${NEW}`, 'green']])
+      expect(JSON.parse((await lib.readEntry(SHA))!).highlights.map((h: { id: string }) => h.id)).toEqual([NEW])
+    })
 
     it('idConflict_ANoteMadeWhileTheRetriedWriteFlew_ReachesTheNewRow', async () => {
       const { lib, bookId, fileId, NEW } = await rekeyedWhile((l, id) => l.setNote(id, 'mine'))

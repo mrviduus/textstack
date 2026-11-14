@@ -141,7 +141,6 @@ type Flow = 'paginated' | 'scrolled'
 const FLOW_KEY = 'v2reader.flow'
 /** #1312: the colour a new highlight takes, the last one chosen (the legacy reader's `lastHighlightColor`). */
 const HIGHLIGHT_COLOR_KEY = 'v2reader.highlightColor'
-const NO_NOTES: BookNotes = { known: new Map(), unknown: new Set(), deleted: new Set() }
 /**
  * The reader's choice, read once for the process (like v2Storage) and replaced by every toggle: each page
  * load applies it before its first open, so the setting is never counted as a switch.
@@ -343,7 +342,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * to jump to (the dev route's `?book=&highlight=`, once).
    */
   const [highlightList, setHighlightList] = useState<V2HighlightItem[]>([])
-  const [notes, setNotes] = useState<BookNotes>(NO_NOTES)
+  /** Null: this open's notes not read yet (an editor waits). Keyed by the row's id: look up through `realId`. */
+  const [notes, setNotes] = useState<BookNotes | null>(null)
+  /** The page listed a changed highlight set: the notes are read again once its `store` is written (#1312 review). */
+  const notesStale = useRef(false)
   const [highlightsOpen, setHighlightsOpen] = useState(false)
   const [highlightColor, setHighlightColor] = useState<V2HighlightColor>('yellow')
   useEffect(() => { AsyncStorage.getItem(HIGHLIGHT_COLOR_KEY).then((c) => setHighlightColor(colorOf(c)), () => {}) }, [])
@@ -442,7 +444,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const onPopupEvent = (e: V2PopupEvent) => {
     const { popup: next, turn } = popupStep(popupRef.current, e, { width: pageWidth.current, flow: effectiveFlow, dir: pageDir.current })
     // A highlight editor opened by a tap: a new one (its key), which a re-key of that highlight keeps (#1312 review).
-    if (next?.kind === 'highlight') editorOpening.current++
+    // Only another highlight's editor is a new one: a pass-through event (a move, a cleared selection) keeps the same.
+    const was = popupRef.current
+    if (next?.kind === 'highlight' && !(was?.kind === 'highlight' && was.id === next.id)) editorOpening.current++
     setPopup(next)
     if (turn === 'toggle') return toggleBars()
     if (!turn) return
@@ -598,16 +602,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       }),
       upload: uploadRetained,
       guest: capabilitiesFor(user).isGuest,
-      // #1312 review: a highlight of the open book re-keyed (`id_conflict`): renamed on the page, in the list, an editor
-      // open on it, and its notes read again (the row's id changed).
-      onRekey: (sha, oldId, newId) => {
-        if (sha !== openShaRef.current) return
-        call(`window.__fol.rekeyHighlight(${JSON.stringify(oldId)}, ${JSON.stringify(newId)})`)
-        setHighlightList((l) => l.map((h) => (h.id === oldId ? { ...h, id: newId } : h)))
-        const p = popupRef.current
-        if (p?.kind === 'highlight' && p.id === oldId) setPopup({ ...p, id: newId })
-        refreshNotes()
-      },
     }).then(() => {
       refreshBooks()
       // A pull may have brought another device's notes (#1312 review): the editor and the sheet read them again.
@@ -677,7 +671,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     tracker.open(target.file, opening.current)
     setOpenSha(null)
     setHighlightList([])
-    setNotes(NO_NOTES)
+    setNotes(null)
     place.open()
     setOffer(null)
     setOpenError(null)
@@ -835,7 +829,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         return
       case 'store':
         // Then the notes again: a highlight just made has its row now (#1312 review).
-        v2Storage().writeStore(m.key, m.json).then(() => { syncSoon(); refreshNotes() }, fail('store', setError))
+        v2Storage().writeStore(m.key, m.json).then(() => {
+          syncSoon()
+          // Not on every page turn: only after the page listed a changed highlight set.
+          if (notesStale.current) refreshNotes()
+          notesStale.current = false
+        }, fail('store', setError))
         return
       case BOOK_CLOSED:
         // The closed book's pending save came first (CLOSE_BOOK_JS); a reopen meanwhile keeps it.
@@ -878,9 +877,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         const l = readHighlightList(m)
         if (!l || !isOpenKey(l.key)) return
         setHighlightList(l.highlights)
-        // A highlight just made (its row stored since) has its note known from now on.
-        refreshNotes()
-        const want = pendingHighlight.current && l.highlights.find((h) => h.id === pendingHighlight.current)
+        // A highlight just made: its row is stored with the `store` that follows; the notes are read then.
+        notesStale.current = true
+        const want = pendingHighlight.current && l.highlights.find((h) => v2Storage().realId(h.id) === pendingHighlight.current)
         if (want) {
           pendingHighlight.current = null
           goHighlight(want)
@@ -1022,15 +1021,18 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     return () => sub.remove()
   }, [offer, popup, inBook])
 
-  /** The highlight a tap opened (#1312), as the page lists it; none: no editor. */
+  /** The highlight a tap opened (#1312), as the page lists it; none: no editor. Its row: `rowId` (after a re-key, the new). */
   const tapped = popup?.kind === 'highlight' ? highlightList.find((h) => h.id === popup.id) : undefined
-  // Tombstoned while drawn (a pull, another device): no editor; the page drops it, and its list with it (#1312 review).
+  const rowId = tapped && v2Storage().realId(tapped.id)
+  // Tombstoned while drawn (a pull, another device): it leaves the page and its list, and an editor on it closes (#1312 review).
   useEffect(() => {
-    if (!tapped || !notes.deleted.has(tapped.id)) return
-    console.warn(`[v2] highlight ${tapped.id} was deleted: its editor closes`)
-    call(`window.__fol.removeHighlight(${JSON.stringify(tapped.id)})`)
-    setPopup(null)
-  }, [tapped?.id, notes])
+    for (const h of highlightList) {
+      if (!notes?.deleted.has(v2Storage().realId(h.id))) continue
+      console.warn(`[v2] highlight ${h.id} was deleted elsewhere: removed from the page`)
+      call(`window.__fol.removeHighlight(${JSON.stringify(h.id)})`)
+      if (popupRef.current?.kind === 'highlight' && popupRef.current.id === h.id) setPopup(null)
+    }
+  }, [notes, highlightList])
 
   // #1312: the dev route's deep link (the highlights screen): the book on this device, opened once, then the highlight.
   const params = useLocalSearchParams<{ book?: string; highlight?: string }>()
@@ -1199,7 +1201,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           />
           <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
-          <V2HighlightsSheet visible={highlightsOpen} items={highlightList} notes={notes.known} onGo={goHighlight} onClose={() => setHighlightsOpen(false)} />
+          <V2HighlightsSheet visible={highlightsOpen} items={highlightList} noteOf={(id) => notes?.known.get(v2Storage().realId(id)) ?? null} onGo={goHighlight} onClose={() => setHighlightsOpen(false)} />
           {popup?.kind === 'highlight' && tapped && (
             // #1312: the legacy editor. A colour is one tap (the page redraws and saves it); Save is the note (here,
             // queued; a draft unchanged from the note it was typed over writes nothing); Delete goes through the page,
@@ -1209,8 +1211,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               key={editorOpening.current}
               visible
               snippet={tapped.text}
-              noteLoading={notes.unknown.has(tapped.id)}
-              initialNote={notes.known.get(tapped.id) ?? null}
+              // Loading until this open's notes are read, or while its row's note is not known; an id with no row is new.
+              noteLoading={!notes || notes.unknown.has(rowId!)}
+              initialNote={notes?.known.get(rowId!) ?? null}
               initialColor={tapped.color}
               onCancel={() => setPopup(null)}
               onColorChange={(c) => {

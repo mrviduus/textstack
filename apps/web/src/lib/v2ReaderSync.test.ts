@@ -40,8 +40,6 @@ let statuses: V2SaveStatus[]
 let drawnLists: PageHighlight[][]
 /** The places offered to the host (`onNewerPlace`). */
 let newer: PagePosition[]
-/** The re-keys the host was told (`onRekey`): it renames them on the page. */
-let rekeys: [string, string][]
 /** A write recorded before every other here. */
 const OLD = '1970-01-01T00:00:00.000Z'
 
@@ -50,7 +48,6 @@ beforeEach(() => {
   statuses = []
   drawnLists = []
   newer = []
-  rekeys = []
   api = {
     getReadingState: vi.fn().mockResolvedValue(null),
     annotations: vi.fn().mockResolvedValue([]),
@@ -65,7 +62,7 @@ beforeEach(() => {
 
 const open = (t: V2SyncTarget = T, after?: Promise<unknown>, highlights?: boolean) => createV2ReaderSync(t, {
   api: api as unknown as V2ReaderSyncApi, onStatus: (s) => statuses.push(s), onHighlights: (l) => drawnLists.push(l),
-  onNewerPlace: (p) => newer.push(p), onRekey: (a, b) => rekeys.push([a, b]), newId: () => MINTED, after, highlights,
+  onNewerPlace: (p) => newer.push(p), newId: () => MINTED, after, highlights,
 })
 const expectedOf = (call: unknown[]) => (call[1] as { expectedRevision: number | null }).expectedRevision
 const last = () => statuses[statuses.length - 1]
@@ -533,8 +530,8 @@ describe('createV2ReaderSync', () => {
       expect(api.putAnnotation).toHaveBeenCalledTimes(2)
     })
 
-    // #1312 review: a re-key landing is told to the host (the page renames it); edits made under the old id while the
-    // re-keyed write was in flight move to the new id.
+    // #1312 review: the page keeps the old id until the next open; every way in reaches the re-keyed row, and edits made
+    // under the old id while the re-keyed write was in flight move to the new id.
     async function rekeyInFlight(edit: (s: ReturnType<typeof open>) => void) {
       const s = await opened()
       const retry = deferred<V2Annotation>()
@@ -542,13 +539,11 @@ describe('createV2ReaderSync', () => {
       s.store(entry(null, [hl()]))
       await vi.waitFor(() => expect(api.putAnnotation).toHaveBeenCalledTimes(2))
       edit(s)
-      expect(rekeys).toEqual([])
       retry.resolve(annotation({ id: MINTED, revision: 1 }))
       await s.flush()
-      expect(rekeys).toEqual([[H1, MINTED]])
-      // The page renamed it: its stores carry the new id.
-      await stored(s, entry(null, [{ ...hl(), id: MINTED }]))
-      await s.flush()
+      expect(s.real(H1)).toBe(MINTED)
+      // The page's next store, still under the old id: the new row's, nothing to write.
+      await stored(s, entry(null, [hl()]))
       return s
     }
 
@@ -582,6 +577,12 @@ describe('createV2ReaderSync', () => {
       retry.resolve(annotation({ id: MINTED, revision: 1 }))
       await closing
       expect(api.putAnnotation.mock.calls.slice(2).map((c) => [c[0], (c[1] as V2AnnotationWrite).color])).toEqual([[MINTED, 'green']])
+    })
+
+    it('idConflict_ThePageStillOnTheOldId_ItsRecolourReachesTheNewRow', async () => {
+      const s = await rekeyInFlight(() => {})
+      await stored(s, entry(null, [hl(H1, 'pink')]))
+      expect(api.putAnnotation.mock.calls.slice(2).map((c) => [c[0], expectedOf(c), (c[1] as V2AnnotationWrite).color])).toEqual([[MINTED, 1, 'pink']])
     })
 
     it('idConflict_ARemovalOfTheOldIdWhileTheRetryFlew_DeletesTheNewRow', async () => {
@@ -922,6 +923,14 @@ describe('createV2ReaderSync', () => {
       await s.flush()
       expect(api.putAnnotation).not.toHaveBeenCalled()
       expect(last()).toBe('saved')
+    })
+
+    it('remove_AHighlightTheServerHoldsAsDeleted_NoDeleteSent_DeletedSaid', async () => {
+      const s = await withServerRow({ deletedAt: '2026-11-02T00:00:00Z' })
+      expect(s.deleted(H1)).toBe(true)
+      s.remove(H1)
+      await s.flush()
+      expect(api.deleteAnnotation).not.toHaveBeenCalled()
     })
 
     it('remove_ServerNeverHadIt404_Done', async () => {

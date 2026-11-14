@@ -13,7 +13,6 @@ interface FakeSync {
   onHighlights(list: unknown[]): void
   highlights?: boolean
   onNewerPlace(p: PagePosition): void
-  onRekey?(oldId: string, newId: string): void
   /** The next `restore` call's answer (a new one per call: Retry calls it again). */
   answer(json: string | null): void
   fail(): void
@@ -24,20 +23,22 @@ interface FakeSync {
   flushKeepalive: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
   note: ReturnType<typeof vi.fn>
+  real: ReturnType<typeof vi.fn>
+  deleted: ReturnType<typeof vi.fn>
   setNote: ReturnType<typeof vi.fn>
   remove: ReturnType<typeof vi.fn>
 }
 const sessions: FakeSync[] = []
 vi.mock('../../lib/v2ReaderSync', () => ({
-  createV2ReaderSync: (target: V2SyncTarget, o: Pick<FakeSync, 'onStatus' | 'onHighlights' | 'highlights' | 'onNewerPlace' | 'onRekey'>) => {
+  createV2ReaderSync: (target: V2SyncTarget, o: Pick<FakeSync, 'onStatus' | 'onHighlights' | 'highlights' | 'onNewerPlace'>) => {
     let settle: { ok(json: string | null): void; no(e: unknown): void } | null = null
     const closed = Promise.resolve()
     const s: FakeSync = {
-      target, onStatus: o.onStatus, onHighlights: o.onHighlights, highlights: o.highlights, onNewerPlace: o.onNewerPlace, onRekey: o.onRekey,
+      target, onStatus: o.onStatus, onHighlights: o.onHighlights, highlights: o.highlights, onNewerPlace: o.onNewerPlace,
       answer: (json) => settle?.ok(json), fail: () => settle?.no(new Error('offline')),
       restore: vi.fn(() => new Promise((ok, no) => { settle = { ok, no } })), loadHighlights: vi.fn(async () => {}),
       store: vi.fn(), flush: vi.fn(async () => {}), flushKeepalive: vi.fn(), close: vi.fn(() => closed),
-      note: vi.fn(() => 'their note'), setNote: vi.fn(), remove: vi.fn(),
+      note: vi.fn(() => 'their note'), setNote: vi.fn(), remove: vi.fn(), real: vi.fn((id: string) => id), deleted: vi.fn(() => false),
     }
     sessions.push(s)
     return s
@@ -361,16 +362,6 @@ describe('V2ReaderHost, server sync', () => {
       expect(order).toEqual([`setNote ${ID} typed`, 'flushKeepalive'])
     })
 
-    it('aReKeyLanding_ThePageRenamesIt_TheOpenEditorAndItsDraftFollowTheNewId', async () => {
-      const NEW = '99999999-9999-4999-8999-999999999999'
-      const { s, order } = await typing()
-      posted.length = 0
-      act(() => s.onRekey!(ID, NEW))
-      expect(posted.filter((m) => m.call === 'rekeyHighlight').map((m) => m.args)).toEqual([[ID, NEW]])
-      fromPage({ type: 'tap', x: 500, y: 10 })
-      expect(order[0]).toBe(`setNote ${NEW} typed`)
-    })
-
     it('theNoteChangesUnderAnOpenEditor_SavingTheDraftItOpenedWith_WritesNothing', async () => {
       const { s, order } = await typing()
       fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'their note' } })
@@ -379,16 +370,6 @@ describe('V2ReaderHost, server sync', () => {
       fromPage({ type: 'highlight-list', key: SHA('a'), highlights: [{ ...item, color: 'blue' }] })
       fireEvent.click(screen.getByRole('button', { name: 'Save' }))
       expect(order).toEqual([])
-    })
-
-    it('aReKeyWhileTyping_ThenSave_TheTypedNoteWrittenToTheNewId', async () => {
-      const NEW = '99999999-9999-4999-8999-999999999999'
-      const { s, order } = await typing()
-      act(() => s.onRekey!(ID, NEW))
-      // The same editor (keyed per opening, not by id): the typed text is still there.
-      expect(screen.getByPlaceholderText('Add a note...')).toHaveValue('  typed  ')
-      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-      expect(order).toEqual([`setNote ${NEW} typed`])
     })
 
     it('aDraftWrittenWhenTheTabHid_ThenEditedBackAndSaved_TheOpeningNoteWrittenBack', async () => {
@@ -406,6 +387,20 @@ describe('V2ReaderHost, server sync', () => {
       act(() => { window.dispatchEvent(new Event('pagehide')) })
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
       expect(order).toEqual([`setNote ${ID} typed`, 'flushKeepalive', `setNote ${ID} their note`])
+    })
+
+    // #1312 review: one the server holds as deleted (a 409 `deleted`, another device) is not edited: it leaves the page.
+    it('aHighlightDeletedElsewhere_TappedOrSaved_NoEditorNothingSaved_ItLeavesThePage', async () => {
+      const { s, order } = await typing()
+      posted.length = 0
+      s.deleted.mockReturnValue(true)
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      expect(order).toEqual([])
+      expect(posted.filter((m) => m.call === 'removeHighlight').map((m) => m.args)).toEqual([[ID]])
+      posted.length = 0
+      fromPage({ type: 'highlight-tap', id: ID, x: 500, y: 100, rect: { x: 480, y: 90, w: 40, h: 20 } })
+      expect(document.querySelector('.pdf-hl-popup')).toBeNull()
+      expect(posted.filter((m) => m.call === 'removeHighlight').map((m) => m.args)).toEqual([[ID]])
     })
 
     it('anUntouchedDraft_LeavingTheRoute_WritesNothing', async () => {

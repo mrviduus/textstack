@@ -26,11 +26,8 @@ export interface V2HighlightEditor {
   /** The host's note (the page holds none); null: none. */
   note: string | null
   onRecolor: (color: V2HighlightColor) => void
-  onNoteSave: (note: string | null) => void
-  /** The draft as typed (null: saved or discarded): the host writes a changed one whatever closes the editor. */
+  /** The draft as typed, Save's and Cancel's included (null: Delete, nothing to write): the host writes a changed one whatever closes the editor. */
   onDraft: (draft: { text: string; from: string | null } | null) => void
-  /** This opening of the editor (its key): the same across a re-key, so the typed draft stays. */
-  opening: number
   onDelete: () => void
 }
 
@@ -212,12 +209,11 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
       {popup?.kind === 'highlight' && highlight?.item.id === popup.id && (
         // Keyed: its note field starts from the highlight's note, once.
         <PdfHighlightPopup
-          key={highlight.opening}
+          key={popup.id}
           highlight={{ id: popup.id, color: highlight.item.color, selectedText: highlight.item.text, noteText: highlight.note ?? undefined }}
           rect={rect}
           containerRef={frame}
           onRecolor={highlight.onRecolor}
-          onNoteSave={highlight.onNoteSave}
           onDelete={() => { highlight.onDelete(); onClose(false) }}
           onClose={() => onClose(false)}
           onDraft={highlight.onDraft}

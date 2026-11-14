@@ -33,8 +33,6 @@ export interface SyncHost {
   reader(sha256: string | null): OpenReader | null
   /** What a pulled or lost-to position owes the open reader (go there, or ask). */
   onPosition?(a: PositionAction): void
-  /** #1312 review: a highlight of the book with these bytes was re-keyed (`id_conflict`): the open reader renames it. */
-  onRekey?(sha256: string, oldId: string, newId: string): void
   /**
    * Sends a local book's bytes (file sync on) to its KNOWN server book and file only — never an
    * import under new ids (`V2UploadNotOnServer` then); `cancelled` turns true once the session changed.
@@ -471,9 +469,6 @@ async function pushAnnotation(lib: LocalLibrary, host: SyncHost, reset: Reset, i
           return drop(lib, reset, item)
         }
         item.target = await checked(reset, () => lib.rekeyAnnotation(a.id, host.newId))
-        // The row is the new id's now: the open reader renames it on its page (`rekeyHighlight`, #1312 review). A book
-        // not open needs nothing: its next open reads the rows.
-        if (local.sha256 && !reset()) host.onRekey?.(local.sha256, a.id, item.target)
         return pushAnnotation(lib, host, reset, item, true)
       }
       default:

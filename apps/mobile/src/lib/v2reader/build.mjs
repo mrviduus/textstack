@@ -91,12 +91,12 @@ const FOLIATE_SHA = '73d42595074f0f5914c00ccb7172a0a8bdfecf26'
 // its name, not by the CFI its index rebuilds (CBZ too).
 // +491 (#1196 review): a taken goTo on a fixed layout saves the side shown; restore picks a named page by its shape;
 // `sectionNamed` takes the position's index when it names that page.
-// +5690 (#1312): highlights in four colours (highlights.mjs, drawn by colour), `recolorHighlight`, `removeHighlight`,
+// +4705 (#1312): highlights in four colours (highlights.mjs, drawn by colour), `recolorHighlight`, `removeHighlight`,
 // a tap on a highlight (`highlight-tap`), the drawn list in book order (`highlight-list`, foliate's CFI compare); a highlight
 // ends its selection at once (`endSelection`, shared with `clearSelection`); ranges of unloaded sections pruned
-// (`pruneDrawn`), `drawnRanges()` a test-only count; `rekeyHighlight` (a host's `id_conflict` re-key, queued behind the
-// restore).
-const BUDGET = 277237
+// (`pruneDrawn`), `drawnRanges()` a test-only count. No re-key on the page: a re-keyed highlight keeps its old id here
+// until the next open, the hosts resolve it.
+const BUDGET = 276252
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

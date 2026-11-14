@@ -130,6 +130,10 @@ export interface V2ReaderSync {
   setNote(id: string, note: string | null): void
   /** #1312: the page removed highlight `id` (`highlight-removed`): tombstoned on the server. */
   remove(id: string): void
+  /** #1312 review: the id the server holds a page id under (after an `id_conflict` re-key, the new one). */
+  real(id: string): string
+  /** #1312 review: the server's row for this page id is a tombstone (deleted elsewhere): not editable. */
+  deleted(id: string): boolean
   /** Another open, or the host unmounted: one last pass of what is unsaved (`last` too, as above), then nothing more is written. */
   close(last?: string): Promise<void>
 }
@@ -158,8 +162,6 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   onNewerPlace(p: PagePosition): void
   /** The book's completion as the server holds it, from every state the session takes (null: not finished): the host's Finish book block (#1266). */
   onCompleted?(completedAt: string | null): void
-  /** #1312 review: a highlight the page holds as `oldId` is held by the server as `newId` (`id_conflict`): the host renames it on the page. */
-  onRekey?(oldId: string, newId: string): void
   /** Waited for before the first read; by default the last session of this book still writing (a reopen). */
   after?: Promise<unknown>
   /** False where the page offers no highlights (a PDF, a CBZ): no annotations pull. */
@@ -293,13 +295,13 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     const landed = (a: V2Annotation) => {
       keep(a, pageFormOf(h))
       if (h.id !== pageId) {
-        // A re-key (`id_conflict`) landed: this tab's edits made under the old id while it was in flight move to the new
-        // one, and the host renames it on the page (`rekeyHighlight`), whose later forms then carry the new id.
+        // A re-key (`id_conflict`) landed: the page keeps the old id until the next open (its restore carries the new
+        // one); every way in resolves through `rekeyed` from now on, and this tab's edits made under the old id while it
+        // was in flight move to the new one.
         if (notes.has(pageId)) notes.set(h.id, notes.get(pageId)!)
         notes.delete(pageId)
         if (removals.delete(pageId)) removals.add(h.id)
         rekeyed.set(pageId, h.id)
-        if (current()) o.onRekey?.(pageId, h.id)
       }
       if (notes.has(h.id) && notes.get(h.id) === (a.noteText ?? null)) notes.delete(h.id)
     }
@@ -568,9 +570,12 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       notes.set(id, note)
       void kick()
     },
+    real,
+    deleted: (pageId) => !!held.get(real(pageId))?.deleted,
     remove(pageId) {
       const id = real(pageId)
-      if (!current() || removals.has(id)) return
+      // A tombstone already (deleted elsewhere, or by this tab): nothing to send.
+      if (!current() || removals.has(id) || held.get(id)?.deleted) return
       removals.add(id)
       notes.delete(id)
       void kick()

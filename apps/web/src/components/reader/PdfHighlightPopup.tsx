@@ -26,7 +26,8 @@ interface Props {
   rect: DOMRect | null
   containerRef: React.RefObject<HTMLElement | null>
   onRecolor: (color: HighlightColor) => void
-  onNoteSave: (noteText: string | null) => void
+  /** The legacy PDF reader's save; the V2 reader passes `onDraft` instead (the host writes). */
+  onNoteSave?: (noteText: string | null) => void
   onDelete: () => void
   onClose: () => void
   /**
@@ -94,7 +95,7 @@ export function PdfHighlightPopup({
       return onClose()
     }
     const note = noteChange(noteText, from)
-    if (note !== undefined) onNoteSave(note)
+    if (note !== undefined) onNoteSave?.(note)
     onClose()
   }, [noteText, onNoteSave, onClose, onDraft, from])
   /** Cancel: back to the note at opening (the host writes it only if it wrote something else meanwhile). */

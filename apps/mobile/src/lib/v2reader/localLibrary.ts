@@ -288,8 +288,9 @@ export function createLocalLibrary(db: Db) {
   const stateOf = (bookId: string) => one<StateRow>('SELECT * FROM reading_state WHERE book_id = ?', [bookId])
   const annotationById = (id: string) => one<AnnotationRow>('SELECT * FROM annotations WHERE id = ?', [id])
   /**
-   * #1312 review: re-keys made in this process (`id_conflict`), old → new, in memory only. A page message naming the old
-   * id after the re-key (its removal or its editor's note, sent before it renamed the highlight) reaches the new row.
+   * #1312 review: re-keys made in this process (`id_conflict`), old → new, in memory only. The page keeps the old id until
+   * the next open (its restore reads the rows: the new id); every way in resolves through `rekeyedTo` meanwhile: its
+   * stores (`applyEntry`), `setNote`, `removeHighlight`, and the host's lookups (`realId`).
    */
   const rekeyed = new Map<string, string>()
   const rekeyedTo = (id: string) => rekeyed.get(id) ?? id
@@ -379,10 +380,12 @@ export function createLocalLibrary(db: Db) {
     const file = fileOf(book)
     const st = await stateOf(book.id)
     const rows = await all<Pick<AnnotationRow, 'id' | 'highlight' | 'file_id' | 'deleted_at'>>('SELECT id, highlight, file_id, deleted_at FROM annotations WHERE book_id = ?', [book.id])
+    // The page keeps a re-keyed highlight's old id until the next open: its forms are its row's (#1312 review).
+    const highlights = rekeyed.size ? entry.highlights.map((h) => (rekeyed.has(h.id) ? { ...h, id: rekeyedTo(h.id) } : h)) : entry.highlights
     const changes = entryChanges(
       file,
       { position: parse(st?.position ?? null), highlights: rows.map((r) => ({ id: r.id, highlight: parse<PageHighlight>(r.highlight), fileId: r.file_id, deleted: !!r.deleted_at })) },
-      entry, newId,
+      { position: entry.position, highlights }, newId,
     )
     if (changes.position && !(keepPosition && st?.position)) {
       await run(
@@ -571,6 +574,9 @@ export function createLocalLibrary(db: Db) {
     }),
 
     /** #1312: the notes on the live highlights of the book with these bytes (id → note), for its list and editor. */
+    /** #1312 review: the id a page id is held under (after a re-key this process made, the new one). */
+    realId: (id: string) => rekeyedTo(id),
+
     notes: (sha256: string) => job(async () => {
       // The book these bytes are, as `readEntry` finds it (a pulled book not imported here yet included).
       const b = await bookForBytes(sha256)
@@ -744,9 +750,9 @@ export function createLocalLibrary(db: Db) {
       const h = { ...parse<PageHighlight>(row.highlight)!, id: to }
       await run('UPDATE annotations SET id = ?, highlight = ? WHERE id = ?', [to, JSON.stringify(h), id])
       await run(`UPDATE outbox SET target = ? WHERE kind = 'annotation' AND target = ?`, [to, id])
-      rekeyed.set(id, to)
       return to
-    }),
+      // Recorded once the transaction committed (a rolled-back re-key leaves no mapping).
+    }).then((to) => { if (to !== id) rekeyed.set(id, to); return to }),
 
     /**
      * A library feed page, and its cursor in the same transaction (a page that fails to land is
