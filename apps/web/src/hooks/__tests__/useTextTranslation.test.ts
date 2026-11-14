@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { renderHook } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 
 // Offline DB touches IndexedDB on mount (clearOldTranslations) — stub it out.
 vi.mock('../../lib/offlineDb', () => ({
@@ -53,5 +53,26 @@ describe('useTextTranslation — language catalogue', () => {
     )
     expect(result.current.sourceLang).toBe('de')
     expect(result.current.targetLang).toBe('uk')
+  })
+})
+
+describe('useTextTranslation — only the latest request is taken (#1269 review)', () => {
+  it('translate_AnEarlierAnswerArrivesLate_TheLatestOneStays', async () => {
+    const { translate } = await import('../../api/translation')
+    const { getCachedTranslation } = await import('../../lib/offlineDb')
+    ;(getCachedTranslation as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    const answers: Record<string, (v: unknown) => void> = {}
+    ;(translate as ReturnType<typeof vi.fn>).mockImplementation((text: string) => new Promise((r) => { answers[text] = r }))
+    const { result } = renderHook(() => useTextTranslation({ defaultSourceLang: 'en', defaultTargetLang: 'uk' }))
+    let a!: Promise<unknown>, b!: Promise<unknown>
+    // Both at the service: the first already asked when the second starts.
+    act(() => { a = result.current.translate('first') })
+    await waitFor(() => expect(Object.keys(answers)).toEqual(['first']))
+    act(() => { b = result.current.translate('second') })
+    await waitFor(() => expect(Object.keys(answers)).toEqual(['first', 'second']))
+    await act(async () => { answers.second({ translatedText: 'SECOND' }); await b })
+    await act(async () => { answers.first({ translatedText: 'FIRST' }); await a })
+    expect(result.current.translatedText).toBe('SECOND')
+    expect(result.current.isLoading).toBe(false)
   })
 })

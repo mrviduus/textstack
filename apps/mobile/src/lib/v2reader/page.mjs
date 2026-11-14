@@ -668,6 +668,8 @@ async function open(bytes, name, kind, mine) {
     dir: pagedDir(),
     // Either may be missing, a string, or a language map ({ en: … }); the host falls back to the file name.
     title: text(b.metadata?.title), author: text(firstAuthor(b.metadata)),
+    // #1269: the book's language (a string or a list, foliate's metadata); the hosts read it with readLang.
+    lang: String([].concat(b.metadata?.language ?? [])[0] ?? '').slice(0, 35),
     sections: b.sections.length, toc: flat(b.toc ?? []),
   })
   return true
@@ -923,6 +925,15 @@ window.__fol = {
     if (session && f !== flow && !view.isFixedLayout && Date.now() - session.at < SESSION_MS) session.switched = true
     flow = f
     view?.renderer?.setAttribute('flow', f)
+  },
+  // #1269: the host is done with the selection (an action ran, its toolbar closed): gone from every shown section,
+  // `selection-cleared` at once (none if none was sent). highlightSelection has nothing to fall back on after it.
+  clearSelection: () => {
+    clearTimeout(selectionTimer)
+    for (const d of shownDocs()) d.getSelection()?.removeAllRanges()
+    lastSelection = null
+    if (selectionSent) post({ type: 'selection-cleared' })
+    selectionSent = null
   },
   /** The host answers a `word` with its translation; drawn above that word. Not where `annotatable` is false. */
   showTranslation: (cfi, index, text) => view && annotatable && annotate({ value: cfi, index, gloss: text }),

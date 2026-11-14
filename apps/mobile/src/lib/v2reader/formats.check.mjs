@@ -25,8 +25,8 @@ const TIMEOUT_MS = 15000
 // The hosts' validator, as they run it. Bundled first (apps/web's esbuild, as build.mjs): selection.mjs imports
 // packages/shared, whose extensionless TS imports plain node does not resolve.
 const { build: esbuild } = createRequire(resolve(here, '../../../../web/package.json'))('esbuild')
-const bundled = await esbuild({ stdin: { contents: `export * from './selection.mjs'; export * from './chrome.mjs'`, resolveDir: here, loader: 'js' }, bundle: true, write: false, format: 'esm', logLevel: 'silent' })
-const { readSelection, readDir, readTap, readKey, readRelocate } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`)
+const bundled = await esbuild({ stdin: { contents: `export * from './selection.mjs'; export * from './chrome.mjs'; export * from './wordPopup.mjs'`, resolveDir: here, loader: 'js' }, bundle: true, write: false, format: 'esm', logLevel: 'silent' })
+const { readSelection, readDir, readTap, readKey, readRelocate, readWord, readLang, popupStep } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`)
 
 const failures = []
 const check = (ok, what) => { console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}`); if (!ok) failures.push(what) }
@@ -173,6 +173,12 @@ try {
     const tapWord = await waitFor(from, (x) => x.type === 'word', `${what}: word`).catch(() => null)
     const ms = Date.now() - t0
     check(tapWord?.word === 'judge' && ms < 150, `${what}: a word tap is answered at once (${tapWord?.word}, ${ms} ms)`)
+    // #1269, the hosts' step (the e2e's word tap): the word as readWord takes it opens its popup in the centre zone.
+    const zone = { width: (await call('innerWidth')), flow: what.includes('scrolled') ? 'scrolled' : 'paginated', dir: 'ltr' }
+    const w = readWord(tapWord)
+    const centred = w && popupStep(null, { type: 'word', word: { ...w, rect: { ...w.rect, x: zone.width / 2 - w.rect.w / 2 } } }, zone)
+    check(w?.word === 'judge' && /judge my vow/.test(w.sentence) && /^epubcfi\(/.test(w.cfi ?? '') && centred?.popup?.kind === 'word' && centred.turn === null,
+      `${what}: the word passes readWord and opens its popup in the centre (${JSON.stringify(w)})`)
     await settled()
     // A double-click selecting a word: the tap's word, then the selection that supersedes it.
     from = messages.length
@@ -180,7 +186,23 @@ try {
     await settled()
     const dbl = messages.slice(from).find((x) => x.type === 'selection')
     check(JSON.stringify(kinds(from)) === '["word","selection"]' && dbl?.text === 'judge', `${what}: a double-click on a word is word then selection (${kinds(from)}, ${dbl?.text})`)
-    check(await unselect(f), `${what}: a collapsed selection is selection-cleared`)
+    // #1269 (the e2e's selection, then Copy): the selection opens the toolbar; the host's clearSelection() ends it
+    // in the page at once (one selection-cleared, nothing after the settle), and the toolbar closes on it.
+    let open = popupStep(null, { type: 'selection', selection: readSelection(dbl) }, zone).popup
+    from = messages.length
+    const c0 = Date.now()
+    await call('window.__fol.clearSelection()')
+    const cleared = await waitFor(from, (x) => x.type === 'selection-cleared', `${what}: clearSelection`).catch(() => null)
+    const cms = Date.now() - c0
+    await settled()
+    open = cleared && popupStep(open, { type: 'selection-cleared' }, zone).popup
+    check(!!cleared && cms < 150 && JSON.stringify(kinds(from)) === '["selection-cleared"]' && open === null && await f.evaluate(() => getSelection().isCollapsed),
+      `${what}: clearSelection() ends the selection at once, once (${kinds(from)}, ${cms} ms), the toolbar closes`)
+    from = messages.length
+    await call('window.__fol.clearSelection()')
+    await page.mouse.click(judge.x, judge.y)
+    await settled()
+    check(JSON.stringify(kinds(from)) === '["word"]', `${what}: after it, nothing more is cleared and the next tap is a word again (${kinds(from)})`)
 
     // From the heading's end (the blank after it) into the paragraph: text and sentence are the paragraph's.
     from = messages.length
@@ -441,6 +463,7 @@ try {
     m = await open('tshe.epub')
     const heRel = messages.slice(m.from).filter((x) => x.type === 'relocate').at(-1)
     check(m.dir === 'rtl' && readDir(heRel) === 'rtl', `a Hebrew EPUB without a spine direction opens rtl, and relocates say rtl (${m.dir}, ${heRel?.dir})`)
+    check(readLang(m) === 'he', `opened.lang of a Hebrew EPUB is he (${m.lang})`)
     m = await open('tsformat.epub')
     check(readDir(messages.slice(m.from).filter((x) => x.type === 'relocate').at(-1)) === 'ltr', 'relocates of a left-to-right book say ltr')
 
@@ -1489,6 +1512,7 @@ try {
   console.log('epub')
   let m = await open('tsformat.epub')
   check(m.type === 'opened' && m.format === 'epub' && m.textual === true && m.annotatable === true && m.title === 'TS EPUB', `opened as epub, textual, annotatable (${m.format}, ${m.title})`)
+  check(readLang(m) === 'en', `opened.lang is the book's language, as readLang takes it (${m.lang})`)
   check(await loaded() === '', 'an EPUB runs no format reader')
   call('window.__fol.flow("scrolled")')
   check(await call('document.querySelector("foliate-view").renderer.getAttribute("flow")') === 'scrolled', 'flow("scrolled") switches the live renderer')

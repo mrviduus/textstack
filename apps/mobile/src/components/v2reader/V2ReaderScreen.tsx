@@ -25,12 +25,16 @@ import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue 
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
 import {
-  BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readRelocate, readTap, readWordTap,
+  BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readRelocate, readTap,
   reopensOnReady, takenWithoutBook,
 } from '../../lib/v2reader/chrome.mjs'
-import { tapAction } from '../../lib/v2reader/tapZone.mjs'
 import { showsFinishBook } from '../../lib/v2reader/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
+import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../lib/v2reader/wordPopup.mjs'
+import { readerTextLanguage } from '../../lib/bookLanguage'
+import { SelectionActionBar } from '../SelectionActionBar'
+import { TranslationSheet } from '../TranslationSheet'
+import { ExplanationSheet } from '../ExplanationSheet'
 import { readToc, tocAround, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
 import { V2SectionNav, V2TocSheet } from './V2ReaderToc'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
@@ -228,7 +232,7 @@ const FLUSH_JS = 'window.__fol && window.__fol.flush();true'
 /** `verdict` other than `ok` (no or no readable answer yet): an old WebView is a likely cause of a missed `ready`. */
 function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; onUserAgent: (ua: unknown) => void }) {
   const { colors, isDark } = useTheme()
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const webView = useRef<WebView>(null)
   const [nonce, setNonce] = useState(freshNonce)
   // The base URL arms the patched WebView's book interceptor (bookOrigin.mjs) and gives the page that https origin.
@@ -299,6 +303,20 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     inBookRef.current = v
     setInBook(v)
   }
+  /**
+   * The word popup or selection toolbar (#1269, wordPopup.mjs `popupStep`, the web host's rule); the ref for the
+   * message handler, set with the state. The sheet a toolbar button opened, with the text it acts on. The open book's
+   * language (`opened.lang`, else the app's, as the legacy reader) and whether it takes highlights.
+   */
+  const [popup, setPopupState] = useState<V2Popup | null>(null)
+  const popupRef = useRef<V2Popup | null>(null)
+  const setPopup = (p: V2Popup | null) => {
+    popupRef.current = p
+    setPopupState(p)
+  }
+  const [sheet, setSheet] = useState<{ kind: 'translate' | 'explain'; text: string; sentence: string } | null>(null)
+  const [bookLang, setBookLang] = useState<string | null>(null)
+  const [annotatable, setAnnotatable] = useState(true)
   /** Counts opens: each one shows the bars and re-arms their auto-hide, also when replayed in the book. */
   const [opens, setOpens] = useState(0)
   /** The flow the book pages by: a fixed-layout book pages whatever the setting. */
@@ -359,20 +377,33 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     pageDir.current = 'ltr'
     setProgress.current(null)
     clearToc()
+    setPopup(null)
     setOffer(null)
     setHeading(IDLE_HEADING)
   }
 
   /**
-   * A `tap` (never a link or a press that dismissed a selection: the page sends none for those), or a `word` at its
-   * rect's centre: an edge turns the page, the centre toggles the bars (tapZone.mjs). A fixed-layout book pages
-   * whatever the flow setting.
+   * A `tap` (never a link or a press that dismissed a selection: the page sends none for those), a `word` or a
+   * selection (validated): what is open and what the tap zones do (wordPopup.mjs `popupStep`): an edge turns the page,
+   * a word elsewhere opens its popup, the centre toggles the bars. A fixed-layout book pages whatever the flow setting.
    */
-  const onTap = (p: { x: number; y: number } | null) => {
-    const action = tapAction({ x: p?.x, width: pageWidth.current, flow: effectiveFlow, dir: pageDir.current })
-    if (action === 'toggle') return toggleBars()
-    call(`window.__fol.${action}()`)
+  const onPopupEvent = (e: V2PopupEvent) => {
+    const { popup: next, turn } = popupStep(popupRef.current, e, { width: pageWidth.current, flow: effectiveFlow, dir: pageDir.current })
+    setPopup(next)
+    if (turn === 'toggle') return toggleBars()
+    if (!turn) return
+    call(`window.__fol.${turn}()`)
     hideBars()
+  }
+  /** The bar closed (its ×, Copy, back, Escape); a selection's goes in the page too (clearSelection, as the web host). */
+  const closePopup = () => {
+    if (popupRef.current?.kind === 'selection') call('window.__fol.clearSelection()')
+    setPopup(null)
+  }
+  /** A translation or explanation closed: its selection is done, as on the web (the bar goes with it). */
+  const closeSheet = () => {
+    setSheet(null)
+    closePopup()
   }
   const refreshBooks = () => v2Storage().books().then(setBooks, fail('library', setError))
   useEffect(() => {
@@ -480,6 +511,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setProgress.current(null)
     setAtEnd(false)
     clearToc()
+    setPopup(null)
     setBook(true)
     showBars()
     setOpens((n) => n + 1)
@@ -496,6 +528,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setFormat(typeof t.opened.format === 'string' ? t.opened.format : null)
     // Not `atEnd`: it was cleared where the open started; the book's first relocate (its end, for a book one
     // screen long) comes before this `opened` and must stand.
+    setAnnotatable(t.opened.annotatable !== false)
+    setBookLang(readLang(t.opened))
     onOpened(t.open, t.opened).catch(fail('opened', setOpenError))
   }
 
@@ -628,6 +662,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // The reader moving the place (the page's `moved`), in either flow, hides the bars; not under a bar button.
         if (hidesBarsOnRelocate({ moved: !!shown?.moved, msSinceHostMove: hostMoves.onRelocate(Date.now()) })) hideBars()
         pageDir.current = shown?.dir ?? pageDir.current
+        // The reader moved the place: a word popup's word left it (the toolbar follows the page's selection messages).
+        if (shown?.moved) onPopupEvent({ type: 'moved' })
         place.relocate(shown)
         // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
         if (!tracker.showsPosition()) return
@@ -637,26 +673,32 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         setAtEnd(shown.atEnd)
         return
       }
-      case 'word':
-        // Translation is not this slice: the tap reaches the host and stops here. This host offers no
-        // highlight or translation yet, so `opened.annotatable` (false: CBZ, PDF) has nothing to hide here.
-        console.log('[v2] word', m.word)
-        onTap(readWordTap(m)) // until the word popup (#1269) replaces it: text is most of the screen
-        return
-      case 'selection': {
-        // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
-        // No toolbar in this slice (#1268): the selection reaches the host and stops here.
-        const s = readSelection(m)
-        if (s) console.log(`[v2] selection ${s.text.length} chars, section ${s.index}`)
+      case 'word': {
+        // Untrusted (the page renders the book): only what readWord takes.
+        const w = readWord(m)
+        if (w) onPopupEvent({ type: 'word', word: w })
         return
       }
-      case 'tap':
-        onTap(readTap(m))
+      case 'selection': {
+        // Untrusted (the page renders the book): only what readSelection takes; a malformed one is dropped.
+        const s = readSelection(m)
+        if (s) onPopupEvent({ type: 'selection', selection: s })
         return
+      }
+      case 'selection-cleared':
+        onPopupEvent({ type: 'selection-cleared' })
+        return
+      case 'tap': {
+        const p = readTap(m)
+        if (p) onPopupEvent({ type: 'tap', x: p.x })
+        return
+      }
       case 'key': {
         // A navigation key pressed in the page (#1263), through readKey: one press, one turn (a held key's
         // repeats are dropped). A turn hides the bars, as an edge tap does; Escape ('bars') shows them.
         const k = readKey(m)
+        // #1269: Escape with the word popup or toolbar open closes it and does nothing else.
+        if (k?.key === 'Escape' && popupRef.current) return closePopup()
         if (!k || k.repeat) return
         const a = keyAction({ ...k, dir: pageDir.current })
         if (a === 'bars') showBars()
@@ -755,14 +797,17 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   // Android back: the offer, then the book (back to the list), then the route (chrome.mjs backAction).
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      const action = backAction({ offer: !!offer, reading: inBook })
+      const action = backAction({ offer: !!offer, popup: !!popup, reading: inBook })
       if (action === 'close-offer') setOffer(null)
+      else if (action === 'close-popup') closePopup()
       else if (action === 'close-book') closeBook()
       return action !== 'leave'
     })
     return () => sub.remove()
-  }, [offer, inBook])
+  }, [offer, popup, inBook])
 
+  /** What translate and explain read the book as: its own language, else the app's (the legacy reader's rule). */
+  const textLang = readerTextLanguage(bookLang, language)
   const button = [styles.button, { backgroundColor: colors.primary }]
   const notices = (
     <>
@@ -870,6 +915,39 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               finishedLabel={t('reader.chrome.finished')}
             />
           )}
+          {popup && (
+            // The legacy reader's bar (#1269): the word's gloss (or the picker's line) on a tap; on a selection highlight,
+            // copy, translate, explain. No Listen (TTS, #1272) and no Save (vocabulary) yet. Nothing here needs the network
+            // to read on: a failed gloss says so, the sheets show their own errors.
+            <SelectionActionBar
+              selectedText={popup.kind === 'word' ? popup.word : popup.text}
+              sentence={popup.sentence}
+              isMultiWord={popup.kind === 'selection' && /\s/.test(popup.text)}
+              language={textLang}
+              onTranslate={() => setSheet({ kind: 'translate', text: popup.kind === 'word' ? popup.word : popup.text, sentence: popup.sentence })}
+              onExplain={() => setSheet({ kind: 'explain', text: popup.kind === 'word' ? popup.word : popup.text, sentence: popup.sentence })}
+              onHighlight={popup.kind === 'selection' && annotatable ? () => { call('window.__fol.highlightSelection()'); setPopup(null) } : undefined}
+              tooLong={popup.kind === 'selection' && popup.tooLong}
+              isAuthenticated={!!user}
+              bottomOffset={barsVisible ? footerHeight : insets.bottom}
+              onClose={closePopup}
+              onCopy={closePopup}
+            />
+          )}
+          <TranslationSheet
+            visible={sheet?.kind === 'translate'}
+            text={sheet?.text ?? ''}
+            sentence={sheet?.sentence}
+            fromLang={textLang}
+            onClose={closeSheet}
+          />
+          <ExplanationSheet
+            visible={sheet?.kind === 'explain'}
+            word={sheet?.text ?? ''}
+            sentence={sheet?.sentence || sheet?.text || ''}
+            fromLang={textLang}
+            onClose={closeSheet}
+          />
           <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
           {hasNotices && (

@@ -12,8 +12,6 @@ export function readKey(m: unknown): { key: V2NavKey; shift: boolean; repeat: bo
 export type V2KeyAction = 'prev' | 'next' | 'bars'
 export function keyAction(k: { key: V2NavKey; shift: boolean; dir: 'ltr' | 'rtl' }): V2KeyAction | null
 export function readRelocate(m: unknown): { fraction: number | null; index: number | null; sections: number | null; toc: string; tocIndex: number | null; dir: 'ltr' | 'rtl' | null; moved: boolean; atEnd: boolean; sectionEnd: number | null; words: number | null } | null
-/** Until the word popup (#1269): a `word` as a tap at the centre of its rect. */
-export function readWordTap(m: unknown): { x: number; y: number } | null
 export const HOST_MOVE_GRACE_MS: number
 export function hidesBarsOnRelocate(input: { moved: boolean; msSinceHostMove: number }): boolean
 export function createHostMoves(): { start(): void; onRelocate(now: number): number }
@@ -21,4 +19,4 @@ export const BOOK_CLOSED: 'book-closed'
 export const CLOSE_BOOK_JS: string
 export function reopensOnReady(input: { opening: unknown; inBook: boolean }): boolean
 export function takenWithoutBook(type: unknown): boolean
-export function backAction(input: { offer: boolean; reading: boolean }): 'close-offer' | 'close-book' | 'leave'
+export function backAction(input: { offer: boolean; popup?: boolean; reading: boolean }): 'close-offer' | 'close-popup' | 'close-book' | 'leave'

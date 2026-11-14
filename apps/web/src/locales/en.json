@@ -531,7 +531,8 @@
     "contents": "Contents",
     "closeContents": "Close contents",
     "prevSection": "Previous section: {{title}}",
-    "nextSection": "Next section: {{title}}"
+    "nextSection": "Next section: {{title}}",
+    "translationFailed": "Could not translate this word."
   },
   "library": {
     "continue": "Continue",

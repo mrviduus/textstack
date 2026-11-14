@@ -23,3 +23,4 @@ export interface V2SelectionMessage {
 export interface V2Selection extends Omit<V2SelectionMessage, 'type'> { tooLong: boolean }
 export function selectionMessage(s: { index: number; text: string; cfi: string | null; sentence: string; rect: V2Rect }): V2SelectionMessage | null
 export function readSelection(m: unknown): V2Selection | null
+export function readRect(rect: unknown): V2Rect | null
