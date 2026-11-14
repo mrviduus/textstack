@@ -204,7 +204,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
 
   /** The position written; false when it did not land or was refused. One retry after a lost revision. */
   async function pushPosition(p: PagePosition, expected: number | null, retried = false): Promise<boolean> {
-    // A fraction-only position has no write the server takes; a CBZ page is `page-name` (#1188).
+    // A fraction-only position has no write the server takes; a CBZ or pre-paginated EPUB page is `page-name` (#1188, #1196).
     const write = positionWrite(p, t.fileId, expected, Date.now(), t.format)
     if (!write) return false
     const prev = lastSent

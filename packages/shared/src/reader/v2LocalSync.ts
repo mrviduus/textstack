@@ -2,7 +2,7 @@
  * The V2 reader's local data as sync payloads, and back (R6, #1038; PDD v2-sync-protocol.md
  * "Reading state", "Annotations", "The revision rule"). Pure: the mobile local library and sync
  * client use it, and a web host will. The page's shapes are `store.mjs`'s: a position
- * `{cfi, quote, index, fraction, at}` (a CBZ one has `page` instead of `quote`, the `page-name` locator; a PDF one is
+ * `{cfi, quote, index, fraction, at}` (a named page, CBZ or pre-paginated EPUB, has `page` instead of `quote`, the `page-name` locator; a PDF one is
  * `{page, index, fraction, at}` with `page` the 1-based page number, #1128 S5; one from a transitional
  * locator is `{fraction, at}` alone, #1187) and a highlight
  * `{id, cfi, index, quote, selectedText, prefix, suffix, color, at}`.
@@ -17,7 +17,7 @@ export interface PagePosition {
   /** Absent on a fraction-only position (a transitional server locator): restored by `fraction`, never pushed. */
   cfi?: string
   quote?: string
-  /** A CBZ image's entry name (beside `cfi`), or a PDF's 1-based page number (alone: `pdf-page`). */
+  /** A named page's key (beside `cfi`: a CBZ image's entry name, a pre-paginated EPUB's spine href), or a PDF's 1-based page number (alone: `pdf-page`). */
   page?: string | number
   index?: number
   fraction?: number
@@ -80,18 +80,22 @@ const isIndex = (n: unknown): n is number => Number.isInteger(n) && (n as number
 
 /**
  * The page position as a reading-state write (PDD: `epub-cfi` with its `quote`, `pdf-page` `{"page":N}`, or
- * `page-name` `{"page":"<entry name>","index":N}`; `bookFraction`, `clientRecordedAt` clamped to now). The
+ * `page-name` `{"page":"<key>","index":N}`; `bookFraction`, `clientRecordedAt` clamped to now). The
  * scheme fits the file (`SyncValidation.FitsFile`): `pdf-page` only when `format` is `pdf`, and `epub-cfi`
- * never then; `page-name` only on a `cbz` (#1188), from the page's image position (`page` = the entry
- * name, `index` = its section; the CFI beside them is not sent). Null for any other position without a
+ * never then; `page-name` only on a `cbz` (#1188) or an `epub` (#1196), from the page's named-page position
+ * (`page` = the CBZ entry name or the pre-paginated EPUB's spine href, `index` = its section; the CFI beside
+ * them is not sent). A reflowable EPUB's position has a quote and no `page`: always `epub-cfi`. Null for any other position without a
  * quote (the server refuses an `epub-cfi` position without one), and for a fraction-only position: the
  * server's transitional locator is never rewritten as a CFI.
  */
+/** The formats a `page-name` position fits (`SyncValidation.FitsFile`): a CBZ, an EPUB (a pre-paginated one, #1196). */
+const PAGE_NAMED = new Set<string | null>(['cbz', 'epub'])
+
 export function positionWrite(p: PagePosition, fileId: string, expectedRevision: number | null, now = Date.now(), format: string | null = null): V2ReadingStateWrite | null {
   const pdf = format === 'pdf'
   let currentLocator: V2Locator
   if (pdf && isPdfPage(p)) currentLocator = { version: 1, scheme: 'pdf-page', value: { page: p.page } }
-  else if (format === 'cbz' && p.quote === undefined && isPageName(p.page) && isIndex(p.index)) {
+  else if (PAGE_NAMED.has(format) && p.quote === undefined && isPageName(p.page) && isIndex(p.index)) {
     currentLocator = { version: 1, scheme: 'page-name', value: { page: p.page, index: p.index } }
   } else if (!pdf && p.quote && p.cfi?.startsWith('epubcfi(')) currentLocator = { version: 1, scheme: 'epub-cfi', value: p.cfi, quote: codePoints(p.quote, 64) }
   else return null
@@ -109,8 +113,8 @@ const FRACTION_SCHEMES = new Set<string>(['textstack-position-v1', 'textstack-an
 /**
  * A server reading state as the page's position, for a file of `format` (null: not known here). A
  * `pdf-page` one is its page (`index` = page − 1, foliate's section), and a PDF has no other: no CFI, no
- * fraction fallback (#1128 S5). A `page-name` one (a `cbz` only, #1188) is the page's image position: the entry
- * name restore checks, its section, and that section's CFI (the shape the page store keeps). An `epub-cfi` one with its quote is restored by CFI; a transitional
+ * fraction fallback (#1128 S5). A `page-name` one (a `cbz` or an `epub`, #1188, #1196) is the page's named-page
+ * position: the key restore checks, its section, and that section's CFI (the shape the page store keeps). An `epub-cfi` one with its quote is restored by CFI; a transitional
  * `textstack-*` one (or an `epub-cfi` without a quote) by its `bookFraction` alone (PDD "Transitional
  * locators", #1187): approximate, never converted to a CFI. Null for a scheme that does not fit the
  * file, an unknown one, and a state without a fraction in [0, 1].
@@ -124,7 +128,7 @@ export function statePosition(s: V2ReadingState, format: string | null = null): 
   }
   if (l.scheme === 'page-name') {
     const v = l.value as { page?: unknown; index?: unknown } | null
-    return (format === null || format === 'cbz') && isPageName(v?.page) && isIndex(v?.index)
+    return (format === null || PAGE_NAMED.has(format)) && isPageName(v?.page) && isIndex(v?.index)
       ? { cfi: `epubcfi(/6/${2 * (v.index + 1)})`, page: v.page, index: v.index, fraction: s.bookFraction, at }
       : null
   }
@@ -218,9 +222,13 @@ export function decideServerState(o: {
   if (!serverProvablyNewer(local, { clientUpdatedAt: o.server.clientRecordedAt }, o.now)) return 'keep'
   // Nothing restored yet: adopt, whatever spine item is on screen (none is reported before `restored`).
   if (!o.reader || !o.reader.restoreApplied) return 'adopt'
+  // A named page (`page-name`) is compared by name when the local place has one too: two devices may order a
+  // CBZ's entries differently, so their indexes may disagree. The reader is on its local place unless it moved
+  // since the restore, and then it is asked anyway (`decideNewerPosition`). Otherwise by spine index.
+  const named = typeof theirs.page === 'string' && typeof o.local?.page === 'string'
   return decideNewerPosition({
     // A fraction-only position, local or the server's, has no spine index: a restored reader is asked.
-    sameChapter: o.reader.index != null && o.reader.index === theirs.index,
+    sameChapter: named ? o.local!.page === theirs.page : o.reader.index != null && o.reader.index === theirs.index,
     restoreApplied: o.reader.restoreApplied,
     readerMoved: o.reader.moved,
   })

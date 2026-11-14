@@ -243,14 +243,15 @@ public static class SyncValidation
     /// <summary>
     /// A locator's scheme fits the file it is written in (#1122): <c>pdf-page</c> only on a <c>pdf</c>, <c>epub-cfi</c>
     /// on any other format (foliate's CFI addresses epub, html, mobi, azw3, fb2 and cbz alike, ADR-032), <c>page-name</c> only on a
-    /// <c>cbz</c> (#1188; a fixed-layout <c>epub</c> joins with #1196). <c>textstack-*</c> fits any: the transitional reader writes it on PDFs
+    /// <c>cbz</c> (#1188) or an <c>epub</c> (#1196: a pre-paginated one; the server cannot tell it from a reflowable one,
+    /// whose clients never send <c>page-name</c>). <c>textstack-*</c> fits any: the transitional reader writes it on PDFs
     /// too (reflow), and its real guard is the chapter check. <c>ReadingStateRepository</c>'s write asks the same in SQL.
     /// </summary>
     public static SyncResult? FitsFile(string? scheme, string format, string field) => scheme switch
     {
         "pdf-page" when format != "pdf" => Misfit(scheme, format, field),
         "epub-cfi" when format == "pdf" => Misfit(scheme, format, field),
-        "page-name" when format != "cbz" => Misfit(scheme, format, field),
+        "page-name" when format is not ("cbz" or "epub") => Misfit(scheme, format, field),
         _ => null,
     };
 

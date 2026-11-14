@@ -203,7 +203,7 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toContain('crypto.getRandomValues(new Uint8Array(16))')
     // The page's own script: pdf.js (a carried reader) checks for randomUUID and falls back.
     expect(html.slice(html.indexOf('"};\n'))).not.toContain('randomUUID')
-    expect(html).toMatch(/return textual \? \{ \.\.\.\w+, quote: quoteOf\(\w+\.range\.toString\(\)/)
+    expect(html).toMatch(/return \w+\.range \? \{ \.\.\.\w+, quote: quoteOf\(\w+\.range\.toString\(\)/)
     expect(html).toMatch(/id: uuidV4\(\),[\s\S]{0,120}?quote: quoteOf\(selectedText\),\s*selectedText,/)
     expect(html).toMatch(/const ok = foldText\(\w+\) === foldText\((\w+)\.selectedText \?\? \1\.quote\);/)
     expect(html).not.toMatch(/\.slice\(0, 64\)/)

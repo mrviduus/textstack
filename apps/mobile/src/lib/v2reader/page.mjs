@@ -372,11 +372,33 @@ function arrivedAt(index) {
 }
 
 /**
+ * A book whose positions name a page (`page`, the `page-name` locator), not text at a CFI: an image book
+ * (CBZ), and a pre-paginated EPUB (#1196: foliate's fixed-layout renderer reports no range, so there is no
+ * text position to build). A PDF has its own page numbers (`pdf-page`).
+ */
+const pageForm = () => !textual || (format === 'epub' && view.isFixedLayout)
+/**
+ * The section's stable key, foliate's section id: a CBZ image's entry name (`comicName`), an EPUB spine
+ * item's manifest href resolved against the OPF (epub.js). Both come from the file's bytes alone, so two
+ * devices with the same file agree on it, whatever order they list the sections in.
+ */
+const pageKey = (i) => String(view.book.sections[i]?.id ?? '')
+/** The section named `key`, -1 if none: restore and a host goTo find a page by name, never by its index. */
+const sectionNamed = (key) => view.book.sections.findIndex((s) => String(s.id) === key)
+
+/**
  * Goes to a goTo target or a stored position and answers whether the view arrived. A fraction-only one
  * (#1187) by its fraction, 0 being the text start (not a cover before it); a PDF page by its section
- * (page − 1); any other position by its CFI.
+ * (page − 1); a named page (CBZ, pre-paginated EPUB) by its name, never by the CFI its index rebuilds (two
+ * devices may order a CBZ's entries differently); any other position by its CFI.
  */
 async function land(target) {
+  if (isPosition(target) && typeof target.page === 'string') {
+    const index = sectionNamed(target.page)
+    if (index < 0) return false
+    await view.goTo(index)
+    return arrivedAt(index)
+  }
   const resolved = await (isFractionOnly(target)
     ? (target.fraction === 0 ? view.goToTextStart() : view.goTo({ fraction: target.fraction }))
     : view.goTo(isPdfPage(target) ? target.page - 1 : isPosition(target) ? target.cfi : target))
@@ -385,17 +407,20 @@ async function land(target) {
 
 /**
  * The place a relocate (or `view.lastLocation`) shows, as the entry's position: the one builder for
- * every save. The visible range's start: its CFI and the text there, to verify the CFI on restore. An
- * image page has no text and so no quote: its entry name in the archive (`page`) is what restore checks.
- * Null where there is nothing to build from: a text book's location without a range (a pre-paginated
- * EPUB: foliate's fixed-layout renderer reports none), so such a book saves no position at all.
+ * every save. The visible range's start: its CFI and the text there, to verify the CFI on restore. A
+ * page-form book's page (`pageForm`: CBZ, pre-paginated EPUB) is saved by its key (`page`, no quote),
+ * which is what restore checks. Null where there is nothing to build from (a text location without a range).
  */
 function positionOf(d) {
   // A PDF page (#1128 S5): `pdf-page`, the section index + 1. Never a CFI.
   if (d && format === 'pdf') return Number.isInteger(d.section?.current) ? { page: d.section.current + 1, index: d.section.current, fraction: d.fraction, at: Date.now() } : null
-  if (!d || (textual && !d.range)) return null
+  if (!d) return null
   const at = { cfi: d.cfi, index: d.section?.current, fraction: d.fraction, at: Date.now() }
-  return textual ? { ...at, quote: quoteOf(d.range.toString().replace(/^\s+/, '')) } : { ...at, page: String(view.book.sections[at.index]?.id ?? '') }
+  if (pageForm()) {
+    const page = pageKey(at.index)
+    return page ? { ...at, page } : null
+  }
+  return d.range ? { ...at, quote: quoteOf(d.range.toString().replace(/^\s+/, '')) } : null
 }
 
 /**
@@ -777,9 +802,9 @@ async function restoreInto(json, stale) {
     const arrived = p.fraction === 0 || (await land(p))
     if (stale()) return result
     result.position = arrived ? 'restored by fraction' : 'navigation failed, stayed at start'
-  } else if (p && !textual) {
-    // An image page: the stored entry name must still be a page of this book.
-    const index = p.page ? view.book.sections.findIndex((s) => String(s.id) === p.page) : -1
+  } else if (p && pageForm()) {
+    // A named page (CBZ, pre-paginated EPUB): the stored key must still be a page of this book.
+    const index = typeof p.page === 'string' ? sectionNamed(p.page) : -1
     if (index < 0) result.position = 'page not found, stayed at start'
     else {
       await view.goTo(index)

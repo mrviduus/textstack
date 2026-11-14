@@ -2057,17 +2057,40 @@ try {
   check((await waitFor(from, (x) => x.type === 'restored', 'the second open restored'))?.position === 'restored by fraction', 'and the opened view takes its own restore')
 
   // A taken offer saves what a relocate would save (round 3, one builder). A pre-paginated EPUB has text
-  // but no range from foliate's fixed-layout renderer: nothing to save, and nothing throws.
+  // but no range from foliate's fixed-layout renderer (#1196): its position names the page, the spine
+  // item's href (foliate's section id), as a CBZ's names its image.
   console.log('fixed layout')
   m = await open('tsfixed.epub')
   check(m.type === 'opened' && m.reflowable === false && m.textual === true, `a pre-paginated EPUB opens fixed-layout, textual (${m.reflowable}, ${m.textual}${m.error ? `, ${m.error}` : ''})`)
-  m = await open('tsfixed.epub', entryOf(m.book, null))
+  const fixedBook = m.book
+  m = await open('tsfixed.epub', entryOf(fixedBook, null))
+  from = messages.length
+  call('window.__fol.next()')
+  const fixedTurn = await storeFrom(from, 'a store after a pre-paginated page turn')
+  check(fixedTurn?.position?.page === 'OEBPS/p2.xhtml' && fixedTurn.position.index === 1 && !('quote' in fixedTurn.position) && fixedTurn.position.cfi?.startsWith('epubcfi('),
+    `a pre-paginated page turn saves the page by its spine href, no quote (${JSON.stringify(fixedTurn?.position)})`)
+  m = await open('tsfixed.epub', JSON.stringify(fixedTurn))
+  check(m.restored.position === 'restored' && !!(await frameWith('Page 2. Sphinx')), `reopened, the pre-paginated page is restored (${m.restored.position})`)
+  m = await open('tsfixed.epub', entryOf(fixedBook, { ...fixedTurn.position, page: 'OEBPS/gone.xhtml' }))
+  check(m.restored.position === 'page not found, stayed at start', `a page this EPUB does not have is not restored (${m.restored.position})`)
+  m = await open('tsfixed.epub', entryOf(fixedBook, null))
   from = messages.length
   call('window.__fol.goTo({ fraction: 0.9, at: 11 }, true)')
-  await waitFor(from, (x) => x.type === 'log' && /nothing to save here/.test(x.msg), 'nothing to save on a pre-paginated EPUB').catch(() => null)
-  await settle()
-  check(storesFrom(from).length === 0 && messages.slice(from).some((x) => x.type === 'log' && /nothing to save here/.test(x.msg)),
-    'a taken offer on a pre-paginated EPUB saves nothing and says so')
+  const fixedTaken = await storeFrom(from, 'a store after a taken offer on a pre-paginated EPUB')
+  check(fixedTaken?.position?.page === 'OEBPS/p3.xhtml' && !('quote' in fixedTaken.position), `a taken offer on a pre-paginated EPUB saves its page (${JSON.stringify(fixedTaken?.position)})`)
+  // A host goTo of a named page lands by its name, never by the index beside it (#1196, the #1188 review):
+  // another device may order the sections differently. Index 0 is page 1, already shown.
+  const byName = async (file, b, pageName, what) => {
+    m = await open(file, entryOf(b, null))
+    from = messages.length
+    call(`window.__fol.goTo(${JSON.stringify({ cfi: 'epubcfi(/6/2)', page: pageName, index: 0, fraction: 0.5, at: 13 })}, true)`)
+    const s = await storeFrom(from, `a store after a goTo by name on ${file}`)
+    check(s?.position?.page === pageName && s.position.index === 2, `${what}: a goTo of a named page lands by name, not by its index (${JSON.stringify(s?.position)})`)
+    from = messages.length
+    call(`window.__fol.goTo(${JSON.stringify({ cfi: 'epubcfi(/6/2)', page: 'nope', index: 0, fraction: 0.5, at: 14 })})`)
+    check(!!(await waitFor(from, (x) => x.type === 'log' && /did not land/.test(x.msg), `${file}: unknown name`).catch(() => null)), `${what}: a goTo of a page name the book lacks does not land`)
+  }
+  await byName('tsfixed.epub', fixedBook, 'OEBPS/p3.xhtml', 'pre-paginated EPUB')
   // #1268: the fixed-layout renderer scales a pre-paginated page's frame with a transform; a selection's rect
   // is where the text is drawn. A page turned away clears it. On a spread, a change in one frame does not
   // cancel the other frame's selection.
@@ -2128,6 +2151,7 @@ try {
   await settle()
   check(!messages.slice(from).some((x) => x.type === 'log' && /did not land/.test(x.msg)) && storesFrom(from).length === 1,
     `a taken goTo to the other page of the shown spread arrives and saves (${JSON.stringify(storesFrom(from))})`)
+  await byName('tsthree.cbz', m.book, 'p03.png', 'CBZ')
 
   await checkSelectionEdges()
   await checkChrome()

@@ -56,9 +56,35 @@ describe('v2LocalSync', () => {
     })
   })
 
-  it('positionWrite_CbzPageOffACbz_Null', () => {
-    // A fixed-layout EPUB's page (#1196) is not enabled: the server refuses page-name there.
-    for (const format of ['epub', 'mobi', 'fb2', 'pdf', null]) expect(positionWrite(cbzPos, 'f', null, Date.now(), format), String(format)).toBeNull()
+  it('positionWrite_CbzPageOffACbzOrAnEpub_Null', () => {
+    for (const format of ['mobi', 'azw3', 'fb2', 'html', 'pdf', null]) expect(positionWrite(cbzPos, 'f', null, Date.now(), format), String(format)).toBeNull()
+  })
+
+  // #1196: a pre-paginated EPUB's page is `page-name` too, its spine href and section; a reflowable EPUB's
+  // position (a quote, no page) stays `epub-cfi`.
+  const fixedPos = { cfi: 'epubcfi(/6/6[p2])', page: 'OEBPS/p2.xhtml', index: 2, fraction: 0.6, at: Date.parse('2026-11-10T10:00:00Z') }
+
+  it('positionWrite_PrePaginatedEpubPage_PageNameWithSpineHrefAndIndex', () => {
+    expect(positionWrite(fixedPos, 'f', 5, Date.parse('2026-11-10T12:00:00Z'), 'epub')).toEqual({
+      expectedRevision: 5, fileId: 'f', bookFraction: 0.6, clientRecordedAt: '2026-11-10T10:00:00.000Z',
+      currentLocator: { version: 1, scheme: 'page-name', value: { page: 'OEBPS/p2.xhtml', index: 2 } },
+    })
+  })
+
+  it('positionWrite_ReflowableEpubPosition_StaysEpubCfi', () => {
+    expect(positionWrite(pos, 'f', null, Date.now(), 'epub')?.currentLocator).toEqual({ version: 1, scheme: 'epub-cfi', value: CFI, quote: 'It was a bright cold day' })
+    // A quoted position never turns into a page, even with a stray `page` beside it.
+    expect(positionWrite({ ...pos, page: 'OEBPS/p2.xhtml' }, 'f', null, Date.now(), 'epub')?.currentLocator.scheme).toBe('epub-cfi')
+  })
+
+  it('statePosition_PageNameOnAnEpub_RoundTripsAsThePagesNamedPosition', () => {
+    const w = positionWrite(fixedPos, 'f', null, Date.now(), 'epub')!
+    const back = statePosition(state({ currentLocator: w.currentLocator, bookFraction: w.bookFraction }), 'epub')
+    // The CFI is rebuilt from the index (foliate's, without the idref assertion): the page restores by `page`.
+    expect(back).toEqual({ cfi: 'epubcfi(/6/6)', page: 'OEBPS/p2.xhtml', index: 2, fraction: 0.6, at: Date.parse('2026-11-10T11:00:00.000Z') })
+    expect(isPosition(back)).toBe(true)
+    // A reflowable EPUB's epub-cfi state is still the quoted CFI.
+    expect(statePosition(state(), 'epub')).toMatchObject({ cfi: CFI, quote: pos.quote })
   })
 
   it('positionWrite_CbzPageTheServerWouldRefuse_Null', () => {
@@ -84,18 +110,30 @@ describe('v2LocalSync', () => {
   })
 
   it('statePosition_PageNameOffACbzOrMalformed_Null', () => {
-    for (const format of ['epub', 'pdf', 'mobi']) expect(statePosition(pageState({ page: 'p01.png', index: 0 }), format), format).toBeNull()
+    for (const format of ['pdf', 'mobi', 'fb2']) expect(statePosition(pageState({ page: 'p01.png', index: 0 }), format), format).toBeNull()
     for (const value of [null, 'p01.png', {}, { page: 'p01.png' }, { index: 0 }, { page: '', index: 0 }, { page: 7, index: 0 }, { page: 'p', index: -1 }, { page: 'p', index: '0' }])
       expect(statePosition(pageState(value), 'cbz'), JSON.stringify(value)).toBeNull()
   })
 
-  it('decideServerState_PageName_BySectionIndex', () => {
+  it('decideServerState_PageName_ByNameWhenBothHaveOne', () => {
     const now = Date.parse('2026-11-10T12:00:00Z')
     const local = { ...cbzPos, at: Date.parse('2026-11-10T09:00:00Z') }
     const reader = { restoreApplied: true, moved: false, index: 1 }
     expect(decideServerState({ local, localFileId: 'f', server: pageState({ page: 'Vol 1/p02.png', index: 1 }), reader, format: 'cbz', now })).toBe('move')
     expect(decideServerState({ local, localFileId: 'f', server: pageState({ page: 'Vol 1/p09.png', index: 8 }), reader, format: 'cbz', now })).toBe('prompt')
-    expect(decideServerState({ local, localFileId: 'f', server: pageState({ page: 'p', index: 8 }), reader, format: 'epub', now })).toBe('keep')
+    expect(decideServerState({ local, localFileId: 'f', server: pageState({ page: 'p', index: 8 }), reader, format: 'mobi', now })).toBe('keep')
+    // Two devices may order a CBZ's entries differently: the name decides, never the index.
+    expect(decideServerState({ local, localFileId: 'f', server: pageState({ page: 'Vol 1/p02.png', index: 5 }), reader, format: 'cbz', now })).toBe('move')
+    expect(decideServerState({ local, localFileId: 'f', server: pageState({ page: 'Vol 1/p03.png', index: 1 }), reader, format: 'cbz', now })).toBe('prompt')
+    // A pre-paginated EPUB the same (#1196).
+    const fixedLocal = { ...fixedPos, at: Date.parse('2026-11-10T09:00:00Z') }
+    const fixedReader = { restoreApplied: true, moved: false, index: 2 }
+    expect(decideServerState({ local: fixedLocal, localFileId: 'f', server: pageState({ page: 'OEBPS/p2.xhtml', index: 7 }), reader: fixedReader, format: 'epub', now })).toBe('move')
+    expect(decideServerState({ local: fixedLocal, localFileId: 'f', server: pageState({ page: 'OEBPS/p3.xhtml', index: 2 }), reader: fixedReader, format: 'epub', now })).toBe('prompt')
+    // No local name (nothing saved here yet): by index, as before.
+    expect(decideServerState({ local: { fraction: 0, at: local.at }, localFileId: 'f', server: pageState({ page: 'Vol 1/p02.png', index: 1 }), reader, format: 'cbz', now })).toBe('move')
+    // Moved: asked, whatever the name.
+    expect(decideServerState({ local, localFileId: 'f', server: pageState({ page: 'Vol 1/p02.png', index: 1 }), reader: { ...reader, moved: true }, format: 'cbz', now })).toBe('prompt')
   })
 
   it('ownStateWrite_PageNameEchoedBack_IsOurs', () => {

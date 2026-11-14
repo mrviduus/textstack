@@ -360,7 +360,7 @@ async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: 
   if (!b) return
   // Replaced on another device: no write on this file can land (rule 6).
   if (b.server_file_id !== b.file_id) return drop(lib, reset, item)
-  // The scheme fits the file: pdf-page on a PDF, page-name on a CBZ (#1188), epub-cfi on any other (#1128 S5).
+  // The scheme fits the file: pdf-page on a PDF, page-name on a CBZ or a pre-paginated EPUB page (#1188, #1196), epub-cfi on any other (#1128 S5).
   const place = positionWrite(JSON.parse(st.position), b.file_id!, st.revision_file_id === b.file_id ? st.revision : null, Date.now(), b.format)
   // "Finish book" (#1266): sent with every write while it stands; the server keeps the first (`COALESCE`).
   const write = place && st.completed_at ? { ...place, completedAt: st.completed_at } : place
