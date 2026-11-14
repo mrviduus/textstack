@@ -348,6 +348,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `flow('paginated' \| 'scrolled')` | foliate layout; default `paginated` (ADR-029 Decision 1). Switches the open book in place (no reload, position kept). Before `opened` it sets what the next open uses: hosts send the reader's stored setting right after `ready`. Anything else is ignored with a `warn`. |
 | `flush()` | #1264: a `store` still debounced (a page turn's, 400 ms) is written now; nothing pending, nothing sent. Hosts call it on background, unmount and close. The page also flushes by itself when its document turns hidden (`visibilitychange`: a tab switch, the app backgrounded) and on `pagehide`. **Returns** the latest `store` message (`{ type, key, json }`: the pending one, now posted, or the last one sent; `null` before any, and after a new open until the reader moves: the swap forgets it): #1286, the web host calls it synchronously (the frame is same-origin) where a posted `store` comes too late — its own `pagehide` (the page's is a postMessage to a window that is unloading) and its unmount (a layout cleanup, while the frame is still in the document; the message listener is gone after). The host reads the value as an untrusted `store` (`readStore`: each field once, strings only, the synced book's key) inside a try: any failure is today's behaviour. The session takes it without a pass on `pagehide` (the keepalive write is the one write) and joins it to its last pass on close; the same payload posted again later is no change. Android ignores the value. |
 | `showTranslation(cfi, index, text)` | Draws `text` above that word (the web dev route's stub label only; no host draws a translation yet). Ignored where `annotatable` is false (CBZ, PDF). |
+| `drawnRanges()` | Test-only (`formats.check.mjs`): how many drawn highlight ranges the page holds, a count and no book data. The ranges of a section no longer loaded (its frame gone) are dropped when a section's overlayer is made and on every tap (#1312 review). |
 | `clearSelection()` | #1269: the host is done with the selection (its toolbar closed after Copy, a translation or explanation closed): removed from every shown section, `selection-cleared` sent at once if a `selection` was sent (none otherwise), and `highlightSelection()` has no last selection to fall back on. |
 
 **Page → host** (`{ type, … }`)
@@ -570,14 +571,32 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   `note`): a note diffed with the page's form, a removal a `DELETE` before any write of that highlight (a 404, never on
   the server, is done), both retried on the next pass and sent by keepalive on `pagehide`. The dev route keeps notes
   in memory only.
+- *Never losing a note* (#1312 review), both hosts:
+  - A save writes nothing when the draft is the note the editor opened with (`noteChange`): a note the host had not
+    read yet is never cleared by a save that changed nothing. Notes are cut at 2000 code points (`noteOf`, never
+    half a surrogate pair); both editors cap their field at 2000.
+  - A recolour in the open editor keeps the draft (the draft starts from the note when the editor opens, never on a
+    colour change). Web: whatever closes the editor (a tap or a word in the book, a selection, Escape, ×) saves a
+    changed draft; Cancel and Delete discard it (`PdfHighlightPopup` `saveOnClose`).
+  - After an `id_conflict` re-key the page keeps the old id until the next open: both hosts route its recolours,
+    notes and removals to the new row (web: the session's alias map; Android: `annotation_aliases`, applied to every
+    `store` and to `setNote` / `removeHighlight`; `notes()` answers under both ids).
+- *Web, the link*: once the jump to `?highlight=<id>` is made, the route drops the parameter (replace, no history
+  entry): a reload opens at the saved place, never jumps (and saves) again.
+- *Android, the upgrade* (rows from before notes were kept): adding `note_known` marks every row the server has as
+  not known and restarts the annotations feed from the start. A row not known is never pushed (its PUT would clear
+  the server's note; the sign-out push pulls nothing, so it skips it); the pull takes its note, a queued one's too;
+  a feed read to its end marks the rest known (not on the server: no note to keep). The notes are read by the book's
+  bytes as `readEntry` finds it (a pulled book not imported yet included) and again after every sync pass.
+- *Android, the list* needs no account (the top bar's button shows for everyone on the V2 route; making a highlight
+  keeps the legacy bar's sign-in gate). The highlights screen's V2 section reads again each time it is shown.
 - *Android*: local first, no token or network on any of it. A new highlight takes the last colour chosen (the legacy
   bar's one swatch, `lastHighlightColor`'s rule: a colour tap in the editor sets it for the next). The editor is the
   legacy `HighlightNoteModal`. Notes and removals are rows (`localLibrary.ts`: `note`, `note_dirty`; a removal sets
   `deleted_at` and queues the row, so restore draws it no more and a later `store` holding it is skipped), written in
   the page's message order (`hostStorage.ts`, after the queued `store`s). The push (`sync.ts`) sends the note with
   every write and a DELETE for a removal (404: the server never had it, done); a pull of a live row never undoes a
-  queued removal (the queued-row rule). The list is a sheet (the top bar's Highlights button: signed in, the legacy
-  gate). The highlights screen of a dev build lists this device's V2 highlights (`V2DeviceHighlights`) and opens the dev
+  queued removal (the queued-row rule). The list is a sheet (the top bar's Highlights button, for everyone, above). The highlights screen of a dev build lists this device's V2 highlights (`V2DeviceHighlights`) and opens the dev
   route at one (`?book=<id>&highlight=<id>`: the book from this device, then the jump once listed).
 
 **Deadlines and states** (#1227, `deadlines.mjs`, one rule for both hosts; the numbers are its named constants):
@@ -648,14 +667,14 @@ the whitelist in another app; `onShouldStartLoadWithRequest` (about:/blob:/data:
 **Web, its own document** (#1219, production route #1225): `frame.mjs` splits the page into two files under
 `/reader-v2/` (paths: `framePath.mjs`):
 
-- **the shell**, `/reader-v2/frame.html` (1,332 bytes): the page's head (its meta CSP), the host shim inline, and
+- **the shell**, `/reader-v2/frame.html` (1,326 bytes, #1312): the page's head (its meta CSP), the host shim inline, and
   `<script src="/reader-v2/page.<hash>.js" integrity="sha384-…">`, all under one nonce placeholder
   `%V2_READER_FRAME_NONCE%`. It fails closed: `%` is outside the CSP nonce grammar, so a shell served unfilled has
   no valid script source and runs nothing (not the shim, not the page script, not a script carrying the
   placeholder). Sent `no-store` with a fresh nonce per response (16 random bytes, hex, nginx's `$request_id`;
   `fillNonce` takes nothing else) and its own headers (`V2_READER_FRAME_HEADERS`: `frame-ancestors 'self'`,
   `no-store, no-transform`, nosniff, `no-referrer`, `X-Robots-Tag: noindex`).
-- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,830,394 bytes; 1,773,577 gzipped, #1269; #1260: OpenDyslexic adds about 120 KB of it):
+- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,836,424 bytes; 1,767,401 gzipped by node's zlib default, #1312; #1260: OpenDyslexic adds about 120 KB of it):
   the page's one script, byte for byte what the inline page runs, sent `public, max-age=31536000, immutable`,
   `text/javascript; charset=utf-8` (it is not ASCII), nosniff. A book open fetches the shell only; the script
   comes from the HTTP cache (ADR-029 Decision 4 as amended 2026-11-11). The format readers stay inside it as

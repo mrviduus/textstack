@@ -2172,9 +2172,9 @@ describe('V2 local library sync (R6)', () => {
       db.raw.exec('ALTER TABLE annotations DROP COLUMN note_known; ALTER TABLE annotations DROP COLUMN note_dirty; ALTER TABLE annotations DROP COLUMN note')
       const lib = createLocalLibrary(db)
       await lib.writeEntry(SHA, entry(pos, [{ ...highlight, color: 'pink' }]), newId)
-      // The pull fails: nothing pushed for the unknown row, it stays queued.
-      let calls = fakeApi({ 'GET /annotations/changes': [{ status: 500 }] })
-      await syncV2Library(lib, host())
+      // The sign-out push pulls nothing: the unknown row is not pushed (it would clear a server note), it stays queued.
+      let calls = fakeApi({ [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 2, { color: 'pink' }))] })
+      await pushV2BeforeSignOut('u1', false, 1000, () => lib)
       expect(calls.some((c) => c.method === 'PUT' && c.path === `/annotations/${HL}`)).toBe(false)
       expect(await lib.outbox()).toEqual([expect.objectContaining({ kind: 'annotation', target: HL })])
       // Read to its end without it: not on the server, so no note there to keep; pushed.
