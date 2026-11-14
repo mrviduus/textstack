@@ -948,6 +948,18 @@
       "Fix": "Fix",
       "Improved": "Improved",
       "Changed": "Changed"
+    },
+    "move": {
+      "heading": "The move to the new TextStack",
+      "intro": "TextStack is moving to a new foundation: your own books first, faster, and readable with no network. Here is the whole road.",
+      "progress": "{{percent}}% of the way · {{done}} of {{total}} steps done",
+      "updated": "Updated {{date}}",
+      "state": {
+        "done": "Done",
+        "now": "Now",
+        "next": "Next"
+      },
+      "open": "Still open"
     }
   }
 }
