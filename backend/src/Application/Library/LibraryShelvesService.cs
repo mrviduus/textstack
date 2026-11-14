@@ -14,7 +14,7 @@ namespace Application.Library;
 /// tens of books, not thousands; the quick-reads shelf already had to look at all of it.
 /// </para>
 /// </summary>
-public class LibraryShelvesService(IAppDbContext db)
+public class LibraryShelvesService(IAppDbContext db, IV2PaceTotals? v2Pace = null)
 {
     private const int ShelfLimit = 10;
     private const int RecentlyAddedDays = 14;
@@ -38,7 +38,7 @@ public class LibraryShelvesService(IAppDbContext db)
         var recentCutoff = now.AddDays(-RecentlyAddedDays);
         var monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
 
-        var pace = (await ReadingPace.GetAsync(db, userId, ct)).Wpm;
+        var pace = (await ReadingPace.GetAsync(db, userId, ct, v2Pace)).Wpm;
 
         var uploads = await db.UserBooks
             .Where(b => b.UserId == userId && b.TakedownAt == null)
