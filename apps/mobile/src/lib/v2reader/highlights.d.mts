@@ -8,7 +8,6 @@ export function isHighlightColor(c: unknown): c is V2HighlightColor
 export function colorOf(c: unknown): V2HighlightColor
 export const MAX_LIST: number
 export const MAX_LIST_TEXT: number
-export const MAX_NOTE: number
 /** One `highlight-list` item: drawn on screen, in book order; `text` is display only (cut). */
 export interface V2HighlightItem { id: string; cfi: string; color: V2HighlightColor; text: string; at: number | null }
 export function highlightList(

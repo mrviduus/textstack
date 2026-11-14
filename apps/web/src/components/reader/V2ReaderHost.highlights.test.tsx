@@ -73,14 +73,14 @@ describe('V2ReaderHost highlights', () => {
     expect(screen.getByPlaceholderText('Add a note...')).toHaveValue('kept')
   })
 
-  it('note_OverTheCap_SavedCut', () => {
+  it('note_Long_SavedWhole_Trimmed', () => {
     opened()
     list([item(ID1, 'by the pond')])
     tap()
-    fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'x'.repeat(2100) } })
+    fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: `  ${'x'.repeat(6000)}  ` } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     tap()
-    expect((screen.getByPlaceholderText('Add a note...') as HTMLTextAreaElement).value).toHaveLength(2000)
+    expect(screen.getByPlaceholderText('Add a note...')).toHaveValue('x'.repeat(6000))
   })
 
   it('untrustedTextAndNote_RenderedAsText', () => {
@@ -152,7 +152,7 @@ describe('V2ReaderHost highlights', () => {
     opened()
     list([item(ID1, 'by the pond')])
     tap()
-    expect(screen.getByPlaceholderText('Add a note...')).toHaveAttribute('maxLength', '2000')
+    expect(screen.getByPlaceholderText('Add a note...')).not.toHaveAttribute('maxLength')
     fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'typed, never saved by hand' } })
     fromPage({ type: 'tap', x: WIDTH / 2, y: 10 })
     expect(document.querySelector('.pdf-hl-popup')).toBeNull()

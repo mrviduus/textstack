@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  HIGHLIGHT_COLORS, HIGHLIGHT_FILL, MAX_LIST, MAX_LIST_TEXT, MAX_NOTE, colorOf, highlightList, noteChange, noteOf, readHighlightList, readHighlightRemoved,
+  HIGHLIGHT_COLORS, HIGHLIGHT_FILL, MAX_LIST, MAX_LIST_TEXT, colorOf, highlightList, noteChange, noteOf, readHighlightList, readHighlightRemoved,
   readHighlightTap,
 } from './highlights.mjs'
 import { MAX_SELECTION_CFI, MAX_SELECTION_PX } from './selection.mjs'
@@ -73,11 +73,9 @@ describe('v2 reader highlights', () => {
     expect(noteOf('  a note \n')).toBe('a note')
     expect(noteOf('   ')).toBeNull()
     expect(noteOf(undefined)).toBeNull()
-    expect(noteOf('x'.repeat(MAX_NOTE + 10))).toHaveLength(MAX_NOTE)
-    // Cut by code points: a surrogate pair at the cut is kept whole, never half.
-    const emoji = noteOf('😀'.repeat(MAX_NOTE + 1))!
-    expect(Array.from(emoji)).toHaveLength(MAX_NOTE)
-    expect(emoji.endsWith('😀')).toBe(true)
+    // Never cut: a long note written elsewhere is kept whole by an edit here.
+    const long = '😀'.repeat(6000)
+    expect(noteOf(` ${long} `)).toBe(long)
   })
 
   it('noteChange_TheDraftTheEditorOpenedWith_NothingToWrite_ElseTheNote', () => {

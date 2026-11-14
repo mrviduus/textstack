@@ -90,7 +90,7 @@ export function V2TocSheet({ visible, toc, tocIndex, onGo, onClose }: Props & { 
 export function V2HighlightsSheet({ visible, items, notes, onGo, onClose }: {
   visible: boolean
   items: V2HighlightItem[]
-  notes: Map<string, string>
+  notes: Map<string, string | null>
   onGo: (item: V2HighlightItem) => void
   onClose: () => void
 }) {

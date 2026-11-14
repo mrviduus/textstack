@@ -13,6 +13,7 @@ interface FakeSync {
   onHighlights(list: unknown[]): void
   highlights?: boolean
   onNewerPlace(p: PagePosition): void
+  onRekey?(oldId: string, newId: string): void
   /** The next `restore` call's answer (a new one per call: Retry calls it again). */
   answer(json: string | null): void
   fail(): void
@@ -28,11 +29,11 @@ interface FakeSync {
 }
 const sessions: FakeSync[] = []
 vi.mock('../../lib/v2ReaderSync', () => ({
-  createV2ReaderSync: (target: V2SyncTarget, o: Pick<FakeSync, 'onStatus' | 'onHighlights' | 'highlights' | 'onNewerPlace'>) => {
+  createV2ReaderSync: (target: V2SyncTarget, o: Pick<FakeSync, 'onStatus' | 'onHighlights' | 'highlights' | 'onNewerPlace' | 'onRekey'>) => {
     let settle: { ok(json: string | null): void; no(e: unknown): void } | null = null
     const closed = Promise.resolve()
     const s: FakeSync = {
-      target, onStatus: o.onStatus, onHighlights: o.onHighlights, highlights: o.highlights, onNewerPlace: o.onNewerPlace,
+      target, onStatus: o.onStatus, onHighlights: o.onHighlights, highlights: o.highlights, onNewerPlace: o.onNewerPlace, onRekey: o.onRekey,
       answer: (json) => settle?.ok(json), fail: () => settle?.no(new Error('offline')),
       restore: vi.fn(() => new Promise((ok, no) => { settle = { ok, no } })), loadHighlights: vi.fn(async () => {}),
       store: vi.fn(), flush: vi.fn(async () => {}), flushKeepalive: vi.fn(), close: vi.fn(() => closed),
@@ -324,14 +325,68 @@ describe('V2ReaderHost, server sync', () => {
     const ID = '11111111-1111-4111-8111-111111111111'
     const item = { id: ID, cfi: 'epubcfi(/6/2!/4/2,/1:0,/1:5)', color: 'green', text: 'pond', at: 1 }
     async function reading() {
-      const { open } = mount()
+      const view = mount()
       fromPage({ type: 'ready' })
-      open(synced('b1', SHA('a')))
+      view.open(synced('b1', SHA('a')))
       fromPage({ ...opened('1/b1.epub', SHA('a')), annotatable: true })
       sessions[0].answer('{"v":1}')
       await flushAll()
-      return sessions[0]
+      return Object.assign(sessions[0], { view })
     }
+    /** The editor open on the highlight with a note typed, never saved by hand. */
+    async function typing() {
+      const s = await reading()
+      act(() => s.onHighlights([]))
+      fromPage({ type: 'highlight-list', key: SHA('a'), highlights: [item] })
+      Object.defineProperty(screen.getByTitle('V2 reader'), 'clientWidth', { value: 1000, configurable: true })
+      fromPage({ type: 'highlight-tap', id: ID, x: 500, y: 100, rect: { x: 480, y: 90, w: 40, h: 20 } })
+      fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: '  typed  ' } })
+      const order: string[] = []
+      s.setNote.mockImplementation((id: string, n: string | null) => { order.push(`setNote ${id} ${n}`) })
+      s.close.mockImplementation(() => { order.push('close'); return Promise.resolve() })
+      s.flushKeepalive.mockImplementation(() => { order.push('flushKeepalive') })
+      return { s, order }
+    }
+
+    // #1312 review: the editor's draft is the host's, written whatever ends it, before the session's last writes.
+    it('aTypedNote_LeavingTheRoute_WrittenBeforeTheSessionsClose', async () => {
+      const { s, order } = await typing()
+      s.view.unmount()
+      expect(order.slice(0, 2)).toEqual([`setNote ${ID} typed`, 'close'])
+    })
+
+    it('aTypedNote_ClosingTheTab_WrittenBeforeTheKeepaliveWrites_Once', async () => {
+      const { order } = await typing()
+      act(() => { window.dispatchEvent(new Event('pagehide')) })
+      expect(order).toEqual([`setNote ${ID} typed`, 'flushKeepalive'])
+    })
+
+    it('aReKeyLanding_ThePageRenamesIt_TheOpenEditorAndItsDraftFollowTheNewId', async () => {
+      const NEW = '99999999-9999-4999-8999-999999999999'
+      const { s, order } = await typing()
+      posted.length = 0
+      act(() => s.onRekey!(ID, NEW))
+      expect(posted.filter((m) => m.call === 'rekeyHighlight').map((m) => m.args)).toEqual([[ID, NEW]])
+      fromPage({ type: 'tap', x: 500, y: 10 })
+      expect(order[0]).toBe(`setNote ${NEW} typed`)
+    })
+
+    it('theNoteChangesUnderAnOpenEditor_SavingTheDraftItOpenedWith_WritesNothing', async () => {
+      const { s, order } = await typing()
+      fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'their note' } })
+      // Another device's note lands while the editor is open (the session's note, re-rendered).
+      s.note.mockReturnValue('newer, from the web')
+      fromPage({ type: 'highlight-list', key: SHA('a'), highlights: [{ ...item, color: 'blue' }] })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      expect(order).toEqual([])
+    })
+
+    it('anUntouchedDraft_LeavingTheRoute_WritesNothing', async () => {
+      const { s, order } = await typing()
+      fireEvent.change(screen.getByPlaceholderText('Add a note...'), { target: { value: 'their note ' } })
+      s.view.unmount()
+      expect(order[0]).toBe('close')
+    })
 
     it('beforeThePullLands_NoEditorOnATap_AfterIt_TheSessionsNote', async () => {
       const s = await reading()

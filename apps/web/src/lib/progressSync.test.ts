@@ -3,16 +3,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 const { upsertProgressMock } = vi.hoisted(() => ({ upsertProgressMock: vi.fn() }))
 vi.mock('../api/auth', () => ({ upsertProgress: upsertProgressMock }))
 
-import { flushLocalProgress, keepalivePut, preferLocalProgress, markProgressSynced } from './progressSync'
+import { flushLocalProgress, keepaliveWrite, preferLocalProgress, markProgressSynced } from './progressSync'
 import { ApiError } from '../api/client'
 
-describe('keepalivePut', () => {
+describe('keepaliveWrite', () => {
   afterEach(() => vi.unstubAllGlobals())
-  it('keepalivePut_PutWithItsJsonBody_DeleteWithNone_BothKeptAliveWithTheCookie', async () => {
+  it('keepaliveWrite_PutWithItsJsonBody_DeleteWithNone_BothKeptAliveWithTheCookie', async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
-    await keepalivePut('/a', '{"x":1}')
-    await keepalivePut('/b', null, 'DELETE')
+    await keepaliveWrite('/a', '{"x":1}')
+    await keepaliveWrite('/b', null, 'DELETE')
     expect(fetchMock.mock.calls).toEqual([
       ['/a', { method: 'PUT', credentials: 'include', keepalive: true, body: '{"x":1}', headers: { 'Content-Type': 'application/json' } }],
       ['/b', { method: 'DELETE', credentials: 'include', keepalive: true }],

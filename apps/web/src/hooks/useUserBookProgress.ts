@@ -3,7 +3,7 @@ import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { readUserBookProgress, saveUserBookProgress, type UserBookProgress } from '../api/userBooks'
 import { v2Enabled, v2ProgressBody, rememberV2State } from '../api/v2'
 import { applyV2Outcome } from '../lib/v2Reading'
-import { preferLocalProgress, markProgressSynced, keepalivePut, PROGRESS_GET_TIMEOUT_MS, timeoutSignal } from '../lib/progressSync'
+import { preferLocalProgress, markProgressSynced, keepaliveWrite, PROGRESS_GET_TIMEOUT_MS, timeoutSignal } from '../lib/progressSync'
 
 const STORAGE_KEY = 'userbook.progress.'
 const DEBOUNCE_MS = 2000
@@ -204,7 +204,7 @@ export function useUserBookProgress(bookId: string) {
       return
     }
     // A 409 here is left to the next write, which reads the answer and applies the revision rule.
-    rememberV2State(keepalivePut(v2Api.readingStateUrl(id), JSON.stringify(body)).then((res) => (res.ok ? res.json() : null)))
+    rememberV2State(keepaliveWrite(v2Api.readingStateUrl(id), JSON.stringify(body)).then((res) => (res.ok ? res.json() : null)))
       .then((s) => { if (s) ack() })
       .catch((err) => console.warn('[progress] userbook flush save failed', err))
   }, [])
@@ -240,7 +240,7 @@ export function useUserBookProgress(bookId: string) {
     })
     const url = `/api/me/books/${bookId}/progress`
 
-    keepalivePut(url, payload)
+    keepaliveWrite(url, payload)
       .then((res) => {
         // A non-ok answer is not an ACK: leave the dedupe key and the unsynced local entry
         // alone, so the next write of this same position is sent rather than deduped away.

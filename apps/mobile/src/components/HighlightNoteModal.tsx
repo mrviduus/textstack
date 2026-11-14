@@ -31,14 +31,18 @@ export interface HighlightNoteModalProps {
   /** Current color of the highlight — render the matching swatch as selected. */
   initialColor?: HighlightColor
   onCancel: () => void
-  onSave: (note: string) => void
+  /**
+   * The note as typed (trimmed), and `base`: the note the draft was typed over (the one shown when typing began, or the
+   * latest shown if untouched): a caller writes nothing when they are the same.
+   */
+  onSave: (note: string, base: string | null) => void
+  /** The note is not known yet (#1312 review, V2: a row from before notes, not pulled yet): the field waits, Save is off. */
+  noteLoading?: boolean
   /** Called when the user picks a different color swatch. Fires immediately
    *  (no Save click required) — color is a single-tap commit, the editor's
    *  Save covers the note text only. */
   onColorChange?: (color: HighlightColor) => void
   onDelete: () => void
-  /** The note's length cap (the V2 reader's MAX_NOTE); none when absent. */
-  maxLength?: number
 }
 
 /**
@@ -63,23 +67,39 @@ export function HighlightNoteModal({
   onSave,
   onColorChange,
   onDelete,
-  maxLength,
+  noteLoading = false,
 }: HighlightNoteModalProps) {
   const { colors } = useTheme()
   const [note, setNote] = useState(initialNote || '')
   const [color, setColor] = useState<HighlightColor | undefined>(initialColor)
   const inputRef = useRef<TextInput>(null)
+  /** The reader has typed since the editor opened; `base`: the note the draft is typed over. */
+  const touched = useRef(false)
+  const base = useRef<string | null>(initialNote ?? null)
 
-  // The draft starts from the highlight's note when the editor opens, and only then: a colour tap re-renders the
-  // caller with a new `initialColor`, which must not wipe a note being typed (#1312 review). A caller showing another
-  // highlight closes the editor first (or keys it).
+  // The draft starts from the highlight's note when the editor opens: a colour tap re-renders the caller with a new
+  // `initialColor`, which must not wipe a note being typed (#1312 review). A caller showing another highlight closes
+  // the editor first (or keys it).
   useEffect(() => {
     if (visible) {
+      touched.current = false
+      base.current = initialNote ?? null
       setNote(initialNote || '')
       setColor(initialColor)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible])
+  // Untouched, the draft follows the note as it loads or changes (#1312 review): a save never replaces a note unseen.
+  useEffect(() => {
+    if (!visible || touched.current) return
+    base.current = initialNote ?? null
+    setNote(initialNote || '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialNote])
+  const edit = (text: string) => {
+    touched.current = true
+    setNote(text)
+  }
 
   const handleColorPick = (c: HighlightColor) => {
     setColor(c)
@@ -95,7 +115,7 @@ export function HighlightNoteModal({
     return () => clearTimeout(t)
   }, [visible])
 
-  const handleSave = () => onSave(note.trim())
+  const handleSave = () => { if (!noteLoading) onSave(note.trim(), base.current) }
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -146,9 +166,9 @@ export function HighlightNoteModal({
             <TextInput
               ref={inputRef}
               value={note}
-              onChangeText={setNote}
-              maxLength={maxLength}
-              placeholder="Add a note…"
+              onChangeText={edit}
+              editable={!noteLoading}
+              placeholder={noteLoading ? 'Loading the note…' : 'Add a note…'}
               placeholderTextColor={colors.textSecondary}
               multiline
               accessibilityLabel="Highlight note"
@@ -181,8 +201,10 @@ export function HighlightNoteModal({
                 <Text style={[styles.btnText, { color: colors.textSecondary }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.btn, styles.btnPrimary, { backgroundColor: colors.primary }]}
+                style={[styles.btn, styles.btnPrimary, { backgroundColor: colors.primary }, noteLoading && { opacity: 0.4 }]}
                 onPress={handleSave}
+                disabled={noteLoading}
+                accessibilityState={{ disabled: noteLoading }}
                 accessibilityRole="button"
                 accessibilityLabel="Save note"
               >

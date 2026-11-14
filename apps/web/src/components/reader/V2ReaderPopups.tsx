@@ -18,7 +18,7 @@ import { SelectionToolbar } from './SelectionToolbar'
 import { TranslationPopup } from './TranslationPopup'
 import { ExplanationPopup } from './ExplanationPopup'
 import { PdfHighlightPopup } from './PdfHighlightPopup'
-import { MAX_NOTE, type V2HighlightColor, type V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
+import type { V2HighlightColor, V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
 
 /** #1312: the highlight a tap opened (`popup.kind === 'highlight'`), as the host knows it, and what its editor does. */
 export interface V2HighlightEditor {
@@ -27,6 +27,8 @@ export interface V2HighlightEditor {
   note: string | null
   onRecolor: (color: V2HighlightColor) => void
   onNoteSave: (note: string | null) => void
+  /** The draft as typed (null: saved or discarded): the host writes a changed one whatever closes the editor. */
+  onDraft: (draft: { text: string; from: string | null } | null) => void
   onDelete: () => void
 }
 
@@ -216,9 +218,7 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
           onNoteSave={highlight.onNoteSave}
           onDelete={() => { highlight.onDelete(); onClose(false) }}
           onClose={() => onClose(false)}
-          // A tap in the book, a word, a selection or Escape closes it from outside: a changed note is still saved.
-          saveOnClose
-          maxLength={MAX_NOTE}
+          onDraft={highlight.onDraft}
         />
       )}
       {translationPopup.show && (

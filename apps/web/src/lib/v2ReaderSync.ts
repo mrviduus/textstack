@@ -42,7 +42,7 @@ import {
   type V2ReadingStateWrite,
 } from '@textstack/shared'
 import { resetSince } from '../api/v2'
-import { keepalivePut } from './progressSync'
+import { keepaliveWrite } from './progressSync'
 
 /** The open book on the server: its current file, as the page's entry names it. */
 export interface V2SyncTarget {
@@ -83,9 +83,9 @@ export const v2ReaderSyncApi: V2ReaderSyncApi = {
   putReadingState: v2Api.putReadingState,
   putAnnotation: v2Api.putAnnotation,
   deleteAnnotation: v2Api.deleteAnnotation,
-  keepalivePutState: (id, body) => void keepalivePut(v2Api.readingStateUrl(id), body).catch(() => {}),
-  keepalivePutAnnotation: (id, body) => void keepalivePut(v2Api.annotationUrl(id), body).catch(() => {}),
-  keepaliveDeleteAnnotation: (id) => void keepalivePut(v2Api.annotationUrl(id), null, 'DELETE').catch(() => {}),
+  keepalivePutState: (id, body) => void keepaliveWrite(v2Api.readingStateUrl(id), body).catch(() => {}),
+  keepalivePutAnnotation: (id, body) => void keepaliveWrite(v2Api.annotationUrl(id), body).catch(() => {}),
+  keepaliveDeleteAnnotation: (id) => void keepaliveWrite(v2Api.annotationUrl(id), null, 'DELETE').catch(() => {}),
 }
 
 /** The browser's keepalive budget is 64 KiB for every request in flight; headroom kept. */
@@ -158,6 +158,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   onNewerPlace(p: PagePosition): void
   /** The book's completion as the server holds it, from every state the session takes (null: not finished): the host's Finish book block (#1266). */
   onCompleted?(completedAt: string | null): void
+  /** #1312 review: a highlight the page holds as `oldId` is held by the server as `newId` (`id_conflict`): the host renames it on the page. */
+  onRekey?(oldId: string, newId: string): void
   /** Waited for before the first read; by default the last session of this book still writing (a reopen). */
   after?: Promise<unknown>
   /** False where the page offers no highlights (a PDF, a CBZ): no annotations pull. */
@@ -226,16 +228,12 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   /** This tab's note edits not yet on the server (id → note, null: cleared), and its removals not yet tombstoned. */
   const notes = new Map<string, string | null>()
   const removals = new Set<string>()
+  const noteFor = (id: string) => (notes.has(id) ? notes.get(id)! : held.get(id)?.note ?? null)
   /**
-   * A page id re-keyed after `id_conflict` → the id the server holds it under. The page keeps the old id until the
-   * next open; its recolours, notes and removals reach the new row through this (#1312 review).
+   * Old ids of re-keyed highlights: until the page renames one, its stores still carry the old id, a form never
+   * written (it is the new row's; once that row is deleted it is no longer its twin, and would be created again).
    */
-  const aliases = new Map<string, string>()
-  const real = (id: string) => aliases.get(id) ?? id
-  const noteFor = (pageId: string) => {
-    const id = real(pageId)
-    return notes.has(id) ? notes.get(id)! : held.get(id)?.note ?? null
-  }
+  const rekeyedAway = new Set<string>()
   const noted = (h: PageHighlight, note = noteFor(h.id)): Noted => ({ ...h, noteText: note })
 
   /** The position written; false when it did not land or was refused. One retry after a lost revision. */
@@ -289,8 +287,16 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     /** The note sent is what this tab holds now: its edit is done (a newer edit meanwhile stays). */
     const landed = (a: V2Annotation) => {
       keep(a, pageFormOf(h))
-      if (h.id !== pageId) aliases.set(pageId, h.id)
-      if (notes.has(pageId) && notes.get(pageId) === (a.noteText ?? null)) notes.delete(pageId)
+      if (h.id !== pageId) {
+        // A re-key (`id_conflict`) landed: this tab's edits made under the old id while it was in flight move to the new
+        // one, and the host renames it on the page (`rekeyHighlight`), whose later forms then carry the new id.
+        if (notes.has(pageId)) notes.set(h.id, notes.get(pageId)!)
+        notes.delete(pageId)
+        if (removals.delete(pageId)) removals.add(h.id)
+        rekeyedAway.add(pageId)
+        if (current()) o.onRekey?.(pageId, h.id)
+      }
+      if (notes.has(h.id) && notes.get(h.id) === (a.noteText ?? null)) notes.delete(h.id)
     }
     try {
       const a = await api.putAnnotation(h.id, write)
@@ -355,7 +361,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
    */
   function notedForms(entry: PageEntry | null): Noted[] {
     // Under the id the server holds them by (an alias after a re-key): diffed against that row.
-    const forms = (entry?.highlights ?? []).map((h) => noted(aliases.has(h.id) ? { ...h, id: real(h.id) } : h)).filter((h) => !removals.has(h.id))
+    const forms = (entry?.highlights ?? []).filter((h) => !removals.has(h.id) && !rekeyedAway.has(h.id)).map((h) => noted(h))
     const ids = new Set(forms.map((h) => h.id))
     for (const id of notes.keys()) {
       const r = held.get(id)
@@ -550,14 +556,12 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       return (completing ??= completeOnce().finally(() => { completing = null }))
     },
     note: noteFor,
-    setNote(pageId, note) {
-      const id = real(pageId)
+    setNote(id, note) {
       if (!current() || removals.has(id) || held.get(id)?.deleted || noteFor(id) === note) return
       notes.set(id, note)
       void kick()
     },
-    remove(pageId) {
-      const id = real(pageId)
+    remove(id) {
       if (!current() || removals.has(id)) return
       removals.add(id)
       notes.delete(id)

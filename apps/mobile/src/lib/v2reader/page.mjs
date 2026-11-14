@@ -519,6 +519,22 @@ function recolorHighlight(id, color) {
 }
 
 /**
+ * #1312 review: the host re-keyed highlight `oldId` (`id_conflict`: the server holds it as `newId`). Renamed in the entry
+ * and on screen, saved (`store`), listed again: its later recolours, removals and taps carry the new id. One not held
+ * here (another book's, gone), or a new id already held, is ignored with a `warn`.
+ */
+function rekeyHighlight(oldId, newId) {
+  if (!entry || typeof newId !== 'string' || !/^[0-9A-Za-z-]{1,64}$/.test(newId)) return void log('warn', 'rekeyHighlight ignored: no entry, or not an id')
+  const h = entry.highlights.find((x) => x.id === oldId)
+  if (!h || entry.highlights.some((x) => x.id === newId)) return void log('warn', 'rekeyHighlight ignored: not held here, or the new id is')
+  entry = { ...entry, highlights: entry.highlights.map((x) => (x.id === oldId ? { ...x, id: newId } : x)) }
+  const a = overlays.get(h.cfi)
+  if (a?.hl?.id === oldId) overlays.set(h.cfi, { ...a, hl: { ...a.hl, id: newId } })
+  persist()
+  postList()
+}
+
+/**
  * #1312: a drawn highlight removed from the entry and the screen; `highlight-removed` tells the host to tombstone it
  * (the entry's absence alone tombstones nothing: entryChanges never reads a missing highlight as a delete).
  */
@@ -1018,6 +1034,7 @@ window.__fol = {
   highlightSelection,
   recolorHighlight,
   removeHighlight,
+  rekeyHighlight,
   // A position (as stored: CFI, page or fraction-only, #1187; one that does not fit the book is ignored),
   // a CFI, an href or a section index. Not
   // `chosen` (the host moving the view: a sync adopt or move) nothing is saved or echoed back, the host

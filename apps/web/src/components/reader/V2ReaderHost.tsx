@@ -11,7 +11,7 @@ import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, rea
 import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../../../mobile/src/lib/v2reader/wordPopup.mjs'
 import { savesWords } from '../../../../mobile/src/lib/v2reader/vocabSave.mjs'
 import { V2ReaderPopups, type V2HighlightEditor } from './V2ReaderPopups'
-import { noteOf, readHighlightList, readHighlightRemoved, readHighlightTap, type V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
+import { noteChange, readHighlightList, readHighlightRemoved, readHighlightTap, type V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
 import { showsFinishBook } from '../../../../mobile/src/lib/v2reader/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
 import { readToc, tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
@@ -246,6 +246,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [popup, setPopupState] = useState<V2Popup | null>(null)
   const popupRef = useRef<V2Popup | null>(null)
   const setPopup = (p: V2Popup | null) => {
+    // The highlight editor closing, whatever closes it: its changed draft is written (#1312 review).
+    const was = popupRef.current
+    if (was?.kind === 'highlight' && !(p?.kind === 'highlight' && p.id === was.id)) flushDraft()
     popupRef.current = p
     setPopupState(p)
   }
@@ -262,6 +265,23 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const devNotes = useRef(new Map<string, string | null>())
   const [, setNotesSeen] = useState(0)
   const pendingHighlight = useRef<string | null>(null)
+  /**
+   * #1312 review: the open highlight editor's draft (lifted here from the popup), the note it opened with and the session
+   * of its book. Written by `flushDraft` whatever closes the editor: another popup, a tap in the book, a new open, leaving
+   * the route (before the session's close), the tab hidden or closed (before the keepalive writes).
+   */
+  const editorDraft = useRef<{ id: string; text: string; from: string | null; session: V2ReaderSync | null } | null>(null)
+  const writeNote = (id: string, note: string | null, session: V2ReaderSync | null) => {
+    if (dev) devNotes.current.set(id, note)
+    else session?.setNote(id, note)
+    setNotesSeen((n) => n + 1)
+  }
+  function flushDraft() {
+    const d = editorDraft.current
+    editorDraft.current = null
+    const note = d && noteChange(d.text, d.from)
+    if (d && note !== undefined) writeNote(d.id, note, d.session)
+  }
   const main = useRef<HTMLElement>(null)
   const header = useRef<HTMLElement>(null)
   const footer = useRef<HTMLElement>(null)
@@ -382,6 +402,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     const takeOpened = ({ open: current, opened: m }: Take<Opening, V2OpenedMessage>) => {
       opening.current = current
       // The previous take's last writes go out; a later open of the same book reads after them (v2ReaderSync), another never waits.
+      flushDraft()
       void sync.current?.close()
       sync.current = null
       retryRead.current = null
@@ -416,6 +437,19 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           highlights: m.annotatable !== false,
           // A later offer replaces the one shown (the newest place).
           onNewerPlace: setOffer,
+          // #1312 review: renamed on the page (its later stores, list and taps carry the new id), and here at once: the
+          // list, an editor open on it and its draft.
+          onRekey: (oldId, newId) => {
+            if (sync.current !== s) return
+            call('rekeyHighlight', [oldId, newId])
+            setHighlightList((l) => l.map((h) => (h.id === oldId ? { ...h, id: newId } : h)))
+            if (editorDraft.current?.id === oldId) editorDraft.current = { ...editorDraft.current, id: newId }
+            const p = popupRef.current
+            if (p?.kind === 'highlight' && p.id === oldId) {
+              popupRef.current = { ...p, id: newId }
+              setPopupState(popupRef.current)
+            }
+          },
           // Every server state the session takes: a reset elsewhere brings the button back.
           onCompleted: (completedAt) => {
             if (sync.current === s) setFinish((f) => (f?.completedAt === completedAt ? f : { format: target.format, completedAt }))
@@ -591,10 +625,16 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     }
     addEventListener('message', onMessage)
     // Online-first: what did not land is written again when the tab is hidden, and by a keepalive write as it goes.
-    const onVisibility = () => { if (document.visibilityState === 'hidden') void sync.current?.flush() }
+    const onVisibility = () => {
+      if (document.visibilityState !== 'hidden') return
+      flushDraft()
+      void sync.current?.flush()
+    }
     // The page's last turn (#1286): its own pagehide `store` would reach a document that is unloading; taken here first.
     const onPageHide = () => {
       const last = storeFor(pageLastStore(frame.current))
+      // The open editor's changed note goes with the keepalive writes (the session's notes are sent by them).
+      flushDraft()
       sync.current?.flushKeepalive(last)
     }
     document.addEventListener('visibilitychange', onVisibility)
@@ -604,6 +644,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       document.removeEventListener('visibilitychange', onVisibility)
       removeEventListener('pagehide', onPageHide)
       // Leaving the route (SPA navigation): the session's last pass still writes what is unsaved.
+      flushDraft()
       void sync.current?.close()
       sync.current = null
     }
@@ -613,6 +654,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   // cleanup runs before React removes it; the passive one below it, after). The session's close joins it.
   useLayoutEffect(() => () => {
     const last = storeFor(pageLastStore(frame.current))
+    // Before the close: the session's last pass writes the editor's changed note too.
+    flushDraft()
     void sync.current?.close(last)
   }, [])
 
@@ -666,18 +709,13 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   offersRef.current = offersHighlights
   const noteFor = (id: string) => (dev ? devNotes.current.get(id) ?? null : sync.current?.note(id) ?? null)
   const tapped = popup?.kind === 'highlight' ? highlightList.find((h) => h.id === popup.id) : undefined
-  const editorSession = sync.current
   const editor: V2HighlightEditor | null = tapped && offersHighlights ? {
     item: tapped,
     note: noteFor(tapped.id),
     onRecolor: (color) => call('recolorHighlight', [tapped.id, color]),
-    onNoteSave: (text) => {
-      const note = noteOf(text)
-      if (dev) devNotes.current.set(tapped.id, note)
-      // The session of the book the editor was opened in: a save on the way out of a closing book is never another's.
-      else editorSession?.setNote(tapped.id, note)
-      setNotesSeen((n) => n + 1)
-    },
+    onNoteSave: (note) => writeNote(tapped.id, note, sync.current),
+    // Held here, with the session of the book it was opened in: flushed whatever closes the editor.
+    onDraft: (d) => { editorDraft.current = d && { ...d, id: tapped.id, session: sync.current } },
     onDelete: () => call('removeHighlight', [tapped.id]),
   } : null
   /** A highlight chosen in the list: the reader's choice, saved where it lands. */

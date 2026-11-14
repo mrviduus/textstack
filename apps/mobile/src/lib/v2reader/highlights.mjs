@@ -15,8 +15,6 @@ export const colorOf = (c) => (isHighlightColor(c) ? c : 'yellow')
 /** At most this many items in a `highlight-list`; text cut to this many code points (display only). */
 export const MAX_LIST = 5000
 export const MAX_LIST_TEXT = 200
-/** A note's length cap (the server has none): the editors' maxLength (UTF-16 units), and `noteOf`'s cut (code points). */
-export const MAX_NOTE = 2000
 /** A highlight id as the page holds it: a v4 or the server's UUID, or a pre-#1078 `h…` one. */
 const isId = (id) => typeof id === 'string' && /^[0-9A-Za-z-]{1,64}$/.test(id)
 const isCfi = (c) => typeof c === 'string' && c.length <= MAX_SELECTION_CFI && c.startsWith('epubcfi(')
@@ -60,9 +58,12 @@ export function readHighlightRemoved(m) {
   return m && typeof m === 'object' && m.type === 'highlight-removed' && typeof m.key === 'string' && isId(m.id) ? { key: m.key, id: m.id } : null
 }
 
-/** A note as a host saves it: trimmed, at most MAX_NOTE code points (a surrogate pair is never split); blank is none (null). */
+/**
+ * A note as a host saves it: trimmed; blank is none (null). Never cut (#1312 review): the server has no cap, and a note
+ * written elsewhere (MCP, the legacy reader) may be longer than any cap here, which an edit would truncate.
+ */
 export function noteOf(text) {
-  const t = typeof text === 'string' ? Array.from(text.trim()).slice(0, MAX_NOTE).join('') : ''
+  const t = typeof text === 'string' ? text.trim() : ''
   return t ? t : null
 }
 

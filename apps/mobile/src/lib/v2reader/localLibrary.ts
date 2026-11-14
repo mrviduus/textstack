@@ -80,7 +80,6 @@ const SCHEMA = `
     note_known INTEGER NOT NULL DEFAULT 1
   );
   CREATE INDEX IF NOT EXISTS annotations_book ON annotations (book_id);
-  CREATE TABLE IF NOT EXISTS annotation_aliases (old TEXT PRIMARY KEY, new TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS outbox (
     kind TEXT NOT NULL,
     target TEXT NOT NULL,
@@ -92,11 +91,15 @@ const SCHEMA = `
 `
 /**
  * #1312 review: rows from before notes were kept here hold none, though the server may hold one, and every write now
- * sends the note (the PUT replaces the row). When this column is added, a row the server has (a revision) is marked
- * not known, never pushed until its note is (`pushAnnotation`), and the annotations feed is pulled again from the start.
+ * sends the note (the PUT replaces the row). Once per database, in one transaction with its marker (a kill before it
+ * commits runs it again at the next start): a row the server has (a revision) and no note edited here is marked not
+ * known, never pushed until its note is (`pushAnnotation`), and the annotations feed is pulled again from the start.
+ * A new database runs it on no rows.
  */
-const NOTE_KNOWN = 'ALTER TABLE annotations ADD COLUMN note_known INTEGER NOT NULL DEFAULT 1'
-const NOTE_KNOWN_UPGRADE = `UPDATE annotations SET note_known = 0 WHERE revision IS NOT NULL; DELETE FROM meta WHERE key = 'cursor:annotations';`
+const NOTES_UPGRADE = 'upgrade:notes'
+const NOTES_UPGRADE_SQL = `UPDATE annotations SET note_known = 0 WHERE revision IS NOT NULL AND note_dirty = 0;
+  DELETE FROM meta WHERE key = 'cursor:annotations';
+  INSERT INTO meta (key, value) VALUES ('${NOTES_UPGRADE}', '1');`
 /** Columns added after a dev build created the table; the duplicate-column error is the check (as offlineDb). */
 const ADDED_COLUMNS = [
   'ALTER TABLE books ADD COLUMN blocked TEXT',
@@ -104,7 +107,7 @@ const ADDED_COLUMNS = [
   'ALTER TABLE reading_state ADD COLUMN completed_at TEXT',
   'ALTER TABLE annotations ADD COLUMN note TEXT',
   'ALTER TABLE annotations ADD COLUMN note_dirty INTEGER NOT NULL DEFAULT 0',
-  NOTE_KNOWN,
+  'ALTER TABLE annotations ADD COLUMN note_known INTEGER NOT NULL DEFAULT 1',
 ]
 /** SQLite's own text (sqlite3_errmsg), in node:sqlite's message and expo-sqlite's "Error code 1: …" alike. */
 const isDuplicateColumn = (e: unknown) => /duplicate column name/i.test(String((e as Error | null)?.message ?? e))
@@ -248,9 +251,9 @@ export function createLocalLibrary(db: Db) {
     await db.execAsync(SCHEMA)
     for (const alter of ADDED_COLUMNS) {
       // Only "already there" is swallowed: any other failure surfaces (a missing column would fail every save after).
-      const added = await db.execAsync(alter).then(() => true, (e) => { if (!isDuplicateColumn(e)) throw e; return false })
-      if (added && alter === NOTE_KNOWN) await db.execAsync(NOTE_KNOWN_UPGRADE)
+      await db.execAsync(alter).catch((e) => { if (!isDuplicateColumn(e)) throw e })
     }
+    if (!(await db.getFirstAsync('SELECT 1 FROM meta WHERE key = ?', [NOTES_UPGRADE]))) await db.withTransactionAsync(() => db.execAsync(NOTES_UPGRADE_SQL))
   }
   /** A job on the one queue; the schema runs before the first (a failed one is tried again). */
   const job = <T>(fn: () => Promise<T>): Promise<T> => queue.run(async () => {
@@ -281,8 +284,6 @@ export function createLocalLibrary(db: Db) {
   const sizeOf = (b: BookRow) => b.size ?? b.server_size
   const stateOf = (bookId: string) => one<StateRow>('SELECT * FROM reading_state WHERE book_id = ?', [bookId])
   const annotationById = (id: string) => one<AnnotationRow>('SELECT * FROM annotations WHERE id = ?', [id])
-  /** The id a highlight is held under: its own, or the one it was re-keyed to (`id_conflict`). */
-  const realId = async (id: string) => (await one<{ new: string }>('SELECT new FROM annotation_aliases WHERE old = ?', [id]))?.new ?? id
   const queued = async (kind: OutboxKind, target: string) => !!(await one('SELECT 1 FROM outbox WHERE kind = ? AND target = ?', [kind, target]))
   /** A fresh save is a fresh attempt: a new gen, its failure count reset. */
   const enqueue = (kind: OutboxKind, target: string) =>
@@ -369,13 +370,10 @@ export function createLocalLibrary(db: Db) {
     const file = fileOf(book)
     const st = await stateOf(book.id)
     const rows = await all<Pick<AnnotationRow, 'id' | 'highlight' | 'file_id' | 'deleted_at'>>('SELECT id, highlight, file_id, deleted_at FROM annotations WHERE book_id = ?', [book.id])
-    // A highlight the page holds under an id re-keyed since (`id_conflict`) is diffed against its row (#1312 review).
-    const aliases = new Map((await all<{ old: string; new: string }>('SELECT old, new FROM annotation_aliases')).map((x) => [x.old, x.new]))
-    const highlights = aliases.size ? entry.highlights.map((h) => (aliases.has(h.id) ? { ...h, id: aliases.get(h.id)! } : h)) : entry.highlights
     const changes = entryChanges(
       file,
       { position: parse(st?.position ?? null), highlights: rows.map((r) => ({ id: r.id, highlight: parse<PageHighlight>(r.highlight), fileId: r.file_id, deleted: !!r.deleted_at })) },
-      { position: entry.position, highlights }, newId,
+      entry, newId,
     )
     if (changes.position && !(keepPosition && st?.position)) {
       await run(
@@ -520,8 +518,7 @@ export function createLocalLibrary(db: Db) {
      * #1312: the reader's note (null: none) on highlight `id`: this device's edit (`note_dirty`), queued when the
      * highlight's text may sync. False: no such highlight here, or it is deleted.
      */
-    setNote: (pageId: string, note: string | null) => tx(async () => {
-      const id = await realId(pageId)
+    setNote: (id: string, note: string | null) => tx(async () => {
       const row = await annotationById(id)
       if (!row || row.deleted_at) return false
       if ((row.note ?? null) === note && row.note_known) return true
@@ -536,8 +533,7 @@ export function createLocalLibrary(db: Db) {
      * a later `store` holding it is skipped, `entryChanges`), and queued so the server tombstones it (sync.ts pushes a
      * DELETE). One whose text may not sync was never sent: nothing queued. False: no such highlight, or deleted.
      */
-    removeHighlight: (pageId: string, at = new Date().toISOString()) => tx(async () => {
-      const id = await realId(pageId)
+    removeHighlight: (id: string, at = new Date().toISOString()) => tx(async () => {
       const row = await annotationById(id)
       if (!row || row.deleted_at) return false
       await run('UPDATE annotations SET deleted_at = ? WHERE id = ?', [at, id])
@@ -567,11 +563,9 @@ export function createLocalLibrary(db: Db) {
     notes: (sha256: string) => job(async () => {
       // The book these bytes are, as `readEntry` finds it (a pulled book not imported here yet included).
       const b = await bookForBytes(sha256)
-      const rows = b ? await all<{ id: string; note: string; old: string | null }>(
-        `SELECT a.id, a.note, x.old FROM annotations a LEFT JOIN annotation_aliases x ON x.new = a.id
-         WHERE a.book_id = ? AND a.deleted_at IS NULL AND a.note IS NOT NULL`, [b.id]) : []
-      // Under the page's id too: after a re-key the page keeps the old one until the next open.
-      return new Map(rows.flatMap((r) => (r.old ? [[r.id, r.note], [r.old, r.note]] : [[r.id, r.note]]) as [string, string][]))
+      // Every live highlight whose note is known (null: none); one missing is not known yet (an editor waits for it).
+      const rows = b ? await all<{ id: string; note: string | null }>('SELECT id, note FROM annotations WHERE book_id = ? AND deleted_at IS NULL AND note_known = 1', [b.id]) : []
+      return new Map(rows.map((r) => [r.id, r.note]))
     }),
 
     /**
@@ -731,9 +725,6 @@ export function createLocalLibrary(db: Db) {
       const h = { ...parse<PageHighlight>(row.highlight)!, id: to }
       await run('UPDATE annotations SET id = ?, highlight = ? WHERE id = ?', [to, JSON.stringify(h), id])
       await run(`UPDATE outbox SET target = ? WHERE kind = 'annotation' AND target = ?`, [to, id])
-      // The page keeps `id` until the next open: its recolours, notes and removals reach the row through this.
-      await run('UPDATE annotation_aliases SET new = ? WHERE new = ?', [to, id])
-      await run('INSERT INTO annotation_aliases (old, new) VALUES (?, ?) ON CONFLICT (old) DO UPDATE SET new = excluded.new', [id, to])
       return to
     }),
 
@@ -830,7 +821,8 @@ export function createLocalLibrary(db: Db) {
         }
         if (await queued('annotation', a.id)) {
           // A queued row whose note was never read (from before notes were kept): its note now, the rest left to the push.
-          if (row && !row.note_known) await run('UPDATE annotations SET note = ?, note_known = 1 WHERE id = ?', [a.noteText ?? null, a.id])
+          // Never over a note edited here (not marked unknown by the upgrade; guarded here too).
+          if (row && !row.note_known) await run('UPDATE annotations SET note = ?, note_known = 1 WHERE id = ? AND note_dirty = 0', [a.noteText ?? null, a.id])
           continue
         }
         const h = annotationHighlight(a)
@@ -885,7 +877,7 @@ export function createLocalLibrary(db: Db) {
      * nobody; rows that appear after it are taken by the first identity that syncs.
      */
     wipe: () => tx(async () => {
-      for (const table of ['books', 'reading_state', 'annotations', 'annotation_aliases', 'outbox', 'meta']) await run(`DELETE FROM ${table}`)
+      for (const table of ['books', 'reading_state', 'annotations', 'outbox', 'meta']) await run(`DELETE FROM ${table}`)
     }),
   }
 }

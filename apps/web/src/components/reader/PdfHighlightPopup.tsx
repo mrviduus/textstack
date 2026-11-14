@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react'
 import type { HighlightColor, StoredHighlight } from '../../lib/offlineDb'
 import { useTranslation } from '../../hooks/useTranslation'
+import { noteChange } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
 import { ReviewedRow } from './ReviewedMarks'
 
 // Dedicated edit popup for an Original-layout PDF highlight (parity with reflow:
@@ -29,12 +30,11 @@ interface Props {
   onDelete: () => void
   onClose: () => void
   /**
-   * #1312 review (the V2 reader): a changed note is saved whenever the popup goes away (a tap in the book, Escape, ×),
-   * not only by Save or a click outside this document; Cancel and Delete discard it.
+   * #1312 review (the V2 reader): the draft as it is typed, with the note the popup opened with, so the host can write a
+   * changed one whatever closes the popup (a tap in the book, Escape, ×, leaving the route, closing the tab). Null:
+   * nothing left to write (saved by Save, or discarded by Cancel or Delete).
    */
-  saveOnClose?: boolean
-  /** The note's length cap (the V2 reader's MAX_NOTE); none when absent. */
-  maxLength?: number
+  onDraft?: (draft: { text: string; from: string | null } | null) => void
 }
 
 export function PdfHighlightPopup({
@@ -45,24 +45,19 @@ export function PdfHighlightPopup({
   onNoteSave,
   onDelete,
   onClose,
-  saveOnClose = false,
-  maxLength,
+  onDraft,
 }: Props) {
   const { t } = useTranslation()
   const editorRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [noteText, setNoteText] = useState(highlight.noteText ?? '')
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
-  /** For `saveOnClose`: the draft, the note it started from, and whether it was already saved or discarded. */
-  const draft = useRef({ text: noteText, from: highlight.noteText ?? '', done: false, save: onNoteSave })
-  draft.current.text = noteText
-  draft.current.save = onNoteSave
-  useEffect(() => () => {
-    const d = draft.current
-    if (!saveOnClose || d.done) return
-    const trimmed = d.text.trim()
-    if (trimmed !== d.from) d.save(trimmed || null)
-  }, [])
+  /** The note the popup opened with: every save compares the draft with it (`noteChange`), never with a later prop. */
+  const from = useRef(highlight.noteText ?? null).current
+  const edit = (text: string) => {
+    setNoteText(text)
+    onDraft?.({ text, from })
+  }
 
   // Reposition before paint (mirrors NoteEditor) so there's no mount flash.
   useLayoutEffect(() => {
@@ -89,17 +84,17 @@ export function PdfHighlightPopup({
   }, [rect, containerRef])
 
   const handleSaveNote = useCallback(() => {
-    const trimmed = noteText.trim()
-    // Only PUT when the note actually changed. Recoloring then dismissing (or a
-    // click-outside) must NOT fire a redundant note save — that churns the
-    // highlight version and can flash the pre-recolor color back for a frame.
-    draft.current.done = true
-    if (trimmed !== (highlight.noteText ?? '')) onNoteSave(trimmed || null)
+    // Only PUT when the note actually changed (`noteChange`: trimmed, against the note at opening). Recoloring then
+    // dismissing (or a click-outside) must NOT fire a redundant note save — that churns the highlight version and can
+    // flash the pre-recolor color back for a frame.
+    const note = noteChange(noteText, from)
+    onDraft?.(null)
+    if (note !== undefined) onNoteSave(note)
     onClose()
-  }, [noteText, onNoteSave, onClose, highlight.noteText])
-  /** Cancel and Delete: the draft is not saved on the way out. */
+  }, [noteText, onNoteSave, onClose, onDraft, from])
+  /** Cancel and Delete: nothing of the draft is written. */
   const discard = (then: () => void) => () => {
-    draft.current.done = true
+    onDraft?.(null)
     then()
   }
 
@@ -170,9 +165,8 @@ export function PdfHighlightPopup({
       <textarea
         ref={textareaRef}
         className="note-editor__textarea"
-        maxLength={maxLength}
         value={noteText}
-        onChange={(e) => setNoteText(e.target.value)}
+        onChange={(e) => edit(e.target.value)}
         placeholder={t('reader.noteEditor.placeholder')}
         rows={3}
       />
