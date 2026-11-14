@@ -56,9 +56,10 @@ async function reader(o: { dev?: boolean } = {}) {
   const open = async (t: V2SyncTarget, sha256 = t.sha256) => {
     await ask(t)
     await fromPage({ type: 'opened', title: 'T', format: 'epub', toc: [{ label: 'One', href: 'c1.xhtml', depth: 0 }, { label: 'Two', href: 'c2.xhtml', depth: 0 }], book: { sha256, size: 8, name: `${++opens}/${t.name}` } })
-    await relocate(0.1, false)
+    await relocate(0.1, false, 'nav')
   }
-  const relocate = (fraction: number, moved = true) => fromPage({ type: 'relocate', cfi: 'epubcfi(/6/2!/4/2)', index: 1, sections: 3, fraction, moved, words: 100_000, tocIndex: 0 })
+  /** A relocate as the page sends it; `cause` (#1313): a reader's turn unless said otherwise. */
+  const relocate = (fraction: number, moved = true, cause = 'turn') => fromPage({ type: 'relocate', cfi: 'epubcfi(/6/2!/4/2)', index: 1, sections: 3, fraction, moved, words: 100_000, tocIndex: 0, cause })
   await fromPage({ type: 'ready' })
   return { ask, open, relocate, fromPage, unmount: view.unmount }
 }
@@ -112,7 +113,8 @@ describe('V2ReaderHost reading sessions (#1313)', () => {
     await r.relocate(0.101) // 90 words
     later(7200)
     await act(async () => { fireEvent.click(screen.getByTestId('v2-next-section')) })
-    await r.relocate(0.301) // the landing, 20 % on
+    later(2)
+    await r.relocate(0.301, true, 'nav') // the landing, 2 s later, 20 % on
     later(60)
     await r.relocate(0.302) // 100 words
     r.unmount()

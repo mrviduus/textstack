@@ -21,7 +21,7 @@ import { downloadV2Book, openBookHost, syncV2Library, tryAgainV2Book, type SyncH
 import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
 import { createMovedTracker } from '../../lib/v2reader/movedTracker.mjs'
-import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../lib/v2reader/sessionTracker.mjs'
+import { createSessionTracker, readCause, SESSION_HEARTBEAT_MS, type EndedSession } from '../../lib/v2reader/sessionTracker.mjs'
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../lib/v2reader/deadlines.mjs'
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
@@ -375,11 +375,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const pageWidth = useRef(0)
   /** Bar buttons and the taken offer: the page counts their moves as the reader's, but they keep the bars up. */
   const [hostMoves] = useState(createHostMoves)
-  /** The host's own navigation (contents, section, the taken offer), not a turn: bars kept, its landing no reading (#1313). */
-  const hostNavigates = () => {
-    hostMoves.start()
-    sessions.jump(Date.now())
-  }
   const barTurn = (dir: 'prev' | 'next') => {
     hostMoves.start()
     call(`window.__fol.${dir}()`)
@@ -391,7 +386,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const goToc = (e: V2TocEntry) => {
     tocIndex.current = e.index
     setProgress.current((p) => p && { ...p, tocIndex: e.index })
-    hostNavigates()
+    hostMoves.start()
     call(`window.__fol.goTo(${JSON.stringify(e.href)}, true)`)
   }
 
@@ -569,7 +564,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const goTo = (p: PagePosition, chosen = false) => {
     place.hostMove()
     // A chosen goTo (the taken offer) is `moved` to the page; a sync adopt/move is not.
-    if (chosen) hostNavigates()
+    if (chosen) hostMoves.start()
     call(`window.__fol.goTo(${JSON.stringify(p)}, ${chosen})`)
   }
 
@@ -836,7 +831,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // Not after a failed open, until the next open (openTracker.mjs showsPosition: the rule and its cost).
         if (!tracker.showsPosition()) return
         if (!shown) return
-        sessions.relocate(shown, Date.now())
+        sessions.relocate({ ...shown, cause: readCause(m) }, Date.now())
         tocIndex.current = shown.tocIndex
         setProgress.current({ fraction: shown.fraction, index: shown.index, sections: shown.sections, toc: shown.toc, tocIndex: shown.tocIndex, sectionEnd: shown.sectionEnd, words: shown.words })
         setAtEnd(shown.atEnd)

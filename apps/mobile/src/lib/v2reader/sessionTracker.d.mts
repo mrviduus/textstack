@@ -20,10 +20,12 @@ export interface EndedSession {
 export interface SessionTracker {
   open(now: number): EndedSession | null
   bind(key: string | null, now: number): EndedSession | null
-  relocate(r: { fraction: number | null; words: number | null; moved: boolean } | null, now: number): void
+  relocate(r: { fraction: number | null; words: number | null; moved: boolean; cause: Cause } | null, now: number): void
   activity(now: number): void
-  jump(now: number): void
   tick(now: number): EndedSession | null
   end(now: number): EndedSession | null
 }
+/** The page's `relocate.cause` (#1313, planned page field). */
+export type Cause = 'turn' | 'nav' | 'layout'
+export function readCause(m: unknown): Cause
 export function createSessionTracker(): SessionTracker
