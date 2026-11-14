@@ -23,7 +23,7 @@ describe('withTranslation', () => {
 })
 
 describe('mergeWords', () => {
-  const owed = (x: ReaderWord, at = 100): OwedSave => ({ ...x, at })
+  const owed = (x: ReaderWord, pulls = 3): OwedSave => ({ ...x, pulls })
   it('the rows are the truth: a word no row has any more is gone (a tombstone, an adoption, a wipe)', () => {
     expect(mergeWords([w('1', 'pond')], [], new Map(), null).words).toEqual([w('1', 'pond')])
   })
@@ -36,18 +36,20 @@ describe('mergeWords', () => {
     expect(mergeWords([w('1', 'die', 0, null, 'de')], [owed(w('2', 'die', 0, null, 'en'))], new Map(), null).saves).toEqual([owed(w('2', 'die', 0, null, 'en'))])
   })
   it('a save missing from a pull read to its end that started after it: deleted before this device pulled it, owed no more', () => {
-    const s = owed(w('9', 'otter'), 100)
-    expect(mergeWords([], [s], new Map(), 100).saves).toEqual([])
-    expect(mergeWords([], [s], new Map(), 100).words).toEqual([])
-    // A read that started before the save says nothing about it.
-    expect(mergeWords([], [s], new Map(), 99).saves).toEqual([s])
+    // Taken when 3 pulls had started: pull 4 read to its end without it.
+    const s = owed(w('9', 'otter'), 3)
+    expect(mergeWords([], [s], new Map(), 4).saves).toEqual([])
+    expect(mergeWords([], [s], new Map(), 4).words).toEqual([])
+    // Pull 3 was already under way at the save: it says nothing about it; nor does no full read.
+    expect(mergeWords([], [s], new Map(), 3).saves).toEqual([s])
+    expect(mergeWords([], [s], new Map(), null).saves).toEqual([s])
   })
 })
 
 describe('backfillable', () => {
   it('the book\'s language\'s words without a translation, never an owed save (its own fill may be in flight)', () => {
     const words = [w('1', 'pond'), w('2', 'reed', 0, 'x'), w('3', 'hund', 0, null, 'de'), w('9', 'otter')]
-    expect(backfillable(words, [{ ...w('9', 'otter'), at: 1 }], 'en').map((x) => x.id)).toEqual(['1'])
+    expect(backfillable(words, [{ ...w('9', 'otter'), pulls: 1 }], 'en').map((x) => x.id)).toEqual(['1'])
     expect(backfillable(words, [], null)).toEqual([])
   })
 })

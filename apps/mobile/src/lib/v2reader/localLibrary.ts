@@ -210,7 +210,11 @@ const parse = <T>(json: string | null): T | null => {
 const SERVER_FILE = 'server_file_id = ?, server_sha256 = ?, server_size = ?, server_format = ?, has_content = ?'
 const serverFile = (f: V2BookFile | null | undefined) => [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0]
 
-/** `meta` key (#1271): when the last vocabulary pull read to its end started; a `cursor:` key, cleared with the cursors. */
+/**
+ * `meta` keys (#1271): vocabulary pulls numbered as they start (a local counter, never a clock), and the number of the
+ * last one read to its end; `cursor:` keys, cleared with the cursors.
+ */
+const VOCABULARY_STARTED = 'cursor:vocabulary:started'
 const VOCABULARY_READ = 'cursor:vocabulary:read_from'
 /** `meta` key: '1' when the owner (`meta.account`) is a guest. */
 const OWNER_GUEST = 'account_guest'
@@ -912,16 +916,22 @@ export function createLocalLibrary(db: Db) {
     /** #1271: every live saved word on this device, for the reader's marks (one read per open). */
     savedWords: () => job(() => all<SavedWord>('SELECT id, word, language, stage, translation FROM vocabulary ORDER BY rowid')),
 
+    /** #1271 review: a vocabulary pull starts: its number (the previous one's + 1). */
+    vocabularyPullStarted: () => tx(async () => {
+      const n = Number((await getMeta(VOCABULARY_STARTED)) ?? 0) + 1
+      await setMeta(VOCABULARY_STARTED, String(n))
+      return n
+    }),
     /**
-     * #1271 review: a vocabulary pull that started at `startedAt` (this device's clock) was read to its end: a save taken
-     * before it that the rows lack was deleted before this device pulled it. Kept under a `cursor:` key, so a wipe, a
-     * guest carried on and an adoption forget it with the cursors.
+     * Pull `n` was read to its end: a save taken before it started (`vocabularyPulls().started` at the save was below `n`)
+     * that the rows lack was deleted before this device pulled it (readerVocab `mergeWords`). Under `cursor:` keys, so a
+     * wipe, a guest carried on and an adoption forget both with the cursors.
      */
-    vocabularyRead: (startedAt: number) => job(() => setMeta(VOCABULARY_READ, String(startedAt))),
-    /** When the last vocabulary pull read to its end started; null: none since the cursors were last cleared. */
-    vocabularyReadFrom: () => job(async () => {
-      const v = await getMeta(VOCABULARY_READ)
-      return v === null ? null : Number(v)
+    vocabularyRead: (n: number) => job(() => setMeta(VOCABULARY_READ, String(n))),
+    /** How many vocabulary pulls have started, and the number of the last read to its end (null: none). */
+    vocabularyPulls: () => job(async () => {
+      const read = await getMeta(VOCABULARY_READ)
+      return { started: Number((await getMeta(VOCABULARY_STARTED)) ?? 0), readFrom: read === null ? null : Number(read) }
     }),
 
     cursor: (feed: LocalFeed) => job(() => getMeta(`cursor:${feed}`)),

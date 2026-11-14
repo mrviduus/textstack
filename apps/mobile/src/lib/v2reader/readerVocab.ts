@@ -9,8 +9,11 @@ import { vocabMapKey } from '../vocabMapKey'
 import { ofBook, wordId } from './vocabWords.mjs'
 
 export interface ReaderWord { id: string; word: string; language: string | null; stage: number; translation: string | null }
-/** A save of this session, owed until a read has it: `at`, when it was taken (this device's clock). */
-export interface OwedSave extends ReaderWord { at: number }
+/**
+ * A save of this session, owed until a read has it: `pulls`, how many vocabulary pulls had started when it was taken
+ * (`vocabularyPulls().started`: a local counter, so a clock set back changes nothing).
+ */
+export interface OwedSave extends ReaderWord { pulls: number }
 
 /** A word's identity: its key and its language (`die` in German is not `die` in English). */
 const idOf = (w: Pick<ReaderWord, 'word' | 'language'>) => wordId(vocabMapKey, w.word, w.language)
@@ -30,16 +33,19 @@ export const withTranslation = (words: readonly ReaderWord[], id: string, transl
 /**
  * The rows just read, as the reader's words: the rows are the truth (a word the pull deleted, a guest's id an adoption
  * dropped, a wipe: gone). This session's `saves` that no row has are kept after them, unless a vocabulary pull that
- * started after the save was read to its end (`readFrom`, when the last such pull started) without it: deleted
- * before this device pulled it, it is owed no more. The ones a row has are done (`saves` returned: what is still
- * owed). A translation this session filled (`filled`, by card id) stays on a row that has none yet (its write not
- * pulled back).
+ * started after the save (`readFrom`, the number of the last pull read to its end, above the save's `pulls`) was read
+ * to its end without it: deleted before this device pulled it, it is owed no more. The ones a row has are done
+ * (`saves` returned: what is still owed). A translation this session filled (`filled`, by card id) stays on a row
+ * that has none yet (its write not pulled back).
+ * ponytail: relies on the change feed's overlap (ChangeFeed.Overlap, 30 s) covering the save's commit lag: a server
+ * transaction longer than that could expire a just-saved word's mark until its row changes again. A per-user change
+ * sequence on the server if that ever shows.
  */
 export function mergeWords(rows: readonly ReaderWord[], saves: readonly OwedSave[], filled: ReadonlyMap<string, string>, readFrom: number | null) {
   const have = new Set(rows.map(idOf))
-  const owed = saves.filter((s) => !have.has(idOf(s)) && !(readFrom !== null && readFrom >= s.at))
+  const owed = saves.filter((s) => !have.has(idOf(s)) && !(readFrom !== null && readFrom > s.pulls))
   const fill = (w: ReaderWord): ReaderWord => (!w.translation && filled.has(w.id) ? { ...w, translation: filled.get(w.id)! } : w)
-  return { words: [...rows, ...owed.map(({ at: _at, ...w }) => w)].map(fill), saves: owed }
+  return { words: [...rows, ...owed.map(({ pulls: _pulls, ...w }) => w)].map(fill), saves: owed }
 }
 
 /** The words of the book's language (`vocabWords.mjs` `ofBook`; null: a language that does not read, none): what is marked. */

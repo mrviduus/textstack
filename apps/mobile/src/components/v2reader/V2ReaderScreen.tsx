@@ -536,6 +536,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const glosses = useRef(legacySettings.showInlineTranslations)
   glosses.current = legacySettings.showInlineTranslations
   const vocab = useRef<ReaderWord[]>([])
+  /** Bumped when the user changes: the answer of a save asked before it is dropped. */
+  const vocabSession = useRef(0)
   const saves = useRef<OwedSave[]>([])
   const filled = useRef(new Map<string, string>())
   /** The language the book's words are saved under (`textLang`, set each render): what is marked and filled. */
@@ -555,7 +557,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** The rows read (an open, a sync pass) over this session's saves and fills. */
   const readVocab = (seq: number, then?: () => void) => {
     const lib = deviceLocalLibrary()
-    Promise.all([lib.savedWords(), lib.vocabularyReadFrom()]).then(([rows, readFrom]) => {
+    Promise.all([lib.savedWords(), lib.vocabularyPulls()]).then(([rows, { readFrom }]) => {
       if (seq !== vocabSeq.current) return
       const m = mergeWords(rows, saves.current, filled.current, readFrom)
       vocab.current = m.words
@@ -575,7 +577,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (!w) return
     const word: ReaderWord = { id: w.id, word: w.word, language: w.language ?? null, stage: w.stage, translation: w.translation }
     vocab.current = withSaved(vocab.current, word)
-    saves.current = withSaved(saves.current, { ...word, at: Date.now() })
+    // Owed at once (never expired until it is stamped), then stamped with the pulls started so far (a local counter).
+    saves.current = withSaved(saves.current, { ...word, pulls: Number.MAX_SAFE_INTEGER })
+    const session = vocabSession.current
+    deviceLocalLibrary().vocabularyPulls().then(({ started }) => {
+      if (session !== vocabSession.current) return
+      saves.current = saves.current.map((x) => (x.id === word.id && x.pulls === Number.MAX_SAFE_INTEGER ? { ...x, pulls: started } : x))
+    }, fail('vocabulary'))
     sendMarks()
   }
   const takeTranslation = (id: string, translation: string | null) => {
@@ -585,11 +593,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     sendMarks()
   }
   useEffect(() => { sendMarks() }, [legacySettings.showInlineTranslations])
-  // #1271 review: another session (a sign-out's wipe, another account): nothing of the last one's words is owed or kept.
+  // #1271 review: another session (a sign-out's wipe, another account): nothing of the last one's words is owed or kept,
+  // no word shows ✓, and a save still in flight from it lands nowhere (`vocabSession`).
   const vocabUser = useRef(userId)
   useEffect(() => {
     if (vocabUser.current === userId) return
     vocabUser.current = userId
+    vocabSession.current++
+    setSavedWords(new Set())
     vocab.current = []
     saves.current = []
     filled.current = new Map()
@@ -622,8 +633,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       onPress: () => router.push({ pathname: '/(auth)/login', params: { mode: 'register', then: 'back' } }), duration: 6000,
     })
   }
-  const restoreWord = (p: V2Popup, id: string) => vocabularyApi.restoreWord(id).then(
-    (w) => { if (p.kind === 'word') markSaved(p.word); takeWord(w) },
+  const restoreWord = (p: V2Popup, id: string, session = vocabSession.current) => vocabularyApi.restoreWord(id).then(
+    (w) => { if (session !== vocabSession.current) return; if (p.kind === 'word') markSaved(p.word); takeWord(w) },
     () => showToast({ variant: 'error', message: t('reader.vocab.restoreFailed') }),
   )
   const saveWord = async (p: V2Popup) => {
@@ -637,6 +648,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     const key = vocabMapKey(p.word)
     if (intent !== 'save' || savingWords.current.has(key)) return
     savingWords.current.add(key)
+    const session = vocabSession.current
     const body = { word: p.word, language: textLang, nativeLanguage, sentence: p.sentence || null, bookTitle: bookTitle.current }
     try {
       // The open book's id from the list in memory, else from its row; a re-key since then is asked of the row on
@@ -647,6 +659,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         resolve: () => (sha ? v2Storage().bookIdOf(sha) : Promise.resolve(null)),
         isNotFound: (e) => v2Api.v2ErrorOf(e)?.code === 'book_not_found',
       })
+      // Another user since the save was asked: its answer is not this session's.
+      if (session !== vocabSession.current) return
       const o = saveOutcome(resp)
       if (o.kind === 'saved') {
         markSaved(p.word)
@@ -654,7 +668,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         void wordSavedToast()
         // TR-2, as the legacy reader: a card saved without a translation gets one in the reader's language.
         fillSavedTranslation(o.word, p.word, textLang, nativeLanguage, { sentence: p.sentence, bookId: bookId ?? undefined })
-          .then((tr) => takeTranslation(o.word.id, tr), () => {})
+          .then((tr) => { if (session === vocabSession.current) takeTranslation(o.word.id, tr) }, () => {})
       } else if (o.kind === 'deleted') {
         showToast({
           variant: 'info', message: t('reader.vocab.deletedEarlier').replace('{{word}}', p.word), duration: 6000,
@@ -680,8 +694,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const addAnyway = async () => {
     if (!lookup || lookup.busy) return
     setLookup({ ...lookup, busy: true })
+    const session = vocabSession.current
     try {
-      takeWord(await vocabularyApi.promoteLookup(lookup.id))
+      const promoted = await vocabularyApi.promoteLookup(lookup.id)
+      if (session !== vocabSession.current) return
+      takeWord(promoted)
       setLookup(null)
       if (lookup.popup.kind === 'word') markSaved(lookup.popup.word)
       showToast({ variant: 'success', message: t('reader.vocab.addedToSrs') })

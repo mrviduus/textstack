@@ -271,7 +271,8 @@ export async function pushV2BeforeSignOut(userId: string, guest: boolean, ms = S
  * (a page that fails to land is pulled again), queued in the tick its answer was checked.
  */
 async function pull(lib: LocalLibrary, host: SyncHost, reset: Reset, feed: LocalFeed) {
-  const startedAt = Date.now()
+  // #1271: a vocabulary pull is numbered as it starts (readerVocab `mergeWords` expires owed saves by it, never a clock).
+  const pullNo = feed === 'vocabulary' ? await checked(reset, () => lib.vocabularyPullStarted()) : 0
   let cursor = await lib.cursor(feed)
   for (;;) {
     let owed: PositionAction[] = []
@@ -288,7 +289,7 @@ async function pull(lib: LocalLibrary, host: SyncHost, reset: Reset, feed: Local
       // The feed read to its end: a row whose note was never read (before notes were kept) is not on the server.
       if (feed === 'annotations') await checked(reset, () => lib.annotationsPulled())
       // #1271 review: read to its end, so a save taken before it and missing now was deleted (readerVocab mergeWords).
-      if (feed === 'vocabulary') await checked(reset, () => lib.vocabularyRead(startedAt))
+      if (feed === 'vocabulary') await checked(reset, () => lib.vocabularyRead(pullNo))
       return
     }
   }
