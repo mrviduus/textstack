@@ -105,8 +105,7 @@ describe('v2 host storage', () => {
     data.set('staging/1.epub', 'bytes')
     await s.addOpened(book(SHA_A_KEY), 'staging/1.epub')
     data.set('staging/2.epub', 'bytes')
-    const { books, sha256 } = await s.addOpened(book(SHA_A), 'staging/2.epub')
-    expect(sha256).toBe(SHA_A_KEY) // the host's key for the open book (#1303): as the rows have it
+    const { books } = await s.addOpened(book(SHA_A), 'staging/2.epub')
     expect(books).toHaveLength(1)
     expect(await s.bookIdOf(SHA_A)).toBe(books[0].id)
     expect(await s.bookIdOf(SHA_B)).toBeNull()

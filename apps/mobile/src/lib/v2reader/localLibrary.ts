@@ -246,6 +246,7 @@ export function createLocalLibrary(db: Db) {
 
   const bookById = (id: string) => one<BookRow>('SELECT * FROM books WHERE id = ?', [id])
   const bookBySha = (sha256: string) => one<BookRow>('SELECT * FROM books WHERE sha256 = ?', [sha256])
+  const localBookId = (sha256: string) => job(async () => (await bookBySha(sha256))?.id ?? null)
   /**
    * The book these bytes are: the local copy, else a pulled book not imported here whose current
    * file has them (its server position is this file's: picked before `addOpened` adopts it).
@@ -391,9 +392,9 @@ export function createLocalLibrary(db: Db) {
     }),
 
     /** Whether a book on this device already holds these bytes. */
-    hasLocalBytes: (sha256: string) => job(async () => !!(await bookBySha(sha256))),
+    hasLocalBytes: (sha256: string) => localBookId(sha256).then((id) => id !== null),
     /** The id of the book with these bytes here, as it is now (a sync may re-key it while it is read, #1303). */
-    localBookId: (sha256: string) => job(async () => (await bookBySha(sha256))?.id ?? null),
+    localBookId,
 
     /**
      * The opened file as a book: identical bytes are the existing book (its format learned if it was

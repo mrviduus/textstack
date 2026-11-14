@@ -13,7 +13,7 @@ import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
 import { deviceUploadIo, resetSince, sha256Of, uploadV2Book } from '../../lib/v2'
-import { bookFile, createV2Storage, nonceFromUuid, type LibraryBook, type V2Files, type V2Storage } from '../../lib/v2reader/hostStorage'
+import { bookFile, createV2Storage, nonceFromUuid, sha256Key, type LibraryBook, type V2Files, type V2Storage } from '../../lib/v2reader/hostStorage'
 import { deviceLocalLibrary, makeV2Dirs, v2Root } from '../../lib/v2reader/deviceLibrary'
 import { capabilitiesFor } from '../../lib/capabilities'
 import type { BookRow } from '../../lib/v2reader/localLibrary'
@@ -35,6 +35,7 @@ import { readerTextLanguage } from '../../lib/bookLanguage'
 import { saveOutcome, savesWords } from '../../lib/v2reader/vocabSave.mjs'
 import { vocabularyApi } from '../../lib/vocabularyApi'
 import { fillSavedTranslation, saveWordWithRetry } from '../../lib/savedWord'
+import { saveWordForBook } from '../../lib/v2reader/wordBook'
 import { vocabMapKey } from '../../lib/vocabMapKey'
 import { saveWordIntent } from '../../lib/saveWordIntent'
 import { claimGuestNudge } from '../../lib/guestNudge'
@@ -288,9 +289,15 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const pageDir = useRef<'ltr' | 'rtl'>('ltr')
   /**
    * The open book's bytes (normalised, hostStorage `sha256Key`): how the host knows it (finish book, sync, word
-   * saves), never by id: a sync can re-key the row while it is read (#1266, #1303).
+   * saves), never by id: a sync can re-key the row while it is read (#1266, #1303). State for the render (the
+   * finish block); the ref for a sync pass in flight, which must see the latest.
    */
+  const [openSha, setOpenShaState] = useState<string | null>(null)
   const openShaRef = useRef<string | null>(null)
+  const setOpenSha = (sha: string | null) => {
+    openShaRef.current = sha
+    setOpenShaState(sha)
+  }
   const [place] = useState(createMovedTracker)
   /** The open book's contents (#1261, toc.mjs); the reader's place in them as of the last relocate, read when the sheet opens. */
   const [toc, setToc] = useState<V2TocEntry[]>([])
@@ -378,7 +385,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** The closed book is no longer the open one: a later `ready` opens nothing, and its per-book state goes. */
   const endBook = () => {
     opening.current = null
-    openShaRef.current = null
+    setOpenSha(null)
     place.open()
     setReflowable(true)
     setAtEnd(false)
@@ -465,13 +472,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     savingWords.current.add(key)
     const body = { word: p.word, language: textLang, nativeLanguage, sentence: p.sentence || null, bookTitle: bookTitle.current }
     try {
-      // The open book's id now, from its row (a sync may have re-keyed it since the open, #1303).
+      // The open book's id from the list in memory; a re-key since then is asked of the row on `book_not_found`
+      // only (wordBook.ts, #1303). A book the server does not have (not synced yet): the word is saved without it.
       const sha = openShaRef.current
-      const bookId = sha ? await v2Storage().bookIdOf(sha).catch(() => null) : null
-      // A book the server does not have (imported here, not synced yet): the word is saved without it.
-      const resp = await saveWordWithRetry({ ...body, userBookId: bookId }).catch((e: unknown) => {
-        if (bookId && v2Api.v2ErrorOf(e)?.code === 'book_not_found') return saveWordWithRetry(body)
-        throw e
+      let bookId: string | null = null
+      const resp = await saveWordForBook(openBook?.id ?? null, {
+        save: (id) => { bookId = id; return saveWordWithRetry(id ? { ...body, userBookId: id } : body) },
+        resolve: () => (sha ? v2Storage().bookIdOf(sha) : Promise.resolve(null)),
+        isNotFound: (e) => v2Api.v2ErrorOf(e)?.code === 'book_not_found',
       })
       const o = saveOutcome(resp)
       if (o.kind === 'saved') {
@@ -612,7 +620,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // page may still keep that book on screen, if this newer open fails before its swap.
     opening.current = { ...target } // a new object even for the same file: an older onOpened sees it was superseded
     tracker.open(target.file, opening.current)
-    openShaRef.current = null
+    setOpenSha(null)
     place.open()
     setOffer(null)
     setOpenError(null)
@@ -674,10 +682,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // The page shows this book now: its title before any await, so a failed read below leaves no "Opening …".
     setHeading([m.title || current.name, m.author].filter(Boolean).join(' — '))
     bookTitle.current = m.title || current.name
+    // The bytes on screen are this book's from here on (a word saved, Finish shown before its row lands), even if
+    // addOpened fails. A key that is no sha256 throws here, as readStore would.
+    setOpenSha(sha256Key(m.book.sha256))
     const stored = await s.readStore(m.book.sha256)
     if (superseded()) return
     call(`window.__fol.restore(${JSON.stringify(stored)})`)
-    const { retained, sha256, books } = await s.addOpened(
+    const { retained, books } = await s.addOpened(
       { ...m.book, title: m.title, author: m.author, originalName: current.name, format: m.format ?? null },
       isStaged(current.file) ? current.file : null,
     ).catch((e) => {
@@ -689,7 +700,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // From here on this book is the retained copy: a reloaded page reopens that, not the moved staging file.
     if (superseded()) return
     opening.current = { ...current, file: retained }
-    openShaRef.current = sha256
     sync.current()
   }
 
@@ -840,7 +850,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * The completion goes with whatever place is stored when the push runs, and the flushed place follows on the
    * next pass, still carrying `completedAt` (sent with every write while it stands).
    */
-  const openSha = openShaRef.current
   const openBook = openSha ? books.find((b) => b.local && b.sha256 === openSha) : undefined
   const finishBook = () => {
     const sha = openShaRef.current

@@ -127,8 +127,7 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
     books: (): Promise<LibraryBook[]> => afterMigration(() => lib.books()),
 
     /**
-     * The opened file into the library; resolves to the retained file, the book's normalised sha256
-     * (the key the host knows the open book by, #1303) and the library's books. A staged file becomes the retained copy unless those bytes are already
+     * The opened file into the library; resolves to the retained file and the library's books. A staged file becomes the retained copy unless those bytes are already
      * retained. The copy lands before the row, so a kill between the two leaves a file that the next
      * import of the same bytes adopts, never a row without its file. A failed row write removes the
      * copy this call moved unless the library lists those bytes (the transaction left no row naming it).
@@ -147,7 +146,7 @@ export function createV2Storage(files: V2Files, newId: () => string, lib: LocalL
         try {
           if (over()) throw new Error('the session ended during the open: not added')
           await lib.addOpened({ ...book, sha256, format: book.format ?? null }, newId)
-          return { retained, sha256, books: await lib.books() }
+          return { retained, books: await lib.books() }
         } catch (e) {
           const listed = moved && (await lib.hasLocalBytes(sha256).catch(() => true))
           if (moved && !listed) try { files.remove(retained) } catch { /* best effort; rethrow the real error */ }
