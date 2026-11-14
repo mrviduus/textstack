@@ -108,6 +108,9 @@ async function getOrFetchAudio(fs: FileSystemModule, text: string, lang: string,
 export interface TtsSpeakOptions {
   lang?: string
   rate?: number
+  /** #1272: called once when this playback ends: `failed` true when it could not play (no audio, a player error), false
+   *  when it ended (finished, stopped, superseded, unmounted). */
+  onEnd?: (failed: boolean) => void
 }
 
 export function useTts() {
@@ -124,6 +127,13 @@ export function useTts() {
   // Monotonic counter — every new speak() call invalidates any pending
   // download from a previous call, so the user's latest word wins races.
   const reqRef = useRef(0)
+  // The `onEnd` of the playback in flight (#1272), called once: `failed` true when it could not play.
+  const endRef = useRef<((failed: boolean) => void) | null>(null)
+  const finish = useCallback((failed = false) => {
+    const f = endRef.current
+    endRef.current = null
+    f?.(failed)
+  }, [])
 
   const releasePlayer = useCallback(() => {
     const p = playerRef.current
@@ -143,20 +153,27 @@ export function useTts() {
     releasePlayer()
     currentTextRef.current = null
     setPhase('idle')
-  }, [releasePlayer])
+    finish()
+  }, [releasePlayer, finish])
 
+  /** Resolves true once the audio plays; false when nothing did (no audio module, a failed fetch, a newer call). */
   const speak = useCallback(
-    async (text: string, opts: TtsSpeakOptions | number = {}) => {
+    async (text: string, opts: TtsSpeakOptions | number = {}): Promise<boolean> => {
       const trimmed = text.trim()
-      if (!trimmed) return
+      if (!trimmed) return false
       // If the dev/prod build was assembled before expo-audio /
       // expo-file-system landed, just no-op cleanly — the rest of the
       // reader keeps working.
       const { audio, fs } = loadNativeOnce()
-      if (!audio || !fs) return
+      if (!audio || !fs) return false
       const normalized: TtsSpeakOptions = typeof opts === 'number' ? { rate: opts } : opts
+      // The legacy readers' normalisation (English as en-US, the cache file names); the V2 reader normalises with
+      // listen.mjs before it calls.
+      const lang = ttsLang(normalized.lang)
+      // The previous playback is superseded: its onEnd now, this one's from here.
+      finish()
+      endRef.current = normalized.onEnd ?? null
       const rate = normalized.rate ?? 1.0
-      const bcp47 = ttsLang(normalized.lang)
       const req = ++reqRef.current
 
       // Tear down any current playback before starting another download —
@@ -166,13 +183,14 @@ export function useTts() {
       setPhase('loading')
 
       await audioModeReady(audio)
-      const file = await getOrFetchAudio(fs, trimmed, bcp47, rate)
+      const file = await getOrFetchAudio(fs, trimmed, lang, rate)
       // Another speak() ran while we were downloading — drop this one.
-      if (req !== reqRef.current) return
+      if (req !== reqRef.current) return false
       if (!file) {
         currentTextRef.current = null
         setPhase('idle')
-        return
+        finish(true)
+        return false
       }
 
       try {
@@ -180,10 +198,12 @@ export function useTts() {
         playerRef.current = player
         try { player.setPlaybackRate?.(1.0) } catch { /* rate already baked in by server */ }
         player.addListener('playbackStatusUpdate', status => {
-          if (status.didJustFinish) {
+          // A released player's late event must not end a newer playback.
+          if (status.didJustFinish && req === reqRef.current) {
             currentTextRef.current = null
             setPhase('idle')
             releasePlayer()
+            finish()
           }
         })
         // Phase before play(), not after. The listener above is already
@@ -192,13 +212,16 @@ export function useTts() {
         // button with no player behind it. This way the listener wins.
         setPhase('playing')
         player.play()
+        return true
       } catch {
         currentTextRef.current = null
         setPhase('idle')
         releasePlayer()
+        finish(true)
+        return false
       }
     },
-    [releasePlayer],
+    [releasePlayer, finish],
   )
 
   const toggle = useCallback(
@@ -218,8 +241,9 @@ export function useTts() {
     return () => {
       reqRef.current++
       releasePlayer()
+      finish()
     }
-  }, [releasePlayer])
+  }, [releasePlayer, finish])
 
   return {
     speak,

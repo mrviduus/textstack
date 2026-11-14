@@ -592,6 +592,7 @@
   },
   "reader": {
     "toastWordAdded": "Added to vocabulary",
+    "listenFailed": "Could not play the speech. Try again.",
     "toastWordAddedCount": "Added · {count} this session",
     "toastTapToReview": "Tap to review",
     "coachmarkTitle": "Press and hold a word",

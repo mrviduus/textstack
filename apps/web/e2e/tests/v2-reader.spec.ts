@@ -438,7 +438,7 @@ test.describe('V2 reader page @v2', () => {
     const toolbar = page.locator('.selection-toolbar')
     await expect(toolbar).toBeVisible()
     for (const name of ['Translate selected text', 'Explain in context', 'Copy selected text']) await expect(toolbar.getByRole('button', { name })).toBeEnabled()
-    await expect(toolbar.getByRole('button', { name: 'Listen to pronunciation' })).toHaveCount(0)
+    await expect(toolbar.getByRole('button', { name: 'Listen to pronunciation' })).toBeEnabled() // #1272: Listen is in
 
     await toolbar.getByRole('button', { name: 'Translate selected text' }).click()
     const translation = page.locator('.translation-popup')

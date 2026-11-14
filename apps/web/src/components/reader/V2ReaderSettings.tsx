@@ -4,6 +4,7 @@ import {
   ALIGNS, FAMILIES, FONT_MAX, FONT_MIN, FONT_STEP, LINE_HEIGHTS, SETTINGS_KEY, THEMES, choose, parseChosen, readSettings,
   type V2FontFamily, type V2Settings, type V2TextAlign, type V2Theme,
 } from '../../../../mobile/src/lib/v2reader/settings.mjs'
+import { TTS_SPEEDS, TTS_SPEED_KEY, readSpeed } from '../../../../mobile/src/lib/v2reader/listen.mjs'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
@@ -27,7 +28,13 @@ export function useV2ReaderSettings() {
     setChosen(next)
     writeItem(SETTINGS_KEY, JSON.stringify(next))
   }
-  return { settings, update }
+  // #1272: Listen's speed, the host's alone (the page never sees it), under its own key.
+  const [ttsSpeed, setTtsSpeed] = useState(() => readSpeed(readItem(TTS_SPEED_KEY)))
+  const updateTtsSpeed = (v: number) => {
+    setTtsSpeed(readSpeed(v))
+    writeItem(TTS_SPEED_KEY, String(readSpeed(v)))
+  }
+  return { settings, update, ttsSpeed, updateTtsSpeed }
 }
 
 /**
@@ -55,12 +62,15 @@ interface Props {
   onClose: () => void
   /** False for a fixed-layout book (PDF, CBZ, a pre-paginated EPUB): only the theme applies, the rest is disabled. */
   typography: boolean
+  /** #1272: Listen's speed and its change. */
+  ttsSpeed: number
+  onTtsSpeed: (v: number) => void
   /** #1271: saved words' translations shown, and its switch; absent where nothing is marked (an image or PDF book). */
   glosses?: { on: boolean; onChange: (on: boolean) => void }
 }
 
 /** The settings panel: the legacy reader's drawer (reader.css) with the five V2 settings. */
-export function V2ReaderSettingsDrawer({ open, settings, onUpdate, onClose, typography, glosses }: Props) {
+export function V2ReaderSettingsDrawer({ open, settings, onUpdate, onClose, typography, ttsSpeed, onTtsSpeed, glosses }: Props) {
   const { t } = useTranslation()
   const container = useFocusTrap(open)
   if (!open) return null
@@ -148,6 +158,17 @@ export function V2ReaderSettingsDrawer({ open, settings, onUpdate, onClose, typo
             </div>
           </div>
         </fieldset>
+
+        <div className="reader-settings-drawer__section">
+          <label>{t('v2Reader.speechSpeed')}</label>
+          <div className="reader-settings-drawer__options">
+            {TTS_SPEEDS.map((v) => (
+              <button key={v} className={ttsSpeed === v ? 'active' : ''} aria-pressed={ttsSpeed === v} onClick={() => onTtsSpeed(v)}>
+                {v}x
+              </button>
+            ))}
+          </div>
+        </div>
 
         {glosses && (
           // The legacy drawer's switch (reader.css).

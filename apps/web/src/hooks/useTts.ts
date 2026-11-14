@@ -37,8 +37,9 @@ function unlockAudio() {
   a.muted = true
   a.src = SILENT_WAV
   // Synchronous .play() in a user-gesture handler primes the element on iOS.
-  // We swallow the promise; both resolve and reject count as the unlock on iOS.
-  a.play()
+  // We swallow the promise; both resolve and reject count as the unlock on iOS. An engine whose play() returns no
+  // promise (older ones, jsdom) is fine too.
+  Promise.resolve(a.play())
     .catch(() => {})
     .finally(() => {
       a.pause()
@@ -106,13 +107,26 @@ export function useTts(stopKey?: unknown) {
   // state. State is still surfaced via `timestamps` for consumers that want
   // to render the word list.
   const timestampsRef = useRef<WordTimestamp[]>([])
+  // #1272: the caller's `onEnd` for the playback in flight, called once whatever ends it: `failed` true when it could
+  // not play (a fetch or player error), false when it ended (played out, stopped, superseded, taken over, unmounted).
+  const endRef = useRef<((failed: boolean) => void) | null>(null)
+  const finish = useCallback((failed = false) => {
+    const f = endRef.current
+    endRef.current = null
+    f?.(failed)
+  }, [])
 
   // Stable per-instance callback — used as identity to tell owner-me apart
   // from owner-other-instance in currentOwnerReset.
   const localResetRef = useRef<() => void>(() => {})
   localResetRef.current = () => {
+    // Another instance took the shared audio: this call is over, so its pending play() rejection touches nothing (the
+    // newer call's blob URL and state included).
+    abortRef.current?.abort()
+    abortRef.current = null
     setIsPlaying(false)
     setIsLoading(false)
+    finish()
   }
   const localReset = useCallback(() => localResetRef.current(), [])
 
@@ -140,7 +154,8 @@ export function useTts(stopKey?: unknown) {
     setIsPlaying(false)
     setIsLoading(false)
     if (currentOwnerReset === localReset) currentOwnerReset = null
-  }, [localReset, stopTracking])
+    finish()
+  }, [localReset, stopTracking, finish])
 
   // stopKey change / unmount: cancel our in-flight fetch and silence our audio
   // (the shared element outlives the page). Another instance's playback is left alone.
@@ -150,13 +165,24 @@ export function useTts(stopKey?: unknown) {
       else {
         abortRef.current?.abort()
         setIsLoading(false)
+        finish()
       }
     }
-  }, [stopKey, localReset, stop])
+  }, [stopKey, localReset, stop, finish])
 
-  const speak = useCallback(async (text: string, lang: string, voice?: string, speed?: number) => {
-    // Stop any current playback
+  /**
+   * Resolves true once the audio plays; false when nothing did (failed, blocked, superseded by a newer call).
+   * `opts.timestamps: false` (the V2 reader, #1272): no `/tts/timestamps` request (it takes the same rate-limit permits)
+   * and no per-frame word tracking. `opts.onEnd`: called once when this playback ends, for any reason.
+   */
+  const speak = useCallback(async (
+    text: string, lang: string, speed?: number,
+    opts: { timestamps?: boolean; onEnd?: (failed: boolean) => void } = {},
+  ): Promise<boolean> => {
+    const words = opts.timestamps !== false
+    // Stop any current playback (its onEnd is called)
     stop()
+    endRef.current = opts.onEnd ?? null
     // If another instance of useTts currently owns the shared audio, reset
     // its React state — we just detached its onended/onerror above, so its
     // isPlaying flag would otherwise be stuck until next render.
@@ -175,23 +201,23 @@ export function useTts(stopKey?: unknown) {
 
     setIsLoading(true)
     try {
-      // Try IndexedDB cache first
+      // Try IndexedDB cache first (per speed, makeTtsKey)
       let audioData: ArrayBuffer | null = null
       try {
-        const cached = await getCachedTtsAudio(lang, text)
+        const cached = await getCachedTtsAudio(lang, text, speed ?? 1)
         if (cached) audioData = cached.audioData
       } catch { /* ignore cache errors */ }
 
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted) return false
 
       // Fetch from API if not cached. Pass signal so abort during fetch
       // actually cancels the network request — otherwise stop() sets the flag
       // but the fetch still downloads to completion (wasted bandwidth).
       if (!audioData) {
-        audioData = await fetchTtsAudio(text, lang, voice, speed, controller.signal)
-        if (controller.signal.aborted) return
+        audioData = await fetchTtsAudio(text, lang, undefined, speed, controller.signal)
+        if (controller.signal.aborted) return false
         // Cache for offline
-        try { await cacheTtsAudio(lang, text, audioData) } catch { /* ignore */ }
+        try { await cacheTtsAudio(lang, text, audioData, speed ?? 1) } catch { /* ignore */ }
       }
 
       // Timestamps are cheap on cache hit (same key as audio) — fetch in
@@ -199,7 +225,7 @@ export function useTts(stopKey?: unknown) {
       // timestamps endpoint fails we still play audio without highlighting.
       // IndexedDB is NOT used for timestamps today — the HTTP ETag/304 path
       // is sufficient given the small JSON payload.
-      fetchTtsTimestamps(text, lang, voice, speed, controller.signal)
+      if (words) fetchTtsTimestamps(text, lang, undefined, speed, controller.signal)
         .then(ts => {
           if (controller.signal.aborted) return
           timestampsRef.current = ts
@@ -207,7 +233,7 @@ export function useTts(stopKey?: unknown) {
         })
         .catch(() => { /* non-fatal */ })
 
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted) return false
 
       // Play
       cleanup()
@@ -221,6 +247,7 @@ export function useTts(stopKey?: unknown) {
         cleanup()
         stopTracking()
         if (currentOwnerReset === localReset) currentOwnerReset = null
+        finish()
       }
       audio.onerror = () => {
         // Mid-playback failure: expose it to UI. Without setError, the popup
@@ -230,6 +257,7 @@ export function useTts(stopKey?: unknown) {
         stopTracking()
         setError('failed')
         if (currentOwnerReset === localReset) currentOwnerReset = null
+        finish(true)
       }
 
       // Claim ownership of the shared audio right before playing. A later
@@ -261,11 +289,15 @@ export function useTts(stopKey?: unknown) {
         }
         rafRef.current = requestAnimationFrame(tick)
       }
-      rafRef.current = requestAnimationFrame(tick)
+      if (words) rafRef.current = requestAnimationFrame(tick)
 
       try {
         await audio.play()
+        return true
       } catch (err) {
+        // A newer speak() or stop() paused this audio, which rejects this play() (AbortError): that call owns the state
+        // and the audio element now; touching either here would end the newer playback (#1272 review).
+        if (controller.signal.aborted) return false
         // NotAllowedError = browser blocked autoplay (no user gesture yet, or unlock missed).
         const name = (err as { name?: string })?.name
         setIsPlaying(false)
@@ -277,6 +309,7 @@ export function useTts(stopKey?: unknown) {
         // subsequent speak() fails the same way until full reload.
         if (name === 'NotAllowedError') resetUnlock()
         if (currentOwnerReset === localReset) currentOwnerReset = null
+        finish(true)
       }
     } catch (err) {
       if (!controller.signal.aborted) {
@@ -290,9 +323,11 @@ export function useTts(stopKey?: unknown) {
         } else {
           setError('failed')
         }
+        finish(true)
       }
     }
-  }, [stop, localReset, stopTracking])
+    return false
+  }, [stop, localReset, stopTracking, finish])
 
   return { speak, stop, isPlaying, isLoading, error, retryAfterSeconds, timestamps, currentWordIndex }
 }
