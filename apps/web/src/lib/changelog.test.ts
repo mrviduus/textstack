@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { areaOf, byWeek, readerEntries, weekOf, type ChangelogData, type ReaderEntry } from './changelog'
+import { MOVE_STEPS, areaOf, byWeek, moveProgress, readerEntries, weekOf, type ChangelogData, type ReaderEntry } from './changelog'
 
 const pub = { title: 'T', where: ['Web' as const], kind: 'New' as const, text: 'S.' }
 
@@ -32,5 +32,19 @@ describe('changelog feed', () => {
   it('areaOf follows release-notes order and ignores non-area labels', () => {
     expect(areaOf(['ops', 'reading'])).toBe('reading')
     expect(areaOf(['public', 'bug'])).toBeNull()
+  })
+})
+
+describe('move to V2', () => {
+  it('progress counts done steps and half of the one in progress', () => {
+    const step = (state: 'done' | 'now' | 'next') => ({ state, title: state, text: '' })
+    expect(moveProgress([step('done'), step('now'), step('next'), step('next')])).toBe(38)
+    expect(moveProgress([])).toBe(0)
+  })
+
+  it('the published road has steps in order: done, then now, then next', () => {
+    const rank = { done: 0, now: 1, next: 2 }
+    const ranks = MOVE_STEPS.map((s) => rank[s.state])
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
   })
 })
