@@ -1240,7 +1240,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       </View>
       {inBook ? (
         <>
+          {/* #1267 review: the image lightbox covers the screen: the bars are out of TalkBack's reach meanwhile. */}
           <ReaderTopBar
+            hiddenFromAccessibility={lightbox}
             barBg={theme.bg}
             barText={theme.fg}
             onSettingsPress={() => setSettingsOpen(true)}
@@ -1263,6 +1265,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             backLabel={t('reader.chrome.back')}
           />
           <V2Footer
+            hiddenFromAccessibility={lightbox}
             setter={setProgress}
             toc={toc}
             onGoToc={goToc}
@@ -1279,7 +1282,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             nextLabel={t('reader.chrome.nextPage')}
             onHeight={(h) => { if (h > 0 && h !== footerHeight) setFooterHeight(h) }}
           />
-          {openBook && showsFinishBook({ atEnd, format }) && (
+          {/* Not over the image lightbox (#1267 review): the write is local, nothing is in flight to keep. */}
+          {openBook && !lightbox && showsFinishBook({ atEnd, format }) && (
             <V2FinishBook
               finished={openBook.finished}
               onFinish={finishBook}

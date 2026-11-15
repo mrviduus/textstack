@@ -29,13 +29,15 @@ interface Props {
   onHeight: (height: number) => void
   /** A row above the chevrons (the V2 reader's section controls, #1261). */
   above?: ReactNode
+  /** Out of TalkBack's reach (#1267: the V2 reader's image lightbox covers the screen). */
+  hiddenFromAccessibility?: boolean
 }
 
 /** The reflow reader's footer: book progress bar, chapter chevrons, title, counter, % and time left. */
 export function ReaderFooter({
   barBg, barText, trackColor, barsAnim, footerTranslateY, barsVisible, bottomInset, bookProgress,
   chapterTitle, currentChapterIndex, totalChapters, timeLeftLabel, hasPrev, hasNext, onPrev, onNext, onHeight,
-  prevLabel, nextLabel, above,
+  prevLabel, nextLabel, above, hiddenFromAccessibility = false,
 }: Props) {
   const { t } = useLanguage()
   prevLabel ??= t('reader.chapterEnd.prevUntitled')
@@ -59,6 +61,8 @@ export function ReaderFooter({
         },
       ]}
       pointerEvents={barsVisible ? 'auto' : 'none'}
+      importantForAccessibility={hiddenFromAccessibility ? 'no-hide-descendants' : 'auto'}
+      accessibilityElementsHidden={hiddenFromAccessibility}
     >
       <View style={[styles.progressBar, { backgroundColor: trackColor }]}>
         <View style={[styles.progressFill, { width: `${bookProgress != null ? Math.round(bookProgress * 100) : 0}%`, backgroundColor: barText + '40' }]} />

@@ -661,11 +661,16 @@ test.describe('V2 reader page @v2', () => {
     // chrome is inert meanwhile); its close button is named in the reader's language (the host's `labels`).
     const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag21a']).analyze()
     expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' > ')).join(' | ')}`)).toEqual([])
-    // From inside the dialog (the page keeps Tab) and from the host document (the gap: focus outside the frame).
-    for (const key of ['Tab', 'Tab', 'Shift+Tab', 'focus-host', 'Tab', 'Tab', 'Tab', 'focus-host', 'Shift+Tab']) {
+    // From inside the dialog (the page keeps Tab) and from the host document (the gap: focus outside the frame), focus
+    // ends in the lightbox each time: the host's focus on the reader frame, the frame's inside the dialog; never the
+    // chrome (bars, states, skip link, the finish block).
+    const readerFrame = page.frames().find((f) => f.url().includes('/reader-v2/frame'))!
+    for (const key of ['Tab', 'Tab', 'Shift+Tab', 'focus-host', 'Tab', 'Tab', 'Shift+Tab']) {
       if (key === 'focus-host') { await main.focus(); continue }
       await page.keyboard.press(key)
-      expect(await page.evaluate(() => !!document.activeElement?.closest('header, footer, .v2-reader__notices, .skip-link')), `focus after ${key}`).toBe(false)
+      expect(await page.evaluate(() => !!document.activeElement?.closest('header, footer, .v2-reader__notices, .skip-link, .v2-reader__finish')), `host chrome focused after ${key}`).toBe(false)
+      expect(await page.evaluate(() => document.activeElement?.getAttribute('title')), `the reader frame focused after ${key}`).toBe('Book text')
+      expect(await readerFrame.evaluate(() => !!document.activeElement?.closest('[role="dialog"]')), `focus in the dialog after ${key}`).toBe(true)
     }
     await dialog.getByRole('button', { name: 'Close image', exact: true }).click()
     await expect(dialog).toHaveCount(0)

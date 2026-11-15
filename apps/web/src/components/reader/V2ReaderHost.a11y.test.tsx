@@ -70,15 +70,16 @@ describe('V2ReaderHost accessibility (#1267)', () => {
 
   it('lightboxOpen_TheBarsStatesAndSkipLinkInert_SoTabNeverReachesThem_ClosedNotInert', () => {
     opened()
-    const outside = () => [document.querySelector('.skip-link'), document.querySelector('header'), document.querySelector('.v2-reader__notices'), document.querySelector('footer')]
-    expect(outside().map((el) => el!.hasAttribute('inert'))).toEqual([false, false, false, false])
+    const outside = () => [document.querySelector('.skip-link'), document.querySelector('header'), document.querySelector('footer')]
+    expect(outside().map((el) => el!.hasAttribute('inert'))).toEqual([false, false, false])
     fromPage({ type: 'lightbox', open: true })
-    expect(outside().map((el) => el!.hasAttribute('inert'))).toEqual([true, true, true, true])
+    expect(outside().map((el) => el!.hasAttribute('inert'))).toEqual([true, true, true])
+    expect(document.querySelector('.v2-reader__notices')!.hasAttribute('inert')).toBe(false)
     fromPage({ type: 'lightbox', open: false })
-    expect(outside().map((el) => el!.hasAttribute('inert'))).toEqual([false, false, false, false])
+    expect(outside().map((el) => el!.hasAttribute('inert'))).toEqual([false, false, false])
     // A fresh frame (its `ready`) has no lightbox: nothing stays inert.
     fromPage({ type: 'lightbox', open: true })
     fromPage({ type: 'ready' })
-    expect(outside().map((el) => el!.hasAttribute('inert'))).toEqual([false, false, false, false])
+    expect(outside().map((el) => el!.hasAttribute('inert'))).toEqual([false, false, false])
   })
 })

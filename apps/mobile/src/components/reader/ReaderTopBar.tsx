@@ -27,6 +27,8 @@ type Props = {
   backLabel?: string
   /** The contents button's accessible name; default `reader.chrome.contents`. */
   tocLabel?: string
+  /** Out of TalkBack's reach (#1267: the V2 reader's image lightbox covers the screen). */
+  hiddenFromAccessibility?: boolean
 }
 
 /**
@@ -54,6 +56,7 @@ export function ReaderTopBar({
   onSettingsPress,
   backLabel,
   tocLabel,
+  hiddenFromAccessibility = false,
 }: Props) {
   const { t } = useLanguage()
   backLabel ??= t('reader.chrome.back')
@@ -65,6 +68,8 @@ export function ReaderTopBar({
         { backgroundColor: barBg, paddingTop: topInset, opacity: barsAnim, transform: [{ translateY: topBarTranslateY }] },
       ]}
       pointerEvents={barsVisible ? 'auto' : 'none'}
+      importantForAccessibility={hiddenFromAccessibility ? 'no-hide-descendants' : 'auto'}
+      accessibilityElementsHidden={hiddenFromAccessibility}
     >
       <TouchableOpacity onPress={onExit} style={styles.topBarBtn} accessibilityRole="button" accessibilityLabel={backLabel}>
         <Ionicons name="chevron-back" size={24} color={barText} />

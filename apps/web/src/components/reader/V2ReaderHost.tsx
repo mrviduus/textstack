@@ -862,21 +862,24 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         </div>
       </header>
       {/* The states: in layout above the frame (never over the book), never hidden with the bars. */}
-      <div className="v2-reader__notices" inert={lightboxOpen}>
+      {/* Never inert as a whole (#1267 review): its status and alert regions are still announced with an image open;
+          only its buttons are, so Tab out of the lightbox never lands on them. The route's `children` (a load error)
+          show only before a book is on screen, when no lightbox can be. */}
+      <div className="v2-reader__notices">
         {saveStatus !== 'saved' && (
           <span role="status" data-testid="v2-not-saved">{t(SAVE_MESSAGE[saveStatus])}</span>
         )}
         {offer && (
           <div role="status" aria-label={t('v2Reader.newerPlaceLabel')} data-testid="v2-newer-place">
             {t('v2Reader.newerPlace', { percent: Math.round((offer.fraction ?? 0) * 100) })}{' '}
-            <button onClick={() => setOffer(null)}>{t('v2Reader.stayHere')}</button>{' '}
+            <button inert={lightboxOpen} onClick={() => setOffer(null)}>{t('v2Reader.stayHere')}</button>{' '}
             {/* Chosen: the page saves where it lands (README, `goTo`). */}
-            <button onClick={() => { hostMove('goTo', [offer, true]); setOffer(null) }}>{t('v2Reader.goThere')}</button>
+            <button inert={lightboxOpen} onClick={() => { hostMove('goTo', [offer, true]); setOffer(null) }}>{t('v2Reader.goThere')}</button>
           </div>
         )}
         {readFailed && (
           <span role="alert" data-testid="v2-read-failed">
-            {t('v2Reader.readFailed')} <button onClick={() => retryRead.current?.()}>{t('v2Reader.retry')}</button>
+            {t('v2Reader.readFailed')} <button inert={lightboxOpen} onClick={() => retryRead.current?.()}>{t('v2Reader.retry')}</button>
           </span>
         )}
         {dev && <span data-testid="v2-restore">{restored}</span>}
@@ -885,7 +888,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             {overdue === 'ready'
               ? (dev ? t('v2Reader.frameFailedDev', { path: FRAME_SRC, seconds: readyDeadlineMs / 1000 }) : t('v2Reader.frameFailed', { seconds: readyDeadlineMs / 1000 }))
               : t('v2Reader.openTimeout', { name: opening.current?.originalName ?? '', seconds: Math.ceil(openedDeadlineMs(openedBytes.current) / 1000) })}{' '}
-            <button onClick={reloadFrame}>{t('v2Reader.retry')}</button>
+            <button inert={lightboxOpen} onClick={reloadFrame}>{t('v2Reader.retry')}</button>
           </span>
         )}
         {error && <span role="alert">{error}</span>}
@@ -910,7 +913,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       {/* Over the frame, above the bottom bar (or the screen's edge with the bars hidden), out of flow: showing it
           must never resize the frame, or foliate re-lays out, `atEnd` turns false, the block hides, and it loops. */}
       {finish && finish.completedAt !== undefined && showsFinishBook({ atEnd, format: finish.format }) && (
-        <div className="v2-reader__finish" data-testid="v2-finish-block" style={{ '--v2-finish-above': `${barsHidden ? 0 : footerHeight}px` } as CSSProperties}>
+        // Hidden and inert under the lightbox (#1267 review), kept mounted: a write in flight or its failure stays.
+        <div className="v2-reader__finish" data-testid="v2-finish-block" inert={lightboxOpen} style={{ '--v2-finish-above': `${barsHidden ? 0 : footerHeight}px`, visibility: lightboxOpen ? 'hidden' : undefined } as CSSProperties}>
           <V2FinishBook finished={!!finish.completedAt} onFinish={finishBook} />
         </div>
       )}
