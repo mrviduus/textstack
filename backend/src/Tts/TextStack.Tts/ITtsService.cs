@@ -14,3 +14,9 @@ public record TtsVoiceInfo(string Name, string ShortName, string Gender, string 
 public record WordTimestamp(string Word, double StartMs, double DurationMs);
 
 public record TtsSynthesisResult(byte[] Audio, IReadOnlyList<WordTimestamp> Timestamps);
+
+// No Edge voice speaks this language (#1334). Input-driven, not an outage.
+public class TtsNoVoiceException(string lang) : Exception($"No TTS voice for language '{lang}'")
+{
+    public string Lang { get; } = lang;
+}
