@@ -3,6 +3,9 @@ import { View, Text, Modal, TouchableOpacity, StyleSheet, ActivityIndicator, Scr
 import { Ionicons } from '@expo/vector-icons'
 import { explainApi } from '@textstack/shared'
 import { useTheme } from '../context/ThemeContext'
+import { useLanguage } from '../context/LanguageContext'
+import { useReduceMotion } from '../hooks/useReduceMotion'
+import { fill } from '../lib/fill'
 import { useTargetLanguage } from '../hooks/useTargetLanguage'
 import { fonts } from '../theme/typography'
 
@@ -17,6 +20,8 @@ interface ExplanationSheetProps {
 
 export function ExplanationSheet({ visible, word, sentence, bookId, fromLang: fromOverride, onClose }: ExplanationSheetProps) {
   const { colors } = useTheme()
+  const { t } = useLanguage()
+  const reduceMotion = useReduceMotion()
   // Explanations are addressed to the reader, so this is readerLang and never
   // null: explaining an English word in English is useful, unlike translating
   // one into itself.
@@ -39,26 +44,26 @@ export function ExplanationSheet({ visible, word, sentence, bookId, fromLang: fr
       .catch(err => {
         if (ctrl.signal.aborted) return
         if (err instanceof Error && err.name === 'AbortError') return
-        setError('Could not generate explanation')
+        setError(t('reader.explanationSheet.failed'))
       })
       .finally(() => { if (!ctrl.signal.aborted) setLoading(false) })
     return () => { ctrl.abort() }
   }, [visible, word, sentence, readerLang, bookId])
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType={reduceMotion ? 'none' : 'slide'} transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={[styles.sheet, { backgroundColor: colors.background }]}>
           <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginTop: 12 }} />
           <View style={[styles.header, { borderBottomColor: colors.border }]}>
-            <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">Explain: {word}</Text>
-            <TouchableOpacity onPress={onClose} style={{ padding: 4 }} accessibilityRole="button" accessibilityLabel="Close explanation">
+            <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">{fill(t('reader.explanationSheet.title'), { word })}</Text>
+            <TouchableOpacity onPress={onClose} style={{ padding: 4 }} accessibilityRole="button" accessibilityLabel={t('reader.explanationSheet.close')}>
               <Ionicons name="close" size={22} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: 16 }}>
-            {loading && <ActivityIndicator color={colors.primary} style={{ marginTop: 8 }} accessibilityLabel="Generating explanation" />}
+            {loading && <ActivityIndicator color={colors.primary} style={{ marginTop: 8 }} accessibilityLabel={t('reader.explanationSheet.generating')} />}
             {error ? <Text style={{ color: colors.error, marginTop: 8 }} accessibilityRole="alert">{error}</Text> : null}
             {explanation ? <Text style={[styles.text, { color: colors.text }]}>{explanation}</Text> : null}
           </ScrollView>

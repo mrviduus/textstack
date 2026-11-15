@@ -55,8 +55,8 @@ test.describe('V2 reader dev route @v2-reader-dev', () => {
   // #1219: the page is its own same-origin document (not srcdoc, which inherits the app CSP), with a nonce
   // per response and its own frame-ancestors.
   test('the reader frame is a src document with a fresh nonce per response', async ({ page }) => {
-    await expect(page.locator('iframe[title="V2 reader"]')).toHaveAttribute('src', V2_READER_FRAME_PATH)
-    await expect(page.locator('iframe[title="V2 reader"]')).not.toHaveAttribute('srcdoc', /./)
+    await expect(page.locator('iframe[title="Book text"]')).toHaveAttribute('src', V2_READER_FRAME_PATH)
+    await expect(page.locator('iframe[title="Book text"]')).not.toHaveAttribute('srcdoc', /./)
     const load = () => page.request.get(V2_READER_FRAME_PATH)
     const [a, b] = [await load(), await load()]
     expect(a.headers()['content-security-policy']).toBe("frame-ancestors 'self'")
@@ -103,7 +103,7 @@ test.describe('V2 reader dev route @v2-reader-dev', () => {
     await next(page)
     await expect(status(page)).not.toHaveText(before ?? '')
     await page.getByLabel('Pick EPUB').setInputFiles({ name: 'broken.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('not a zip') })
-    await expect(page.getByRole('alert')).toContainText('cannot open broken.epub')
+    await expect(page.getByRole('alert')).toContainText('Cannot open broken.epub')
     await expect(status(page)).toHaveText('')
     // #1080 item 6: nor its title (the alert names the file that failed).
     await expect(page.getByTestId('v2-heading')).not.toHaveText('E2E V2 sync')

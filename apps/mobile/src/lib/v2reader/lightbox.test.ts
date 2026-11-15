@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
-import { MAX_SCALE, clampPan, clampScale, createLightbox, imageAt, zoomAt } from './lightbox.mjs'
+import { DEFAULT_LABELS, MAX_LABEL, MAX_SCALE, clampPan, clampScale, createLightbox, imageAt, readLabels, zoomAt } from './lightbox.mjs'
 
 // #1265: the real gestures (pinch, drag, double tap) run in Chromium in formats.check.mjs; here the DOM rules.
 
@@ -136,6 +136,21 @@ describe('v2 lightbox overlay', () => {
     const { lb } = setup()
     lb.open({ src: 'blob:null/a', alt: '  ' })
     expect(dialog()!.getAttribute('aria-label')).toBe('Image')
+  })
+
+  it('hostLabels_NameTheDialogWithNoAltAndTheCloseButton_FromTheNextOpening (#1267)', () => {
+    const { lb } = setup()
+    lb.labels({ image: 'Ілюстрація', close: 'Закрити' })
+    lb.open({ src: 'blob:null/a', alt: '' })
+    expect(dialog()!.getAttribute('aria-label')).toBe('Ілюстрація')
+    expect(dialog()!.querySelector('button')!.getAttribute('aria-label')).toBe('Закрити')
+    lb.close()
+    // A malformed later call keeps the words held.
+    lb.labels({ image: 7, close: '   ' })
+    lb.open({ src: 'blob:null/a', alt: 'A map' })
+    expect(dialog()!.getAttribute('aria-label')).toBe('A map')
+    expect(dialog()!.querySelector('button')!.getAttribute('aria-label')).toBe('Закрити')
+    lb.close()
   })
 
   it('keys_StayInTheDialog_EscapeCloses', () => {
@@ -274,5 +289,15 @@ describe('v2 lightbox overlay', () => {
     lb.open({ src: 'blob:null/b', alt: '' })
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
     expect(sent).toEqual([{ type: 'lightbox', open: true }, { type: 'lightbox', open: false }, { type: 'lightbox', open: true }])
+  })
+})
+
+describe('v2 lightbox readLabels (#1267)', () => {
+  it('nonBlankStringsUpToTheCap_Taken_AnythingElse_TheHeldOne', () => {
+    expect(readLabels({ image: 'Bild', close: 'Schließen' })).toEqual({ image: 'Bild', close: 'Schließen' })
+    expect(readLabels(null)).toEqual(DEFAULT_LABELS)
+    expect(readLabels({ image: '', close: 3 })).toEqual(DEFAULT_LABELS)
+    expect(readLabels({ image: 'x'.repeat(MAX_LABEL + 1), close: 'x'.repeat(MAX_LABEL) })).toEqual({ image: 'Image', close: 'x'.repeat(MAX_LABEL) })
+    expect(readLabels({ close: 'Zu' }, { image: 'Bild', close: 'Schließen' })).toEqual({ image: 'Bild', close: 'Zu' })
   })
 })

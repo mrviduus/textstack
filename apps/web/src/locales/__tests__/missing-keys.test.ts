@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'fs'
 import { resolve, join } from 'path'
 import { catalog as en } from '../catalog'
+// The detector lives with mobile's twin check (one rule for both hosts, as the V2 page's modules).
+import { findHardcoded } from '../../../../mobile/src/lib/i18nHardcoded'
 
 /**
  * Every `t('some.key')` in the source must resolve to a string in en.json.
@@ -71,5 +73,29 @@ describe('i18n keys used in web source', () => {
     // saying so is the difference between coverage and the appearance of it.
     const dynamic = files.filter(f => DYNAMIC_T.test(readFileSync(f, 'utf8')))
     expect(Array.isArray(dynamic)).toBe(true)
+  })
+})
+
+/**
+ * #1267: the V2 reader's host files (and the legacy popups it reuses) say nothing in English of their own: every shown
+ * string goes through `t()` (mobile's `i18nHardcoded.ts`, its twin check in `apps/mobile/src/lib/i18nKeys.test.ts`).
+ * An unnamed control is axe's (`v2-reader.spec.ts`, `@v2`).
+ */
+const READER = join(SRC, 'components/reader')
+const V2_HOST_FILES = [
+  join(SRC, 'pages/V2ReaderPage.tsx'),
+  ...readdirSync(READER).filter(f => /^V2.*\.tsx$/.test(f) && !/\.test\.tsx$/.test(f)).map(f => join(READER, f)),
+  ...['WordPopup', 'SelectionToolbar', 'PdfHighlightPopup', 'TranslationPopup', 'ExplanationPopup'].map(f => join(READER, `${f}.tsx`)),
+]
+
+describe('V2 reader host: no hard-coded strings (#1267)', () => {
+  it('scans the V2 host files', () => {
+    expect(V2_HOST_FILES.length).toBeGreaterThan(10)
+  })
+
+  it('every shown string goes through t()', () => {
+    const found = V2_HOST_FILES.flatMap(f =>
+      findHardcoded(readFileSync(f, 'utf8')).map(x => `${f.replace(SRC, 'src')}:${x.line} ${x.text}`))
+    expect(found).toEqual([])
   })
 })

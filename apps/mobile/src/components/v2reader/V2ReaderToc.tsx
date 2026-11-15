@@ -3,6 +3,7 @@ import { FlatList, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } 
 import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
+import { useReduceMotion } from '../../hooks/useReduceMotion'
 import { fonts } from '../../theme/typography'
 import { tocAround, withTitle, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
 import type { V2HighlightItem } from '../../lib/v2reader/highlights.mjs'
@@ -22,6 +23,7 @@ interface Props {
 export function V2TocSheet({ visible, toc, tocIndex, onGo, onClose }: Props & { visible: boolean; onClose: () => void }) {
   const { colors } = useTheme()
   const { t } = useLanguage()
+  const reduceMotion = useReduceMotion()
   const list = useRef<FlatList<V2TocEntry>>(null)
   // One scroll to the current entry per opening (a closed Modal unmounts the list).
   const scrolled = useRef(false)
@@ -29,7 +31,7 @@ export function V2TocSheet({ visible, toc, tocIndex, onGo, onClose }: Props & { 
   const { current } = tocAround(toc, tocIndex)
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType={reduceMotion ? 'none' : 'slide'} transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={styles.outside} onPress={onClose} accessible={false} />
         <View style={[styles.sheet, { backgroundColor: colors.background }]} accessibilityViewIsModal>
@@ -97,8 +99,9 @@ export function V2HighlightsSheet({ visible, items, noteOf, onGo, onClose }: {
 }) {
   const { colors } = useTheme()
   const { t } = useLanguage()
+  const reduceMotion = useReduceMotion()
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType={reduceMotion ? 'none' : 'slide'} transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={styles.outside} onPress={onClose} accessible={false} />
         <View style={[styles.sheet, { backgroundColor: colors.background }]} accessibilityViewIsModal>

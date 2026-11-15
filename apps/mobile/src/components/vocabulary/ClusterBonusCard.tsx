@@ -6,13 +6,10 @@ import type { WordClusterDto } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
+import { fill } from '../../lib/fill'
 
 interface Props {
   onChange?: () => void
-}
-
-function interpolate(template: string, vars: Record<string, string | number>): string {
-  return template.replace(/\{(\w+)\}/g, (_, k) => (vars[k] == null ? `{${k}}` : String(vars[k])))
 }
 
 export function ClusterBonusCard({ onChange }: Props) {
@@ -51,7 +48,7 @@ export function ClusterBonusCard({ onChange }: Props) {
   }
 
   const subtitle = cluster.bookTitle
-    ? interpolate(t('vocabulary.clusters.fromBook'), { book: cluster.bookTitle })
+    ? fill(t('vocabulary.clusters.fromBook'), { book: cluster.bookTitle })
     : null
 
   return (
@@ -63,7 +60,7 @@ export function ClusterBonusCard({ onChange }: Props) {
             {cluster.title}
           </Text>
           <Text style={[styles.meta, { color: colors.textSecondary, fontFamily: fonts.sans }]} numberOfLines={1}>
-            {interpolate(t('vocabulary.clusters.bonusCta'), { n: cluster.memberCount })}
+            {fill(t('vocabulary.clusters.bonusCta'), { n: cluster.memberCount })}
             {subtitle ? ` · ${subtitle}` : ''}
           </Text>
         </View>

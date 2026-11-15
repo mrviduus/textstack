@@ -17,11 +17,8 @@ import { capabilitiesFor } from '../../lib/capabilities'
 import { claimGuestNudge } from '../../lib/guestNudge'
 import { clearSelectionJs } from '../../lib/readerSelectionJs'
 import type { ReaderShellProps } from './readerShellTypes'
+import { fill } from '../../lib/fill'
 
-/** Lightweight {key} interpolation — shared `t()` returns raw keys, we fill them in here. */
-function interpolate(template: string, vars: Record<string, string | number>): string {
-  return template.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? `{${k}}`))
-}
 
 type Args = Pick<ReaderShellProps, 'source' | 'injectJs' | 'bookTitleRef' | 'original'> & {
   chapter: { id: string }
@@ -104,7 +101,7 @@ export function useReaderWordActions({
       variant: 'success',
       message:
         count > 1
-          ? interpolate(t(language, 'reader.toastWordAddedCount'), { count })
+          ? fill(t(language, 'reader.toastWordAddedCount'), { count })
           : t(language, 'reader.toastWordAdded'),
       actionLabel: t(language, 'reader.toastTapToReview'),
       onPress: () => router.push('/vocabulary'),

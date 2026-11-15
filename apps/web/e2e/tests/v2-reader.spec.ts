@@ -1,6 +1,7 @@
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
 import { testLogin } from '../helpers/api'
 
 // @v2 — the V2 reader page on its production route (#1225): /:lang/library/my/:id/read-v2, behind
@@ -187,7 +188,7 @@ test.describe('V2 reader page @v2', () => {
     await page.goto(`/en/library/my/${bookId}`)
     await page.getByRole('link', { name: 'Open in the V2 reader' }).click()
     await expect(page).toHaveURL(new RegExp(`/en/library/my/${bookId}/read-v2/?$`))
-    await expect(page.locator('iframe[title="V2 reader"]')).toHaveAttribute('src', '/reader-v2/frame.html')
+    await expect(page.locator('iframe[title="Book text"]')).toHaveAttribute('src', '/reader-v2/frame.html')
     await expectOpened(page)
 
     const before = await status(page).textContent()
@@ -632,7 +633,7 @@ test.describe('V2 reader page @v2', () => {
     }
     await expect.poll(image, { timeout: 15_000 }).not.toBeNull()
     const img = (await image())!
-    const reader = page.frameLocator('iframe[title="V2 reader"]')
+    const reader = page.frameLocator('iframe[title="Book text"]')
     const dialog = reader.getByRole('dialog', { name: 'A red square' })
     const scale = () => dialog.locator('img').evaluate((el) => Number(/scale\(([\d.]+)\)/.exec((el as HTMLElement).style.transform)?.[1]))
 
@@ -656,7 +657,22 @@ test.describe('V2 reader page @v2', () => {
     await page.mouse.click(img.x, img.y)
     await expect(dialog).toBeVisible()
     expect(await scale()).toBe(1)
-    await dialog.getByRole('button', { name: 'Close' }).click()
+    // #1267: the open lightbox has no axe violation; Tab and Shift+Tab never leave it for the hidden bars (the host's
+    // chrome is inert meanwhile); its close button is named in the reader's language (the host's `labels`).
+    const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag21a']).analyze()
+    expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' > ')).join(' | ')}`)).toEqual([])
+    // From inside the dialog (the page keeps Tab) and from the host document (the gap: focus outside the frame), focus
+    // ends in the lightbox each time: the host's focus on the reader frame, the frame's inside the dialog; never the
+    // chrome (bars, states, skip link, the finish block).
+    const readerFrame = page.frames().find((f) => f.url().includes('/reader-v2/frame'))!
+    for (const key of ['Tab', 'Tab', 'Shift+Tab', 'focus-host', 'Tab', 'Tab', 'Shift+Tab']) {
+      if (key === 'focus-host') { await main.focus(); continue }
+      await page.keyboard.press(key)
+      expect(await page.evaluate(() => !!document.activeElement?.closest('header, footer, .v2-reader__notices, .skip-link, .v2-reader__finish')), `host chrome focused after ${key}`).toBe(false)
+      expect(await page.evaluate(() => document.activeElement?.getAttribute('title')), `the reader frame focused after ${key}`).toBe('Book text')
+      expect(await readerFrame.evaluate(() => !!document.activeElement?.closest('[role="dialog"]')), `focus in the dialog after ${key}`).toBe(true)
+    }
+    await dialog.getByRole('button', { name: 'Close image', exact: true }).click()
     await expect(dialog).toHaveCount(0)
     await expect(status(page)).toHaveText(before)
 
@@ -857,6 +873,56 @@ test.describe('V2 reader page @v2', () => {
     await expect.poll(serverCfi, { timeout: 15_000 }).toBe(left)
     await page.waitForTimeout(1_000)
     expect(statePuts.filter((c) => c === left), 'the turn is written once').toHaveLength(1)
+    await context.close()
+  })
+
+  // #1267: every control on the reader has an accessible name and every drawer or popup is a dialog (axe, WCAG 2 A and
+  // 2.1 A: names, roles, ARIA; colour contrast is not this check): the bars, the settings and contents drawers, a word
+  // popup. The route is never indexed and has a title; the skip link takes focus past the bars to the book.
+  test('readV2A11y_TheBarsDrawersAndAWordPopup_NoAxeViolations_SkipLinkToTheBook_Noindex', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2a11y'))
+    await withTranslation(context)
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/)
+    await expect(page).toHaveTitle(/v2-sync\.epub/)
+    /** Each violation by rule and element, so a failure names what to fix. */
+    const violations = async () => (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag21a']).analyze()).violations
+      .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' > ')).join(' | ')}`)
+
+    await page.keyboard.press('Escape')
+    await expect(page.locator('main.v2-reader')).toHaveAttribute('data-bars', 'shown')
+    expect(await violations()).toEqual([])
+
+    await clickBar(page, 'Reading settings')
+    await expect(page.getByRole('dialog', { name: 'Reading settings' })).toBeVisible()
+    expect(await violations()).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    await clickBar(page, 'Contents')
+    await expect(page.getByRole('dialog', { name: 'Contents' })).toBeVisible()
+    expect(await violations()).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    const width = page.viewportSize()!.width
+    const word = (await firstParagraphWords(page)).find((w) => w.x > width * 0.35 && w.x < width * 0.65)
+    expect(word, 'a word in the centre zone').toBeTruthy()
+    await page.mouse.click(word!.x, word!.y)
+    await expect(page.locator('.word-popup .word-popup__translation')).toHaveText('MOCK-TRANSLATION')
+    expect(await violations()).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.word-popup')).toHaveCount(0)
+
+    // The skip link: the first stop from the top of the document, then the book (the frame) has focus.
+    await page.locator('main.v2-reader').focus()
+    await page.keyboard.press('Tab')
+    await expect(page.getByRole('link', { name: 'Skip to the book' })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('iframe[title="Book text"]')).toBeFocused()
     await context.close()
   })
 

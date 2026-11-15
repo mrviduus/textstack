@@ -358,6 +358,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `drawnRanges()` | Test-only (`formats.check.mjs`): how many drawn highlight ranges the page holds, a count and no book data. The ranges of a section no longer loaded (its frame gone) are dropped when a section's overlayer is made and on every tap (#1312 review). |
 | `clearSelection()` | #1269: the host is done with the selection (its toolbar closed after Copy, a translation or explanation closed): removed from every shown section, `selection-cleared` sent at once if a `selection` was sent (none otherwise), and `highlightSelection()` has no last selection to fall back on. |
 | `closeLightbox()` | #1265: the image lightbox closes (Android back, a host Escape with focus outside the frame), `lightbox` closed sent. None open: nothing sent. |
+| `labels({image, close})` | #1267: the lightbox's two words in the reader's language, sent by both hosts on every `ready` (the page has no i18n): `image` names the dialog of an image with no alt text, `close` its close button. Through `lightbox.mjs` `readLabels`: a non-blank string up to 200 characters, else the word held (English until the first call). The next opening takes them; sends nothing. |
 
 **Page → host** (`{ type, … }`)
 
@@ -515,7 +516,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   around the image still wins (foliate owns links), and so does a press that dismisses a selection.
 - *While open:* `foliate-view` is `inert`, and the overlay keeps every key (no `key` is forwarded); Tab and Shift+Tab
   stay on its one control (`aria-modal`). Opening it sets scale 1 and focuses the dialog (labelled by the alt text,
-  else "Image"); closing it gives focus back to the section's frame through its window, as foliate does (focusing the
+  else the host's `labels` `image`, "Image" before any); closing it gives focus back to the section's frame through its window, as foliate does (focusing the
   frame element would scroll foliate's container and move the place). Zoom 1–8× about the focus (`zoomAt`): pinch
   about the fingers' midpoint, the wheel about the pointer, a double tap or click about that point (2.5×, or back to
   fit). Drag pans once zoomed; the pan stops where the image's edge meets the screen's, and a side it does not fill

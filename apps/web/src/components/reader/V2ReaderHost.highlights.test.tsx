@@ -11,7 +11,7 @@ const WIDTH = 1000
 const SHA = 'aa'
 const ID1 = '11111111-1111-4111-8111-111111111111'
 const ID2 = '22222222-2222-4222-8222-222222222222'
-const frame = () => screen.getByTitle('V2 reader') as HTMLIFrameElement
+const frame = () => screen.getByTitle('Book text') as HTMLIFrameElement
 let posted: { call: string; args: unknown[] }[]
 
 beforeEach(() => {
