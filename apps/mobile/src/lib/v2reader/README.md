@@ -47,7 +47,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `vocabSave.mjs` (+ `.d.mts`) | Pure, both hosts (#1270): `saveOutcome`, a vocabulary save's answer as the host shows it (saved, deleted → restore, pending, lookup); `savesWords`, whether a book's `opened.lang` lets its words be saved. See Host responsibilities, "Saving a word". |
 | `wordMarks.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1271): saved-word marks. `readMarkWords` (the page's read of `markWords`: word ≤ 200, gloss ≤ 500, at most 20,000; a stage off 0–4 is new), `STAGE_COLORS` (the legacy readers' five underlines), `wordMarksIn` (where words stand in a section, reader-engine's `matchWords` + `rangesIn`), `sameMark`; the gloss setting `readGlosses` / `withGlosses` (the legacy `showInlineTranslations`). See Host responsibilities, "Saved-word marks". |
 | `vocabWords.mjs` (+ `.d.mts`) | Pure, DOM-free, both hosts (#1271): `langOf`, `ofBook` (a card is the book's language), `wordId` (key + language), `markWordsOf` (what a host sends), `backfillTranslations` (the once-per-open rule: serial writes, a 429 stops it, cancelled by the host). |
-| `readerVocab.ts` | Android (#1271): the saved words in memory (`withSaved`, `withTranslation`, `mergeWords` with this session's saves and fills, `forBook`), the once-per-open backfill (`backfillTranslations`) and the guest nudge's count (`nudgeCount`), `backfillable`. |
+| `readerVocab.ts` | Android (#1271): `forBook`, `backfillable`, `answerRow` (the row a save's answer card makes, none for another user's), `nudgeCount`. |
 | `wordPopup.mjs` (+ `.d.mts`) | Pure, both hosts (#1269): `readWord` (a host's read of `word`, `readSelection`'s caps; the rect through `selection.mjs` `readRect`), `readLang` (`opened.lang` as a two-letter primary subtag, or null: a three-letter code gives the host's fallback), and `popupStep`: what a `word`, `tap`, `selection`, `selection-cleared` or a move does to the word popup / selection toolbar and to the tap zones. See Host responsibilities, "Word popup and selection toolbar". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
 | `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
@@ -581,30 +581,26 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   over it, so it stays visible; the gloss as SVG text.
 - *Web*: its own hook, `useV2ReaderVocabulary` (V2ReaderPopups; the legacy reader's `useReaderVocabulary` is not
   touched): the legacy saves, guest queue and mint, with V2's rules. One read per load, each card with its language,
-  filtered to the book's, loaded again for a new identity (a guest becoming an account); kept in memory; a save, a flushed guest word or a footer-picked translation updates it
+  filtered to the book's, loaded again for a new identity (a guest becoming an account); kept in memory, and what is
+  saved while a load is in flight is replayed over its words when it commits; a save, a flushed guest word or a footer-picked translation updates it
   (another language's queued word is not added, nor given this book's card's translation by key). Missing
   translations are backfilled once per authenticated load, for the language it was filtered for (a language change
   waits for its own load), over the words it brought (never on the no-session branch, never for a word saved later:
   the save's TR-2 fill has it), by the shared `backfillTranslations`, cancelled by a newer load (identity, language,
-  retry) or the unmount. A guest's nudge counts the whole vocabulary, every language. The map goes to the host
+  retry) or the unmount. "Already saved" (the auto-save's guard, the popup's ✓) is any card by key, of any language or
+  none (the legacy list, V2 down), so no word is saved twice. A guest's nudge counts the whole vocabulary, every language. The map goes to the host
   through `onMarks`.
-- *Android* (`readerVocab.ts`): the local library's `vocabulary` rows (the vocabulary feed, offline too: no token or
-  network on the reading path) read at each open and after each sync pass; `mergeWords`: the rows are the truth (a
-  tombstone, an adoption, a wipe: gone), this session's saves no row has yet are owed (across opens) until a read has
-  them, or until a vocabulary pull that started after the save was read to its end without it (deleted before this
-  device pulled it). Pulls are numbered as they start (`vocabularyPulls`, a local counter under `cursor:` keys, never a
-  clock): a save records how many had started (a failed stamp is stamped by the next read, owed until then), and
-  expires once a later-numbered one was read to its end. ponytail:
-  this relies on the change feed's overlap (`ChangeFeed.Overlap`, 30 s) covering the save's commit lag; a longer server
-  transaction could expire a just-saved mark until its row changes. A translation this session filled stays on its
-  row until the pull brings it. A word is its key and its language (`wordId`). A new user (sign-out, another account)
-  starts with none of it: no word shows ✓, and a save still in flight from the last session lands nowhere; a guest
-  becoming an account is the same person (`sessionStep`): it all stays, and the next read brings the merged rows. A
-  new native language restarts the backfill (the old one's writes stop), on both hosts.
-  Missing translations backfilled once per open by the shared `backfillTranslations` (`backfillable`: the book's
-  language, never an owed save whose own fill may be in flight; `cachedTranslate`, then the card's `onlyIfEmpty` PATCH
-  awaited before the next word; a 429 stops it, so do a new open and leaving the screen; sends coalesced 300 ms). A
-  guest's nudge counts the words in memory once the feed was pulled (V2 on, a vocabulary cursor), else the server's
+- *Android*: the saved words are the local library's `vocabulary` rows, offline too (no token or network on the
+  reading path). The feed's rows, and this device's own: a save's answer card (saved, already saved, restored, added
+  anyway) is upserted as the pull writes it (`answerRow`; dropped when the user changed since the save was asked), and
+  a translation the server took (the backfill's, TR-2's `onStored`) is written to its row. A pull replaces rows by id,
+  a tombstone deletes one, a wipe, a guest carried on and an adoption clear them and pull again (the account's ids).
+  The rows are read at each open, after each own write and after each sync pass; the bar's ✓ is the book's language's
+  rows. A user change reads them anew and latches the backfill again. Missing translations are backfilled once per
+  (open, user, native language) by the shared `backfillTranslations` (`backfillable`: the book's language, no
+  translation; `cachedTranslate`, then the card's `onlyIfEmpty` PATCH awaited before the next word; a 429 stops it, so
+  do a new open, a user change, a new native language, which restarts it for what is still missing, and leaving the
+  screen). A guest's nudge counts the rows once the feed was pulled (V2 on, a vocabulary cursor), else the server's
   list as before (`nudgeCount`).
 - *The feed*: pull-only; a tombstone removes the row, the server's row replaces it. Pulled after the pushes, and its
   failure is its own: it never holds a write back or fails the pass (offline, the server down or a session change end

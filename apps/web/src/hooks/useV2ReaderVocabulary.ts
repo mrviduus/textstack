@@ -48,7 +48,7 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
   const [guestNudge, setGuestNudge] = useState<GuestNudge | null>(null)
   const dismissGuestNudge = useCallback(() => setGuestNudge(null), [])
   const mapRef = useRef<VocabMap>(new Map())
-  /** The authenticated load and native language (`${authLoad.id}|${targetLang}`) whose words were backfilled; '': none. */
+  /** The (load, user, native language) whose words were backfilled; '': none. */
   const backfillDone = useRef('')
   /** Bumped by every load (a new identity, language, retry) and at unmount: a backfill of an older one stops. */
   const loadGen = useRef(0)
@@ -57,7 +57,22 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
    * legacy does, whatever the map is filtered to.
    */
   const allWords = useRef(new Set<string>())
-  const remember = (word: string, language: string | null | undefined) => allWords.current.add(wordId(normalizeVocabKey, word, language))
+  /**
+   * #1271 review: every card's key, any language and none (the legacy list's, V2 down): the auto-save's "already saved",
+   * so no word is ever saved twice, whatever the map (the book's language's cards only) holds.
+   */
+  const allKeys = useRef(new Set<string>())
+  const remember = (word: string, language: string | null | undefined) => {
+    allWords.current.add(wordId(normalizeVocabKey, word, language))
+    allKeys.current.add(normalizeVocabKey(word))
+  }
+  /** Whether `word` is a card of the reader's already (any language, saved here or loaded). */
+  const isKnown = useCallback((word: string) => allKeys.current.has(normalizeVocabKey(word)) || mapRef.current.has(normalizeVocabKey(word)), [])
+  /**
+   * The map's changes since the authenticated load in flight started (a save, a restore, a fill), replayed over its words
+   * when it commits: its snapshot predates them. Null while no load is in flight.
+   */
+  const sinceLoad = useRef<((m: VocabMap) => void)[] | null>(null)
   // Keep auth state available inside async callbacks without stale-closure races.
   const isAuthRef = useRef(isAuthenticated)
   isAuthRef.current = isAuthenticated
@@ -72,6 +87,7 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
   const updateMap = useCallback((fn: (draft: VocabMap) => void) => {
     const next = new Map(mapRef.current)
     fn(next)
+    sinceLoad.current?.push(fn)
     commitMap(next)
   }, [commitMap])
 
@@ -99,9 +115,12 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
   // Load vocab from API once a session exists (guest or real).
   useEffect(() => {
     loadGen.current++
+    // A new identity's (or a retry's) words: the sets start again here, so a save answering meanwhile stays in them.
+    allWords.current = new Set()
+    allKeys.current = new Set()
     if (!isAuthenticated) {
+      sinceLoad.current = null
       commitMap(new Map())
-      allWords.current = new Set()
       setAuthLoad(null)
       setLoaded(true)
       setLoadFailed(false)
@@ -114,11 +133,12 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
     setLoading(true)
     setLoaded(false)
     setLoadFailed(false)
+    const since: ((m: VocabMap) => void)[] = []
+    sinceLoad.current = since
     getReaderVocab()
       .then((words) => {
         if (cancelled) return
         const m: VocabMap = new Map()
-        allWords.current = new Set()
         for (const w of words) {
           remember(w.word, w.language)
           // Only the book's language's cards (`takes`): a German card is not an English book's saved word, nor filled
@@ -126,6 +146,9 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
           if (!takes(w.language)) continue
           m.set(normalizeVocabKey(w.word), { stage: w.stage, id: w.id, translation: w.translation })
         }
+        // What was saved (or filled, removed) while it loaded, over its older snapshot.
+        for (const fn of since) fn(m)
+        if (sinceLoad.current === since) sinceLoad.current = null
         commitMap(m)
         setAuthLoad({ id: load, lang })
         setLoaded(true)
@@ -140,9 +163,9 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
   // itself (TR-2), never a second, sentence-less request here. vocabWords.mjs `backfillTranslations`: one card written
   // before the next, a 429 stops it, and so do a newer load (identity, language, retry) and the unmount.
   useEffect(() => {
-    // Latched on (load, native language): a new native language fills what is still missing, in it.
-    if (!targetLang || !authLoad || authLoad.lang !== mapLang || backfillDone.current === `${authLoad.id}|${targetLang}`) return
-    backfillDone.current = `${authLoad.id}|${targetLang}`
+    // Latched on (load, user, native language): a new native language fills what is still missing, in it.
+    if (!targetLang || !authLoad || authLoad.lang !== mapLang || backfillDone.current === `${authLoad.id}|${userId}|${targetLang}`) return
+    backfillDone.current = `${authLoad.id}|${userId}|${targetLang}`
     const from = authLoad.lang
     const gen = loadGen.current
     // Pending entries have a local UUID, not a backend row.
@@ -155,7 +178,7 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
       }),
       cancelled: () => !alive.current || gen !== loadGen.current || targetNow.current !== targetLang,
     })
-  }, [vocabMap, authLoad, targetLang, mapLang, updateMap])
+  }, [vocabMap, authLoad, userId, targetLang, mapLang, updateMap])
 
   // I4: flush pending local vocab into backend. Called:
   //   (a) on threshold-crossing after ensureSession succeeds;
@@ -337,6 +360,7 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
     } else if (isAuthenticated) {
       await deleteWordApi(id)
     }
+    allKeys.current.delete(normalizeVocabKey(word))
     updateMap(m => m.delete(normalizeVocabKey(word)))
     emitDataChange('vocabulary')
   }, [isAuthenticated, updateMap])
@@ -394,5 +418,5 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
     setVocabMap(new Map(mapRef.current))
   }, [])
 
-  return { vocabMap, loading, loaded, loadFailed, retryLoad, addWord, markAsKnown, removeWord, updateTranslation, replaceTranslation, recordSavedWord, refreshMarks, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge }
+  return { vocabMap, isKnown, loading, loaded, loadFailed, retryLoad, addWord, markAsKnown, removeWord, updateTranslation, replaceTranslation, recordSavedWord, refreshMarks, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge }
 }

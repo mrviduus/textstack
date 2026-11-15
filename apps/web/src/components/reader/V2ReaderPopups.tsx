@@ -131,7 +131,8 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
       return
     }
     const key = normalizeVocabKey(word.word)
-    if (vocabMap.has(key) || tried.current.has(key)) return
+    // Already a card of the reader's (any language, the legacy list's too): never saved twice.
+    if (vocab.isKnown(word.word) || tried.current.has(key)) return
     tried.current.add(key)
     setSaving(word.word)
     addWord({
@@ -227,7 +228,7 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
           rect={rect}
           containerRef={frame}
           onClose={() => onClose(false)}
-          isSaved={vocabMap.has(normalizeVocabKey(word.word))}
+          isSaved={vocab.isKnown(word.word)}
           lookupInfo={lookupHere && { kind: lookupHere.kind, tapsRemaining: lookupHere.tapsRemaining }}
           onAddAnyway={lookupHere ? () => { void addAnyway() } : undefined}
           addAnywayBusy={addAnywayBusy}

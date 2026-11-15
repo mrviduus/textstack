@@ -16,9 +16,9 @@
  *                  `note_dirty` = edited here and not yet on the server (a lost write's retry keeps the server's
  *                  note otherwise). A `deleted_at` with the row still queued is this device's removal, pushed
  *                  as a DELETE (#1312)
- *   vocabulary     #1271: the reader's live saved words as the server last sent them (the vocabulary feed), what the
- *                  reader marks offline: a pull-only copy, never written here otherwise (a save goes to the API, and
- *                  comes back with the next pull), so nothing in it is ever lost by a wipe
+ *   vocabulary     #1271: the reader's live saved words, server cards only: the vocabulary feed's, and the card each
+ *                  of this device's own saves answered with (a filled translation written to its row). What the reader
+ *                  marks, offline too. Nothing here is queued (a save goes to the API first), so a wipe loses nothing
  *   reading_sessions  the reader's ended sessions (#1313, sessionTracker.mjs) by client session id, until pushed
  *                  (append-only facts: the row leaves with its outbox entry)
  *   outbox         what still has to be pushed: (kind, target), kind 'book' | 'state' | 'session' | 'annotation',
@@ -234,13 +234,6 @@ const parse = <T>(json: string | null): T | null => {
 const SERVER_FILE = 'server_file_id = ?, server_sha256 = ?, server_size = ?, server_format = ?, has_content = ?'
 const serverFile = (f: V2BookFile | null | undefined) => [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0]
 
-/**
- * `meta` keys (#1271): vocabulary pulls numbered as they start (a local counter, never a clock), and the number of the
- * last one read to its end; `cursor:` keys, cleared with the cursors.
- */
-const VOCABULARY_STARTED = 'cursor:vocabulary:started'
-// `read_seq`, not `read_from`: a dev build stored a ms timestamp under that name, which would expire every owed save.
-const VOCABULARY_READ = 'cursor:vocabulary:read_seq'
 /** `meta` key: '1' when the owner (`meta.account`) is a guest. */
 const OWNER_GUEST = 'account_guest'
 /** Whom the library belongs to; null: nobody (never synced, or wiped). */
@@ -362,6 +355,12 @@ export function createLocalLibrary(db: Db) {
     await run(`UPDATE outbox SET failures = 0 WHERE ${BOOK_OF} = ?`, [bookId])
   }
   const dequeue = (kind: OutboxKind, target: string) => run('DELETE FROM outbox WHERE kind = ? AND target = ?', [kind, target])
+  /** A vocabulary row from a server card (the feed's, or a save's answer): replaced by id. */
+  const upsertWordRow = (w: { id: string; word: string; language: string; stage: number; translation?: string | null }) => run(
+    `INSERT INTO vocabulary (id, word, language, stage, translation) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET word = excluded.word, language = excluded.language, stage = excluded.stage, translation = excluded.translation`,
+    [w.id, w.word, w.language, w.stage, w.translation ?? null],
+  )
   const getMeta = async (key: string) => (await one<{ value: string }>('SELECT value FROM meta WHERE key = ?', [key]))?.value ?? null
   const setMeta = (key: string, value: string | null) =>
     value === null ? run('DELETE FROM meta WHERE key = ?', [key]) : run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [key, value])
@@ -952,11 +951,7 @@ export function createLocalLibrary(db: Db) {
     applyVocabulary: (items: V2Word[], cursor?: string | null) => tx(async () => {
       for (const w of items) {
         if (w.deletedAt) await run('DELETE FROM vocabulary WHERE id = ?', [w.id])
-        else await run(
-          `INSERT INTO vocabulary (id, word, language, stage, translation) VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT (id) DO UPDATE SET word = excluded.word, language = excluded.language, stage = excluded.stage, translation = excluded.translation`,
-          [w.id, w.word, w.language, w.stage, w.translation ?? null],
-        )
+        else await upsertWordRow(w)
       }
       if (cursor !== undefined) await setMeta('cursor:vocabulary', cursor)
     }),
@@ -964,23 +959,15 @@ export function createLocalLibrary(db: Db) {
     /** #1271: every live saved word on this device, for the reader's marks (one read per open). */
     savedWords: () => job(() => all<SavedWord>('SELECT id, word, language, stage, translation FROM vocabulary ORDER BY rowid')),
 
-    /** #1271 review: a vocabulary pull starts: its number (the previous one's + 1). */
-    vocabularyPullStarted: () => tx(async () => {
-      const n = Number((await getMeta(VOCABULARY_STARTED)) ?? 0) + 1
-      await setMeta(VOCABULARY_STARTED, String(n))
-      return n
-    }),
     /**
-     * Pull `n` was read to its end: a save taken before it started (`vocabularyPulls().started` at the save was below `n`)
-     * that the rows lack was deleted before this device pulled it (readerVocab `mergeWords`). Under `cursor:` keys, so a
-     * wipe, a guest carried on and an adoption forget both with the cursors.
+     * #1271 review: the card a save of this device answered with (saved, already saved, restored, added anyway), as the
+     * pull writes it: the server's card, by its id. A later pull replaces it by id, a tombstone deletes it.
      */
-    vocabularyRead: (n: number) => job(() => setMeta(VOCABULARY_READ, String(n))),
-    /** How many vocabulary pulls have started, and the number of the last read to its end (null: none). */
-    vocabularyPulls: () => job(async () => {
-      const read = await getMeta(VOCABULARY_READ)
-      return { started: Number((await getMeta(VOCABULARY_STARTED)) ?? 0), readFrom: read === null ? null : Number(read) }
-    }),
+    upsertWord: (w: SavedWord) => job(() => upsertWordRow(w)),
+
+    /** A translation stored on the server (`onlyIfEmpty`: backfill, TR-2): on its row too, unless the row has one. */
+    setWordTranslation: (id: string, translation: string) =>
+      job(() => run('UPDATE vocabulary SET translation = ? WHERE id = ? AND translation IS NULL', [translation, id])),
 
     cursor: (feed: LocalFeed) => job(() => getMeta(`cursor:${feed}`)),
 

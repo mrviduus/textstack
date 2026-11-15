@@ -168,6 +168,34 @@ describe('useV2ReaderVocabulary', () => {
     expect(api.getReaderVocab).toHaveBeenCalledTimes(2)
   })
 
+  it('v2Down_TheLegacyList_AKnownWordIsNotSavedAgain_NothingMarkedOrFilled', async () => {
+    api.getReaderVocab.mockResolvedValue([card('pond', undefined)])
+    const { result } = renderHook(() => useV2ReaderVocabulary('en', 'uk'))
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    await flush()
+    // The auto-save's guard knows it (any language, none too); the marks and the backfill do not take it.
+    expect(result.current.isKnown('Pond')).toBe(true)
+    expect(result.current.isKnown('reed')).toBe(false)
+    expect(result.current.vocabMap.size).toBe(0)
+    expect(translate).not.toHaveBeenCalled()
+  })
+
+  it('aSaveAnsweredWhileAReloadWasInFlight_KeptWhenTheReloadCommits', async () => {
+    api.getReaderVocab.mockResolvedValueOnce([])
+    const { result } = renderHook(() => useV2ReaderVocabulary('en', null))
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    const reload = deferred<unknown[]>()
+    api.getReaderVocab.mockReturnValueOnce(reload.promise)
+    api.saveWord.mockImplementation(async (req: { word: string; language: string }) => saved(req.word, req.language))
+    act(() => result.current.retryLoad())
+    await act(async () => { await result.current.addWord({ word: 'otter', language: 'en' } as never) })
+    // The reload's snapshot predates the save.
+    reload.resolve([card('pond', 'en')])
+    await flush()
+    expect([...result.current.vocabMap.keys()].sort()).toEqual(['otter', 'pond'])
+    expect(result.current.isKnown('otter')).toBe(true)
+  })
+
   it('theLegacyList_CardsWithNoLanguage_NotMarked_NotFilled', async () => {
     // V2 not answering: the list has no languages; the V2 reader marks and fills none of them.
     api.getReaderVocab.mockResolvedValue([card('pond', undefined), card('reed', undefined)])

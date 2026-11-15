@@ -10,7 +10,6 @@ import { resetV2ForTests, v2Store, V2UploadError } from '../v2'
 import { CHANGES_NOT_SYNCED, createLocalLibrary, identityStep, wipeV2Library, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createV2Storage } from './hostStorage'
-import { mergeWords } from './readerVocab'
 import { adoptV2LocalAccount, claimV2LibraryFor, downloadV2Book, MAX_FAILURES, openBookHost, pushV2BeforeSignOut, syncV2Library, tryAgainV2Book, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, card, conflict, feed, resetMidCall, type Answer, type Call,
@@ -896,47 +895,43 @@ describe('V2 local library sync (R6)', () => {
       expect(order.indexOf('GET /vocabulary/changes')).toBeGreaterThan(order.indexOf(`PUT /annotations/${HL}`))
     })
 
-    it('pull_NumberedAsItStarts_AFullReadRecordsItsNumber_AFailedPageNone_ForgottenWithTheCursors', async () => {
+    // #1271 review: this device's own saves are rows too (their answer cards), replaced and removed by the pull as any.
+    it('ownSave_ItsAnswerCardUpserted_MarkedFromTheRows_ThenAPullReplacesItById', async () => {
       const lib = createLocalLibrary(memoryDb())
-      expect(await lib.vocabularyPulls()).toEqual({ started: 0, readFrom: null })
-      fakeApi({ 'GET /vocabulary/changes': [ok({ items: [card(W1)], cursor: 'p1', hasMore: true }), { status: 500 }] })
+      await lib.upsertWord({ id: W1, word: 'otter', language: 'en', stage: 0, translation: null })
+      expect(await words(lib)).toEqual([[W1, 'otter', 'en', 0, null]])
+      fakeApi({ 'GET /vocabulary/changes': feed(card(W1, { word: 'otter', stage: 2, translation: 'видра' })) })
       await syncV2Library(lib, host())
-      expect(await lib.vocabularyPulls()).toEqual({ started: 1, readFrom: null })
-      fakeApi({ 'GET /vocabulary/changes': feed(card(W1)) })
-      await syncV2Library(lib, host())
-      expect(await lib.vocabularyPulls()).toEqual({ started: 2, readFrom: 2 })
-      await lib.forgetServerState('u2', false)
-      expect(await lib.vocabularyPulls()).toEqual({ started: 0, readFrom: null })
+      expect(await words(lib)).toEqual([[W1, 'otter', 'en', 2, 'видра']])
     })
 
-    it('ownedSave_ClockSetBackAfterIt_ExpiredByTheNextFullReadWithoutIt_NotByOneUnderWayAtTheSave', async () => {
-      vi.useFakeTimers({ toFake: ['Date'] })
-      try {
-        vi.setSystemTime(new Date('2026-11-14T12:00:00Z'))
-        const lib = createLocalLibrary(memoryDb())
-        fakeApi({ 'GET /vocabulary/changes': feed() })
-        await syncV2Library(lib, host())
-        // A save taken now: stamped with the pulls started so far (1).
-        const otter = { id: W2, word: 'otter', language: 'en', stage: 0, translation: null, pulls: (await lib.vocabularyPulls()).started }
-        // The clock goes back an hour; the next pull reads to its end without the word (deleted elsewhere first).
-        vi.setSystemTime(new Date('2026-11-14T11:00:00Z'))
-        fakeApi({ 'GET /vocabulary/changes': feed() })
-        await syncV2Library(lib, host())
-        expect(mergeWords(await lib.savedWords(), [otter], new Map(), (await lib.vocabularyPulls()).readFrom).saves).toEqual([])
-        // A save stamped while pull 2 was the last started: pull 2's own end says nothing about it.
-        const heron = { ...otter, id: W1, word: 'heron', pulls: 2 }
-        expect(mergeWords([], [heron], new Map(), 2).saves).toEqual([heron])
-      } finally {
-        vi.useRealTimers()
-      }
+    it('ownSave_DeletedElsewhere_TheTombstoneRemovesIt', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      await lib.upsertWord({ id: W1, word: 'otter', language: 'en', stage: 0, translation: null })
+      fakeApi({ 'GET /vocabulary/changes': feed(card(W1, { deletedAt: '2026-11-03T00:00:00Z' })) })
+      await syncV2Library(lib, host())
+      expect(await words(lib)).toEqual([])
     })
 
-    it('aDevBuildsTimestampUnderTheOldKey_NotARead_NothingExpiredByIt', async () => {
-      const db = memoryDb()
-      const lib = createLocalLibrary(db)
-      await lib.cursor('vocabulary') // the schema is made
-      await db.runAsync(`INSERT INTO meta (key, value) VALUES ('cursor:vocabulary:read_from', '1794689427539')`)
-      expect(await lib.vocabularyPulls()).toEqual({ started: 0, readFrom: null })
+    it('aTranslationTheServerTook_OnItsRow_NeverOverOne', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      await lib.upsertWord({ id: W1, word: 'otter', language: 'en', stage: 0, translation: null })
+      await lib.upsertWord({ id: W2, word: 'reed', language: 'en', stage: 0, translation: 'очерет' })
+      await lib.setWordTranslation(W1, 'видра')
+      await lib.setWordTranslation(W2, 'інше')
+      expect((await words(lib)).map((x) => x[4])).toEqual(['видра', 'очерет'])
+    })
+
+    it('guestAdopted_TheGuestsOwnSavesGo_TheAccountsCardsComeWithTheNextPull', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({ 'GET /vocabulary/changes': feed() })
+      await syncV2Library(lib, host({ userId: 'g1', guest: true }))
+      await lib.upsertWord({ id: 'guest-card', word: 'otter', language: 'en', stage: 0, translation: null })
+      await adoptV2LocalAccount('g1', 'acct', { books: {}, files: {} }, () => lib)
+      expect(await words(lib)).toEqual([])
+      fakeApi({ 'GET /vocabulary/changes': feed(card(W2, { word: 'otter' })) })
+      await syncV2Library(lib, host({ userId: 'acct' }))
+      expect(await words(lib)).toEqual([[W2, 'otter', 'en', 0, null]])
     })
 
     it('pull_Answered503_ThePassEnds_AsForAnyPull', async () => {
