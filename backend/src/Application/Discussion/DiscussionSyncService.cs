@@ -56,6 +56,13 @@ public sealed class DiscussionSyncService(ILibraryRepository library, ISharedCha
     }
 
     /// <summary>
+    /// One share with its text, for the assistant the reader handed its id to (#1316). Only the caller's own:
+    /// another user's id is 404 like one that never existed.
+    /// </summary>
+    public async Task<SyncResult> GetShareAsync(Guid userId, Guid id, CancellationToken ct) =>
+        await shares.GetAsync(userId, id, ct) is { } share ? SyncResult.Ok(share.ToDto()) : SyncResult.NotFound;
+
+    /// <summary>
     /// A share has no tombstone, so a second delete is 404 like an id never the user's: the client
     /// drops it either way ("Conflict codes", <c>not_found</c>). Its checkpoints lose only the link.
     /// </summary>

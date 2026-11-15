@@ -78,6 +78,53 @@ public sealed partial class McpToolCatalog
         },
     };
 
+    private static readonly JsonElement GetSharedChapterSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "shareId": { "type": "string", "format": "uuid" }
+          },
+          "required": ["shareId"],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    private McpToolDescriptor BuildGetSharedChapter(TextStackApiClient api) => new()
+    {
+        Name = "get_shared_chapter",
+        Title = "Read a shared chapter",
+        ReadOnly = true,
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_shared_chapter"),
+        InputSchema = GetSharedChapterSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "shareId")
+                || !ArgReader.TryRequiredGuid(obj, "shareId", out var shareId, out err))
+                return Task.FromResult(Error(err));
+
+            return InvokeAsync("get_shared_chapter", ct, async () =>
+            {
+                var read = await api.GetSharedChapterAsync(shareId, ct);
+                // The server answers 404 for an id that is not the caller's, as for one that never existed.
+                if (read.Code == "not_found") return Error($"get_shared_chapter: no shared chapter found with id '{shareId}'");
+                if (Refused("get_shared_chapter", read) is { } refused) return refused;
+                var share = read.Value;
+                return Text(JsonSerializer.Serialize(new
+                {
+                    id = share.GetProperty("id"),
+                    bookId = share.GetProperty("bookId"),
+                    chapterKey = share.GetProperty("chapterKey"),
+                    chapterTitle = share.GetProperty("chapterTitle"),
+                    language = share.GetProperty("language"),
+                    notes = share.GetProperty("notes"),
+                    createdAt = share.GetProperty("createdAt"),
+                    text = share.GetProperty("chapterText"),
+                }, UnescapedJson));
+            });
+        },
+    };
+
     private static readonly JsonElement SaveCheckpointSchema = JsonDocument.Parse(
         $$"""
         {

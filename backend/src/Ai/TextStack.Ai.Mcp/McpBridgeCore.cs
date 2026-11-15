@@ -99,6 +99,21 @@ internal static class McpBridgeCore
         + "your TextStack vocabulary?\"), skipping any list_my_vocabulary already has. Only on yes, call "
         + "add_vocabulary_words with the sentence from the book. Never save a word without a yes.";
 
+    /// <summary>
+    /// What a bridge on the V2 sync API (<see cref="McpBridgeOptions.V2"/>) adds: the id line's "share" (#1316),
+    /// which the V2 reader's Discuss hands over, and the tools that go with it.
+    /// </summary>
+    public const string V2Instructions =
+        " An id line may instead read \"(TextStack: book <bookId>, share <shareId>)\": \"share\" is one chapter the "
+        + "reader shared from the reader. Read it with get_shared_chapter and discuss that chapter; it is the only text "
+        + "of the book you were given, so do not call get_my_chapter, get_chapter_review or save_chapter_review for it. "
+        + "Call list_checkpoints for the book first, to continue from the reader's earlier thoughts. When a topic yields "
+        + "a conclusion or an open question, and the reader opted in or asked, save it with save_checkpoint, passing the "
+        + "share's chapterKey and its id as sharedChapterId.";
+
+    /// <summary>The instructions a bridge sends: with <paramref name="v2"/> off, <see cref="Instructions"/> unchanged.</summary>
+    public static string InstructionsFor(bool v2) => v2 ? Instructions + V2Instructions : Instructions;
+
     // Rebuilds the MCP-supplied args dictionary into a single JSON object element so
     // the catalog handler can validate/read it as one schema-shaped value.
     private static JsonElement? ToArgumentsObject(IDictionary<string, JsonElement>? arguments)

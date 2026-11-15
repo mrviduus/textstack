@@ -113,6 +113,8 @@ public static class V2Endpoints
             Send(s.ShareAsync(User(h, a), bookId, body, ct)));
         v2.MapGet("/books/{bookId:guid}/shares", (HttpContext h, AuthService a, DiscussionSyncService s, Guid bookId, CancellationToken ct) =>
             Send(s.ListSharesAsync(User(h, a), bookId, ct)));
+        v2.MapGet("/shares/{id:guid}", (HttpContext h, AuthService a, DiscussionSyncService s, Guid id, CancellationToken ct) =>
+            Send(s.GetShareAsync(User(h, a), id, ct)));
         v2.MapDelete("/shares/{id:guid}", (HttpContext h, AuthService a, DiscussionSyncService s, Guid id, CancellationToken ct) =>
             Send(s.DeleteShareAsync(User(h, a), id, ct)));
         v2.MapPost("/books/{bookId:guid}/checkpoints", (HttpContext h, AuthService a, DiscussionSyncService s, Guid bookId, CheckpointRequest body, CancellationToken ct) =>

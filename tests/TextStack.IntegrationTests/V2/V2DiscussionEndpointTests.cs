@@ -114,6 +114,24 @@ public class V2DiscussionEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFix
     }
 
     [Fact]
+    public async Task GetShare_OwnShare_ReturnsItsTextAndIdsAndADeletedOneIsNotFound()
+    {
+        v2.Require();
+        var (bookId, fileId, _) = await v2.ImportAsync(v2.Alice);
+        var share = Id(await ShareAsync(v2.Alice, bookId, Share(fileId, "toc-3")));
+
+        var read = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"/me/v2/shares/{share}");
+        await v2.SendAsync(v2.Alice, HttpMethod.Delete, $"/me/v2/shares/{share}");
+        var gone = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"/me/v2/shares/{share}");
+
+        Assert.Equal(HttpStatusCode.OK, read.Status);
+        Assert.Equal((share, bookId, fileId, "toc-3", "Chapter II", "It was the night."),
+            (Id(read), read.Body.GetProperty("bookId").GetGuid(), read.Body.GetProperty("fileId").GetGuid(),
+                read.Body.GetProperty("chapterKey").GetString(), read.Body.GetProperty("chapterTitle").GetString(), read.Body.GetProperty("chapterText").GetString()));
+        Assert.Equal((HttpStatusCode.NotFound, "not_found"), (gone.Status, gone.Code));
+    }
+
+    [Fact]
     public async Task OtherUser_ReadsWritesAndDeletes_Are404AndSeeNoRowOfTheOwner()
     {
         v2.Require();
@@ -128,12 +146,14 @@ public class V2DiscussionEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFix
             await SaveAsync(v2.Bob, bookId, Checkpoint()),
             await ShareAsync(v2.Bob, bookId, Share()),
             await v2.SendAsync(v2.Bob, HttpMethod.Delete, $"/me/v2/checkpoints/{checkpoint}"),
+            await v2.SendAsync(v2.Bob, HttpMethod.Get, $"/me/v2/shares/{share}"),
             await v2.SendAsync(v2.Bob, HttpMethod.Delete, $"/me/v2/shares/{share}"),
             await v2.SendAsync(v2.Bob, HttpMethod.Put, $"/me/v2/books/{bookId}/checkpoint-saving", new { enabled = true }),
         };
 
         Assert.All(responses, r => Assert.Equal(HttpStatusCode.NotFound, r.Status));
         Assert.All(responses, r => Assert.DoesNotContain(checkpoint.ToString(), r.Body.ToString()));
+        Assert.All(responses, r => Assert.DoesNotContain("It was the night.", r.Body.ToString()));
         Assert.Single(Items(await ListAsync(v2.Alice, bookId)));
         Assert.Single((await v2.SendAsync(v2.Alice, HttpMethod.Get, $"/me/v2/books/{bookId}/shares")).Body.EnumerateArray());
     }
