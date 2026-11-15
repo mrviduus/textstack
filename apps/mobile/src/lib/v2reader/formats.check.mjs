@@ -441,7 +441,26 @@ try {
       await page.mouse.move(x0, y0)
       await page.mouse.down()
       await page.mouse.move(x1, y1, { steps: 5 })
+      // The last moves land before the release (a busy Chromium coalesces them into the next frame).
+      await page.waitForTimeout(50)
       await page.mouse.up()
+    }
+    /**
+     * In-viewport drags from the centre by (dx, dy) until the image stops moving (two drags in a row change nothing: one
+     * whose moves were all dropped is not a rest), at most 40: the clamp is what is tested, not how far one drag got.
+     * `drags`: how many it took; `resting`: it did stop.
+     */
+    const dragToRest = async (cx, cy, dx, dy) => {
+      let g = await geo()
+      let still = 0
+      for (let drags = 1; drags <= 40; drags++) {
+        await drag(cx, cy, cx + dx, cy + dy)
+        const next = await geo()
+        still = near(next.img.left, g.img.left) && near(next.img.top, g.img.top) ? still + 1 : 0
+        if (still === 2) return { g: next, drags, resting: true }
+        g = next
+      }
+      return { g, drags: 40, resting: false }
     }
     /**
      * Zoom and pan with the lightbox open, asserted on the live geometry (never a number of this layout): the point under
@@ -461,12 +480,12 @@ try {
       await drag(cx, cy, cx + 60, cy + 40)
       let g = await geo()
       check(near(g.img.left - wheeled.img.left, 60) && near(g.img.top - wheeled.img.top, 40), `${at}: a drag moves the zoomed image by as much (${show(g)})`)
-      for (let k = 0; k < 6; k++) await drag(cx, cy, cx + vw * 0.35, cy + vh * 0.35)
-      g = await geo()
-      check(near(g.img.left, g.box.left) && near(g.img.top, g.box.top), `${at}: a long drag stops where the image's left and top edges meet the screen's (${show(g)})`)
-      for (let k = 0; k < 6; k++) await drag(cx, cy, cx - vw * 0.35, cy - vh * 0.35)
-      g = await geo()
-      check(near(g.img.right, g.box.right) && near(g.img.bottom, g.box.bottom), `${at}: and back, where its right and bottom edges do (${show(g)})`)
+      let rest = await dragToRest(cx, cy, vw * 0.35, vh * 0.35)
+      g = rest.g
+      check(rest.resting && near(g.img.left, g.box.left) && near(g.img.top, g.box.top), `${at}: dragged until it stops, the image's left and top edges are on the screen's (${show(g)}, ${rest.drags} drags, at rest ${rest.resting})`)
+      rest = await dragToRest(cx, cy, -vw * 0.35, -vh * 0.35)
+      g = rest.g
+      check(rest.resting && near(g.img.right, g.box.right) && near(g.img.bottom, g.box.bottom), `${at}: and back, its right and bottom edges are (${show(g)}, ${rest.drags} drags, at rest ${rest.resting})`)
       await page.mouse.dblclick(cx, cy)
       g = await geo()
       check(g.s === 1 && centred(g, 'x') && centred(g, 'y'), `${at}: a double click on a zoomed image fits it again, centred (${show(g)})`)
