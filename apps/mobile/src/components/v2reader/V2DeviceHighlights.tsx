@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useTheme } from '../../context/ThemeContext'
+import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 import { deviceLocalLibrary } from '../../lib/v2reader/deviceLibrary'
 import { colorOf } from '../../lib/v2reader/highlights.mjs'
@@ -17,6 +18,7 @@ type Item = { id: string; bookId: string; bookTitle: string; text: string; color
 export function V2DeviceHighlights() {
   const router = useRouter()
   const { colors } = useTheme()
+  const { t } = useLanguage()
   const [items, setItems] = useState<Item[]>([])
   // Read again each time the screen is shown: back from the reader, its edits and removals are in (#1312 review).
   useFocusEffect(useCallback(() => {
@@ -27,7 +29,7 @@ export function V2DeviceHighlights() {
   if (!items.length) return null
   return (
     <View style={styles.box}>
-      <Text style={[styles.title, { color: colors.textSecondary }]}>On this device (V2 reader)</Text>
+      <Text style={[styles.title, { color: colors.textSecondary }]}>{t('reader.v2.deviceHighlights')}</Text>
       {items.map((h) => (
         <TouchableOpacity
           key={h.id}

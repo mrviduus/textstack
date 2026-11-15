@@ -18,7 +18,7 @@ vi.mock('../../lib/offlineDb', async (orig) => ({ ...(await orig<object>()), get
 vi.mock('../../api/translation', () => ({ translate: async () => ({ translatedText: 'x' }), getLanguages: async () => [] }))
 
 const WIDTH = 1000
-const frame = () => screen.getByTitle('V2 reader') as HTMLIFrameElement
+const frame = () => screen.getByTitle('Book text') as HTMLIFrameElement
 let posted: { call: string; args: unknown[] }[]
 let playing: HTMLMediaElement | null
 let audioAnswer: (v: ArrayBuffer) => void

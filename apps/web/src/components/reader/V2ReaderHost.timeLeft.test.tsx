@@ -14,7 +14,7 @@ vi.mock('../../context/AuthContext', async (original) => ({
 vi.mock('../../api/readingTracking', () => ({ getReadingPace: vi.fn() }))
 
 const pace = vi.mocked(getReadingPace)
-const frame = () => screen.getByTitle('V2 reader') as HTMLIFrameElement
+const frame = () => screen.getByTitle('Book text') as HTMLIFrameElement
 const timeLeft = () => screen.queryByTestId('v2-time-left')
 
 beforeEach(() => {

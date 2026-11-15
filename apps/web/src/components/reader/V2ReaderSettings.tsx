@@ -118,10 +118,12 @@ export function V2ReaderSettingsDrawer({ open, settings, onUpdate, onClose, typo
           {!typography && <p className="v2-reader__fixed-note">{t('v2Reader.fixedLayout')}</p>}
           <div className="reader-settings-drawer__section">
             <label>{t('v2Reader.fontSize')}</label>
+            {/* The glyphs are CSS (`data-glyph`): the buttons' names are their labels, nothing else is text (#1267, axe
+                label-content-name-mismatch). */}
             <div className="reader-settings-drawer__font-size">
-              <button onClick={() => onUpdate({ fontSize: settings.fontSize - FONT_STEP })} disabled={settings.fontSize <= FONT_MIN} aria-label={t('v2Reader.fontSmaller')}>A-</button>
+              <button onClick={() => onUpdate({ fontSize: settings.fontSize - FONT_STEP })} disabled={settings.fontSize <= FONT_MIN} aria-label={t('v2Reader.fontSmaller')} className="v2-reader__font-step" data-glyph="A-" />
               <span data-testid="v2-font-size">{settings.fontSize}px</span>
-              <button onClick={() => onUpdate({ fontSize: settings.fontSize + FONT_STEP })} disabled={settings.fontSize >= FONT_MAX} aria-label={t('v2Reader.fontLarger')}>A+</button>
+              <button onClick={() => onUpdate({ fontSize: settings.fontSize + FONT_STEP })} disabled={settings.fontSize >= FONT_MAX} aria-label={t('v2Reader.fontLarger')} className="v2-reader__font-step" data-glyph="A+" />
             </div>
           </div>
 

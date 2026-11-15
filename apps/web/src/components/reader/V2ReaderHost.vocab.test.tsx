@@ -20,7 +20,7 @@ async function open(opened: object, sync: V2SyncTarget | undefined = T, dev = fa
   vi.spyOn(v2ReaderSyncApi, 'getReadingState').mockResolvedValue(null)
   vi.spyOn(v2ReaderSyncApi, 'annotations').mockResolvedValue([])
   const view = render(<V2ReaderHost book={null} dev={dev} />)
-  const frame = (screen.getByTitle('V2 reader') as HTMLIFrameElement).contentWindow!
+  const frame = (screen.getByTitle('Book text') as HTMLIFrameElement).contentWindow!
   vi.spyOn(frame, 'postMessage').mockImplementation((() => {}) as never)
   const fromPage = (m: object) => act(async () => {
     window.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(m), origin: location.origin, source: frame }))

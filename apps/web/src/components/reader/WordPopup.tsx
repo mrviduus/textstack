@@ -513,14 +513,14 @@ export function WordPopup({
                   }
                 }
               }}
-              placeholder={t('reader.wordPopup.searchLanguage') || 'Search language...'}
+              placeholder={t('reader.wordPopup.searchLanguage')}
               className="word-popup__lang-search"
               autoComplete="off"
             />
             <div className="word-popup__lang-list">
               {filteredLangs ? (
                 filteredLangs.length === 0 ? (
-                  <div className="word-popup__lang-empty">{t('reader.wordPopup.noResults') || 'No results'}</div>
+                  <div className="word-popup__lang-empty">{t('reader.wordPopup.noResults')}</div>
                 ) : (
                   filteredLangs.map((l) => (
                     <LangOption key={l.code} lang={l} onSelect={selectLang} />

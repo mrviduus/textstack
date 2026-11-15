@@ -4,6 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
+import { useReduceMotion } from '../../hooks/useReduceMotion'
+import { fill } from '../../lib/fill'
 import { fonts } from '../../theme/typography'
 import {
   ALIGNS, FAMILIES, FONT_MAX, FONT_MIN, FONT_STEP, LINE_HEIGHTS, SETTINGS_KEY, THEMES, choose, parseChosen, readSettings,
@@ -47,10 +49,10 @@ export function useV2TtsSpeed() {
   return { speed, update }
 }
 
-const FAMILY_LABEL: Record<V2FontFamily, string> = { serif: 'Serif', sans: 'Sans', dyslexic: 'Dyslexic' }
+const FAMILY_LABEL: Record<V2FontFamily, string> = { serif: 'reader.v2Settings.serif', sans: 'reader.v2Settings.sans', dyslexic: 'reader.v2Settings.dyslexic' }
 // `book`: the book's own alignment, the default (no rule of ours).
-const ALIGN_LABEL: Record<V2TextAlign, string> = { book: 'Book', left: 'Left', center: 'Center', justify: 'Justify' }
-const THEME_LABEL: Record<V2Theme, string> = { light: 'Light', sepia: 'Sepia', dark: 'Dark' }
+const ALIGN_LABEL: Record<V2TextAlign, string> = { book: 'reader.v2Settings.alignBook', left: 'reader.v2Settings.alignLeft', center: 'reader.v2Settings.alignCenter', justify: 'reader.v2Settings.alignJustify' }
+const THEME_LABEL: Record<V2Theme, string> = { light: 'reader.v2Settings.light', sepia: 'reader.v2Settings.sepia', dark: 'reader.v2Settings.dark' }
 
 interface Props {
   visible: boolean
@@ -69,26 +71,27 @@ interface Props {
 /** The settings sheet: the legacy reader's drawer (ReaderSettingsDrawer.tsx) with the five V2 settings. */
 export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typography, ttsSpeed, onTtsSpeed, glosses }: Props) {
   const { colors } = useTheme()
-  const { t: tr } = useLanguage()
+  const { t } = useLanguage()
+  const reduceMotion = useReduceMotion()
   const chip = (selected: boolean) => [styles.chip, { backgroundColor: colors.surface, borderColor: colors.border }, selected && { backgroundColor: colors.primary, borderColor: colors.primary }]
   const chipText = (selected: boolean) => [styles.chipText, { color: colors.text }, selected && { color: '#fff' }]
   const label = (text: string) => <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>{text}</Text>
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType={reduceMotion ? 'none' : 'slide'} onRequestClose={onClose}>
       <View style={styles.overlay}>
         {/* The backdrop in its own layer: a Pressable ancestor would take the list's scroll gesture. */}
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close reading settings" />
-        <View style={[styles.drawer, { backgroundColor: colors.background }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('reader.chrome.closeSettings')} />
+        <View style={[styles.drawer, { backgroundColor: colors.background }]} accessibilityViewIsModal>
           <View style={[styles.handle, { backgroundColor: colors.border }]} />
           <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
             <View style={styles.header}>
-              <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">Reading Settings</Text>
-              <TouchableOpacity onPress={onClose} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Close reading settings">
+              <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">{t('reader.chrome.settings')}</Text>
+              <TouchableOpacity onPress={onClose} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel={t('reader.chrome.closeSettings')}>
                 <Ionicons name="close" size={22} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
-            {label('THEME')}
+            {label(t('reader.v2Settings.theme'))}
             <View style={styles.row}>
               {(Object.keys(THEMES) as V2Theme[]).map((theme) => (
                 <TouchableOpacity
@@ -96,15 +99,15 @@ export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typograp
                   style={[styles.themeChip, { backgroundColor: THEMES[theme].bg, borderColor: settings.theme === theme ? colors.primary : colors.border }]}
                   onPress={() => onUpdate({ theme })}
                   accessibilityRole="button"
-                  accessibilityLabel={`${THEME_LABEL[theme]} theme`}
+                  accessibilityLabel={fill(t('reader.v2Settings.themeLabel'), { name: t(THEME_LABEL[theme]) })}
                   accessibilityState={{ selected: settings.theme === theme }}
                 >
-                  <Text style={[styles.themeLabel, { color: THEMES[theme].fg }]}>{THEME_LABEL[theme]}</Text>
+                  <Text style={[styles.themeLabel, { color: THEMES[theme].fg }]}>{t(THEME_LABEL[theme])}</Text>
                 </TouchableOpacity>
               ))}
             </View>
 
-            {!typography && <Text style={[styles.note, { color: colors.textSecondary }]}>This book has a fixed layout: only the theme applies.</Text>}
+            {!typography && <Text style={[styles.note, { color: colors.textSecondary }]}>{t('reader.v2Settings.fixedLayout')}</Text>}
             {/* One wrapper turns every typography control off: no touches, hidden from TalkBack, dimmed. */}
             <View
               pointerEvents={typography ? 'auto' : 'none'}
@@ -112,14 +115,14 @@ export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typograp
               accessibilityElementsHidden={!typography}
               style={!typography && styles.disabled}
             >
-              {label('FONT SIZE')}
+              {label(t('reader.v2Settings.fontSize'))}
               <View style={styles.row}>
                 <TouchableOpacity
                   style={[styles.sizeButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
                   onPress={() => onUpdate({ fontSize: settings.fontSize - FONT_STEP })}
                   disabled={settings.fontSize <= FONT_MIN}
                   accessibilityRole="button"
-                  accessibilityLabel="Decrease font size"
+                  accessibilityLabel={t('reader.v2Settings.fontSmaller')}
                 >
                   <Text style={[styles.sizeText, { color: colors.text }]}>A-</Text>
                 </TouchableOpacity>
@@ -129,48 +132,48 @@ export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typograp
                   onPress={() => onUpdate({ fontSize: settings.fontSize + FONT_STEP })}
                   disabled={settings.fontSize >= FONT_MAX}
                   accessibilityRole="button"
-                  accessibilityLabel="Increase font size"
+                  accessibilityLabel={t('reader.v2Settings.fontLarger')}
                 >
                   <Text style={[styles.sizeText, { color: colors.text }]}>A+</Text>
                 </TouchableOpacity>
               </View>
 
-              {label('FONT')}
+              {label(t('reader.v2Settings.font'))}
               <View style={styles.row}>
                 {FAMILIES.map((fontFamily) => (
                   <TouchableOpacity key={fontFamily} style={chip(settings.fontFamily === fontFamily)} onPress={() => onUpdate({ fontFamily })}
-                    accessibilityRole="button" accessibilityLabel={`${FAMILY_LABEL[fontFamily]} font`} accessibilityState={{ selected: settings.fontFamily === fontFamily }}>
-                    <Text style={chipText(settings.fontFamily === fontFamily)}>{FAMILY_LABEL[fontFamily]}</Text>
+                    accessibilityRole="button" accessibilityLabel={fill(t('reader.v2Settings.fontLabel'), { name: t(FAMILY_LABEL[fontFamily]) })} accessibilityState={{ selected: settings.fontFamily === fontFamily }}>
+                    <Text style={chipText(settings.fontFamily === fontFamily)}>{t(FAMILY_LABEL[fontFamily])}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
-              {label('LINE HEIGHT')}
+              {label(t('reader.v2Settings.lineHeight'))}
               <View style={styles.row}>
                 {LINE_HEIGHTS.map((lineHeight) => (
                   <TouchableOpacity key={lineHeight} style={chip(settings.lineHeight === lineHeight)} onPress={() => onUpdate({ lineHeight })}
-                    accessibilityRole="button" accessibilityLabel={`Line height ${lineHeight}`} accessibilityState={{ selected: settings.lineHeight === lineHeight }}>
+                    accessibilityRole="button" accessibilityLabel={fill(t('reader.v2Settings.lineHeightLabel'), { value: lineHeight })} accessibilityState={{ selected: settings.lineHeight === lineHeight }}>
                     <Text style={chipText(settings.lineHeight === lineHeight)}>{lineHeight}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
-              {label('TEXT ALIGN')}
+              {label(t('reader.v2Settings.textAlign'))}
               <View style={styles.row}>
                 {ALIGNS.map((textAlign) => (
                   <TouchableOpacity key={textAlign} style={chip(settings.textAlign === textAlign)} onPress={() => onUpdate({ textAlign })}
-                    accessibilityRole="button" accessibilityLabel={`Text align ${ALIGN_LABEL[textAlign]}`} accessibilityState={{ selected: settings.textAlign === textAlign }}>
-                    <Text style={chipText(settings.textAlign === textAlign)}>{ALIGN_LABEL[textAlign]}</Text>
+                    accessibilityRole="button" accessibilityLabel={fill(t('reader.v2Settings.textAlignLabel'), { name: t(ALIGN_LABEL[textAlign]) })} accessibilityState={{ selected: settings.textAlign === textAlign }}>
+                    <Text style={chipText(settings.textAlign === textAlign)}>{t(ALIGN_LABEL[textAlign])}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </View>
 
-            {label('SPEECH SPEED')}
+            {label(t('reader.v2Settings.speechSpeed'))}
             <View style={styles.row}>
               {TTS_SPEEDS.map((v) => (
                 <TouchableOpacity key={v} style={chip(ttsSpeed === v)} onPress={() => onTtsSpeed(v)}
-                  accessibilityRole="button" accessibilityLabel={`Speech speed ${v}x`} accessibilityState={{ selected: ttsSpeed === v }}>
+                  accessibilityRole="button" accessibilityLabel={fill(t('reader.v2Settings.speechSpeedLabel'), { value: v })} accessibilityState={{ selected: ttsSpeed === v }}>
                   <Text style={chipText(ttsSpeed === v)}>{v}x</Text>
                 </TouchableOpacity>
               ))}
@@ -179,15 +182,15 @@ export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typograp
             {glosses && (
               // The legacy drawer's switch (ReaderSettingsDrawer.tsx), the same stored setting.
               <>
-                {label(tr('reader.inlineTranslations').toUpperCase())}
+                {label(t('reader.inlineTranslations').toUpperCase())}
                 <View style={styles.toggleRow}>
-                  <Text style={[styles.toggleLabel, { color: colors.text }]}>{tr('reader.inlineTranslationsDesc')}</Text>
+                  <Text style={[styles.toggleLabel, { color: colors.text }]}>{t('reader.inlineTranslationsDesc')}</Text>
                   <Switch
                     value={glosses.on}
                     onValueChange={glosses.onChange}
                     trackColor={{ true: colors.primary, false: colors.border }}
                     thumbColor="#fff"
-                    accessibilityLabel={tr('reader.inlineTranslationsDesc')}
+                    accessibilityLabel={t('reader.inlineTranslationsDesc')}
                   />
                 </View>
               </>
@@ -206,7 +209,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   title: { fontFamily: fonts.serifBold, fontSize: 20 },
   closeBtn: { padding: 8, minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
-  sectionLabel: { fontFamily: fonts.sansMedium, fontSize: 11, letterSpacing: 0.5, marginTop: 18, marginBottom: 8 },
+  sectionLabel: { fontFamily: fonts.sansMedium, fontSize: 11, letterSpacing: 0.5, marginTop: 18, marginBottom: 8, textTransform: 'uppercase' },
   row: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   note: { fontFamily: fonts.sans, fontSize: 13, marginTop: 14 },
   disabled: { opacity: 0.4 },

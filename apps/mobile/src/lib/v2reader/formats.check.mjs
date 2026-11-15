@@ -413,6 +413,7 @@ try {
       return d && {
         label: d.getAttribute('aria-label'), src: i.src, transform: i.style.transform, focused: document.activeElement === d,
         onButton: document.activeElement === d.querySelector('button'), inert: document.querySelector('foliate-view')?.inert,
+        close: d.querySelector('button')?.getAttribute('aria-label'),
       }
     })
     const scaleOf = (d) => Number(/scale\(([\d.]+)\)/.exec(d?.transform ?? '')?.[1])
@@ -504,12 +505,15 @@ try {
       g = await geo()
       check(fitted.s === 1 && g.s === 2.5 && keepsPoint(fitted, g, cx + 100, cy), `${at}: a double click zooms in about the point clicked (${show(g)})`)
     }
+    // #1267: the host's words (`labels`), taken by the next opening; a malformed call keeps them.
+    await page.evaluate(() => { window.__fol.labels({ image: 'Obraz', close: 'Zamknij obraz' }); window.__fol.labels({ close: 7 }) })
     const img = await boxOf(f, 'img')
     const mid = middleOf(img)
     let { o, from } = await tapOpen(mid, 'img')
     const src = await f.evaluate(() => document.querySelector('img').currentSrc)
     let d = await dialog()
     check(readLightbox(o) === true && d?.label === 'A red square' && d.src === src && src.startsWith('blob:'), `an image tapped in the middle opens the lightbox with the section's own blob: image, labelled by its alt (${JSON.stringify(o)}, ${d?.label})`)
+    check(d?.close === 'Zamknij obraz', `the close button is named by the host's labels (${d?.close})`)
     check(kinds(from).length === 0 && !messages.slice(from).some((x) => x.type === 'relocate' || x.type === 'highlight-tap'), `the image tap is no tap, word or turn (${kinds(from)})`)
     check(d?.focused === true && d.inert === true && scaleOf(d) === 1, `focus is on the dialog, the book behind it inert, scale 1 (${d?.focused}, ${d?.inert}, ${d?.transform})`)
     // Tab stays on its one control (aria-modal).
@@ -532,7 +536,7 @@ try {
     await tapOpen(mid, 'img again')
     check(scaleOf(await dialog()) === 1, `reopened at scale 1 (${(await dialog())?.transform})`)
     from = messages.length
-    await page.getByRole('button', { name: 'Close' }).click()
+    await page.getByRole('button', { name: 'Zamknij obraz', exact: true }).click()
     await settled()
     check(lb(from).at(-1)?.open === false && !(await dialog()), 'its close button closes it')
     // The host's close (Android back).

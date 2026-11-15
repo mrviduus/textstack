@@ -7,5 +7,9 @@ export function imageAt(target: unknown): { src: string; alt: string } | null
 export function clampScale(s: number): number
 export function clampPan(t: Zoom, size: ZoomBox): Zoom
 export function zoomAt(from: Zoom, s: number, f0: { x: number; y: number }, f1: { x: number; y: number }, size: ZoomBox): Zoom
+export type LightboxLabels = { image: string; close: string }
+export const DEFAULT_LABELS: LightboxLabels
+export const MAX_LABEL: number
+export function readLabels(l: unknown, was?: LightboxLabels): LightboxLabels
 export function createLightbox(doc: Document, post: (m: { type: 'lightbox'; open: boolean }) => void, behind?: () => Element | null):
-  { open(img: { src: string; alt: string }, from?: Element | null): void; close(): void }
+  { open(img: { src: string; alt: string }, from?: Element | null): void; close(): void; labels(l: unknown): void }

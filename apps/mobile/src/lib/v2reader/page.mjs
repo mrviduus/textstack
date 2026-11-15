@@ -1253,6 +1253,9 @@ window.__fol = {
   clearSelection: () => endSelection(),
   // #1265: the host closes the lightbox (Android back, a host Escape): `lightbox` closed is posted. None open: nothing.
   closeLightbox: () => lightbox.close(),
+  // #1267: the host's words for the lightbox (its dialog's name with no alt text, its close button's), sent on `ready`:
+  // the page has no i18n. Untrusted shape: lightbox.mjs `readLabels` keeps only non-blank strings, capped.
+  labels: (l) => lightbox.labels(l),
   // Test-only (formats.check.mjs): how many drawn highlight ranges the page holds. A count, no book data.
   drawnRanges: () => drawnRanges.size,
   /**

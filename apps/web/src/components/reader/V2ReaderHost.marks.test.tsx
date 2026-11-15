@@ -13,7 +13,7 @@ vi.mock('./V2ReaderPopups', () => ({
 }))
 
 const LEGACY = 'reader.settings.v1'
-const frame = () => screen.getByTitle('V2 reader') as HTMLIFrameElement
+const frame = () => screen.getByTitle('Book text') as HTMLIFrameElement
 let posted: { call: string; args: unknown[] }[]
 const marksSent = () => posted.filter((m) => m.call === 'markWords').map((m) => m.args)
 const WORDS: V2MarkWord[] = [{ word: 'keeper', stage: 2, gloss: 'хранитель' }]

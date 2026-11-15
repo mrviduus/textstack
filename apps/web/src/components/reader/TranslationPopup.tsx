@@ -154,7 +154,7 @@ export function TranslationPopup({
         {isLoading && (
           <div className="translation-popup__loading">
             <span className="translation-popup__spinner" />
-            Translating...
+            {t('reader.translationPopup.translating')}
           </div>
         )}
         {error && (

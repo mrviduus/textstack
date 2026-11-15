@@ -56,11 +56,30 @@ export function zoomAt(from, s, f0, f1, size) {
   return clampPan({ s: clampScale(s), x: f1.x - k * (f0.x - from.x), y: f1.y - k * (f0.y - from.y) }, size)
 }
 
+/** The lightbox's own words before the host sends its translations (#1267, `labels`). */
+export const DEFAULT_LABELS = { image: 'Image', close: 'Close' }
+/** At most this many characters per label: a host's translation, never a book's text. */
+export const MAX_LABEL = 200
+
+/**
+ * The host's `labels(l)` (#1267): each of `image` (the dialog's name when the image has no alt text) and `close` (its
+ * button's name) as a non-blank string up to MAX_LABEL characters, else the one held before (`was`).
+ */
+export function readLabels(l, was = DEFAULT_LABELS) {
+  const one = (k) => {
+    const v = l?.[k]
+    return typeof v === 'string' && v.trim() && v.length <= MAX_LABEL ? v : was[k]
+  }
+  return { image: one('image'), close: one('close') }
+}
+
 /**
  * The overlay. `open({ src, alt }, from)` shows it (scale 1, focus on it), `close()` removes it and gives focus back; each
  * posts `{ type: 'lightbox', open }` through `post`. `behind`: the element made inert while it is open (the book).
+ * `labels(l)`: the host's translations of its two words (`readLabels`).
  */
 export function createLightbox(doc, post, behind = () => null) {
+  let labels = DEFAULT_LABELS
   let box = null
   let img = null
   let closeButton = null
@@ -167,7 +186,7 @@ export function createLightbox(doc, post, behind = () => null) {
     box = doc.createElement('div')
     box.setAttribute('role', 'dialog')
     box.setAttribute('aria-modal', 'true')
-    box.setAttribute('aria-label', alt.trim() || 'Image')
+    box.setAttribute('aria-label', alt.trim() || labels.image)
     box.tabIndex = -1
     box.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none;outline:none'
     img = doc.createElement('img')
@@ -177,7 +196,7 @@ export function createLightbox(doc, post, behind = () => null) {
     img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;transform-origin:center;user-select:none;-webkit-user-select:none;pointer-events:none'
     closeButton = doc.createElement('button')
     closeButton.type = 'button'
-    closeButton.setAttribute('aria-label', 'Close')
+    closeButton.setAttribute('aria-label', labels.close)
     closeButton.textContent = '×'
     closeButton.style.cssText = 'position:absolute;top:12px;right:12px;width:44px;height:44px;border:0;border-radius:22px;background:rgba(255,255,255,.2);color:#fff;font:28px/44px system-ui,sans-serif;cursor:pointer'
     closeButton.addEventListener('click', () => close())
@@ -213,5 +232,8 @@ export function createLightbox(doc, post, behind = () => null) {
     post({ type: 'lightbox', open: false })
   }
 
-  return { open, close }
+  /** The host's words for the next opening (`readLabels`; one open now keeps its own). */
+  const setLabels = (l) => { labels = readLabels(l, labels) }
+
+  return { open, close, labels: setLabels }
 }

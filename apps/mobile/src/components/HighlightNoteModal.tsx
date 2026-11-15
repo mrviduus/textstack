@@ -11,6 +11,9 @@ import {
   Platform,
 } from 'react-native'
 import { useTheme } from '../context/ThemeContext'
+import { useLanguage } from '../context/LanguageContext'
+import { useReduceMotion } from '../hooks/useReduceMotion'
+import { fill } from '../lib/fill'
 import { fonts } from '../theme/typography'
 
 export type HighlightColor = 'yellow' | 'green' | 'pink' | 'blue'
@@ -70,6 +73,8 @@ export function HighlightNoteModal({
   noteLoading = false,
 }: HighlightNoteModalProps) {
   const { colors } = useTheme()
+  const { t } = useLanguage()
+  const reduceMotion = useReduceMotion()
   const [note, setNote] = useState(initialNote || '')
   const [color, setColor] = useState<HighlightColor | undefined>(initialColor)
   const inputRef = useRef<TextInput>(null)
@@ -119,7 +124,7 @@ export function HighlightNoteModal({
   const handleSave = () => { if (!noteLoading) onSave(note.trim(), base.current) }
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+    <Modal visible={visible} transparent animationType={reduceMotion ? 'none' : 'fade'} onRequestClose={onCancel}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}
@@ -128,13 +133,13 @@ export function HighlightNoteModal({
           style={styles.backdrop}
           onPress={onCancel}
           accessibilityRole="button"
-          accessibilityLabel="Close highlight note"
+          accessibilityLabel={t('reader.noteModal.close')}
         >
           <Pressable
             style={[styles.card, { backgroundColor: colors.background, borderColor: colors.border }]}
             onPress={e => e.stopPropagation()}
           >
-            <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">Highlight Note</Text>
+            <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">{t('reader.noteModal.title')}</Text>
             {snippet ? (
               <Text style={[styles.snippet, { color: colors.textSecondary }]} numberOfLines={3}>
                 "{snippet}"
@@ -149,7 +154,7 @@ export function HighlightNoteModal({
                     key={sw.key}
                     onPress={() => handleColorPick(sw.key)}
                     accessibilityRole="button"
-                    accessibilityLabel={`Set highlight color ${sw.key}`}
+                    accessibilityLabel={fill(t('reader.noteModal.setColor'), { color: t(`reader.highlightColor.${sw.key}`) })}
                     accessibilityState={{ selected: color === sw.key }}
                     style={[
                       styles.swatch,
@@ -169,10 +174,10 @@ export function HighlightNoteModal({
               value={note}
               onChangeText={edit}
               editable={!noteLoading}
-              placeholder={noteLoading ? 'Loading the note…' : 'Add a note…'}
+              placeholder={t(noteLoading ? 'reader.noteModal.loading' : 'reader.noteModal.placeholder')}
               placeholderTextColor={colors.textSecondary}
               multiline
-              accessibilityLabel="Highlight note"
+              accessibilityLabel={t('reader.noteModal.label')}
               style={[
                 styles.input,
                 {
@@ -188,18 +193,18 @@ export function HighlightNoteModal({
                 style={[styles.btn, styles.btnGhost]}
                 onPress={onDelete}
                 accessibilityRole="button"
-                accessibilityLabel="Delete highlight"
+                accessibilityLabel={t('reader.noteModal.deleteLabel')}
               >
-                <Text style={[styles.btnText, { color: colors.error }]}>Delete</Text>
+                <Text style={[styles.btnText, { color: colors.error }]}>{t('reader.noteModal.delete')}</Text>
               </TouchableOpacity>
               <View style={styles.spacer} />
               <TouchableOpacity
                 style={[styles.btn, styles.btnGhost]}
                 onPress={onCancel}
                 accessibilityRole="button"
-                accessibilityLabel="Cancel"
+                accessibilityLabel={t('common.cancel')}
               >
-                <Text style={[styles.btnText, { color: colors.textSecondary }]}>Cancel</Text>
+                <Text style={[styles.btnText, { color: colors.textSecondary }]}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.btn, styles.btnPrimary, { backgroundColor: colors.primary }, noteLoading && { opacity: 0.4 }]}
@@ -207,9 +212,9 @@ export function HighlightNoteModal({
                 disabled={noteLoading}
                 accessibilityState={{ disabled: noteLoading }}
                 accessibilityRole="button"
-                accessibilityLabel="Save note"
+                accessibilityLabel={t('reader.noteModal.saveNote')}
               >
-                <Text style={[styles.btnText, { color: '#fff' }]}>Save</Text>
+                <Text style={[styles.btnText, { color: '#fff' }]}>{t('common.save')}</Text>
               </TouchableOpacity>
             </View>
           </Pressable>
