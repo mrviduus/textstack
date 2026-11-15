@@ -618,7 +618,8 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   retry) or the unmount; the map takes the translation the server kept. "Already saved" (the auto-save's guard, the
   popup's ✓) is a card of the book's language or one with no language (the legacy list, V2 down), so no word is saved
   twice; a card of another language is another word. Every late answer (a save, a flushed word, a recorded card, a
-  TR-2 fill) applies nothing, and a save is not sent when the identity changed while its flush ran, when the identity it was asked under is no longer the reader (anonymous → guest is the same person). A guest's nudge counts the whole vocabulary, every language. The map goes to the host
+  TR-2 fill) applies nothing when the identity it was asked under is no longer the reader (anonymous → guest is the
+  same person), and a save is not sent when the identity changed while its flush ran. A guest's nudge counts the whole vocabulary, every language. The map goes to the host
   through `onMarks`.
 - *Android*: the saved words are the local library's `vocabulary` rows, offline too (no token or network on the
   reading path). The feed's rows, and this device's own: a save's answer card (saved, already saved, restored, added
