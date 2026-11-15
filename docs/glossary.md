@@ -99,7 +99,7 @@ A place in a book the reader chose to find again. A reader can have many in one 
 
 Not: reading position. The reading position says where to continue; there is one per book and it
 moves by itself. Not a highlight either.
-Note: bookmarks are their own feature, and they come after the move. They are not being built now.
+Note: bookmarks are their own feature. They come before the switch, on the new reading screen (#1314).
 
 ### Word
 
