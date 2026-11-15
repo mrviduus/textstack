@@ -633,7 +633,7 @@ test.describe('V2 reader page @v2', () => {
     }
     await expect.poll(image, { timeout: 15_000 }).not.toBeNull()
     const img = (await image())!
-    const reader = page.frameLocator('iframe[title="V2 reader"]')
+    const reader = page.frameLocator('iframe[title="Book text"]')
     const dialog = reader.getByRole('dialog', { name: 'A red square' })
     const scale = () => dialog.locator('img').evaluate((el) => Number(/scale\(([\d.]+)\)/.exec((el as HTMLElement).style.transform)?.[1]))
 
@@ -657,7 +657,17 @@ test.describe('V2 reader page @v2', () => {
     await page.mouse.click(img.x, img.y)
     await expect(dialog).toBeVisible()
     expect(await scale()).toBe(1)
-    await dialog.getByRole('button', { name: 'Close' }).click()
+    // #1267: the open lightbox has no axe violation; Tab and Shift+Tab never leave it for the hidden bars (the host's
+    // chrome is inert meanwhile); its close button is named in the reader's language (the host's `labels`).
+    const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag21a']).analyze()
+    expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' > ')).join(' | ')}`)).toEqual([])
+    // From inside the dialog (the page keeps Tab) and from the host document (the gap: focus outside the frame).
+    for (const key of ['Tab', 'Tab', 'Shift+Tab', 'focus-host', 'Tab', 'Tab', 'Tab', 'focus-host', 'Shift+Tab']) {
+      if (key === 'focus-host') { await main.focus(); continue }
+      await page.keyboard.press(key)
+      expect(await page.evaluate(() => !!document.activeElement?.closest('header, footer, .v2-reader__notices, .skip-link')), `focus after ${key}`).toBe(false)
+    }
+    await dialog.getByRole('button', { name: 'Close image', exact: true }).click()
     await expect(dialog).toHaveCount(0)
     await expect(status(page)).toHaveText(before)
 

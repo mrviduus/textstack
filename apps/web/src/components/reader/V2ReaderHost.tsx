@@ -171,6 +171,9 @@ interface Props {
 
 export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, onReload, dev = false, backUrl, highlightId, onHighlightShown }: Props) {
   const { t } = useTranslation()
+  /** The latest `t`, for the message handler (made once). */
+  const tRef = useRef(t)
+  tRef.current = t
   const frame = useRef<HTMLIFrameElement>(null)
   const ready = useRef(false)
   const opening = useRef<Opening | null>(null)
@@ -280,8 +283,17 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     popupRef.current = p
     setPopupState(p)
   }
-  /** #1265: the page shows an image full screen (its `lightbox` message): no key of this document turns, Escape closes it. */
+  /**
+   * #1265: the page shows an image full screen (its `lightbox` message): no key of this document turns, Escape closes it.
+   * #1267: the bars and the states box are `inert` meanwhile, so Tab out of the page's dialog never lands on hidden bars.
+   * The ref for the message handler, set with the state.
+   */
   const lightboxRef = useRef(false)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const setLightbox = (v: boolean) => {
+    lightboxRef.current = v
+    setLightboxOpen(v)
+  }
   const [bookLanguage, setBookLanguage] = useState('en')
   /** #1272: the language Listen speaks the open book in (`opened.lang` as written, else `en`); null: no Listen. */
   const [ttsLanguage, setTtsLanguage] = useState<string | null>(null)
@@ -428,7 +440,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const reloadFrame = () => {
     ready.current = false
     // #1265: the old frame's lightbox went with it, unannounced.
-    lightboxRef.current = false
+    setLightbox(false)
     // A fresh frame has no book on screen.
     setReading(false)
     setAtEnd(false)
@@ -530,10 +542,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         case 'ready':
           deadlines.ready()
           // A fresh frame shows no image.
-          lightboxRef.current = false
+          setLightbox(false)
           // The stored layout before the first open: messages arrive in order, and a setting is not a switch.
           call('flow', [flowRef.current])
           call('settings', [settingsRef.current])
+          // #1267: the lightbox's words in the reader's language (README, `labels`): the page has no i18n.
+          call('labels', [{ image: tRef.current('v2Reader.lightboxImage'), close: tRef.current('v2Reader.lightboxClose') }])
           ready.current = true
           flushOpen()
           return
@@ -664,7 +678,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           // #1265: an image tapped in the page (never a `tap` or `word`): what was open closes, the bars hide while it shows.
           const shown = readLightbox(m)
           if (shown === null) return
-          lightboxRef.current = shown
+          setLightbox(shown)
           if (shown) {
             setPopup(null)
             hideBars()
@@ -817,9 +831,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   return (
     <main ref={main} tabIndex={-1} className={`reader-page v2-reader${barsHidden ? ' immersive-mode' : ''}`} data-bars={barsHidden ? 'hidden' : 'shown'}>
       {/* #1267: past the bars to the book (the legacy reader's skip link); the frame takes focus, its keys turn pages. */}
-      <a href={`#${BOOK_ID}`} className="skip-link" onClick={(e) => { e.preventDefault(); frame.current?.focus() }}>{t('v2Reader.skipToBook')}</a>
+      <a href={`#${BOOK_ID}`} className="skip-link" inert={lightboxOpen} onClick={(e) => { e.preventDefault(); frame.current?.focus() }}>{t('v2Reader.skipToBook')}</a>
       {/* Legacy reader's bars (reader.css); hidden ones stay reachable by Tab, and focus shows them. */}
-      <header ref={header} className="reader-top-bar" onFocus={showBars}>
+      <header ref={header} className="reader-top-bar" onFocus={showBars} inert={lightboxOpen}>
         <div className="reader-top-bar__left">
           {backUrl && (
             <Link to={backUrl} className="reader-top-bar__back" aria-label={t('v2Reader.back')}>
@@ -848,7 +862,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         </div>
       </header>
       {/* The states: in layout above the frame (never over the book), never hidden with the bars. */}
-      <div className="v2-reader__notices">
+      <div className="v2-reader__notices" inert={lightboxOpen}>
         {saveStatus !== 'saved' && (
           <span role="status" data-testid="v2-not-saved">{t(SAVE_MESSAGE[saveStatus])}</span>
         )}
@@ -884,7 +898,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           anyone); what is gated is the route that hands it a book, behind Features:V2Api (off in production).
           A second origin is revisited before M5 (docs/01-architecture/v2-reader-web-hosting.md). */}
       <iframe key={frameLoad} ref={frame} id={BOOK_ID} title={t('v2Reader.frameTitle')} sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} className="v2-reader__frame" />
-      <footer ref={footer} className="reader-footer" onFocus={showBars}>
+      <footer ref={footer} className="reader-footer" onFocus={showBars} inert={lightboxOpen}>
         {reading && <V2SectionNav toc={toc} tocIndex={tocIndex} onGo={goToc} />}
         <div className="reader-footer__info v2-reader__footer">
           <button className="reader-top-bar__btn" onClick={() => hostMove('prev')}>{t('v2Reader.prev')}</button>

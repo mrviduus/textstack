@@ -42,9 +42,10 @@ describe('V2ReaderHost', () => {
     expect(screen.getByTestId('v2-heading')).toHaveTextContent('Opening a.epub')
     expect(posted).toEqual([])
     fromPage({ type: 'ready' })
-    expect(posted.map((m) => m.call)).toEqual(['flow', 'settings', 'openBytes'])
-    expect(posted[2].args).toEqual([b.bytes, '1/a.epub'])
-    expect(frameWindow().postMessage).toHaveBeenLastCalledWith(posted[2], location.origin, [b.bytes])
+    expect(posted.map((m) => m.call)).toEqual(['flow', 'settings', 'labels', 'openBytes'])
+    const openBytes = posted.find((m) => m.call === 'openBytes')!
+    expect(openBytes.args).toEqual([b.bytes, '1/a.epub'])
+    expect(frameWindow().postMessage).toHaveBeenLastCalledWith(openBytes, location.origin, [b.bytes])
   })
 
   it('sameBookObjectAgain_NotASecondOpen', () => {
@@ -135,7 +136,7 @@ describe('V2ReaderHost', () => {
     expect(onReload).not.toHaveBeenCalled() // the bytes never left the host
     spyFrame()
     fromPage({ type: 'ready' })
-    expect(posted.map((m) => m.call)).toEqual(['flow', 'settings', 'openBytes'])
+    expect(posted.map((m) => m.call)).toEqual(['flow', 'settings', 'labels', 'openBytes'])
     // The new frame has its own ready deadline.
     act(() => { vi.advanceTimersByTime(READY_DEADLINE_MS) })
     expect(screen.queryByTestId('v2-overdue')).toBeNull()

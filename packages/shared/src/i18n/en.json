@@ -686,6 +686,8 @@
       "diskFull": "Not enough free storage on this device. Free some space and try again.",
       "notReadable": "The file could not be read.",
       "deviceHighlights": "Highlights on this device",
+      "lightboxImage": "Image",
+      "lightboxClose": "Close image",
       "failed": {
         "library": "Could not read the books on this device: {reason}",
         "fileSync": "Could not change file sync: {reason}",

@@ -19,9 +19,11 @@ function fromPage(m: object) {
   act(() => { window.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(m), origin: location.origin, source: frame().contentWindow })) })
 }
 
+let posted: { call: string; args: unknown[] }[] = []
 function opened() {
+  posted = []
   render(<MemoryRouter><V2ReaderHost book={{ bytes: new ArrayBuffer(8), name: 'a.epub' }} idleHeading="idle" /></MemoryRouter>)
-  vi.spyOn(frame().contentWindow!, 'postMessage').mockImplementation((() => {}) as never)
+  vi.spyOn(frame().contentWindow!, 'postMessage').mockImplementation(((m: { call: string; args: unknown[] }) => { posted.push(m) }) as never)
   fromPage({ type: 'ready' })
   fromPage({ type: 'opened', title: 'Walden', book: { sha256: 'aa', size: 8, name: '1/a.epub' } })
 }
@@ -59,5 +61,24 @@ describe('V2ReaderHost accessibility (#1267)', () => {
     act(() => { fireEvent.keyDown(document.activeElement!, { key: 'Escape' }) })
     expect(dialog()).toBeNull()
     expect(document.activeElement).toBe(settingsButton())
+  })
+
+  it('ready_TheLightboxsWordsSentInTheReadersLanguage', () => {
+    opened()
+    expect(posted.filter((m) => m.call === 'labels').map((m) => m.args)).toEqual([[{ image: 'Image', close: 'Close image' }]])
+  })
+
+  it('lightboxOpen_TheBarsStatesAndSkipLinkInert_SoTabNeverReachesThem_ClosedNotInert', () => {
+    opened()
+    const outside = () => [document.querySelector('.skip-link'), document.querySelector('header'), document.querySelector('.v2-reader__notices'), document.querySelector('footer')]
+    expect(outside().map((el) => el!.hasAttribute('inert'))).toEqual([false, false, false, false])
+    fromPage({ type: 'lightbox', open: true })
+    expect(outside().map((el) => el!.hasAttribute('inert'))).toEqual([true, true, true, true])
+    fromPage({ type: 'lightbox', open: false })
+    expect(outside().map((el) => el!.hasAttribute('inert'))).toEqual([false, false, false, false])
+    // A fresh frame (its `ready`) has no lightbox: nothing stays inert.
+    fromPage({ type: 'lightbox', open: true })
+    fromPage({ type: 'ready' })
+    expect(outside().map((el) => el!.hasAttribute('inert'))).toEqual([false, false, false, false])
   })
 })

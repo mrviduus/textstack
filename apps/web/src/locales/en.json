@@ -545,7 +545,9 @@
     "speechSpeed": "Speech speed",
     "title": "Reading",
     "frameTitle": "Book text",
-    "skipToBook": "Skip to the book"
+    "skipToBook": "Skip to the book",
+    "lightboxImage": "Image",
+    "lightboxClose": "Close image"
   },
   "library": {
     "continue": "Continue",

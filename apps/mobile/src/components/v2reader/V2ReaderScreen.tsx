@@ -894,6 +894,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         deadlines.ready()
         // A fresh page shows no image (one open in the page it replaced said nothing as it went): back is not held by it.
         setLightbox(false)
+        // #1267: the lightbox's words in the reader's language (README, `labels`): the page has no i18n.
+        call(`window.__fol.labels(${JSON.stringify({ image: tRef.current('reader.v2.lightboxImage'), close: tRef.current('reader.v2.lightboxClose') })})`)
         // The layout goes in first: injected calls run in order, so the open below uses it.
         Promise.all([storedFlow(), storedV2Settings()]).then(([f, chosen]) => {
           call(`window.__fol.flow(${JSON.stringify(f)})`)
