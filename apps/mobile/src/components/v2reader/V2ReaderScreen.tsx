@@ -27,7 +27,7 @@ import { hostError } from '../../lib/v2reader/hostErrors'
 import { fill } from '../../lib/fill'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
 import {
-  BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readRelocate, readTap,
+  BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readLightbox, readRelocate, readTap,
   reopensOnReady, takenWithoutBook,
 } from '../../lib/v2reader/chrome.mjs'
 import { showsFinishBook } from '../../lib/v2reader/finishBook.mjs'
@@ -370,6 +370,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     popupRef.current = p
     setPopupState(p)
   }
+  /** #1265: the page shows an image full screen (its `lightbox` message); back closes it first (`closeLightbox()`). */
+  const [lightbox, setLightbox] = useState(false)
   const [sheet, setSheet] = useState<{ kind: 'translate' | 'explain'; text: string; sentence: string } | null>(null)
   /**
    * #1312: the open book's drawn highlights (the page's `highlight-list`, for the bytes `openShaRef` names), their notes
@@ -507,6 +509,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     clearToc()
     setPopup(null)
     setOffer(null)
+    setLightbox(false)
     setHeading('')
     pendingHighlight.current = null
     setHighlightList([])
@@ -889,6 +892,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         return
       case 'ready':
         deadlines.ready()
+        // A fresh page shows no image (one open in the page it replaced said nothing as it went): back is not held by it.
+        setLightbox(false)
         // The layout goes in first: injected calls run in order, so the open below uses it.
         Promise.all([storedFlow(), storedV2Settings()]).then(([f, chosen]) => {
           call(`window.__fol.flow(${JSON.stringify(f)})`)
@@ -1037,6 +1042,17 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         }
         return
       }
+      case 'lightbox': {
+        // #1265: an image tapped in the page (never a `tap` or `word`): what was open closes, the bars hide while it shows.
+        const shown = readLightbox(m)
+        if (shown === null) return
+        setLightbox(shown)
+        if (shown) {
+          closePopup()
+          hideBars()
+        }
+        return
+      }
       case 'openLink':
         if (/^https?:\/\//i.test(m.href)) Linking.openURL(m.href).catch(fail('openLink'))
         return
@@ -1084,10 +1100,16 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (ready.current) call(`window.__fol.flow(${JSON.stringify(next)})`)
   }
 
+  /** A new page load: not ready until it says so, and no lightbox (#1265: the old page's went with it, unannounced). */
+  function newPage() {
+    ready.current = false
+    setLightbox(false)
+    setNonce(freshNonce())
+  }
+
   // A page that is gone is a new load: a new nonce, and the open starts again from `ready`. The second
   // crash while the same book is open stops that: it is not reopened, and the reader is told why.
   const reload = useCallback(() => {
-    ready.current = false
     const o = opening.current
     // Only a book on screen counts a crash; a closed one is ended on the next `ready`.
     if (o && inBookRef.current) {
@@ -1095,7 +1117,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       crashedFile.current = again ? null : o.file
       if (again) giveUp(o, tRef.current('reader.v2.crashes'))
     }
-    setNonce(freshNonce())
+    newPage()
   }, [])
 
   // Every page load (first mount, a crash reload, Retry) owes a `ready`: on a WebView too old for the page
@@ -1112,27 +1134,24 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     const o = opening.current
     if (!o || !strikes.strike(o.file)) return
     giveUp(o, tRef.current('reader.v2.openedLateTwice'))
-    ready.current = false
-    setNonce(freshNonce())
+    newPage()
   }, [overdue])
 
   /** Retry after a deadline: a new page load; the open in flight (its file is still on disk) goes again on `ready`. */
-  const retry = () => {
-    ready.current = false
-    setNonce(freshNonce())
-  }
+  const retry = () => newPage()
 
-  // Android back: the offer, then the book (back to the list), then the route (chrome.mjs backAction).
+  // Android back: the offer, the lightbox, the popup, then the book (back to the list), then the route (chrome.mjs backAction).
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      const action = backAction({ offer: !!offer, popup: !!popup, reading: inBook })
+      const action = backAction({ offer: !!offer, lightbox, ready: ready.current, popup: !!popup, reading: inBook })
       if (action === 'close-offer') setOffer(null)
+      else if (action === 'close-lightbox') call('window.__fol.closeLightbox()')
       else if (action === 'close-popup') closePopup()
       else if (action === 'close-book') closeBook()
       return action !== 'leave'
     })
     return () => sub.remove()
-  }, [offer, popup, inBook])
+  }, [offer, lightbox, popup, inBook])
 
   /** The highlight a tap opened (#1312), as the page lists it; none: no editor. */
   const tapped = popup?.kind === 'highlight' ? highlightList.find((h) => h.id === popup.id) : undefined

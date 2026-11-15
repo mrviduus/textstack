@@ -21,4 +21,5 @@ export const BOOK_CLOSED: 'book-closed'
 export const CLOSE_BOOK_JS: string
 export function reopensOnReady(input: { opening: unknown; inBook: boolean }): boolean
 export function takenWithoutBook(type: unknown): boolean
-export function backAction(input: { offer: boolean; popup?: boolean; reading: boolean }): 'close-offer' | 'close-popup' | 'close-book' | 'leave'
+export function readLightbox(m: unknown): boolean | null
+export function backAction(input: { offer: boolean; lightbox?: boolean; ready?: boolean; popup?: boolean; reading: boolean }): 'close-offer' | 'close-lightbox' | 'close-popup' | 'close-book' | 'leave'

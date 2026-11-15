@@ -11,6 +11,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `formats.mjs` | Which reader a file goes to, from its bytes (pure): zip → EPUB/FBZ/CBZ by entry names, `BOOKMOBI` → MOBI6/KF8 (DRM, truncated and KF8 without its indexes refused; combo → KF8 half), FB2 root (UTF-16 re-encoded, entities refused), `%PDF-` in the first KiB → PDF, KFX/unknown refused; CBZ page names and types. |
 | `store.mjs` | Reader data shape (v1), one entry per book **file** (SHA-256 + size); the quote fold; pure-JS SHA-256 / SHA-1. |
 | `tap.mjs` | What a tap hands the host: the word's sentence (reader-engine's `sentenceAround`) and an external link, only if `http(s)`. For a selection (#1268): its range without edge whitespace (`trimRange`) and its sentence (`sentenceOfRange`, element points too, never throws). `rectInPage`: a box in a section frame as the page viewport shows it, the fixed-layout renderer's `scale()` of a pre-paginated page included (`word` and `selection`). |
+| `lightbox.mjs` | #1265: the image lightbox, in the page's own document: `imageAt` (the tapped `<img>` or SVG `<image>`, its `blob:`/`data:` source and alt), `clampPan` / `zoomAt` (pure: zoom about a focus, pan kept on screen), `createLightbox` (the overlay dialog: pinch, wheel and double-tap zoom, drag to pan, Tab kept, Escape and its close button). |
 | `selection.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1268): the `selection` message's builder (`selectionMessage`) and the hosts' validator (`readSelection`), with the caps they share; the text cap and its cut are `packages/shared`'s (`MAX_SELECTED_TEXT`, `clip`). The format check bundles it with esbuild first: plain node does not resolve `packages/shared`'s extensionless imports. |
 | `chrome.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1263, #1264): `navKey` (the page: which keydown becomes a `key` message, a closed list), the hosts' readers `readTap`, `readDir`, `readKey` in `readSelection`'s style, and `keyAction` (what a key does: `prev`, `next`, `bars`), the one rule both hosts follow; the host decisions `hidesBarsOnRelocate` and Android back's order `backAction` (Host responsibilities, "Reader chrome"). |
 | `settings.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1260): the reading settings (size, family, line height, alignment, theme): defaults, the closed lists, `readChosen` / `readSettings` / `parseChosen` / `choose` (what a host stores and sends) and `settingsCss` (the section stylesheet the page injects). See "Reading settings". |
@@ -356,6 +357,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `speaking(cfi, index)` | #1272: the host speaks that range (a `word`'s or `selection`'s CFI and section): underlined in `SPOKEN_FILL` (listen.mjs), the previous one removed (one at a time), kept over section reloads; a highlight or label over the same range stays (one overlay). `speaking(null)`: the speech ended or stopped, the mark goes. Saves nothing, sends nothing. Ignored with a `warn` where `annotatable` is false (a PDF word has no CFI) or for a value that is no range CFI (over 1024 chars, a non-integer index). Returns true when drawn. A new open drops it. |
 | `drawnRanges()` | Test-only (`formats.check.mjs`): how many drawn highlight ranges the page holds, a count and no book data. The ranges of a section no longer loaded (its frame gone) are dropped when a section's overlayer is made and on every tap (#1312 review). |
 | `clearSelection()` | #1269: the host is done with the selection (its toolbar closed after Copy, a translation or explanation closed): removed from every shown section, `selection-cleared` sent at once if a `selection` was sent (none otherwise), and `highlightSelection()` has no last selection to fall back on. |
+| `closeLightbox()` | #1265: the image lightbox closes (Android back, a host Escape with focus outside the frame), `lightbox` closed sent. None open: nothing sent. |
 
 **Page → host** (`{ type, … }`)
 
@@ -377,6 +379,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `highlight-list` | #1312: `key` (= `book.sha256`), `highlights [{id, cfi, color, text, at}]`: the highlights drawn on screen (a stored one whose text no longer reads at its CFI is not), in book order (foliate's CFI compare; a tie by `at`), `text` its first 200 code points, at most 5000. Sent after `restored`, `addHighlights`' answer, `highlightSelection`, `recolorHighlight` and `removeHighlight` | through `readHighlightList` (a malformed item dropped): the host's list, the jump target (`goTo(cfi, true)`) and the editor's text. Untrusted: shown as text only |
 | `highlight-tap` | #1312: `id`, `rect {x, y, w, h}` (the highlight's box, `rectInPage`), `x`, `y` (where the tap landed, `tap`'s space). A tap on a drawn highlight (its rects hit-tested, before the word): no `word` or `tap` then | through `readHighlightTap`: `popupStep`'s `highlight` event (a word's edge rule; elsewhere its editor). Dropped with no book on screen (`takenWithoutBook`) |
 | `highlight-removed` | #1312: `key`, `id` | through `readHighlightRemoved`: the host tombstones it (web: the session's `DELETE`; Android: the row's `deleted_at` + outbox) |
+| `lightbox` | #1265: `open` (boolean): an EPUB image was tapped in the middle zone and is shown full screen in the page (no `tap`, `word` or `highlight-tap` for that tap), or it closed (Escape, its close button, `closeLightbox()`, a new open at the swap) | through `readLightbox`: open, the popup closes and the bars hide; Android back calls `closeLightbox()` first after the offer; web: a key on the host document turns nothing, Escape calls `closeLightbox()`. A `ready` resets it |
 | `openLink` | `href` | the page forwards only `http(s)` links and the host allowlists again before opening: a stated rule, not an accident. Any other scheme is dropped with a `warn` log (`mailto:`/`tel:` noted on #1069); the page never navigates |
 | `telemetry` | `event: 'reader-flow'`, `mode` (the flow in use), `format`, `switchedInFirst5Min` | one per opened book, 5 min after `opened` or when the next book opens first (a page that dies earlier sends none). Hosts log it: there is no analytics pipeline in the app yet |
 | `log` | `level`, `msg` | `error`: window errors and a failed open or restore. `warn`: a call that was ignored (a highlight or a restore before the book is ready) and a previous book that would not close. foliate logs its own navigation failures to the console, not here — a position that did not land is reported in `restored` instead. |
@@ -485,7 +488,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   book. A link and a press that dismissed a selection send no `tap`. A `word` goes through `popupStep` (#1269, below).
 - Keys (a hardware keyboard): `key` through `readKey` (a held key's repeats dropped) and `keyAction` with the same
   direction: `prev`/`next` turn the page and hide the bars, `bars` (Escape) shows them.
-- Android back: the offer, then the word popup or selection toolbar, then the book (back to the list), then the route. No exit prompt.
+- Android back: the offer, then the image lightbox (`closeLightbox()`), then the word popup or selection toolbar, then the book (back to the list), then the route. No exit prompt.
 - **Closing a book** (back, the top bar) shows the list at once and injects `CLOSE_BOOK_JS`: `flush()` (its `store`
   is posted synchronously), then a `book-closed` marker; on the marker the book ends as the open one (no `ready`
   reopens it, its per-book state is reset). No page loaded: it ends at once; a page gone before the marker: the
@@ -497,6 +500,30 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
 - **Save on leave:** `flush()` on background lands (`useFlushOnLeave`). On unmount it is called too, but saves
   nothing: the `store` comes back to a handler that is gone. The path that saves is closing the book first (above),
   which back and the top bar do.
+
+**Image lightbox** (#1265, `lightbox.mjs`): an in-page overlay, not the host's.
+
+- *How the image gets there:* the overlay is a dialog appended to the page's own document (the WebView's on Android, the
+  reader frame's on the web), above `foliate-view`. Its `<img>` takes the `src` the section's image already has: a
+  `blob:` URL the page itself made from the book's zip (or a `data:` URL), allowed by the existing `img-src blob: data:`.
+  Any other source is not an image to it. No CSP directive is widened, no protocol added, and no image bytes cross the
+  bridge to a host. Book strings reach it as attributes and text only (the alt text as `aria-label` and `alt`).
+- *What opens it:* a tap on an `<img>` or an SVG `<image>` in a reflowable EPUB (not a comic, a fixed-layout page, a
+  PDF, MOBI or FB2) in the middle zone, before the highlight and word hit tests. In paginated flow the edges still turn
+  the page (the tap is a `tap`, as anywhere else on an edge: the page reads `tapZone.mjs` `tapAction` with its own
+  width, the hosts' rule), so a page-filling image does not take every tap; scrolled flow has no edge zones. A link
+  around the image still wins (foliate owns links), and so does a press that dismisses a selection.
+- *While open:* `foliate-view` is `inert`, and the overlay keeps every key (no `key` is forwarded); Tab and Shift+Tab
+  stay on its one control (`aria-modal`). Opening it sets scale 1 and focuses the dialog (labelled by the alt text,
+  else "Image"); closing it gives focus back to the section's frame through its window, as foliate does (focusing the
+  frame element would scroll foliate's container and move the place). Zoom 1–8× about the focus (`zoomAt`): pinch
+  about the fingers' midpoint, the wheel about the pointer, a double tap or click about that point (2.5×, or back to
+  fit). Drag pans once zoomed; the pan stops where the image's edge meets the screen's, and a side it does not fill
+  stays centred (`clampPan`). A cancelled pointer (the system took the gesture) is never a tap.
+- *Closing:* Escape (in the page), its × button, `closeLightbox()` (Android back; the web host's Escape with focus on
+  the host document), or a new open (at the swap). Each sends `lightbox` closed. A new page load (Android: a crash
+  reload, Retry, an overdue open given up; web: Retry's fresh frame) has none: the hosts drop their flag there and on
+  `ready`, and Android back counts a lightbox only while the page is ready (`backAction`'s `ready`).
 
 **Word popup and selection toolbar** (#1269, `wordPopup.mjs`, one rule for both hosts):
 
