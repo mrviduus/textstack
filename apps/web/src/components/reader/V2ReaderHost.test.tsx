@@ -6,7 +6,7 @@ import { openedDeadlineMs } from '../../../../mobile/src/lib/v2reader/deadlines.
 // #1225: the one web host of the V2 reader page, driven through a fake frame: what it posts into the frame
 // (spied on the iframe's window) and which page messages it takes.
 
-const frameWindow = () => (screen.getByTitle('V2 reader') as HTMLIFrameElement).contentWindow!
+const frameWindow = () => (screen.getByTitle('Book text') as HTMLIFrameElement).contentWindow!
 let posted: { call: string; args: unknown[] }[]
 
 beforeEach(() => {
@@ -42,9 +42,10 @@ describe('V2ReaderHost', () => {
     expect(screen.getByTestId('v2-heading')).toHaveTextContent('Opening a.epub')
     expect(posted).toEqual([])
     fromPage({ type: 'ready' })
-    expect(posted.map((m) => m.call)).toEqual(['flow', 'settings', 'openBytes'])
-    expect(posted[2].args).toEqual([b.bytes, '1/a.epub'])
-    expect(frameWindow().postMessage).toHaveBeenLastCalledWith(posted[2], location.origin, [b.bytes])
+    expect(posted.map((m) => m.call)).toEqual(['flow', 'settings', 'labels', 'openBytes'])
+    const openBytes = posted.find((m) => m.call === 'openBytes')!
+    expect(openBytes.args).toEqual([b.bytes, '1/a.epub'])
+    expect(frameWindow().postMessage).toHaveBeenLastCalledWith(openBytes, location.origin, [b.bytes])
   })
 
   it('sameBookObjectAgain_NotASecondOpen', () => {
@@ -108,7 +109,7 @@ describe('V2ReaderHost', () => {
     mount(book('broken.epub'))
     fromPage({ type: 'ready' })
     fromPage({ type: 'open-failed', name: '1/broken.epub', error: 'not a zip' })
-    expect(screen.getByRole('alert')).toHaveTextContent('cannot open broken.epub: not a zip')
+    expect(screen.getByRole('alert')).toHaveTextContent('Cannot open broken.epub: not a zip')
     expect(screen.getByTestId('v2-status')).toHaveTextContent('')
   })
 
@@ -127,15 +128,15 @@ describe('V2ReaderHost', () => {
     const onReload = vi.fn()
     const b = book()
     mount(b, { onReload })
-    const first = screen.getByTitle('V2 reader')
+    const first = screen.getByTitle('Book text')
     act(() => { vi.advanceTimersByTime(READY_DEADLINE_MS) })
     act(() => { screen.getByRole('button', { name: 'Retry' }).click() })
-    expect(screen.getByTitle('V2 reader')).not.toBe(first)
+    expect(screen.getByTitle('Book text')).not.toBe(first)
     expect(screen.queryByRole('alert')).toBeNull()
     expect(onReload).not.toHaveBeenCalled() // the bytes never left the host
     spyFrame()
     fromPage({ type: 'ready' })
-    expect(posted.map((m) => m.call)).toEqual(['flow', 'settings', 'openBytes'])
+    expect(posted.map((m) => m.call)).toEqual(['flow', 'settings', 'labels', 'openBytes'])
     // The new frame has its own ready deadline.
     act(() => { vi.advanceTimersByTime(READY_DEADLINE_MS) })
     expect(screen.queryByTestId('v2-overdue')).toBeNull()
@@ -193,12 +194,12 @@ describe('V2ReaderHost', () => {
     rerender(book('broken.epub'))
     fromPage({ type: 'open-failed', name: '2/broken.epub', error: 'not a zip' })
     expect(screen.getByTestId('v2-heading')).toHaveTextContent(/^$/)
-    expect(screen.getByRole('alert')).toHaveTextContent('cannot open broken.epub: not a zip')
+    expect(screen.getByRole('alert')).toHaveTextContent('Cannot open broken.epub: not a zip')
   })
 
   it('frame_IsTheSameOriginShell_NeverSrcdoc', () => {
     mount()
-    const f = screen.getByTitle('V2 reader')
+    const f = screen.getByTitle('Book text')
     expect(f).toHaveAttribute('src', '/reader-v2/frame.html')
     expect(f).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin')
     expect(f).not.toHaveAttribute('srcdoc')

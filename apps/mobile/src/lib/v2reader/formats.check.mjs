@@ -26,7 +26,7 @@ const TIMEOUT_MS = 15000
 // packages/shared, whose extensionless TS imports plain node does not resolve.
 const { build: esbuild } = createRequire(resolve(here, '../../../../web/package.json'))('esbuild')
 const bundled = await esbuild({ stdin: { contents: `export * from './selection.mjs'; export * from './chrome.mjs'; export * from './wordPopup.mjs'`, resolveDir: here, loader: 'js' }, bundle: true, write: false, format: 'esm', logLevel: 'silent' })
-const { readSelection, readDir, readTap, readKey, readRelocate, readWord, readLang, popupStep } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`)
+const { readSelection, readDir, readTap, readKey, readRelocate, readWord, readLang, popupStep, readLightbox } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`)
 
 const failures = []
 const check = (ok, what) => { console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}`); if (!ok) failures.push(what) }
@@ -383,6 +383,257 @@ try {
       await set({ ...DEFAULT, theme: 'dark', fontSize: 24 })
     }
     await set(DEFAULT)
+  }
+
+  /**
+   * #1265: an EPUB image tapped in the middle zone opens the lightbox in the page's own document (the same blob: URL,
+   * no CSP change), and that tap is no `tap`/`word`; an edge tap on an image is a `tap` (the host turns). Keys stay in
+   * it, Tab on its one control; wheel and double click zoom about the pointer, drag pans, clamped to the image's
+   * edges; Esc, its close button and `closeLightbox()` close it, focus back in the book without moving the place; it
+   * opens at scale 1; never on a fixed layout or a comic; a new open closes it.
+   */
+  async function checkLightbox() {
+    console.log('lightbox')
+    const W = 1280
+    await page.setViewportSize({ width: W, height: 720 })
+    call('window.__fol.flow("paginated")')
+    await open('tsimage.epub')
+    const f = await frameWith('Paragraph 1.')
+    /** The box of the first element matching `sel` in `fr`, in page px. */
+    const boxOf = async (fr, sel) => inPage(fr, await fr.evaluate((s) => document.querySelector(s).getBoundingClientRect().toJSON(), sel))
+    /** A point of `b` in the middle zone (the hosts' tap zones: the outer 25 % of each side turns), or null. */
+    const middleOf = (b, w = W) => {
+      const x = Math.min(b.x + b.w - 8, Math.max(b.x + b.w / 2, w * 0.25 + 20), w * 0.75 - 20)
+      return x > b.x && x < b.x + b.w ? { x, y: b.y + b.h / 2 } : null
+    }
+    const lb = (from) => messages.slice(from).filter((x) => x.type === 'lightbox')
+    const dialog = () => page.evaluate(() => {
+      const d = document.querySelector('[role="dialog"]')
+      const i = d?.querySelector('img')
+      return d && {
+        label: d.getAttribute('aria-label'), src: i.src, transform: i.style.transform, focused: document.activeElement === d,
+        onButton: document.activeElement === d.querySelector('button'), inert: document.querySelector('foliate-view')?.inert,
+        close: d.querySelector('button')?.getAttribute('aria-label'),
+      }
+    })
+    const scaleOf = (d) => Number(/scale\(([\d.]+)\)/.exec(d?.transform ?? '')?.[1])
+    const tapOpen = async (p, what) => {
+      const from = messages.length
+      await page.mouse.click(p.x, p.y)
+      const o = await waitFor(from, (x) => x.type === 'lightbox', `the lightbox to open (${what})`).catch(() => null)
+      await settled()
+      return { o, from }
+    }
+    /** The dialog's box and its image's box on screen (transform included), and the scale. */
+    const geo = () => page.evaluate(() => {
+      const d = document.querySelector('[role="dialog"]')
+      const i = d?.querySelector('img')
+      return d && { box: d.getBoundingClientRect().toJSON(), img: i.getBoundingClientRect().toJSON(), s: Number(/scale\(([\d.]+)\)/.exec(i.style.transform)?.[1]) }
+    })
+    const near = (a, b) => Math.abs(a - b) <= 1
+    const show = (g) => `img ${['left', 'top', 'right', 'bottom'].map((k) => g?.img[k].toFixed(1)).join(',')} in ${g?.box.width}×${g?.box.height}, ×${g?.s}`
+    /** The image point under (x, y) in `g0` is under it in `g1` too. */
+    const keepsPoint = (g0, g1, x, y) => {
+      const [u, v] = [(x - g0.img.left) / g0.img.width, (y - g0.img.top) / g0.img.height]
+      return near(g1.img.left + u * g1.img.width, x) && near(g1.img.top + v * g1.img.height, y)
+    }
+    const centred = (g, ax) => (ax === 'x' ? near(g.img.left + g.img.width / 2, g.box.left + g.box.width / 2) : near(g.img.top + g.img.height / 2, g.box.top + g.box.height / 2))
+    const drag = async (x0, y0, x1, y1) => {
+      await page.mouse.move(x0, y0)
+      await page.mouse.down()
+      await page.mouse.move(x1, y1, { steps: 5 })
+      // The last moves land before the release (a busy Chromium coalesces them into the next frame).
+      await page.waitForTimeout(50)
+      await page.mouse.up()
+    }
+    /**
+     * In-viewport drags from the centre by (dx, dy) until the image stops moving (two drags in a row change nothing: one
+     * whose moves were all dropped is not a rest), at most 40: the clamp is what is tested, not how far one drag got.
+     * `drags`: how many it took; `resting`: it did stop.
+     */
+    const dragToRest = async (cx, cy, dx, dy) => {
+      let g = await geo()
+      let still = 0
+      for (let drags = 1; drags <= 40; drags++) {
+        await drag(cx, cy, cx + dx, cy + dy)
+        const next = await geo()
+        still = near(next.img.left, g.img.left) && near(next.img.top, g.img.top) ? still + 1 : 0
+        if (still === 2) return { g: next, drags, resting: true }
+        g = next
+      }
+      return { g, drags: 40, resting: false }
+    }
+    /**
+     * Zoom and pan with the lightbox open, asserted on the live geometry (never a number of this layout): the point under
+     * the wheel or a double click stays under it, a drag moves the image by as much, a long drag stops where the image's
+     * edge meets the screen's, and a side the image does not fill stays centred.
+     */
+    async function zoomRows(at) {
+      const { width: vw, height: vh } = page.viewportSize()
+      const [cx, cy] = [vw / 2, vh / 2]
+      const fit = await geo()
+      check(fit?.s === 1 && centred(fit, 'x') && centred(fit, 'y'), `${at}: opened fitted and centred (${show(fit)})`)
+      await page.mouse.move(cx + 40, cy + 20)
+      await page.mouse.wheel(0, -300)
+      await page.waitForTimeout(100)
+      const wheeled = await geo()
+      check(wheeled?.s > 1.5 && keepsPoint(fit, wheeled, cx + 40, cy + 20), `${at}: the wheel zooms in about the pointer (${show(wheeled)})`)
+      await drag(cx, cy, cx + 60, cy + 40)
+      let g = await geo()
+      check(near(g.img.left - wheeled.img.left, 60) && near(g.img.top - wheeled.img.top, 40), `${at}: a drag moves the zoomed image by as much (${show(g)})`)
+      let rest = await dragToRest(cx, cy, vw * 0.35, vh * 0.35)
+      g = rest.g
+      check(rest.resting && near(g.img.left, g.box.left) && near(g.img.top, g.box.top), `${at}: dragged until it stops, the image's left and top edges are on the screen's (${show(g)}, ${rest.drags} drags, at rest ${rest.resting})`)
+      rest = await dragToRest(cx, cy, -vw * 0.35, -vh * 0.35)
+      g = rest.g
+      check(rest.resting && near(g.img.right, g.box.right) && near(g.img.bottom, g.box.bottom), `${at}: and back, its right and bottom edges are (${show(g)}, ${rest.drags} drags, at rest ${rest.resting})`)
+      await page.mouse.dblclick(cx, cy)
+      g = await geo()
+      check(g.s === 1 && centred(g, 'x') && centred(g, 'y'), `${at}: a double click on a zoomed image fits it again, centred (${show(g)})`)
+      // Zoomed a little: one side may still not fill the screen; that side stays centred under a drag, the other pans to its edge.
+      await page.mouse.move(cx, cy)
+      await page.mouse.wheel(0, -15)
+      await page.waitForTimeout(100)
+      await drag(cx, cy, cx + vw * 0.3, cy + vh * 0.3)
+      g = await geo()
+      const sides = [['x', g.img.width < g.box.width - 1, g.img.left, g.box.left], ['y', g.img.height < g.box.height - 1, g.img.top, g.box.top]]
+      check(sides.some(([, unfilled]) => unfilled) && sides.every(([ax, unfilled, edge, boxEdge]) => (unfilled ? centred(g, ax) : near(edge, boxEdge))),
+        `${at}: a side the image does not fill stays centred, the other pans to its edge (${show(g)})`)
+      await page.mouse.dblclick(cx, cy)
+      const fitted = await geo()
+      await page.mouse.dblclick(cx + 100, cy)
+      g = await geo()
+      check(fitted.s === 1 && g.s === 2.5 && keepsPoint(fitted, g, cx + 100, cy), `${at}: a double click zooms in about the point clicked (${show(g)})`)
+    }
+    // #1267: the host's words (`labels`), taken by the next opening; a malformed call keeps them.
+    await page.evaluate(() => { window.__fol.labels({ image: 'Obraz', close: 'Zamknij obraz' }); window.__fol.labels({ close: 7 }) })
+    const img = await boxOf(f, 'img')
+    const mid = middleOf(img)
+    let { o, from } = await tapOpen(mid, 'img')
+    const src = await f.evaluate(() => document.querySelector('img').currentSrc)
+    let d = await dialog()
+    check(readLightbox(o) === true && d?.label === 'A red square' && d.src === src && src.startsWith('blob:'), `an image tapped in the middle opens the lightbox with the section's own blob: image, labelled by its alt (${JSON.stringify(o)}, ${d?.label})`)
+    check(d?.close === 'Zamknij obraz', `the close button is named by the host's labels (${d?.close})`)
+    check(kinds(from).length === 0 && !messages.slice(from).some((x) => x.type === 'relocate' || x.type === 'highlight-tap'), `the image tap is no tap, word or turn (${kinds(from)})`)
+    check(d?.focused === true && d.inert === true && scaleOf(d) === 1, `focus is on the dialog, the book behind it inert, scale 1 (${d?.focused}, ${d?.inert}, ${d?.transform})`)
+    // Tab stays on its one control (aria-modal).
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Shift+Tab')
+    check((await dialog())?.onButton === true, 'Tab and Shift+Tab keep focus on the dialog\'s close button')
+    // Keys stay in the dialog: no `key`, no turn.
+    from = messages.length
+    await page.keyboard.press('ArrowRight')
+    await settled()
+    check(!messages.slice(from).some((x) => x.type === 'key' || x.type === 'relocate'), 'a key with the lightbox open is not forwarded, nothing turns')
+    await zoomRows(`${W}×720`)
+    from = messages.length
+    await page.keyboard.press('Escape')
+    await settled()
+    check(lb(from).length === 1 && lb(from)[0].open === false && !(await dialog()) && !messages.slice(from).some((x) => x.type === 'key'), `Escape closes it, and is not forwarded (${JSON.stringify(messages.slice(from).map((x) => x.type))})`)
+    check(await page.evaluate(() => document.querySelector('foliate-view')?.inert === false), 'the book is no longer inert')
+    // Reopened: back to scale 1. The close button closes.
+    await tapOpen(mid, 'img again')
+    check(scaleOf(await dialog()) === 1, `reopened at scale 1 (${(await dialog())?.transform})`)
+    from = messages.length
+    await page.getByRole('button', { name: 'Zamknij obraz', exact: true }).click()
+    await settled()
+    check(lb(from).at(-1)?.open === false && !(await dialog()), 'its close button closes it')
+    // The host's close (Android back).
+    await tapOpen(mid, 'img for closeLightbox')
+    from = messages.length
+    await call('window.__fol.closeLightbox()')
+    check(lb(from).at(-1)?.open === false && !(await dialog()), 'closeLightbox() closes it')
+    from = messages.length
+    await call('window.__fol.closeLightbox()')
+    await settled()
+    check(lb(from).length === 0, 'closeLightbox() with none open sends nothing')
+    // An image tapped in an edge zone (the outer 25 %): a `tap` for the host to turn by, not the lightbox.
+    check(img.x + 8 < W * 0.25, `the image reaches into the left edge zone (${img.x})`)
+    from = messages.length
+    await page.mouse.click(img.x + 8, img.y + img.h / 2)
+    await settled()
+    const edge = messages.slice(from).find((x) => x.type === 'tap')
+    check(lb(from).length === 0 && !(await dialog()) && kinds(from).join() === 'tap' && readTap(edge)?.x < W * 0.25, `an image tapped in an edge zone is a tap there, not the lightbox (${kinds(from)}, x ${edge?.x})`)
+    // An SVG <image>, labelled by its <title>.
+    ;({ o } = await tapOpen(middleOf(await boxOf(f, 'svg')), 'svg image'))
+    d = await dialog()
+    check(o?.open === true && d?.label === 'A blue square' && !!d.src?.startsWith('blob:'), `an SVG <image> opens it, labelled by the SVG's title (${d?.label}, ${d?.src?.slice(0, 5)})`)
+    await call('window.__fol.closeLightbox()')
+    await settled()
+
+    // The same zoom and pan rows at another window size (a portrait one: the image fits by its width there).
+    await page.setViewportSize({ width: 900, height: 800 })
+    await page.waitForTimeout(800)
+    await tapOpen(middleOf(await boxOf(await frameWith('Paragraph 1.'), 'img'), 900), 'img at 900×800')
+    await zoomRows('900×800')
+    await call('window.__fol.closeLightbox()')
+    await page.setViewportSize({ width: W, height: 720 })
+    await page.waitForTimeout(800)
+
+    // Focus goes back without moving the place: the section's last image (its last page; scrolled, the end), closed.
+    const lastRel = (from) => messages.slice(from).filter((x) => x.type === 'relocate').at(-1)
+    /** The last image, if on screen: its middle-zone point. */
+    const lastImage = async () => {
+      const b = await boxOf(f, 'img[alt="A green square"]').catch(() => null)
+      return b && b.x >= 0 && b.x + b.w <= W && b.y >= 0 && b.y + b.h <= 720 ? middleOf(b) : null
+    }
+    const closesInPlace = async (what) => {
+      const p = await lastImage()
+      check(!!p, `${what}: the last image is on screen`)
+      if (!p) return
+      const before = lastRel(0)?.cfi
+      ;({ o } = await tapOpen(p, `the last image, ${what}`))
+      from = messages.length
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(1200)
+      const rel = messages.slice(from).filter((x) => x.type === 'relocate')
+      check(o?.open === true && !(await dialog()) && rel.length === 0 && lastRel(0)?.cfi === before, `${what}: closed, focus back in the book, no relocate, the same place (${rel.length} relocates, ${lastRel(0)?.cfi === before})`)
+    }
+    {
+      let at = messages.length
+      for (let k = 0; k < 100 && !lastRel(at)?.atEnd; k++) {
+        const from = messages.length
+        await call('window.__fol.next()')
+        if (!(await waitFor(from, (x) => x.type === 'relocate', 'a page turn').catch(() => null))) break
+      }
+      await settled()
+      await closesInPlace('paginated, its last page')
+      call('window.__fol.flow("scrolled")')
+      await page.waitForTimeout(800)
+      await page.mouse.move(W / 2, 360)
+      for (let k = 0; k < 40; k++) { await page.mouse.wheel(0, 2000); await page.waitForTimeout(60) }
+      await page.waitForTimeout(1200)
+      await closesInPlace('scrolled, its end')
+      call('window.__fol.flow("paginated")')
+    }
+
+    // A new open closes it first.
+    await open('tsimage.epub')
+    await tapOpen(middleOf(await boxOf(await frameWith('Paragraph 1.'), 'img')), 'img before a new open')
+    from = messages.length
+    await open('tsformat.cbz')
+    const order = messages.slice(from).map((x) => x.type)
+    check(lb(from)[0]?.open === false && order.indexOf('lightbox') < order.indexOf('opened') && !(await dialog()), `a new open closes the lightbox before opened (${order.join(',')})`)
+    // A comic page tapped: a `tap`, never the lightbox.
+    from = messages.length
+    await page.mouse.click(W / 2, 360)
+    await settled()
+    check(lb(from).length === 0 && kinds(from).includes('tap') && !(await dialog()), `a comic page tapped is a tap, not the lightbox (${kinds(from)})`)
+    // A fixed-layout page's image: no lightbox.
+    await open('tsfixedimg.epub')
+    await page.waitForTimeout(500)
+    const fx = await frameWith('Page 1.')
+    const fimg = fx && await fx.evaluate(() => {
+      const r = document.querySelector('img').getBoundingClientRect()
+      const fr = frameElement.getBoundingClientRect()
+      const k = fr.width / innerWidth
+      return { x: fr.left + (r.left + r.width / 2) * k, y: fr.top + (r.top + r.height / 2) * k }
+    })
+    from = messages.length
+    if (fimg) await page.mouse.click(fimg.x, fimg.y)
+    await settled()
+    check(!!fimg && lb(from).length === 0 && kinds(from).includes('tap') && !(await dialog()), `a fixed-layout page's image tapped is a tap, no lightbox (${kinds(from)})`)
   }
 
   /**
@@ -2501,6 +2752,7 @@ try {
 
   await checkSelectionEdges()
   await checkChrome()
+  await checkLightbox()
   await checkPdf()
   await checkOpenOrder()
   await checkOldWebView()

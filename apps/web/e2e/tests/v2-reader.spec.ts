@@ -1,6 +1,7 @@
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
 import { testLogin } from '../helpers/api'
 
 // @v2 — the V2 reader page on its production route (#1225): /:lang/library/my/:id/read-v2, behind
@@ -14,6 +15,8 @@ const API_HEADERS = { Host: 'general.localhost' }
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURE = path.resolve(__dirname, '../fixtures/v2-sync.epub')
 const FIRST_SECTION_TEXT = 'The Pond, paragraph 1.'
+/** #1265: an `<img>` (alt "A red square") and an SVG `<image>` on its first page (fixtures.mjs `writeImageEpub`). */
+const IMAGE_FIXTURE = path.resolve(__dirname, '../fixtures/v2-image.epub')
 
 /** The text of every section frame foliate has loaded (its frames sit in a closed shadow root). */
 const sectionText = (page: Page) =>
@@ -47,12 +50,12 @@ async function v2Context(browser: { newContext(): Promise<BrowserContext> }, ema
 }
 
 /** Upload on V2 (sha256, import, parts, complete); the bytes are readable once the content is complete. */
-async function uploadFixture(page: Page): Promise<string> {
+async function uploadFixture(page: Page, file = FIXTURE): Promise<string> {
   await page.goto('/en/library')
   await page.locator('.site-header__upload-btn').click()
   const imported = page.waitForResponse((r) => r.request().method() === 'PUT' && /\/me\/v2\/books\/[0-9a-f-]{36}$/.test(r.url()))
   const completed = page.waitForResponse((r) => r.request().method() === 'POST' && /\/me\/v2\/books\/[0-9a-f-]{36}\/files\/[0-9a-f-]{36}\/content$/.test(r.url()))
-  await page.locator('.upload-modal input[type="file"]').setInputFiles(FIXTURE)
+  await page.locator('.upload-modal input[type="file"]').setInputFiles(file)
   const { id } = (await (await imported).json()) as { id: string }
   expect((await completed).ok()).toBeTruthy()
   return id
@@ -185,7 +188,7 @@ test.describe('V2 reader page @v2', () => {
     await page.goto(`/en/library/my/${bookId}`)
     await page.getByRole('link', { name: 'Open in the V2 reader' }).click()
     await expect(page).toHaveURL(new RegExp(`/en/library/my/${bookId}/read-v2/?$`))
-    await expect(page.locator('iframe[title="V2 reader"]')).toHaveAttribute('src', '/reader-v2/frame.html')
+    await expect(page.locator('iframe[title="Book text"]')).toHaveAttribute('src', '/reader-v2/frame.html')
     await expectOpened(page)
 
     const before = await status(page).textContent()
@@ -582,6 +585,109 @@ test.describe('V2 reader page @v2', () => {
     await expect.poll(async () => { const b = await page.locator('.reader-footer').boundingBox(); return b ? Math.round(b.y + b.height) : 0 }).toBe(page.viewportSize()!.height)
   })
 
+  // #1265: an image tapped in the middle zone opens full screen inside the reader frame (no CSP change: the section's
+  // own blob: image), never a turn or a word; the wheel zooms; Escape and the close button close it, and the place
+  // stays. Tapped on an edge, it is a tap the host turns by.
+  test('readV2Lightbox_AnImageTapped_OpensFullScreen_ZoomsAndClosesByEscapeAndClose_ThePlaceStays_AnEdgeTapTurns', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2img'))
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page, IMAGE_FIXTURE)
+    // The page's taps, as the host window receives them.
+    await page.addInitScript(() => {
+      if (window.top !== window) return
+      const w = window as unknown as { __taps: number[] }
+      w.__taps = []
+      addEventListener('message', (e) => {
+        try {
+          const m = typeof e.data === 'string' ? JSON.parse(e.data) : null
+          if (m?.type === 'tap') w.__taps.push(m.x)
+        } catch { /* not the page's */ }
+      })
+    })
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expect(page.getByTestId('v2-heading')).toHaveText('TS IMAGE', { timeout: 20_000 })
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    const main = page.locator('main.v2-reader')
+    await expect(main).toHaveAttribute('data-bars', 'hidden', { timeout: 10_000 })
+    await expect(status(page)).toHaveText(/^\d+%/)
+    const before = (await status(page).textContent()) ?? ''
+
+    /** The image in page px (its section frame sits in the reader frame): a point of it in the middle zone, its left, its blob: source. */
+    const image = async () => {
+      for (const f of page.frames().filter((x) => x.url().startsWith('blob:'))) {
+        const r = await f.evaluate(() => {
+          const img = document.querySelector('img')
+          const b = img?.getBoundingClientRect()
+          return img && b && b.width > 0 && b.left >= 0 && b.right <= innerWidth ? { left: b.left, right: b.right, y: b.top + b.height / 2, src: img.currentSrc } : null
+        }).catch(() => null)
+        if (!r) continue
+        const box = (await (await f.frameElement()).boundingBox())!
+        const width = page.viewportSize()!.width
+        const [left, right] = [box.x + r.left, box.x + r.right]
+        // The middle zone is 25-75 % of the width (tapZone.mjs).
+        const x = Math.min(right - 8, width * 0.75 - 20, Math.max((left + right) / 2, width * 0.25 + 20))
+        expect(x > left && x < right, 'a point of the image in the middle zone').toBe(true)
+        return { src: r.src, left, x, y: box.y + r.y }
+      }
+      return null
+    }
+    await expect.poll(image, { timeout: 15_000 }).not.toBeNull()
+    const img = (await image())!
+    const reader = page.frameLocator('iframe[title="Book text"]')
+    const dialog = reader.getByRole('dialog', { name: 'A red square' })
+    const scale = () => dialog.locator('img').evaluate((el) => Number(/scale\(([\d.]+)\)/.exec((el as HTMLElement).style.transform)?.[1]))
+
+    await page.mouse.click(img.x, img.y)
+    await expect(dialog).toBeVisible()
+    expect(await dialog.locator('img').getAttribute('src')).toBe(img.src)
+    expect(img.src).toMatch(/^blob:/)
+    await expect(page.locator('.word-popup')).toHaveCount(0)
+    expect(await scale()).toBe(1)
+    await page.mouse.move(img.x, img.y)
+    await page.mouse.wheel(0, -300)
+    await expect.poll(scale).toBeGreaterThan(1.5)
+    // A key while it is open turns nothing; Escape closes it.
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(status(page)).toHaveText(before)
+    await expect(main).toHaveAttribute('data-bars', 'hidden')
+
+    // Reopened at scale 1; its close button closes it.
+    await page.mouse.click(img.x, img.y)
+    await expect(dialog).toBeVisible()
+    expect(await scale()).toBe(1)
+    // #1267: the open lightbox has no axe violation; Tab and Shift+Tab never leave it for the hidden bars (the host's
+    // chrome is inert meanwhile); its close button is named in the reader's language (the host's `labels`).
+    const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag21a']).analyze()
+    expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' > ')).join(' | ')}`)).toEqual([])
+    // From inside the dialog (the page keeps Tab) and from the host document (the gap: focus outside the frame), focus
+    // ends in the lightbox each time: the host's focus on the reader frame, the frame's inside the dialog; never the
+    // chrome (bars, states, skip link, the finish block).
+    const readerFrame = page.frames().find((f) => f.url().includes('/reader-v2/frame'))!
+    for (const key of ['Tab', 'Tab', 'Shift+Tab', 'focus-host', 'Tab', 'Tab', 'Shift+Tab']) {
+      if (key === 'focus-host') { await main.focus(); continue }
+      await page.keyboard.press(key)
+      expect(await page.evaluate(() => !!document.activeElement?.closest('header, footer, .v2-reader__notices, .skip-link, .v2-reader__finish')), `host chrome focused after ${key}`).toBe(false)
+      expect(await page.evaluate(() => document.activeElement?.getAttribute('title')), `the reader frame focused after ${key}`).toBe('Book text')
+      expect(await readerFrame.evaluate(() => !!document.activeElement?.closest('[role="dialog"]')), `focus in the dialog after ${key}`).toBe(true)
+    }
+    await dialog.getByRole('button', { name: 'Close image', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(status(page)).toHaveText(before)
+
+    // On the left edge zone: a `tap` there (the host's edge rule turns by it, the chrome spec above), not the lightbox.
+    const width = page.viewportSize()!.width
+    expect(img.left + 8, 'the image reaches into the left edge zone').toBeLessThan(width * 0.25)
+    const taps = () => page.evaluate(() => (window as unknown as { __taps: number[] }).__taps)
+    const seen = (await taps()).length
+    await page.mouse.click(img.left + 8, img.y)
+    await expect.poll(async () => (await taps()).slice(seen)).toEqual([expect.any(Number)])
+    expect((await taps()).at(-1)!).toBeLessThan(width * 0.25)
+    await expect(dialog).toHaveCount(0)
+    await context.close()
+  })
+
   test('readV2Sync_ReloadThenASecondBrowserContext_SamePlaceAndTheHighlightDrawn', async ({ browser }) => {
     const who = email('v2rs')
     const context = await v2Context(browser, who)
@@ -767,6 +873,56 @@ test.describe('V2 reader page @v2', () => {
     await expect.poll(serverCfi, { timeout: 15_000 }).toBe(left)
     await page.waitForTimeout(1_000)
     expect(statePuts.filter((c) => c === left), 'the turn is written once').toHaveLength(1)
+    await context.close()
+  })
+
+  // #1267: every control on the reader has an accessible name and every drawer or popup is a dialog (axe, WCAG 2 A and
+  // 2.1 A: names, roles, ARIA; colour contrast is not this check): the bars, the settings and contents drawers, a word
+  // popup. The route is never indexed and has a title; the skip link takes focus past the bars to the book.
+  test('readV2A11y_TheBarsDrawersAndAWordPopup_NoAxeViolations_SkipLinkToTheBook_Noindex', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2a11y'))
+    await withTranslation(context)
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/)
+    await expect(page).toHaveTitle(/v2-sync\.epub/)
+    /** Each violation by rule and element, so a failure names what to fix. */
+    const violations = async () => (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag21a']).analyze()).violations
+      .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' > ')).join(' | ')}`)
+
+    await page.keyboard.press('Escape')
+    await expect(page.locator('main.v2-reader')).toHaveAttribute('data-bars', 'shown')
+    expect(await violations()).toEqual([])
+
+    await clickBar(page, 'Reading settings')
+    await expect(page.getByRole('dialog', { name: 'Reading settings' })).toBeVisible()
+    expect(await violations()).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    await clickBar(page, 'Contents')
+    await expect(page.getByRole('dialog', { name: 'Contents' })).toBeVisible()
+    expect(await violations()).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    const width = page.viewportSize()!.width
+    const word = (await firstParagraphWords(page)).find((w) => w.x > width * 0.35 && w.x < width * 0.65)
+    expect(word, 'a word in the centre zone').toBeTruthy()
+    await page.mouse.click(word!.x, word!.y)
+    await expect(page.locator('.word-popup .word-popup__translation')).toHaveText('MOCK-TRANSLATION')
+    expect(await violations()).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.word-popup')).toHaveCount(0)
+
+    // The skip link: the first stop from the top of the document, then the book (the frame) has focus.
+    await page.locator('main.v2-reader').focus()
+    await page.keyboard.press('Tab')
+    await expect(page.getByRole('link', { name: 'Skip to the book' })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('iframe[title="Book text"]')).toBeFocused()
     await context.close()
   })
 

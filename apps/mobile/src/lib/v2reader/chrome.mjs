@@ -126,9 +126,19 @@ export function createHostMoves() {
   }
 }
 
-/** Android back, in order: the offer, then the word popup or selection toolbar (#1269), then the open book (back to the list), then the route. */
-export function backAction({ offer, popup = false, reading }) {
+/** #1265: a host's read of `lightbox`: true (an image is shown full screen in the page), false (closed), or null (dropped). */
+export function readLightbox(m) {
+  return m?.type === 'lightbox' && typeof m.open === 'boolean' ? m.open : null
+}
+
+/**
+ * Android back, in order: the offer, then the image lightbox (#1265, the page's: `closeLightbox()`), then the word popup
+ * or selection toolbar (#1269), then the open book (back to the list), then the route. A lightbox counts only while the
+ * page is `ready` (a page reloading has none, and no `__fol` to call).
+ */
+export function backAction({ offer, lightbox = false, ready = true, popup = false, reading }) {
   if (offer) return 'close-offer'
+  if (lightbox && ready) return 'close-lightbox'
   if (popup) return 'close-popup'
   if (reading) return 'close-book'
   return 'leave'

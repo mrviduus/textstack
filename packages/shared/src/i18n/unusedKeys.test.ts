@@ -36,6 +36,8 @@ const DYNAMIC = [
   /^library\.badge\.\w+$/,
   /^library\.sort\.\w+$/,
   /^library\.status\.\w+$/,
+  // SelectionActionBar / HighlightNoteModal: `reader.highlightColor.${color}` (#1267)
+  /^reader\.highlightColor\.\w+$/,
   /^terms\.use\w+$/,
   /^tutor\.exercise\.\w+$/,
   // web

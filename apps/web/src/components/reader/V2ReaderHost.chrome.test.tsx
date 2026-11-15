@@ -2,11 +2,12 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
+import { openedDeadlineMs } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
 
 // #1263: the bars and tap zones of the V2 reader on the web, driven through a fake frame as V2ReaderHost.test.tsx.
 
 const WIDTH = 1000
-const frame = () => screen.getByTitle('V2 reader') as HTMLIFrameElement
+const frame = () => screen.getByTitle('Book text') as HTMLIFrameElement
 let posted: { call: string; args: unknown[] }[]
 
 beforeEach(() => {
@@ -271,7 +272,7 @@ describe('V2ReaderHost bars and tap zones', () => {
     view.rerender(<MemoryRouter><V2ReaderHost book={{ bytes: new ArrayBuffer(8), name: 'b.epub' }} idleHeading="idle" /></MemoryRouter>)
     fromPage({ type: 'open-failed', name: '2/b.epub', error: 'not a zip' })
     const alert = screen.getByRole('alert')
-    expect(alert).toHaveTextContent('cannot open b.epub')
+    expect(alert).toHaveTextContent('Cannot open b.epub')
     expect(alert.closest('header, footer')).toBeNull()
     expect(alert.compareDocumentPosition(frame()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(alert.closest('main')).toBe(frame().parentElement)
@@ -280,5 +281,60 @@ describe('V2ReaderHost bars and tap zones', () => {
   it('backLink_NamedAndToTheGivenUrl', () => {
     mount({ backUrl: '/en/library' })
     expect(screen.getByRole('link', { name: 'Back to the library' })).toHaveAttribute('href', '/en/library')
+  })
+})
+
+describe('V2ReaderHost image lightbox (#1265)', () => {
+  const calls = (name: string) => posted.filter((m) => m.call === name)
+
+  it('lightboxOpen_HidesTheBars_HostKeysTurnNothing_EscapeClosesItInThePage', () => {
+    opened()
+    expect(bars()).toBe('shown')
+    fromPage({ type: 'lightbox', open: true })
+    expect(bars()).toBe('hidden')
+    press('ArrowRight')
+    press('PageDown')
+    expect(turns()).toEqual([])
+    press('Escape')
+    expect(calls('closeLightbox')).toHaveLength(1)
+    expect(bars()).toBe('hidden')
+    fromPage({ type: 'lightbox', open: false })
+    press('ArrowRight')
+    expect(turns()).toEqual(['next'])
+    press('Escape')
+    expect(calls('closeLightbox')).toHaveLength(1)
+  })
+
+  it('lightboxOpen_ClosesAWordPopup', () => {
+    opened()
+    fromPage({ type: 'word', index: 0, word: 'pond', sentence: 'The pond.', cfi: 'epubcfi(/6/2!/4/2,/1:0,/1:4)', rect: { x: 480, y: 300, w: 40, h: 20 } })
+    expect(document.querySelector('.word-popup')).not.toBeNull()
+    fromPage({ type: 'lightbox', open: true })
+    expect(document.querySelector('.word-popup')).toBeNull()
+  })
+
+  it('lightboxOpen_ThenAnOverdueOpenRetried_AFreshFrame_EscapeIsNoLongerTheLightboxs', () => {
+    const view = opened()
+    fromPage({ type: 'lightbox', open: true })
+    // Another book whose open never answers: its deadline, then Retry (a fresh frame, the old one's lightbox gone).
+    view.rerender(<MemoryRouter><V2ReaderHost book={{ bytes: new ArrayBuffer(8), name: 'b.epub' }} idleHeading="idle" /></MemoryRouter>)
+    act(() => { vi.advanceTimersByTime(openedDeadlineMs(8)) })
+    act(() => { screen.getByRole('button', { name: 'Retry' }).click() })
+    vi.spyOn(frame().contentWindow!, 'postMessage').mockImplementation(((m: { call: string; args: unknown[] }) => { posted.push(m) }) as never)
+    posted = []
+    press('Escape')
+    expect(calls('closeLightbox')).toEqual([])
+  })
+
+  it('malformedLightbox_Dropped_AFreshFrameShowsNone', () => {
+    opened()
+    fromPage({ type: 'lightbox', open: 'yes' })
+    press('ArrowRight')
+    expect(turns()).toEqual(['next'])
+    fromPage({ type: 'lightbox', open: true })
+    fromPage({ type: 'ready' })
+    fromPage({ type: 'opened', title: 'Walden', book: { sha256: 'aa', size: 8, name: '1/a.epub' } })
+    press('ArrowRight')
+    expect(turns()).toEqual(['next', 'next'])
   })
 })

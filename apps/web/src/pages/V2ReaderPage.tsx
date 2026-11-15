@@ -114,7 +114,8 @@ export function V2ReaderPage() {
   const idleHeading = failed ? '' : load && 'percent' in load && load.percent !== null ? t('v2Reader.downloading', { percent: load.percent }) : t('v2Reader.loading')
   return (
     <>
-      <SeoHead title={book?.name} noindex />
+      {/* Never indexed; a title before the book's name is known (#1267). */}
+      <SeoHead title={book?.name ?? t('v2Reader.title')} noindex />
       <V2ReaderHost book={book} highlightId={search.get('highlight')} onHighlightShown={highlightShown} idleHeading={idleHeading} readyDeadlineMs={PROD_READY_DEADLINE_MS} backUrl={`/${language}/library`} onReload={() => setAttempt((a) => a + 1)}>
         {failed && (
           <span role="alert" data-testid="v2-load-error">

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native'
 import { fonts } from '../../theme/typography'
+import { useLanguage } from '../../context/LanguageContext'
 
 interface Props {
   barBg: string
@@ -21,21 +22,26 @@ interface Props {
   hasNext: boolean
   onPrev: () => void
   onNext: () => void
-  /** The chevrons' accessible names; default: chapter. */
+  /** The chevrons' accessible names; default: chapter (`reader.chapterEnd.prevUntitled` / `nextUntitled`). */
   prevLabel?: string
   nextLabel?: string
   /** The footer's measured height, rounded — it grows a line with the time-left label. */
   onHeight: (height: number) => void
   /** A row above the chevrons (the V2 reader's section controls, #1261). */
   above?: ReactNode
+  /** Out of TalkBack's reach (#1267: the V2 reader's image lightbox covers the screen). */
+  hiddenFromAccessibility?: boolean
 }
 
 /** The reflow reader's footer: book progress bar, chapter chevrons, title, counter, % and time left. */
 export function ReaderFooter({
   barBg, barText, trackColor, barsAnim, footerTranslateY, barsVisible, bottomInset, bookProgress,
   chapterTitle, currentChapterIndex, totalChapters, timeLeftLabel, hasPrev, hasNext, onPrev, onNext, onHeight,
-  prevLabel = 'Previous chapter', nextLabel = 'Next chapter', above,
+  prevLabel, nextLabel, above, hiddenFromAccessibility = false,
 }: Props) {
+  const { t } = useLanguage()
+  prevLabel ??= t('reader.chapterEnd.prevUntitled')
+  nextLabel ??= t('reader.chapterEnd.nextUntitled')
   return (
     <Animated.View
       onLayout={e => onHeight(Math.round(e.nativeEvent.layout.height))}
@@ -55,6 +61,8 @@ export function ReaderFooter({
         },
       ]}
       pointerEvents={barsVisible ? 'auto' : 'none'}
+      importantForAccessibility={hiddenFromAccessibility ? 'no-hide-descendants' : 'auto'}
+      accessibilityElementsHidden={hiddenFromAccessibility}
     >
       <View style={[styles.progressBar, { backgroundColor: trackColor }]}>
         <View style={[styles.progressFill, { width: `${bookProgress != null ? Math.round(bookProgress * 100) : 0}%`, backgroundColor: barText + '40' }]} />

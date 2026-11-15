@@ -29,7 +29,7 @@ async function reader(o: { target?: V2SyncTarget; server?: V2ReadingState | null
     (server = { ...state((w.expectedRevision ?? 0) + 1), currentLocator: w.currentLocator, bookFraction: w.bookFraction, clientRecordedAt: w.clientRecordedAt, completedAt: w.completedAt ?? null }))
   const host = (book: V2HostBook | null) => <MemoryRouter><V2ReaderHost book={book} dev={o.dev} /></MemoryRouter>
   const view = render(host(null))
-  const frame = (screen.getByTitle('V2 reader') as HTMLIFrameElement).contentWindow!
+  const frame = (screen.getByTitle('Book text') as HTMLIFrameElement).contentWindow!
   vi.spyOn(frame, 'postMessage').mockImplementation((() => {}) as never)
   const fromPage = (m: object) => act(async () => {
     window.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(m), origin: location.origin, source: frame }))
@@ -59,6 +59,29 @@ async function reader(o: { target?: V2SyncTarget; server?: V2ReadingState | null
 const block = () => screen.queryByTestId('v2-finish')
 
 describe('V2ReaderHost finish book (#1266)', () => {
+  // #1267 review: under the image lightbox the block is hidden and inert (kept mounted); a notice stays a live region,
+  // only its buttons go inert, so an alert raised meanwhile is still announced.
+  it('lightboxOpen_BlockHiddenAndInert_ANoticeStaysLive_ItsButtonInert', async () => {
+    const { relocate, fromPage, openBook } = await reader()
+    await relocate({ atEnd: true })
+    const wrap = () => screen.getByTestId('v2-finish-block')
+    expect(wrap().hasAttribute('inert')).toBe(false)
+    await fromPage({ type: 'lightbox', open: true })
+    expect(wrap().hasAttribute('inert')).toBe(true)
+    expect(wrap().style.visibility).toBe('hidden')
+    await fromPage({ type: 'lightbox', open: false })
+    expect(wrap().hasAttribute('inert')).toBe(false)
+    expect(wrap().style.visibility).toBe('')
+
+    vi.spyOn(v2ReaderSyncApi, 'getReadingState').mockRejectedValue(new Error('offline'))
+    await openBook()
+    await fromPage({ type: 'lightbox', open: true })
+    const alert = screen.getByTestId('v2-read-failed')
+    expect(alert.closest('[inert]')).toBeNull()
+    expect(alert.getAttribute('role')).toBe('alert')
+    expect(alert.querySelector('button')!.hasAttribute('inert')).toBe(true)
+  })
+
   it('relocate_AtEndThenAway_BlockShownThenHidden', async () => {
     const { relocate } = await reader()
     expect(block()).toBeNull()
