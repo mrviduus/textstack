@@ -101,8 +101,12 @@ const FOLIATE_SHA = 'fe04665d650332f4017f92c5d45d98ee2a84e363'
 // +879 (#1272): `speaking(cfi, index)`: the range the host speaks underlined in SPOKEN_FILL (listen.mjs) until
 // `speaking(null)`; one decoration of an overlay goes without the others (`undecorate`).
 // +164 (#1297): the fork's justAnchored keeps the anchored scroll offset, swallowing only the anchoring's own scroll.
+// +1991 (#1313): `relocate.cause` (turn / nav / layout) from the page's own navigations (`asNav`: a restore, a host goTo,
+// section(), a followed link through the page's chain; reset at the swap, bounded at 15 s except a restore), the open
+// awaiting its restore unless the reader acts (`awaitingRestore`, `readerActed` from any input or a turn);
+// `__testHoldNav(ms)` and `__testRestoreDelay(ms)` test-only.
 // +7,386 (#1271): `markWords(words, show)`: saved-word marks by stage, placed per section (wordMarks.mjs).
-const BUDGET = 285152
+const BUDGET = 287143
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

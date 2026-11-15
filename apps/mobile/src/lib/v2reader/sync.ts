@@ -1,7 +1,7 @@
 /**
  * The V2 local library's sync client (R6, #1038; PDD v2-sync-protocol.md "Pull and push", "The
  * revision rule", "Conflict codes", "File sync upload protocol"). One pass: pull the library, reading and annotations
- * feeds from their cursors, page by page, push the outbox kind by kind (books → states → annotations), pull the
+ * feeds from their cursors, page by page, push the outbox kind by kind (books → states → sessions → annotations), pull the
  * vocabulary feed the reader's marks read offline (#1271: after the pushes, its failure the pass's own only),
  * then — only with file sync on — send the bytes the server lacks. Opportunistic: the reading path
  * never waits for it. Offline or 503 `v2_unavailable` ends the pass; any other failure of one
@@ -141,7 +141,7 @@ export function syncV2Library(lib: LocalLibrary, host: SyncHost): Promise<SyncRe
   })())
 }
 
-const PUSHES = [['book', pushBook], ['state', pushState], ['annotation', pushAnnotation]] as const
+const PUSHES = [['book', pushBook], ['state', pushState], ['session', pushSession], ['annotation', pushAnnotation]] as const
 
 async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset, pushOnly = false): Promise<SyncResult> {
   if (reset()) return 'dropped'
@@ -441,6 +441,29 @@ async function pushState(lib: LocalLibrary, host: SyncHost, reset: Reset, item: 
       default:
         if (!(await refusedChild(lib, reset, item, b, err))) throw e
     }
+  }
+}
+
+/**
+ * PDD "Reading session" (#1313): one PUT by its client session id, first write wins, so a resend (the answer lost,
+ * a pass on two screens) is the same session. A session of a book the server lacks waits for the book; the row
+ * leaves with its entry (`done`). `invalid_payload` (an end in the future by the server's clock, past its skew)
+ * drops it, logged.
+ */
+async function pushSession(lib: LocalLibrary, host: SyncHost, reset: Reset, item: OutboxItem): Promise<void> {
+  const s = await lib.session(item.target)
+  const local = s && (await lib.book(s.book_id))
+  if (!s || !local) return drop(lib, reset, item)
+  const b = await pushedBook(lib, reset, local)
+  if (!b) return
+  const write = {
+    bookId: b.id, startedAt: s.started_at, endedAt: s.ended_at, durationSeconds: s.duration_seconds,
+    wordsRead: s.words_read, startPercent: s.start_percent, endPercent: s.end_percent,
+  }
+  try {
+    await current(reset, v2Api.putSession(s.id, write), () => lib.done(item))
+  } catch (e) {
+    if (!(await refusedChild(lib, reset, item, b, v2Api.v2ErrorOf(e)))) throw e
   }
 }
 

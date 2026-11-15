@@ -208,4 +208,36 @@ public class V2ReadingEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixtur
         Assert.Equal((HttpStatusCode.OK, 120), (replay.Status, replay.Body.GetProperty("wordsRead").GetInt32()));
         Assert.Equal((HttpStatusCode.NotFound, "book_not_found"), (bobs.Status, bobs.Code));
     }
+
+    [Fact]
+    public async Task PutSessions_ThreeWithWordsAndAReplay_PaceIsTheReadersOwnFromThoseThree()
+    {
+        v2.Require();
+        // A fresh reader: no legacy sessions, no cached pace (#1313: the V2 reader's sessions are the pace's too).
+        var reader = await v2.NewGuestAsync();
+        var (bookId, _, _) = await v2.ImportAsync(reader);
+        var session = (int words) => new
+        {
+            bookId,
+            startedAt = DateTimeOffset.UtcNow.AddMinutes(-10),
+            endedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+            durationSeconds = 300,
+            wordsRead = words,
+            startPercent = 0.1m,
+            endPercent = 0.2m,
+        };
+        var ids = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+
+        var writes = new List<HttpStatusCode>();
+        foreach (var (id, words) in ids.Zip(new[] { 1000, 1500, 2000 }))
+            writes.Add((await v2.SendAsync(reader, HttpMethod.Put, $"/me/v2/reading/sessions/{id}", session(words))).Status);
+        // A resend of the first: first write wins, counted once.
+        writes.Add((await v2.SendAsync(reader, HttpMethod.Put, $"/me/v2/reading/sessions/{ids[0]}", session(9000))).Status);
+        var pace = await v2.SendAsync(reader, HttpMethod.Get, "/me/reading/pace");
+
+        Assert.Equal([HttpStatusCode.Created, HttpStatusCode.Created, HttpStatusCode.Created, HttpStatusCode.OK], writes);
+        // 4500 words in 900 s.
+        Assert.Equal((HttpStatusCode.OK, 300, 3, true),
+            (pace.Status, pace.Body.GetProperty("wpm").GetInt32(), pace.Body.GetProperty("sessionCount").GetInt32(), pace.Body.GetProperty("isUserSpecific").GetBoolean()));
+    }
 }

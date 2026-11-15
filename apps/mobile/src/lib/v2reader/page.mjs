@@ -71,6 +71,40 @@ let hostMoving = false
  */
 let lastCfi = null
 /**
+ * #1313: the navigations of the view on screen still landing (a restore, a host `goTo`, `section()`, a followed link):
+ * their relocates are `cause` `nav`. Foliate reports a turn across a section with the same reason ('navigation') as a
+ * jump, so only the page knows which navigations it asked for. Reset at the swap; one of a closed view never counts
+ * again, however it ends.
+ * ponytail: one that has not settled after NAV_BOUND_MS stops counting: the bound exists only for a navigation that
+ * never settles (a hung load must not make the rest of the book a navigation); a landing slower than it (a 2 MB
+ * single-file section can lay out for seconds on Android) is counted as the reader's. A restore is not bounded: its
+ * own end clears `awaitingRestore`, and while it runs its relocates are `nav`.
+ */
+let navs = 0
+const NAV_BOUND_MS = 15_000
+const asNav = async (fn, bounded = true) => {
+  const mine = viewSeq
+  let counting = true
+  const stop = () => {
+    if (counting && mine === viewSeq) navs--
+    counting = false
+  }
+  navs++
+  const bound = bounded ? setTimeout(stop, NAV_BOUND_MS) : 0
+  try { return await fn() } finally { clearTimeout(bound); stop() }
+}
+/** Test-only (formats.check.mjs; the build has no test mode): ms every restore waits before it runs. */
+let testRestoreDelay = 0
+/**
+ * #1313: from the swap until the restore has landed, the open itself is a navigation, unless the reader acts first
+ * (`readerActed`: any input the page sees, or a turn): an open whose restore never comes (the web host's failed read)
+ * does not make the reader's own turns a navigation.
+ */
+let awaitingRestore = false
+let readerActed = false
+const onInput = () => { readerActed = true }
+for (const type of ['pointerdown', 'wheel', 'keydown', 'touchstart']) document.addEventListener(type, onInput, { capture: true, passive: true })
+/**
  * The last `selection` sent: its range (edge whitespace dropped), text, CFI, sentence. What `highlightSelection`
  * highlights when no selection is live: kept after the selection is cleared (tapping a host button may clear the
  * WebView's selection first).
@@ -243,6 +277,8 @@ document.addEventListener('click', (e) => {
 })
 
 function onLoad({ detail: { doc, index } }) {
+  // Any book, CBZ too: the reader acting in a section is the reader acting (`readerActed`).
+  for (const type of ['pointerdown', 'wheel', 'keydown', 'touchstart']) doc.addEventListener(type, onInput, { capture: true, passive: true })
   doc.addEventListener('keydown', onKey)
   // Images only: every tap is a chrome toggle, and nothing is kept for a highlight.
   if (!textual) return doc.addEventListener('click', (e) => post(tapAt(doc, e)))
@@ -768,6 +804,9 @@ async function open(bytes, name, kind, mine) {
   book = { sha256, size: bytes.length, name }
   entry = null
   hostMoving = true
+  awaitingRestore = true
+  readerActed = false
+  navs = 0
   lastCfi = null
   viewSeq = mine
   navigating = Promise.resolve()
@@ -796,8 +835,15 @@ async function open(bytes, name, kind, mine) {
     // The save rule's own test: the reader moved the place (not a re-layout, not the same place again, not the
     // host moving the view). Sent as `moved`, so a host never guesses it from CFIs.
     const moved = d.reason !== 'anchor' && d.cfi !== lastCfi && !hostMoving
+    // #1313, what moved the place: nothing (the same place again: `layout`, whatever asked for it); the landing of a
+    // navigation (`nav`; foliate often reports a landing with reason 'anchor', as the new section expands); outside one,
+    // a re-layout ('anchor': `layout`) or the reader's own turn (a swipe, a scroll, a tap or key turn, prev()/next()).
+    // ponytail: a turn across a section in scrolled flow is foliate's re-anchoring (`layout`, about a screen uncounted
+    // per section), and a swipe while a navigation lands is `nav`; the root fix is the fork tagging its own turn
+    // crossings (paginator #turnPage/snap passing reason 'turn').
+    const cause = d.cfi === lastCfi ? 'layout' : navs > 0 || (awaitingRestore && !readerActed) ? 'nav' : d.reason === 'anchor' ? 'layout' : 'turn'
     lastCfi = d.cfi
-    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, atEnd: atBookEnd(d.section?.current), ...lengthAt(d.section?.current) })
+    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, cause, atEnd: atBookEnd(d.section?.current), ...lengthAt(d.section?.current) })
     // A selection moved (or left the screen) with the view, a font or flow change's re-layout included: sent
     // again, or cleared.
     settleSelection()
@@ -827,6 +873,13 @@ async function open(bytes, name, kind, mine) {
   view.addEventListener('draw-annotation', ({ detail: { draw, annotation: a, range } }) => {
     if (a.hl) drawnRanges.set(a.value, range)
     draw(decorate, { hl: a.hl, gloss: a.gloss, mark: a.mark, spoken: a.spoken, el: elementOf(range) })
+  })
+  // A link within the book: followed as view.js would, its landing a navigation (#1313).
+  view.addEventListener('link', (e) => {
+    e.preventDefault()
+    if (mine !== viewSeq) return
+    const { href } = e.detail
+    void navigate(() => asNav(() => view.goTo(href)))
   })
   view.addEventListener('external-link', (e) => {
     e.preventDefault()
@@ -915,11 +968,14 @@ function restore(json) {
   // One slot of the navigation chain, taken when called: a host goTo made meanwhile runs after it and wins.
   return navigate(async () => {
     try {
-      return await restoreInto(json, () => mine !== viewSeq)
+      return await asNav(async () => {
+        if (testRestoreDelay) await new Promise((done) => setTimeout(done, testRestoreDelay))
+        return restoreInto(json, () => mine !== viewSeq)
+      }, false)
     } finally {
       // Whatever happened, the page saves again: a restore that threw used to silence every save. Not
       // for a view opened since: that one is still restoring.
-      if (mine === viewSeq) hostMoving = false
+      if (mine === viewSeq) hostMoving = awaitingRestore = false
     }
   })
 }
@@ -1132,7 +1188,7 @@ window.__fol = {
     const mine = viewSeq
     hostMoving = true
     let at = -1
-    try { at = await land(target) } finally { if (mine === viewSeq) hostMoving = !entry }
+    try { at = await asNav(() => land(target)) } finally { if (mine === viewSeq) hostMoving = !entry }
     if (mine !== viewSeq || !entry) return
     if (at < 0) return log('warn', 'goTo: the target did not land, position kept')
     if (!chosen) {
@@ -1155,10 +1211,15 @@ window.__fol = {
   section: (delta) => navigate(() => {
     if (!view?.book) return
     const i = (view.lastLocation?.section?.current ?? 0) + delta
-    if (i >= 0 && i < view.book.sections.length) return view.goTo(i)
+    if (i >= 0 && i < view.book.sections.length) return asNav(() => view.goTo(i))
   }),
-  next: () => navigate(() => view?.next()),
-  prev: () => navigate(() => view?.prev()),
+  // A turn is the reader acting, when it runs (behind a navigation queued before it).
+  next: () => navigate(() => { readerActed = true; return view?.next() }),
+  prev: () => navigate(() => { readerActed = true; return view?.prev() }),
+  // Test-only (formats.check.mjs; the build has no test mode): a navigation of the view on screen that lands after
+  // `ms`, or never.
+  __testHoldNav: (ms) => void asNav(() => new Promise((done) => { if (ms) setTimeout(done, ms) })),
+  __testRestoreDelay: (ms) => { testRestoreDelay = ms },
   // #1260: the whole settings object, read through settings.mjs (closed lists, a clamped size): nothing of the
   // host's reaches the CSS as it came. Applied live; before `opened` it sets what the next open uses.
   settings: (raw) => { look = readSettings(raw); applyLook(); return look },
