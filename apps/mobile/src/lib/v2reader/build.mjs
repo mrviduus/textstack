@@ -155,11 +155,11 @@ if (minor(version) !== minor(wanted)) {
 
 // view.js's makeBook lazily imports every format. The page never calls it (page.mjs routes a file
 // itself), so its imports are stubbed out of the page: MOBI/FB2/CBZ come in as FORMATS below, and
-// PDF too (its own reader below, with pdf.js), TTS and search not at all.
+// PDF too (its own reader below, with pdf.js), TTS not at all. search.js stays in (#1315: view.search).
 const stubFormats = {
   name: 'stub-formats',
   setup(b) {
-    b.onResolve({ filter: /\/(pdf|mobi|fb2|comic-book|tts|search|vendor\/fflate)\.js$/ }, (a) => ({ path: a.path, namespace: 'stub' }))
+    b.onResolve({ filter: /\/(pdf|mobi|fb2|comic-book|tts|vendor\/fflate)\.js$/ }, (a) => ({ path: a.path, namespace: 'stub' }))
     b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: 'export {}', loader: 'js' }))
   },
 }

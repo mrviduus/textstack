@@ -21,6 +21,8 @@ import { flushPendingSessions, queueReadingSession } from '../../hooks/useReadin
 import { useAuth } from '../../context/AuthContext'
 import { trackReadingSessionEnd } from '../../lib/analytics'
 import { V2SectionNav, V2TocDrawer } from './V2ReaderToc'
+import { V2SearchDrawer } from './V2ReaderSearch'
+import { NO_SEARCH, readSearchResults, searchStart, searchTake, type V2Search, type V2SearchResult } from '../../../../mobile/src/lib/v2reader/search.mjs'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { V2TimeLeft, v2Percent, type V2TimePlace } from './V2TimeLeft'
 import { useTranslation } from '../../hooks/useTranslation'
@@ -51,6 +53,8 @@ export interface V2OpenedMessage {
   author?: string
   annotatable?: boolean
   reflowable?: boolean
+  /** #1315: strictly `true` where the page can search the book (not a CBZ or a PDF). */
+  searchable?: unknown
   /** Untrusted: read through readLang / ttsVoice only. */
   lang?: unknown
   book: { sha256: string; size: number; name?: string }
@@ -255,6 +259,20 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [tocIndex, setTocIndex] = useState<number | null>(null)
   const [tocOpen, setTocOpen] = useState(false)
   /**
+   * #1315: in-book search (search.mjs, one rule for both hosts). `opened.searchable`; the search the page was last asked
+   * (the ref for the message handler, set with the state: an answer may come before the re-render); the drawer, keyed
+   * by the open so a new book's starts empty.
+   */
+  const [searchable, setSearchable] = useState(false)
+  const [search, setSearchState] = useState<V2Search>(NO_SEARCH)
+  const searchRef = useRef<V2Search>(NO_SEARCH)
+  const setSearch = (s: V2Search) => {
+    searchRef.current = s
+    setSearchState(s)
+  }
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchBook, setSearchBook] = useState(0)
+  /**
    * The bars (#1263): hidden 3 s after `opened`, by a page turn (tap, key) and by the reader moving the place
    * (`relocate.moved`, either flow) unless a bar button or the taken offer moved it; a centre tap toggles them,
    * Esc and focus on a bar show them. A new open shows them (its title is the opening state) and they stay up
@@ -389,6 +407,15 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     call(turn)
     hideBars()
   }
+  /**
+   * What the reader typed in the search drawer ('' clears): a new search under the next id, which ends the one running
+   * in the page; with no query the page removes the hits it drew.
+   */
+  const askSearch = (raw: string) => {
+    const next = searchStart(searchRef.current, raw)
+    setSearch(next)
+    call('search', [next.query || null, next.id])
+  }
   /** The popups' close; `selectionDone`: the page's selection goes too, and the toolbar if it is still what is open. */
   const closePopup = (selectionDone: boolean) => {
     if (!selectionDone) return setPopup(null)
@@ -425,6 +452,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setStatus('')
     setTocIndex(null)
     setTocOpen(false)
+    // The previous book's search ends with it: its hits go from the page (still showing that book if this open fails).
+    setSearchOpen(false)
+    setSearchBook((n) => n + 1)
+    if (searchRef.current.query) askSearch('')
     setPopup(null)
     setRestored('')
     setAtEnd(false)
@@ -532,6 +563,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       }
       setAnnotatable(m.annotatable !== false)
       setReflowable(m.reflowable !== false)
+      setSearchable(m.searchable === true)
       // Untrusted: only what readToc takes. Its place came with the relocate before this message.
       setToc(readToc(m))
       setBookLanguage(readLang(m) ?? 'en')
@@ -619,6 +651,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (!r || r.key !== openedSha.current) return
           if (dev) devNotes.current.delete(r.id)
           else if (sync.current?.target.sha256.toLowerCase() === r.key) sync.current.remove(r.id)
+          return
+        }
+        case 'search-results': {
+          // #1315, untrusted: only what readSearchResults takes; another book's or an older search's is dropped.
+          const r = readSearchResults(m)
+          if (r && r.key === openedSha.current) setSearch(searchTake(searchRef.current, r))
           return
         }
         case 'restored':
@@ -835,6 +873,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   } : null
   /** A highlight chosen in the list: the reader's choice, saved where it lands. */
   const goHighlight = (h: V2HighlightItem) => hostMove('goTo', [h.cfi, true])
+  /** #1315: a search result chosen, as a highlight is: the page draws every hit of the query in its section. */
+  const goSearchResult = (r: V2SearchResult) => hostMove('goTo', [r.cfi, true])
 
   /** Never a section number (#1261): the percent, then the current entry's title when there is one. */
   const currentEntry = tocAround(toc, tocIndex).current
@@ -869,6 +909,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         <div className="reader-top-bar__right">
           {toolbar}
           {reading && (toc.length > 0 || offersHighlights) && <button className="reader-top-bar__btn" onClick={() => setTocOpen(true)}>{t('v2Reader.contents')}</button>}
+          {reading && searchable && <button className="reader-top-bar__btn" onClick={() => setSearchOpen(true)}>{t('v2Reader.search')}</button>}
           {offersHighlights && <button className="reader-top-bar__btn" onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
           <button className="reader-top-bar__btn" onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
           <button className="reader-top-bar__btn" onClick={() => setSettingsOpen(true)} aria-label={t('v2Reader.settings')} title={t('v2Reader.settings')}>
@@ -972,6 +1013,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         onClose={() => setTocOpen(false)}
         highlights={offersHighlights ? { items: highlightList, noteOf: noteFor, onGo: goHighlight } : null}
       />
+      <V2SearchDrawer key={searchBook} open={searchOpen && reading && searchable} search={search} onQuery={askSearch} onGo={goSearchResult} onClose={() => setSearchOpen(false)} />
     </main>
   )
 }

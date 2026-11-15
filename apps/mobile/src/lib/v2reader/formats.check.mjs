@@ -3,7 +3,7 @@
 // each format reader runs only when its first book opens, CBZ has no text features and still saves and
 // restores its page, a fraction-only position (#1187) restores without saving, a synthetic KF8 (#1182) reads,
 // a DRM-flagged MOBI or KF8, a damaged KF8 and an unknown file are refused, and flow() switches the live view
-// and is reported once per book in `telemetry`; a selection reaches the host as one `selection` (#1268). PDF (#1128 S5): opens through pdf.js on the page's main
+// and is reported once per book in `telemetry`; in-book search (#1315) finds, jumps to and draws its hits where a book has text of its own; a selection reaches the host as one `selection` (#1268). PDF (#1128 S5): opens through pdf.js on the page's main
 // thread, pages, selects, saves and resumes by `pdf-page`, a password-protected one fails leaving the open
 // book reading, and a hostile PDF neither runs script nor leaves the file.
 //
@@ -25,8 +25,8 @@ const TIMEOUT_MS = 15000
 // The hosts' validator, as they run it. Bundled first (apps/web's esbuild, as build.mjs): selection.mjs imports
 // packages/shared, whose extensionless TS imports plain node does not resolve.
 const { build: esbuild } = createRequire(resolve(here, '../../../../web/package.json'))('esbuild')
-const bundled = await esbuild({ stdin: { contents: `export * from './selection.mjs'; export * from './chrome.mjs'; export * from './wordPopup.mjs'`, resolveDir: here, loader: 'js' }, bundle: true, write: false, format: 'esm', logLevel: 'silent' })
-const { readSelection, readDir, readTap, readKey, readRelocate, readWord, readLang, popupStep, readLightbox } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`)
+const bundled = await esbuild({ stdin: { contents: `export * from './selection.mjs'; export * from './chrome.mjs'; export * from './wordPopup.mjs'; export * from './search.mjs'`, resolveDir: here, loader: 'js' }, bundle: true, write: false, format: 'esm', logLevel: 'silent' })
+const { readSelection, readDir, readTap, readKey, readRelocate, readWord, readLang, popupStep, readLightbox, readSearchResults, MAX_RESULTS, SEARCH_FILL } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`)
 
 const failures = []
 const check = (ok, what) => { console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}`); if (!ok) failures.push(what) }
@@ -2388,6 +2388,109 @@ try {
   await page.waitForTimeout(300)
   check(await call('window.__fol.markedWords()') === 0, 'a CBZ draws no marks')
   call('window.__fol.markWords([], false)')
+
+  // #1315: in-book search. The page searches the book's own section documents (foliate's search, no network) and
+  // answers in `search-results`; a hit's CFI is a `goTo` target, and every hit is drawn in its section. EPUB, MOBI,
+  // AZW3 and FB2 are searched; a CBZ (images) and a PDF (the fork's PDF reader has no section documents) are not, and say so.
+  console.log('search')
+  let searchId = 100
+  /** `query` through the page, as the hosts read its answers (`readSearchResults`), once it says `done`. */
+  const searchFor = async (query) => {
+    const id = ++searchId, from = messages.length
+    call(`window.__fol.search(${JSON.stringify(query)}, ${id})`)
+    await waitFor(from, (x) => x.type === 'search-results' && x.id === id && x.done, `the search for ${query} to end`)
+    const read = messages.slice(from).filter((x) => x.type === 'search-results').map(readSearchResults)
+    return { read, results: read.flatMap((r) => r?.results ?? []), more: read.at(-1)?.more }
+  }
+  /** The text a CFI points at in the book's own section document. */
+  const hitText = (cfi) => call(`(async () => { const v = document.querySelector('foliate-view'); const { index, anchor } = v.resolveCFI(${JSON.stringify(cfi)}); return anchor(await v.book.sections[index].createDocument()).toString() })()`)
+  /** The boxes of the search hits drawn in the shown sections (each section frame's own coordinates), sorted. */
+  const drawnHits = () => call(`[...document.querySelector('foliate-view').renderer.getContents()].flatMap((c) => [...(c.overlayer?.element.querySelectorAll(':scope > g[fill="${SEARCH_FILL}"] > rect') ?? [])].map((r) => ['x', 'y', 'width', 'height'].map((k) => Math.round(r.getAttribute(k))).join())).sort()`)
+  /** Where a CFI's range is in its shown section: its text, its boxes as `drawnHits` gives them, and whether it is inside the page viewport; null when that section is not shown. */
+  const hitOnScreen = (cfi) => call(`(() => {
+    const v = document.querySelector('foliate-view')
+    const { index, anchor } = v.resolveCFI(${JSON.stringify(cfi)})
+    const c = v.renderer.getContents().find((x) => x.index === index)
+    if (!c) return null
+    const r = anchor(c.doc), b = r.getBoundingClientRect(), fr = c.doc.defaultView.frameElement.getBoundingClientRect()
+    return { text: r.toString(), boxes: [...r.getClientRects()].map((q) => [q.left, q.top, q.width, q.height].map(Math.round).join()), inView: fr.left + b.left >= 0 && fr.left + b.right <= innerWidth && fr.top + b.top >= 0 && fr.top + b.bottom <= innerHeight }
+  })()`)
+  const show = (rs) => JSON.stringify(rs.map((r) => [r.pre, r.match, r.post.slice(0, 12), r.label]))
+  // [file, format, query, the hits wanted in book order as [pre, match, the start of post, section title]]
+  const SEARCHED = [
+    ['tsformat.epub', 'EPUB', 'paragraph 30. SPHINX', [['', 'Paragraph 30. Sphinx', ' of black qu', 'One']]],
+    ['tsformat.mobi', 'MOBI', 'paragraph 30. SPHINX', [['', 'Paragraph 30. Sphinx', ' of black qu', ''], ['', 'Paragraph 30. Sphinx', ' of black qu', '']]],
+    ['tssynthetic-kf8.azw3', 'AZW3', 'last FERRY docks', [['The harbour keeps its lamps lit until the ', 'last ferry docks', '.', 'Part Three']]],
+    ['tsformat.fb2', 'FB2', 'paragraph 30. SPHINX', [['', 'Paragraph 30. Sphinx', ' of black qu', 'Chapter One'], ['', 'Paragraph 30. Sphinx', ' of black qu', 'Chapter Two']]],
+  ]
+  for (const [file, kind, query, want] of SEARCHED) {
+    m = await open(file)
+    check(m.searchable === true, `${kind}: opened as searchable`)
+    const found = await searchFor(query)
+    check(show(found.results) === JSON.stringify(want) && found.more === false && found.read.every(Boolean),
+      `${kind}: "${query}" finds its hits in book order, each with its context and section title (${show(found.results)})`)
+    const hit = found.results.at(-1)
+    if (!hit) continue
+    check(await hitText(hit.cfi) === hit.match, `${kind}: the hit's CFI points at the hit's text (${JSON.stringify(await hitText(hit.cfi))})`)
+    const before = await hitOnScreen(hit.cfi)
+    check(!before?.inView, `${kind}: the hit is not on the opening screen`)
+    from = messages.length
+    call(`window.__fol.goTo(${JSON.stringify(hit.cfi)}, true)`)
+    const landed = await storeFrom(from, `${kind}: a store after the jump to a hit`)
+    await settle()
+    const after = await hitOnScreen(hit.cfi)
+    const drawn = await drawnHits()
+    check(!!landed?.position?.cfi && after?.inView === true && after.text === hit.match, `${kind}: goTo(the hit's CFI, chosen) shows the hit and saves the place (${JSON.stringify(after)})`)
+    check(!!after && after.boxes.length > 0 && after.boxes.every((b) => drawn.includes(b)), `${kind}: the hit is drawn where its text is (${JSON.stringify(after?.boxes)} in ${JSON.stringify(drawn)})`)
+    call('window.__fol.search(null)')
+    await page.waitForTimeout(300)
+    check((await drawnHits()).length === 0, `${kind}: search(null) removes the hits drawn`)
+  }
+  // A new search ends the one running: the first is stopped after its first section's answer (the second search is
+  // asked from inside that very message), so it never answers for its second section nor says `done`; the hits drawn
+  // are the second search's.
+  m = await open('tsformat.fb2')
+  from = messages.length
+  await call(`new Promise((done) => {
+    const rn = window.ReactNativeWebView, send = rn.postMessage
+    rn.postMessage = (json) => {
+      send(json)
+      if (JSON.parse(json).type !== 'search-results') return
+      rn.postMessage = send
+      window.__fol.search('judge MY vow', 2)
+      done()
+    }
+    window.__fol.search('paragraph 30. sphinx', 1)
+  })`)
+  await waitFor(from, (x) => x.type === 'search-results' && x.id === 2 && x.done, 'the second search to end')
+  await page.waitForTimeout(300)
+  const firstRun = messages.slice(from).filter((x) => x.type === 'search-results' && x.id === 1).map(readSearchResults)
+  const secondRun = messages.slice(from).filter((x) => x.type === 'search-results' && x.id === 2).flatMap((x) => readSearchResults(x)?.results ?? [])
+  check(show(firstRun.flatMap((r) => r.results)) === JSON.stringify([['', 'Paragraph 30. Sphinx', ' of black qu', 'Chapter One']]) && firstRun.every((r) => !r.done),
+    `a search superseded mid-book answers for the sections it had read and never ends (${show(firstRun.flatMap((r) => r.results))}, done: ${firstRun.map((r) => r.done)})`)
+  const shownHits = (await Promise.all(secondRun.map((r) => hitOnScreen(r.cfi)))).filter(Boolean)
+  check(secondRun.length > 0 && secondRun.every((r) => r.match === 'judge my vow') && shownHits.length > 0 && JSON.stringify(shownHits.flatMap((h) => h.boxes).sort()) === JSON.stringify(await drawnHits()),
+    `the hits drawn are the newer search's, and only those (${shownHits.length} hits in the shown section)`)
+  // Two calls in a row: the first never starts. A query too short is no search: nothing answered, the hits drawn go.
+  from = messages.length
+  call(`window.__fol.search('sphinx', 3)`)
+  call(`window.__fol.search('x', 4)`)
+  await page.waitForTimeout(600)
+  check(!messages.slice(from).some((x) => x.type === 'search-results') && (await drawnHits()).length === 0, 'a search superseded before it starts answers nothing; a one-letter query is no search and clears the hits')
+  // The cap: a search stops at MAX_RESULTS hits and says there are more.
+  writeFileSync(resolve(dir, 'tsmany.fb2'), fb2('TS MANY', `<section><title><p>Many</p></title>${Array.from({ length: MAX_RESULTS + 100 }, (_, i) => `<p>zebra ${i + 1}</p>`).join('')}</section>`))
+  m = await open('tsmany.fb2')
+  const many = await searchFor('zebra')
+  check(many.results.length === MAX_RESULTS && many.more === true && many.results.at(-1)?.post === ` ${MAX_RESULTS}`, `a search stops at ${MAX_RESULTS} hits and says there are more (${many.results.length}, last ${JSON.stringify(many.results.at(-1)?.post)})`)
+  // A new open ends the search and its hits; the next book starts with none.
+  m = await open('tsformat.fb2')
+  check((await drawnHits()).length === 0, 'a new open draws no hits of the previous search')
+  // No text of its own to search: a CBZ (images) and a PDF (pdf.js draws it; the fork's reader has no section documents).
+  for (const [file, kind] of [['tsformat.cbz', 'CBZ'], ['tsformat.pdf', 'PDF']]) {
+    m = await open(file)
+    const none = await searchFor('sphinx')
+    check(m.searchable === false && none.results.length === 0 && none.read.length === 1, `${kind}: not searchable, and a search finds nothing (${none.results.length})`)
+  }
 
   // A fixed-layout book (CBZ) lands a fraction on its page, quietly too, and saves its page once moved.
   m = await open('tsformat.cbz', JSON.stringify({ v: 1, book: cbzBook, highlights: [], position: { fraction: 0.9, at: 1 } }))
