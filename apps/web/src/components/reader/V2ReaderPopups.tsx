@@ -157,7 +157,8 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
     if (!lookup || addAnywayBusy) return
     setAddAnywayBusy(true)
     try {
-      recordSavedWord(await promoteLookup(lookup.id))
+      const asked = vocab.identity()
+      recordSavedWord(await promoteLookup(lookup.id), asked)
       setLookup(null)
       setToast(t('reader.vocab.addedToSrs'))
       onClose(false)
@@ -171,7 +172,8 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
     if (!deleted) return
     setDeleted(null)
     try {
-      recordSavedWord(await restoreWord(deleted.id))
+      const asked = vocab.identity()
+      recordSavedWord(await restoreWord(deleted.id), asked)
       emitDataChange('vocabulary')
     } catch {
       setToast(t('reader.vocab.restoreFailed'))

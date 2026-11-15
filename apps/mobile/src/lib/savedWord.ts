@@ -41,12 +41,12 @@ export async function fillSavedTranslation(
   sourceText: string,
   textLanguage: string,
   nativeLanguage: string,
-  ctx: { sentence?: string | null; bookId?: string; onStored?: (translation: string) => void },
+  ctx: { sentence?: string | null; bookId?: string; onStored?: (card: VocabularyWordDto) => void },
 ): Promise<string | null> {
   if (saved.translation || nativeLanguage === textLanguage) return null
   const { translation } = await cachedTranslate(sourceText, textLanguage, nativeLanguage, { sentence: ctx.sentence ?? undefined, bookId: ctx.bookId })
   if (!translation || !saved.id) return null
-  // `onStored` (#1271, the V2 reader): once the card has it, its local row gets it too.
-  vocabularyApi.updateWord(saved.id, { translation, onlyIfEmpty: true }).then(() => ctx.onStored?.(translation), () => {})
+  // `onStored` (#1271, the V2 reader): the card as the server holds it after the write, for its local row.
+  vocabularyApi.updateWord(saved.id, { translation, onlyIfEmpty: true }).then((card) => ctx.onStored?.(card), () => {})
   return translation
 }

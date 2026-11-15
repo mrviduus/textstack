@@ -895,10 +895,45 @@ describe('V2 local library sync (R6)', () => {
       expect(order.indexOf('GET /vocabulary/changes')).toBeGreaterThan(order.indexOf(`PUT /annotations/${HL}`))
     })
 
+    /** The guard a save carries: `mine` for a library nobody owns yet, `guardNow` its owner now; the session live. */
+    const mine = (_lib: LocalLibrary) => ({ owner: null, stale: () => false })
+    const guardNow = async (lib: LocalLibrary, stale = () => false) => ({ owner: await lib.account(), stale })
+    const otter = { id: W1, word: 'otter', language: 'en', stage: 0, translation: null }
+
+    it('anAnswerAfterTheSignOutsWipe_NoRow_TheLibraryStaysNobodys', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({ 'GET /vocabulary/changes': feed() })
+      await syncV2Library(lib, host({ userId: 'u1' }))
+      const guard = await guardNow(lib)
+      await wipeV2Library(lib, clear) // signed out while the save was in flight
+      expect(await lib.upsertWord(otter, guard)).toBe(false)
+      expect(await words(lib)).toEqual([])
+    })
+
+    it('anAnswerOfASessionThatEnded_NoRow_EvenOnANobodysLibrary', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      let ended = false
+      const guard = await guardNow(lib, () => ended)
+      ended = true // the session changed (the shared epoch), the library still nobody's
+      expect(await lib.upsertWord(otter, guard)).toBe(false)
+      expect(await words(lib)).toEqual([])
+    })
+
+    it('aGuestsAnswerAfterTheAdoption_NoGuestRow', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({ 'GET /vocabulary/changes': feed() })
+      await syncV2Library(lib, host({ userId: 'g1', guest: true }))
+      const guard = await guardNow(lib)
+      await adoptV2LocalAccount('g1', 'acct', { books: {}, files: {} }, () => lib)
+      expect(await lib.upsertWord({ ...otter, id: 'guest-card' }, guard)).toBe(false)
+      expect(await lib.setWordTranslation('guest-card', 'видра', guard)).toBe(false)
+      expect(await words(lib)).toEqual([])
+    })
+
     // #1271 review: this device's own saves are rows too (their answer cards), replaced and removed by the pull as any.
     it('ownSave_ItsAnswerCardUpserted_MarkedFromTheRows_ThenAPullReplacesItById', async () => {
       const lib = createLocalLibrary(memoryDb())
-      await lib.upsertWord({ id: W1, word: 'otter', language: 'en', stage: 0, translation: null })
+      await lib.upsertWord({ id: W1, word: 'otter', language: 'en', stage: 0, translation: null }, mine(lib))
       expect(await words(lib)).toEqual([[W1, 'otter', 'en', 0, null]])
       fakeApi({ 'GET /vocabulary/changes': feed(card(W1, { word: 'otter', stage: 2, translation: 'видра' })) })
       await syncV2Library(lib, host())
@@ -907,7 +942,7 @@ describe('V2 local library sync (R6)', () => {
 
     it('ownSave_DeletedElsewhere_TheTombstoneRemovesIt', async () => {
       const lib = createLocalLibrary(memoryDb())
-      await lib.upsertWord({ id: W1, word: 'otter', language: 'en', stage: 0, translation: null })
+      await lib.upsertWord({ id: W1, word: 'otter', language: 'en', stage: 0, translation: null }, mine(lib))
       fakeApi({ 'GET /vocabulary/changes': feed(card(W1, { deletedAt: '2026-11-03T00:00:00Z' })) })
       await syncV2Library(lib, host())
       expect(await words(lib)).toEqual([])
@@ -915,10 +950,10 @@ describe('V2 local library sync (R6)', () => {
 
     it('aTranslationTheServerTook_OnItsRow_NeverOverOne', async () => {
       const lib = createLocalLibrary(memoryDb())
-      await lib.upsertWord({ id: W1, word: 'otter', language: 'en', stage: 0, translation: null })
-      await lib.upsertWord({ id: W2, word: 'reed', language: 'en', stage: 0, translation: 'очерет' })
-      await lib.setWordTranslation(W1, 'видра')
-      await lib.setWordTranslation(W2, 'інше')
+      await lib.upsertWord({ id: W1, word: 'otter', language: 'en', stage: 0, translation: null }, mine(lib))
+      await lib.upsertWord({ id: W2, word: 'reed', language: 'en', stage: 0, translation: 'очерет' }, mine(lib))
+      await lib.setWordTranslation(W1, 'видра', mine(lib))
+      await lib.setWordTranslation(W2, 'інше', mine(lib))
       expect((await words(lib)).map((x) => x[4])).toEqual(['видра', 'очерет'])
     })
 
@@ -926,7 +961,8 @@ describe('V2 local library sync (R6)', () => {
       const lib = createLocalLibrary(memoryDb())
       fakeApi({ 'GET /vocabulary/changes': feed() })
       await syncV2Library(lib, host({ userId: 'g1', guest: true }))
-      await lib.upsertWord({ id: 'guest-card', word: 'otter', language: 'en', stage: 0, translation: null })
+      expect(await lib.upsertWord({ id: 'guest-card', word: 'otter', language: 'en', stage: 0, translation: null }, await guardNow(lib))).toBe(true)
+      expect(await words(lib)).toEqual([['guest-card', 'otter', 'en', 0, null]])
       await adoptV2LocalAccount('g1', 'acct', { books: {}, files: {} }, () => lib)
       expect(await words(lib)).toEqual([])
       fakeApi({ 'GET /vocabulary/changes': feed(card(W2, { word: 'otter' })) })

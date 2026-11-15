@@ -48,7 +48,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `vocabSave.mjs` (+ `.d.mts`) | Pure, both hosts (#1270): `saveOutcome`, a vocabulary save's answer as the host shows it (saved, deleted → restore, pending, lookup); `savesWords`, whether a book's `opened.lang` lets its words be saved. See Host responsibilities, "Saving a word". |
 | `wordMarks.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1271): saved-word marks. `readMarkWords` (the page's read of `markWords`: word ≤ 200, gloss ≤ 500, at most 20,000; a stage off 0–4 is new), `STAGE_COLORS` (the legacy readers' five underlines), `wordMarksIn` (where words stand in a section, reader-engine's `matchWords` + `rangesIn`), `sameMark`; the gloss setting `readGlosses` / `withGlosses` (the legacy `showInlineTranslations`). See Host responsibilities, "Saved-word marks". |
 | `vocabWords.mjs` (+ `.d.mts`) | Pure, DOM-free, both hosts (#1271): `langOf`, `ofBook` (a card is the book's language), `wordId` (key + language), `markWordsOf` (what a host sends), `backfillTranslations` (the once-per-open rule: serial writes, a 429 stops it, cancelled by the host). |
-| `readerVocab.ts` | Android (#1271): `forBook`, `backfillable`, `answerRow` (the row a save's answer card makes, none for another user's), `nudgeCount`. |
+| `readerVocab.ts` | Android (#1271): `forBook`, `backfillable`, `answerRow` (the row a save's answer card makes: V2 saves only, none for another user's), `ownsLibrary`, `serverTranslation`, `nudgeCount`. |
 | `wordPopup.mjs` (+ `.d.mts`) | Pure, both hosts (#1269): `readWord` (a host's read of `word`, `readSelection`'s caps; the rect through `selection.mjs` `readRect`), `readLang` (`opened.lang` as a two-letter primary subtag, or null: a three-letter code gives the host's fallback), and `popupStep`: what a `word`, `tap`, `selection`, `selection-cleared` or a move does to the word popup / selection toolbar and to the tap zones. See Host responsibilities, "Word popup and selection toolbar". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
 | `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
@@ -614,18 +614,24 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   translations are backfilled once per authenticated load, for the language it was filtered for (a language change
   waits for its own load), over the words it brought (never on the no-session branch, never for a word saved later:
   the save's TR-2 fill has it), by the shared `backfillTranslations`, cancelled by a newer load (identity, language,
-  retry) or the unmount. "Already saved" (the auto-save's guard, the popup's ✓) is any card by key, of any language or
-  none (the legacy list, V2 down), so no word is saved twice. A guest's nudge counts the whole vocabulary, every language. The map goes to the host
+  retry) or the unmount; the map takes the translation the server kept. "Already saved" (the auto-save's guard, the
+  popup's ✓) is a card of the book's language or one with no language (the legacy list, V2 down), so no word is saved
+  twice; a card of another language is another word. Every late answer (a save, a flushed word, a recorded card)
+  applies nothing when the identity it was asked under is no longer the reader (anonymous → guest is the same person). A guest's nudge counts the whole vocabulary, every language. The map goes to the host
   through `onMarks`.
 - *Android*: the saved words are the local library's `vocabulary` rows, offline too (no token or network on the
   reading path). The feed's rows, and this device's own: a save's answer card (saved, already saved, restored, added
-  anyway) is upserted as the pull writes it (`answerRow`; dropped when the user changed since the save was asked), and
-  a translation the server took (the backfill's, TR-2's `onStored`) is written to its row. A pull replaces rows by id,
+  anyway) is upserted as the pull writes it (`answerRow`: only for a save that went through V2; dropped when the user
+  changed since the save was asked), and the translation the server holds after a write (the card its PATCH answers
+  with: `onlyIfEmpty` may keep another; the backfill's, TR-2's `onStored`) is written to its row. Every own write
+  carries the library's owner and session from when its save was asked (`WriteGuard`) and is checked inside its job: a
+  wipe or an adoption since means no write. A library another identity owns (a wipe that failed) is neither read for
+  marks nor written (`ownsLibrary`). A pull replaces rows by id,
   a tombstone deletes one, a wipe, a guest carried on and an adoption clear them and pull again (the account's ids).
   The rows are read at each open, after each own write and after each sync pass; the bar's ✓ is the book's language's
   rows. A user change reads them anew and latches the backfill again. Missing translations are backfilled once per
   (open, user, native language) by the shared `backfillTranslations` (`backfillable`: the book's language, no
-  translation; `cachedTranslate`, then the card's `onlyIfEmpty` PATCH awaited before the next word; a 429 stops it, so
+  translation, none whose TR-2 fill is in flight; `cachedTranslate`, then the card's `onlyIfEmpty` PATCH awaited before the next word; a 429 stops it, so
   do a new open, a user change, a new native language, which restarts it for what is still missing, and leaving the
   screen). A guest's nudge counts the rows once the feed was pulled (V2 on, a vocabulary cursor), else the server's
   list as before (`nudgeCount`).

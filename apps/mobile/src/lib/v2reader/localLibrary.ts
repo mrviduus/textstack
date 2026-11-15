@@ -207,6 +207,11 @@ export interface SessionRow {
 }
 
 export type OutboxKind = 'book' | 'state' | 'session' | 'annotation'
+/**
+ * #1271 review: what an own vocabulary write carries from the moment its save was asked: the library's owner then
+ * (`meta.account`) and whether that session has ended since (`resetSince()`, the shared epoch).
+ */
+export interface WriteGuard { owner: string | null; stale: () => boolean }
 /** #1271: a saved word as the reader marks it (the `vocabulary` row). */
 export interface SavedWord { id: string; word: string; language: string; stage: number; translation: string | null }
 /** #1312: a book's highlight notes as an editor needs them (`notes`). */
@@ -355,6 +360,12 @@ export function createLocalLibrary(db: Db) {
     await run(`UPDATE outbox SET failures = 0 WHERE ${BOOK_OF} = ?`, [bookId])
   }
   const dequeue = (kind: OutboxKind, target: string) => run('DELETE FROM outbox WHERE kind = ? AND target = ?', [kind, target])
+  /**
+   * #1271 review: an own write lands only in the library it was asked for: the same owner as at the save (a sign-out's
+   * wipe makes it nobody's, an adoption the account's) and the same session (`stale`: the shared epoch, as sync's
+   * `checked`). Read inside the job, so nothing queued before a wipe or an adoption writes after it.
+   */
+  const ownedBy = async (g: WriteGuard) => !g.stale() && (await getMeta('account')) === g.owner
   /** A vocabulary row from a server card (the feed's, or a save's answer): replaced by id. */
   const upsertWordRow = (w: { id: string; word: string; language: string; stage: number; translation?: string | null }) => run(
     `INSERT INTO vocabulary (id, word, language, stage, translation) VALUES (?, ?, ?, ?, ?)
@@ -963,11 +974,18 @@ export function createLocalLibrary(db: Db) {
      * #1271 review: the card a save of this device answered with (saved, already saved, restored, added anyway), as the
      * pull writes it: the server's card, by its id. A later pull replaces it by id, a tombstone deletes it.
      */
-    upsertWord: (w: SavedWord) => job(() => upsertWordRow(w)),
+    upsertWord: (w: SavedWord, guard: WriteGuard) => job(async () => {
+      if (!(await ownedBy(guard))) return false
+      await upsertWordRow(w)
+      return true
+    }),
 
-    /** A translation stored on the server (`onlyIfEmpty`: backfill, TR-2): on its row too, unless the row has one. */
-    setWordTranslation: (id: string, translation: string) =>
-      job(() => run('UPDATE vocabulary SET translation = ? WHERE id = ? AND translation IS NULL', [translation, id])),
+    /** The translation the server holds after a write (`onlyIfEmpty`: backfill, TR-2): on its row too, unless it has one. */
+    setWordTranslation: (id: string, translation: string, guard: WriteGuard) => job(async () => {
+      if (!(await ownedBy(guard))) return false
+      await run('UPDATE vocabulary SET translation = ? WHERE id = ? AND translation IS NULL', [translation, id])
+      return true
+    }),
 
     cursor: (feed: LocalFeed) => job(() => getMeta(`cursor:${feed}`)),
 

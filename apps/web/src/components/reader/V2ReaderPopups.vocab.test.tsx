@@ -279,6 +279,8 @@ describe('V2ReaderPopups saved-word marks (#1271)', () => {
   it('missingTranslations_BackfilledOnce_ThenMarkedWithThem', async () => {
     api.getReaderVocab.mockResolvedValue([card('reed', { stage: 1 })])
     backfill = (a) => ({ translatedText: `uk:${a[0]}` })
+    // The card had none: onlyIfEmpty writes ours, and the answer carries it.
+    api.updateWord.mockImplementation(async (id: string, d: { translation: string }) => card('reed', { id, stage: 1, translation: d.translation }))
     const onMarks = vi.fn()
     mount(onMarks)
     await settle()

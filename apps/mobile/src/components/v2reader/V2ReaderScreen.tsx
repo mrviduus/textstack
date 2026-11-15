@@ -39,7 +39,8 @@ import { fillSavedTranslation, saveWordWithRetry } from '../../lib/savedWord'
 import { saveWordForBook } from '../../lib/v2reader/wordBook'
 import { vocabMapKey } from '../../lib/vocabMapKey'
 import { backfillTranslations, markWordsOf } from '../../lib/v2reader/vocabWords.mjs'
-import { answerRow, backfillable, forBook, nudgeCount, type ReaderWord } from '../../lib/v2reader/readerVocab'
+import { answerRow, backfillable, forBook, nudgeCount, ownsLibrary, serverTranslation, type ReaderWord } from '../../lib/v2reader/readerVocab'
+import type { WriteGuard } from '../../lib/v2reader/localLibrary'
 import { onV2 } from '../../lib/v2'
 import { cachedTranslate } from '../../lib/translateCache'
 import { useReaderSettings } from '../../hooks/useReaderSettings'
@@ -577,8 +578,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     marksSent.current = js
     call(js)
   }
-  const readVocab = (epoch = vocabEpoch.current) => deviceLocalLibrary().savedWords().then((rows) => {
+  const readVocab = (epoch = vocabEpoch.current) => Promise.all([deviceLocalLibrary().savedWords(), deviceLocalLibrary().account()]).then(([all, owner]) => {
     if (epoch !== vocabEpoch.current) return false
+    // Another identity's library (a wipe that failed) is never read for this user's marks.
+    const rows = ownsLibrary(owner, vocabUser.current) ? all : []
     vocab.current = rows
     setVocabRows(rows)
     sendMarks()
@@ -591,16 +594,32 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
   /** After a sync pass or an own write: the rows again (another device's words, a tombstone, a pulled-back card). */
   const refreshVocab = () => { if (vocabEpoch.current) void readVocab() }
-  /** A save's answer card (saved, already saved, restored, added anyway) into the rows, if `asker` is still the user. */
-  const takeWord = (w: { id: string; word: string; language?: string | null; stage: number; translation: string | null } | null | undefined, asker: string | null) => {
-    const row = answerRow(w, asker, vocabUser.current, vocabLang.current)
-    return row ? deviceLocalLibrary().upsertWord(row).then(refreshVocab, fail('vocabulary')) : Promise.resolve()
+  /**
+   * What an own write carries from the moment its save was asked (#1271 review): the user, the library's owner and
+   * session (`guard`, checked inside the write's job: a wipe or an adoption since means no write), and whether the save
+   * went through V2 (a legacy card makes no V2 row). Null when this user may not write this library (another's owner).
+   */
+  type WriteCtx = { asker: string | null; guard: WriteGuard; viaV2: boolean }
+  const writeContext = async (): Promise<WriteCtx | null> => {
+    const asker = vocabUser.current
+    const stale = resetSince()
+    const owner = await deviceLocalLibrary().account().catch(() => undefined)
+    if (owner === undefined || !ownsLibrary(owner, asker)) return null
+    return { asker, guard: { owner, stale }, viaV2: await onV2().catch(() => false) }
   }
-  /** A translation the server took (`onlyIfEmpty`): on its row too, if `asker` is still the user. */
-  const takeTranslation = (id: string, translation: string, asker: string | null) => {
-    if (asker !== vocabUser.current) return Promise.resolve()
-    return deviceLocalLibrary().setWordTranslation(id, translation).then(refreshVocab, fail('vocabulary'))
+  /** A save's answer card (saved, already saved, restored, added anyway) into the rows, if its context still holds. */
+  const takeWord = (w: { id: string; word: string; language?: string | null; stage: number; translation: string | null } | null | undefined, ctx: WriteCtx | null) => {
+    const row = ctx && answerRow(w, ctx.asker, vocabUser.current, vocabLang.current, ctx.viaV2)
+    return ctx && row ? deviceLocalLibrary().upsertWord(row, ctx.guard).then(refreshVocab, fail('vocabulary')) : Promise.resolve()
   }
+  /** The card after a translation write (`onlyIfEmpty`): its translation, the server's, on its row too. */
+  const takeTranslation = (id: string, card: { translation?: string | null } | null | undefined, ctx: WriteCtx | null) => {
+    const tr = serverTranslation(card)
+    if (!ctx || !ctx.viaV2 || !tr || ctx.asker !== vocabUser.current) return Promise.resolve()
+    return deviceLocalLibrary().setWordTranslation(id, tr, ctx.guard).then(refreshVocab, fail('vocabulary'))
+  }
+  /** Card ids whose TR-2 fill is in flight: the backfill leaves them to it. */
+  const filling = useRef(new Set<string>())
   useEffect(() => { sendMarks() }, [legacySettings.showInlineTranslations])
   // A user change (sign-out, another account, a guest becoming an account): the rows read anew for it (a wipe, an
   // adoption and the next pull have made them that user's), the backfill latched again; an older answer lands nowhere.
@@ -635,10 +654,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       onPress: () => router.push({ pathname: '/(auth)/login', params: { mode: 'register', then: 'back' } }), duration: 6000,
     })
   }
-  const restoreWord = (_p: V2Popup, id: string, asker = vocabUser.current) => vocabularyApi.restoreWord(id).then(
-    (w) => { void takeWord(w, asker) },
+  const restoreWord = async (_p: V2Popup, id: string) => {
+    const ctx = await writeContext()
+    return vocabularyApi.restoreWord(id).then(
+    (w) => { void takeWord(w, ctx) },
     () => showToast({ variant: 'error', message: t('reader.vocab.restoreFailed') }),
-  )
+    )
+  }
   const saveWord = async (p: V2Popup) => {
     if (p.kind !== 'word' || !langSaves) return
     const intent = saveWordIntent({ isAuthenticated: !!user, hasSelection: true })
@@ -651,6 +673,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (intent !== 'save' || savingWords.current.has(key)) return
     savingWords.current.add(key)
     const asker = vocabUser.current
+    const ctx = await writeContext()
     const body = { word: p.word, language: textLang, nativeLanguage, sentence: p.sentence || null, bookTitle: bookTitle.current }
     try {
       // The open book's id from the list in memory, else from its row; a re-key since then is asked of the row on
@@ -666,11 +689,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       const o = saveOutcome(resp)
       if (o.kind === 'saved') {
         // The card in the rows first: the ✓, its marks and the nudge's count read them.
-        void takeWord(o.word, asker).then(() => wordSavedToast())
-        // TR-2, as the legacy reader: a card saved without a translation gets one in the reader's language.
+        void takeWord(o.word, ctx).then(() => wordSavedToast())
+        // TR-2, as the legacy reader: a card saved without a translation gets one in the reader's language; the card the
+        // server answers with goes to its row; the backfill leaves this card alone meanwhile.
+        filling.current.add(o.word.id)
         fillSavedTranslation(o.word, p.word, textLang, nativeLanguage, {
-          sentence: p.sentence, bookId: bookId ?? undefined, onStored: (tr) => { void takeTranslation(o.word.id, tr, asker) },
-        }).catch(() => {})
+          sentence: p.sentence, bookId: bookId ?? undefined, onStored: (card) => { void takeTranslation(o.word.id, card, ctx) },
+        }).catch(() => {}).finally(() => filling.current.delete(o.word.id))
       } else if (o.kind === 'deleted') {
         showToast({
           variant: 'info', message: t('reader.vocab.deletedEarlier').replace('{{word}}', p.word), duration: 6000,
@@ -682,7 +707,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       } else if (o.kind === 'lookup') {
         setLookup({ popup: p, kind: o.lookup, id: o.id, tapsRemaining: o.tapsRemaining, busy: false })
       } else if (o.kind === 'already_saved') {
-        void takeWord(o.word, asker)
+        void takeWord(o.word, ctx)
         closeIfOpen(p)
       }
     } catch (e) {
@@ -696,10 +721,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (!lookup || lookup.busy) return
     setLookup({ ...lookup, busy: true })
     const asker = vocabUser.current
+    const ctx = await writeContext()
     try {
       const promoted = await vocabularyApi.promoteLookup(lookup.id)
       if (asker !== vocabUser.current) return
-      void takeWord(promoted, asker)
+      void takeWord(promoted, ctx)
       setLookup(null)
       showToast({ variant: 'success', message: t('reader.vocab.addedToSrs') })
       closeIfOpen(lookup.popup)
@@ -1258,12 +1284,15 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (!vocabOpen) return
     let timer: ReturnType<typeof setTimeout> | undefined
     let gone = false
-    const asker = vocabUser.current
-    void backfillTranslations(backfillable(vocab.current, vocabLang.current), vocabLang.current, nativeLanguage, {
+    const started = writeContext()
+    void backfillTranslations(backfillable(vocab.current, vocabLang.current, filling.current), vocabLang.current, nativeLanguage, {
       translate: (w) => cachedTranslate(w, textLang, nativeLanguage).then((r) => r.translation || null),
-      persist: (id, tr) => vocabularyApi.updateWord(id, { translation: tr, onlyIfEmpty: true }).then(async () => {
-        if (gone || asker !== vocabUser.current) return
-        await deviceLocalLibrary().setWordTranslation(id, tr)
+      // The card the server answers with (`onlyIfEmpty` keeps a translation it had): its translation goes to the row.
+      persist: (id, tr) => vocabularyApi.updateWord(id, { translation: tr, onlyIfEmpty: true }).then(async (card) => {
+        const ctx = await started
+        const kept = serverTranslation(card)
+        if (gone || !ctx || !ctx.viaV2 || !kept || ctx.asker !== vocabUser.current) return
+        await deviceLocalLibrary().setWordTranslation(id, kept, ctx.guard)
         clearTimeout(timer)
         timer = setTimeout(() => { if (!gone) refreshVocab() }, 300)
       }),

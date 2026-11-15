@@ -196,6 +196,73 @@ describe('useV2ReaderVocabulary', () => {
     expect(result.current.isKnown('otter')).toBe(true)
   })
 
+  it('aSaveAnsweredAfterAnotherIdentitySignedIn_AppliesNothing', async () => {
+    api.getReaderVocab.mockResolvedValue([])
+    const answer = deferred<unknown>()
+    api.saveWord.mockReturnValueOnce(answer.promise)
+    const { result, rerender } = renderHook(() => useV2ReaderVocabulary('en', null))
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    let saving!: Promise<unknown>
+    act(() => { saving = result.current.addWord({ word: 'otter', language: 'en' } as never) })
+    await flush()
+    Object.assign(auth, { user: { id: 'u2' } })
+    rerender()
+    answer.resolve(saved('otter', 'en'))
+    await act(async () => { await saving })
+    await flush()
+    expect(result.current.vocabMap.has('otter')).toBe(false)
+    expect(result.current.isKnown('otter')).toBe(false)
+  })
+
+  it('aQueuedWordFlushedAcrossAnIdentityChange_AppliesNothing', async () => {
+    api.getReaderVocab.mockResolvedValue([])
+    pending.q1 = { id: 'q1', word: 'heron', language: 'en', createdAt: 1 } as never
+    const flushed = deferred<unknown>()
+    api.saveWord.mockReturnValueOnce(flushed.promise).mockImplementation(async (req: { word: string; language: string }) => saved(req.word, req.language))
+    const { result, rerender } = renderHook(() => useV2ReaderVocabulary('en', null))
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    let saving!: Promise<unknown>
+    act(() => { saving = result.current.addWord({ word: 'otter', language: 'en' } as never) })
+    await flush()
+    Object.assign(auth, { user: { id: 'u2' } })
+    rerender()
+    flushed.resolve(saved('heron', 'en'))
+    await act(async () => { await saving })
+    await flush()
+    expect(result.current.vocabMap.has('heron')).toBe(false)
+  })
+
+  it('aCardRecordedForAnotherIdentity_AppliesNothing', async () => {
+    api.getReaderVocab.mockResolvedValue([])
+    const { result, rerender } = renderHook(() => useV2ReaderVocabulary('en', null))
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    const asked = result.current.identity()
+    Object.assign(auth, { user: { id: 'u2' } })
+    rerender()
+    act(() => result.current.recordSavedWord(saved('otter', 'en').word as never, asked))
+    expect(result.current.vocabMap.has('otter')).toBe(false)
+    act(() => result.current.recordSavedWord(saved('heron', 'en').word as never, result.current.identity()))
+    expect(result.current.vocabMap.has('heron')).toBe(true)
+  })
+
+  it('aCardOfAnotherLanguage_DoesNotBlockTheSave', async () => {
+    api.getReaderVocab.mockResolvedValue([card('gift', 'de'), card('pond', 'en')])
+    const { result } = renderHook(() => useV2ReaderVocabulary('en', null))
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    expect(result.current.isKnown('gift')).toBe(false)
+    expect(result.current.isKnown('Pond')).toBe(true)
+  })
+
+  it('backfill_TheMapShowsTheTranslationTheServerKept_NotOurs', async () => {
+    api.getReaderVocab.mockResolvedValue([card('pond', 'en')])
+    // Another device filled it meanwhile: onlyIfEmpty keeps theirs, and the answer carries it.
+    api.updateWord.mockResolvedValue({ id: 'id-pond', word: 'pond', translation: 'ставочок', stage: 0 })
+    const { result } = renderHook(() => useV2ReaderVocabulary('en', 'uk'))
+    await waitFor(() => expect(api.updateWord).toHaveBeenCalledTimes(1))
+    await flush()
+    expect(result.current.vocabMap.get('pond')?.translation).toBe('ставочок')
+  })
+
   it('theLegacyList_CardsWithNoLanguage_NotMarked_NotFilled', async () => {
     // V2 not answering: the list has no languages; the V2 reader marks and fills none of them.
     api.getReaderVocab.mockResolvedValue([card('pond', undefined), card('reed', undefined)])
