@@ -896,18 +896,30 @@ describe('V2 local library sync (R6)', () => {
     })
 
     /** The guard a save carries: `mine` for a library nobody owns yet, `guardNow` its owner now; the session live. */
-    const mine = (_lib: LocalLibrary) => ({ owner: null, user: 'u1', stale: () => false })
-    const guardNow = async (lib: LocalLibrary, stale = () => false, user: string | null = 'u1') => ({ owner: await lib.account(), user, stale })
+    const mine = (_lib: LocalLibrary) => ({ user: 'u1', stale: () => false })
+    const guardNow = async (_lib: LocalLibrary, stale = () => false, user: string | null = 'u1') => ({ user, stale })
     const otter = { id: W1, word: 'otter', language: 'en', stage: 0, translation: null }
 
     it('anAnswerAfterTheSignOutsWipe_NoRow_TheLibraryStaysNobodys', async () => {
       const lib = createLocalLibrary(memoryDb())
       fakeApi({ 'GET /vocabulary/changes': feed() })
       await syncV2Library(lib, host({ userId: 'u1' }))
-      const guard = await guardNow(lib)
-      await wipeV2Library(lib, clear) // signed out while the save was in flight
+      let signedOut = false
+      const guard = await guardNow(lib, () => signedOut)
+      await wipeV2Library(lib, clear) // signed out while the save was in flight: the session epoch moved
+      signedOut = true
       expect(await lib.upsertWord(otter, guard)).toBe(false)
       expect(await words(lib)).toEqual([])
+    })
+
+    it('askedByTheAccountWhileTheGuestsLibraryWasAdoptedToIt_RowWritten', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      fakeApi({ 'GET /vocabulary/changes': feed() })
+      await syncV2Library(lib, host({ userId: 'g1', guest: true }))
+      const guard = await guardNow(lib, () => false, 'acct') // the new account saves while the library is still the guest's
+      await adoptV2LocalAccount('g1', 'acct', { books: {}, files: {} }, () => lib)
+      expect(await lib.upsertWord(otter, guard)).toBe(true)
+      expect(await words(lib)).toEqual([[W1, 'otter', 'en', 0, null]])
     })
 
     it('askedOnANobodysLibrary_ThenClaimedByAnotherUser_NoRow', async () => {
@@ -939,7 +951,7 @@ describe('V2 local library sync (R6)', () => {
       const lib = createLocalLibrary(memoryDb())
       fakeApi({ 'GET /vocabulary/changes': feed() })
       await syncV2Library(lib, host({ userId: 'g1', guest: true }))
-      const guard = await guardNow(lib)
+      const guard = await guardNow(lib, () => false, 'g1') // asked by the guest
       await adoptV2LocalAccount('g1', 'acct', { books: {}, files: {} }, () => lib)
       expect(await lib.upsertWord({ ...otter, id: 'guest-card' }, guard)).toBe(false)
       expect(await lib.setWordTranslation('guest-card', 'видра', guard)).toBe(false)
@@ -977,7 +989,7 @@ describe('V2 local library sync (R6)', () => {
       const lib = createLocalLibrary(memoryDb())
       fakeApi({ 'GET /vocabulary/changes': feed() })
       await syncV2Library(lib, host({ userId: 'g1', guest: true }))
-      expect(await lib.upsertWord({ id: 'guest-card', word: 'otter', language: 'en', stage: 0, translation: null }, await guardNow(lib))).toBe(true)
+      expect(await lib.upsertWord({ id: 'guest-card', word: 'otter', language: 'en', stage: 0, translation: null }, await guardNow(lib, () => false, 'g1'))).toBe(true)
       expect(await words(lib)).toEqual([['guest-card', 'otter', 'en', 0, null]])
       await adoptV2LocalAccount('g1', 'acct', { books: {}, files: {} }, () => lib)
       expect(await words(lib)).toEqual([])

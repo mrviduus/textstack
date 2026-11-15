@@ -6,7 +6,8 @@ import type { V2Popup } from '../../../../mobile/src/lib/v2reader/wordPopup.mjs'
 // #1270: a word tapped in the V2 reader is saved to the vocabulary as the legacy reader saves it (useReaderVocabulary),
 // and each answer is shown as the legacy reader shows it.
 
-const auth = { isAuthenticated: true, isGuest: false, ensureSession: vi.fn(async () => {}), openAuthModal: vi.fn() }
+const auth: { isAuthenticated: boolean; isGuest: boolean; user?: { id: string }; ensureSession: () => Promise<void>; openAuthModal: () => void } =
+  { isAuthenticated: true, isGuest: false, user: { id: 'u1' }, ensureSession: vi.fn(async () => {}), openAuthModal: vi.fn() }
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ ...auth, waitForSession: async () => {} }),
 }))
@@ -65,7 +66,7 @@ function show(w: string, props: { bookId?: string } = { bookId: 'book-1' }) {
 }
 
 beforeEach(() => {
-  Object.assign(auth, { isAuthenticated: true, isGuest: false })
+  Object.assign(auth, { isAuthenticated: true, isGuest: false, user: { id: 'u1' } })
   Object.assign(native, { hasConfirmedLanguage: true })
   for (const f of Object.values(api)) f.mockReset()
   api.getReaderVocab.mockResolvedValue([])
@@ -344,5 +345,27 @@ describe('V2ReaderPopups saved-word marks (#1271)', () => {
     await settle()
     expect(api.saveWord).toHaveBeenCalledTimes(1)
     expect(asked).not.toHaveBeenCalled()
+  })
+})
+
+describe('V2ReaderPopups: a save that sent nothing (#1271 review)', () => {
+  it('theIdentityChangedWhileTheFlushRan_NothingSent_TheWordStillSavedOnce', async () => {
+    api.getReaderVocab.mockResolvedValue([])
+    pending.q1 = { id: 'q1', word: 'heron', language: 'en', createdAt: 1 } as never
+    let flushed!: (v: unknown) => void
+    api.saveWord.mockReturnValueOnce(new Promise((r) => { flushed = r })).mockResolvedValue(saved('pond'))
+    const view = show('pond')
+    await settle()
+    // The tap's save waits on the flush; another identity signs in meanwhile.
+    Object.assign(auth, { user: { id: 'u2' } })
+    view.next('pond')
+    flushed(saved('heron'))
+    await settle()
+    await settle()
+    view.next('pond')
+    await settle()
+    await settle()
+    // The tap under the old identity sent nothing, and did not spend the word: it is saved once, for the new one.
+    expect(api.saveWord.mock.calls.map((c) => (c[0] as { word: string }).word)).toEqual(['heron', 'pond'])
   })
 })

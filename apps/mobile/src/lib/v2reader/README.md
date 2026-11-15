@@ -48,7 +48,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `vocabSave.mjs` (+ `.d.mts`) | Pure, both hosts (#1270): `saveOutcome`, a vocabulary save's answer as the host shows it (saved, deleted → restore, pending, lookup); `savesWords`, whether a book's `opened.lang` lets its words be saved. See Host responsibilities, "Saving a word". |
 | `wordMarks.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1271): saved-word marks. `readMarkWords` (the page's read of `markWords`: word ≤ 200, gloss ≤ 500, at most 20,000; a stage off 0–4 is new), `STAGE_COLORS` (the legacy readers' five underlines), `wordMarksIn` (where words stand in a section, reader-engine's `matchWords` + `rangesIn`), `sameMark`; the gloss setting `readGlosses` / `withGlosses` (the legacy `showInlineTranslations`). See Host responsibilities, "Saved-word marks". |
 | `vocabWords.mjs` (+ `.d.mts`) | Pure, DOM-free, both hosts (#1271): `langOf`, `ofBook` (a card is the book's language), `wordId` (key + language), `markWordsOf` (what a host sends), `backfillTranslations` (the once-per-open rule: serial writes, a 429 stops it, cancelled by the host). |
-| `readerVocab.ts` | Android (#1271): `forBook`, `backfillable`, `answerRow` (the row a save's answer card makes: V2 saves only, none for another user's), `ownsLibrary`, `serverTranslation`, `nudgeCount`. |
+| `readerVocab.ts` | Android (#1271): `forBook`, `backfillable`, `answerRow` (the row a save's answer card makes: V2 cards only, `routeOf`; none for another user's), `ownsLibrary`, `serverTranslation`, `nudgeCount`. |
 | `wordPopup.mjs` (+ `.d.mts`) | Pure, both hosts (#1269): `readWord` (a host's read of `word`, `readSelection`'s caps; the rect through `selection.mjs` `readRect`), `readLang` (`opened.lang` as a two-letter primary subtag, or null: a three-letter code gives the host's fallback), and `popupStep`: what a `word`, `tap`, `selection`, `selection-cleared` or a move does to the word popup / selection toolbar and to the tap zones. See Host responsibilities, "Word popup and selection toolbar". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
 | `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
@@ -625,11 +625,12 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   reading path). The feed's rows, and this device's own: a save's answer card (saved, already saved, restored, added
   anyway) is upserted as the pull writes it (`answerRow`: only for a save that went through V2; dropped when the user
   changed since the save was asked), and the translation the server holds after a write (the card its PATCH answers
-  with: `onlyIfEmpty` may keep another; the backfill's, TR-2's `onStored`) is written to its row. An "add anyway"
-  card never is (its promote is the legacy API: `answerIsV2`). Every own write carries, from when its save was asked
-  (taken from memory: the owner as last read, so a save never waits on the database), the library's owner, the asking
-  user and the session (`WriteGuard`), checked inside its job: a wipe or an adoption since means no write; a library
-  nobody owned takes it only while still nobody's or claimed by that very user. A library another identity owns (a wipe that failed) is neither read for
+  with: `onlyIfEmpty` may keep another; the backfill's, TR-2's `onStored`) is written to its row. Only a V2 card makes
+  a row: the mobile vocabulary API marks each answer with the route the call itself took (`routeOf`), so a re-probe
+  after it never turns a legacy card into one; an "add anyway" (a legacy promote) never does. Every own write carries,
+  from memory when its save was asked (a save never waits on the database), the asking user and the session
+  (`WriteGuard`); inside its job it lands only while that session is current (every sign-in and sign-out bumps it) and
+  the library is nobody's or the asker's own (claimed by them mid-save, or adopted to them). A library another identity owns (a wipe that failed) is neither read for
   marks nor written (`ownsLibrary`). A pull replaces rows by id,
   a tombstone deletes one, a wipe, a guest carried on and an adoption clear them and pull again (the account's ids).
   The rows are read at each open, after each own write and after each sync pass; the bar's ✓ is the book's language's

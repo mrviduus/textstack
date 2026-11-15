@@ -208,11 +208,12 @@ export interface SessionRow {
 
 export type OutboxKind = 'book' | 'state' | 'session' | 'annotation'
 /**
- * #1271 review: what an own vocabulary write carries from the moment its save was asked: the library's owner then
- * (`meta.account`, as last read), the user who asked, and whether that session has ended since (`resetSince()`, the
- * shared epoch).
+ * #1271 review: what an own vocabulary write carries from the moment its save was asked: the user who asked, and
+ * whether that session has ended since (`resetSince()`, the shared epoch: every sign-in and sign-out bumps it, so a
+ * guest's save still in flight at sign-up is dropped; its card comes with the next pull under the account's id). Checked
+ * inside the write's job against the library's owner then.
  */
-export interface WriteGuard { owner: string | null; user: string | null; stale: () => boolean }
+export interface WriteGuard { user: string | null; stale: () => boolean }
 /** #1271: a saved word as the reader marks it (the `vocabulary` row). */
 export interface SavedWord { id: string; word: string; language: string; stage: number; translation: string | null }
 /** #1312: a book's highlight notes as an editor needs them (`notes`). */
@@ -362,15 +363,15 @@ export function createLocalLibrary(db: Db) {
   }
   const dequeue = (kind: OutboxKind, target: string) => run('DELETE FROM outbox WHERE kind = ? AND target = ?', [kind, target])
   /**
-   * #1271 review: an own write lands only in the library it was asked for: the same owner as at the save (a sign-out's
-   * wipe makes it nobody's, an adoption the account's) and the same session (`stale`: the shared epoch, as sync's
-   * `checked`). Read inside the job, so nothing queued before a wipe or an adoption writes after it.
+   * #1271 review: an own write lands only for the session that asked it (`stale`: the shared epoch, as sync's `checked`)
+   * and only in a library that is nobody's or the asking user's (read inside the job, so nothing queued before a wipe
+   * or another account's claim writes after it).
    */
   const ownedBy = async (g: WriteGuard) => {
     if (g.stale()) return false
+    // The library now is nobody's, or the asking user's own (claimed mid-save, adopted to them): never another's.
     const now = await getMeta('account')
-    // Nobody's when it was asked: still nobody's, or claimed since by the very user who asked (the first pass mid-save).
-    return now === g.owner || (g.owner === null && now !== null && now === g.user)
+    return now === null || now === g.user
   }
   /** A vocabulary row from a server card (the feed's, or a save's answer): replaced by id. */
   const upsertWordRow = (w: { id: string; word: string; language: string; stage: number; translation?: string | null }) => run(

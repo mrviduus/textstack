@@ -139,6 +139,9 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
       word: word.word, language: bookLanguage, userBookId: bookId, sentence: word.sentence || undefined,
       bookTitle: bookTitle || undefined, nativeLanguage, translation: fetched.for === request ? fetched.translation ?? null : null,
     }).then((resp) => {
+      // Nothing came of it (nothing sent: the identity changed meanwhile; or queued for a guest-to-be, whose word the map
+      // now holds): the key is not spent, so a later tap of this word can still save it.
+      if (resp === null) tried.current.delete(key)
       const o = saveOutcome(resp)
       if (o.kind === 'deleted') setDeleted({ id: o.id, word: word.word })
       else if (o.kind === 'pending') setToast(t('reader.vocab.queuedForTomorrow'))

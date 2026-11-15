@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { answerIsV2, answerRow, backfillable, forBook, nudgeCount, ownsLibrary, serverTranslation, type ReaderWord } from './readerVocab'
+import { answerRow, backfillable, forBook, nudgeCount, ownsLibrary, serverTranslation, type ReaderWord } from './readerVocab'
 
 const w = (id: string, word: string, stage = 0, translation: string | null = null, language: string | null = 'en'): ReaderWord => ({ id, word, language, stage, translation })
 
@@ -56,12 +56,6 @@ describe('the write rules (#1271 review)', () => {
     expect(serverTranslation({ translation: 'теперішній' })).toBe('теперішній')
     expect(serverTranslation({ translation: null })).toBeNull()
     expect(serverTranslation(null)).toBeNull()
-  })
-  it('an "add anyway" card is never a V2 row (the promote is the legacy API); a save or restore is, with V2 on', () => {
-    expect(answerIsV2('promote', true)).toBe(false)
-    expect(answerIsV2('save', true)).toBe(true)
-    expect(answerIsV2('restore', true)).toBe(true)
-    expect(answerIsV2('save', false)).toBe(false)
   })
   it('the backfill leaves a card whose TR-2 fill is in flight', () => {
     expect(backfillable([w('1', 'pond'), w('2', 'reed')], 'en', new Set(['2'])).map((x) => x.id)).toEqual(['1'])
