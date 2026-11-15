@@ -3,6 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TouchableOpacit
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../../context/ThemeContext'
+import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 import {
   ALIGNS, FAMILIES, FONT_MAX, FONT_MIN, FONT_STEP, LINE_HEIGHTS, SETTINGS_KEY, THEMES, choose, parseChosen, readSettings,
@@ -68,6 +69,7 @@ interface Props {
 /** The settings sheet: the legacy reader's drawer (ReaderSettingsDrawer.tsx) with the five V2 settings. */
 export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typography, ttsSpeed, onTtsSpeed, glosses }: Props) {
   const { colors } = useTheme()
+  const { t: tr } = useLanguage()
   const chip = (selected: boolean) => [styles.chip, { backgroundColor: colors.surface, borderColor: colors.border }, selected && { backgroundColor: colors.primary, borderColor: colors.primary }]
   const chipText = (selected: boolean) => [styles.chipText, { color: colors.text }, selected && { color: '#fff' }]
   const label = (text: string) => <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>{text}</Text>
@@ -177,15 +179,15 @@ export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typograp
             {glosses && (
               // The legacy drawer's switch (ReaderSettingsDrawer.tsx), the same stored setting.
               <>
-                {label('INLINE TRANSLATIONS')}
+                {label(tr('reader.inlineTranslations').toUpperCase())}
                 <View style={styles.toggleRow}>
-                  <Text style={[styles.toggleLabel, { color: colors.text }]}>Show translations for saved words</Text>
+                  <Text style={[styles.toggleLabel, { color: colors.text }]}>{tr('reader.inlineTranslationsDesc')}</Text>
                   <Switch
                     value={glosses.on}
                     onValueChange={glosses.onChange}
                     trackColor={{ true: colors.primary, false: colors.border }}
                     thumbColor="#fff"
-                    accessibilityLabel="Show translations for saved words"
+                    accessibilityLabel={tr('reader.inlineTranslationsDesc')}
                   />
                 </View>
               </>

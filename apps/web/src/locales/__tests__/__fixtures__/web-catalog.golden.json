@@ -731,6 +731,8 @@
   "reader.image.reset": "Reset zoom",
   "reader.image.zoomIn": "Zoom in",
   "reader.image.zoomOut": "Zoom out",
+  "reader.inlineTranslations": "Inline translations",
+  "reader.inlineTranslationsDesc": "Show translations for saved words",
   "reader.noteEditor.cancel": "Cancel",
   "reader.noteEditor.close": "Close",
   "reader.noteEditor.deleteHighlight": "Delete highlight",

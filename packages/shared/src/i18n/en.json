@@ -592,6 +592,8 @@
   },
   "reader": {
     "toastWordAdded": "Added to vocabulary",
+    "inlineTranslations": "Inline translations",
+    "inlineTranslationsDesc": "Show translations for saved words",
     "listenFailed": "Could not play the speech. Try again.",
     "toastWordAddedCount": "Added · {count} this session",
     "toastTapToReview": "Tap to review",

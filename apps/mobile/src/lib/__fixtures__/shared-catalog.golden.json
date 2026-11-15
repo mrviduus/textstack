@@ -340,6 +340,8 @@
   "reader.coachmarkDismiss": "Got it",
   "reader.coachmarkSubtitle": "Press and hold a word to see its translation, then tap Save to add it to your vocabulary. Tap the page to show or hide the toolbars.",
   "reader.coachmarkTitle": "Press and hold a word",
+  "reader.inlineTranslations": "Inline translations",
+  "reader.inlineTranslationsDesc": "Show translations for saved words",
   "reader.ownBookAsk.body": "Long-press, translate, save, review — it all works the same on an EPUB or PDF of your own. Those are the books you'll actually finish.",
   "reader.ownBookAsk.cta": "Add my own book",
   "reader.ownBookAsk.dismiss": "Not now",
