@@ -50,7 +50,8 @@ vi.mock('../../lib/offlineDb', async (orig) => ({
 
 import { V2ReaderPopups } from './V2ReaderPopups'
 
-const card = (word: string, extra: object = {}) => ({ id: `id-${word}`, word, stage: 0, translation: null, ...extra })
+// A V2 card always has its language (the reader marks and fills by it).
+const card = (word: string, extra: object = {}) => ({ id: `id-${word}`, word, stage: 0, translation: null, language: 'en', ...extra })
 const saved = (word: string) => ({ outcome: 'srs', word: card(word), lookupId: null, tapsRemaining: null, pendingId: null, reason: null })
 const popup = (w: string): V2Popup => ({ kind: 'word', index: 0, word: w, sentence: `By the ${w}.`, cfi: null, rect: { x: 400, y: 100, w: 30, h: 10 } })
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)) })

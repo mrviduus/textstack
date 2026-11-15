@@ -14,6 +14,22 @@ export interface ReaderWord { id: string; word: string; language: string | null;
  * (`vocabularyPulls().started`: a local counter, so a clock set back changes nothing).
  */
 export interface OwedSave extends ReaderWord { pulls: number }
+/**
+ * A save not stamped yet (its stamp read failed, or has not landed): owed, never expired, until a read stamps it with
+ * the pulls started by then (`mergeWords`' `started`: later than the save, so it only ever delays the expiry).
+ */
+export const UNSTAMPED = Number.MAX_SAFE_INTEGER
+
+/**
+ * What a change of session does to this session's saved words (#1271 review): `keep` when a guest became an account
+ * (the same person: the server merged the guest's cards into the account's, so the ✓, the owed saves and late answers
+ * stay; the next read re-resolves ids through the merged rows), `clear` for anything else that changes the user (a
+ * sign-out, another account, another guest), `same` when nothing changed.
+ */
+export function sessionStep(prev: { id: string | null; guest: boolean }, next: { id: string | null; guest: boolean }): 'same' | 'keep' | 'clear' {
+  if (prev.id === next.id) return 'same'
+  return prev.id !== null && prev.guest && next.id !== null && !next.guest ? 'keep' : 'clear'
+}
 
 /** A word's identity: its key and its language (`die` in German is not `die` in English). */
 const idOf = (w: Pick<ReaderWord, 'word' | 'language'>) => wordId(vocabMapKey, w.word, w.language)
@@ -41,9 +57,11 @@ export const withTranslation = (words: readonly ReaderWord[], id: string, transl
  * transaction longer than that could expire a just-saved word's mark until its row changes again. A per-user change
  * sequence on the server if that ever shows.
  */
-export function mergeWords(rows: readonly ReaderWord[], saves: readonly OwedSave[], filled: ReadonlyMap<string, string>, readFrom: number | null) {
+export function mergeWords(rows: readonly ReaderWord[], saves: readonly OwedSave[], filled: ReadonlyMap<string, string>, readFrom: number | null, started?: number) {
   const have = new Set(rows.map(idOf))
-  const owed = saves.filter((s) => !have.has(idOf(s)) && !(readFrom !== null && readFrom > s.pulls))
+  const owed = saves
+    .filter((s) => !have.has(idOf(s)) && !(readFrom !== null && readFrom > s.pulls))
+    .map((s) => (s.pulls === UNSTAMPED && started !== undefined ? { ...s, pulls: started } : s))
   const fill = (w: ReaderWord): ReaderWord => (!w.translation && filled.has(w.id) ? { ...w, translation: filled.get(w.id)! } : w)
   return { words: [...rows, ...owed.map(({ pulls: _pulls, ...w }) => w)].map(fill), saves: owed }
 }

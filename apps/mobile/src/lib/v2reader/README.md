@@ -567,7 +567,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   is `en`), the V2 reader only: the legacy reader's map keeps every card, as before. The language is the one words are
   saved under (`savesWords`' rule): `opened.lang` through `readLang`, else the host's fallback when the book declares
   none; a declared language that does not read (`deu`, `fre`) marks and fills nothing. A card with no language (the
-  legacy reader list's) passes. The same rule bounds the backfill: no translation is ever written to a card of
+  legacy list, when V2 is not answering) is not the book's: no mark, no fill. The same rule bounds the backfill: no translation is ever written to a card of
   another language.
 - *What the host sends*: `markWordsOf` (word, stage, translation as the gloss), oldest first, a word just saved last
   (over 20,000 the page keeps the newest); never a sentence or any book text. Sent after each open's words are in,
@@ -581,7 +581,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   over it, so it stays visible; the gloss as SVG text.
 - *Web*: its own hook, `useV2ReaderVocabulary` (V2ReaderPopups; the legacy reader's `useReaderVocabulary` is not
   touched): the legacy saves, guest queue and mint, with V2's rules. One read per load, each card with its language,
-  filtered to the book's; kept in memory; a save, a flushed guest word or a footer-picked translation updates it
+  filtered to the book's, loaded again for a new identity (a guest becoming an account); kept in memory; a save, a flushed guest word or a footer-picked translation updates it
   (another language's queued word is not added, nor given this book's card's translation by key). Missing
   translations are backfilled once per authenticated load, for the language it was filtered for (a language change
   waits for its own load), over the words it brought (never on the no-session branch, never for a word saved later:
@@ -593,11 +593,14 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   tombstone, an adoption, a wipe: gone), this session's saves no row has yet are owed (across opens) until a read has
   them, or until a vocabulary pull that started after the save was read to its end without it (deleted before this
   device pulled it). Pulls are numbered as they start (`vocabularyPulls`, a local counter under `cursor:` keys, never a
-  clock): a save records how many had started, and expires once a later-numbered one was read to its end. ponytail:
+  clock): a save records how many had started (a failed stamp is stamped by the next read, owed until then), and
+  expires once a later-numbered one was read to its end. ponytail:
   this relies on the change feed's overlap (`ChangeFeed.Overlap`, 30 s) covering the save's commit lag; a longer server
   transaction could expire a just-saved mark until its row changes. A translation this session filled stays on its
   row until the pull brings it. A word is its key and its language (`wordId`). A new user (sign-out, another account)
-  starts with none of it: no word shows ✓, and a save still in flight from the last session lands nowhere.
+  starts with none of it: no word shows ✓, and a save still in flight from the last session lands nowhere; a guest
+  becoming an account is the same person (`sessionStep`): it all stays, and the next read brings the merged rows. A
+  new native language restarts the backfill (the old one's writes stop), on both hosts.
   Missing translations backfilled once per open by the shared `backfillTranslations` (`backfillable`: the book's
   language, never an owed save whose own fill may be in flight; `cachedTranslate`, then the card's `onlyIfEmpty` PATCH
   awaited before the next word; a 429 stops it, so do a new open and leaving the screen; sends coalesced 300 ms). A

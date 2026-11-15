@@ -931,6 +931,14 @@ describe('V2 local library sync (R6)', () => {
       }
     })
 
+    it('aDevBuildsTimestampUnderTheOldKey_NotARead_NothingExpiredByIt', async () => {
+      const db = memoryDb()
+      const lib = createLocalLibrary(db)
+      await lib.cursor('vocabulary') // the schema is made
+      await db.runAsync(`INSERT INTO meta (key, value) VALUES ('cursor:vocabulary:read_from', '1794689427539')`)
+      expect(await lib.vocabularyPulls()).toEqual({ started: 0, readFrom: null })
+    })
+
     it('pull_Answered503_ThePassEnds_AsForAnyPull', async () => {
       const lib = createLocalLibrary(memoryDb())
       fakeApi({ 'GET /vocabulary/changes': [{ status: 503 }] })

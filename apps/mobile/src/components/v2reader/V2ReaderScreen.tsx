@@ -39,7 +39,7 @@ import { fillSavedTranslation, saveWordWithRetry } from '../../lib/savedWord'
 import { saveWordForBook } from '../../lib/v2reader/wordBook'
 import { vocabMapKey } from '../../lib/vocabMapKey'
 import { backfillTranslations, markWordsOf } from '../../lib/v2reader/vocabWords.mjs'
-import { backfillable, forBook, mergeWords, nudgeCount, withSaved, withTranslation, type OwedSave, type ReaderWord } from '../../lib/v2reader/readerVocab'
+import { UNSTAMPED, backfillable, forBook, mergeWords, nudgeCount, sessionStep, withSaved, withTranslation, type OwedSave, type ReaderWord } from '../../lib/v2reader/readerVocab'
 import { onV2 } from '../../lib/v2'
 import { cachedTranslate } from '../../lib/translateCache'
 import { useReaderSettings } from '../../hooks/useReaderSettings'
@@ -581,9 +581,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** The rows read (an open, a sync pass) over this session's saves and fills. */
   const readVocab = (seq: number, then?: () => void) => {
     const lib = deviceLocalLibrary()
-    Promise.all([lib.savedWords(), lib.vocabularyPulls()]).then(([rows, { readFrom }]) => {
+    Promise.all([lib.savedWords(), lib.vocabularyPulls()]).then(([rows, { readFrom, started }]) => {
       if (seq !== vocabSeq.current) return
-      const m = mergeWords(rows, saves.current, filled.current, readFrom)
+      // A save whose own stamp did not land is stamped here (UNSTAMPED: owed until then).
+      const m = mergeWords(rows, saves.current, filled.current, readFrom, started)
       vocab.current = m.words
       saves.current = m.saves
       sendMarks()
@@ -601,12 +602,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (!w) return
     const word: ReaderWord = { id: w.id, word: w.word, language: w.language ?? null, stage: w.stage, translation: w.translation }
     vocab.current = withSaved(vocab.current, word)
-    // Owed at once (never expired until it is stamped), then stamped with the pulls started so far (a local counter).
-    saves.current = withSaved(saves.current, { ...word, pulls: Number.MAX_SAFE_INTEGER })
+    // Owed at once (never expired until it is stamped), then stamped with the pulls started so far (a local counter); a
+    // stamp that fails leaves it to the next read (UNSTAMPED).
+    saves.current = withSaved(saves.current, { ...word, pulls: UNSTAMPED })
     const session = vocabSession.current
     deviceLocalLibrary().vocabularyPulls().then(({ started }) => {
       if (session !== vocabSession.current) return
-      saves.current = saves.current.map((x) => (x.id === word.id && x.pulls === Number.MAX_SAFE_INTEGER ? { ...x, pulls: started } : x))
+      saves.current = saves.current.map((x) => (x.id === word.id && x.pulls === UNSTAMPED ? { ...x, pulls: started } : x))
     }, fail('vocabulary'))
     sendMarks()
   }
@@ -617,12 +619,15 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     sendMarks()
   }
   useEffect(() => { sendMarks() }, [legacySettings.showInlineTranslations])
-  // #1271 review: another session (a sign-out's wipe, another account): nothing of the last one's words is owed or kept,
-  // no word shows ✓, and a save still in flight from it lands nowhere (`vocabSession`).
-  const vocabUser = useRef(userId)
+  // #1271 review: another session (a sign-out's wipe, another account or guest): nothing of the last one's words is owed
+  // or kept, no word shows ✓, and a save still in flight from it lands nowhere (`vocabSession`). A guest becoming an
+  // account is the same person (sessionStep `keep`): everything stays; the next read brings the merged rows.
+  const vocabGuest = capabilitiesFor(user).isGuest
+  const vocabUser = useRef({ id: userId, guest: vocabGuest })
   useEffect(() => {
-    if (vocabUser.current === userId) return
-    vocabUser.current = userId
+    const step = sessionStep(vocabUser.current, { id: userId, guest: vocabGuest })
+    vocabUser.current = { id: userId, guest: vocabGuest }
+    if (step !== 'clear') return
     vocabSession.current++
     setSavedWords(new Set())
     vocab.current = []
@@ -630,7 +635,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     filled.current = new Map()
     vocabSeq.current++
     sendMarks()
-  }, [userId])
+  }, [userId, vocabGuest])
   /** False when the book's `opened.lang` does not read (savesWords): its words would be filed under the fallback. */
   const [langSaves, setLangSaves] = useState(true)
   /** The one answered `lookup` (the rare-word notice). */
@@ -1275,7 +1280,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       cancelled: () => gone || vocabOpen !== vocabSeq.current,
     })
     return () => { gone = true; clearTimeout(timer) }
-  }, [vocabOpen])
+    // A new native language restarts it (the cleanup stops the old one's writes): what is still missing, in the new one.
+  }, [vocabOpen, nativeLanguage])
   const button = [styles.button, { backgroundColor: colors.primary }]
   const notices = (
     <>

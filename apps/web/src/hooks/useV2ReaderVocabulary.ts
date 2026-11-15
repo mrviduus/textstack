@@ -31,7 +31,12 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
   /** The language the map is for and the backfill translates from. */
   const mapLang = marksLang
   const takes = useCallback((language: string | null | undefined) => ofBook(language, marksLang), [marksLang])
-  const { isAuthenticated, isGuest, waitForSession, ensureSession } = useAuth()
+  const { isAuthenticated, isGuest, waitForSession, ensureSession, user } = useAuth()
+  /** #1271 review: the map is the identity's: a guest becoming an account (another user id) loads again. */
+  const userId = user?.id ?? null
+  /** The native language now: a backfill for another one stops (its words would be written in the old language). */
+  const targetNow = useRef(targetLang)
+  targetNow.current = targetLang
   const { commitmentThreshold } = useGuestLimits()
   const [vocabMap, setVocabMap] = useState<VocabMap>(new Map())
   const [loading, setLoading] = useState(false)
@@ -43,8 +48,8 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
   const [guestNudge, setGuestNudge] = useState<GuestNudge | null>(null)
   const dismissGuestNudge = useCallback(() => setGuestNudge(null), [])
   const mapRef = useRef<VocabMap>(new Map())
-  /** The authenticated load (`authLoad.id`) whose words were backfilled; 0: none. */
-  const backfillDone = useRef(0)
+  /** The authenticated load and native language (`${authLoad.id}|${targetLang}`) whose words were backfilled; '': none. */
+  const backfillDone = useRef('')
   /** Bumped by every load (a new identity, language, retry) and at unmount: a backfill of an older one stops. */
   const loadGen = useRef(0)
   /**
@@ -128,15 +133,16 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
       .catch(() => { if (!cancelled) setLoadFailed(true) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [isAuthenticated, commitMap, loadAttempt, mapLang, takes])
+  }, [isAuthenticated, userId, commitMap, loadAttempt, mapLang, takes])
 
   // Backfill translations for words missing them: once per authenticated load, over the words it brought, for the
   // language it was filtered for (#1271: once per open). A word saved afterwards gets its translation from the save
   // itself (TR-2), never a second, sentence-less request here. vocabWords.mjs `backfillTranslations`: one card written
   // before the next, a 429 stops it, and so do a newer load (identity, language, retry) and the unmount.
   useEffect(() => {
-    if (!targetLang || !authLoad || authLoad.lang !== mapLang || backfillDone.current === authLoad.id) return
-    backfillDone.current = authLoad.id
+    // Latched on (load, native language): a new native language fills what is still missing, in it.
+    if (!targetLang || !authLoad || authLoad.lang !== mapLang || backfillDone.current === `${authLoad.id}|${targetLang}`) return
+    backfillDone.current = `${authLoad.id}|${targetLang}`
     const from = authLoad.lang
     const gen = loadGen.current
     // Pending entries have a local UUID, not a backend row.
@@ -147,7 +153,7 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
       onWord: (id, translation) => updateMap((m) => {
         for (const [k, e] of m) if (e.id === id && !e.translation) m.set(k, { ...e, translation })
       }),
-      cancelled: () => !alive.current || gen !== loadGen.current,
+      cancelled: () => !alive.current || gen !== loadGen.current || targetNow.current !== targetLang,
     })
   }, [vocabMap, authLoad, targetLang, mapLang, updateMap])
 

@@ -239,7 +239,8 @@ const serverFile = (f: V2BookFile | null | undefined) => [f?.id ?? null, f?.sha2
  * last one read to its end; `cursor:` keys, cleared with the cursors.
  */
 const VOCABULARY_STARTED = 'cursor:vocabulary:started'
-const VOCABULARY_READ = 'cursor:vocabulary:read_from'
+// `read_seq`, not `read_from`: a dev build stored a ms timestamp under that name, which would expire every owed save.
+const VOCABULARY_READ = 'cursor:vocabulary:read_seq'
 /** `meta` key: '1' when the owner (`meta.account`) is a guest. */
 const OWNER_GUEST = 'account_guest'
 /** Whom the library belongs to; null: nobody (never synced, or wiped). */

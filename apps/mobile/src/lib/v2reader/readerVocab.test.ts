@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { backfillable, forBook, mergeWords, nudgeCount, withSaved, withTranslation, type OwedSave, type ReaderWord } from './readerVocab'
+import { UNSTAMPED, backfillable, forBook, mergeWords, nudgeCount, sessionStep, withSaved, withTranslation, type OwedSave, type ReaderWord } from './readerVocab'
 
 const w = (id: string, word: string, stage = 0, translation: string | null = null, language: string | null = 'en'): ReaderWord => ({ id, word, language, stage, translation })
 
@@ -55,9 +55,9 @@ describe('backfillable', () => {
 })
 
 describe('forBook', () => {
-  it('the book\'s language only, by primary subtag; a word of no known language passes', () => {
+  it('the book\'s language only, by primary subtag; a word of no known language is not the book\'s', () => {
     const words = [w('1', 'pond', 0, null, 'en-GB'), w('2', 'hund', 0, null, 'de'), w('3', 'x', 0, null, null)]
-    expect(forBook(words, 'en').map((x) => x.id)).toEqual(['1', '3'])
+    expect(forBook(words, 'en').map((x) => x.id)).toEqual(['1'])
     expect(forBook(words, null)).toEqual([])
   })
 })
@@ -69,5 +69,26 @@ describe('nudgeCount', () => {
     expect(legacy).not.toHaveBeenCalled()
     expect(await nudgeCount(async () => false, [w('1', 'a')], legacy)).toBe(7)
     expect(await nudgeCount(async () => { throw new Error('db') }, [], async () => { throw new Error('offline') })).toBe(0)
+  })
+})
+
+describe('mergeWords: a save not stamped', () => {
+  it('is owed whatever has been read, and stamped by the read with the pulls started by then', () => {
+    const s: OwedSave = { ...w('9', 'otter'), pulls: UNSTAMPED }
+    const first = mergeWords([], [s], new Map(), 7, 7)
+    expect(first.saves).toEqual([{ ...s, pulls: 7 }])
+    // Then a later full read without it expires it.
+    expect(mergeWords([], first.saves, new Map(), 8, 8).saves).toEqual([])
+  })
+})
+
+describe('sessionStep', () => {
+  it('a guest becoming an account keeps the session\'s words; a sign-out, another account or guest clears them', () => {
+    expect(sessionStep({ id: 'g1', guest: true }, { id: 'a1', guest: false })).toBe('keep')
+    expect(sessionStep({ id: 'a1', guest: false }, { id: 'a1', guest: false })).toBe('same')
+    expect(sessionStep({ id: 'a1', guest: false }, { id: null, guest: false })).toBe('clear')
+    expect(sessionStep({ id: 'a1', guest: false }, { id: 'a2', guest: false })).toBe('clear')
+    expect(sessionStep({ id: 'g1', guest: true }, { id: 'g2', guest: true })).toBe('clear')
+    expect(sessionStep({ id: 'g1', guest: true }, { id: null, guest: false })).toBe('clear')
   })
 })

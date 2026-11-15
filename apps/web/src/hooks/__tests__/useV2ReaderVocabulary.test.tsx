@@ -4,7 +4,7 @@ import { renderHook, act, waitFor, configure } from '@testing-library/react'
 // #1271 review: the V2 reader's own hook: its language-filtered map and the backfill rule (vocabWords.mjs). The legacy
 // reader's useReaderVocabulary is origin/main's, untouched.
 
-const auth = { isAuthenticated: true, isGuest: false }
+const auth: { isAuthenticated: boolean; isGuest: boolean; user: { id: string } | null } = { isAuthenticated: true, isGuest: false, user: { id: 'u1' } }
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ ...auth, waitForSession: async () => {}, ensureSession: async () => {} }),
 }))
@@ -36,7 +36,7 @@ const deferred = <T,>() => { let resolve!: (v: T) => void; const promise = new P
 const flush = () => act(async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)) })
 
 beforeEach(() => {
-  Object.assign(auth, { isAuthenticated: true, isGuest: false })
+  Object.assign(auth, { isAuthenticated: true, isGuest: false, user: { id: 'u1' } })
   for (const f of [...Object.values(api), translate]) f.mockReset()
   translate.mockImplementation(async (word: string) => ({ translatedText: `uk:${word}` }))
   api.updateWord.mockResolvedValue({})
@@ -45,11 +45,11 @@ beforeEach(() => {
 })
 
 describe('useV2ReaderVocabulary', () => {
-  it('marks_OnlyTheBooksLanguagesCards_ACardWithNoLanguagePasses', async () => {
+  it('marks_OnlyTheBooksLanguagesCards_ByPrimarySubtag_NotOneWithNoLanguage', async () => {
     api.getReaderVocab.mockResolvedValue([card('hund', 'de'), card('pond', 'en-GB'), card('reed', undefined)])
     const { result } = renderHook(() => useV2ReaderVocabulary('en', null))
     await waitFor(() => expect(result.current.loaded).toBe(true))
-    expect([...result.current.vocabMap.keys()].sort()).toEqual(['pond', 'reed'])
+    expect([...result.current.vocabMap.keys()].sort()).toEqual(['pond'])
   })
 
   it('marksLanguageNull_ABookWhoseLanguageDoesNotRead_NoWords_NoBackfill', async () => {
@@ -142,6 +142,41 @@ describe('useV2ReaderVocabulary', () => {
     await act(async () => { await result.current.addWord({ word: 'pond', language: 'en' } as never) })
     const sent = api.saveWord.mock.calls.map((c) => c[0] as { word: string; language: string; translation: string | null })
     expect(sent.filter((r) => r.word === 'gift').map((r) => [r.language, r.translation])).toEqual([['de', null], ['en', 'подарунок']])
+  })
+
+  it('aNewNativeLanguage_TheRunningBackfillStops_NothingWrittenInTheOld_TheRestFilledInTheNew', async () => {
+    api.getReaderVocab.mockResolvedValue([card('pond', 'en'), card('reed', 'en')])
+    translate.mockImplementation(async (word: string, _from: string, to: string) => ({ translatedText: `${to}:${word}` }))
+    const slow = deferred<{ translatedText: string }>()
+    translate.mockReturnValueOnce(slow.promise)
+    const { rerender } = renderHook(({ target }) => useV2ReaderVocabulary('en', target), { initialProps: { target: 'uk' } })
+    await waitFor(() => expect(translate).toHaveBeenCalledTimes(1))
+    rerender({ target: 'pl' })
+    slow.resolve({ translatedText: 'uk:pond' })
+    await flush()
+    expect(api.updateWord.mock.calls.map((c) => [c[0], (c[1] as { translation: string }).translation])).toEqual([['id-pond', 'pl:pond'], ['id-reed', 'pl:reed']])
+  })
+
+  it('guestBecomesAnAccount_TheMapIsLoadedAgainForTheNewIdentity', async () => {
+    Object.assign(auth, { isGuest: true, user: { id: 'g1' } })
+    api.getReaderVocab.mockResolvedValueOnce([card('pond', 'en', { id: 'guest-pond' })]).mockResolvedValue([card('pond', 'en', { id: 'acct-pond' })])
+    const { result, rerender } = renderHook(() => useV2ReaderVocabulary('en', null))
+    await waitFor(() => expect(result.current.vocabMap.get('pond')?.id).toBe('guest-pond'))
+    Object.assign(auth, { isGuest: false, user: { id: 'a1' } })
+    rerender()
+    await waitFor(() => expect(result.current.vocabMap.get('pond')?.id).toBe('acct-pond'))
+    expect(api.getReaderVocab).toHaveBeenCalledTimes(2)
+  })
+
+  it('theLegacyList_CardsWithNoLanguage_NotMarked_NotFilled', async () => {
+    // V2 not answering: the list has no languages; the V2 reader marks and fills none of them.
+    api.getReaderVocab.mockResolvedValue([card('pond', undefined), card('reed', undefined)])
+    const { result } = renderHook(() => useV2ReaderVocabulary('en', 'uk'))
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    await flush()
+    expect(result.current.vocabMap.size).toBe(0)
+    expect(translate).not.toHaveBeenCalled()
+    expect(api.updateWord).not.toHaveBeenCalled()
   })
 
   it('guestNudge_CountsTheWholeVocabulary_NotTheBooksLanguageOnly', async () => {

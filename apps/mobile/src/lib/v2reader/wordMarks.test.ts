@@ -103,10 +103,11 @@ describe('vocabWords: the book\'s language', () => {
   it('a tag compares by its primary subtag, any case', () => {
     expect(['en', 'EN-us', ' pt_BR ', '', null, 3].map(langOf)).toEqual(['en', 'en', 'pt', null, null, null])
   })
-  it('a card of another language is not the book\'s; one with no language passes; a book with none takes none', () => {
+  it('a card of another language is not the book\'s, nor one with no language (the legacy list); a book with none takes none', () => {
     expect(ofBook('en-GB', 'en')).toBe(true)
     expect(ofBook('de', 'en')).toBe(false)
-    expect(ofBook(undefined, 'en')).toBe(true)
+    expect(ofBook(undefined, 'en')).toBe(false)
+    expect(ofBook('', 'en')).toBe(false)
     expect(ofBook('en', null)).toBe(false)
   })
   it('a word is its key and its language', () => {

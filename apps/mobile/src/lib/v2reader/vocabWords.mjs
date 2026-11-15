@@ -12,14 +12,13 @@ export function langOf(tag) {
 }
 
 /**
- * Whether a card is one of the book's: the same language. A card whose language is not known (the legacy reader list
- * has none) passes; a book whose language is not known takes none.
+ * Whether a card is one of the book's: the same language. A card whose language is not known (the legacy list, when V2
+ * is not answering) is not: the V2 reader marks and fills by language, so it marks and fills none of those. A book whose
+ * language is not known takes none.
  */
 export function ofBook(cardLanguage, bookLanguage) {
   const book = langOf(bookLanguage)
-  if (!book) return false
-  const card = langOf(cardLanguage)
-  return card === null || card === book
+  return !!book && langOf(cardLanguage) === book
 }
 
 /** A word's identity across the hosts' lists: the vocabulary key (`key`, the host's own) and the language. */
