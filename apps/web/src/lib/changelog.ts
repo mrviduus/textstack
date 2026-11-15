@@ -70,7 +70,7 @@ export const SEED: ReaderEntry[] = [
 export type StepState = 'done' | 'now' | 'next'
 export interface MoveStep { title: string; text: string; state: StepState }
 
-export const MOVE_UPDATED = '2026-11-14'
+export const MOVE_UPDATED = '2026-11-15'
 
 export const MOVE_STEPS: MoveStep[] = [
   { state: 'done', title: 'A new home for your data',
@@ -82,7 +82,8 @@ export const MOVE_STEPS: MoveStep[] = [
   { state: 'done', title: 'A new reading screen',
     text: 'It opens the book file straight from your device: no waiting, no network, no account needed. On the web and Android.' },
   { state: 'now', title: 'The new reading screen catches up',
-    text: 'Everything the old one does: menus, page turns, highlights, your place on every device. Most of it is in; we check the rest one by one.' },
+    // TODO confirm: "the words you saved marked" (#1271) and "pictures full screen" (#1265) merged
+    text: 'Everything the old one does. In now: menus, page turns, highlights with colours and notes, your reading position on every device, listening to a word, the words you saved marked in the text, pictures full screen. Still to come: bookmarks and search in the book.' },
   { state: 'next', title: 'PDF books on the new reading screen',
     text: 'PDF books open in the new reading screen too, with their pages as they are.' },
   { state: 'next', title: 'Tests on real phones',
