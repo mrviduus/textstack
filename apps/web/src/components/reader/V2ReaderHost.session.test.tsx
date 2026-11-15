@@ -43,7 +43,7 @@ afterEach(() => vi.restoreAllMocks())
 async function reader(o: { dev?: boolean } = {}) {
   const host = (book: V2HostBook | null) => <MemoryRouter><V2ReaderHost book={book} dev={o.dev} /></MemoryRouter>
   const view = render(host(null))
-  const frame = (screen.getByTitle('V2 reader') as HTMLIFrameElement).contentWindow!
+  const frame = (screen.getByTitle('Book text') as HTMLIFrameElement).contentWindow!
   vi.spyOn(frame, 'postMessage').mockImplementation((() => {}) as never)
   const fromPage = (m: object) => act(async () => {
     window.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(m), origin: location.origin, source: frame }))
