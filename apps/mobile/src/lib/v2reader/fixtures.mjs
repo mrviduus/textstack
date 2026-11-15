@@ -350,7 +350,29 @@ export function hostilePdf(evil) {
   })
 }
 
-/** tscover.epub (a non-linear cover first), tsfixed.epub (pre-paginated text), tsdup.epub (one href twice in its spine), tsthree.cbz, tsformat.epub, tsrtl.epub (spine rtl, English text), tshe.epub (Hebrew, no spine direction), tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages), tsformat.pdf, tscjk.pdf, tslocked.pdf. */
+/**
+ * #1265: the lightbox's book. An `<img>` with alt text (1600×1000: larger than a phone or laptop screen, so a zoomed
+ * one has room to pan) and an SVG `<image>` with a `<title>`, each between paragraphs on the first page, then prose,
+ * then a last `<img>` at the section's end. The format check's tsimage.epub, and (committed) apps/web/e2e/fixtures/v2-image.epub:
+ *   node -e "import('./fixtures.mjs').then((f) => f.writeImageEpub(require('path').resolve('../../../../web/e2e/fixtures/v2-image.epub')))"
+ */
+export function writeImageEpub(out, name = 'TS IMAGE') {
+  return epub(out, name, {
+    files: {
+      'red.png': png(1600, 1000, [200, 40, 40]),
+      'blue.png': png(240, 160, [40, 40, 200]),
+      'green.png': png(240, 160, [40, 200, 40]),
+      's1.xhtml': xhtml('', `<p>${prose(1)[0]}</p><p style="text-align:center"><img src="red.png" alt="A red square" style="width:60%"/></p>`
+        + `<p>${para}</p><p style="text-align:center"><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="240" height="160" viewBox="0 0 240 160">`
+        + `<title>A blue square</title><image xlink:href="blue.png" width="240" height="160"/></svg></p>${prose(20).map((p) => `<p>${p}</p>`).join('')}`
+        + '<p style="text-align:center"><img src="green.png" alt="A green square" style="width:30%"/></p>'),
+    },
+    manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml" properties="svg"/><item id="red" href="red.png" media-type="image/png"/><item id="blue" href="blue.png" media-type="image/png"/><item id="green" href="green.png" media-type="image/png"/>',
+    spine: '<itemref idref="s1"/>',
+  })
+}
+
+/** tscover.epub (a non-linear cover first), tsfixed.epub (pre-paginated text), tsdup.epub (one href twice in its spine), tsimage.epub (#1265: images), tsfixedimg.epub (a pre-paginated image page), tsthree.cbz, tsformat.epub, tsrtl.epub (spine rtl, English text), tshe.epub (Hebrew, no spine direction), tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages), tsformat.pdf, tscjk.pdf, tslocked.pdf. */
 export function writeFormatFixtures(dir) {
   epub(resolve(dir, 'tsformat.epub'), 'TS EPUB', {
     files: { 's1.xhtml': xhtml('', `<h1>Chapter One</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}`) },
@@ -417,11 +439,19 @@ export function writeFormatFixtures(dir) {
   })
   // Three pages: the 2nd and 3rd share a spread in a landscape view (foliate pairs pages after the first).
   zipFiles(resolve(dir, 'tsthree.cbz'), { 'p01.png': png(60, 80, [200, 40, 40]), 'p02.png': png(60, 80, [40, 200, 40]), 'p03.png': png(60, 80, [40, 40, 200]) })
+  writeImageEpub(resolve(dir, 'tsimage.epub'))
+  // A pre-paginated page with an image (#1265): the lightbox does not open on a fixed layout.
+  epub(resolve(dir, 'tsfixedimg.epub'), 'TS FIXED IMAGE', {
+    meta: '<meta property="rendition:layout">pre-paginated</meta>',
+    files: { 'red.png': png(240, 160, [200, 40, 40]), 'p1.xhtml': xhtml('<meta name="viewport" content="width=600, height=800"/>', `<p>Page 1.</p><img src="red.png" alt="A red square" style="width:400px"/>`) },
+    manifest: '<item id="p1" href="p1.xhtml" media-type="application/xhtml+xml"/><item id="red" href="red.png" media-type="image/png"/>',
+    spine: '<itemref idref="p1"/>',
+  })
   // PDF (#1128 S5): five text pages; one CJK page on a predefined cMap; one that needs a password.
   writeFileSync(resolve(dir, 'tsformat.pdf'), pdf(5))
   writeFileSync(resolve(dir, 'tscjk.pdf'), pdf(1, { title: 'TS CJK', cjk: true }))
   writeFileSync(resolve(dir, 'tslocked.pdf'), pdf(1, { title: 'TS LOCKED', locked: true }))
-  return ['tsformat.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsthree.cbz', 'tsformat.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
+  return ['tsformat.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsimage.epub', 'tsfixedimg.epub', 'tsthree.cbz', 'tsformat.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -7,7 +7,7 @@ import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reade
 import { V2_READER_FRAME_PATH } from '../../../../mobile/src/lib/v2reader/framePath.mjs'
 import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
 import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs'
-import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readRelocate, readTap, takenWithoutBook, type V2NavKey } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
+import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readLightbox, readRelocate, readTap, takenWithoutBook, type V2NavKey } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
 import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../../../mobile/src/lib/v2reader/wordPopup.mjs'
 import { savesWords } from '../../../../mobile/src/lib/v2reader/vocabSave.mjs'
 import { ttsLang } from '../../../../mobile/src/lib/v2reader/listen.mjs'
@@ -287,6 +287,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     popupRef.current = p
     setPopupState(p)
   }
+  /** #1265: the page shows an image full screen (its `lightbox` message): no key of this document turns, Escape closes it. */
+  const lightboxRef = useRef(false)
   const [bookLanguage, setBookLanguage] = useState('en')
   /** #1271: the language whose saved words are marked: the one words are saved under, none where it does not read (savesWords). */
   const [marksLanguage, setMarksLanguage] = useState<string | null>(null)
@@ -340,6 +342,11 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    */
   const onNavKey = (k: ReturnType<typeof readKey>, inPopup = false) => {
     if (!k) return false
+    // #1265: the lightbox is open (focus left the frame): Escape closes it, no other key turns behind it.
+    if (lightboxRef.current) {
+      if (k.key === 'Escape') call('closeLightbox')
+      return true
+    }
     // #1269: Escape with a popup open closes it and does nothing else (focus inside the word popup: its own keys).
     if (k.key === 'Escape' && popupRef.current) {
       if (!inPopup) closePopup(popupRef.current.kind === 'selection')
@@ -429,6 +436,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   /** Retry after a deadline: a fresh frame; an open whose bytes the old one took is asked for again (`onReload`). */
   const reloadFrame = () => {
     ready.current = false
+    // #1265: the old frame's lightbox went with it, unannounced.
+    lightboxRef.current = false
     // A fresh frame has no book on screen.
     setReading(false)
     setAtEnd(false)
@@ -530,6 +539,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       switch (m?.type) {
         case 'ready':
           deadlines.ready()
+          // A fresh frame shows no image.
+          lightboxRef.current = false
           // The stored layout before the first open: messages arrive in order, and a setting is not a switch.
           call('flow', [flowRef.current])
           call('settings', [settingsRef.current])
@@ -661,6 +672,17 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         case 'selection-cleared':
           onPopupEvent({ type: 'selection-cleared' })
           return
+        case 'lightbox': {
+          // #1265: an image tapped in the page (never a `tap` or `word`): what was open closes, the bars hide while it shows.
+          const shown = readLightbox(m)
+          if (shown === null) return
+          lightboxRef.current = shown
+          if (shown) {
+            setPopup(null)
+            hideBars()
+          }
+          return
+        }
         case 'openLink':
           if (/^https?:\/\//i.test(m.href)) window.open(m.href, '_blank', 'noopener,noreferrer')
           return

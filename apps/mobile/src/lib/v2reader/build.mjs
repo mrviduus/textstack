@@ -105,8 +105,10 @@ const FOLIATE_SHA = 'fe04665d650332f4017f92c5d45d98ee2a84e363'
 // section(), a followed link through the page's chain; reset at the swap, bounded at 15 s except a restore), the open
 // awaiting its restore unless the reader acts (`awaitingRestore`, `readerActed` from any input or a turn);
 // `__testHoldNav(ms)` and `__testRestoreDelay(ms)` test-only.
-// +7,386 (#1271): `markWords(words, show)`: saved-word marks by stage, placed per section (wordMarks.mjs).
-const BUDGET = 287143
+// +8748 (#1265): the image lightbox (lightbox.mjs): an EPUB image tapped in the middle zone opens full screen in the page's own document,
+// pinch / wheel / double-tap zoom about the focus, drag to pan, clamped; Tab kept; `closeLightbox()`, `lightbox` on open and close.
+// +7,385 (#1271): `markWords(words, show)`: saved-word marks by stage, placed per section (wordMarks.mjs).
+const BUDGET = 295890
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
