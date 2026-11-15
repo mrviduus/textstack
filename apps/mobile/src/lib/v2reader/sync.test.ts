@@ -896,8 +896,8 @@ describe('V2 local library sync (R6)', () => {
     })
 
     /** The guard a save carries: `mine` for a library nobody owns yet, `guardNow` its owner now; the session live. */
-    const mine = (_lib: LocalLibrary) => ({ owner: null, stale: () => false })
-    const guardNow = async (lib: LocalLibrary, stale = () => false) => ({ owner: await lib.account(), stale })
+    const mine = (_lib: LocalLibrary) => ({ owner: null, user: 'u1', stale: () => false })
+    const guardNow = async (lib: LocalLibrary, stale = () => false, user: string | null = 'u1') => ({ owner: await lib.account(), user, stale })
     const otter = { id: W1, word: 'otter', language: 'en', stage: 0, translation: null }
 
     it('anAnswerAfterTheSignOutsWipe_NoRow_TheLibraryStaysNobodys', async () => {
@@ -908,6 +908,22 @@ describe('V2 local library sync (R6)', () => {
       await wipeV2Library(lib, clear) // signed out while the save was in flight
       expect(await lib.upsertWord(otter, guard)).toBe(false)
       expect(await words(lib)).toEqual([])
+    })
+
+    it('askedOnANobodysLibrary_ThenClaimedByAnotherUser_NoRow', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      const guard = await guardNow(lib, () => false, 'x1') // nobody's, asked by x1
+      await lib.setAccount('y1') // claimed by y1 before the answer
+      expect(await lib.upsertWord(otter, guard)).toBe(false)
+      expect(await words(lib)).toEqual([])
+    })
+
+    it('askedOnANobodysLibrary_ThenClaimedForTheSameUserMidSave_RowKept', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      const guard = await guardNow(lib, () => false, 'x1')
+      await lib.setAccount('x1') // the first pass claims it for the asker mid-save
+      expect(await lib.upsertWord(otter, guard)).toBe(true)
+      expect(await words(lib)).toEqual([[W1, 'otter', 'en', 0, null]])
     })
 
     it('anAnswerOfASessionThatEnded_NoRow_EvenOnANobodysLibrary', async () => {

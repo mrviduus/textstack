@@ -23,6 +23,12 @@ export const backfillable = (words: readonly ReaderWord[], language: string | nu
  */
 export const ownsLibrary = (owner: string | null, user: string | null) => owner === null || owner === user
 
+/**
+ * Whether a save's answer card is a V2 card (what may become a row): a save or a restore through the switched API when
+ * V2 is on; never an "add anyway", whose promote is always the legacy API.
+ */
+export const answerIsV2 = (kind: 'save' | 'restore' | 'promote', v2On: boolean) => kind !== 'promote' && v2On
+
 /** The translation a card holds after our write (`onlyIfEmpty` keeps one it had): what its row takes, never ours. */
 export const serverTranslation = (card: { translation?: string | null } | null | undefined) => card?.translation || null
 

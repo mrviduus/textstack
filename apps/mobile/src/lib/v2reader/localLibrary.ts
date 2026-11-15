@@ -209,9 +209,10 @@ export interface SessionRow {
 export type OutboxKind = 'book' | 'state' | 'session' | 'annotation'
 /**
  * #1271 review: what an own vocabulary write carries from the moment its save was asked: the library's owner then
- * (`meta.account`) and whether that session has ended since (`resetSince()`, the shared epoch).
+ * (`meta.account`, as last read), the user who asked, and whether that session has ended since (`resetSince()`, the
+ * shared epoch).
  */
-export interface WriteGuard { owner: string | null; stale: () => boolean }
+export interface WriteGuard { owner: string | null; user: string | null; stale: () => boolean }
 /** #1271: a saved word as the reader marks it (the `vocabulary` row). */
 export interface SavedWord { id: string; word: string; language: string; stage: number; translation: string | null }
 /** #1312: a book's highlight notes as an editor needs them (`notes`). */
@@ -365,7 +366,12 @@ export function createLocalLibrary(db: Db) {
    * wipe makes it nobody's, an adoption the account's) and the same session (`stale`: the shared epoch, as sync's
    * `checked`). Read inside the job, so nothing queued before a wipe or an adoption writes after it.
    */
-  const ownedBy = async (g: WriteGuard) => !g.stale() && (await getMeta('account')) === g.owner
+  const ownedBy = async (g: WriteGuard) => {
+    if (g.stale()) return false
+    const now = await getMeta('account')
+    // Nobody's when it was asked: still nobody's, or claimed since by the very user who asked (the first pass mid-save).
+    return now === g.owner || (g.owner === null && now !== null && now === g.user)
+  }
   /** A vocabulary row from a server card (the feed's, or a save's answer): replaced by id. */
   const upsertWordRow = (w: { id: string; word: string; language: string; stage: number; translation?: string | null }) => run(
     `INSERT INTO vocabulary (id, word, language, stage, translation) VALUES (?, ?, ?, ?, ?)

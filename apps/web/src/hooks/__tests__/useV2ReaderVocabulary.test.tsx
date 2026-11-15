@@ -232,6 +232,38 @@ describe('useV2ReaderVocabulary', () => {
     expect(result.current.vocabMap.has('heron')).toBe(false)
   })
 
+  it('anotherIdentityWhileTheFlushRan_TheTappedWordIsNotSent', async () => {
+    api.getReaderVocab.mockResolvedValue([])
+    pending.q1 = { id: 'q1', word: 'heron', language: 'en', createdAt: 1 } as never
+    const flushed = deferred<unknown>()
+    api.saveWord.mockReturnValueOnce(flushed.promise).mockImplementation(async (req: { word: string; language: string }) => saved(req.word, req.language))
+    const { result, rerender } = renderHook(() => useV2ReaderVocabulary('en', null))
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    let saving!: Promise<unknown>
+    act(() => { saving = result.current.addWord({ word: 'otter', language: 'en' } as never) })
+    await flush()
+    Object.assign(auth, { user: { id: 'u2' } })
+    rerender()
+    flushed.resolve(saved('heron', 'en'))
+    await act(async () => { expect(await saving).toBeNull() })
+    expect(api.saveWord.mock.calls.map((c) => (c[0] as { word: string }).word)).toEqual(['heron'])
+  })
+
+  it('aTr2FillAnsweredForAnotherIdentity_AppliesNothing', async () => {
+    api.getReaderVocab.mockResolvedValue([card('pond', 'en')])
+    const answer = deferred<unknown>()
+    api.updateWord.mockReturnValueOnce(answer.promise)
+    const { result, rerender } = renderHook(() => useV2ReaderVocabulary('en', null))
+    await waitFor(() => expect(result.current.vocabMap.has('pond')).toBe(true))
+    let filling!: Promise<unknown>
+    act(() => { filling = result.current.updateTranslation('pond', 'ставок') })
+    Object.assign(auth, { user: { id: 'u2' } })
+    rerender()
+    answer.resolve({ id: 'id-pond', translation: 'ставок' })
+    await act(async () => { await filling })
+    expect(result.current.vocabMap.get('pond')?.translation).toBeFalsy()
+  })
+
   it('aCardRecordedForAnotherIdentity_AppliesNothing', async () => {
     api.getReaderVocab.mockResolvedValue([])
     const { result, rerender } = renderHook(() => useV2ReaderVocabulary('en', null))

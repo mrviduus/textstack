@@ -279,6 +279,8 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
       // I5: pending из pre-auth периода (напр. юзер сохранил 1-2 слова как anon,
       // потом залогинился на другой странице) — flush перед текущим save.
       await flushPendingIfAny()
+      // Another session since the tap (signed out, another identity while the flush ran): nothing is sent for it.
+      if (!ours(asked)) return null
       const resp = await saveWord(req)
       trackVocabSaved({ language: req.language, nativeLanguage: req.nativeLanguage ?? undefined, source: 'reader' })
       // Another session since the save was asked: its answer applies nothing here.
@@ -410,11 +412,12 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
     }
     if (fillingRef.current.has(entry.id)) return
     fillingRef.current.add(entry.id)
+    const asked = idNow.current
     try {
       // The map follows the server: a translation stored elsewhere wins over ours; a failed PATCH
-      // leaves the word unfilled.
+      // leaves the word unfilled. Another session's answer applies nothing (#1271).
       const stored = (await updateWord(entry.id, { translation, onlyIfEmpty: true }))?.translation
-      if (stored) updateMap(m => { const e = m.get(key); if (e) m.set(key, { ...e, translation: stored }) })
+      if (stored && ours(asked)) updateMap(m => { const e = m.get(key); if (e) m.set(key, { ...e, translation: stored }) })
     } catch { /* stays unfilled */ } finally {
       fillingRef.current.delete(entry.id)
     }
