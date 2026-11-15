@@ -16,12 +16,12 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `chrome.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1263, #1264): `navKey` (the page: which keydown becomes a `key` message, a closed list), the hosts' readers `readTap`, `readDir`, `readKey` in `readSelection`'s style, and `keyAction` (what a key does: `prev`, `next`, `bars`), the one rule both hosts follow; the host decisions `hidesBarsOnRelocate` and Android back's order `backAction` (Host responsibilities, "Reader chrome"). |
 | `settings.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1260): the reading settings (size, family, line height, alignment, theme): defaults, the closed lists, `readChosen` / `readSettings` / `parseChosen` / `choose` (what a host stores and sends) and `settingsCss` (the section stylesheet the page injects). See "Reading settings". |
 | `saveScheduler.mjs` | The debounced `store` message: key and payload are fixed when the save is asked for, so a save can never land on the next book; `flush()` writes a pending one at once (the swap) and returns the latest `store` (#1286); `forget()` at the swap drops it. |
-| `overlays.mjs` | What is drawn over a range. foliate keys an overlay by its CFI, so a highlight and a word's translation over the same range are one overlay carrying both. |
+| `overlays.mjs` | What is drawn over a range. foliate keys an overlay by its CFI, so a highlight, a saved word's mark (#1271) and a word's translation over the same range are one overlay carrying all of them. |
 | `library.mjs` | V2 local library (pure): identical bytes → the existing entry, never a duplicate or reset. |
 | `library.d.mts` | Hand-written types for `library.mjs` (apps/web type-checks it without `allowJs`); a change to one must update the other. |
 | `hostStorage.ts` | The host's files under `<documents>/v2/` (R2): staging, retained `books/<sha256>.epub`; lower-cased keys. A picked file comes as the picker's own URI (no picker cache copy) and is copied straight into `staging/`; a failed copy (full disk) leaves no partial file (#1080 items 4–5). The `store` payload goes to the local library; R2's `library.json` + `store/<sha256>.json` are imported into it once (non-UUID ids remapped), then deleted; `library.json` and each store entry fall back to their `.tmp` when the target does not parse, and when neither parses both are renamed `.corrupt-<ms>` with a warning, never deleted or written over (#1081). |
-| `localLibrary.ts` | R6 (#1038): SQLite database `textstack-v2` — `books`, `reading_state`, `annotations` (the page's position/highlight JSON per row, keyed by client v4 UUIDs), `reading_sessions` (#1313, until pushed), `outbox` (one coalescing entry per row, `gen` per re-queue, `failures` per gen: any entry kept and skipped after N, reset every session and by "Try again" = `unpark`, #1186), `meta` (cursors, file-sync setting). The page's entry is rebuilt from rows on `restore` and split into rows on `store`, through `@textstack/shared`'s `v2PageEntry` (the web host's mapping too, #1226); the entry's shape and checks are `v2PageStore.ts` there (`store.mjs` re-exports them). Sign-out (#1070): `signOutLoss` and `wipe` / `wipeV2Library`, below. |
-| `sync.ts` | R6: the sync client to `/me/v2/*` (PDD v2-sync-protocol.md): pull the library/reading/annotations feeds by cursor, push the outbox in order, opt-in file sync (shared `uploadV2File`), download on demand; conflicts per the PDD's codes, reading state by ADR-019 re-keyed on CFI + spine index; every answer under the shared `whileCurrent` epoch guard. |
+| `localLibrary.ts` | R6 (#1038): SQLite database `textstack-v2` — `books`, `reading_state`, `annotations` (the page's position/highlight JSON per row, keyed by client v4 UUIDs), `reading_sessions` (#1313, until pushed), `vocabulary` (#1271: the reader's live saved words as the vocabulary feed last sent them, pull-only, what the marks read offline), `outbox` (one coalescing entry per row, `gen` per re-queue, `failures` per gen: any entry kept and skipped after N, reset every session and by "Try again" = `unpark`, #1186), `meta` (cursors, file-sync setting). The page's entry is rebuilt from rows on `restore` and split into rows on `store`, through `@textstack/shared`'s `v2PageEntry` (the web host's mapping too, #1226); the entry's shape and checks are `v2PageStore.ts` there (`store.mjs` re-exports them). Sign-out (#1070): `signOutLoss` and `wipe` / `wipeV2Library`, below. |
+| `sync.ts` | R6: the sync client to `/me/v2/*` (PDD v2-sync-protocol.md): pull the library/reading/annotations feeds, push, then pull the vocabulary feed (#1271, its failure its own) by cursor, push the outbox in order, opt-in file sync (shared `uploadV2File`), download on demand; conflicts per the PDD's codes, reading state by ADR-019 re-keyed on CFI + spine index; every answer under the shared `whileCurrent` epoch guard. |
 | `deviceLibrary.ts` / `.web.ts` | The device's library over expo-sqlite (a failed open is retried, never cached) and its files: `v2Root()` (`<documents>/v2/`, the one definition: host, wipe, measure), `makeV2Dirs`, `clearV2Files` (the one place files are wiped: the root deleted and its three directories made again whenever it ran, so a half-failed call is retried whole), `deviceV2Bytes` (Profile's Device Storage; creates nothing), `deviceV2SignOutLoss`, `wipeDeviceV2Library`. The web twin keeps expo-sqlite out of the web bundle and mirrors every export. |
 | `sqliteShim.ts` | Tests only: localLibrary's `Db` over node:sqlite. |
 | `*.test.ts` | Unit tests (mobile vitest) for the pure modules and hostStorage. |
@@ -46,6 +46,9 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `finishBook.mjs` (+ `.d.mts`) | Pure, both hosts (#1266): `showsFinishBook`, when the end-of-book block shows. See Host responsibilities, "Finish book". |
 | `listen.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1272): `ttsLang` (the book's language → the `lang` `/tts` is sent, the V2 reader on both hosts (the legacy readers keep their own): the primary subtag only, ISO 639-2 codes in both forms, `nb`/`nn`/`iw`/`in` and `tl` → `fil` folded, `und`/`mul`/`zxx`/`mis` to the fallback, never English for another language, null for Ukrainian), `TTS_SPEEDS` / `readSpeed` / `TTS_SPEED_KEY` / `createSpeedChoice` (Android's async store: a pick before the read wins), `createListener` (Listen's rule: it owns the phase), `speakingJs` (Android's injected call), `SPOKEN_FILL`. See Host responsibilities, "Listen". |
 | `vocabSave.mjs` (+ `.d.mts`) | Pure, both hosts (#1270): `saveOutcome`, a vocabulary save's answer as the host shows it (saved, deleted → restore, pending, lookup); `savesWords`, whether a book's `opened.lang` lets its words be saved. See Host responsibilities, "Saving a word". |
+| `wordMarks.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1271): saved-word marks. `readMarkWords` (the page's read of `markWords`: word ≤ 200, gloss ≤ 500, at most 20,000; a stage off 0–4 is new), `STAGE_COLORS` (the legacy readers' five underlines), `wordMarksIn` (where words stand in a section, reader-engine's `matchWords` + `rangesIn`), `sameMark`; the gloss setting `readGlosses` / `withGlosses` (the legacy `showInlineTranslations`). See Host responsibilities, "Saved-word marks". |
+| `vocabWords.mjs` (+ `.d.mts`) | Pure, DOM-free, both hosts (#1271): `langOf`, `ofBook` (a card is the book's language), `wordId` (key + language), `markWordsOf` (what a host sends), `backfillTranslations` (the once-per-open rule: serial writes, a 429 stops it, cancelled by the host). |
+| `readerVocab.ts` | Android (#1271): `forBook`, `backfillable`, `answerRow` (the row a save's answer card makes: V2 cards only, `routeOf`; none for another user's), `ownsLibrary`, `serverTranslation`, `nudgeCount`. |
 | `wordPopup.mjs` (+ `.d.mts`) | Pure, both hosts (#1269): `readWord` (a host's read of `word`, `readSelection`'s caps; the rect through `selection.mjs` `readRect`), `readLang` (`opened.lang` as a two-letter primary subtag, or null: a three-letter code gives the host's fallback), and `popupStep`: what a `word`, `tap`, `selection`, `selection-cleared` or a move does to the word popup / selection toolbar and to the tap zones. See Host responsibilities, "Word popup and selection toolbar". |
 | `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
 | `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
@@ -64,6 +67,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 - *The wipe* (`wipeV2Library`): rows, the owner included (every table, one transaction, on the library's queue: a write queued before it is wiped with it), then files (`clearV2Files`: the root deleted and the three directories made again, whenever it ran). A failed row wipe stops before the files.
 - *Sign-in* (`claimV2LibraryFor`): `signInWithTokens` (before the guest adoption), a guest mint, and a restored session at start (not awaited; retries a wipe that failed or ran late). Before the session's user is set; needs no server.
 - *Late rows*: a pass asked before a session change is dropped unrun (`syncV2Library` keeps the asker's epoch); an open whose session ended before its row was queued is refused and its moved file removed (`createV2Storage`'s `sessionSince`). Rows added with no session belong to nobody until the first pass claims them.
+- *Saved words* (#1271): the `vocabulary` rows are wiped with the rest and never counted: a pull-only copy of the server's.
 - *What `signOutLoss` counts*: a device book unless the server holds this very file with its bytes (never pushed, file sync off, replaced, bytes removed, book removed there); changes of books not counted: queued positions and highlights, and own highlights the server never took and nothing will send (over the cap, dropped after a refusal). *Not counted*: a fraction-only position (the server's own), an edit of an already-synced highlight dropped after a refusal. The warning is a lower bound for those.
 
 ## Build
@@ -354,6 +358,8 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `flow('paginated' \| 'scrolled')` | foliate layout; default `paginated` (ADR-029 Decision 1). Switches the open book in place (no reload, position kept). Before `opened` it sets what the next open uses: hosts send the reader's stored setting right after `ready`. Anything else is ignored with a `warn`. |
 | `flush()` | #1264: a `store` still debounced (a page turn's, 400 ms) is written now; nothing pending, nothing sent. Hosts call it on background, unmount and close. The page also flushes by itself when its document turns hidden (`visibilitychange`: a tab switch, the app backgrounded) and on `pagehide`. **Returns** the latest `store` message (`{ type, key, json }`: the pending one, now posted, or the last one sent; `null` before any, and after a new open until the reader moves: the swap forgets it): #1286, the web host calls it synchronously (the frame is same-origin) where a posted `store` comes too late — its own `pagehide` (the page's is a postMessage to a window that is unloading) and its unmount (a layout cleanup, while the frame is still in the document; the message listener is gone after). The host reads the value as an untrusted `store` (`readStore`: each field once, strings only, the synced book's key) inside a try: any failure is today's behaviour. The session takes it without a pass on `pagehide` (the keepalive write is the one write) and joins it to its last pass on close; the same payload posted again later is no change. Android ignores the value. |
 | `showTranslation(cfi, index, text)` | Draws `text` above that word (the web dev route's stub label only; no host draws a translation yet). Ignored where `annotatable` is false (CBZ, PDF). |
+| `markWords(words, show)` | #1271: the reader's saved words, `[{ word, stage, gloss }]` (read through `readMarkWords`: a malformed item dropped), and whether their glosses show (the reader's setting). Replaces the list held, kept across opens. The section on screen is marked again at once (a mark no longer wanted removed, an unchanged one left, every one with a gloss redrawn when `show` changed); every other section is marked when it loads (`create-overlay`), never the whole book, and a section that left keeps no marks. Each occurrence by the vocabulary key (whole words, any case, a phrase before its words), underlined in its stage's colour (`STAGE_COLORS`), its gloss above it as SVG text only. Keyed by the occurrence's CFI: one over a highlight's or a tapped translation's range is that overlay (a removed highlight keeps the mark; a word no longer sent keeps the highlight). A tap on a marked word is still its `word`. Ignored where `annotatable` is false. |
+| `markedWords()` | Test-only (`formats.check.mjs`): how many saved-word marks the page holds, a count and no book data. |
 | `speaking(cfi, index)` | #1272: the host speaks that range (a `word`'s or `selection`'s CFI and section): underlined in `SPOKEN_FILL` (listen.mjs), the previous one removed (one at a time), kept over section reloads; a highlight or label over the same range stays (one overlay). `speaking(null)`: the speech ended or stopped, the mark goes. Saves nothing, sends nothing. Ignored with a `warn` where `annotatable` is false (a PDF word has no CFI) or for a value that is no range CFI (over 1024 chars, a non-integer index). Returns true when drawn. A new open drops it. |
 | `drawnRanges()` | Test-only (`formats.check.mjs`): how many drawn highlight ranges the page holds, a count and no book data. The ranges of a section no longer loaded (its frame gone) are dropped when a section's overlayer is made and on every tap (#1312 review). |
 | `clearSelection()` | #1269: the host is done with the selection (its toolbar closed after Copy, a translation or explanation closed): removed from every shown section, `selection-cleared` sent at once if a `selection` was sent (none otherwise), and `highlightSelection()` has no last selection to fall back on. |
@@ -572,7 +578,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
     save in flight per word; another word saves meanwhile. The book id is sent; `book_not_found` saves it without
     one. A saved card without a translation gets one (`lib/savedWord.ts` `fillSavedTranslation`, the legacy reader's
     TR-2 fill). A word saved, already saved, restored or added anyway shows ✓ for the rest of the open, never Save
-    again. The "Added" toast, or a guest's nudge at 3 and 10 (`claimGuestNudge`, counted on the whole vocabulary).
+    again. The "Added" toast, or a guest's nudge at 3 and 10 (`claimGuestNudge`, counted on the whole vocabulary: the words in memory once the vocabulary feed was pulled, else the server's list, #1271 `nudgeCount`).
   - *A language that does not read* (`opened.lang` present, `readLang` null: `deu`, `fre`; `savesWords`): nothing is
     saved on either host (no auto-save on web, no Save on Android), as the fallback would file the words under another
     language's cards. Translate and explain still use the fallback for display.
@@ -582,6 +588,69 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
     them. Mark as known stays out (`V2_FEATURES.markAsKnown` false).
 - Untrusted text (word, sentence, selection) reaches the screen only as React / React Native text, and no host
   injects any of it into the page: the calls the hosts inject carry no book text.
+
+**Saved-word marks** (#1271, `wordMarks.mjs`, `vocabWords.mjs`; audit §2.5). The page draws; the host sends the words.
+
+- *Which words*: the cards of the book's language only (`vocabWords.mjs` `ofBook`: primary subtags compared, `en-GB`
+  is `en`), the V2 reader only: the legacy reader's map keeps every card, as before. The language is the one words are
+  saved under (`savesWords`' rule): `opened.lang` through `readLang`, else the host's fallback when the book declares
+  none; a declared language that does not read (`deu`, `fre`) marks and fills nothing. A card with no language (the
+  legacy list, when V2 is not answering) is not the book's: no mark, no fill. The same rule bounds the backfill: no translation is ever written to a card of
+  another language.
+- *What the host sends*: `markWordsOf` (word, stage, translation as the gloss), oldest first, a word just saved last
+  (over 20,000 the page keeps the newest); never a sentence or any book text. Sent after each open's words are in,
+  after each change (a save, a restore, an "add anyway", a backfilled translation), on a `ready` (a new frame) when
+  there are words, and when the setting switches; an unchanged list is not sent again. ponytail: the whole list each
+  time; delta calls if a large vocabulary makes a save jank.
+- *The setting* is the legacy readers' own `showInlineTranslations` ("Show translations for saved words"), one choice for
+  both readers on a device: web `reader.settings.v1` (`readGlosses` / `withGlosses`, every other field kept), Android
+  `useReaderSettings`. The switch is in the V2 settings panel where `annotatable`.
+- *Drawn*: foliate's underline (vertical writing included) in the stage's colour; the range being spoken (#1272)
+  over it, so it stays visible; the gloss as SVG text.
+- *Web*: its own hook, `useV2ReaderVocabulary` (V2ReaderPopups; the legacy reader's `useReaderVocabulary` is not
+  touched): the legacy saves, guest queue and mint, with V2's rules. One read per load, each card with its language,
+  filtered to the book's, loaded again for a new identity (a guest becoming an account); kept in memory, and what is
+  saved while a load is in flight is replayed over its words when it commits; a save, a flushed guest word or a footer-picked translation updates it
+  (another language's queued word is not added, nor given this book's card's translation by key). Missing
+  translations are backfilled once per authenticated load, for the language it was filtered for (a language change
+  waits for its own load), over the words it brought (never on the no-session branch, never for a word saved later:
+  the save's TR-2 fill has it), by the shared `backfillTranslations`, cancelled by a newer load (identity, language,
+  retry) or the unmount; the map takes the translation the server kept. "Already saved" (the auto-save's guard, the
+  popup's ✓) is a card of the book's language or one with no language (the legacy list, V2 down), so no word is saved
+  twice; a card of another language is another word. Every late answer (a save, a flushed word, a recorded card, a
+  TR-2 fill) applies nothing when the identity it was asked under is no longer the reader (anonymous → guest is the
+  same person), and a save is not sent when the identity changed while its flush ran. A guest's nudge counts the whole vocabulary, every language. The map goes to the host
+  through `onMarks`.
+- *Android*: the saved words are the local library's `vocabulary` rows, offline too (no token or network on the
+  reading path). The feed's rows, and this device's own: a save's answer card (saved, already saved, restored, added
+  anyway) is upserted as the pull writes it (`answerRow`: only for a save that went through V2; dropped when the user
+  changed since the save was asked), and the translation the server holds after a write (the card its PATCH answers
+  with: `onlyIfEmpty` may keep another; the backfill's, TR-2's `onStored`) is written to its row. Only a V2 card makes
+  a row: the mobile vocabulary API marks each answer with the route the call itself took (`routeOf`), so a re-probe
+  after it never turns a legacy card into one; an "add anyway" (a legacy promote) never does. Every own write carries,
+  from memory when its save was asked (a save never waits on the database), the asking user and the session
+  (`WriteGuard`); inside its job it lands only while that session is current (every sign-in and sign-out bumps it) and
+  the library is nobody's or the asker's own (claimed by them mid-save, or adopted to them). A library another identity owns (a wipe that failed) is neither read for
+  marks nor written (`ownsLibrary`). A pull replaces rows by id,
+  a tombstone deletes one, a wipe, a guest carried on and an adoption clear them and pull again (the account's ids).
+  The rows are read at each open, after each own write and after each sync pass; the bar's ✓ is the book's language's
+  rows. A user change reads them anew and latches the backfill again. Missing translations are backfilled once per
+  (open, user, native language) by the shared `backfillTranslations` (`backfillable`: the book's language, no
+  translation, none whose TR-2 fill (until its write settles) is in flight; `cachedTranslate`, then the card's `onlyIfEmpty` PATCH awaited before the next word; a 429 stops it, so
+  do a new open, a user change, a new native language, which restarts it for what is still missing, and leaving the
+  screen). A guest's nudge counts the rows once the feed was pulled (V2 on, a vocabulary cursor), else the server's
+  list as before (`nudgeCount`).
+- *The feed*: pull-only; a tombstone removes the row, the server's row replaces it. Pulled after the pushes, and its
+  failure is its own: it never holds a write back or fails the pass (offline, the server down or a session change end
+  the pass as for any pull). A wipe deletes
+  the rows (nothing counted as lost: they are the server's); a guest carried to the next identity and a guest →
+  account adoption drop them and pull from the start (the merge keeps the account's card ids).
+- *Measured* (desktop Chromium, Frankenstein, 78,499 words in 32 sections; the page's `markWords` on the section on
+  screen to the next frame): 500 saved words of mid frequency → 8,941 marks in the book, 18 ms median per section,
+  the densest (890 marks) 74 ms; 2,000 words → 26,756 marks, 41 ms median, densest (2,806) 247 ms; the 50 commonest
+  words → 37,007 marks, densest (3,920) 391 ms. A page turn's `relocate` is not held up (42 ms with marks, 41
+  without): a section is marked in the task after it is shown. ponytail: no cap on a section's occurrences (one
+  overlay each, `getClientRects` on every re-layout); draw only those near the viewport if real vocabularies make it felt.
 
 **Listen** (#1272, `listen.mjs`; audit §2.7). The host fetches and plays (the page has no network); the page marks.
 

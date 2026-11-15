@@ -41,11 +41,20 @@ export async function fillSavedTranslation(
   sourceText: string,
   textLanguage: string,
   nativeLanguage: string,
-  ctx: { sentence?: string | null; bookId?: string },
+  ctx: { sentence?: string | null; bookId?: string; onStored?: (card: VocabularyWordDto) => void; onSettled?: () => void },
 ): Promise<string | null> {
-  if (saved.translation || nativeLanguage === textLanguage) return null
-  const { translation } = await cachedTranslate(sourceText, textLanguage, nativeLanguage, { sentence: ctx.sentence ?? undefined, bookId: ctx.bookId })
-  if (!translation || !saved.id) return null
-  vocabularyApi.updateWord(saved.id, { translation, onlyIfEmpty: true }).catch(() => {})
+  // `onSettled` (#1271, the V2 reader): once, when this fill is over: its write settled, or nothing to write.
+  const settle = () => ctx.onSettled?.()
+  if (saved.translation || nativeLanguage === textLanguage) return settle(), null
+  let translation: string | null | undefined
+  try {
+    ({ translation } = await cachedTranslate(sourceText, textLanguage, nativeLanguage, { sentence: ctx.sentence ?? undefined, bookId: ctx.bookId }))
+  } catch (e) {
+    settle()
+    throw e
+  }
+  if (!translation || !saved.id) return settle(), null
+  // `onStored` (#1271, the V2 reader): the card as the server holds it after the write, for its local row.
+  vocabularyApi.updateWord(saved.id, { translation, onlyIfEmpty: true }).then((card) => ctx.onStored?.(card), () => {}).finally(settle)
   return translation
 }

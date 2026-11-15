@@ -380,6 +380,52 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
+  // #1271: a saved word is marked in the text by its stage (new: blue), its translation above it behind the legacy
+  // reader's setting; the switch hides and shows the glosses; a reload marks it again from the reader's vocabulary.
+  test('readV2Marks_AWordSaved_MarkedWithItsTranslation_TheSwitchHidesIt_AReloadMarksItAgain', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2marks'))
+    await withTranslation(context)
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+
+    const width = page.viewportSize()!.width
+    const word = (await firstParagraphWords(page)).find((w) => w.x > width * 0.35 && w.x < width * 0.65 && w.word.length > 3)
+    expect(word, 'a word in the centre zone').toBeTruthy()
+    /** What the page draws over the shown section: each overlay's underline colour, label and the text under it. */
+    const marks = () => {
+      const frame = page.frames().find((f) => f.url().includes('/reader-v2/frame.html'))!
+      return frame.evaluate(() => [...(document.querySelector('foliate-view') as unknown as { renderer: { getContents(): { overlayer?: { element: SVGElement } }[] } }).renderer.getContents()]
+        .flatMap((c) => [...(c.overlayer?.element.children ?? [])].map((g) => ({
+          // foliate's underline: the colour on the group of its rects.
+          line: g.querySelector('rect[height="2"]')?.parentElement?.getAttribute('fill') ?? null,
+          label: g.querySelector('text')?.textContent ?? null,
+        }))))
+    }
+    const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith('/me/v2/vocabulary/words'))
+    await page.mouse.click(word!.x, word!.y)
+    expect((await saved).ok()).toBeTruthy()
+    await page.locator('.word-popup').getByRole('button', { name: 'Close' }).first().click()
+    const blueWithGloss = (ms: { line: string | null; label: string | null }[]) => ms.filter((m) => m.line === 'rgba(59,130,246,0.5)' && m.label === 'MOCK-TRANSLATION').length
+    await expect.poll(async () => blueWithGloss(await marks()), { timeout: 15_000 }).toBeGreaterThan(0)
+
+    await clickBar(page, 'Reading settings')
+    const sw = page.getByRole('switch', { name: 'Inline translations' })
+    await expect(sw).toHaveAttribute('aria-checked', 'true')
+    await sw.click()
+    await expect.poll(async () => (await marks()).filter((m) => m.line === 'rgba(59,130,246,0.5)' && m.label === null).length).toBeGreaterThan(0)
+    expect((await marks()).some((m) => m.label)).toBe(false)
+    await sw.click()
+    await expect.poll(async () => blueWithGloss(await marks())).toBeGreaterThan(0)
+    await page.keyboard.press('Escape')
+
+    await page.reload()
+    await expectOpened(page)
+    await expect.poll(async () => blueWithGloss(await marks()), { timeout: 15_000 }).toBeGreaterThan(0)
+    await context.close()
+  })
+
   // #1269: a selection opens the toolbar (highlight, translate, explain, copy; Listen comes with TTS, #1272);
   // Translate shows the host's translation; its close and Copy each end the selection in the book.
   test('readV2Selection_TheToolbar_TranslateThenCopy_EachEndsTheSelection', async ({ browser }) => {

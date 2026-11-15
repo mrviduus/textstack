@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../../context/ThemeContext'
@@ -64,10 +64,12 @@ interface Props {
   /** #1272: Listen's speed and its change. */
   ttsSpeed: number
   onTtsSpeed: (v: number) => void
+  /** #1271: saved words' translations shown (the legacy reader's `showInlineTranslations`); absent where nothing is marked. */
+  glosses?: { on: boolean; onChange: (on: boolean) => void }
 }
 
 /** The settings sheet: the legacy reader's drawer (ReaderSettingsDrawer.tsx) with the five V2 settings. */
-export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typography, ttsSpeed, onTtsSpeed }: Props) {
+export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typography, ttsSpeed, onTtsSpeed, glosses }: Props) {
   const { colors } = useTheme()
   const { t } = useLanguage()
   const reduceMotion = useReduceMotion()
@@ -176,6 +178,23 @@ export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typograp
                 </TouchableOpacity>
               ))}
             </View>
+
+            {glosses && (
+              // The legacy drawer's switch (ReaderSettingsDrawer.tsx), the same stored setting.
+              <>
+                {label(t('reader.inlineTranslations').toUpperCase())}
+                <View style={styles.toggleRow}>
+                  <Text style={[styles.toggleLabel, { color: colors.text }]}>{t('reader.inlineTranslationsDesc')}</Text>
+                  <Switch
+                    value={glosses.on}
+                    onValueChange={glosses.onChange}
+                    trackColor={{ true: colors.primary, false: colors.border }}
+                    thumbColor="#fff"
+                    accessibilityLabel={t('reader.inlineTranslationsDesc')}
+                  />
+                </View>
+              </>
+            )}
           </ScrollView>
         </View>
       </View>
@@ -202,4 +221,6 @@ const styles = StyleSheet.create({
   chipText: { fontFamily: fonts.sansMedium, fontSize: 14 },
   themeChip: { flex: 1, paddingVertical: 14, borderRadius: 10, alignItems: 'center', borderWidth: 2 },
   themeLabel: { fontFamily: fonts.sansMedium, fontSize: 12 },
+  toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
+  toggleLabel: { fontFamily: fonts.sans, fontSize: 14, flex: 1, marginRight: 12 },
 })

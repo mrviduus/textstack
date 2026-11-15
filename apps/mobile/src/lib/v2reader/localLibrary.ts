@@ -16,6 +16,9 @@
  *                  `note_dirty` = edited here and not yet on the server (a lost write's retry keeps the server's
  *                  note otherwise). A `deleted_at` with the row still queued is this device's removal, pushed
  *                  as a DELETE (#1312)
+ *   vocabulary     #1271: the reader's live saved words, server cards only: the vocabulary feed's, and the card each
+ *                  of this device's own saves answered with (a filled translation written to its row). What the reader
+ *                  marks, offline too. Nothing here is queued (a save goes to the API first), so a wipe loses nothing
  *   reading_sessions  the reader's ended sessions (#1313, sessionTracker.mjs) by client session id, until pushed
  *                  (append-only facts: the row leaves with its outbox entry)
  *   outbox         what still has to be pushed: (kind, target), kind 'book' | 'state' | 'session' | 'annotation',
@@ -32,7 +35,7 @@
 import { createWriteQueue } from '../sessionWrites'
 import {
   annotationHighlight, decideServerState, entryChanges, entryFor, isFractionOnly, isUuid, pageEntry, statePosition, syncableText,
-  type OpenReader, type PageHighlight, type PagePosition, type V2Annotation, type V2Book, type V2BookFile, type V2ReadingState,
+  type OpenReader, type PageHighlight, type PagePosition, type V2Annotation, type V2Book, type V2BookFile, type V2ReadingState, type V2Word,
 } from '@textstack/shared'
 import type { LibraryBook } from './hostStorage'
 import type { LibraryEntry } from './library.mjs'
@@ -101,6 +104,13 @@ const SCHEMA = `
     PRIMARY KEY (kind, target)
   );
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+  CREATE TABLE IF NOT EXISTS vocabulary (
+    id TEXT PRIMARY KEY,
+    word TEXT NOT NULL,
+    language TEXT NOT NULL,
+    stage INTEGER NOT NULL,
+    translation TEXT
+  );
 `
 /**
  * #1312 review: rows from before notes were kept here hold none, though the server may hold one, and every write now
@@ -197,6 +207,15 @@ export interface SessionRow {
 }
 
 export type OutboxKind = 'book' | 'state' | 'session' | 'annotation'
+/**
+ * #1271 review: what an own vocabulary write carries from the moment its save was asked: the user who asked, and
+ * whether that session has ended since (`resetSince()`, the shared epoch: every sign-in and sign-out bumps it, so a
+ * guest's save still in flight at sign-up is dropped; its card comes with the next pull under the account's id). Checked
+ * inside the write's job against the library's owner then.
+ */
+export interface WriteGuard { user: string | null; stale: () => boolean }
+/** #1271: a saved word as the reader marks it (the `vocabulary` row). */
+export interface SavedWord { id: string; word: string; language: string; stage: number; translation: string | null }
 /** #1312: a book's highlight notes as an editor needs them (`notes`). */
 export interface BookNotes { known: Map<string, string | null>; unknown: Set<string>; deleted: Set<string> }
 /** `failures`: transient push failures of this `gen` in a row (sync.ts `MAX_FAILURES`). */
@@ -210,7 +229,7 @@ export interface PositionAction {
   position: PagePosition
 }
 
-export const FEEDS = ['library', 'reading', 'annotations'] as const
+export const FEEDS = ['library', 'reading', 'annotations', 'vocabulary'] as const
 export type LocalFeed = (typeof FEEDS)[number]
 
 const parse = <T>(json: string | null): T | null => {
@@ -343,6 +362,23 @@ export function createLocalLibrary(db: Db) {
     await run(`UPDATE outbox SET failures = 0 WHERE ${BOOK_OF} = ?`, [bookId])
   }
   const dequeue = (kind: OutboxKind, target: string) => run('DELETE FROM outbox WHERE kind = ? AND target = ?', [kind, target])
+  /**
+   * #1271 review: an own write lands only for the session that asked it (`stale`: the shared epoch, as sync's `checked`)
+   * and only in a library that is nobody's or the asking user's (read inside the job, so nothing queued before a wipe
+   * or another account's claim writes after it).
+   */
+  const ownedBy = async (g: WriteGuard) => {
+    if (g.stale()) return false
+    // The library now is nobody's, or the asking user's own (claimed mid-save, adopted to them): never another's.
+    const now = await getMeta('account')
+    return now === null || now === g.user
+  }
+  /** A vocabulary row from a server card (the feed's, or a save's answer): replaced by id. */
+  const upsertWordRow = (w: { id: string; word: string; language: string; stage: number; translation?: string | null }) => run(
+    `INSERT INTO vocabulary (id, word, language, stage, translation) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET word = excluded.word, language = excluded.language, stage = excluded.stage, translation = excluded.translation`,
+    [w.id, w.word, w.language, w.stage, w.translation ?? null],
+  )
   const getMeta = async (key: string) => (await one<{ value: string }>('SELECT value FROM meta WHERE key = ?', [key]))?.value ?? null
   const setMeta = (key: string, value: string | null) =>
     value === null ? run('DELETE FROM meta WHERE key = ?', [key]) : run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [key, value])
@@ -752,6 +788,9 @@ export function createLocalLibrary(db: Db) {
     adoptAccount: (fromId: string, books: Record<string, string>, files: Record<string, string>, accountId: string) => tx(async () => {
       if ((await getMeta('account')) !== fromId) return false
       await rekeyIn(books, files)
+      // The guest's cards may survive under the account's ids (PDD merge: the account's id wins): the copy goes and the
+      // full pull below brings the account's back, never a stale guest id beside it.
+      await run('DELETE FROM vocabulary')
       await clearCursors()
       await setOwner(accountId, false)
       return true
@@ -923,6 +962,38 @@ export function createLocalLibrary(db: Db) {
       if (cursor !== undefined) await setMeta('cursor:annotations', cursor)
     }),
 
+    /**
+     * #1271: a vocabulary feed page (and its cursor, in the same transaction). The server's row replaces the local
+     * copy; a tombstone removes it (a deleted word is unmarked). Nothing is queued: the copy is pull-only.
+     */
+    applyVocabulary: (items: V2Word[], cursor?: string | null) => tx(async () => {
+      for (const w of items) {
+        if (w.deletedAt) await run('DELETE FROM vocabulary WHERE id = ?', [w.id])
+        else await upsertWordRow(w)
+      }
+      if (cursor !== undefined) await setMeta('cursor:vocabulary', cursor)
+    }),
+
+    /** #1271: every live saved word on this device, for the reader's marks (one read per open). */
+    savedWords: () => job(() => all<SavedWord>('SELECT id, word, language, stage, translation FROM vocabulary ORDER BY rowid')),
+
+    /**
+     * #1271 review: the card a save of this device answered with (saved, already saved, restored, added anyway), as the
+     * pull writes it: the server's card, by its id. A later pull replaces it by id, a tombstone deletes it.
+     */
+    upsertWord: (w: SavedWord, guard: WriteGuard) => job(async () => {
+      if (!(await ownedBy(guard))) return false
+      await upsertWordRow(w)
+      return true
+    }),
+
+    /** The translation the server holds after a write (`onlyIfEmpty`: backfill, TR-2): on its row too, unless it has one. */
+    setWordTranslation: (id: string, translation: string, guard: WriteGuard) => job(async () => {
+      if (!(await ownedBy(guard))) return false
+      await run('UPDATE vocabulary SET translation = ? WHERE id = ? AND translation IS NULL', [translation, id])
+      return true
+    }),
+
     cursor: (feed: LocalFeed) => job(() => getMeta(`cursor:${feed}`)),
 
     /** File sync (Story B5): off unless the reader turned it on. */
@@ -953,6 +1024,8 @@ export function createLocalLibrary(db: Db) {
       await run('DELETE FROM books WHERE imported_at IS NULL')
       await run(`DELETE FROM annotations WHERE mine = 0 AND id NOT IN (SELECT target FROM outbox WHERE kind = 'annotation')`)
       await run('DELETE FROM reading_state WHERE book_id NOT IN (SELECT id FROM books)')
+      // The guest's saved words are the server's knowledge (pull-only): gone, pulled again for the new identity.
+      await run('DELETE FROM vocabulary')
       // A park's entry is gone (deleted when it parked): the new identity is sent every book it clears.
       for (const { id } of await all<{ id: string }>('SELECT id FROM books WHERE blocked IS NOT NULL')) await enqueue('book', id)
       await run('UPDATE books SET server_file_id = NULL, server_sha256 = NULL, server_size = NULL, server_format = NULL, has_content = 0, content_removed = 0, removed_at = NULL, blocked = NULL')
@@ -967,7 +1040,7 @@ export function createLocalLibrary(db: Db) {
      * nobody; rows that appear after it are taken by the first identity that syncs.
      */
     wipe: () => tx(async () => {
-      for (const table of ['books', 'reading_state', 'annotations', 'reading_sessions', 'outbox']) await run(`DELETE FROM ${table}`)
+      for (const table of ['books', 'reading_state', 'annotations', 'reading_sessions', 'outbox', 'vocabulary']) await run(`DELETE FROM ${table}`)
       // The notes upgrade's marker stays (#1312 review): it is about this database, not its owner, and the rows a later
       // sign-in pulls are known, never to be marked unknown again.
       await run('DELETE FROM meta WHERE key <> ?', [NOTES_UPGRADE])

@@ -36,7 +36,7 @@ const serverState = (bookId: string, fileId: string, revision: number, extra: ob
 })
 const ok = (body: unknown, status = 200): Answer => ({ status, body })
 const fakeApi = (routes: Record<string, Answer[]>) => fakeV2({
-  'GET /status': [ok({ maxPartBytes: 1024 })], 'GET /library/changes': feed(), 'GET /reading/changes': feed(), 'GET /annotations/changes': feed(), ...routes,
+  'GET /status': [ok({ maxPartBytes: 1024 })], 'GET /library/changes': feed(), 'GET /reading/changes': feed(), 'GET /annotations/changes': feed(), 'GET /vocabulary/changes': feed(), ...routes,
 }, V2)
 const stateWrites = (calls: Call[]) => calls.filter((c) => c.method === 'PUT' && c.path.endsWith('/reading-state')).map((c) => c.body)
 

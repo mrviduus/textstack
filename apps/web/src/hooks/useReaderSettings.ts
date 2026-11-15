@@ -16,7 +16,8 @@ export interface ReaderSettings {
   showInlineTranslations: boolean
 }
 
-const STORAGE_KEY = 'reader.settings.v1'
+/** Also the V2 reader's gloss setting's store (#1271: the same `showInlineTranslations`). */
+export const STORAGE_KEY = 'reader.settings.v1'
 
 const defaults: ReaderSettings = {
   fontSize: 20,

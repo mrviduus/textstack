@@ -6,7 +6,7 @@ import { V2ReaderHost } from './V2ReaderHost'
 // #1270: which book the host hands the popups to save words with: the production route's server book, when the
 // opened bytes are its file and the book's language reads (savesWords).
 
-let props: { bookId?: string; bookTitle?: string; bookLanguage: string } | null = null
+let props: { bookId?: string; bookTitle?: string; bookLanguage: string; marksLanguage?: string | null } | null = null
 vi.mock('./V2ReaderPopups', () => ({
   V2ReaderPopups: (p: typeof props) => { props = p; return null },
 }))
@@ -46,6 +46,18 @@ describe('V2ReaderHost vocabulary book', () => {
     await open({ lang: 'deu' })
     expect(props).toMatchObject({ bookLanguage: 'en' })
     expect(props!.bookId).toBeUndefined()
+  })
+
+  // #1271 review: marks follow savesWords' rule: the language words are saved under, none where the book's does not read.
+  it('marksLanguage_TheBooksReadableLanguage_ElseTheFallback_NoneWhenDeclaredButUnreadable', async () => {
+    await open({ lang: 'de-AT' })
+    expect(props!.marksLanguage).toBe('de')
+    cleanup()
+    await open({})
+    expect(props!.marksLanguage).toBe('en')
+    cleanup()
+    await open({ lang: 'deu' })
+    expect(props!.marksLanguage).toBeNull()
   })
 
   it('bytesThatAreNotTheServerFile_NothingSaved', async () => {

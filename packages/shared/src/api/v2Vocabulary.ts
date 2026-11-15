@@ -171,10 +171,10 @@ export function createV2Vocabulary({ newId, fileIdOf, cards, epoch }: V2Vocabula
     return { total: items.length, items: items.slice(offset, params?.limit ? offset + params.limit : undefined) }
   }
 
-  async function getV2ReaderVocab(): Promise<{ id: string; word: string; stage: number; translation?: string }[]> {
+  async function getV2ReaderVocab(): Promise<{ id: string; word: string; stage: number; translation?: string; language: string }[]> {
     const s = session()
     const live = await liveWords(s)
-    return s.stale() ? [] : live.map((w) => ({ id: w.id, word: w.word, stage: w.stage, translation: w.translation ?? undefined }))
+    return s.stale() ? [] : live.map((w) => ({ id: w.id, word: w.word, stage: w.stage, translation: w.translation ?? undefined, language: w.language }))
   }
 
   /** An edit on the revision last read; lost to another device's edit, it is decided again on what that card holds. */

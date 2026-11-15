@@ -25,7 +25,8 @@ import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { V2TimeLeft, v2Percent, type V2TimePlace } from './V2TimeLeft'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
-import { useV2ReaderSettings, V2ReaderSettingsDrawer } from './V2ReaderSettings'
+import { useV2Glosses, useV2ReaderSettings, V2ReaderSettingsDrawer } from './V2ReaderSettings'
+import type { V2MarkWord } from '../../../../mobile/src/lib/v2reader/wordMarks.mjs'
 import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
 
 /**
@@ -202,6 +203,14 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const settingsRef = useRef(settings)
   settingsRef.current = settings
   const [settingsOpen, setSettingsOpen] = useState(false)
+  /**
+   * #1271: the saved words the page marks (V2ReaderPopups' vocabulary, in memory) and whether their translations show
+   * (the legacy reader's setting). Sent whenever either changes and to every new frame (`ready`): the page keeps them
+   * across opens and marks each section as it loads.
+   */
+  const [glosses, setGlosses] = useV2Glosses()
+  const marks = useRef<{ words: V2MarkWord[]; show: boolean }>({ words: [], show: glosses })
+  const sendMarks = () => { if (ready.current) call('markWords', [marks.current.words, marks.current.show]) }
   /** The direction the open book pages in (`opened`, then every `relocate`): the arrow keys follow it. */
   const pageDir = useRef<'ltr' | 'rtl'>('ltr')
   /** `opened.annotatable`: false on a CBZ (images only) and a PDF (no highlights yet): no highlight button (the page refuses it too). */
@@ -295,6 +304,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setLightboxOpen(v)
   }
   const [bookLanguage, setBookLanguage] = useState('en')
+  /** #1271: the language whose saved words are marked: the one words are saved under, none where it does not read (savesWords). */
+  const [marksLanguage, setMarksLanguage] = useState<string | null>(null)
   /** #1272: the language Listen speaks the open book in (`opened.lang` as written, else `en`); null: no Listen. */
   const [ttsLanguage, setTtsLanguage] = useState<string | null>(null)
   /** The server book a tapped word is saved with (#1270): the production route's, when the bytes are its file's. */
@@ -524,6 +535,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       // Untrusted: only what readToc takes. Its place came with the relocate before this message.
       setToc(readToc(m))
       setBookLanguage(readLang(m) ?? 'en')
+      setMarksLanguage(savesWords(m) ? readLang(m) ?? 'en' : null)
       setTtsLanguage(ttsLang(m.lang, 'en'))
       setPopup(null)
       setReading(true)
@@ -549,6 +561,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           // #1267: the lightbox's words in the reader's language (README, `labels`): the page has no i18n.
           call('labels', [{ image: tRef.current('v2Reader.lightboxImage'), close: tRef.current('v2Reader.lightboxClose') }])
           ready.current = true
+          // A fresh frame holds no words: sent only when there are some.
+          if (marks.current.words.length) sendMarks()
           flushOpen()
           return
         case 'opened': {
@@ -780,6 +794,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   useEffect(() => {
     if (ready.current) call('settings', [settings])
   }, [settings])
+  // #1271: the setting switched: the page draws or hides the glosses on screen at once.
+  useEffect(() => {
+    if (marks.current.show === glosses) return
+    marks.current = { ...marks.current, show: glosses }
+    sendMarks()
+  }, [glosses])
   /**
    * A contents entry the reader chose (the dialog, the section controls). Chosen: the page saves where it lands
    * (README, `goTo`). It is the current one at once: a jump within the view on screen may send no relocate.
@@ -925,17 +945,25 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           popup={popup}
           frame={frame}
           bookLanguage={bookLanguage}
+          marksLanguage={marksLanguage}
           bookId={vocabBook?.id}
           bookTitle={vocabBook?.title}
           onHighlight={offersHighlights ? (color) => call('highlightSelection', [color]) : undefined}
           highlight={editor}
+          onMarks={(words) => {
+            // None over none changes nothing on the page.
+            if (!words.length && !marks.current.words.length) return
+            marks.current = { ...marks.current, words }
+            sendMarks()
+          }}
           onClose={closePopup}
           lang={ttsLanguage}
           ttsSpeed={ttsSpeed}
           onSpoken={(r) => call('speaking', r ? [r.cfi, r.index] : [null])}
         />
       )}
-      <V2ReaderSettingsDrawer open={settingsOpen} settings={settings} onUpdate={updateSettings} onClose={() => setSettingsOpen(false)} typography={reflowable} ttsSpeed={ttsSpeed} onTtsSpeed={updateTtsSpeed} />
+      <V2ReaderSettingsDrawer open={settingsOpen} settings={settings} onUpdate={updateSettings} onClose={() => setSettingsOpen(false)} typography={reflowable} ttsSpeed={ttsSpeed} onTtsSpeed={updateTtsSpeed}
+        glosses={annotatable ? { on: glosses, onChange: setGlosses } : undefined} />
       <V2TocDrawer
         open={tocOpen && reading}
         toc={toc}

@@ -4,7 +4,7 @@ import type { V2Rect } from '../../../../mobile/src/lib/v2reader/selection.mjs'
 import { saveOutcome } from '../../../../mobile/src/lib/v2reader/vocabSave.mjs'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { useAuth } from '../../context/AuthContext'
-import { useReaderVocabulary } from '../../hooks/useReaderVocabulary'
+import { useV2ReaderVocabulary } from '../../hooks/useV2ReaderVocabulary'
 import { promoteLookup, restoreWord } from '../../api/vocabulary'
 import { emitDataChange } from '../../lib/dataEvents'
 import { normalizeVocabKey } from '../../lib/vocabKey'
@@ -19,6 +19,8 @@ import { TranslationPopup } from './TranslationPopup'
 import { ExplanationPopup } from './ExplanationPopup'
 import { PdfHighlightPopup } from './PdfHighlightPopup'
 import type { V2HighlightColor, V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
+import type { V2MarkWord } from '../../../../mobile/src/lib/v2reader/wordMarks.mjs'
+import { markWordsOf } from '../../../../mobile/src/lib/v2reader/vocabWords.mjs'
 import { createListener, spokenOf } from '../../../../mobile/src/lib/v2reader/listen.mjs'
 import { useTts } from '../../hooks/useTts'
 
@@ -40,6 +42,8 @@ interface Props {
   frame: RefObject<HTMLIFrameElement | null>
   /** `opened.lang` through readLang, else `en` (the legacy reader's default). */
   bookLanguage: string
+  /** #1271: the language whose saved words are marked and filled (savesWords' rule); null: none (a language that does not read). */
+  marksLanguage?: string | null
   /** The server book on screen (the production route): a tapped word is saved to the vocabulary with it. None: nothing is saved (the dev route). */
   bookId?: string
   /** Its title as the page read it (untrusted: React text, and the example's `bookTitle`, clipped by the save). */
@@ -48,6 +52,11 @@ interface Props {
   onHighlight?: (color: V2HighlightColor) => void
   /** #1312: the editor of the highlight tapped, when the host knows it. */
   highlight?: V2HighlightEditor | null
+  /**
+   * #1271: the reader's saved words as the page marks them, each time they change (loaded, saved, a translation
+   * backfilled): `useReaderVocabulary` reads them once per mount, keeps them in memory and fills missing translations once.
+   */
+  onMarks?: (words: V2MarkWord[]) => void
   /** The word popup or the toolbar closed (`selectionDone` false), or the selection's actions are done (true): the page's selection goes, and the toolbar if it is still what is open (never a newer word popup). */
   onClose: (selectionDone: boolean) => void
   /** #1272: the language the book is spoken in (listen.mjs `ttsLang`); null: no Listen (Ukrainian, no language). */
@@ -65,7 +74,7 @@ interface Props {
  * vocabulary as the legacy reader saves it (#1270): `useReaderVocabulary` (guests' words, the session minted on the
  * third, nudges at 3 and 10), the outcomes through vocabSave.mjs.
  */
-export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, onHighlight, highlight, onClose, lang = null, ttsSpeed = 1, onSpoken }: Props) {
+export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = bookLanguage, bookId, bookTitle, onHighlight, highlight, onMarks, onClose, lang = null, ttsSpeed = 1, onSpoken }: Props) {
   const { t } = useTranslation()
   const { openAuthModal } = useAuth()
   const { nativeLanguage, setNativeLanguage, hasConfirmedLanguage } = useNativeLanguage()
@@ -102,8 +111,11 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
   // #1270: the legacy reader's auto-save. A word tapped is saved with its sentence, the book and (once fetched) its
   // translation, after the reader confirmed a native language (otherwise the popup's footer asks, and picking one
   // saves the word on screen). Once per word key while this book is open, unless the save failed (a re-tap retries).
-  const vocab = useReaderVocabulary(bookLanguage, targetLang)
+  const vocab = useV2ReaderVocabulary(marksLanguage, targetLang)
   const { vocabMap, addWord, updateTranslation, recordSavedWord, loaded, loadFailed, retryLoad } = vocab
+  useEffect(() => {
+    onMarks?.(markWordsOf([...vocabMap].map(([word, v]) => ({ word, stage: v.stage, translation: v.translation }))))
+  }, [vocabMap])
   const tried = useRef(new Set<string>())
   const [saving, setSaving] = useState<string | null>(null)
   const [lookup, setLookup] = useState<{ word: string; id: string; kind: 'lookup' | 'lookup_pending'; tapsRemaining: number | null } | null>(null)
@@ -119,13 +131,17 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
       return
     }
     const key = normalizeVocabKey(word.word)
-    if (vocabMap.has(key) || tried.current.has(key)) return
+    // Already a card of the reader's (any language, the legacy list's too): never saved twice.
+    if (vocab.isKnown(word.word) || tried.current.has(key)) return
     tried.current.add(key)
     setSaving(word.word)
     addWord({
       word: word.word, language: bookLanguage, userBookId: bookId, sentence: word.sentence || undefined,
       bookTitle: bookTitle || undefined, nativeLanguage, translation: fetched.for === request ? fetched.translation ?? null : null,
     }).then((resp) => {
+      // Nothing came of it (nothing sent: the identity changed meanwhile; or queued for a guest-to-be, whose word the map
+      // now holds): the key is not spent, so a later tap of this word can still save it.
+      if (resp === null) tried.current.delete(key)
       const o = saveOutcome(resp)
       if (o.kind === 'deleted') setDeleted({ id: o.id, word: word.word })
       else if (o.kind === 'pending') setToast(t('reader.vocab.queuedForTomorrow'))
@@ -144,7 +160,8 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
     if (!lookup || addAnywayBusy) return
     setAddAnywayBusy(true)
     try {
-      recordSavedWord(await promoteLookup(lookup.id))
+      const asked = vocab.identity()
+      recordSavedWord(await promoteLookup(lookup.id), asked)
       setLookup(null)
       setToast(t('reader.vocab.addedToSrs'))
       onClose(false)
@@ -158,7 +175,8 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
     if (!deleted) return
     setDeleted(null)
     try {
-      recordSavedWord(await restoreWord(deleted.id))
+      const asked = vocab.identity()
+      recordSavedWord(await restoreWord(deleted.id), asked)
       emitDataChange('vocabulary')
     } catch {
       setToast(t('reader.vocab.restoreFailed'))
@@ -215,7 +233,7 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, bookId, bookTitle, 
           rect={rect}
           containerRef={frame}
           onClose={() => onClose(false)}
-          isSaved={vocabMap.has(normalizeVocabKey(word.word))}
+          isSaved={vocab.isKnown(word.word)}
           lookupInfo={lookupHere && { kind: lookupHere.kind, tapsRemaining: lookupHere.tapsRemaining }}
           onAddAnyway={lookupHere ? () => { void addAnyway() } : undefined}
           addAnywayBusy={addAnywayBusy}

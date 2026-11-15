@@ -1,7 +1,8 @@
 /**
  * The V2 local library's sync client (R6, #1038; PDD v2-sync-protocol.md "Pull and push", "The
- * revision rule", "Conflict codes", "File sync upload protocol"). One pass: pull the three feeds
- * from their cursors, page by page, push the outbox kind by kind (books → states → sessions → annotations),
+ * revision rule", "Conflict codes", "File sync upload protocol"). One pass: pull the library, reading and annotations
+ * feeds from their cursors, page by page, push the outbox kind by kind (books → states → sessions → annotations), pull the
+ * vocabulary feed the reader's marks read offline (#1271: after the pushes, its failure the pass's own only),
  * then — only with file sync on — send the bytes the server lacks. Opportunistic: the reading path
  * never waits for it. Offline or 503 `v2_unavailable` ends the pass; any other failure of one
  * outbox entry skips that entry only, and counts against it: after `MAX_FAILURES` it is kept but no
@@ -13,7 +14,7 @@
 import { Platform } from 'react-native'
 import {
   v2Api, ApiError, clip, highlightWrite, isOfflineError, ownAnnotationWrite, ownStateWrite, pageNameRefusal, positionWrite, V2UploadNotOnServer,
-  type OpenReader, type PageHighlight, type V2Annotation, type V2Book, type V2BookFile, type V2ClientFormat, type V2MergeMap, type V2ReadingState,
+  type OpenReader, type PageHighlight, type V2Annotation, type V2Book, type V2BookFile, type V2ClientFormat, type V2MergeMap, type V2ReadingState, type V2Word,
 } from '@textstack/shared'
 import { onV2, resetSince, startV2Probe, whileCurrent, V2UploadError } from '../v2'
 import { uuid } from 'expo-modules-core'
@@ -148,7 +149,7 @@ async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset, pushOnly = 
     if (!(await onV2())) return 'off'
     await account(lib, host, reset)
     if (host.retryFailed) await checked(reset, () => lib.retryAll())
-    if (!pushOnly) for (const feed of FEEDS) await pull(lib, host, reset, feed)
+    if (!pushOnly) for (const feed of FEEDS) if (feed !== 'vocabulary') await pull(lib, host, reset, feed)
     let failed = false
     // Kind by kind, the outbox read again each time: a book push can re-key the ids its children name.
     // Each entry on its own: one that keeps failing is counted and, at the limit, no longer read (`due`),
@@ -162,6 +163,17 @@ async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset, pushOnly = 
           failed = true
           await failedOnce(lib, reset, item, e)
         }
+      }
+    }
+    // #1271: the saved words the marks read, pull-only, after the pushes: their failure never holds a write back, and
+    // never fails the pass (a session change still ends it).
+    if (!pushOnly) {
+      try {
+        await pull(lib, host, reset, 'vocabulary')
+      } catch (e) {
+        // Offline, the server down, the session changed: the pass ends as for any pull. Anything else is this feed's own.
+        if (endsPass(e) || reset()) throw e
+        console.warn('[v2 sync] vocabulary not pulled, retried next pass:', brief(e))
       }
     }
     if (!pushOnly) await fileSync(lib, host, reset)
@@ -266,6 +278,7 @@ async function pull(lib: LocalLibrary, host: SyncHost, reset: Reset, feed: Local
       const at = c ?? cursor
       if (feed === 'library') await lib.applyBooks(items as V2Book[], at)
       else if (feed === 'reading') owed = await lib.applyStates(items as V2ReadingState[], host.reader, at)
+      else if (feed === 'vocabulary') await lib.applyVocabulary(items as V2Word[], at)
       else await lib.applyAnnotations(items as V2Annotation[], at)
     })
     owe(host, reset, owed)

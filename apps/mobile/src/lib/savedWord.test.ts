@@ -82,3 +82,32 @@ describe('fillSavedTranslation', () => {
     expect(await fillSavedTranslation({ id: 'w1', translation: null }, 'pond', 'en', 'uk', {})).toBe('ставок')
   })
 })
+
+describe('fillSavedTranslation: settles after its write (#1271)', () => {
+  it('onSettled once the PATCH settled, not when the translation is known', async () => {
+    translate.mockResolvedValue({ translation: 'ставок' })
+    let answer!: (v: unknown) => void
+    api.updateWord.mockReturnValue(new Promise((r) => { answer = r }))
+    const settled = vi.fn()
+    const stored = vi.fn()
+    expect(await fillSavedTranslation({ id: 'c1', translation: null }, 'pond', 'en', 'uk', { onSettled: settled, onStored: stored })).toBe('ставок')
+    await Promise.resolve()
+    expect(settled).not.toHaveBeenCalled()
+    answer({ id: 'c1', translation: 'ставок' })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(stored).toHaveBeenCalledWith({ id: 'c1', translation: 'ставок' })
+    expect(settled).toHaveBeenCalledTimes(1)
+  })
+
+  it('nothing to write, or a failed write: onSettled all the same, once', async () => {
+    const settled = vi.fn()
+    await fillSavedTranslation({ id: 'c1', translation: 'has' }, 'pond', 'en', 'uk', { onSettled: settled })
+    expect(settled).toHaveBeenCalledTimes(1)
+    translate.mockResolvedValue({ translation: 'ставок' })
+    api.updateWord.mockRejectedValue(new Error('offline'))
+    const failed = vi.fn()
+    await fillSavedTranslation({ id: 'c1', translation: null }, 'pond', 'en', 'uk', { onSettled: failed })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(failed).toHaveBeenCalledTimes(1)
+  })
+})

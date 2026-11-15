@@ -8,6 +8,8 @@ import { TTS_SPEEDS, TTS_SPEED_KEY, readSpeed } from '../../../../mobile/src/lib
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
+import { readGlosses, withGlosses } from '../../../../mobile/src/lib/v2reader/wordMarks.mjs'
+import { STORAGE_KEY as LEGACY_SETTINGS_KEY } from '../../hooks/useReaderSettings'
 
 /**
  * The V2 reader's settings on this device (#1260): the reader's choices in localStorage (settings.mjs reads them:
@@ -35,6 +37,19 @@ export function useV2ReaderSettings() {
   return { settings, update, ttsSpeed, updateTtsSpeed }
 }
 
+/**
+ * #1271: whether saved words show their translation, the legacy reader's own setting (`showInlineTranslations` in its
+ * stored settings): one choice for both readers on this device.
+ */
+export function useV2Glosses() {
+  const [on, setOn] = useState(() => readGlosses(readItem(LEGACY_SETTINGS_KEY)))
+  const set = (next: boolean) => {
+    setOn(next)
+    writeItem(LEGACY_SETTINGS_KEY, withGlosses(readItem(LEGACY_SETTINGS_KEY), next))
+  }
+  return [on, set] as const
+}
+
 // `book`: the book's own alignment, the default (no rule of ours).
 const ALIGN_LABEL: Record<V2TextAlign, string> = { book: 'v2Reader.alignBook', left: 'v2Reader.alignLeft', center: 'v2Reader.alignCenter', justify: 'v2Reader.alignJustify' }
 const FAMILY_LABEL: Record<V2FontFamily, string> = { serif: 'v2Reader.fontSerif', sans: 'v2Reader.fontSans', dyslexic: 'v2Reader.fontDyslexic' }
@@ -50,10 +65,12 @@ interface Props {
   /** #1272: Listen's speed and its change. */
   ttsSpeed: number
   onTtsSpeed: (v: number) => void
+  /** #1271: saved words' translations shown, and its switch; absent where nothing is marked (an image or PDF book). */
+  glosses?: { on: boolean; onChange: (on: boolean) => void }
 }
 
 /** The settings panel: the legacy reader's drawer (reader.css) with the five V2 settings. */
-export function V2ReaderSettingsDrawer({ open, settings, onUpdate, onClose, typography, ttsSpeed, onTtsSpeed }: Props) {
+export function V2ReaderSettingsDrawer({ open, settings, onUpdate, onClose, typography, ttsSpeed, onTtsSpeed, glosses }: Props) {
   const { t } = useTranslation()
   const container = useFocusTrap(open)
   if (!open) return null
@@ -154,6 +171,26 @@ export function V2ReaderSettingsDrawer({ open, settings, onUpdate, onClose, typo
             ))}
           </div>
         </div>
+
+        {glosses && (
+          // The legacy drawer's switch (reader.css).
+          <div className="reader-settings-drawer__section">
+            <label>{t('v2Reader.inlineTranslations')}</label>
+            <div className="reader-settings-drawer__toggle-row">
+              <span className="reader-settings-drawer__toggle-desc">{t('v2Reader.inlineTranslationsDesc')}</span>
+              <button
+                className={`reader-settings-drawer__toggle ${glosses.on ? 'active' : ''}`}
+                onClick={() => glosses.onChange(!glosses.on)}
+                role="switch"
+                aria-checked={glosses.on}
+                aria-label={t('v2Reader.inlineTranslations')}
+                data-testid="v2-glosses"
+              >
+                <span className="reader-settings-drawer__toggle-thumb" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   )
