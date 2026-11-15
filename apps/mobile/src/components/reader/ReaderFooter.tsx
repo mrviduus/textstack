@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native'
 import { fonts } from '../../theme/typography'
+import { useLanguage } from '../../context/LanguageContext'
 
 interface Props {
   barBg: string
@@ -21,7 +22,7 @@ interface Props {
   hasNext: boolean
   onPrev: () => void
   onNext: () => void
-  /** The chevrons' accessible names; default: chapter. */
+  /** The chevrons' accessible names; default: chapter (`reader.chapterEnd.prevUntitled` / `nextUntitled`). */
   prevLabel?: string
   nextLabel?: string
   /** The footer's measured height, rounded — it grows a line with the time-left label. */
@@ -34,8 +35,11 @@ interface Props {
 export function ReaderFooter({
   barBg, barText, trackColor, barsAnim, footerTranslateY, barsVisible, bottomInset, bookProgress,
   chapterTitle, currentChapterIndex, totalChapters, timeLeftLabel, hasPrev, hasNext, onPrev, onNext, onHeight,
-  prevLabel = 'Previous chapter', nextLabel = 'Next chapter', above,
+  prevLabel, nextLabel, above,
 }: Props) {
+  const { t } = useLanguage()
+  prevLabel ??= t('reader.chapterEnd.prevUntitled')
+  nextLabel ??= t('reader.chapterEnd.nextUntitled')
   return (
     <Animated.View
       onLayout={e => onHeight(Math.round(e.nativeEvent.layout.height))}

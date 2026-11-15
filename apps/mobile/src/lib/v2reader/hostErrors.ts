@@ -10,7 +10,7 @@ export const NOT_READABLE = 'reader.v2.notReadable'
 
 const DISK_FULL_SIGNS = /ENOSPC|No space left|SQLITE_FULL|database or disk is full|QuotaExceeded/i
 
-export function hostError(e: unknown, t: (key: string) => string = (k) => k): string {
+export function hostError(e: unknown, t: (key: string) => string): string {
   const text = e instanceof Error ? `${e.name}: ${e.message}` : String(e)
   if (DISK_FULL_SIGNS.test(text)) return t(DISK_FULL)
   return /NotReadableError/.test(text) ? t(NOT_READABLE) : text

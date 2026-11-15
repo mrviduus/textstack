@@ -685,7 +685,19 @@
       "crashes": "this book crashes the reader",
       "diskFull": "Not enough free storage on this device. Free some space and try again.",
       "notReadable": "The file could not be read.",
-      "deviceHighlights": "Highlights on this device"
+      "deviceHighlights": "Highlights on this device",
+      "failed": {
+        "library": "Could not read the books on this device: {reason}",
+        "fileSync": "Could not change file sync: {reason}",
+        "download": "Could not download the book: {reason}",
+        "unpark": "Could not sync the book again: {reason}",
+        "opened": "Could not keep the book on this device: {reason}",
+        "pick": "Could not add the book: {reason}",
+        "store": "Could not save your place: {reason}",
+        "removeHighlight": "Could not remove the highlight: {reason}",
+        "finishBook": "Could not mark the book as finished: {reason}",
+        "note": "Could not save the note: {reason}"
+      }
     },
     "v2Settings": {
       "theme": "Theme",

@@ -771,7 +771,6 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
-  // #1227: a load that fails says why; one that cannot be helped by trying again offers no Retry.
   // #1267: every control on the reader has an accessible name and every drawer or popup is a dialog (axe, WCAG 2 A and
   // 2.1 A: names, roles, ARIA; colour contrast is not this check): the bars, the settings and contents drawers, a word
   // popup. The route is never indexed and has a title; the skip link takes focus past the bars to the book.
@@ -822,6 +821,7 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
+  // #1227: a load that fails says why; one that cannot be helped by trying again offers no Retry.
   test('a file the server no longer has: the "gone" alert, no Retry', async ({ browser }) => {
     const context = await v2Context(browser, email('v2r404'))
     const page = await context.newPage()

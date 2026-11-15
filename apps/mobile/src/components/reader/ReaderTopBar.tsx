@@ -23,9 +23,9 @@ type Props = {
   onHighlightsPress?: () => void
   onTocPress?: () => void
   onSettingsPress?: () => void
-  /** The back button's accessible name. */
+  /** The back button's accessible name; default `reader.chrome.back`. */
   backLabel?: string
-  /** The contents button's accessible name. */
+  /** The contents button's accessible name; default `reader.chrome.contents`. */
   tocLabel?: string
 }
 
@@ -56,6 +56,8 @@ export function ReaderTopBar({
   tocLabel,
 }: Props) {
   const { t } = useLanguage()
+  backLabel ??= t('reader.chrome.back')
+  tocLabel ??= t('reader.chrome.contents')
   return (
     <Animated.View
       style={[

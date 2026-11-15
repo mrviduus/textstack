@@ -94,29 +94,43 @@ describe('V2 reader host: no hard-coded strings, no unnamed controls, back close
 
   it('the detector: each shown shape is found, keys and comparisons are not', () => {
     const src = `
-      export const A = ({ t, flow, name }) => (
+      interface Props { backLabel?: string; tocLabel?: string; title: string }
+      export const A = ({ t, flow, name, backLabel, tocLabel, prevLabel = 'Previous chapter' }: Props) => {
+        tocLabel ??= t('reader.chrome.contents')
+        return (
         <View>
           <Text>Pick book</Text>
           <Text>{flow === 'paginated' ? 'Scrolled' : t('reader.v2.paginated')}</Text>
           <Text>{\`Not synced: \${name}\`}</Text>
           <Text>{name ?? 'The book'}</Text>
+          <Text>{'Saved ' + name}</Text>
           <Pressable accessibilityLabel="Close it" />
           <TouchableOpacity onPress={go}><Ionicons name="close" /></TouchableOpacity>
           <TouchableOpacity onPress={go}><Text>{t('reader.v2.pickBook')}</Text></TouchableOpacity>
+          <TouchableOpacity onPress={go} accessibilityLabel={backLabel}><Ionicons name="back" /></TouchableOpacity>
+          <TouchableOpacity onPress={go} accessibilityLabel={tocLabel}><Ionicons name="list" /></TouchableOpacity>
           <Pressable accessible={false} onPress={go} />
+          <ReaderTopBar backLabel="Back" bookTitle={name} chapterTitle="" />
           <Text>{t('reader.v2.pick')} {size}px ‹ ×</Text>
           <span aria-hidden="true">check</span>
+          <span aria-hidden="false">Shown</span>
           <Modal visible onRequestClose={close}><View /></Modal>
           <Modal visible><View /></Modal>
+          {label('THEME')}
+          <Text>{IDLE}</Text>
+          <Text>{({ serif: 'Serif' })[family]}</Text>
         </View>
-      )
+      )}
       showToast({ message: 'Could not save word.' })
       setHeading(\`Opening \${name}\`)
+      Alert.alert('Delete book?', 'It cannot be undone.')
       if (a < b && c > d) go('Not shown')
     `
     expect(findHardcoded(src, { touchables: true }).map(x => `${x.kind} ${x.text}`)).toEqual([
-      'text Pick book', 'text Scrolled', 'text Not synced:', 'text The book', 'text Close it',
-      'unnamed TouchableOpacity', 'noBack Modal', 'text Could not save word.', 'text Opening',
+      'text Previous chapter', 'text Pick book', 'text Scrolled', 'text Not synced:', 'text The book', 'text Saved',
+      'text Close it', 'unnamed TouchableOpacity', 'unnamed TouchableOpacity', 'text Back', 'text Shown', 'noBack Modal',
+      // Known non-detections (no data flow): a helper's argument `label('THEME')`, a constant `{IDLE}`, a map's value.
+      'text Could not save word.', 'text Opening', 'text Delete book?', 'text It cannot be undone.',
     ])
   })
 })
