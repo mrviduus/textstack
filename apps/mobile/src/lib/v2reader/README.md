@@ -150,12 +150,12 @@ the Android host stages and retains every format as `*.epub`, the web host opens
   refused, and widening any directive is an ADR-029 change. A nonce'd inline script is admitted whoever inserts it;
   the nonce is fresh per load and no book script can run to read it. The strings are parsed with the page (cheap);
   only their evaluation is deferred.
-- **A refusal touches nothing.** `sniffFormat` runs before the open book is closed or the open seq turns over
+- **A refusal leaves the shown book intact.** `sniffFormat` runs before the open book is closed
   (like a failed read, #1168): a DRM, damaged KF8, entity-declaring FB2 or unknown file answers `open-failed` and the
   book on screen keeps reading, saving and its telemetry session.
 - **The open order** (#1128 S5). Two counters: `openSeq`, the latest open attempt (only ever goes up), and
-  `viewSeq`, the view on screen (turns over at the swap, never earlier). An open: sniff (a refusal touches
-  nothing) → `++openSeq` → hash → **make** the book (`makeBookFor`: the zip read, the MOBI/FB2 parsed, the PDF
+  `viewSeq`, the view on screen (turns over at the swap, never earlier). An open: `++openSeq` → read → sniff →
+  hash → **make** the book (`makeBookFor`: the zip read, the MOBI/FB2 parsed, the PDF
   document loaded) → **swap** → `view.open`/`init` → `opened`. Until the swap the book on screen is fully the
   open one: its relocates are reported and saved, its `goTo`/`next`/`restore` run and answer (every listener
   and queued call is stamped with `viewSeq`). A build swaps in only if it is still the latest attempt.

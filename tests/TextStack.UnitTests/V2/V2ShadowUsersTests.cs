@@ -52,6 +52,19 @@ public class V2ShadowUsersTests
         _users.Verify(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EnsureAsync_ReadOnly_UsesExistingRowWithoutCreatingOne(bool exists)
+    {
+        _users.Setup(u => u.GetAsync(_guest.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(exists ? new UserAccount { Id = _guest.Id } : null);
+
+        Assert.Equal(exists, await _shadows.EnsureAsync(_legacy.Object, _guest.Id, Ct, readOnly: true));
+
+        _users.Verify(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     [Fact]
     public async Task EnsureAsync_RowAlreadyThere_IsReady()
     {

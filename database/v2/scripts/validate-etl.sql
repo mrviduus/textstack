@@ -496,7 +496,8 @@ seconds_diff AS (
     SELECT COALESCE(e.key, a.user_id::text) AS id FROM
         (SELECT key, value::bigint AS n FROM l, jsonb_each_text(l.j -> 'seconds')) e
         FULL JOIN (SELECT user_id, sum(duration_seconds) AS n FROM reading_sessions
-                   WHERE user_id::text IN (SELECT jsonb_array_elements_text(j -> 'people') FROM l) GROUP BY user_id) a ON a.user_id::text = e.key
+                   WHERE id = client_session_id
+                     AND user_id::text IN (SELECT jsonb_array_elements_text(j -> 'people') FROM l) GROUP BY user_id) a ON a.user_id::text = e.key
     WHERE COALESCE(e.n, 0) <> COALESCE(a.n, 0)),
 results(ord, "check", status, details) AS (
     -- the ledger row

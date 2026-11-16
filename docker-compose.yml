@@ -148,6 +148,8 @@ services:
       ConnectionStrings__V2: "Host=db;Port=5432;Database=${V2_POSTGRES_DB:-textstack_v2};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       # The V2 sync API. Off: /me/v2/* is not mapped (404) and the stack is exactly as before it.
       Features__V2Api: ${FEATURES_V2API:-false}
+      # HTTP cutover barrier only. Stop/drain other writers before the final snapshot (M5).
+      Maintenance__WriteFreeze: ${MAINTENANCE_WRITE_FREEZE:-false}
       Storage__RootPath: /storage
       # V2 library bytes, outside the public /storage root: nothing serves them but /me/v2 (#1110).
       Storage__LibraryRoot: /library

@@ -72,12 +72,13 @@ public static class EtlV2Sessions
 
         var after = await EtlV2Rows.TargetAsync<SessionRow>(context, SelectV2Sessions, null, ct);
         EtlV2Rows.Verify(context, "reading_sessions: parity", sessions, after, s => s.Id);
-        // Per carried user, every legacy session against every V2 one: a session not carried, or one V2 has beyond legacy's,
-        // shows here. A V2-only user's sessions are report-only (the plan's cleanup lines), never this failure (owner 2026-11-08).
+        // Compare only ETL-carried sessions (legacy id retained as client_session_id).
+        // Native V2 sessions use a different id and must not inflate the migrated seconds on re-runs.
+        // A V2-only user's sessions remain report-only (owner 2026-11-08).
         var carried = await EtlV2Rows.CarriedUserIdsAsync(context, ct);
         EtlV2Rows.Totals(context, "reading_sessions: seconds per user differ",
             legacy.GroupBy(s => s.UserId).ToDictionary(g => g.Key, g => g.Sum(s => (long)s.DurationSeconds)),
-            after.Where(s => carried.Contains(s.UserId)).GroupBy(s => s.UserId).ToDictionary(g => g.Key, g => g.Sum(s => (long)s.DurationSeconds)));
+            after.Where(s => s.Id == s.ClientSessionId && carried.Contains(s.UserId)).GroupBy(s => s.UserId).ToDictionary(g => g.Key, g => g.Sum(s => (long)s.DurationSeconds)));
     }
 
     private sealed record LegacySession
