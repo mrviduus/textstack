@@ -138,7 +138,11 @@ describe('V2ReaderHost in-book search (#1315)', () => {
     openSearch()
     type('whale')
     results(1, [hit(2)], { done: true })
-    act(() => { fireEvent.click(within(dialog()!).getByRole('button', { name: 'Clear search' })) })
+    // The clear button goes with the text: focus must not be left on nothing.
+    act(() => {
+      within(dialog()!).getByRole('button', { name: 'Clear search' }).focus()
+      fireEvent.click(within(dialog()!).getByRole('button', { name: 'Clear search' }))
+    })
     act(() => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS) })
     expect(calls('search')).toEqual([['whale', 1], [null, 2]])
     expect(within(dialog()!).queryAllByRole('listitem')).toEqual([])
@@ -160,6 +164,8 @@ describe('V2ReaderHost in-book search (#1315)', () => {
     expect(calls('search')).toEqual([['whale', 1], [null, 2]])
     expect(dialog()).toBeNull()
     fromPage({ type: 'opened', title: 'Walden', book: { sha256: 'bb', size: 8, name: '2/b.epub' }, searchable: true })
+    // Closed with the book it searched: the next book does not open on a search drawer.
+    expect(dialog()).toBeNull()
     openSearch()
     expect(input().value).toBe('')
     expect(within(dialog()!).queryAllByRole('listitem')).toEqual([])
@@ -183,10 +189,15 @@ describe('V2ReaderHost in-book search (#1315)', () => {
     openSearch()
     expect(dialog()!.getAttribute('aria-modal')).toBe('true')
     posted = []
+    // The dialog keeps its keys: none reaches the reader's own key handler (page turns, Esc for the bars) on the window.
+    const reached = vi.fn()
+    window.addEventListener('keydown', reached)
     act(() => { fireEvent.keyDown(input(), { key: 'ArrowRight' }) })
     act(() => { fireEvent.keyDown(within(dialog()!).getByRole('button', { name: 'Close search' }), { key: 'PageDown' }) })
     expect(posted.filter((m) => m.call === 'next' || m.call === 'prev')).toEqual([])
     act(() => { fireEvent.keyDown(input(), { key: 'Escape' }) })
+    window.removeEventListener('keydown', reached)
+    expect(reached).not.toHaveBeenCalled()
     expect(dialog()).toBeNull()
     expect(document.activeElement).toBe(searchButton())
   })

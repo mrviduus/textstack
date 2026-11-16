@@ -2471,20 +2471,87 @@ try {
   const shownHits = (await Promise.all(secondRun.map((r) => hitOnScreen(r.cfi)))).filter(Boolean)
   check(secondRun.length > 0 && secondRun.every((r) => r.match === 'judge my vow') && shownHits.length > 0 && JSON.stringify(shownHits.flatMap((h) => h.boxes).sort()) === JSON.stringify(await drawnHits()),
     `the hits drawn are the newer search's, and only those (${shownHits.length} hits in the shown section)`)
-  // Two calls in a row: the first never starts. A query too short is no search: nothing answered, the hits drawn go.
+  // Two calls in a row: the first never answers. A query too short is no search, nor is one with no id of the host's:
+  // nothing answered, the hits drawn go.
   from = messages.length
   call(`window.__fol.search('sphinx', 3)`)
   call(`window.__fol.search('x', 4)`)
   await page.waitForTimeout(600)
   check(!messages.slice(from).some((x) => x.type === 'search-results') && (await drawnHits()).length === 0, 'a search superseded before it starts answers nothing; a one-letter query is no search and clears the hits')
-  // The cap: a search stops at MAX_RESULTS hits and says there are more.
-  writeFileSync(resolve(dir, 'tsmany.fb2'), fb2('TS MANY', `<section><title><p>Many</p></title>${Array.from({ length: MAX_RESULTS + 100 }, (_, i) => `<p>zebra ${i + 1}</p>`).join('')}</section>`))
+  call(`window.__fol.search('sphinx', 'five')`)
+  call(`window.__fol.search('sphinx')`)
+  await page.waitForTimeout(600)
+  check(!messages.slice(from).some((x) => x.type === 'search-results' || (x.type === 'log' && x.level === 'error')), 'a search with no id of the host\'s answers nothing')
+  // A task between sections: a timer that re-arms itself gets its turn after the first section's answer and before the
+  // second's (an FB2's section documents are made synchronously: without the task the two would be one task).
+  from = messages.length
+  await call(`(() => {
+    window.__tasks = true
+    const tick = () => { if (!window.__tasks) return; window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'test-task' })); setTimeout(tick) }
+    window.__fol.search('paragraph 30. sphinx', 6)
+    setTimeout(tick)
+  })()`)
+  await waitFor(from, (x) => x.type === 'search-results' && x.id === 6 && x.done, 'the search to end')
+  await call('window.__tasks = false')
+  const order = messages.slice(from).filter((x) => x.type === 'test-task' || x.type === 'search-results').map((x) => (x.type === 'test-task' ? 'task' : x.done ? 'done' : x.results[0]?.label))
+  const between = order.slice(order.indexOf('Chapter One'), order.indexOf('Chapter Two'))
+  check(order.includes('Chapter One') && order.includes('Chapter Two') && between.includes('task'), `the page takes other tasks between a search's sections (${order})`)
+  // A section that cannot be read ends the search there: what was found before it stands, and the search still ends.
+  await call(`(() => { document.querySelector('foliate-view').book.sections[1].createDocument = () => Promise.reject(new Error('broken section')) })()`)
+  from = messages.length
+  const broken = await searchFor('paragraph 30. sphinx')
+  check(show(broken.results) === JSON.stringify([['', 'Paragraph 30. Sphinx', ' of black qu', 'Chapter One']]) && messages.slice(from).some((x) => x.type === 'log' && x.level === 'warn' && /search stopped/.test(x.msg)),
+    `a section that cannot be read ends the search with what was found, and a warn (${show(broken.results)})`)
+  // The cap, across sections: a search stops at MAX_RESULTS hits and says there are more.
+  const zebras = (n, from) => `<section><title><p>Many</p></title>${Array.from({ length: n }, (_, i) => `<p>zebra ${from + i}</p>`).join('')}</section>`
+  writeFileSync(resolve(dir, 'tsmany.fb2'), fb2('TS MANY', zebras(MAX_RESULTS - 200, 1) + zebras(300, MAX_RESULTS - 199)))
   m = await open('tsmany.fb2')
   const many = await searchFor('zebra')
   check(many.results.length === MAX_RESULTS && many.more === true && many.results.at(-1)?.post === ` ${MAX_RESULTS}`, `a search stops at ${MAX_RESULTS} hits and says there are more (${many.results.length}, last ${JSON.stringify(many.results.at(-1)?.post)})`)
-  // A new open ends the search and its hits; the next book starts with none.
-  m = await open('tsformat.fb2')
+  // A new open ends a search still running, and the next book's search does not wait for it: the old book's second
+  // section is held unread while another book opens; let go, it answers nothing. Once with the next book searched
+  // meanwhile (its search ends while the old one is still held), once with nothing asked of the next book.
+  /** Opens the FB2, holds its second section's document until `__letGo()` (which reads it, or fails it), and searches: resolves once the first section answered. */
+  const heldSearch = async (id, fails = false) => {
+    m = await open('tsformat.fb2')
+    await call(`(() => {
+      const s = document.querySelector('foliate-view').book.sections[1], make = s.createDocument
+      s.createDocument = () => new Promise((ok, no) => { window.__letGo = () => (${fails} ? no(new Error('broken section')) : ok(make())) })
+    })()`)
+    const from = messages.length
+    call(`window.__fol.search('paragraph 30. sphinx', ${id})`)
+    await waitFor(from, (x) => x.type === 'search-results' && x.id === id, 'the first section of the held search')
+  }
+  const afterLetGo = async () => {
+    const from = messages.length
+    await call('window.__letGo()')
+    await page.waitForTimeout(600)
+    return messages.slice(from).filter((x) => x.type === 'search-results')
+  }
+  await heldSearch(7)
+  m = await open('tsformat.mobi')
   check((await drawnHits()).length === 0, 'a new open draws no hits of the previous search')
+  const inNext = await searchFor('paragraph 30. SPHINX')
+  check(inNext.results.length === 2 && inNext.read.at(-1)?.done === true, `the next book is searched while the previous book's search is still held (${inNext.results.length})`)
+  check((await afterLetGo()).length === 0, 'a search of a book no longer open answers nothing more')
+  await heldSearch(8)
+  m = await open('tsformat.mobi')
+  check((await afterLetGo()).length === 0, 'nor does it with nothing asked of the next book')
+  // A search ended by the host while a section is being read, which then fails: no `done` for the search that was ended.
+  await heldSearch(9, true)
+  call('window.__fol.search(null)')
+  check((await afterLetGo()).length === 0, 'a search ended by the host says nothing more, even when the section it was reading fails')
+  // Before any book: nothing to search, nothing answered, no error.
+  const blank = await newPage()
+  const said = []
+  await blank.exposeFunction('__toHost', (json) => said.push(JSON.parse(json)))
+  await blank.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
+  await blank.goto(PAGE_URL)
+  for (const t0 = Date.now(); !said.some((x) => x.type === 'ready') && Date.now() - t0 < TIMEOUT_MS;) await blank.waitForTimeout(50)
+  await blank.evaluate(() => { window.__fol.search('sphinx', 1); window.__fol.search(null) })
+  await blank.waitForTimeout(300)
+  check(said.some((x) => x.type === 'ready') && !said.some((x) => x.type === 'search-results' || x.type === 'log'), `a search before any book answers nothing and logs nothing (${said.map((x) => x.type)})`)
+  await blank.close()
   // No text of its own to search: a CBZ (images) and a PDF (pdf.js draws it; the fork's reader has no section documents).
   for (const [file, kind] of [['tsformat.cbz', 'CBZ'], ['tsformat.pdf', 'PDF']]) {
     m = await open(file)

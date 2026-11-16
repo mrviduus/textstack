@@ -703,7 +703,8 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   `done`) and starts after it; the host's `id` comes back on every message, so an older search's answer is dropped
   (`searchTake`). The swap ends the open book's search. A task between sections: input and paint come first.
   ponytail: one section is searched in one task (the fork's matcher is synchronous per document), so a book that is
-  one huge section holds the main thread for that section's time; chunking it is a fork change.
+  one huge section holds the main thread for that section's time; chunking it is a fork change. A section that cannot
+  be read ends the search there (the fork's generator throws): a `warn`, and `done` with what was found before it.
 - *The cap:* `MAX_RESULTS` (500) hits, then `done` with `more`. ponytail: no paging past it.
 - *The hit in the page:* every hit of the query is drawn (`SEARCH_FILL`, foliate's highlight) in its section as that
   section loads, until `search(null)`, a new search or a new open. A result's `cfi` is a `goTo` target: the hosts call

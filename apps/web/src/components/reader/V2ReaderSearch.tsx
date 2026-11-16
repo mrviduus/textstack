@@ -37,10 +37,6 @@ export function V2SearchDrawer({ open, search, onQuery, onGo, onClose }: Props) 
   useEffect(() => {
     if ((readQuery(typed) ?? '') !== search.query) onQueryRef.current(typed)
   }, [typed])
-  // After the trap's own focus (the close button).
-  useEffect(() => {
-    if (open) input.current?.focus()
-  }, [open])
   if (!open) return null
   const count = search.results.length
   const status = !search.query ? ''
@@ -63,6 +59,7 @@ export function V2SearchDrawer({ open, search, onQuery, onGo, onClose }: Props) 
         }}
       >
         <div className="reader-search-drawer__header">
+          {/* The field is the dialog's first control: the focus trap puts focus on it at opening. */}
           <div className="reader-search-drawer__input-wrapper">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <circle cx="11" cy="11" r="8" />

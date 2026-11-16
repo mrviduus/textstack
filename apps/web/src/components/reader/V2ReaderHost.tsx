@@ -1013,7 +1013,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         onClose={() => setTocOpen(false)}
         highlights={offersHighlights ? { items: highlightList, noteOf: noteFor, onGo: goHighlight } : null}
       />
-      <V2SearchDrawer key={searchBook} open={searchOpen && reading && searchable} search={search} onQuery={askSearch} onGo={goSearchResult} onClose={() => setSearchOpen(false)} />
+      {/* Opened only from its button (a searchable book on screen); a new open closes it. */}
+      <V2SearchDrawer key={searchBook} open={searchOpen} search={search} onQuery={askSearch} onGo={goSearchResult} onClose={() => setSearchOpen(false)} />
     </main>
   )
 }

@@ -621,28 +621,32 @@ let searching = Promise.resolve()
 /**
  * The host's `search(query, id)`: `search-results` messages carrying `id`, one per section with hits, then one with
  * `done` (`more`: stopped at MAX_RESULTS). A task between sections, so input and paint come first in a long book.
- * No query (`readQuery`: null, too short, too long): the hits drawn go, nothing is answered.
+ * No query (`readQuery`: null, too short, too long): the hits drawn go, nothing is answered. A section that cannot be
+ * read ends the search there (foliate's generator has no way past it): a `warn`, and `done` with what was found.
  */
 function search(raw, id) {
   const run = ++searchSeq
-  const mine = viewSeq
   const query = readQuery(raw)
-  const stale = () => run !== searchSeq || mine !== viewSeq
+  // A newer call, or the swap (it turns `searchSeq` over too).
+  const stale = () => run !== searchSeq
   searching = searching.then(async () => {
-    if (stale() || !view?.book) return
-    view.clearSearch()
-    if (!query || !Number.isSafeInteger(id)) return
+    view?.clearSearch()
+    if (!view || !query || !Number.isSafeInteger(id)) return
     const answer = (results, end) => post({ type: 'search-results', key: book.sha256, id, results, done: !!end, more: end === 'more' })
     let found = 0
-    for await (const r of view.search({ query, draw: Overlayer.highlight, drawOptions: { color: SEARCH_FILL } })) {
-      if (stale()) return
-      if (r?.subitems) {
-        const items = searchItems(r.subitems, r.label).slice(0, MAX_RESULTS - found)
-        found += items.length
-        if (items.length) answer(items)
-        if (found >= MAX_RESULTS) return answer([], 'more')
+    try {
+      for await (const r of view.search({ query, draw: Overlayer.highlight, drawOptions: { color: SEARCH_FILL } })) {
+        if (stale()) return
+        if (r?.subitems) {
+          const items = searchItems(r.subitems, r.label).slice(0, MAX_RESULTS - found)
+          found += items.length
+          answer(items)
+          if (found >= MAX_RESULTS) return answer([], 'more')
+        }
+        await new Promise((next) => setTimeout(next))
       }
-      await new Promise((next) => setTimeout(next))
+    } catch (e) {
+      log('warn', `search stopped at a section that could not be read: ${e?.message ?? e}`)
     }
     if (!stale()) answer([], 'done')
   }).catch((e) => log('error', `search: ${e?.stack ?? e}`))

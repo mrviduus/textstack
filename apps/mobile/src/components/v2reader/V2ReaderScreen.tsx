@@ -380,7 +380,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const askSearch = (raw: string) => {
     const next = searchStart(searchRef.current, raw)
     setSearch(next)
-    call(`window.__fol.search(${JSON.stringify(next.query || null)}, ${next.id})`)
+    // A page not loaded yet (or reloading) holds no search to end.
+    if (ready.current) call(`window.__fol.search(${JSON.stringify(next.query || null)}, ${next.id})`)
   }
   /** A new open or a closed book: the previous book's search ends with it (its hits go from the page, if it still shows that book). */
   const clearSearch = () => {
@@ -1522,7 +1523,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} ttsSpeed={ttsSpeed} onTtsSpeed={updateTtsSpeed}
             glosses={annotatable ? { on: legacySettings.showInlineTranslations, onChange: (on) => updateLegacySettings({ showInlineTranslations: on }) } : undefined} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
-          <V2SearchSheet key={searchBook} visible={searchOpen && searchable} search={search} onQuery={askSearch} onGo={goSearchResult} onClose={() => setSearchOpen(false)} />
+          <V2SearchSheet key={searchBook} visible={searchOpen} search={search} onQuery={askSearch} onGo={goSearchResult} onClose={() => setSearchOpen(false)} />
           <V2HighlightsSheet visible={highlightsOpen} items={highlightList} noteOf={(id) => notes?.known.get(id) ?? null} onGo={goHighlight} onClose={() => setHighlightsOpen(false)} />
           {popup?.kind === 'highlight' && tapped && (
             // #1312: the legacy editor. A colour is one tap (the page redraws and saves it); Save is the note (here,
