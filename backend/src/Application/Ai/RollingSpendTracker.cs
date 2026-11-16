@@ -48,6 +48,10 @@ public sealed class RollingSpendTracker(
         public int Seeded; // 0 = not yet seeded; set to 1 via Interlocked.Exchange.
     }
 
+    // Runs the fire-and-forget alert send. Tests run it inline (#1134): under a 200-way
+    // Parallel.For on a loaded runner, Task.Run could start the send after the test gave up.
+    internal Func<Func<Task>, Task> Dispatch { get; init; } = work => Task.Run(work);
+
     private readonly ConcurrentDictionary<string, Bucket> _buckets = new();
     // Dedup key for the 80%-budget alert: at most one alert per (feature, UTC day).
     private readonly ConcurrentDictionary<(string Feature, DateOnly Day), bool> _alerted = new();
@@ -185,7 +189,7 @@ public sealed class RollingSpendTracker(
             $"<b>${dailyUsd:0.######}</b> daily LLM budget ({pct}%).</p>" +
             "<p>At 100% the feature's budget mode takes effect (fallback or hard-stop).</p>";
 
-        _ = Task.Run(async () =>
+        _ = Dispatch(async () =>
         {
             try
             {
