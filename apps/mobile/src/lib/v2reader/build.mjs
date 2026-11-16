@@ -109,7 +109,9 @@ const FOLIATE_SHA = 'fe04665d650332f4017f92c5d45d98ee2a84e363'
 // pinch / wheel / double-tap zoom about the focus, drag to pan, clamped; Tab kept; `closeLightbox()`, `lightbox` on open and close.
 // +778 (#1267): `labels({image, close})`: the lightbox's two words from the host (`readLabels`: non-blank strings, capped).
 // +7,385 (#1271): `markWords(words, show)`: saved-word marks by stage, placed per section (wordMarks.mjs).
-const BUDGET = 296668
+// +6,054 (#1314): bookmarks (bookmarks.mjs): `addBookmark()`, `removeBookmark(id)`, the `bookmark-list` message (the list, the
+// one on screen, whether one can be made here); kept in the entry as highlights of colour `bookmark`, never drawn.
+const BUDGET = 302722
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

@@ -34,7 +34,7 @@
  */
 import { createWriteQueue } from '../sessionWrites'
 import {
-  annotationHighlight, decideServerState, entryChanges, entryFor, isFractionOnly, isUuid, pageEntry, statePosition, syncableText,
+  annotationHighlight, decideServerState, entryChanges, entryFor, isBookmark, isFractionOnly, isUuid, pageEntry, statePosition, syncableText,
   type OpenReader, type PageHighlight, type PagePosition, type V2Annotation, type V2Book, type V2BookFile, type V2ReadingState, type V2Word,
 } from '@textstack/shared'
 import type { LibraryBook } from './hostStorage'
@@ -656,7 +656,9 @@ export function createLocalLibrary(db: Db) {
       )
       return rows.flatMap((r) => {
         const h = parse<PageHighlight>(r.highlight)
-        return h ? [{ id: r.id, bookId: r.book_id, bookTitle: r.title, text: h.selectedText ?? h.quote, color: h.color ?? 'yellow', note: r.note }] : []
+        // Not a bookmark (#1314: the same rows, colour `bookmark`).
+        // ponytail: filtered after the LIMIT, so bookmarks among the newest rows shorten this dev-only list; filter in SQL if it ships.
+        return h && !isBookmark(h) ? [{ id: r.id, bookId: r.book_id, bookTitle: r.title, text: h.selectedText ?? h.quote, color: h.color ?? 'yellow', note: r.note }] : []
       })
     }),
 

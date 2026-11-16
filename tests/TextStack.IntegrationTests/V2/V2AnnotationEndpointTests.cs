@@ -50,6 +50,71 @@ public class V2AnnotationEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFix
         Assert.Equal((HttpStatusCode.Conflict, "deleted"), (edit.Status, edit.Code));
     }
 
+    /// <summary>
+    /// The V2 reader's bookmark (#1314, ADR-031 "Amended 2026-11-15"): an annotation of colour <c>bookmark</c> whose
+    /// <c>selectedText</c> is the first words at its place. No schema of its own: stored, fed and tombstoned as any annotation.
+    /// </summary>
+    private static object Bookmark(Guid bookId, Guid? fileId, string? selectedText = "It was a bright cold day in April") => new
+    {
+        expectedRevision = (long?)null,
+        bookId,
+        fileId,
+        selectedText,
+        noteText = (string?)null,
+        locator = new { version = 1, scheme = "epub-cfi", value = "epubcfi(/6/4!/4/2,/1:0,/1:33)", quote = "It was a bright cold day in April" },
+        color = "bookmark",
+    };
+
+    [Fact]
+    public async Task Bookmark_PutFeedDeleteFeed_StoredAsSentThenATombstone()
+    {
+        v2.Require();
+        var guest = await v2.NewGuestAsync(); // its own feed: exactly the rows written here
+        var (bookId, fileId, _) = await v2.ImportAsync(guest);
+        var (bookmark, highlight) = (Guid.NewGuid(), Guid.NewGuid());
+        await v2.PutAnnotationAsync(guest, highlight, Highlight(bookId, fileId, null));
+
+        var created = await v2.PutAnnotationAsync(guest, bookmark, Bookmark(bookId, fileId));
+        var ownRetry = await v2.PutAnnotationAsync(guest, bookmark, Bookmark(bookId, fileId)); // the create's response was lost
+        var live = (await v2.SendAsync(guest, HttpMethod.Get, "/me/v2/annotations/changes")).Body.GetProperty("items").EnumerateArray()
+            .Single(a => a.GetProperty("id").GetGuid() == bookmark);
+        var deleted = await v2.SendAsync(guest, HttpMethod.Delete, $"/me/v2/annotations/{bookmark}");
+        var rows = (await v2.SendAsync(guest, HttpMethod.Get, "/me/v2/annotations/changes")).Body.GetProperty("items").EnumerateArray()
+            .ToDictionary(a => a.GetProperty("id").GetGuid());
+
+        Assert.Equal((HttpStatusCode.Created, 1L), (created.Status, created.Body.GetProperty("revision").GetInt64()));
+        Assert.Equal((HttpStatusCode.OK, 1L), (ownRetry.Status, ownRetry.Body.GetProperty("revision").GetInt64()));
+        // The stored row itself, as the feed gives it to another device.
+        Assert.Equal(("bookmark", "It was a bright cold day in April", bookId, fileId, System.Text.Json.JsonValueKind.Null, System.Text.Json.JsonValueKind.Null),
+            (live.GetProperty("color").GetString(), live.GetProperty("selectedText").GetString(), live.GetProperty("bookId").GetGuid(),
+                live.GetProperty("fileId").GetGuid(), live.GetProperty("noteText").ValueKind, live.GetProperty("deletedAt").ValueKind));
+        var locator = live.GetProperty("locator");
+        Assert.Equal(("epub-cfi", "epubcfi(/6/4!/4/2,/1:0,/1:33)", "It was a bright cold day in April"),
+            (locator.GetProperty("scheme").GetString(), locator.GetProperty("value").GetString(), locator.GetProperty("quote").GetString()));
+        // Removed: a tombstone on the feed, still a bookmark; the highlight beside it untouched.
+        Assert.Equal((HttpStatusCode.OK, 2L), (deleted.Status, deleted.Body.GetProperty("revision").GetInt64()));
+        Assert.Equal(("bookmark", System.Text.Json.JsonValueKind.String), (rows[bookmark].GetProperty("color").GetString(), rows[bookmark].GetProperty("deletedAt").ValueKind));
+        Assert.Equal(("yellow", System.Text.Json.JsonValueKind.Null), (rows[highlight].GetProperty("color").GetString(), rows[highlight].GetProperty("deletedAt").ValueKind));
+        Assert.Equal(2, rows.Count);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("   ")]
+    public async Task Bookmark_WithoutItsText_IsInvalidPayload_NothingStored(string? selectedText)
+    {
+        // ADR-031: an annotation always carries text; a location-only bookmark is refused, which is why the reader sends the words at the place.
+        v2.Require();
+        var guest = await v2.NewGuestAsync();
+        var (bookId, fileId, _) = await v2.ImportAsync(guest);
+
+        var refused = await v2.PutAnnotationAsync(guest, Guid.NewGuid(), Bookmark(bookId, fileId, selectedText));
+        var feed = await v2.SendAsync(guest, HttpMethod.Get, "/me/v2/annotations/changes");
+
+        Assert.Equal((HttpStatusCode.BadRequest, "invalid_payload"), (refused.Status, refused.Code));
+        Assert.Equal(0, feed.Body.GetProperty("items").GetArrayLength());
+    }
+
     [Fact]
     public async Task Put_FileThatIsNoVersionAndABookThatIsNotThere_AreUnknownFileAndBookNotFound()
     {

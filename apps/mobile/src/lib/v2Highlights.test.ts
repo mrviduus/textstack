@@ -19,6 +19,18 @@ const row = (locator: V2Annotation['locator']): V2Annotation => ({
 })
 
 describe('upload highlights on V2', () => {
+  it('lists the book\'s live annotations, never a V2 reader bookmark (#1314)', async () => {
+    initApi({ baseUrl: 'http://api', getAccessToken: async () => 't', onUnauthorized: async () => null })
+    const cfi = { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)', quote: 'hello' } as const
+    const of = (id: string, extra: Partial<V2Annotation>) => ({ ...row(cfi), id, bookId: 'b-list', ...extra })
+    fakeApi({ 'GET /me/v2/annotations/changes': feed(of('q1', {}), of('bm', { color: 'bookmark' }), of('gone', { deletedAt: '2026-11-02T00:00:00Z' })) }, 'http://api')
+    try {
+      expect((await userBookHighlightsApi.getUserBookHighlights('b-list')).map((h) => h.id)).toEqual(['q1'])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('writes a reflow anchor as textstack-anchor-v1 with the chapter the reader is on', () => {
     const anchor = { prefix: 'p', exact: 'hello there', suffix: 's', startOffset: 3, endOffset: 14 }
     const write = toV2Write({ userBookId: 'b1', userChapterId: 'key-2', anchorJson: JSON.stringify(anchor), color: 'blue', selectedText: 'hello there' }, 'f1', null)

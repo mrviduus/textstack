@@ -5,7 +5,7 @@
  * same way on both.
  */
 import { codePoints, isUuid, sameJson, type PageHighlight, type PagePosition } from './v2LocalSync'
-import { emptyEntry, type PageEntry, type PageEntryBook } from './v2PageStore'
+import { emptyEntry, isBookmark, type PageEntry, type PageEntryBook } from './v2PageStore'
 
 /** The entry `restore` takes: the position and highlights of THIS file version only (the caller filters). */
 export const pageEntry = (book: PageEntryBook, position: PagePosition | null, highlights: PageHighlight[]): PageEntry =>
@@ -16,8 +16,8 @@ export function normalisedHighlight<H extends PageHighlight>(h: H): H {
   return h.selectedText === undefined ? { ...h, selectedText: h.quote, quote: codePoints(h.quote, 64) } : h
 }
 
-/** A highlight's identity for the twin lookup: where it is and what it says. */
-const twinKey = (h: PageHighlight | null) => (h ? `${h.cfi}\u0000${h.selectedText ?? h.quote}` : '')
+/** A highlight's identity for the twin lookup: where it is, what it says, and whether it is a bookmark (#1314: one over a highlight's exact range is not its twin). */
+const twinKey = (h: PageHighlight | null) => (h ? `${h.cfi}\u0000${h.selectedText ?? h.quote}\u0000${isBookmark(h)}` : '')
 
 /**
  * A highlight the host holds: its last saved page form (null: unreadable), its file version, whether it is tombstoned.

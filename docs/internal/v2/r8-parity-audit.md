@@ -111,7 +111,7 @@ Legend — **Need**: `R8` must exist before R8 · `owner` needs a decision (§6)
 | Offline queue / replay | IndexedDB three-way merge | **none** (error toast) | outbox (Android) | — (V2 ahead on Android); web host R8 |
 | `textstack-anchor-v1` annotations | drawn | drawn | dropped (#1195) | owner |
 | PDF highlights (rects) | yes | yes | absent | R8 (with R7) |
-| Bookmarks | yes; hidden on V2 | yes; hidden on V2 uploads | absent | owner (#1117 said "not until R5/R6"; both are done) |
+| Bookmarks | yes; hidden on V2 | yes; hidden on V2 uploads | yes (#1314): add / remove at the place on screen, a list with tap to jump, synced as annotations of colour `bookmark`; text formats only (no CBZ, pre-paginated EPUB or PDF) | done; page-based books: owner |
 | Reviewed-highlight marks (chapter review) | yes | — | absent | owner |
 
 ### 2.7 TTS, settings

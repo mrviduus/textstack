@@ -7,6 +7,7 @@ import { useReduceMotion } from '../../hooks/useReduceMotion'
 import { fonts } from '../../theme/typography'
 import { tocAround, withTitle, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
 import type { V2HighlightItem } from '../../lib/v2reader/highlights.mjs'
+import type { V2BookmarkItem } from '../../lib/v2reader/bookmarks.mjs'
 import { HIGHLIGHT_BG } from '../../lib/readerColors'
 
 /** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo`: the entry the reader chose. */
@@ -146,6 +147,78 @@ export function V2HighlightsSheet({ visible, items, noteOf, onGo, onClose }: {
 }
 
 /**
+ * The open book's bookmarks (#1314): the contents sheet's modal. Its header button adds a bookmark at the place on
+ * screen, or removes the one there (`here`; absent where there is nothing to bookmark and none here). The page's
+ * `bookmark-list` in book order, each bookmark's first words as text (untrusted); a tap jumps there and closes the sheet.
+ */
+export function V2BookmarksSheet({ visible, items, here, can, onToggle, onGo, onClose }: {
+  visible: boolean
+  items: V2BookmarkItem[]
+  /** The bookmark on screen (null: none). */
+  here: string | null
+  /** One can be made at the place on screen. */
+  can: boolean
+  onToggle: () => void
+  onGo: (item: V2BookmarkItem) => void
+  onClose: () => void
+}) {
+  const { colors } = useTheme()
+  const { t } = useLanguage()
+  const reduceMotion = useReduceMotion()
+  return (
+    <Modal visible={visible} animationType={reduceMotion ? 'none' : 'slide'} transparent onRequestClose={onClose}>
+      <View style={styles.overlay}>
+        <Pressable style={styles.outside} onPress={onClose} accessible={false} />
+        <View style={[styles.sheet, { backgroundColor: colors.background }]} accessibilityViewIsModal>
+          <View style={[styles.header, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">{t('reader.chrome.bookmarks')}</Text>
+            <View style={styles.headerActions}>
+              {(can || here) && (
+                <TouchableOpacity
+                  onPress={onToggle}
+                  style={[styles.toggle, { backgroundColor: colors.primaryLight }]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: !!here }}
+                  testID="v2-bookmark-toggle"
+                >
+                  <Text style={[styles.toggleText, { color: colors.primary }]}>{t(here ? 'reader.chrome.removeBookmark' : 'reader.chrome.addBookmark')}</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={onClose} style={styles.close} accessibilityRole="button" accessibilityLabel={t('reader.chrome.closeBookmarks')}>
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+          </View>
+          {items.length === 0 ? (
+            <Text style={[styles.empty, { color: colors.textSecondary }]}>{t('reader.chrome.bookmarksEmpty')}</Text>
+          ) : (
+            <FlatList
+              data={items}
+              keyExtractor={(b) => b.id}
+              style={styles.list}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.row, styles.hlRow, { borderBottomColor: colors.border }, item.id === here && { backgroundColor: colors.primaryLight }]}
+                  onPress={() => {
+                    onGo(item)
+                    onClose()
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: item.id === here }}
+                >
+                  <Ionicons name="bookmark" size={16} color={colors.textSecondary} />
+                  <Text style={[styles.rowText, styles.hlBody, { color: colors.text }]} numberOfLines={3}>{item.text}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          )}
+        </View>
+      </View>
+    </Modal>
+  )
+}
+
+/**
  * The entries before and after the reader's place, by title (#1261): never a number. Nothing on a book with no
  * contents. A row of the footer (ReaderFooter `above`).
  */
@@ -187,6 +260,9 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 16, paddingRight: 4, borderBottomWidth: 1 },
   title: { fontSize: 17, fontFamily: fonts.sansBold },
   close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  toggle: { minHeight: 44, paddingHorizontal: 12, borderRadius: 8, justifyContent: 'center' },
+  toggleText: { fontSize: 14, fontFamily: fonts.sansMedium },
   list: { flex: 1 },
   row: { justifyContent: 'center', paddingRight: 16, paddingVertical: 14, minHeight: 52, borderBottomWidth: StyleSheet.hairlineWidth },
   rowText: { fontSize: 14, fontFamily: fonts.sans },

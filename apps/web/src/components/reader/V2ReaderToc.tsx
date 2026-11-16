@@ -3,6 +3,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
 import { tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
 import type { V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
+import type { V2BookmarkItem } from '../../../../mobile/src/lib/v2reader/bookmarks.mjs'
 import { COLOR_MAP } from './decorationColors'
 
 /** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo`: the entry the reader chose. */
@@ -21,17 +22,27 @@ interface HighlightsTab {
   onGo: (item: V2HighlightItem) => void
 }
 
+/** #1314: the Bookmarks tab, offered with the Highlights tab. */
+interface BookmarksTab {
+  /** The page's `bookmark-list` items (in book order). */
+  items: V2BookmarkItem[]
+  onGo: (item: V2BookmarkItem) => void
+}
+
 /**
  * The V2 reader's table of contents (#1261): the legacy drawer's dialog (reader.css, `useFocusTrap`), the entries
  * indented by depth, the current one marked and focused on open (which scrolls it into view). Closing gives focus back.
  * With `highlights` (#1312) a Highlights tab beside Contents, the legacy drawer's (a book with no contents opens on
- * it): each highlight's text and note as text, in book order; a tap jumps there.
+ * it): each highlight's text and note as text, in book order; a tap jumps there. With `bookmarks` (#1314) a Bookmarks
+ * tab too: each bookmark's first words as text, in book order; a tap jumps there.
  */
-export function V2TocDrawer({ open, toc, tocIndex, onGo, onClose, highlights }: Props & { open: boolean; onClose: () => void; highlights?: HighlightsTab | null }) {
+export function V2TocDrawer({ open, toc, tocIndex, onGo, onClose, highlights, bookmarks }: Props & { open: boolean; onClose: () => void; highlights?: HighlightsTab | null; bookmarks?: BookmarksTab | null }) {
   const container = useFocusTrap(open)
   const { t } = useTranslation()
-  const [chosenTab, setTab] = useState<'contents' | 'highlights'>('contents')
-  const tab = !highlights || (chosenTab === 'contents' && toc.length > 0) ? 'contents' : 'highlights'
+  const [chosenTab, setTab] = useState<'contents' | 'highlights' | 'bookmarks'>('contents')
+  // The tab chosen while it is offered; else Contents when the book has any, else the first list offered.
+  const offered = { contents: toc.length > 0, highlights: !!highlights, bookmarks: !!bookmarks }
+  const tab = offered[chosenTab] ? chosenTab : offered.contents || (!highlights && !bookmarks) ? 'contents' : highlights ? 'highlights' : 'bookmarks'
   // After the trap's own focus (the close button).
   useEffect(() => {
     if (open) container.current?.querySelector<HTMLElement>('[aria-current]')?.focus()
@@ -54,16 +65,23 @@ export function V2TocDrawer({ open, toc, tocIndex, onGo, onClose, highlights }: 
         }}
       >
         <div className="reader-toc-drawer__header">
-          {highlights ? (
+          {highlights || bookmarks ? (
             <div className="reader-toc-drawer__tabs" role="tablist">
               {toc.length > 0 && (
                 <button role="tab" aria-selected={tab === 'contents'} className={`reader-toc-drawer__tab${tab === 'contents' ? ' active' : ''}`} onClick={() => setTab('contents')}>
                   {t('v2Reader.contents')}
                 </button>
               )}
-              <button role="tab" aria-selected={tab === 'highlights'} className={`reader-toc-drawer__tab${tab === 'highlights' ? ' active' : ''}`} onClick={() => setTab('highlights')} data-testid="v2-highlights-tab">
-                {t('reader.toc.highlightsTab')} {highlights.items.length > 0 && `(${highlights.items.length})`}
-              </button>
+              {highlights && (
+                <button role="tab" aria-selected={tab === 'highlights'} className={`reader-toc-drawer__tab${tab === 'highlights' ? ' active' : ''}`} onClick={() => setTab('highlights')} data-testid="v2-highlights-tab">
+                  {t('reader.toc.highlightsTab')} {highlights.items.length > 0 && `(${highlights.items.length})`}
+                </button>
+              )}
+              {bookmarks && (
+                <button role="tab" aria-selected={tab === 'bookmarks'} className={`reader-toc-drawer__tab${tab === 'bookmarks' ? ' active' : ''}`} onClick={() => setTab('bookmarks')} data-testid="v2-bookmarks-tab">
+                  {t('reader.chrome.bookmarks')} {bookmarks.items.length > 0 && `(${bookmarks.items.length})`}
+                </button>
+              )}
             </div>
           ) : (
             <h3>{t('v2Reader.contents')}</h3>
@@ -92,6 +110,21 @@ export function V2TocDrawer({ open, toc, tocIndex, onGo, onClose, highlights }: 
               )
             })}
             {highlights.items.length === 0 && <li className="reader-toc-drawer__empty">{t('reader.toc.highlightsEmpty')}</li>}
+          </ul>
+        )}
+        {tab === 'bookmarks' && bookmarks && (
+          <ul className="reader-toc-drawer__list" data-testid="v2-bookmarks-list">
+            {bookmarks.items.map((b) => (
+              <li key={b.id} className="reader-toc-drawer__bookmark-item">
+                <button type="button" className="reader-toc-drawer__item reader-toc-drawer__hl-item" onClick={() => { bookmarks.onGo(b); onClose() }}>
+                  {/* The book's text: React text only (untrusted). */}
+                  <span className="reader-toc-drawer__hl-body">
+                    <span className="reader-toc-drawer__hl-text">{b.text}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+            {bookmarks.items.length === 0 && <li className="reader-toc-drawer__empty">{t('reader.chrome.bookmarksEmpty')}</li>}
           </ul>
         )}
         {tab === 'contents' && <ul className="reader-toc-drawer__list">

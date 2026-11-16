@@ -55,8 +55,9 @@ import { HighlightNoteModal } from '../HighlightNoteModal'
 import { colorOf, noteChange, readHighlightList, readHighlightRemoved, readHighlightTap, type V2HighlightColor, type V2HighlightItem } from '../../lib/v2reader/highlights.mjs'
 import { TranslationSheet } from '../TranslationSheet'
 import { ExplanationSheet } from '../ExplanationSheet'
+import { readBookmarkList, type V2BookmarkList } from '../../lib/v2reader/bookmarks.mjs'
 import { readToc, tocAround, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
-import { V2HighlightsSheet, V2SectionNav, V2TocSheet } from './V2ReaderToc'
+import { V2BookmarksSheet, V2HighlightsSheet, V2SectionNav, V2TocSheet } from './V2ReaderToc'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
@@ -391,6 +392,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** The page listed a changed highlight set: the notes are read again once its `store` is written (#1312 review). */
   const notesStale = useRef(false)
   const [highlightsOpen, setHighlightsOpen] = useState(false)
+  /**
+   * #1314: the open book's bookmarks, the one on screen and whether one can be made here (the page's `bookmark-list`,
+   * for the bytes `openShaRef` names; null until it comes), and their sheet. A bookmark is the local library's
+   * annotation row of colour `bookmark`: stored, queued and tombstoned by the highlights' own path.
+   */
+  const [bookmarks, setBookmarks] = useState<V2BookmarkList | null>(null)
+  const [bookmarksOpen, setBookmarksOpen] = useState(false)
   const [highlightColor, setHighlightColor] = useState<V2HighlightColor>('yellow')
   useEffect(() => { AsyncStorage.getItem(HIGHLIGHT_COLOR_KEY).then((c) => setHighlightColor(colorOf(c)), () => {}) }, [])
   const chooseColor = (c: V2HighlightColor) => {
@@ -412,10 +420,15 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
   /** A page message for the open book (its `key`, the page's lower-case sha256). */
   const isOpenKey = (key: string) => openShaRef.current !== null && key.toLowerCase() === openShaRef.current
-  /** The reader's choice (the sheet, a deep link): saved where it lands. */
-  const goHighlight = (h: V2HighlightItem) => {
+  /** The reader's choice (a highlight or bookmark in its sheet, a deep link): saved where it lands. */
+  const goHighlight = (h: { cfi: string }) => {
     hostMoves.start()
     call(`window.__fol.goTo(${JSON.stringify(h.cfi)}, true)`)
+  }
+  /** #1314: the bookmark on screen removed, else one added at the place on screen: the page stores it (`store`) or answers `highlight-removed`. */
+  const toggleBookmark = () => {
+    const here = bookmarks?.here
+    call(here ? `window.__fol.removeBookmark(${JSON.stringify(here)})` : 'window.__fol.addBookmark()')
   }
   const [bookLang, setBookLang] = useState<string | null>(null)
   /**
@@ -520,6 +533,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     pendingHighlight.current = null
     setHighlightList([])
     setHighlightsOpen(false)
+    setBookmarks(null)
+    setBookmarksOpen(false)
   }
 
   /**
@@ -875,6 +890,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     saveSession(sessions.open(Date.now()))
     setOpenSha(null)
     setHighlightList([])
+    setBookmarks(null)
     setNotes(null)
     notesRead.current = false
     place.open()
@@ -904,8 +920,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // Not `atEnd`: it was cleared where the open started; the book's first relocate (its end, for a book one
     // screen long) comes before this `opened` and must stand.
     setAnnotatable(t.opened.annotatable !== false)
-    // The previous book's highlights go; this one's list follows its `restored`.
+    // The previous book's highlights and bookmarks go; this one's lists follow its `restored`.
     setHighlightList([])
+    setBookmarks(null)
     setBookLang(readLang(t.opened))
     setTtsLanguage(ttsLang(t.opened.lang, readerTextLanguage(readLang(t.opened), language)))
     setLangSaves(savesWords(t.opened))
@@ -1108,6 +1125,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         }
         return
       }
+      case 'bookmark-list': {
+        // #1314, untrusted: only what readBookmarkList takes; a previous book's is dropped.
+        const l = readBookmarkList(m)
+        if (l && isOpenKey(l.key)) setBookmarks(l)
+        return
+      }
       case 'highlight-tap': {
         // Its editor (colours, note, delete), by the word's edge rule (popupStep).
         const h = readHighlightTap(m)
@@ -1269,7 +1292,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       call(`window.__fol.removeHighlight(${JSON.stringify(h.id)})`)
       if (popupRef.current?.kind === 'highlight' && popupRef.current.id === h.id) setPopup(null)
     }
-  }, [notes, highlightList])
+    // #1314: a bookmark too (the same rows).
+    for (const b of bookmarks?.bookmarks ?? []) if (notes?.deleted.has(b.id)) call(`window.__fol.removeBookmark(${JSON.stringify(b.id)})`)
+  }, [notes, highlightList, bookmarks])
 
   // #1312: the dev route's deep link (the highlights screen): the book on this device, opened once, then the highlight.
   const params = useLocalSearchParams<{ book?: string; highlight?: string }>()
@@ -1387,14 +1412,16 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             bookTitle={heading}
             chapterTitle=""
             sessionWordCount={0}
-            // Gates only the bookmarks and highlights buttons: the highlights list needs no account (the reading path
-            // never does, #1312 review); V2 has no bookmarks.
+            // Gates only the bookmarks and highlights buttons: neither list needs an account (the reading path never
+            // does, #1312 review).
             isAuthenticated
             hasChapters={toc.length > 0}
             onTocPress={() => setTocOpen(true)}
             onHighlightsPress={annotatable ? () => setHighlightsOpen(true) : undefined}
+            // #1314: where the book takes annotations; the icon is filled while a bookmark is on screen.
+            onBookmarksPress={annotatable ? () => setBookmarksOpen(true) : undefined}
             tocLabel={t('reader.chrome.contents')}
-            isCurrentBookmarked={false}
+            isCurrentBookmarked={annotatable && !!bookmarks?.here}
             onExit={closeBook}
             backLabel={t('reader.chrome.back')}
           />
@@ -1475,6 +1502,15 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} ttsSpeed={ttsSpeed} onTtsSpeed={updateTtsSpeed}
             glosses={annotatable ? { on: legacySettings.showInlineTranslations, onChange: (on) => updateLegacySettings({ showInlineTranslations: on }) } : undefined} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
+          <V2BookmarksSheet
+            visible={bookmarksOpen}
+            items={bookmarks?.bookmarks ?? []}
+            here={bookmarks?.here ?? null}
+            can={bookmarks?.can ?? false}
+            onToggle={toggleBookmark}
+            onGo={goHighlight}
+            onClose={() => setBookmarksOpen(false)}
+          />
           <V2HighlightsSheet visible={highlightsOpen} items={highlightList} noteOf={(id) => notes?.known.get(id) ?? null} onGo={goHighlight} onClose={() => setHighlightsOpen(false)} />
           {popup?.kind === 'highlight' && tapped && (
             // #1312: the legacy editor. A colour is one tap (the page redraws and saves it); Save is the note (here,

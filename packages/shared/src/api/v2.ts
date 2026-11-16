@@ -78,6 +78,7 @@ export const V2_OFF: V2Switch = { enabled: false, maxPartBytes: 0 }
  * from this one table, and M6 deletes it. `false` = hidden.
  */
 export const V2_FEATURES = {
+  /** The legacy readers' bookmarks (chapter- and page-level, not carried). The V2 reader has its own (#1314): annotations of colour `bookmark`. */
   bookmarks: false,
   /** Flashcards only: multiple choice needs server-made distractors. */
   reviewModes: ['classic'] as const,

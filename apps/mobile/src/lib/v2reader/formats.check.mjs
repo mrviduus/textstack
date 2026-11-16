@@ -2134,6 +2134,145 @@ try {
   const movedHl = await storeFrom(from, 'a store after a move with a highlight')
   check(movedHl?.highlights?.[0]?.id === hl.id && movedHl.position.cfi?.startsWith('epubcfi('), 'and so does the first real move')
 
+  // #1314: bookmarks. An entry highlight of colour `bookmark`: saved as one, listed apart, found on screen, never drawn.
+  console.log('bookmarks')
+  /** The fills drawn over the shown sections, in document order of their overlays. */
+  const fills = () => call(`[...document.querySelector('foliate-view').renderer.getContents()].flatMap((c) => [...(c.overlayer?.element.querySelectorAll('g[fill]') ?? [])].map((g) => g.getAttribute('fill')))`)
+  const bmAfter = (from, match = () => true) => waitFor(from, (x) => x.type === 'bookmark-list' && match(x), 'bookmark-list').catch(() => null)
+  const lastBm = () => messages.filter((x) => x.type === 'bookmark-list').at(-1)
+  const warned = (from, re) => messages.slice(from).some((x) => x.type === 'log' && x.level === 'warn' && re.test(x.msg))
+  /** The text at `cfi` in the book's own section document (what restore compares), and the text on screen. */
+  const textAtCfi = (cfi) => call(`(async () => { const v = document.querySelector('foliate-view'); const { index, anchor } = v.resolveCFI(${JSON.stringify(cfi)}); return anchor(await v.book.sections[index].createDocument()).toString() })()`)
+  const onScreen = () => call(`document.querySelector('foliate-view').lastLocation.range.toString()`)
+  // Before `restored` there is no entry to add to.
+  from = messages.length
+  await call(`window.__fol.openUrl(${JSON.stringify(bookAt('tsformat.fb2'))}, 'tsformat.fb2')`)
+  await waitFor(from, (x) => x.type === 'opened', 'fb2 opened')
+  await call('window.__fol.addBookmark()')
+  await page.waitForTimeout(300)
+  check(warned(from, /addBookmark ignored: the stored entry is not restored yet/) && storesFrom(from).length === 0 && !messages.slice(from).some((x) => x.type === 'bookmark-list'),
+    'before restored: addBookmark is refused with a warn, nothing stored, no bookmark-list')
+  m = await open('tsformat.fb2', byFraction(null))
+  const bm0 = await bmAfter(m.from)
+  check(bm0?.key === fb2Book.sha256 && bm0.bookmarks.length === 0 && bm0.here === null && bm0.can === true, `after restore: no bookmarks, none here, one can be made (${JSON.stringify(bm0)})`)
+  const fillsBefore = JSON.stringify(await fills())
+  from = messages.length
+  const bmMade = await call('window.__fol.addBookmark()')
+  const bmStore = await storeFrom(from, 'a store after a bookmark')
+  const bmRow = bmStore?.highlights.find((h) => h.id === bmMade?.id)
+  const screenText = (await onScreen()).replace(/^\s+/, '')
+  const unspaced = (t) => t.replace(/\s+/g, '')
+  check(!!bmRow && bmRow.color === 'bookmark' && unspaced(bmRow.selectedText) === unspaced(await textAtCfi(bmRow.cfi)) && unspaced(screenText).startsWith(unspaced(bmRow.selectedText))
+    // The heading and the paragraph after it are two blocks: a space between them, none added inside a block.
+    && bmRow.selectedText.startsWith('Chapter One Paragraph 1. Sphinx of black quartz')
+    // The cap exactly: the screen holds more text than a bookmark keeps.
+    && (await textAtCfi(bmRow.cfi)).length === 120 && bmRow.selectedText === bmRow.selectedText.trim() && bmRow.quote === bmRow.selectedText.slice(0, 64) && bmRow.index === 0 && bmStore.highlights.length === 1,
+    `a bookmark is stored as a highlight of colour bookmark: the first words on screen and their CFI (${JSON.stringify(bmRow)}; screen ${JSON.stringify(screenText.slice(0, 40))})`)
+  const bm1 = await bmAfter(from)
+  check(JSON.stringify(bm1?.bookmarks) === JSON.stringify([{ id: bmRow?.id, cfi: bmRow?.cfi, text: bmRow?.selectedText, at: bmRow?.at }]) && bm1.here === bmRow?.id,
+    `the list has it and it is the one here (${JSON.stringify(bm1)})`)
+  await page.waitForTimeout(300)
+  check(JSON.stringify(await fills()) === fillsBefore && !messages.slice(from).some((x) => x.type === 'highlight-list' && x.highlights.some((h) => h.id === bmRow?.id)),
+    `it is not drawn and not in the highlight list (${JSON.stringify(await fills())})`)
+  from = messages.length
+  await call('window.__fol.addBookmark()')
+  await page.waitForTimeout(400)
+  check(warned(from, /addBookmark ignored: this place is bookmarked/) && storesFrom(from).length === 0, 'a second bookmark on the same screen is refused, nothing stored')
+  // A highlight call on a bookmark's id does nothing: a bookmark is never recoloured into a highlight or removed as one.
+  from = messages.length
+  await call(`window.__fol.recolorHighlight(${JSON.stringify(bmRow?.id)}, 'blue')`)
+  await call(`window.__fol.removeHighlight(${JSON.stringify(bmRow?.id)})`)
+  await page.waitForTimeout(400)
+  check(storesFrom(from).length === 0 && !messages.slice(from).some((x) => x.type === 'highlight-removed') && lastBm().bookmarks.length === 1, 'recolorHighlight and removeHighlight ignore a bookmark')
+  // The next screen has none; back, it is here again; a larger font keeps it here (found by its range, not by a page).
+  from = messages.length
+  call('window.__fol.next()')
+  const bmNext = await bmAfter(from)
+  check(bmNext?.here === null && bmNext.can === true && bmNext.bookmarks.length === 1, `the next screen has no bookmark here, the list keeps it (${JSON.stringify(bmNext && { here: bmNext.here, can: bmNext.can })})`)
+  from = messages.length
+  call('window.__fol.prev()')
+  check((await bmAfter(from))?.here === bmRow?.id, 'back on its screen it is here again')
+  await call('window.__fol.font(6)')
+  await page.waitForTimeout(800)
+  check(lastBm().here === bmRow?.id, `and still here at a larger font (${lastBm().here})`)
+  await call('window.__fol.font(-6)')
+  await page.waitForTimeout(800)
+  // A second one further on; the list is in book order, and a jump to one lands on its screen.
+  from = messages.length
+  call('window.__fol.section(1)')
+  await bmAfter(from, (x) => x.here === null)
+  from = messages.length
+  const bmTwo = await call('window.__fol.addBookmark()')
+  const bmTwoStore = await storeFrom(from, 'a store after a second bookmark')
+  check(bmTwo?.index === 1 && JSON.stringify(bmTwoStore?.highlights.map((h) => h.id)) === JSON.stringify([bmRow?.id, bmTwo?.id])
+    && JSON.stringify((await bmAfter(from))?.bookmarks.map((b) => b.id)) === JSON.stringify([bmRow?.id, bmTwo?.id]),
+    `a second bookmark in the next section is stored and listed after the first (${JSON.stringify(lastBm()?.bookmarks.map((b) => b.text.slice(0, 20)))})`)
+  from = messages.length
+  await call(`window.__fol.goTo(${JSON.stringify(bmRow?.cfi)}, true)`)
+  const jumped = await bmAfter(from, (x) => x.here === bmRow?.id)
+  check(!!jumped && lastRelocate(from)?.index === 0 && unspaced(await onScreen()).includes(unspaced(bmRow?.selectedText ?? '-')), `a jump to a bookmark's CFI shows its text, and it is the one here (${JSON.stringify(lastRelocate(from)?.index)})`)
+  // Reopened with the stored entry: found again (its text is still there), listed, not drawn; one whose text is not
+  // there any more is reported and not listed.
+  const bmGone = { ...bmTwoStore.highlights[1], id: '55555555-5555-4555-8555-555555555555', selectedText: 'Not the text at this place.', quote: 'Not the text at this place.' }
+  m = await open('tsformat.fb2', JSON.stringify({ ...bmTwoStore, position: null, highlights: [...bmTwoStore.highlights, bmGone] }))
+  const bmRestored = await bmAfter(m.from, (x) => x.bookmarks.length === 2)
+  check(JSON.stringify(m.restored.highlights) === JSON.stringify([{ id: bmRow?.id, status: 'restored' }, { id: bmTwo?.id, status: 'restored' }, { id: bmGone.id, status: 'quote mismatch, not drawn' }])
+    && JSON.stringify(bmRestored?.bookmarks.map((b) => b.id)) === JSON.stringify([bmRow?.id, bmTwo?.id]) && bmRestored.here === bmRow?.id,
+    `restored bookmarks are listed where their text still is (${JSON.stringify(m.restored.highlights)}; ${JSON.stringify(bmRestored?.bookmarks.map((b) => b.id))})`)
+  await page.waitForTimeout(300)
+  check((await fills()).length === 0 && (await call('window.__fol.drawnRanges()')) === 0, `and none is drawn (${JSON.stringify(await fills())})`)
+  // Removal: `highlight-removed` (the hosts tombstone it as a highlight), the entry without it, the list without it.
+  from = messages.length
+  await call(`window.__fol.removeBookmark(${JSON.stringify(bmRow?.id)})`)
+  const bmRemovedStore = await storeFrom(from, 'a store after a bookmark removal')
+  const bmRemovedMsg = messages.slice(from).find((x) => x.type === 'highlight-removed')
+  check(bmRemovedMsg?.id === bmRow?.id && bmRemovedMsg.key === fb2Book.sha256 && JSON.stringify(bmRemovedStore?.highlights.map((h) => h.id)) === JSON.stringify([bmTwo?.id, bmGone.id]),
+    `a removal says highlight-removed and saves the entry without it (${JSON.stringify(bmRemovedMsg)}; ${JSON.stringify(bmRemovedStore?.highlights.map((h) => h.id))})`)
+  const bmLeft = await bmAfter(from)
+  check(JSON.stringify(bmLeft?.bookmarks.map((b) => b.id)) === JSON.stringify([bmTwo?.id]) && bmLeft.here === null && bmLeft.can === true, `the list drops it, none is here, one can be made again (${JSON.stringify(bmLeft && { here: bmLeft.here, can: bmLeft.can })})`)
+  from = messages.length
+  await call(`window.__fol.removeBookmark(${JSON.stringify(bmRow?.id)})`)
+  await call(`window.__fol.removeBookmark('66666666-6666-4666-8666-666666666666')`)
+  await page.waitForTimeout(400)
+  check(messages.slice(from).filter((x) => x.type === 'log' && /removeBookmark ignored: not a bookmark here/.test(x.msg)).length === 2 && storesFrom(from).length === 0 && !messages.slice(from).some((x) => x.type === 'highlight-removed'),
+    'removing it again, or an id that is no bookmark, does nothing')
+  // removeBookmark never removes a highlight.
+  // (`hl` is in the second section: opened there, so it is on screen.)
+  m = await open('tsformat.fb2', JSON.stringify({ v: 1, book: fb2Book, highlights: [hl], position: { fraction: 0.9, at: 1 } }))
+  await waitFor(m.from, (x) => x.type === 'relocate' && x.index === 1, 'the second section').catch(() => null)
+  from = messages.length
+  await call(`window.__fol.removeBookmark(${JSON.stringify(hl.id)})`)
+  await page.waitForTimeout(600)
+  check(m.restored.highlights[0]?.status === 'restored' && warned(from, /removeBookmark ignored/) && storesFrom(from).length === 0 && (await fills()).length === 1, `removeBookmark ignores a highlight (${JSON.stringify(await fills())})`)
+  // A bookmark the host learned after the restore (the web host's pull): kept and listed, not drawn, not saved.
+  m = await open('tsformat.fb2', byFraction(null))
+  from = messages.length
+  await call(`window.__fol.addHighlights(${JSON.stringify([bmTwoStore.highlights[0], bmGone])})`)
+  const bmAdded = await waitFor(from, (x) => x.type === 'highlights', 'highlights').catch(() => null)
+  const bmAddedList = await bmAfter(from)
+  await page.waitForTimeout(400)
+  check(JSON.stringify(bmAdded?.highlights) === JSON.stringify([{ id: bmRow?.id, status: 'restored' }, { id: bmGone.id, status: 'quote mismatch, not drawn' }])
+    && JSON.stringify(bmAddedList?.bookmarks.map((b) => b.id)) === JSON.stringify([bmRow?.id]) && bmAddedList.here === bmRow?.id && storesFrom(from).length === 0 && (await fills()).length === 0,
+    `addHighlights keeps a bookmark where its text is: listed, here, not drawn, not saved (${JSON.stringify(bmAdded?.highlights)}; ${JSON.stringify(bmAddedList)})`)
+  // A stored bookmark whose text is not at its place any more, alone on its screen (an id found there before, in this
+  // page): not listed, not the one here; a new one can be made.
+  m = await open('tsformat.fb2', JSON.stringify({ v: 1, book: fb2Book, position: null, highlights: [{ ...bmTwoStore.highlights[0], selectedText: 'Not the text at this place.', quote: 'Not the text at this place.' }] }))
+  const bmStale = await bmAfter(m.from)
+  check(m.restored.highlights[0]?.status === 'quote mismatch, not drawn' && bmStale?.bookmarks.length === 0 && bmStale.here === null && bmStale.can === true,
+    `a bookmark whose text moved is not listed and not here (${JSON.stringify(bmStale)})`)
+  // Never the same list twice in a row for one open.
+  const bmRepeats = messages.filter((x) => x.type === 'bookmark-list' || x.type === 'opened').map((x) => JSON.stringify(x)).filter((j, i, all) => i > 0 && j === all[i - 1] && j.includes('"bookmark-list"'))
+  check(bmRepeats.length === 0, `no bookmark-list is sent twice in a row (${bmRepeats.length} repeats)`)
+  // No text to keep: a comic, a pre-paginated EPUB and a PDF offer none, and the call is refused.
+  for (const file of ['tsformat.cbz', 'tsfixed.epub', 'tsformat.pdf']) {
+    m = await open(file)
+    await page.waitForTimeout(600)
+    const none = messages.slice(m.from).filter((x) => x.type === 'bookmark-list').at(-1)
+    from = messages.length
+    await call('window.__fol.addBookmark()')
+    await page.waitForTimeout(400)
+    check(none?.can === false && none.bookmarks.length === 0 && warned(from, /addBookmark ignored: no text to bookmark here/) && storesFrom(from).length === 0, `${file}: no bookmark can be made (${JSON.stringify(none && { can: none.can })})`)
+  }
   // #1312: colours, recolour, removal, the list and a tap on a highlight.
   console.log('highlight colours')
   m = await open('tsformat.fb2', byFraction(null))
@@ -2147,8 +2286,6 @@ try {
   })()`)
   m = await open('tsformat.fb2', JSON.stringify({ v: 1, book: fb2Book, highlights: twoHl, position: null }))
   const listAfter = (from) => waitFor(from, (x) => x.type === 'highlight-list', 'highlight-list').catch(() => null)
-  /** The fills drawn over the shown sections, in document order of their overlays. */
-  const fills = () => call(`[...document.querySelector('foliate-view').renderer.getContents()].flatMap((c) => [...(c.overlayer?.element.querySelectorAll('g[fill]') ?? [])].map((g) => g.getAttribute('fill')))`)
   const opened = await listAfter(m.from)
   check(JSON.stringify(opened?.highlights.map((h) => [h.text, h.color])) === JSON.stringify([['Sphinx', 'yellow'], ['judge', 'green']]),
     `the list after restore is in book order, an unknown colour drawn yellow (${JSON.stringify(opened?.highlights.map((h) => [h.text, h.color]))})`)

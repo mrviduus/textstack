@@ -63,6 +63,18 @@ describe('v2 page entry', () => {
       .toEqual([{ highlight: rekeyed, isNew: true }])
   })
 
+  it('entryChanges_BookmarkOverAHighlightsExactRange_NotItsTwin_BothWays', () => {
+    // #1314: a bookmark is a highlight of colour `bookmark`; the same CFI and text as a live highlight is another row.
+    const a = hl(U1)
+    const bookmark = { ...a, id: U2, color: 'bookmark' }
+    expect(entryChanges(F, { position: null, highlights: [held(a)] }, { position: null, highlights: [bookmark] }, newId).highlights)
+      .toEqual([{ highlight: bookmark, isNew: true }])
+    expect(entryChanges(F, { position: null, highlights: [held({ ...bookmark, id: U1 })] }, { position: null, highlights: [{ ...a, id: U2 }] }, newId).highlights)
+      .toEqual([{ highlight: { ...a, id: U2 }, isNew: true }])
+    // A bookmark's own twin (re-keyed) is still skipped.
+    expect(entryChanges(F, { position: null, highlights: [held({ ...bookmark, id: U1 })] }, { position: null, highlights: [bookmark] }, newId).highlights).toEqual([])
+  })
+
   it('entryChanges_SameNewHighlightTwiceInOneEntry_OneChange', () => {
     const a = hl('h1')
     expect(entryChanges(F, { position: null, highlights: [] }, { position: null, highlights: [a, { ...a, id: 'h2' }] }, newId).highlights).toHaveLength(1)

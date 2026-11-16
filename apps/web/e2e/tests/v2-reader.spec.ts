@@ -605,6 +605,92 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
+  // #1314: a bookmark at the place on screen is the book's annotation of colour `bookmark` (its text: the first words
+  // there). Listed beside Contents and Highlights, jumped to, there on another browser, removed as a tombstone.
+  test('readV2Bookmarks_AddJumpSecondBrowserAndRemove_AnAnnotationOfColourBookmarkThenATombstone', async ({ browser }) => {
+    const who = email('v2bm')
+    const context = await v2Context(browser, who)
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    const annotationWrite = (method: string) => page.waitForResponse((r) => r.request().method() === method && /\/me\/v2\/annotations\/[0-9a-f-]{36}$/.test(r.url()))
+    const stateWrite = () => page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith(`/me/v2/books/${bookId}/reading-state`))
+    /** The bars' bookmark button: its name says whether a bookmark is on screen. */
+    const button = (p: Page) => p.getByTestId('v2-bookmark')
+    const openBookmarks = async (p: Page) => {
+      await clickBar(p, 'Contents')
+      await p.getByRole('tab', { name: /Bookmarks/ }).click()
+      return p.getByTestId('v2-bookmarks-list')
+    }
+
+    // Offered once the server's annotations are in. Add: one write, the row itself.
+    await expect(button(page)).toHaveAttribute('aria-label', 'Add bookmark', { timeout: 15_000 })
+    const created = annotationWrite('PUT')
+    await page.keyboard.press('Escape')
+    await button(page).click()
+    const createdAnswer = await created
+    expect(createdAnswer.ok(), `PUT annotation: ${createdAnswer.status()}`).toBeTruthy()
+    const row = (await createdAnswer.json()) as { id: string; color: string; selectedText: string; noteText: string | null; fileId: string; locator: { scheme: string; value: string; quote: string }; deletedAt: string | null }
+    expect([row.color, row.noteText, row.deletedAt, row.locator.scheme]).toEqual(['bookmark', null, null, 'epub-cfi'])
+    // Its text is the first words on screen (the book opens at its first section), and the locator's quote their start.
+    const shown = (await sectionText(page)).replace(/\s+/g, '')
+    expect(shown.startsWith(row.selectedText.replace(/\s+/g, '')), `"${row.selectedText}" opens the screen`).toBe(true)
+    expect(row.selectedText.length).toBeGreaterThan(20)
+    expect(row.selectedText.startsWith(row.locator.quote)).toBe(true)
+    expect(row.locator.value).toMatch(/^epubcfi\(/)
+    await expect(button(page)).toHaveAttribute('aria-label', 'Remove bookmark')
+    await expect(button(page)).toHaveAttribute('aria-pressed', 'true')
+
+    // Away: none on that screen. Back by the list: the jump is the reader's choice, its place saved.
+    await clickBar(page, 'Next section: The Woods')
+    await expect(status(page)).toHaveText(/^\d+% · The Woods$/)
+    await expect(button(page)).toHaveAttribute('aria-label', 'Add bookmark')
+    const list = await openBookmarks(page)
+    await expect(list.getByRole('button')).toHaveCount(1)
+    await expect(list.getByRole('button')).toHaveText(row.selectedText.trim())
+    // A bookmark is not a highlight: that tab stays empty.
+    await page.getByRole('tab', { name: /Highlights/ }).click()
+    await expect(page.getByTestId('v2-highlights-list').getByRole('button')).toHaveCount(0)
+    await page.getByRole('tab', { name: /Bookmarks/ }).click()
+    const jumped = stateWrite()
+    await list.getByRole('button').click()
+    await expect(status(page)).toHaveText(/^\d+% · The Pond$/)
+    expect((await jumped).ok()).toBeTruthy()
+    await expect(button(page)).toHaveAttribute('aria-label', 'Remove bookmark')
+    await expect(page.getByTestId('v2-not-saved')).toHaveCount(0)
+
+    // Another browser, same account: the bookmark comes from the server, is listed and is the one on screen; nothing
+    // is written back for it.
+    const other = await v2Context(browser, who)
+    const second = await other.newPage()
+    const rewritten = second.waitForRequest((r) => r.method() === 'PUT' && r.url().includes('/me/v2/annotations/'), { timeout: 8_000 }).then(() => true, () => false)
+    await second.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(second)
+    await expect(button(second)).toHaveAttribute('aria-label', 'Remove bookmark', { timeout: 15_000 })
+    await expect((await openBookmarks(second)).getByRole('button')).toHaveText(row.selectedText.trim())
+    expect(await rewritten, 'the server\'s bookmark is not written back').toBe(false)
+    await other.close()
+
+    // Remove: a DELETE, the tombstone (still the bookmark's row); the list is empty and the button adds again.
+    const deleted = annotationWrite('DELETE')
+    await page.keyboard.press('Escape')
+    await button(page).click()
+    const tomb = (await (await deleted).json()) as { id: string; color: string; deletedAt: string | null }
+    expect([tomb.id, tomb.color]).toEqual([row.id, 'bookmark'])
+    expect(tomb.deletedAt).not.toBeNull()
+    await expect(button(page)).toHaveAttribute('aria-label', 'Add bookmark')
+    await expect((await openBookmarks(page)).getByRole('button')).toHaveCount(0)
+    await expect(page.getByTestId('v2-not-saved')).toHaveCount(0)
+
+    // After a reload the server's feed has no live bookmark: none listed, none here.
+    await page.reload()
+    await expectOpened(page)
+    await expect(button(page)).toHaveAttribute('aria-label', 'Add bookmark', { timeout: 15_000 })
+    await expect((await openBookmarks(page)).getByRole('button')).toHaveCount(0)
+    await context.close()
+  })
+
   // #1226: position and highlights on /me/v2 through the shared client, not in this browser's storage.
   test('readV2Chrome_CookieBannerUnanswered_TheBottomBarSitsAboveItAndNextTurns', async ({ browser }) => {
     const context = await v2Context(browser, email('v2banner'), false)

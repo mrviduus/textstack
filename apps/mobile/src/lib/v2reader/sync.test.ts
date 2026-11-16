@@ -2223,6 +2223,78 @@ describe('V2 local library sync (R6)', () => {
 
   // #1312: notes (the host's) ride every write; a removal here is a DELETE; a lost write keeps the server's note
   // unless this device edited it.
+  // #1314: a bookmark is the page's highlight of colour `bookmark`: the same row, queue, write and tombstone.
+  describe('bookmarks (#1314)', () => {
+    const BM = '0b6a2c1e-2222-4222-8333-444455556666'
+    const BM_CFI = 'epubcfi(/6/14!/4/2,/1:0,/1:24)'
+    // The page's form (bookmarks.mjs / page.mjs `addBookmark`): the first words at the place, no context.
+    const bookmark = { id: BM, cfi: BM_CFI, index: 6, quote: 'It was a bright cold day', selectedText: 'It was a bright cold day', prefix: '', suffix: '', color: 'bookmark', at: Date.parse('2026-11-15T10:00:00Z') }
+    const serverBookmark = (bookId: string, fileId: string, revision: number, extra: object = {}) => ({
+      id: BM, bookId, fileId, selectedText: bookmark.selectedText, noteText: null, color: 'bookmark',
+      locator: { version: 1, scheme: 'epub-cfi', value: BM_CFI, quote: bookmark.quote },
+      createdAt: '2026-11-15T10:00:00Z', updatedAt: '2026-11-15T10:00:00Z', deletedAt: null, revision, ...extra,
+    })
+    const stored = async (lib: LocalLibrary) => JSON.parse((await lib.annotation(BM))!.highlight)
+
+    it('added_StoredAsARow_PushedAsAnAnnotationOfColourBookmark_NotWrittenAgain', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.writeEntry(SHA, entry(pos, [highlight, bookmark]), newId)
+      expect(await stored(lib)).toEqual(bookmark)
+      expect(await lib.outbox()).toEqual([expect.objectContaining({ kind: 'annotation', target: BM })])
+      const calls = fakeApi({ [`PUT /annotations/${BM}`]: [ok(serverBookmark(bookId, fileId, 1), 201)] })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(calls.filter((c) => c.method !== 'GET').map((c) => [c.method, c.path, c.body])).toEqual([['PUT', `/annotations/${BM}`, {
+        expectedRevision: null, bookId, fileId, selectedText: 'It was a bright cold day', noteText: null, color: 'bookmark',
+        locator: { version: 1, scheme: 'epub-cfi', value: BM_CFI, quote: 'It was a bright cold day' },
+      }]])
+      expect(await lib.annotation(BM)).toMatchObject({ revision: 1, deleted_at: null })
+      // The next open's entry carries it, as stored; the same entry stored again queues nothing.
+      expect((await restoredEntry(lib)).highlights).toEqual([highlight, bookmark])
+      await lib.writeEntry(SHA, entry(pos, [highlight, bookmark]), newId)
+      expect(await lib.outbox()).toEqual([])
+    })
+
+    it('removed_TombstonedHere_ADeleteNeverAPut_GoneFromTheNextEntry', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.writeEntry(SHA, entry(pos, [highlight, bookmark]), newId)
+      fakeApi({ [`PUT /annotations/${BM}`]: [ok(serverBookmark(bookId, fileId, 1), 201)] })
+      await syncV2Library(lib, host())
+      // The page's `highlight-removed` for a bookmark is the highlights' own removal.
+      expect(await lib.removeHighlight(BM, '2026-11-15T11:00:00.000Z')).toBe(true)
+      expect((await restoredEntry(lib)).highlights).toEqual([highlight])
+      const calls = fakeApi({ [`DELETE /annotations/${BM}`]: [ok(serverBookmark(bookId, fileId, 2, { deletedAt: '2026-11-15T11:00:01.000Z' }))] })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(writes(calls)).toEqual([`DELETE /annotations/${BM}`])
+      expect(await lib.annotation(BM)).toMatchObject({ revision: 2, deleted_at: '2026-11-15T11:00:01.000Z' })
+      // A store from before the removal never brings it back.
+      await lib.writeEntry(SHA, entry(pos, [highlight, bookmark]), newId)
+      expect(await lib.outbox()).toEqual([])
+      expect((await restoredEntry(lib)).highlights).toEqual([highlight])
+    })
+
+    it('pulledFromAnotherDevice_ARowInThePagesForm_InTheNextEntry_ItsTombstoneTellsTheHost', async () => {
+      const { lib, bookId, fileId } = await synced()
+      fakeApi({ 'GET /annotations/changes': feed(serverBookmark(bookId, fileId, 1)) })
+      await syncV2Library(lib, host())
+      // Exactly the form the page made on the other device: stored again by the page, it is no change.
+      expect(await stored(lib)).toEqual(bookmark)
+      expect((await restoredEntry(lib)).highlights).toEqual([highlight, bookmark])
+      await lib.writeEntry(SHA, entry(pos, [highlight, bookmark]), newId)
+      expect(await lib.outbox()).toEqual([])
+      // Deleted there: the host reads it as deleted (and takes it off the page), the next entry has none.
+      fakeApi({ 'GET /annotations/changes': feed(serverBookmark(bookId, fileId, 2, { deletedAt: '2026-11-15T12:00:00Z' })) })
+      await syncV2Library(lib, host())
+      expect((await lib.notes(SHA)).deleted).toEqual(new Set([BM]))
+      expect((await restoredEntry(lib)).highlights).toEqual([highlight])
+    })
+
+    it('deviceHighlights_ABookmarkIsNotAHighlight', async () => {
+      const { lib, bookId } = await seeded()
+      await lib.writeEntry(SHA, entry(pos, [highlight, bookmark]), newId)
+      expect(await lib.deviceHighlights()).toEqual([{ id: HL, bookId, bookTitle: 'T', text: 'bright cold', color: 'yellow', note: null }])
+    })
+  })
+
   describe('notes and removals', () => {
     const putsOf = (calls: Call[]) => calls.filter((c) => c.method === 'PUT' && c.path === `/annotations/${HL}`).map((c) => c.body)
 
