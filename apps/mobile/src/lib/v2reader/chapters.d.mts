@@ -13,7 +13,7 @@ export function placeOf(resolved: unknown, href: unknown, sections: number): V2C
 export function chapterOf(places: readonly (V2ChapterPlace | null)[], tocIndex: number | null): V2Chapter | null
 export function boundsIn(chapter: V2Chapter, sec: number, doc: Document): V2ChapterBounds
 export function hasContents(places: readonly (V2ChapterPlace | null)[]): boolean
-export function chapterBefore(places: readonly (V2ChapterPlace | null)[], tocIndex: number | null): number | null
+export function chapterBefore(places: readonly (V2ChapterPlace | null)[], tocIndex: number | null, doc: Document): number | null
 export function chapterKey(chapter: { tocIndex: number | null; section: number }): string
 export function textBetween(doc: Document, from: Element | null, to: Element | null): string[]
 export function fitText(paragraphs: readonly string[], cap?: number): { text: string; cut: boolean }

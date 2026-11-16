@@ -570,6 +570,44 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
+  // #1316 review: with two assistants connected the pick opens upward from the pill at the bottom of the screen: its
+  // items are inside the window, at a desktop and a phone size (live geometry, never a pixel value).
+  test('readV2Discuss_TwoAssistantsConnected_ThePickMenuIsInsideTheWindow_AtTwoSizes', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2discussmenu'))
+    await context.route('**/me/oauth/grants', (r) => r.fulfill({
+      headers: { 'access-control-allow-origin': r.request().headers().origin ?? '*', 'access-control-allow-credentials': 'true', 'access-control-allow-headers': 'authorization, content-type' },
+      json: r.request().method() === 'OPTIONS' ? {} : { items: ['Claude', 'ChatGPT'].map((clientName, i) => ({ id: `g${i}`, clientId: `c${i}`, clientName, scopes: [], createdAt: '2026-11-15T00:00:00Z', lastUsedAt: null })) },
+    }))
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    for (const size of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(size)
+      await page.goto(`/en/library/my/${bookId}/read-v2`)
+      await expectOpened(page)
+      await page.evaluate(() => localStorage.removeItem('chapterReview.assistant'))
+      const share = page.getByTestId('v2-discuss-share')
+      for (let i = 0; i < 60 && !(await share.count()); i++) {
+        await page.keyboard.press('ArrowRight')
+        await page.waitForTimeout(400)
+      }
+      await share.click()
+      await page.getByTestId('v2-discuss-open').click()
+      const items = page.getByRole('menu', { name: 'Discuss in' }).getByRole('menuitem')
+      await expect(items).toHaveText(['Claude', 'ChatGPT'])
+      for (const item of await items.all()) {
+        const box = (await item.boundingBox())!
+        const where = `${JSON.stringify(box)} in ${JSON.stringify(size)}`
+        expect(box.x, where).toBeGreaterThanOrEqual(0)
+        expect(box.y, where).toBeGreaterThanOrEqual(0)
+        expect(box.x + box.width, where).toBeLessThanOrEqual(size.width)
+        expect(box.y + box.height, where).toBeLessThanOrEqual(size.height)
+        // And on top there: a click at its middle reaches it.
+        expect(await item.evaluate((el, [x, y]) => el.contains(document.elementFromPoint(x, y)), [box.x + box.width / 2, box.y + box.height / 2]), `on top: ${where}`).toBe(true)
+      }
+    }
+    await context.close()
+  })
+
   // #1312: a highlight in a colour, recoloured, given a note, listed, jumped to (from the list and by `?highlight=`),
   // deleted: each change one write on /me/v2, the deletion a tombstone.
   test('readV2Highlights_CreateRecolourNoteJumpAndDelete_EachWrittenTheDeletionATombstone', async ({ browser }) => {

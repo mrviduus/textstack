@@ -2993,23 +2993,30 @@ try {
     m = await open('tsanchors.epub')
     await page.waitForTimeout(600)
     const texts = []
-    for (let i = 0; i < 7; i++) texts.push(await textOf(i))
+    for (let i = 0; i < 8; i++) texts.push(await textOf(i))
     check(texts[0]?.text === 'One\n\nOne text.', `entries out of order: a chapter ends at the nearest entry after it in the document (${JSON.stringify(texts[0])})`)
     check(texts[1]?.error === 'unavailable', `an anchor the file does not have, after another entry of that file: not shared under its title (${JSON.stringify(texts[1])})`)
     check(texts[2]?.text === 'Two\n\nTwo text.' && texts[3]?.text === 'Three\n\nThree text.', `entries out of order: an entry listed later but placed earlier ends nothing (${JSON.stringify([texts[2], texts[3]])})`)
-    check(texts[4]?.text === 'Four text.', `an anchor the file does not have, the file's first entry: the file from its start (${JSON.stringify(texts[4])})`)
-    check(texts[5]?.error === 'empty', `a chapter with no text is empty (${JSON.stringify(texts[5])})`)
-    // One screen holds the whole first file: Three starts on screen under One's text, Two under Three's: the end named
-    // is the one before the current entry's; the entry with no anchor is never named.
-    check(rels(m.from).every((x) => x.chapterEnd === null || x.chapterEnd.tocIndex !== 1), `the entry with no anchor is never the chapter that ended (${ends(m.from)})`)
+    check(texts[4]?.error === 'empty' && texts[6]?.error === 'empty', `a chapter with no text is empty (${JSON.stringify([texts[4], texts[6]])})`)
+    check(texts[5]?.text === 'Four text.', `an anchor the file does not have, the file's first entry: the file from its start (${JSON.stringify(texts[5])})`)
+    check(texts[7]?.text === 'Copyright\n\nAll rights reserved.\n\nThe last page of the book.', `the last entry runs over the files after it (${JSON.stringify(texts[7])})`)
+    // One screen holds the whole first file. The current entry there is the figure, with nothing to read: no end of
+    // its own; the end on screen is the one before's in the DOCUMENT (Two), not in the list (Three), and never the
+    // entry with no anchor.
+    rel = rels(m.from).at(-1)
+    check(rel?.index === 0 && sameEnd(rel, 2, 0, 'Two'), `a chapter with nothing to read after text: the end on screen is the chapter's before it in the document (${ends(m.from)})`)
     from = await turnUntil((x) => x.index === 2, 'the turn to the plate')
     await page.waitForTimeout(500)
     rel = rels(from).at(-1)
-    check(rel?.index === 2 && rel.tocIndex === 5 && rel.chapterEnd === null, `a chapter with nothing to read has no end to offer (${ends(from)})`)
+    check(rel?.index === 2 && rel.tocIndex === 6 && rel.chapterEnd === null, `a chapter with nothing to read has no end to offer (${ends(from)})`)
     from = await turnUntil((x) => x.index === 3, 'the turn to the copyright page')
     await page.waitForTimeout(500)
     rel = rels(from).at(-1)
-    check(sameEnd(rel, 6, 3, 'Copyright') && offersDiscuss(readChapterEnd(rel)) === false, `front matter ends like any chapter, and the hosts' rule does not offer it (${ends(from)})`)
+    check(rel?.index === 3 && rel.tocIndex === 7 && rel.chapterEnd === null, `the last entry does not end with its first file (${ends(from)})`)
+    from = await turnUntil((x) => x.index === 4, 'the turn to the last page')
+    await page.waitForTimeout(500)
+    rel = rels(from).at(-1)
+    check(sameEnd(rel, 7, 4, 'Copyright') && offersDiscuss(readChapterEnd(rel)) === false, `front matter ends like any chapter, with the book, and the hosts' rule does not offer it (${ends(from)})`)
 
     // Contents that lead nowhere: a book with no contents, by the page's own rule, whatever the host's list holds.
     m = await open('tsdeadtoc.epub')

@@ -33,6 +33,12 @@ export function placeOf(resolved, href, sections) {
   return { sec, at: href, anchor: typeof resolved.anchor === 'function' ? resolved.anchor : null }
 }
 
+const ELEMENT = 1, FOLLOWING = 4
+const elementAt = (place, doc) => {
+  const a = place?.anchor?.(doc)
+  return a?.nodeType === ELEMENT ? a : null
+}
+
 /**
  * The chapter of entry `tocIndex`, of `places` (one per entry of the page's flat contents, null where the entry
  * leads nowhere), or null for no such entry:
@@ -52,12 +58,6 @@ export function chapterOf(places, tocIndex) {
   const next = places.slice(tocIndex + 1).find((p) => p && p.sec > start.sec) ?? null
   const startShared = places.slice(0, tocIndex).some((p) => p && p.sec === start.sec && !samePlace(p, start))
   return { start, inSection, next, startShared }
-}
-
-const ELEMENT = 1, FOLLOWING = 4
-const elementAt = (place, doc) => {
-  const a = place?.anchor?.(doc)
-  return a?.nodeType === ELEMENT ? a : null
 }
 
 /**
@@ -94,13 +94,25 @@ export function boundsIn(chapter, sec, doc) {
 export const hasContents = (places) => places.some(Boolean)
 
 /**
- * The entry whose chapter ends where entry `tocIndex` starts: the nearest earlier entry at another place, as the
- * contents list them. Null: none (the first chapter, or an entry that leads nowhere).
+ * The entry whose chapter ends where entry `tocIndex` starts, in the document `doc` of its section: the nearest
+ * entry of that file placed before it in the document (whatever the list's order), else, with none there, the
+ * nearest earlier entry of the list in an earlier file (its chapter runs into this file). Null: none.
  */
-export function chapterBefore(places, tocIndex) {
+export function chapterBefore(places, tocIndex, doc) {
   const at = whole(tocIndex) ? places[tocIndex] : null
-  if (!at) return null
-  for (let i = tocIndex - 1; i >= 0; i--) if (places[i] && !samePlace(places[i], at)) return i
+  const from = elementAt(at, doc)
+  if (!at || !from) return null
+  let best = null
+  let bestEl = null
+  for (const [i, p] of places.entries()) {
+    if (!p || p.sec !== at.sec || samePlace(p, at)) continue
+    const el = elementAt(p, doc)
+    // Before the start, and the nearest so far: it follows the best one.
+    if (!el || !(el.compareDocumentPosition(from) & FOLLOWING) || el.contains(from)) continue
+    if (!bestEl || bestEl.compareDocumentPosition(el) & FOLLOWING) [best, bestEl] = [i, el]
+  }
+  if (best !== null) return best
+  for (let i = tocIndex - 1; i >= 0; i--) if (places[i] && places[i].sec < at.sec) return i
   return null
 }
 

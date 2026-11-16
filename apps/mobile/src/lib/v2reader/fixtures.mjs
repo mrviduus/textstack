@@ -422,17 +422,19 @@ export function writeFormatFixtures(dir) {
     spine: [1, 2].map((i) => `<itemref idref="s${i}"/>`).join(''),
   })
   // Contents that do not match the file: an anchor the file does not have (after another entry of the file, and as
-  // a file's first entry), entries listed out of the document's order, a front-matter title, a chapter with no text.
+  // a file's first entry), entries listed out of the document's order, a front-matter title, chapters with no text
+  // (after text in a file, and a file of its own), a last chapter that runs over two files.
   epub(resolve(dir, 'tsanchors.epub'), 'TS ANCHORS', {
     files: {
-      's1.xhtml': xhtml('', '<h1 id="one">One</h1><p>One text.</p><h1 id="three">Three</h1><p>Three text.</p><h1 id="two">Two</h1><p>Two text.</p>'),
+      's1.xhtml': xhtml('', '<h1 id="one">One</h1><p>One text.</p><h1 id="three">Three</h1><p>Three text.</p><h1 id="two">Two</h1><p>Two text.</p><div id="fig"><svg xmlns="http://www.w3.org/2000/svg" width="60" height="40"><rect width="60" height="40" fill="#48c"/></svg></div>'),
       's2.xhtml': xhtml('', '<p>Four text.</p>'),
       's3.xhtml': xhtml('', '<p><svg xmlns="http://www.w3.org/2000/svg" width="60" height="80"><rect width="60" height="80" fill="#c84"/></svg></p>'),
       's4.xhtml': xhtml('', '<h1>Copyright</h1><p>All rights reserved.</p>'),
-      'nav.xhtml': navOf('<li><a href="s1.xhtml#one">One</a></li><li><a href="s1.xhtml#nope">Missing</a></li><li><a href="s1.xhtml#two">Two</a></li><li><a href="s1.xhtml#three">Three</a></li><li><a href="s2.xhtml#nope">Four</a></li><li><a href="s3.xhtml">Plate</a></li><li><a href="s4.xhtml">Copyright</a></li>'),
+      's5.xhtml': xhtml('', '<p>The last page of the book.</p>'),
+      'nav.xhtml': navOf('<li><a href="s1.xhtml#one">One</a></li><li><a href="s1.xhtml#nope">Missing</a></li><li><a href="s1.xhtml#two">Two</a></li><li><a href="s1.xhtml#three">Three</a></li><li><a href="s1.xhtml#fig">Figure</a></li><li><a href="s2.xhtml#nope">Four</a></li><li><a href="s3.xhtml">Plate</a></li><li><a href="s4.xhtml">Copyright</a></li>'),
     },
-    manifest: [1, 2, 3, 4].map((i) => `<item id="s${i}" href="s${i}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
-    spine: [1, 2, 3, 4].map((i) => `<itemref idref="s${i}"/>`).join(''),
+    manifest: [1, 2, 3, 4, 5].map((i) => `<item id="s${i}" href="s${i}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: [1, 2, 3, 4, 5].map((i) => `<itemref idref="s${i}"/>`).join(''),
   })
   // Contents whose entries lead nowhere in the book: a book with no contents, by the page's rule.
   epub(resolve(dir, 'tsdeadtoc.epub'), 'TS DEAD TOC', {

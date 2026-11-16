@@ -537,11 +537,12 @@ function chapterEndNow(v, d) {
       if (top.wait) return { value: null, wait: top.wait }
       ends = top.value
     }
-    // A chapter all in this file with nothing to read (a plate, a blank page) is not offered.
-    if (ends) return index === chapter.start.sec && !lastInk(doc, b.from, b.to) ? { value: null } : here(current)
+    // A chapter all in this file with nothing to read (a plate, a blank page) is not offered: the end on screen
+    // may still be the one before's.
+    if (ends && (index !== chapter.start.sec || lastInk(doc, b.from, b.to))) return here(current)
     // The one before's: its last line, just above this entry's start, is on screen.
-    const before = chapterBefore(places, current)
-    return before != null && index === chapter.start.sec && b.from && endOnScreen(lastInk(doc, null, b.from)) ? here(before) : { value: null }
+    const before = index === chapter.start.sec && b.from ? chapterBefore(places, current, doc) : null
+    return before != null && endOnScreen(lastInk(doc, null, b.from)) ? here(before) : { value: null }
   } catch { return { value: null } }
 }
 
@@ -599,12 +600,12 @@ async function chapterText(request, tocIndex, section) {
       if (v !== view) return
       const b = boundsIn(chapter, i, doc)
       if (b.refuse) return answer({ error: 'unavailable' })
-      if (b.none) break
-      for (const p of textBetween(doc, b.from, b.to)) {
+      if (!b.none) for (const p of textBetween(doc, b.from, b.to)) {
         paragraphs.push(p)
         length += p.length
       }
-      if (!b.more) break
+      // (`none`: the next entry starts with this file, the loop's last.)
+      if (b.none || !b.more) break
     }
     const fitted = fitText(paragraphs)
     answer(fitted.text ? fitted : { error: 'empty' })

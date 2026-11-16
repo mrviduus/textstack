@@ -85,6 +85,11 @@ describe('runDiscuss (#1316, the Android host)', () => {
       expect(d.showConnect).not.toHaveBeenCalled()
       if (leaveAfter !== 'share') expect(d.share).not.toHaveBeenCalled()
     }
+    // Gone by the time the grants answer "none": no connect sheet over another user's screen.
+    let here = true
+    const none = flow({ current: () => here, grants: vi.fn<DiscussFlowDeps['grants']>(async () => { here = false; return [] }) })
+    expect(await runDiscuss(none)).toBeUndefined()
+    expect(none.showConnect).not.toHaveBeenCalled()
     let live = true
     const failed = flow({ current: () => live, share: vi.fn<DiscussFlowDeps['share']>(async () => { live = false; throw offline() }) })
     expect(await runDiscuss(failed)).toBeUndefined()

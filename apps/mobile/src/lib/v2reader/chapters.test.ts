@@ -76,14 +76,22 @@ describe('boundsIn', () => {
 })
 
 describe('chapterBefore', () => {
-  it('is the nearest earlier entry at another place', () => {
-    expect(chapterBefore(places, 2)).toBe(1)
-    expect(chapterBefore(places, 4)).toBe(2)
+  const d = new DOMParser().parseFromString('<html xmlns="http://www.w3.org/1999/xhtml"><body><p>tail</p><h1 id="one">One</h1><h1 id="three">Three</h1><h1 id="two">Two</h1></body></html>', 'application/xhtml+xml')
+  const by = (sec: number, id: string) => ({ sec, at: `s${sec}#${id}`, anchor: (doc: Document) => doc.getElementById(id) })
+  // Earlier (another file), then this file's One, Missing, Two, Three (Three is before Two in the file).
+  const list = [by(0, 'x'), null, by(1, 'one'), by(1, 'nope'), by(1, 'two'), by(1, 'three')]
+  it('is the nearest entry of the file placed before it in the document, whatever the order of the list', () => {
+    expect(chapterBefore(list, 4, d)).toBe(5)
+    expect(chapterBefore(list, 5, d)).toBe(2)
   })
-  it('is null for the first place of the book, whatever entries share it', () => {
-    expect(chapterBefore(places, 0)).toBeNull()
-    expect(chapterBefore(places, 1)).toBeNull()
-    expect(chapterBefore(places, 3)).toBeNull()
+  it('is, for the first entry placed in its file, the nearest earlier entry of the list in an earlier file', () => {
+    expect(chapterBefore(list, 2, d)).toBe(0)
+    expect(chapterBefore([null, by(1, 'one')], 1, d)).toBeNull()
+  })
+  it('is null for an entry whose own place is not in the file, and for no entry', () => {
+    expect(chapterBefore(list, 3, d)).toBeNull()
+    expect(chapterBefore(list, 1, d)).toBeNull()
+    expect(chapterBefore(list, null, d)).toBeNull()
   })
 })
 
