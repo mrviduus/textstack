@@ -668,7 +668,8 @@
       "bookmarksNotHere": "No bookmarks yet. This page cannot be bookmarked.",
       "closeBookmarks": "Close bookmarks",
       "settings": "Reading settings",
-      "closeSettings": "Close reading settings"
+      "closeSettings": "Close reading settings",
+      "search": "Search in this book"
     },
     "v2": {
       "copying": "Copying the book…",
@@ -695,6 +696,16 @@
       "deviceHighlights": "Highlights on this device",
       "lightboxImage": "Image",
       "lightboxClose": "Close image",
+      "searchLabel": "Search in this book",
+      "searchPlaceholder": "Search in this book…",
+      "searchClear": "Clear search",
+      "searchClose": "Close search",
+      "searching": "Searching…",
+      "searchNone": "No results",
+      "searchCount": "Results: {count}",
+      "searchMore": "Showing the first {count} results",
+      "searchTooShort": "Type at least 2 characters",
+      "searchIncomplete": "Part of this book could not be searched.",
       "failed": {
         "library": "Could not read the books on this device: {reason}",
         "fileSync": "Could not change file sync: {reason}",

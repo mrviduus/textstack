@@ -8,9 +8,9 @@ import { describe, expect, it, vi } from 'vitest'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 vi.mock('react-native', () => {
-  const view = ({ children, importantForAccessibility, accessibilityElementsHidden, accessibilityLabel }: {
-    children?: ReactNode; importantForAccessibility?: string; accessibilityElementsHidden?: boolean; accessibilityLabel?: string
-  }) => createElement('div', { 'data-ifa': importantForAccessibility, 'data-hidden': accessibilityElementsHidden ? 'true' : undefined, 'aria-label': accessibilityLabel }, children)
+  const view = ({ children, importantForAccessibility, accessibilityElementsHidden, accessibilityLabel, onPress }: {
+    children?: ReactNode; importantForAccessibility?: string; accessibilityElementsHidden?: boolean; accessibilityLabel?: string; onPress?: () => void
+  }) => createElement('div', { 'data-ifa': importantForAccessibility, 'data-hidden': accessibilityElementsHidden ? 'true' : undefined, 'aria-label': accessibilityLabel, onClick: onPress }, children)
   return {
     Animated: { View: view },
     View: view,
@@ -57,5 +57,19 @@ describe('reader bars and the lightbox (#1267)', () => {
     const f = rootOf(createElement(ReaderFooter, foot))
     expect(Array.from(f.div.querySelectorAll('[aria-label]')).map((e) => e.getAttribute('aria-label'))).toEqual(['reader.chapterEnd.prevUntitled', 'reader.chapterEnd.nextUntitled'])
     f.unmount()
+  })
+
+  // #1315: the search button is there only where the host offers search (a V2 book with text); the legacy reader passes none.
+  it('topBar_SearchButton_OnlyWithItsHandler_NamedAndPressable', () => {
+    const labels = (el: HTMLElement) => Array.from(el.querySelectorAll('[aria-label]')).map((e) => e.getAttribute('aria-label'))
+    const none = rootOf(createElement(ReaderTopBar, top))
+    expect(labels(none.div)).not.toContain('reader.chrome.search')
+    none.unmount()
+    const onSearchPress = vi.fn()
+    const with_ = rootOf(createElement(ReaderTopBar, { ...top, onSearchPress }))
+    expect(labels(with_.div)).toEqual(['reader.chrome.back', 'reader.chrome.search', 'reader.chrome.contents'])
+    act(() => { (with_.div.querySelector('[aria-label="reader.chrome.search"]') as HTMLElement).click() })
+    expect(onSearchPress).toHaveBeenCalledTimes(1)
+    with_.unmount()
   })
 })

@@ -2,6 +2,7 @@
 export const SELECTION_MAX_CHARS: number
 export const MAX_SELECTION_SENTENCE: number
 export const MAX_SELECTION_CFI: number
+export function isCfi(c: unknown): c is string
 export const MAX_SELECTION_INDEX: number
 export const MAX_SELECTION_PX: number
 export interface V2Rect { x: number; y: number; w: number; h: number }

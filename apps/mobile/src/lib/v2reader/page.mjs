@@ -29,6 +29,7 @@ import { THEMES, readSettings, settingsCss } from './settings.mjs'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
 import { createLightbox, imageAt } from './lightbox.mjs'
 import { tapAction } from './tapZone.mjs'
+import { MAX_RESULTS, SEARCH_FILL, readQuery, searchItems } from './search.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
 const log = (level, msg) => post({ type: 'log', level, msg })
@@ -631,6 +632,67 @@ function highlightAt(doc, x, y) {
   return null
 }
 
+/**
+ * #1315: in-book search, foliate's own (`view.search`: every section's own document, never the network; each hit drawn
+ * in its section as that section loads). One search at a time: a call ends the one running (it stops at its next
+ * section) and starts after it; `searchSeq` names the latest call, the swap turns it over and starts a fresh chain (a
+ * search of a closed book that never settles holds up nothing).
+ */
+let searchSeq = 0
+let searching = Promise.resolve()
+/**
+ * The host's `search(query, id)`: `search-results` messages carrying `id`, one per section with hits, then one with
+ * `done`. `more`: a hit past MAX_RESULTS exists (never said for exactly that many): foliate is asked for one hit more
+ * than is listed, and stops matching there. `incomplete`: part of the book could not be read (foliate skips a section
+ * whose document fails or has no body, an SVG spine item, and says so). A task between sections, so input and paint
+ * come first in a long book. No query (`readQuery`: null, too short, too long): the hits drawn go, nothing is answered.
+ */
+function search(raw, id) {
+  const run = ++searchSeq
+  const query = readQuery(raw)
+  // A newer call, or the swap (it turns `searchSeq` over too).
+  const stale = () => run !== searchSeq
+  searching = searching.then(async () => {
+    // First: a call superseded while it waited touches nothing (the view may be another book's by now).
+    if (stale()) return
+    const v = view
+    v?.clearSearch()
+    if (!v || !query || !Number.isSafeInteger(id)) return
+    // The book's own language decides what folds (case, accents) where a section names none: never the reader's
+    // browser (foliate's default is an object Intl reads as "the runtime's locale": under Turkish, "in" misses "In").
+    // A book with no language, or one that is no language tag, has none: foliate then searches as English.
+    const defaultLocale = v.language?.canonical
+    let found = 0
+    let skipped = 0
+    const answer = (results, end) => post({ type: 'search-results', key: book.sha256, id, results, done: !!end, more: end === 'more', incomplete: !!end && skipped > 0 })
+    try {
+      for await (const r of v.search({ query, defaultLocale, limit: MAX_RESULTS + 1, draw: Overlayer.highlight, drawOptions: { color: SEARCH_FILL } })) {
+        if (stale()) return
+        if (r?.error) {
+          skipped++
+          log('warn', `search: section ${r.index} could not be read, skipped`)
+        }
+        if (r?.subitems) {
+          const items = searchItems(r.subitems)
+          const room = MAX_RESULTS - found
+          if (room) answer(items.slice(0, room))
+          found += Math.min(items.length, room)
+          // The hit past the cap is in hand (foliate stopped at it): there are more.
+          if (items.length > room) return answer([], 'more')
+        }
+        await new Promise((next) => setTimeout(next))
+        // Before foliate is asked for the next section: a search ended meanwhile reads and draws nothing more
+        // (leaving the loop closes foliate's generator).
+        if (stale()) return
+      }
+    } catch (e) {
+      skipped++
+      log('warn', `search stopped: ${e?.message ?? e}`)
+    }
+    if (!stale()) answer([], 'done')
+  }).catch((e) => log('error', `search: ${e?.stack ?? e}`))
+}
+
 /** The ids of the highlights drawn now. */
 const drawnIds = () => new Set([...overlays.values()].flatMap((a) => (a.hl ? [a.hl.id] : [])))
 
@@ -951,6 +1013,9 @@ async function open(bytes, name, kind, mine) {
   lastCfi = null
   viewSeq = mine
   navigating = Promise.resolve()
+  // The old book's search ends here; the new view has none.
+  searchSeq++
+  searching = Promise.resolve()
   lastSelection = null
   // Nothing of the old book's selection is sent after the swap; a selection the host holds ends here.
   clearTimeout(selectionTimer)
@@ -1083,6 +1148,8 @@ async function open(bytes, name, kind, mine) {
     // #1269: the book's language (a string or a list, foliate's metadata); the hosts read it with readLang.
     lang: String([].concat(b.metadata?.language ?? [])[0] ?? '').slice(0, 35),
     sections: b.sections.length, toc: flat(b.toc ?? []),
+    // #1315: the book has section documents to search (not a CBZ's images, nor a PDF: the fork's PDF reader makes none).
+    searchable: b.sections.some((s) => typeof s.createDocument === 'function'),
   })
   return true
 }
@@ -1468,6 +1535,9 @@ window.__fol = {
   /** The host answers a `word` with its translation; drawn above that word. Not where `annotatable` is false. */
   showTranslation: (cfi, index, text) => view && annotatable && annotate({ value: cfi, index, gloss: text }),
   speaking,
+  // #1315: search the open book (`search-results`); a new call ends the one running; `search(null)` ends it and
+  // removes the hits drawn.
+  search,
 }
 
 applyLook()

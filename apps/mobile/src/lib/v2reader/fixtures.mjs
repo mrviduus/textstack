@@ -409,6 +409,25 @@ export function writeFormatFixtures(dir) {
     manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/>',
     spine: '<itemref idref="s1"/>',
   })
+  // #1315: one file under two contents entries, a hit under each, and a phrase broken by inline markup (five text nodes).
+  epub(resolve(dir, 'tssearch.epub'), 'TS SEARCH', {
+    files: {
+      's1.xhtml': xhtml('', '<h2 id="a">Alpha</h2><p>A heron waits. The <em>quick</em> brown <em>fox</em> jumps here.</p><h2 id="b">Beta</h2><p>Another heron flies.</p><p>A stone\n      wall stands in Malmö.</p>'),
+      'nav.xhtml': `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>nav</title></head><body><nav epub:type="toc"><ol><li><a href="s1.xhtml#a">Alpha</a></li><li><a href="s1.xhtml#b">Beta</a></li></ol></nav></body></html>`,
+    },
+    manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/>',
+    spine: '<itemref idref="s1"/>',
+  })
+  // #1315: an SVG spine item (a document with no body: nothing a search can read) between two sections of text.
+  epub(resolve(dir, 'tssvgspine.epub'), 'TS SVG SPINE', {
+    files: {
+      's1.xhtml': xhtml('', '<p>The first kestrel is here.</p>'),
+      'plate.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="#c84"/></svg>',
+      's2.xhtml': xhtml('', '<p>The second kestrel is there.</p>'),
+    },
+    manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/><item id="plate" href="plate.svg" media-type="image/svg+xml"/><item id="s2" href="s2.xhtml" media-type="application/xhtml+xml"/>',
+    spine: '<itemref idref="s1"/><itemref idref="plate"/><itemref idref="s2"/>',
+  })
   const html = `<html><head><guide></guide></head><body><h1>Chapter One</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}<mbp:pagebreak/><h1>Chapter Two</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}</body></html>`
   writeFileSync(resolve(dir, 'tsformat.mobi'), mobi('TS MOBI', html))
   writeFileSync(resolve(dir, 'tsdrm.mobi'), mobi('TS DRM', html, { encryption: 2 }))
@@ -457,7 +476,7 @@ export function writeFormatFixtures(dir) {
   writeFileSync(resolve(dir, 'tsformat.pdf'), pdf(5))
   writeFileSync(resolve(dir, 'tscjk.pdf'), pdf(1, { title: 'TS CJK', cjk: true }))
   writeFileSync(resolve(dir, 'tslocked.pdf'), pdf(1, { title: 'TS LOCKED', locked: true }))
-  return ['tsformat.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsimage.epub', 'tsfixedimg.epub', 'tsthree.cbz', 'tsformat.epub', 'tsmarks.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
+  return ['tssearch.epub', 'tssvgspine.epub', 'tsformat.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsimage.epub', 'tsfixedimg.epub', 'tsthree.cbz', 'tsformat.epub', 'tsmarks.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

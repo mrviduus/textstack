@@ -29,8 +29,6 @@ export interface V2HighlightTap { id: string; rect: V2Rect; x: number; y: number
 export function readHighlightTap(m: unknown): V2HighlightTap | null
 /** A highlight id as the page holds it: a v4 or the server's UUID, or a pre-#1078 `h…` one. */
 export function isId(id: unknown): id is string
-/** A CFI as a host takes one from the page: `epubcfi(…`, bounded. */
-export function isCfi(c: unknown): c is string
 export function readHighlightRemoved(m: unknown): { key: string; id: string } | null
 export function noteOf(text: unknown): string | null
 /** The note a save writes; undefined when the draft is the note the editor opened with. */

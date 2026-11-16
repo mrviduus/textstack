@@ -23,8 +23,10 @@ const FOLIATE_REPO = 'https://github.com/mrviduus/foliate-js.git'
 // destination (upstream ce10f08), PDF nothing at import time (pdf.js is stubbed out of the page),
 // paginator: setStyles' frame callback does nothing once destroy() nulled the view; #1291: nor does
 // afterScroll (the debounced scroll listener outlives a closed book); #1297: justAnchored swallows only the
-// anchoring's own scroll, not the reader's next one.
-const FOLIATE_SHA = 'fe04665d650332f4017f92c5d45d98ee2a84e363'
+// anchoring's own scroll, not the reader's next one; #1315: search takes a `limit` (matching, registering and
+// drawing stop at it), each hit carries the contents entry it is under, a section that throws is skipped and
+// reported, and a hit over several text nodes keeps its middle.
+const FOLIATE_SHA = '686afc4200006874a24071a6a57510e027a4cc32'
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // reader-engine's 64 KB budget.
@@ -109,11 +111,18 @@ const FOLIATE_SHA = 'fe04665d650332f4017f92c5d45d98ee2a84e363'
 // pinch / wheel / double-tap zoom about the focus, drag to pan, clamped; Tab kept; `closeLightbox()`, `lightbox` on open and close.
 // +778 (#1267): `labels({image, close})`: the lightbox's two words from the host (`readLabels`: non-blank strings, capped).
 // +7,385 (#1271): `markWords(words, show)`: saved-word marks by stage, placed per section (wordMarks.mjs).
+// +10,357 (#1315): in-book search. The fork's search.js is no longer stubbed out (its matchers and excerpts, about
+// 5,700 of it: view.js's `search` was in the page all along, importing a stub), plus `search(query, id)`: one search
+// at a time, streamed per section in `search-results`, stopped one hit past the cap by the fork's `limit` (`more` only
+// for that hit), every hit drawn (search.mjs), a section that cannot be read skipped by the fork and reported
+// (`incomplete`), the query counted in characters (one is enough where words have no spaces); `opened.searchable`.
+// The fork's 686afc4 (limit, per-hit label, skipped section) is about 500 of it. The book's own language is the
+// search's locale, and a search ended between sections reads no further one.
 // +6,054 (#1314): bookmarks (bookmarks.mjs): `addBookmark()`, `removeBookmark(id)`, the `bookmark-list` message (the list, the
 // one on screen, whether one can be made here); kept in the entry as highlights of colour `bookmark`, never drawn.
 // +2,756 (#1314 review): `here` by the live layout (bookmarks.mjs `atTop`, `lineCount`), kept while the reader has not moved;
 // `can` only once bookmarks are placed (`restore(json, more)`); the list cached; `opened.bookmarkable`; reader-engine text helpers.
-const BUDGET = 305478
+const BUDGET = 315835
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
@@ -159,11 +168,11 @@ if (minor(version) !== minor(wanted)) {
 
 // view.js's makeBook lazily imports every format. The page never calls it (page.mjs routes a file
 // itself), so its imports are stubbed out of the page: MOBI/FB2/CBZ come in as FORMATS below, and
-// PDF too (its own reader below, with pdf.js), TTS and search not at all.
+// PDF too (its own reader below, with pdf.js), TTS not at all. search.js stays in (#1315: view.search).
 const stubFormats = {
   name: 'stub-formats',
   setup(b) {
-    b.onResolve({ filter: /\/(pdf|mobi|fb2|comic-book|tts|search|vendor\/fflate)\.js$/ }, (a) => ({ path: a.path, namespace: 'stub' }))
+    b.onResolve({ filter: /\/(pdf|mobi|fb2|comic-book|tts|vendor\/fflate)\.js$/ }, (a) => ({ path: a.path, namespace: 'stub' }))
     b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: 'export {}', loader: 'js' }))
   },
 }
