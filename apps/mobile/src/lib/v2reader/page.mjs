@@ -613,16 +613,18 @@ function highlightAt(doc, x, y) {
 /**
  * #1315: in-book search, foliate's own (`view.search`: every section's own document, never the network; each hit drawn
  * in its section as that section loads). One search at a time: a call ends the one running (it stops at its next
- * section) and starts after it; `searchSeq` names the latest call, the swap turns it over and starts a fresh chain (a
+ * section) and starts after it (so the sections' documents are only ever one search's); `searchSeq` names the latest call, the swap turns it over and starts a fresh chain (a
  * search of a closed book that never settles holds up nothing).
  */
 let searchSeq = 0
 let searching = Promise.resolve()
 /**
  * The host's `search(query, id)`: `search-results` messages carrying `id`, one per section with hits, then one with
- * `done` (`more`: stopped at MAX_RESULTS). A task between sections, so input and paint come first in a long book.
- * No query (`readQuery`: null, too short, too long): the hits drawn go, nothing is answered. A section that cannot be
- * read ends the search there (foliate's generator has no way past it): a `warn`, and `done` with what was found.
+ * `done`. `more`: a hit past MAX_RESULTS exists (never said for exactly that many). `incomplete`: part of the book
+ * could not be read. A task between sections, so input and paint come first in a long book. No query (`readQuery`:
+ * null, too short, too long): the hits drawn go, nothing is answered.
+ * A section that cannot be read (its document fails, or has no body: an SVG spine item) is skipped: foliate's
+ * generator has no way past a throw, so for the length of the search each section hands it an empty document instead.
  */
 function search(raw, id) {
   const run = ++searchSeq
@@ -630,23 +632,44 @@ function search(raw, id) {
   // A newer call, or the swap (it turns `searchSeq` over too).
   const stale = () => run !== searchSeq
   searching = searching.then(async () => {
-    view?.clearSearch()
-    if (!view || !query || !Number.isSafeInteger(id)) return
-    const answer = (results, end) => post({ type: 'search-results', key: book.sha256, id, results, done: !!end, more: end === 'more' })
+    // First: a call superseded while it waited touches nothing (the view may be another book's by now).
+    if (stale()) return
+    const v = view
+    v?.clearSearch()
+    if (!v || !query || !Number.isSafeInteger(id)) return
     let found = 0
+    let skipped = 0
+    const answer = (results, end) => post({ type: 'search-results', key: book.sha256, id, results, done: !!end, more: end === 'more', incomplete: !!end && skipped > 0 })
+    const { sections } = v.book
+    const made = sections.map((s) => s.createDocument)
+    sections.forEach((s, i) => {
+      if (typeof made[i] !== 'function') return
+      s.createDocument = async () => {
+        const doc = await Promise.resolve().then(() => made[i].call(s)).catch(() => null)
+        if (doc?.body) return doc
+        skipped++
+        log('warn', `search: section ${i} could not be read, skipped`)
+        return document.implementation.createHTMLDocument('')
+      }
+    })
     try {
-      for await (const r of view.search({ query, draw: Overlayer.highlight, drawOptions: { color: SEARCH_FILL } })) {
+      for await (const r of v.search({ query, draw: Overlayer.highlight, drawOptions: { color: SEARCH_FILL } })) {
         if (stale()) return
         if (r?.subitems) {
-          const items = searchItems(r.subitems, r.label).slice(0, MAX_RESULTS - found)
-          found += items.length
-          answer(items)
-          if (found >= MAX_RESULTS) return answer([], 'more')
+          const items = searchItems(r.subitems, r.label)
+          const room = MAX_RESULTS - found
+          if (room) answer(items.slice(0, room))
+          found += Math.min(items.length, room)
+          // Only once a hit past the cap is in hand: a book with exactly MAX_RESULTS hits is searched to its end.
+          if (items.length > room) return answer([], 'more')
         }
         await new Promise((next) => setTimeout(next))
       }
     } catch (e) {
-      log('warn', `search stopped at a section that could not be read: ${e?.message ?? e}`)
+      skipped++
+      log('warn', `search stopped: ${e?.message ?? e}`)
+    } finally {
+      sections.forEach((s, i) => { if (typeof made[i] === 'function') s.createDocument = made[i] })
     }
     if (!stale()) answer([], 'done')
   }).catch((e) => log('error', `search: ${e?.stack ?? e}`))

@@ -699,6 +699,8 @@
       "searchNone": "No results",
       "searchCount": "Results: {count}",
       "searchMore": "Showing the first {count} results",
+      "searchTooShort": "Type at least 2 characters",
+      "searchIncomplete": "Part of this book could not be searched.",
       "failed": {
         "library": "Could not read the books on this device: {reason}",
         "fileSync": "Could not change file sync: {reason}",

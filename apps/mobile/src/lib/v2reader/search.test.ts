@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_CONTEXT, MAX_LABEL, MAX_MATCH, MAX_QUERY, MAX_RESULTS, MIN_QUERY, NO_SEARCH, SEARCH_FILL, readQuery, readSearchResults, searchItems, searchStart, searchTake,
+  MAX_CONTEXT, MAX_LABEL, MAX_MATCH, MAX_QUERY, MAX_RESULTS, MIN_QUERY, NO_SEARCH, SEARCH_DEBOUNCE_MS, SEARCH_FILL, queryLength, readQuery, readSearchResults, searchItems, searchOpened, searchReset,
+  searchStart, searchStatusKey, searchTake,
 } from './search.mjs'
 import { HIGHLIGHT_FILL } from './highlights.mjs'
-import { MAX_SELECTION_CFI } from './selection.mjs'
+import { MAX_SELECTION_CFI, isCfi } from './selection.mjs'
 
 // #1315: the query, the page's result items, the hosts' reader of `search-results` (untrusted: the page renders the
 // book) and the hosts' search state.
@@ -21,6 +22,31 @@ describe('v2 reader search', () => {
     expect(readQuery('a'.repeat(MAX_QUERY))).toHaveLength(MAX_QUERY)
     expect(readQuery('a'.repeat(MAX_QUERY + 1))).toBeNull()
     expect([readQuery(null), readQuery(undefined), readQuery(42), readQuery(['ab']), readQuery('')]).toEqual([null, null, null, null, null])
+  })
+
+  it('readQuery_CountsCharactersAsAReaderDoes_OneIsEnoughWhereWordsHaveNoSpaces', () => {
+    // One letter, one emoji (with a skin tone, with a variation selector), one decomposed "é": one character each, not searched.
+    for (const one of ['a', 'я', '😀', '👍🏽', '❤️', 'e\u0301']) {
+      expect(queryLength(one)).toBe(1)
+      expect(readQuery(one)).toBeNull()
+    }
+    // Two of them are.
+    expect(readQuery('e\u0301e\u0301')).toBe('e\u0301e\u0301')
+    expect(readQuery('😀😀')).toBe('😀😀')
+    // A one-character word in Han, Hiragana, Katakana, Hangul and Thai is searched.
+    for (const word of ['水', '\u{20000}', 'の', 'ア', '물', 'ไ']) expect(readQuery(word)).toBe(word)
+    // A long query is still measured in UTF-16 units (a field's maxLength).
+    expect(readQuery('水'.repeat(MAX_QUERY))).toHaveLength(MAX_QUERY)
+    expect(readQuery('水'.repeat(MAX_QUERY + 1))).toBeNull()
+    expect(readQuery('😀'.repeat(MAX_QUERY / 2 + 1))).toBeNull()
+  })
+
+  it('isCfi_TheSchemeCapped_OneRuleForHighlightsAndSearch', () => {
+    expect([isCfi('epubcfi(/6/2)'), isCfi('epubcfi(' + '/2'.repeat(MAX_SELECTION_CFI)), isCfi('javascript:1'), isCfi(null), isCfi(5)]).toEqual([true, false, false, false, false])
+  })
+
+  it('debounce_OneValueForBothHosts', () => {
+    expect(SEARCH_DEBOUNCE_MS).toBe(300)
   })
 
   it('searchFill_IsNoHighlightColour', () => {
@@ -48,7 +74,7 @@ describe('v2 reader search', () => {
   })
 
   it('readSearchResults_WellFormed_KeepsOnlyKnownFields', () => {
-    expect(readSearchResults(msg([{ ...hit(), extra: 1 }], { done: true, more: true, other: 2 }))).toEqual({ key: 'ab', id: 3, results: [hit()], done: true, more: true })
+    expect(readSearchResults(msg([{ ...hit(), extra: 1 }], { done: true, more: true, other: 2 }))).toEqual({ key: 'ab', id: 3, results: [hit()], done: true, more: true, incomplete: false })
     // A section with no title, a hit at the start of its text.
     expect(readSearchResults(msg([hit({ pre: '', post: '', label: '' })]))?.results).toEqual([hit({ pre: '', post: '', label: '' })])
   })
@@ -72,7 +98,8 @@ describe('v2 reader search', () => {
   })
 
   it('readSearchResults_DoneAndMore_OnlyTrueIsTrue_ItemsCapped', () => {
-    expect(readSearchResults(msg([], { done: 'yes', more: 1 }))).toMatchObject({ done: false, more: false })
+    expect(readSearchResults(msg([], { done: 'yes', more: 1, incomplete: 'yes' }))).toMatchObject({ done: false, more: false, incomplete: false })
+    expect(readSearchResults(msg([], { done: true, incomplete: true }))).toMatchObject({ done: true, incomplete: true })
     const many = Array.from({ length: MAX_RESULTS + 5 }, (_, i) => hit({ post: String(i) }))
     const read = readSearchResults(msg(many))!.results
     expect(read).toHaveLength(MAX_RESULTS)
@@ -80,11 +107,11 @@ describe('v2 reader search', () => {
   })
 
   it('searchStart_AQuery_ANewIdRunning_NoQuery_ANewIdDone', () => {
-    expect(NO_SEARCH).toEqual({ id: 0, query: '', results: [], done: true, more: false })
+    expect(NO_SEARCH).toEqual({ id: 0, query: '', results: [], done: true, more: false, incomplete: false, searchable: false })
     const a = searchStart(NO_SEARCH, ' white  whale ')
-    expect(a).toEqual({ id: 1, query: 'white whale', results: [], done: false, more: false })
+    expect(a).toEqual({ id: 1, query: 'white whale', results: [], done: false, more: false, incomplete: false, searchable: false })
     // Too short, cleared, a new book: nothing runs, and the id still moves on (the older search's answers are dropped).
-    expect(searchStart({ ...a, results: [hit()], more: true }, 'w')).toEqual({ id: 2, query: '', results: [], done: true, more: false })
+    expect(searchStart({ ...a, results: [hit()], more: true, incomplete: true, searchable: true }, 'w')).toEqual({ id: 2, query: '', results: [], done: true, more: false, incomplete: false, searchable: true })
     expect(searchStart(a, '')).toMatchObject({ id: 2, query: '', done: true })
   })
 
@@ -94,8 +121,9 @@ describe('v2 reader search', () => {
     s = searchTake(s, readSearchResults(msg([hit({ post: '2' }), hit({ post: '3' })], { id: 1 }))!)
     expect(s.results.map((r) => r.post)).toEqual(['1', '2', '3'])
     expect(s.done).toBe(false)
-    s = searchTake(s, readSearchResults(msg([], { id: 1, done: true, more: true }))!)
-    expect(s).toMatchObject({ id: 1, query: 'whale', done: true, more: true })
+    expect(s.incomplete).toBe(false)
+    s = searchTake(s, readSearchResults(msg([], { id: 1, done: true, more: true, incomplete: true }))!)
+    expect(s).toMatchObject({ id: 1, query: 'whale', done: true, more: true, incomplete: true })
     expect(s.results.map((r) => r.post)).toEqual(['1', '2', '3'])
   })
 
@@ -110,6 +138,38 @@ describe('v2 reader search', () => {
     // Nothing asked (a cleared field): whatever comes is dropped.
     const cleared = searchStart(second, '')
     expect(searchTake(cleared, readSearchResults(msg([hit()], { id: cleared.id }))!)).toBe(cleared)
+  })
+
+  it('searchReset_AnOpenStartsOrTheBookCloses_NothingSearchable_UntilOpenedSaysStrictlyTrue', () => {
+    const reading = searchTake(searchStart(searchOpened(NO_SEARCH, { searchable: true }), 'whale'), readSearchResults(msg([hit()], { id: 1 }))!)
+    expect(reading).toMatchObject({ searchable: true, query: 'whale', done: false })
+    // The next open starts: the previous book's button must not stay live while the next one opens.
+    const opening = searchReset(reading)
+    expect(opening).toEqual({ id: 1, query: '', results: [], done: true, more: false, incomplete: false, searchable: false })
+    // Whatever the page still answers for the previous book's search is dropped.
+    expect(searchTake(opening, readSearchResults(msg([hit()], { id: 1, done: true }))!)).toBe(opening)
+    expect(searchOpened(opening, { searchable: true })).toMatchObject({ searchable: true, id: 1 })
+    // The next book's first search has an id of its own.
+    expect(searchStart(searchOpened(opening, { searchable: true }), 'ahab').id).toBe(2)
+    for (const opened of [{}, { searchable: false }, { searchable: 'true' }, { searchable: 1 }, null, undefined]) expect(searchOpened(searchOpened(opening, { searchable: true }), opened).searchable).toBe(false)
+    // A new query on a searchable book keeps it searchable.
+    expect(searchStart(searchOpened(opening, { searchable: true }), 'ahab').searchable).toBe(true)
+  })
+
+  it('searchStatusKey_NothingTyped_TooShort_Searching_None_Count_More', () => {
+    const answered = (o: object, hits = [hit()]) => searchTake(searchStart(NO_SEARCH, 'whale'), readSearchResults(msg(hits, { id: 1, ...o }))!)
+    expect(searchStatusKey(NO_SEARCH, '')).toBe('')
+    expect(searchStatusKey(NO_SEARCH, '   ')).toBe('')
+    expect(searchStatusKey(NO_SEARCH, undefined)).toBe('')
+    // Typed, but no query yet (one letter): said, not left empty.
+    expect(searchStatusKey(searchStart(NO_SEARCH, 'w'), 'w')).toBe('tooShort')
+    expect(searchStatusKey(searchStart(NO_SEARCH, 'whale'), 'whale')).toBe('searching')
+    expect(searchStatusKey(answered({}), 'whale')).toBe('searching')
+    expect(searchStatusKey(answered({ done: true }, []), 'whale')).toBe('none')
+    expect(searchStatusKey(answered({ done: true }), 'whale')).toBe('count')
+    expect(searchStatusKey(answered({ done: true, more: true }), 'whale')).toBe('more')
+    // The search asked stands while the reader types on (until the debounce asks again).
+    expect(searchStatusKey(answered({ done: true }), 'w')).toBe('count')
   })
 
   it('searchTake_NeverPastTheCap', () => {

@@ -2496,18 +2496,44 @@ try {
   const order = messages.slice(from).filter((x) => x.type === 'test-task' || x.type === 'search-results').map((x) => (x.type === 'test-task' ? 'task' : x.done ? 'done' : x.results[0]?.label))
   const between = order.slice(order.indexOf('Chapter One'), order.indexOf('Chapter Two'))
   check(order.includes('Chapter One') && order.includes('Chapter Two') && between.includes('task'), `the page takes other tasks between a search's sections (${order})`)
-  // A section that cannot be read ends the search there: what was found before it stands, and the search still ends.
-  await call(`(() => { document.querySelector('foliate-view').book.sections[1].createDocument = () => Promise.reject(new Error('broken section')) })()`)
+  // A section that cannot be read is skipped, and the search says it could not read the whole book: the sections
+  // after it are still searched. Here the first section's document fails; the hit in the second is found.
+  await call(`(() => { document.querySelector('foliate-view').book.sections[0].createDocument = () => Promise.reject(new Error('broken section')) })()`)
   from = messages.length
   const broken = await searchFor('paragraph 30. sphinx')
-  check(show(broken.results) === JSON.stringify([['', 'Paragraph 30. Sphinx', ' of black qu', 'Chapter One']]) && messages.slice(from).some((x) => x.type === 'log' && x.level === 'warn' && /search stopped/.test(x.msg)),
-    `a section that cannot be read ends the search with what was found, and a warn (${show(broken.results)})`)
-  // The cap, across sections: a search stops at MAX_RESULTS hits and says there are more.
+  check(show(broken.results) === JSON.stringify([['', 'Paragraph 30. Sphinx', ' of black qu', 'Chapter Two']]) && broken.read.at(-1)?.incomplete === true && broken.read.slice(0, -1).every((r) => r.incomplete === false)
+    && messages.slice(from).some((x) => x.type === 'log' && x.level === 'warn' && /section 0 could not be read/.test(x.msg)),
+  `a section that cannot be read is skipped: the later hit is found, the end says incomplete, with a warn (${show(broken.results)}, ${broken.read.at(-1)?.incomplete})`)
+  // The same in a real book: an SVG spine item (no body) between two sections of text. Both hits, and incomplete.
+  m = await open('tssvgspine.epub')
+  const svgSpine = await searchFor('KESTREL')
+  check(JSON.stringify(svgSpine.results.map((r) => [r.pre, r.match, r.post])) === JSON.stringify([['The first ', 'kestrel', ' is here.'], ['The second ', 'kestrel', ' is there.']]) && svgSpine.read.at(-1)?.incomplete === true && svgSpine.more === false,
+    `an SVG spine item before a section with a hit: the hit is found, the search says incomplete (${JSON.stringify(svgSpine.results.map((r) => r.pre + r.match))}, ${svgSpine.read.at(-1)?.incomplete})`)
+  // After a search the sections' documents are the book's own again: the SVG item's has no body, as before.
+  check(await call(`document.querySelector('foliate-view').book.sections[1].createDocument().then((d) => d.body === null && d.documentElement.localName === 'svg')`), 'after the search a section hands out its own document again')
+  // A whole book read is not incomplete.
+  m = await open('tsformat.fb2')
+  const whole = await searchFor('paragraph 30. sphinx')
+  check(whole.read.length === 3 && whole.read.every((r) => r.incomplete === false), 'a book read whole is not incomplete')
+  // Anything else that fails inside the search ends it: `done`, incomplete.
+  await call(`(() => { const v = document.querySelector('foliate-view'); v.__getCFI = v.getCFI; v.getCFI = () => { throw new Error('no cfi') } })()`)
+  const failed = await searchFor('paragraph 30. sphinx')
+  await call(`(() => { const v = document.querySelector('foliate-view'); v.getCFI = v.__getCFI })()`)
+  check(failed.results.length === 0 && failed.read.length === 1 && failed.read[0].done === true && failed.read[0].incomplete === true, `a search that fails ends, and says incomplete (${JSON.stringify(failed.read)})`)
+  // The cap. `more` only when a hit past it is known: exactly MAX_RESULTS hits are all listed and nothing more is claimed;
+  // one more, in the same section or in a later one, is "more".
   const zebras = (n, from) => `<section><title><p>Many</p></title>${Array.from({ length: n }, (_, i) => `<p>zebra ${from + i}</p>`).join('')}</section>`
-  writeFileSync(resolve(dir, 'tsmany.fb2'), fb2('TS MANY', zebras(MAX_RESULTS - 200, 1) + zebras(300, MAX_RESULTS - 199)))
-  m = await open('tsmany.fb2')
-  const many = await searchFor('zebra')
-  check(many.results.length === MAX_RESULTS && many.more === true && many.results.at(-1)?.post === ` ${MAX_RESULTS}`, `a search stops at ${MAX_RESULTS} hits and says there are more (${many.results.length}, last ${JSON.stringify(many.results.at(-1)?.post)})`)
+  for (const [what, body, more] of [
+    ['exactly the cap', zebras(MAX_RESULTS - 200, 1) + zebras(200, MAX_RESULTS - 199), false],
+    ['one over the cap, in the section that reaches it', zebras(MAX_RESULTS - 200, 1) + zebras(201, MAX_RESULTS - 199), true],
+    ['one over the cap, in a later section', zebras(MAX_RESULTS - 200, 1) + zebras(200, MAX_RESULTS - 199) + `<section><title><p>Last</p></title><p>no stripes</p></section>` + zebras(1, MAX_RESULTS + 1), true],
+  ]) {
+    writeFileSync(resolve(dir, 'tsmany.fb2'), fb2('TS MANY', body))
+    m = await open('tsmany.fb2')
+    const many = await searchFor('zebra')
+    check(many.results.length === MAX_RESULTS && many.more === more && many.results.at(-1)?.post === ` ${MAX_RESULTS}` && many.read.every((r) => r.done || r.results.length > 0),
+      `${what}: ${MAX_RESULTS} hits listed, more: ${more} (${many.results.length}, last ${JSON.stringify(many.results.at(-1)?.post)}, more ${many.more}, messages ${many.read.map((r) => r.results.length)})`)
+  }
   // A new open ends a search still running, and the next book's search does not wait for it: the old book's second
   // section is held unread while another book opens; let go, it answers nothing. Once with the next book searched
   // meanwhile (its search ends while the old one is still held), once with nothing asked of the next book.
@@ -2537,10 +2563,26 @@ try {
   await heldSearch(8)
   m = await open('tsformat.mobi')
   check((await afterLetGo()).length === 0, 'nor does it with nothing asked of the next book')
-  // A search ended by the host while a section is being read, which then fails: no `done` for the search that was ended.
+  // A search ended by the host while a section is being read: whatever then happens in it (the section fails; the
+  // search itself fails), nothing more is said for it.
   await heldSearch(9, true)
   call('window.__fol.search(null)')
   check((await afterLetGo()).length === 0, 'a search ended by the host says nothing more, even when the section it was reading fails')
+  await heldSearch(10)
+  call('window.__fol.search(null)')
+  await call(`(() => { const v = document.querySelector('foliate-view'); v.getCFI = () => { throw new Error('no cfi') } })()`)
+  check((await afterLetGo()).length === 0, 'nor when the search itself fails after it was ended')
+  // A search queued behind a held one, then another book opened and searched: when the held one is let go, the queued
+  // call (superseded by the open) must not touch the new book: its hits stay drawn, nothing is answered.
+  await heldSearch(11)
+  call(`window.__fol.search('judge my vow', 12)`)
+  m = await open('tsformat.mobi')
+  const kept = await searchFor('paragraph 1. SPHINX')
+  await page.waitForTimeout(300)
+  const keptDrawn = await drawnHits()
+  const late = await afterLetGo()
+  check(kept.results.length === 2 && keptDrawn.length > 0 && late.length === 0 && JSON.stringify(await drawnHits()) === JSON.stringify(keptDrawn),
+    `a search queued for a book no longer open clears nothing of the next book's and answers nothing (${keptDrawn.length} hits drawn, ${late.length} late answers)`)
   // Before any book: nothing to search, nothing answered, no error.
   const blank = await newPage()
   const said = []
@@ -2548,7 +2590,9 @@ try {
   await blank.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
   await blank.goto(PAGE_URL)
   for (const t0 = Date.now(); !said.some((x) => x.type === 'ready') && Date.now() - t0 < TIMEOUT_MS;) await blank.waitForTimeout(50)
-  await blank.evaluate(() => { window.__fol.search('sphinx', 1); window.__fol.search(null) })
+  await blank.evaluate(() => window.__fol.search('sphinx', 1))
+  await blank.waitForTimeout(300)
+  await blank.evaluate(() => window.__fol.search(null))
   await blank.waitForTimeout(300)
   check(said.some((x) => x.type === 'ready') && !said.some((x) => x.type === 'search-results' || x.type === 'log'), `a search before any book answers nothing and logs nothing (${said.map((x) => x.type)})`)
   await blank.close()

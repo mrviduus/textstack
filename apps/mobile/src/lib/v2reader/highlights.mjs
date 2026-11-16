@@ -1,7 +1,7 @@
 // Highlights (#1312): the palette, the page's `highlight-list` builder and the hosts' readers of the page's highlight
 // messages (`highlight-list`, `highlight-tap`, `highlight-removed`), in `readSelection`'s style. Pure, page and both
 // hosts. The page renders untrusted book content: a host takes these only through the readers here.
-import { MAX_SELECTION_CFI, readRect } from './selection.mjs'
+import { isCfi, readRect } from './selection.mjs'
 import { readTap } from './chrome.mjs'
 
 /** The legacy readers' four colours (web SelectionToolbar, mobile HighlightNoteModal), in their order. */
@@ -17,7 +17,6 @@ export const MAX_LIST = 5000
 export const MAX_LIST_TEXT = 200
 /** A highlight id as the page holds it: a v4 or the server's UUID, or a pre-#1078 `h…` one. */
 export const isId = (id) => typeof id === 'string' && /^[0-9A-Za-z-]{1,64}$/.test(id)
-const isCfi = (c) => typeof c === 'string' && c.length <= MAX_SELECTION_CFI && c.startsWith('epubcfi(')
 
 /**
  * The page's `highlight-list` items: the entry's highlights drawn on screen (`drawn`: their ids), in book order

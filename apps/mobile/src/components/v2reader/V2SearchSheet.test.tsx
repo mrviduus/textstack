@@ -2,7 +2,7 @@
 import { act, createElement, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { NO_SEARCH, readSearchResults, searchStart, searchTake, type V2Search } from '../../lib/v2reader/search.mjs'
+import { NO_SEARCH, SEARCH_DEBOUNCE_MS, readSearchResults, searchStart, searchTake, type V2Search } from '../../lib/v2reader/search.mjs'
 
 // #1315: the Android host's search sheet. No React Native renderer here (as readerBars.a11y.test.tsx): react-native's
 // views are stubbed as DOM elements carrying their accessible name and press handler.
@@ -18,10 +18,10 @@ vi.mock('react-native', () => {
     Pressable: view,
     TouchableOpacity: view,
     Modal: ({ visible, children }: { visible: boolean; children?: ReactNode }) => (visible ? createElement('section', null, children) : null),
-    TextInput: ({ value, onChangeText, accessibilityLabel, maxLength }: { value: string; onChangeText: (t: string) => void; accessibilityLabel?: string; maxLength?: number }) =>
-      createElement('input', { value, 'aria-label': accessibilityLabel, maxLength, onChange: (e: { target: { value: string } }) => onChangeText(e.target.value) }),
-    FlatList: <T,>({ data, renderItem, keyExtractor }: { data: T[]; renderItem: (i: { item: T }) => ReactNode; keyExtractor: (i: T) => string }) =>
-      createElement('ul', null, data.map((item) => createElement('li', { key: keyExtractor(item) }, renderItem({ item })))),
+    TextInput: ({ value, onChangeText, accessibilityLabel, maxLength, autoFocus }: { value: string; onChangeText: (t: string) => void; accessibilityLabel?: string; maxLength?: number; autoFocus?: boolean }) =>
+      createElement('input', { value, 'aria-label': accessibilityLabel, maxLength, 'data-autofocus': String(!!autoFocus), onChange: (e: { target: { value: string } }) => onChangeText(e.target.value) }),
+    FlatList: <T,>({ data, renderItem, keyExtractor, keyboardDismissMode }: { data: T[]; renderItem: (i: { item: T }) => ReactNode; keyExtractor: (i: T) => string; keyboardDismissMode?: string }) =>
+      createElement('ul', { 'data-dismiss': keyboardDismissMode }, data.map((item) => createElement('li', { key: keyExtractor(item) }, renderItem({ item })))),
     StyleSheet: { create: <T,>(s: T) => s, hairlineWidth: 1 },
   }
 })
@@ -31,7 +31,7 @@ vi.mock('../../context/ThemeContext', () => ({ useTheme: () => ({ colors: {} }) 
 vi.mock('../../context/LanguageContext', () => ({ useLanguage: () => ({ t: (k: string) => k }) }))
 vi.mock('../../hooks/useReduceMotion', () => ({ useReduceMotion: () => false }))
 
-const { V2SearchSheet, SEARCH_DEBOUNCE_MS, searchStatus } = await import('./V2SearchSheet')
+const { V2SearchSheet, searchStatus } = await import('./V2SearchSheet')
 
 const CFI = (n: number) => `epubcfi(/6/${n}!/4/2,/1:0,/1:5)`
 const hit = (n: number, o: object = {}) => ({ cfi: CFI(n), pre: `before ${n} `, match: 'Whale', post: ` after ${n}`, label: `Chapter ${n}`, ...o })
@@ -74,12 +74,17 @@ afterEach(() => {
 describe('V2SearchSheet (#1315)', () => {
   it('searchStatus_NothingAsked_Searching_None_Counted_OrTheFirstShown', () => {
     const t = (k: string) => ({ 'reader.v2.searchCount': 'Results: {count}', 'reader.v2.searchMore': 'First {count}' }[k] ?? k)
-    expect(searchStatus(NO_SEARCH, t)).toBe('')
-    expect(searchStatus(searchStart(NO_SEARCH, 'whale'), t)).toBe('reader.v2.searching')
-    expect(searchStatus(answered('whale', [hit(2)], {}), t)).toBe('reader.v2.searching')
-    expect(searchStatus(answered('whale', []), t)).toBe('reader.v2.searchNone')
-    expect(searchStatus(answered('whale', [hit(2), hit(4)]), t)).toBe('Results: 2')
-    expect(searchStatus(answered('whale', [hit(2), hit(4)], { done: true, more: true }), t)).toBe('First 2')
+    expect(searchStatus(NO_SEARCH, '', t)).toBe('')
+    expect(searchStatus(searchStart(NO_SEARCH, 'w'), 'w', t)).toBe('reader.v2.searchTooShort')
+    expect(searchStatus(searchStart(NO_SEARCH, 'whale'), 'whale', t)).toBe('reader.v2.searching')
+    expect(searchStatus(answered('whale', [hit(2)], {}), 'whale', t)).toBe('reader.v2.searching')
+    expect(searchStatus(answered('whale', []), 'whale', t)).toBe('reader.v2.searchNone')
+    expect(searchStatus(answered('whale', [hit(2), hit(4)]), 'whale', t)).toBe('Results: 2')
+    expect(searchStatus(answered('whale', [hit(2), hit(4)], { done: true, more: true }), 'whale', t)).toBe('First 2')
+    // Part of the book could not be read: said once the search ended, never while it runs.
+    expect(searchStatus(answered('whale', [hit(2)], { done: true, incomplete: true }), 'whale', t)).toBe('Results: 1 reader.v2.searchIncomplete')
+    expect(searchStatus(answered('whale', [], { done: true, incomplete: true }), 'whale', t)).toBe('reader.v2.searchNone reader.v2.searchIncomplete')
+    expect(searchStatus(answered('whale', [hit(2)], { incomplete: true }), 'whale', t)).toBe('reader.v2.searching')
   })
 
   it('results_ListedInOrder_SectionThenContextAroundTheHit_AsText', () => {
@@ -92,6 +97,8 @@ describe('V2SearchSheet (#1315)', () => {
 
   it('typing_AskedOnceTheReaderPauses_TheSameQueryNotAskedAgain', () => {
     const update = show(NO_SEARCH)
+    // An empty sheet opens with the keyboard up.
+    expect(input().dataset.autofocus).toBe('true')
     type('wha')
     act(() => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS - 1) })
     type('whale')
@@ -106,9 +113,12 @@ describe('V2SearchSheet (#1315)', () => {
     expect(on.query.mock.calls).toEqual([['whale']])
   })
 
-  it('opened_OnASearchAlreadyMade_ShowsItsQuery_AsksNothing', () => {
+  it('opened_OnASearchAlreadyMade_ShowsItsQuery_AsksNothing_KeyboardStaysDown_AndGoesWhenTheListIsDragged', () => {
     show(answered('whale', [hit(2)]))
     expect(input().value).toBe('whale')
+    // The rows under the keyboard are reachable: no focus on a sheet reopened on its results, and a drag puts it away.
+    expect(input().dataset.autofocus).toBe('false')
+    expect(div.querySelector('ul')!.dataset.dismiss).toBe('on-drag')
     act(() => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS) })
     expect(on.query).not.toHaveBeenCalled()
   })

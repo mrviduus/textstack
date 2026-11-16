@@ -582,7 +582,9 @@ test.describe('V2 reader page @v2', () => {
     await dialog.getByRole('button', { name: 'Clear search' }).click()
     await expect(rows).toHaveCount(0)
     await expect.poll(async () => (await hitOnScreen())?.drawn, { timeout: 15_000 }).toEqual([])
-    // A query with no hit says so.
+    // One letter is no query yet, and the status line says so; a query with no hit says that.
+    await field.fill('w')
+    await expect(dialog.getByTestId('v2-search-status')).toHaveText('Type at least 2 characters')
     await field.fill('no such words here')
     await expect(dialog.getByTestId('v2-search-status')).toHaveText('No results')
     await page.keyboard.press('Escape')

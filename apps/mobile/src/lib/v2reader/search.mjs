@@ -1,14 +1,21 @@
 // In-book search (#1315): the query a host may send, the page's `search-results` items, the hosts' reader of that
-// message and the hosts' state (one rule for both). Pure, page and both hosts. The page renders untrusted book
-// content: a host takes results only through `readSearchResults`, and shows their strings as text.
-import { MAX_SELECTION_CFI } from './selection.mjs'
+// message and the hosts' state and status line (one rule for both). Pure, page and both hosts. The page renders
+// untrusted book content: a host takes results only through `readSearchResults`, and shows their strings as text.
+import { isCfi } from './selection.mjs'
 
-/** A query is searched from this many characters (the legacy web reader's rule) up to this many. */
+/** The reader stopped typing for this long: the page is asked (a new search ends the one running). Both hosts. */
+export const SEARCH_DEBOUNCE_MS = 300
+/**
+ * A query is searched from this many characters (the legacy web reader's rule), counted as `queryLength` counts them;
+ * one is enough in a script written without spaces between words (`NO_SPACES`: a one-character Chinese, Japanese,
+ * Korean or Thai word is a word). At most `MAX_QUERY` UTF-16 units (a field's `maxLength`).
+ */
 export const MIN_QUERY = 2
 export const MAX_QUERY = 100
 /**
- * ponytail: a search stops at this many hits ("the" in a long book has tens of thousands; each is a row in a host's
- * list and an overlay in its section). Paged results if readers need the rest.
+ * A search lists at most this many hits ("the" in a long book has tens of thousands; each is a row in a host's list).
+ * ponytail: no paging past it. It bounds the list only: the section a search is reading is matched and drawn whole
+ * by foliate before the page sees its hits (README, "In-book search", known limits).
  */
 export const MAX_RESULTS = 500
 /** Caps of a result's strings (display only): the text before and after the hit, the hit, its section's title. */
@@ -18,12 +25,22 @@ export const MAX_LABEL = 200
 /** What the page draws over every hit of the query (foliate's highlight at its .3 opacity); none of the highlight colours. */
 export const SEARCH_FILL = '#f97316'
 
-const isCfi = (c) => typeof c === 'string' && c.length <= MAX_SELECTION_CFI && c.startsWith('epubcfi(')
+/** Thai, Hangul, Hiragana and Katakana, Han: scripts whose words are not set apart by spaces. Ranges, not `\p{Script=}`: one rule in every engine a host runs on. */
+const NO_SPACES = /[฀-๿ᄀ-ᇿ぀-ヿ㄰-㆏ㇰ-ㇿ㐀-䶿一-鿿가-힯豈-﫿\u{20000}-\u{323AF}]/u
+/** What joins the character before it: combining marks, the zero-width joiner, variation selectors, emoji skin tones. */
+const JOINED = /[\p{M}‍︀-️\u{1F3FB}-\u{1F3FF}]/gu
+/**
+ * The characters of a query as a reader counts them: code points, without the ones that only join or modify the one
+ * before (a decomposed "é" and one emoji with a skin tone are one each). Not `Intl.Segmenter`: the Android host's
+ * engine has none, and the hosts and the page must agree on what a query is (a host that asked for a search the page
+ * refuses would wait for it for ever).
+ */
+export const queryLength = (t) => Array.from(t.replace(JOINED, '')).length
 
 /** A query as searched: whitespace runs as one space (the page's matcher reads the book so), trimmed; null: not searched. */
 export function readQuery(q) {
   const t = typeof q === 'string' ? q.replace(/\s+/g, ' ').trim() : ''
-  return t.length >= MIN_QUERY && t.length <= MAX_QUERY ? t : null
+  return t.length <= MAX_QUERY && queryLength(t) >= (NO_SPACES.test(t) ? 1 : MIN_QUERY) ? t : null
 }
 
 /**
@@ -42,8 +59,9 @@ export function searchItems(subitems, label) {
 }
 
 /**
- * A host's read of `search-results`: `{ key, id, results, done, more }`, malformed items dropped; null for a malformed
- * message. `id` is the host's own (echoed), `done` the search's end, `more` that it stopped at `MAX_RESULTS`.
+ * A host's read of `search-results`: `{ key, id, results, done, more, incomplete }`, malformed items dropped; null for
+ * a malformed message. `id` is the host's own (echoed), `done` the search's end, `more` that a hit past `MAX_RESULTS`
+ * exists, `incomplete` that part of the book could not be read.
  */
 export function readSearchResults(m) {
   if (!m || typeof m !== 'object' || m.type !== 'search-results' || typeof m.key !== 'string' || !Number.isSafeInteger(m.id) || !Array.isArray(m.results)) return null
@@ -54,23 +72,45 @@ export function readSearchResults(m) {
     if (typeof r.label !== 'string' || r.label.length > MAX_LABEL) continue
     results.push({ cfi: r.cfi, pre: r.pre, match: r.match, post: r.post, label: r.label })
   }
-  return { key: m.key, id: m.id, results, done: m.done === true, more: m.more === true }
+  return { key: m.key, id: m.id, results, done: m.done === true, more: m.more === true, incomplete: m.incomplete === true }
 }
 
-/** A host's search before any query: nothing asked, nothing running. */
-export const NO_SEARCH = Object.freeze({ id: 0, query: '', results: [], done: true, more: false })
+/** A host's search before any book: nothing to search, nothing asked, nothing running. */
+export const NO_SEARCH = Object.freeze({ id: 0, query: '', results: [], done: true, more: false, incomplete: false, searchable: false })
 
 /**
- * The reader typed `raw` (or the book changed: ''): a new search under the next id, so whatever the page still sends
- * for an older one is dropped. A host sends the page `search(next.query || null, next.id)`.
+ * The reader typed `raw` ('' clears): a new search under the next id, so whatever the page still sends for an older
+ * one is dropped. A host sends the page `search(next.query || null, next.id)`.
  */
 export function searchStart(s, raw) {
   const query = readQuery(raw) ?? ''
-  return { id: s.id + 1, query, results: [], done: !query, more: false }
+  return { id: s.id + 1, query, results: [], done: !query, more: false, incomplete: false, searchable: s.searchable }
 }
+
+/**
+ * An open starts, or the book is closed: its search ends and nothing is searchable until the next `opened` says so
+ * (a search asked of the page meanwhile would be for the book before, and never answered for this one). The id
+ * stays: an ended search takes no answer, and the next one asked moves it on.
+ */
+export const searchReset = (s) => ({ id: s.id, query: '', results: [], done: true, more: false, incomplete: false, searchable: false })
+
+/** The page's `opened`: search is offered only where it says strictly `true` (not a CBZ, not a PDF). */
+export const searchOpened = (s, opened) => ({ ...s, searchable: opened?.searchable === true })
 
 /** `r` (through `readSearchResults`) joins the search it answers: one of an older id, or after its end, changes nothing. */
 export function searchTake(s, r) {
   if (r.id !== s.id || s.done) return s
-  return { ...s, results: [...s.results, ...r.results].slice(0, MAX_RESULTS), done: r.done, more: r.more }
+  return { ...s, results: [...s.results, ...r.results].slice(0, MAX_RESULTS), done: r.done, more: r.more, incomplete: r.incomplete }
+}
+
+/**
+ * The status line under the field, as a key each host has a string for: '' (nothing typed), `tooShort` (typed, but no
+ * query: `readQuery`), `searching`, `none`, `count`, or `more` (the first `MAX_RESULTS` of more). `typed`: the field's
+ * text. A finished search with `incomplete` gets a host's second line beside it.
+ */
+export function searchStatusKey(search, typed) {
+  if (!search.query) return typeof typed === 'string' && typed.trim() ? 'tooShort' : ''
+  if (!search.done) return 'searching'
+  if (!search.results.length) return 'none'
+  return search.more ? 'more' : 'count'
 }

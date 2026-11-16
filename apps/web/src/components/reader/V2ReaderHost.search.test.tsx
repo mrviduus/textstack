@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
-import { SEARCH_DEBOUNCE_MS } from './V2ReaderSearch'
+import { SEARCH_DEBOUNCE_MS } from '../../../../mobile/src/lib/v2reader/search.mjs'
 
 // #1315: in-book search on the web host, through a fake frame as V2ReaderHost.chrome.test.tsx: the page is asked
 // `search(query, id)` and answers `search-results`; a result is a `goTo(cfi, chosen)`.
@@ -101,6 +101,27 @@ describe('V2ReaderHost in-book search (#1315)', () => {
     expect(status()).toBe('Showing the first 2 results')
   })
 
+  it('status_TypedButTooShort_SaysSo_PartOfTheBookUnread_SaidBesideTheCount', () => {
+    opened()
+    openSearch()
+    expect(status()).toBe('')
+    type('w')
+    expect(calls('search')).toEqual([])
+    expect(status()).toBe('Type at least 2 characters')
+    // One character is a word where words have no spaces between them.
+    type('水')
+    expect(calls('search')).toEqual([['水', 1]])
+    results(1, [hit(2)])
+    expect(status()).toBe('Searching…')
+    results(1, [], { done: true, incomplete: true })
+    expect(status()).toBe('Results: 1 Part of this book could not be searched.')
+    type('whale')
+    results(2, [hit(2)], { incomplete: true })
+    expect(status()).toBe('Searching…')
+    results(2, [], { done: true })
+    expect(status()).toBe('Results: 1')
+  })
+
   it('results_OfAnOlderSearch_OfAnotherBook_OrMalformed_Dropped', () => {
     opened()
     openSearch()
@@ -161,8 +182,10 @@ describe('V2ReaderHost in-book search (#1315)', () => {
     results(1, [hit(2)], { done: true })
     act(() => rerender(book('b.epub')))
     // The page still shows the first book until the swap: its hits go now.
-    expect(calls('search')).toEqual([['whale', 1], [null, 2]])
+    expect(calls('search')).toEqual([['whale', 1], [null]])
     expect(dialog()).toBeNull()
+    // While the next book opens, the previous book's search is not offered.
+    expect(searchButton()).toBeNull()
     fromPage({ type: 'opened', title: 'Walden', book: { sha256: 'bb', size: 8, name: '2/b.epub' }, searchable: true })
     // Closed with the book it searched: the next book does not open on a search drawer.
     expect(dialog()).toBeNull()

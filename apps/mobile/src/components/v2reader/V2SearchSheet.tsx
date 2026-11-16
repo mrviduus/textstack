@@ -6,18 +6,16 @@ import { useLanguage } from '../../context/LanguageContext'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
 import { fonts } from '../../theme/typography'
 import { fill } from '../../lib/fill'
-import { MAX_QUERY, readQuery, type V2Search, type V2SearchResult } from '../../lib/v2reader/search.mjs'
+import { MAX_QUERY, SEARCH_DEBOUNCE_MS, readQuery, searchStatusKey, type V2Search } from '../../lib/v2reader/search.mjs'
 
-/** The reader stopped typing for this long: the page is asked (a new search ends the one running). The web host's. */
-export const SEARCH_DEBOUNCE_MS = 300
+/** search.mjs `searchStatusKey` in the reader's words. */
+const STATUS = { tooShort: 'reader.v2.searchTooShort', searching: 'reader.v2.searching', none: 'reader.v2.searchNone', count: 'reader.v2.searchCount', more: 'reader.v2.searchMore' } as const
 
-/** The line under the field: nothing asked, searching, none found, how many (the first ones when the search stopped at its cap). */
-export function searchStatus(search: V2Search, t: (key: string) => string): string {
-  if (!search.query) return ''
-  if (!search.done) return t('reader.v2.searching')
-  const count = search.results.length
-  if (count === 0) return t('reader.v2.searchNone')
-  return fill(t(search.more ? 'reader.v2.searchMore' : 'reader.v2.searchCount'), { count })
+/** The line under the field (`searchStatusKey`), and that part of the book could not be read, once the search ended. */
+export function searchStatus(search: V2Search, typed: string, t: (key: string) => string): string {
+  const key = searchStatusKey(search, typed)
+  const line = key ? fill(t(STATUS[key]), { count: search.results.length }) : ''
+  return search.done && search.incomplete ? `${line} ${t('reader.v2.searchIncomplete')}` : line
 }
 
 /**
@@ -33,7 +31,7 @@ export function V2SearchSheet({ visible, search, onQuery, onGo, onClose }: {
   search: V2Search
   /** What the reader typed, debounced; '' clears the search and the hits drawn in the book. */
   onQuery: (raw: string) => void
-  onGo: (result: V2SearchResult) => void
+  onGo: (result: { cfi: string }) => void
   onClose: () => void
 }) {
   const { colors } = useTheme()
@@ -51,7 +49,7 @@ export function V2SearchSheet({ visible, search, onQuery, onGo, onClose }: {
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(id)
   }, [text])
-  const status = searchStatus(search, t)
+  const status = searchStatus(search, text, t)
 
   return (
     <Modal visible={visible} animationType={reduceMotion ? 'none' : 'slide'} transparent onRequestClose={onClose}>
@@ -62,7 +60,8 @@ export function V2SearchSheet({ visible, search, onQuery, onGo, onClose }: {
             <TextInput
               value={text}
               onChangeText={setText}
-              autoFocus
+              // A sheet reopened on its results keeps the keyboard down: the rows under it are reachable.
+              autoFocus={!search.query}
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="search"
@@ -88,6 +87,7 @@ export function V2SearchSheet({ visible, search, onQuery, onGo, onClose }: {
             keyExtractor={(r) => r.cfi}
             style={styles.list}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
             renderItem={({ item }) => (
               <TouchableOpacity
                 style={[styles.row, { borderBottomColor: colors.border }]}

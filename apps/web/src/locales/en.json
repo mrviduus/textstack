@@ -558,7 +558,9 @@
     "searching": "Searching…",
     "searchNone": "No results",
     "searchCount": "Results: {{count}}",
-    "searchMore": "Showing the first {{count}} results"
+    "searchMore": "Showing the first {{count}} results",
+    "searchTooShort": "Type at least 2 characters",
+    "searchIncomplete": "Part of this book could not be searched."
   },
   "library": {
     "continue": "Continue",

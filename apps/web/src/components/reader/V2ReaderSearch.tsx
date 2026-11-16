@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useDebounce } from '../../hooks/useDebounce'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
-import { MAX_QUERY, readQuery, type V2Search, type V2SearchResult } from '../../../../mobile/src/lib/v2reader/search.mjs'
+import { MAX_QUERY, SEARCH_DEBOUNCE_MS, readQuery, searchStatusKey, type V2Search } from '../../../../mobile/src/lib/v2reader/search.mjs'
 
-/** The reader stopped typing for this long: the page is asked (a new search ends the one running). */
-export const SEARCH_DEBOUNCE_MS = 300
+/** search.mjs `searchStatusKey` in the reader's words. */
+const STATUS = { tooShort: 'v2Reader.searchTooShort', searching: 'v2Reader.searching', none: 'v2Reader.searchNone', count: 'v2Reader.searchCount', more: 'v2Reader.searchMore' } as const
 
 interface Props {
   open: boolean
@@ -14,7 +14,7 @@ interface Props {
   /** What the reader typed, debounced; '' clears the search and the hits drawn in the book. */
   onQuery: (raw: string) => void
   /** A result the reader chose. */
-  onGo: (result: V2SearchResult) => void
+  onGo: (result: { cfi: string }) => void
   onClose: () => void
 }
 
@@ -38,11 +38,8 @@ export function V2SearchDrawer({ open, search, onQuery, onGo, onClose }: Props) 
     if ((readQuery(typed) ?? '') !== search.query) onQueryRef.current(typed)
   }, [typed])
   if (!open) return null
-  const count = search.results.length
-  const status = !search.query ? ''
-    : !search.done ? t('v2Reader.searching')
-      : count === 0 ? t('v2Reader.searchNone')
-        : search.more ? t('v2Reader.searchMore', { count }) : t('v2Reader.searchCount', { count })
+  const key = searchStatusKey(search, text)
+  const status = key ? t(STATUS[key], { count: search.results.length }) : ''
   return (
     <>
       <div className="reader-drawer-backdrop" onClick={onClose} />
@@ -95,7 +92,11 @@ export function V2SearchDrawer({ open, search, onQuery, onGo, onClose }: Props) 
         </div>
         {/* Always mounted: a live region announces a change of its text, not its own arrival. */}
         <div className="reader-search-drawer__nav">
-          <span className="reader-search-drawer__count" role="status" data-testid="v2-search-status">{status}</span>
+          <span className="reader-search-drawer__count" role="status" data-testid="v2-search-status">
+            {status}
+            {/* Part of the book could not be read (a damaged section): the list may miss hits there. */}
+            {search.done && search.incomplete && <> {t('v2Reader.searchIncomplete')}</>}
+          </span>
         </div>
         <ul className="reader-search-drawer__results" data-testid="v2-search-results">
           {search.results.map((r) => (

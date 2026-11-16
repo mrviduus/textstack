@@ -58,7 +58,7 @@ import { ExplanationSheet } from '../ExplanationSheet'
 import { readToc, tocAround, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
 import { V2HighlightsSheet, V2SectionNav, V2TocSheet } from './V2ReaderToc'
 import { V2SearchSheet } from './V2SearchSheet'
-import { NO_SEARCH, readSearchResults, searchStart, searchTake, type V2Search, type V2SearchResult } from '../../lib/v2reader/search.mjs'
+import { NO_SEARCH, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type V2Search } from '../../lib/v2reader/search.mjs'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
@@ -361,10 +361,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const call = (js: string) => webView.current?.injectJavaScript(`${js};true`)
 
   /**
-   * #1315: in-book search (search.mjs, the web host's rule). `opened.searchable`; the search the page was last asked (the
-   * ref for the message handler, set with the state); the sheet, keyed by the book so a new one's starts empty.
+   * #1315: in-book search (search.mjs, the web host's rule): the search the page was last asked and whether the open book
+   * can be searched (the ref for the message handler, set with the state); the sheet, keyed by the book so a new one's
+   * starts empty.
    */
-  const [searchable, setSearchable] = useState(false)
   const [search, setSearchState] = useState<V2Search>(NO_SEARCH)
   const searchRef = useRef<V2Search>(NO_SEARCH)
   const setSearch = (s: V2Search) => {
@@ -383,11 +383,15 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // A page not loaded yet (or reloading) holds no search to end.
     if (ready.current) call(`window.__fol.search(${JSON.stringify(next.query || null)}, ${next.id})`)
   }
-  /** A new open or a closed book: the previous book's search ends with it (its hits go from the page, if it still shows that book). */
+  /**
+   * A new open or a closed book: the previous book's search ends with it (its hits go from the page, if it still shows
+   * that book), and nothing is searchable until the next `opened` says so (`searchReset`: the button goes meanwhile).
+   */
   const clearSearch = () => {
     setSearchOpen(false)
     setSearchBook((n) => n + 1)
-    if (searchRef.current.query) askSearch('')
+    if (searchRef.current.query && ready.current) call('window.__fol.search(null)')
+    setSearch(searchReset(searchRef.current))
   }
 
   /** A book is on screen (the reader, with its bars) rather than the list; the ref for the message handler. */
@@ -444,15 +448,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
   /** A page message for the open book (its `key`, the page's lower-case sha256). */
   const isOpenKey = (key: string) => openShaRef.current !== null && key.toLowerCase() === openShaRef.current
-  /** The reader's choice (the sheet, a deep link): saved where it lands. */
-  const goHighlight = (h: V2HighlightItem) => {
+  /** The reader's choice (the highlights sheet, a deep link, a search result): saved where it lands. */
+  const goHighlight = (h: { cfi: string }) => {
     hostMoves.start()
     call(`window.__fol.goTo(${JSON.stringify(h.cfi)}, true)`)
-  }
-  /** #1315: a search result chosen, as a highlight is: the page draws every hit of the query in its section. */
-  const goSearchResult = (r: V2SearchResult) => {
-    hostMoves.start()
-    call(`window.__fol.goTo(${JSON.stringify(r.cfi)}, true)`)
   }
   const [bookLang, setBookLang] = useState<string | null>(null)
   /**
@@ -944,7 +943,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // screen long) comes before this `opened` and must stand.
     setAnnotatable(t.opened.annotatable !== false)
     // #1315: strictly true where the page can search the book (not a CBZ or a PDF).
-    setSearchable(t.opened.searchable === true)
+    setSearch(searchOpened(searchRef.current, t.opened))
     // The previous book's highlights go; this one's list follows its `restored`.
     setHighlightList([])
     setBookLang(readLang(t.opened))
@@ -1440,7 +1439,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             hasChapters={toc.length > 0}
             onTocPress={() => setTocOpen(true)}
             onHighlightsPress={annotatable ? () => setHighlightsOpen(true) : undefined}
-            onSearchPress={searchable ? () => setSearchOpen(true) : undefined}
+            onSearchPress={search.searchable ? () => setSearchOpen(true) : undefined}
             tocLabel={t('reader.chrome.contents')}
             isCurrentBookmarked={false}
             onExit={closeBook}
@@ -1523,7 +1522,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} ttsSpeed={ttsSpeed} onTtsSpeed={updateTtsSpeed}
             glosses={annotatable ? { on: legacySettings.showInlineTranslations, onChange: (on) => updateLegacySettings({ showInlineTranslations: on }) } : undefined} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
-          <V2SearchSheet key={searchBook} visible={searchOpen} search={search} onQuery={askSearch} onGo={goSearchResult} onClose={() => setSearchOpen(false)} />
+          <V2SearchSheet key={searchBook} visible={searchOpen} search={search} onQuery={askSearch} onGo={goHighlight} onClose={() => setSearchOpen(false)} />
           <V2HighlightsSheet visible={highlightsOpen} items={highlightList} noteOf={(id) => notes?.known.get(id) ?? null} onGo={goHighlight} onClose={() => setHighlightsOpen(false)} />
           {popup?.kind === 'highlight' && tapped && (
             // #1312: the legacy editor. A colour is one tap (the page redraws and saves it); Save is the note (here,
