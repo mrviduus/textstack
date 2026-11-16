@@ -105,8 +105,8 @@ internal static class McpBridgeCore
     /// </summary>
     public const string V2Instructions =
         " An id line may instead read \"(TextStack: book <bookId>, share <shareId>)\": \"share\" is one chapter the "
-        + "reader shared from the reader. Read it with get_shared_chapter and discuss that chapter; it is the only text "
-        + "of the book you were given, so do not call get_my_chapter, get_chapter_review or save_chapter_review for it. "
+        + "reader shared from the reader. Read it with get_shared_chapter (every part, when it says truncated) and discuss "
+        + "that chapter; it is the only text of the book you were given, so do not call get_my_chapter, get_chapter_review or save_chapter_review for it. "
         + "Call list_checkpoints for the book first, to continue from the reader's earlier thoughts. When a topic yields "
         + "a conclusion or an open question, and the reader opted in or asked, save it with save_checkpoint, passing the "
         + "share's chapterKey and its id as sharedChapterId.";

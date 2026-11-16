@@ -204,6 +204,20 @@ public class V2DiscussionEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFix
         Assert.Equal((Id(saved), JsonValueKind.Null), (kept.GetProperty("id").GetGuid(), kept.GetProperty("sharedChapterId").ValueKind));
     }
 
+    // #1316: what the assistant's save_checkpoint sends for a share the app made: the share id, no file.
+    [Fact]
+    public async Task Post_CheckpointWithNoFileNamingAShareWithOne_Is201WithTheSharesFile()
+    {
+        v2.Require();
+        var (bookId, fileId, _) = await v2.ImportAsync(v2.Alice);
+        var share = Id(await ShareAsync(v2.Alice, bookId, Share(fileId)));
+
+        var saved = await SaveAsync(v2.Alice, bookId, Checkpoint(sharedChapterId: share));
+
+        Assert.Equal((HttpStatusCode.Created, share, fileId),
+            (saved.Status, saved.Body.GetProperty("sharedChapterId").GetGuid(), saved.Body.GetProperty("fileId").GetGuid()));
+    }
+
     [Fact]
     public async Task Post_CheckpointNamingAShareOfAnotherChapterFileOrUser_IsShareMismatch()
     {

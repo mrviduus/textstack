@@ -316,7 +316,7 @@ accepted: two devices answering the same card offline both advance it.
 | `language` | string | yes | |
 | `chapterKey` | string | no | |
 | `fileId` | uuid | no | |
-| `sharedChapterId` | uuid | no | **same-chapter rule**: the share must be this user's, this book's, and carry the same `chapterKey` and the same `fileId` (both null or equal); else 422 `share_mismatch` |
+| `sharedChapterId` | uuid | no | **same-chapter rule**: the share must be this user's, this book's, and carry the same `chapterKey` and the same `fileId`; a checkpoint that names no `fileId` takes the share's (#1316: the assistant knows the share, not file versions); else 422 `share_mismatch` |
 
 ## The revision rule
 
