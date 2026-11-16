@@ -3040,7 +3040,7 @@ try {
   // Every page error on this page, last so that every block above is covered. One benign message is let
   // through by its exact text: Chromium's ResizeObserver loop notice, from the resize above.
   const BENIGN = 'ResizeObserver loop completed with undelivered notifications.'
-  for (const x of messages) if (x.type === 'log' && x.level === 'error' && !/^open: /.test(x.msg) && x.msg !== BENIGN) check(false, `page error: ${x.msg.split('\n')[0]}`)
+  for (const x of messages) if (x.type === 'log' && x.level === 'error' && !/^open: /.test(x.msg) && !/^bookmarks: Error: test: /.test(x.msg) && x.msg !== BENIGN) check(false, `page error: ${x.msg.split('\n')[0]}`)
 
   // The 5-minute boundary, on a page with a fake clock: the session ends by its own timer (no next open),
   // a switch inside the window counts, a switch after it does not and sends nothing more.

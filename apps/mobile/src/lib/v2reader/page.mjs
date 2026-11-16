@@ -56,12 +56,12 @@ const drawnRanges = new Map()
  * #1314, bookmarks (bookmarks.mjs: entry highlights of colour `BOOKMARK_COLOR`, never drawn):
  * - `placed`: the ids of the entry's bookmarks whose text is still at their CFI in this file (as a drawn highlight's is);
  * - `listed`: their `bookmark-list` items, built when the set changes (restore, addHighlights, add, remove), never per
- *   relocate; `listedVersion` counts the builds;
+ *   relocate; `listedVersion` counts its changes;
  * - `hereId`: the bookmark the place being read has (see `hereOf`), or null;
  * - `placing`: the restores and `addHighlights` calls not finished yet, and `awaitingMore`: the host said more
  *   annotations follow the restore (`restore(json, true)`): no bookmark can be made until they are placed, or one
  *   made meanwhile could be the twin of one still coming;
- * - `bookmarksSent`: what the last `bookmark-list` said (list build, here, can; every restore builds the list again).
+ * - `bookmarksSent`: what the last `bookmark-list` said (view, list version, here, can).
  */
 const placed = new Set()
 let listed = []
@@ -643,9 +643,11 @@ function postList() {
   post({ type: 'highlight-list', key: book.sha256, highlights: highlightList(entry.highlights, drawnIds(), compareCfi) })
 }
 
-/** The entry's bookmark list, built again (the set of found bookmarks changed). */
+/** The entry's bookmark list, built again (the set of found bookmarks may have changed); a new version only if it did. */
 function relist() {
-  listed = entry ? bookmarkList(entry.highlights, placed, compareCfi) : []
+  const next = entry ? bookmarkList(entry.highlights, placed, compareCfi) : []
+  if (JSON.stringify(next) === JSON.stringify(listed)) return
+  listed = next
   listedVersion++
 }
 
@@ -692,7 +694,7 @@ function postBookmarks(loc = view?.lastLocation, cause) {
     const place = loc?.range ? bookmarkRange(loc.range) : null
     hereId = hereOf(loc, cause, place)
     const can = canBookmark(place)
-    const sent = `${listedVersion}:${hereId}:${can}`
+    const sent = `${viewSeq}:${listedVersion}:${hereId}:${can}`
     if (sent === bookmarksSent) return
     bookmarksSent = sent
     post({ type: 'bookmark-list', key: book.sha256, bookmarks: listed, here: hereId, can })

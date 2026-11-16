@@ -701,9 +701,10 @@ test.describe('V2 reader page @v2', () => {
     await expect(rows.getByTestId('v2-bookmark-row')).toHaveCount(0)
     await expect(page.getByTestId('v2-not-saved')).toHaveCount(0)
 
-    // After a reload the server's feed has no live bookmark: none listed, none here.
+    // After a reload the server's feed has no live bookmark: none listed, none here. (The book opens where it was left, at The Woods.)
     await page.reload()
-    await expectOpened(page)
+    await expect(page.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
+    await expect(status(page)).toHaveText(/^\d+% · The Woods$/, { timeout: 20_000 })
     await expect(button(page)).toHaveAttribute('aria-label', 'Add bookmark', { timeout: 15_000 })
     await expect((await openBookmarks(page)).getByTestId('v2-bookmark-row')).toHaveCount(0)
     await context.close()
