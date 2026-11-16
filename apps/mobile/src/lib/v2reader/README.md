@@ -864,7 +864,7 @@ the whitelist in another app; `onShouldStartLoadWithRequest` (about:/blob:/data:
   placeholder). Sent `no-store` with a fresh nonce per response (16 random bytes, hex, nginx's `$request_id`;
   `fillNonce` takes nothing else) and its own headers (`V2_READER_FRAME_HEADERS`: `frame-ancestors 'self'`,
   `no-store, no-transform`, nosniff, `no-referrer`, `X-Robots-Tag: noindex`).
-- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,836,424 bytes; 1,767,401 gzipped by node's zlib default, #1312; #1260: OpenDyslexic adds about 120 KB of it):
+- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,865,725 bytes; 1,775,611 gzipped by node's zlib default, #1315; #1260: OpenDyslexic adds about 120 KB of it):
   the page's one script, byte for byte what the inline page runs, sent `public, max-age=31536000, immutable`,
   `text/javascript; charset=utf-8` (it is not ASCII), nosniff. A book open fetches the shell only; the script
   comes from the HTTP cache (ADR-029 Decision 4 as amended 2026-11-11). The format readers stay inside it as

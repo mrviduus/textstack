@@ -67,7 +67,10 @@ export function V2SearchDrawer({ open, search, onQuery, onGo, onClose }: Props) 
             </svg>
             <input
               ref={input}
-              type="search"
+              // Not type="search": Chromium and Safari add a clear button of their own beside ours.
+              type="text"
+              role="searchbox"
+              enterKeyHint="search"
               className="reader-search-drawer__input"
               aria-label={t('v2Reader.searchLabel')}
               placeholder={t('v2Reader.searchPlaceholder')}
