@@ -7,8 +7,8 @@ namespace Application.Identity;
 
 /// <summary>
 /// <see cref="IAuthService"/> on <c>textstack_v2</c> (M2.5b), over the identity ports and the shared
-/// <see cref="JwtTokens"/>. Registered nowhere: M5.1's <c>Database:Mode</c> picks it, and until then
-/// only tests build it. Admins sign in through <see cref="V2AdminAuthService"/>: here an admin account
+/// <see cref="JwtTokens"/>. Selected only with <c>Database:Mode=v2</c>. Admins sign in through
+/// <see cref="V2AdminAuthService"/>: here an admin account
 /// signs in only with its password, to a reader session.
 /// </summary>
 public sealed class V2AuthService(
@@ -106,7 +106,10 @@ public sealed class V2AuthService(
                 merged = await merges.MergeAsync(guestUserId, realUserId, null, ct);
             }
             if (merged.Outcome == AccountMergeOutcome.Merged)
+            {
+                deletion.DeleteReleasedFiles(merged.ReleasedKeys);
                 logger.LogInformation("guest_merged {TargetUserId} {GuestUserId} {Method}", realUserId, guestUserId, method);
+            }
             return merged;
         }
         // ADR-014, as legacy: a constraint the merge does not know (or a conflict the retry met again)
@@ -183,7 +186,8 @@ public sealed class V2AuthService(
     /// The new password, with every credential signed out and approved device logins expired
     /// (<see cref="ISessionTokenRepository.ResetPasswordAsync"/>). An access token minted before it
     /// mints nothing more: no session (<see cref="IssueSessionAsync"/>), no device approval, no MCP key.
-    /// ponytail: elsewhere such a token is accepted for the rest of its hour; M5.1 compares its <c>iat</c> with <see cref="UserAccount.CredentialsResetAt"/> per request, cached per user (#1092).
+    /// M5.1's request guard checks the signed issue time against <see cref="UserAccount.CredentialsResetAt"/>
+    /// on the current V2 account. It memoizes only within the request, never across a reset (#1092).
     /// </summary>
     public async Task<bool> ResetPasswordAsync(string token, string newPassword, CancellationToken ct)
     {

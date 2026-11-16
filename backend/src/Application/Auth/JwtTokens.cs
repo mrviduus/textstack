@@ -19,6 +19,8 @@ public sealed class JwtTokens
     /// <summary>Marks an admin-panel access token.</summary>
     public const string AdminClaimType = "is_admin";
 
+    public const string IssuedAtTicksClaim = "ts_iat_ticks";
+
     private static readonly JwtSecurityTokenHandler Handler = new();
 
     private readonly JwtSettings _jwt;
@@ -63,7 +65,7 @@ public sealed class JwtTokens
             if (userIdClaim == null) return null;
 
             var isGuest = principal.FindFirst(GuestClaimType)?.Value == "true";
-            return new AccessTokenIdentity(Guid.Parse(userIdClaim), isGuest, new DateTimeOffset(((JwtSecurityToken)validated).IssuedAt, TimeSpan.Zero));
+            return new AccessTokenIdentity(Guid.Parse(userIdClaim), isGuest, IssuedAt((JwtSecurityToken)validated));
         }
         catch
         {
@@ -84,26 +86,39 @@ public sealed class JwtTokens
     /// <summary>The admin an admin-panel token names and its role; <c>(null, null)</c> when it does not validate.</summary>
     public (Guid? AdminId, AdminRole? Role) ValidateAdminAccessToken(string accessToken)
     {
+        var identity = ValidateAdminAccessTokenIdentity(accessToken);
+        return (identity?.AdminId, identity?.Role);
+    }
+
+    public AdminAccessTokenIdentity? ValidateAdminAccessTokenIdentity(string accessToken)
+    {
         try
         {
-            var principal = Handler.ValidateToken(accessToken, _adminValidation, out _);
+            var principal = Handler.ValidateToken(accessToken, _adminValidation, out var validated);
 
             if (principal.FindFirst(AdminClaimType)?.Value != "true")
-                return (null, null);
+                return null;
 
             var adminIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (adminIdClaim == null || !Guid.TryParse(adminIdClaim, out var adminId))
-                return (null, null);
+                return null;
 
             var roleClaim = principal.FindFirst(ClaimTypes.Role)?.Value;
             AdminRole? role = roleClaim != null && Enum.TryParse<AdminRole>(roleClaim, out var parsed) ? parsed : null;
-            return (adminId, role);
+            return new AdminAccessTokenIdentity(adminId, role, IssuedAt((JwtSecurityToken)validated));
         }
         catch
         {
-            return (null, null);
+            return null;
         }
     }
+
+    // JWT iat is whole seconds. Keep full precision for reset checks, including a new sign-in
+    // during the same second as a reset. Old signed tokens retain the conservative iat fallback.
+    private static DateTimeOffset IssuedAt(JwtSecurityToken token) =>
+        token.Claims.SingleOrDefault(c => c.Type == IssuedAtTicksClaim) is { } claim
+            ? new DateTimeOffset(long.Parse(claim.Value, CultureInfo.InvariantCulture), TimeSpan.Zero)
+            : new DateTimeOffset(token.IssuedAt, TimeSpan.Zero);
 
     /// <summary>A new opaque secret (a refresh token, a reset code): the raw value goes to the client once, only its hash is stored.</summary>
     public static (string Raw, string Hash) NewOpaqueToken()
@@ -124,7 +139,8 @@ public sealed class JwtTokens
             issuer: _jwt.Issuer,
             audience: audience,
             claims: claims.Append(new Claim(JwtRegisteredClaimNames.Iat,
-                EpochTime.GetIntDate(now).ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64)),
+                EpochTime.GetIntDate(now).ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64))
+                .Append(new Claim(IssuedAtTicksClaim, now.Ticks.ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64)),
             expires: now.AddMinutes(expiryMinutes),
             signingCredentials: _signing);
         return Handler.WriteToken(token);
@@ -136,3 +152,5 @@ public sealed class JwtTokens
 /// (<c>iat</c>, whole seconds, UTC), which a credential minted from it is checked against (#1092).
 /// </summary>
 public sealed record AccessTokenIdentity(Guid UserId, bool IsGuest, DateTimeOffset IssuedAt);
+
+public sealed record AdminAccessTokenIdentity(Guid AdminId, AdminRole? Role, DateTimeOffset IssuedAt);

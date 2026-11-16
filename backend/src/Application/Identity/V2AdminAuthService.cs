@@ -11,8 +11,8 @@ namespace Application.Identity;
 /// <inheritdoc cref="IAdminAuthService"/>
 /// <remarks>
 /// On <c>textstack_v2</c> (M2.5b): an admin is an account with <c>role = 'admin'</c>
-/// (<see cref="AdminRole.Admin"/>; V2 has no editor or moderator, ADR-031 decided 7). Registered
-/// nowhere until M5.1, like <see cref="V2AuthService"/>.
+/// (<see cref="AdminRole.Admin"/>; V2 has no editor or moderator, ADR-031 decided 7).
+/// Selected with <c>Database:Mode=v2</c>, like <see cref="V2AuthService"/>.
 /// </remarks>
 public sealed class V2AdminAuthService(
     IUserRepository users,

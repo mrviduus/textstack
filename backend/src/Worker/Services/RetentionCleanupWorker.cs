@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Infrastructure.Persistence;
 
 namespace Worker.Services;
 
@@ -68,7 +69,6 @@ public class RetentionCleanupWorker(
     {
         using var scope = scopeFactory.CreateScope();
         var services = scope.ServiceProvider;
-        var db = services.GetRequiredService<IAppDbContext>();
 
         var now = DateTimeOffset.UtcNow;
         // A day past expiry: nothing reads an expired token (refresh filters on expiry, reuse detection
@@ -83,6 +83,9 @@ public class RetentionCleanupWorker(
             () => services.GetRequiredService<IDeviceLoginRepository>().DeleteExpiredAsync(tokenCutoff, ct), ct);
         await DeleteAsync("OAuth grants",
             () => services.GetRequiredService<IOAuthRepository>().DeleteDeadGrantsAsync(tokenCutoff, ct), ct);
+        // V2 identity cleanup must not keep mutating legacy after cutover. The remaining Ops sweeps are #1090.
+        if (services.GetService<DatabaseMode>()?.IsV2 == true) return;
+        var db = services.GetRequiredService<IAppDbContext>();
         // Traces keep their cost, tokens and latency for spend history; only the text goes.
         // Batches: the first run rewrites months of text (~750 MB); one statement would be one huge
         // transaction.

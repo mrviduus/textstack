@@ -47,7 +47,7 @@ public class GuestActivityMiddleware(RequestDelegate next)
     public static bool ShouldWrite(DateTimeOffset? lastWrittenAt, DateTimeOffset now) =>
         lastWrittenAt is not { } last || now - last >= DebounceInterval;
 
-    public async Task InvokeAsync(HttpContext context, AuthService authService, IMemoryCache cache)
+    public async Task InvokeAsync(HttpContext context, IAuthService authService, IMemoryCache cache)
     {
         await next(context);
 

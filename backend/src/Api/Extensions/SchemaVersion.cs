@@ -7,8 +7,9 @@ namespace Api.Extensions;
 /// The `migrator` compose service owns the schema (ADR-021, ADR-026); the Api never migrates, it
 /// only checks. A schema behind this build — after <c>migrate.sh down</c>, or a migrator that did
 /// not run — is reported (Critical log at start, <c>/health/ready</c> 503), never fatal.
-/// <c>textstack_v2</c> has a ledger of its own (<see cref="V2Known"/>), read only by
-/// <see cref="V2.V2Readiness"/>: a V2 schema that is behind gates <c>/me/v2/*</c>, never the site (#1053).
+/// <c>textstack_v2</c> has a ledger of its own (<see cref="V2Known"/>). While identity is legacy,
+/// <see cref="V2.V2Readiness"/> gates sync only (#1053); with V2 selected, its ledger is the primary
+/// startup/readiness check (<see cref="V2.SelectedDatabaseProbe"/>).
 /// </summary>
 internal static class SchemaVersion
 {

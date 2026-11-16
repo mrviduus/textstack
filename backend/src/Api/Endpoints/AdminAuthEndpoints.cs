@@ -1,4 +1,4 @@
-using Api.Mapping;
+using Api.V2;
 using Application.AdminAuth;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -12,7 +12,7 @@ public static class AdminAuthEndpoints
 
     public static void MapAdminAuthEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/admin/auth").WithTags("AdminAuth");
+        var group = app.MapGroup("/admin/auth").WithMetadata(V2SelectedRoute.Instance).WithTags("AdminAuth");
 
         group.MapPost("/login", Login)
             .WithName("AdminLogin")
@@ -24,7 +24,7 @@ public static class AdminAuthEndpoints
 
     private static async Task<IResult> Login(
         [FromBody] AdminLoginRequest request,
-        AdminAuthService authService,
+        IAdminAuthService authService,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -33,16 +33,16 @@ public static class AdminAuthEndpoints
         if (result == null)
             return Results.Unauthorized();
 
-        var (user, accessToken, refreshToken) = result.Value;
+        var (user, accessToken, refreshToken) = result;
 
         await SetAuthCookiesAsync(httpContext, authService, accessToken, refreshToken, ct);
 
         return Results.Ok(new AdminAuthResponse(
-            user.ToDto()));
+            user));
     }
 
     private static async Task<IResult> RefreshToken(
-        AdminAuthService authService,
+        IAdminAuthService authService,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -59,16 +59,16 @@ public static class AdminAuthEndpoints
             return Results.Unauthorized();
         }
 
-        var (user, newAccessToken, newRefreshToken) = result.Value;
+        var (user, newAccessToken, newRefreshToken) = result;
 
         await SetAuthCookiesAsync(httpContext, authService, newAccessToken, newRefreshToken, ct);
 
         return Results.Ok(new AdminAuthResponse(
-            user.ToDto()));
+            user));
     }
 
     private static async Task<IResult> Logout(
-        AdminAuthService authService,
+        IAdminAuthService authService,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -83,7 +83,7 @@ public static class AdminAuthEndpoints
     }
 
     private static async Task<IResult> GetCurrentAdmin(
-        AdminAuthService authService,
+        IAdminAuthService authService,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -103,12 +103,12 @@ public static class AdminAuthEndpoints
             return Results.Unauthorized();
 
         return Results.Ok(new AdminAuthResponse(
-            user.ToDto()));
+            user));
     }
 
     private static async Task SetAuthCookiesAsync(
         HttpContext httpContext,
-        AdminAuthService authService,
+        IAdminAuthService authService,
         string accessToken,
         string refreshToken,
         CancellationToken ct)

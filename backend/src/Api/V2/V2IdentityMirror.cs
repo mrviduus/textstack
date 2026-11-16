@@ -4,6 +4,7 @@ using Application.Common.Interfaces;
 using Application.Identity;
 using Application.Library;
 using Domain.Identity;
+using Infrastructure.Persistence;
 
 namespace Api.V2;
 
@@ -20,7 +21,8 @@ namespace Api.V2;
 /// </summary>
 public sealed class V2IdentityMirror(
     IConfiguration config, V2Readiness readiness, V2ShadowUsers shadows, IUserRepository users, V2AccountDeletion deletion,
-    IAccountMergeRepository merges, IAppDbContext legacy, ILibraryFileStore files, ILogger<V2IdentityMirror> logger)
+    IAccountMergeRepository merges, IAppDbContext legacy, ILibraryFileStore files, ILogger<V2IdentityMirror> logger,
+    DatabaseMode mode)
 {
     public TimeSpan Timeout { get; init; } = V2Follow.Budget;
 
@@ -81,6 +83,7 @@ public sealed class V2IdentityMirror(
             reason, subjectId, userId);
 
     private Task MirrorAsync(Guid subjectId, Guid userId, Func<CancellationToken, Task> mirror) =>
+        mode.IsV2 ? Task.CompletedTask :
         V2Follow.RunAsync(config, logger, "identity mirror", subjectId, userId, V2Follow.RowsLeftForTheEtlSweep, async ct =>
         {
             if ((await readiness.GetAsync()).IsReady) await mirror(ct);

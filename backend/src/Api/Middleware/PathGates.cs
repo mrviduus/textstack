@@ -33,7 +33,7 @@ public static class PathGates
             ctx => ctx.Request.Path.StartsWithSegments("/me") && !HttpMethods.IsOptions(ctx.Request.Method),
             branch => branch.Use(async (ctx, next) =>
             {
-                if (ctx.GetUserId(ctx.RequestServices.GetRequiredService<AuthService>()) is null)
+                if (ctx.GetUserId(ctx.RequestServices.GetRequiredService<IAuthService>()) is null)
                 {
                     ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     return;

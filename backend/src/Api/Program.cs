@@ -47,6 +47,7 @@ if (args is ["etl-v2", ..])
 
 // Host-level configuration (Kestrel/multipart limits + OpenTelemetry + Sentry).
 var writeFreeze = builder.Configuration.GetValue<bool>(WriteFreezeMiddleware.ConfigurationKey);
+var databaseMode = DatabaseMode.Read(builder.Configuration);
 builder.AddTextStackUploadLimits();
 builder.AddTextStackObservability();
 builder.AddTextStackSentry();
@@ -72,7 +73,7 @@ builder.Services
     .AddTextStackPersistence(connectionString, builder.Configuration)
     .AddTextStackSearchStack()
     .AddTextStackContentServices(builder.Configuration)
-    .AddTextStackHostedServices(writeFreeze)
+    .AddTextStackHostedServices(writeFreeze || databaseMode.IsV2)
     .AddTextStackRateLimiting(builder.Configuration)
     .AddTextStackV2Api();
 
@@ -115,7 +116,9 @@ if (!app.Environment.IsEnvironment("Test"))
     // pending list until the migrator catches up.
     try
     {
-        var pending = await SchemaVersion.PendingAsync(db.Database.GetDbConnection(), SchemaVersion.Known);
+        var selected = app.Services.GetRequiredService<Api.V2.SelectedDatabaseProbe>();
+        await using var active = await selected.OpenAsync(CancellationToken.None);
+        var pending = await SchemaVersion.PendingAsync(active, selected.KnownMigrations);
         if (pending.Count > 0)
             app.Logger.LogCritical(
                 "Database schema is behind this build: {PendingCount} pending migration(s), newest {NewestPending}. " +
@@ -132,7 +135,7 @@ if (!app.Environment.IsEnvironment("Test"))
     // abort startup, so it's guarded + logged rather than allowed to escape.
     try
     {
-        if (!writeFreeze)
+        if (!writeFreeze && !databaseMode.IsV2)
             await ModelRegistrySeeder.SeedAsync(
                 db, app.Services.GetRequiredService<IOptions<TextStack.Ai.Llm.OpenAiOptions>>().Value);
     }
@@ -232,11 +235,12 @@ app.UseStaticFiles(new StaticFileOptions
 });
 
 // Health check before site resolution (for infra probes)
-app.MapGet("/health", async (AppDbContext db) =>
+app.MapGet("/health", async (Api.V2.SelectedDatabaseProbe selected, CancellationToken ct) =>
 {
     try
     {
-        await db.Database.ExecuteSqlRawAsync("SELECT 1");
+        await using var conn = await selected.OpenAsync(ct);
+        await new Npgsql.NpgsqlCommand("SELECT 1", conn).ExecuteScalarAsync(ct);
         return Results.Ok("healthy");
     }
     catch
@@ -247,7 +251,7 @@ app.MapGet("/health", async (AppDbContext db) =>
 
 // Granular readiness probe — per-component status for ops dashboards.
 // db + storage are critical (503 on failure); ollama is soft (degraded, still 200).
-app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFactory, IConfiguration cfg, Api.V2.V2Readiness v2, CancellationToken ct) =>
+app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFactory, IConfiguration cfg, Api.V2.V2Readiness v2, Api.V2.SelectedDatabaseProbe selected, CancellationToken ct) =>
 {
     var started = DateTimeOffset.UtcNow;
     var components = new Dictionary<string, object>();
@@ -255,12 +259,13 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
 
     try
     {
-        await db.Database.ExecuteSqlRawAsync("SELECT 1", ct);
-        components["db"] = new { status = "ok" };
+        await using var conn = await selected.OpenAsync(ct);
+        await new Npgsql.NpgsqlCommand("SELECT 1", conn).ExecuteScalarAsync(ct);
+        components["db"] = new { status = "ok", mode = databaseMode.IsV2 ? "v2" : "legacy" };
     }
     catch (Exception ex)
     {
-        components["db"] = new { status = "down", error = ex.GetType().Name };
+        components["db"] = new { status = "down", mode = databaseMode.IsV2 ? "v2" : "legacy", error = ex.GetType().Name };
         criticalOk = false;
     }
 
@@ -273,7 +278,8 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
     {
         try
         {
-            var pending = await SchemaVersion.PendingAsync(db.Database.GetDbConnection(), SchemaVersion.Known, ct);
+            await using var conn = await selected.OpenAsync(ct);
+            var pending = await SchemaVersion.PendingAsync(conn, selected.KnownMigrations, ct);
             if (pending.Count == 0)
                 components["schema"] = new { status = "ok" };
             else
@@ -299,7 +305,8 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
     {
         try
         {
-            var drifted = await CollationDrift.DriftedAsync(db, ct);
+            await using var conn = await selected.OpenAsync(ct);
+            var drifted = await CollationDrift.DriftedAsync(conn, ct);
             components["collation"] = drifted.Count == 0
                 ? new { status = "ok" }
                 : new { status = "drift", databases = drifted };
@@ -362,31 +369,36 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
     // reported, not alarmed.
     try
     {
-        var newest = await db.SsgRebuildJobs
-            .Where(j => j.Status == SsgRebuildJobStatus.Completed && j.FinishedAt != null)
-            .OrderByDescending(j => j.FinishedAt)
-            .Select(j => j.FinishedAt)
-            .FirstOrDefaultAsync(ct);
+        if (databaseMode.IsV2)
+            components["ssg"] = new { status = "legacy" };
+        else
+        {
+            var newest = await db.SsgRebuildJobs
+                .Where(j => j.Status == SsgRebuildJobStatus.Completed && j.FinishedAt != null)
+                .OrderByDescending(j => j.FinishedAt)
+                .Select(j => j.FinishedAt)
+                .FirstOrDefaultAsync(ct);
 
-        // A run that is currently failing matters sooner than one that is
-        // merely old: rebuilds here are deploy-driven, so a quiet day can
-        // legitimately leave the newest one 19 hours behind — measured, not
-        // guessed — while a failure means the next one will not help either.
-        var lastFailed = await db.SsgRebuildJobs
-            .Where(j => j.FinishedAt != null)
-            .OrderByDescending(j => j.FinishedAt)
-            .Select(j => j.Status)
-            .FirstOrDefaultAsync(ct) == SsgRebuildJobStatus.Failed;
+            // A run that is currently failing matters sooner than one that is
+            // merely old: rebuilds here are deploy-driven, so a quiet day can
+            // legitimately leave the newest one 19 hours behind — measured, not
+            // guessed — while a failure means the next one will not help either.
+            var lastFailed = await db.SsgRebuildJobs
+                .Where(j => j.FinishedAt != null)
+                .OrderByDescending(j => j.FinishedAt)
+                .Select(j => j.Status)
+                .FirstOrDefaultAsync(ct) == SsgRebuildJobStatus.Failed;
 
-        components["ssg"] = newest is null
-            ? new { status = "unknown", lastSuccessAt = (DateTimeOffset?)null, ageHours = (double?)null, lastRunFailed = lastFailed }
-            : new
-            {
-                status = lastFailed ? "degraded" : "ok",
-                lastSuccessAt = newest,
-                ageHours = Math.Round((DateTimeOffset.UtcNow - newest.Value).TotalHours, 1),
-                lastRunFailed = lastFailed,
-            };
+            components["ssg"] = newest is null
+                ? new { status = "unknown", lastSuccessAt = (DateTimeOffset?)null, ageHours = (double?)null, lastRunFailed = lastFailed }
+                : new
+                {
+                    status = lastFailed ? "degraded" : "ok",
+                    lastSuccessAt = newest,
+                    ageHours = Math.Round((DateTimeOffset.UtcNow - newest.Value).TotalHours, 1),
+                    lastRunFailed = lastFailed,
+                };
+        }
     }
     catch (Exception ex)
     {
@@ -405,7 +417,9 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
 });
 
 // Site resolution middleware
-app.UseSiteContext();
+// V2 private routes are not site-scoped and must work without a legacy sites lookup.
+app.UseWhen(ctx => !databaseMode.IsV2 || !ctx.Request.Path.StartsWithSegments("/me"),
+    branch => branch.UseSiteContext());
 
 // Language resolution middleware (after site context)
 app.UseLanguageContext();
@@ -440,6 +454,7 @@ app.UseMiddleware<WriteFreezeMiddleware>();
 app.UseMiddleware<Api.Middleware.McpKeyAuthMiddleware>();
 
 app.UseRateLimiter();
+app.UseMiddleware<SelectedDatabaseGuard>();
 
 // Guest activity tracking (update LastActiveAt, debounced 10 min)
 app.UseWhen(_ => !writeFreeze, branch => branch.UseMiddleware<Api.Middleware.GuestActivityMiddleware>());

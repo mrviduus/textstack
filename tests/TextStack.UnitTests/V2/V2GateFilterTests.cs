@@ -59,7 +59,8 @@ public class V2GateFilterTests
         {
             [Api.Middleware.WriteFreezeMiddleware.ConfigurationKey] = writeFreeze.ToString(),
         }).Build();
-        var result = await new V2Gate(readiness ?? _ready, _shadows, _legacy.Object, _auth, config).InvokeAsync(new DefaultEndpointFilterInvocationContext(http), _ =>
+        var result = await new V2Gate(readiness ?? _ready, _shadows, _legacy.Object, _auth, config,
+            _v2Users.Object, new Infrastructure.Persistence.DatabaseMode(false)).InvokeAsync(new DefaultEndpointFilterInvocationContext(http), _ =>
         {
             reached = true;
             return endpointThrows is null ? ValueTask.FromResult<object?>(Results.Ok()) : throw endpointThrows;
