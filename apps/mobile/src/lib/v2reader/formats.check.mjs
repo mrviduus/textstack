@@ -3383,15 +3383,25 @@ try {
       const saved = messages.length
       call('window.__fol.goTo(2, true)')
       const stored = (await waitFor(saved, (x) => x.type === 'store', 'a saved place in the last chapter').catch(() => null))?.json
+      check(!!stored, 'two opens back to back: a saved place exists before reopening')
       await page.waitForTimeout(400)
       const at = messages.length
-      call(`window.__fol.openUrl(${JSON.stringify(bookAt('tsdeadtoc.epub'))}, "tsdeadtoc.epub"); window.__fol.openUrl(${JSON.stringify(bookAt('tschapters.epub'))}, "tschapters.epub")`)
+      // Force the earlier read to finish last: request arrival order must never pick the shown book.
+      const held = Promise.withResolvers(), released = Promise.withResolvers()
+      const earlier = bookAt('tsdeadtoc.epub')
+      const holdRead = async (route) => { held.resolve(); await released.promise; await route.fallback() }
+      await page.route(earlier, holdRead)
+      await call(`window.__fol.openUrl(${JSON.stringify(earlier)}, "tsdeadtoc.epub"); window.__fol.openUrl(${JSON.stringify(bookAt('tschapters.epub'))}, "tschapters.epub")`)
+      await held.promise
       const second = await waitFor(at, (x) => x.type === 'opened' && x.book?.name === 'tschapters.epub', 'the second of two opens').catch(() => null)
       await call(`window.__fol.restore(${JSON.stringify(stored)})`)
       const back = await waitFor(at, (x) => x.type === 'restored', 'the second open restored').catch(() => null)
+      released.resolve()
       await page.waitForTimeout(2500)
+      await page.unroute(earlier, holdRead)
       const landed = rels(at).at(-1)
       check(!!second && back?.position === 'restored' && landed?.index === 2 && landed.tocIndex === 2, `two opens back to back: the second is at its restored place (${back?.position}, ${ends(at)})`)
+      check(messages.slice(at).filter((x) => x.type === 'opened').every((x) => x.book?.name === 'tschapters.epub'), 'two opens back to back: the late first read never opens over the second')
       check(rels(at).every((x) => !x.chapterEnd || x.chapterEnd.tocIndex !== null), `two opens back to back: the first book's chapters say nothing of the second (${ends(at)})`)
     }
     call('window.__fol.__testHoldChapters(0)')

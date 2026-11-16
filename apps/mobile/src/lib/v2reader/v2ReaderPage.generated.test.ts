@@ -109,9 +109,11 @@ describe('v2ReaderPageHtml', () => {
     // The replaced book is destroyed (view.close() leaves it alive).
     expect(html).toMatch(/view\.close\(\);\s*\} catch \(\w+\) \{[\s\S]{0,200}?\}\s*destroy\(view == null \? void 0 : view\.book\);/)
     expect(html).not.toContain('saves.cancel')
-    // #1128: the format is sniffed (and a refusal answered) BEFORE the seq turns over, so a refused
-    // file leaves the open book reading and saving, like a failed read (#1168).
-    expect(html).toMatch(/function openFor\(bytes, name\) \{\s*let kind;\s*try \{\s*kind = sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*const mine = \+\+openSeq;\s*return open\(bytes, name, kind, mine\)/)
+    // Sniffing still precedes the view swap: a refused file leaves the shown book reading and saving.
+    // #1069: request order is assigned before reading, and stale read callbacks cannot open a book.
+    expect(html).toMatch(/function openFor\(bytes, name, mine\) \{\s*let kind;\s*try \{\s*kind = sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*return open\(bytes, name, kind, mine\)/)
+    expect(html).toMatch(/openUrl: \(url, name\) => \{\s*const mine = \+\+openSeq;\s*const \w+ = new XMLHttpRequest\(\)/)
+    expect(html).toMatch(/\w+\.onload = \(\) => \{\s*if \(mine !== openSeq\) return;/)
     expect(html).toMatch(/function highlightSelection\(color = "yellow"\) \{[\s\S]{0,600}?if \(!entry\) return log\("warn"/)
     // The open seq only goes up: a failed open answers `open-failed` and hands nothing back.
     expect(html).toMatch(/if \(mine === openSeq\) openFailed\(name, [^;]*;\s*\}\);/)

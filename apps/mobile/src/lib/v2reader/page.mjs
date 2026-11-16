@@ -1468,12 +1468,11 @@ const openFailed = (name, error) => post({ type: 'open-failed', name, error })
  * One `opened` or one `open-failed` per call — unless a newer openUrl took over first: then neither, except a
  * book already swapped in, which answers `opened` while it is still the view on screen (the newer open may yet fail).
  */
-function openFor(bytes, name) {
+function openFor(bytes, name, mine) {
   // Refused before anything is touched: a DRM book, a damaged KF8 or an unknown file leaves
-  // the open book reading, reporting and saving, like a failed read (#1168). No seq turnover, no session end.
+  // the open book reading, reporting and saving, like a failed read (#1168). No view swap, no session end.
   let kind
   try { kind = sniffFormat(bytes) } catch (e) { return openFailed(name, String(e?.message ?? e).slice(0, 200)) }
-  const mine = ++openSeq
   return open(bytes, name, kind, mine).catch((e) => {
     log('error', `open: ${e?.stack ?? e}`)
     // Failed before the swap: the book on screen never stopped reading (its view is still `viewSeq`).
@@ -1492,14 +1491,18 @@ window.__fol = {
   // Read by the page itself (Android: the host's interceptor, bookOrigin.mjs; web: a blob: URL): no book bytes
   // cross the bridge. `open-failed`: unreadable, not a book this page reads, DRM- or password-protected.
   openUrl: (url, name) => {
-    // The seq turns over in openFor, once the bytes are in hand: a failed READ leaves the previous
-    // book open, and its view must keep reporting and saving as if nothing happened (#1168).
+    // Order requests before reading: an older XHR may finish after the latest book has opened (#1069).
+    // viewSeq changes only at the swap, so a failed read still leaves the current book reading and saving.
+    const mine = ++openSeq
     const x = new XMLHttpRequest()
     x.responseType = 'arraybuffer'
-    x.onload = () => (x.status === 200 && x.response
-      ? openFor(new Uint8Array(x.response), name)
-      : openFailed(name, `cannot read the file (status ${x.status})`))
-    x.onerror = () => openFailed(name, 'cannot read the file')
+    x.onload = () => {
+      if (mine !== openSeq) return
+      return x.status === 200 && x.response
+        ? openFor(new Uint8Array(x.response), name, mine)
+        : openFailed(name, `cannot read the file (status ${x.status})`)
+    }
+    x.onerror = () => { if (mine === openSeq) openFailed(name, 'cannot read the file') }
     x.open('GET', url)
     x.send()
   },
