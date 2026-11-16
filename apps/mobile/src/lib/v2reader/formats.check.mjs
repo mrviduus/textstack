@@ -2967,6 +2967,8 @@ try {
     const byEntry = await textOf(0)
     check(byEntry?.error === 'unavailable', `no contents: no text by entry (${JSON.stringify(byEntry)})`)
     await page.setViewportSize({ width: 1280, height: 720 })
+    // The resize re-lays the open book out: its relocate is not the next book's.
+    await page.waitForTimeout(800)
 
     // No text the page can read on its own: a comic book, a PDF.
     // The PDF first, and given time to draw: a book opened over a page still rendering cancels it (pdf.js rejects).
