@@ -26,6 +26,7 @@ cp .env.example .env
 |----------|----------|---------|-------------|
 | `ASPNETCORE_ENVIRONMENT` | No | `Production` | `Development` / `Production` |
 | `ASPNETCORE_URLS` | No | `http://+:8080` | Listen URLs |
+| `MAINTENANCE_WRITE_FREEZE` | No | `false` | API HTTP write barrier → `Maintenance__WriteFreeze`; writes answer 503 `write_frozen` (`v2_unavailable` for `/me/v2`) with `Retry-After: 60`. Reads remain available; OAuth authorization GET/HEAD is blocked because it writes. Recreate the Api to change it; other writer processes must be stopped/drained separately. [M5.1 preparation](../internal/v2/m5-1-preparation.md) |
 
 ### Authentication
 

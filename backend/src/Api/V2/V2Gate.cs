@@ -24,7 +24,7 @@ namespace Api.V2;
 /// rather than after its TTL; a users FK violation is 401 instead and drops the shadow entry (the row
 /// is gone: a guest merged or an account deleted mid-request).
 /// </summary>
-public sealed class V2Gate(V2Readiness readiness, V2ShadowUsers shadows, IAppDbContext legacy, AuthService auth) : IEndpointFilter
+public sealed class V2Gate(V2Readiness readiness, V2ShadowUsers shadows, IAppDbContext legacy, AuthService auth, IConfiguration configuration) : IEndpointFilter
 {
     private static readonly string RetryAfterSeconds = ((int)V2Readiness.Ttl.TotalSeconds).ToString(CultureInfo.InvariantCulture);
 
@@ -35,7 +35,8 @@ public sealed class V2Gate(V2Readiness readiness, V2ShadowUsers shadows, IAppDbC
 
         var userId = http.GetUserId(auth)!.Value;
         if (!await V2ShadowUsers.HasLegacyAccountAsync(legacy, userId, http.RequestAborted)) return Results.Unauthorized();
-        if (!await shadows.EnsureAsync(legacy, userId, http.RequestAborted)) return Unavailable(http);
+        if (!await shadows.EnsureAsync(legacy, userId, http.RequestAborted,
+            readOnly: configuration.GetValue<bool>(Middleware.WriteFreezeMiddleware.ConfigurationKey))) return Unavailable(http);
         try
         {
             return await next(context);

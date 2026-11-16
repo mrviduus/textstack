@@ -71,7 +71,8 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
 
             // Throttled: an assistant makes one request per tool call. Writing this per request
             // would put an UPDATE in front of every read of the user's own library.
-            if (key.LastUsedAt is null || DateTimeOffset.UtcNow - key.LastUsedAt.Value >= McpKeys.LastUsedWriteInterval)
+            if (!config.GetValue<bool>(WriteFreezeMiddleware.ConfigurationKey)
+                && (key.LastUsedAt is null || DateTimeOffset.UtcNow - key.LastUsedAt.Value >= McpKeys.LastUsedWriteInterval))
                 await keys.TouchAsync(key.Id, context.RequestAborted);
         }
 
@@ -94,7 +95,8 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
         // Marks the request as library-scoped; OAuthTokenPolicy refuses account management for it.
         context.Items[OAuthTokenItemKey] = true;
 
-        if (grant.LastUsedAt is null || now - grant.LastUsedAt.Value >= McpKeys.LastUsedWriteInterval)
+        if (!config.GetValue<bool>(WriteFreezeMiddleware.ConfigurationKey)
+            && (grant.LastUsedAt is null || now - grant.LastUsedAt.Value >= McpKeys.LastUsedWriteInterval))
             await oauth.TouchAsync(grant.Id, context.RequestAborted);
     }
 }

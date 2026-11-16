@@ -70,6 +70,34 @@ public class IdentityMiddlewareTests
         public override DateTimeOffset GetUtcNow() => now;
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task McpKeyAuth_Frozen_AuthenticatesWithoutWritingUseStamp(bool oauthToken)
+    {
+        var userId = Guid.NewGuid();
+        var keys = new Mock<IMcpKeyRepository>();
+        var oauth = new Mock<IOAuthRepository>();
+        keys.Setup(k => k.GetLiveByHashAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new McpConnectKey { Id = Guid.NewGuid(), UserId = userId });
+        oauth.Setup(o => o.GetByAccessTokenAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OAuthTokenGrant { Id = Guid.NewGuid(), UserId = userId });
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            [WriteFreezeMiddleware.ConfigurationKey] = "true",
+        }).Build();
+        var http = Request(oauthToken ? "tso_" + new string('a', 64) : McpKeys.Generate());
+        var reached = false;
+
+        await new McpKeyAuthMiddleware(_ => { reached = true; return Task.CompletedTask; })
+            .InvokeAsync(http, keys.Object, oauth.Object, config);
+
+        Assert.True(reached);
+        Assert.Equal(userId, http.Items[McpKeyAuthMiddleware.UserIdItemKey]);
+        keys.Verify(k => k.TouchAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never());
+        oauth.Verify(o => o.TouchAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never());
+    }
+
     [Fact]
     public void GetAccessTokenIdentity_TokenMintedEarlier_CarriesItsIatAndIsMemoized()
     {

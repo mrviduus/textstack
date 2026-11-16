@@ -12,8 +12,11 @@ public static partial class ServiceCollectionExtensions
     /// <see cref="AddTextStackContentServices"/> (before this call in Program.cs), keeping it
     /// first in the sequence exactly as before.
     /// </summary>
-    public static IServiceCollection AddTextStackHostedServices(this IServiceCollection services)
+    public static IServiceCollection AddTextStackHostedServices(this IServiceCollection services, bool writeFreeze = false)
     {
+        // A newly recreated frozen Api must not start background database writers.
+        if (writeFreeze) return services;
+
         // Vocabulary anti-spiral: periodic auto-retire sweep (F4)
         services.AddHostedService<AutoRetireSweeperWorker>();
 
