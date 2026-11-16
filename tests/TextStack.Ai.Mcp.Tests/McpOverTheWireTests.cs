@@ -1104,6 +1104,22 @@ public class McpOverTheWireTests(McpOverTheWireTests.V2Bridge v2) : IAsyncLifeti
     }
 
     [Fact]
+    public async Task SaveCheckpoint_V2OptionNamingAShare_CarriesThatSharesFileVersionAndNoneForAShareWithout()
+    {
+        await using var client = await ConnectV2Async();
+        var (ofApp, ofTool, ofNone) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+
+        AssertOk(await CallAsync(client, "save_checkpoint", Checkpoint(ofApp, sharedChapterId: StubBackend.AppShareId)));
+        AssertOk(await CallAsync(client, "save_checkpoint", Checkpoint(ofTool, sharedChapterId: StubBackend.SharedChapterId)));
+        AssertOk(await CallAsync(client, "save_checkpoint", Checkpoint(ofNone)));
+
+        var app = Sent("v2_checkpoint", ofApp)[0];
+        Assert.Equal((StubBackend.AppShareFileId, StubBackend.AppShareId), (app.GetProperty("fileId").GetString(), app.GetProperty("sharedChapterId").GetString()));
+        Assert.False(Sent("v2_checkpoint", ofTool)[0].TryGetProperty("fileId", out _));
+        Assert.False(Sent("v2_checkpoint", ofNone)[0].TryGetProperty("fileId", out _));
+    }
+
+    [Fact]
     public async Task GetSharedChapter_V2Option_ReturnsTheSharesTextAndIdsAsStored()
     {
         await using var client = await ConnectV2Async();

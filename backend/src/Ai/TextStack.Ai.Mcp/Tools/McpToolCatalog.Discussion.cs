@@ -61,8 +61,8 @@ public sealed partial class McpToolCatalog
 
             return InvokeAsync("share_chapter", ct, async () =>
             {
-                // ponytail: no fileId — the bridge does not know file versions, so an MCP checkpoint cannot name
-                // a share the app made with one (422 share_mismatch); #1098.
+                // ponytail: no fileId — the bridge does not know file versions; a share the app made carries one
+                // (#1316), and save_checkpoint takes it from the share it names. #1098.
                 var shared = await api.ShareChapterAsync(bookId,
                     new ShareChapterRequest(operationId, null, chapterKey, chapterTitle, chapterText, notes ?? NoNotes, language), ct);
                 if (Refused("share_chapter", shared, bookId) is { } refused) return refused;
@@ -172,9 +172,18 @@ public sealed partial class McpToolCatalog
 
             return InvokeAsync("save_checkpoint", ct, async () =>
             {
+                // A share the app made names its file version (#1316), and a checkpoint must name the same one: read
+                // from the share itself (the caller's own, or the server's 404). One not found goes on without it and
+                // the server answers what it is (share_mismatch).
+                Guid? fileId = null;
+                if (sharedChapterId is { } shareId
+                    && (await api.GetSharedChapterAsync(shareId, ct)).Value is { ValueKind: JsonValueKind.Object } share
+                    && share.TryGetProperty("fileId", out var file) && file.ValueKind == JsonValueKind.String
+                    && file.TryGetGuid(out var id))
+                    fileId = id;
                 var saved = await api.SaveCheckpointAsync(bookId, new CheckpointRequest(
                     operationId, topic, readerThoughts, assistantSuggestions, conclusions, openQuestions,
-                    language, chapterKey, null, sharedChapterId), ct);
+                    language, chapterKey, fileId, sharedChapterId), ct);
                 if (Refused("save_checkpoint", saved, bookId) is { } refused) return refused;
                 return Text(JsonSerializer.Serialize(new { id = saved.Value.GetProperty("id"), createdAt = saved.Value.GetProperty("createdAt"), saved = true }, UnescapedJson));
             });
