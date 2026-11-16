@@ -15,6 +15,13 @@ export function highlightList(
   drawn: Set<string>,
   compare: (a: string, b: string) => number,
 ): V2HighlightItem[]
+/** One list item without its colour (a bookmark's, #1314). */
+export interface V2ListItem { id: string; cfi: string; text: string; at: number | null }
+type Listed = { id: string; cfi: string; color?: string; selectedText?: string; quote?: string; at?: number }
+export function listItems(highlights: Listed[], ids: Set<string>, compare: (a: string, b: string) => number, color?: false): V2ListItem[]
+export function listItems(highlights: Listed[], ids: Set<string>, compare: (a: string, b: string) => number, color: true): V2HighlightItem[]
+export function readItems(list: unknown[], color?: false): V2ListItem[]
+export function readItems(list: unknown[], color: true): V2HighlightItem[]
 export function sameRangeHighlight<H extends { id: string; cfi: string }>(highlights: H[], cfi: string, drawn: Set<string>): H | undefined
 export function readHighlightList(m: unknown): { key: string; highlights: V2HighlightItem[] } | null
 /** A tap on a drawn highlight: its id, the highlight's box and where the tap landed (page-viewport px, `tap`'s space). */

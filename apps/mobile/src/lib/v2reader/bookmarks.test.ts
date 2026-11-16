@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { BOOKMARK, BOOKMARK_TEXT, bookmarkList, bookmarkRange, bookmarkText, isBookmark, readBookmarkList, startsWithin } from './bookmarks.mjs'
+import { BOOKMARK_COLOR as BOOKMARK } from '../../../../../packages/shared/src/reader/v2PageStore'
+import { BOOKMARK_TEXT, atTop, lineCount, bookmarkList, bookmarkRange, bookmarkText, isBookmark, readBookmarkList, startsWithin } from './bookmarks.mjs'
 import { foldText } from './store.mjs'
 import { HIGHLIGHT_COLORS, highlightList } from './highlights.mjs'
 
@@ -104,19 +105,113 @@ describe('v2 reader bookmarks', () => {
     expect(bookmarkText(bookmarkRange(visible)!)).toBe('two three')
   })
 
-  it('bookmarkText_ACdataSectionInTheRange_ItsTextKept_AsARangesOwnTextKeepsIt', () => {
-    // A CDATA section is text to a range (DOM: a Text node); a label without it would not read as the text at the
-    // CFI, and the bookmark would never restore. (jsdom's own Range text leaves it out, so the range is not asked here.)
-    const doc = new DOMParser().parseFromString('<html xmlns="http://www.w3.org/1999/xhtml"><body><p>One<![CDATA[ cdata ]]></p><p>Two</p></body></html>', 'application/xhtml+xml')
-    const [one, two] = [doc.querySelector('p')!.firstChild!, doc.querySelectorAll('p')[1].firstChild!]
-    const r = doc.createRange()
-    r.setStart(one, 0)
-    r.setEnd(two, 3)
-    expect(bookmarkText(r)).toBe('One cdata Two')
+  it('bookmarkRangeAndText_AStyleScriptOrNoscriptInsideTheFirstWords_NotInTheLabel_NorCounted', () => {
+    // reader-engine's text nodes: what is not the book's text is neither kept nor counted against the cap.
+    const html = `<p>One <style>p { color: red }</style>two <script>var x = 1</script>three<noscript>no script here</noscript> four ${'x'.repeat(200)}</p>`
+    const r = bookmarkRange(screen(html))!
+    const label = bookmarkText(r)
+    expect(label).toBe(`One two three four ${'x'.repeat(BOOKMARK_TEXT - 19)}`)
+    expect(label).toHaveLength(BOOKMARK_TEXT)
+  })
+
+  it('bookmarkText_LinesSeparatedByABr_ASpaceBetweenThem', () => {
+    expect(bookmarkText(bookmarkRange(screen('<p>Line one<br>Line two<br/> Line three</p>'))!)).toBe('Line one Line two Line three')
+    // A <br> elsewhere in the block separates nothing here: after both pieces, or before both.
+    expect(bookmarkText(bookmarkRange(screen('<p><b>W</b>ord and<br>next</p>'))!)).toBe('Word and next')
+    expect(bookmarkText(bookmarkRange(screen('<p>one<br><b>t</b>wo</p>'))!)).toBe('one two')
+  })
+
+  it('bookmarkText_ARangeEndingAtTheNextBlocksStart_NoTrailingSpace', () => {
+    const r = screen('<p id="a">One two</p><p id="b">three</p>', ['#a', 0], ['#b', 0])
+    expect(bookmarkText(r)).toBe('One two')
+  })
+
+  it('bookmarkRange_BlankScreenStartingInsideANode_Null', () => {
+    expect(bookmarkRange(screen('<p id="a">One   </p><p> </p>', ['#a', 3]))).toBeNull()
   })
 
   it('bookmarkText_OneTextNode_ItsText', () => {
     expect(bookmarkText(bookmarkRange(screen('<p id="a">One two three four.</p>', ['#a', 3], ['#a', 13]))!)).toBe('two three')
+  })
+
+  describe('at the top of the screen (by the layout: rects given here, the live ones in the format check)', () => {
+    // Three paragraphs of one text node each; a "layout" of 40 characters per line, lines 20 apart, 14 high.
+    const HTML = `<p id="a">${'a'.repeat(120)}</p><p id="b">${'b'.repeat(120)}</p><p id="c">${'c'.repeat(120)}</p>`
+    const lineOf = (node: Node, offset: number) => ['a', 'b', 'c'].indexOf((node.parentElement as HTMLElement).id) * 3 + Math.floor(offset / 40)
+    /** One rect per line the range touches (its last character's line included, not the position after it). */
+    const rects = (vertical = false) => (r: Range) => {
+      const [from, to] = [lineOf(r.startContainer, r.startOffset), lineOf(r.endContainer, Math.max(r.endOffset - 1, 0))]
+      return Array.from({ length: to - from + 1 }, (_, k) => (vertical
+        ? { left: (from + k) * 20, top: 0, width: 14, height: 300 }
+        : { top: (from + k) * 20, left: 0, height: 14, width: 300 }))
+    }
+    const at = (sel: string, o: number) => {
+      const r = document.createRange()
+      const t = document.querySelector(sel)!.firstChild!
+      r.setStart(t, o)
+      r.setEnd(t, o + 5)
+      return r
+    }
+    const top = (place: Range, mark: Range, scrolled: boolean) => atTop(place, mark, { scrolled, rects: rects() })
+
+    it('lineCount_RectsOnOneLineCountOnce_ByTheBlockAxis', () => {
+      expect(lineCount([])).toBe(0)
+      // Two fragments of one line (a taller one starting a little higher), then two more lines.
+      expect(lineCount([{ top: 100, left: 0, width: 50, height: 14 }, { top: 97, left: 50, width: 20, height: 20 }, { top: 120, left: 0, width: 80, height: 14 }, { top: 140, left: 0, width: 80, height: 14 }])).toBe(3)
+      // A box with no size along the block axis is no line.
+      expect(lineCount([{ top: 100, left: 0, width: 50, height: 0 }])).toBe(0)
+      // A vertical book: lines run across the page.
+      expect(lineCount([{ top: 0, left: 100, width: 14, height: 80 }, { top: 80, left: 100, width: 14, height: 40 }, { top: 0, left: 80, width: 14, height: 80 }], true)).toBe(2)
+      expect(lineCount([{ top: 0, left: 100, width: 14, height: 80 }, { top: 80, left: 100, width: 14, height: 40 }, { top: 0, left: 80, width: 14, height: 80 }])).toBe(2)
+    })
+
+    it('atTop_StartsWhereTheScreenDoes_BothFlows', () => {
+      document.body.innerHTML = HTML
+      for (const scrolled of [false, true]) expect(top(at('#b', 0), at('#b', 0), scrolled)).toBe(true)
+    })
+
+    it('atTop_LaterOnTheScreensFirstLine_Yes_ALineFurtherDown_No_BothFlows', () => {
+      document.body.innerHTML = HTML
+      for (const scrolled of [false, true]) {
+        expect(top(at('#b', 0), at('#b', 30), scrolled)).toBe(true)
+        expect(top(at('#b', 0), at('#b', 40), scrolled)).toBe(false)
+        expect(top(at('#b', 0), at('#c', 0), scrolled)).toBe(false)
+      }
+    })
+
+    it('atTop_AboveTheScreensFirstLine_ScrolledUpToTwoLines_PaginatedNever', () => {
+      document.body.innerHTML = HTML
+      // The screen's first whole line is #b's second (offset 40): one above, two above (another block), three above.
+      const place = at('#b', 40)
+      expect(top(place, at('#b', 0), true)).toBe(true)
+      expect(top(place, at('#a', 80), true)).toBe(true)
+      expect(top(place, at('#a', 79), true)).toBe(false)
+      // Paginated: what is before the screen's start is the page before.
+      expect(top(place, at('#b', 39), false)).toBe(false)
+      expect(top(place, at('#b', 0), false)).toBe(false)
+    })
+
+    it('atTop_AVerticalBook_LinesCountedAcrossThePage', () => {
+      document.body.innerHTML = HTML
+      const opts = { scrolled: true, vertical: true, rects: rects(true) }
+      expect(atTop(at('#b', 40), at('#b', 0), opts)).toBe(true)
+      expect(atTop(at('#b', 40), at('#a', 79), opts)).toBe(false)
+      // The same rects read as a horizontal book are all one line: the axis matters.
+      expect(atTop(at('#b', 40), at('#a', 79), { ...opts, vertical: false })).toBe(true)
+    })
+
+    it('atTop_NoLayoutOrAnotherDocument_No', () => {
+      document.body.innerHTML = HTML
+      // Nothing laid out (no rects), or a DOM that cannot say (jsdom has no Range rects: it throws): nothing but the
+      // same start is at the top.
+      expect(atTop(at('#b', 0), at('#b', 5), { rects: () => [] })).toBe(false)
+      expect(atTop(at('#b', 0), at('#b', 5))).toBe(false)
+      expect(atTop(at('#b', 0), at('#b', 0))).toBe(true)
+      const other = new DOMParser().parseFromString('<p>One two three.</p>', 'text/html')
+      const r = other.createRange()
+      r.selectNodeContents(other.body)
+      expect(atTop(at('#b', 0), r, { scrolled: true, rects: rects() })).toBe(false)
+    })
   })
 
   it('startsWithin_AtOrAfterTheStartAndBeforeTheEnd', () => {

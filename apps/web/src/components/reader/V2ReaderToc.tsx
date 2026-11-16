@@ -26,7 +26,11 @@ interface HighlightsTab {
 interface BookmarksTab {
   /** The page's `bookmark-list` items (in book order). */
   items: V2BookmarkItem[]
+  /** One can be made at the place on screen (the page's `can`): the empty list says how, or that this page takes none. */
+  can: boolean
   onGo: (item: V2BookmarkItem) => void
+  /** The row's remove button: the page removes it and the host tombstones it, wherever in the book it is. */
+  onRemove: (id: string) => void
 }
 
 /**
@@ -116,15 +120,23 @@ export function V2TocDrawer({ open, toc, tocIndex, onGo, onClose, highlights, bo
           <ul className="reader-toc-drawer__list" data-testid="v2-bookmarks-list">
             {bookmarks.items.map((b) => (
               <li key={b.id} className="reader-toc-drawer__bookmark-item">
-                <button type="button" className="reader-toc-drawer__item reader-toc-drawer__hl-item" onClick={() => { bookmarks.onGo(b); onClose() }}>
+                <button type="button" className="reader-toc-drawer__item reader-toc-drawer__hl-item" data-testid="v2-bookmark-row" onClick={() => { bookmarks.onGo(b); onClose() }}>
                   {/* The book's text: React text only (untrusted). */}
                   <span className="reader-toc-drawer__hl-body">
                     <span className="reader-toc-drawer__hl-text">{b.text}</span>
                   </span>
                 </button>
+                {/* Named by the bookmark's words: a screen reader tells the rows' buttons apart. */}
+                <button type="button" className="reader-toc-drawer__remove" data-testid="v2-bookmark-remove" aria-label={`${t('reader.chrome.removeBookmark')}: ${b.text}`} title={t('reader.chrome.removeBookmark')} onClick={() => bookmarks.onRemove(b.id)}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
               </li>
             ))}
-            {bookmarks.items.length === 0 && <li className="reader-toc-drawer__empty">{t('reader.chrome.bookmarksEmpty')}</li>}
+            {bookmarks.items.length === 0 && (
+              <li className="reader-toc-drawer__empty">{t(bookmarks.can ? 'reader.chrome.bookmarksEmpty' : 'reader.chrome.bookmarksNotHere')}</li>
+            )}
           </ul>
         )}
         {tab === 'contents' && <ul className="reader-toc-drawer__list">

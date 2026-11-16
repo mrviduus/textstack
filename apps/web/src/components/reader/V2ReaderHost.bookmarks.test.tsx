@@ -36,12 +36,12 @@ function fromPage(m: object) {
 }
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve() })
 
-function opened({ sync, annotatable = true, toc = [] as object[] }: { sync?: V2SyncTarget; annotatable?: boolean; toc?: object[] } = {}) {
+function opened({ sync, annotatable = true, bookmarkable = annotatable, toc = [] as object[] }: { sync?: V2SyncTarget; annotatable?: boolean; bookmarkable?: boolean; toc?: object[] } = {}) {
   const book: V2HostBook = { bytes: new ArrayBuffer(8), name: 'a.epub', sync }
   const view = render(<MemoryRouter><V2ReaderHost book={book} idleHeading="idle" dev={!sync} /></MemoryRouter>)
   vi.spyOn(frame().contentWindow!, 'postMessage').mockImplementation(((m: { call: string; args: unknown[] }) => { posted.push(m) }) as never)
   fromPage({ type: 'ready' })
-  fromPage({ type: 'opened', title: 'Walden', lang: 'en', annotatable, toc, book: { sha256: SHA, size: 8, name: '1/a.epub' } })
+  fromPage({ type: 'opened', title: 'Walden', lang: 'en', annotatable, bookmarkable, toc, book: { sha256: SHA, size: 8, name: '1/a.epub' } })
   posted = []
   return view
 }
@@ -54,6 +54,8 @@ const openTab = () => {
   fireEvent.click(screen.getByTestId('v2-bookmarks-tab'))
   return screen.getByTestId('v2-bookmarks-list')
 }
+/** The rows' jump buttons (each row has a remove button too). */
+const rows = (ul: HTMLElement) => within(ul).getAllByTestId('v2-bookmark-row')
 
 describe('V2ReaderHost bookmarks', () => {
   it('button_NoneHere_AddsOneThroughThePage', () => {
@@ -85,7 +87,8 @@ describe('V2ReaderHost bookmarks', () => {
   })
 
   it('button_ABookWithoutAnnotations_NotOffered_NoTab', () => {
-    opened({ annotatable: false, toc: [{ label: 'One', href: 'a.xhtml', depth: 0 }] })
+    // (Whatever the page says of bookmarks: where the host offers no annotations it writes none.)
+    opened({ annotatable: false, bookmarkable: true, toc: [{ label: 'One', href: 'a.xhtml', depth: 0 }] })
     list([], null, true)
     expect(button()).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Contents' }))
@@ -96,7 +99,8 @@ describe('V2ReaderHost bookmarks', () => {
     opened()
     list([item(ID2, 'first in the book', 2), item(ID1, 'later', 6)])
     const ul = openTab()
-    expect(within(ul).getAllByRole('button').map((b) => b.textContent)).toEqual(['first in the book', 'later'])
+    expect(rows(ul).map((b) => b.textContent)).toEqual(['first in the book', 'later'])
+    expect(ul).not.toHaveTextContent('No bookmarks yet')
     expect(screen.getByTestId('v2-bookmarks-tab')).toHaveTextContent('Bookmarks (2)')
     fireEvent.click(within(ul).getByText('later'))
     // Chosen: the page saves where it lands.
@@ -104,10 +108,36 @@ describe('V2ReaderHost bookmarks', () => {
     expect(screen.queryByTestId('v2-bookmarks-list')).toBeNull()
   })
 
-  it('list_Empty_SaysSo', () => {
+  it('list_Empty_SaysHowToAddOne_OrThatThisPageTakesNone', () => {
     opened()
     list([])
     expect(openTab()).toHaveTextContent('No bookmarks yet. Add one to come back to a place.')
+    // An image-only screen of a book with text: the page says none can be made here.
+    list([], null, false)
+    expect(screen.getByTestId('v2-bookmarks-list')).toHaveTextContent('No bookmarks yet. This page cannot be bookmarked.')
+  })
+
+  it('row_ItsRemoveButton_NamedByTheBookmarksWords_RemovesThatOneThroughThePage_TheListStaysOpen', () => {
+    opened()
+    // Neither is the one here: a bookmark further down the screen, or anywhere else in the book.
+    list([item(ID2, 'first in the book', 2), item(ID1, 'later', 6)])
+    const ul = openTab()
+    fireEvent.click(within(ul).getByRole('button', { name: 'Remove bookmark: later' }))
+    expect(posted.filter((m) => /Bookmark|goTo/.test(m.call))).toEqual([{ call: 'removeBookmark', args: [ID1] }])
+    expect(screen.getByTestId('v2-bookmarks-list')).toBeInTheDocument()
+  })
+
+  it('tab_ABookThatTakesNoBookmark_NoTab_UnlessItHoldsSome', () => {
+    // A pre-paginated EPUB: highlights are offered, a bookmark can be made nowhere.
+    opened({ bookmarkable: false, toc: [{ label: 'One', href: 'a.xhtml', depth: 0 }] })
+    list([], null, false)
+    fireEvent.click(screen.getByRole('button', { name: 'Contents' }))
+    expect(screen.getByTestId('v2-highlights-tab')).toBeInTheDocument()
+    expect(screen.queryByTestId('v2-bookmarks-tab')).toBeNull()
+    // One it holds all the same (made elsewhere) is listed, and can be removed.
+    list([item(ID1, 'kept')], null, false)
+    fireEvent.click(screen.getByTestId('v2-bookmarks-tab'))
+    expect(rows(screen.getByTestId('v2-bookmarks-list')).map((b) => b.textContent)).toEqual(['kept'])
   })
 
   it('list_AnotherBooksList_Dropped_AMalformedItemDropped_HereOfADroppedItemIsNone', () => {
@@ -116,7 +146,7 @@ describe('V2ReaderHost bookmarks', () => {
     // A previous open's list, arriving late, replaces nothing.
     list([item(ID1, 'other book')], ID1, true, 'bb')
     expect(button()).toHaveAttribute('aria-label', 'Add bookmark')
-    expect(within(openTab()).getAllByRole('button').map((b) => b.textContent)).toEqual(['kept'])
+    expect(rows(openTab()).map((b) => b.textContent)).toEqual(['kept'])
   })
 
   it('list_UntrustedText_RenderedAsText', () => {
@@ -134,7 +164,7 @@ describe('V2ReaderHost bookmarks', () => {
     // Another book is opened: the one still on screen keeps no bookmark button of its own meanwhile.
     view.rerender(<MemoryRouter><V2ReaderHost book={{ bytes: new ArrayBuffer(8), name: 'b.epub' }} idleHeading="idle" dev /></MemoryRouter>)
     expect(button()).toBeNull()
-    fromPage({ type: 'opened', title: 'Other', lang: 'en', annotatable: true, toc: [], book: { sha256: 'cc', size: 8, name: '2/b.epub' } })
+    fromPage({ type: 'opened', title: 'Other', lang: 'en', annotatable: true, bookmarkable: true, toc: [], book: { sha256: 'cc', size: 8, name: '2/b.epub' } })
     // Until this open's own list comes: no button, an empty tab; the old book's late list is not this one's.
     list([item(ID1, 'old book')], ID1)
     expect(button()).toBeNull()
@@ -170,6 +200,18 @@ describe('V2ReaderHost bookmarks', () => {
       expect(button()).toBeNull()
       landed({ items: [] })
       await flush()
+      expect(button()).toHaveAttribute('aria-label', 'Add bookmark')
+    })
+
+    it('thePageIsToldMoreFollows_AndAlwaysGetsThem_AnEmptyPullToo_SoItSaysWhenOneCanBeMade', async () => {
+      await openedSynced([])
+      // `true`: annotations follow; the page makes no bookmark until `addHighlights` has placed them.
+      expect(calls('restore').map((a) => a[1])).toEqual([true])
+      expect(calls('addHighlights')).toEqual([[[]]])
+      // The button follows the page's `can`, never the pull's timing.
+      list([], null, false)
+      expect(button()).toBeNull()
+      list([], null, true)
       expect(button()).toHaveAttribute('aria-label', 'Add bookmark')
     })
 

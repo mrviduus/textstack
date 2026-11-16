@@ -653,6 +653,7 @@
   "reader.chrome.bookmarks": "Bookmarks",
   "reader.chrome.addBookmark": "Add bookmark",
   "reader.chrome.removeBookmark": "Remove bookmark",
+  "reader.chrome.bookmarksNotHere": "No bookmarks yet. This page cannot be bookmarked.",
   "reader.chrome.bookmarksEmpty": "No bookmarks yet. Add one to come back to a place.",
   "reader.chrome.closeBookmarks": "Close bookmarks",
   "reader.chrome.settings": "Reading settings",

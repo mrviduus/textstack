@@ -665,6 +665,7 @@
       "addBookmark": "Add bookmark",
       "removeBookmark": "Remove bookmark",
       "bookmarksEmpty": "No bookmarks yet. Add one to come back to a place.",
+      "bookmarksNotHere": "No bookmarks yet. This page cannot be bookmarked.",
       "closeBookmarks": "Close bookmarks",
       "settings": "Reading settings",
       "closeSettings": "Close reading settings"

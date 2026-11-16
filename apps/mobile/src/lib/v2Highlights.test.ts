@@ -28,6 +28,8 @@ describe('upload highlights on V2', () => {
       expect((await userBookHighlightsApi.getUserBookHighlights('b-list')).map((h) => h.id)).toEqual(['q1'])
     } finally {
       vi.unstubAllGlobals()
+      // The rows pulled here are not the next test's.
+      store.reset()
     }
   })
 

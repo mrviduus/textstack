@@ -232,13 +232,13 @@ fraction`, `clientRecordedAt = at`.
 | `deletedAt` | time | server | tombstone; set by `DELETE` |
 | `revision`, `createdAt`, `updatedAt` | | server | |
 
-**Bookmarks (#1314, ADR-031 "Amended 2026-11-15").** A bookmark is an annotation whose `color` is `bookmark`:
+**Bookmarks (#1314; owner decision 2026-11-15, ADR-031 "Amended 2026-11-15").** A bookmark is an annotation whose `color` is `bookmark`:
 `selectedText` is the first words at the place (≤ 120 UTF-16 units, non-blank as for every annotation), `locator` an
 `epub-cfi` over those words with its `quote`, `noteText` null. The server has no rule of its own for it: created,
 fed (`/annotations/changes`), own-write-checked and tombstoned as any annotation. Clients: the V2 reader lists it as a
 bookmark and never draws it; every list of highlights leaves it out. A build older than #1314 would draw it as a
 yellow highlight (accepted: V2 is off in production). Only where an annotation fits: no bookmark on a `page-name`
-place (a CBZ, a pre-paginated EPUB) or a PDF page.
+place (a CBZ, a pre-paginated EPUB) or a PDF page yet ([#1350](https://github.com/mrviduus/textstack/issues/1350)).
 
 ### Vocabulary
 

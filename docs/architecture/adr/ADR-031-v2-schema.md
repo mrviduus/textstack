@@ -429,8 +429,8 @@ Wire rules: [v2-sync-protocol.md](../../internal/v2/v2-sync-protocol.md) "Page p
 
 ## Amended 2026-11-15 — the V2 reader's bookmarks are annotations ([#1314](https://github.com/mrviduus/textstack/issues/1314))
 
-Owner decision 2026-11-11 (r8-parity-audit §6, item 1): the V2 reader has bookmarks. D6 stands for the
-legacy data: `bookmarks` and `user_book_bookmarks` are still not carried (chapter- and page-level rows
+Owner decisions: 2026-11-11 (r8-parity-audit §6, item 1), the V2 reader has bookmarks; 2026-11-15, a bookmark
+is an annotation of colour `bookmark`, with no `kind` column. D6 stands for the legacy data: `bookmarks` and `user_book_bookmarks` are still not carried (chapter- and page-level rows
 with no text; archived only).
 
 A V2 bookmark is an `annotations` row whose `color` is `bookmark`. **No table, no column, no migration.**
@@ -442,14 +442,13 @@ A V2 bookmark is an `annotations` row whose `color` is `bookmark`. **No table, n
 - Revision, tombstone (`deleted_at`), change feed, own-write check, merge and account deletion: the
   annotation's, unchanged.
 - `color` was never enumerated (PDD "Annotations"), so the server needs no change. The kind lives in
-  `color` because every client and both local stores already carry that field; a `kind` column would
-  be the cleaner shape and is a one-column migration if the owner prefers it before M5 (no production
-  row exists: `Features:V2Api` is off there).
+  `color` because every client and both local stores already carry that field. A `kind` column was the
+  alternative; the owner chose `color` (2026-11-15).
 - Every reader of annotations as highlights leaves a `bookmark` row out (the V2 reader's lists, the
   transitional mobile reader's list). A consumer added later (MCP highlights on V2, chapter-review
   notes) must do the same.
 - Not where an annotation does not fit: a `page-name` place (CBZ, pre-paginated EPUB) and a PDF page
-  take no bookmark yet.
+  take no bookmark yet ([#1350](https://github.com/mrviduus/textstack/issues/1350)).
 
 Wire rules: [v2-sync-protocol.md](../../internal/v2/v2-sync-protocol.md) "Annotations".
 

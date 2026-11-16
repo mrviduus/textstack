@@ -399,6 +399,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    */
   const [bookmarks, setBookmarks] = useState<V2BookmarkList | null>(null)
   const [bookmarksOpen, setBookmarksOpen] = useState(false)
+  /** `opened.bookmarkable`: a bookmark can be made somewhere in the open book (false: an image book, a PDF, a pre-paginated EPUB). */
+  const [bookmarkable, setBookmarkable] = useState(false)
   const [highlightColor, setHighlightColor] = useState<V2HighlightColor>('yellow')
   useEffect(() => { AsyncStorage.getItem(HIGHLIGHT_COLOR_KEY).then((c) => setHighlightColor(colorOf(c)), () => {}) }, [])
   const chooseColor = (c: V2HighlightColor) => {
@@ -920,6 +922,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // Not `atEnd`: it was cleared where the open started; the book's first relocate (its end, for a book one
     // screen long) comes before this `opened` and must stand.
     setAnnotatable(t.opened.annotatable !== false)
+    setBookmarkable(t.opened.bookmarkable === true)
     // The previous book's highlights and bookmarks go; this one's lists follow its `restored`.
     setHighlightList([])
     setBookmarks(null)
@@ -1418,10 +1421,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             hasChapters={toc.length > 0}
             onTocPress={() => setTocOpen(true)}
             onHighlightsPress={annotatable ? () => setHighlightsOpen(true) : undefined}
-            // #1314: where the book takes annotations; the icon is filled while a bookmark is on screen.
-            onBookmarksPress={annotatable ? () => setBookmarksOpen(true) : undefined}
+            // #1314: where a bookmark can be made in this book (the page's `bookmarkable`), or it holds some already
+            // (made elsewhere): never an empty sheet that invites what cannot be done. Filled while the place being
+            // read has one.
+            onBookmarksPress={bookmarkable || bookmarks?.bookmarks.length ? () => setBookmarksOpen(true) : undefined}
             tocLabel={t('reader.chrome.contents')}
-            isCurrentBookmarked={annotatable && !!bookmarks?.here}
+            isCurrentBookmarked={!!bookmarks?.here}
             onExit={closeBook}
             backLabel={t('reader.chrome.back')}
           />
@@ -1509,6 +1514,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             can={bookmarks?.can ?? false}
             onToggle={toggleBookmark}
             onGo={goHighlight}
+            onRemove={(id) => call(`window.__fol.removeBookmark(${JSON.stringify(id)})`)}
             onClose={() => setBookmarksOpen(false)}
           />
           <V2HighlightsSheet visible={highlightsOpen} items={highlightList} noteOf={(id) => notes?.known.get(id) ?? null} onGo={goHighlight} onClose={() => setHighlightsOpen(false)} />

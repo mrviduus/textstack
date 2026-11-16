@@ -403,6 +403,12 @@ export function writeFormatFixtures(dir) {
     spine: '<itemref idref="s1"/>',
     lang: 'he',
   })
+  // #1314: a line break, a style sheet and a noscript inside the first words (a bookmark's text keeps none of the last two).
+  epub(resolve(dir, 'tsmarks.epub'), 'TS MARKS', {
+    files: { 's1.xhtml': xhtml('', `<h1>Marks</h1><p>Line one<br/>Line two <style>p { margin: 0 }</style>and <noscript>no script here</noscript>more words.</p>${prose(8).map((p) => `<p>${p}</p>`).join('')}`) },
+    manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/>',
+    spine: '<itemref idref="s1"/>',
+  })
   const html = `<html><head><guide></guide></head><body><h1>Chapter One</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}<mbp:pagebreak/><h1>Chapter Two</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}</body></html>`
   writeFileSync(resolve(dir, 'tsformat.mobi'), mobi('TS MOBI', html))
   writeFileSync(resolve(dir, 'tsdrm.mobi'), mobi('TS DRM', html, { encryption: 2 }))
@@ -451,7 +457,7 @@ export function writeFormatFixtures(dir) {
   writeFileSync(resolve(dir, 'tsformat.pdf'), pdf(5))
   writeFileSync(resolve(dir, 'tscjk.pdf'), pdf(1, { title: 'TS CJK', cjk: true }))
   writeFileSync(resolve(dir, 'tslocked.pdf'), pdf(1, { title: 'TS LOCKED', locked: true }))
-  return ['tsformat.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsimage.epub', 'tsfixedimg.epub', 'tsthree.cbz', 'tsformat.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
+  return ['tsformat.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsimage.epub', 'tsfixedimg.epub', 'tsthree.cbz', 'tsformat.epub', 'tsmarks.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

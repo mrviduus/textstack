@@ -2150,11 +2150,14 @@ try {
   await waitFor(from, (x) => x.type === 'opened', 'fb2 opened')
   await call('window.__fol.addBookmark()')
   await page.waitForTimeout(300)
-  check(warned(from, /addBookmark ignored: the stored entry is not restored yet/) && storesFrom(from).length === 0 && !messages.slice(from).some((x) => x.type === 'bookmark-list'),
-    'before restored: addBookmark is refused with a warn, nothing stored, no bookmark-list')
+  check(warned(from, /addBookmark ignored: the stored entry is not restored yet/) && storesFrom(from).length === 0 && !messages.slice(from).some((x) => x.type === 'bookmark-list' || (x.type === 'log' && x.level === 'error')),
+    'before restored: addBookmark is refused with a warn, nothing stored, no bookmark-list, no bookmark pass at all (no error logged)')
   m = await open('tsformat.fb2', byFraction(null))
-  const bm0 = await bmAfter(m.from)
-  check(bm0?.key === fb2Book.sha256 && bm0.bookmarks.length === 0 && bm0.here === null && bm0.can === true, `after restore: no bookmarks, none here, one can be made (${JSON.stringify(bm0)})`)
+  // The page says when: none can be made while the restore runs, one can once it has finished.
+  const bmDuring = await bmAfter(m.from)
+  const bm0 = await bmAfter(m.from, (x) => x.can)
+  check(bmDuring?.can === false && bm0?.key === fb2Book.sha256 && bm0.bookmarks.length === 0 && bm0.here === null && m.bookmarkable === true,
+    `during the restore no bookmark can be made; after it: none listed, none here, one can be made (${JSON.stringify([bmDuring?.can, bm0])})`)
   const fillsBefore = JSON.stringify(await fills())
   from = messages.length
   const bmMade = await call('window.__fol.addBookmark()')
@@ -2249,15 +2252,17 @@ try {
   from = messages.length
   await call(`window.__fol.addHighlights(${JSON.stringify([bmTwoStore.highlights[0], bmGone])})`)
   const bmAdded = await waitFor(from, (x) => x.type === 'highlights', 'highlights').catch(() => null)
-  const bmAddedList = await bmAfter(from)
+  // Said at the call: none can be made while these are placed.
+  const bmAddedFirst = await bmAfter(from)
+  const bmAddedList = await bmAfter(from, (x) => x.can)
   await page.waitForTimeout(400)
   check(JSON.stringify(bmAdded?.highlights) === JSON.stringify([{ id: bmRow?.id, status: 'restored' }, { id: bmGone.id, status: 'quote mismatch, not drawn' }])
-    && JSON.stringify(bmAddedList?.bookmarks.map((b) => b.id)) === JSON.stringify([bmRow?.id]) && bmAddedList.here === bmRow?.id && storesFrom(from).length === 0 && (await fills()).length === 0,
+    && JSON.stringify(bmAddedList?.bookmarks.map((b) => b.id)) === JSON.stringify([bmRow?.id]) && bmAddedList.here === bmRow?.id && bmAddedFirst?.can === false && storesFrom(from).length === 0 && (await fills()).length === 0,
     `addHighlights keeps a bookmark where its text is: listed, here, not drawn, not saved (${JSON.stringify(bmAdded?.highlights)}; ${JSON.stringify(bmAddedList)})`)
   // A stored bookmark whose text is not at its place any more, alone on its screen (an id found there before, in this
   // page): not listed, not the one here; a new one can be made.
   m = await open('tsformat.fb2', JSON.stringify({ v: 1, book: fb2Book, position: null, highlights: [{ ...bmTwoStore.highlights[0], selectedText: 'Not the text at this place.', quote: 'Not the text at this place.' }] }))
-  const bmStale = await bmAfter(m.from)
+  const bmStale = await bmAfter(m.from, (x) => x.can)
   check(m.restored.highlights[0]?.status === 'quote mismatch, not drawn' && bmStale?.bookmarks.length === 0 && bmStale.here === null && bmStale.can === true,
     `a bookmark whose text moved is not listed and not here (${JSON.stringify(bmStale)})`)
   // Never the same list twice in a row for one open.
@@ -2271,8 +2276,40 @@ try {
     from = messages.length
     await call('window.__fol.addBookmark()')
     await page.waitForTimeout(400)
-    check(none?.can === false && none.bookmarks.length === 0 && warned(from, /addBookmark ignored: no text to bookmark here/) && storesFrom(from).length === 0, `${file}: no bookmark can be made (${JSON.stringify(none && { can: none.can })})`)
+    check(none?.can === false && none.bookmarks.length === 0 && m.bookmarkable === false && warned(from, /addBookmark ignored: no text to bookmark here/) && storesFrom(from).length === 0,
+      `${file}: no bookmark can be made, and \`opened\` says so (${JSON.stringify(none && { can: none.can, bookmarkable: m.bookmarkable })})`)
   }
+  // The label is the book's words (a space for a block or a line break; no style sheet, no noscript), and it is what a
+  // reopen compares: the bookmark is found again though the text a range gives there has more in it.
+  m = await open('tsmarks.epub')
+  await bmAfter(m.from, (x) => x.can)
+  from = messages.length
+  const bmLabel = await call('window.__fol.addBookmark()')
+  const bmLabelStore = await storeFrom(from, 'a store after a bookmark on tsmarks.epub')
+  const rawThere = bmLabel ? await textAtCfi(bmLabel.cfi) : ''
+  m = await open('tsmarks.epub', JSON.stringify(bmLabelStore))
+  const bmLabelBack = await bmAfter(m.from, (x) => x.can)
+  check(bmLabel?.selectedText.startsWith('Marks Line one Line two and more words. Paragraph 1.') && /margin/.test(rawThere) && /no script here/.test(rawThere)
+    && m.restored.highlights[0]?.status === 'restored' && bmLabelBack?.here === bmLabel.id,
+    `a bookmark's text has a space for a block and a <br>, no style or noscript text, and it is found again on reopen (${JSON.stringify(bmLabel?.selectedText.slice(0, 60))}; ${JSON.stringify(m.restored.highlights)})`)
+  // A removal takes the bookmark out of the found set too (not only out of the entry).
+  m = await open('tsformat.fb2', byFraction(null))
+  await bmAfter(m.from, (x) => x.can)
+  const bmCounted = await call('window.__fol.addBookmark()')
+  const placedWith = await call('window.__fol.placedBookmarks()')
+  await call(`window.__fol.removeBookmark(${JSON.stringify(bmCounted?.id)})`)
+  check(placedWith === 1 && (await call('window.__fol.placedBookmarks()')) === 0, `a removed bookmark leaves the found set (${placedWith} → ${await call('window.__fol.placedBookmarks()')})`)
+  // A bookmark pass that throws does not stop the relocate's position save.
+  await page.waitForTimeout(600)
+  await call('window.__fol.__testBreakBookmarks(true)')
+  from = messages.length
+  call('window.__fol.next()')
+  const savedDespite = await storeFrom(from, 'a store after a turn with a broken bookmark pass')
+  const turnedTo = lastRelocate(from)
+  await call('window.__fol.__testBreakBookmarks(false)')
+  check(!!turnedTo?.moved && savedDespite?.position?.cfi === turnedTo.cfi && messages.slice(from).some((x) => x.type === 'log' && x.level === 'error' && /^bookmarks: /.test(x.msg)),
+    `a bookmark pass that throws is logged, and the turn's position is still saved (${JSON.stringify([turnedTo?.cfi, savedDespite?.position?.cfi])})`)
+  await bookmarkRounds()
   // #1312: colours, recolour, removal, the list and a tap on a highlight.
   console.log('highlight colours')
   m = await open('tsformat.fb2', byFraction(null))
@@ -3051,6 +3088,168 @@ try {
   await timed.clock.runFor(5 * 60 * 1000 + 1000)
   check(telemetry().length === 3 && telemetry()[2].switchedInFirst5Min === false,
     `a switch past 5:00 before the late timer fires is not counted: ${JSON.stringify(telemetry().at(-1))}`)
+
+  /**
+   * #1314 review: `here` is the bookmark the place being read has, by the live layout, in both flows at three device
+   * pixel ratios; ids and the stored list only, no pixel of any layout. Each round on its own page.
+   */
+  async function bookmarkRounds() {
+    for (const dpr of [1, 2, 2.625]) for (const flow of ['paginated', 'scrolled']) {
+      console.log(`bookmarks: ${flow}, DPR ${dpr}`)
+      const say = (ok, what) => check(ok, `${flow}, DPR ${dpr}: ${what}`)
+      const pg = await newPage({ viewport: { width: 412, height: 780 }, deviceScaleFactor: dpr })
+      const got = []
+      pg.on('pageerror', (e) => say(false, `pageerror: ${e.message}`))
+      await pg.exposeFunction('__toHost', (json) => got.push(JSON.parse(json)))
+      await pg.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
+      await pg.goto(PAGE_URL)
+      const run = (js) => pg.evaluate(js)
+      const until = async (from, match) => {
+        for (const t0 = Date.now(); Date.now() - t0 < TIMEOUT_MS; await pg.waitForTimeout(50)) { const x = got.slice(from).find(match); if (x) return x }
+        return null
+      }
+      const list = () => got.filter((x) => x.type === 'bookmark-list').at(-1)
+      const stored = () => JSON.parse(got.filter((x) => x.type === 'store').at(-1)?.json ?? '{"highlights":[]}')
+      const ids = () => stored().highlights.map((h) => h.id)
+      const rest = () => pg.waitForTimeout(900)
+      /** Opens the book and restores `json`; `more`: the host says annotations follow. Resolves once `restored` came. */
+      const reopen = async (json, more = false) => {
+        const from = got.length
+        await run(`window.__fol.openUrl(${JSON.stringify(bookAt('tsformat.epub'))}, 'tsformat.epub')`)
+        await until(from, (x) => x.type === 'opened')
+        await run(`window.__fol.restore(${JSON.stringify(json)}, ${more})`)
+        await until(from, (x) => x.type === 'restored')
+        await rest()
+        return from
+      }
+      /** The reader moves on: page turns; in scrolled flow a wheel scroll too, so the screen starts mid-paragraph. */
+      const readOn = async (turns) => {
+        for (let i = 0; i < turns; i++) { await run('window.__fol.next()'); await pg.waitForTimeout(400) }
+        if (flow === 'scrolled') { await pg.mouse.move(200, 400); await pg.mouse.wheel(0, 333) }
+        await rest()
+      }
+      const refusedAdd = async (why) => {
+        const from = got.length
+        const before = JSON.stringify(ids())
+        await run('window.__fol.addBookmark()')
+        await pg.waitForTimeout(400)
+        return got.slice(from).some((x) => x.type === 'log' && why.test(x.msg)) && JSON.stringify(ids()) === before && !got.slice(from).some((x) => x.type === 'store')
+      }
+      await run(`window.__fol.flow(${JSON.stringify(flow)})`)
+      await reopen(null)
+      await readOn(3)
+      // Add: it is the one here; a second add at the same place is refused, the stored list unchanged.
+      const made = await run('window.__fol.addBookmark()')
+      await pg.waitForTimeout(400)
+      say(!!made && list()?.here === made.id && JSON.stringify(ids()) === JSON.stringify([made.id]) && stored().highlights[0].color === 'bookmark', `an added bookmark is the one here and the only one stored (${list()?.here === made?.id}, ${ids().length})`)
+      say(await refusedAdd(/addBookmark ignored: this place is bookmarked/), 'a second add at the same place is refused: no duplicate stored')
+      // Away: none here. A jump to it: it is the one here, and an add there is refused (no duplicate a line lower).
+      await readOn(2)
+      say(list()?.here === null && list().can === true, `away from it, none is here and one can be made (${JSON.stringify(list() && { here: list().here, can: list().can })})`)
+      await run(`window.__fol.goTo(${JSON.stringify(made.cfi)}, true)`)
+      await rest()
+      say(list()?.here === made.id, 'after a jump to it, it is the one here')
+      say(await refusedAdd(/addBookmark ignored: this place is bookmarked/), 'an add after the jump is refused: no duplicate stored')
+      // Reopened at the place the jump saved, twice: still the one here.
+      const saved = stored()
+      for (const n of [1, 2]) {
+        await reopen(JSON.stringify(saved))
+        say(list()?.here === made.id && list().bookmarks.length === 1, `reopened at it (${n}), it is the one here`)
+      }
+      // A font change and a flow switch re-lay the screen out: the reader has not moved, it is still the one here.
+      await run('window.__fol.font(4)')
+      await rest()
+      say(list()?.here === made.id, 'after a font change, it is still the one here')
+      await run(`window.__fol.flow(${JSON.stringify(flow === 'scrolled' ? 'paginated' : 'scrolled')})`)
+      await rest()
+      say(list()?.here === made.id, 'after a flow switch, it is still the one here')
+      await run(`window.__fol.flow(${JSON.stringify(flow)})`)
+      await run('window.__fol.font(-4)')
+      await rest()
+      // A bookmark further down the screen (two paragraphs below its top) is not the one here: it neither blocks an
+      // add at the top nor is the one the toggle removes.
+      await reopen(JSON.stringify({ ...saved, highlights: [] }))
+      const lower = await run(`(() => {
+        const v = document.querySelector('foliate-view'), loc = v.lastLocation, doc = loc.range.startContainer.ownerDocument
+        const p = [...doc.querySelectorAll('p')].filter((x) => loc.range.intersectsNode(x))[2]
+        if (!p || !loc.range.intersectsNode(p.firstChild)) return null
+        const r = doc.createRange(); r.setStart(p.firstChild, 0); r.setEnd(p.firstChild, 20)
+        return { id: '77777777-7777-4777-8777-777777777777', cfi: v.getCFI(loc.section.current, r), index: loc.section.current, quote: r.toString(), selectedText: r.toString(), prefix: '', suffix: '', color: 'bookmark', at: 1 }
+      })()`)
+      await reopen(JSON.stringify({ ...saved, highlights: lower ? [lower] : [] }))
+      say(!!lower && JSON.stringify(list()?.bookmarks.map((b) => b.id)) === JSON.stringify([lower.id]) && list().here === null && list().can === true,
+        `a bookmark further down the screen is listed, not the one here, and one can be made at the top (${JSON.stringify(list() && { n: list().bookmarks.length, here: list().here, can: list().can })})`)
+      const top = await run('window.__fol.addBookmark()')
+      await pg.waitForTimeout(400)
+      say(!!top && list()?.here === top.id && JSON.stringify(ids()) === JSON.stringify([lower?.id, top.id]), `an add at the top is taken beside it, and is the one here (${JSON.stringify(ids().length)})`)
+      // The toggle (the one here removed): the lower one stays stored and listed; then it is removed by its id (the list's row).
+      let from = got.length
+      await run(`window.__fol.removeBookmark(${JSON.stringify(list()?.here)})`)
+      await pg.waitForTimeout(400)
+      say(JSON.stringify(ids()) === JSON.stringify([lower?.id]) && got.slice(from).find((x) => x.type === 'highlight-removed')?.id === top?.id && list().here === null && list().bookmarks.length === 1,
+        'removing the one here leaves the lower one stored and listed')
+      // A jump elsewhere on this screen (the saved place itself) makes no bookmark the one here.
+      await run(`window.__fol.goTo(${JSON.stringify(saved.position.cfi)}, true)`)
+      await rest()
+      say(list()?.here === null && list().bookmarks.length === 1, `a jump that is not to a bookmark leaves the lower one not here (${list()?.here})`)
+      // A jump to the lower one: it is the one here wherever on the screen it landed (in paginated flow the page already
+      // shows it, mid-screen), and stays so through a re-layout; the reader turning away and back asks the top again.
+      await run(`window.__fol.goTo(${JSON.stringify(lower?.cfi)}, true)`)
+      await rest()
+      say(list()?.here === lower?.id, 'after a jump to the lower one, it is the one here')
+      await run('window.__fol.font(-2)')
+      await rest()
+      say(list()?.here === lower?.id, 'and still after a smaller font (a re-layout, not a move)')
+      await run('window.__fol.font(2)')
+      await rest()
+      if (flow === 'scrolled') {
+        // A navigation to the place it is two paragraphs below: on screen, further down, not the one here. (In paginated
+        // flow that place is the page already shown: no move, the jumped-to one stays.)
+        await run(`window.__fol.goTo(${JSON.stringify(saved.position.cfi)}, true)`)
+        await rest()
+        say(list()?.here === null, `after a navigation that leaves it further down the screen, it is not the one here (${list()?.here})`)
+        // Jumped to again (at the top), then the reader scrolls back a little: a few lines down, still on screen. The
+        // reader moved: the top is asked again.
+        await run(`window.__fol.goTo(${JSON.stringify(lower?.cfi)}, true)`)
+        await rest()
+        const again = list()?.here === lower?.id
+        await pg.mouse.move(200, 400)
+        await pg.mouse.wheel(0, -100)
+        await rest()
+        say(again && list()?.here === null && list().can === true, `after the reader scrolls it a few lines down the screen, it is not the one here (${again}, ${list()?.here})`)
+      }
+      from = got.length
+      await run(`window.__fol.removeBookmark(${JSON.stringify(lower?.id)})`)
+      await pg.waitForTimeout(400)
+      say(ids().length === 0 && got.slice(from).find((x) => x.type === 'highlight-removed')?.id === lower?.id && list().bookmarks.length === 0, 'a bookmark not here is removed by its id: tombstoned, gone from the list')
+      // More annotations follow the restore (the web host's pull): none can be made until they are placed; the one
+      // that comes for this place is then the one here, and an add is refused (no twin with a new id).
+      const pending = await reopen(JSON.stringify({ ...saved, highlights: [] }), true)
+      say(got.slice(pending).filter((x) => x.type === 'bookmark-list').every((x) => x.can === false) && got.slice(pending).some((x) => x.type === 'bookmark-list'),
+        'with more annotations to come, no bookmark can be made after the restore')
+      say(await refusedAdd(/addBookmark ignored: bookmarks are still being placed/), 'an add before they came is refused, nothing stored')
+      from = got.length
+      await run(`window.__fol.addHighlights(${JSON.stringify(saved.highlights)})`)
+      const placedList = await until(from, (x) => x.type === 'bookmark-list' && x.can)
+      say(placedList?.here === made.id && JSON.stringify(placedList.bookmarks.map((b) => b.id)) === JSON.stringify([made.id]) && !got.slice(from).some((x) => x.type === 'store'),
+        `once placed, the one that came for this place is the one here (${JSON.stringify(placedList && { here: placedList.here === made.id, can: placedList.can })})`)
+      say(await refusedAdd(/addBookmark ignored: this place is bookmarked/), 'an add at its place is refused: no twin')
+      // With nothing to come for the place, an empty answer still ends the wait.
+      const empty = await reopen(JSON.stringify({ ...saved, highlights: [] }), true)
+      await run('window.__fol.addHighlights([])')
+      say(!!(await until(empty, (x) => x.type === 'bookmark-list' && x.can)), 'an empty addHighlights ends the wait: one can be made')
+      // No wait announced (a host that restores, then adds): an add right behind the addHighlights call, before it has
+      // placed anything, is refused all the same; the one that came is the one here, nothing was stored.
+      await reopen(JSON.stringify({ ...saved, highlights: [] }))
+      from = got.length
+      await run(`window.__fol.addHighlights(${JSON.stringify(saved.highlights)}); window.__fol.addBookmark()`)
+      const behind = await until(from, (x) => x.type === 'bookmark-list' && x.can)
+      say(got.slice(from).some((x) => x.type === 'log' && /addBookmark ignored: bookmarks are still being placed/.test(x.msg)) && behind?.here === made.id
+        && JSON.stringify(behind.bookmarks.map((b) => b.id)) === JSON.stringify([made.id]) && !got.slice(from).some((x) => x.type === 'store'),
+        'an add right behind an addHighlights call is refused: no twin, nothing stored')
+      await pg.close()
+    }
+  }
 } catch (e) {
   check(false, String(e?.message ?? e))
 } finally {

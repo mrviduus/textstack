@@ -647,14 +647,14 @@ test.describe('V2 reader page @v2', () => {
     await expect(status(page)).toHaveText(/^\d+% · The Woods$/)
     await expect(button(page)).toHaveAttribute('aria-label', 'Add bookmark')
     const list = await openBookmarks(page)
-    await expect(list.getByRole('button')).toHaveCount(1)
-    await expect(list.getByRole('button')).toHaveText(row.selectedText.trim())
+    await expect(list.getByTestId('v2-bookmark-row')).toHaveCount(1)
+    await expect(list.getByTestId('v2-bookmark-row')).toHaveText(row.selectedText.trim())
     // A bookmark is not a highlight: that tab stays empty.
     await page.getByRole('tab', { name: /Highlights/ }).click()
     await expect(page.getByTestId('v2-highlights-list').getByRole('button')).toHaveCount(0)
     await page.getByRole('tab', { name: /Bookmarks/ }).click()
     const jumped = stateWrite()
-    await list.getByRole('button').click()
+    await list.getByTestId('v2-bookmark-row').click()
     await expect(status(page)).toHaveText(/^\d+% · The Pond$/)
     expect((await jumped).ok()).toBeTruthy()
     await expect(button(page)).toHaveAttribute('aria-label', 'Remove bookmark')
@@ -668,11 +668,11 @@ test.describe('V2 reader page @v2', () => {
     await second.goto(`/en/library/my/${bookId}/read-v2`)
     await expectOpened(second)
     await expect(button(second)).toHaveAttribute('aria-label', 'Remove bookmark', { timeout: 15_000 })
-    await expect((await openBookmarks(second)).getByRole('button')).toHaveText(row.selectedText.trim())
+    await expect((await openBookmarks(second)).getByTestId('v2-bookmark-row')).toHaveText(row.selectedText.trim())
     expect(await rewritten, 'the server\'s bookmark is not written back').toBe(false)
     await other.close()
 
-    // Remove: a DELETE, the tombstone (still the bookmark's row); the list is empty and the button adds again.
+    // The button removes the one here: a DELETE, the tombstone (still the bookmark's row); the button adds again.
     const deleted = annotationWrite('DELETE')
     await page.keyboard.press('Escape')
     await button(page).click()
@@ -680,14 +680,32 @@ test.describe('V2 reader page @v2', () => {
     expect([tomb.id, tomb.color]).toEqual([row.id, 'bookmark'])
     expect(tomb.deletedAt).not.toBeNull()
     await expect(button(page)).toHaveAttribute('aria-label', 'Add bookmark')
-    await expect((await openBookmarks(page)).getByRole('button')).toHaveCount(0)
+    await expect(page.getByTestId('v2-not-saved')).toHaveCount(0)
+
+    // One that is not here (the reader is in another chapter) is removed from its row in the list: the same tombstone.
+    const again = annotationWrite('PUT')
+    await page.keyboard.press('Escape')
+    await button(page).click()
+    const second2 = (await (await again).json()) as { id: string; selectedText: string }
+    expect(second2.id).not.toBe(row.id)
+    await clickBar(page, 'Next section: The Woods')
+    await expect(status(page)).toHaveText(/^\d+% · The Woods$/)
+    await expect(button(page)).toHaveAttribute('aria-label', 'Add bookmark')
+    const rows = await openBookmarks(page)
+    await expect(rows.getByTestId('v2-bookmark-row')).toHaveCount(1)
+    const removed = annotationWrite('DELETE')
+    await rows.getByRole('button', { name: `Remove bookmark: ${second2.selectedText.trim()}` }).click()
+    const tomb2 = (await (await removed).json()) as { id: string; color: string; deletedAt: string | null }
+    expect([tomb2.id, tomb2.color]).toEqual([second2.id, 'bookmark'])
+    expect(tomb2.deletedAt).not.toBeNull()
+    await expect(rows.getByTestId('v2-bookmark-row')).toHaveCount(0)
     await expect(page.getByTestId('v2-not-saved')).toHaveCount(0)
 
     // After a reload the server's feed has no live bookmark: none listed, none here.
     await page.reload()
     await expectOpened(page)
     await expect(button(page)).toHaveAttribute('aria-label', 'Add bookmark', { timeout: 15_000 })
-    await expect((await openBookmarks(page)).getByRole('button')).toHaveCount(0)
+    await expect((await openBookmarks(page)).getByTestId('v2-bookmark-row')).toHaveCount(0)
     await context.close()
   })
 

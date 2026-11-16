@@ -36,12 +36,13 @@ const A = { id: 'a', cfi: 'epubcfi(/6/2!/4/2,/1:0,/1:5)', text: 'First words', a
 const B = { id: 'b', cfi: 'epubcfi(/6/8!/4/2,/1:0,/1:5)', text: '<b>Later</b> words', at: 2 }
 
 function sheet(props: Partial<Parameters<typeof V2BookmarksSheet>[0]> = {}) {
-  const on = { onToggle: vi.fn(), onGo: vi.fn(), onClose: vi.fn() }
+  const on = { onToggle: vi.fn(), onGo: vi.fn(), onRemove: vi.fn(), onClose: vi.fn() }
   const div = document.createElement('div')
   act(() => createRoot(div).render(createElement(V2BookmarksSheet, { visible: true, items: [A, B], here: null, can: true, ...on, ...props })))
   const toggle = () => div.querySelector<HTMLElement>('[data-testid="v2-bookmark-toggle"]')
-  const rows = () => [...div.querySelectorAll<HTMLElement>('li button')]
-  return { div, on, toggle, rows }
+  const rows = () => [...div.querySelectorAll<HTMLElement>('[data-testid="v2-bookmark-row"]')]
+  const removes = () => [...div.querySelectorAll<HTMLElement>('[data-testid="v2-bookmark-remove"]')]
+  return { div, on, toggle, rows, removes }
 }
 
 describe('V2BookmarksSheet (#1314)', () => {
@@ -76,10 +77,27 @@ describe('V2BookmarksSheet (#1314)', () => {
     expect(s.on.onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('empty_SaysSo_TheButtonStillAdds', () => {
+  it('empty_SaysHowToAddOne_TheButtonAdds', () => {
     const s = sheet({ items: [] })
     expect(s.div.textContent).toContain('reader.chrome.bookmarksEmpty')
     expect(s.toggle()!.textContent).toBe('reader.chrome.addBookmark')
+  })
+
+  it('empty_NothingCanBeBookmarkedHere_SaysThat_NoButton', () => {
+    const s = sheet({ items: [], can: false })
+    expect(s.div.textContent).toContain('reader.chrome.bookmarksNotHere')
+    expect(s.div.textContent).not.toContain('reader.chrome.bookmarksEmpty')
+    expect(s.toggle()).toBeNull()
+  })
+
+  it('row_ItsRemoveButton_NamedByTheBookmarksWords_RemovesThatOne_TheSheetStaysOpen', () => {
+    // Neither is the one here (further down the screen, elsewhere in the book): each is removed by its own row.
+    const s = sheet()
+    expect(s.removes().map((b) => b.getAttribute('aria-label'))).toEqual(['reader.chrome.removeBookmark: First words', 'reader.chrome.removeBookmark: <b>Later</b> words'])
+    act(() => s.removes()[1].click())
+    expect(s.on.onRemove.mock.calls).toEqual([['b']])
+    expect(s.on.onGo).not.toHaveBeenCalled()
+    expect(s.on.onClose).not.toHaveBeenCalled()
   })
 
   it('notVisible_Nothing', () => {

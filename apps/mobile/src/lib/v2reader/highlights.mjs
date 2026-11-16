@@ -20,15 +20,32 @@ export const isId = (id) => typeof id === 'string' && /^[0-9A-Za-z-]{1,64}$/.tes
 export const isCfi = (c) => typeof c === 'string' && c.length <= MAX_SELECTION_CFI && c.startsWith('epubcfi(')
 
 /**
- * The page's `highlight-list` items: the entry's highlights drawn on screen (`drawn`: their ids), in book order
- * (`compare`: foliate's CFI compare; a tie by creation time), each `{ id, cfi, color, text, at }`.
+ * The one list builder (highlights here, bookmarks in bookmarks.mjs, #1314): the entry's items whose id is in `ids`, in
+ * book order (`compare`: foliate's CFI compare; a tie by creation time), each `{ id, cfi, text, at }` with its `color`
+ * when `color` is asked for; `text` cut to `MAX_LIST_TEXT` code points, at most `MAX_LIST` items.
  */
-export function highlightList(highlights, drawn, compare) {
+export function listItems(highlights, ids, compare, color = false) {
   return highlights
-    .filter((h) => drawn.has(h.id))
-    .map((h) => ({ id: h.id, cfi: h.cfi, color: colorOf(h.color), text: Array.from(h.selectedText ?? h.quote ?? '').slice(0, MAX_LIST_TEXT).join(''), at: Number.isFinite(h.at) ? h.at : null }))
+    .filter((h) => ids.has(h.id))
+    .map((h) => ({ id: h.id, cfi: h.cfi, ...(color ? { color: colorOf(h.color) } : {}), text: Array.from(h.selectedText ?? h.quote ?? '').slice(0, MAX_LIST_TEXT).join(''), at: Number.isFinite(h.at) ? h.at : null }))
     .sort((a, b) => compare(a.cfi, b.cfi) || (a.at ?? 0) - (b.at ?? 0))
     .slice(0, MAX_LIST)
+}
+
+/** The page's `highlight-list` items: the entry's highlights drawn on screen (`drawn`: their ids), each with its colour. */
+export const highlightList = (highlights, drawn, compare) => listItems(highlights, drawn, compare, true)
+
+/**
+ * The one item reader of a host (a `highlight-list`'s items, a `bookmark-list`'s): the well-formed ones of `list`, at
+ * most `MAX_LIST`, each `{ id, cfi, text, at }` with its `color` when asked for; a malformed item is dropped.
+ */
+export function readItems(list, color = false) {
+  const items = []
+  for (const h of list.slice(0, MAX_LIST)) {
+    if (!h || typeof h !== 'object' || !isId(h.id) || !isCfi(h.cfi) || typeof h.text !== 'string' || h.text.length > 2 * MAX_LIST_TEXT) continue
+    items.push({ id: h.id, cfi: h.cfi, ...(color ? { color: colorOf(h.color) } : {}), text: h.text, at: Number.isFinite(h.at) ? h.at : null })
+  }
+  return items
 }
 
 /**
@@ -43,12 +60,7 @@ export const sameRangeHighlight = (highlights, cfi, drawn) => highlights.find((h
 /** A host's read of `highlight-list`: `{ key, highlights }`, malformed items dropped; null for a malformed message. */
 export function readHighlightList(m) {
   if (!m || typeof m !== 'object' || m.type !== 'highlight-list' || typeof m.key !== 'string' || !Array.isArray(m.highlights)) return null
-  const highlights = []
-  for (const h of m.highlights.slice(0, MAX_LIST)) {
-    if (!h || typeof h !== 'object' || !isId(h.id) || !isCfi(h.cfi) || typeof h.text !== 'string' || h.text.length > 2 * MAX_LIST_TEXT) continue
-    highlights.push({ id: h.id, cfi: h.cfi, color: colorOf(h.color), text: h.text, at: Number.isFinite(h.at) ? h.at : null })
-  }
-  return { key: m.key, highlights }
+  return { key: m.key, highlights: readItems(m.highlights, true) }
 }
 
 /**
