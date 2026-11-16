@@ -756,10 +756,12 @@ function postBookmarks(loc = view?.lastLocation, cause) {
     const place = loc?.range ? bookmarkRange(loc.range) : null
     hereId = hereOf(loc, cause, place)
     const can = canBookmark(place)
-    const sent = `${viewSeq}:${listedVersion}:${hereId}:${can}`
+    // Bookmarks still being placed (#1314 review): a host shows them loading, not "this page cannot be bookmarked".
+    const loading = awaitingMore || placing.size > 0
+    const sent = `${viewSeq}:${listedVersion}:${hereId}:${can}:${loading}`
     if (sent === bookmarksSent) return
     bookmarksSent = sent
-    post({ type: 'bookmark-list', key: book.sha256, bookmarks: listed, here: hereId, can })
+    post({ type: 'bookmark-list', key: book.sha256, bookmarks: listed, here: hereId, can, placing: loading })
   } catch (e) {
     log('error', `bookmarks: ${e?.stack ?? e}`)
   }
@@ -1168,12 +1170,21 @@ function pagedDir() {
 }
 
 /** The text a CFI points at in this book's own section document (not the rendered one): verification. */
-async function textAt(cfi) {
+async function textAt(cfi, bookmark = false) {
   const { index, anchor } = view.resolveCFI(cfi)
   const doc = await view.book.sections[index].createDocument()
   const range = anchor(doc)
-  // `label`: the text a bookmark made there would keep (#1314), what a stored bookmark's text is compared with.
-  return { index, text: range?.toString() ?? '', label: range?.startContainer ? bookmarkText(range) : '' }
+  const text = range?.toString() ?? ''
+  // A bookmark's (#1314): the text a bookmark made there keeps. A failure there is the range's own text, never a lost
+  // entry; a highlight never runs it.
+  let label = text
+  if (bookmark && range?.startContainer) {
+    try {
+      if (testBreakBookmarks) throw new Error('test: the bookmark label broke')
+      label = bookmarkText(range)
+    } catch (e) { log('warn', `bookmark text at ${String(cfi).slice(0, 80)}: ${e?.message ?? e}`) }
+  }
+  return { index, text, label }
 }
 
 /** A stored highlight's (or bookmark's) text is still what is at its CFI, white space and typography aside. */
@@ -1233,7 +1244,7 @@ async function addHighlightsNow(list) {
       result.push({ id: raw?.id, status: h ? 'already drawn' : 'not a highlight' })
       continue
     }
-    const at = await textAt(h.cfi).catch(() => ({ text: '', label: '' }))
+    const at = await textAt(h.cfi, isBookmark(h)).catch(() => ({ text: '', label: '' }))
     if (mine !== viewSeq || !entry) return
     const ok = stillThere(h, at)
     result.push({ id: h.id, status: ok ? 'restored' : 'quote mismatch, not drawn' })
@@ -1269,7 +1280,7 @@ async function restoreInto(json, stale) {
 async function restoreNow(json, stored, stale) {
   const result = { found: !!stored, rejected: !!json && !stored, position: 'none', highlights: [] }
   for (const h of entry.highlights) {
-    const at = await textAt(h.cfi).catch(() => ({ text: '', label: '' }))
+    const at = await textAt(h.cfi, isBookmark(h)).catch(() => ({ text: '', label: '' }))
     if (stale()) return result
     // An entry written before selectedText (#1078) kept the whole selection in quote.
     const ok = stillThere(h, at)

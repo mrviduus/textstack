@@ -332,7 +332,8 @@ export function createLocalLibrary(db: Db) {
   const stateOf = (bookId: string) => one<StateRow>('SELECT * FROM reading_state WHERE book_id = ?', [bookId])
   const annotationById = (id: string) => one<AnnotationRow>('SELECT * FROM annotations WHERE id = ?', [id])
   /**
-   * #1312 review: re-keys made in this process (`id_conflict`), old → new, in memory only. The page keeps the old id until
+   * #1312 review: re-keys made in this process (`id_conflict`), and (#1314 review) page ids skipped as a row's twin,
+   * old → new, in memory only. The page keeps the old id until
    * the next open (its restore reads the rows: the new id); every way in resolves through `rekeyedTo` meanwhile: its
    * stores (`applyEntry`), `setNote`, `removeHighlight`, and the host's lookups (`realId`).
    */
@@ -457,6 +458,9 @@ export function createLocalLibrary(db: Db) {
       { position: parse(st?.position ?? null), highlights: rows.map((r) => ({ id: r.id, highlight: parse<PageHighlight>(r.highlight), fileId: r.file_id, deleted: !!r.deleted_at })) },
       { position: entry.position, highlights }, newId,
     )
+    // A page id skipped as a row's twin is that row from now on (#1314 review: a bookmark the sync pulled while the book
+    // was open, made again on the page): `removeHighlight`, `setNote` and `realId` reach the row, as after a re-key.
+    for (const { from, to } of changes.aliases) if (!rekeyed.has(from)) rekeyed.set(from, to)
     if (changes.position && !(keepPosition && st?.position)) {
       await run(
         `INSERT INTO reading_state (book_id, position, file_id) VALUES (?, ?, ?)

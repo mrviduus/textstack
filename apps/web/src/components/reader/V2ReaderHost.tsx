@@ -902,13 +902,14 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    * removal with `highlight-removed`, the tombstone's path.
    */
   const bookmarkHere = offersHighlights && bookmarks ? bookmarks.here : null
-  // Only for the book being read, and only what the page says: `can` is false until every bookmark is placed.
-  const offersBookmark = reading && offersHighlights && !!bookmarks && (bookmarks.can || !!bookmarks.here)
+  // Only for the book being read, where the book takes bookmarks (or holds some). Kept on the bars while the page says
+  // none can be made now (bookmarks being placed, nothing to keep on this screen): disabled, so the bars never shift.
+  const offersBookmark = reading && offersHighlights && (bookmarkable || !!bookmarks?.bookmarks.length)
+  const bookmarkEnabled = !!bookmarks && (bookmarks.can || !!bookmarks.here)
   const toggleBookmark = () => (bookmarkHere ? call('removeBookmark', [bookmarkHere]) : call('addBookmark'))
-  const bookmarkLabel = bookmarkHere ? t('reader.chrome.removeBookmark') : t('reader.chrome.addBookmark')
   /** The Bookmarks tab: where the book can take one, or holds some already. */
   const bookmarksTab = offersHighlights && (bookmarkable || !!bookmarks?.bookmarks.length)
-    ? { items: bookmarks?.bookmarks ?? [], can: !!bookmarks?.can, onGo: goHighlight, onRemove: (id: string) => call('removeBookmark', [id]) }
+    ? { items: bookmarks?.bookmarks ?? [], can: !!bookmarks?.can, placing: !bookmarks || bookmarks.placing, onGo: goHighlight, onRemove: (id: string) => call('removeBookmark', [id]) }
     : null
 
   /** Never a section number (#1261): the percent, then the current entry's title when there is one. */
@@ -954,7 +955,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           )}
           {offersHighlights && <button className="reader-top-bar__btn" onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
           {offersBookmark && (
-            <button className="reader-top-bar__btn" data-testid="v2-bookmark" aria-pressed={!!bookmarkHere} aria-label={bookmarkLabel} title={bookmarkLabel} onClick={toggleBookmark}>
+            // One name, its state in aria-pressed (#1314 review): a toggle's label never changes with its state.
+            <button className="reader-top-bar__btn" data-testid="v2-bookmark" aria-pressed={!!bookmarkHere} aria-label={t('reader.chrome.bookmark')} title={t('reader.chrome.bookmark')} disabled={!bookmarkEnabled} onClick={toggleBookmark}>
               {/* Filled while a bookmark is on screen. */}
               <svg width="20" height="20" viewBox="0 0 24 24" fill={bookmarkHere ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />

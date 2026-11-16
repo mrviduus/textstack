@@ -46,7 +46,7 @@ function opened({ sync, annotatable = true, bookmarkable = annotatable, toc = []
   return view
 }
 const item = (id: string, text: string, n = 2) => ({ id, cfi: `epubcfi(/6/${n}!/4/2,/1:0,/1:5)`, text, at: 1 })
-const list = (bookmarks: object[], here: string | null = null, can = true, key = SHA) => fromPage({ type: 'bookmark-list', key, bookmarks, here, can })
+const list = (bookmarks: object[], here: string | null = null, can = true, key = SHA, placing = false) => fromPage({ type: 'bookmark-list', key, bookmarks, here, can, placing })
 const calls = (name: string) => posted.filter((m) => m.call === name).map((m) => m.args)
 const button = () => screen.queryByTestId('v2-bookmark')
 const openTab = () => {
@@ -60,10 +60,13 @@ const rows = (ul: HTMLElement) => within(ul).getAllByTestId('v2-bookmark-row')
 describe('V2ReaderHost bookmarks', () => {
   it('button_NoneHere_AddsOneThroughThePage', () => {
     opened()
-    // Nothing until the page says what is here.
-    expect(button()).toBeNull()
+    // On the bars at once, disabled until the page says what is here (the bars never shift under the pointer).
+    expect(button()).toBeDisabled()
     list([])
-    expect(button()).toHaveAttribute('aria-label', 'Add bookmark')
+    expect(button()).toBeEnabled()
+    // One name whatever its state (a toggle's label never changes); the state is aria-pressed.
+    expect(button()).toHaveAttribute('aria-label', 'Bookmark')
+    expect(button()).toHaveAttribute('aria-pressed', 'false')
     expect(button()).toHaveAttribute('aria-pressed', 'false')
     fireEvent.click(button()!)
     expect(posted.filter((m) => /Bookmark/.test(m.call))).toEqual([{ call: 'addBookmark', args: [] }])
@@ -72,18 +75,22 @@ describe('V2ReaderHost bookmarks', () => {
   it('button_OneHere_RemovesThatOneThroughThePage', () => {
     opened()
     list([item(ID1, 'elsewhere', 2), item(ID2, 'on this screen', 4)], ID2)
-    expect(button()).toHaveAttribute('aria-label', 'Remove bookmark')
+    expect(button()).toHaveAttribute('aria-pressed', 'true')
     expect(button()).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(button()!)
     expect(posted.filter((m) => /Bookmark/.test(m.call))).toEqual([{ call: 'removeBookmark', args: [ID2] }])
   })
 
-  it('button_NothingToBookmarkHere_NotOffered_ButOneHereCanStillBeRemoved', () => {
+  it('button_NothingToBookmarkHere_Disabled_ButOneHereCanStillBeRemoved', () => {
     opened()
     list([], null, false)
-    expect(button()).toBeNull()
+    expect(button()).toBeDisabled()
+    fireEvent.click(button()!)
+    expect(posted.filter((m) => /Bookmark/.test(m.call))).toEqual([])
     list([item(ID1, 'kept')], ID1, false)
-    expect(button()).toHaveAttribute('aria-label', 'Remove bookmark')
+    expect(button()).toBeEnabled()
+    expect(button()).toHaveAttribute('aria-pressed', 'true')
+    expect(button()).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('button_ABookWithoutAnnotations_NotOffered_NoTab', () => {
@@ -106,6 +113,15 @@ describe('V2ReaderHost bookmarks', () => {
     // Chosen: the page saves where it lands.
     expect(calls('goTo')).toEqual([[item(ID1, 'later', 6).cfi, true]])
     expect(screen.queryByTestId('v2-bookmarks-list')).toBeNull()
+  })
+
+  it('list_Empty_StillBeingPlaced_SaysLoading_NeverThatThisPageTakesNone', () => {
+    opened()
+    // The page has not said yet, then says bookmarks are still being placed: loading, whatever `can` is.
+    expect(openTab()).toHaveTextContent('Bookmarks are loading…')
+    list([], null, false, SHA, true)
+    expect(screen.getByTestId('v2-bookmarks-list')).toHaveTextContent('Bookmarks are loading…')
+    expect(screen.getByTestId('v2-bookmarks-list')).not.toHaveTextContent('This page cannot be bookmarked')
   })
 
   it('list_Empty_SaysHowToAddOne_OrThatThisPageTakesNone', () => {
@@ -145,7 +161,7 @@ describe('V2ReaderHost bookmarks', () => {
     list([item(ID2, 'kept'), { ...item(ID1, 'bad'), cfi: 'javascript:alert(1)' }], ID1)
     // A previous open's list, arriving late, replaces nothing.
     list([item(ID1, 'other book')], ID1, true, 'bb')
-    expect(button()).toHaveAttribute('aria-label', 'Add bookmark')
+    expect(button()).toHaveAttribute('aria-pressed', 'false')
     expect(rows(openTab()).map((b) => b.textContent)).toEqual(['kept'])
   })
 
@@ -160,15 +176,18 @@ describe('V2ReaderHost bookmarks', () => {
   it('nextOpen_ThePreviousBooksBookmarksGo', () => {
     const view = opened()
     list([item(ID1, 'old book')], ID1)
-    expect(button()).toHaveAttribute('aria-label', 'Remove bookmark')
+    expect(button()).toHaveAttribute('aria-pressed', 'true')
     // Another book is opened: the one still on screen keeps no bookmark button of its own meanwhile.
     view.rerender(<MemoryRouter><V2ReaderHost book={{ bytes: new ArrayBuffer(8), name: 'b.epub' }} idleHeading="idle" dev /></MemoryRouter>)
     expect(button()).toBeNull()
     fromPage({ type: 'opened', title: 'Other', lang: 'en', annotatable: true, bookmarkable: true, toc: [], book: { sha256: 'cc', size: 8, name: '2/b.epub' } })
-    // Until this open's own list comes: no button, an empty tab; the old book's late list is not this one's.
+    // Until this open's own list comes: the button disabled and not pressed, the tab loading; the old book's late list
+    // is not this one's.
     list([item(ID1, 'old book')], ID1)
-    expect(button()).toBeNull()
-    expect(openTab()).toHaveTextContent('No bookmarks yet.')
+    expect(button()).toBeDisabled()
+    expect(button()).toHaveAttribute('aria-pressed', 'false')
+    expect(openTab()).toHaveTextContent('Bookmarks are loading…')
+    expect(within(screen.getByTestId('v2-bookmarks-list')).queryAllByTestId('v2-bookmark-row')).toHaveLength(0)
   })
 
   describe('production route (the session)', () => {
@@ -200,7 +219,7 @@ describe('V2ReaderHost bookmarks', () => {
       expect(button()).toBeNull()
       landed({ items: [] })
       await flush()
-      expect(button()).toHaveAttribute('aria-label', 'Add bookmark')
+      expect(button()).toHaveAttribute('aria-pressed', 'false')
     })
 
     it('thePageIsToldMoreFollows_AndAlwaysGetsThem_AnEmptyPullToo_SoItSaysWhenOneCanBeMade', async () => {
@@ -208,11 +227,12 @@ describe('V2ReaderHost bookmarks', () => {
       // `true`: annotations follow; the page makes no bookmark until `addHighlights` has placed them.
       expect(calls('restore').map((a) => a[1])).toEqual([true])
       expect(calls('addHighlights')).toEqual([[[]]])
-      // The button follows the page's `can`, never the pull's timing.
-      list([], null, false)
-      expect(button()).toBeNull()
+      // The button follows the page's `can`, never the pull's timing: on the bars, disabled, then enabled.
+      list([], null, false, SHA, true)
+      expect(button()).toBeDisabled()
       list([], null, true)
-      expect(button()).toHaveAttribute('aria-label', 'Add bookmark')
+      expect(button()).toBeEnabled()
+      expect(button()).toHaveAttribute('aria-pressed', 'false')
     })
 
     it('theServersBookmark_GoesToThePageWithItsColour_AsTheOtherAnnotationsDo', async () => {

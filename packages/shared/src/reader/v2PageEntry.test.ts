@@ -75,6 +75,19 @@ describe('v2 page entry', () => {
     expect(entryChanges(F, { position: null, highlights: [held({ ...bookmark, id: U1 })] }, { position: null, highlights: [bookmark] }, newId).highlights).toEqual([])
   })
 
+  it('entryChanges_ATwinSkipped_NamedAsAnAlias_PageIdToHeldId_NoneForItsOwnId (#1314 review)', () => {
+    const a = hl(U1)
+    const out = entryChanges(F, { position: null, highlights: [held(a)] }, { position: null, highlights: [{ ...a, id: U2 }] }, newId)
+    expect(out).toEqual({ position: null, highlights: [], aliases: [{ from: U2, to: U1 }] })
+    // Held under its own id: no alias. A pre-#1078 id is named as the page holds it.
+    expect(entryChanges(F, { position: null, highlights: [held(a)] }, { position: null, highlights: [a] }, newId).aliases).toEqual([])
+    expect(entryChanges(F, { position: null, highlights: [held(a)] }, { position: null, highlights: [{ ...a, id: 'h123' }] }, newId).aliases).toEqual([{ from: 'h123', to: U1 }])
+    // The same new one twice: the second is the first's alias.
+    expect(entryChanges(F, { position: null, highlights: [] }, { position: null, highlights: [{ ...a, id: U2 }, a] }, newId).aliases).toEqual([{ from: U1, to: U2 }])
+    // A deleted row has no twin, so no alias.
+    expect(entryChanges(F, { position: null, highlights: [held(a, true)] }, { position: null, highlights: [{ ...a, id: U2 }] }, newId).aliases).toEqual([])
+  })
+
   it('entryChanges_SameNewHighlightTwiceInOneEntry_OneChange', () => {
     const a = hl('h1')
     expect(entryChanges(F, { position: null, highlights: [] }, { position: null, highlights: [a, { ...a, id: 'h2' }] }, newId).highlights).toHaveLength(1)

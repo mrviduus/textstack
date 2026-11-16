@@ -38,7 +38,7 @@ const B = { id: 'b', cfi: 'epubcfi(/6/8!/4/2,/1:0,/1:5)', text: '<b>Later</b> wo
 function sheet(props: Partial<Parameters<typeof V2BookmarksSheet>[0]> = {}) {
   const on = { onToggle: vi.fn(), onGo: vi.fn(), onRemove: vi.fn(), onClose: vi.fn() }
   const div = document.createElement('div')
-  act(() => createRoot(div).render(createElement(V2BookmarksSheet, { visible: true, items: [A, B], here: null, can: true, ...on, ...props })))
+  act(() => createRoot(div).render(createElement(V2BookmarksSheet, { visible: true, items: [A, B], here: null, can: true, placing: false, ...on, ...props })))
   const toggle = () => div.querySelector<HTMLElement>('[data-testid="v2-bookmark-toggle"]')
   const rows = () => [...div.querySelectorAll<HTMLElement>('[data-testid="v2-bookmark-row"]')]
   const removes = () => [...div.querySelectorAll<HTMLElement>('[data-testid="v2-bookmark-remove"]')]
@@ -46,18 +46,18 @@ function sheet(props: Partial<Parameters<typeof V2BookmarksSheet>[0]> = {}) {
 }
 
 describe('V2BookmarksSheet (#1314)', () => {
-  it('noneHere_TheButtonAdds', () => {
+  it('noneHere_TheButton_OneConstantName_NotSelected_ItsPressToggles', () => {
     const s = sheet()
-    expect(s.toggle()!.textContent).toBe('reader.chrome.addBookmark')
+    expect(s.toggle()!.textContent).toBe('reader.chrome.bookmark')
     expect(s.toggle()!.getAttribute('aria-selected')).toBe('false')
     act(() => s.toggle()!.click())
     expect(s.on.onToggle).toHaveBeenCalledTimes(1)
     expect(s.on.onClose).not.toHaveBeenCalled()
   })
 
-  it('oneHere_TheButtonRemoves_ItsRowIsMarked', () => {
+  it('oneHere_TheSameName_ItsStateSelected_ItsRowIsMarked', () => {
     const s = sheet({ here: 'b', can: false })
-    expect(s.toggle()!.textContent).toBe('reader.chrome.removeBookmark')
+    expect(s.toggle()!.textContent).toBe('reader.chrome.bookmark')
     expect(s.toggle()!.getAttribute('aria-selected')).toBe('true')
     expect(s.rows().map((r) => r.getAttribute('aria-selected'))).toEqual(['false', 'true'])
   })
@@ -80,7 +80,7 @@ describe('V2BookmarksSheet (#1314)', () => {
   it('empty_SaysHowToAddOne_TheButtonAdds', () => {
     const s = sheet({ items: [] })
     expect(s.div.textContent).toContain('reader.chrome.bookmarksEmpty')
-    expect(s.toggle()!.textContent).toBe('reader.chrome.addBookmark')
+    expect(s.toggle()!.textContent).toBe('reader.chrome.bookmark')
   })
 
   it('empty_NothingCanBeBookmarkedHere_SaysThat_NoButton', () => {
@@ -98,6 +98,12 @@ describe('V2BookmarksSheet (#1314)', () => {
     expect(s.on.onRemove.mock.calls).toEqual([['b']])
     expect(s.on.onGo).not.toHaveBeenCalled()
     expect(s.on.onClose).not.toHaveBeenCalled()
+  })
+
+  it('empty_StillBeingPlaced_SaysLoading_NeverThatThisPageTakesNone', () => {
+    const s = sheet({ items: [], can: false, placing: true })
+    expect(s.div.textContent).toContain('reader.chrome.bookmarksLoading')
+    expect(s.div.textContent).not.toContain('reader.chrome.bookmarksNotHere')
   })
 
   it('notVisible_Nothing', () => {

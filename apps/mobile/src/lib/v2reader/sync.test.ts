@@ -2288,6 +2288,25 @@ describe('V2 local library sync (R6)', () => {
       expect((await restoredEntry(lib)).highlights).toEqual([highlight])
     })
 
+    it('twin_ABookmarkPulledWhileOpen_TheSamePlaceOnThePageUnderAnotherId_ItsRemovalTombstonesThePulledRow (#1314 review)', async () => {
+      const { lib, bookId, fileId } = await synced()
+      // U2 comes from another device by a pull while the book is open (the page never receives it: no addHighlights on
+      // Android); the reader made the same bookmark on the page meanwhile, as U3.
+      const U3 = '0b6a2c1e-3333-4222-8333-444455556666'
+      fakeApi({ 'GET /annotations/changes': feed(serverBookmark(bookId, fileId, 1)) })
+      await syncV2Library(lib, host())
+      await lib.writeEntry(SHA, entry(pos, [highlight, { ...bookmark, id: U3, at: bookmark.at + 5 }]), newId)
+      expect(await lib.annotation(U3)).toBeFalsy()
+      expect(lib.realId(U3)).toBe(BM)
+      // The page's removal of U3 is the pulled row's: deleted here, its DELETE queued and sent.
+      expect(await lib.removeHighlight(U3, '2026-11-16T10:00:00.000Z')).toBe(true)
+      expect(await lib.annotation(BM)).toMatchObject({ deleted_at: '2026-11-16T10:00:00.000Z' })
+      const calls = fakeApi({ [`DELETE /annotations/${BM}`]: [ok(serverBookmark(bookId, fileId, 2, { deletedAt: '2026-11-16T10:00:01.000Z' }))] })
+      expect(await syncV2Library(lib, host())).toBe('done')
+      expect(writes(calls)).toEqual([`DELETE /annotations/${BM}`])
+      expect((await restoredEntry(lib)).highlights).toEqual([highlight])
+    })
+
     it('deviceHighlights_ABookmarkIsNotAHighlight', async () => {
       const { lib, bookId } = await seeded()
       await lib.writeEntry(SHA, entry(pos, [highlight, bookmark]), newId)

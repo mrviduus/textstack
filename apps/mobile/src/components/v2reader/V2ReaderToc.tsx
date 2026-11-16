@@ -178,13 +178,15 @@ export function V2HighlightsSheet({ visible, items, noteOf, onGo, onClose }: {
  * order, each bookmark's first words as text (untrusted): a tap jumps there and closes the sheet; its remove button
  * removes that one, wherever in the book it is (one further down the screen is never the one `here`).
  */
-export function V2BookmarksSheet({ visible, items, here, can, onToggle, onGo, onRemove, onClose }: {
+export function V2BookmarksSheet({ visible, items, here, can, placing, onToggle, onGo, onRemove, onClose }: {
   visible: boolean
   items: V2BookmarkItem[]
   /** The bookmark the place being read has (null: none). */
   here: string | null
   /** One can be made at the place on screen. */
   can: boolean
+  /** Bookmarks are still being placed: the empty list says they are loading. */
+  placing: boolean
   onToggle: () => void
   onGo: (item: V2BookmarkItem) => void
   onRemove: (id: string) => void
@@ -198,7 +200,7 @@ export function V2BookmarksSheet({ visible, items, here, can, onToggle, onGo, on
       title={t('reader.chrome.bookmarks')}
       closeLabel={t('reader.chrome.closeBookmarks')}
       items={items}
-      empty={t(can ? 'reader.chrome.bookmarksEmpty' : 'reader.chrome.bookmarksNotHere')}
+      empty={t(placing ? 'reader.chrome.bookmarksLoading' : can ? 'reader.chrome.bookmarksEmpty' : 'reader.chrome.bookmarksNotHere')}
       onClose={onClose}
       action={(can || here) ? (
         <TouchableOpacity
@@ -208,7 +210,9 @@ export function V2BookmarksSheet({ visible, items, here, can, onToggle, onGo, on
           accessibilityState={{ selected: !!here }}
           testID="v2-bookmark-toggle"
         >
-          <Text style={[styles.toggleText, { color: colors.primary }]}>{t(here ? 'reader.chrome.removeBookmark' : 'reader.chrome.addBookmark')}</Text>
+          {/* One name, its state in `selected` (#1314 review); filled while the place being read has one. */}
+          <Ionicons name={here ? 'bookmark' : 'bookmark-outline'} size={16} color={colors.primary} />
+          <Text style={[styles.toggleText, { color: colors.primary }]}>{t('reader.chrome.bookmark')}</Text>
         </TouchableOpacity>
       ) : null}
       renderItem={(item) => (
@@ -279,7 +283,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 17, fontFamily: fonts.sansBold },
   close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  toggle: { minHeight: 44, paddingHorizontal: 12, borderRadius: 8, justifyContent: 'center' },
+  toggle: { minHeight: 44, paddingHorizontal: 12, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 6 },
   toggleText: { fontSize: 14, fontFamily: fonts.sansMedium },
   bmRow: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth },
   bmGo: { flex: 1, borderBottomWidth: 0 },

@@ -28,6 +28,8 @@ interface BookmarksTab {
   items: V2BookmarkItem[]
   /** One can be made at the place on screen (the page's `can`): the empty list says how, or that this page takes none. */
   can: boolean
+  /** Bookmarks are still being placed (or the page has not said yet): the empty list says they are loading. */
+  placing: boolean
   onGo: (item: V2BookmarkItem) => void
   /** The row's remove button: the page removes it and the host tombstones it, wherever in the book it is. */
   onRemove: (id: string) => void
@@ -135,7 +137,7 @@ export function V2TocDrawer({ open, toc, tocIndex, onGo, onClose, highlights, bo
               </li>
             ))}
             {bookmarks.items.length === 0 && (
-              <li className="reader-toc-drawer__empty">{t(bookmarks.can ? 'reader.chrome.bookmarksEmpty' : 'reader.chrome.bookmarksNotHere')}</li>
+              <li className="reader-toc-drawer__empty">{t(bookmarks.placing ? 'reader.chrome.bookmarksLoading' : bookmarks.can ? 'reader.chrome.bookmarksEmpty' : 'reader.chrome.bookmarksNotHere')}</li>
             )}
           </ul>
         )}

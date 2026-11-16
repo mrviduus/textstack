@@ -2156,7 +2156,7 @@ try {
   // The page says when: none can be made while the restore runs, one can once it has finished.
   const bmDuring = await bmAfter(m.from)
   const bm0 = await bmAfter(m.from, (x) => x.can)
-  check(bmDuring?.can === false && bm0?.key === fb2Book.sha256 && bm0.bookmarks.length === 0 && bm0.here === null && m.bookmarkable === true,
+  check(bmDuring?.can === false && bmDuring.placing === true && bm0?.placing === false && bm0?.key === fb2Book.sha256 && bm0.bookmarks.length === 0 && bm0.here === null && m.bookmarkable === true,
     `during the restore no bookmark can be made; after it: none listed, none here, one can be made (${JSON.stringify([bmDuring?.can, bm0])})`)
   const fillsBefore = JSON.stringify(await fills())
   from = messages.length
@@ -2309,6 +2309,17 @@ try {
   await call('window.__fol.__testBreakBookmarks(false)')
   check(!!turnedTo?.moved && savedDespite?.position?.cfi === turnedTo.cfi && messages.slice(from).some((x) => x.type === 'log' && x.level === 'error' && /^bookmarks: /.test(x.msg)),
     `a bookmark pass that throws is logged, and the turn's position is still saved (${JSON.stringify([turnedTo?.cfi, savedDespite?.position?.cfi])})`)
+  // The bookmark label failing on restore (#1314 review) costs nothing: a highlight is checked by its own text (no label
+  // is made for it) and drawn; a bookmark falls back to the range's text and is still found.
+  await call('window.__fol.__testBreakBookmarks(true)')
+  m = await open('tsformat.fb2', JSON.stringify({ v: 1, book: fb2Book, highlights: [hl, bmTwoStore.highlights[0]], position: { fraction: 0.9, at: 1 } }))
+  await page.waitForTimeout(600)
+  const hlFills = (await fills()).length
+  await call('window.__fol.__testBreakBookmarks(false)')
+  // One failure said: the bookmark's; the highlight never made a label.
+  const labelWarns = messages.slice(m.from).filter((x) => x.type === 'log' && /^bookmark text at /.test(x.msg)).length
+  check(JSON.stringify(m.restored.highlights) === JSON.stringify([{ id: hl.id, status: 'restored' }, { id: bmTwoStore.highlights[0].id, status: 'restored' }]) && hlFills === 1 && labelWarns === 1,
+    `with the bookmark label failing, a highlight restores and is drawn, and a bookmark is still found (${JSON.stringify(m.restored.highlights)}, ${hlFills} drawn)`)
   await bookmarkRounds()
   // #1312: colours, recolour, removal, the list and a tap on a highlight.
   console.log('highlight colours')

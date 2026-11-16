@@ -24,6 +24,6 @@ export function bookmarkList(
   placed: Set<string>,
   compare: (a: string, b: string) => number,
 ): V2BookmarkItem[]
-/** `here`: the bookmark the place being read has (null: none); `can`: one can be made here now. */
-export interface V2BookmarkList { key: string; bookmarks: V2BookmarkItem[]; here: string | null; can: boolean }
+/** `here`: the bookmark the place being read has (null: none); `can`: one can be made here now; `placing`: bookmarks are still being placed. */
+export interface V2BookmarkList { key: string; bookmarks: V2BookmarkItem[]; here: string | null; can: boolean; placing: boolean }
 export function readBookmarkList(m: unknown): V2BookmarkList | null

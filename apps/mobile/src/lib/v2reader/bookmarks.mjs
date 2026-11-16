@@ -135,11 +135,11 @@ export function atTop(place, mark, { scrolled = false, vertical = false, rects =
 export const bookmarkList = (highlights, placed, compare) => listItems(highlights.filter(isBookmark), placed, compare)
 
 /**
- * A host's read of `bookmark-list`: `{ key, bookmarks, here, can }`, malformed items dropped (highlights.mjs
+ * A host's read of `bookmark-list`: `{ key, bookmarks, here, can, placing }`, malformed items dropped (highlights.mjs
  * `readItems`); `here` only when it is one of the items; null for a malformed message.
  */
 export function readBookmarkList(m) {
   if (!m || typeof m !== 'object' || m.type !== 'bookmark-list' || typeof m.key !== 'string' || !Array.isArray(m.bookmarks)) return null
   const bookmarks = readItems(m.bookmarks)
-  return { key: m.key, bookmarks, here: bookmarks.some((b) => b.id === m.here) ? m.here : null, can: m.can === true }
+  return { key: m.key, bookmarks, here: bookmarks.some((b) => b.id === m.here) ? m.here : null, can: m.can === true, placing: m.placing === true }
 }

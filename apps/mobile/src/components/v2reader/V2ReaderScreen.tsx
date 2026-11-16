@@ -1563,6 +1563,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             items={bookmarks?.bookmarks ?? []}
             here={bookmarks?.here ?? null}
             can={bookmarks?.can ?? false}
+            placing={!bookmarks || bookmarks.placing}
             onToggle={toggleBookmark}
             onGo={goHighlight}
             onRemove={(id) => call(`window.__fol.removeBookmark(${JSON.stringify(id)})`)}
