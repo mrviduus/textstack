@@ -259,24 +259,25 @@ describe('v2 reader bookmarks', () => {
   })
 
   it('readBookmarkList_ValidMessage_ItemsHereAndCan', () => {
-    const m = { type: 'bookmark-list', key: 'abc', bookmarks: [{ id: 'b1', cfi: CFI, text: 'First words', at: 5, extra: 1 }], here: 'b1', can: true }
-    expect(readBookmarkList(m)).toEqual({ key: 'abc', bookmarks: [{ id: 'b1', cfi: CFI, text: 'First words', at: 5 }], here: 'b1', can: true })
+    const m = { type: 'bookmark-list', key: 'abc', bookmarks: [{ id: 'b1', cfi: CFI, text: 'First words', at: 5, extra: 1 }], here: 'b1', can: true, placing: true }
+    expect(readBookmarkList(m)).toEqual({ key: 'abc', bookmarks: [{ id: 'b1', cfi: CFI, text: 'First words', at: 5 }], here: 'b1', can: true, placing: true })
   })
 
   it('readBookmarkList_MalformedItemsDropped_HereOnlyIfListed_CanOnlyIfTrue', () => {
     const ok = { id: 'b1', cfi: CFI, text: 't', at: 'soon' }
     const m = {
-      type: 'bookmark-list', key: 'abc', here: 'b9', can: 'yes',
+      type: 'bookmark-list', key: 'abc', here: 'b9', can: 'yes', placing: 1,
       bookmarks: [ok, null, { ...ok, id: '<img>' }, { ...ok, id: 'b2', cfi: 'javascript:1' }, { ...ok, id: 'b3', text: 5 }, { ...ok, id: 'b4', text: 'x'.repeat(401) }],
     }
-    expect(readBookmarkList(m)).toEqual({ key: 'abc', bookmarks: [{ id: 'b1', cfi: CFI, text: 't', at: null }], here: null, can: false })
+    // `can` and `placing` only when strictly true.
+    expect(readBookmarkList(m)).toEqual({ key: 'abc', bookmarks: [{ id: 'b1', cfi: CFI, text: 't', at: null }], here: null, can: false, placing: false })
     // `here` naming a dropped item is none.
     expect(readBookmarkList({ ...m, here: 'b2' })!.here).toBeNull()
   })
 
   it('readBookmarkList_NotABookmarkList_Null', () => {
     const m = { type: 'bookmark-list', key: 'abc', bookmarks: [], here: null, can: false }
-    expect(readBookmarkList(m)).toEqual({ key: 'abc', bookmarks: [], here: null, can: false })
+    expect(readBookmarkList(m)).toEqual({ key: 'abc', bookmarks: [], here: null, can: false, placing: false })
     for (const bad of [null, 'x', { ...m, type: 'highlight-list' }, { ...m, key: 5 }, { ...m, bookmarks: {} }]) expect(readBookmarkList(bad)).toBeNull()
   })
 })
