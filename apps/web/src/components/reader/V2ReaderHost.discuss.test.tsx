@@ -1,11 +1,11 @@
-import { ApiError, type V2Share, type V2ShareWrite } from '@textstack/shared'
+import { ApiError, CHAPTER_TEXT_MS, type V2Share, type V2ShareWrite } from '@textstack/shared'
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { v2Store } from '../../api/v2'
 import { __resetAssistantGrants } from '../../hooks/useAssistantLauncher'
 import { v2ReaderSyncApi, type V2SyncTarget } from '../../lib/v2ReaderSync'
-import { CHAPTER_TEXT_MS, V2ReaderHost, v2DiscussApi, type V2HostBook } from './V2ReaderHost'
+import { V2ReaderHost, v2DiscussApi, type V2HostBook } from './V2ReaderHost'
 
 // #1316 in the host, the page and the server faked: the end-of-chapter block follows the page's `chapterEnd`,
 // "Discuss this chapter" asks the page for that chapter's text, shares it under the book, its file and a key, and
@@ -245,6 +245,26 @@ describe('V2ReaderHost discuss chapter (#1316)', () => {
     v2Store.reset()
     await act(async () => { land({ id: SHARE, bookId: 'b1', chapterKey: 'toc-1', createdAt: '' }) })
     expect(screen.queryByTestId('v2-discuss-open')).toBeNull()
+  })
+
+  it('discuss_NoAssistantConnected_NothingAskedOrShared_TheConnectDialogShown_ConnectedAfterIt_TheNextClickShares', async () => {
+    listOAuthGrants.mockResolvedValue([])
+    const { share, opened, relocate, click, asked, answer } = await reader()
+    await relocate({ chapterEnd: { tocIndex: 1, section: 0 } })
+    await click('v2-discuss-share')
+    expect(screen.getByRole('dialog', { name: 'Connect Claude or ChatGPT in a minute' })).toBeInTheDocument()
+    expect(asked()).toEqual([])
+    expect(share).not.toHaveBeenCalled()
+
+    listOAuthGrants.mockResolvedValue([{ id: 'g', clientName: 'Claude' }])
+    await act(async () => {
+      screen.getByRole('button', { name: 'Close' }).click()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(opened).not.toHaveBeenCalled()
+    await click('v2-discuss-share')
+    await answer({ text: 'Beta begins.' })
+    expect(share).toHaveBeenCalledTimes(1)
   })
 
   it('discuss_ClickedTwice_OneRequestOneShare', async () => {

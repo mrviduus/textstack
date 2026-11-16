@@ -124,4 +124,78 @@ export async function shareChapterForDiscuss(chapter: V2DiscussChapter, deps: V2
   }
 }
 
+/** The page's `chapter-text` answer as a host read it (`readChapterText`, chapters.mjs). */
+export type V2ChapterTextAnswer = { request: string; text: string; cut: boolean } | { request: string; error: 'empty' | 'unavailable' }
+
+/** A chapter as the page names it, with what its share carries. */
+export interface V2DiscussRequest extends V2DiscussChapter { tocIndex: number | null; section: number }
+
+/** No `chapter-text` from the page by then: the chapter is not shared, and the reader is told. */
+export const CHAPTER_TEXT_MS = 20000
+
+/**
+ * One host's Discuss for the open book (both hosts): asks the page for a chapter's text under a request id of its
+ * own, shares it, and keeps one operation id per chapter so a retry replays the first share. One share at a time
+ * per chapter (`busy`). `reset()` where a book opens: the previous book's ids and waits are none of the new one's.
+ */
+export function createV2Discuss(deps: {
+  /** Sends the page `chapterText(request, tocIndex, section)`. */
+  askPage(request: string, chapter: { tocIndex: number | null; section: number }): void
+  share(bookId: string, body: V2ShareWrite): Promise<V2Share>
+  newId(): string
+  timeoutMs?: number
+}) {
+  const waiting = new Map<string, (a: V2ChapterTextAnswer) => void>()
+  let operations = new Map<string, string>()
+  let sharing = new Set<string>()
+  return {
+    /** The page's answer: taken only for a request this host made and still waits for. */
+    answer(a: V2ChapterTextAnswer | null) {
+      const take = a && waiting.get(a.request)
+      if (!a || !take) return
+      waiting.delete(a.request)
+      take(a)
+    },
+    busy: (chapterKey: string) => sharing.has(chapterKey),
+    reset() {
+      operations = new Map()
+      sharing = new Set()
+    },
+    /** As `shareChapterForDiscuss`; `current` is the host's identity guard. Call only when not `busy`. */
+    async discuss(chapter: V2DiscussRequest, current: () => boolean): Promise<V2DiscussShared | null> {
+      const key = chapter.chapterKey
+      const [ops, inFlight] = [operations, sharing]
+      let operationId = ops.get(key)
+      if (!operationId) ops.set(key, (operationId = deps.newId()))
+      inFlight.add(key)
+      try {
+        return await shareChapterForDiscuss(chapter, {
+          operationId,
+          current,
+          share: deps.share,
+          chapterText: () => new Promise((resolve, reject) => {
+            const request = deps.newId()
+            const timer = setTimeout(() => {
+              waiting.delete(request)
+              reject(new V2DiscussError('unavailable'))
+            }, deps.timeoutMs ?? CHAPTER_TEXT_MS)
+            waiting.set(request, (a) => {
+              clearTimeout(timer)
+              if ('error' in a) reject(new V2DiscussError(a.error))
+              else resolve(a)
+            })
+            deps.askPage(request, { tocIndex: chapter.tocIndex, section: chapter.section })
+          }),
+        })
+      } catch (e) {
+        // A refused write may be this id's (another payload under it): the next try is a new operation.
+        if (discussFailureOf(e) === 'failed') ops.delete(key)
+        throw e
+      } finally {
+        inFlight.delete(key)
+      }
+    },
+  }
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

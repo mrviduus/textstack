@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import type { V2DiscussFailure, V2DiscussShared } from '@textstack/shared'
+import { useEffect, useRef, useState } from 'react'
+import { connectedAssistants, type V2DiscussFailure, type V2DiscussShared } from '@textstack/shared'
 import { useAssistantLauncher } from '../../hooks/useAssistantLauncher'
 import { useTranslation } from '../../hooks/useTranslation'
 import { ConnectAssistantDialog } from '../library/ReviewChapterButton'
@@ -24,6 +24,7 @@ const FAILURE: Record<V2DiscussFailure, string> = {
  * Two steps, each the reader's own click: "Discuss this chapter" shares the chapter's text with their account
  * (`onShare`; a failure is said, with a retry), then "Open the chat" opens their assistant with the share's id. The
  * chat opens inside that second click, so no popup blocker eats it, and never before the server answered: no dead id.
+ * With no assistant connected (known before the click) nothing is shared: the first click shows how to connect one.
  * `title` is the contents entry's label, a book's own text: rendered as text only.
  */
 export function V2ChapterDiscuss({ title, state, onShare }: { title: string | null; state: V2DiscussState | undefined; onShare: () => void }) {
@@ -31,6 +32,7 @@ export function V2ChapterDiscuss({ title, state, onShare }: { title: string | nu
   const launcher = useAssistantLauncher()
   const open = useRef<HTMLButtonElement>(null)
   const ready = state?.phase === 'ready'
+  const [checking, setChecking] = useState(false)
   // The share landed: the next step takes the focus (the button the reader pressed is gone).
   useEffect(() => { if (ready) open.current?.focus() }, [ready])
 
@@ -65,18 +67,29 @@ export function V2ChapterDiscuss({ title, state, onShare }: { title: string | nu
     )
   }
   const sharing = state?.phase === 'sharing'
+  const noAssistant = !!launcher.grants && connectedAssistants(launcher.grants).length === 0
+  // No brief: with none connected the launcher opens no chat, only the connect dialog.
+  const start = () => { if (noAssistant) void launcher.launch(() => ''); else onShare() }
+  // The dialog closed: the reader may have connected one. Asked again, the button off meanwhile (a click then would
+  // meet grants not yet known).
+  const closeConnect = () => {
+    launcher.closeConnect()
+    setChecking(true)
+    void launcher.prefetch().finally(() => setChecking(false))
+  }
   return (
     <span className="v2-reader__discuss" data-testid="v2-discuss">
       {state?.phase === 'failed' && <span role="alert">{t(FAILURE[state.reason])} </span>}
       <button
         type="button"
         data-testid="v2-discuss-share"
-        onClick={onShare}
-        disabled={sharing}
+        onClick={start}
+        disabled={sharing || checking}
         aria-label={title && !sharing && state?.phase !== 'failed' ? t('v2Reader.discussAria', { title }) : undefined}
       >
         {sharing ? t('v2Reader.discussSharing') : state?.phase === 'failed' ? t('v2Reader.retry') : t('v2Reader.discuss')}
       </button>
+      {launcher.connect && <ConnectAssistantDialog onClose={closeConnect} />}
     </span>
   )
 }

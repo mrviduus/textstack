@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { discussFailureOf, shareChapterForDiscuss, v2Api, V2DiscussError, type PagePosition } from '@textstack/shared'
+import { CHAPTER_TEXT_MS, createV2Discuss, discussFailureOf, v2Api, type PagePosition } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
 import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reader/openTracker.mjs'
@@ -15,7 +15,7 @@ import { V2ReaderPopups, type V2HighlightEditor } from './V2ReaderPopups'
 import { noteChange, readHighlightList, readHighlightRemoved, readHighlightTap, type V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
 import { showsFinishBook } from '../../../../mobile/src/lib/v2reader/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
-import { chapterKey, readChapterEnd, readChapterText, type V2ChapterEnd, type V2ChapterText } from '../../../../mobile/src/lib/v2reader/chapters.mjs'
+import { chapterKey, readChapterEnd, readChapterText, type V2ChapterEnd } from '../../../../mobile/src/lib/v2reader/chapters.mjs'
 import { V2ChapterDiscuss, type V2DiscussState } from './V2ChapterDiscuss'
 import { v2Store } from '../../api/v2'
 import { readToc, tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
@@ -72,8 +72,6 @@ const SAVE_MESSAGE = { unsaved: 'v2Reader.unsaved', reopen: 'v2Reader.reopen', n
  * production). Not srcdoc: that inherits this document's CSP, which refuses the page's scripts.
  */
 const FRAME_SRC = V2_READER_FRAME_PATH
-/** #1316: no `chapter-text` from the page by then: the chapter is not shared, and the reader is told. */
-export const CHAPTER_TEXT_MS = 20000
 /** The share call (#1316), a seam for the host tests. */
 export const v2DiscussApi = { shareChapter: v2Api.shareChapter }
 /** The frame's id: the skip link's target. */
@@ -256,15 +254,18 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   /**
    * Discuss this chapter (#1316): the chapter whose end is on screen (`relocate.chapterEnd`, the page's own test),
    * the server book the open bytes are (null: none, so no Discuss), each chapter's share as far as it got (kept
-   * while the book is open: a reader who scrolls away and back finds it), the page's `chapter-text` answers awaited,
-   * and one operation id per chapter, so a retry replays the first share.
+   * while the book is open: a reader who scrolls away and back finds it), and the shared controller (the page's
+   * `chapter-text` answers awaited, one operation id per chapter so a retry replays the first share).
    */
   const [chapterEnd, setChapterEnd] = useState<V2ChapterEnd | null>(null)
   const [discussBook, setDiscussBook] = useState<{ bookId: string; fileId: string; title: string; author: string | null; language: string | null } | null>(null)
   const [discussStates, setDiscussStates] = useState<Record<string, V2DiscussState>>({})
-  const chapterTexts = useRef(new Map<string, (a: V2ChapterText) => void>())
-  const discussOps = useRef(new Map<string, string>())
-  const sharing = useRef(new Set<string>())
+  const [discuss] = useState(() => createV2Discuss({
+    askPage: (request, c) => call('chapterText', [request, c.tocIndex, c.section]),
+    share: (bookId, body) => v2DiscussApi.shareChapter(bookId, body),
+    newId: () => crypto.randomUUID(),
+    timeoutMs: CHAPTER_TEXT_MS,
+  }))
   /**
    * The open book's contents (#1261, toc.mjs) and the reader's place in them; shown only while `reading`. The
    * place is cleared where an open starts, not on `opened`: the page posts a book's first relocate before its
@@ -517,8 +518,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         ? { bookId: target.bookId, fileId: target.fileId, title: m.title || current.originalName, author: typeof m.author === 'string' && m.author ? m.author : null, language: readLang(m) }
         : null)
       setDiscussStates({})
-      discussOps.current = new Map()
-      sharing.current = new Set()
+      discuss.reset()
       if (dev) call('restore', [readItem(storeKey(m.book.sha256))])
       else if (!target) call('restore', [null])
       else if (target.sha256.toLowerCase() !== m.book.sha256) {
@@ -682,11 +682,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         }
         case 'chapter-text': {
           // #1316: the page's answer to this host's own request (an id it made); anything else is dropped.
-          const a = readChapterText(m)
-          const take = a && chapterTexts.current.get(a.request)
-          if (!a || !take) return
-          chapterTexts.current.delete(a.request)
-          take(a)
+          discuss.answer(readChapterText(m))
           return
         }
         case 'tap': {
@@ -832,7 +828,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     const open = opening.current
     const epoch = v2Store.epoch
     const key = chapterKey(chapter)
-    if (!book || !open || sharing.current.has(key)) return
+    if (!book || !open || discuss.busy(key)) return
     const current = () => opening.current === open && v2Store.epoch === epoch
     const set = (state: V2DiscussState | undefined) => {
       if (!current()) return
@@ -841,37 +837,15 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         return state ? { ...rest, [key]: state } : rest
       })
     }
-    let operationId = discussOps.current.get(key)
-    if (!operationId) discussOps.current.set(key, (operationId = crypto.randomUUID()))
-    sharing.current.add(key)
     set({ phase: 'sharing' })
-    shareChapterForDiscuss(
-      { bookId: book.bookId, fileId: book.fileId, chapterKey: key, chapterTitle: title, bookTitle: book.title, author: book.author, language: book.language },
-      {
-        operationId,
-        current,
-        share: (bookId, body) => v2DiscussApi.shareChapter(bookId, body),
-        chapterText: () => new Promise((resolve, reject) => {
-          const request = crypto.randomUUID()
-          const timer = setTimeout(() => {
-            chapterTexts.current.delete(request)
-            reject(new V2DiscussError('unavailable'))
-          }, CHAPTER_TEXT_MS)
-          chapterTexts.current.set(request, (a) => {
-            clearTimeout(timer)
-            if ('error' in a) reject(new V2DiscussError(a.error))
-            else resolve(a)
-          })
-          call('chapterText', [request, chapter.tocIndex, chapter.section])
-        }),
-      },
+    discuss.discuss(
+      { ...chapter, bookId: book.bookId, fileId: book.fileId, chapterKey: key, chapterTitle: title, bookTitle: book.title, author: book.author, language: book.language },
+      current,
     ).then((shared) => set(shared ? { phase: 'ready', shared } : undefined), (e: unknown) => {
       const reason = discussFailureOf(e)
       console.warn('[v2] chapter not shared:', reason)
-      // A refused write may be this id's (another payload under it): the next try is a new operation.
-      if (reason === 'failed' && current()) discussOps.current.delete(key)
       set({ phase: 'failed', reason })
-    }).finally(() => { if (current()) sharing.current.delete(key) })
+    })
   }
   /** The chapter Discuss is offered for: the one whose end is on screen, when the host can name it (its contents entry, or a book with no contents). */
   const discussEntry = (() => {

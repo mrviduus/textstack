@@ -78,7 +78,6 @@ try {
     return false
   }
   const showsText = () => shown(() => document.body?.innerText.includes('Paragraph 1. Sphinx'))
-  if (process.env.TS_ONLY_CHAPTERS) { await checkChapters(); throw new Error('TS_ONLY_CHAPTERS') } // TEMP
 
   /** The shown section frame whose text includes `text`. */
   const frameWith = async (text) => {

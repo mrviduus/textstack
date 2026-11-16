@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, networkError } from '../api/client'
 import type { V2Share, V2ShareWrite } from '../api/v2'
 import { MAX_BRIEF_CHARS, handoffUrl } from './assistantHandoff'
-import { V2DiscussError, buildV2DiscussBrief, discussFailureOf, shareChapterForDiscuss, type V2DiscussDeps } from './v2Discuss'
+import { CHAPTER_TEXT_MS, V2DiscussError, buildV2DiscussBrief, createV2Discuss, discussFailureOf, shareChapterForDiscuss, type V2DiscussDeps } from './v2Discuss'
 
 const BOOK = '77777777-7777-4777-8777-777777777777'
 const FILE = '88888888-8888-4888-8888-888888888888'
@@ -102,5 +102,77 @@ describe('shareChapterForDiscuss', () => {
     live = true
     const failed = deps({ current: () => live, share: async () => { live = false; throw new ApiError(500, 'boom') } })
     expect(await shareChapterForDiscuss(chapter, failed.deps)).toBeNull()
+  })
+})
+
+describe('createV2Discuss', () => {
+  afterEach(() => vi.useRealTimers())
+  const request = { bookId: BOOK, fileId: FILE, chapterKey: 'toc-3', chapterTitle: 'Chapter II', bookTitle: 'Dracula', tocIndex: 3, section: 1 }
+  const make = () => {
+    let n = 0
+    const asked: [string, { tocIndex: number | null; section: number }][] = []
+    const share = vi.fn(async (bookId: string, body: V2ShareWrite): Promise<V2Share> => ({ id: SHARE, bookId, chapterKey: body.chapterKey, createdAt: '' }))
+    const d = createV2Discuss({ askPage: (r, c) => asked.push([r, c]), share, newId: () => `id-${++n}` })
+    return { d, asked, share }
+  }
+
+  it('asks the page for that chapter under its own request id, and shares what it answers', async () => {
+    const { d, asked, share } = make()
+    const going = d.discuss(request, () => true)
+    expect(asked).toEqual([['id-2', { tocIndex: 3, section: 1 }]])
+    expect(d.busy('toc-3')).toBe(true)
+    d.answer({ request: 'forged', text: 'not asked for', cut: false })
+    d.answer(null)
+    expect(share).not.toHaveBeenCalled()
+    d.answer({ request: 'id-2', text: 'It was the night.', cut: false })
+    expect((await going)?.shareId).toBe(SHARE)
+    expect(share.mock.calls[0][1]).toMatchObject({ operationId: 'id-1', chapterKey: 'toc-3', chapterText: 'It was the night.' })
+    expect(d.busy('toc-3')).toBe(false)
+  })
+  it('takes one answer per request', async () => {
+    const { d, share } = make()
+    const going = d.discuss(request, () => true)
+    d.answer({ request: 'id-2', text: 'first', cut: false })
+    d.answer({ request: 'id-2', text: 'second', cut: false })
+    await going
+    expect(share.mock.calls.map(([, b]) => b.chapterText)).toEqual(['first'])
+  })
+  it('replays one operation per chapter on a retry, a new one after a refusal and after a reset, another per chapter', async () => {
+    const { d, asked, share } = make()
+    const run = async (chapterKey = 'toc-3') => {
+      const going = d.discuss({ ...request, chapterKey }, () => true).catch((e: V2DiscussError) => e.reason)
+      d.answer({ request: asked[asked.length - 1][0], text: 'x', cut: false })
+      await going
+      return share.mock.calls[share.mock.calls.length - 1][1].operationId
+    }
+    share.mockRejectedValueOnce(networkError(new Error('down')))
+    const first = await run()
+    expect(await run()).toBe(first)
+    expect(await run('toc-4')).not.toBe(first)
+    share.mockRejectedValueOnce(new ApiError(409, 'operation_conflict'))
+    expect(await run()).toBe(first)
+    const afterRefusal = await run()
+    expect(afterRefusal).not.toBe(first)
+    d.reset()
+    expect(await run()).not.toBe(afterRefusal)
+  })
+  it('says the chapter could not be read when the page does not answer in time, and a late answer shares nothing', async () => {
+    vi.useFakeTimers()
+    const { d, asked, share } = make()
+    const going = d.discuss(request, () => true).catch((e: V2DiscussError) => e.reason)
+    await vi.advanceTimersByTimeAsync(CHAPTER_TEXT_MS - 1)
+    expect(d.busy('toc-3')).toBe(true)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await going).toBe('unavailable')
+    d.answer({ request: asked[0][0], text: 'late', cut: false })
+    expect(share).not.toHaveBeenCalled()
+    expect(d.busy('toc-3')).toBe(false)
+  })
+  it('passes the page\'s own refusal on', async () => {
+    const { d, asked, share } = make()
+    const going = d.discuss(request, () => true).catch((e: V2DiscussError) => e.reason)
+    d.answer({ request: asked[0][0], error: 'empty' })
+    expect(await going).toBe('empty')
+    expect(share).not.toHaveBeenCalled()
   })
 })
