@@ -56,8 +56,8 @@ describe('v2 reader search', () => {
 
   it('searchItems_FoliateHits_AsItems_ContextCutFromTheHitsSide', () => {
     const items = searchItems([
-      { cfi: CFI, excerpt: { pre: 'a'.repeat(MAX_CONTEXT) + 'END', match: 'Whale', post: 'START' + 'b'.repeat(MAX_CONTEXT) } },
-    ], '  Chapter 1 ')
+      { cfi: CFI, excerpt: { pre: 'a'.repeat(MAX_CONTEXT) + 'END', match: 'Whale', post: 'START' + 'b'.repeat(MAX_CONTEXT) }, label: '  Chapter 1 ' },
+    ])
     expect(items).toEqual([{ cfi: CFI, pre: ('a'.repeat(MAX_CONTEXT) + 'END').slice(-MAX_CONTEXT), match: 'Whale', post: ('START' + 'b'.repeat(MAX_CONTEXT)).slice(0, MAX_CONTEXT), label: 'Chapter 1' }])
     expect(items[0].pre.endsWith('END')).toBe(true)
     expect(items[0].post.startsWith('START')).toBe(true)
@@ -67,10 +67,12 @@ describe('v2 reader search', () => {
     expect(searchItems([
       null, 'x', { cfi: 'not-a-cfi', excerpt: { match: 'a' } }, { cfi: CFI }, { cfi: CFI, excerpt: { match: '' } }, { cfi: CFI, excerpt: { match: 7 } },
       { cfi: 'epubcfi(' + '/2'.repeat(MAX_SELECTION_CFI), excerpt: { match: 'a' } },
-      { cfi: CFI, excerpt: { match: 'm'.repeat(MAX_MATCH + 9) } },
-    ], 'L'.repeat(MAX_LABEL + 9))).toEqual([{ cfi: CFI, pre: '', match: 'm'.repeat(MAX_MATCH), post: '', label: 'L'.repeat(MAX_LABEL) }])
-    expect(searchItems('nope', undefined)).toEqual([])
-    expect(searchItems([{ cfi: CFI, excerpt: { match: 'a' } }], { toString: () => 'x' })[0].label).toBe('')
+      { cfi: CFI, excerpt: { match: 'm'.repeat(MAX_MATCH + 9) }, label: 'L'.repeat(MAX_LABEL + 9) },
+    ])).toEqual([{ cfi: CFI, pre: '', match: 'm'.repeat(MAX_MATCH), post: '', label: 'L'.repeat(MAX_LABEL) }])
+    expect(searchItems('nope')).toEqual([])
+    expect(searchItems([{ cfi: CFI, excerpt: { match: 'a' }, label: { toString: () => 'x' } }, { cfi: CFI, excerpt: { match: 'a' } }]).map((i) => i.label)).toEqual(['', ''])
+    // Each hit has its own contents entry: two in one section may differ.
+    expect(searchItems([{ cfi: CFI, excerpt: { match: 'a' }, label: 'One' }, { cfi: CFI, excerpt: { match: 'a' }, label: 'Two' }]).map((i) => i.label)).toEqual(['One', 'Two'])
   })
 
   it('readSearchResults_WellFormed_KeepsOnlyKnownFields', () => {

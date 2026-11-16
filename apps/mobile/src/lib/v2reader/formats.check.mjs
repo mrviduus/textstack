@@ -2509,17 +2509,29 @@ try {
   const svgSpine = await searchFor('KESTREL')
   check(JSON.stringify(svgSpine.results.map((r) => [r.pre, r.match, r.post])) === JSON.stringify([['The first ', 'kestrel', ' is here.'], ['The second ', 'kestrel', ' is there.']]) && svgSpine.read.at(-1)?.incomplete === true && svgSpine.more === false,
     `an SVG spine item before a section with a hit: the hit is found, the search says incomplete (${JSON.stringify(svgSpine.results.map((r) => r.pre + r.match))}, ${svgSpine.read.at(-1)?.incomplete})`)
-  // After a search the sections' documents are the book's own again: the SVG item's has no body, as before.
-  check(await call(`document.querySelector('foliate-view').book.sections[1].createDocument().then((d) => d.body === null && d.documentElement.localName === 'svg')`), 'after the search a section hands out its own document again')
   // A whole book read is not incomplete.
   m = await open('tsformat.fb2')
   const whole = await searchFor('paragraph 30. sphinx')
   check(whole.read.length === 3 && whole.read.every((r) => r.incomplete === false), 'a book read whole is not incomplete')
-  // Anything else that fails inside the search ends it: `done`, incomplete.
+  // A hit that cannot be placed fails its section inside foliate, which skips it as any unreadable section: here both.
   await call(`(() => { const v = document.querySelector('foliate-view'); v.__getCFI = v.getCFI; v.getCFI = () => { throw new Error('no cfi') } })()`)
-  const failed = await searchFor('paragraph 30. sphinx')
+  const unplaced = await searchFor('paragraph 30. sphinx')
   await call(`(() => { const v = document.querySelector('foliate-view'); v.getCFI = v.__getCFI })()`)
+  check(unplaced.results.length === 0 && unplaced.read.at(-1)?.done === true && unplaced.read.at(-1)?.incomplete === true, `sections whose hits cannot be placed are skipped: done, incomplete (${JSON.stringify(unplaced.read.at(-1))})`)
+  // foliate's search itself failing ends the search: `done`, incomplete, never a search left running.
+  await call(`(() => { const v = document.querySelector('foliate-view'); v.__search = v.search; v.search = async function* () { throw new Error('no search') } })()`)
+  const failed = await searchFor('paragraph 30. sphinx')
+  await call(`(() => { const v = document.querySelector('foliate-view'); v.search = v.__search })()`)
   check(failed.results.length === 0 && failed.read.length === 1 && failed.read[0].done === true && failed.read[0].incomplete === true, `a search that fails ends, and says incomplete (${JSON.stringify(failed.read)})`)
+  // A hit over inline markup (five text nodes) is listed whole, as the book writes it; and each hit is under its own
+  // contents entry, two of them in one file.
+  m = await open('tssearch.epub')
+  const inline = await searchFor('QUICK brown fox')
+  check(JSON.stringify(inline.results.map((r) => [r.match, r.label])) === JSON.stringify([['quick brown fox', 'Alpha']]) && await hitText(inline.results[0]?.cfi) === 'quick brown fox',
+    `a hit across <em> nodes is listed as the book's text (${JSON.stringify(inline.results.map((r) => [r.pre, r.match, r.post, r.label]))})`)
+  const entries = await searchFor('heron')
+  check(JSON.stringify(entries.results.map((r) => [r.pre, r.match, r.label])) === JSON.stringify([['A ', 'heron', 'Alpha'], ['Another ', 'heron', 'Beta']]),
+    `two hits in one file, each under its own contents entry (${JSON.stringify(entries.results.map((r) => [r.pre, r.match, r.label]))})`)
   // The cap. `more` only when a hit past it is known: exactly MAX_RESULTS hits are all listed and nothing more is claimed;
   // one more, in the same section or in a later one, is "more".
   const zebras = (n, from) => `<section><title><p>Many</p></title>${Array.from({ length: n }, (_, i) => `<p>zebra ${from + i}</p>`).join('')}</section>`
@@ -2534,6 +2546,22 @@ try {
     check(many.results.length === MAX_RESULTS && many.more === more && many.results.at(-1)?.post === ` ${MAX_RESULTS}` && many.read.every((r) => r.done || r.results.length > 0),
       `${what}: ${MAX_RESULTS} hits listed, more: ${more} (${many.results.length}, last ${JSON.stringify(many.results.at(-1)?.post)}, more ${many.more}, messages ${many.read.map((r) => r.results.length)})`)
   }
+  // The cap reaches the matcher: in one section with more hits than the cap, what is drawn is the hits up to the one
+  // past the cap (the one that proves "more") and nothing after it.
+  writeFileSync(resolve(dir, 'tsmany.fb2'), fb2('TS MANY', zebras(MAX_RESULTS + 100, 1)))
+  m = await open('tsmany.fb2')
+  const capped = await searchFor('zebra')
+  await page.waitForTimeout(300)
+  const zebraBoxes = await call(`(() => {
+    const c = document.querySelector('foliate-view').renderer.getContents()[0]
+    return [...c.doc.querySelectorAll('p')].filter((p) => /^zebra \\d+$/.test(p.textContent)).map((p) => {
+      const r = c.doc.createRange(); r.setStart(p.firstChild, 0); r.setEnd(p.firstChild, 5)
+      return [...r.getClientRects()].map((q) => [q.left, q.top, q.width, q.height].map(Math.round).join()).join(';')
+    })
+  })()`)
+  check(capped.results.length === MAX_RESULTS && capped.more === true && zebraBoxes.length === MAX_RESULTS + 100
+    && JSON.stringify(await drawnHits()) === JSON.stringify(zebraBoxes.slice(0, MAX_RESULTS + 1).sort()),
+  `matching stops at the cap: the hits drawn are the first ${MAX_RESULTS + 1} of ${zebraBoxes.length}, none after (${(await drawnHits()).length} drawn)`)
   // A new open ends a search still running, and the next book's search does not wait for it: the old book's second
   // section is held unread while another book opens; let go, it answers nothing. Once with the next book searched
   // meanwhile (its search ends while the old one is still held), once with nothing asked of the next book.
@@ -2568,9 +2596,11 @@ try {
   await heldSearch(9, true)
   call('window.__fol.search(null)')
   check((await afterLetGo()).length === 0, 'a search ended by the host says nothing more, even when the section it was reading fails')
-  await heldSearch(10)
+  m = await open('tsformat.fb2')
+  await call(`(() => { const v = document.querySelector('foliate-view'); v.search = async function* () { await new Promise((ok) => { window.__letGo = ok }); throw new Error('no search') } })()`)
+  call(`window.__fol.search('paragraph 30. sphinx', 10)`)
+  await page.waitForTimeout(300)
   call('window.__fol.search(null)')
-  await call(`(() => { const v = document.querySelector('foliate-view'); v.getCFI = () => { throw new Error('no cfi') } })()`)
   check((await afterLetGo()).length === 0, 'nor when the search itself fails after it was ended')
   // A search queued behind a held one, then another book opened and searched: when the held one is let go, the queued
   // call (superseded by the open) must not touch the new book: its hits stay drawn, nothing is answered.

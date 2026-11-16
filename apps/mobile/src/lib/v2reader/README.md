@@ -80,7 +80,7 @@ pnpm -C apps/web check:v2-reader-formats   # CI: every format opens as Formats s
 node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.repro.html (test only)
 ```
 
-- **foliate-js fork** `https://github.com/mrviduus/foliate-js` @ `fe04665d650332f4017f92c5d45d98ee2a84e363`
+- **foliate-js fork** `https://github.com/mrviduus/foliate-js` @ `686afc4200006874a24071a6a57510e027a4cc32`
   (branch `textstack-pin` = upstream `78914aef` 2026-05-01 + our commits, ADR-032), cloned into the gitignored
   `.vendor/`. Every build checks out the pin and resets the tree (`git checkout -- .`); an untracked file in
   that tree fails the build by name (delete `.vendor/` to rebuild from the pin). A bump is a PR that re-runs
@@ -102,7 +102,10 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   the view (the scroll listener's 250 ms debounce fired after a book closed in scrolled flow, #1291); `fe04665`
   paginator: `#justAnchored` keeps the scroll offset an anchored relocate left and swallows a debounced scroll only
   while the container still sits there (it swallowed the reader's next scroll: one continuous scroll right after a
-  jump sent no `relocate`, #1297).
+  jump sent no `relocate`, #1297); `686afc4` search (#1315): `view.search` takes a `limit` (matching, registering
+  and drawing stop at it; none: as before), each hit carries the contents entry it is under (`label`), a section
+  that throws is skipped and reported (`{ index, error }`), and `makeExcerpt` keeps the middle of a hit over three
+  or more text nodes.
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. view.js's own format imports, PDF and TTS are
   stubbed out of the page; MOBI/FB2/CBZ/PDF come in as format readers (Formats). The fork's `search.js` is in the
@@ -389,7 +392,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `highlight-list` | #1312: `key` (= `book.sha256`), `highlights [{id, cfi, color, text, at}]`: the highlights drawn on screen (a stored one whose text no longer reads at its CFI is not), in book order (foliate's CFI compare; a tie by `at`), `text` its first 200 code points, at most 5000. Sent after `restored`, `addHighlights`' answer, `highlightSelection`, `recolorHighlight` and `removeHighlight` | through `readHighlightList` (a malformed item dropped): the host's list, the jump target (`goTo(cfi, true)`) and the editor's text. Untrusted: shown as text only |
 | `highlight-tap` | #1312: `id`, `rect {x, y, w, h}` (the highlight's box, `rectInPage`), `x`, `y` (where the tap landed, `tap`'s space). A tap on a drawn highlight (its rects hit-tested, before the word): no `word` or `tap` then | through `readHighlightTap`: `popupStep`'s `highlight` event (a word's edge rule; elsewhere its editor). Dropped with no book on screen (`takenWithoutBook`) |
 | `highlight-removed` | #1312: `key`, `id` | through `readHighlightRemoved`: the host tombstones it (web: the session's `DELETE`; Android: the row's `deleted_at` + outbox) |
-| `search-results` | #1315: `key` (= `book.sha256`), `id` (the `search` call's), `results [{cfi, pre, match, post, label}]` (hits in book order: the range's CFI, the hit as the book writes it, up to 60 characters before and after it in its text node with foliate's `…`, its section's contents title or `''`), `done` (the search ended), `more` (a hit past `MAX_RESULTS` exists: never for exactly that many), `incomplete` (on the `done` message: part of the book could not be read, so hits there are missing). One per section with hits, then one with `done` and no results; a superseded search sends no `done` | through `readSearchResults` (a malformed item dropped) and `searchTake` (another id, or after the end: dropped); another book's `key` is dropped. Untrusted: shown as text only. A result is a jump target, `goTo(cfi, true)` |
+| `search-results` | #1315: `key` (= `book.sha256`), `id` (the `search` call's), `results [{cfi, pre, match, post, label}]` (hits in book order: the range's CFI, the hit as the book writes it, up to 60 characters before and after it in its text node with foliate's `…`, the title of the contents entry it is under or `''`), `done` (the search ended), `more` (a hit past `MAX_RESULTS` exists: never for exactly that many), `incomplete` (on the `done` message: part of the book could not be read, so hits there are missing). One per section with hits, then one with `done` and no results; a superseded search sends no `done` | through `readSearchResults` (a malformed item dropped) and `searchTake` (another id, or after the end: dropped); another book's `key` is dropped. Untrusted: shown as text only. A result is a jump target, `goTo(cfi, true)` |
 | `lightbox` | #1265: `open` (boolean): an EPUB image was tapped in the middle zone and is shown full screen in the page (no `tap`, `word` or `highlight-tap` for that tap), or it closed (Escape, its close button, `closeLightbox()`, a new open at the swap) | through `readLightbox`: open, the popup closes and the bars hide; Android back calls `closeLightbox()` first after the offer; web: a key on the host document turns nothing, Escape calls `closeLightbox()`. A `ready` resets it |
 | `openLink` | `href` | the page forwards only `http(s)` links and the host allowlists again before opening: a stated rule, not an accident. Any other scheme is dropped with a `warn` log (`mailto:`/`tel:` noted on #1069); the page never navigates |
 | `telemetry` | `event: 'reader-flow'`, `mode` (the flow in use), `format`, `switchedInFirst5Min` | one per opened book, 5 min after `opened` or when the next book opens first (a page that dies earlier sends none). Hosts log it: there is no analytics pipeline in the app yet |
@@ -690,7 +693,8 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
 
 **In-book search** (#1315, `search.mjs`; audit §6 decision 2). The page searches; the host lists.
 
-- *How:* foliate's own search (`view.search`, the fork's `search.js` as it is, no longer stubbed out of the build): each
+- *How:* foliate's own search (`view.search`, the fork's `search.js`, no longer stubbed out of the build; fork commit
+  `686afc4` for the limit, the per-hit title and the skipped section): each
   section's own document (`createDocument`, the book's bytes; no network, no host round trip per section), any case,
   accents folded, whitespace runs (a source line break inside a phrase) as one space, parts of words too. Results in
   book order, one `search-results` message per section with hits, then one with `done`.
@@ -703,26 +707,25 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   `done`) and starts after it; a call superseded while it waited touches nothing (the view may be another book's by
   then). The host's `id` comes back on every message, so an older search's answer is dropped (`searchTake`). The swap
   ends the open book's search. A task between sections: input and paint come first.
-- *A section that cannot be read* (its document fails to load, or has no body: an SVG spine item) is skipped and the
-  rest of the book is searched; the `done` message then says `incomplete`, and the hosts say part of the book could
-  not be searched. foliate's generator has no way past a throw, so for the length of a search each section hands it
-  an empty document instead of failing (the sections' own `createDocument` are put back when it ends). Anything else
-  that fails inside the search ends it with `done` and `incomplete`.
-- *The cap:* `MAX_RESULTS` (500) hits are listed. `more` is said only when a hit past them is in hand (in the same
-  section, or a later one: the search goes on until it finds one or the book ends), so a book with exactly 500 hits
-  is not "the first 500". ponytail: no paging past it.
+- *A section that cannot be read* (its document fails to load, or has no body: an SVG spine item) is skipped by
+  foliate, which says so (`{ index, error }`), and the rest of the book is searched; the `done` message then says
+  `incomplete`, and the hosts say part of the book could not be searched. Anything else that fails inside the search
+  ends it with `done` and `incomplete`.
+- *The cap:* `MAX_RESULTS` (500) hits are listed. The page asks foliate for 501 (`limit`): matching, registering and
+  drawing stop there, so a two-letter query in a one-file book costs 501 hits, not tens of thousands. `more` is said
+  only when that 501st hit came (in the same section, or a later one: the search goes on until it finds one or the
+  book ends), so a book with exactly 500 hits is not "the first 500". The 501st is drawn in its section and not
+  listed. ponytail: no paging past it.
+- *One section is one task* up to the limit: the matcher runs through a section's document synchronously until the
+  section ends or the 501st hit, so a section with few hits in a very large file still holds the main thread for the
+  time it takes to read it (measured below per 54 KB section; not on a device).
+- *Titles:* each hit's `label` is the contents entry it is under (two hits in one file may have different ones); a
+  hit over inline markup is listed whole.
 - *The query* (`readQuery`): at least 2 characters, counted without what only joins the character before (a
   combining mark, a variation selector, a skin tone: one emoji or a decomposed "é" is one); 1 is enough in Thai,
   Hangul, kana and Han, where a word may be one character and no space sets it apart. Not `Intl.Segmenter`: the
   Android host's engine has none and the page and the hosts must agree. A typed text that is no query yet gets a
   status line saying so (`searchStatusKey`: `tooShort`).
-- *Known limits* (the fork's, not worked around in the page):
-  - the cap bounds the list, not the work: foliate matches and registers every hit of a section, and draws them when
-    that section is shown, before the page sees any, so a two-letter query in a one-file book still matches and draws
-    tens of thousands of hits; one section is also one task (the matcher is synchronous per document);
-  - a hit that spans three or more text nodes (inline markup inside it) is listed without its middle (`makeExcerpt`
-    slices by the wrong indexes); its CFI and what is drawn are right;
-  - a hit's title is its file's first contents entry, not the entry the hit is under, in a file with several.
 - *The hit in the page:* every hit of the query is drawn (`SEARCH_FILL`, foliate's highlight) in its section as that
   section loads, until `search(null)`, a new search or a new open. A result's `cfi` is a `goTo` target: the hosts call
   `goTo(cfi, true)` (the reader's choice: saved where it lands), exactly as for a highlight in the list. On a
@@ -731,7 +734,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   page's own overlay, as `speaking` has, if readers need it told apart.
 - *Hosts* (one rule, `search.mjs`): a Search button on the bars where `searchable`, gone from an open's start until its
   `opened` (`searchReset` / `searchOpened`); the reader's text, debounced `SEARCH_DEBOUNCE_MS`, through `readQuery`; results as text only (the hit, up to 60
-  characters each side, the section's contents title), a status line (`searchStatusKey`: too short, searching, the count, none, the first 500; and that part of the book could not be searched); a
+  characters each side, the title of the contents entry it is under), a status line (`searchStatusKey`: too short, searching, the count, none, the first 500; and that part of the book could not be searched); a
   result jumps and closes the list; the search stays until cleared, so reopening shows the same list. A new open (or a
   closed book) ends it. Web: `V2ReaderSearch.tsx`, the legacy search drawer's dialog. Android: `V2SearchSheet.tsx`, the
   contents sheet's modal (the keyboard comes up only on an empty sheet, and a drag on the list puts it away, so a

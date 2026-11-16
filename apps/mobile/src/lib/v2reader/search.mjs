@@ -13,9 +13,9 @@ export const SEARCH_DEBOUNCE_MS = 300
 export const MIN_QUERY = 2
 export const MAX_QUERY = 100
 /**
- * A search lists at most this many hits ("the" in a long book has tens of thousands; each is a row in a host's list).
- * ponytail: no paging past it. It bounds the list only: the section a search is reading is matched and drawn whole
- * by foliate before the page sees its hits (README, "In-book search", known limits).
+ * A search stops at this many hits ("the" in a long book has tens of thousands; each is a row in a host's list and an
+ * overlay in its section): the page asks foliate for one more, which proves there are more, and foliate matches,
+ * registers and draws nothing past that one. ponytail: no paging past it.
  */
 export const MAX_RESULTS = 500
 /** Caps of a result's strings (display only): the text before and after the hit, the hit, its section's title. */
@@ -44,16 +44,17 @@ export function readQuery(q) {
 }
 
 /**
- * The page's `search-results` items from foliate's hits of one section (`{ cfi, excerpt: { pre, match, post } }`),
- * `label` its contents title: `{ cfi, pre, match, post, label }`, strings cut to their caps (context from the hit's side).
+ * The page's `search-results` items from foliate's hits of one section (`{ cfi, excerpt: { pre, match, post }, label }`,
+ * `label` the contents entry the hit is under): `{ cfi, pre, match, post, label }`, strings cut to their caps (context
+ * from the hit's side).
  */
-export function searchItems(subitems, label) {
-  const l = typeof label === 'string' ? label.trim().slice(0, MAX_LABEL) : ''
+export function searchItems(subitems) {
   const items = []
   for (const s of Array.isArray(subitems) ? subitems : []) {
     const { pre, match, post } = s?.excerpt ?? {}
     if (!isCfi(s?.cfi) || typeof match !== 'string' || !match) continue
-    items.push({ cfi: s.cfi, pre: String(pre ?? '').slice(-MAX_CONTEXT), match: match.slice(0, MAX_MATCH), post: String(post ?? '').slice(0, MAX_CONTEXT), label: l })
+    const label = typeof s.label === 'string' ? s.label.trim().slice(0, MAX_LABEL) : ''
+    items.push({ cfi: s.cfi, pre: String(pre ?? '').slice(-MAX_CONTEXT), match: match.slice(0, MAX_MATCH), post: String(post ?? '').slice(0, MAX_CONTEXT), label })
   }
   return items
 }

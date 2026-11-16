@@ -9,9 +9,9 @@ export const MAX_LABEL: number
 export const SEARCH_FILL: string
 export function queryLength(t: string): number
 export function readQuery(q: unknown): string | null
-/** One hit: where it is (a CFI `goTo` takes), the hit as the book writes it, the text around it, its section's title ('': none). */
+/** One hit: where it is (a CFI `goTo` takes), the hit as the book writes it, the text around it, the contents entry it is under ('': none). */
 export interface V2SearchResult { cfi: string; pre: string; match: string; post: string; label: string }
-export function searchItems(subitems: unknown, label: unknown): V2SearchResult[]
+export function searchItems(subitems: unknown): V2SearchResult[]
 export interface V2SearchMessage { key: string; id: number; results: V2SearchResult[]; done: boolean; more: boolean; incomplete: boolean }
 export function readSearchResults(m: unknown): V2SearchMessage | null
 /**

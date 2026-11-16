@@ -403,6 +403,15 @@ export function writeFormatFixtures(dir) {
     spine: '<itemref idref="s1"/>',
     lang: 'he',
   })
+  // #1315: one file under two contents entries, a hit under each, and a phrase broken by inline markup (five text nodes).
+  epub(resolve(dir, 'tssearch.epub'), 'TS SEARCH', {
+    files: {
+      's1.xhtml': xhtml('', '<h2 id="a">Alpha</h2><p>A heron waits. The <em>quick</em> brown <em>fox</em> jumps here.</p><h2 id="b">Beta</h2><p>Another heron flies.</p>'),
+      'nav.xhtml': `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>nav</title></head><body><nav epub:type="toc"><ol><li><a href="s1.xhtml#a">Alpha</a></li><li><a href="s1.xhtml#b">Beta</a></li></ol></nav></body></html>`,
+    },
+    manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/>',
+    spine: '<itemref idref="s1"/>',
+  })
   // #1315: an SVG spine item (a document with no body: nothing a search can read) between two sections of text.
   epub(resolve(dir, 'tssvgspine.epub'), 'TS SVG SPINE', {
     files: {
@@ -461,7 +470,7 @@ export function writeFormatFixtures(dir) {
   writeFileSync(resolve(dir, 'tsformat.pdf'), pdf(5))
   writeFileSync(resolve(dir, 'tscjk.pdf'), pdf(1, { title: 'TS CJK', cjk: true }))
   writeFileSync(resolve(dir, 'tslocked.pdf'), pdf(1, { title: 'TS LOCKED', locked: true }))
-  return ['tssvgspine.epub', 'tsformat.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsimage.epub', 'tsfixedimg.epub', 'tsthree.cbz', 'tsformat.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
+  return ['tssearch.epub', 'tssvgspine.epub', 'tsformat.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsimage.epub', 'tsfixedimg.epub', 'tsthree.cbz', 'tsformat.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
