@@ -109,7 +109,10 @@ const FOLIATE_SHA = 'fe04665d650332f4017f92c5d45d98ee2a84e363'
 // pinch / wheel / double-tap zoom about the focus, drag to pan, clamped; Tab kept; `closeLightbox()`, `lightbox` on open and close.
 // +778 (#1267): `labels({image, close})`: the lightbox's two words from the host (`readLabels`: non-blank strings, capped).
 // +7,385 (#1271): `markWords(words, show)`: saved-word marks by stage, placed per section (wordMarks.mjs).
-const BUDGET = 296668
+// +9,496 (#1316): `relocate.chapterEnd` (the contents entry whose end is on screen: `chapterEndAt`, `nothingUntil`, `textAbove`)
+// and `chapterText(request, tocIndex, section)` → `chapter-text` (an entry's text from the book's own section documents:
+// chapters.mjs `textBetween`, `fitText`, the 200 KB share cap).
+const BUDGET = 306164
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
