@@ -1,12 +1,14 @@
 // "Discuss this chapter" (#1316): what a chapter is on the V2 reader, its text, and the hosts' reads of the page's
 // two messages about it. A chapter is a contents entry (owner decision 2026-11-15); a book with no contents has its
-// spine sections for chapters. Pure but for `textBetween`, which walks a DOM it is handed. Used by the page and
-// both hosts.
+// spine sections for chapters. Pure but for `boundsIn` and `textBetween`, which read a DOM they are handed. Used by
+// the page and both hosts (bundled: it imports packages/shared, as selection.mjs does).
 //
 // Where a chapter ends (the default taken, README "Discuss this chapter"): just before the next entry in the
-// contents, at any depth, that leads somewhere else. An entry over several files ends with the last file before
-// that entry; several entries in one file each end where the next one's anchor starts; the last entry ends with
+// contents, at any depth, that leads somewhere else, wherever the file boundary is: an entry's text runs over the
+// files before that entry and into its file up to its anchor; several entries in one file each end where the next
+// one's anchor starts (the next one in the document, whatever the order of the list); the last entry ends with
 // the book.
+import { isReviewableChapter } from '../../../../../packages/shared/src/lib/chapterReviewUi'
 
 /** The server's cap on a share's text (`SyncLimits.MaxChapterTextBytes`), as UTF-8. */
 export const MAX_CHAPTER_TEXT_BYTES = 200 * 1024
@@ -15,6 +17,7 @@ export const MAX_CHAPTER_KEY = 200
 export const MAX_CHAPTER_TITLE = 500
 const MAX_INDEX = 100000
 const MAX_REQUEST = 64
+const MAX_TITLE = 200
 
 const whole = (n) => Number.isInteger(n) && n >= 0 && n <= MAX_INDEX
 const samePlace = (a, b) => a.sec === b.sec && a.at === b.at
@@ -32,18 +35,63 @@ export function placeOf(resolved, href, sections) {
 
 /**
  * The chapter of entry `tocIndex`, of `places` (one per entry of the page's flat contents, null where the entry
- * leads nowhere): `{ start, end }`, `end` the place of the first later entry that leads further on (a later
- * section, or another href of the same one) and null for the book's last chapter. Null: no such entry.
+ * leads nowhere), or null for no such entry:
+ * - `start`: where it begins;
+ * - `inSection`: the other entries of the same section at another href, listed before it or after: the chapter
+ *   ends at the nearest of them after its start in that document (`boundsIn`: a contents list may name places out
+ *   of order, or anchors the file does not have);
+ * - `next`: the first later entry in a later section: with none of `inSection` after the start, the chapter runs
+ *   up to it, over every file between and into its file, up to its anchor. Null: the book's last chapter;
+ * - `startShared`: an earlier entry leads into the same section at another href, so the start of the section is
+ *   not this chapter's: with its own anchor not found, the chapter cannot be told from that one.
  */
 export function chapterOf(places, tocIndex) {
   const start = whole(tocIndex) ? places[tocIndex] : null
   if (!start) return null
-  for (let i = tocIndex + 1; i < places.length; i++) {
-    const p = places[i]
-    if (p && (p.sec > start.sec || (p.sec === start.sec && !samePlace(p, start)))) return { start, end: p }
-  }
-  return { start, end: null }
+  const inSection = places.filter((p) => p && p.sec === start.sec && !samePlace(p, start))
+  const next = places.slice(tocIndex + 1).find((p) => p && p.sec > start.sec) ?? null
+  const startShared = places.slice(0, tocIndex).some((p) => p && p.sec === start.sec && !samePlace(p, start))
+  return { start, inSection, next, startShared }
 }
+
+const ELEMENT = 1, FOLLOWING = 4
+const elementAt = (place, doc) => {
+  const a = place?.anchor?.(doc)
+  return a?.nodeType === ELEMENT ? a : null
+}
+
+/**
+ * A chapter's part in the document `doc` of section `sec` (one of its files): `{ from, to, more }`: from element
+ * `from` (null: the document's start) up to element `to` (null: its end), `more` when the chapter goes on in the
+ * files after. Or `{ none: true }`: nothing of this document is the chapter's (the next chapter starts with it).
+ * Or `{ refuse: true }`: the chapter's own anchor is not in its file and an earlier entry leads into the same
+ * file, so where it starts cannot be told (sharing the file from its top would be that other chapter's text
+ * under this one's title). An anchor not found with no such entry is the file's start.
+ */
+export function boundsIn(chapter, sec, doc) {
+  const { start, inSection, next, startShared } = chapter
+  if (sec === start.sec) {
+    const from = elementAt(start, doc)
+    if (!from && startShared) return { refuse: true }
+    // The nearest one after the start in the document, whatever the list's order: an entry placed before the
+    // start, inside it, or at an anchor the file does not have ends nothing.
+    let to = null
+    for (const p of inSection) {
+      const el = elementAt(p, doc)
+      if (!el || (from && (!(from.compareDocumentPosition(el) & FOLLOWING) || from.contains(el)))) continue
+      if (!to || el.compareDocumentPosition(to) & FOLLOWING) to = el
+    }
+    return to ? { from, to, more: false } : { from, to: null, more: true }
+  }
+  if (next && sec === next.sec) {
+    const to = elementAt(next, doc)
+    return to ? { from: null, to, more: false } : { none: true }
+  }
+  return { from: null, to: null, more: true }
+}
+
+/** A book has contents when an entry of them leads somewhere: the page's one rule; a host never re-derives it. */
+export const hasContents = (places) => places.some(Boolean)
 
 /**
  * The entry whose chapter ends where entry `tocIndex` starts: the nearest earlier entry at another place, as the
@@ -64,6 +112,14 @@ const BLOCKS = new Set(['address', 'article', 'aside', 'blockquote', 'body', 'ca
   'ol', 'p', 'pre', 'section', 'summary', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'ul'])
 const SKIPPED = new Set(['script', 'style', 'template', 'head', 'title', 'noscript', 'svg', 'math', 'rt', 'rp'])
 const tag = (el) => el.localName?.toLowerCase() ?? ''
+/**
+ * Marked as not for reading, as far as markup says it (the document is not laid out: no style is computed): a
+ * page-break marker (its print page number), `hidden`, `aria-hidden`, an inline `display: none`.
+ * ponytail: text hidden by a stylesheet rule is still read; lay the document out if a book's share shows it.
+ */
+const unread = (el) => el.hasAttribute('hidden') || el.getAttribute('aria-hidden') === 'true'
+  || /(^|\s)(doc-)?pagebreak(\s|$)/.test(`${el.getAttribute('epub:type') ?? ''} ${el.getAttribute('role') ?? ''}`)
+  || /display\s*:\s*none/i.test(el.getAttribute('style') ?? '')
 
 /**
  * The text of `doc` from element `from` (null: its start) up to element `to` (null: its end), as paragraphs:
@@ -74,9 +130,9 @@ export function textBetween(doc, from, to) {
   const root = doc.body ?? doc.documentElement
   const out = []
   if (!root) return out
-  const FOLLOWING = 4, CONTAINED_BY = 16
+  const CONTAINED_BY = 16
   // NodeFilter's values (the page's section documents and jsdom agree): SHOW_ELEMENT | SHOW_TEXT, FILTER_REJECT, FILTER_ACCEPT.
-  const walker = doc.createTreeWalker(root, 1 | 4, { acceptNode: (n) => (n.nodeType === 1 && SKIPPED.has(tag(n)) ? 2 : 1) })
+  const walker = doc.createTreeWalker(root, 1 | 4, { acceptNode: (n) => (n.nodeType === 1 && (SKIPPED.has(tag(n)) || unread(n)) ? 2 : 1) })
   let started = !from
   let block = null
   let current = ''
@@ -108,16 +164,14 @@ export function textBetween(doc, from, to) {
 }
 
 /**
- * The chapter a host offers Discuss for, of the chapter whose end is on screen (`readChapterEnd`) and the host's
- * own contents (`readToc`): `{ title }`, the entry's label, or null for a book with no contents (the spine section
- * is the chapter). Null: no chapter end, or one the host cannot name (an entry it does not hold; a section of a
- * book that has contents).
+ * Whether a host offers Discuss for the chapter whose end is on screen (`readChapterEnd`): any, but front and back
+ * matter by its title (the legacy readers' rule, `isReviewableChapter`: Cover, Title Page, Copyright, Contents…).
+ * A chapter with no title (a book with no contents, an entry with a blank label) is offered. The legacy rule's
+ * word minimum is not applied: the page does not count a chapter's words at a page turn (its files are not all
+ * loaded); it reports no end for a chapter with no text at all.
  */
-export function discussEntryOf(chapterEnd, toc) {
-  if (!chapterEnd) return null
-  if (chapterEnd.tocIndex === null) return toc.length === 0 ? { title: null } : null
-  const entry = toc.find((e) => e.index === chapterEnd.tocIndex)
-  return entry ? { title: entry.label } : null
+export function offersDiscuss(chapterEnd) {
+  return !!chapterEnd && (chapterEnd.title === null || isReviewableChapter({ title: chapterEnd.title }))
 }
 
 const utf8Encoder = new TextEncoder()
@@ -146,15 +200,18 @@ export function fitText(paragraphs, cap = MAX_CHAPTER_TEXT_BYTES) {
 }
 
 /**
- * A host's read of `relocate.chapterEnd` (never throws): the chapter whose end is on screen, `{ tocIndex, section }`
- * (`tocIndex` the entry's index in `opened.toc`, null in a book with no contents; `section` the spine section
- * shown), or null: none, or anything malformed. The page renders the book: nothing else is taken.
+ * A host's read of `relocate.chapterEnd` (never throws): the chapter whose end is on screen,
+ * `{ tocIndex, section, title }` (`tocIndex` the entry's index in `opened.toc`, null in a book with no contents;
+ * `section` the spine section shown; `title` the entry's label as the page read it, text, cut to 200, null when
+ * blank or in a book with no contents), or null: none, or anything malformed. The page renders the book: nothing
+ * else is taken. What the page says is the rule: a host does not look the entry up in its own contents.
  */
 export function readChapterEnd(m) {
   const e = m?.type === 'relocate' ? m.chapterEnd : null
   if (!e || typeof e !== 'object' || !whole(e.section)) return null
   if (e.tocIndex != null && !whole(e.tocIndex)) return null
-  return { tocIndex: e.tocIndex ?? null, section: e.section }
+  const title = typeof e.title === 'string' ? e.title.trim().slice(0, MAX_TITLE) : ''
+  return { tocIndex: e.tocIndex ?? null, section: e.section, title: title || null }
 }
 
 /**

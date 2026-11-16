@@ -4,16 +4,19 @@ export const MAX_CHAPTER_KEY: number
 export const MAX_CHAPTER_TITLE: number
 /** A place in the book a contents entry leads to: its spine section and its href (two places of one section differ by it). */
 export interface V2ChapterPlace { sec: number; at: string; anchor: ((doc: Document) => unknown) | null }
-/** The chapter whose end is on screen: a contents entry (`tocIndex`), or spine section `section` in a book with no contents. */
-export interface V2ChapterEnd { tocIndex: number | null; section: number }
+/** The chapter whose end is on screen: a contents entry (`tocIndex`), or spine section `section` in a book with no contents; `title` as the page read it. */
+export interface V2ChapterEnd { tocIndex: number | null; section: number; title: string | null }
+export interface V2Chapter { start: V2ChapterPlace; inSection: V2ChapterPlace[]; next: V2ChapterPlace | null; startShared: boolean }
+export type V2ChapterBounds = { from: Element | null; to: Element | null; more: boolean; refuse?: undefined; none?: undefined } | { refuse: true } | { none: true }
 export type V2ChapterText = { request: string; text: string; cut: boolean } | { request: string; error: 'empty' | 'unavailable' }
 export function placeOf(resolved: unknown, href: unknown, sections: number): V2ChapterPlace | null
-export function chapterOf(places: readonly (V2ChapterPlace | null)[], tocIndex: number | null):
-  { start: V2ChapterPlace; end: V2ChapterPlace | null } | null
+export function chapterOf(places: readonly (V2ChapterPlace | null)[], tocIndex: number | null): V2Chapter | null
+export function boundsIn(chapter: V2Chapter, sec: number, doc: Document): V2ChapterBounds
+export function hasContents(places: readonly (V2ChapterPlace | null)[]): boolean
 export function chapterBefore(places: readonly (V2ChapterPlace | null)[], tocIndex: number | null): number | null
-export function chapterKey(chapter: V2ChapterEnd): string
+export function chapterKey(chapter: { tocIndex: number | null; section: number }): string
 export function textBetween(doc: Document, from: Element | null, to: Element | null): string[]
 export function fitText(paragraphs: readonly string[], cap?: number): { text: string; cut: boolean }
-export function discussEntryOf(chapterEnd: V2ChapterEnd | null, toc: readonly { index: number; label: string }[]): { title: string | null } | null
+export function offersDiscuss(chapterEnd: V2ChapterEnd | null): boolean
 export function readChapterEnd(m: unknown): V2ChapterEnd | null
 export function readChapterText(m: unknown): V2ChapterText | null

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { MAX_CHAPTER_TEXT_BYTES, chapterBefore, chapterKey, chapterOf, discussEntryOf, fitText, placeOf, readChapterEnd, readChapterText, textBetween } from './chapters.mjs'
+import { MAX_CHAPTER_TEXT_BYTES, boundsIn, chapterBefore, chapterKey, chapterOf, fitText, hasContents, offersDiscuss, placeOf, readChapterEnd, readChapterText, textBetween } from './chapters.mjs'
 
 const at = (sec: number, href: string) => ({ sec, at: href, anchor: null })
 // Part I (s1) > Chapter 1 (s1, the same place) and Chapter 2 (s1#c2); an entry that leads nowhere; Chapter 3 (s3: s2 is its
@@ -19,18 +19,59 @@ describe('placeOf', () => {
 })
 
 describe('chapterOf', () => {
-  it('ends a chapter at the next entry that leads somewhere else, at any depth', () => {
-    expect(chapterOf(places, 0)).toEqual({ start: places[0], end: places[2] })
-    expect(chapterOf(places, 1)).toEqual({ start: places[1], end: places[2] })
+  it('names the other entries of its section at another href, listed before or after, and the next entry in a later section', () => {
+    expect(chapterOf(places, 0)).toEqual({ start: places[0], inSection: [places[2], places[5]], next: places[4], startShared: false })
+    expect(chapterOf(places, 2)).toEqual({ start: places[2], inSection: [places[0], places[1], places[5]], next: places[4], startShared: true })
   })
-  it('skips an entry that leads nowhere, and lets an entry run over the files before the next one', () => {
-    expect(chapterOf(places, 2)).toEqual({ start: places[2], end: places[4] })
+  it('has no next entry for the last chapter, whatever points back before it', () => {
+    expect(chapterOf(places, 4)).toEqual({ start: places[4], inSection: [], next: null, startShared: false })
   })
-  it('never ends a chapter at a later entry that points back before it: the last chapter ends with the book', () => {
-    expect(chapterOf(places, 4)).toEqual({ start: places[4], end: null })
+  it('says the start is shared only when an EARLIER entry leads into the same section at another href', () => {
+    expect(chapterOf(places, 1)?.startShared).toBe(false)
+    expect(chapterOf(places, 5)?.startShared).toBe(true)
   })
   it('is null for no entry, an entry that leads nowhere and anything that is no index', () => {
     for (const i of [null, -1, 3, 6, 1.5, '1' as unknown as number]) expect(chapterOf(places, i)).toBeNull()
+  })
+})
+
+describe('hasContents', () => {
+  it('is whether any entry leads somewhere', () => {
+    expect(hasContents(places)).toBe(true)
+    expect(hasContents([null, null])).toBe(false)
+    expect(hasContents([])).toBe(false)
+  })
+})
+
+describe('boundsIn', () => {
+  const d = new DOMParser().parseFromString('<html xmlns="http://www.w3.org/1999/xhtml"><body><h1 id="one">One</h1><p>1</p><h1 id="three"><a id="in"/>Three</h1><p>3</p><h1 id="two">Two</h1><p>2</p></body></html>', 'application/xhtml+xml')
+  const el = (id: string) => d.getElementById(id)
+  const by = (sec: number, id: string | null) => ({ sec, at: `s${sec}#${id}`, anchor: (doc: Document) => (id ? doc.getElementById(id) : 0) })
+  // The contents list One, Missing, Two, Three (Three is before Two in the file), then Next in the file after.
+  const [one, missing, two, three, inside, next] = [by(0, 'one'), by(0, 'nope'), by(0, 'two'), by(0, 'three'), by(0, 'in'), by(1, 'n')]
+  const chapter = (start: typeof one, startShared = false) => ({ start, inSection: [one, missing, two, three, inside].filter((p) => p !== start), next, startShared })
+
+  it('ends a chapter at the nearest entry after its start in the document, whatever the order of the list', () => {
+    expect(boundsIn(chapter(one), 0, d)).toEqual({ from: el('one'), to: el('three'), more: false })
+    expect(boundsIn(chapter(three, true), 0, d)).toEqual({ from: el('three'), to: el('two'), more: false })
+  })
+  it('lets nothing placed before its start, inside it, or at an anchor the file lacks end it: it goes on after the file', () => {
+    expect(boundsIn(chapter(two, true), 0, d)).toEqual({ from: el('two'), to: null, more: true })
+  })
+  it('refuses a start the file does not have when an earlier entry leads into the same file', () => {
+    expect(boundsIn(chapter(missing, true), 0, d)).toEqual({ refuse: true })
+  })
+  it('takes the file from its start for a start it does not have, as the file\'s first entry', () => {
+    expect(boundsIn(chapter(missing, false), 0, d)).toEqual({ from: null, to: el('one'), more: false })
+  })
+  it('goes through a file between, and into the next entry\'s file up to its anchor', () => {
+    const far = { ...chapter(one), next: by(2, 'two') }
+    expect(boundsIn(far, 1, d)).toEqual({ from: null, to: null, more: true })
+    expect(boundsIn(far, 2, d)).toEqual({ from: null, to: el('two'), more: false })
+  })
+  it('has nothing in the next entry\'s file when that entry starts it (no anchor, or one not found)', () => {
+    expect(boundsIn({ ...chapter(one), next: by(1, null) }, 1, d)).toEqual({ none: true })
+    expect(boundsIn({ ...chapter(one), next: by(1, 'nope') }, 1, d)).toEqual({ none: true })
   })
 })
 
@@ -53,18 +94,15 @@ describe('chapterKey', () => {
   })
 })
 
-describe('discussEntryOf', () => {
-  const toc = [{ index: 0, label: 'Alpha' }, { index: 2, label: 'Gamma' }]
-  it('is the entry whose end is on screen, by its index in the page\'s list', () => {
-    expect(discussEntryOf({ tocIndex: 2, section: 5 }, toc)).toEqual({ title: 'Gamma' })
+describe('offersDiscuss', () => {
+  const end = (title: string | null) => ({ tocIndex: title === null ? null : 3, section: 1, title })
+  it('offers a chapter by its title, and one with no title', () => {
+    expect(offersDiscuss(end('The Pond'))).toBe(true)
+    expect(offersDiscuss(end(null))).toBe(true)
   })
-  it('is an untitled chapter for a section of a book with no contents', () => {
-    expect(discussEntryOf({ tocIndex: null, section: 5 }, [])).toEqual({ title: null })
-  })
-  it('is none with no chapter end, for an entry the host does not hold, and for a section of a book that has contents', () => {
-    expect(discussEntryOf(null, toc)).toBeNull()
-    expect(discussEntryOf({ tocIndex: 1, section: 0 }, toc)).toBeNull()
-    expect(discussEntryOf({ tocIndex: null, section: 0 }, toc)).toBeNull()
+  it('does not offer front and back matter (the legacy readers\' title rule), nor no chapter end', () => {
+    for (const title of ['Cover', 'Title Page', 'Copyright', 'Table of Contents', '2. Acknowledgments', 'Notes']) expect(offersDiscuss(end(title))).toBe(false)
+    expect(offersDiscuss(null)).toBe(false)
   })
 })
 
@@ -83,6 +121,10 @@ describe('textBetween', () => {
   it('starts at the start element, itself included', () => {
     expect(textBetween(d, d.getElementById('b'), null)).toEqual(['Beta', 'Two <img src=x onerror=alert(1)>'])
     expect(textBetween(d, d.getElementById('a'), d.getElementById('b'))[0]).toBe('Alpha')
+  })
+  it('leaves out what the markup says is not for reading: page-break markers, hidden and aria-hidden, inline display none', () => {
+    const marked = doc('<p>a <span epub:type="pagebreak" xmlns:epub="http://www.idpf.org/2007/ops">12</span><span role="doc-pagebreak">13</span><span hidden="">h</span><span aria-hidden="true">i</span><span style="DISPLAY : none">j</span><span style="color: red">b</span></p>')
+    expect(textBetween(marked, null, null)).toEqual(['a b'])
   })
   it('is empty between a place and itself', () => {
     expect(textBetween(d, d.getElementById('b'), d.getElementById('b'))).toEqual([])
@@ -111,9 +153,13 @@ describe('fitText', () => {
 })
 
 describe('readChapterEnd', () => {
-  it('takes a contents entry or a section of a book with no contents', () => {
-    expect(readChapterEnd({ type: 'relocate', chapterEnd: { tocIndex: 4, section: 2, extra: 1 } })).toEqual({ tocIndex: 4, section: 2 })
-    expect(readChapterEnd({ type: 'relocate', chapterEnd: { tocIndex: null, section: 0 } })).toEqual({ tocIndex: null, section: 0 })
+  it('takes a contents entry with its title, or a section of a book with no contents', () => {
+    expect(readChapterEnd({ type: 'relocate', chapterEnd: { tocIndex: 4, section: 2, title: ' The Pond ', extra: 1 } })).toEqual({ tocIndex: 4, section: 2, title: 'The Pond' })
+    expect(readChapterEnd({ type: 'relocate', chapterEnd: { tocIndex: null, section: 0, title: null } })).toEqual({ tocIndex: null, section: 0, title: null })
+  })
+  it('reads a blank or missing title, or one that is no text, as none, and cuts a long one', () => {
+    for (const title of ['', '  ', undefined, 5, { toString: () => 'x' }]) expect(readChapterEnd({ type: 'relocate', chapterEnd: { tocIndex: 1, section: 0, title } })?.title).toBeNull()
+    expect(readChapterEnd({ type: 'relocate', chapterEnd: { tocIndex: 1, section: 0, title: 'T'.repeat(500) } })?.title).toHaveLength(200)
   })
   it('is null for none and for anything malformed', () => {
     for (const chapterEnd of [null, undefined, true, 'toc-1', { tocIndex: 1 }, { tocIndex: -1, section: 0 }, { tocIndex: '1', section: 0 }, { tocIndex: 1, section: 1.5 }, { tocIndex: 1, section: 100001 }])

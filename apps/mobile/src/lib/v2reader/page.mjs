@@ -9,7 +9,7 @@ import { EPUB } from './.vendor/foliate-js/epub.js'
 import { compare as compareCfi } from './.vendor/foliate-js/epubcfi.js'
 import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from './.vendor/foliate-js/vendor/zip.js'
 import { tokenizeVocabWords } from '../../../../../packages/shared/src/text/vocabKey'
-import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
+import { rangeToLocator, textNodes } from '../../../../../packages/reader-engine/src/text'
 import { mergeOverlay } from './overlays.mjs'
 import { STAGE_COLORS, readMarkWords, sameMark, wordMarksIn } from './wordMarks.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
@@ -27,7 +27,7 @@ import { THEMES, readSettings, settingsCss } from './settings.mjs'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
 import { createLightbox, imageAt } from './lightbox.mjs'
 import { tapAction } from './tapZone.mjs'
-import { MAX_CHAPTER_TEXT_BYTES, chapterBefore, chapterOf, fitText, placeOf, textBetween } from './chapters.mjs'
+import { MAX_CHAPTER_TEXT_BYTES, boundsIn, chapterBefore, chapterOf, fitText, hasContents, placeOf, textBetween } from './chapters.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
 const log = (level, msg) => post({ type: 'log', level, msg })
@@ -418,75 +418,142 @@ const sectionEndShown = () => {
   return r.scrolled ? r.end >= r.viewSize - 1 : r.page >= r.pages - 2
 }
 
-const hasInk = (s) => /\S/.test(s)
-/** The node a walk over text starts after: the last one before boundary point (`node`, `offset`). */
-function lastBefore(node, offset) {
-  if (node.nodeType !== Node.ELEMENT_NODE) return node
-  let n = node.childNodes[offset - 1]
-  if (!n) return node
-  while (n.lastChild) n = n.lastChild
-  return n
-}
-/** No text between the end of `range` (what is on screen) and element `el` after it: the screen ends where `el` starts. */
-function nothingUntil(range, el) {
-  if (!range || !el || range.comparePoint(el, 0) <= 0) return false
-  const { endContainer: end, endOffset } = range
-  if (end.nodeType === Node.TEXT_NODE && hasInk(end.data.slice(endOffset))) return false
-  const doc = el.ownerDocument
-  const w = doc.createTreeWalker(doc.body ?? doc.documentElement, NodeFilter.SHOW_TEXT)
-  // An element boundary at offset 0 has nothing before it inside: the walk starts at the element, whose own text follows.
-  w.currentNode = end.nodeType === Node.ELEMENT_NODE && endOffset === 0 ? end : lastBefore(end, endOffset)
-  for (let n = w.nextNode(); n; n = w.nextNode()) {
-    if (el.compareDocumentPosition(n) & (Node.DOCUMENT_POSITION_FOLLOWING | Node.DOCUMENT_POSITION_CONTAINED_BY)) return true
-    if (hasInk(n.data)) return false
+/**
+ * Text the reader can see: not white space, and drawn (a `display: none` page number has no box). The text nodes
+ * are reader-engine's (`textNodes`: no script, style or noscript content).
+ */
+const ink = (n) => /\S/.test(n.data) && (n.parentElement?.getClientRects().length ?? 0) > 0
+const atOrAfter = (el, n) => !!(el.compareDocumentPosition(n) & (Node.DOCUMENT_POSITION_FOLLOWING | Node.DOCUMENT_POSITION_CONTAINED_BY))
+/** The last text to read in `doc` before element `to` (null: before its end) and not before element `from` (null: its start), or null. */
+function lastInk(doc, from, to) {
+  const nodes = textNodes(doc.body)
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const n = nodes[i]
+    if (to && atOrAfter(to, n)) continue
+    if (from && !atOrAfter(from, n)) return null
+    if (ink(n)) return n
   }
-  return true
+  return null
 }
-/** Text on screen above element `el`, itself on screen: `range` (what is on screen) starts before it with something to read. */
-function textAbove(range, el) {
-  if (!range || !el || range.comparePoint(el, 0) !== 0) return false
-  const doc = el.ownerDocument
-  const w = doc.createTreeWalker(doc.body ?? doc.documentElement, NodeFilter.SHOW_TEXT)
-  w.currentNode = el
-  for (let n = w.previousNode(); n; n = w.previousNode()) {
-    if (n === range.startContainer) return hasInk(n.data.slice(range.startOffset))
-    if (range.comparePoint(n, 0) < 0) return false
-    if (hasInk(n.data)) return true
-  }
-  return false
+/**
+ * The last character of text node `n` is on screen: where it is drawn, in the page's viewport (`rectInPage`, as a
+ * selection's box). By geometry, not foliate's visible range: that range runs on past the screen in a file with
+ * text that is not drawn.
+ */
+function endOnScreen(n) {
+  if (!n) return false
+  const at = n.data.search(/\S\s*$/)
+  const r = n.ownerDocument.createRange()
+  r.setStart(n, at)
+  r.setEnd(n, at + 1)
+  const rects = r.getClientRects()
+  const frame = n.ownerDocument.defaultView?.frameElement
+  if (!rects.length || !frame) return false
+  const { x, y, w, h } = rectInPage(frame, rects[rects.length - 1])
+  const [cx, cy] = [x + w / 2, y + h / 2]
+  return cx >= 0 && cx <= innerWidth && cy >= 0 && cy <= innerHeight
 }
 
 /**
- * #1316: the chapter whose end is on screen, `{ tocIndex, section }`, or null. A chapter is a contents entry and
- * ends just before the next entry that leads somewhere else (chapters.mjs); a book with no contents has its spine
- * sections for chapters (`tocIndex` null). Two ways an end is on screen: the current entry's (the screen ends
- * where the next entry starts: the last page before it, or the end of the last file before it), or the one
- * before's (the current entry starts on this screen under text of the one before: foliate names an entry current
- * as soon as its start shows). Never guessed by a host from `fraction` or `tocIndex`.
+ * #1316, "Discuss this chapter" (chapters.mjs): where the open book's contents lead, kept on the view it is of
+ * (`view.tsChapters`), so no other book ever reads it. Found out after the book is on screen, one entry at a time
+ * (a KF8 entry reads the file): an open never waits for it. `places` is null until then; `ready` resolves when it
+ * is there. Not for a fixed layout (a CBZ, a PDF, a pre-paginated EPUB): its sections are pages, with no text the
+ * page can read on its own: no chapter end and no chapter text.
  */
-function chapterEndAt(d) {
+let testHoldChapters = 0
+function startChapters(v) {
+  if (v.tsChapters || v.isFixedLayout || !v.book) return
+  const toc = flat(v.book.toc ?? [])
+  const c = v.tsChapters = { places: null, labels: toc.map((t) => t.label || null), tops: new Map(), ready: null }
+  c.ready = (async () => {
+    if (testHoldChapters) await new Promise((done) => setTimeout(done, testHoldChapters))
+    const places = []
+    for (const t of toc) {
+      // Its view left the screen: the rest is nobody's.
+      if (v !== view) return
+      try { places.push(placeOf(await v.book.resolveHref(t.href), t.href, v.book.sections.length)) } catch { places.push(null) }
+    }
+    c.places = places
+  })().catch((e) => log('error', `chapters: ${e?.stack ?? e}`))
+  // The place on screen was reported before this was known: said again with its chapter end, if it has one.
+  void c.ready.then(() => refineChapterEnd(v))
+}
+
+/**
+ * Whether the chapter that runs up to place `next` ends with the file before it: `next` starts its own file (no
+ * anchor, or no text above it there). Read from that file once (`tops`); `{ wait }` until it is known.
+ */
+function startsItsFile(v, next) {
+  const { tops } = v.tsChapters
+  if (tops.has(next)) return { value: tops.get(next) }
+  return {
+    wait: (async () => {
+      let top = true
+      try {
+        const doc = await v.book.sections[next.sec].createDocument()
+        const el = next.anchor?.(doc)
+        top = el?.nodeType !== Node.ELEMENT_NODE || textBetween(doc, null, el).length === 0
+      } catch (e) { log('warn', `chapter end: ${e?.message ?? e}`) }
+      tops.set(next, top)
+    })(),
+  }
+}
+
+/**
+ * #1316: the chapter whose end is on screen, as `{ value }` (`{ tocIndex, section, title }` or null), with `wait`
+ * when something it needs is still being read (the answer then is null for now: `refineChapterEnd`). A chapter is
+ * a contents entry and ends just before the next entry that leads somewhere else (chapters.mjs), wherever the
+ * file boundary is; a book with no contents (no entry of them leads anywhere: the one rule, here) has its spine
+ * sections for chapters (`tocIndex` null). Two ways an end is on screen: the current entry's (its last line is on
+ * screen), or the one before's (that one's last line is: foliate names an entry current as soon as its start
+ * shows, or sooner). Not for a chapter with no text to read in the file on screen. Never guessed by a host from
+ * `fraction` or `tocIndex`.
+ */
+function chapterEndNow(v, d) {
   try {
     const index = d.section?.current
-    const places = view.tsChapters
-    if (!places || !Number.isInteger(index)) return null
-    const here = (tocIndex) => ({ tocIndex, section: index })
-    if (!places.some(Boolean)) return sectionEndShown() ? here(null) : null
+    const c = v.tsChapters
+    if (!c || !Number.isInteger(index)) return { value: null }
+    if (!c.places) return { value: null, wait: c.ready }
+    const { places, labels } = c
+    const here = (tocIndex) => ({ value: { tocIndex, section: index, title: tocIndex === null ? null : labels[tocIndex] } })
+    const doc = v.renderer.getContents?.().find((x) => x.index === index)?.doc
+    if (!hasContents(places)) return sectionEndShown() && doc?.body && lastInk(doc, null, null) ? here(null) : { value: null }
     const current = d.tocItem?.id
     const chapter = chapterOf(places, current)
-    if (!chapter) return null
-    const doc = d.range?.startContainer?.ownerDocument
-    const anchorIn = (place) => {
-      const a = doc && place.sec === index ? place.anchor?.(doc) : null
-      return a?.nodeType === Node.ELEMENT_NODE ? a : null
+    if (!chapter || !doc?.body) return { value: null }
+    const b = boundsIn(chapter, index, doc)
+    if (b.refuse || b.none) return { value: null }
+    let ends
+    // Up to the next entry in this file: the chapter's last line is on screen.
+    if (b.to) ends = endOnScreen(lastInk(doc, b.from, b.to))
+    else if (!sectionEndShown()) ends = false
+    else if (!chapter.next) ends = atBookEnd(index)
+    else if (v.book.sections.slice(index + 1, chapter.next.sec).some((x) => x.linear !== 'no')) ends = false
+    else {
+      // The next entry is in the next file: this file's end is the chapter's unless that entry starts lower down.
+      const top = startsItsFile(v, chapter.next)
+      if (top.wait) return { value: null, wait: top.wait }
+      ends = top.value
     }
-    const { start, end } = chapter
-    const ends = !end ? atBookEnd(index)
-      : end.sec > index ? sectionEndShown() && view.book.sections.slice(index + 1, end.sec).every((s) => s.linear === 'no')
-      : nothingUntil(d.range, anchorIn(end))
-    if (ends) return here(current)
+    // A chapter all in this file with nothing to read (a plate, a blank page) is not offered.
+    if (ends) return index === chapter.start.sec && !lastInk(doc, b.from, b.to) ? { value: null } : here(current)
+    // The one before's: its last line, just above this entry's start, is on screen.
     const before = chapterBefore(places, current)
-    return before != null && textAbove(d.range, anchorIn(start)) ? here(before) : null
-  } catch { return null }
+    return before != null && index === chapter.start.sec && b.from && endOnScreen(lastInk(doc, null, b.from)) ? here(before) : { value: null }
+  } catch { return { value: null } }
+}
+
+/** The last relocate posted for the view on screen, and what it was made of: said again once its chapter end is known. */
+let lastRelocate = null
+function refineChapterEnd(v, tries = 0) {
+  const last = lastRelocate
+  if (v !== view || last?.view !== v || tries > 3) return
+  const r = chapterEndNow(v, last.detail)
+  if (r.wait) return void r.wait.then(() => { if (lastRelocate === last) refineChapterEnd(v, tries + 1) })
+  // The same place again, as a re-layout says it: nothing moved, nothing is saved.
+  if (r.value) post({ ...last.message, moved: false, cause: 'layout', chapterEnd: r.value })
 }
 
 /**
@@ -494,38 +561,39 @@ function chapterEndAt(d) {
  * book opened meanwhile): contents entry `tocIndex` from its start to the place before the next entry, or, in a
  * book with no contents, spine section `section`. Read from the book's own section documents, not the screen:
  * text only, in paragraphs, within the server's cap (`cut` when the chapter is longer: chapters.mjs `fitText`).
+ * `unavailable` where the chapter cannot be told from another (`boundsIn`: its anchor is not in a file an earlier
+ * entry leads into).
  */
 async function chapterText(request, tocIndex, section) {
   // The host's own id, echoed as it came: anything else gets no answer.
   if (typeof request !== 'string' || !request || request.length > 64) return
-  const mine = viewSeq
-  const answer = (a) => { if (mine === viewSeq) post({ type: 'chapter-text', request, ...a }) }
+  const v = view
+  const answer = (a) => { if (v === view) post({ type: 'chapter-text', request, ...a }) }
   try {
-    const sections = view?.book?.sections
-    const places = view?.tsChapters
-    if (!sections || !places) return answer({ error: 'unavailable' })
+    const sections = v?.book?.sections
+    const c = v?.tsChapters
+    if (!sections || !c) return answer({ error: 'unavailable' })
+    await c.ready
+    const places = c.places
+    if (v !== view || !places) return answer({ error: 'unavailable' })
     let chapter = null
     if (Number.isInteger(tocIndex)) chapter = chapterOf(places, tocIndex)
-    else if (!places.some(Boolean) && Number.isInteger(section) && sections[section]) chapter = { start: { sec: section }, end: section + 1 < sections.length ? { sec: section + 1 } : null }
+    else if (!hasContents(places) && Number.isInteger(section) && sections[section]) chapter = { start: { sec: section }, inSection: [], next: section + 1 < sections.length ? { sec: section + 1 } : null, startShared: false }
     if (!chapter) return answer({ error: 'unavailable' })
-    const { start, end } = chapter
-    const elementIn = (place, doc) => {
-      const a = place.anchor?.(doc)
-      return a?.nodeType === Node.ELEMENT_NODE ? a : null
-    }
     const paragraphs = []
     let length = 0
-    for (let i = start.sec; i <= (end ? end.sec : sections.length - 1) && length <= MAX_CHAPTER_TEXT_BYTES; i++) {
-      if (i !== start.sec && sections[i].linear === 'no') continue
+    for (let i = chapter.start.sec; i <= (chapter.next ? chapter.next.sec : sections.length - 1) && length <= MAX_CHAPTER_TEXT_BYTES; i++) {
+      if (i !== chapter.start.sec && sections[i].linear === 'no') continue
       const doc = await sections[i].createDocument()
-      if (mine !== viewSeq) return
-      const to = end && i === end.sec ? elementIn(end, doc) : null
-      // The next chapter starts with this section (or where in it is not known): nothing of it is this chapter's.
-      if (end && i === end.sec && i !== start.sec && !to) break
-      for (const p of textBetween(doc, i === start.sec ? elementIn(start, doc) : null, to)) {
+      if (v !== view) return
+      const b = boundsIn(chapter, i, doc)
+      if (b.refuse) return answer({ error: 'unavailable' })
+      if (b.none) break
+      for (const p of textBetween(doc, b.from, b.to)) {
         paragraphs.push(p)
         length += p.length
       }
+      if (!b.more) break
     }
     const fitted = fitText(paragraphs)
     answer(fitted.text ? fitted : { error: 'empty' })
@@ -979,7 +1047,13 @@ async function open(bytes, name, kind, mine) {
     // crossings (paginator #turnPage/snap passing reason 'turn').
     const cause = d.cfi === lastCfi ? 'layout' : navs > 0 || (awaitingRestore && !readerActed) ? 'nav' : d.reason === 'anchor' ? 'layout' : 'turn'
     lastCfi = d.cfi
-    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, cause, atEnd: atBookEnd(d.section?.current), chapterEnd: chapterEndAt(d), ...lengthAt(d.section?.current) })
+    const chapterEnd = chapterEndNow(view, d)
+    const message = { type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, cause, atEnd: atBookEnd(d.section?.current), chapterEnd: chapterEnd.value, ...lengthAt(d.section?.current) }
+    post(message)
+    // #1316: a chapter end that needs a file not read yet is said once it is known (`refineChapterEnd`).
+    lastRelocate = { view, detail: d, message }
+    // (Where the contents lead is still being found out: `startChapters` says it again itself.)
+    if (chapterEnd.wait && chapterEnd.wait !== view.tsChapters?.ready) { const v = view; void chapterEnd.wait.then(() => refineChapterEnd(v)) }
     // A selection moved (or left the screen) with the view, a font or flow change's re-layout included: sent
     // again, or cleared.
     settleSelection()
@@ -1044,18 +1118,7 @@ async function open(bytes, name, kind, mine) {
     const make = nb.createDocument.bind(nb)
     nb.createDocument = async (section) => { const doc = await make(section); dropRefresh(doc); return doc }
   }
-  // This open's view, whatever opens meanwhile.
-  const own = view
-  await own.open(nb)
-  // #1316, "Discuss this chapter" (chapters.mjs): where each contents entry leads (one per entry of `opened.toc`,
-  // null where it leads nowhere), before the first relocate (sent while the view starts). Kept on the view it is
-  // of, so no other book ever reads it. Not for a fixed layout (a CBZ, a PDF, a pre-paginated EPUB): its sections
-  // are pages, with no text the page can read on its own; no `tsChapters`, no chapter end and no chapter text.
-  if (!own.isFixedLayout) {
-    own.tsChapters = await Promise.all(flat(nb.toc ?? []).map(async (t) => {
-      try { return placeOf(await nb.resolveHref(t.href), t.href, nb.sections.length) } catch { return null }
-    }))
-  }
+  await view.open(nb)
   // The scrolled paginator relocates on a scroll only after a debounce, and not at all on the first one after
   // an anchored re-layout: a selection's box follows every scroll.
   view.renderer.addEventListener('scroll', () => { if (mine === viewSeq) settleSelection() })
@@ -1080,6 +1143,8 @@ async function open(bytes, name, kind, mine) {
     lang: String([].concat(b.metadata?.language ?? [])[0] ?? '').slice(0, 35),
     sections: b.sections.length, toc: flat(b.toc ?? []),
   })
+  // #1316: after the book is on screen and answered; nothing of an open waits for it.
+  startChapters(view)
   return true
 }
 
@@ -1367,6 +1432,8 @@ window.__fol = {
   // `ms`, or never.
   __testHoldNav: (ms) => void asNav(() => new Promise((done) => { if (ms) setTimeout(done, ms) })),
   __testRestoreDelay: (ms) => { testRestoreDelay = ms },
+  // Test-only: the next opens find out where their contents lead `ms` later (#1316: an open never waits for it).
+  __testHoldChapters: (ms) => { testHoldChapters = ms },
   // #1260: the whole settings object, read through settings.mjs (closed lists, a clamped size): nothing of the
   // host's reaches the CSS as it came. Applied live; before `opened` it sets what the next open uses.
   settings: (raw) => { look = readSettings(raw); applyLook(); return look },
