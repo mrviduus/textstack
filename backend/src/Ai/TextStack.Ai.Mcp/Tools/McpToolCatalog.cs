@@ -58,6 +58,7 @@ public sealed partial class McpToolCatalog
             BuildShareChapter(api),
             BuildSaveCheckpoint(api),
             BuildListCheckpoints(api),
+            BuildGetSharedChapter(api),
         };
         // V2-only tools have no legacy endpoint to fall back to.
         var v2Only = global::Contracts.Mcp.McpManifestCatalog.Tools.Where(t => t.V2Only).Select(t => t.Name).ToHashSet();

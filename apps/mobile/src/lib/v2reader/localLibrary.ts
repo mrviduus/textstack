@@ -503,6 +503,15 @@ export function createLocalLibrary(db: Db) {
     hasLocalBytes: (sha256: string) => localBookId(sha256).then((id) => id !== null),
     /** The id of the book with these bytes here, as it is now (a sync may re-key it while it is read, #1303). */
     localBookId,
+    /**
+     * #1316: what a share of these bytes' text names on the server: the book's id as it is now, and its file only
+     * when the server's current file is this very version (else the share carries no file: the text is not that
+     * file's). Null: no book with these bytes here.
+     */
+    serverBookOf: (sha256: string) => job(async () => {
+      const b = await bookBySha(sha256)
+      return b ? { bookId: b.id, fileId: b.file_id !== null && b.file_id === b.server_file_id ? b.file_id : null } : null
+    }),
 
     /**
      * The opened file as a book: identical bytes are the existing book (its format learned if it was

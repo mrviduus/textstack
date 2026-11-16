@@ -82,7 +82,7 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
         Assert.Equal(
             McpManifestCatalog.Served(v2Api).Select(t => t.Name).Order(StringComparer.Ordinal),
             manifest.Tools.Select(t => t.Name).Order(StringComparer.Ordinal));
-        Assert.Equal(v2Api ? 24 : 21, manifest.Tools.Count); // the size guard (CLAUDE.md "MCP tool count")
+        Assert.Equal(v2Api ? 25 : 21, manifest.Tools.Count); // the size guard (CLAUDE.md "MCP tool count")
         Assert.All(manifest.Tools, t => Assert.False(string.IsNullOrWhiteSpace(t.Description)));
     }
 }

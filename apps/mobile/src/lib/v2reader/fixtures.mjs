@@ -50,6 +50,8 @@ export function zipEpub(dir, out) {
 const xhtml = (head, body, attrs = '') => `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>s</title>${head}</head><body${attrs}>${body}</body></html>`
 const para = 'Sphinx of black quartz, judge my vow. The quick brown fox jumps over the lazy dog. '.repeat(3)
 
+const navOf = (items) => `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>nav</title></head><body><nav epub:type="toc"><ol>${items}</ol></nav></body></html>`
+
 const fixtures = resolve(here, 'fixtures')
 
 // OCF obfuscation: XOR the first 1040 (IDPF, key = SHA-1 of the identifier) or 1024 (Adobe, key = UUID bytes) bytes.
@@ -395,6 +397,85 @@ export function writeFormatFixtures(dir) {
     },
     manifest: [1, 2, 3].map((i) => `<item id="s${i}" href="s${i}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
     spine: [1, 2, 3].map((i) => `<itemref idref="s${i}"/>`).join(''),
+  })
+  // #1316, chapters as contents entries: two entries in one file (Beta nested under Alpha, starting on a new page in
+  // paginated flow, after a last paragraph long enough to break over pages and some white space), Beta running on
+  // into a second file of several pages, Gamma the last; and a book with no contents at all.
+  epub(resolve(dir, 'tschapters.epub'), 'TS CHAPTERS', {
+    files: {
+      's1.xhtml': xhtml('<style>h1.new { break-before: column } .pn { display: none }</style>', `<h1 id="a">Alpha</h1>${prose(12).map((t) => `<p>${t}</p>`).join('')}<p>${para.repeat(8)}Alpha ends here.</p>\n<!-- white space, in two text nodes -->\n<span epub:type="pagebreak" class="pn">12</span><h1 id="b" class="new">Beta</h1><p>Beta begins.</p>`),
+      's2.xhtml': xhtml('', `${prose(12).map((t) => `<p>${t}</p>`).join('')}<p>Beta ends in a second file.</p>`),
+      's3.xhtml': xhtml('', `<h1>Gamma</h1>${prose(12).map((t) => `<p>${t}</p>`).join('')}<p>Gamma is the last chapter.</p>`),
+      'nav.xhtml': `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>nav</title></head><body><nav epub:type="toc"><ol><li><a href="s1.xhtml#a">Alpha</a><ol><li><a href="s1.xhtml#b">Beta</a></li></ol></li><li><a href="s3.xhtml">Gamma</a></li></ol></nav></body></html>`,
+    },
+    manifest: [1, 2, 3].map((i) => `<item id="s${i}" href="s${i}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: [1, 2, 3].map((i) => `<itemref idref="s${i}"/>`).join(''),
+  })
+  // A chapter split by size, not at its entries: Alpha runs on into the second file, Beta starts lower down in it.
+  epub(resolve(dir, 'tssplit.epub'), 'TS SPLIT', {
+    files: {
+      's1.xhtml': xhtml('', '<h1 id="a">Alpha</h1><p>Alpha, part one.</p>'),
+      's2.xhtml': xhtml('<style>h1.new { break-before: column }</style>', `<p>Alpha goes on in the second file.</p>${prose(12).map((t) => `<p>${t}</p>`).join('')}<p>Alpha ends in the second file.</p><h1 id="b" class="new">Beta</h1><p>Beta is the last chapter.</p>`),
+      'nav.xhtml': navOf('<li><a href="s1.xhtml#a">Alpha</a></li><li><a href="s2.xhtml#b">Beta</a></li>'),
+    },
+    manifest: [1, 2].map((i) => `<item id="s${i}" href="s${i}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: [1, 2].map((i) => `<itemref idref="s${i}"/>`).join(''),
+  })
+  // Contents that do not match the file: an anchor the file does not have (after another entry of the file, and as
+  // a file's first entry), entries listed out of the document's order, a front-matter title, chapters with no text
+  // (after text in a file, and a file of its own), a last chapter that runs over two files.
+  epub(resolve(dir, 'tsanchors.epub'), 'TS ANCHORS', {
+    files: {
+      's1.xhtml': xhtml('', '<h1 id="one">One</h1><p>One text.</p><h1 id="three">Three</h1><p>Three text.</p><h1 id="two">Two</h1><p>Two text.</p><div id="fig"><svg xmlns="http://www.w3.org/2000/svg" width="60" height="40"><rect width="60" height="40" fill="#48c"/></svg></div>'),
+      's2.xhtml': xhtml('', '<p>Four text.</p>'),
+      's3.xhtml': xhtml('', '<p><svg xmlns="http://www.w3.org/2000/svg" width="60" height="80"><rect width="60" height="80" fill="#c84"/></svg></p>'),
+      's4.xhtml': xhtml('', '<h1>Copyright</h1><p>All rights reserved.</p>'),
+      's5.xhtml': xhtml('', '<p>The last page of the book.</p>'),
+      'nav.xhtml': navOf('<li><a href="s1.xhtml#one">One</a></li><li><a href="s1.xhtml#nope">Missing</a></li><li><a href="s1.xhtml#two">Two</a></li><li><a href="s1.xhtml#three">Three</a></li><li><a href="s1.xhtml#fig">Figure</a></li><li><a href="s2.xhtml#nope">Four</a></li><li><a href="s3.xhtml">Plate</a></li><li><a href="s4.xhtml">Copyright</a></li>'),
+    },
+    manifest: [1, 2, 3, 4, 5].map((i) => `<item id="s${i}" href="s${i}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: [1, 2, 3, 4, 5].map((i) => `<itemref idref="s${i}"/>`).join(''),
+  })
+  // #1316 review 2: entries that name a file only ("Chapter 2" -> s2.xhtml) before ones anchored in it ("2.1" ->
+  // s2.xhtml#x), and a <section id> entry around its subsection's anchor: each starts at its place in the document.
+  epub(resolve(dir, 'tsfilelevel.epub'), 'TS FILE LEVEL', {
+    files: {
+      's1.xhtml': xhtml('', '<h1>One</h1><p>One text.</p>'),
+      's2.xhtml': xhtml('', `<p>Chapter 2 intro.</p><h2 id="x">2.1 X</h2>${prose(12).map((t) => `<p>${t}</p>`).join('')}<p>X ends.</p>`),
+      's3.xhtml': xhtml('', `<section id="s3"><h1>Three</h1><p>Three intro.</p><h2 id="y">3.1 Y</h2>${prose(12).map((t) => `<p>${t}</p>`).join('')}<p>Y ends.</p></section>`),
+      'nav.xhtml': navOf('<li><a href="s1.xhtml">One</a></li><li><a href="s2.xhtml">Chapter 2</a><ol><li><a href="s2.xhtml#x">2.1 X</a></li></ol></li><li><a href="s3.xhtml#s3">Three</a><ol><li><a href="s3.xhtml#y">3.1 Y</a></li></ol></li>'),
+    },
+    manifest: [1, 2, 3].map((i) => `<item id="s${i}" href="s${i}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: [1, 2, 3].map((i) => `<itemref idref="s${i}"/>`).join(''),
+  })
+  // Dead anchors listed between and after live ones: One, Missing (no such anchor), Two in one file; Two runs on into
+  // the second file, where Three starts lower down and Gone (no such anchor) is listed last.
+  epub(resolve(dir, 'tsdeadlast.epub'), 'TS DEAD LAST', {
+    files: {
+      's1.xhtml': xhtml('<style>h1.new { break-before: column }</style>', `<h1 id="one">One</h1>${prose(12).map((t) => `<p>${t}</p>`).join('')}<p>One ends.</p><h1 id="two" class="new">Two</h1>${prose(4).map((t) => `<p>${t}</p>`).join('')}`),
+      's2.xhtml': xhtml('<style>h1.new { break-before: column }</style>', `<p>Two goes on.</p>${prose(12).map((t) => `<p>${t}</p>`).join('')}<p>Two ends.</p><h1 id="three" class="new">Three</h1><p>Three text.</p>`),
+      'nav.xhtml': navOf('<li><a href="s1.xhtml#one">One</a></li><li><a href="s1.xhtml#nope">Missing</a></li><li><a href="s1.xhtml#two">Two</a></li><li><a href="s2.xhtml#three">Three</a></li><li><a href="s2.xhtml#gone">Gone</a></li>'),
+    },
+    manifest: [1, 2].map((i) => `<item id="s${i}" href="s${i}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: [1, 2].map((i) => `<itemref idref="s${i}"/>`).join(''),
+  })
+  // Contents whose entries lead nowhere in the book: a book with no contents, by the page's rule.
+  epub(resolve(dir, 'tsdeadtoc.epub'), 'TS DEAD TOC', {
+    files: {
+      's1.xhtml': xhtml('', '<p>The only section.</p>'),
+      'nav.xhtml': navOf('<li><a href="gone.xhtml">Gone</a></li><li><a href="missing.xhtml#x">Missing</a></li>'),
+    },
+    manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/>',
+    spine: '<itemref idref="s1"/>',
+  })
+  epub(resolve(dir, 'tsnotoc.epub'), 'TS NO TOC', {
+    files: {
+      's1.xhtml': xhtml('', `${prose(12).map((t) => `<p>${t}</p>`).join('')}<p>The first section ends, no contents.</p>`),
+      's2.xhtml': xhtml('', '<p>Second section.</p>'),
+      'nav.xhtml': `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>nav</title></head><body><nav epub:type="toc"><ol></ol></nav></body></html>`,
+    },
+    manifest: [1, 2].map((i) => `<item id="s${i}" href="s${i}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: [1, 2].map((i) => `<itemref idref="s${i}"/>`).join(''),
   })
   // Right to left by language only (#1263): no spine attribute; foliate sets each section's dir from it.
   epub(resolve(dir, 'tshe.epub'), 'TS HE', {

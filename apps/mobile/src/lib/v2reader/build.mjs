@@ -118,7 +118,12 @@ const FOLIATE_SHA = '686afc4200006874a24071a6a57510e027a4cc32'
 // (`incomplete`), the query counted in characters (one is enough where words have no spaces); `opened.searchable`.
 // The fork's 686afc4 (limit, per-hit label, skipped section) is about 500 of it. The book's own language is the
 // search's locale, and a search ended between sections reads no further one.
-const BUDGET = 307025
+// +14,601 (#1316): `relocate.chapterEnd` / `chapter-end` (the chapter whose last drawn line is on screen, by the document's
+// order: chapters.mjs `startsIn`, `segmentsIn`, `fileSummary`; page `chapterEndNow`, `lastInk`, `endOnScreen`, `carryInto`,
+// `endsWithFile`; where the contents lead, found out after `opened`: `startChapters`, `refineChapterEnd`) and
+// `chapterText(request, tocIndex, section)` → `chapter-text` (an entry's text from the book's own section documents, the
+// same rule: `textBetween`, `fitText`, the 200 KB share cap; reader-engine `textNodes`).
+const BUDGET = 321626
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

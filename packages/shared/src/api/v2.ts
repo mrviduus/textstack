@@ -577,6 +577,23 @@ export const resetReadingState = (bookId: string, expectedRevision: number | nul
 export const putSession = (clientSessionId: string, body: V2SessionWrite) =>
   authFetch<V2Session>(`${V2}/reading/sessions/${clientSessionId}`, jsonBody('PUT', body))
 
+/**
+ * A chapter the reader shares with their assistant (#1316; v2-sync-protocol "Endpoints", shares). `operationId`
+ * makes a retry of the same payload answer the first share; another payload under it is 409 `operation_conflict`.
+ * `chapterText` is at most 200 KB as UTF-8 (the server refuses more).
+ */
+export interface V2ShareWrite {
+  operationId: string
+  fileId: string | null
+  chapterKey: string
+  chapterTitle: string | null
+  chapterText: string
+  notes: unknown[]
+  language: string | null
+}
+export interface V2Share { id: string; bookId: string; chapterKey: string; createdAt: string }
+export const shareChapter = (bookId: string, body: V2ShareWrite) => authFetch<V2Share>(`${book(bookId)}/shares`, jsonBody('POST', body))
+
 /** The annotation's URL, for a keepalive write that outlives the page (the web V2 reader, #1226). */
 export const annotationUrl = (id: string) => `${getApiConfig().baseUrl}${V2}/annotations/${id}`
 export const putAnnotation = (id: string, body: V2AnnotationWrite) => authFetch<V2Annotation>(`${V2}/annotations/${id}`, jsonBody('PUT', body))

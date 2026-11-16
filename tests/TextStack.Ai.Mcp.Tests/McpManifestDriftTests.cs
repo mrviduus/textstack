@@ -48,7 +48,7 @@ public class McpManifestDriftTests
     [Fact]
     public void Manifest_AdvertisesTheWholeToolSurface()
     {
-        Assert.Equal((21, 24), (McpManifestCatalog.Served(false).Count, McpManifestCatalog.Served(true).Count));
+        Assert.Equal((21, 25), (McpManifestCatalog.Served(false).Count, McpManifestCatalog.Served(true).Count));
     }
 
     private sealed class NoTokenProvider : IMcpTokenProvider

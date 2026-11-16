@@ -19,21 +19,25 @@ public sealed class CheckpointRepository(V2DataSource dataSource) : ICheckpointR
     private const string ListColumns =
         "id, book_id, file_id, chapter_key, shared_chapter_id, topic, reader_thoughts, assistant_suggestions, conclusions, open_questions, language, operation_id, created_at";
 
-    // Inserts only when the named share (if any) matches. The no-op DO UPDATE returns the stored
+    // Inserts only when the named share (if any) matches: the user's own, of this book and chapter, and of the
+    // file the checkpoint names. A checkpoint that names no file takes its share's (#1316: an assistant knows the
+    // share, not file versions), in this one statement. The no-op DO UPDATE returns the stored
     // row when the operation id is taken; xmax = 0 only on a row this statement inserted.
     // FOR KEY SHARE holds the share until this insert commits: a share delete in flight makes it
     // wait and then find the share gone (a mismatch, not an FK error at commit), and a delete
     // that comes later waits for this row to commit and unlinks it.
     private const string UpsertCheckpoint = $"""
         INSERT INTO discussion_checkpoints (id, user_id, book_id, file_id, chapter_key, shared_chapter_id, topic, reader_thoughts, assistant_suggestions, conclusions, open_questions, language, operation_id, payload_sha256, created_at)
-        SELECT @Id, @UserId, @BookId, @FileId, @ChapterKey, @SharedChapterId, @Topic,
+        SELECT @Id, @UserId, @BookId, COALESCE(@FileId, share.file_id), @ChapterKey, @SharedChapterId, @Topic,
                CAST(@ReaderThoughts AS jsonb), CAST(@AssistantSuggestions AS jsonb), CAST(@Conclusions AS jsonb), CAST(@OpenQuestions AS jsonb),
                @Language, @OperationId, @PayloadSha256, now()
-        WHERE @SharedChapterId IS NULL OR EXISTS (
-            SELECT 1 FROM shared_chapters s
+        FROM (SELECT 1) one
+        LEFT JOIN LATERAL (
+            SELECT true AS found, s.file_id FROM shared_chapters s
             WHERE s.user_id = @UserId AND s.book_id = @BookId AND s.id = @SharedChapterId
-              AND s.chapter_key = @ChapterKey AND s.file_id IS NOT DISTINCT FROM @FileId
-            FOR KEY SHARE)
+              AND s.chapter_key = @ChapterKey AND (CAST(@FileId AS uuid) IS NULL OR s.file_id = @FileId)
+            FOR KEY SHARE) share ON true
+        WHERE CAST(@SharedChapterId AS uuid) IS NULL OR share.found
         ON CONFLICT (user_id, operation_id) DO UPDATE SET operation_id = EXCLUDED.operation_id
         RETURNING {Columns}, xmax = 0 AS inserted
         """;
