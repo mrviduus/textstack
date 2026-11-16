@@ -48,6 +48,7 @@ public static class TtsEndpoints
             WriteCacheHeaders(http, req.Etag, req.ResponseCacheSeconds);
             return Results.File(audio, "audio/mpeg", enableRangeProcessing: true);
         }
+        catch (TtsNoVoiceException ex) { return NoVoice(logger, ex); }
         catch (TaskCanceledException ex) { return TimedOut(logger, ex); }
         catch (Exception ex) when (ex is not OperationCanceledException) { return UpstreamFailed(logger, ex, req); }
     }
@@ -72,6 +73,7 @@ public static class TtsEndpoints
             WriteCacheHeaders(http, req.Etag, req.ResponseCacheSeconds);
             return Results.Ok(result.Timestamps);
         }
+        catch (TtsNoVoiceException ex) { return NoVoice(logger, ex); }
         catch (TaskCanceledException ex) { return TimedOut(logger, ex); }
         catch (Exception ex) when (ex is not OperationCanceledException) { return UpstreamFailed(logger, ex, req); }
     }
@@ -91,6 +93,14 @@ public static class TtsEndpoints
         var level = ex is InvalidOperationException ? LogLevel.Warning : LogLevel.Error;
         logger.Log(level, ex, "TTS upstream failed (lang={Lang}, voice={Voice})", req.Lang, req.Voice);
         return Results.Problem(detail: $"TTS service error: {ex.Message}", statusCode: 502);
+    }
+
+    // #1334: no voice speaks the lang. 422, not 502: the client should hide
+    // Listen for this book, not retry. Warning: input-driven, keep it out of Sentry.
+    private static IResult NoVoice(ILogger logger, TtsNoVoiceException ex)
+    {
+        logger.LogWarning("TTS: no voice for lang={Lang}", ex.Lang);
+        return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status422UnprocessableEntity);
     }
 
     private static IResult TimedOut(ILogger logger, Exception ex)
