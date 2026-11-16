@@ -374,7 +374,10 @@ incomplete` (completeness per intent pair: its book and every annotation as mapp
 parity (SRS fields equal)`, `vocabulary: review count differs` (a group's legacy reviews vs its survivor's V2
 reviews), `book_insight: parity` and `review_question: parity` (insight hashes equal, as every column
 compared), `reading_sessions: parity` and `reading_sessions: seconds per user differ` (all legacy sessions vs
-all V2 ones, per user carried; a V2-only user's sessions are cleanup lines, not this failure). On a dry and a
+ETL-carried V2 ones, identified by `id = client_session_id`, per user carried; native V2 sessions are excluded,
+and a V2-only user's sessions are cleanup lines, not this failure). The standalone SQL validator uses the same
+seconds filter; its ledger counts and cleanup report still describe the last ETL run, so re-run ETL before
+validating a target that has gained native sessions. On a dry and a
 real run: `unknown-user-ids` (V2 rows of any table etl-v2 writes whose owner is in neither legacy nor V2 users;
 ids `table/user`). A V2-only user's rows fail nothing: each is a "V2 row with no legacy row" cleanup line,
 report-only like the user (owner 2026-11-08).

@@ -412,6 +412,26 @@ public sealed class EtlV2WholeRunTests(PostgresFixture legacy, V2PostgresFixture
     }
 
     [Fact]
+    public async Task ValidateEtl_NativeSessionForCarriedUser_RerunAndSqlValidationPass()
+    {
+        var options = await NewPairAsync(sameContainer: true);
+        await EtlV2.RunAsync(options, ct: Ct);
+        var nativeId = Guid.NewGuid();
+        await ExecAsync(options.Target, """
+            INSERT INTO reading_sessions (id, user_id, client_session_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent, created_at)
+            VALUES (@id, @userId, @clientId, now(), now(), 30, 0, 0, 0, now())
+            """, new { id = nativeId, userId = ProductionShapes.User(1), clientId = Guid.NewGuid() });
+
+        var report = await EtlV2.RunAsync(options, ct: Ct);
+        Assert.All(report.Checks, c => Assert.Equal(0, c.Failures));
+        Assert.Equal(30, await ScalarAsync<int>(options.Target,
+            "SELECT duration_seconds FROM reading_sessions WHERE id = @id", new { id = nativeId }));
+        var (exit, stdout, stderr) = await ValidateAsync(options);
+        Assert.True(exit == 0, stdout + stderr);
+        Assert.Equal("ok", Rows(stdout)["reading_sessions: seconds per user"].Status);
+    }
+
+    [Fact]
     public async Task ValidateEtl_V2OnlyRowsBeforeTheRun_ToleratedAsReport()
     {
         // Owner 2026-11-08: a V2-only user and its rows are cleanup lines, never a failure; the script agrees.
