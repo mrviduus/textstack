@@ -171,6 +171,50 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
     }
 
+    // #1316: an assistant names the share, not a file version: the checkpoint takes the share's file.
+    [Fact]
+    public async Task AppendAsync_NoFileNamingAShareWithOne_StoresTheSharesFile()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var share = NewShare(book);
+        await _shares.ShareAsync(share, Ct);
+        var checkpoint = NewCheckpoint(book, share);
+        checkpoint.FileId = null;
+
+        var result = await _repo.AppendAsync(checkpoint, Ct);
+
+        Assert.NotNull(share.FileId);
+        Assert.Equal((WriteOutcome.Created, (Guid?)share.Id, share.FileId), (result.Outcome, result.Row!.SharedChapterId, result.Row.FileId));
+    }
+
+    [Fact]
+    public async Task AppendAsync_NoFileNamingAnotherUsersShare_IsAShareMismatchAndStoresNothingForEither()
+    {
+        var hers = await db.NewReaderWithBookAsync();
+        var his = await db.NewReaderWithBookAsync();
+        var share = NewShare(hers);
+        await _shares.ShareAsync(share, Ct);
+        var checkpoint = NewCheckpoint(his, share);
+        checkpoint.FileId = null;
+
+        var result = await _repo.AppendAsync(checkpoint, Ct);
+
+        Assert.Equal((WriteOutcome.ShareMismatch, null), (result.Outcome, result.Row));
+        Assert.Equal((0L, 0L), (await db.CountAsync("discussion_checkpoints", his.UserId, his.Id), await db.CountAsync("discussion_checkpoints", hers.UserId, hers.Id)));
+    }
+
+    [Fact]
+    public async Task AppendAsync_NoFileAndNoShare_StoresNoFile()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var checkpoint = NewCheckpoint(book);
+        checkpoint.FileId = null;
+
+        var result = await _repo.AppendAsync(checkpoint, Ct);
+
+        Assert.Equal((WriteOutcome.Created, null), (result.Outcome, result.Row!.FileId));
+    }
+
     [Fact]
     public async Task AppendAsync_RetryAfterItsShareWasDeleted_ReplaysTheStoredRow()
     {

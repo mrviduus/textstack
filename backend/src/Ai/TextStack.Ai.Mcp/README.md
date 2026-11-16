@@ -5,7 +5,7 @@ library to Claude Desktop, Cursor, or any [Model Context Protocol](https://model
 client. Search and read your books, and manage your highlights and
 vocabulary straight from your AI assistant.
 
-It exposes **21 tools** with `Features:V2Api` off, **24** on (`share_chapter`, `save_checkpoint`, `list_checkpoints`); the manifest and the bridge follow the same flag:
+It exposes **21 tools** with `Features:V2Api` off, **25** on (`share_chapter`, `save_checkpoint`, `list_checkpoints`, `get_shared_chapter`); the manifest and the bridge follow the same flag:
 
 | Tool | What it does |
 |------|--------------|

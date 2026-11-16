@@ -25,8 +25,8 @@ const TIMEOUT_MS = 15000
 // The hosts' validator, as they run it. Bundled first (apps/web's esbuild, as build.mjs): selection.mjs imports
 // packages/shared, whose extensionless TS imports plain node does not resolve.
 const { build: esbuild } = createRequire(resolve(here, '../../../../web/package.json'))('esbuild')
-const bundled = await esbuild({ stdin: { contents: `export * from './selection.mjs'; export * from './chrome.mjs'; export * from './wordPopup.mjs'; export * from './search.mjs'`, resolveDir: here, loader: 'js' }, bundle: true, write: false, format: 'esm', logLevel: 'silent' })
-const { readSelection, readDir, readTap, readKey, readRelocate, readWord, readLang, popupStep, readLightbox, readSearchResults, MAX_RESULTS, SEARCH_FILL } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`)
+const bundled = await esbuild({ stdin: { contents: `export * from './selection.mjs'; export * from './chrome.mjs'; export * from './wordPopup.mjs'; export * from './search.mjs'; export * from './chapters.mjs'`, resolveDir: here, loader: 'js' }, bundle: true, write: false, format: 'esm', logLevel: 'silent' })
+const { readSelection, readDir, readTap, readKey, readRelocate, readWord, readLang, popupStep, readLightbox, readSearchResults, MAX_RESULTS, SEARCH_FILL, readChapterEnd, readChapterText, offersDiscuss } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`)
 
 const failures = []
 const check = (ok, what) => { console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}`); if (!ok) failures.push(what) }
@@ -3342,6 +3342,261 @@ try {
   m = await open('tsdup.epub', JSON.stringify(dup))
   check(m.restored.position === 'restored' && lastRelocate(m.from)?.index === 2, `and a restore does too (${m.restored.position}, ${lastRelocate(m.from)?.index})`)
 
+  /**
+   * #1316, "Discuss this chapter": `relocate.chapterEnd` names the contents entry whose end is on screen (never guessed
+   * from the fraction), `chapterText` answers that entry's text, from its start to the place before the next entry.
+   */
+  async function checkChapters() {
+    console.log('chapters')
+    await page.setViewportSize({ width: 1280, height: 720 })
+    /** The relocates from `from`, each with the chapter end the page said for it: its own, or a `chapter-end` after it. */
+    const rels = (from) => {
+      const out = []
+      for (const x of messages.slice(from)) {
+        if (x.type === 'relocate') out.push({ ...x })
+        else if (x.type === 'chapter-end' && out.length) out[out.length - 1] = { ...out.at(-1), chapterEnd: x.chapterEnd }
+      }
+      return out
+    }
+    const ends = (from) => JSON.stringify(rels(from).map((x) => [x.index, x.tocIndex, x.chapterEnd]))
+    let n = 0
+    const textOf = async (tocIndex, section) => {
+      const request = `c${++n}`
+      const from = messages.length
+      call(`window.__fol.chapterText(${JSON.stringify(request)}, ${JSON.stringify(tocIndex)}, ${JSON.stringify(section)})`)
+      return readChapterText(await waitFor(from, (x) => x.type === 'chapter-text' && x.request === request, `the text of chapter ${tocIndex ?? `section ${section}`}`).catch(() => null))
+    }
+    /** Turns pages until `stop(relocate)`; the relocates seen. */
+    const turnUntil = async (stop, what) => {
+      const from = messages.length
+      for (let k = 0; k < 60 && !rels(from).some(stop); k++) {
+        const at = messages.length
+        await call('window.__fol.next()')
+        if (!(await waitFor(at, (x) => x.type === 'relocate', what).catch(() => null))) break
+      }
+      // A landing can relocate more than once: the last one is read.
+      await page.waitForTimeout(400)
+      return from
+    }
+
+    call('window.__fol.flow("paginated")')
+    let m = await open('tschapters.epub')
+    check(JSON.stringify(m.toc?.map((t) => [t.label, t.depth])) === '[["Alpha",0],["Beta",1],["Gamma",0]]', `the chapters book opens with three entries (${JSON.stringify(m.toc)})`)
+    {
+      const opened = rels(m.from).at(-1)
+      check(opened?.tocIndex === 0 && opened.chapterEnd === null && readChapterEnd(opened) === null, `the first page of a long chapter is not its end (${ends(m.from)})`)
+    }
+
+    // The text: an entry from its start to the place before the next one, at any depth, over files.
+    const alpha = await textOf(0)
+    check(alpha?.text?.startsWith('Alpha\n\nParagraph 1. Sphinx') && alpha.text.endsWith('Alpha ends here.') && alpha.cut === false, `chapterText: an entry's text stops before the next entry in the same file (${JSON.stringify(alpha?.text?.slice(-40) ?? alpha)})`)
+    const beta = await textOf(1)
+    check(beta?.text?.startsWith('Beta\n\nBeta begins.\n\nParagraph 1. Sphinx') && beta.text.endsWith('Beta ends in a second file.') && !beta.text.includes('Gamma'), `chapterText: an entry runs over the files before the next entry (${JSON.stringify([beta?.text?.slice(0, 40), beta?.text?.slice(-40)])})`)
+    const gamma = await textOf(2)
+    check(gamma?.text?.startsWith('Gamma\n\nParagraph 1. Sphinx') && gamma.text.endsWith('Gamma is the last chapter.'), `chapterText: the last entry ends with the book (${JSON.stringify([gamma?.text?.slice(0, 40), gamma?.text?.slice(-40)])})`)
+    const none = await textOf(9)
+    check(none?.error === 'unavailable', `chapterText: no such entry is unavailable (${JSON.stringify(none)})`)
+    const bySection = await textOf(null, 0)
+    check(bySection?.error === 'unavailable', `chapterText: a book with contents gives no text by section (${JSON.stringify(bySection)})`)
+    // A request id that is not the host's kind (a string of 1 to 64) gets no answer.
+    {
+      const from = messages.length
+      call(`window.__fol.chapterText(5, 0)`)
+      call(`window.__fol.chapterText(${JSON.stringify('x'.repeat(65))}, 0)`)
+      call(`window.__fol.chapterText("", 0)`)
+      await page.waitForTimeout(600)
+      check(!messages.slice(from).some((x) => x.type === 'chapter-text'), `chapterText: a request id of another kind gets no answer (${JSON.stringify(messages.slice(from).filter((x) => x.type === 'chapter-text').map((x) => x.request))})`)
+    }
+
+    // Paginated, one column. Alpha ends on its last page (Beta starts on the next one; the page number between them,
+    // `display: none`, is nothing to read), not on the page before, where its last paragraph is still running.
+    await page.setViewportSize({ width: 420, height: 800 })
+    await page.waitForTimeout(600)
+    const sameEnd = (rel, tocIndex, section, title) => JSON.stringify(readChapterEnd(rel)) === JSON.stringify({ tocIndex, section, title })
+    let from = await turnUntil((x) => x.chapterEnd || x.tocIndex !== 0, 'a turn in Alpha')
+    let rel = rels(from).at(-1)
+    check(rels(from).length > 2 && rel?.tocIndex === 0 && sameEnd(rel, 0, 0, 'Alpha'), `paginated: a chapter's end is on a page of its own entry (${ends(from)})`)
+    from = messages.length
+    await call('window.__fol.next()')
+    await page.waitForTimeout(600)
+    rel = rels(from).at(-1)
+    check(rel?.index === 0 && rel.tocIndex === 1, `paginated: that page was the chapter's last: the next one is the next entry's (${ends(from)})`)
+    // Beta's page in the first file: the file ends, the chapter does not (it runs on into the next file).
+    check(rel?.chapterEnd === null, `paginated: the end of a file is not the end of an entry that runs on (${ends(from)})`)
+    from = await turnUntil((x) => x.index === 1, 'the turn into the second file')
+    rel = rels(from).at(-1)
+    check(rel?.index === 1 && rel.tocIndex === 1 && rel.chapterEnd === null, `paginated: the first page of the entry's last file is not its end (${ends(from)})`)
+    from = await turnUntil((x) => x.chapterEnd || x.index !== 1, 'a turn in the second file')
+    rel = rels(from).at(-1)
+    check(rels(from).length > 1 && rel?.index === 1 && sameEnd(rel, 1, 1, 'Beta'), `paginated: the end of the last file before the next entry is the chapter's end (${ends(from)})`)
+    from = await turnUntil((x) => x.index === 2, 'the turn into the last chapter')
+    rel = rels(from).at(-1)
+    check(rel?.tocIndex === 2 && rel.atEnd === false && rel.chapterEnd === null, `the first page of the last chapter is not its end (${ends(from)})`)
+    from = await turnUntil((x) => x.chapterEnd || x.atEnd, 'a turn in the last chapter')
+    rel = rels(from).at(-1)
+    check(rels(from).length > 1 && rel?.atEnd === true && sameEnd(rel, 2, 2, 'Gamma'), `the end of the book is the last chapter's end (${ends(from)})`)
+
+    // Scrolled: the next entry's heading comes on screen under the chapter's last lines: foliate names that entry
+    // current, the end on screen is the one before's.
+    await page.setViewportSize({ width: 1280, height: 720 })
+    call('window.__fol.flow("scrolled")')
+    m = await open('tschapters.epub')
+    await page.mouse.move(640, 360)
+    from = messages.length
+    for (let k = 0; k < 80 && !rels(from).some((x) => x.tocIndex === 1); k++) { await page.mouse.wheel(0, 300); await page.waitForTimeout(450) }
+    rel = rels(from).find((x) => x.tocIndex === 1)
+    check(rels(from).filter((x) => x.tocIndex === 0).every((x) => x.chapterEnd === null) && sameEnd(rel, 0, 0, 'Alpha'),
+      `scrolled: the next entry's start on screen under text is the end of the one before (${ends(from)})`)
+    // No contents: the spine section is the chapter.
+    call('window.__fol.flow("paginated")')
+    await page.setViewportSize({ width: 420, height: 800 })
+    m = await open('tsnotoc.epub')
+    await page.waitForTimeout(400)
+    rel = rels(m.from).at(-1)
+    check(m.toc?.length === 0 && rel?.index === 0 && rel.chapterEnd === null, `no contents: the first page of a section is not its end (${ends(m.from)})`)
+    from = await turnUntil((x) => x.chapterEnd || x.index !== 0, 'a turn in the first section')
+    rel = rels(from).at(-1)
+    check(rels(from).length > 1 && rel?.index === 0 && sameEnd(rel, null, 0, null), `no contents: the end of a spine section is the chapter's end (${ends(from)})`)
+    const first = await textOf(null, 0)
+    check(first?.text?.startsWith('Paragraph 1. Sphinx') && first.text.endsWith('The first section ends, no contents.'), `no contents: chapterText gives the section's text (${JSON.stringify(first?.text?.slice(-50) ?? first)})`)
+    const byEntry = await textOf(0)
+    check(byEntry?.error === 'unavailable', `no contents: no text by entry (${JSON.stringify(byEntry)})`)
+    // A chapter split by size (R2): the end of its first file is not its end; its text runs into the next file, up
+    // to the next entry's anchor, and its end is the page before that entry.
+    await page.setViewportSize({ width: 420, height: 800 })
+    m = await open('tssplit.epub')
+    await page.waitForTimeout(900)
+    check(rels(m.from).every((x) => x.chapterEnd === null) && rels(m.from).at(-1)?.index === 0, `split chapter: the end of its first file is not the chapter's end (${ends(m.from)})`)
+    const split = await textOf(0)
+    check(split?.text?.startsWith('Alpha\n\nAlpha, part one.\n\nAlpha goes on in the second file.') && split.text.endsWith('Alpha ends in the second file.'), `split chapter: its text runs into the next file, up to the next entry (${JSON.stringify([split?.text?.slice(0, 60), split?.text?.slice(-40)])})`)
+    from = await turnUntil((x) => x.chapterEnd || x.tocIndex === 1, 'a turn in the split chapter')
+    rel = rels(from).at(-1)
+    check(rels(from).length > 2 && rel?.index === 1 && rel.tocIndex === 0 && sameEnd(rel, 0, 1, 'Alpha'), `split chapter: its end is the page before the next entry, in the second file (${ends(from)})`)
+    const splitBeta = await textOf(1)
+    check(splitBeta?.text === 'Beta\n\nBeta is the last chapter.', `split chapter: the next entry starts at its anchor (${JSON.stringify(splitBeta)})`)
+
+    // Contents that do not match the file.
+    m = await open('tsanchors.epub')
+    await page.waitForTimeout(600)
+    const texts = []
+    for (let i = 0; i < 8; i++) texts.push(await textOf(i))
+    check(texts[0]?.text === 'One\n\nOne text.', `entries out of order: a chapter ends at the nearest entry after it in the document (${JSON.stringify(texts[0])})`)
+    check(texts[1]?.error === 'unavailable', `an anchor the file does not have, after another entry of that file: not shared under its title (${JSON.stringify(texts[1])})`)
+    check(texts[2]?.text === 'Two\n\nTwo text.' && texts[3]?.text === 'Three\n\nThree text.', `entries out of order: an entry listed later but placed earlier ends nothing (${JSON.stringify([texts[2], texts[3]])})`)
+    check(texts[4]?.error === 'empty' && texts[6]?.error === 'empty', `a chapter with no text is empty (${JSON.stringify([texts[4], texts[6]])})`)
+    check(texts[5]?.text === 'Four text.', `an anchor the file does not have, the file's first entry: the file from its start (${JSON.stringify(texts[5])})`)
+    check(texts[7]?.text === 'Copyright\n\nAll rights reserved.\n\nThe last page of the book.', `the last entry runs over the files after it (${JSON.stringify(texts[7])})`)
+    // One screen holds the whole first file. The current entry there is the figure, with nothing to read: no end of
+    // its own; the end on screen is the one before's in the DOCUMENT (Two), not in the list (Three), and never the
+    // entry with no anchor.
+    rel = rels(m.from).at(-1)
+    check(rel?.index === 0 && sameEnd(rel, 2, 0, 'Two'), `a chapter with nothing to read after text: the end on screen is the chapter's before it in the document (${ends(m.from)})`)
+    from = await turnUntil((x) => x.index === 2, 'the turn to the plate')
+    await page.waitForTimeout(500)
+    rel = rels(from).at(-1)
+    check(rel?.index === 2 && rel.tocIndex === 6 && rel.chapterEnd === null, `a chapter with nothing to read has no end to offer (${ends(from)})`)
+    from = await turnUntil((x) => x.index === 3, 'the turn to the copyright page')
+    await page.waitForTimeout(500)
+    rel = rels(from).at(-1)
+    check(rel?.index === 3 && rel.tocIndex === 7 && rel.chapterEnd === null, `the last entry does not end with its first file (${ends(from)})`)
+    from = await turnUntil((x) => x.index === 4, 'the turn to the last page')
+    await page.waitForTimeout(500)
+    rel = rels(from).at(-1)
+    check(sameEnd(rel, 7, 4, 'Copyright') && offersDiscuss(readChapterEnd(rel)) === false, `front matter ends like any chapter, with the book, and the hosts' rule does not offer it (${ends(from)})`)
+
+    // Review 2, item 1: an entry naming its file only starts at the file's top; a <section id> entry before the
+    // subsection it contains. Their text, and the end named on the screen that holds the start of the next one.
+    m = await open('tsfilelevel.epub')
+    await page.waitForTimeout(600)
+    const level = []
+    for (let i = 0; i < 5; i++) level.push(await textOf(i))
+    check(level[1]?.text === 'Chapter 2 intro.' && level[2]?.text?.startsWith('2.1 X\n\nParagraph 1.') && level[2].text.endsWith('X ends.'),
+      `a file-level entry: its text is the file's top up to the next entry anchored in it (${JSON.stringify([level[1], level[2]?.text?.slice(0, 30)])})`)
+    check(level[3]?.text === 'Three\n\nThree intro.' && level[4]?.text?.startsWith('3.1 Y\n\nParagraph 1.') && level[4].text.endsWith('Y ends.'),
+      `a section entry around its subsection: its text runs up to the subsection (${JSON.stringify([level[3], level[4]?.text?.slice(0, 30)])})`)
+    for (const [entry, file, title] of [[1, 1, 'Chapter 2'], [3, 2, 'Three']]) {
+      from = messages.length
+      call(`window.__fol.goTo(${JSON.stringify(m.toc[entry].href)})`)
+      await page.waitForTimeout(1200)
+      rel = rels(from).at(-1)
+      check(rel?.index === file && sameEnd(rel, entry, file, title), `the intro and the next heading on screen: the chapter that ended is ${title}, never the previous file's (${ends(from)})`)
+    }
+
+    // Review 2, item 2: the chapter that ended is decided by the document only; a dead anchor is never named.
+    m = await open('tsdeadlast.epub')
+    await page.waitForTimeout(600)
+    from = await turnUntil((x) => x.chapterEnd || x.index !== 0, 'a turn in One')
+    rel = rels(from).at(-1)
+    check(rels(from).length > 2 && rel?.index === 0 && sameEnd(rel, 0, 0, 'One'), `One, then a dead anchor, then Two: One's end offers One (${ends(from)})`)
+    const deadTexts = [await textOf(1), await textOf(4)]
+    check(deadTexts.every((x) => x?.error === 'unavailable'), `a dead anchor after another entry of its file has no text (${JSON.stringify(deadTexts)})`)
+    from = await turnUntil((x) => x.index === 1, 'the turn into the second file')
+    from = await turnUntil((x) => x.chapterEnd, 'a turn in the second file')
+    rel = rels(from).at(-1)
+    check(rel?.index === 1 && sameEnd(rel, 2, 1, 'Two'), `Two runs on into the next file, up to Three: its end is there (${ends(from)})`)
+    from = await turnUntil((x) => x.atEnd, 'the turn to the end of the book')
+    rel = rels(from).at(-1)
+    check(sameEnd(rel, 3, 1, 'Three'), `the last live entry ends with the book; the dead one listed after it is never named (${ends(from)})`)
+    check([...rels(m.from)].every((x) => ![1, 4].includes(x.chapterEnd?.tocIndex)), `no dead anchor is ever named (${ends(m.from)})`)
+
+    // Contents that lead nowhere: a book with no contents, by the page's own rule, whatever the host's list holds.
+    m = await open('tsdeadtoc.epub')
+    await page.waitForTimeout(900)
+    rel = rels(m.from).at(-1)
+    check(m.toc?.length === 2 && sameEnd(rel, null, 0, null) && offersDiscuss(readChapterEnd(rel)), `contents that lead nowhere: the spine section is the chapter (${JSON.stringify(m.toc?.map((t) => t.label))}, ${ends(m.from)})`)
+    const dead = await textOf(null, 0)
+    check(dead?.text === 'The only section.', `contents that lead nowhere: chapterText by section (${JSON.stringify(dead)})`)
+
+    // An open never waits for where the contents lead (R1): held back, the book still opens, restores and reports
+    // its place; the chapter end of the place on screen is said after, once it is known.
+    await page.setViewportSize({ width: 1280, height: 720 })
+    await page.waitForTimeout(600)
+    call('window.__fol.__testHoldChapters(1500)')
+    m = await open('tsdeadtoc.epub')
+    const openedAt = messages.findIndex((x, i) => i >= m.from && x.type === 'opened')
+    const restoredAt = messages.findIndex((x, i) => i >= m.from && x.type === 'restored')
+    const endAt = () => messages.findIndex((x, i) => i >= m.from && (x.type === 'relocate' || x.type === 'chapter-end') && x.chapterEnd)
+    check(endAt() < 0 && rels(m.from).length > 0, `chapters held back: the book opened, restored and reported its place without them (${ends(m.from)})`)
+    const said = await waitFor(m.from, (x) => x.type === 'chapter-end', 'the chapter end said later').catch(() => null)
+    check(JSON.stringify(readChapterEnd(said)) === '{"tocIndex":null,"section":0,"title":null}' && endAt() > openedAt && endAt() > restoredAt && !messages.slice(endAt()).some((x) => x.type === 'relocate'),
+      `chapters held back: the chapter end comes after opened and restored, for the place last reported (${openedAt}, ${restoredAt}, ${endAt()}; ${JSON.stringify(said)})`)
+    // Two opens back to back: the second is the book on screen, at its restored place; the first's chapters, still
+    // held back, say nothing of it.
+    {
+      m = await open('tschapters.epub')
+      // A place of its own making: the last chapter, as the page saves it.
+      const saved = messages.length
+      call('window.__fol.goTo(2, true)')
+      const stored = (await waitFor(saved, (x) => x.type === 'store', 'a saved place in the last chapter').catch(() => null))?.json
+      await page.waitForTimeout(400)
+      const at = messages.length
+      call(`window.__fol.openUrl(${JSON.stringify(bookAt('tsdeadtoc.epub'))}, "tsdeadtoc.epub"); window.__fol.openUrl(${JSON.stringify(bookAt('tschapters.epub'))}, "tschapters.epub")`)
+      const second = await waitFor(at, (x) => x.type === 'opened' && x.book?.name === 'tschapters.epub', 'the second of two opens').catch(() => null)
+      await call(`window.__fol.restore(${JSON.stringify(stored)})`)
+      const back = await waitFor(at, (x) => x.type === 'restored', 'the second open restored').catch(() => null)
+      await page.waitForTimeout(2500)
+      const landed = rels(at).at(-1)
+      check(!!second && back?.position === 'restored' && landed?.index === 2 && landed.tocIndex === 2, `two opens back to back: the second is at its restored place (${back?.position}, ${ends(at)})`)
+      check(rels(at).every((x) => !x.chapterEnd || x.chapterEnd.tocIndex !== null), `two opens back to back: the first book's chapters say nothing of the second (${ends(at)})`)
+    }
+    call('window.__fol.__testHoldChapters(0)')
+    await page.setViewportSize({ width: 420, height: 800 })
+    await page.waitForTimeout(600)
+    await page.setViewportSize({ width: 1280, height: 720 })
+    // The resize re-lays the open book out: its relocate is not the next book's.
+    await page.waitForTimeout(800)
+
+    // No text the page can read on its own: a comic book, a PDF.
+    // The PDF first, and given time to draw: a book opened over a page still rendering cancels it (pdf.js rejects).
+    for (const file of ['tsformat.pdf', 'tsformat.cbz']) {
+      m = await open(file)
+      await page.waitForTimeout(file.endsWith('.pdf') ? 1500 : 400)
+      const got = await textOf(null, 0)
+      check(rels(m.from).every((x) => x.chapterEnd === null) && got?.error === 'unavailable', `${file}: no chapter end and no chapter text (${ends(m.from)}, ${JSON.stringify(got)})`)
+    }
+  }
+
+  await checkChapters()
   await checkSelectionEdges()
   await checkChrome()
   await checkLightbox()

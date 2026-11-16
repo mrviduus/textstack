@@ -11,7 +11,7 @@ and the [landing page](https://textstack.app/en/mcp) point here.
 
 ## The tools
 
-The server exposes 21 tools with `Features:V2Api` off, 24 on (`share_chapter`, `save_checkpoint`, `list_checkpoints`); the manifest and the bridge follow the same flag. The public ones need no auth; the user-scoped ones
+The server exposes 21 tools with `Features:V2Api` off, 25 on (`share_chapter`, `save_checkpoint`, `list_checkpoints`, `get_shared_chapter`); the manifest and the bridge follow the same flag. The public ones need no auth; the user-scoped ones
 require you to be signed in (see [Authentication](#authentication)).
 
 **Two halves, two identifiers.** The public catalog is made of `Edition`s and is
@@ -338,7 +338,7 @@ Before wiring up a client, confirm the tool speaks MCP. This sends
 ```
 
 Expect a response with `serverInfo` naming `textstack` and a `tools/list`
-result containing all 21 tools (24 with `TEXTSTACK_MCP_V2=true`).
+result containing all 21 tools (25 with `TEXTSTACK_MCP_V2=true`).
 
 ## Troubleshooting
 

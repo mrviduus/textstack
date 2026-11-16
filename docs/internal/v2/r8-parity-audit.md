@@ -135,7 +135,7 @@ Legend — **Need**: `R8` must exist before R8 · `owner` needs a decision (§6)
 |---|---|---|---|---|
 | Reading sessions (heartbeat, idle, queue; V2 `PUT /me/v2/reading/sessions/{id}`) | yes | yes | yes (#1313): recorded, and in `/me/reading/pace` | pace done; stats page (totals, streak, avg wpm, time, books finished) legacy-only (follow-up) |
 | Stats widget (session min, daily goal, streak) | yes | yes | absent | owner (keep or drop) |
-| "Discuss chapter" handoff at chapter end / exit prompt | yes | yes | absent | R8 — needs a rule for "chapter" on foliate sections (no `chapterSlug`) |
+| "Discuss chapter" handoff at chapter end / exit prompt | yes | yes | yes at chapter end (#1316): a chapter is a contents entry, its text is shared (`/me/v2/books/{id}/shares`) and the chat gets the share id; not on PDF, CBZ, fixed layout; no exit prompt | chapter review on V2: #1345; MCP book/chapter reads on V2: #1346 |
 | Exit prompt "review N words" | — | yes | absent | owner |
 | GA4 `book_opened`, `vocab_saved`, session end; Sentry on open failures | web | Sentry init only | `telemetry` → console | R8 (a sink) |
 | Accessibility: drawers as dialogs, aria labels, skip link, reduced motion | web | partial (top bar unlabeled) | **nothing** | R8 (at least legacy level) |

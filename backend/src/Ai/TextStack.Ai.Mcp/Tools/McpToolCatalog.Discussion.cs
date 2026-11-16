@@ -61,8 +61,8 @@ public sealed partial class McpToolCatalog
 
             return InvokeAsync("share_chapter", ct, async () =>
             {
-                // ponytail: no fileId — the bridge does not know file versions, so an MCP checkpoint cannot name
-                // a share the app made with one (422 share_mismatch); #1098.
+                // ponytail: no fileId — the bridge does not know file versions; a checkpoint naming a share takes that
+                // share's file on the server (#1316). #1098.
                 var shared = await api.ShareChapterAsync(bookId,
                     new ShareChapterRequest(operationId, null, chapterKey, chapterTitle, chapterText, notes ?? NoNotes, language), ct);
                 if (Refused("share_chapter", shared, bookId) is { } refused) return refused;
@@ -73,6 +73,79 @@ public sealed partial class McpToolCatalog
                     chapterKey = share.GetProperty("chapterKey"),
                     createdAt = share.GetProperty("createdAt"),
                     saved = true,
+                }, UnescapedJson));
+            });
+        },
+    };
+
+    private static readonly JsonElement GetSharedChapterSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "shareId": { "type": "string", "format": "uuid" },
+            "part": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["shareId"],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    /// <summary>
+    /// Part <paramref name="part"/> (from 1) of <paramref name="text"/> in pieces of the bridge's chapter cap
+    /// (<see cref="HtmlText.DefaultMaxChars"/>, what <c>get_my_chapter</c> returns at most), never through a
+    /// surrogate pair; null when there is no such part. A share is at most 200 KB, so a handful of parts.
+    /// </summary>
+    public static (string Text, int PartCount)? PartOf(string text, int part)
+    {
+        var starts = new List<int> { 0 };
+        while (text.Length - starts[^1] > HtmlText.DefaultMaxChars)
+        {
+            var next = starts[^1] + HtmlText.DefaultMaxChars;
+            starts.Add(char.IsLowSurrogate(text[next]) ? next - 1 : next);
+        }
+        if (part < 1 || part > starts.Count) return null;
+        var end = part == starts.Count ? text.Length : starts[part];
+        return (text[starts[part - 1]..end], starts.Count);
+    }
+
+    private McpToolDescriptor BuildGetSharedChapter(TextStackApiClient api) => new()
+    {
+        Name = "get_shared_chapter",
+        Title = "Read a shared chapter",
+        ReadOnly = true,
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_shared_chapter"),
+        InputSchema = GetSharedChapterSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "shareId", "part")
+                || !ArgReader.TryRequiredGuid(obj, "shareId", out var shareId, out err)
+                || !ArgReader.TryOptionalInt(obj, "part", 1, int.MaxValue, out var part, out err))
+                return Task.FromResult(Error(err));
+
+            return InvokeAsync("get_shared_chapter", ct, async () =>
+            {
+                var read = await api.GetSharedChapterAsync(shareId, ct);
+                // The server answers 404 for an id that is not the caller's, as for one that never existed.
+                if (read.Code == "not_found") return Error($"get_shared_chapter: no shared chapter found with id '{shareId}'");
+                if (Refused("get_shared_chapter", read) is { } refused) return refused;
+                var share = read.Value;
+                if (PartOf(share.GetProperty("chapterText").GetString() ?? "", part ?? 1) is not var (text, partCount))
+                    return Error($"get_shared_chapter: this share has no part {part}");
+                return Text(JsonSerializer.Serialize(new
+                {
+                    id = share.GetProperty("id"),
+                    bookId = share.GetProperty("bookId"),
+                    chapterKey = share.GetProperty("chapterKey"),
+                    chapterTitle = share.GetProperty("chapterTitle"),
+                    language = share.GetProperty("language"),
+                    notes = share.GetProperty("notes"),
+                    createdAt = share.GetProperty("createdAt"),
+                    part = part ?? 1,
+                    partCount,
+                    // The marker get_my_chapter uses: more of this text exists than this result holds.
+                    truncated = (part ?? 1) < partCount,
+                    text,
                 }, UnescapedJson));
             });
         },
@@ -125,6 +198,7 @@ public sealed partial class McpToolCatalog
 
             return InvokeAsync("save_checkpoint", ct, async () =>
             {
+                // No fileId: the bridge does not know file versions; a checkpoint naming a share takes its file on the server (#1316).
                 var saved = await api.SaveCheckpointAsync(bookId, new CheckpointRequest(
                     operationId, topic, readerThoughts, assistantSuggestions, conclusions, openQuestions,
                     language, chapterKey, null, sharedChapterId), ct);

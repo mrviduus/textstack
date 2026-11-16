@@ -718,6 +718,22 @@
         "removeHighlight": "Could not remove the highlight: {reason}",
         "finishBook": "Could not mark the book as finished: {reason}",
         "note": "Could not save the note: {reason}"
+      },
+      "discuss": {
+        "start": "Discuss this chapter",
+        "startTitled": "Discuss the chapter {title} with your assistant",
+        "sharing": "Sharing the chapter…",
+        "shared": "The chapter is shared with your assistant.",
+        "cut": "This chapter is long: only its first part was shared with your assistant.",
+        "open": "Open the chat",
+        "retry": "Retry",
+        "empty": "This chapter has no text to share.",
+        "unavailable": "This chapter could not be read, so nothing was shared. Try again.",
+        "offline": "You are offline, so the chapter was not shared. Try again when you are connected.",
+        "signedOut": "Your session ended, so the chapter was not shared. Sign in and try again.",
+        "noBook": "This book is not on the server yet, so the chapter was not shared. It is shared once the book has synced.",
+        "timeout": "The server did not answer in time, so the chapter may not be shared. Try again.",
+        "failed": "The chapter was not shared. Try again."
       }
     },
     "v2Settings": {
