@@ -107,8 +107,22 @@ export function textBetween(doc, from, to) {
   return out
 }
 
-const utf8 = new TextEncoder()
-const bytes = (s) => utf8.encode(s).length
+/**
+ * The chapter a host offers Discuss for, of the chapter whose end is on screen (`readChapterEnd`) and the host's
+ * own contents (`readToc`): `{ title }`, the entry's label, or null for a book with no contents (the spine section
+ * is the chapter). Null: no chapter end, or one the host cannot name (an entry it does not hold; a section of a
+ * book that has contents).
+ */
+export function discussEntryOf(chapterEnd, toc) {
+  if (!chapterEnd) return null
+  if (chapterEnd.tocIndex === null) return toc.length === 0 ? { title: null } : null
+  const entry = toc.find((e) => e.index === chapterEnd.tocIndex)
+  return entry ? { title: entry.label } : null
+}
+
+const utf8Encoder = new TextEncoder()
+// Named apart from the page's own `bytes` (a book's): the bundle keeps both names as written.
+const utf8Size = (s) => utf8Encoder.encode(s).length
 
 /**
  * Paragraphs joined into a share's text within the server's cap: `{ text, cut }`. `cut`: the chapter is longer
@@ -119,7 +133,7 @@ export function fitText(paragraphs, cap = MAX_CHAPTER_TEXT_BYTES) {
   let text = ''
   let size = 0
   for (const p of paragraphs) {
-    const add = (text ? 2 : 0) + bytes(p)
+    const add = (text ? 2 : 0) + utf8Size(p)
     if (size + add > cap) {
       // ponytail: a UTF-16 unit is at most 3 UTF-8 bytes, so cap / 3 units always fit; a tighter cut needs an encoder loop.
       if (!text) text = p.slice(0, Math.floor(cap / 3)).replace(/[\ud800-\udbff]$/, '')
@@ -153,6 +167,6 @@ export function readChapterText(m) {
   const request = m.request
   if (typeof m.text !== 'string') return { request, error: m.error === 'empty' ? 'empty' : 'unavailable' }
   if (!m.text.trim()) return { request, error: 'empty' }
-  if (bytes(m.text) > MAX_CHAPTER_TEXT_BYTES) return null
+  if (utf8Size(m.text) > MAX_CHAPTER_TEXT_BYTES) return null
   return { request, text: m.text, cut: m.cut === true }
 }

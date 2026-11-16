@@ -14,5 +14,6 @@ export function chapterBefore(places: readonly (V2ChapterPlace | null)[], tocInd
 export function chapterKey(chapter: V2ChapterEnd): string
 export function textBetween(doc: Document, from: Element | null, to: Element | null): string[]
 export function fitText(paragraphs: readonly string[], cap?: number): { text: string; cut: boolean }
+export function discussEntryOf(chapterEnd: V2ChapterEnd | null, toc: readonly { index: number; label: string }[]): { title: string | null } | null
 export function readChapterEnd(m: unknown): V2ChapterEnd | null
 export function readChapterText(m: unknown): V2ChapterText | null

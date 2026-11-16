@@ -502,8 +502,10 @@ function chapterEndAt(d) {
  * text only, in paragraphs, within the server's cap (`cut` when the chapter is longer: chapters.mjs `fitText`).
  */
 async function chapterText(request, tocIndex, section) {
+  // The host's own id, echoed as it came: anything else gets no answer.
+  if (typeof request !== 'string' || !request || request.length > 64) return
   const mine = viewSeq
-  const answer = (a) => { if (mine === viewSeq) post({ type: 'chapter-text', request: String(request).slice(0, 64), ...a }) }
+  const answer = (a) => { if (mine === viewSeq) post({ type: 'chapter-text', request, ...a }) }
   try {
     const sections = view?.book?.sections
     if (!sections || !discussable) return answer({ error: 'unavailable' })

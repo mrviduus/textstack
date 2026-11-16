@@ -15,7 +15,7 @@ import { V2ReaderPopups, type V2HighlightEditor } from './V2ReaderPopups'
 import { noteChange, readHighlightList, readHighlightRemoved, readHighlightTap, type V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
 import { showsFinishBook } from '../../../../mobile/src/lib/v2reader/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
-import { chapterKey, readChapterEnd, readChapterText, type V2ChapterEnd } from '../../../../mobile/src/lib/v2reader/chapters.mjs'
+import { chapterKey, discussEntryOf, readChapterEnd, readChapterText, type V2ChapterEnd } from '../../../../mobile/src/lib/v2reader/chapters.mjs'
 import { V2ChapterDiscuss, type V2DiscussState } from './V2ChapterDiscuss'
 import { v2Store } from '../../api/v2'
 import { readToc, tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
@@ -848,12 +848,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     })
   }
   /** The chapter Discuss is offered for: the one whose end is on screen, when the host can name it (its contents entry, or a book with no contents). */
-  const discussEntry = (() => {
-    if (!chapterEnd || !discussBook) return null
-    if (chapterEnd.tocIndex === null) return toc.length === 0 ? { title: null } : null
-    const entry = toc.find((e) => e.index === chapterEnd.tocIndex)
-    return entry ? { title: entry.label } : null
-  })()
+  const discussEntry = discussBook ? discussEntryOf(chapterEnd, toc) : null
   const finishShown = !!finish && finish.completedAt !== undefined && showsFinishBook({ atEnd, format: finish.format })
 
   const finishBook = async () => {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { MAX_CHAPTER_TEXT_BYTES, chapterBefore, chapterKey, chapterOf, fitText, placeOf, readChapterEnd, readChapterText, textBetween } from './chapters.mjs'
+import { MAX_CHAPTER_TEXT_BYTES, chapterBefore, chapterKey, chapterOf, discussEntryOf, fitText, placeOf, readChapterEnd, readChapterText, textBetween } from './chapters.mjs'
 
 const at = (sec: number, href: string) => ({ sec, at: href, anchor: null })
 // Part I (s1) > Chapter 1 (s1, the same place) and Chapter 2 (s1#c2); an entry that leads nowhere; Chapter 3 (s3: s2 is its
@@ -50,6 +50,21 @@ describe('chapterKey', () => {
   it('names a contents entry by its index, and a book with no contents by its section', () => {
     expect(chapterKey({ tocIndex: 3, section: 7 })).toBe('toc-3')
     expect(chapterKey({ tocIndex: null, section: 7 })).toBe('section-7')
+  })
+})
+
+describe('discussEntryOf', () => {
+  const toc = [{ index: 0, label: 'Alpha' }, { index: 2, label: 'Gamma' }]
+  it('is the entry whose end is on screen, by its index in the page\'s list', () => {
+    expect(discussEntryOf({ tocIndex: 2, section: 5 }, toc)).toEqual({ title: 'Gamma' })
+  })
+  it('is an untitled chapter for a section of a book with no contents', () => {
+    expect(discussEntryOf({ tocIndex: null, section: 5 }, [])).toEqual({ title: null })
+  })
+  it('is none with no chapter end, for an entry the host does not hold, and for a section of a book that has contents', () => {
+    expect(discussEntryOf(null, toc)).toBeNull()
+    expect(discussEntryOf({ tocIndex: 1, section: 0 }, toc)).toBeNull()
+    expect(discussEntryOf({ tocIndex: null, section: 0 }, toc)).toBeNull()
   })
 })
 
