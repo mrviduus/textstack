@@ -43,6 +43,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `sessionTracker.mjs` (+ `.d.mts`) | Pure, both hosts (#1313): the reading session, the legacy readers' rules (starts on the first activity, time up to 3 min after the last, 5 min idle ends it, under 10 s not kept, at most 4 h), words read from `relocate` by the page's `relocate.cause` (`readRelocate`): `turn` counts the ground past the session's furthest place × `words` (at most 800 wpm of the counted time since the last counted step), `nav` (a navigation's landing) counts nothing and resets the baseline and furthest place, `layout` (anything else, the default) counts nothing and keeps the furthest place; whenever the seconds sent are fewer than the time counted, the words scale down with them. `open` / `bind` / `relocate` / `activity` / `tick` / `end`; an ended session is returned for the host to send. |
 | `tapZone.mjs` (+ `.d.mts`) | Pure, both hosts (#1263): what a page `tap` does (turn back, turn on, toggle the bars). See Host responsibilities, "Reader chrome" and "Bars and tap zones, web". |
 | `highlights.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1312): the four colours (`HIGHLIGHT_COLORS`, the legacy readers'; `HIGHLIGHT_FILL` what the page draws; `colorOf`: one off the list, another client's, is drawn yellow), the page's `highlightList` (drawn ones, in book order by foliate's CFI compare, text cut to 200 code points), the hosts' readers `readHighlightList`, `readHighlightTap`, `readHighlightRemoved` in `readSelection`'s style, `noteOf` (a note as saved: trimmed, never cut: the server has no cap; blank is none) and `noteChange` (what a save writes: nothing when the draft is the note it was typed over). See Host responsibilities, "Highlights". |
+| `search.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1315): in-book search. `readQuery` (the query a host may send: one-spaced, 2 to 100 characters), the page's `searchItems` (foliate's hits as `search-results` items, strings capped), the hosts' reader `readSearchResults` in `readSelection`'s style, and the hosts' state `searchStart` / `searchTake` (a new id per search; an older search's answer is dropped), `MAX_RESULTS`, `SEARCH_FILL`. See Host responsibilities, "In-book search". |
 | `finishBook.mjs` (+ `.d.mts`) | Pure, both hosts (#1266): `showsFinishBook`, when the end-of-book block shows. See Host responsibilities, "Finish book". |
 | `listen.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1272): `ttsLang` (the book's language → the `lang` `/tts` is sent, the V2 reader on both hosts (the legacy readers keep their own): the primary subtag only, ISO 639-2 codes in both forms, `nb`/`nn`/`iw`/`in` and `tl` → `fil` folded, `und`/`mul`/`zxx`/`mis` to the fallback, never English for another language, null for Ukrainian), `TTS_SPEEDS` / `readSpeed` / `TTS_SPEED_KEY` / `createSpeedChoice` (Android's async store: a pick before the read wins), `createListener` (Listen's rule: it owns the phase), `speakingJs` (Android's injected call), `SPOKEN_FILL`. See Host responsibilities, "Listen". |
 | `vocabSave.mjs` (+ `.d.mts`) | Pure, both hosts (#1270): `saveOutcome`, a vocabulary save's answer as the host shows it (saved, deleted → restore, pending, lookup); `savesWords`, whether a book's `opened.lang` lets its words be saved. See Host responsibilities, "Saving a word". |
@@ -103,8 +104,9 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   while the container still sits there (it swallowed the reader's next scroll: one continuous scroll right after a
   jump sent no `relocate`, #1297).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
-  uses private methods, static blocks and `\p{}` regexes. view.js's own format imports, PDF, TTS and search are
-  stubbed out of the page; MOBI/FB2/CBZ/PDF come in as format readers (Formats).
+  uses private methods, static blocks and `\p{}` regexes. view.js's own format imports, PDF and TTS are
+  stubbed out of the page; MOBI/FB2/CBZ/PDF come in as format readers (Formats). The fork's `search.js` is in the
+  page since #1315 (`view.search`).
 - **Size:** the page script (unminified) is at most `BUDGET` characters in `build.mjs`, and each format reader
   at most its `FORMAT_BUDGET` entry: those constants are the one source for the numbers. Reader-engine's 64 KB
   budget does not apply; a budget is raised only by a deliberate PR.
@@ -363,6 +365,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `speaking(cfi, index)` | #1272: the host speaks that range (a `word`'s or `selection`'s CFI and section): underlined in `SPOKEN_FILL` (listen.mjs), the previous one removed (one at a time), kept over section reloads; a highlight or label over the same range stays (one overlay). `speaking(null)`: the speech ended or stopped, the mark goes. Saves nothing, sends nothing. Ignored with a `warn` where `annotatable` is false (a PDF word has no CFI) or for a value that is no range CFI (over 1024 chars, a non-integer index). Returns true when drawn. A new open drops it. |
 | `drawnRanges()` | Test-only (`formats.check.mjs`): how many drawn highlight ranges the page holds, a count and no book data. The ranges of a section no longer loaded (its frame gone) are dropped when a section's overlayer is made and on every tap (#1312 review). |
 | `clearSelection()` | #1269: the host is done with the selection (its toolbar closed after Copy, a translation or explanation closed): removed from every shown section, `selection-cleared` sent at once if a `selection` was sent (none otherwise), and `highlightSelection()` has no last selection to fall back on. |
+| `search(query, id)` | #1315: searches the open book for `query` (through `readQuery`: one-spaced, 2 to 100 characters) and answers in `search-results` messages carrying `id` (the host's own safe integer). Ends the search running, if any (that one answers no more), and removes the hits it drew. `search(null)`, or a query that is none: only that, nothing answered. Every hit is drawn in its section until then. See "In-book search". |
 | `closeLightbox()` | #1265: the image lightbox closes (Android back, a host Escape with focus outside the frame), `lightbox` closed sent. None open: nothing sent. |
 | `labels({image, close})` | #1267: the lightbox's two words in the reader's language, sent by both hosts on every `ready` (the page has no i18n): `image` names the dialog of an image with no alt text, `close` its close button. Through `lightbox.mjs` `readLabels`: a non-blank string up to 200 characters, else the word held (English until the first call). The next opening takes them; sends nothing. |
 
@@ -371,7 +374,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `type` | Fields | Host does |
 |---|---|---|
 | `ready` | — | may call `openUrl` |
-| `opened` | (Also for a book swapped in while a newer open is under way: see Formats, the open order.) `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`/`pdf`), `textual` (false: no word taps, hide translation and vocabulary), `annotatable` (false: hide highlight and the translation label; CBZ and PDF), `reflowable` (false: disable the flow toggle), `dir` (`ltr` / `rtl`, #1263: the direction the renderer pages in, `pagedDir`: a fixed layout by the book's page-progression direction (EPUB spine, MOBI/KF8 EXTH 527), a reflowable book by its shown section's own direction as foliate's paginator reads it (`dir` attributes, else the computed `direction`, which foliate sets from the book's language); unknown is `ltr`; `relocate` carries it too), `title`, `author` (either may be `''`), `lang` (#1269: the book's first metadata language as written, at most 35 chars, or `''`; hosts read it through `readLang`), `sections`, `toc [{label, href, depth}]` (flat, in reading order; `depth` 0 = top level, #1261) | calls `restore` with the stored JSON for `book.sha256` |
+| `opened` | (Also for a book swapped in while a newer open is under way: see Formats, the open order.) `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`/`pdf`), `textual` (false: no word taps, hide translation and vocabulary), `annotatable` (false: hide highlight and the translation label; CBZ and PDF), `reflowable` (false: disable the flow toggle), `dir` (`ltr` / `rtl`, #1263: the direction the renderer pages in, `pagedDir`: a fixed layout by the book's page-progression direction (EPUB spine, MOBI/KF8 EXTH 527), a reflowable book by its shown section's own direction as foliate's paginator reads it (`dir` attributes, else the computed `direction`, which foliate sets from the book's language); unknown is `ltr`; `relocate` carries it too), `title`, `author` (either may be `''`), `lang` (#1269: the book's first metadata language as written, at most 35 chars, or `''`; hosts read it through `readLang`), `sections`, `toc [{label, href, depth}]` (flat, in reading order; `depth` 0 = top level, #1261), `searchable` (#1315: true where the book has section documents to search; false on a CBZ and a PDF; hosts offer search only for strictly `true`) | calls `restore` with the stored JSON for `book.sha256` |
 | `open-failed` | `name`, `error` (shown as is: unreadable, unsupported format, DRM, password-protected PDF) | must not keep the file |
 | `restored` | `key` (= the book's `sha256`, as `store`'s: a host drops one for a book it is not reading), `found`, `rejected`, `position` (`none` / `restored` / `restored by fraction` / `quote mismatch, stayed at start` / `page not found, stayed at start` (CBZ, pre-paginated EPUB, PDF) / `wrong position kind, stayed at start` (a CFI or fraction on a PDF, a page number elsewhere) / `navigation failed, stayed at start`), `highlights [{id, status}]` | — |
 | `highlights` | `key` (= the book's `sha256`), `highlights [{id, status}]` (`restored` / `quote mismatch, not drawn` / `already drawn` / `not a highlight`) | the answer to `addHighlights`; a host logs the ones not drawn |
@@ -386,6 +389,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `highlight-list` | #1312: `key` (= `book.sha256`), `highlights [{id, cfi, color, text, at}]`: the highlights drawn on screen (a stored one whose text no longer reads at its CFI is not), in book order (foliate's CFI compare; a tie by `at`), `text` its first 200 code points, at most 5000. Sent after `restored`, `addHighlights`' answer, `highlightSelection`, `recolorHighlight` and `removeHighlight` | through `readHighlightList` (a malformed item dropped): the host's list, the jump target (`goTo(cfi, true)`) and the editor's text. Untrusted: shown as text only |
 | `highlight-tap` | #1312: `id`, `rect {x, y, w, h}` (the highlight's box, `rectInPage`), `x`, `y` (where the tap landed, `tap`'s space). A tap on a drawn highlight (its rects hit-tested, before the word): no `word` or `tap` then | through `readHighlightTap`: `popupStep`'s `highlight` event (a word's edge rule; elsewhere its editor). Dropped with no book on screen (`takenWithoutBook`) |
 | `highlight-removed` | #1312: `key`, `id` | through `readHighlightRemoved`: the host tombstones it (web: the session's `DELETE`; Android: the row's `deleted_at` + outbox) |
+| `search-results` | #1315: `key` (= `book.sha256`), `id` (the `search` call's), `results [{cfi, pre, match, post, label}]` (hits in book order: the range's CFI, the hit as the book writes it, up to 60 characters before and after it in its text node with foliate's `…`, its section's contents title or `''`), `done` (the search ended), `more` (it ended at `MAX_RESULTS`). One per section with hits, then one with `done` and no results; a superseded search sends no `done` | through `readSearchResults` (a malformed item dropped) and `searchTake` (another id, or after the end: dropped); another book's `key` is dropped. Untrusted: shown as text only. A result is a jump target, `goTo(cfi, true)` |
 | `lightbox` | #1265: `open` (boolean): an EPUB image was tapped in the middle zone and is shown full screen in the page (no `tap`, `word` or `highlight-tap` for that tap), or it closed (Escape, its close button, `closeLightbox()`, a new open at the swap) | through `readLightbox`: open, the popup closes and the bars hide; Android back calls `closeLightbox()` first after the offer; web: a key on the host document turns nothing, Escape calls `closeLightbox()`. A `ready` resets it |
 | `openLink` | `href` | the page forwards only `http(s)` links and the host allowlists again before opening: a stated rule, not an accident. Any other scheme is dropped with a `warn` log (`mailto:`/`tel:` noted on #1069); the page never navigates |
 | `telemetry` | `event: 'reader-flow'`, `mode` (the flow in use), `format`, `switchedInFirst5Min` | one per opened book, 5 min after `opened` or when the next book opens first (a page that dies earlier sends none). Hosts log it: there is no analytics pipeline in the app yet |
@@ -586,8 +590,8 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
     not ported); `pending` says "queued for tomorrow"; `lookup`/`lookup_pending` show the rare-word notice with
     "Add to SRS anyway". V2 answers only `srs` and `deleted`; the other two are legacy answers, kept as legacy shows
     them. Mark as known stays out (`V2_FEATURES.markAsKnown` false).
-- Untrusted text (word, sentence, selection) reaches the screen only as React / React Native text, and no host
-  injects any of it into the page: the calls the hosts inject carry no book text.
+- Untrusted text (word, sentence, selection, a search result) reaches the screen only as React / React Native text, and no host
+  injects any of it into the page: the calls the hosts inject carry no book text (`search` carries the reader's own query).
 
 **Saved-word marks** (#1271, `wordMarks.mjs`, `vocabWords.mjs`; audit §2.5). The page draws; the host sends the words.
 
@@ -683,6 +687,40 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   leaving the foreground stop it, through the listener. A failure (`onEnd(true)`, a throw, no audio module) says so on
   both hosts (`reader.listenFailed`); an end the host caused (a stop, a newer request, unmounting) never does. A
   rejected `play()` of audio a newer call paused belongs to that older call: it touches nothing (web `useTts`).
+
+**In-book search** (#1315, `search.mjs`; audit §6 decision 2). The page searches; the host lists.
+
+- *How:* foliate's own search (`view.search`, the fork's `search.js` as it is, no longer stubbed out of the build): each
+  section's own document (`createDocument`, the book's bytes; no network, no host round trip per section), any case,
+  accents folded, whitespace runs (a source line break inside a phrase) as one space, parts of words too. Results in
+  book order, one `search-results` message per section with hits, then one with `done`.
+- *Which books:* `opened.searchable`, true where the book has section documents: EPUB (a pre-paginated one too), MOBI,
+  AZW3, FB2/FBZ. **Not a CBZ** (images, no text) and **not a PDF**: the fork's PDF reader makes no section documents
+  (pdf.js draws each page into its own frame), so there is nothing for `view.search` to read; a PDF search needs a fork
+  change (`sections[i].createDocument` from `page.getTextContent()`, and a `pdf-page` result), not a page one. Hosts
+  show no search button for either, and a `search` call there answers `done` with nothing.
+- *One at a time, cancellable:* a `search` call ends the one running (it stops before its next section and never says
+  `done`) and starts after it; the host's `id` comes back on every message, so an older search's answer is dropped
+  (`searchTake`). The swap ends the open book's search. A task between sections: input and paint come first.
+  ponytail: one section is searched in one task (the fork's matcher is synchronous per document), so a book that is
+  one huge section holds the main thread for that section's time; chunking it is a fork change.
+- *The cap:* `MAX_RESULTS` (500) hits, then `done` with `more`. ponytail: no paging past it.
+- *The hit in the page:* every hit of the query is drawn (`SEARCH_FILL`, foliate's highlight) in its section as that
+  section loads, until `search(null)`, a new search or a new open. A result's `cfi` is a `goTo` target: the hosts call
+  `goTo(cfi, true)` (the reader's choice: saved where it lands), exactly as for a highlight in the list. On a
+  fixed-layout EPUB the jump lands on the hit's page and nothing is drawn (no overlayer there).
+  ponytail: the chosen hit is drawn like the others (several on one screen look alike); a `found` decoration on the
+  page's own overlay, as `speaking` has, if readers need it told apart.
+- *Hosts* (one rule, `searchStart` / `searchTake`): a Search button on the bars where `searchable`; the reader's text,
+  debounced 300 ms, through `readQuery` (2 to 100 characters, else no search); results as text only (the hit, up to 60
+  characters each side, the section's contents title), a status line (searching, the count, none, the first 500); a
+  result jumps and closes the list; the search stays until cleared, so reopening shows the same list. A new open (or a
+  closed book) ends it. Web: `V2ReaderSearch.tsx`, the legacy search drawer's dialog. Android: `V2SearchSheet.tsx`, the
+  contents sheet's modal. The query is the one string a host puts into the page that the reader typed (never book
+  text): as an argument (web `postMessage`, Android `JSON.stringify` into the injected call), read by `readQuery`.
+- *Measured* (desktop Chromium, a generated 5.4 MB FB2 of 100 sections, about ten novels): a phrase found once per
+  section, first answer after 29 ms, the whole book in 2.8 s; a query with no hit, 2.3 s; no main-thread task over 50 ms.
+  Not measured on a device.
 
 **Highlights** (#1312, `highlights.mjs`; audit §2.6). The page draws and lists; the host keeps notes and writes.
 
