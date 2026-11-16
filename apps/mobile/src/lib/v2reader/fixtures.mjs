@@ -396,6 +396,27 @@ export function writeFormatFixtures(dir) {
     manifest: [1, 2, 3].map((i) => `<item id="s${i}" href="s${i}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
     spine: [1, 2, 3].map((i) => `<itemref idref="s${i}"/>`).join(''),
   })
+  // #1316, chapters as contents entries: two entries in one file (Beta nested under Alpha, starting on a new page in paginated flow),
+  // Beta running on into a second file, Gamma the last; and a book with no contents at all.
+  epub(resolve(dir, 'tschapters.epub'), 'TS CHAPTERS', {
+    files: {
+      's1.xhtml': xhtml('<style>h1.new { break-before: column }</style>', `<h1 id="a">Alpha</h1>${prose(12).map((t) => `<p>${t}</p>`).join('')}<p>Alpha ends here.</p><h1 id="b" class="new">Beta</h1><p>Beta begins.</p>`),
+      's2.xhtml': xhtml('', '<p>Beta goes on in a second file.</p>'),
+      's3.xhtml': xhtml('', '<h1>Gamma</h1><p>Gamma is the last chapter.</p>'),
+      'nav.xhtml': `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>nav</title></head><body><nav epub:type="toc"><ol><li><a href="s1.xhtml#a">Alpha</a><ol><li><a href="s1.xhtml#b">Beta</a></li></ol></li><li><a href="s3.xhtml">Gamma</a></li></ol></nav></body></html>`,
+    },
+    manifest: [1, 2, 3].map((i) => `<item id="s${i}" href="s${i}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: [1, 2, 3].map((i) => `<itemref idref="s${i}"/>`).join(''),
+  })
+  epub(resolve(dir, 'tsnotoc.epub'), 'TS NO TOC', {
+    files: {
+      's1.xhtml': xhtml('', '<p>First section, no contents.</p>'),
+      's2.xhtml': xhtml('', '<p>Second section.</p>'),
+      'nav.xhtml': `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>nav</title></head><body><nav epub:type="toc"><ol></ol></nav></body></html>`,
+    },
+    manifest: [1, 2].map((i) => `<item id="s${i}" href="s${i}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: [1, 2].map((i) => `<itemref idref="s${i}"/>`).join(''),
+  })
   // Right to left by language only (#1263): no spine attribute; foliate sets each section's dir from it.
   epub(resolve(dir, 'tshe.epub'), 'TS HE', {
     files: { 's1.xhtml': xhtml('', `<p>${para}</p>`) },
