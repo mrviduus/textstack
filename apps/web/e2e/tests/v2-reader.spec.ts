@@ -506,6 +506,93 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
+  // #1315: the reader searches the open book from the bar. The page searches every section and lists each hit with the
+  // text around it and its section's title; a hit chosen is where the book goes (saved, as any place the reader chose),
+  // drawn over its text; clearing the search removes what was drawn.
+  test('readV2Search_AQueryTyped_ItsHitsListedWithContext_OneChosen_TheBookJumpsThereAndDrawsIt_ClearedItGoes', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2search'))
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+
+    await clickBar(page, 'Search')
+    const dialog = page.getByRole('dialog', { name: 'Search in this book' })
+    const field = dialog.getByRole('searchbox', { name: 'Search in this book' })
+    await expect(field).toBeFocused()
+    // Any case; one hit in each of the three sections, far from each one's first screen.
+    await field.fill('PARAGRAPH 40. i went')
+    const HIT = 'paragraph 40. I went'
+    // foliate's excerpt: the text before the hit in its paragraph, 50 characters after it and an ellipsis.
+    const after = `${' to the woods because I wished to live deliberately, to front only'.slice(0, 50)}…`
+    const rows = dialog.getByTestId('v2-search-results').locator('li button')
+    await expect(rows).toHaveText(['The Pond', 'The Woods', 'The Village'].map((title) => `${title}${title}, ${HIT}${after}`))
+    await expect(rows.nth(2).locator('mark')).toHaveText(HIT)
+    await expect(dialog.getByTestId('v2-search-status')).toHaveText('Results: 3')
+    // #1267's baseline holds with the drawer open and its results listed.
+    const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag21a']).analyze()
+    expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' > ')).join(' | ')}`)).toEqual([])
+
+    /**
+     * The hit in the section on screen, from the reader frame's own view: whether its text is inside the viewport, its
+     * boxes, and the boxes the page drew for search hits there (each in the section frame's coordinates).
+     */
+    const hitOnScreen = () => page.frames().find((f) => f.url().includes('/reader-v2/'))!.evaluate((text) => {
+      const view = document.querySelector('foliate-view') as unknown as { renderer: { getContents(): { doc: Document; overlayer?: { element: SVGElement } }[] } }
+      const box = (q: { left: number; top: number; width: number; height: number }) => [q.left, q.top, q.width, q.height].map(Math.round).join()
+      for (const c of view.renderer.getContents()) {
+        const walker = c.doc.createTreeWalker(c.doc.body, NodeFilter.SHOW_TEXT)
+        while (walker.nextNode()) {
+          const node = walker.currentNode as Text
+          const at = node.data.indexOf(text)
+          if (at < 0) continue
+          const range = c.doc.createRange()
+          range.setStart(node, at)
+          range.setEnd(node, at + text.length)
+          const b = range.getBoundingClientRect(), frame = c.doc.defaultView!.frameElement!.getBoundingClientRect()
+          return {
+            section: node.data.slice(0, at),
+            inView: frame.left + b.left >= 0 && frame.left + b.right <= innerWidth && frame.top + b.top >= 0 && frame.top + b.bottom <= innerHeight,
+            boxes: Array.from(range.getClientRects()).map(box),
+            drawn: Array.from(c.overlayer?.element.querySelectorAll(':scope > g[fill="#f97316"] > rect') ?? []).map((r) => box({ left: +r.getAttribute('x')!, top: +r.getAttribute('y')!, width: +r.getAttribute('width')!, height: +r.getAttribute('height')! })),
+          }
+        }
+      }
+      return null
+    }, HIT)
+    // Before the jump the book is on its first screen: the hit there (The Pond's) is drawn, off screen.
+    expect((await hitOnScreen())?.inView).toBe(false)
+
+    const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith(`/me/v2/books/${bookId}/reading-state`))
+    await rows.nth(2).click()
+    await expect(dialog).toHaveCount(0)
+    await expect.poll(() => sectionText(page), { timeout: 15_000 }).toContain('The Village, paragraph 40.')
+    expect((await saved).ok()).toBeTruthy()
+    await expect(status(page)).toHaveText(/^\d+% · The Village$/)
+    // The hit chosen is on screen, and drawn exactly over its text.
+    await expect.poll(async () => {
+      const h = await hitOnScreen()
+      return h && { section: h.section, inView: h.inView, drawn: h.boxes.length > 0 && h.boxes.every((b) => h.drawn.includes(b)) }
+    }, { timeout: 15_000 }).toEqual({ section: 'The Village, ', inView: true, drawn: true })
+
+    // Opened again: the same search and results, nothing typed. Cleared: no results, and the page removes what it drew.
+    await clickBar(page, 'Search')
+    await expect(field).toHaveValue('PARAGRAPH 40. i went')
+    await expect(rows).toHaveCount(3)
+    await dialog.getByRole('button', { name: 'Clear search' }).click()
+    await expect(rows).toHaveCount(0)
+    await expect.poll(async () => (await hitOnScreen())?.drawn, { timeout: 15_000 }).toEqual([])
+    // One letter is no query yet, and the status line says so; a query with no hit says that.
+    await field.fill('w')
+    await expect(dialog.getByTestId('v2-search-status')).toHaveText('Type at least 2 characters')
+    await field.fill('no such words here')
+    await expect(dialog.getByTestId('v2-search-status')).toHaveText('No results')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeFocused()
+    await context.close()
+  })
+
   // #1312: a highlight in a colour, recoloured, given a note, listed, jumped to (from the list and by `?highlight=`),
   // deleted: each change one write on /me/v2, the deletion a tombstone.
   test('readV2Highlights_CreateRecolourNoteJumpAndDelete_EachWrittenTheDeletionATombstone', async ({ browser }) => {

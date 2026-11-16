@@ -57,6 +57,7 @@ Legend — **Need**: `R8` must exist before R8 · `owner` needs a decision (§6)
 | Android back: close selection → exit prompt | — | yes | absent | R8 |
 | Keep screen awake | — | yes | absent | R8 |
 | Safe areas, status bar with bars | — | yes | partial (host) | R8 |
+| In-book search | drawer, the open chapter only | none | yes (#1315): the whole book, results with context, both hosts; not CBZ or PDF | R8 |
 | Image lightbox (zoom, pan) | yes | yes | absent | R8 |
 | External links | new tab | system browser | `openLink` http(s), allowlisted | — |
 | Internal links / footnote in same file | scroll | scroll | foliate navigates (cross-file too) | — (V2 ahead) |
@@ -204,7 +205,7 @@ defaults for wave 13. A wave that builds on one of them names it in its brief, s
 say no before code depends on it.
 
 1. Bookmarks: in. Cheap on V2, and readers expect them.
-2. In-book search: in, late (wave D). foliate has it; it is only stubbed out of our build.
+2. In-book search: in, late (wave D). foliate has it; it is only stubbed out of our build. Built in #1315.
 3. Tap zones: in, since paginated is the default. No volume keys.
 4. iOS: after R8.
 5. Stats widget and exit prompt: dropped. Reviewed-highlight marks: kept.

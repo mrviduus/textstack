@@ -10,6 +10,8 @@ export const SELECTION_MAX_CHARS = 500
 export const MAX_SELECTION_SENTENCE = 1000
 /** A CFI past this is sent as null (no highlight can be drawn from the message; real ones are ~50–200). */
 export const MAX_SELECTION_CFI = 1024
+/** A CFI as a host takes one from the page (a highlight's, a search hit's): the scheme, capped. */
+export const isCfi = (c) => typeof c === 'string' && c.length <= MAX_SELECTION_CFI && c.startsWith('epubcfi(')
 /** A section index past this is no book's (the largest real spines are a few thousand). */
 export const MAX_SELECTION_INDEX = 100_000
 /** |x|, |y|, w and h in CSS px: far past any screen, still room for a selection scrolled off it. */

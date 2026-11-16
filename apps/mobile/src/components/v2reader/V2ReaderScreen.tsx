@@ -57,6 +57,8 @@ import { TranslationSheet } from '../TranslationSheet'
 import { ExplanationSheet } from '../ExplanationSheet'
 import { readToc, tocAround, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
 import { V2HighlightsSheet, V2SectionNav, V2TocSheet } from './V2ReaderToc'
+import { V2SearchSheet } from './V2SearchSheet'
+import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type V2Search } from '../../lib/v2reader/search.mjs'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
@@ -358,6 +360,42 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
 
   const call = (js: string) => webView.current?.injectJavaScript(`${js};true`)
 
+  /**
+   * #1315: in-book search (search.mjs, the web host's rule): the search the page was last asked and whether the open book
+   * can be searched (the ref for the message handler, set with the state); the sheet, keyed by the book so a new one's
+   * starts empty.
+   */
+  const [search, setSearchState] = useState<V2Search>(NO_SEARCH)
+  const searchRef = useRef<V2Search>(NO_SEARCH)
+  const setSearch = (s: V2Search) => {
+    searchRef.current = s
+    setSearchState(s)
+  }
+  /** Streamed results are put on screen at most once per SEARCH_RENDER_MS (search.mjs): not a render of the whole screen per section. */
+  const [renderSearch] = useState(() => createSearchRenders(() => setSearchState(searchRef.current)))
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchBook, setSearchBook] = useState(0)
+  /**
+   * What the reader typed in the search sheet ('' clears): a new search under the next id, which ends the one running in
+   * the page; with no query the page removes the hits it drew. The query is the reader's own text, never the book's.
+   */
+  const askSearch = (raw: string) => {
+    const next = searchStart(searchRef.current, raw)
+    setSearch(next)
+    // A page not loaded yet (or reloading) holds no search to end.
+    if (ready.current) call(`window.__fol.search(${JSON.stringify(next.query || null)}, ${next.id})`)
+  }
+  /**
+   * A new open or a closed book: the previous book's search ends with it (its hits go from the page, if it still shows
+   * that book), and nothing is searchable until the next `opened` says so (`searchReset`: the button goes meanwhile).
+   */
+  const clearSearch = () => {
+    setSearchOpen(false)
+    setSearchBook((n) => n + 1)
+    if (searchRef.current.query && ready.current) call('window.__fol.search(null)')
+    setSearch(searchReset(searchRef.current))
+  }
+
   /** A book is on screen (the reader, with its bars) rather than the list; the ref for the message handler. */
   const [inBook, setInBook] = useState(false)
   const inBookRef = useRef(false)
@@ -412,8 +450,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
   /** A page message for the open book (its `key`, the page's lower-case sha256). */
   const isOpenKey = (key: string) => openShaRef.current !== null && key.toLowerCase() === openShaRef.current
-  /** The reader's choice (the sheet, a deep link): saved where it lands. */
-  const goHighlight = (h: V2HighlightItem) => {
+  /** The reader's choice (the highlights sheet, a deep link, a search result): saved where it lands. */
+  const goHighlight = (h: { cfi: string }) => {
     hostMoves.start()
     call(`window.__fol.goTo(${JSON.stringify(h.cfi)}, true)`)
   }
@@ -513,6 +551,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     pageDir.current = 'ltr'
     setProgress.current(null)
     clearToc()
+    clearSearch()
     setPopup(null)
     setOffer(null)
     setLightbox(false)
@@ -885,6 +924,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setProgress.current(null)
     setAtEnd(false)
     clearToc()
+    clearSearch()
     setPopup(null)
     setBook(true)
     showBars()
@@ -904,6 +944,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // Not `atEnd`: it was cleared where the open started; the book's first relocate (its end, for a book one
     // screen long) comes before this `opened` and must stand.
     setAnnotatable(t.opened.annotatable !== false)
+    // #1315: strictly true where the page can search the book (not a CBZ or a PDF).
+    setSearch(searchOpened(searchRef.current, t.opened))
     // The previous book's highlights go; this one's list follows its `restored`.
     setHighlightList([])
     setBookLang(readLang(t.opened))
@@ -1106,6 +1148,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           pendingHighlight.current = null
           goHighlight(want)
         }
+        return
+      }
+      case 'search-results': {
+        // #1315, untrusted: only what readSearchResults takes; a previous book's or an older search's is dropped.
+        const r = readSearchResults(m)
+        if (!r || !isOpenKey(r.key)) return
+        searchRef.current = searchTake(searchRef.current, r)
+        renderSearch(searchRef.current.done)
         return
       }
       case 'highlight-tap': {
@@ -1393,6 +1443,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             hasChapters={toc.length > 0}
             onTocPress={() => setTocOpen(true)}
             onHighlightsPress={annotatable ? () => setHighlightsOpen(true) : undefined}
+            onSearchPress={search.searchable ? () => setSearchOpen(true) : undefined}
             tocLabel={t('reader.chrome.contents')}
             isCurrentBookmarked={false}
             onExit={closeBook}
@@ -1475,6 +1526,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} ttsSpeed={ttsSpeed} onTtsSpeed={updateTtsSpeed}
             glosses={annotatable ? { on: legacySettings.showInlineTranslations, onChange: (on) => updateLegacySettings({ showInlineTranslations: on }) } : undefined} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
+          <V2SearchSheet key={searchBook} visible={searchOpen} search={search} onQuery={askSearch} onGo={goHighlight} onClose={() => setSearchOpen(false)} />
           <V2HighlightsSheet visible={highlightsOpen} items={highlightList} noteOf={(id) => notes?.known.get(id) ?? null} onGo={goHighlight} onClose={() => setHighlightsOpen(false)} />
           {popup?.kind === 'highlight' && tapped && (
             // #1312: the legacy editor. A colour is one tap (the page redraws and saves it); Save is the note (here,

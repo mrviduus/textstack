@@ -22,6 +22,8 @@ type Props = {
   /** Absent: not offered (the V2 reader, for now). */
   onHighlightsPress?: () => void
   onTocPress?: () => void
+  /** Absent: no in-book search here (the legacy reader; a V2 book with no text to search). */
+  onSearchPress?: () => void
   onSettingsPress?: () => void
   /** The back button's accessible name; default `reader.chrome.back`. */
   backLabel?: string
@@ -53,6 +55,7 @@ export function ReaderTopBar({
   onBookmarksPress,
   onHighlightsPress,
   onTocPress,
+  onSearchPress,
   onSettingsPress,
   backLabel,
   tocLabel,
@@ -97,6 +100,11 @@ export function ReaderTopBar({
         {isAuthenticated && onHighlightsPress && (
           <TouchableOpacity onPress={onHighlightsPress} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel={t('reader.chrome.highlights')}>
             <Ionicons name="color-wand-outline" size={20} color={barText} />
+          </TouchableOpacity>
+        )}
+        {onSearchPress && (
+          <TouchableOpacity onPress={onSearchPress} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel={t('reader.chrome.search')}>
+            <Ionicons name="search-outline" size={20} color={barText} />
           </TouchableOpacity>
         )}
         {hasChapters && onTocPress && (
