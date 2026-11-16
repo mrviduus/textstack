@@ -123,8 +123,8 @@ public class RollingSpendTrackerTests
         t.Record("explain", 7.0m); // 70% — below threshold, no alert
         t.Record("explain", 1.5m); // crosses to 85% — ONE alert
 
-        Eventually(() => email.Verify(e => e.SendAdminAlertAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once));
+        email.Verify(e => e.SendAdminAlertAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -138,12 +138,8 @@ public class RollingSpendTrackerTests
         for (var i = 0; i < 100; i++)
             t.Record("explain", 1.0m); // all well over 80%/100% — must not re-alert
 
-        // The alert email is fire-and-forget — poll until the one alert lands (don't
-        // Thread.Sleep a fixed 100ms, which flakes on a slow CI runner before the
-        // dispatched Task runs). The per-(feature,day) dedup guarantees it can never
-        // become Times.Exactly(2), so settling on Times.Once is sufficient.
-        Eventually(() => email.Verify(e => e.SendAdminAlertAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once));
+        email.Verify(e => e.SendAdminAlertAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -153,9 +149,19 @@ public class RollingSpendTrackerTests
         var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.Fallback), clock: new SteppedClock { Now = Day1 });
         Parallel.For(0, 200, _ => t.Record("explain", 0.1m)); // sums to $20, well over 80%
 
-        // The alert email is fire-and-forget — poll (don't Thread.Sleep a fixed 100ms,
-        // which flakes on a slow CI runner before the dispatched Task runs). 10 s: the deploy run of
-        // 2026-11-11 saw 0 emails after 2 s under the parallel suite (thread-pool starvation).
+        email.Verify(e => e.SendAdminAlertAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public void Alert_DefaultDispatch_SendsOffTheRecordingThread()
+    {
+        // Production path: Record never waits for the email. The one test that polls.
+        var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.HardStop),
+            clock: new SteppedClock { Now = Day1 }, inlineAlerts: false);
+
+        t.Record("explain", 8.5m);
+
         Eventually(() => email.Verify(e => e.SendAdminAlertAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once));
     }
@@ -168,8 +174,8 @@ public class RollingSpendTrackerTests
         t.Record("explain", 8.5m); // crosses 80% → alert
         t.Record("explain", 1.0m); // already alerted today → no second alert
 
-        Eventually(() => email.Verify(e => e.SendAdminAlertAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once));
+        email.Verify(e => e.SendAdminAlertAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -182,8 +188,8 @@ public class RollingSpendTrackerTests
         clock.Now = Day2;
         t.Record("explain", 9.0m); // day2 alert (fresh dedup)
 
-        Eventually(() => email.Verify(e => e.SendAdminAlertAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Exactly(2)));
+        email.Verify(e => e.SendAdminAlertAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     [Fact]
@@ -191,8 +197,6 @@ public class RollingSpendTrackerTests
     {
         var t = Build(out _, out var email, budgets: BudgetOptions.Empty, clock: new SteppedClock { Now = Day1 });
         t.Record("explain", 1000m);
-        // Give any (wrongly) scheduled alert a chance, then assert none.
-        Thread.Sleep(50);
         email.Verify(e => e.SendAdminAlertAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -244,7 +248,8 @@ public class RollingSpendTrackerTests
         BudgetOptions? budgets = null,
         SteppedClock? clock = null,
         List<LlmTrace>? traces = null,
-        TracingOptions? tracing = null)
+        TracingOptions? tracing = null,
+        bool inlineAlerts = true)
     {
         email = new Mock<IEmailService>();
         email.Setup(e => e.SendAdminAlertAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -257,7 +262,12 @@ public class RollingSpendTrackerTests
             clock ?? new SteppedClock { Now = Day1 },
             budgets ?? BudgetOptions.Empty,
             tracing ?? new TracingOptions(),
-            NullLogger<RollingSpendTracker>.Instance);
+            NullLogger<RollingSpendTracker>.Instance)
+        {
+            // #1134: send the alert on the calling thread, so the tests assert right after
+            // Record instead of polling for a Task.Run a starved thread pool may not start in time.
+            Dispatch = inlineAlerts ? work => work() : work => Task.Run(work),
+        };
     }
 
     // A scope factory that resolves IAppDbContext (Moq-backed LlmTraces) + IEmailService.
