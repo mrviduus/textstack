@@ -7,6 +7,7 @@ using Domain.Identity;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -49,12 +50,16 @@ public class V2GateFilterTests
         _v2Users.Setup(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>())).ReturnsAsync(new UserAccount());
 
     /// <summary>Runs the gate for <paramref name="userId"/>'s session; the result, and whether the endpoint ran.</summary>
-    private async Task<(object? Result, bool ReachedEndpoint)> GateAsync(Guid userId, V2Readiness? readiness = null, Exception? endpointThrows = null)
+    private async Task<(object? Result, bool ReachedEndpoint)> GateAsync(Guid userId, V2Readiness? readiness = null, Exception? endpointThrows = null, bool writeFreeze = false)
     {
         var http = new DefaultHttpContext();
         http.Request.Headers.Authorization = "Bearer " + TestTokens.Token(userId);
         var reached = false;
-        var result = await new V2Gate(readiness ?? _ready, _shadows, _legacy.Object, _auth).InvokeAsync(new DefaultEndpointFilterInvocationContext(http), _ =>
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            [Api.Middleware.WriteFreezeMiddleware.ConfigurationKey] = writeFreeze.ToString(),
+        }).Build();
+        var result = await new V2Gate(readiness ?? _ready, _shadows, _legacy.Object, _auth, config).InvokeAsync(new DefaultEndpointFilterInvocationContext(http), _ =>
         {
             reached = true;
             return endpointThrows is null ? ValueTask.FromResult<object?>(Results.Ok()) : throw endpointThrows;
@@ -63,6 +68,22 @@ public class V2GateFilterTests
     }
 
     private static int? StatusOf(object? result) => (result as IStatusCodeHttpResult)?.StatusCode;
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task InvokeAsync_Frozen_ExistingAccountCanReadButNoShadowIsCreated(bool exists)
+    {
+        var user = LegacyUser();
+        _v2Users.Setup(u => u.GetAsync(user.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(exists ? new UserAccount { Id = user.Id } : null);
+
+        var (result, reached) = await GateAsync(user.Id, writeFreeze: true);
+
+        Assert.Equal(exists, reached);
+        Assert.Equal(exists ? 200 : 503, StatusOf(result));
+        _v2Users.Verify(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>()), Times.Never());
+    }
 
     [Fact]
     public async Task InvokeAsync_LegacyAccountDeletedWithAWarmShadowCache_IsUnauthorized()

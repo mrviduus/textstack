@@ -46,6 +46,7 @@ if (args is ["etl-v2", ..])
 }
 
 // Host-level configuration (Kestrel/multipart limits + OpenTelemetry + Sentry).
+var writeFreeze = builder.Configuration.GetValue<bool>(WriteFreezeMiddleware.ConfigurationKey);
 builder.AddTextStackUploadLimits();
 builder.AddTextStackObservability();
 builder.AddTextStackSentry();
@@ -71,7 +72,7 @@ builder.Services
     .AddTextStackPersistence(connectionString, builder.Configuration)
     .AddTextStackSearchStack()
     .AddTextStackContentServices(builder.Configuration)
-    .AddTextStackHostedServices()
+    .AddTextStackHostedServices(writeFreeze)
     .AddTextStackRateLimiting(builder.Configuration)
     .AddTextStackV2Api();
 
@@ -131,8 +132,9 @@ if (!app.Environment.IsEnvironment("Test"))
     // abort startup, so it's guarded + logged rather than allowed to escape.
     try
     {
-        await ModelRegistrySeeder.SeedAsync(
-            db, app.Services.GetRequiredService<IOptions<TextStack.Ai.Llm.OpenAiOptions>>().Value);
+        if (!writeFreeze)
+            await ModelRegistrySeeder.SeedAsync(
+                db, app.Services.GetRequiredService<IOptions<TextStack.Ai.Llm.OpenAiOptions>>().Value);
     }
     catch (Exception ex)
     {
@@ -411,6 +413,9 @@ app.UseLanguageContext();
 // Explicit routing after middleware so path rewriting works
 app.UseRouting();
 
+// Before authentication's use stamps, guest activity and handlers. A rejected write performs no DB work here.
+app.UseMiddleware<WriteFreezeMiddleware>();
+
 // Rate limiting MUST come after UseRouting. `RequireRateLimiting("policy")` attaches
 // EnableRateLimitingAttribute to ENDPOINT METADATA, and the limiter reads that metadata off
 // HttpContext.GetEndpoint() — which is null until routing has matched. While this call sat above
@@ -437,7 +442,7 @@ app.UseMiddleware<Api.Middleware.McpKeyAuthMiddleware>();
 app.UseRateLimiter();
 
 // Guest activity tracking (update LastActiveAt, debounced 10 min)
-app.UseMiddleware<Api.Middleware.GuestActivityMiddleware>();
+app.UseWhen(_ => !writeFreeze, branch => branch.UseMiddleware<Api.Middleware.GuestActivityMiddleware>());
 
 // Admin auth middleware - protect /admin/* except /admin/auth/*
 app.UseWhen(

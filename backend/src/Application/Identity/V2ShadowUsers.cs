@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 namespace Application.Identity;
 
 /// <summary>
-/// M2.2's bridge, removed by M2.5: V2 rows reference V2 <c>users</c>, which the ETL (M3) fills, but
+/// M2.2's bridge, removed when identity switches to V2 (M5.1): V2 rows reference V2 <c>users</c>, which the ETL (M3) fills, but
 /// until auth moves to V2 the session user lives in the legacy database. Before a V2 request runs,
 /// the user gets a V2 row with the same id (id, email, guest flag; everything else default), and
 /// the ETL upserts into the rows this created. The outcome is cached for <see cref="Ttl"/>, so a
@@ -25,8 +25,10 @@ public sealed class V2ShadowUsers(IUserRepository users, IMemoryCache cache, ILo
     /// True when the user's V2 row is there (made now, or already). False when another V2 account
     /// holds the email: a case variant of a legacy email, or a deleted account's email reused.
     /// </summary>
-    public async Task<bool> EnsureAsync(IAppDbContext legacy, Guid userId, CancellationToken ct)
+    public async Task<bool> EnsureAsync(IAppDbContext legacy, Guid userId, CancellationToken ct, bool readOnly = false)
     {
+        // During the cutover freeze a read may use an existing shadow, but must never create one.
+        if (readOnly) return await users.GetAsync(userId, ct) is not null;
         if (cache.TryGetValue(Key(userId), out bool ready)) return ready;
 
         // Only on a miss: the three columns the shadow row needs.
