@@ -4,7 +4,9 @@
  * `get_shared_chapter`; nothing of the book travels in the link. Platform-agnostic: both hosts give it the page's
  * answer, the API call and their identity guard.
  */
-import { MAX_BRIEF_CHARS, clipText } from './assistantHandoff'
+import { MAX_BRIEF_CHARS } from './assistantHandoff'
+import { connectedAssistants } from './chapterReview'
+import { clip } from '../reader/textAnchor'
 import { ApiError, isOfflineError } from '../api/client'
 import { v2ErrorOf, type V2Share, type V2ShareWrite } from '../api/v2'
 
@@ -23,12 +25,18 @@ export interface V2DiscussBriefInput {
   cut: boolean
 }
 
+/**
+ * A title cut to `n` UTF-16 units with an ellipsis, never through a surrogate pair (half of one is refused by
+ * `encodeURIComponent` and by the server's text check).
+ */
+const clipTitle = (s: string, n: number) => (s.length <= n ? s : `${clip(s, n - 1).trimEnd()}…`)
+
 /** The opening message the reader sees and sends: one sentence, the cut said in words, the id line. Titles are clipped so the id line survives the cap. */
 export function buildV2DiscussBrief(input: V2DiscussBriefInput): string {
-  const author = input.author ? ` by ${clipText(input.author, 120)}` : ''
-  const where = input.chapterTitle ? `, at the chapter "${clipText(input.chapterTitle, 200)}"` : ''
+  const author = input.author ? ` by ${clipTitle(input.author, 120)}` : ''
+  const where = input.chapterTitle ? `, at the chapter "${clipTitle(input.chapterTitle, 200)}"` : ''
   const cut = input.cut ? ' It is a long chapter: only its first part is shared.' : ''
-  const brief = `I'm reading "${clipText(input.title, 200)}"${author} in TextStack${where}. Let's talk about it.${cut}\n\n${v2ShareIdLine(input.bookId, input.shareId)}`
+  const brief = `I'm reading "${clipTitle(input.title, 200)}"${author} in TextStack${where}. Let's talk about it.${cut}\n\n${v2ShareIdLine(input.bookId, input.shareId)}`
   // Unreachable with the clips above (under 800 characters); kept so a later edit cannot push the id line out unseen.
   if (brief.length > MAX_BRIEF_CHARS) throw new Error('discuss brief over the URL cap')
   return brief
@@ -107,7 +115,7 @@ export async function shareChapterForDiscuss(chapter: V2DiscussChapter, deps: V2
       operationId: deps.operationId,
       fileId: chapter.fileId,
       chapterKey: chapter.chapterKey,
-      chapterTitle: chapter.chapterTitle ? clipText(chapter.chapterTitle, 500) : null,
+      chapterTitle: chapter.chapterTitle ? clip(chapter.chapterTitle, 500) : null,
       chapterText: text,
       notes: [],
       language: chapter.language && chapter.language.length <= 16 ? chapter.language : null,
@@ -213,3 +221,71 @@ export function createV2Discuss(deps: {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * One chapter's Discuss as a host shows it (undefined: not asked, or nothing to show): sharing; `connect` (no
+ * assistant connected: the host shows how to connect one, nothing was shared); `ready` (shared: `grants` are the
+ * connected apps the decision was made from, the ONE answer the chat is opened with: never asked again, never read
+ * from a cache that a failed request filled with "none"); `failed` with the cause, a retry.
+ */
+export type V2DiscussState =
+  | { phase: 'sharing' }
+  | { phase: 'connect' }
+  | { phase: 'ready'; shared: V2DiscussShared; grants: readonly { clientName: string }[] }
+  | { phase: 'failed'; reason: V2DiscussFailure }
+
+export interface V2DiscussRun {
+  /** May this user connect an assistant at all (a guest may not: no request is made for one). */
+  canConnect: boolean
+  /** The reader's connected apps, straight from the server: a failure is a failure, never "none". */
+  grants(): Promise<readonly { clientName: string }[]>
+  /** The server ids of the open bytes; null when none (the book is not on the server). */
+  serverBook(): Promise<{ bookId: string; fileId: string | null } | null>
+  /** The share itself (`createV2Discuss().discuss`): null when the identity changed meanwhile. */
+  share(server: { bookId: string; fileId: string | null }): Promise<V2DiscussShared | null>
+  /** Still the user, the session and the open book the tap was made under. */
+  current(): boolean
+  timeoutMs?: number
+}
+
+/**
+ * One Discuss from the tap to the state to show, both hosts: are any assistants connected (asked once, with a
+ * deadline: a failed or slow request is said as such with a retry, never read as "none connected"), which server
+ * book the open bytes are, then the share. Undefined: the identity or the book changed meanwhile (show nothing).
+ * The host opens the chat from a `ready` state only, with its `grants`.
+ */
+export async function runDiscuss(deps: V2DiscussRun): Promise<V2DiscussState | undefined> {
+  try {
+    const grants = deps.canConnect ? await withDeadline(deps.grants(), deps.timeoutMs ?? SHARE_MS) : []
+    if (!deps.current()) return undefined
+    if (connectedAssistants(grants).length === 0) return { phase: 'connect' }
+    const server = await deps.serverBook()
+    if (!deps.current()) return undefined
+    if (!server) throw new V2DiscussError('noBook')
+    const shared = await deps.share(server)
+    if (!shared || !deps.current()) return undefined
+    return { phase: 'ready', shared, grants }
+  } catch (e) {
+    if (!deps.current()) return undefined
+    return { phase: 'failed', reason: discussFailureOf(e) }
+  }
+}
+
+/**
+ * The chapters a Discuss is running for, of one open book: a tap on a chapter already running does nothing, any
+ * other chapter is free. `reset()` where a book opens or closes: a run of the previous book holds nothing of the
+ * next one's (its own `release` then frees nothing).
+ */
+export function createDiscussLocks() {
+  let held = new Set<string>()
+  return {
+    /** Takes the chapter; its release, or null when it is already running. */
+    take(key: string): (() => void) | null {
+      if (held.has(key)) return null
+      const mine = held
+      mine.add(key)
+      return () => { mine.delete(key) }
+    },
+    reset() { held = new Set() },
+  }
+}

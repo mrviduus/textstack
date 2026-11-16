@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { CHAPTER_TEXT_MS, createV2Discuss, discussFailureOf, v2Api, type PagePosition } from '@textstack/shared'
+import { CHAPTER_TEXT_MS, createDiscussLocks, createV2Discuss, runDiscuss, v2Api, type PagePosition } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
 import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reader/openTracker.mjs'
@@ -18,12 +18,15 @@ import { V2FinishBook } from './V2FinishBook'
 import { chapterKey, offersDiscuss, readChapterEnd, readChapterText, type V2ChapterEnd } from '../../../../mobile/src/lib/v2reader/chapters.mjs'
 import { V2ChapterDiscuss, type V2DiscussState } from './V2ChapterDiscuss'
 import { v2Store } from '../../api/v2'
+import { listOAuthGrants } from '../../api/oauth'
 import { readToc, tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
 import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../../../mobile/src/lib/v2reader/sessionTracker.mjs'
 import { flushPendingSessions, queueReadingSession } from '../../hooks/useReadingSession'
 import { useAuth } from '../../context/AuthContext'
 import { trackReadingSessionEnd } from '../../lib/analytics'
 import { V2SectionNav, V2TocDrawer } from './V2ReaderToc'
+import { V2SearchDrawer } from './V2ReaderSearch'
+import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type V2Search } from '../../../../mobile/src/lib/v2reader/search.mjs'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { V2TimeLeft, v2Percent, type V2TimePlace } from './V2TimeLeft'
 import { useTranslation } from '../../hooks/useTranslation'
@@ -54,6 +57,8 @@ export interface V2OpenedMessage {
   author?: string
   annotatable?: boolean
   reflowable?: boolean
+  /** #1315: strictly `true` where the page can search the book (not a CBZ or a PDF). */
+  searchable?: unknown
   /** Untrusted: read through readLang / ttsVoice only. */
   lang?: unknown
   book: { sha256: string; size: number; name?: string }
@@ -187,7 +192,11 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [tracker] = useState(() => createOpenTracker<Opening, V2OpenedMessage>())
   /** The reading session (#1313, sessionTracker.mjs): only a synced book's, sent through the session queue. */
   const [sessions] = useState(createSessionTracker)
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user, isGuest } = useAuth()
+  /** #1316: the account a Discuss runs under (its guard); the ref for the run in flight. */
+  const accountId = user?.id ?? null
+  const account = useRef(accountId)
+  account.current = accountId
   const authenticated = useRef(isAuthenticated)
   authenticated.current = isAuthenticated
   const endSession = (e: EndedSession | null) => sendSession(e, authenticated.current)
@@ -260,6 +269,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [chapterEnd, setChapterEnd] = useState<V2ChapterEnd | null>(null)
   const [discussBook, setDiscussBook] = useState<{ bookId: string; fileId: string; title: string; author: string | null; language: string | null } | null>(null)
   const [discussStates, setDiscussStates] = useState<Record<string, V2DiscussState>>({})
+  const [discussLocks] = useState(createDiscussLocks)
   const [discuss] = useState(() => createV2Discuss({
     askPage: (request, c) => call('chapterText', [request, c.tocIndex, c.section]),
     share: (bookId, body) => v2DiscussApi.shareChapter(bookId, body),
@@ -274,6 +284,21 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [toc, setToc] = useState<V2TocEntry[]>([])
   const [tocIndex, setTocIndex] = useState<number | null>(null)
   const [tocOpen, setTocOpen] = useState(false)
+  /**
+   * #1315: in-book search (search.mjs, one rule for both hosts): the search the page was last asked and whether the open
+   * book can be searched (the ref for the message handler, set with the state: an answer may come before the
+   * re-render); the drawer, keyed by the open so a new book's starts empty.
+   */
+  const [search, setSearchState] = useState<V2Search>(NO_SEARCH)
+  const searchRef = useRef<V2Search>(NO_SEARCH)
+  const setSearch = (s: V2Search) => {
+    searchRef.current = s
+    setSearchState(s)
+  }
+  /** Streamed results are put on screen at most once per SEARCH_RENDER_MS (search.mjs): not a render of the whole reader per section. */
+  const [renderSearch] = useState(() => createSearchRenders(() => setSearchState(searchRef.current)))
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchBook, setSearchBook] = useState(0)
   /**
    * The bars (#1263): hidden 3 s after `opened`, by a page turn (tap, key) and by the reader moving the place
    * (`relocate.moved`, either flow) unless a bar button or the taken offer moved it; a centre tap toggles them,
@@ -409,6 +434,15 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     call(turn)
     hideBars()
   }
+  /**
+   * What the reader typed in the search drawer ('' clears): a new search under the next id, which ends the one running
+   * in the page; with no query the page removes the hits it drew.
+   */
+  const askSearch = (raw: string) => {
+    const next = searchStart(searchRef.current, raw)
+    setSearch(next)
+    call('search', [next.query || null, next.id])
+  }
   /** The popups' close; `selectionDone`: the page's selection goes too, and the toolbar if it is still what is open. */
   const closePopup = (selectionDone: boolean) => {
     if (!selectionDone) return setPopup(null)
@@ -445,6 +479,11 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setStatus('')
     setTocIndex(null)
     setTocOpen(false)
+    // The previous book's search ends with it: its hits go from the page (still showing that book if this open fails).
+    setSearchOpen(false)
+    setSearchBook((n) => n + 1)
+    if (searchRef.current.query) call('search', [null])
+    setSearch(searchReset(searchRef.current))
     setPopup(null)
     setRestored('')
     setAtEnd(false)
@@ -454,6 +493,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setDiscussBook(null)
     setDiscussStates({})
     discuss.reset()
+    discussLocks.reset()
     setHighlightList([])
     openedSha.current = null
     pendingHighlight.current = highlightId ?? null
@@ -524,6 +564,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         : null)
       setDiscussStates({})
       discuss.reset()
+      discussLocks.reset()
       if (dev) call('restore', [readItem(storeKey(m.book.sha256))])
       else if (!target) call('restore', [null])
       else if (target.sha256.toLowerCase() !== m.book.sha256) {
@@ -565,6 +606,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       }
       setAnnotatable(m.annotatable !== false)
       setReflowable(m.reflowable !== false)
+      setSearch(searchOpened(searchRef.current, m))
       // Untrusted: only what readToc takes. Its place came with the relocate before this message.
       setToc(readToc(m))
       setBookLanguage(readLang(m) ?? 'en')
@@ -652,6 +694,14 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (!r || r.key !== openedSha.current) return
           if (dev) devNotes.current.delete(r.id)
           else if (sync.current?.target.sha256.toLowerCase() === r.key) sync.current.remove(r.id)
+          return
+        }
+        case 'search-results': {
+          // #1315, untrusted: only what readSearchResults takes; another book's or an older search's is dropped.
+          const r = readSearchResults(m)
+          if (!r || r.key !== openedSha.current) return
+          searchRef.current = searchTake(searchRef.current, r)
+          renderSearch(searchRef.current.done)
           return
         }
         case 'restored':
@@ -836,9 +886,13 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     const book = discussBook
     const open = opening.current
     const epoch = v2Store.epoch
+    const asker = account.current
     const key = chapterKey(chapter)
-    if (!book || !open || discuss.busy(key)) return
-    const current = () => opening.current === open && v2Store.epoch === epoch
+    if (!book || !open) return
+    // One run per chapter, taken at once: two clicks in one tick make one share.
+    const release = discussLocks.take(key)
+    if (!release) return
+    const current = () => opening.current === open && v2Store.epoch === epoch && account.current === asker
     const set = (state: V2DiscussState | undefined) => {
       if (!current()) return
       setDiscussStates((all) => {
@@ -847,15 +901,29 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       })
     }
     set({ phase: 'sharing' })
-    discuss.discuss(
-      { ...chapter, bookId: book.bookId, fileId: book.fileId, chapterKey: key, chapterTitle: title, bookTitle: book.title, author: book.author, language: book.language },
+    void runDiscuss({
+      canConnect: !isGuest,
+      grants: listOAuthGrants,
+      serverBook: async () => ({ bookId: book.bookId, fileId: book.fileId }),
+      share: (server) => discuss.discuss(
+        { ...chapter, ...server, chapterKey: key, chapterTitle: title, bookTitle: book.title, author: book.author, language: book.language },
+        current,
+      ),
       current,
-    ).then((shared) => set(shared ? { phase: 'ready', shared } : undefined), (e: unknown) => {
-      const reason = discussFailureOf(e)
-      console.warn('[v2] chapter not shared:', reason)
-      set({ phase: 'failed', reason })
-    })
+    }).then((state) => {
+      if (state?.phase === 'failed') console.warn('[v2] chapter not shared:', state.reason)
+      set(state)
+    }).finally(release)
   }
+  /** The connect dialog closed (or anything else the reader dismisses): the chapter's block is idle again. */
+  const dismissDiscuss = (key: string) => setDiscussStates(({ [key]: _, ...rest }) => rest)
+  // #1316 review: another account (or none): a share in flight under the previous one shows nothing and holds
+  // nothing, so the block is usable at once without reopening the book.
+  useEffect(() => {
+    setDiscussStates({})
+    discuss.reset()
+    discussLocks.reset()
+  }, [accountId])
   /** The chapter Discuss is offered for: the one whose end is on screen, when the host can name it (its contents entry, or a book with no contents). */
   /** Discuss is offered for the chapter the page says ended (its title the page's too), by the hosts' one rule. */
   const discussEnd = discussBook && offersDiscuss(chapterEnd) ? chapterEnd : null
@@ -911,8 +979,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     },
     onDelete: () => call('removeHighlight', [tapped.id]),
   } : null
-  /** A highlight chosen in the list: the reader's choice, saved where it lands. */
-  const goHighlight = (h: V2HighlightItem) => hostMove('goTo', [h.cfi, true])
+  /** A highlight chosen in the list, or a search result (#1315): the reader's choice, saved where it lands. */
+  const goHighlight = (h: { cfi: string }) => hostMove('goTo', [h.cfi, true])
 
   /** Never a section number (#1261): the percent, then the current entry's title when there is one. */
   const currentEntry = tocAround(toc, tocIndex).current
@@ -947,6 +1015,14 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         <div className="reader-top-bar__right">
           {toolbar}
           {reading && (toc.length > 0 || offersHighlights) && <button className="reader-top-bar__btn" onClick={() => setTocOpen(true)}>{t('v2Reader.contents')}</button>}
+          {reading && search.searchable && (
+            <button className="reader-top-bar__btn" onClick={() => setSearchOpen(true)} aria-label={t('v2Reader.search')} title={t('v2Reader.search')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <circle cx="11" cy="11" r="8" />
+                <path d="M21 21l-4.35-4.35" />
+              </svg>
+            </button>
+          )}
           {offersHighlights && <button className="reader-top-bar__btn" onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
           <button className="reader-top-bar__btn" onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
           <button className="reader-top-bar__btn" onClick={() => setSettingsOpen(true)} aria-label={t('v2Reader.settings')} title={t('v2Reader.settings')}>
@@ -1014,7 +1090,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         // Hidden and inert under the lightbox (#1267 review), kept mounted: a write in flight or its failure stays.
         <div className="v2-reader__finish" data-testid="v2-finish-block" inert={lightboxOpen} style={{ '--v2-finish-above': `${barsHidden ? 0 : footerHeight}px`, visibility: lightboxOpen ? 'hidden' : undefined } as CSSProperties}>
           {discussEnd && (
-            <V2ChapterDiscuss key={chapterKey(discussEnd)} title={discussEnd.title} state={discussStates[chapterKey(discussEnd)]} onShare={() => discussChapter(discussEnd, discussEnd.title)} />
+            <V2ChapterDiscuss key={chapterKey(discussEnd)} title={discussEnd.title} state={discussStates[chapterKey(discussEnd)]} onShare={() => discussChapter(discussEnd, discussEnd.title)} onDismiss={() => dismissDiscuss(chapterKey(discussEnd))} />
           )}
           {finishShown && finish && <V2FinishBook finished={!!finish.completedAt} onFinish={finishBook} />}
         </div>
@@ -1053,6 +1129,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         onClose={() => setTocOpen(false)}
         highlights={offersHighlights ? { items: highlightList, noteOf: noteFor, onGo: goHighlight } : null}
       />
+      {/* Opened only from its button (a searchable book on screen); a new open closes it. */}
+      <V2SearchDrawer key={searchBook} open={searchOpen} search={search} onQuery={askSearch} onGo={goHighlight} onClose={() => setSearchOpen(false)} />
     </main>
   )
 }

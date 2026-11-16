@@ -1,37 +1,19 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { MAX_CHAPTER_TEXT_BYTES, boundsIn, chapterBefore, chapterKey, chapterOf, fitText, hasContents, offersDiscuss, placeOf, readChapterEnd, readChapterText, textBetween } from './chapters.mjs'
+import { MAX_CHAPTER_TEXT_BYTES, chapterKey, fileSummary, fitText, hasContents, offersDiscuss, placeOf, readChapterEnd, readChapterText, segmentsIn, startsIn, textBetween } from './chapters.mjs'
 
-const at = (sec: number, href: string) => ({ sec, at: href, anchor: null })
-// Part I (s1) > Chapter 1 (s1, the same place) and Chapter 2 (s1#c2); an entry that leads nowhere; Chapter 3 (s3: s2 is its
-// predecessor's second file); an appendix listed last that points back into s1.
-const places = [at(0, 's1'), at(0, 's1'), at(0, 's1#c2'), null, at(2, 's3'), at(0, 's1#app')]
+const at = (sec: number, href: string) => ({ sec, at: href, top: !href.includes('#'), anchor: null })
+const places = [at(0, 's1'), at(0, 's1#c2'), null, at(2, 's3')]
 
 describe('placeOf', () => {
-  it('takes the section and the href, and keeps the anchor function', () => {
+  it('takes the section and the href, says whether the href names the file only, and keeps the anchor function', () => {
     const anchor = () => null
-    expect(placeOf({ index: 2, anchor }, 's3.xhtml#x', 3)).toEqual({ sec: 2, at: 's3.xhtml#x', anchor })
+    expect(placeOf({ index: 2, anchor }, 's3.xhtml#x', 3)).toEqual({ sec: 2, at: 's3.xhtml#x', top: false, anchor })
+    expect(placeOf({ index: 2, anchor }, 's3.xhtml', 3)).toEqual({ sec: 2, at: 's3.xhtml', top: true, anchor })
   })
   it('is null for an entry that names no section of the book', () => {
     for (const r of [null, undefined, {}, { index: -1 }, { index: 3 }, { index: 1.5 }, { index: '1' }]) expect(placeOf(r, 'x', 3)).toBeNull()
     expect(placeOf({ index: 0 }, undefined, 3)).toBeNull()
-  })
-})
-
-describe('chapterOf', () => {
-  it('names the other entries of its section at another href, listed before or after, and the next entry in a later section', () => {
-    expect(chapterOf(places, 0)).toEqual({ start: places[0], inSection: [places[2], places[5]], next: places[4], startShared: false })
-    expect(chapterOf(places, 2)).toEqual({ start: places[2], inSection: [places[0], places[1], places[5]], next: places[4], startShared: true })
-  })
-  it('has no next entry for the last chapter, whatever points back before it', () => {
-    expect(chapterOf(places, 4)).toEqual({ start: places[4], inSection: [], next: null, startShared: false })
-  })
-  it('says the start is shared only when an EARLIER entry leads into the same section at another href', () => {
-    expect(chapterOf(places, 1)?.startShared).toBe(false)
-    expect(chapterOf(places, 5)?.startShared).toBe(true)
-  })
-  it('is null for no entry, an entry that leads nowhere and anything that is no index', () => {
-    for (const i of [null, -1, 3, 6, 1.5, '1' as unknown as number]) expect(chapterOf(places, i)).toBeNull()
   })
 })
 
@@ -43,55 +25,56 @@ describe('hasContents', () => {
   })
 })
 
-describe('boundsIn', () => {
-  const d = new DOMParser().parseFromString('<html xmlns="http://www.w3.org/1999/xhtml"><body><h1 id="one">One</h1><p>1</p><h1 id="three"><a id="in"/>Three</h1><p>3</p><h1 id="two">Two</h1><p>2</p></body></html>', 'application/xhtml+xml')
-  const el = (id: string) => d.getElementById(id)
-  const by = (sec: number, id: string | null) => ({ sec, at: `s${sec}#${id}`, anchor: (doc: Document) => (id ? doc.getElementById(id) : 0) })
-  // The contents list One, Missing, Two, Three (Three is before Two in the file), then Next in the file after.
-  const [one, missing, two, three, inside, next] = [by(0, 'one'), by(0, 'nope'), by(0, 'two'), by(0, 'three'), by(0, 'in'), by(1, 'n')]
-  const chapter = (start: typeof one, startShared = false) => ({ start, inSection: [one, missing, two, three, inside].filter((p) => p !== start), next, startShared })
+const xdoc = (body: string) => new DOMParser().parseFromString(`<html xmlns="http://www.w3.org/1999/xhtml"><body>${body}</body></html>`, 'application/xhtml+xml')
+/** An entry of section `sec`: `id` an anchor (found or not), null the file itself (no fragment), as foliate's resolveHref answers. */
+const by = (sec: number, id: string | null) => ({ sec, at: id ? `s${sec}#${id}` : `s${sec}`, top: !id, anchor: (doc: Document) => (id ? doc.getElementById(id) : 0) })
 
-  it('ends a chapter at the nearest entry after its start in the document, whatever the order of the list', () => {
-    expect(boundsIn(chapter(one), 0, d)).toEqual({ from: el('one'), to: el('three'), more: false })
-    expect(boundsIn(chapter(three, true), 0, d)).toEqual({ from: el('three'), to: el('two'), more: false })
+describe('startsIn', () => {
+  it('starts an entry with no fragment at the file\'s top, before the entries anchored lower down (Chapter 2, then 2.1)', () => {
+    const d = xdoc('<p>Chapter 2 intro.</p><h2 id="x">2.1 X</h2><p>X text.</p>')
+    expect(startsIn([by(0, 'a'), by(1, null), by(1, 'x')], 1, d)).toEqual([{ owner: 1, members: [1], el: null }, { owner: 2, members: [2], el: d.getElementById('x') }])
   })
-  it('lets nothing placed before its start, inside it, or at an anchor the file lacks end it: it goes on after the file', () => {
-    expect(boundsIn(chapter(two, true), 0, d)).toEqual({ from: el('two'), to: null, more: true })
+  it('puts an element that contains another entry\'s element before it (a section around its subsections)', () => {
+    const d = xdoc('<section id="s3"><h1>Three</h1><p>Three intro.</p><h2 id="y">3.1</h2><p>Y text.</p></section>')
+    expect(startsIn([by(0, 'y'), by(0, 's3')], 0, d).map((g) => g.owner)).toEqual([1, 0])
   })
-  it('refuses a start the file does not have when an earlier entry leads into the same file', () => {
-    expect(boundsIn(chapter(missing, true), 0, d)).toEqual({ refuse: true })
+  it('orders by the document, whatever the order of the list', () => {
+    const d = xdoc('<h1 id="one">One</h1><h1 id="three">Three</h1><h1 id="two">Two</h1>')
+    expect(startsIn([by(0, 'one'), by(0, 'two'), by(0, 'three')], 0, d).map((g) => g.owner)).toEqual([0, 2, 1])
   })
-  it('takes the file from its start for a start it does not have, as the file\'s first entry', () => {
-    expect(boundsIn(chapter(missing, false), 0, d)).toEqual({ from: null, to: el('one'), more: false })
+  it('leaves out an anchor the file lacks after an earlier entry of the file, and starts one at the top when it is the file\'s first', () => {
+    const d = xdoc('<h1 id="one">One</h1><h1 id="two">Two</h1>')
+    expect(startsIn([by(0, 'one'), by(0, 'nope'), by(0, 'two')], 0, d).map((g) => g.owner)).toEqual([0, 2])
+    expect(startsIn([by(0, 'nope'), by(0, 'one')], 0, d)).toEqual([{ owner: 0, members: [0], el: null }, { owner: 1, members: [1], el: d.getElementById('one') }])
   })
-  it('goes through a file between, and into the next entry\'s file up to its anchor', () => {
-    const far = { ...chapter(one), next: by(2, 'two') }
-    expect(boundsIn(far, 1, d)).toEqual({ from: null, to: null, more: true })
-    expect(boundsIn(far, 2, d)).toEqual({ from: null, to: el('two'), more: false })
+  it('makes entries at the same start one group, named by the last of them in the list', () => {
+    const d = xdoc('<h1 id="one">One</h1>')
+    expect(startsIn([by(0, null), by(0, null), by(0, 'one'), by(0, 'one')], 0, d)).toEqual([{ owner: 1, members: [0, 1], el: null }, { owner: 3, members: [2, 3], el: d.getElementById('one') }])
   })
-  it('has nothing in the next entry\'s file when that entry starts it (no anchor, or one not found)', () => {
-    expect(boundsIn({ ...chapter(one), next: by(1, null) }, 1, d)).toEqual({ none: true })
-    expect(boundsIn({ ...chapter(one), next: by(1, 'nope') }, 1, d)).toEqual({ none: true })
+  it('takes only the entries of its own section, and none that lead nowhere', () => {
+    expect(startsIn([null, by(1, null), by(2, null)], 1, xdoc('<p>x</p>')).map((g) => g.owner)).toEqual([1])
   })
 })
 
-describe('chapterBefore', () => {
-  const d = new DOMParser().parseFromString('<html xmlns="http://www.w3.org/1999/xhtml"><body><p>tail</p><h1 id="one">One</h1><h1 id="three">Three</h1><h1 id="two">Two</h1></body></html>', 'application/xhtml+xml')
-  const by = (sec: number, id: string) => ({ sec, at: `s${sec}#${id}`, anchor: (doc: Document) => doc.getElementById(id) })
-  // Earlier (another file), then this file's One, Missing, Two, Three (Three is before Two in the file).
-  const list = [by(0, 'x'), null, by(1, 'one'), by(1, 'nope'), by(1, 'two'), by(1, 'three')]
-  it('is the nearest entry of the file placed before it in the document, whatever the order of the list', () => {
-    expect(chapterBefore(list, 4, d)).toBe(5)
-    expect(chapterBefore(list, 5, d)).toBe(2)
+describe('fileSummary', () => {
+  it('says the starts in document order and whether nothing is read before the first', () => {
+    expect(fileSummary([by(0, 'x')], 0, xdoc('<h1 id="x">X</h1><p>x</p>'))).toEqual({ owners: [0], top: true })
+    expect(fileSummary([by(0, 'x')], 0, xdoc('<p>Still the chapter before.</p><h1 id="x">X</h1>'))).toEqual({ owners: [0], top: false })
+    expect(fileSummary([by(0, null)], 0, xdoc('<p>x</p>'))).toEqual({ owners: [0], top: true })
+    expect(fileSummary([by(1, null)], 0, xdoc('<p>x</p>'))).toEqual({ owners: [], top: false })
   })
-  it('is, for the first entry placed in its file, the nearest earlier entry of the list in an earlier file', () => {
-    expect(chapterBefore(list, 2, d)).toBe(0)
-    expect(chapterBefore([null, by(1, 'one')], 1, d)).toBeNull()
+})
+
+describe('segmentsIn', () => {
+  const d = xdoc('<p>tail</p><h1 id="a">A</h1><h1 id="b">B</h1>')
+  const [a, b] = [d.getElementById('a'), d.getElementById('b')]
+  it('gives the text before the first start to the chapter running in, then each start to the next, the last to the file\'s end', () => {
+    expect(segmentsIn([{ owner: 3, members: [3], el: a }, { owner: 4, members: [4], el: b }], 1)).toEqual([
+      { owner: 1, from: null, to: a, last: false }, { owner: 3, from: a, to: b, last: false }, { owner: 4, from: b, to: null, last: true }])
   })
-  it('is null for an entry whose own place is not in the file, and for no entry', () => {
-    expect(chapterBefore(list, 3, d)).toBeNull()
-    expect(chapterBefore(list, 1, d)).toBeNull()
-    expect(chapterBefore(list, null, d)).toBeNull()
+  it('has no running-in part when a start is at the top, and the whole file is the running-in chapter\'s with no start', () => {
+    expect(segmentsIn([{ owner: 3, members: [3], el: null }], 1)).toEqual([{ owner: 3, from: null, to: null, last: true }])
+    expect(segmentsIn([], 1)).toEqual([{ owner: 1, from: null, to: null, last: true }])
   })
 })
 
@@ -168,6 +151,8 @@ describe('readChapterEnd', () => {
   it('reads a blank or missing title, or one that is no text, as none, and cuts a long one', () => {
     for (const title of ['', '  ', undefined, 5, { toString: () => 'x' }]) expect(readChapterEnd({ type: 'relocate', chapterEnd: { tocIndex: 1, section: 0, title } })?.title).toBeNull()
     expect(readChapterEnd({ type: 'relocate', chapterEnd: { tocIndex: 1, section: 0, title: 'T'.repeat(500) } })?.title).toHaveLength(200)
+    // An astral character across the cut goes whole or not at all: the server refuses half a pair.
+    expect(readChapterEnd({ type: 'relocate', chapterEnd: { tocIndex: 1, section: 0, title: 'T'.repeat(199) + '😀x' } })?.title).toBe('T'.repeat(199))
   })
   it('is null for none and for anything malformed', () => {
     for (const chapterEnd of [null, undefined, true, 'toc-1', { tocIndex: 1 }, { tocIndex: -1, section: 0 }, { tocIndex: '1', section: 0 }, { tocIndex: 1, section: 1.5 }, { tocIndex: 1, section: 100001 }])

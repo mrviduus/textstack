@@ -8,7 +8,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { createV2Discuss, oauthGrantsApi, placeTimeLeftLabel, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared } from '@textstack/shared'
+import { chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState } from '@textstack/shared'
+import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
@@ -34,7 +35,6 @@ import { showsFinishBook } from '../../lib/v2reader/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
 import { V2ChapterDiscuss } from './V2ChapterDiscuss'
 import { chapterKey, offersDiscuss, readChapterEnd, readChapterText, type V2ChapterEnd } from '../../lib/v2reader/chapters.mjs'
-import { createDiscussLocks, runDiscuss, type V2DiscussState } from '../../lib/v2reader/discussFlow'
 import { useAssistantLauncher } from '../../hooks/useAssistantLauncher'
 import { ConnectAssistantSheet } from '../library/ReviewChapterButton'
 import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../lib/v2reader/wordPopup.mjs'
@@ -62,6 +62,8 @@ import { TranslationSheet } from '../TranslationSheet'
 import { ExplanationSheet } from '../ExplanationSheet'
 import { readToc, tocAround, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
 import { V2HighlightsSheet, V2SectionNav, V2TocSheet } from './V2ReaderToc'
+import { V2SearchSheet } from './V2SearchSheet'
+import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type V2Search } from '../../lib/v2reader/search.mjs'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
@@ -374,10 +376,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const discussBook = useRef<{ title: string; author: string | null; language: string | null } | null>(null)
   const discussUser = useRef(userId)
   discussUser.current = userId
-  /** The chapters a Discuss runs for (discussFlow.ts): per chapter and open book, freed when the run ends or a book opens or closes. */
+  /** The chapters a Discuss runs for (shared `createDiscussLocks`): per chapter and open book, freed when the run ends, a book opens or closes, or the account changes. */
   const [discussLocks] = useState(createDiscussLocks)
-  /** No assistant connected: the connect sheet, shown by this screen (the launcher is never asked with no message). */
-  const [connectOpen, setConnectOpen] = useState(false)
+  /** Only for the pick between two connected assistants (its Alert, the remembered choice): it decides nothing about grants. */
   const launcher = useAssistantLauncher({ eager: false })
   const [discuss] = useState(() => createV2Discuss({
     askPage: (request, c) => call(`window.__fol.chapterText(${JSON.stringify(request)}, ${JSON.stringify(c.tocIndex)}, ${JSON.stringify(c.section)})`),
@@ -385,14 +386,30 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     newId: uuid.v4,
   }))
   /** A new open or a closed book: the previous book's chapter end, shares, operation ids and running locks go. */
-  const clearDiscuss = () => {
-    setChapterEnd(null)
+  /** Every Discuss run of this screen is over: none shows, none holds a chapter (a new open, another account). */
+  const forgetDiscussRuns = () => {
     setDiscussStates({})
-    discussBook.current = null
     discuss.reset()
     discussLocks.reset()
   }
-  const openChat = (shared: V2DiscussShared) => { void launcher.launch(() => shared.brief) }
+  const clearDiscuss = () => {
+    setChapterEnd(null)
+    discussBook.current = null
+    forgetDiscussRuns()
+  }
+  /**
+   * The chat for a share, from the grants its run found (`ready.grants`): never asked again, so a failed or stale
+   * request cannot turn into a connect sheet after the share, nor leave the launcher waiting.
+   */
+  const openChat = async (shared: V2DiscussShared, grants: readonly { clientName: string }[]) => {
+    const choice = chooseChat(grants, await loadReviewAssistant())
+    if (choice.kind === 'pick') return launcher.choose(() => shared.brief)
+    if (choice.kind !== 'open') return
+    Linking.openURL(handoffUrl(choice.assistant, shared.brief)).catch(() => showToast({ message: t('chapterReview.openFailed'), variant: 'error' }))
+  }
+  // #1316 review: another account (or none): a share in flight under the previous one shows nothing and holds
+  // nothing, so the pill is usable at once without reopening the book.
+  useEffect(() => { forgetDiscussRuns() }, [userId])
   /**
    * The chapter's text, read by the page, is shared with the reader's account, then the chat opens with the share's
    * id (`runDiscuss`). Online only: a failed, slow or offline step is said on the pill and hands over nothing.
@@ -428,14 +445,50 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           current,
         ),
         current,
-        showConnect: () => setConnectOpen(true),
-        openChat,
       })
       if (state?.phase === 'failed') console.warn('[v2] chapter not shared:', state.reason)
       set(state)
+      // One tap shares and opens: from the grants this run decided with.
+      if (state?.phase === 'ready' && current()) void openChat(state.shared, state.grants)
     } finally {
       release()
     }
+  }
+
+  /**
+   * #1315: in-book search (search.mjs, the web host's rule): the search the page was last asked and whether the open book
+   * can be searched (the ref for the message handler, set with the state); the sheet, keyed by the book so a new one's
+   * starts empty.
+   */
+  const [search, setSearchState] = useState<V2Search>(NO_SEARCH)
+  const searchRef = useRef<V2Search>(NO_SEARCH)
+  const setSearch = (s: V2Search) => {
+    searchRef.current = s
+    setSearchState(s)
+  }
+  /** Streamed results are put on screen at most once per SEARCH_RENDER_MS (search.mjs): not a render of the whole screen per section. */
+  const [renderSearch] = useState(() => createSearchRenders(() => setSearchState(searchRef.current)))
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchBook, setSearchBook] = useState(0)
+  /**
+   * What the reader typed in the search sheet ('' clears): a new search under the next id, which ends the one running in
+   * the page; with no query the page removes the hits it drew. The query is the reader's own text, never the book's.
+   */
+  const askSearch = (raw: string) => {
+    const next = searchStart(searchRef.current, raw)
+    setSearch(next)
+    // A page not loaded yet (or reloading) holds no search to end.
+    if (ready.current) call(`window.__fol.search(${JSON.stringify(next.query || null)}, ${next.id})`)
+  }
+  /**
+   * A new open or a closed book: the previous book's search ends with it (its hits go from the page, if it still shows
+   * that book), and nothing is searchable until the next `opened` says so (`searchReset`: the button goes meanwhile).
+   */
+  const clearSearch = () => {
+    setSearchOpen(false)
+    setSearchBook((n) => n + 1)
+    if (searchRef.current.query && ready.current) call('window.__fol.search(null)')
+    setSearch(searchReset(searchRef.current))
   }
 
   /** A book is on screen (the reader, with its bars) rather than the list; the ref for the message handler. */
@@ -492,8 +545,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
   /** A page message for the open book (its `key`, the page's lower-case sha256). */
   const isOpenKey = (key: string) => openShaRef.current !== null && key.toLowerCase() === openShaRef.current
-  /** The reader's choice (the sheet, a deep link): saved where it lands. */
-  const goHighlight = (h: V2HighlightItem) => {
+  /** The reader's choice (the highlights sheet, a deep link, a search result): saved where it lands. */
+  const goHighlight = (h: { cfi: string }) => {
     hostMoves.start()
     call(`window.__fol.goTo(${JSON.stringify(h.cfi)}, true)`)
   }
@@ -594,6 +647,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     pageDir.current = 'ltr'
     setProgress.current(null)
     clearToc()
+    clearSearch()
     setPopup(null)
     setOffer(null)
     setLightbox(false)
@@ -967,6 +1021,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setAtEnd(false)
     clearDiscuss()
     clearToc()
+    clearSearch()
     setPopup(null)
     setBook(true)
     showBars()
@@ -986,9 +1041,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // Not `atEnd`: it was cleared where the open started; the book's first relocate (its end, for a book one
     // screen long) comes before this `opened` and must stand.
     setAnnotatable(t.opened.annotatable !== false)
+    // #1315: strictly true where the page can search the book (not a CBZ or a PDF).
+    setSearch(searchOpened(searchRef.current, t.opened))
     // The previous book's highlights go; this one's list follows its `restored`.
     setHighlightList([])
     setBookLang(readLang(t.opened))
+    // #1316 review: the page's book is this open now (it may not be the one started last): no run of another holds on.
+    forgetDiscussRuns()
     discussBook.current = {
       title: (typeof t.opened.title === 'string' && t.opened.title) || t.open.name,
       author: typeof t.opened.author === 'string' && t.opened.author ? t.opened.author : null,
@@ -1205,6 +1264,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         }
         return
       }
+      case 'search-results': {
+        // #1315, untrusted: only what readSearchResults takes; a previous book's or an older search's is dropped.
+        const r = readSearchResults(m)
+        if (!r || !isOpenKey(r.key)) return
+        searchRef.current = searchTake(searchRef.current, r)
+        renderSearch(searchRef.current.done)
+        return
+      }
       case 'highlight-tap': {
         // Its editor (colours, note, delete), by the word's edge rule (popupStep).
         const h = readHighlightTap(m)
@@ -1278,6 +1345,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * next pass, still carrying `completedAt` (sent with every write while it stands).
    */
   const openBook = openSha ? books.find((b) => b.local && b.sha256 === openSha) : undefined
+  /** The chapter whose run found no assistant connected: its connect sheet shows. */
+  const connecting = Object.entries(discussStates).find(([, st]) => st.phase === 'connect')?.[0] ?? null
   const finishBook = () => {
     const sha = openShaRef.current
     if (!sha) return
@@ -1490,6 +1559,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             hasChapters={toc.length > 0}
             onTocPress={() => setTocOpen(true)}
             onHighlightsPress={annotatable ? () => setHighlightsOpen(true) : undefined}
+            onSearchPress={search.searchable ? () => setSearchOpen(true) : undefined}
             tocLabel={t('reader.chrome.contents')}
             isCurrentBookmarked={false}
             onExit={closeBook}
@@ -1533,7 +1603,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               title={chapterEnd.title}
               state={discussStates[chapterKey(chapterEnd)]}
               onShare={() => { void discussChapter(chapterEnd) }}
-              onOpen={openChat}
+              onOpen={() => { const st = discussStates[chapterKey(chapterEnd)]; if (st?.phase === 'ready') void openChat(st.shared, st.grants) }}
               bottom={(barsVisible ? footerHeight || 60 + insets.bottom : insets.bottom) + 12 + (showsFinishBook({ atEnd, format }) ? 56 : 0)}
               background={colors.background}
               color={colors.text}
@@ -1546,7 +1616,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               }}
             />
           )}
-          <ConnectAssistantSheet visible={launcher.connect || connectOpen} onClose={() => { launcher.closeConnect(); setConnectOpen(false) }} />
+          {/* No assistant connected (a run's `connect`): nothing was shared; closed, the chapter's pill is idle again. */}
+          <ConnectAssistantSheet visible={connecting !== null} onClose={() => { if (connecting !== null) setDiscussStates(({ [connecting]: _, ...rest }) => rest) }} />
           {popup && popup.kind !== 'highlight' && (
             // The legacy reader's bar (#1269): the word's gloss (or the picker's line) on a tap; on a selection highlight,
             // copy, translate, explain; Save on a word (#1270); Listen (#1272). Nothing here needs the network to
@@ -1593,6 +1664,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} ttsSpeed={ttsSpeed} onTtsSpeed={updateTtsSpeed}
             glosses={annotatable ? { on: legacySettings.showInlineTranslations, onChange: (on) => updateLegacySettings({ showInlineTranslations: on }) } : undefined} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
+          <V2SearchSheet key={searchBook} visible={searchOpen} search={search} onQuery={askSearch} onGo={goHighlight} onClose={() => setSearchOpen(false)} />
           <V2HighlightsSheet visible={highlightsOpen} items={highlightList} noteOf={(id) => notes?.known.get(id) ?? null} onGo={goHighlight} onClose={() => setHighlightsOpen(false)} />
           {popup?.kind === 'highlight' && tapped && (
             // #1312: the legacy editor. A colour is one tap (the page redraws and saves it); Save is the note (here,

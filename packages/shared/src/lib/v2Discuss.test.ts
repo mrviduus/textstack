@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, networkError } from '../api/client'
 import type { V2Share, V2ShareWrite } from '../api/v2'
 import { MAX_BRIEF_CHARS, handoffUrl } from './assistantHandoff'
-import { CHAPTER_TEXT_MS, SHARE_MS, V2DiscussError, buildV2DiscussBrief, createV2Discuss, discussFailureOf, shareChapterForDiscuss, withDeadline, type V2DiscussDeps } from './v2Discuss'
+import { CHAPTER_TEXT_MS, SHARE_MS, V2DiscussError, buildV2DiscussBrief, createDiscussLocks, createV2Discuss, discussFailureOf, runDiscuss, shareChapterForDiscuss, withDeadline, type V2DiscussDeps, type V2DiscussRun, type V2DiscussShared } from './v2Discuss'
 
 const BOOK = '77777777-7777-4777-8777-777777777777'
 const FILE = '88888888-8888-4888-8888-888888888888'
@@ -206,5 +206,107 @@ describe('withDeadline', () => {
     const late = withDeadline(new Promise(() => {}), 100).catch((e: V2DiscussError) => e.reason)
     await vi.advanceTimersByTimeAsync(100)
     expect(await late).toBe('timeout')
+  })
+})
+
+describe('runDiscuss (#1316, both hosts)', () => {
+  afterEach(() => vi.useRealTimers())
+  const handed: V2DiscussShared = { shareId: SHARE, cut: false, brief: 'b' }
+  const CLAUDE = [{ clientName: 'Claude' }]
+  const offline = () => Object.assign(new ApiError(0, 'down'), { isNetworkError: true })
+  const base = () => ({
+    canConnect: true,
+    grants: vi.fn<V2DiscussRun['grants']>(async () => CLAUDE),
+    serverBook: vi.fn<V2DiscussRun['serverBook']>(async () => ({ bookId: 'b', fileId: 'f' })),
+    share: vi.fn<V2DiscussRun['share']>(async () => handed),
+    current: () => true,
+  })
+  const flow = (over: Partial<ReturnType<typeof base>> = {}) => ({ ...base(), ...over })
+
+  it('shares under the server ids of the open bytes; the chat is opened from the grants it decided with', async () => {
+    const d = flow()
+    expect(await runDiscuss(d)).toEqual({ phase: 'ready', shared: handed, grants: CLAUDE })
+    expect(d.share.mock.calls).toEqual([[{ bookId: 'b', fileId: 'f' }]])
+    expect(d.grants).toHaveBeenCalledTimes(1)
+  })
+  it('with no assistant connected shares nothing: the connect step', async () => {
+    const d = flow({ grants: vi.fn<V2DiscussRun['grants']>(async () => [{ clientName: 'Some other app' }]) })
+    expect(await runDiscuss(d)).toEqual({ phase: 'connect' })
+    expect(d.serverBook).not.toHaveBeenCalled()
+    expect(d.share).not.toHaveBeenCalled()
+  })
+  it('reads a grants request that fails as that, with a retry: never as "none connected"', async () => {
+    const d = flow({ grants: vi.fn<V2DiscussRun['grants']>(async () => { throw offline() }) })
+    expect(await runDiscuss(d)).toEqual({ phase: 'failed', reason: 'offline' })
+    expect(d.share).not.toHaveBeenCalled()
+  })
+  it('gives a grants request that never answers a deadline', async () => {
+    vi.useFakeTimers()
+    const going = runDiscuss(flow({ grants: vi.fn<V2DiscussRun['grants']>(() => new Promise<never>(() => {})) }))
+    await vi.advanceTimersByTimeAsync(SHARE_MS)
+    expect(await going).toEqual({ phase: 'failed', reason: 'timeout' })
+  })
+  it('asks nothing for a user who may not connect an assistant: the connect step', async () => {
+    const d = flow({ canConnect: false })
+    expect(await runDiscuss(d)).toEqual({ phase: 'connect' })
+    expect(d.grants).not.toHaveBeenCalled()
+  })
+  it('says a book that is not on the server, and a failed share by its cause', async () => {
+    const none = flow({ serverBook: vi.fn<V2DiscussRun['serverBook']>(async () => null) })
+    expect(await runDiscuss(none)).toEqual({ phase: 'failed', reason: 'noBook' })
+    expect(none.share).not.toHaveBeenCalled()
+    expect(await runDiscuss(flow({ share: vi.fn<V2DiscussRun['share']>(async () => { throw new V2DiscussError('timeout') }) }))).toEqual({ phase: 'failed', reason: 'timeout' })
+  })
+  it('shows nothing once the identity or the book changed: after the grants (none connected too), the ids, the share, a failure', async () => {
+    for (const leaveAfter of ['grants', 'none', 'serverBook', 'share'] as const) {
+      let live = true
+      const d = flow({ current: () => live })
+      const leave = <T,>(answer: T) => async () => { live = false; return answer }
+      if (leaveAfter === 'grants') d.grants.mockImplementationOnce(leave(CLAUDE))
+      else if (leaveAfter === 'none') d.grants.mockImplementationOnce(leave([]))
+      else if (leaveAfter === 'serverBook') d.serverBook.mockImplementationOnce(leave({ bookId: 'b', fileId: null }))
+      else d.share.mockImplementationOnce(leave(handed))
+      expect(await runDiscuss(d)).toBeUndefined()
+      if (leaveAfter !== 'share') expect(d.share).not.toHaveBeenCalled()
+    }
+    let live = true
+    expect(await runDiscuss(flow({ current: () => live, share: vi.fn<V2DiscussRun['share']>(async () => { live = false; throw offline() }) }))).toBeUndefined()
+  })
+})
+
+describe('buildV2DiscussBrief with astral characters', () => {
+  it('never cuts a surrogate pair, so the link can be encoded', () => {
+    const title = 'T'.repeat(198) + '😀' + 'tail'
+    const brief = buildV2DiscussBrief({ title, author: 'A'.repeat(118) + '😀x', bookId: BOOK, shareId: SHARE, chapterTitle: title, cut: false })
+    expect(brief.isWellFormed()).toBe(true)
+    expect(() => encodeURIComponent(brief)).not.toThrow()
+    expect(brief).toContain(`"${'T'.repeat(198)}…"`)
+  })
+  it('clips a shared title on the server cap without a lone half', async () => {
+    const share = vi.fn(async (bookId: string, body: V2ShareWrite): Promise<V2Share> => ({ id: SHARE, bookId, chapterKey: body.chapterKey, createdAt: '' }))
+    await shareChapterForDiscuss(
+      { bookId: BOOK, fileId: null, chapterKey: 'toc-1', chapterTitle: 'T'.repeat(499) + '😀', bookTitle: 'B' },
+      { chapterText: async () => ({ text: 'x', cut: false }), share, current: () => true, operationId: OP })
+    expect(share.mock.calls[0][1].chapterTitle).toBe('T'.repeat(499))
+  })
+})
+
+describe('createDiscussLocks', () => {
+  it('holds one chapter at a time, each on its own, until released', () => {
+    const locks = createDiscussLocks()
+    const release = locks.take('toc-1')!
+    expect(locks.take('toc-1')).toBeNull()
+    expect(locks.take('toc-2')).not.toBeNull()
+    release()
+    expect(locks.take('toc-1')).not.toBeNull()
+  })
+  it('frees every chapter where a book opens, and a release of the previous book frees nothing of the new one', () => {
+    const locks = createDiscussLocks()
+    const old = locks.take('toc-1')!
+    locks.reset()
+    const fresh = locks.take('toc-1')
+    expect(fresh).not.toBeNull()
+    old()
+    expect(locks.take('toc-1')).toBeNull()
   })
 })

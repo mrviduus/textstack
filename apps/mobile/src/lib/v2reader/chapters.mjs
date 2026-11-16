@@ -1,14 +1,17 @@
 // "Discuss this chapter" (#1316): what a chapter is on the V2 reader, its text, and the hosts' reads of the page's
 // two messages about it. A chapter is a contents entry (owner decision 2026-11-15); a book with no contents has its
-// spine sections for chapters. Pure but for `boundsIn` and `textBetween`, which read a DOM they are handed. Used by
+// spine sections for chapters. Pure but for `startsIn` and `textBetween`, which read a DOM they are handed. Used by
 // the page and both hosts (bundled: it imports packages/shared, as selection.mjs does).
 //
-// Where a chapter ends (the default taken, README "Discuss this chapter"): just before the next entry in the
-// contents, at any depth, that leads somewhere else, wherever the file boundary is: an entry's text runs over the
-// files before that entry and into its file up to its anchor; several entries in one file each end where the next
-// one's anchor starts (the next one in the document, whatever the order of the list); the last entry ends with
-// the book.
+// Where chapters start and end (the default taken, README "Discuss this chapter"), ONE rule, the document's order:
+// each entry starts at its place in its file (`startsIn`: an entry with no anchor at the file's top; an anchor the
+// file lacks at the top for the file's first entry in the list, nowhere for a later one); a chapter runs from its
+// start to the next start in reading order, whatever the order of the list and wherever the file boundary is: over
+// the files with no start of their own, and into the next start's file up to it. The last chapter ends with the
+// book. The page decides the chapter that ended and the chapter's text by this rule only (never foliate's current
+// entry, which goes by the list).
 import { isReviewableChapter } from '../../../../../packages/shared/src/lib/chapterReviewUi'
+import { clip } from '../../../../../packages/shared/src/reader/textAnchor'
 
 /** The server's cap on a share's text (`SyncLimits.MaxChapterTextBytes`), as UTF-8. */
 export const MAX_CHAPTER_TEXT_BYTES = 200 * 1024
@@ -24,13 +27,14 @@ const samePlace = (a, b) => a.sec === b.sec && a.at === b.at
 
 /**
  * The place a contents entry leads to, from foliate's `resolveHref(href)` answer `{ index, anchor }`:
- * `{ sec, at, anchor }` (`at` the href, what tells two places of one section apart; `anchor(doc)` finds its
- * element in that section's document), or null when it names no section of a book of `sections` sections.
+ * `{ sec, at, top, anchor }` (`at` the href, what tells two places of one section apart; `top`: the href names the
+ * file only, no fragment: the file's start; `anchor(doc)` finds its element in that section's document), or null
+ * when it names no section of a book of `sections` sections.
  */
 export function placeOf(resolved, href, sections) {
   const sec = resolved?.index
   if (!Number.isInteger(sec) || sec < 0 || sec >= sections || typeof href !== 'string') return null
-  return { sec, at: href, anchor: typeof resolved.anchor === 'function' ? resolved.anchor : null }
+  return { sec, at: href, top: !href.includes('#'), anchor: typeof resolved.anchor === 'function' ? resolved.anchor : null }
 }
 
 const ELEMENT = 1, FOLLOWING = 4
@@ -40,81 +44,54 @@ const elementAt = (place, doc) => {
 }
 
 /**
- * The chapter of entry `tocIndex`, of `places` (one per entry of the page's flat contents, null where the entry
- * leads nowhere), or null for no such entry:
- * - `start`: where it begins;
- * - `inSection`: the other entries of the same section at another href, listed before it or after: the chapter
- *   ends at the nearest of them after its start in that document (`boundsIn`: a contents list may name places out
- *   of order, or anchors the file does not have);
- * - `next`: the first later entry in a later section: with none of `inSection` after the start, the chapter runs
- *   up to it, over every file between and into its file, up to its anchor. Null: the book's last chapter;
- * - `startShared`: an earlier entry leads into the same section at another href, so the start of the section is
- *   not this chapter's: with its own anchor not found, the chapter cannot be told from that one.
+ * Where the chapters of section `sec` start in its document `doc`, in document order: `[{ owner, members, el }]`,
+ * `el` the start's element (null: the file's top). An entry with no fragment starts at the file's top; one whose
+ * anchor the file does not have starts there too when no entry before it in the list leads into this file at
+ * another href, and nowhere otherwise (it is left out: never a chapter, its text unavailable). An element that
+ * contains another entry's element comes before it (a `<section id>` around a chapter's subsections). Entries at the
+ * same start are one group, named by the last of them in the list (the most specific: "Chapter 1" under "Part One").
  */
-export function chapterOf(places, tocIndex) {
-  const start = whole(tocIndex) ? places[tocIndex] : null
-  if (!start) return null
-  const inSection = places.filter((p) => p && p.sec === start.sec && !samePlace(p, start))
-  const next = places.slice(tocIndex + 1).find((p) => p && p.sec > start.sec) ?? null
-  const startShared = places.slice(0, tocIndex).some((p) => p && p.sec === start.sec && !samePlace(p, start))
-  return { start, inSection, next, startShared }
+export function startsIn(places, sec, doc) {
+  const groups = []
+  places.forEach((p, i) => {
+    if (!p || p.sec !== sec) return
+    let el = p.top ? null : elementAt(p, doc)
+    if (!p.top && !el && places.slice(0, i).some((q) => q && q.sec === sec && !samePlace(q, p))) return
+    const same = groups.find((g) => g.el === el)
+    if (same) {
+      same.members.push(i)
+      same.owner = i
+    } else groups.push({ owner: i, members: [i], el })
+  })
+  // Stable: the top first, then by position (an ancestor before what it contains).
+  return groups.sort((a, b) => (!a.el ? -1 : !b.el ? 1 : a.el.compareDocumentPosition(b.el) & FOLLOWING ? -1 : 1))
 }
 
 /**
- * A chapter's part in the document `doc` of section `sec` (one of its files): `{ from, to, more }`: from element
- * `from` (null: the document's start) up to element `to` (null: its end), `more` when the chapter goes on in the
- * files after. Or `{ none: true }`: nothing of this document is the chapter's (the next chapter starts with it).
- * Or `{ refuse: true }`: the chapter's own anchor is not in its file and an earlier entry leads into the same
- * file, so where it starts cannot be told (sharing the file from its top would be that other chapter's text
- * under this one's title). An anchor not found with no such entry is the file's start.
+ * What another file's chapter-end and chapter-text questions need of section `sec`, from any document of it:
+ * `owners` (its starts' entries in document order) and `top` (its first start has nothing to read before it: a
+ * chapter running into this file ends with the file before).
  */
-export function boundsIn(chapter, sec, doc) {
-  const { start, inSection, next, startShared } = chapter
-  if (sec === start.sec) {
-    const from = elementAt(start, doc)
-    if (!from && startShared) return { refuse: true }
-    // The nearest one after the start in the document, whatever the list's order: an entry placed before the
-    // start, inside it, or at an anchor the file does not have ends nothing.
-    let to = null
-    for (const p of inSection) {
-      const el = elementAt(p, doc)
-      if (!el || (from && (!(from.compareDocumentPosition(el) & FOLLOWING) || from.contains(el)))) continue
-      if (!to || el.compareDocumentPosition(to) & FOLLOWING) to = el
-    }
-    return to ? { from, to, more: false } : { from, to: null, more: true }
-  }
-  if (next && sec === next.sec) {
-    const to = elementAt(next, doc)
-    return to ? { from: null, to, more: false } : { none: true }
-  }
-  return { from: null, to: null, more: true }
+export function fileSummary(places, sec, doc) {
+  const groups = startsIn(places, sec, doc)
+  return { owners: groups.map((g) => g.owner), top: groups.length > 0 && (!groups[0].el || textBetween(doc, null, groups[0].el).length === 0) }
+}
+
+/**
+ * The chapters of one file in reading order, `[{ owner, from, to, last }]` from its starts (`startsIn`): the text
+ * before the first start is `carry`'s (the chapter running in from an earlier file; null: none, that text is no
+ * chapter's); each start runs to the next one, the last to the file's end (`last`: whether it ends there is the
+ * next file's question).
+ */
+export function segmentsIn(groups, carry) {
+  const out = []
+  if (!groups.length || groups[0].el) out.push({ owner: carry, from: null, to: groups[0]?.el ?? null, last: !groups.length })
+  groups.forEach((g, k) => out.push({ owner: g.owner, from: g.el, to: groups[k + 1]?.el ?? null, last: k === groups.length - 1 }))
+  return out
 }
 
 /** A book has contents when an entry of them leads somewhere: the page's one rule; a host never re-derives it. */
 export const hasContents = (places) => places.some(Boolean)
-
-/**
- * The entry whose chapter ends where entry `tocIndex` starts, in the document `doc` of its section: the nearest
- * entry of that file placed before it in the document (whatever the list's order), else, with none there, the
- * nearest earlier entry of the list in an earlier file (its chapter runs into this file). Null: none.
- */
-export function chapterBefore(places, tocIndex, doc) {
-  const at = whole(tocIndex) ? places[tocIndex] : null
-  const from = elementAt(at, doc)
-  if (!at || !from) return null
-  let best = null
-  let bestEl = null
-  for (const [i, p] of places.entries()) {
-    if (!p || p.sec !== at.sec || samePlace(p, at)) continue
-    const el = elementAt(p, doc)
-    // Before the start, and the nearest so far: it follows the best one.
-    if (!el || !(el.compareDocumentPosition(from) & FOLLOWING) || el.contains(from)) continue
-    if (!bestEl || bestEl.compareDocumentPosition(el) & FOLLOWING) [best, bestEl] = [i, el]
-  }
-  if (best !== null) return best
-  for (let i = tocIndex - 1; i >= 0; i--) if (places[i] && places[i].sec < at.sec) return i
-  return null
-}
 
 /** The key a chapter's share and checkpoints carry: stable for one file version, never a title. */
 export const chapterKey = ({ tocIndex, section }) => (whole(tocIndex) ? `toc-${tocIndex}` : `section-${section}`)
@@ -150,7 +127,7 @@ export function textBetween(doc, from, to) {
   let current = ''
   let broke = false
   const flush = () => {
-    const s = current.replace(/­/g, '').replace(/\s+/g, ' ').trim()
+    const s = current.replace(/\u00ad/g, '').replace(/\s+/g, ' ').trim()
     if (s) out.push(s)
     current = ''
   }
@@ -202,7 +179,7 @@ export function fitText(paragraphs, cap = MAX_CHAPTER_TEXT_BYTES) {
     const add = (text ? 2 : 0) + utf8Size(p)
     if (size + add > cap) {
       // ponytail: a UTF-16 unit is at most 3 UTF-8 bytes, so cap / 3 units always fit; a tighter cut needs an encoder loop.
-      if (!text) text = p.slice(0, Math.floor(cap / 3)).replace(/[\ud800-\udbff]$/, '')
+      if (!text) text = clip(p, Math.floor(cap / 3))
       return { text, cut: true }
     }
     text += (text ? '\n\n' : '') + p
@@ -223,7 +200,7 @@ export function readChapterEnd(m) {
   const e = m?.type === 'relocate' || m?.type === 'chapter-end' ? m.chapterEnd : null
   if (!e || typeof e !== 'object' || !whole(e.section)) return null
   if (e.tocIndex != null && !whole(e.tocIndex)) return null
-  const title = typeof e.title === 'string' ? e.title.trim().slice(0, MAX_TITLE) : ''
+  const title = typeof e.title === 'string' ? clip(e.title.trim(), MAX_TITLE) : ''
   return { tocIndex: e.tocIndex ?? null, section: e.section, title: title || null }
 }
 

@@ -13,6 +13,12 @@ import { V2ReaderHost, v2DiscussApi, type V2HostBook } from './V2ReaderHost'
 
 const listOAuthGrants = vi.fn()
 vi.mock('../../api/oauth', () => ({ listOAuthGrants: () => listOAuthGrants() }))
+/** The signed-in account the host sees (#1316 review: a share in flight belongs to the account that asked). */
+let account: { id: string } | null = { id: 'u1' }
+vi.mock('../../context/AuthContext', async (actual) => {
+  const real = await actual<typeof import('../../context/AuthContext')>()
+  return { ...real, useAuth: () => ({ ...real.useAuth(), user: account, isAuthenticated: !!account }) }
+})
 
 const SHA = 'a'.repeat(64)
 const T: V2SyncTarget = { bookId: 'b1', fileId: 'f1', format: 'epub', sha256: SHA, size: 8, name: 'b1.epub' }
@@ -20,6 +26,7 @@ const SHARE = '5ba7ed00-0000-4000-8000-000000000001'
 const TOC = [{ label: 'Alpha', href: 's1.xhtml#a', depth: 0 }, { label: 'Beta', href: 's1.xhtml#b', depth: 1 }, { label: 'Gamma', href: 's3.xhtml', depth: 0 }]
 
 beforeEach(() => {
+  account = { id: 'u1' }
   __resetAssistantGrants()
   listOAuthGrants.mockReset().mockResolvedValue([{ id: 'g', clientName: 'Claude' }])
 })
@@ -34,7 +41,8 @@ async function reader(o: { toc?: object[]; dev?: boolean; title?: string } = {})
   const share = vi.spyOn(v2DiscussApi, 'shareChapter').mockImplementation(async (bookId: string, body: V2ShareWrite): Promise<V2Share> =>
     ({ id: SHARE, bookId, chapterKey: body.chapterKey, createdAt: '2026-11-15T10:00:00Z' }))
   const opened = vi.spyOn(window, 'open').mockImplementation(() => null)
-  const host = (book: V2HostBook | null) => <MemoryRouter><V2ReaderHost book={book} dev={o.dev} /></MemoryRouter>
+  let lastBook: V2HostBook | null = null
+  const host = (book: V2HostBook | null) => { lastBook = book; return <MemoryRouter><V2ReaderHost book={book} dev={o.dev} /></MemoryRouter> }
   const view = render(host(null))
   const frame = (screen.getByTitle('Book text') as HTMLIFrameElement).contentWindow!
   const toPage = vi.spyOn(frame, 'postMessage').mockImplementation((() => {}) as never)
@@ -61,7 +69,12 @@ async function reader(o: { toc?: object[]; dev?: boolean; title?: string } = {})
   const asked = () => toPage.mock.calls.map(([m]) => m as { call: string; args: unknown[] }).filter((m) => m.call === 'chapterText').map((m) => m.args as [string, number | null, number])
   /** The page's answer to the host's latest request. */
   const answer = (m: object) => fromPage({ type: 'chapter-text', request: asked().slice(-1)[0][0], ...m })
-  return { share, opened, relocate, click, asked, answer, openBook, startOpen, fromPage }
+  /** Another account (or none): the host re-renders with it. */
+  const signIn = (who: { id: string } | null) => act(async () => {
+    account = who
+    view.rerender(host(lastBook))
+  })
+  return { share, opened, relocate, click, asked, answer, openBook, startOpen, fromPage, signIn }
 }
 const block = () => screen.queryByTestId('v2-discuss')
 
@@ -329,26 +342,81 @@ describe('V2ReaderHost discuss chapter (#1316)', () => {
 
   // Review 7: after the connect dialog of the second step the grants are asked again at once, so the next click
   // opens the chat inside the click.
-  it('ready_NoAssistantAfterAll_ConnectDialog_ClosedAndConnected_TheNextClickOpensTheChatInsideTheClick', async () => {
-    let grants: (g: object[]) => void = () => {}
-    listOAuthGrants.mockReset().mockImplementationOnce(() => new Promise((r) => { grants = r }))
+  // Review round 2, item 3: one decision from one source. A failed grants request is said as such, never read as
+  // "none connected"; after the share, the chat opens from the grants that run found, never asked again.
+  it('grantsRequestFails_SaidOffline_NoConnectDialog_NothingShared_TheRetryAsksAgain', async () => {
+    listOAuthGrants.mockReset().mockRejectedValueOnce(Object.assign(new ApiError(0, 'down'), { isNetworkError: true })).mockResolvedValue([{ id: 'g', clientName: 'Claude' }])
+    const { share, relocate, click, asked, answer } = await reader()
+    await relocate({ chapterEnd: { tocIndex: 1, section: 0, title: 'Beta' } })
+    await click('v2-discuss-share')
+    expect(screen.getByRole('alert')).toHaveTextContent('You are offline, so the chapter was not shared.')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(asked()).toEqual([])
+    await click('v2-discuss-share')
+    await answer({ text: 'Beta begins.' })
+    expect(share).toHaveBeenCalledTimes(1)
+    expect(listOAuthGrants).toHaveBeenCalledTimes(2)
+  })
+
+  it('ready_TheChatOpensFromTheRunsGrants_InsideTheClick_NothingAskedAgain_EvenWhenTheServerNowFails', async () => {
     const { opened, relocate, click, answer } = await reader()
     await relocate({ chapterEnd: { tocIndex: 1, section: 0, title: 'Beta' } })
     await click('v2-discuss-share')
     await answer({ text: 'Beta begins.' })
-    await act(async () => { grants([]) })
-    await click('v2-discuss-open')
-    expect(screen.getByRole('dialog', { name: 'Connect Claude or ChatGPT in a minute' })).toBeInTheDocument()
-    expect(opened).not.toHaveBeenCalled()
-
-    listOAuthGrants.mockResolvedValue([{ id: 'g', clientName: 'Claude' }])
-    await act(async () => {
-      screen.getByRole('button', { name: 'Close' }).click()
-      await new Promise((r) => setTimeout(r, 0))
-    })
-    expect(listOAuthGrants).toHaveBeenCalledTimes(2)
+    listOAuthGrants.mockReset().mockRejectedValue(new Error('down'))
     screen.getByTestId('v2-discuss-open').click()
     expect(opened).toHaveBeenCalledTimes(1)
+    expect(listOAuthGrants).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('ready_TwoAssistantsNothingRemembered_ThePickOpensTheChosenOne_Remembered', async () => {
+    listOAuthGrants.mockReset().mockResolvedValue([{ id: '1', clientName: 'Claude' }, { id: '2', clientName: 'ChatGPT' }])
+    localStorage.removeItem('chapterReview.assistant')
+    const { opened, relocate, click, answer } = await reader()
+    await relocate({ chapterEnd: { tocIndex: 1, section: 0, title: 'Beta' } })
+    await click('v2-discuss-share')
+    await answer({ text: 'Beta begins.' })
+    await click('v2-discuss-open')
+    expect(opened).not.toHaveBeenCalled()
+    await act(async () => { screen.getByRole('menuitem', { name: 'ChatGPT' }).click() })
+    expect(String(opened.mock.calls[0][0])).toMatch(/^https:\/\/chatgpt\.com\/\?q=/)
+    expect(localStorage.getItem('chapterReview.assistant')).toBe('chatgpt')
+  })
+
+  // Item 6: the share landing never takes the focus from where the reader went meanwhile.
+  it('ready_TheReaderFocusedSomethingElseWhileSharing_FocusStaysThere', async () => {
+    const { relocate, click, answer } = await reader()
+    await relocate({ chapterEnd: { tocIndex: 1, section: 0, title: 'Beta' } })
+    await click('v2-discuss-share')
+    const field = document.createElement('textarea')
+    document.body.append(field)
+    field.focus()
+    await answer({ text: 'Beta begins.' })
+    expect(screen.getByTestId('v2-discuss-open')).toBeInTheDocument()
+    expect(field).toHaveFocus()
+    field.remove()
+  })
+
+  // Item 4: the session ends mid-share: after the next sign-in the block is usable without reopening the book.
+  it('accountChangedMidShare_TheBlockIsIdleAtOnce_ANewDiscussRunsUnderTheNewAccount_TheOldAnswerShowsNothing', async () => {
+    const { share, relocate, click, asked, answer, signIn } = await reader()
+    let land: (s: V2Share) => void = () => {}
+    share.mockImplementationOnce(() => new Promise<V2Share>((r) => { land = r }))
+    await relocate({ chapterEnd: { tocIndex: 1, section: 0, title: 'Beta' } })
+    await click('v2-discuss-share')
+    await answer({ text: 'Beta begins.' })
+    expect(screen.getByTestId('v2-discuss-share')).toBeDisabled()
+    await signIn(null)
+    await signIn({ id: 'u2' })
+    expect(screen.getByTestId('v2-discuss-share')).toBeEnabled()
+    await click('v2-discuss-share')
+    expect(asked()).toHaveLength(2)
+    await act(async () => { land({ id: SHARE, bookId: 'b1', chapterKey: 'toc-1', createdAt: '' }) })
+    expect(screen.queryByTestId('v2-discuss-open')).toBeNull()
+    await answer({ text: 'Beta begins.' })
+    expect(screen.getByTestId('v2-discuss-open')).toBeInTheDocument()
+    expect(share.mock.calls[1][1].operationId).not.toBe(share.mock.calls[0][1].operationId)
   })
 
   it('discuss_ClickedTwice_OneRequestOneShare', async () => {

@@ -643,6 +643,13 @@ body:has(.reader-page) .site-header {
   display: block;
 }
 
+/* V2 reader (#1315): the section a hit is in, above its context. */
+.reader-search-drawer__section {
+  display: block;
+  font-size: 12px;
+  color: var(--reader-secondary);
+}
+
 .reader-search-drawer__context mark {
   background: #ffeb3b;
   color: #000;

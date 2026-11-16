@@ -562,7 +562,18 @@
     "frameTitle": "Book text",
     "skipToBook": "Skip to the book",
     "lightboxImage": "Image",
-    "lightboxClose": "Close image"
+    "lightboxClose": "Close image",
+    "search": "Search",
+    "searchLabel": "Search in this book",
+    "searchPlaceholder": "Search in this book…",
+    "searchClear": "Clear search",
+    "searchClose": "Close search",
+    "searching": "Searching…",
+    "searchNone": "No results",
+    "searchCount": "Results: {{count}}",
+    "searchMore": "Showing the first {{count}} results",
+    "searchTooShort": "Type at least 2 characters",
+    "searchIncomplete": "Part of this book could not be searched."
   },
   "library": {
     "continue": "Continue",
