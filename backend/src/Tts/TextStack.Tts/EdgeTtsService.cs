@@ -13,6 +13,7 @@ public class EdgeTtsService : ITtsService, IHostedService, IDisposable
     private readonly ILogger<EdgeTtsService> _logger;
     private readonly SemaphoreSlim _synthLock;
     private readonly SemaphoreSlim _voicesLock = new(1, 1); // serialize voice-list fetch
+    private readonly Func<CancellationToken, Task<List<EdgeVoiceData>>> _fetchVoices;
     private List<EdgeVoiceData>? _cachedVoices;
     private DateTime _cachedVoicesAtUtc;
     private Timer? _cacheSweepTimer;
@@ -30,9 +31,17 @@ public class EdgeTtsService : ITtsService, IHostedService, IDisposable
     private static readonly TimeSpan VoicesRefreshBackoff = TimeSpan.FromMinutes(5);
 
     public EdgeTtsService(IOptions<TtsConfiguration> config, ILogger<EdgeTtsService> logger)
+        : this(config, logger, EdgeTtsClient.GetVoicesAsync) { }
+
+    // internal: unit tests swap the Bing voice-list fetch (#1334).
+    internal EdgeTtsService(
+        IOptions<TtsConfiguration> config,
+        ILogger<EdgeTtsService> logger,
+        Func<CancellationToken, Task<List<EdgeVoiceData>>> fetchVoices)
     {
         _config = config.Value;
         _logger = logger;
+        _fetchVoices = fetchVoices;
         var concurrency = Math.Max(1, _config.MaxConcurrentSynths);
         _synthLock = new SemaphoreSlim(concurrency, concurrency);
     }
@@ -103,7 +112,7 @@ public class EdgeTtsService : ITtsService, IHostedService, IDisposable
 
     public async Task<TtsSynthesisResult> SynthesizeWithTimestampsAsync(string text, string lang, string? voice, double speed, CancellationToken ct)
     {
-        voice ??= ResolveDefaultVoice(lang);
+        voice ??= await ResolveDefaultVoiceAsync(lang, ct);
         var rate = SpeedToRate(speed);
 
         var cacheKey = ComputeCacheKey(text, voice, rate);
@@ -224,7 +233,7 @@ public class EdgeTtsService : ITtsService, IHostedService, IDisposable
                 {
                     try
                     {
-                        var fresh = await EdgeTtsClient.GetVoicesAsync(ct);
+                        var fresh = await _fetchVoices(ct);
                         // Guard: if Bing returns empty transiently, don't trash
                         // an existing populated cache. Better stale-real than fresh-empty.
                         if (fresh.Count > 0 || _cachedVoices == null)
@@ -276,24 +285,25 @@ public class EdgeTtsService : ITtsService, IHostedService, IDisposable
     private bool IsVoicesStale()
         => _cachedVoices == null || DateTime.UtcNow - _cachedVoicesAtUtc > VoicesTtl;
 
-    private string ResolveDefaultVoice(string lang)
+    // #1334: a lang outside DefaultVoices waits for the Bing voice list (a cold
+    // server loads it here) and never falls back to an English voice: Spanish
+    // text read by en-US-AriaNeural is worse than no audio. No voice for the
+    // lang → TtsNoVoiceException (422). A failed list fetch on a cold server
+    // propagates: Edge is the problem, not the lang.
+    internal async Task<string> ResolveDefaultVoiceAsync(string lang, CancellationToken ct)
     {
         var key = lang.Split('-')[0].ToLowerInvariant();
         if (_config.DefaultVoices.TryGetValue(key, out var voice)) return voice;
 
-        // Fallback to whatever the Bing voice list offers for this lang (if we've
-        // already loaded it). Previously any lang outside en/uk silently used
-        // an English voice — Spanish text read by en-US-AriaNeural etc.
-        var loaded = _cachedVoices;
-        if (loaded != null)
-        {
-            var match = loaded.FirstOrDefault(v =>
-                v.Locale.StartsWith(key + "-", StringComparison.OrdinalIgnoreCase));
-            if (match != null) return match.ShortName;
-        }
+        await GetVoicesAsync(null, ct);
+        // An empty list is Edge misbehaving, not proof the lang has no voice.
+        if (_cachedVoices is not { Count: > 0 })
+            throw new InvalidOperationException("TTS voice list is empty");
+        var match = _cachedVoices.FirstOrDefault(v =>
+            v.Locale.StartsWith(key + "-", StringComparison.OrdinalIgnoreCase));
+        if (match != null) return match.ShortName;
 
-        _logger.LogWarning("TTS: no default voice for lang={Lang}, falling back to en-US-AriaNeural", lang);
-        return "en-US-AriaNeural";
+        throw new TtsNoVoiceException(lang);
     }
 
     private static string SpeedToRate(double speed) => speed switch

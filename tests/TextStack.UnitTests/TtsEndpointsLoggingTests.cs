@@ -55,6 +55,19 @@ public class TtsEndpointsLoggingTests
         VerifyLogged(logger, LogLevel.Warning, null, Times.Once());
     }
 
+    // #1334: no voice for the lang is the reader's book, not an outage.
+    [Fact]
+    public async Task Synthesize_NoVoiceForLang_Returns422AndLogsWarningNotError()
+    {
+        var logger = new Mock<ILogger<ITtsService>>();
+
+        var result = await CallSynthesize(new TtsNoVoiceException("xh"), logger.Object);
+
+        Assert.Equal(422, Assert.IsType<ProblemHttpResult>(result).StatusCode);
+        VerifyLogged(logger, LogLevel.Error, null, Times.Never());
+        VerifyLogged(logger, LogLevel.Warning, null, Times.Once());
+    }
+
     [Fact]
     public async Task GetTimestamps_EdgeHandshakeRejected_Returns502AndLogsError()
     {
