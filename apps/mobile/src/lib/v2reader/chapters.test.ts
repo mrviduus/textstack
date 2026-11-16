@@ -34,6 +34,10 @@ describe('startsIn', () => {
     const d = xdoc('<p>Chapter 2 intro.</p><h2 id="x">2.1 X</h2><p>X text.</p>')
     expect(startsIn([by(0, 'a'), by(1, null), by(1, 'x')], 1, d)).toEqual([{ owner: 1, members: [1], el: null }, { owner: 2, members: [2], el: d.getElementById('x') }])
   })
+  it('starts a file-level entry at the top even when the list names it after an anchored one of the file', () => {
+    const d = xdoc('<p>Intro.</p><h2 id="x">2.1 X</h2>')
+    expect(startsIn([by(1, 'x'), by(1, null)], 1, d).map((g) => [g.owner, g.el])).toEqual([[1, null], [0, d.getElementById('x')]])
+  })
   it('puts an element that contains another entry\'s element before it (a section around its subsections)', () => {
     const d = xdoc('<section id="s3"><h1>Three</h1><p>Three intro.</p><h2 id="y">3.1</h2><p>Y text.</p></section>')
     expect(startsIn([by(0, 'y'), by(0, 's3')], 0, d).map((g) => g.owner)).toEqual([1, 0])

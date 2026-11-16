@@ -39,7 +39,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `prodCsp.check.mjs` | The production-CSP gate (CI): shell + script under the app CSP read from nginx; the refused variants; nginx's reader locations against the handler's headers. |
 | `openTracker.mjs` (+ `.d.mts`) | Pure, both hosts: which page answer belongs to which open — the open in flight, a book the page kept on screen while a newer open failed, a stale `restored` (dropped). |
 | `toc.mjs` (+ `.d.mts`) | Pure, both hosts (#1261): `readToc` (a host's read of `opened.toc`: malformed entries dropped, each kept one with its `index` in the page's list, the one `relocate.tocIndex` names; at most 5000 places, labels cut to 200, depth 0 to 6) and `tocAround` (the current entry and the nearest ones before and after that lead somewhere else, an entry with the current one's href being the same place: the contents dialog's mark, the title beside the percent, and the section controls, which go by title with `goTo(href, true)`; a host marks a chosen entry at once, since a jump within the view on screen may send no relocate, and clears the place where an open starts, since a book's first relocate comes before its `opened`). `withTitle` fills a label with a title as text. A book with no entries has no contents button and no section controls; no host shows a section number. |
-| `chapters.mjs` (+ `.d.mts`) | The page and both hosts (#1316; bundled, it imports packages/shared): what a chapter is (a contents entry: `placeOf`, `chapterOf`, `boundsIn` (a chapter's part of one of its files: from its own anchor to the nearest entry after it in the document), `chapterBefore`, `hasContents`, `chapterKey`), its text (`textBetween`, a section document's text as paragraphs: text only, without page-break markers and what the markup hides; `fitText`, the server's 200 KB cap, `cut` said), and the hosts' reads `readChapterEnd` (of `relocate.chapterEnd` and `chapter-end`), `readChapterText` (of `chapter-text`) and `offersDiscuss` (the hosts' one rule for which chapter gets Discuss: not front and back matter by title, the legacy `isReviewableChapter`). See "Discuss this chapter". |
+| `chapters.mjs` (+ `.d.mts`) | The page and both hosts (#1316; bundled, it imports packages/shared): what a chapter is, ONE rule by the document's order (`placeOf`, `startsIn`: where each entry starts in its file, a file-level entry at the top, a dead anchor nowhere; `segmentsIn`, `fileSummary`, `hasContents`, `chapterKey`), its text (`textBetween`, a section document's text as paragraphs: text only, without page-break markers and what the markup hides; `fitText`, the server's 200 KB cap, `cut` said), and the hosts' reads `readChapterEnd` (of `relocate.chapterEnd` and `chapter-end`; the title cut never through a surrogate pair), `readChapterText` (of `chapter-text`) and `offersDiscuss` (not front and back matter by title, the legacy `isReviewableChapter`). See "Discuss this chapter". |
 | `movedTracker.mjs` (+ `.d.mts`) | Pure, any host: the open book as ADR-019 sees it (`decideServerState`'s `reader`): restored yet, whether the reader moved since (the page's `relocate.moved`, never a CFI comparison; a host `goTo` clears it), the spine index of the last relocate, the opening one included (#1278). |
 | `sessionTracker.mjs` (+ `.d.mts`) | Pure, both hosts (#1313): the reading session, the legacy readers' rules (starts on the first activity, time up to 3 min after the last, 5 min idle ends it, under 10 s not kept, at most 4 h), words read from `relocate` by the page's `relocate.cause` (`readRelocate`): `turn` counts the ground past the session's furthest place × `words` (at most 800 wpm of the counted time since the last counted step), `nav` (a navigation's landing) counts nothing and resets the baseline and furthest place, `layout` (anything else, the default) counts nothing and keeps the furthest place; whenever the seconds sent are fewer than the time counted, the words scale down with them. `open` / `bind` / `relocate` / `activity` / `tick` / `end`; an ended session is returned for the host to send. |
 | `tapZone.mjs` (+ `.d.mts`) | Pure, both hosts (#1263): what a page `tap` does (turn back, turn on, toggle the bars). See Host responsibilities, "Reader chrome" and "Bars and tap zones, web". |
@@ -468,12 +468,14 @@ it through `readSettings`, so only numbers and members of the module's own lists
 - **Reading sessions (#1313), both hosts:** `sessionTracker.mjs`, bound to a synced book only (web: the server book whose file the bytes are; Android: the bytes' sha256, resolved to the row when the session ends, so a re-key while reading still finds it). Ended by another open, the book closed, a hidden tab / the app in the background, another identity, the unmount, or 5 min idle. Web: queued in the legacy reader's localStorage session queue and sent at once (`PUT /me/v2/reading/sessions/{id}`; retried at the next reader's flush; 404 / 400 dropped). Android: a `reading_sessions` row and a `session` outbox entry (pushed after states, its book first; the row leaves with the entry), no token, no network. The server counts them in `/me/reading/pace` (`V2PaceTotals`).
 - **Discuss this chapter (#1316), both hosts:** host UI, never injected into the book, on a synced book only.
   A chapter is a contents entry (owner decision 2026-11-15); a book with no contents (no entry leads anywhere:
-  the page's rule) has its spine sections for chapters. Where a chapter ends: just before the next entry in the
-  contents, at any depth, that leads somewhere else, wherever the file boundary is: an entry's text runs over the
-  files before the next entry and into that entry's file up to its anchor; several entries in one file each end
-  at the nearest entry after them in the document, whatever the order of the list; the last entry ends with the
-  book. An anchor the file does not have is the file's start for the file's first entry, and no chapter at all
-  after another entry of that file. The page finds out where the contents lead after `opened`, one entry at a
+  the page's rule) has its spine sections for chapters. ONE rule, the document's order (chapters.mjs `startsIn`),
+  for both the chapter that ended and its text: each entry starts at its place in its file (an href with no
+  fragment at the file's top; an element that contains another entry's element before it; an anchor the file does
+  not have at the top for the file's first entry in the list, and nowhere for a later one: never named, its text
+  `unavailable`); entries at one place are one chapter, named by the last of them in the list; a chapter runs to
+  the next start in reading order, whatever the order of the list and wherever the file boundary is. The chapter
+  that ended is the last one of the file on screen whose last drawn line is on screen and that ends there;
+  foliate's current entry (which goes by the list) is not used. The page finds out where the contents lead after `opened`, one entry at a
   time: an open never waits for it. The block shows while the page's `chapterEnd` (`relocate`, `chapter-end`) names
   a chapter and `offersDiscuss` takes it: not front or back matter by its title (Cover, Copyright, Contents…, the
   legacy `isReviewableChapter`; its 800-word minimum is not applied: the page does not count a chapter's words at
@@ -491,13 +493,17 @@ it through `readSettings`, so only numbers and members of the module's own lists
   - The identity guard: the share starts under this open and this account (web: the store epoch; Android: the
     user, `resetSince()` and the open bytes); once any changed, nothing is sent, shown or opened. Where an open
     starts, the previous book's chapter end, server book, shares and operation ids are dropped.
-  - No assistant connected: nothing is shared, the connect dialog shows instead, from the host itself: the
-    launcher is never called without a built message. Android asks the server (with a deadline): a failed
-    request is said as offline or a timeout, never read as "none".
+  - Assistants: ONE decision from ONE source, both hosts (shared `runDiscuss`): the connected apps are asked once
+    per tap, with a deadline; a failed or slow request is said as offline or a timeout with a retry, never read as
+    "none"; none connected is the `connect` state (nothing shared, the connect dialog or sheet). The chat is opened
+    from the grants that run found (`ready.grants`), never asked again, so it never hangs nor turns into a connect
+    sheet after the share. The legacy assistant launcher decides nothing here (Android uses its pick Alert only).
+  - Another account, or none, ends every run: the block is idle at once (no "Sharing…" left from the old session).
   - Web: two clicks, "Discuss this chapter" then "Open the chat", so the chat opens inside a click (no popup
-    blocker) and never before the share landed; the pick between two assistants opens upward. Android
-    (`discussFlow.ts`): one tap shares and opens; the pill then keeps "Open the chat"; one run per chapter and
-    open book. Online only on both: nothing is queued.
+    blocker) and never before the share landed; the pick between two assistants opens upward; the landed share
+    takes the focus only from the block's own button or the body. Android: one tap shares and opens; the pill then
+    keeps "Open the chat". One run per chapter and open book on both (`createDiscussLocks`). Online only on both:
+    nothing is queued.
   - Not on a CBZ, a PDF or a fixed-layout EPUB (the page reads no chapter text there).
 - **Finish book (#1266), both hosts:** host UI, never injected into the book. The block shows while `relocate.atEnd`
   is true (`showsFinishBook`; never guessed from the fraction), on every format: a CBZ's completion travels on its

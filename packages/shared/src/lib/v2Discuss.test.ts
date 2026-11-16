@@ -278,7 +278,8 @@ describe('buildV2DiscussBrief with astral characters', () => {
   it('never cuts a surrogate pair, so the link can be encoded', () => {
     const title = 'T'.repeat(198) + '😀' + 'tail'
     const brief = buildV2DiscussBrief({ title, author: 'A'.repeat(118) + '😀x', bookId: BOOK, shareId: SHARE, chapterTitle: title, cut: false })
-    expect(brief.isWellFormed()).toBe(true)
+    // No lone half of a surrogate pair anywhere.
+    expect(brief).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/)
     expect(() => encodeURIComponent(brief)).not.toThrow()
     expect(brief).toContain(`"${'T'.repeat(198)}…"`)
   })
