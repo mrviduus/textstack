@@ -58,7 +58,7 @@ import { ExplanationSheet } from '../ExplanationSheet'
 import { readToc, tocAround, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
 import { V2HighlightsSheet, V2SectionNav, V2TocSheet } from './V2ReaderToc'
 import { V2SearchSheet } from './V2SearchSheet'
-import { NO_SEARCH, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type V2Search } from '../../lib/v2reader/search.mjs'
+import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type V2Search } from '../../lib/v2reader/search.mjs'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
@@ -371,6 +371,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     searchRef.current = s
     setSearchState(s)
   }
+  /** Streamed results are put on screen at most once per SEARCH_RENDER_MS (search.mjs): not a render of the whole screen per section. */
+  const [renderSearch] = useState(() => createSearchRenders(() => setSearchState(searchRef.current)))
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchBook, setSearchBook] = useState(0)
   /**
@@ -1151,7 +1153,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       case 'search-results': {
         // #1315, untrusted: only what readSearchResults takes; a previous book's or an older search's is dropped.
         const r = readSearchResults(m)
-        if (r && isOpenKey(r.key)) setSearch(searchTake(searchRef.current, r))
+        if (!r || !isOpenKey(r.key)) return
+        searchRef.current = searchTake(searchRef.current, r)
+        renderSearch(searchRef.current.done)
         return
       }
       case 'highlight-tap': {

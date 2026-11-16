@@ -43,7 +43,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `sessionTracker.mjs` (+ `.d.mts`) | Pure, both hosts (#1313): the reading session, the legacy readers' rules (starts on the first activity, time up to 3 min after the last, 5 min idle ends it, under 10 s not kept, at most 4 h), words read from `relocate` by the page's `relocate.cause` (`readRelocate`): `turn` counts the ground past the session's furthest place × `words` (at most 800 wpm of the counted time since the last counted step), `nav` (a navigation's landing) counts nothing and resets the baseline and furthest place, `layout` (anything else, the default) counts nothing and keeps the furthest place; whenever the seconds sent are fewer than the time counted, the words scale down with them. `open` / `bind` / `relocate` / `activity` / `tick` / `end`; an ended session is returned for the host to send. |
 | `tapZone.mjs` (+ `.d.mts`) | Pure, both hosts (#1263): what a page `tap` does (turn back, turn on, toggle the bars). See Host responsibilities, "Reader chrome" and "Bars and tap zones, web". |
 | `highlights.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1312): the four colours (`HIGHLIGHT_COLORS`, the legacy readers'; `HIGHLIGHT_FILL` what the page draws; `colorOf`: one off the list, another client's, is drawn yellow), the page's `highlightList` (drawn ones, in book order by foliate's CFI compare, text cut to 200 code points), the hosts' readers `readHighlightList`, `readHighlightTap`, `readHighlightRemoved` in `readSelection`'s style, `noteOf` (a note as saved: trimmed, never cut: the server has no cap; blank is none) and `noteChange` (what a save writes: nothing when the draft is the note it was typed over). See Host responsibilities, "Highlights". |
-| `search.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1315): in-book search. `readQuery` (the query a host may send: one-spaced, at least 2 characters as `queryLength` counts them, 1 in a script written without spaces, at most 100 UTF-16 units), the page's `searchItems` (foliate's hits as `search-results` items, strings capped), the hosts' reader `readSearchResults` in `readSelection`'s style, the hosts' state `searchStart` / `searchTake` / `searchReset` / `searchOpened` (a new id per search; an older search's answer is dropped; nothing searchable from an open's start until its `opened`), the status line `searchStatusKey`, `SEARCH_DEBOUNCE_MS`, `MAX_RESULTS`, `SEARCH_FILL`. The one CFI check, `isCfi`, is `selection.mjs`'s (highlights use it too). See Host responsibilities, "In-book search". |
+| `search.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1315): in-book search. `readQuery` (the query a host may send: one-spaced, at least 2 characters as `queryLength` counts them, 1 in a script written without spaces, at most 100 UTF-16 units), the page's `searchItems` (foliate's hits as `search-results` items, strings capped), the hosts' reader `readSearchResults` in `readSelection`'s style, the hosts' state `searchStart` / `searchTake` / `searchReset` / `searchOpened` (a new id per search; an older search's answer is dropped; nothing searchable from an open's start until its `opened`), the two status lines `searchStatusKeys`, `SEARCH_DEBOUNCE_MS`, `createSearchRenders` (streamed results on screen at most once per `SEARCH_RENDER_MS`), `MAX_RESULTS`, `SEARCH_FILL`. The one CFI check, `isCfi`, is `selection.mjs`'s (highlights use it too). See Host responsibilities, "In-book search". |
 | `finishBook.mjs` (+ `.d.mts`) | Pure, both hosts (#1266): `showsFinishBook`, when the end-of-book block shows. See Host responsibilities, "Finish book". |
 | `listen.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1272): `ttsLang` (the book's language → the `lang` `/tts` is sent, the V2 reader on both hosts (the legacy readers keep their own): the primary subtag only, ISO 639-2 codes in both forms, `nb`/`nn`/`iw`/`in` and `tl` → `fil` folded, `und`/`mul`/`zxx`/`mis` to the fallback, never English for another language, null for Ukrainian), `TTS_SPEEDS` / `readSpeed` / `TTS_SPEED_KEY` / `createSpeedChoice` (Android's async store: a pick before the read wins), `createListener` (Listen's rule: it owns the phase), `speakingJs` (Android's injected call), `SPOKEN_FILL`. See Host responsibilities, "Listen". |
 | `vocabSave.mjs` (+ `.d.mts`) | Pure, both hosts (#1270): `saveOutcome`, a vocabulary save's answer as the host shows it (saved, deleted → restore, pending, lookup); `savesWords`, whether a book's `opened.lang` lets its words be saved. See Host responsibilities, "Saving a word". |
@@ -696,7 +696,9 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
 - *How:* foliate's own search (`view.search`, the fork's `search.js`, no longer stubbed out of the build; fork commit
   `686afc4` for the limit, the per-hit title and the skipped section): each
   section's own document (`createDocument`, the book's bytes; no network, no host round trip per section), any case,
-  accents folded, whitespace runs (a source line break inside a phrase) as one space, parts of words too. Results in
+  accents folded, whitespace runs (a source line break inside a phrase) as one space, parts of words too. What folds
+  is decided by the section's own `lang`, else the book's language (the page passes it: `defaultLocale`), else English;
+  never by the reader's browser (under a Turkish one "in" would miss "In"). Results in
   book order, one `search-results` message per section with hits, then one with `done`.
 - *Which books:* `opened.searchable`, true where the book has section documents: EPUB (a pre-paginated one too), MOBI,
   AZW3, FB2/FBZ. **Not a CBZ** (images, no text) and **not a PDF**: the fork's PDF reader makes no section documents
@@ -706,7 +708,8 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
 - *One at a time, cancellable:* a `search` call ends the one running (it stops before its next section and never says
   `done`) and starts after it; a call superseded while it waited touches nothing (the view may be another book's by
   then). The host's `id` comes back on every message, so an older search's answer is dropped (`searchTake`). The swap
-  ends the open book's search. A task between sections: input and paint come first.
+  ends the open book's search. A task between sections: input and paint come first; a search ended during it reads
+  no further section (foliate's generator is closed).
 - *A section that cannot be read* (its document fails to load, or has no body: an SVG spine item) is skipped by
   foliate, which says so (`{ index, error }`), and the rest of the book is searched; the `done` message then says
   `incomplete`, and the hosts say part of the book could not be searched. Anything else that fails inside the search
@@ -719,13 +722,15 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
 - *One section is one task* up to the limit: the matcher runs through a section's document synchronously until the
   section ends or the 501st hit, so a section with few hits in a very large file still holds the main thread for the
   time it takes to read it (measured below per 54 KB section; not on a device).
-- *Titles:* each hit's `label` is the contents entry it is under (two hits in one file may have different ones); a
-  hit over inline markup is listed whole.
+- *Titles and text:* each hit's `label` is the contents entry it is under (two hits in one file may have different
+  ones); a hit over inline markup is listed whole, and one over a source line break on one line (whitespace runs in
+  the listed hit are one space; its CFI is the book's own text).
 - *The query* (`readQuery`): at least 2 characters, counted without what only joins the character before (a
   combining mark, a variation selector, a skin tone: one emoji or a decomposed "é" is one); 1 is enough in Thai,
   Hangul, kana and Han, where a word may be one character and no space sets it apart. Not `Intl.Segmenter`: the
   Android host's engine has none and the page and the hosts must agree. A typed text that is no query yet gets a
-  status line saying so (`searchStatusKey`: `tooShort`).
+  status line saying so (`searchStatusKeys`: `tooShort`); a query typed that the page was not asked yet (the
+  debounce) says nothing.
 - *The hit in the page:* every hit of the query is drawn (`SEARCH_FILL`, foliate's highlight) in its section as that
   section loads, until `search(null)`, a new search or a new open. A result's `cfi` is a `goTo` target: the hosts call
   `goTo(cfi, true)` (the reader's choice: saved where it lands), exactly as for a highlight in the list. On a
@@ -734,9 +739,9 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   page's own overlay, as `speaking` has, if readers need it told apart.
 - *Hosts* (one rule, `search.mjs`): a Search button on the bars where `searchable`, gone from an open's start until its
   `opened` (`searchReset` / `searchOpened`); the reader's text, debounced `SEARCH_DEBOUNCE_MS`, through `readQuery`; results as text only (the hit, up to 60
-  characters each side, the title of the contents entry it is under), a status line (`searchStatusKey`: too short, searching, the count, none, the first 500; and that part of the book could not be searched); a
+  characters each side, the title of the contents entry it is under), a status line (`searchStatusKeys`: too short, searching, the count, none, the first 500; and that part of the book could not be searched); streamed results put on screen at most once per `SEARCH_RENDER_MS` (a book of hundreds of sections is not hundreds of renders of the whole reader), the end at once; a
   result jumps and closes the list; the search stays until cleared, so reopening shows the same list. A new open (or a
-  closed book) ends it. Web: `V2ReaderSearch.tsx`, the legacy search drawer's dialog. Android: `V2SearchSheet.tsx`, the
+  closed book) ends it. Web: `V2ReaderSearch.tsx`, the legacy search drawer's dialog (opened on results, focus goes to the first of them, not the field: no phone keyboard over the list). Android: `V2SearchSheet.tsx`, the
   contents sheet's modal (the keyboard comes up only on an empty sheet, and a drag on the list puts it away, so a
   reopened sheet's rows are reachable). The query is the one string a host puts into the page that the reader typed (never book
   text): as an argument (web `postMessage`, Android `JSON.stringify` into the injected call), read by `readQuery`.

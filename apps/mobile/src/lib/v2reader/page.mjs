@@ -636,11 +636,15 @@ function search(raw, id) {
     const v = view
     v?.clearSearch()
     if (!v || !query || !Number.isSafeInteger(id)) return
+    // The book's own language decides what folds (case, accents) where a section names none: never the reader's
+    // browser (foliate's default is an object Intl reads as "the runtime's locale": under Turkish, "in" misses "In").
+    // A book with no language, or one that is no language tag, has none: foliate then searches as English.
+    const defaultLocale = v.language?.canonical
     let found = 0
     let skipped = 0
     const answer = (results, end) => post({ type: 'search-results', key: book.sha256, id, results, done: !!end, more: end === 'more', incomplete: !!end && skipped > 0 })
     try {
-      for await (const r of v.search({ query, limit: MAX_RESULTS + 1, draw: Overlayer.highlight, drawOptions: { color: SEARCH_FILL } })) {
+      for await (const r of v.search({ query, defaultLocale, limit: MAX_RESULTS + 1, draw: Overlayer.highlight, drawOptions: { color: SEARCH_FILL } })) {
         if (stale()) return
         if (r?.error) {
           skipped++
@@ -655,6 +659,9 @@ function search(raw, id) {
           if (items.length > room) return answer([], 'more')
         }
         await new Promise((next) => setTimeout(next))
+        // Before foliate is asked for the next section: a search ended meanwhile reads and draws nothing more
+        // (leaving the loop closes foliate's generator).
+        if (stale()) return
       }
     } catch (e) {
       skipped++

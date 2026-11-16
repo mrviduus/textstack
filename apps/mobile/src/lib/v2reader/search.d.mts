@@ -1,5 +1,6 @@
 // Types for search.mjs (apps/web type-checks it without allowJs); a change to one must update the other.
 export const SEARCH_DEBOUNCE_MS: number
+export const SEARCH_RENDER_MS: number
 export const MIN_QUERY: number
 export const MAX_QUERY: number
 export const MAX_RESULTS: number
@@ -25,4 +26,6 @@ export function searchReset(s: V2Search): V2Search
 export function searchOpened(s: V2Search, opened: unknown): V2Search
 export function searchTake(s: V2Search, r: V2SearchMessage): V2Search
 export type V2SearchStatus = '' | 'tooShort' | 'searching' | 'none' | 'count' | 'more'
-export function searchStatusKey(search: V2Search, typed: unknown): V2SearchStatus
+export function searchStatusKeys(search: V2Search, typed: unknown): { status: V2SearchStatus; incomplete: boolean }
+/** `(now)`: put the host's search on screen, at once (`now`) or within `SEARCH_RENDER_MS`. */
+export function createSearchRenders(render: () => void, ms?: number): (now: boolean) => void

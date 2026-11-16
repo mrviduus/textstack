@@ -6,16 +6,16 @@ import { useLanguage } from '../../context/LanguageContext'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
 import { fonts } from '../../theme/typography'
 import { fill } from '../../lib/fill'
-import { MAX_QUERY, SEARCH_DEBOUNCE_MS, readQuery, searchStatusKey, type V2Search } from '../../lib/v2reader/search.mjs'
+import { MAX_QUERY, SEARCH_DEBOUNCE_MS, readQuery, searchStatusKeys, type V2Search } from '../../lib/v2reader/search.mjs'
 
-/** search.mjs `searchStatusKey` in the reader's words. */
+/** search.mjs `searchStatusKeys` in the reader's words. */
 const STATUS = { tooShort: 'reader.v2.searchTooShort', searching: 'reader.v2.searching', none: 'reader.v2.searchNone', count: 'reader.v2.searchCount', more: 'reader.v2.searchMore' } as const
 
-/** The line under the field (`searchStatusKey`), and that part of the book could not be read, once the search ended. */
+/** The line under the field (`searchStatusKeys`), and that part of the book could not be read, once the search ended. */
 export function searchStatus(search: V2Search, typed: string, t: (key: string) => string): string {
-  const key = searchStatusKey(search, typed)
-  const line = key ? fill(t(STATUS[key]), { count: search.results.length }) : ''
-  return search.done && search.incomplete ? `${line} ${t('reader.v2.searchIncomplete')}` : line
+  const { status, incomplete } = searchStatusKeys(search, typed)
+  const line = status ? fill(t(STATUS[status]), { count: search.results.length }) : ''
+  return incomplete ? `${line} ${t('reader.v2.searchIncomplete')}` : line
 }
 
 /**

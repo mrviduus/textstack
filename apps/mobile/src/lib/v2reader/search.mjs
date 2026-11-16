@@ -5,6 +5,8 @@ import { isCfi } from './selection.mjs'
 
 /** The reader stopped typing for this long: the page is asked (a new search ends the one running). Both hosts. */
 export const SEARCH_DEBOUNCE_MS = 300
+/** Streamed results reach a host's screen at most this often (a long book answers once per section). */
+export const SEARCH_RENDER_MS = 100
 /**
  * A query is searched from this many characters (the legacy web reader's rule), counted as `queryLength` counts them;
  * one is enough in a script written without spaces between words (`NO_SPACES`: a one-character Chinese, Japanese,
@@ -26,9 +28,9 @@ export const MAX_LABEL = 200
 export const SEARCH_FILL = '#f97316'
 
 /** Thai, Hangul, Hiragana and Katakana, Han: scripts whose words are not set apart by spaces. Ranges, not `\p{Script=}`: one rule in every engine a host runs on. */
-const NO_SPACES = /[฀-๿ᄀ-ᇿ぀-ヿ㄰-㆏ㇰ-ㇿ㐀-䶿一-鿿가-힯豈-﫿\u{20000}-\u{323AF}]/u
+const NO_SPACES = /[\u0E00-\u0E7F\u1100-\u11FF\u3040-\u30FF\u3130-\u318F\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\u{20000}-\u{323AF}]/u
 /** What joins the character before it: combining marks, the zero-width joiner, variation selectors, emoji skin tones. */
-const JOINED = /[\p{M}‍︀-️\u{1F3FB}-\u{1F3FF}]/gu
+const JOINED = /[\p{M}\u200D\uFE00-\uFE0F\u{1F3FB}-\u{1F3FF}]/gu
 /**
  * The characters of a query as a reader counts them: code points, without the ones that only join or modify the one
  * before (a decomposed "é" and one emoji with a skin tone are one each). Not `Intl.Segmenter`: the Android host's
@@ -46,7 +48,8 @@ export function readQuery(q) {
 /**
  * The page's `search-results` items from foliate's hits of one section (`{ cfi, excerpt: { pre, match, post }, label }`,
  * `label` the contents entry the hit is under): `{ cfi, pre, match, post, label }`, strings cut to their caps (context
- * from the hit's side).
+ * from the hit's side). Whitespace runs in the hit are one space, as foliate already leaves the context: a hit over a
+ * source line break is listed on one line (its CFI still points at the book's own text).
  */
 export function searchItems(subitems) {
   const items = []
@@ -54,7 +57,7 @@ export function searchItems(subitems) {
     const { pre, match, post } = s?.excerpt ?? {}
     if (!isCfi(s?.cfi) || typeof match !== 'string' || !match) continue
     const label = typeof s.label === 'string' ? s.label.trim().slice(0, MAX_LABEL) : ''
-    items.push({ cfi: s.cfi, pre: String(pre ?? '').slice(-MAX_CONTEXT), match: match.slice(0, MAX_MATCH), post: String(post ?? '').slice(0, MAX_CONTEXT), label })
+    items.push({ cfi: s.cfi, pre: String(pre ?? '').slice(-MAX_CONTEXT), match: match.replace(/\s+/g, ' ').slice(0, MAX_MATCH), post: String(post ?? '').slice(0, MAX_CONTEXT), label })
   }
   return items
 }
@@ -105,13 +108,34 @@ export function searchTake(s, r) {
 }
 
 /**
- * The status line under the field, as a key each host has a string for: '' (nothing typed), `tooShort` (typed, but no
- * query: `readQuery`), `searching`, `none`, `count`, or `more` (the first `MAX_RESULTS` of more). `typed`: the field's
- * text. A finished search with `incomplete` gets a host's second line beside it.
+ * The two lines under the field, for both hosts. `status`, a key each host has a string for: '' (nothing typed, or a
+ * query typed that the page was not asked yet: the debounce), `tooShort` (typed, and no query: `readQuery`),
+ * `searching`, `none`, `count`, or `more` (the first `MAX_RESULTS` of more). `incomplete`: the search ended and part of
+ * the book could not be read. `typed`: the field's text.
  */
-export function searchStatusKey(search, typed) {
-  if (!search.query) return typeof typed === 'string' && typed.trim() ? 'tooShort' : ''
-  if (!search.done) return 'searching'
-  if (!search.results.length) return 'none'
-  return search.more ? 'more' : 'count'
+export function searchStatusKeys(search, typed) {
+  const incomplete = search.done && search.incomplete
+  if (!search.query) return { status: typeof typed === 'string' && typed.trim() && readQuery(typed) === null ? 'tooShort' : '', incomplete }
+  if (!search.done) return { status: 'searching', incomplete }
+  if (!search.results.length) return { status: 'none', incomplete }
+  return { status: search.more ? 'more' : 'count', incomplete }
+}
+
+/**
+ * When a host puts its search on screen: at once for an end (`now`), else at most once per `SEARCH_RENDER_MS`, so a
+ * book of hundreds of sections is not hundreds of renders of the whole reader. `render` reads the host's latest search.
+ */
+export function createSearchRenders(render, ms = SEARCH_RENDER_MS) {
+  let timer = null
+  return (now) => {
+    if (now) {
+      clearTimeout(timer)
+      timer = null
+      return render()
+    }
+    timer ??= setTimeout(() => {
+      timer = null
+      render()
+    }, ms)
+  }
 }

@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useDebounce } from '../../hooks/useDebounce'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
-import { MAX_QUERY, SEARCH_DEBOUNCE_MS, readQuery, searchStatusKey, type V2Search } from '../../../../mobile/src/lib/v2reader/search.mjs'
+import { MAX_QUERY, SEARCH_DEBOUNCE_MS, readQuery, searchStatusKeys, type V2Search } from '../../../../mobile/src/lib/v2reader/search.mjs'
 
-/** search.mjs `searchStatusKey` in the reader's words. */
+/** search.mjs `searchStatusKeys` in the reader's words. */
 const STATUS = { tooShort: 'v2Reader.searchTooShort', searching: 'v2Reader.searching', none: 'v2Reader.searchNone', count: 'v2Reader.searchCount', more: 'v2Reader.searchMore' } as const
 
 interface Props {
@@ -37,8 +37,13 @@ export function V2SearchDrawer({ open, search, onQuery, onGo, onClose }: Props) 
   useEffect(() => {
     if ((readQuery(typed) ?? '') !== search.query) onQueryRef.current(typed)
   }, [typed])
+  // Opened again on its results: focus goes to the first of them, not the field (the trap's first control), so a
+  // phone's keyboard does not come up over the list. An empty drawer has no result: it keeps the field.
+  useEffect(() => {
+    if (open) container.current?.querySelector<HTMLElement>('.reader-search-drawer__result')?.focus()
+  }, [open])
   if (!open) return null
-  const key = searchStatusKey(search, text)
+  const { status: key, incomplete } = searchStatusKeys(search, text)
   const status = key ? t(STATUS[key], { count: search.results.length }) : ''
   return (
     <>
@@ -56,7 +61,7 @@ export function V2SearchDrawer({ open, search, onQuery, onGo, onClose }: Props) 
         }}
       >
         <div className="reader-search-drawer__header">
-          {/* The field is the dialog's first control: the focus trap puts focus on it at opening. */}
+          {/* The field is the dialog's first control: the focus trap puts focus on it at opening (an empty drawer). */}
           <div className="reader-search-drawer__input-wrapper">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <circle cx="11" cy="11" r="8" />
@@ -95,7 +100,7 @@ export function V2SearchDrawer({ open, search, onQuery, onGo, onClose }: Props) 
           <span className="reader-search-drawer__count" role="status" data-testid="v2-search-status">
             {status}
             {/* Part of the book could not be read (a damaged section): the list may miss hits there. */}
-            {search.done && search.incomplete && <> {t('v2Reader.searchIncomplete')}</>}
+            {incomplete && <> {t('v2Reader.searchIncomplete')}</>}
           </span>
         </div>
         <ul className="reader-search-drawer__results" data-testid="v2-search-results">

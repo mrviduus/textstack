@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
-import { SEARCH_DEBOUNCE_MS } from '../../../../mobile/src/lib/v2reader/search.mjs'
+import { SEARCH_DEBOUNCE_MS, SEARCH_RENDER_MS } from '../../../../mobile/src/lib/v2reader/search.mjs'
 
 // #1315: in-book search on the web host, through a fake frame as V2ReaderHost.chrome.test.tsx: the page is asked
 // `search(query, id)` and answers `search-results`; a result is a `goTo(cfi, chosen)`.
@@ -33,7 +33,11 @@ function opened(o: object = { searchable: true }) {
 }
 const CFI = (n: number) => `epubcfi(/6/${n}!/4/2,/1:0,/1:5)`
 const hit = (n: number, o: object = {}) => ({ cfi: CFI(n), pre: `before ${n} `, match: 'Whale', post: ` after ${n}`, label: `Chapter ${n}`, ...o })
-const results = (id: number, list: object[], o: object = {}) => fromPage({ type: 'search-results', key: 'aa', id, results: list, done: false, more: false, ...o })
+/** A `search-results` message, and the time the host takes to put streamed results on screen. */
+const results = (id: number, list: object[], o: object = {}) => {
+  fromPage({ type: 'search-results', key: 'aa', id, results: list, done: false, more: false, ...o })
+  act(() => { vi.advanceTimersByTime(SEARCH_RENDER_MS) })
+}
 
 const searchButton = () => screen.queryByRole('button', { name: 'Search' })
 const dialog = () => screen.queryByRole('dialog', { name: 'Search in this book' })
@@ -101,10 +105,30 @@ describe('V2ReaderHost in-book search (#1315)', () => {
     expect(status()).toBe('Showing the first 2 results')
   })
 
+  it('results_Streamed_ShownOncePerInterval_NotPerMessage_TheEndAtOnce', () => {
+    opened()
+    openSearch()
+    type('whale')
+    fromPage({ type: 'search-results', key: 'aa', id: 1, results: [hit(2)], done: false, more: false })
+    fromPage({ type: 'search-results', key: 'aa', id: 1, results: [hit(4)], done: false, more: false })
+    expect(within(dialog()!).queryAllByRole('listitem')).toEqual([])
+    act(() => { vi.advanceTimersByTime(SEARCH_RENDER_MS) })
+    expect(rows()).toHaveLength(2)
+    // The end is not held back.
+    fromPage({ type: 'search-results', key: 'aa', id: 1, results: [hit(6)], done: false, more: false })
+    fromPage({ type: 'search-results', key: 'aa', id: 1, results: [], done: true, more: false })
+    expect(rows()).toHaveLength(3)
+    expect(status()).toBe('Results: 3')
+  })
+
   it('status_TypedButTooShort_SaysSo_PartOfTheBookUnread_SaidBesideTheCount', () => {
     opened()
     openSearch()
     expect(status()).toBe('')
+    // A query typed, the page not asked yet (the debounce): nothing announced.
+    act(() => { fireEvent.change(input(), { target: { value: 'whale' } }) })
+    expect(status()).toBe('')
+    act(() => { fireEvent.change(input(), { target: { value: '' } }) })
     type('w')
     expect(calls('search')).toEqual([])
     expect(status()).toBe('Type at least 2 characters')
@@ -146,9 +170,11 @@ describe('V2ReaderHost in-book search (#1315)', () => {
     act(() => { fireEvent.click(within(dialog()!).getAllByRole('button').find((b) => b.textContent?.includes('after 4'))!) })
     expect(calls('goTo')).toEqual([[CFI(4), true]])
     expect(dialog()).toBeNull()
-    // Opened again: the same search, nothing asked again.
+    // Opened again: the same search, nothing asked again; focus on the first result, not the field (no keyboard
+    // over the list), and Tab stays in the dialog.
     openSearch()
     expect(input().value).toBe('whale')
+    expect(document.activeElement).toBe(within(dialog()!).getAllByRole('listitem')[0].querySelector('button'))
     act(() => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS) })
     expect(rows()).toHaveLength(2)
     expect(calls('search')).toEqual([['whale', 1]])

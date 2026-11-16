@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   MAX_CONTEXT, MAX_LABEL, MAX_MATCH, MAX_QUERY, MAX_RESULTS, MIN_QUERY, NO_SEARCH, SEARCH_DEBOUNCE_MS, SEARCH_FILL, queryLength, readQuery, readSearchResults, searchItems, searchOpened, searchReset,
-  searchStart, searchStatusKey, searchTake,
+  searchStart, searchStatusKeys, searchTake, createSearchRenders, SEARCH_RENDER_MS,
 } from './search.mjs'
 import { HIGHLIGHT_FILL } from './highlights.mjs'
 import { MAX_SELECTION_CFI, isCfi } from './selection.mjs'
@@ -158,20 +158,67 @@ describe('v2 reader search', () => {
     expect(searchStart(searchOpened(opening, { searchable: true }), 'ahab').searchable).toBe(true)
   })
 
-  it('searchStatusKey_NothingTyped_TooShort_Searching_None_Count_More', () => {
+  it('searchStatusKeys_NothingTyped_TooShort_Searching_None_Count_More_AndIncompleteOnceEnded', () => {
     const answered = (o: object, hits = [hit()]) => searchTake(searchStart(NO_SEARCH, 'whale'), readSearchResults(msg(hits, { id: 1, ...o }))!)
-    expect(searchStatusKey(NO_SEARCH, '')).toBe('')
-    expect(searchStatusKey(NO_SEARCH, '   ')).toBe('')
-    expect(searchStatusKey(NO_SEARCH, undefined)).toBe('')
-    // Typed, but no query yet (one letter): said, not left empty.
-    expect(searchStatusKey(searchStart(NO_SEARCH, 'w'), 'w')).toBe('tooShort')
-    expect(searchStatusKey(searchStart(NO_SEARCH, 'whale'), 'whale')).toBe('searching')
-    expect(searchStatusKey(answered({}), 'whale')).toBe('searching')
-    expect(searchStatusKey(answered({ done: true }, []), 'whale')).toBe('none')
-    expect(searchStatusKey(answered({ done: true }), 'whale')).toBe('count')
-    expect(searchStatusKey(answered({ done: true, more: true }), 'whale')).toBe('more')
+    const status = (s: Parameters<typeof searchStatusKeys>[0], typed: unknown) => searchStatusKeys(s, typed).status
+    expect(status(NO_SEARCH, '')).toBe('')
+    expect(status(NO_SEARCH, '   ')).toBe('')
+    expect(status(NO_SEARCH, undefined)).toBe('')
+    // Typed, and no query (one letter): said, not left empty.
+    expect(status(searchStart(NO_SEARCH, 'w'), 'w')).toBe('tooShort')
+    expect(status(NO_SEARCH, ' w ')).toBe('tooShort')
+    // A query typed that the page was not asked yet (the debounce): nothing is said, least of all "too short".
+    expect(status(NO_SEARCH, 'whale')).toBe('')
+    expect(status(NO_SEARCH, '水')).toBe('')
+    expect(status(searchStart(NO_SEARCH, 'whale'), 'whale')).toBe('searching')
+    expect(status(answered({}), 'whale')).toBe('searching')
+    expect(status(answered({ done: true }, []), 'whale')).toBe('none')
+    expect(status(answered({ done: true }), 'whale')).toBe('count')
+    expect(status(answered({ done: true, more: true }), 'whale')).toBe('more')
     // The search asked stands while the reader types on (until the debounce asks again).
-    expect(searchStatusKey(answered({ done: true }), 'w')).toBe('count')
+    expect(status(answered({ done: true }), 'w')).toBe('count')
+    // Part of the book unread: only once the search ended.
+    expect(searchStatusKeys(answered({ done: true, incomplete: true }), 'whale')).toEqual({ status: 'count', incomplete: true })
+    expect(searchStatusKeys(answered({ done: true, incomplete: true }, []), 'whale')).toEqual({ status: 'none', incomplete: true })
+    expect(searchStatusKeys(answered({ incomplete: true }), 'whale')).toEqual({ status: 'searching', incomplete: false })
+    expect(searchStatusKeys(answered({ done: true }), 'whale').incomplete).toBe(false)
+    expect(searchStatusKeys(NO_SEARCH, '').incomplete).toBe(false)
+  })
+
+  it('searchItems_TheHitOneSpaced_ALineBreakInTheSourceIsNotListed', () => {
+    expect(searchItems([{ cfi: CFI, excerpt: { pre: 'a ', match: 'stone\n      wall\tstands', post: ' b' } }])[0]).toMatchObject({ pre: 'a ', match: 'stone wall stands', post: ' b' })
+  })
+
+  it('createSearchRenders_StreamedAtMostOncePerInterval_AnEndAtOnce', () => {
+    vi.useFakeTimers()
+    try {
+      const render = vi.fn()
+      const renders = createSearchRenders(render)
+      renders(false)
+      renders(false)
+      renders(false)
+      expect(render).toHaveBeenCalledTimes(0)
+      vi.advanceTimersByTime(SEARCH_RENDER_MS - 1)
+      expect(render).toHaveBeenCalledTimes(0)
+      vi.advanceTimersByTime(1)
+      expect(render).toHaveBeenCalledTimes(1)
+      // The next batch waits its own interval.
+      renders(false)
+      vi.advanceTimersByTime(SEARCH_RENDER_MS)
+      expect(render).toHaveBeenCalledTimes(2)
+      // An end is shown at once, and the pending render does not come a second time.
+      renders(false)
+      renders(true)
+      expect(render).toHaveBeenCalledTimes(3)
+      vi.advanceTimersByTime(SEARCH_RENDER_MS * 2)
+      expect(render).toHaveBeenCalledTimes(3)
+      // And the one after an end is scheduled again.
+      renders(false)
+      vi.advanceTimersByTime(SEARCH_RENDER_MS)
+      expect(render).toHaveBeenCalledTimes(4)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('searchTake_NeverPastTheCap', () => {

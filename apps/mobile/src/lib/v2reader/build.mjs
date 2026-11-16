@@ -111,13 +111,14 @@ const FOLIATE_SHA = '686afc4200006874a24071a6a57510e027a4cc32'
 // pinch / wheel / double-tap zoom about the focus, drag to pan, clamped; Tab kept; `closeLightbox()`, `lightbox` on open and close.
 // +778 (#1267): `labels({image, close})`: the lightbox's two words from the host (`readLabels`: non-blank strings, capped).
 // +7,385 (#1271): `markWords(words, show)`: saved-word marks by stage, placed per section (wordMarks.mjs).
-// +10,088 (#1315): in-book search. The fork's search.js is no longer stubbed out (its matchers and excerpts, about
+// +10,357 (#1315): in-book search. The fork's search.js is no longer stubbed out (its matchers and excerpts, about
 // 5,700 of it: view.js's `search` was in the page all along, importing a stub), plus `search(query, id)`: one search
 // at a time, streamed per section in `search-results`, stopped one hit past the cap by the fork's `limit` (`more` only
 // for that hit), every hit drawn (search.mjs), a section that cannot be read skipped by the fork and reported
 // (`incomplete`), the query counted in characters (one is enough where words have no spaces); `opened.searchable`.
-// The fork's 686afc4 (limit, per-hit label, skipped section) is about 500 of it.
-const BUDGET = 306756
+// The fork's 686afc4 (limit, per-hit label, skipped section) is about 500 of it. The book's own language is the
+// search's locale, and a search ended between sections reads no further one.
+const BUDGET = 307025
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

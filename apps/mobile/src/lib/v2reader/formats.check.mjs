@@ -2402,8 +2402,8 @@ try {
     const read = messages.slice(from).filter((x) => x.type === 'search-results').map(readSearchResults)
     return { read, results: read.flatMap((r) => r?.results ?? []), more: read.at(-1)?.more }
   }
-  /** The text a CFI points at in the book's own section document. */
-  const hitText = (cfi) => call(`(async () => { const v = document.querySelector('foliate-view'); const { index, anchor } = v.resolveCFI(${JSON.stringify(cfi)}); return anchor(await v.book.sections[index].createDocument()).toString() })()`)
+  /** The text a CFI points at in the book's own section document, whitespace runs as one space (as a hit is listed). */
+  const hitText = (cfi) => call(`(async () => { const v = document.querySelector('foliate-view'); const { index, anchor } = v.resolveCFI(${JSON.stringify(cfi)}); return anchor(await v.book.sections[index].createDocument()).toString().replace(/\\s+/g, ' ') })()`)
   /** The boxes of the search hits drawn in the shown sections (each section frame's own coordinates), sorted. */
   const drawnHits = () => call(`[...document.querySelector('foliate-view').renderer.getContents()].flatMap((c) => [...(c.overlayer?.element.querySelectorAll(':scope > g[fill="${SEARCH_FILL}"] > rect') ?? [])].map((r) => ['x', 'y', 'width', 'height'].map((k) => Math.round(r.getAttribute(k))).join())).sort()`)
   /** Where a CFI's range is in its shown section: its text, its boxes as `drawnHits` gives them, and whether it is inside the page viewport; null when that section is not shown. */
@@ -2496,6 +2496,26 @@ try {
   const order = messages.slice(from).filter((x) => x.type === 'test-task' || x.type === 'search-results').map((x) => (x.type === 'test-task' ? 'task' : x.done ? 'done' : x.results[0]?.label))
   const between = order.slice(order.indexOf('Chapter One'), order.indexOf('Chapter Two'))
   check(order.includes('Chapter One') && order.includes('Chapter Two') && between.includes('task'), `the page takes other tasks between a search's sections (${order})`)
+  // A search ended while it waits between sections reads no further section: the second section's document is never
+  // asked for (foliate's generator is closed, not resumed).
+  m = await open('tsformat.fb2')
+  from = messages.length
+  await call(`new Promise((done) => {
+    const s = document.querySelector('foliate-view').book.sections[1], make = s.createDocument
+    window.__second = 0
+    s.createDocument = () => { window.__second++; return make() }
+    const rn = window.ReactNativeWebView, send = rn.postMessage
+    rn.postMessage = (json) => {
+      send(json)
+      if (JSON.parse(json).type !== 'search-results') return
+      rn.postMessage = send
+      window.__fol.search(null)
+      done()
+    }
+    window.__fol.search('paragraph 30. sphinx', 20)
+  })`)
+  await page.waitForTimeout(600)
+  check(await call('window.__second') === 0 && messages.slice(from).filter((x) => x.type === 'search-results').length === 1, `a search ended between sections reads no further section (${await call('window.__second')} reads of the second)`)
   // A section that cannot be read is skipped, and the search says it could not read the whole book: the sections
   // after it are still searched. Here the first section's document fails; the hit in the second is found.
   await call(`(() => { document.querySelector('foliate-view').book.sections[0].createDocument = () => Promise.reject(new Error('broken section')) })()`)
@@ -2529,6 +2549,11 @@ try {
   const inline = await searchFor('QUICK brown fox')
   check(JSON.stringify(inline.results.map((r) => [r.match, r.label])) === JSON.stringify([['quick brown fox', 'Alpha']]) && await hitText(inline.results[0]?.cfi) === 'quick brown fox',
     `a hit across <em> nodes is listed as the book's text (${JSON.stringify(inline.results.map((r) => [r.pre, r.match, r.post, r.label]))})`)
+  // A hit over a line break in the source is listed on one line; its CFI is the book's own text.
+  const wrapped = await searchFor('stone wall')
+  check(JSON.stringify(wrapped.results.map((r) => r.match)) === JSON.stringify(['stone wall']) && await hitText(wrapped.results[0]?.cfi) === 'stone wall'
+    && await call(`(async () => { const v = document.querySelector('foliate-view'); const { index, anchor } = v.resolveCFI(${JSON.stringify(wrapped.results[0]?.cfi ?? '')}); return /stone\\n\\s+wall/.test(anchor(await v.book.sections[index].createDocument()).toString()) })()`),
+  `a hit across a source line break is listed one-spaced (${JSON.stringify(wrapped.results.map((r) => r.match))})`)
   const entries = await searchFor('heron')
   check(JSON.stringify(entries.results.map((r) => [r.pre, r.match, r.label])) === JSON.stringify([['A ', 'heron', 'Alpha'], ['Another ', 'heron', 'Beta']]),
     `two hits in one file, each under its own contents entry (${JSON.stringify(entries.results.map((r) => [r.pre, r.match, r.label]))})`)
@@ -2602,6 +2627,14 @@ try {
   await page.waitForTimeout(300)
   call('window.__fol.search(null)')
   check((await afterLetGo()).length === 0, 'nor when the search itself fails after it was ended')
+  // Whatever foliate hands over after a search was ended is dropped: here hits, straight after the wait (the page
+  // does not lean on foliate reporting progress before a section's hits).
+  m = await open('tsformat.fb2')
+  await call(`(() => { const v = document.querySelector('foliate-view'); v.search = async function* () { await new Promise((ok) => { window.__letGo = ok }); yield { subitems: [{ cfi: 'epubcfi(/6/2!/4/2,/1:0,/1:5)', excerpt: { pre: '', match: 'late', post: '' }, label: '' }] } } })()`)
+  call(`window.__fol.search('paragraph 30. sphinx', 13)`)
+  await page.waitForTimeout(300)
+  call('window.__fol.search(null)')
+  check((await afterLetGo()).length === 0, 'hits that arrive after a search was ended are not sent')
   // A search queued behind a held one, then another book opened and searched: when the held one is let go, the queued
   // call (superseded by the open) must not touch the new book: its hits stay drawn, nothing is answered.
   await heldSearch(11)
@@ -2613,6 +2646,31 @@ try {
   const late = await afterLetGo()
   check(kept.results.length === 2 && keptDrawn.length > 0 && late.length === 0 && JSON.stringify(await drawnHits()) === JSON.stringify(keptDrawn),
     `a search queued for a book no longer open clears nothing of the next book's and answers nothing (${keptDrawn.length} hits drawn, ${late.length} late answers)`)
+  // The book's language decides what folds, not the browser's. Under a Turkish browser (where "I" and "i" are different
+  // letters) an English book with no `lang` on its sections is still searched as English: a query in capitals finds
+  // "waits. The quick", and "malmo" finds "Malmö".
+  {
+    const tr = await newPage({ locale: 'tr-TR' })
+    const heard = []
+    await tr.exposeFunction('__toHost', (json) => heard.push(JSON.parse(json)))
+    await tr.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
+    await tr.goto(PAGE_URL)
+    const until = async (match) => { for (const t0 = Date.now(); Date.now() - t0 < TIMEOUT_MS; await tr.waitForTimeout(50)) { const x = heard.find(match); if (x) return x } return null }
+    await until((x) => x.type === 'ready')
+    await tr.evaluate((u) => window.__fol.openUrl(u, 'tr'), bookAt('tssearch.epub'))
+    await until((x) => x.type === 'opened')
+    const found = {}
+    let n = 0
+    for (const q of ['WAITS. THE QUICK', 'malmo']) {
+      const id = ++n
+      await tr.evaluate(([q, id]) => window.__fol.search(q, id), [q, id])
+      await until((x) => x.type === 'search-results' && x.id === id && x.done)
+      found[q] = heard.filter((x) => x.type === 'search-results' && x.id === id).flatMap((x) => x.results.map((r) => r.match))
+    }
+    check(await tr.evaluate(() => new Intl.Collator().resolvedOptions().locale.startsWith('tr')) && JSON.stringify(found) === JSON.stringify({ 'WAITS. THE QUICK': ['waits. The quick'], malmo: ['Malmö'] }),
+      `under a Turkish browser an English book folds case and accents as English does (${JSON.stringify(found)})`)
+    await tr.close()
+  }
   // Before any book: nothing to search, nothing answered, no error.
   const blank = await newPage()
   const said = []

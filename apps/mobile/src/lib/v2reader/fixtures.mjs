@@ -406,7 +406,7 @@ export function writeFormatFixtures(dir) {
   // #1315: one file under two contents entries, a hit under each, and a phrase broken by inline markup (five text nodes).
   epub(resolve(dir, 'tssearch.epub'), 'TS SEARCH', {
     files: {
-      's1.xhtml': xhtml('', '<h2 id="a">Alpha</h2><p>A heron waits. The <em>quick</em> brown <em>fox</em> jumps here.</p><h2 id="b">Beta</h2><p>Another heron flies.</p>'),
+      's1.xhtml': xhtml('', '<h2 id="a">Alpha</h2><p>A heron waits. The <em>quick</em> brown <em>fox</em> jumps here.</p><h2 id="b">Beta</h2><p>Another heron flies.</p><p>A stone\n      wall stands in Malmö.</p>'),
       'nav.xhtml': `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>nav</title></head><body><nav epub:type="toc"><ol><li><a href="s1.xhtml#a">Alpha</a></li><li><a href="s1.xhtml#b">Beta</a></li></ol></nav></body></html>`,
     },
     manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/>',

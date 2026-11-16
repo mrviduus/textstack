@@ -22,7 +22,7 @@ import { useAuth } from '../../context/AuthContext'
 import { trackReadingSessionEnd } from '../../lib/analytics'
 import { V2SectionNav, V2TocDrawer } from './V2ReaderToc'
 import { V2SearchDrawer } from './V2ReaderSearch'
-import { NO_SEARCH, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type V2Search } from '../../../../mobile/src/lib/v2reader/search.mjs'
+import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type V2Search } from '../../../../mobile/src/lib/v2reader/search.mjs'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { V2TimeLeft, v2Percent, type V2TimePlace } from './V2TimeLeft'
 import { useTranslation } from '../../hooks/useTranslation'
@@ -269,6 +269,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     searchRef.current = s
     setSearchState(s)
   }
+  /** Streamed results are put on screen at most once per SEARCH_RENDER_MS (search.mjs): not a render of the whole reader per section. */
+  const [renderSearch] = useState(() => createSearchRenders(() => setSearchState(searchRef.current)))
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchBook, setSearchBook] = useState(0)
   /**
@@ -656,7 +658,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         case 'search-results': {
           // #1315, untrusted: only what readSearchResults takes; another book's or an older search's is dropped.
           const r = readSearchResults(m)
-          if (r && r.key === openedSha.current) setSearch(searchTake(searchRef.current, r))
+          if (!r || r.key !== openedSha.current) return
+          searchRef.current = searchTake(searchRef.current, r)
+          renderSearch(searchRef.current.done)
           return
         }
         case 'restored':
