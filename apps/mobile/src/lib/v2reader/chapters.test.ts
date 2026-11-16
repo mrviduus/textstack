@@ -101,7 +101,8 @@ describe('fitText', () => {
     expect(fitText(['ab', 'яя'], 7)).toEqual({ text: 'ab', cut: true })
   })
   it('cuts a first paragraph over the cap alone inside the cap, never through a surrogate pair', () => {
-    const { text, cut } = fitText(['😀'.repeat(100000)])
+    // One unit before the pairs: the cut at cap / 3 units falls inside a pair.
+    const { text, cut } = fitText(['a' + '😀'.repeat(100000)])
     expect(cut).toBe(true)
     expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(MAX_CHAPTER_TEXT_BYTES)
     expect(text.length).toBeGreaterThan(60000)

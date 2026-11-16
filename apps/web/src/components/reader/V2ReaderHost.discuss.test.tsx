@@ -219,6 +219,8 @@ describe('V2ReaderHost discuss chapter (#1316)', () => {
     await relocate({ chapterEnd: { tocIndex: 1, section: 0 } })
     await click('v2-discuss-share')
     await openBook()
+    // The new book has said nothing of a chapter end yet: the previous book's block is gone.
+    expect(block()).toBeNull()
     await answer({ text: 'Beta begins.' })
     expect(share).not.toHaveBeenCalled()
 

@@ -56,13 +56,6 @@ let vocab = []
 let showGlosses = false
 /** #1272: the CFI of the range the host is speaking (`speaking`), drawn underlined until it says it ended; or null. */
 let spokenCfi = null
-/**
- * #1316, "Discuss this chapter" (chapters.mjs): where each contents entry leads (one per entry of `opened.toc`, null
- * where it leads nowhere), and whether this book's chapters have text the page can read on its own: a reflowable
- * book with text whose sections can be made into documents (not a CBZ, a PDF or a fixed layout).
- */
-let places = []
-let discussable = false
 /** This file's identity and its entry. No save until the stored one is restored. */
 let book = null
 let entry = null
@@ -474,7 +467,8 @@ function textAbove(range, el) {
 function chapterEndAt(d) {
   try {
     const index = d.section?.current
-    if (!discussable || !Number.isInteger(index)) return null
+    const places = view.tsChapters
+    if (!places || !Number.isInteger(index)) return null
     const here = (tocIndex) => ({ tocIndex, section: index })
     if (!places.some(Boolean)) return sectionEndShown() ? here(null) : null
     const current = d.tocItem?.id
@@ -508,7 +502,8 @@ async function chapterText(request, tocIndex, section) {
   const answer = (a) => { if (mine === viewSeq) post({ type: 'chapter-text', request, ...a }) }
   try {
     const sections = view?.book?.sections
-    if (!sections || !discussable) return answer({ error: 'unavailable' })
+    const places = view?.tsChapters
+    if (!sections || !places) return answer({ error: 'unavailable' })
     let chapter = null
     if (Number.isInteger(tocIndex)) chapter = chapterOf(places, tocIndex)
     else if (!places.some(Boolean) && Number.isInteger(section) && sections[section]) chapter = { start: { sec: section }, end: section + 1 < sections.length ? { sec: section + 1 } : null }
@@ -962,8 +957,6 @@ async function open(bytes, name, kind, mine) {
   // view.close() leaves the book alive: destroyed here, or each replaced PDF keeps its document.
   destroy(view?.book)
   view?.remove()
-  places = []
-  discussable = false
   overlays.clear()
   drawnRanges.clear()
   spokenCfi = null
@@ -1051,17 +1044,17 @@ async function open(bytes, name, kind, mine) {
     const make = nb.createDocument.bind(nb)
     nb.createDocument = async (section) => { const doc = await make(section); dropRefresh(doc); return doc }
   }
-  await view.open(nb)
-  // #1316: where the contents lead, before the first relocate (sent while the view starts). A newer open's swap
-  // has reset both: a superseded book sets neither.
-  if (mine === viewSeq && textual && format !== 'pdf' && !view.isFixedLayout && nb.sections.every((s) => typeof s.createDocument === 'function')) {
-    const found = await Promise.all(flat(nb.toc ?? []).map(async (t) => {
+  // This open's view, whatever opens meanwhile.
+  const own = view
+  await own.open(nb)
+  // #1316, "Discuss this chapter" (chapters.mjs): where each contents entry leads (one per entry of `opened.toc`,
+  // null where it leads nowhere), before the first relocate (sent while the view starts). Kept on the view it is
+  // of, so no other book ever reads it. Not for a fixed layout (a CBZ, a PDF, a pre-paginated EPUB): its sections
+  // are pages, with no text the page can read on its own; no `tsChapters`, no chapter end and no chapter text.
+  if (!own.isFixedLayout) {
+    own.tsChapters = await Promise.all(flat(nb.toc ?? []).map(async (t) => {
       try { return placeOf(await nb.resolveHref(t.href), t.href, nb.sections.length) } catch { return null }
     }))
-    if (mine === viewSeq) {
-      places = found
-      discussable = true
-    }
   }
   // The scrolled paginator relocates on a scroll only after a debounce, and not at all on the first one after
   // an anchored re-layout: a selection's box follows every scroll.

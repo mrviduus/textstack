@@ -506,6 +506,70 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
+  // #1316: at the end of a contents entry the reader shares that chapter with their assistant: the entry's own text
+  // goes to /me/v2 as a share, the chat opens with the book and share ids, and only the owner can read the share.
+  test('readV2Discuss_TheEndOfAChapter_ItsTextSharedThenTheChatOpensWithTheShareId_AFailedShareOpensNothing', async ({ browser }) => {
+    const context = await v2Context(browser, email('v2discuss'))
+    // The test account has no assistant connected: one is answered for it. The chat itself is never loaded.
+    // Answered for the API's origin, so with the CORS headers the browser asks of it.
+    await context.route('**/me/oauth/grants', (r) => r.fulfill({
+      headers: { 'access-control-allow-origin': r.request().headers().origin ?? '*', 'access-control-allow-credentials': 'true', 'access-control-allow-headers': 'authorization, content-type' },
+      json: r.request().method() === 'OPTIONS' ? {} : { items: [{ id: 'g1', clientId: 'c1', clientName: 'Claude', scopes: [], createdAt: '2026-11-15T00:00:00Z', lastUsedAt: null }] },
+    }))
+    await context.route('https://claude.ai/**', (r) => r.fulfill({ contentType: 'text/html', body: '<title>chat</title>' }))
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    const share = page.getByTestId('v2-discuss-share')
+    await expect(share).toHaveCount(0)
+
+    // To the end of the first entry: the block names the entry whose end is on screen.
+    for (let i = 0; i < 40 && !(await share.count()); i++) {
+      await page.keyboard.press('ArrowRight')
+      await page.waitForTimeout(400)
+    }
+    await expect(share).toHaveAccessibleName('Discuss the chapter The Pond with your assistant')
+
+    // Offline: said, with a retry; nothing to open.
+    const sharesUrl = `**/me/v2/books/${bookId}/shares`
+    await context.route(sharesUrl, (r) => r.abort('internetdisconnected'))
+    await share.click()
+    await expect(page.getByTestId('v2-discuss').getByRole('alert')).toHaveText(/You are offline, so the chapter was not shared\./)
+    await expect(page.getByTestId('v2-discuss-open')).toHaveCount(0)
+    await context.unroute(sharesUrl)
+
+    const posted = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(`/me/v2/books/${bookId}/shares`))
+    await share.click()
+    const response = await posted
+    expect(response.status()).toBe(201)
+    const sent = response.request().postDataJSON() as { fileId: string; chapterKey: string; chapterTitle: string; chapterText: string }
+    expect({ chapterKey: sent.chapterKey, chapterTitle: sent.chapterTitle }).toEqual({ chapterKey: 'toc-0', chapterTitle: 'The Pond' })
+    expect(sent.fileId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(sent.chapterText).toContain(FIRST_SECTION_TEXT)
+    expect(sent.chapterText).not.toContain('The Woods, paragraph 1.')
+    const { id: shareId } = (await response.json()) as { id: string }
+
+    await expect(page.getByTestId('v2-discuss').getByRole('status')).toHaveText(/The chapter is shared with your assistant\./)
+    const popup = page.waitForEvent('popup')
+    await page.getByTestId('v2-discuss-open').click()
+    const chat = new URL((await popup).url())
+    expect(chat.origin + chat.pathname).toBe('https://claude.ai/new')
+    expect(chat.searchParams.get('q')).toBe(
+      `I'm reading "E2E V2 sync" in TextStack, at the chapter "The Pond". Let's talk about it.\n\n(TextStack: book ${bookId}, share ${shareId})`)
+
+    // What the assistant's tool reads: the owner's share as sent; another account's read finds nothing.
+    const read = await context.request.get(`${API_URL}/me/v2/shares/${shareId}`, { headers: API_HEADERS })
+    expect(read.status()).toBe(200)
+    expect(((await read.json()) as { chapterText: string }).chapterText).toBe(sent.chapterText)
+    const other = await v2Context(browser, email('v2discuss-other'))
+    const theirs = await other.request.get(`${API_URL}/me/v2/shares/${shareId}`, { headers: API_HEADERS })
+    expect(theirs.status()).toBe(404)
+    expect(await theirs.text()).not.toContain(FIRST_SECTION_TEXT)
+    await other.close()
+    await context.close()
+  })
+
   // #1312: a highlight in a colour, recoloured, given a note, listed, jumped to (from the list and by `?highlight=`),
   // deleted: each change one write on /me/v2, the deletion a tombstone.
   test('readV2Highlights_CreateRecolourNoteJumpAndDelete_EachWrittenTheDeletionATombstone', async ({ browser }) => {
