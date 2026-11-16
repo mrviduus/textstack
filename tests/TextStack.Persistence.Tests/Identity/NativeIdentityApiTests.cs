@@ -25,19 +25,30 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
     private const string Password = "correct horse battery";
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task<(HttpClient Client, string Target)> ApiAsync()
+    // Physical connections the legacy pool opened: v2 mode must open none (a silent catch would hide a refused one).
+    private int _legacyConnections;
+    private const string Unreachable = "Host=127.0.0.1;Port=1;Database=down;Timeout=1";
+
+    private void AssertLegacyUntouched() => Assert.Equal(0, Volatile.Read(ref _legacyConnections));
+
+    /// <summary>
+    /// v2 mode: V2 is the scratch database; legacy is a reachable, counted pool (<see cref="AssertLegacyUntouched"/>).
+    /// legacy mode: legacy is a migrated scratch database; V2 is unreachable.
+    /// </summary>
+    private async Task<(HttpClient Client, string Target)> ApiAsync(bool v2 = true)
     {
-        var target = await db.Databases.NewV2Async(_prefix);
+        var target = v2 ? await db.Databases.NewV2Async(_prefix) : (await db.Databases.NewLegacyAsync(_prefix + "_legacy")).Admin;
+        var legacy = v2 ? db.Databases.ConnectionString("postgres") : target;
         var root = Path.Combine(Path.GetTempPath(), _prefix);
         Directory.CreateDirectory(Path.Combine(root, "library"));
         var app = new WebApplicationFactory<ApiMarker>().WithWebHostBuilder(b =>
         {
             b.UseEnvironment("Test");
-            b.UseSetting("Database:Mode", "v2");
+            b.UseSetting("Database:Mode", v2 ? "v2" : "legacy");
             b.UseSetting("Features:V2Api", "true");
             b.UseSetting("Maintenance:WriteFreeze", "false");
-            b.UseSetting("ConnectionStrings:Default", "Host=127.0.0.1;Port=1;Database=legacy;Timeout=1");
-            b.UseSetting("ConnectionStrings:V2", target);
+            b.UseSetting("ConnectionStrings:Default", legacy);
+            b.UseSetting("ConnectionStrings:V2", v2 ? target : Unreachable);
             b.UseSetting("Jwt:SecretKey", TestTokens.Secret);
             b.UseSetting("Jwt:Issuer", TestTokens.Issuer);
             b.UseSetting("App:BaseUrl", "https://textstack.app");
@@ -49,6 +60,17 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
                 s.RemoveAll<IHostedService>();
                 s.RemoveAll<IEmailService>();
                 s.AddSingleton<IEmailService>(_mail);
+                if (!v2) return;
+                // The one legacy pool EF and Dapper share (DataSource.AddTextStackDataAccess), counted.
+                s.RemoveAll<NpgsqlDataSource>();
+                s.AddSingleton(_ =>
+                {
+                    var pool = new NpgsqlDataSourceBuilder(legacy);
+                    pool.UsePhysicalConnectionInitializer(
+                        _ => Interlocked.Increment(ref _legacyConnections),
+                        _ => { Interlocked.Increment(ref _legacyConnections); return Task.CompletedTask; });
+                    return pool.Build();
+                });
             });
         });
         _apps.Add(app);
@@ -102,6 +124,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/auth/refresh-mobile",
                 new { refreshToken = login.GetProperty("refreshToken").GetString() }, Ct)).StatusCode);
         }
+        AssertLegacyUntouched();
     }
 
     [Theory]
@@ -132,6 +155,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
                 Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/me/v2/status", Ct)).StatusCode);
             }
         }
+        AssertLegacyUntouched();
     }
 
     [Fact]
@@ -146,6 +170,9 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/auth/device/approve", new { user_code = device.GetProperty("user_code").GetString() }, Ct)).StatusCode);
             await BodyAsync(await client.PostAsJsonAsync("/auth/device/token", new { grant_type = "urn:ietf:params:oauth:grant-type:device_code", device_code = device.GetProperty("device_code").GetString() }, Ct));
             var key = await BodyAsync(await client.PostAsJsonAsync("/me/mcp/keys", new { name = "Native" }, Ct));
+            // Another V2 account cannot revoke it (owner-scoped).
+            Bearer(client, Access(await RegisterAsync(client, "other@example.test")));
+            Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync("/me/mcp/keys/" + key.GetProperty("id").GetGuid(), Ct)).StatusCode);
             Bearer(client, key.GetProperty("key").GetString()!);
             Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/me/v2/status", Ct)).StatusCode);
             Bearer(client, Access(account));
@@ -155,6 +182,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Bearer(client, key.GetProperty("key").GetString()!);
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/me/v2/status", Ct)).StatusCode);
         }
+        AssertLegacyUntouched();
     }
 
     [Fact]
@@ -171,6 +199,30 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Bearer(client, Access(account));
             Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/me/books", Ct)).StatusCode);
             Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.DeleteAsync("/me/books/" + Guid.NewGuid(), Ct)).StatusCode);
+        }
+        AssertLegacyUntouched();
+    }
+
+    [Fact]
+    public async Task Legacy_V2Unreachable_IdentityAndHealthStillServe()
+    {
+        var (client, target) = await ApiAsync(v2: false);
+        using (client)
+        {
+            using var ready = await client.GetAsync("/health/ready", Ct);
+            Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+            var health = JsonSerializer.Deserialize<JsonElement>(await ready.Content.ReadAsStringAsync(Ct));
+            Assert.Equal("legacy", health.GetProperty("components").GetProperty("db").GetProperty("mode").GetString());
+
+            var registered = await RegisterAsync(client);
+            Assert.Equal(1, await TestSql.ScalarAsync<long>(ct => OpenAsync(target, ct), "SELECT count(*) FROM users WHERE id=@id", new { id = UserId(registered) }));
+            Bearer(client, Access(registered));
+            Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/auth/me", Ct)).StatusCode);
+            var refreshed = await BodyAsync(await client.PostAsJsonAsync("/auth/refresh-mobile",
+                new { refreshToken = registered.GetProperty("refreshToken").GetString() }, Ct));
+            Assert.Equal(UserId(registered), UserId(refreshed));
+            // V2 down pauses sync only (#1053).
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/me/v2/status", Ct)).StatusCode);
         }
     }
 
@@ -208,6 +260,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Bearer(client, token.GetProperty("access_token").GetString()!);
             Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/me/v2/status", Ct)).StatusCode);
         }
+        AssertLegacyUntouched();
     }
 
     [Fact]
@@ -236,6 +289,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             await ExecAsync(target, "UPDATE users SET credentials_reset_at=clock_timestamp() WHERE id=@id", new { id });
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/admin/auth/me", Ct)).StatusCode);
         }
+        AssertLegacyUntouched();
     }
 
     private static async ValueTask<NpgsqlConnection> OpenAsync(string target, CancellationToken ct)
