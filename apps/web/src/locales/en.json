@@ -527,6 +527,7 @@
     "discussOffline": "You are offline, so the chapter was not shared. Try again when you are connected.",
     "discussSignedOut": "Your session ended, so the chapter was not shared. Sign in and try again.",
     "discussNoBook": "This book is not on the server, so the chapter was not shared.",
+    "discussTimeout": "The server did not answer in time, so the chapter may not be shared. Try again.",
     "discussFailed": "The chapter was not shared. Try again.",
     "back": "Back to the library",
     "settings": "Reading settings",

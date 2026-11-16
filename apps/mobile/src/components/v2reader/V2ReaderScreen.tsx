@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { connectedAssistants, createV2Discuss, discussFailureOf, placeTimeLeftLabel, timeLeftAt, v2Api, V2DiscussError, type PagePosition, type V2ClientFormat, type V2DiscussShared } from '@textstack/shared'
+import { createV2Discuss, oauthGrantsApi, placeTimeLeftLabel, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { APP_HEADERS, freshAccessToken } from '../../lib/api'
@@ -32,8 +32,9 @@ import {
 } from '../../lib/v2reader/chrome.mjs'
 import { showsFinishBook } from '../../lib/v2reader/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
-import { V2ChapterDiscuss, type V2DiscussState } from './V2ChapterDiscuss'
-import { chapterKey, discussEntryOf, readChapterEnd, readChapterText, type V2ChapterEnd } from '../../lib/v2reader/chapters.mjs'
+import { V2ChapterDiscuss } from './V2ChapterDiscuss'
+import { chapterKey, offersDiscuss, readChapterEnd, readChapterText, type V2ChapterEnd } from '../../lib/v2reader/chapters.mjs'
+import { createDiscussLocks, runDiscuss, type V2DiscussState } from '../../lib/v2reader/discussFlow'
 import { useAssistantLauncher } from '../../hooks/useAssistantLauncher'
 import { ConnectAssistantSheet } from '../library/ReviewChapterButton'
 import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../lib/v2reader/wordPopup.mjs'
@@ -373,35 +374,40 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const discussBook = useRef<{ title: string; author: string | null; language: string | null } | null>(null)
   const discussUser = useRef(userId)
   discussUser.current = userId
-  /** One Discuss at a time from its tap to its answer (the waits before the controller's own `busy`). */
-  const discussing = useRef(false)
+  /** The chapters a Discuss runs for (discussFlow.ts): per chapter and open book, freed when the run ends or a book opens or closes. */
+  const [discussLocks] = useState(createDiscussLocks)
+  /** No assistant connected: the connect sheet, shown by this screen (the launcher is never asked with no message). */
+  const [connectOpen, setConnectOpen] = useState(false)
   const launcher = useAssistantLauncher({ eager: false })
   const [discuss] = useState(() => createV2Discuss({
     askPage: (request, c) => call(`window.__fol.chapterText(${JSON.stringify(request)}, ${JSON.stringify(c.tocIndex)}, ${JSON.stringify(c.section)})`),
     share: v2Api.shareChapter,
     newId: uuid.v4,
   }))
-  /** A new open or a closed book: the previous book's chapter end, shares and operation ids go. */
+  /** A new open or a closed book: the previous book's chapter end, shares, operation ids and running locks go. */
   const clearDiscuss = () => {
     setChapterEnd(null)
     setDiscussStates({})
     discussBook.current = null
     discuss.reset()
+    discussLocks.reset()
   }
   const openChat = (shared: V2DiscussShared) => { void launcher.launch(() => shared.brief) }
   /**
    * The chapter's text, read by the page, is shared with the reader's account, then the chat opens with the share's
-   * id. Online only: a failed or offline share is said on the pill and hands over nothing. Guarded by the identity it
-   * started under (the user, the session epoch, this open, these bytes): once any changed, nothing is sent or shown.
-   * With no assistant connected nothing is shared: the launcher shows how to connect one.
+   * id (`runDiscuss`). Online only: a failed, slow or offline step is said on the pill and hands over nothing.
+   * Guarded by the identity it started under (the user, the session epoch, this open, these bytes): once any
+   * changed, nothing is sent or shown.
    */
-  const discussChapter = async (chapter: V2ChapterEnd, title: string | null) => {
+  const discussChapter = async (chapter: V2ChapterEnd) => {
     const sha = openShaRef.current
     const open = opening.current
     const book = discussBook.current
     const asker = discussUser.current
     const key = chapterKey(chapter)
-    if (!sha || !open || !book || discussing.current || discuss.busy(key)) return
+    if (!sha || !open || !book) return
+    const release = discussLocks.take(key)
+    if (!release) return
     const stale = resetSince()
     const current = () => !stale() && discussUser.current === asker && opening.current === open && openShaRef.current === sha
     const set = (state: V2DiscussState | undefined) => {
@@ -411,30 +417,24 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         return state ? { ...rest, [key]: state } : rest
       })
     }
-    discussing.current = true
     set({ phase: 'sharing' })
     try {
-      if (connectedAssistants(await launcher.prefetch()).length === 0) {
-        set(undefined)
-        // No brief: with none connected the launcher opens no chat, only the connect sheet.
-        if (current()) void launcher.launch(() => '')
-        return
-      }
-      const server = await deviceLocalLibrary().serverBookOf(sha)
-      if (!current()) return
-      if (!server) throw new V2DiscussError('noBook')
-      const shared = await discuss.discuss(
-        { ...chapter, ...server, chapterKey: key, chapterTitle: title, bookTitle: book.title, author: book.author, language: book.language },
+      const state = await runDiscuss({
+        canConnect: capabilitiesFor(user).canConnectAssistant,
+        grants: oauthGrantsApi.listOAuthGrants,
+        serverBook: () => deviceLocalLibrary().serverBookOf(sha),
+        share: (server) => discuss.discuss(
+          { ...chapter, ...server, chapterKey: key, chapterTitle: chapter.title, bookTitle: book.title, author: book.author, language: book.language },
+          current,
+        ),
         current,
-      )
-      set(shared ? { phase: 'ready', shared } : undefined)
-      if (shared && current()) openChat(shared)
-    } catch (e) {
-      const reason = discussFailureOf(e)
-      console.warn('[v2] chapter not shared:', reason)
-      set({ phase: 'failed', reason })
+        showConnect: () => setConnectOpen(true),
+        openChat,
+      })
+      if (state?.phase === 'failed') console.warn('[v2] chapter not shared:', state.reason)
+      set(state)
     } finally {
-      discussing.current = false
+      release()
     }
   }
 
@@ -1161,6 +1161,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         setChapterEnd(readChapterEnd(m))
         return
       }
+      case 'chapter-end':
+        // #1316: the chapter end of the place last reported, known only now. Not after a failed open, as its relocate.
+        if (tracker.showsPosition()) setChapterEnd(readChapterEnd(m))
+        return
       case 'chapter-text':
         // #1316: the page's answer to this host's own request (an id it made); anything else is dropped.
         discuss.answer(readChapterText(m))
@@ -1274,7 +1278,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * next pass, still carrying `completedAt` (sent with every write while it stands).
    */
   const openBook = openSha ? books.find((b) => b.local && b.sha256 === openSha) : undefined
-  const discussEntry = discussEntryOf(chapterEnd, toc)
   const finishBook = () => {
     const sha = openShaRef.current
     if (!sha) return
@@ -1524,12 +1527,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             />
           )}
           {/* #1316: with a session only (the share is the account's); above the finish pill when both show. */}
-          {openBook && !lightbox && userId && chapterEnd && discussEntry && (
+          {openBook && !lightbox && userId && chapterEnd && offersDiscuss(chapterEnd) && (
             <V2ChapterDiscuss
               key={chapterKey(chapterEnd)}
-              title={discussEntry.title}
+              title={chapterEnd.title}
               state={discussStates[chapterKey(chapterEnd)]}
-              onShare={() => { void discussChapter(chapterEnd, discussEntry.title) }}
+              onShare={() => { void discussChapter(chapterEnd) }}
               onOpen={openChat}
               bottom={(barsVisible ? footerHeight || 60 + insets.bottom : insets.bottom) + 12 + (showsFinishBook({ atEnd, format }) ? 56 : 0)}
               background={colors.background}
@@ -1539,11 +1542,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
                 start: t('reader.v2.discuss.start'), startTitled: t('reader.v2.discuss.startTitled'), sharing: t('reader.v2.discuss.sharing'),
                 shared: t('reader.v2.discuss.shared'), cut: t('reader.v2.discuss.cut'), open: t('reader.v2.discuss.open'), retry: t('reader.v2.discuss.retry'),
                 empty: t('reader.v2.discuss.empty'), unavailable: t('reader.v2.discuss.unavailable'), offline: t('reader.v2.discuss.offline'),
-                signedOut: t('reader.v2.discuss.signedOut'), noBook: t('reader.v2.discuss.noBook'), failed: t('reader.v2.discuss.failed'),
+                signedOut: t('reader.v2.discuss.signedOut'), noBook: t('reader.v2.discuss.noBook'), timeout: t('reader.v2.discuss.timeout'), failed: t('reader.v2.discuss.failed'),
               }}
             />
           )}
-          <ConnectAssistantSheet visible={launcher.connect} onClose={launcher.closeConnect} />
+          <ConnectAssistantSheet visible={launcher.connect || connectOpen} onClose={() => { launcher.closeConnect(); setConnectOpen(false) }} />
           {popup && popup.kind !== 'highlight' && (
             // The legacy reader's bar (#1269): the word's gloss (or the picker's line) on a tap; on a selection highlight,
             // copy, translate, explain; Save on a word (#1270); Listen (#1272). Nothing here needs the network to

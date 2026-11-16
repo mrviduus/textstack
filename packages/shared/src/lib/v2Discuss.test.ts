@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, networkError } from '../api/client'
 import type { V2Share, V2ShareWrite } from '../api/v2'
 import { MAX_BRIEF_CHARS, handoffUrl } from './assistantHandoff'
-import { CHAPTER_TEXT_MS, V2DiscussError, buildV2DiscussBrief, createV2Discuss, discussFailureOf, shareChapterForDiscuss, type V2DiscussDeps } from './v2Discuss'
+import { CHAPTER_TEXT_MS, SHARE_MS, V2DiscussError, buildV2DiscussBrief, createV2Discuss, discussFailureOf, shareChapterForDiscuss, withDeadline, type V2DiscussDeps } from './v2Discuss'
 
 const BOOK = '77777777-7777-4777-8777-777777777777'
 const FILE = '88888888-8888-4888-8888-888888888888'
@@ -168,11 +168,43 @@ describe('createV2Discuss', () => {
     expect(share).not.toHaveBeenCalled()
     expect(d.busy('toc-3')).toBe(false)
   })
+  it('gives a share that does not answer a deadline: said as a timeout, the chapter free again, and the retry replays the same operation', async () => {
+    vi.useFakeTimers()
+    const { d, asked, share } = make()
+    share.mockImplementationOnce(() => new Promise<V2Share>(() => {}))
+    const going = d.discuss(request, () => true).catch((e: V2DiscussError) => e.reason)
+    d.answer({ request: asked[0][0], text: 'x', cut: false })
+    await vi.advanceTimersByTimeAsync(SHARE_MS - 1)
+    expect(d.busy('toc-3')).toBe(true)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await going).toBe('timeout')
+    expect(d.busy('toc-3')).toBe(false)
+    const again = d.discuss(request, () => true)
+    d.answer({ request: asked[1][0], text: 'x', cut: false })
+    expect((await again)?.shareId).toBe(SHARE)
+    expect(share.mock.calls[1][1].operationId).toBe(share.mock.calls[0][1].operationId)
+  })
   it('passes the page\'s own refusal on', async () => {
     const { d, asked, share } = make()
     const going = d.discuss(request, () => true).catch((e: V2DiscussError) => e.reason)
     d.answer({ request: asked[0][0], error: 'empty' })
     expect(await going).toBe('empty')
     expect(share).not.toHaveBeenCalled()
+  })
+})
+
+describe('withDeadline', () => {
+  afterEach(() => vi.useRealTimers())
+  it('passes an answer and a failure in time through, and leaves no timer', async () => {
+    vi.useFakeTimers()
+    expect(await withDeadline(Promise.resolve(5), 100)).toBe(5)
+    await expect(withDeadline(Promise.reject(new Error('boom')), 100)).rejects.toThrow('boom')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+  it('is a timeout once the deadline passes', async () => {
+    vi.useFakeTimers()
+    const late = withDeadline(new Promise(() => {}), 100).catch((e: V2DiscussError) => e.reason)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(await late).toBe('timeout')
   })
 })

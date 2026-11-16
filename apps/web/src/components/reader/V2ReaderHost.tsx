@@ -15,7 +15,7 @@ import { V2ReaderPopups, type V2HighlightEditor } from './V2ReaderPopups'
 import { noteChange, readHighlightList, readHighlightRemoved, readHighlightTap, type V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
 import { showsFinishBook } from '../../../../mobile/src/lib/v2reader/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
-import { chapterKey, discussEntryOf, readChapterEnd, readChapterText, type V2ChapterEnd } from '../../../../mobile/src/lib/v2reader/chapters.mjs'
+import { chapterKey, offersDiscuss, readChapterEnd, readChapterText, type V2ChapterEnd } from '../../../../mobile/src/lib/v2reader/chapters.mjs'
 import { V2ChapterDiscuss, type V2DiscussState } from './V2ChapterDiscuss'
 import { v2Store } from '../../api/v2'
 import { readToc, tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
@@ -448,7 +448,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     setPopup(null)
     setRestored('')
     setAtEnd(false)
+    // #1316 review: nothing of the previous book's Discuss outlives the start of an open (the guard already holds
+    // the new one): its chapter end, the server book its share would name, its shares and operation ids.
     setChapterEnd(null)
+    setDiscussBook(null)
+    setDiscussStates({})
+    discuss.reset()
     setHighlightList([])
     openedSha.current = null
     pendingHighlight.current = highlightId ?? null
@@ -680,6 +685,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           setChapterEnd(readChapterEnd(m))
           return
         }
+        case 'chapter-end':
+          // #1316: the chapter end of the place last reported, known only now. Not after a failed open, as its relocate.
+          if (tracker.showsPosition()) setChapterEnd(readChapterEnd(m))
+          return
         case 'chapter-text': {
           // #1316: the page's answer to this host's own request (an id it made); anything else is dropped.
           discuss.answer(readChapterText(m))
@@ -848,7 +857,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     })
   }
   /** The chapter Discuss is offered for: the one whose end is on screen, when the host can name it (its contents entry, or a book with no contents). */
-  const discussEntry = discussBook ? discussEntryOf(chapterEnd, toc) : null
+  /** Discuss is offered for the chapter the page says ended (its title the page's too), by the hosts' one rule. */
+  const discussEnd = discussBook && offersDiscuss(chapterEnd) ? chapterEnd : null
   const finishShown = !!finish && finish.completedAt !== undefined && showsFinishBook({ atEnd, format: finish.format })
 
   const finishBook = async () => {
@@ -1000,11 +1010,11 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       </footer>
       {/* Over the frame, above the bottom bar (or the screen's edge with the bars hidden), out of flow: showing it
           must never resize the frame, or foliate re-lays out, `atEnd` turns false, the block hides, and it loops. */}
-      {(finishShown || (chapterEnd && discussEntry)) && (
+      {(finishShown || discussEnd) && (
         // Hidden and inert under the lightbox (#1267 review), kept mounted: a write in flight or its failure stays.
         <div className="v2-reader__finish" data-testid="v2-finish-block" inert={lightboxOpen} style={{ '--v2-finish-above': `${barsHidden ? 0 : footerHeight}px`, visibility: lightboxOpen ? 'hidden' : undefined } as CSSProperties}>
-          {chapterEnd && discussEntry && (
-            <V2ChapterDiscuss key={chapterKey(chapterEnd)} title={discussEntry.title} state={discussStates[chapterKey(chapterEnd)]} onShare={() => discussChapter(chapterEnd, discussEntry.title)} />
+          {discussEnd && (
+            <V2ChapterDiscuss key={chapterKey(discussEnd)} title={discussEnd.title} state={discussStates[chapterKey(discussEnd)]} onShare={() => discussChapter(discussEnd, discussEnd.title)} />
           )}
           {finishShown && finish && <V2FinishBook finished={!!finish.completedAt} onFinish={finishBook} />}
         </div>

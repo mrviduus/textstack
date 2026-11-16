@@ -2863,7 +2863,15 @@ try {
   async function checkChapters() {
     console.log('chapters')
     await page.setViewportSize({ width: 1280, height: 720 })
-    const rels = (from) => messages.slice(from).filter((x) => x.type === 'relocate')
+    /** The relocates from `from`, each with the chapter end the page said for it: its own, or a `chapter-end` after it. */
+    const rels = (from) => {
+      const out = []
+      for (const x of messages.slice(from)) {
+        if (x.type === 'relocate') out.push({ ...x })
+        else if (x.type === 'chapter-end' && out.length) out[out.length - 1] = { ...out.at(-1), chapterEnd: x.chapterEnd }
+      }
+      return out
+    }
     const ends = (from) => JSON.stringify(rels(from).map((x) => [x.index, x.tocIndex, x.chapterEnd]))
     let n = 0
     const textOf = async (tocIndex, section) => {
@@ -3019,10 +3027,11 @@ try {
     m = await open('tsdeadtoc.epub')
     const openedAt = messages.findIndex((x, i) => i >= m.from && x.type === 'opened')
     const restoredAt = messages.findIndex((x, i) => i >= m.from && x.type === 'restored')
-    const endAt = () => messages.findIndex((x, i) => i >= m.from && x.type === 'relocate' && x.chapterEnd)
+    const endAt = () => messages.findIndex((x, i) => i >= m.from && (x.type === 'relocate' || x.type === 'chapter-end') && x.chapterEnd)
     check(endAt() < 0 && rels(m.from).length > 0, `chapters held back: the book opened, restored and reported its place without them (${ends(m.from)})`)
-    const said = await waitFor(m.from, (x) => x.type === 'relocate' && x.chapterEnd, 'the chapter end said later').catch(() => null)
-    check(!!said && said.moved === false && said.cause === 'layout' && endAt() > openedAt && endAt() > restoredAt, `chapters held back: the chapter end comes after opened and restored, as the same place again (${openedAt}, ${restoredAt}, ${endAt()}; ${JSON.stringify([said?.moved, said?.cause])})`)
+    const said = await waitFor(m.from, (x) => x.type === 'chapter-end', 'the chapter end said later').catch(() => null)
+    check(JSON.stringify(readChapterEnd(said)) === '{"tocIndex":null,"section":0,"title":null}' && endAt() > openedAt && endAt() > restoredAt && !messages.slice(endAt()).some((x) => x.type === 'relocate'),
+      `chapters held back: the chapter end comes after opened and restored, for the place last reported (${openedAt}, ${restoredAt}, ${endAt()}; ${JSON.stringify(said)})`)
     // Two opens back to back: the second is the book on screen, at its restored place; the first's chapters, still
     // held back, say nothing of it.
     {

@@ -200,14 +200,15 @@ export function fitText(paragraphs, cap = MAX_CHAPTER_TEXT_BYTES) {
 }
 
 /**
- * A host's read of `relocate.chapterEnd` (never throws): the chapter whose end is on screen,
+ * A host's read of `relocate.chapterEnd`, or of `chapter-end` (the same, said after its relocate once the page
+ * knew it), never throws: the chapter whose end is on screen,
  * `{ tocIndex, section, title }` (`tocIndex` the entry's index in `opened.toc`, null in a book with no contents;
  * `section` the spine section shown; `title` the entry's label as the page read it, text, cut to 200, null when
  * blank or in a book with no contents), or null: none, or anything malformed. The page renders the book: nothing
  * else is taken. What the page says is the rule: a host does not look the entry up in its own contents.
  */
 export function readChapterEnd(m) {
-  const e = m?.type === 'relocate' ? m.chapterEnd : null
+  const e = m?.type === 'relocate' || m?.type === 'chapter-end' ? m.chapterEnd : null
   if (!e || typeof e !== 'object' || !whole(e.section)) return null
   if (e.tocIndex != null && !whole(e.tocIndex)) return null
   const title = typeof e.title === 'string' ? e.title.trim().slice(0, MAX_TITLE) : ''

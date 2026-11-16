@@ -45,6 +45,8 @@ export type V2DiscussFailure =
   | 'signedOut'
   /** The server does not have this book (not synced yet, or removed). */
   | 'noBook'
+  /** No answer in time (a share, or the list of connected assistants): it may yet land; the retry replays it. */
+  | 'timeout'
   | 'failed'
 
 export class V2DiscussError extends Error {
@@ -132,6 +134,16 @@ export interface V2DiscussRequest extends V2DiscussChapter { tocIndex: number | 
 
 /** No `chapter-text` from the page by then: the chapter is not shared, and the reader is told. */
 export const CHAPTER_TEXT_MS = 20000
+/** No answer from the server by then (the API client has no deadline of its own): said as `timeout`, with a retry. */
+export const SHARE_MS = 30000
+
+/** `work`, or a `V2DiscussError('timeout')` after `ms`: a call that never answers does not hold its button forever. */
+export function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new V2DiscussError('timeout')), ms)
+    work.then(resolve, reject).finally(() => clearTimeout(timer))
+  })
+}
 
 /**
  * One host's Discuss for the open book (both hosts): asks the page for a chapter's text under a request id of its
@@ -144,6 +156,7 @@ export function createV2Discuss(deps: {
   share(bookId: string, body: V2ShareWrite): Promise<V2Share>
   newId(): string
   timeoutMs?: number
+  shareTimeoutMs?: number
 }) {
   const waiting = new Map<string, (a: V2ChapterTextAnswer) => void>()
   let operations = new Map<string, string>()
@@ -172,7 +185,8 @@ export function createV2Discuss(deps: {
         return await shareChapterForDiscuss(chapter, {
           operationId,
           current,
-          share: deps.share,
+          // A share that lands after its deadline is found again by the retry: the same operation id replays it.
+          share: (bookId, body) => withDeadline(deps.share(bookId, body), deps.shareTimeoutMs ?? SHARE_MS),
           chapterText: () => new Promise((resolve, reject) => {
             const request = deps.newId()
             const timer = setTimeout(() => {

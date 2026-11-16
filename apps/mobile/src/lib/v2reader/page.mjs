@@ -476,7 +476,7 @@ function startChapters(v) {
     }
     c.places = places
   })().catch((e) => log('error', `chapters: ${e?.stack ?? e}`))
-  // The place on screen was reported before this was known: said again with its chapter end, if it has one.
+  // The place on screen was reported before this was known: its chapter end is said now, if it has one.
   void c.ready.then(() => refineChapterEnd(v))
 }
 
@@ -545,15 +545,26 @@ function chapterEndNow(v, d) {
   } catch { return { value: null } }
 }
 
-/** The last relocate posted for the view on screen, and what it was made of: said again once its chapter end is known. */
+/**
+ * The place last reported for the view on screen. Its chapter end, where it needed something not read yet (where
+ * the contents lead, the next entry's file), is said once that is known, as `chapter-end`: for that place only,
+ * never after a newer relocate.
+ */
 let lastRelocate = null
+function chapterEndFor(d) {
+  const v = view
+  const r = chapterEndNow(v, d)
+  lastRelocate = { view: v, detail: d }
+  // (Where the contents lead is still being found out: `startChapters` comes back to this place itself.)
+  if (r.wait && r.wait !== v.tsChapters?.ready) void r.wait.then(() => refineChapterEnd(v))
+  return r.value
+}
 function refineChapterEnd(v, tries = 0) {
   const last = lastRelocate
   if (v !== view || last?.view !== v || tries > 3) return
   const r = chapterEndNow(v, last.detail)
   if (r.wait) return void r.wait.then(() => { if (lastRelocate === last) refineChapterEnd(v, tries + 1) })
-  // The same place again, as a re-layout says it: nothing moved, nothing is saved.
-  if (r.value) post({ ...last.message, moved: false, cause: 'layout', chapterEnd: r.value })
+  if (r.value) post({ type: 'chapter-end', chapterEnd: r.value })
 }
 
 /**
@@ -1047,13 +1058,7 @@ async function open(bytes, name, kind, mine) {
     // crossings (paginator #turnPage/snap passing reason 'turn').
     const cause = d.cfi === lastCfi ? 'layout' : navs > 0 || (awaitingRestore && !readerActed) ? 'nav' : d.reason === 'anchor' ? 'layout' : 'turn'
     lastCfi = d.cfi
-    const chapterEnd = chapterEndNow(view, d)
-    const message = { type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, cause, atEnd: atBookEnd(d.section?.current), chapterEnd: chapterEnd.value, ...lengthAt(d.section?.current) }
-    post(message)
-    // #1316: a chapter end that needs a file not read yet is said once it is known (`refineChapterEnd`).
-    lastRelocate = { view, detail: d, message }
-    // (Where the contents lead is still being found out: `startChapters` says it again itself.)
-    if (chapterEnd.wait && chapterEnd.wait !== view.tsChapters?.ready) { const v = view; void chapterEnd.wait.then(() => refineChapterEnd(v)) }
+    post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, cause, atEnd: atBookEnd(d.section?.current), chapterEnd: chapterEndFor(d), ...lengthAt(d.section?.current) })
     // A selection moved (or left the screen) with the view, a font or flow change's re-layout included: sent
     // again, or cleared.
     settleSelection()

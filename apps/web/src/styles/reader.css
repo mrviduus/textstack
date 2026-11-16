@@ -999,6 +999,10 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   transition: bottom 0.3s ease;
 }
 
+/* #1316: the assistant menu opens upward: the pill sits at the bottom of the screen, below it is off screen. */
+.v2-reader__discuss { position: relative; }
+.v2-reader__discuss .review-chapter__menu { top: auto; bottom: calc(100% + 4px); right: auto; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 32px); }
+
 .v2-reader__finish > * {
   pointer-events: auto;
   display: flex;

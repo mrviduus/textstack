@@ -699,6 +699,7 @@
   "reader.v2.discuss.offline": "You are offline, so the chapter was not shared. Try again when you are connected.",
   "reader.v2.discuss.signedOut": "Your session ended, so the chapter was not shared. Sign in and try again.",
   "reader.v2.discuss.noBook": "This book is not on the server yet, so the chapter was not shared. It is shared once the book has synced.",
+  "reader.v2.discuss.timeout": "The server did not answer in time, so the chapter may not be shared. Try again.",
   "reader.v2.discuss.failed": "The chapter was not shared. Try again.",
   "reader.v2Settings.theme": "Theme",
   "reader.v2Settings.themeLabel": "{name} theme",
