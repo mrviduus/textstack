@@ -1,9 +1,9 @@
 # M5.1 Part C: pending routes and MCP tools
 
-Status: Inventory only (Part C phase 1). Part of [#1031](https://github.com/mrviduus/textstack/issues/1031),
+Status: Inventory done; owner cut decided 2026-11-16 ([below](#owner-decision-2026-11-16)), shipping as stacked PRs. Part of [#1031](https://github.com/mrviduus/textstack/issues/1031),
 [#1346](https://github.com/mrviduus/textstack/issues/1346). Base: Part B (#1363).
 
-In `Database:Mode=v2`, `SelectedDatabaseGuard` answers 503 `v2_compatibility_pending` for every route under
+Before Part C, in `Database:Mode=v2`, `SelectedDatabaseGuard` answered 503 `v2_compatibility_pending` for every route under
 `/me` or `/admin`, and every non-GET route, without `V2SelectedRoute`. Read from the Api's own
 `EndpointDataSource` (as `ApiRouteTable`), Test environment, `Features:V2Api` off: **229 routes**.
 `/me/v2/*` is marked and not counted. Public GETs (catalog, search, TTS) are not gated: they keep reading
@@ -30,7 +30,7 @@ Classes:
 | (c) retire | 100 | 0 |
 | MCP tools needing a V2 path | 14 of 25 | ~8 bridge ports + 1 new V2 endpoint set (insights) |
 
-**Over budget** (> ~8 non-trivial ports in (a)): Part C stopped after phase 1 for an owner scope cut.
+Over the ~8-port budget: the owner cut the scope ([decision](#owner-decision-2026-11-16)).
 
 ## (a) End-user clients, V2 on (31)
 
@@ -133,20 +133,24 @@ in `Contracts/Mcp/McpManifest.cs`. `TEXTSTACK_MCP_V2` already moves vocabulary a
 | list_my_highlights, save_highlight | edition-keyed /me/highlights | retire | tool answers "catalog retired" (count kept) |
 | get_chapter_review, save_chapter_review | /me/chapter-review | retire | answers "deferred" (#1345) (count kept) |
 
-## Suggested cut (owner)
+## Owner decision (2026-11-16)
 
-Fastest switch, nothing new in the V2 schema:
-1. **Port** on existing V2 data: reading stats/daily/pace/library-summary, vocabulary stats/daily,
-   highlights/all, shelves, explain/translate (V2 spend), MCP bridge ports, insights endpoint.
-2. **Hide on V2 + 410**: goals, achievements, book-stats, vocabulary settings/pending/lookups/concepts,
-   highlight review, mark-as-known (add each to `V2_FEATURES`).
-3. **Old builds**: the 25 maps are optional if the owner's devices update before the switch; then
-   every (b) route is a logged 410 (§5.4: the log ends the window).
-4. **Admin**: (c) 410 for catalog tooling; AI Quality and User Uploads on V2 tables, or 410 until after M5.
+The class columns above are the inventory; this is what v2 mode does. Scope cut (v2-plan D6 + Q3): simpler
+architecture, **no new tables**.
 
-## Unresolved questions
+| Decision | Routes | Where |
+|------|------|------|
+| **Port**: all-highlights list | GET /me/highlights/all on `annotations` | stacked PR 2 |
+| **Port** with V2 spend (guest/user limits, existing V2 tables only) | POST /explain, /translate, /api/translate | stacked PR 3 |
+| **Port**: MCP | bridge ports (table above) + `/me/v2` insights on `book_insight` | stacked PR 4 |
+| **Port**: new clips | POST /me/books/clip writes a V2 book with one `html` file (same path, extension unchanged) | stacked PR 5 |
+| **410 + hide** (UI hidden by a separate frontend change; data stays in legacy, archived) | reading stats/daily/pace/library-summary, vocabulary stats/daily, shelves (retired, Q3), goals, achievements, book-stats, vocabulary settings/pending/lookups/concepts, mark-as-known, highlight review | PR 1 |
+| **410, logged** (old builds; no 1:1 map, the owner updates devices first) | every (b) route, map and 410 alike | PR 1 |
+| **410** (retire) | every (c) route, incl. chapter review (#1345 deferred); its MCP tools answer an error, tool count unchanged | PR 1 |
+| **410** until after M5 | admin AI Quality, User Uploads, ingestion, settings, catalog tooling | PR 1 |
 
-- Goals/achievements/vocab settings: drop on V2, or new table?
-- (b) map, or all-410 if devices update first?
-- Admin AI Quality on V2 before the switch, or after?
-- Explain/translate: V2 spend accounting in Part C, or a follow-up?
+**Mechanism** (`SelectedDatabaseGuard`): in v2 mode a private route or a write without `V2SelectedRoute` answers
+410 `{"error":"gone_in_v2"}`, logged at Information as `Gone in V2: {Route} from app {AppVersion}, outcome 410`
+(`X-App-Version`; `none` when absent). A route in `SelectedDatabaseGuard.Pending` keeps the retryable 503
+`v2_compatibility_pending` until its port lands; each port removes its lines. Legacy mode is unchanged: the guard
+is not in its pipeline.
