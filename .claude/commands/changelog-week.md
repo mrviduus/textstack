@@ -23,15 +23,14 @@ gh pr list --state merged --limit 200 \
 
 ## 2. Area labels
 
-Every PR needs one of `reader mobile library vocabulary ai data ops documentation`
+Every PR needs one of `reading library highlights vocabulary assistant account data ops documentation`
 (`.github/release.yml`). For each PR without one, propose the label from its title/paths; apply after
 the owner's yes in step 4.
 
 ## 3. Draft public entries
 
 Reader-visible = something a person reading books on textstack.app or the Android app can see or
-feel *today*. Not: CI, tests, docs, refactors, dev-only V2 routes (`Features:V2Api` is off in
-production), admin-only tools. When unsure, check `docs/STATUS.md`.
+feel *today*. Not: CI, tests, docs, refactors, dev-only routes (`/dev/*`), admin-only tools. When unsure, check `docs/STATUS.md`.
 
 For each candidate, draft (format = `parsePublic` in `scripts/changelog-data.mjs`):
 
