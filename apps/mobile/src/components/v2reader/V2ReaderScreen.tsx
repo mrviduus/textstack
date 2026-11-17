@@ -855,6 +855,22 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     () => showToast({ variant: 'error', message: t('reader.vocab.restoreFailed') }),
     )
   }
+  /**
+   * Remove: the legacy reader's (useReaderVocabActions `removeWord`, the same bar's trash button), an accidental save
+   * undone. Optimistic: unmarked at once; deleted, the bar closes and the next sync pass pulls the tombstone that drops
+   * the row; failed, the row's mark comes back. A later Save saves it anew.
+   */
+  const removeWord = (p: V2Popup, id: string) => {
+    const rows = vocab.current.filter((w) => w.id !== id)
+    vocab.current = rows
+    setVocabRows(rows)
+    sendMarks()
+    vocabularyApi.deleteWord(id).then(() => { closeIfOpen(p); syncSoon() }, (e) => {
+      console.warn('[v2] word not removed:', e)
+      refreshVocab()
+      showToast({ variant: 'error', message: t('reader.vocab.removeFailed') })
+    })
+  }
   const saveWord = async (p: V2Popup) => {
     if (p.kind !== 'word' || !langSaves) return
     const intent = saveWordIntent({ isAuthenticated: !!user, hasSelection: true })
@@ -1552,8 +1568,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   // A book whose language does not read (savesWords) marks and fills none: its words would be another language's.
   vocabLang.current = langSaves ? textLang : null
   useEffect(() => { sendMarks() }, [textLang, langSaves])
-  /** The bar's ✓: the word is one of the book's language's rows (saved here or anywhere, pulled or answered). */
-  const savedKeys = useMemo(() => new Set(forBook(vocabRows, vocabLang.current).map((w) => vocabMapKey(w.word))), [vocabRows, langSaves, textLang])
+  /** The bar's ✓ (and Remove's card id): the word is one of the book's language's rows (saved here or anywhere, pulled or answered). */
+  const savedKeys = useMemo(() => new Map(forBook(vocabRows, vocabLang.current).map((w) => [vocabMapKey(w.word), w.id])), [vocabRows, langSaves, textLang])
   // #1271: missing translations filled once per (open, user, native language) — `vocabOpen` is bumped by an open and by a
   // user change — over the book's language's rows without one (the legacy readers' backfill). Each one the server took is
   // written to its row; the rows are read again, coalesced. Stopped by a new open, a user change, a new native language
@@ -1749,6 +1765,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               // No Save where the book's language does not read (savesWords): the gloss still uses the fallback.
               onSaveWord={popup.kind === 'word' && langSaves ? () => { void saveWord(popup) } : undefined}
               wordSaved={popup.kind === 'word' && savedKeys.has(vocabMapKey(popup.word))}
+              onRemove={popup.kind === 'word' && savedKeys.has(vocabMapKey(popup.word)) ? () => { removeWord(popup, savedKeys.get(vocabMapKey(popup.word))!) } : undefined}
               lookup={lookup?.popup === popup ? lookup : null}
               onAddAnyway={() => { void addAnyway() }}
               bottomOffset={barsVisible ? footerHeight : insets.bottom}
