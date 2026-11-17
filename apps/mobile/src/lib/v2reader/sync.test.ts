@@ -2696,4 +2696,25 @@ describe('V2 local library sync (R6)', () => {
       expect(writes(calls)).toEqual([`DELETE /annotations/${HL}`])
     })
   })
+
+  it('aLegacyHighlight_ShowsAsAQuotation_NeverDrawnNeverSent', async () => {
+    // #1195: the earlier reader's highlight (a textstack-anchor-v1 row) is listed by its text and note; nothing the
+    // device does to it reaches the server.
+    const { lib, bookId, fileId } = await synced()
+    const ANCHOR = '0b6a2c1e-2222-4222-8333-444455556666'
+    await lib.applyAnnotations([serverAnnotation(bookId, fileId, 3, {
+      id: ANCHOR, selectedText: 'an older highlight', noteText: 'my note', color: 'green',
+      locator: { version: 1, scheme: 'textstack-anchor-v1', value: { chapterId: 'c', startOffset: 1, endOffset: 5 } },
+    }) as never])
+    const e = await restoredEntry(lib)
+    expect(e.highlights.map((h: { id: string }) => h.id)).toEqual([HL])
+    expect(e.quotations).toEqual([{ id: ANCHOR, quotation: true, selectedText: 'an older highlight', color: 'green', at: Date.parse('2026-11-10T00:00:00Z') }])
+    expect((await lib.notes(SHA)).known.get(ANCHOR)).toBe('my note')
+    await lib.setNote(ANCHOR, 'edited')
+    await lib.removeHighlight(ANCHOR)
+    expect(await lib.outbox()).toEqual([])
+    const calls = fakeApi({})
+    expect(await syncV2Library(lib, host())).toBe('done')
+    expect(writes(calls)).toEqual([])
+  })
 })

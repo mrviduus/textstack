@@ -174,7 +174,7 @@ const freshNonce = () => nonceFromUuid(uuid.v4())
  * `name` handed to `openUrl` and echoed in `opened`/`open-failed`, so an answer to an earlier open
  * is recognised instead of being paired with this one's file.
  */
-type Opening = { file: string; name: string }
+type Opening = { file: string; name: string; format?: string | null }
 const isStaged = (file: string) => file.startsWith('staging/')
 
 /** Logs a failure; `show` also puts it on screen (the screen's `showError`: a full disk as a human message, hostErrors.ts). */
@@ -995,7 +995,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         if (!ok) return
         await refreshBooks()
         if (!current()) return
-        open({ file: bookFile(b.sha256), name: b.originalName })
+        open({ file: bookFile(b.sha256), name: b.originalName, format: b.format })
       },
       fail('download', showOpenError(t('reader.v2.failed.download'))),
     )
@@ -1046,7 +1046,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setOpens((n) => n + 1)
     if (!ready.current) return
     deadlines.waitOpened(sizeOf(target.file))
-    call(`window.__fol.openUrl(${JSON.stringify(url)}, ${JSON.stringify(target.file)})`)
+    // The library's format for the file: a clip ('html') opens as one, never guessed from its bytes.
+    call(`window.__fol.openUrl(${JSON.stringify(url)}, ${JSON.stringify(target.file)}, ${JSON.stringify(target.format ?? null)})`)
   }
 
   /** The page's book is `t.open`'s: every other open still pending is over, and its staged file goes. */
@@ -1477,7 +1478,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (!b) return
     linked.current = true
     if (!b.local) return download(b)
-    open({ file: bookFile(b.sha256), name: b.originalName })
+    open({ file: bookFile(b.sha256), name: b.originalName, format: b.format })
     // After `open`, which clears any earlier one.
     pendingHighlight.current = typeof params.highlight === 'string' ? params.highlight : null
   }, [books, linkedBook])
@@ -1776,7 +1777,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               {books.map((b) => (
                 <Pressable
                   key={b.id}
-                  onPress={() => (b.local ? open({ file: bookFile(b.sha256), name: b.originalName }) : download(b))}
+                  onPress={() => (b.local ? open({ file: bookFile(b.sha256), name: b.originalName, format: b.format }) : download(b))}
                   accessibilityRole="button"
                   style={[styles.book, { borderColor: colors.border }]}
                 >

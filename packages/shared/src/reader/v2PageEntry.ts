@@ -5,11 +5,11 @@
  * same way on both.
  */
 import { codePoints, isUuid, sameJson, type PageHighlight, type PagePosition } from './v2LocalSync'
-import { emptyEntry, isBookmark, type PageEntry, type PageEntryBook } from './v2PageStore'
+import { emptyEntry, isBookmark, type PageEntry, type PageEntryBook, type PageQuotation } from './v2PageStore'
 
-/** The entry `restore` takes: the position and highlights of THIS file version only (the caller filters). */
-export const pageEntry = (book: PageEntryBook, position: PagePosition | null, highlights: PageHighlight[]): PageEntry =>
-  ({ ...emptyEntry(book), position, highlights })
+/** The entry `restore` takes: the position, highlights and quotations (#1195) of THIS file version only (the caller filters). */
+export const pageEntry = (book: PageEntryBook, position: PagePosition | null, highlights: PageHighlight[], quotations: PageQuotation[] = []): PageEntry =>
+  ({ ...emptyEntry(book), position, highlights, ...(quotations.length ? { quotations } : {}) })
 
 /** An old (#1078-less) highlight: `quote` held the whole selection; now `selectedText` does and `quote` is its start. */
 export function normalisedHighlight<H extends PageHighlight>(h: H): H {
