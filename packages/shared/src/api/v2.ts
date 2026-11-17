@@ -72,61 +72,6 @@ export interface V2Switch {
 
 export const V2_OFF: V2Switch = { enabled: false, maxPartBytes: 0 }
 
-/**
- * What a client offers on a V2 user book (`Features:V2Api` on). V2 holds no bookmarks, no
- * distractors, clusters, tutor, stats or tags (ADR-031 D6): web and mobile hide the same things
- * from this one table, and M6 deletes it. `false` = hidden.
- */
-export const V2_FEATURES = {
-  /** The legacy readers' bookmarks (chapter- and page-level, not carried). The V2 reader has its own (#1314): annotations of colour `bookmark`. */
-  bookmarks: false,
-  /** Flashcards only: multiple choice needs server-made distractors. */
-  reviewModes: ['classic'] as const,
-  clusters: false,
-  tutor: false,
-  /** Book actions offered on an upload. */
-  bookActions: ['open', 'delete', 'finish'] as const,
-  metadataEdit: false,
-  enrich: false,
-  retry: false,
-  tags: false,
-  collections: false,
-  stats: false,
-  /** Read from `/me/v2/books/{id}/insights` (#1031); a catalog edition's are none. */
-  insights: true,
-  /** V2 has no insight delete route: the remove button is hidden. */
-  insightDelete: false,
-  contentSearch: false,
-  readLater: false,
-  storageQuota: false,
-  markAsKnown: false,
-  // M5 (#1031, owner 2026-11-16): no V2 storage; hidden on V2, their legacy routes answer 410. Back after M5.
-  goals: false,
-  achievements: false,
-  /** The stats page's per-book figures (`/me/reading/book-stats`): the Books and Time tabs. */
-  bookStats: false,
-  vocabSettings: false,
-  pendingWords: false,
-  wordLookups: false,
-  concepts: false,
-  highlightReview: false,
-  /** The saved chapter review and its questions (#1345 deferred). The Discuss handoff stays. */
-  chapterReview: false,
-  /** Reading stats, daily, pace, library summary: the stats page, streaks, quick stats (the time-left estimate falls back to the default pace). */
-  readingStats: false,
-  /** Vocabulary stats and daily stats: counts, due badges, streaks. */
-  vocabStats: false,
-  /** The home shelves (`/me/library/shelves`). */
-  shelves: false,
-  /** The catalog shelf and catalog reading progress (`/me/library`, `/me/progress`): the catalog retires (#992, #1374). */
-  catalog: false,
-} as const
-
-export type V2Feature = { [K in keyof typeof V2_FEATURES]: (typeof V2_FEATURES)[K] extends boolean ? K : never }[keyof typeof V2_FEATURES]
-
-/** Whether the client offers `feature` on a user book: always with V2 off, else as `V2_FEATURES` says. */
-export const v2Offers = (s: V2Switch, feature: V2Feature): boolean => !s.enabled || V2_FEATURES[feature]
-
 /** One page of a change feed; pass `cursor` back while `hasMore`. */
 export interface V2Feed<T> {
   items: T[]

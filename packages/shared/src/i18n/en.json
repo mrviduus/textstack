@@ -1,69 +1,15 @@
 {
   "tutor": {
-    "title": "Smart session",
-    "planning": "Your tutor is planning your session…",
-    "entry": {
-      "cta": "Smart session"
-    },
-    "plan": {
-      "rationaleLabel": "Here's your plan, and why",
-      "adjustedLabel": "Your tutor adjusted your plan",
-      "adjustedNote": "Your tutor adjusted your plan based on how you did.",
-      "start": "Start studying"
-    },
     "exercise": {
       "recognition": "Recognition",
       "recall": "Recall",
       "context": "Context",
       "generic": "Exercise"
-    },
-    "summary": {
-      "done": "Session complete",
-      "studied": "Studied",
-      "accuracy": "Accuracy",
-      "back": "Back to vocabulary"
-    },
-    "empty": {
-      "title": "Nothing to study right now",
-      "subtitle": "You're all caught up. Keep reading to grow your vocabulary.",
-      "cta": "Browse books"
-    },
-    "error": {
-      "title": "Couldn't plan your session",
-      "subtitle": "Something went wrong reaching your tutor.",
-      "retry": "Try again"
-    },
-    "signIn": {
-      "title": "Sign in for a smart session",
-      "subtitle": "Your AI tutor plans what to study from the words you save while reading.",
-      "cta": "Sign in"
-    }
-  },
-  "home": {
-    "recentAuthors": {
-      "title": "Recently Added Authors",
-      "viewAll": "View all authors"
-    },
-    "recentBooks": {
-      "title": "Popular classics",
-      "viewAll": "View all books"
-    }
-  },
-  "firstRun": {
-    "startReading": {
-      "title": "Learn a language by reading real books",
-      "body": "Long-press any word while you read and it's translated where it stands. Save it, and it comes back for review later.",
-      "cta": "Start reading",
-      "meta": "“Down the Rabbit-Hole” · about 10 minutes",
-      "a11y": "Start reading Down the Rabbit-Hole, the first chapter of Alice's Adventures in Wonderland",
-      "dismiss": "Hide this card"
     }
   },
   "common": {
     "loading": "Loading...",
-    "dismiss": "Dismiss",
     "save": "Save",
-    "saving": "Saving…",
     "cancel": "Cancel",
     "close": "Close",
     "retry": "Try again"
@@ -72,7 +18,6 @@
     "library": "Library",
     "vocabulary": "Vocabulary",
     "about": "About",
-    "discover": "Discover",
     "profile": "Profile"
   },
   "onboarding": {
@@ -167,20 +112,17 @@
     "title": "My Library",
     "signInPrompt": "Sign in to save books to your library and track your reading progress.",
     "loading": "Loading...",
-    "browseBooks": "Browse Books",
     "readingProgress": "Reading Progress",
     "lastRead": "Last read",
     "insights": {
       "title": "What you've worked out",
       "lead": "Conclusions your assistant wrote back into this book. Read these instead of re-reading the book.",
-      "wholeBook": "This book",
-      "remove": "Remove this note"
+      "wholeBook": "This book"
     },
     "assistant": {
       "button": "Assistant",
       "discuss": "Discuss the book",
       "reviewCurrent": "Discuss current chapter",
-      "openCurrentReview": "Open review of current chapter",
       "chatIn": "Chat in",
       "pickTitle": "Open in",
       "claude": "Claude",
@@ -192,9 +134,7 @@
     "sidebar": {
       "all": "All books",
       "uploads": "My uploads",
-      "catalog": "Bookmarked from catalog",
       "tags": "Tags",
-      "collections": "Collections",
       "allTags": "All tags →",
       "open": "Open filters",
       "close": "Close filters"
@@ -236,28 +176,13 @@
       "viewDetails": "View details",
       "markFinished": "Mark as finished",
       "markUnfinished": "Mark as unfinished",
-      "retry": "Re-process",
       "cancel": "Cancel",
-      "removeFromLibrary": "Remove from library",
-      "removeFromLibraryConfirmTitle": "Remove from library?",
-      "removeFromLibraryConfirmBodyOne": "It will also leave the collection it is in.",
-      "removeFromLibraryConfirmBodyMany": "It will also leave the {{count}} collections it is in.",
-      "removeFromLibraryConfirm": "Remove",
-      "addToCollection": "Add to collection",
-      "addToCollectionEmpty": "No collections yet — create one below",
-      "addToCollectionFailed": "Couldn't add to collection",
-      "addedToCollection": "Added to {{name}}",
       "delete": "Delete",
       "deleting": "Deleting…",
       "confirmDeleteTitle": "Delete this book?",
       "confirmDeleteBody": "This permanently removes \"{title}\" and all its data. This cannot be undone.",
       "confirmDeleteConfirm": "Delete",
       "confirmDeleteCancel": "Keep"
-    },
-    "collections": {
-      "new": "+ New collection",
-      "newPlaceholder": "Collection name…",
-      "add": "Add"
     },
     "resume": {
       "continue": "Continue",
@@ -267,25 +192,17 @@
       "title": "Your reader is ready",
       "copy": "Add a book you already want to finish. Tap any word while you read to translate it and save it to your vocabulary.",
       "upload": "Upload a book",
-      "browse": "Or browse free classics",
       "guestCopy": "Start with a free classic. Tap any word while you read to translate it and save it to your vocabulary.",
-      "guestBrowse": "Browse free books",
       "guestUpload": "Or upload your own book"
     },
     "view": {
       "open": "View options",
       "title": "View",
-      "source": "Show",
       "sort": "Sort by",
       "layout": "Layout",
       "grid": "Grid",
       "list": "List",
-      "done": "Done",
-      "openFiltered": "View options — a filter is active"
-    },
-    "storage": {
-      "label": "Upload space",
-      "nearlyFull": "Almost full — delete a book to free up space"
+      "done": "Done"
     },
     "deletedOnDevice": {
       "summary": "{n} {noun} still on this device",
@@ -316,24 +233,7 @@
   },
   "addMenu": {
     "title": "Add to library",
-    "uploadFile": "Upload file",
-    "browseAll": "Browse all books"
-  },
-  "search": {
-    "noResults": "No results found",
-    "hideChapters": "Hide chapters",
-    "recentSearches": "Recent searches",
-    "clearAll": "Clear all",
-    "searchPlaceholder": "Search books...",
-    "offline": {
-      "catalog": "You're offline — the catalog needs a connection. Your downloaded books are in Library.",
-      "title": "You're offline",
-      "body": "Search needs a connection. Your downloaded books are in Library."
-    },
-    "failed": {
-      "title": "Search failed",
-      "body": "Something went wrong on our side. Try again."
-    }
+    "uploadFile": "Upload file"
   },
   "privacy": {
     "seoTitle": "Privacy Policy — TextStack",
@@ -395,13 +295,6 @@
     "contactHeading": "Contact",
     "contactBody": "Questions about this policy, or a request about your data? Reach out at"
   },
-  "stats": {
-    "title": "Reading Stats",
-    "signInPrompt": "Sign in to track your reading and unlock achievements.",
-    "emptyTitle": "No reading stats yet",
-    "emptySubtitle": "Start reading a book to track your progress",
-    "noBookStats": "No book stats yet"
-  },
   "highlights": {
     "emptyTitle": "No highlights yet",
     "emptySubtitle": "Select text while reading to highlight it"
@@ -449,36 +342,16 @@
     "inlineTranslations": "Inline translations",
     "inlineTranslationsDesc": "Show translations for saved words",
     "listenFailed": "Could not play the speech. Try again.",
-    "toastWordAddedCount": "Added · {count} this session",
     "toastTapToReview": "Tap to review",
-    "coachmarkTitle": "Press and hold a word",
-    "coachmarkSubtitle": "Press and hold a word to see its translation, then tap Save to add it to your vocabulary. Tap the page to show or hide the toolbars.",
-    "coachmarkDismiss": "Got it",
-    "ownBookAsk": {
-      "title": "Now do that with your own book",
-      "body": "Long-press, translate, save, review — it all works the same on an EPUB or PDF of your own. Those are the books you'll actually finish.",
-      "cta": "Add my own book",
-      "dismiss": "Not now"
-    },
     "vocab": {
       "queuedForTomorrow": "Daily cap reached — queued for tomorrow",
-      "tapAgainToStudy": "Tap again to study ({n} left)",
-      "addedToSrs": "Added to your vocabulary",
-      "addAnywayFailed": "Couldn't add word — please try again",
       "savedAs": "Saved as:",
       "useThisTranslation": "Use this translation",
-      "useTranslationFailed": "Couldn't update the translation — please try again",
       "saveNeedsAccount": "Saving words needs an account — this one wasn't kept. Sign in from Profile.",
       "deletedEarlier": "You deleted “{{word}}” earlier.",
       "restore": "Restore",
       "restoreFailed": "Couldn't restore the word. Try again.",
       "removeFailed": "Couldn't remove the word. Try again."
-    },
-    "rareWordNotice": {
-      "title": "Rare word — saved to reference",
-      "body": "We don't add rare words to your review queue automatically, so your SRS stays focused on the vocabulary you'll actually encounter.",
-      "cta": "Add to SRS anyway",
-      "ctaBusy": "Adding…"
     },
     "timeLeft": {
       "under": "Less than a minute left",
@@ -488,21 +361,10 @@
       "inChapter": "{time} in chapter",
       "inBook": "{time} in book"
     },
-    "exitSummary": {
-      "reviewNow": "Review Now",
-      "later": "Later"
-    },
     "chapterEnd": {
-      "next": "Next: {title}",
       "nextUntitled": "Next chapter",
-      "prevUntitled": "Previous chapter",
-      "finished": "You finished {book}",
-      "finishedGeneric": "You finished the book",
-      "reviewWords": "Review {n} {noun}",
-      "library": "Back to library",
-      "unavailable": "This chapter isn't on your phone, and you're offline."
+      "prevUntitled": "Previous chapter"
     },
-    "pdfReconnect": "Couldn't load the rest of this PDF. Check your connection.",
     "chrome": {
       "back": "Back",
       "prevPage": "Previous page",
@@ -646,8 +508,6 @@
       "listen": "Listen",
       "stage": "Vocabulary stage {stage}",
       "stageNew": "New",
-      "markKnown": "Mark word as known",
-      "known": "Known",
       "saved": "Saved to vocabulary",
       "saveRare": "Save word to vocabulary (rare word)",
       "saveWord": "Save word to vocabulary",
@@ -680,11 +540,6 @@
       "title": "Explain: {word}",
       "close": "Close explanation",
       "generating": "Generating explanation"
-    },
-    "newerElsewhere": {
-      "message": "You read further on another device: {target}",
-      "action": "Go there",
-      "page": "page {page}"
     }
   },
   "vocabulary": {
@@ -722,29 +577,6 @@
     "practice": {
       "title": "Practice",
       "cta": "Practice anyway"
-    },
-    "clusters": {
-      "bonusCta": "Bonus: {n} related words",
-      "start": "Start bonus",
-      "fromBook": "from {book}"
-    },
-    "settings": {
-      "title": "Vocabulary settings",
-      "subtitle": "Tune how many new words you take on and how often you review.",
-      "dailyNewCap": "Daily new words",
-      "dailyNewCapHint": "How many new words enter SRS per day (5–100). Extras go to Pending.",
-      "weeklyBudget": "Weekly review budget",
-      "weeklyBudgetHint": "Max reviews per week (10–500). Prevents the \"847 due\" spiral.",
-      "frequencyFilter": "Rare-word filter",
-      "frequencyFilterHint": "Send rare words (beyond top 15k) to Reference instead of SRS.",
-      "autoRetire": "Auto-retire mastered words",
-      "autoRetireHint": "Stop reviewing words you've answered correctly 3× at long intervals.",
-      "autoSpeak": "Say the word on a card",
-      "autoSpeakHint": "Speaks each review card as it appears, without waiting for a tap.",
-      "loadFailed": "Could not load settings.",
-      "saveFailed": "Could not save settings. Try again.",
-      "dailyCapRange": "Daily new words must be 5–100.",
-      "weeklyBudgetRange": "Weekly budget must be 10–500."
     },
     "offline": {
       "body": "Your saved words will be here as soon as you reconnect."
@@ -801,9 +633,7 @@
   },
   "chapterReview": {
     "review": "Discuss",
-    "reviewed": "Reviewed",
     "reviewAria": "Discuss “{{title}}” with your assistant",
-    "openReviewAria": "Open the review of “{{title}}”",
     "pickTitle": "Discuss in",
     "switchAria": "Choose Claude or ChatGPT",
     "openFailed": "Couldn't open the assistant.",
@@ -814,33 +644,7 @@
       "copied": "Copied",
       "more": "Open the connect page",
       "close": "Close"
-    },
-    "summary": {
-      "title": "Chapter review",
-      "reviewedOn": "reviewed {{date}}",
-      "problem": "Problem",
-      "why": "Why",
-      "rule": "Rule",
-      "highlights": "Your highlights",
-      "noHighlights": "none",
-      "highlightRemoved": "highlight removed",
-      "check": "Check yourself",
-      "show": "Show",
-      "hide": "Hide",
-      "recall": "What you remembered",
-      "applications": "Where this shows up in your work",
-      "openThreads": "Open threads ({{count}})",
-      "closedThreads": "Closed in this chapter",
-      "again": "Discuss again",
-      "next": "Next: {{title}} →",
-      "emptyTitle": "This chapter hasn't been reviewed yet",
-      "emptyLead": "Press Discuss and talk the chapter over with your assistant. When you're done, it reviews the chapter by the TextStack method and the result comes back here.",
-      "loadFailed": "Couldn't load this review.",
-      "notFound": "Chapter not found.",
-      "signIn": "Sign in to see your chapter reviews."
-    },
-    "openReview": "Open review →",
-    "discussChapter": "Discuss this chapter"
+    }
   },
   "updates": {
     "downloading": "Updating TextStack…",
