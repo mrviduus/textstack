@@ -183,6 +183,8 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
     }
   }
   const lookupHere = word && lookup?.word === word.word ? lookup : null
+  /** The tapped word's card id (this book's language), for the popup's Remove; none: no Remove. */
+  const removable = word ? vocabMap.get(normalizeVocabKey(word.word))?.id : undefined
 
   // #1272: Listen, a word or a selection, played here (the page has no network); the page marks the range while it is
   // fetched and played. listen.mjs `createListener` owns the phase (one rule for both hosts); this renders it. No word
@@ -234,6 +236,12 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
           containerRef={frame}
           onClose={() => onClose(false)}
           isSaved={vocab.isKnown(word.word)}
+          onRemove={removable ? () => {
+            // A word saved by a stray tap goes again; a later tap saves it anew (the legacy reader's rule).
+            void vocab.removeWord(removable, word.word).catch(() => setToast(t('reader.vocab.removeFailed')))
+            tried.current.delete(normalizeVocabKey(word.word))
+            onClose(false)
+          } : undefined}
           lookupInfo={lookupHere && { kind: lookupHere.kind, tapsRemaining: lookupHere.tapsRemaining }}
           onAddAnyway={lookupHere ? () => { void addAnyway() } : undefined}
           addAnywayBusy={addAnywayBusy}

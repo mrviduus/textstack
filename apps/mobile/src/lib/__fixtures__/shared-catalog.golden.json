@@ -370,6 +370,7 @@
   "reader.vocab.deletedEarlier": "You deleted “{{word}}” earlier.",
   "reader.vocab.restore": "Restore",
   "reader.vocab.restoreFailed": "Couldn't restore the word. Try again.",
+  "reader.vocab.removeFailed": "Couldn't remove the word. Try again.",
   "reader.vocab.tapAgainToStudy": "Tap again to study ({n} left)",
   "search.chapter": "Chapter",
   "search.clearAll": "Clear all",
