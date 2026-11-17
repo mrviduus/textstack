@@ -2012,7 +2012,7 @@ try {
   console.log('html clip')
   const pw = "(top.__pwned=1)"
   const clipText = Array.from({ length: 30 }, (_, i) => `<p>Paragraph ${i + 1}. ${'Sphinx of black quartz, judge my vow. The quick brown fox jumps over the lazy dog. '.repeat(3)}</p>`).join('')
-  writeFileSync(resolve(dir, 'tsclip.html'), `<title>TS CLIP</title><div id="readability-page-1"><h1>Chapter One</h1>${clipText}<script>${pw}</script><img src="x" onerror="${pw}">`
+  writeFileSync(resolve(dir, 'tsclip.html'), `<!doctype html><title>TS CLIP</title><div id="readability-page-1"><h1>Chapter One</h1>${clipText}<script>${pw}</script><img src="x" onerror="${pw}">`
     + `<a href="javascript:${pw}">j</a><svg onload="${pw}"></svg><iframe srcdoc="<script>${pw}</script>"></iframe><form action="https://evil.tst"><input name="p"></form></div>`)
   m = await open('tsclip.html')
   check(m.type === 'opened' && m.format === 'html' && m.textual && m.annotatable && m.searchable && m.sections === 1 && m.title === 'TS CLIP',

@@ -86,15 +86,34 @@ describe('sniffFormat', () => {
   })
 
   it('unknownOrEmpty_Refused', () => {
-    for (const b of ['', 'plain text', '<?xml version="1.0"?><FictionBookmark/>', 'text <p>later</p>', png(1, 1, [0, 0, 0])])
+    for (const b of ['', 'plain text', '<?xml version="1.0"?><FictionBookmark/>', '<FictionBookmark/>', 'text <p>later</p>', png(1, 1, [0, 0, 0])])
       expect(() => sniffFormat(bytes(b))).toThrow(/not a book this reader opens/)
   })
 
   it('htmlClip_PageOrFragment_Html', () => {
     // Owner decision 5: a clip is the article's HTML, often a Readability fragment with no <html> root.
-    for (const b of ['<html><body>FictionBook</body></html>', '\ufeff  <!-- c --><!DOCTYPE html><p>x</p>', '<div id="readability-page-1"><p>x</p></div>', '\n<p>x</p>', '<FictionBookmark/>'])
+    for (const b of ['<html><body>FictionBook</body></html>', '\ufeff  <!-- c --><!DOCTYPE html><p>x</p>', '<!-- a --- b --><h2>x</h2>', '<div id="readability-page-1"><p>x</p></div>', '\n<p>x</p>'])
       expect(sniffFormat(bytes(b)), b).toBe('html')
     expect(isTextual('html')).toBe(true)
+  })
+
+  it('htmlQuotingThePdfMarker_StillHtml', () => {
+    // Review #1362: an article about PDFs is an article.
+    expect(sniffFormat(bytes('<div id="readability-page-1"><p>Every PDF starts with %PDF-1.7 in its header.</p></div>'))).toBe('html')
+  })
+
+  it('svgRssOrOtherXml_NotAClip_Refused', () => {
+    // Review #1362: only an HTML-ish start is a clip; other markup is not a book (was a blank one).
+    for (const b of ['<svg xmlns="http://www.w3.org/2000/svg"></svg>', '<rss version="2.0"><channel/></rss>', '<?xml version="1.0"?><note/>', '<span>x</span>'])
+      expect(() => sniffFormat(bytes(b)), b).toThrow(/not a book this reader opens/)
+  })
+
+  it('manyEmptyCommentsThenNoElement_SniffedInLinearTime', () => {
+    // Review #1362: `(<!--[\s\S]*?-->\s*)*` backtracked exponentially here (the WebView froze).
+    const t0 = performance.now()
+    expect(() => sniffFormat(bytes(`${'<!---->'.repeat(40)}x`))).toThrow(/not a book this reader opens/)
+    expect(() => sniffFormat(bytes(`${'<!-- - -->'.repeat(100)}x`))).toThrow(/not a book this reader opens/)
+    expect(performance.now() - t0).toBeLessThan(200)
   })
 })
 

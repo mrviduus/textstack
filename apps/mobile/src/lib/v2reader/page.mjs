@@ -1271,6 +1271,7 @@ async function open(bytes, name, kind, mine) {
   endSession()
   book = { sha256, size: bytes.length, name }
   entry = null
+  quotes = []
   hostMoving = true
   awaitingRestore = true
   readerActed = false

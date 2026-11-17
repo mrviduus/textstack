@@ -677,7 +677,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         }
         case 'highlights':
           // addHighlights' answer: one not drawn is the server's but not where its text is in this file.
-          for (const h of m.highlights ?? []) if (h.status !== 'restored') console.warn(`[v2] highlight ${h.id} not drawn: ${h.status}`)
+          for (const h of m.highlights ?? []) if (h.status !== 'restored' && h.status !== 'listed') console.warn(`[v2] highlight ${h.id} not drawn: ${h.status}`)
           return
         case 'highlight-list': {
           // Untrusted: only what readHighlightList takes; another book's (a previous open's) is dropped.
@@ -685,7 +685,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (!l || l.key !== openedSha.current) return
           setHighlightList(l.highlights)
           // By the id the server holds (a page id re-keyed this open is still the old one on the page).
-          const want = pendingHighlight.current && l.highlights.find((h) => (sync.current?.real(h.id) ?? h.id) === pendingHighlight.current)
+          // #1195: a quotation has no place to go: never the jump's target.
+          const want = pendingHighlight.current && l.highlights.find((h) => !h.quotation && (sync.current?.real(h.id) ?? h.id) === pendingHighlight.current)
           if (want) {
             pendingHighlight.current = null
             // The reader's own choice (they followed the link): saved where it lands (README, `goTo`).

@@ -131,7 +131,9 @@ const FOLIATE_SHA = '686afc4200006874a24071a6a57510e027a4cc32'
 // +119 (#1069): stamp opens before the XHR and ignore superseded read success/failure callbacks.
 // +4,734 (M5, owner decision 5; #1195): HTML clips as one sanitized section (clip.mjs, formats.mjs `html`); legacy anchor
 // annotations listed as quotations (`quotations` in the entry or `addHighlights`, never drawn nor stored).
-const BUDGET = 335748
+// +813 (#1362 review): the clip's charset (BOM, <meta charset>), HTML-only sniff before the PDF search, data: images
+// only (alt text otherwise), loops instead of spreads.
+const BUDGET = 336561
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

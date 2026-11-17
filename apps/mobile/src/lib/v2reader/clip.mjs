@@ -9,10 +9,13 @@ const KEEP = new Set(('a abbr article aside b bdi bdo blockquote br caption cite
 /** Removed with everything inside: code, embedded documents, forms, foreign markup, and what parses differently twice. */
 const DROP = new Set(('script style link meta base title head noscript template iframe frame frameset object embed applet portal '
   + 'form input button select option textarea svg math video audio source track canvas dialog xmp plaintext noembed noframes').split(' '))
-/** Attributes kept on any kept element; `href` (a) and `src` (img) only with a safe URL. Every other one goes (on*, style, srcset…). */
+/**
+ * Attributes kept on any kept element; `href` (a) only with a safe URL. Every other one goes (on*, style, srcset…). An
+ * image keeps a `data:` src only (the page's CSP is `img-src blob: data:`); any other becomes its alt text.
+ */
 const ATTRS = new Set(['id', 'lang', 'dir', 'title', 'alt', 'colspan', 'rowspan', 'datetime'])
 const SAFE_HREF = /^(https?:\/\/|mailto:|#)/i
-const SAFE_SRC = /^(https?:\/\/|data:image\/)/i
+const SAFE_SRC = /^data:image\//i
 
 const XHTML = 'http://www.w3.org/1999/xhtml'
 
@@ -26,7 +29,8 @@ export function sanitizeClip(body) {
     const name = el.localName
     const html = el.namespaceURI === XHTML
     if (!html || DROP.has(name)) el.remove()
-    else if (!KEEP.has(name)) el.replaceWith(...el.childNodes)
+    else if (!KEEP.has(name)) unwrap(el)
+    else if (name === 'img' && !SAFE_SRC.test(el.getAttribute('src') ?? '')) el.replaceWith(el.getAttribute('alt') ?? '')
     else for (const { name: a, value } of [...el.attributes]) {
       if (!(ATTRS.has(a) || (a === 'href' && name === 'a' && SAFE_HREF.test(value)) || (a === 'src' && name === 'img' && SAFE_SRC.test(value)))) el.removeAttribute(a)
     }
@@ -34,19 +38,36 @@ export function sanitizeClip(body) {
   return body
 }
 
+/** `el`'s children in its place (a loop: a spread of 100k children overflows the call stack). */
+function unwrap(el) {
+  while (el.firstChild) el.before(el.firstChild)
+  el.remove()
+}
+
+/** The clip's bytes as text: by its BOM, else a `<meta charset>` in the first KiB, else (or for an unknown label) UTF-8. */
+export function clipText(bytes) {
+  const [a, b, c] = bytes
+  const bom = a === 0xef && b === 0xbb && c === 0xbf ? 'utf-8' : a === 0xff && b === 0xfe ? 'utf-16le' : a === 0xfe && b === 0xff ? 'utf-16be' : null
+  const meta = /<meta[^>]*charset\s*=\s*["']?\s*([\w-]+)/i.exec(String.fromCharCode(...bytes.subarray(0, 1024)))?.[1]
+  for (const label of [bom, meta]) {
+    if (label) try { return new TextDecoder(label).decode(bytes) } catch { /* unknown label: next */ }
+  }
+  return new TextDecoder().decode(bytes)
+}
+
 /**
- * The clip's bytes (UTF-8 HTML, a whole page or a fragment) as a sanitized HTML document string: a fresh
+ * The clip's bytes (HTML, a whole page or a fragment) as a sanitized HTML document string: a fresh
  * document (charset declared, the source's `lang`) holding the sanitized body. `title`: the source's <title>
  * or first <h1> ('' when none: the host falls back to its own).
  */
 export function clipDocument(bytes, parser = new DOMParser()) {
-  const src = parser.parseFromString(new TextDecoder().decode(bytes), 'text/html')
+  const src = parser.parseFromString(clipText(bytes), 'text/html')
   const title = (src.querySelector('title')?.textContent || src.querySelector('h1')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200)
   const lang = src.documentElement.getAttribute('lang') ?? ''
   sanitizeClip(src.body)
   const out = parser.parseFromString('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>', 'text/html')
   if (/^[A-Za-z0-9-]{1,35}$/.test(lang)) out.documentElement.setAttribute('lang', lang)
-  out.body.append(...[...src.body.childNodes].map((n) => out.importNode(n, true)))
+  for (const n of [...src.body.childNodes]) out.body.append(out.importNode(n, true))
   return { html: `<!DOCTYPE html>${out.documentElement.outerHTML}`, title, lang }
 }
 

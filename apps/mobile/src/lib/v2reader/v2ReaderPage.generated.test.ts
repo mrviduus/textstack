@@ -130,7 +130,7 @@ describe('v2ReaderPageHtml', () => {
     // fires relocate (#1168). A newer open still being made does not silence the view on screen (#1128 S5).
     expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+ \}\) => \{\s*(var [^;]*;\s*)?if \(mine !== viewSeq\) return;[\s\S]{0,400}?post\(\{\s*type: "relocate"/)
     expect(html).toMatch(/view\.addEventListener\("create-overlay", [\s\S]{0,80}?if \(mine !== viewSeq\) return;/)
-    expect(html).toMatch(/endSession\(\);\s*book = \{ sha256[^}]*\};\s*entry = null;\s*hostMoving = true;\s*awaitingRestore = true;\s*readerActed = false;\s*navs = 0;\s*lastCfi = null;\s*viewSeq = mine;\s*navigating = Promise\.resolve\(\);/)
+    expect(html).toMatch(/endSession\(\);\s*book = \{ sha256[^}]*\};\s*entry = null;\s*quotes = \[\];\s*hostMoving = true;\s*awaitingRestore = true;\s*readerActed = false;\s*navs = 0;\s*lastCfi = null;\s*viewSeq = mine;\s*navigating = Promise\.resolve\(\);/)
     // A restore is for the view on screen that answered `opened`, whatever is being made meanwhile.
     expect(html).toMatch(/if \(!book \|\| readySeq !== viewSeq\) return log\("warn", "restore ignored/)
     // The host-move guard is cleared however restore ends, or the page saves nothing for the rest of the session.
