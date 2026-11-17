@@ -3,7 +3,7 @@
 // tests import it.
 import { isPdfPage } from '../../../../../packages/shared/src/reader/pdfPagePosition'
 
-export { STORE_VERSION, emptyEntry, entryFor, isPosition, withPosition, withHighlight } from '../../../../../packages/shared/src/reader/v2PageStore'
+export { STORE_VERSION, emptyEntry, entryFor, isPosition, isQuotation, withPosition, withHighlight } from '../../../../../packages/shared/src/reader/v2PageStore'
 /** A PDF position (#1128 S5): the 1-based page number, no CFI, no quote. The shared predicate. */
 export { isPdfPage }
 

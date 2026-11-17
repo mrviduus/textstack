@@ -26,23 +26,35 @@ export const isId = (id) => typeof id === 'string' && /^[0-9A-Za-z-]{1,64}$/.tes
 export function listItems(highlights, ids, compare, color = false) {
   return highlights
     .filter((h) => ids.has(h.id))
-    .map((h) => ({ id: h.id, cfi: h.cfi, ...(color ? { color: colorOf(h.color) } : {}), text: Array.from(h.selectedText ?? h.quote ?? '').slice(0, MAX_LIST_TEXT).join(''), at: Number.isFinite(h.at) ? h.at : null }))
+    .map((h) => ({ id: h.id, cfi: h.cfi, ...(color ? { color: colorOf(h.color) } : {}), text: cut(h.selectedText ?? h.quote), at: Number.isFinite(h.at) ? h.at : null }))
     .sort((a, b) => compare(a.cfi, b.cfi) || (a.at ?? 0) - (b.at ?? 0))
     .slice(0, MAX_LIST)
 }
 
-/** The page's `highlight-list` items: the entry's highlights drawn on screen (`drawn`: their ids), each with its colour. */
-export const highlightList = (highlights, drawn, compare) => listItems(highlights, drawn, compare, true)
+const cut = (text) => Array.from(text ?? '').slice(0, MAX_LIST_TEXT).join('')
+
+/**
+ * The page's `highlight-list` items: the entry's highlights drawn on screen (`drawn`: their ids), each with its colour;
+ * then the quotations (#1195, legacy anchor annotations: `quotation: true`, `cfi` '', nowhere to go), oldest first.
+ */
+export const highlightList = (highlights, drawn, compare, quotes = []) => [
+  ...listItems(highlights, drawn, compare, true),
+  ...quotes.map((q) => ({ id: q.id, cfi: '', color: colorOf(q.color), text: cut(q.selectedText), at: Number.isFinite(q.at) ? q.at : null, quotation: true }))
+    .sort((a, b) => (a.at ?? 0) - (b.at ?? 0)),
+].slice(0, MAX_LIST)
 
 /**
  * The one item reader of a host (a `highlight-list`'s items, a `bookmark-list`'s): the well-formed ones of `list`, at
- * most `MAX_LIST`, each `{ id, cfi, text, at }` with its `color` when asked for; a malformed item is dropped.
+ * most `MAX_LIST`, each `{ id, cfi, text, at }` with its `color` when asked for; a malformed item is dropped. A
+ * highlight list's quotation (#1195) is `{ …, cfi: '', quotation: true }`.
  */
 export function readItems(list, color = false) {
   const items = []
   for (const h of list.slice(0, MAX_LIST)) {
-    if (!h || typeof h !== 'object' || !isId(h.id) || !isCfi(h.cfi) || typeof h.text !== 'string' || h.text.length > 2 * MAX_LIST_TEXT) continue
-    items.push({ id: h.id, cfi: h.cfi, ...(color ? { color: colorOf(h.color) } : {}), text: h.text, at: Number.isFinite(h.at) ? h.at : null })
+    if (!h || typeof h !== 'object' || !isId(h.id) || typeof h.text !== 'string' || h.text.length > 2 * MAX_LIST_TEXT) continue
+    const quotation = color && h.quotation === true && h.cfi === ''
+    if (!quotation && !isCfi(h.cfi)) continue
+    items.push({ id: h.id, cfi: h.cfi, ...(color ? { color: colorOf(h.color) } : {}), text: h.text, at: Number.isFinite(h.at) ? h.at : null, ...(quotation ? { quotation: true } : {}) })
   }
   return items
 }

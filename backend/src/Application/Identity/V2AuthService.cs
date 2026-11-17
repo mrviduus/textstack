@@ -57,16 +57,16 @@ public sealed class V2AuthService(
 
     public async Task<AuthResult> LoginWithAppleAsync(string identityToken, string? fullName, string? email, CancellationToken ct)
     {
-        var apple = providers.VerifyApple(identityToken);
+        var apple = await providers.VerifyAppleAsync(identityToken, ct);
         if (apple is null) return AuthResult.Failed(AuthStatus.InvalidToken);
 
         var user = await users.GetByAppleSubjectAsync(apple.Subject, ct);
         if (user is null)
-            // Never linked by email, as Google.
+            // Never linked by email, as Google. Only the verified token's email counts, never the request body's.
             user = await users.CreateAsync(new UserAccount
             {
                 Id = Guid.NewGuid(),
-                Email = email ?? apple.Email ?? Emails.AppleRelay(apple.Subject),
+                Email = apple.Email ?? Emails.AppleRelay(apple.Subject),
                 Name = fullName,
                 AppleSubject = apple.Subject,
             }, ct) ?? await users.GetByAppleSubjectAsync(apple.Subject, ct);

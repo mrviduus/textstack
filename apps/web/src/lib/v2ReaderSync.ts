@@ -36,9 +36,9 @@
  * unmounted), and nothing lands once the account store reset (`resetSince`, the shared epoch guard).
  */
 import {
-  annotationHighlight, ApiError, entryChanges, entryFor, highlightWrite, normalisedHighlight, ownAnnotationWrite,
+  annotationHighlight, annotationQuotation, ApiError, entryChanges, entryFor, highlightWrite, normalisedHighlight, ownAnnotationWrite,
   decideServerState, ownStateWrite, pageEntry, pageNameRefusal, positionWrite, sameJson, statePosition, v2Api,
-  type HeldHighlight, type PageEntry, type PageHighlight, type PagePosition, type V2Annotation, type V2AnnotationWrite, type V2ReadingState,
+  type HeldHighlight, type PageEntry, type PageHighlight, type PagePosition, type PageQuotation, type V2Annotation, type V2AnnotationWrite, type V2ReadingState,
   type V2ReadingStateWrite,
 } from '@textstack/shared'
 import { resetSince } from '../api/v2'
@@ -156,8 +156,8 @@ const isHeldAs = (m: Map<string, PageHighlight>, h: PageHighlight) => {
 
 export function createV2ReaderSync(t: V2SyncTarget, o: {
   onStatus(s: V2SaveStatus): void
-  /** This file's live highlights, once the pull lands: the host draws them and offers highlighting. */
-  onHighlights(list: PageHighlight[]): void
+  /** This file's live highlights, once the pull lands: the host draws them and offers highlighting; the book's quotations (#1195) are listed. */
+  onHighlights(list: (PageHighlight | PageQuotation)[]): void
   /** Another device's place, provably newer than this tab's last save: offered (ours is written anyway). */
   onNewerPlace(p: PagePosition): void
   /** The book's completion as the server holds it, from every state the session takes (null: not finished): the host's Finish book block (#1266). */
@@ -482,12 +482,15 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
         const annotations = await api.annotations()
         if (!live()) return
         // Every one of the book's rows is held (their revisions); only this file version's live ones are drawn.
-        const drawn: PageHighlight[] = []
+        const drawn: (PageHighlight | PageQuotation)[] = []
         for (const a of annotations) {
           if (a.bookId !== t.bookId) continue
           keep(a)
           const h = held.get(a.id)!.highlight
           if (h && !a.deletedAt && a.fileId === t.fileId) drawn.push(h)
+          // #1195: a legacy anchor annotation is listed as a quotation; held with no page form, so never written back.
+          const q = a.fileId === t.fileId && annotationQuotation(a)
+          if (q) drawn.push(q)
         }
         highlightsLoaded = true
         if (current()) o.onHighlights(drawn)
