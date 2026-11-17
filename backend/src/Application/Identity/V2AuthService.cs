@@ -8,7 +8,7 @@ namespace Application.Identity;
 
 /// <summary>
 /// <see cref="IAuthService"/> on <c>textstack_v2</c> (M2.5b), over the identity ports and the shared
-/// <see cref="JwtTokens"/>. Selected only with <c>Database:Mode=v2</c>. Admins sign in through
+/// <see cref="JwtTokens"/>. Admins sign in through
 /// <see cref="V2AdminAuthService"/>: here an admin account
 /// signs in only with its password, to a reader session.
 /// </summary>
@@ -270,8 +270,32 @@ public sealed class V2AuthService(
     {
         var picture = (await users.GetAsync(userId, ct))?.Picture;
         var deleted = await deletion.DeleteAsync(userId, ct);
-        await AuthService.DeleteUserFilesAsync(storage, userId, picture, logger, ct);
+        await DeleteUserFilesAsync(storage, userId, picture, logger, ct);
         return deleted;
+    }
+
+    /// <summary>
+    /// A deleted account's files in the public <c>/storage</c> root: its uploads' tree and a local avatar
+    /// (<paramref name="picture"/>; external URLs such as Google's are not ours). Best-effort and logged.
+    /// </summary>
+    private static async Task DeleteUserFilesAsync(IFileStorageService storage, Guid userId, string? picture, ILogger? logger, CancellationToken ct)
+    {
+        await DeleteStoredAsync("DeleteUserDirectory", () => storage.DeleteUserDirectoryAsync(userId, ct));
+        if (!string.IsNullOrEmpty(picture) && !picture.StartsWith("http"))
+            await DeleteStoredAsync("DeleteAvatar", () => storage.DeleteFileAsync(picture, ct));
+
+        // An orphan file is recoverable, but it must be observable.
+        async Task DeleteStoredAsync(string operation, Func<Task> delete)
+        {
+            try
+            {
+                await delete();
+            }
+            catch (Exception ex)
+            {
+                logger?.LogWarning(ex, "Account {UserId} deleted but storage cleanup failed for {Operation}", userId, operation);
+            }
+        }
     }
 
     public AccessTokenIdentity? ValidateAccessTokenIdentity(string accessToken) => tokens.ValidateAccessToken(accessToken);

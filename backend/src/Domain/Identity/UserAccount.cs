@@ -2,8 +2,7 @@ namespace Domain.Identity;
 
 /// <summary>
 /// An account (V2 table <c>users</c>, ADR-031): a reader, a guest (ADR-014) or an admin
-/// (<see cref="Role"/>). Deleting it deletes everything it owns (rule 9). Named apart from the legacy
-/// <c>Domain.Entities.User</c>, so the code bridging both compiles without aliases.
+/// (<see cref="Role"/>). Deleting it deletes everything it owns (rule 9).
 /// </summary>
 public class UserAccount
 {

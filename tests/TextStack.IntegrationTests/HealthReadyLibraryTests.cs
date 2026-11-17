@@ -10,12 +10,12 @@ using Microsoft.Extensions.Hosting;
 namespace TextStack.IntegrationTests;
 
 /// <summary>
-/// /health/ready's <c>library</c> component (#1110), the Api in process on the migrated database
-/// (TEST_DB_CONNECTION, skipped without it): critical with Features:V2Api on, only reported with it off.
+/// /health/ready's <c>library</c> component (#1110), the Api in process on the migrated textstack_v2
+/// (TEST_V2_DB_CONNECTION, skipped without it): an unwritable library is critical.
 /// </summary>
 public sealed class HealthReadyLibraryTests : IDisposable
 {
-    private static string? DbConn => Environment.GetEnvironmentVariable("TEST_DB_CONNECTION");
+    private static string? DbConn => Environment.GetEnvironmentVariable("TEST_V2_DB_CONNECTION");
 
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "health-library-" + Guid.NewGuid());
 
@@ -34,14 +34,13 @@ public sealed class HealthReadyLibraryTests : IDisposable
         return Path.Combine(file, "library");
     }
 
-    private async Task<(HttpStatusCode Status, JsonElement Components)> ReadyAsync(bool v2Api, string libraryRoot)
+    private async Task<(HttpStatusCode Status, JsonElement Components)> ReadyAsync(string libraryRoot)
     {
         var ct = TestContext.Current.CancellationToken;
         using var api = new WebApplicationFactory<Api.ApiMarker>().WithWebHostBuilder(b =>
         {
             b.UseEnvironment("Test");
-            b.UseSetting("ConnectionStrings:Default", DbConn);
-            b.UseSetting("Features:V2Api", v2Api ? "true" : "false");
+            b.UseSetting("ConnectionStrings:V2", DbConn);
             b.UseSetting("Storage:RootPath", Path.Combine(_dir, "storage"));
             b.UseSetting("Storage:LibraryRoot", libraryRoot);
             b.UseSetting("Jwt:SecretKey", "health-library-tests-secret-at-least-32-chars"); // auth is resolved per request
@@ -55,22 +54,11 @@ public sealed class HealthReadyLibraryTests : IDisposable
     }
 
     [Fact]
-    public async Task HealthReady_V2OffLibraryUnavailable_OkWithLibraryReportedDown()
+    public async Task HealthReady_LibraryUnavailable_ServiceUnavailable()
     {
-        Assert.SkipWhen(DbConn is null, "TEST_DB_CONNECTION not set");
+        Assert.SkipWhen(DbConn is null, "TEST_V2_DB_CONNECTION not set");
 
-        var (status, components) = await ReadyAsync(v2Api: false, UnavailableLibrary());
-
-        Assert.Equal(HttpStatusCode.OK, status);
-        Assert.Equal("down", components.GetProperty("library").GetProperty("status").GetString());
-    }
-
-    [Fact]
-    public async Task HealthReady_V2OnLibraryUnavailable_ServiceUnavailable()
-    {
-        Assert.SkipWhen(DbConn is null, "TEST_DB_CONNECTION not set");
-
-        var (status, components) = await ReadyAsync(v2Api: true, UnavailableLibrary());
+        var (status, components) = await ReadyAsync(UnavailableLibrary());
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, status);
         Assert.Equal("down", components.GetProperty("library").GetProperty("status").GetString());
@@ -78,13 +66,13 @@ public sealed class HealthReadyLibraryTests : IDisposable
     }
 
     [Fact]
-    public async Task HealthReady_V2OnLibraryWritable_Ok()
+    public async Task HealthReady_LibraryWritable_Ok()
     {
-        Assert.SkipWhen(DbConn is null, "TEST_DB_CONNECTION not set");
+        Assert.SkipWhen(DbConn is null, "TEST_V2_DB_CONNECTION not set");
         var library = Path.Combine(_dir, "library");
         Directory.CreateDirectory(library);
 
-        var (status, components) = await ReadyAsync(v2Api: true, library);
+        var (status, components) = await ReadyAsync(library);
 
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Equal("ok", components.GetProperty("library").GetProperty("status").GetString());

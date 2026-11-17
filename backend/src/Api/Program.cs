@@ -6,41 +6,12 @@ using Application.AdminAuth;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// CLI: etl-v2 [--dry-run] [--source <cs>] [--target <cs>] — legacy → textstack_v2 (v2-plan §5.2).
-// Before Build(): it needs configuration only, and no startup step may touch either database first.
-if (args is ["etl-v2", ..])
-{
-    // The first Ctrl+C cancels the run (ledger: failed, exit 130); the second is left to the runtime, which
-    // ends the process (checked as PID 1 in the api image; runbook: docker kill if it ever does not).
-    using var etlCancel = new CancellationTokenSource();
-    ConsoleCancelEventHandler onCancel = (_, e) =>
-    {
-        if (etlCancel.IsCancellationRequested)
-            return;
-        e.Cancel = true;
-        etlCancel.Cancel();
-    };
-    Console.CancelKeyPress += onCancel;
-    try
-    {
-        Environment.ExitCode = await Api.V2.EtlV2Command.RunAsync(args[1..], builder.Configuration, Console.Out, Console.Error, etlCancel.Token);
-    }
-    finally
-    {
-        // Unhooked before etlCancel is disposed: a late Ctrl+C must not reach a disposed source.
-        Console.CancelKeyPress -= onCancel;
-    }
-    return;
-}
-
 // Host-level configuration (Kestrel/multipart limits + OpenTelemetry + Sentry).
 var writeFreeze = builder.Configuration.GetValue<bool>(WriteFreezeMiddleware.ConfigurationKey);
-var databaseMode = DatabaseMode.Read(builder.Configuration);
 builder.AddTextStackUploadLimits();
 builder.AddTextStackObservability();
 builder.AddTextStackSentry();
@@ -54,15 +25,12 @@ builder.Services
     .AddTextStackAgents()
     .AddAuthSettings(builder.Configuration);
 
-var connectionString = builder.Configuration.GetConnectionString("Default")
-    ?? throw new InvalidOperationException("ConnectionStrings:Default is required");
-
 // storagePath is consumed again by the static-file middleware below.
 var storagePath = Infrastructure.Services.FileStoreRegistration.StorageRoot(builder.Configuration);
 
 // Persistence, product services, workers, and rate-limiting.
 builder.Services
-    .AddTextStackPersistence(connectionString, builder.Configuration)
+    .AddTextStackPersistence(builder.Configuration)
     .AddTextStackContentServices(builder.Configuration)
     .AddTextStackRateLimiting(builder.Configuration)
     .AddTextStackV2Api();
@@ -74,6 +42,9 @@ builder.Services.AddHttpClient<Api.Services.ClientMetadataFetcher>(http => http.
 // Validate required config at startup
 if (!builder.Environment.IsEnvironment("Test"))
 {
+    if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("V2")))
+        throw new InvalidOperationException("ConnectionStrings:V2 is required (the textstack_v2 database).");
+
     var jwtSecret = builder.Configuration["Jwt:SecretKey"];
     if (string.IsNullOrEmpty(jwtSecret))
         throw new InvalidOperationException("Jwt:SecretKey is required. Set JWT_SECRET env var.");
@@ -99,25 +70,16 @@ if (app.Environment.IsProduction() && Application.Auth.JwtSettings.IsWeakSecret(
 if (string.IsNullOrWhiteSpace(builder.Configuration["Apple:BundleId"]))
     app.Logger.LogCritical("Apple:BundleId is not set; Apple sign-in is refused. Set APPLE_BUNDLE_ID");
 
-// Skip migrations in Test environment (uses InMemory DB)
+// The `migrator-v2` compose service owns the schema (ADR-021, ADR-026); the Api never migrates.
+// A schema behind this build is reported, not fatal: throwing here would crash-loop the Api
+// (restart: always) through a deliberate `migrate.sh down`. /health/ready answers 503 with the
+// pending list until the migrator catches up.
 if (!app.Environment.IsEnvironment("Test"))
 {
-    using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    // The `migrator` compose service owns the schema (ADR-021, ADR-026); the Api never migrates.
-    // A schema behind this build is reported, not fatal: throwing here would crash-loop the Api
-    // (restart: always) through a deliberate `migrate.sh down`. /health/ready answers 503 with the
-    // pending list until the migrator catches up.
     try
     {
-        var selected = app.Services.GetRequiredService<Api.V2.SelectedDatabaseProbe>();
-        await using var active = await selected.OpenAsync(CancellationToken.None);
-        var pending = await SchemaVersion.PendingAsync(active, selected.KnownMigrations);
-        if (selected.CatalogLegacy is { } catalog)
-        {
-            await using var legacyConn = await catalog.OpenConnectionAsync(CancellationToken.None);
-            pending = [.. pending, .. await SchemaVersion.PendingAsync(legacyConn, SchemaVersion.Known)];
-        }
+        await using var conn = await app.Services.GetRequiredService<V2DataSource>().OpenConnectionAsync(CancellationToken.None);
+        var pending = await SchemaVersion.PendingAsync(conn, SchemaVersion.V2Known);
         if (pending.Count > 0)
             app.Logger.LogCritical(
                 "Database schema is behind this build: {PendingCount} pending migration(s), newest {NewestPending}. " +
@@ -128,19 +90,6 @@ if (!app.Environment.IsEnvironment("Test"))
     catch (Exception ex)
     {
         app.Logger.LogError(ex, "Could not read the schema_migrations ledger at startup; /health/ready reports it");
-    }
-    // Idempotent: seed the model registry (current Primary routes) only if empty (AI-075).
-    // Non-critical (the gateway routes by config today) — a seeding failure must NOT
-    // abort startup, so it's guarded + logged rather than allowed to escape.
-    try
-    {
-        if (!writeFreeze && !databaseMode.IsV2)
-            await ModelRegistrySeeder.SeedAsync(
-                db, app.Services.GetRequiredService<IOptions<TextStack.Ai.Llm.OpenAiOptions>>().Value);
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogError(ex, "Model registry seeding failed; continuing startup (registry not yet authoritative)");
     }
 }
 
@@ -234,11 +183,11 @@ app.UseStaticFiles(new StaticFileOptions
 });
 
 // Health check before site resolution (for infra probes)
-app.MapGet("/health", async (Api.V2.SelectedDatabaseProbe selected, CancellationToken ct) =>
+app.MapGet("/health", async (V2DataSource db, CancellationToken ct) =>
 {
     try
     {
-        await using var conn = await selected.OpenAsync(ct);
+        await using var conn = await db.OpenConnectionAsync(ct);
         await new Npgsql.NpgsqlCommand("SELECT 1", conn).ExecuteScalarAsync(ct);
         return Results.Ok("healthy");
     }
@@ -250,7 +199,7 @@ app.MapGet("/health", async (Api.V2.SelectedDatabaseProbe selected, Cancellation
 
 // Granular readiness probe — per-component status for ops dashboards.
 // db + storage are critical (503 on failure); ollama is soft (degraded, still 200).
-app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguration cfg, Api.V2.V2Readiness v2, Api.V2.SelectedDatabaseProbe selected, CancellationToken ct) =>
+app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguration cfg, Api.V2.V2Readiness v2, V2DataSource db, CancellationToken ct) =>
 {
     var started = DateTimeOffset.UtcNow;
     var components = new Dictionary<string, object>();
@@ -258,13 +207,13 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
 
     try
     {
-        await using var conn = await selected.OpenAsync(ct);
+        await using var conn = await db.OpenConnectionAsync(ct);
         await new Npgsql.NpgsqlCommand("SELECT 1", conn).ExecuteScalarAsync(ct);
-        components["db"] = new { status = "ok", mode = databaseMode.IsV2 ? "v2" : "legacy" };
+        components["db"] = new { status = "ok" };
     }
     catch (Exception ex)
     {
-        components["db"] = new { status = "down", mode = databaseMode.IsV2 ? "v2" : "legacy", error = ex.GetType().Name };
+        components["db"] = new { status = "down", error = ex.GetType().Name };
         criticalOk = false;
     }
 
@@ -277,8 +226,8 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
     {
         try
         {
-            await using var conn = await selected.OpenAsync(ct);
-            var pending = await SchemaVersion.PendingAsync(conn, selected.KnownMigrations, ct);
+            await using var conn = await db.OpenConnectionAsync(ct);
+            var pending = await SchemaVersion.PendingAsync(conn, SchemaVersion.V2Known, ct);
             if (pending.Count == 0)
                 components["schema"] = new { status = "ok" };
             else
@@ -294,29 +243,6 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
         }
     }
 
-    // v2 mode: the public catalog still reads legacy until M6, so its db and schema are critical too.
-    // Skipped once the selected db failed: already a 503, no second connect timeout.
-    if (selected.CatalogLegacy is { } catalog)
-    {
-        if (!criticalOk)
-            components["legacy"] = new { status = "skipped" };
-        else
-        {
-            try
-            {
-                await using var conn = await catalog.OpenConnectionAsync(ct);
-                var pending = await SchemaVersion.PendingAsync(conn, SchemaVersion.Known, ct);
-                components["legacy"] = pending.Count == 0 ? new { status = "ok" } : new { status = "behind", pending };
-                criticalOk &= pending.Count == 0;
-            }
-            catch (Exception ex)
-            {
-                components["legacy"] = new { status = "down", error = ex.GetType().Name };
-                criticalOk = false;
-            }
-        }
-    }
-
     // Soft on purpose. A collation drift breaks no request today — it changes how text sorts, so a
     // btree index built under the old rules can walk past rows that are there, and a mismatched
     // template1 blocks CREATE DATABASE cluster-wide. Reporting it is the point; 503 for it would
@@ -327,7 +253,7 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
     {
         try
         {
-            await using var conn = await selected.OpenAsync(ct);
+            await using var conn = await db.OpenConnectionAsync(ct);
             var drifted = await CollationDrift.DriftedAsync(conn, ct);
             components["collation"] = drifted.Count == 0
                 ? new { status = "ok" }
@@ -339,11 +265,8 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
         }
     }
 
-    // Soft, like collation, and for the reason the 2026-10-30 outage taught: a V2 database that is
-    // behind or down pauses sync (/me/v2 answers 503) and nothing else, so it never changes this
-    // probe's status code (#1053). Read from V2Readiness's cache; with the flag off, V2 is not touched.
-    // The one exception is the library volume below (owner decision 2026-11-07).
-    components["v2"] = cfg.GetValue<bool>("Features:V2Api") ? await v2.GetAsync() : new { status = "off" };
+    // V2Readiness's cached answer, the one /me/v2 is gated on (#1053); db and schema above are the critical checks.
+    components["v2"] = await v2.GetAsync();
 
     // Write probes, in parallel (FileStoreRegistration.ProbeWriteAsync: a file of its own per call).
     var storageRoot = Infrastructure.Services.FileStoreRegistration.StorageRoot(cfg);
@@ -356,11 +279,9 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
     components["storage"] = Probe(storageRoot, probes[0]);
     criticalOk &= probes[0] is null;
 
-    // The V2 library's own volume (#1110). With V2 on, an unwritable one is a 503 despite #1053 (owner
-    // decision 2026-11-07): V2 on without its volume is a broken deploy, every V2 upload fails. With
-    // V2 off nothing writes there, so it is only reported.
+    // The V2 library's own volume (#1110): unwritable is a 503 (owner decision 2026-11-07), every upload would fail.
     components["library"] = Probe(libraryRoot, probes[1]);
-    criticalOk &= probes[1] is null || !cfg.GetValue<bool>("Features:V2Api");
+    criticalOk &= probes[1] is null;
 
     try
     {
@@ -413,7 +334,7 @@ app.UseMiddleware<WriteFreezeMiddleware>();
 app.UseMiddleware<Api.Middleware.McpKeyAuthMiddleware>();
 
 app.UseRateLimiter();
-if (databaseMode.IsV2) app.UseMiddleware<AccountGuard>();
+app.UseMiddleware<AccountGuard>();
 
 // Guest activity tracking (update LastActiveAt, debounced 10 min)
 app.UseWhen(_ => !writeFreeze, branch => branch.UseMiddleware<Api.Middleware.GuestActivityMiddleware>());

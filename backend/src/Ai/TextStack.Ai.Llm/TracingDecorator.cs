@@ -136,7 +136,7 @@ public sealed class TracingDecorator(
             return;
 
         // Fire-and-forget on its own scope — the decorator is a singleton but
-        // ILlmTraceWriter (and its DbContext) is scoped.
+        // ILlmTraceWriter may be scoped.
         _ = Task.Run(async () =>
         {
             try

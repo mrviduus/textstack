@@ -3,13 +3,13 @@ using static TextStack.IntegrationTests.V2.V2ApiFixture;
 
 namespace TextStack.IntegrationTests.V2;
 
-/// <summary>M2.5a: the legacy account delete and guest merge reach <c>textstack_v2</c> with <c>Features:V2Api</c> on.</summary>
+/// <summary>The account delete and the guest merge on <c>textstack_v2</c>.</summary>
 public class V2IdentityMirrorEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixture>
 {
     private static string NewEmail(string what) => $"v2-{what}-{Guid.NewGuid():N}@textstack.test";
 
     [Fact]
-    public async Task DeleteAccount_FlagOn_V2RowsGone()
+    public async Task DeleteAccount_V2RowsGone()
     {
         v2.Require();
         var email = NewEmail("delete");
@@ -27,7 +27,7 @@ public class V2IdentityMirrorEndpointTests(V2ApiFixture v2) : IClassFixture<V2Ap
     }
 
     [Fact]
-    public async Task GuestSignIn_FlagOn_GuestV2RowsOnTheAccountAndTheMergeMapInTheResponse()
+    public async Task GuestSignIn_GuestV2RowsOnTheAccountAndTheMergeMapInTheResponse()
     {
         v2.Require();
         var (email, password) = (NewEmail("merge"), "correct-horse-battery");

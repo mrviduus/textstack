@@ -1,8 +1,5 @@
 using Application.Ai;
 using Application.Auth;
-using Application.Common.Interfaces;
-using Domain.Entities;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -79,7 +76,7 @@ public class RollingSpendTrackerTests
     public void LazySeed_ScalesBy_InverseSampleRate()
     {
         // explain sampled at 0.1 → seed = tracedSum * 10.
-        var traces = new List<LlmTrace>
+        var traces = new List<TraceRow>
         {
             Trace("explain", 0.05m, Day1),
             Trace("explain", 0.05m, Day1),
@@ -94,7 +91,7 @@ public class RollingSpendTrackerTests
     [Fact]
     public void LazySeed_DefaultRate_NoScale()
     {
-        var traces = new List<LlmTrace> { Trace("translate", 0.4m, Day1) };
+        var traces = new List<TraceRow> { Trace("translate", 0.4m, Day1) };
         var t = Build(out _, out _, clock: new SteppedClock { Now = Day1 }, traces: traces);
         Assert.Equal(0.4m, t.SpentTodayUsd("translate")); // default rate 1.0 → unscaled
     }
@@ -102,14 +99,14 @@ public class RollingSpendTrackerTests
     [Fact]
     public void LazySeed_RunsOnce_ThenLiveRecordsAddOnTop()
     {
-        var traces = new List<LlmTrace> { Trace("explain", 0.05m, Day1) };
+        var traces = new List<TraceRow> { Trace("explain", 0.05m, Day1) };
         var tracing = new TracingOptions(1.0, new Dictionary<string, double> { ["explain"] = 0.1 });
-        var t = Build(out var scopeFactory, out _, clock: new SteppedClock { Now = Day1 }, traces: traces, tracing: tracing);
+        var t = Build(out var source, out _, clock: new SteppedClock { Now = Day1 }, traces: traces, tracing: tracing);
 
         Assert.Equal(0.5m, t.SpentTodayUsd("explain")); // 0.05 * 10 (seeded)
         t.Record("explain", 1.0m);
         Assert.Equal(1.5m, t.SpentTodayUsd("explain")); // seed not re-applied
-        Assert.Equal(1, scopeFactory.ScopesCreated); // seed queried DB exactly once
+        Assert.Equal(1, source.Calls); // seed queried the traces exactly once
     }
 
     // ---- 80% alert ----
@@ -204,11 +201,10 @@ public class RollingSpendTrackerTests
     [Fact]
     public void SeedFailure_Swallowed_SpentTreatedAsZero()
     {
-        // A scope factory whose DbContext throws on access → seed fails → bucket starts at 0.
-        var scopeFactory = new ThrowingScopeFactory();
+        // A spend source that throws → seed fails → bucket starts at 0.
         var t = new RollingSpendTracker(
-            scopeFactory, new SteppedClock { Now = Day1 }, BudgetOptions.Empty,
-            new TracingOptions(), NullLogger<RollingSpendTracker>.Instance);
+            new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), new SteppedClock { Now = Day1 },
+            BudgetOptions.Empty, new TracingOptions(), NullLogger<RollingSpendTracker>.Instance, new FakeSpendSource(null));
 
         Assert.Equal(0m, t.SpentTodayUsd("explain")); // no throw
         t.Record("explain", 0.5m);
@@ -231,38 +227,31 @@ public class RollingSpendTrackerTests
         new(new FeatureBudget(null, null, BudgetMode.Off),
             new Dictionary<string, FeatureBudget> { [feature] = new(daily, "ollama", mode) });
 
-    private static LlmTrace Trace(string feature, decimal cost, DateTimeOffset at) => new()
-    {
-        Id = Guid.NewGuid(),
-        FeatureTag = feature,
-        ModelId = "m",
-        PromptHash = "h",
-        MessagesJson = "[]",
-        CostUsd = cost,
-        CreatedAt = at,
-    };
+    private sealed record TraceRow(string Feature, decimal CostUsd, DateTimeOffset At);
+
+    private static TraceRow Trace(string feature, decimal cost, DateTimeOffset at) => new(feature, cost, at);
 
     private static RollingSpendTracker Build(
-        out RecordingScopeFactory scopeFactory,
+        out FakeSpendSource source,
         out Mock<IEmailService> email,
         BudgetOptions? budgets = null,
         SteppedClock? clock = null,
-        List<LlmTrace>? traces = null,
+        List<TraceRow>? traces = null,
         TracingOptions? tracing = null,
         bool inlineAlerts = true)
     {
-        email = new Mock<IEmailService>();
+        var mail = email = new Mock<IEmailService>();
         email.Setup(e => e.SendAdminAlertAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-
-        scopeFactory = new RecordingScopeFactory(traces ?? new List<LlmTrace>(), email.Object);
+        source = new FakeSpendSource(traces ?? []);
 
         return new RollingSpendTracker(
-            scopeFactory,
+            new ServiceCollection().AddScoped(_ => mail.Object).BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
             clock ?? new SteppedClock { Now = Day1 },
             budgets ?? BudgetOptions.Empty,
             tracing ?? new TracingOptions(),
-            NullLogger<RollingSpendTracker>.Instance)
+            NullLogger<RollingSpendTracker>.Instance,
+            source)
         {
             // #1134: send the alert on the calling thread, so the tests assert right after
             // Record instead of polling for a Task.Run a starved thread pool may not start in time.
@@ -270,67 +259,17 @@ public class RollingSpendTrackerTests
         };
     }
 
-    // A scope factory that resolves IAppDbContext (Moq-backed LlmTraces) + IEmailService.
-    private sealed class RecordingScopeFactory(List<LlmTrace> traces, IEmailService email) : IServiceScopeFactory
+    /// <summary>The V2 traces' spend sum (V2LlmTraceWriter in production); <c>null</c> rows = a failing database.</summary>
+    private sealed class FakeSpendSource(List<TraceRow>? traces) : ILlmSpendSource
     {
-        private int _scopes;
-        public int ScopesCreated => Volatile.Read(ref _scopes);
+        private int _calls;
+        public int Calls => Volatile.Read(ref _calls);
 
-        public IServiceScope CreateScope()
+        public decimal SampledCostSince(string featureTag, DateTimeOffset since)
         {
-            Interlocked.Increment(ref _scopes);
-            return new Scope(traces, email);
+            Interlocked.Increment(ref _calls);
+            if (traces is null) throw new InvalidOperationException("db down");
+            return traces.Where(t => t.Feature == featureTag && t.At >= since).Sum(t => t.CostUsd);
         }
-
-        private sealed class Scope(List<LlmTrace> traces, IEmailService email) : IServiceScope
-        {
-            public IServiceProvider ServiceProvider { get; } = BuildProvider(traces, email);
-            public void Dispose() { }
-
-            private static IServiceProvider BuildProvider(List<LlmTrace> traces, IEmailService email)
-            {
-                var db = new Mock<IAppDbContext>();
-                db.Setup(x => x.LlmTraces).Returns(() => FakeSet(traces).Object);
-
-                var services = new ServiceCollection();
-                services.AddScoped(_ => db.Object);
-                services.AddScoped(_ => email);
-                return services.BuildServiceProvider();
-            }
-        }
-    }
-
-    private sealed class ThrowingScopeFactory : IServiceScopeFactory
-    {
-        public IServiceScope CreateScope() => new Scope();
-
-        private sealed class Scope : IServiceScope
-        {
-            public IServiceProvider ServiceProvider { get; }
-            public Scope()
-            {
-                var db = new Mock<IAppDbContext>();
-                db.Setup(x => x.LlmTraces).Throws(new InvalidOperationException("db down"));
-                var services = new ServiceCollection();
-                services.AddScoped(_ => db.Object);
-                ServiceProvider = services.BuildServiceProvider();
-            }
-            public void Dispose() { }
-        }
-    }
-
-    private static Mock<DbSet<T>> FakeSet<T>(List<T> data) where T : class
-    {
-        var q = new TestAsyncEnumerable<T>(data);
-        var set = new Mock<DbSet<T>>();
-        var iq = set.As<IQueryable<T>>();
-        iq.Setup(m => m.Provider).Returns(((IQueryable<T>)q).Provider);
-        iq.Setup(m => m.Expression).Returns(((IQueryable<T>)q).Expression);
-        iq.Setup(m => m.ElementType).Returns(((IQueryable<T>)q).ElementType);
-        iq.Setup(m => m.GetEnumerator()).Returns(() => data.GetEnumerator());
-        set.As<IAsyncEnumerable<T>>()
-            .Setup(m => m.GetAsyncEnumerator(It.IsAny<CancellationToken>()))
-            .Returns(() => new TestAsyncEnumerator<T>(data.GetEnumerator()));
-        return set;
     }
 }

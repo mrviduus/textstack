@@ -4,19 +4,18 @@ using Application.Auth;
 using Application.Identity;
 using Application.Sync;
 using Domain.Identity;
-using Infrastructure.Persistence;
 using Npgsql;
 
 namespace Api.Middleware;
 
-/// <summary>V2 mode never accepts a reset or deleted account's JWT: the account is read from V2 per session request.</summary>
-public sealed class AccountGuard(RequestDelegate next, DatabaseMode mode)
+/// <summary>Never accepts a reset or deleted account's JWT: the account is read from V2 per session request.</summary>
+public sealed class AccountGuard(RequestDelegate next)
 {
     public static readonly object AccountItemKey = new();
 
     public async Task InvokeAsync(HttpContext http, IAuthService auth, IUserRepository users)
     {
-        if (!mode.IsV2 || HttpMethods.IsOptions(http.Request.Method))
+        if (HttpMethods.IsOptions(http.Request.Method))
         {
             await next(http);
             return;

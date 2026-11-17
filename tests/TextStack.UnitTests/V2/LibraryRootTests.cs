@@ -27,12 +27,11 @@ public sealed class LibraryRootTests : IDisposable
         if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true);
     }
 
-    private static IConfiguration Config(string? rootPath, string? libraryRoot, bool v2Api = false) =>
+    private static IConfiguration Config(string? rootPath, string? libraryRoot) =>
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Storage:RootPath"] = rootPath,
             ["Storage:LibraryRoot"] = libraryRoot,
-            ["Features:V2Api"] = v2Api ? "true" : "false",
         }).Build();
 
     private static void Register(IConfiguration config) => new ServiceCollection().AddTextStackFileStores(config);
@@ -44,7 +43,7 @@ public sealed class LibraryRootTests : IDisposable
         var config = Config(StorageRoot, libraryRoot);
         using var provider = new ServiceCollection()
             .AddSingleton(config)
-            .AddTextStackPersistence("Host=unused", config)
+            .AddTextStackPersistence(config)
             .BuildServiceProvider();
         var store = provider.GetRequiredService<ILibraryFileStore>();
         var key = store.FileKey(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "epub");
@@ -107,15 +106,14 @@ public sealed class LibraryRootTests : IDisposable
     }
 
     [Theory]
-    [InlineData("library/ab/abcd/1234/5678.epub", true)]
-    [InlineData("uploads/abcd/5678/00000.part", true)]
-    [InlineData("library/ab/abcd/1234/5678.epub", false)]
-    [InlineData("library/ab/.hidden", false)]                   // dotfiles count
-    public void AddTextStackFileStores_LeftoverV2FileUnderStorageRoot_RegistersAndWarns(string leftover, bool v2Api)
+    [InlineData("library/ab/abcd/1234/5678.epub")]
+    [InlineData("uploads/abcd/5678/00000.part")]
+    [InlineData("library/ab/.hidden")]                   // dotfiles count
+    public void AddTextStackFileStores_LeftoverV2FileUnderStorageRoot_RegistersAndWarns(string leftover)
     {
         WriteLeftover(leftover);
 
-        var (services, stderr) = RegisterCapturingStderr(Config(StorageRoot, Path.Combine(_dir, "library"), v2Api));
+        var (services, stderr) = RegisterCapturingStderr(Config(StorageRoot, Path.Combine(_dir, "library")));
 
         Assert.Contains(services, d => d.ServiceType == typeof(ILibraryFileStore));
         Assert.Contains("holds V2 files from before #1110", stderr);
@@ -128,7 +126,7 @@ public sealed class LibraryRootTests : IDisposable
     {
         Directory.CreateDirectory(Path.Combine(StorageRoot, "library", "ab"));
 
-        var (_, stderr) = RegisterCapturingStderr(Config(StorageRoot, Path.Combine(_dir, "library"), v2Api: true));
+        var (_, stderr) = RegisterCapturingStderr(Config(StorageRoot, Path.Combine(_dir, "library")));
 
         Assert.DoesNotContain("holds V2 files", stderr);
         Assert.DoesNotContain("scan incomplete", stderr);
@@ -146,7 +144,7 @@ public sealed class LibraryRootTests : IDisposable
         try
         {
             Assert.SkipWhen(CanRead(locked), "running as root: mode 000 is readable");
-            var (services, stderr) = RegisterCapturingStderr(Config(StorageRoot, Path.Combine(_dir, "library"), v2Api: true));
+            var (services, stderr) = RegisterCapturingStderr(Config(StorageRoot, Path.Combine(_dir, "library")));
 
             Assert.Contains(services, d => d.ServiceType == typeof(ILibraryFileStore));
             Assert.Contains($"scan incomplete: {locked} unreadable", stderr);

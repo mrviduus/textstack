@@ -46,9 +46,9 @@ public sealed class ToolDispatcher(IToolRegistry registry)
 
         try
         {
-            // Each invocation gets its OWN DI scope: tools resolve scoped services (e.g. the EF
-            // DbContext) from ToolContext.Services, and DispatchAllAsync runs calls in parallel —
-            // sharing the request scope would make two tools hit one DbContext concurrently.
+            // Each invocation gets its OWN DI scope: tools resolve scoped services from
+            // ToolContext.Services, and DispatchAllAsync runs calls in parallel — sharing the
+            // request scope would make two tools use one scoped instance concurrently.
             using var scope = ctx.Services.CreateScope();
             var result = await tool.InvokeAsync(call.Arguments, ctx with { Services = scope.ServiceProvider }, ct);
             return ToolResult.Success(call, result);

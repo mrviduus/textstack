@@ -1,8 +1,6 @@
 using System.Buffers.Text;
-using System.Linq.Expressions;
 using System.Security.Cryptography;
 using System.Text;
-using Domain.Entities;
 
 namespace Application.Auth;
 
@@ -58,17 +56,6 @@ public static class OAuth
 
     public static bool LooksLikeAccessToken(string? token) =>
         !string.IsNullOrEmpty(token) && token.StartsWith(AccessTokenPrefix, StringComparison.Ordinal);
-
-    /// <summary>
-    /// Which grant, if any, an access token authenticates: its hash, not revoked, not expired, and
-    /// issued FOR <paramref name="resource"/> (the audience check, RFC 8707). One expression so the
-    /// middleware's query and the unit test are the same rule.
-    /// </summary>
-    public static Expression<Func<OAuthGrant, bool>> LiveAccessToken(string hash, string resource, DateTimeOffset now) =>
-        g => g.AccessTokenHash == hash
-            && g.RevokedAt == null
-            && g.AccessTokenExpiresAt > now
-            && g.Resource == resource;
 
     /// <summary>A PKCE S256 challenge is base64url(SHA-256) = exactly 43 unreserved chars.</summary>
     public static bool IsValidCodeChallenge(string? challenge) =>

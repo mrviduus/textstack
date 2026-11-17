@@ -18,7 +18,7 @@ public sealed record V2Response(HttpStatusCode Status, JsonElement Body)
 
 /// <summary>
 /// <see cref="LiveApiFixture"/>'s V2 mode: the running stack with <c>textstack_v2</c> migrated
-/// (<c>make migrate-v2</c>) and <c>Features__V2Api=true</c> on the api. Opt-in by
+/// (<c>make migrate-v2</c>). Opt-in by
 /// <c>V2_API_TESTS=1</c>; set, a stack whose <c>/me/v2</c> is not mapped fails every test instead of
 /// skipping it, so a run that meant to cover V2 cannot go green without it. Two test users
 /// (test-login, <c>ENABLE_TEST_AUTH</c>) for owner isolation, and fresh guests where a test needs an
@@ -50,7 +50,7 @@ public sealed class V2ApiFixture : IAsyncLifetime
     /// <summary>Skips without <c>V2_API_TESTS=1</c>; fails when it is set and V2 is not there.</summary>
     public void Require()
     {
-        Assert.SkipUnless(_enabled, "V2 API tests are opt-in: set V2_API_TESTS=1 against a stack with Features__V2Api=true and `make migrate-v2` run");
+        Assert.SkipUnless(_enabled, "V2 API tests are opt-in: set V2_API_TESTS=1 against a stack with `make migrate-v2` run");
         if (_failure is not null) Assert.Fail(_failure);
     }
 
@@ -66,7 +66,7 @@ public sealed class V2ApiFixture : IAsyncLifetime
             using var probe = Request(HttpMethod.Get, "/me/v2/status", alice);
             using var status = await client.SendAsync(probe);
             return (alice, bob, status.StatusCode == HttpStatusCode.OK ? null
-                : $"V2_API_TESTS=1 but GET /me/v2/status answered {(int)status.StatusCode}: run `make migrate-v2` and recreate the api with Features__V2Api=true");
+                : $"V2_API_TESTS=1 but GET /me/v2/status answered {(int)status.StatusCode}: run `make migrate-v2` and recreate the api");
         }
         catch (Exception e) when (e is HttpRequestException or InvalidOperationException)
         {

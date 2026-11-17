@@ -15,11 +15,9 @@ namespace Api.Endpoints;
 
 /// <summary>
 /// The V2 sync API, the M2.2–M2.6 rows of v2-sync-protocol.md "Endpoints": library, reading,
-/// annotations, vocabulary, shares, checkpoints and file bytes under <c>/me/v2</c> (a temporary prefix, renamed at M5.4). Mapped only with <c>Features:V2Api</c>
-/// on, so with it off the stack is exactly as before (404, and old clients never see a V2 body).
-/// Every route sits behind <see cref="V2Gate"/>: V2 readiness (#1053), the legacy account, then the
-/// session user's V2 shadow row — M2.2's bridge to the legacy accounts, removed by M2.5, whose rows
-/// the M3 ETL upserts. A user or guest session is required (PathGates, ADR-014). Handlers write a use
+/// annotations, vocabulary, shares, checkpoints and file bytes under <c>/me/v2</c>.
+/// Every route sits behind <see cref="V2Gate"/>: V2 readiness (#1053), then the session's account.
+/// A user or guest session is required (PathGates, ADR-014). Handlers write a use
 /// case's <see cref="SyncResult"/> and nothing else. Bytes routes read the raw body (no JSON binder).
 /// </summary>
 public static class V2Endpoints
@@ -29,8 +27,6 @@ public static class V2Endpoints
 
     public static void MapV2Endpoints(this WebApplication app)
     {
-        if (!app.Configuration.GetValue<bool>("Features:V2Api")) return;
-
         var v2 = app.MapGroup("/me/v2").WithTags("V2 sync").AddEndpointFilter<V2Gate>();
         var maxPartBytes = app.Configuration.GetValue("V2:MaxPartBytes", DefaultMaxPartBytes);
         var status = Results.Ok(new V2StatusDto(maxPartBytes));

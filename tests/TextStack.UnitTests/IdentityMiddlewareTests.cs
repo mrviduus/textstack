@@ -20,10 +20,7 @@ public class IdentityMiddlewareTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static readonly AuthService Auth = new(
-        null!,
-        Options.Create(new JwtSettings { SecretKey = TestTokens.Secret, Issuer = TestTokens.Issuer }),
-        Options.Create(new GoogleSettings { ClientId = "unused.apps.googleusercontent.com" }));
+    private static readonly IAuthService Auth = TestTokens.ReadOnlyAuth();
 
     private static DefaultHttpContext Request(string bearer, Action<IServiceCollection>? services = null)
     {

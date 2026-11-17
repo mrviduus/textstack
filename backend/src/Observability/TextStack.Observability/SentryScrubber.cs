@@ -181,10 +181,9 @@ public static class SentryScrubber
             level: breadcrumb.Level);
     }
 
-    /// <summary>True for EF Core command-log breadcrumbs, which carry SQL text in their message.</summary>
+    /// <summary>True for database command-log breadcrumbs, which carry SQL text in their message.</summary>
     public static bool IsDatabaseCommand(Breadcrumb breadcrumb) =>
-        breadcrumb.Category?.StartsWith(EfCommandLogger, StringComparison.OrdinalIgnoreCase) == true
-        || ContainsDbCommandLog(breadcrumb.Message);
+        ContainsDbCommandLog(breadcrumb.Message);
 
     /// <summary>
     /// True for EF Core command-log EVENTS. Dropping the breadcrumb was not enough: EF Core logs a
@@ -200,11 +199,8 @@ public static class SentryScrubber
     /// constraint name — everything needed to debug, none of the SQL.
     /// </summary>
     public static bool IsDatabaseCommandEvent(SentryEvent e) =>
-        e.Logger?.StartsWith(EfCommandLogger, StringComparison.OrdinalIgnoreCase) == true
-        || ContainsDbCommandLog(e.Message?.Formatted)
+        ContainsDbCommandLog(e.Message?.Formatted)
         || ContainsDbCommandLog(e.Message?.Message);
-
-    private const string EfCommandLogger = "Microsoft.EntityFrameworkCore";
 
     private static bool ContainsDbCommandLog(string? text) =>
         text?.Contains("Executed DbCommand", StringComparison.OrdinalIgnoreCase) == true

@@ -16,7 +16,7 @@ using TextStack.UnitTests;
 
 namespace TextStack.Persistence.Tests.Identity;
 
-/// <summary>The real HTTP pipeline and real V2 repositories, with legacy deliberately unreachable.</summary>
+/// <summary>The real HTTP pipeline and real V2 repositories.</summary>
 public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposable
 {
     private readonly string _prefix = "native_" + Guid.NewGuid().ToString("N")[..12];
@@ -26,34 +26,17 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
     private const string Password = "correct horse battery";
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    // Physical connections the legacy pool opened: v2 mode must open none (a silent catch would hide a refused one).
-    private int _legacyConnections;
-    private const string Unreachable = "Host=127.0.0.1;Port=1;Database=down;Timeout=1";
-
-    private void AssertLegacyUntouched() => Assert.Equal(0, Volatile.Read(ref _legacyConnections));
-
-    /// <summary>
-    /// v2 mode: V2 is the scratch database; legacy is a reachable, counted pool (<see cref="AssertLegacyUntouched"/>).
-    /// legacy mode: legacy is a migrated scratch database; V2 is unreachable.
-    /// <paramref name="migratedLegacy"/> (v2 mode): legacy is a migrated scratch database too, what readiness needs.
-    /// </summary>
-    private async Task<(HttpClient Client, string Target)> ApiAsync(bool v2 = true, bool migratedLegacy = false)
+    /// <summary>The Api on a scratch V2 database.</summary>
+    private async Task<(HttpClient Client, string Target)> ApiAsync()
     {
-        var target = v2 ? await db.Databases.NewV2Async(_prefix + (migratedLegacy ? "_m" : "")) : (await db.Databases.NewLegacyAsync(_prefix + "_legacy")).Admin;
-        var legacy = !v2 ? target
-            // No pooling: every legacy open is a physical one, so the counter still sees use after the health probe's.
-            : migratedLegacy ? (await db.Databases.NewLegacyAsync(_prefix + "_catalog")).Admin + ";Pooling=false"
-            : db.Databases.ConnectionString("postgres");
+        var target = await db.Databases.NewV2Async(_prefix + "_" + _apps.Count);
         var root = Path.Combine(Path.GetTempPath(), _prefix);
         Directory.CreateDirectory(Path.Combine(root, "library"));
         var app = new WebApplicationFactory<ApiMarker>().WithWebHostBuilder(b =>
         {
             b.UseEnvironment("Test");
-            b.UseSetting("Database:Mode", v2 ? "v2" : "legacy");
-            b.UseSetting("Features:V2Api", "true");
             b.UseSetting("Maintenance:WriteFreeze", "false");
-            b.UseSetting("ConnectionStrings:Default", legacy);
-            b.UseSetting("ConnectionStrings:V2", v2 ? target : Unreachable);
+            b.UseSetting("ConnectionStrings:V2", target);
             b.UseSetting("Jwt:SecretKey", TestTokens.Secret);
             b.UseSetting("Jwt:Issuer", TestTokens.Issuer);
             b.UseSetting("App:BaseUrl", "https://textstack.app");
@@ -72,17 +55,6 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
                 s.AddSingleton<Domain.LLM.ILlmServiceFactory>(_llm);
                 s.RemoveAll<TextStack.Ai.Core.ILlmService>();
                 s.AddSingleton<TextStack.Ai.Core.ILlmService>(_llm);
-                if (!v2) return;
-                // The one legacy pool EF and Dapper share (DataSource.AddTextStackDataAccess), counted.
-                s.RemoveAll<NpgsqlDataSource>();
-                s.AddSingleton(_ =>
-                {
-                    var pool = new NpgsqlDataSourceBuilder(legacy);
-                    pool.UsePhysicalConnectionInitializer(
-                        _ => Interlocked.Increment(ref _legacyConnections),
-                        _ => { Interlocked.Increment(ref _legacyConnections); return Task.CompletedTask; });
-                    return pool.Build();
-                });
             });
         });
         _apps.Add(app);
@@ -106,7 +78,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
     private static Guid UserId(JsonElement body) => body.GetProperty("user").GetProperty("id").GetGuid();
 
     [Fact]
-    public async Task Native_LoginRefreshResetAndLogout_WorkWithoutLegacy_AndResetRevokesLiveJwt()
+    public async Task Native_LoginRefreshResetAndLogout_ResetRevokesLiveJwt()
     {
         var (client, _) = await ApiAsync();
         using (client)
@@ -136,7 +108,6 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/auth/refresh-mobile",
                 new { refreshToken = login.GetProperty("refreshToken").GetString() }, Ct)).StatusCode);
         }
-        AssertLegacyUntouched();
     }
 
     [Theory]
@@ -167,7 +138,6 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
                 Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/me/v2/status", Ct)).StatusCode);
             }
         }
-        AssertLegacyUntouched();
     }
 
     [Fact]
@@ -194,66 +164,27 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Bearer(client, key.GetProperty("key").GetString()!);
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/me/v2/status", Ct)).StatusCode);
         }
-        AssertLegacyUntouched();
     }
 
     [Fact]
-    public async Task Native_HealthNeedsV2AndLegacyCatalog_AndPortedRoutesServeFromV2()
+    public async Task Native_HealthIsReadyOnV2_AndPortedRoutesServeFromV2()
     {
-        // The catalog still reads legacy until M6: an unmigrated legacy database is not ready.
-        var (unmigrated, _) = await ApiAsync();
-        using (unmigrated)
-        {
-            using var notReady = await unmigrated.GetAsync("/health/ready", Ct);
-            Assert.Equal(HttpStatusCode.ServiceUnavailable, notReady.StatusCode);
-            var components = JsonSerializer.Deserialize<JsonElement>(await notReady.Content.ReadAsStringAsync(Ct)).GetProperty("components");
-            Assert.Equal(("ok", "behind"), (components.GetProperty("db").GetProperty("status").GetString(), components.GetProperty("legacy").GetProperty("status").GetString()));
-        }
-
-        var (client, _) = await ApiAsync(migratedLegacy: true);
+        var (client, _) = await ApiAsync();
         using (client)
         {
             var body = await BodyAsync(await client.GetAsync("/health/ready", Ct));
             Assert.Equal("ready", body.GetProperty("status").GetString());
-            Assert.Equal("v2", body.GetProperty("components").GetProperty("db").GetProperty("mode").GetString());
-            Assert.Equal("ok", body.GetProperty("components").GetProperty("legacy").GetProperty("status").GetString());
             Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health", Ct)).StatusCode);
-            // Readiness reads legacy on purpose; identity and /me must not.
-            Interlocked.Exchange(ref _legacyConnections, 0);
             var account = await RegisterAsync(client);
             Bearer(client, Access(account));
             // Ported (V2CompatEndpoints): the legacy path answers from V2, the legacy shape.
             var highlights = await BodyAsync(await client.GetAsync("/me/highlights/all?limit=5", Ct));
             Assert.Equal(0, highlights.GetProperty("totalCount").GetInt32());
         }
-        AssertLegacyUntouched();
     }
 
     [Fact]
-    public async Task Legacy_V2Unreachable_IdentityAndHealthStillServe()
-    {
-        var (client, target) = await ApiAsync(v2: false);
-        using (client)
-        {
-            using var ready = await client.GetAsync("/health/ready", Ct);
-            Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
-            var health = JsonSerializer.Deserialize<JsonElement>(await ready.Content.ReadAsStringAsync(Ct));
-            Assert.Equal("legacy", health.GetProperty("components").GetProperty("db").GetProperty("mode").GetString());
-
-            var registered = await RegisterAsync(client);
-            Assert.Equal(1, await TestSql.ScalarAsync<long>(ct => OpenAsync(target, ct), "SELECT count(*) FROM users WHERE id=@id", new { id = UserId(registered) }));
-            Bearer(client, Access(registered));
-            Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/auth/me", Ct)).StatusCode);
-            var refreshed = await BodyAsync(await client.PostAsJsonAsync("/auth/refresh-mobile",
-                new { refreshToken = registered.GetProperty("refreshToken").GetString() }, Ct));
-            Assert.Equal(UserId(registered), UserId(refreshed));
-            // V2 down pauses sync only (#1053).
-            Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/me/v2/status", Ct)).StatusCode);
-        }
-    }
-
-    [Fact]
-    public async Task Native_OAuthConsentAndToken_WorkWithoutLegacy()
+    public async Task Native_OAuthConsentAndToken_Work()
     {
         var (client, _) = await ApiAsync();
         using (client)
@@ -286,7 +217,6 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Bearer(client, token.GetProperty("access_token").GetString()!);
             Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/me/v2/status", Ct)).StatusCode);
         }
-        AssertLegacyUntouched();
     }
 
     [Fact]
@@ -315,7 +245,6 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             await ExecAsync(target, "UPDATE users SET credentials_reset_at=clock_timestamp() WHERE id=@id", new { id });
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/admin/auth/me", Ct)).StatusCode);
         }
-        AssertLegacyUntouched();
     }
 
     private static async ValueTask<NpgsqlConnection> OpenAsync(string target, CancellationToken ct)
@@ -338,8 +267,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
     [Fact]
     public async Task AReaderTranslatesAndExplainsOnV2_AndTheDaysAiSpendIsCountedFromV2()
     {
-        // A public path resolves the site from legacy's catalog (read-only in v2 mode until M6): a migrated one.
-        var (client, target) = await ApiAsync(migratedLegacy: true);
+        var (client, target) = await ApiAsync();
         using (client)
         {
             var account = await RegisterAsync(client);
@@ -353,7 +281,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
                     (gen_random_uuid(), 'explain', 'm', 'h', '[]', 1, 1, 9, 1, now() - interval '2 days')
                 """, new { });
 
-            // Anonymous: the reading loop's translate needs no account, in v2 mode as in legacy.
+            // Anonymous: the reading loop's translate needs no account.
             var anonymous = await BodyAsync(await client.PostAsJsonAsync("/api/translate",
                 new { text = "good morning", sourceLang = "en", targetLang = "uk" }, Ct));
             Assert.Equal("fake answer", anonymous.GetProperty("translatedText").GetString());

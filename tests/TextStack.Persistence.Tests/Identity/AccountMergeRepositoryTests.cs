@@ -348,7 +348,7 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         await db.WaitUntilBlockedByAsync(writer, first);
         await write.CommitAsync(Ct);
 
-        // The snapshot collision the mirror retries once (V2IdentityMirror).
+        // The snapshot collision a caller retries once.
         Assert.Equal("23505", (await Assert.ThrowsAsync<PostgresException>(() => first)).SqlState);
         var second = await MergeAsync(guest, account);
         Assert.Equal((AccountMergeOutcome.Merged, 1), (second.Outcome, second.DroppedDuplicates));

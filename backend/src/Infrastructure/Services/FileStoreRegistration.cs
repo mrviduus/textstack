@@ -31,7 +31,7 @@ public static class FileStoreRegistration
             throw new InvalidOperationException(
                 $"Storage:LibraryRoot ({AsDirectory(library)}) and Storage:RootPath ({AsDirectory(storage)}) are nested, and /storage serves the root publicly. Make them separate directories, e.g. /library and /storage (#1110).");
 
-        // Leftover V2 files under the public root: a warning in both modes, never a crash loop. The
+        // Leftover V2 files under the public root: a warning, never a crash loop. The
         // /storage/library|uploads denylist (UserStoragePolicy, nginx) keeps them private meanwhile.
         // No logger exists yet at registration; stderr reaches `docker compose logs`.
         foreach (var dir in new[] { "library", "uploads" })

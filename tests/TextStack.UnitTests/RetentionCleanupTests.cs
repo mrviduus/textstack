@@ -1,6 +1,4 @@
-using Application.Common.Interfaces;
 using Application.Identity;
-using Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -12,15 +10,11 @@ namespace TextStack.UnitTests;
 public class RetentionCleanupTests
 {
     [Fact]
-    public async Task CleanupAsync_V2Mode_CredentialPortsAndV2AiSweeps_LegacyUntouched()
+    public async Task CleanupAsync_CredentialPortsThenAiSweeps_AllRulesRun()
     {
-        // After the cutover legacy is read-only and archived till M6: a legacy sweep would fail every day (#1031).
         var oauth = new Mock<IOAuthRepository>();
-        var legacyResolved = false;
         var lastSweep = new TaskCompletionSource();
         await using var services = new ServiceCollection()
-            .AddSingleton(new Infrastructure.Persistence.DatabaseMode(true))
-            .AddScoped<IAppDbContext>(_ => { legacyResolved = true; return Mock.Of<IAppDbContext>(); })
             .AddScoped(_ => Mock.Of<ISessionTokenRepository>())
             .AddScoped(_ => Mock.Of<IDeviceLoginRepository>())
             .AddScoped(_ => oauth.Object)
@@ -38,10 +32,7 @@ public class RetentionCleanupTests
         await worker.StopAsync(TestContext.Current.CancellationToken);
 
         oauth.Verify(o => o.DeleteDeadGrantsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), Times.Once);
-        Assert.False(legacyResolved);
     }
-
-    private static readonly DateTimeOffset Now = new(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
     public async Task CleanupAsync_CredentialSweeps_EachGetsADayPastNow()
@@ -54,7 +45,6 @@ public class RetentionCleanupTests
         oauth.Setup(o => o.DeleteDeadGrantsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
             .Callback(lastSweep.SetResult).ReturnsAsync(0);
         await using var services = new ServiceCollection()
-            .AddScoped(_ => Mock.Of<IAppDbContext>())
             .AddScoped(_ => sessions.Object)
             .AddScoped(_ => devices.Object)
             .AddScoped(_ => oauth.Object)
@@ -84,7 +74,6 @@ public class RetentionCleanupTests
         var devices = new Mock<IDeviceLoginRepository>();
         // No ISessionTokenRepository: its two rules fail, logged, and the rest go on.
         await using var services = new ServiceCollection()
-            .AddScoped(_ => Mock.Of<IAppDbContext>())
             .AddScoped(_ => devices.Object)
             .AddScoped(_ => oauth.Object)
             .BuildServiceProvider();
@@ -96,62 +85,4 @@ public class RetentionCleanupTests
 
         devices.Verify(d => d.DeleteExpiredAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), Times.Once);
     }
-
-    private static bool IsOldSsgJob(DateTimeOffset? finishedAt) =>
-        RetentionCleanupWorker.OldSsgRebuildJob(Now).Compile()(
-            new SsgRebuildJob { CreatedAt = Now.AddYears(-1), FinishedAt = finishedAt });
-
-    [Fact]
-    public void OldSsgRebuildJob_FinishedLongAgo_Deleted() =>
-        Assert.True(IsOldSsgJob(Now.AddDays(-31)));
-
-    [Fact]
-    public void OldSsgRebuildJob_NeverFinished_Kept() =>
-        Assert.False(IsOldSsgJob(null));
-
-    [Fact]
-    public void OldSsgRebuildJob_FinishedRecently_Kept() =>
-        Assert.False(IsOldSsgJob(Now.AddDays(-29)));
-
-    private static bool IsOldTutorSession(DateTimeOffset updatedAt) =>
-        RetentionCleanupWorker.OldTutorSession(Now).Compile()(
-            new TutorSession { PlanJson = "{}", UpdatedAt = updatedAt });
-
-    [Fact]
-    public void OldTutorSession_IdleOver90Days_Deleted() =>
-        Assert.True(IsOldTutorSession(Now.AddDays(-91)));
-
-    [Fact]
-    public void OldTutorSession_UsedRecently_Kept() =>
-        Assert.False(IsOldTutorSession(Now.AddDays(-89)));
-
-    private static LlmTrace Trace(DateTimeOffset createdAt, string messages = "[{\"role\":\"user\"}]", string? response = "text") =>
-        new() { FeatureTag = "f", ModelId = "m", PromptHash = "h", MessagesJson = messages, ResponseText = response, CreatedAt = createdAt };
-
-    [Fact]
-    public void LlmTraceTextToScrub_OldWithText_Selected()
-    {
-        var rule = RetentionCleanupWorker.LlmTraceTextToScrub(Now).Compile();
-        Assert.True(rule(Trace(Now.AddDays(-31))));
-    }
-
-    [Fact]
-    public void LlmTraceTextToScrub_Recent_Kept() =>
-        Assert.False(RetentionCleanupWorker.LlmTraceTextToScrub(Now).Compile()(Trace(Now.AddDays(-29))));
-
-    [Fact]
-    public void LlmTraceTextToScrub_AlreadyScrubbed_NotRewrittenDaily() =>
-        Assert.False(RetentionCleanupWorker.LlmTraceTextToScrub(Now).Compile()(
-            Trace(Now.AddDays(-31), RetentionCleanupWorker.ScrubbedMessages, response: null)));
-
-    private static AgentRun Run(DateTimeOffset at) =>
-        new() { Agent = "a", Goal = "g", Status = "done", StepsJson = "[]", CreatedAt = at };
-
-    [Fact]
-    public void OldAgentRun_Over30Days_Deleted() =>
-        Assert.True(RetentionCleanupWorker.OldAgentRun(Now).Compile()(Run(Now.AddDays(-31))));
-
-    [Fact]
-    public void OldAgentRun_Recent_Kept() =>
-        Assert.False(RetentionCleanupWorker.OldAgentRun(Now).Compile()(Run(Now.AddDays(-29))));
 }

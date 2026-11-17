@@ -1,7 +1,7 @@
 namespace Domain.Enums;
 
 /// <summary>
-/// What a reader is entitled to. Persisted as a STRING (see AppDbContext.User), so the member
+/// What a reader is entitled to. Persisted as a STRING (<c>users.tier</c>), so the member
 /// *names* are the storage contract — renaming one is a breaking change requiring a data migration.
 ///
 /// The numeric order is nonetheless load-bearing: it is monotonically increasing in generosity, so

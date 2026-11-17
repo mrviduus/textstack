@@ -142,13 +142,8 @@ services:
       # promoting a parked lookup respects it takes `cap` real saves, and 50 is not testable.
       Entitlements__Tiers__Guest__DailyEnrichmentCap: ${GUEST_DAILY_ENRICHMENT_CAP:-50}
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-      # textstack_v2 (ADR-030), the database migrator-v2 creates. Read only by /me/v2/* and the soft
-      # `v2` component of /health/ready, never at startup, and no depends_on on migrator-v2: a V2
-      # database that is missing or behind pauses sync and nothing else (#1053).
+      # textstack_v2 (ADR-030), the database migrator-v2 creates: the one the Api reads.
       ConnectionStrings__V2: "Host=db;Port=5432;Database=${V2_POSTGRES_DB:-textstack_v2};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-      # The V2 sync API. Off: /me/v2/* is not mapped (404) and the stack is exactly as before it.
-      Features__V2Api: ${FEATURES_V2API:-true}
-      Database__Mode: ${DATABASE_MODE:-v2}
       # HTTP cutover barrier only. Stop/drain other writers before the final snapshot (M5).
       Maintenance__WriteFreeze: ${MAINTENANCE_WRITE_FREEZE:-false}
       Storage__RootPath: /storage
@@ -224,12 +219,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-      # The transitional V2 extraction loop and the V2 file sweeps (M2.6) run only with the flag on
-      # and this string set; read when the loop starts, never at startup, and a V2 database that is
-      # missing or behind pauses that loop and nothing else (the 2026-10-30 rule).
+      # The V2 extraction loop, the V2 file sweeps and retention; a V2 database that is missing or
+      # behind pauses the loop and nothing else (the 2026-10-30 rule).
       ConnectionStrings__V2: "Host=db;Port=5432;Database=${V2_POSTGRES_DB:-textstack_v2};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-      Features__V2Api: ${FEATURES_V2API:-true}
-      Database__Mode: ${DATABASE_MODE:-v2}
       Storage__RootPath: /storage
       # V2 library bytes, outside the public /storage root: nothing serves them but /me/v2 (#1110).
       Storage__LibraryRoot: /library

@@ -96,25 +96,6 @@ jobs:
           fi
           echo "schema ok"
 
-      # Database:Mode=v2 (M5.1, #1031): the public catalog still reads the legacy database until M6,
-      # so /health/ready reports it as components.legacy (critical). Absent = legacy mode, where
-      # db/schema above are that database; "skipped" = the selected db already failed above.
-      - name: Legacy catalog database (v2 mode)
-        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          legacy=$(jq -c '.components.legacy // empty' "$RUNNER_TEMP/ready.json")
-          [ -n "$legacy" ] || { echo "legacy mode (no legacy component)"; exit 0; }
-          status=$(printf '%s' "$legacy" | jq -r '.status')
-          case "$status" in
-            ok) echo "legacy catalog db ok" ;;
-            skipped) echo "legacy catalog db not probed: the selected db is down (see readiness)" ;;
-            *)
-              pending=$(printf '%s' "$legacy" | jq -r '(.pending // []) | join(", ")')
-              echo "::error::Legacy catalog database is $status in v2 mode ($legacy). Pending migrations: ${pending:-none listed}. The public catalog reads it until M6: make migrate, or check the db container."
-              exit 1 ;;
-          esac
-
       # The `db` image can change the OS collation version under a live cluster — a digest bump
       # inside one Postgres major can move the base distribution, and with it glibc. Text then sorts
       # by rules the indexes were not built with: a btree lookup walks past rows that are there and
@@ -141,11 +122,9 @@ jobs:
           fi
           echo "collation ok"
 
-      # V2 (ADR-030, #1043). Soft in /health/ready, which never answers 503 for it (#1053), so it is
-      # asserted here. The component names the deployment's flag: "off" = FEATURES_V2API off, accepted
-      # and never an alarm. Flag on, anything but "ok" (behind / unreachable / unconfigured) means
-      # /me/v2 answers 503: sync is paused, the rest of the site is untouched.
-      - name: V2 database ready (flag on)
+      # V2 (ADR-030, #1043): the readiness cache /me/v2 is gated on. Anything but "ok" (behind /
+      # unreachable / unconfigured) means /me/v2 answers 503.
+      - name: V2 database ready
         if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         run: |
           set -euo pipefail
@@ -155,15 +134,12 @@ jobs:
             exit 0
           fi
           status=$(printf '%s' "$v2" | jq -r '.status')
-          case "$status" in
-            off) echo "v2 off (FEATURES_V2API=false)" ;;
-            ok) echo "v2 ok" ;;
-            *) echo "::error::FEATURES_V2API is on and textstack_v2 is $status ($v2): /me/v2 answers 503. On the server: make migrate-v2-status (ADR-030, #1053)."; exit 1 ;;
-          esac
-          # The library volume (#1110): flag on, an unwritable one fails every V2 upload. No component = not redeployed.
+          [ "$status" = ok ] || { echo "::error::textstack_v2 is $status ($v2): /me/v2 answers 503. On the server: make migrate-v2-status (ADR-030, #1053)."; exit 1; }
+          echo "v2 ok"
+          # The library volume (#1110): an unwritable one fails every upload. No component = not redeployed.
           library=$(jq -c '.components.library // empty' "$RUNNER_TEMP/ready.json")
-          if [ "$status" != off ] && [ -n "$library" ] && [ "$(printf '%s' "$library" | jq -r '.status')" != ok ]; then
-            echo "::error::FEATURES_V2API is on and the V2 library volume is not writable ($library). On the server: make fix-permissions (#1110)."; exit 1
+          if [ -n "$library" ] && [ "$(printf '%s' "$library" | jq -r '.status')" != ok ]; then
+            echo "::error::The V2 library volume is not writable ($library). On the server: make fix-permissions (#1110)."; exit 1
           fi
 
       # Runs even when a step above failed (!cancelled()).

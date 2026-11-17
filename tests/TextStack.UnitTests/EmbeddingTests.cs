@@ -1,6 +1,4 @@
-using Domain.Entities;
 using TextStack.Ai.Llm;
-using Worker.Services;
 
 namespace TextStack.UnitTests;
 

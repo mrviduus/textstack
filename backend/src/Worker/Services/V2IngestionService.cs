@@ -25,7 +25,8 @@ public sealed class V2IngestionService(
     ILibraryFileStore files, IExtractorRegistry extractors, ILogger<V2IngestionService> logger)
 {
     private const int MaxAttempts = IngestionRetry.MaxAttempts;
-    private static readonly TimeSpan StuckAfter = UserIngestionService.StuckJobTimeout;
+    // A Processing job not touched this long is taken to be abandoned (a worker that died mid-job).
+    private static readonly TimeSpan StuckAfter = TimeSpan.FromMinutes(2);
 
     // A file younger than this may be an attach or a cover between its place and its commit, and a
     // directory that young may be about to receive one: neither is an orphan yet.

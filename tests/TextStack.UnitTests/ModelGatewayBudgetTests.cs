@@ -122,7 +122,7 @@ public class ModelGatewayBudgetTests
         var tracker = new StubSpendTracker(0m);
         var gateway = new ModelGateway(
             sp, cfg,
-            new StubRouteProvider(), tracker, budgets, NullLogger<ModelGateway>.Instance);
+            tracker, budgets, NullLogger<ModelGateway>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
@@ -162,14 +162,8 @@ public class ModelGatewayBudgetTests
         var stub = new StubSpendTracker(spent);
         var gateway = new ModelGateway(
             sp, cfg,
-            new StubRouteProvider(), tracker ?? stub, budgets, NullLogger<ModelGateway>.Instance);
+            tracker ?? stub, budgets, NullLogger<ModelGateway>.Instance);
         return (gateway, stub);
-    }
-
-    private sealed class StubRouteProvider : IModelRouteProvider
-    {
-        public string? PrimaryProviderKey(string featureTag) => null;
-        public void Invalidate() { }
     }
 
     private sealed class StubSpendTracker(decimal spent) : ISpendTracker

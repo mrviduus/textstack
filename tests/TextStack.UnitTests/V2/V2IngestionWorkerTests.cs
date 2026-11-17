@@ -209,22 +209,6 @@ public sealed class V2IngestionWorkerTests : IDisposable
         _files.Verify(f => f.TryDelete("library/orphan.epub"));
     }
 
-    private static IConfiguration Config(bool flag, string? v2) => V2Fakes.Config(flag, v2);
-
-    [Theory]
-    [InlineData(false, "Host=x")]
-    [InlineData(true, null)]
-    public async Task ExecuteAsync_FlagOffOrNoV2Database_EndsWithoutResolvingAnything(bool flag, string? v2)
-    {
-        // An empty container: resolving the V2 service would throw.
-        using var worker = new V2IngestionWorker(Config(flag, v2), new ServiceCollection().BuildServiceProvider(), NullLogger<V2IngestionWorker>.Instance);
-
-        await worker.StartAsync(Ct);
-        await worker.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(5), Ct);
-
-        Assert.True(worker.ExecuteTask.IsCompletedSuccessfully);
-    }
-
     [Fact]
     public async Task ExecuteAsync_SteadyQueue_StillSweepsOnItsInterval()
     {
@@ -237,7 +221,7 @@ public sealed class V2IngestionWorkerTests : IDisposable
         var sweeps = 0;
         _files.Setup(f => f.SweepStaleParts(It.IsAny<DateTimeOffset>())).Callback(() => sweeps++);
         var services = new ServiceCollection().AddSingleton(Service()).BuildServiceProvider();
-        using var worker = new V2IngestionWorker(Config(true, "Host=x"), services, NullLogger<V2IngestionWorker>.Instance) { SweepEvery = TimeSpan.FromMilliseconds(20) };
+        using var worker = new V2IngestionWorker(services, NullLogger<V2IngestionWorker>.Instance) { SweepEvery = TimeSpan.FromMilliseconds(20) };
 
         await worker.StartAsync(Ct);
         for (var waited = 0; waited < 5000 && sweeps < 2; waited += 10) await Task.Delay(10, Ct);
@@ -254,7 +238,7 @@ public sealed class V2IngestionWorkerTests : IDisposable
             .ThrowsAsync(new NpgsqlException("connection refused"));
         var services = new ServiceCollection().AddSingleton(Service()).BuildServiceProvider();
         var log = new CapturingLogger<V2IngestionWorker>();
-        using var worker = new V2IngestionWorker(Config(true, "Host=x"), services, log) { Backoff = TimeSpan.FromMilliseconds(10) };
+        using var worker = new V2IngestionWorker(services, log) { Backoff = TimeSpan.FromMilliseconds(10) };
 
         await worker.StartAsync(Ct);
         for (var waited = 0; waited < 5000 && log.Entries.Count(e => e.Level == LogLevel.Warning) < 2; waited += 10) await Task.Delay(10, Ct);

@@ -7,19 +7,14 @@ namespace Api.Extensions;
 /// The `migrator` compose service owns the schema (ADR-021, ADR-026); the Api never migrates, it
 /// only checks. A schema behind this build — after <c>migrate.sh down</c>, or a migrator that did
 /// not run — is reported (Critical log at start, <c>/health/ready</c> 503), never fatal.
-/// <c>textstack_v2</c> has a ledger of its own (<see cref="V2Known"/>). While identity is legacy,
-/// <see cref="V2.V2Readiness"/> gates sync only (#1053); with V2 selected, its ledger is the primary
-/// startup/readiness check (<see cref="V2.SelectedDatabaseProbe"/>).
+/// The ledger is <c>textstack_v2</c>'s (<see cref="V2Known"/>); <see cref="V2.V2Readiness"/> gates sync on it (#1053).
 /// </summary>
 internal static class SchemaVersion
 {
     private const string Suffix = ".up.sql";
 
-    /// <summary>The migrations this build was written against, oldest first: "0000_baseline", …
-    /// Embedded from <c>database/migrations/</c> at build time (Api.csproj).</summary>
-    public static readonly IReadOnlyList<string> Known = Embedded("migrations/");
-
-    /// <summary>The same for <c>textstack_v2</c>, embedded from <c>database/v2/migrations/</c>.</summary>
+    /// <summary>The <c>textstack_v2</c> migrations this build was written against, oldest first: "0000_baseline", …
+    /// Embedded from <c>database/v2/migrations/</c> at build time (Api.csproj).</summary>
     public static readonly IReadOnlyList<string> V2Known = Embedded("v2migrations/");
 
     private static List<string> Embedded(string prefix) => typeof(SchemaVersion).Assembly.GetManifestResourceNames()
@@ -33,7 +28,7 @@ internal static class SchemaVersion
 
     /// <summary>
     /// <paramref name="known"/> migrations the ledger on <paramref name="conn"/> does not list; no ledger
-    /// yet = all of them. Opens a closed connection (EF's) for the read and closes it again.
+    /// yet = all of them. Opens a closed connection for the read and closes it again.
     /// </summary>
     public static async Task<List<string>> PendingAsync(DbConnection conn, IReadOnlyList<string> known, CancellationToken ct = default)
     {

@@ -1,8 +1,5 @@
-using Application.Common.Interfaces;
 using Infrastructure.Persistence;
 using Infrastructure.Services;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -10,43 +7,12 @@ namespace Api.Extensions;
 
 public static partial class ServiceCollectionExtensions
 {
-    /// <summary>
-    /// Core persistence: ICurrentSite, the shared NpgsqlDataSource (ADR-028), AppDbContext on it
-    /// (Npgsql + pgvector + snake_case), the IAppDbContext facade, and local file storage.
-    /// R1a: ICurrentSite MUST stay registered before AddDbContext.
-    /// </summary>
-    public static IServiceCollection AddTextStackPersistence(
-        this IServiceCollection services, string connectionString, IConfiguration configuration)
+    /// <summary>Core persistence: the V2 data source and its Dapper repositories (ADR-028), identity, and file storage.</summary>
+    public static IServiceCollection AddTextStackPersistence(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddSingleton<ICurrentSite>(
-            sp => new CurrentSite(sp.GetRequiredService<IConfiguration>()));
-
-        services.AddTextStackDataAccess(connectionString, configuration.GetConnectionString("V2"));
-
-        services.AddDbContext<AppDbContext>((sp, options) =>
-            options.UseTextStackNpgsql(sp.GetRequiredService<Npgsql.NpgsqlDataSource>())
-                .ConfigureWarnings(w => w
-                    .Ignore(RelationalEventId.PendingModelChangesWarning)
-                    // Several of these fire at every startup, in production too: Edition
-                    // and Author carry the site query filter and are the required end of
-                    // relationships with BookAsset, BookFile, Chapter, ChapterChunk,
-                    // EditionAuthor and IngestionJob.
-                    //
-                    // The hazard EF is describing — a required principal filtered out,
-                    // leaving dependents with nowhere to point — cannot occur here. The
-                    // filter is `x.SiteId == _currentSite.Id`, and ADR-007 makes this a
-                    // single-site deployment with one fixed SiteConstants.DefaultSiteId,
-                    // so it excludes no row that exists.
-                    //
-                    // Silenced rather than restructured, because a screenful of unactionable
-                    // warning at every boot is how a real warning goes unread. If
-                    // multi-site ever returns, delete this line first: the warnings become
-                    // accurate the moment a second site exists.
-                    .Ignore(CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning)));
-
-        services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbContext>());
-        var mode = DatabaseMode.Read(configuration);
-        services.AddSelectedIdentityPorts(mode).AddSelectedAuthentication(mode);
+        services.AddTextStackDataAccess(configuration.GetConnectionString("V2"))
+            .AddIdentityPorts()
+            .AddTextStackAuthentication();
 
         services.AddTextStackFileStores(configuration);
 

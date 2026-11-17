@@ -10,8 +10,8 @@ namespace TextStack.Tests.Routes;
 
 /// <summary>
 /// Every route the Api maps, read from its own <see cref="EndpointDataSource"/> — not a hand list.
-/// Booted in-process as environment <c>Test</c> (no migrations, no config validation, and nothing
-/// here resolves a DbContext, so no database is needed) with <c>ENABLE_TEST_AUTH=true</c> so the
+/// Booted in-process as environment <c>Test</c> (no schema check, no config validation, and nothing
+/// here opens a connection, so no database is needed) with <c>ENABLE_TEST_AUTH=true</c> so the
 /// test-login route is listed too, and every hosted service removed. Shared by the anonymous
 /// <c>/me</c> sweep (IntegrationTests) and the public-routes snapshot (UnitTests): linked, not copied
 /// (ADR-024).

@@ -2,9 +2,8 @@ using System.Net;
 using System.Text;
 using Api;
 using Api.Extensions;
-using Application.Common.Interfaces;
 using Application.Identity;
-using Domain.Entities;
+using Domain.Identity;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -12,7 +11,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Moq;
-using TextStack.UnitTests.Fakes;
 
 namespace TextStack.UnitTests;
 
@@ -24,10 +22,9 @@ public class WriteFreezeApiTests
     public async Task Api_FreezeSelects503BeforeAuthHandler_AndKeepsSessionRead(bool freeze)
     {
         var root = Path.Combine(Path.GetTempPath(), "textstack-write-freeze", Guid.NewGuid().ToString("N"));
-        var guest = new User { Id = Guid.NewGuid(), Email = "freeze@guest.textstack.app", IsGuest = true };
-        var db = new Mock<IAppDbContext>();
-        db.Setup(d => d.Users).Returns(new FakeDbSet<User>([guest]));
+        var guest = new UserAccount { Id = Guid.NewGuid(), Email = "freeze@guest.textstack.app", IsGuest = true };
         var users = new Mock<IUserRepository>();
+        users.Setup(u => u.GetAsync(guest.Id, It.IsAny<CancellationToken>())).ReturnsAsync(guest);
         try
         {
             await using var api = new WebApplicationFactory<ApiMarker>().WithWebHostBuilder(builder =>
@@ -35,7 +32,6 @@ public class WriteFreezeApiTests
                 builder.UseEnvironment("Test");
                 builder.UseSetting("Jwt:SecretKey", TestTokens.Secret);
                 builder.UseSetting("Jwt:Issuer", TestTokens.Issuer);
-                builder.UseSetting("Features:V2Api", "false");
                 builder.UseSetting("ConnectionStrings:V2", "Host=127.0.0.1;Port=1;Database=textstack_v2;Timeout=1");
                 builder.UseSetting("Maintenance:WriteFreeze", freeze.ToString());
                 builder.UseSetting("Storage:RootPath", Path.Combine(root, "storage"));
@@ -43,8 +39,6 @@ public class WriteFreezeApiTests
                 builder.ConfigureTestServices(services =>
                 {
                     services.RemoveAll<IHostedService>();
-                    services.RemoveAll<IAppDbContext>();
-                    services.AddSingleton(db.Object);
                     services.RemoveAll<IUserRepository>();
                     services.AddSingleton(users.Object);
                 });

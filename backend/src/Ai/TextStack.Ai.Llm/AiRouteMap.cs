@@ -19,11 +19,8 @@ public enum ProviderProbeKind
 /// Reads the route table straight off <see cref="IConfiguration"/> so startup code can answer
 /// "which providers does this host actually depend on, and which tasks break if one is down?".
 ///
-/// Deliberately re-implements <c>ModelGateway</c>'s config precedence MINUS the registry tier: the
-/// registry lives in Postgres behind a cache, and a startup check must not open a DB connection to
-/// decide whether to log a warning. This is the same trade-off the previous startup check made; it
-/// is noted here so the next reader knows it is a choice, not an oversight. Runtime routing is
-/// unaffected — the gateway remains the only thing that actually routes a call.
+/// Re-implements <c>ModelGateway</c>'s config precedence. Runtime routing is unaffected — the gateway
+/// remains the only thing that actually routes a call.
 /// </summary>
 public static class AiRouteMap
 {
@@ -66,7 +63,7 @@ public static class AiRouteMap
 
     /// <summary>
     /// <c>Ai:Routes:{tag}</c> → <c>Ai:DefaultProvider</c> → <c>"openai"</c>. Mirrors
-    /// <c>ModelGateway.ResolveRoute</c> without the registry tier (see the class remarks).
+    /// <c>ModelGateway.ResolveRoute</c>.
     /// </summary>
     public static string ResolveProviderKey(IConfiguration config, string? featureTag)
     {

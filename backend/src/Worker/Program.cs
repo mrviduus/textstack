@@ -1,19 +1,13 @@
 using Application;
-using Application.Common.Interfaces;
 using Infrastructure.Persistence;
 using Infrastructure.Services;
 using Infrastructure.Telemetry;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
-using Npgsql;
 using TextStack.Extraction.Extractors;
 using TextStack.Extraction.Registry;
-using TextStack.Ai.Tools;
 using TextStack.Observability;
 using Worker.Services;
 
 var builder = Host.CreateApplicationBuilder(args);
-var databaseMode = DatabaseMode.Read(builder.Configuration);
 
 // OpenTelemetry
 builder.Services.AddTextStackTelemetry(builder.Configuration, "textstack-worker");
@@ -23,22 +17,7 @@ builder.Logging.AddTelemetryLogging(builder.Configuration, "textstack-worker");
 builder.Logging.AddTextStackSentry(builder.Configuration, builder.Environment.EnvironmentName, "worker");
 
 // Database
-var connectionString = builder.Configuration.GetConnectionString("Default")
-    ?? "Host=localhost;Port=5432;Database=books;Username=app;Password=changeme";
-
-builder.Services.AddSingleton<Application.Common.Interfaces.ICurrentSite>(
-    sp => new Infrastructure.Persistence.CurrentSite(sp.GetRequiredService<IConfiguration>()));
-
-builder.Services.AddTextStackDataAccess(connectionString, builder.Configuration.GetConnectionString("V2"));
-
-builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
-    options.UseTextStackNpgsql(sp.GetRequiredService<Npgsql.NpgsqlDataSource>())
-        .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
-
-// Register IAppDbContext for scoped services (creates context via factory)
-builder.Services.AddScoped<IAppDbContext>(sp =>
-    sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
-
+builder.Services.AddTextStackDataAccess(builder.Configuration.GetConnectionString("V2"));
 
 builder.Services.AddTextStackFileStores(builder.Configuration);
 
@@ -48,33 +27,14 @@ builder.Services.AddSingleton<ITextExtractor, PdfTextExtractor>();
 builder.Services.AddSingleton<ITextExtractor, HtmlTextExtractor>();
 builder.Services.AddSingleton<IExtractorRegistry, ExtractorRegistry>();
 
-// Image optimization
-builder.Services.AddSingleton<IImageOptimizer, ImageOptimizer>();
-
 // Application services
 builder.Services.AddApplication();
-builder.Services.AddSelectedIdentityPorts(databaseMode);
+builder.Services.AddIdentityPorts();
 
 // HTTP client factory (for OllamaLlmService + etc.)
 builder.Services.AddHttpClient();
 
-// Book metadata enrichment (AI-Agent-1): the EnrichmentAgent (tool-using, cross-checked, calibrated)
-// is the primary IBookMetadataGenerator; it decorates the legacy Ollama BookMetadataGenerator and falls
-// back to it on agent error / budget exhaustion. The agent needs the in-process ITool registry +
-// AgentLoop, which the API host wires but the Worker did not — register both here.
-builder.Services.AddAiTools(typeof(Application.Tools.OpenLibrarySearchTool).Assembly);
-TextStack.Ai.Agents.ServiceCollectionExtensions.AddAiAgents(builder.Services);
-builder.Services.AddScoped<Application.Agents.EnrichmentAgent>();
-builder.Services.AddSingleton<BookMetadataGenerator>();
-builder.Services.AddSingleton<IBookMetadataGenerator, EnrichmentAgentMetadataGenerator>();
-builder.Services.AddSingleton<ITagSuggestionGenerator, TagSuggestionGenerator>();
-// Enrichment-reliability: executor (atomic claim + terminal status) used only by the sweep worker
-// below (ADR-022: one consumer per queue). Singleton — depends only on the DbContext factory + the
-// singleton IBookMetadataGenerator.
-builder.Services.AddSingleton<UserBookEnrichmentService>();
-builder.Services.AddSingleton<UserIngestionService>();
-// Select complete loop sets: no legacy ingestion, guest sweep or metadata write runs in V2 mode.
-builder.Services.AddSelectedWorkerLoops(builder.Configuration, databaseMode, connectionString);
+builder.Services.AddWorkerLoops(builder.Configuration);
 
 var host = builder.Build();
 host.Run();

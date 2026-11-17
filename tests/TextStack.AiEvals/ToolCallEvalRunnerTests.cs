@@ -81,8 +81,7 @@ public class ToolCallEvalRunnerTests
         var llm = new OracleLlm();
         var runner = new ToolCallEvalRunner(NullLogger<ToolCallEvalRunner>.Instance);
 
-        var result = await runner.RunAsync(llm, Registry(), persist: false, db: null, gitSha: null,
-            TestContext.Current.CancellationToken);
+        var result = await runner.RunAsync(llm, Registry(), TestContext.Current.CancellationToken);
 
         Assert.Equal(Goldens.Count, result.N);
         Assert.Equal(1.0, result.Accuracy, 12);
@@ -113,8 +112,7 @@ public class ToolCallEvalRunnerTests
     {
         var runner = new ToolCallEvalRunner(NullLogger<ToolCallEvalRunner>.Instance);
 
-        var result = await runner.RunAsync(new DictionaryHappyLlm(), Registry(), persist: false, db: null,
-            gitSha: null, TestContext.Current.CancellationToken);
+        var result = await runner.RunAsync(new DictionaryHappyLlm(), Registry(), TestContext.Current.CancellationToken);
 
         var expectedHits = Goldens.Count(g => g.ExpectedTool == "lookup_dictionary");
         Assert.Equal((double)expectedHits / Goldens.Count, result.Accuracy, 12);

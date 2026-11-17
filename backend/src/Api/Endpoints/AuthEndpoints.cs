@@ -84,7 +84,6 @@ public static class AuthEndpoints
     private static async Task<IResult> Register(
         [FromBody] EmailRegisterRequest request,
         IAuthService authService,
-        V2IdentityMirror mirror,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -106,11 +105,6 @@ public static class AuthEndpoints
                 ? Results.Conflict(new { error = "An account with this email already exists." })
                 : Results.BadRequest(new { error = "Invalid email or password." });
 
-        // The guest became the account in place: its V2 row follows, best-effort.
-        var user = result.User!;
-        if (user.Id == guest.UserId)
-            await mirror.PromoteAsync(user.Id, user.Email, user.Name, user.PasswordHash!);
-
         // Registration promotes the guest IN PLACE inside RegisterWithEmailAsync (no MergeGuestAsync,
         // no cross-user re-parent), so the only way to lose data here is guest.UserId having come back
         // null from a token we DID receive. That is exactly what gets reported.
@@ -127,7 +121,6 @@ public static class AuthEndpoints
     private static async Task<IResult> LoginWithEmail(
         [FromBody] EmailLoginRequest request,
         IAuthService authService,
-        V2IdentityMirror mirror,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -142,7 +135,7 @@ public static class AuthEndpoints
 
         // Merge guest data into existing account
         var (skipped, merge) = await MergeOrExplainAsync(
-            httpContext, authService, mirror, guest, result.User!.Id, "/auth/login", ct);
+            httpContext, authService, guest, result.User!.Id, "/auth/login", ct);
 
         return ReturnAuthResult(result, httpContext, skipped, merge);
     }
@@ -150,7 +143,6 @@ public static class AuthEndpoints
     private static async Task<IResult> LoginWithGoogle(
         [FromBody] GoogleLoginRequest request,
         IAuthService authService,
-        V2IdentityMirror mirror,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -161,7 +153,7 @@ public static class AuthEndpoints
             return Results.Unauthorized();
 
         var (skipped, merge) = await MergeOrExplainAsync(
-            httpContext, authService, mirror, guest, result.User!.Id, "/auth/google", ct);
+            httpContext, authService, guest, result.User!.Id, "/auth/google", ct);
 
         return ReturnAuthResult(result, httpContext, skipped, merge);
     }
@@ -169,7 +161,6 @@ public static class AuthEndpoints
     private static async Task<IResult> LoginWithApple(
         [FromBody] AppleLoginRequest request,
         IAuthService authService,
-        V2IdentityMirror mirror,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -181,7 +172,7 @@ public static class AuthEndpoints
             return Results.Unauthorized();
 
         var (skipped, merge) = await MergeOrExplainAsync(
-            httpContext, authService, mirror, guest, result.User!.Id, "/auth/apple", ct);
+            httpContext, authService, guest, result.User!.Id, "/auth/apple", ct);
 
         return ReturnAuthResult(result, httpContext, skipped, merge);
     }
@@ -405,12 +396,11 @@ public static class AuthEndpoints
     /// <summary>
     /// Runs the merge if there is one to run, and returns the values for the response's
     /// <c>guestMergeSkipped</c> field (null when nothing was skipped) and <c>merge</c> map (null unless
-    /// V2 merged the guest and some id changed). The selected auth service decides; the mirror follows only in legacy mode.
+    /// V2 merged the guest and some id changed). The auth service decides.
     /// </summary>
     private static async Task<(string? Skipped, GuestMergeMap? Merge)> MergeOrExplainAsync(
         HttpContext httpContext,
         IAuthService authService,
-        V2IdentityMirror mirror,
         GuestToken guest,
         Guid realUserId,
         string route,
@@ -426,8 +416,6 @@ public static class AuthEndpoints
 
         if (await authService.MergeGuestAsync(guest.UserId.Value, realUserId, route, ct) is { } merged)
         {
-            if (!httpContext.RequestServices.GetRequiredService<DatabaseMode>().IsV2)
-                return (null, await mirror.MergeAsync(guest.UserId.Value, realUserId));
             return (null, merged.Outcome == AccountMergeOutcome.Merged && merged.Books.Count + merged.Files.Count + merged.Words.Count > 0
                 ? new GuestMergeMap(merged.Books, merged.Files, merged.Words) : null);
         }

@@ -31,14 +31,6 @@ public class ModelGatewayRouteReasonTests
         public void Record(string featureTag, decimal costUsd) { }
     }
 
-    private sealed class StubRouteProvider(Dictionary<string, string>? routes = null) : IModelRouteProvider
-    {
-        private readonly Dictionary<string, string> _routes = routes ?? new();
-        public string? PrimaryProviderKey(string featureTag) =>
-            _routes.TryGetValue(featureTag, out var k) ? k : null;
-        public void Invalidate() { }
-    }
-
     private sealed class KeyEchoLlm(string key) : ILlmService
     {
         public Task<LlmResponse> CompleteAsync(LlmRequest request, CancellationToken ct) =>
@@ -54,8 +46,7 @@ public class ModelGatewayRouteReasonTests
     }
 
     private static (ModelGateway Gateway, RecordingRouteAlarm Alarm) Build(
-        Dictionary<string, string?> config,
-        Dictionary<string, string>? registryRoutes = null)
+        Dictionary<string, string?> config)
     {
         var cfg = new ConfigurationBuilder().AddInMemoryCollection(config).Build();
 
@@ -68,7 +59,6 @@ public class ModelGatewayRouteReasonTests
         var alarm = new RecordingRouteAlarm();
         var gateway = new ModelGateway(
             sp, cfg,
-            new StubRouteProvider(registryRoutes),
             new NoopSpendTracker(), BudgetOptions.Empty,
             NullLogger<ModelGateway>.Instance, alarm);
 
@@ -76,10 +66,9 @@ public class ModelGatewayRouteReasonTests
     }
 
     private static async Task<(string Provider, RecordingRouteAlarm Alarm)> RouteAsync(
-        Dictionary<string, string?> config, string? featureTag,
-        Dictionary<string, string>? registryRoutes = null)
+        Dictionary<string, string?> config, string? featureTag)
     {
-        var (gateway, alarm) = Build(config, registryRoutes);
+        var (gateway, alarm) = Build(config);
         var response = await gateway.CompleteAsync(
             new LlmRequest(string.Empty, [new LlmMessage("user", "hi")], 16, FeatureTag: featureTag),
             TestContext.Current.CancellationToken);
@@ -92,18 +81,6 @@ public class ModelGatewayRouteReasonTests
         var (provider, alarm) = await RouteAsync(
             new() { ["Ai:DefaultProvider"] = "ollama", ["Ai:Routes:pdf.parse"] = "openai-pdf" },
             "pdf.parse");
-
-        Assert.Equal("openai-pdf", provider);
-        Assert.Equal(RouteReason.RouteMatched, alarm.Calls.Single().Reason);
-    }
-
-    [Fact]
-    public async Task Route_RegistryHit_ReportsRouteMatched()
-    {
-        var (provider, alarm) = await RouteAsync(
-            new() { ["Ai:DefaultProvider"] = "ollama" },
-            "pdf.parse",
-            registryRoutes: new() { ["pdf.parse"] = "openai-pdf" });
 
         Assert.Equal("openai-pdf", provider);
         Assert.Equal(RouteReason.RouteMatched, alarm.Calls.Single().Reason);
@@ -146,7 +123,7 @@ public class ModelGatewayRouteReasonTests
     /// <summary>
     /// Behavior-preservation lock for the ResolveRoute extraction: the RESOLVED KEY for every
     /// precedence case must be exactly what the pre-refactor expression produced
-    /// (registry ?? config ?? default ?? "openai").
+    /// (config ?? default ?? "openai").
     /// </summary>
     [Theory]
     [InlineData("explain", "openai")]      // config route wins over the default
@@ -167,40 +144,16 @@ public class ModelGatewayRouteReasonTests
         Assert.Equal(expected, provider);
     }
 
-    [Fact]
-    public async Task Route_RegistryOverridesConfig_MatchesPrecedence()
-    {
-        var (provider, _) = await RouteAsync(
-            new() { ["Ai:DefaultProvider"] = "openai", ["Ai:Routes:explain"] = "openai" },
-            "explain",
-            registryRoutes: new() { ["explain"] = "ollama" });
-
-        Assert.Equal("ollama", provider);
-    }
-
     /// <summary>
-    /// A registry row naming a provider key with no keyed registration must never throw — it falls
-    /// back to the config route, and the reported reason follows the ACTUAL landing place.
+    /// A route naming a provider key with no keyed registration must never throw — it falls back to the
+    /// default provider, and the reported reason follows the ACTUAL landing place.
     /// </summary>
     [Fact]
-    public async Task Route_UnknownRegistryKey_FallsBackToConfigRouteAndReportsMatched()
+    public async Task Route_UnknownConfigKey_ReportsDefaultFallback()
     {
         var (provider, alarm) = await RouteAsync(
-            new() { ["Ai:DefaultProvider"] = "openai", ["Ai:Routes:explain"] = "ollama" },
-            "explain",
-            registryRoutes: new() { ["explain"] = "provider-that-does-not-exist" });
-
-        Assert.Equal("ollama", provider);
-        Assert.Equal(RouteReason.RouteMatched, alarm.Calls.Single().Reason);
-    }
-
-    [Fact]
-    public async Task Route_UnknownRegistryKeyWithoutConfigRoute_ReportsDefaultFallback()
-    {
-        var (provider, alarm) = await RouteAsync(
-            new() { ["Ai:DefaultProvider"] = "openai" },
-            "explain",
-            registryRoutes: new() { ["explain"] = "provider-that-does-not-exist" });
+            new() { ["Ai:DefaultProvider"] = "openai", ["Ai:Routes:explain"] = "provider-that-does-not-exist" },
+            "explain");
 
         Assert.Equal("openai", provider);
         Assert.Equal(RouteReason.DefaultFallback, alarm.Calls.Single().Reason);

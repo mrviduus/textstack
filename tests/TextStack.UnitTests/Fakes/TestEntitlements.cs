@@ -34,5 +34,5 @@ public static class TestEntitlements
         80 * Mb,
         20480 * Mb);
 
-    public static IEntitlementResolver Resolver { get; } = new EntitlementResolver(Options);
+    public static EntitlementResolver Resolver { get; } = new EntitlementResolver(Options);
 }

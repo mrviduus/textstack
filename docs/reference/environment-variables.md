@@ -18,8 +18,7 @@ cp .env.example .env
 | `POSTGRES_USER` | Yes | `app` | PostgreSQL username |
 | `POSTGRES_PASSWORD` | Yes | — | PostgreSQL password |
 | `POSTGRES_DB` | Yes | `books` | Database name |
-| `ConnectionStrings__Default` | Auto | — | Full connection string (auto-built from above) |
-| `DATABASE_MODE` | No | `v2` | Startup-only identity/database selection in Api + Worker (`Database__Mode`): `v2` or `legacy`. `v2` requires `FEATURES_V2API=true` and a V2 connection; invalid values fail startup. No automatic fallback. |
+| `V2_POSTGRES_DB` | No | `textstack_v2` | The database Api and Worker read (`ConnectionStrings__V2`, auto-built); required at startup |
 
 ### ASP.NET Core
 
@@ -158,7 +157,7 @@ Variables are passed to containers via environment section:
 services:
   api:
     environment:
-      - ConnectionStrings__Default=Host=db;...
+      - ConnectionStrings__V2=Host=db;...
       - JWT_SECRET=${JWT_SECRET}
 ```
 

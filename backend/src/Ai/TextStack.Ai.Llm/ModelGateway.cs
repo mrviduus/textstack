@@ -17,7 +17,6 @@ namespace TextStack.Ai.Llm;
 public sealed class ModelGateway(
     IServiceProvider serviceProvider,
     IConfiguration config,
-    IModelRouteProvider routeProvider,
     ISpendTracker spendTracker,
     BudgetOptions budgetOptions,
     ILogger<ModelGateway> logger,
@@ -67,18 +66,15 @@ public sealed class ModelGateway(
         var key = decision.Key;
         var reason = decision.Reason;
 
-        // A registry row may name a provider key with no keyed registration (e.g. a key
-        // renamed in config but still recorded in `models`). That must NEVER throw — fall
-        // back to the config route + log, mirroring an unknown-key first-deploy guard.
+        // A route may name a provider key with no keyed registration (a typo, a key renamed in
+        // code). That must NEVER throw — fall back to Ai:DefaultProvider + log.
         var svc = serviceProvider.GetKeyedService<ILlmService>(key);
         if (svc is null)
         {
             logger.LogWarning(
-                "Unknown provider key '{Key}' for feature '{Feature}'; falling back to config route", key, featureTag);
-            var configKey = ConfigRouteKey(featureTag);
-            key = configKey ?? config["Ai:DefaultProvider"] ?? "openai";
-            // The guard re-resolves: landing on DefaultProvider here is genuinely a fallback.
-            reason = configKey is not null ? RouteReason.RouteMatched : RouteReason.DefaultFallback;
+                "Unknown provider key '{Key}' for feature '{Feature}'; falling back to the default provider", key, featureTag);
+            key = config["Ai:DefaultProvider"] ?? "openai";
+            reason = RouteReason.DefaultFallback;
             svc = serviceProvider.GetRequiredKeyedService<ILlmService>(key);
         }
 
@@ -119,16 +115,14 @@ public sealed class ModelGateway(
     }
 
     /// <summary>
-    /// The ONE place route precedence lives: registry Primary (table-driven, set by admin
-    /// promote/rollback) → config <c>Ai:Routes:{feature}</c> → <c>Ai:DefaultProvider</c> → "openai".
-    /// The route provider is hot-path safe (cached, never throws → null on any failure), so a missing
-    /// DB or empty registry transparently falls through to the config route. Returns the reason as a
-    /// by-product so callers can tell a deliberate route from a silent fallback — previously
-    /// indistinguishable, which is exactly how the pdf.parse → Ollama incident stayed invisible.
+    /// The ONE place route precedence lives: config <c>Ai:Routes:{feature}</c> → <c>Ai:DefaultProvider</c>
+    /// → "openai". Returns the reason as a by-product so callers can tell a deliberate route from a
+    /// silent fallback — previously indistinguishable, which is exactly how the pdf.parse → Ollama
+    /// incident stayed invisible.
     /// </summary>
     private RouteDecision ResolveRoute(string? featureTag)
     {
-        var matched = RegistryKey(featureTag) ?? ConfigRouteKey(featureTag);
+        var matched = ConfigRouteKey(featureTag);
         return matched is not null
             ? new RouteDecision(matched, RouteReason.RouteMatched)
             : new RouteDecision(config["Ai:DefaultProvider"] ?? "openai", RouteReason.DefaultFallback);
@@ -212,24 +206,6 @@ public sealed class ModelGateway(
         catch (Exception ex)
         {
             logger.LogDebug(ex, "Spend record failed for feature '{Feature}'", featureTag);
-        }
-    }
-
-    /// <summary>Registry Primary key for a feature, defensively. The provider contract is
-    /// never-throws, but we ALSO guard here so a misbehaving provider can never break a real
-    /// LLM call — it just falls through to the config route.</summary>
-    private string? RegistryKey(string? featureTag)
-    {
-        if (string.IsNullOrWhiteSpace(featureTag))
-            return null;
-        try
-        {
-            return routeProvider.PrimaryProviderKey(featureTag);
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "Registry route lookup threw for feature '{Feature}'; using config route", featureTag);
-            return null;
         }
     }
 }

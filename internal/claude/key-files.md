@@ -14,7 +14,6 @@ Moved verbatim from `CLAUDE.md` (2026-10-12) to keep the always-loaded context s
 | Worker | `backend/src/Worker/Services/IngestionWorker.cs` |
 | Extraction | `backend/src/Extraction/` (EPUB/PDF parsers) |
 | Search | `backend/src/Search/TextStack.Search/Providers/PostgresFts/PostgresSearchProvider.cs` |
-| DB Context | `backend/src/Infrastructure/Persistence/AppDbContext.cs` |
 | Identity ports on legacy (EF adapters, bound until M5.1) | `backend/src/Infrastructure/Persistence/Legacy/`, `DataSource.AddLegacyIdentityPorts` |
 | Web Contexts | `apps/web/src/context/` |
 | Web Pages | `apps/web/src/pages/` |
@@ -36,16 +35,13 @@ Moved verbatim from `CLAUDE.md` (2026-10-12) to keep the always-loaded context s
 | TTS Library | `backend/src/Tts/TextStack.Tts/` (EdgeTtsClient, EdgeTtsService, ITtsService) |
 | TTS API | `backend/src/Api/Endpoints/TtsEndpoints.cs` |
 | TTS Hook | `apps/web/src/hooks/useTts.ts` |
-| Book Metadata | `backend/src/Worker/Services/BookMetadataGenerator.cs` |
 | Auto Publish API | `backend/src/Api/Endpoints/AdminAutoPublishEndpoints.cs` |
-| Auto Publish Entity | `backend/src/Domain/Entities/AutoPublishJob.cs` |
 | Auto Publish Admin | `apps/admin/src/pages/AutoPublishPage.tsx` |
 | SEO Generate Script | `infra/scripts/seo-generate.sh` |
 | SEO Publish Poller | `infra/scripts/seo-publish-poll.sh` |
 | SEO Backfill Admin API | `backend/src/Api/Endpoints/AdminSeoBackfillEndpoints.cs` |
 | SEO Backfill Internal API | `backend/src/Api/Endpoints/InternalSeoEndpoints.cs` |
 | SEO Backfill Services | `backend/src/Application/Seo/` (JobProcessor, ContextBuilder, ContentApplier, CoverageAnalyzer, TemplateRenderer, ContentValidator, PromptSanitizer) |
-| SEO Backfill Entities | `backend/src/Domain/Entities/SeoTemplate.cs`, `SeoBackfillJob.cs`, `SeoBackfillSettings.cs` |
 | SEO Backfill Poller | `infra/scripts/seo-backfill-poll.sh`, `infra/scripts/seo-backfill-generate.sh` |
 | SEO Backfill systemd | `infra/systemd/seo-backfill-poller.service` |
 | SEO Backfill Admin UI | `apps/admin/src/pages/SeoBackfillPage.tsx` |
@@ -56,7 +52,6 @@ Moved verbatim from `CLAUDE.md` (2026-10-12) to keep the always-loaded context s
 | Guest Context | `apps/web/src/context/GuestLimitsContext.tsx` |
 | Native Lang Context | `apps/web/src/context/NativeLanguageContext.tsx` |
 | Email Service | `backend/src/Infrastructure/Services/ResendEmailService.cs` |
-| Guest Cleanup | `backend/src/Worker/Services/GuestCleanupWorker.cs` |
 | Guest Capabilities (mobile) | `apps/mobile/src/lib/capabilities.ts` |
 | Guest Minting (mobile) | `apps/mobile/src/lib/guestSession.ts`, `src/components/SessionGate.tsx` |
 | AI Account Policy | `backend/src/Api/Extensions/AiAccountPolicy.cs` |
