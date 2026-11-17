@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { collectionsApi, type Collection } from '@textstack/shared'
+import { refuseOnV2 } from '../lib/v2'
 
 let cache: { ts: number; data: Collection[] } | null = null
 let inflight: Promise<Collection[]> | null = null
@@ -18,6 +19,8 @@ async function load(force: boolean): Promise<Collection[]> {
   if (inflight) return inflight
   inflight = (async () => {
     try {
+      // `/me/library/collections` answers 410 on V2 (#1374): refused before the request.
+      await refuseOnV2('collections')
       const data = await collectionsApi.listCollections()
       cache = { ts: Date.now(), data }
       subs.forEach((s) => s(data))

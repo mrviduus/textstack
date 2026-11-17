@@ -23,8 +23,7 @@ function walk(dir: string): string[] {
 describe('one open = one fetch per resource', () => {
   it('Library: focus owns the load — no mount effect, no `loading` dep re-firing it', () => {
     const src = read('app/(tabs)/library.tsx')
-    expect(count(src, 'libraryApi.getLibrary(')).toBe(1)
-    expect(count(src, 'readingProgressApi.getAllProgress(')).toBe(1)
+    expect(count(src, 'loadLibraryTab(')).toBe(1)
     expect(src).not.toMatch(/useEffect\(\(\) => \{ loadData\(\) \}/)
     expect(src).toMatch(/useFocusEffect\(useCallback\(\(\) => \{ loadData\(\) \}, \[loadData\]\)\)/)
   })

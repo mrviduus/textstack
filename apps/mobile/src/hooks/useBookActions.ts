@@ -1,12 +1,13 @@
 import { useCallback } from 'react'
 import { Alert } from 'react-native'
 import {
-  libraryApi, readingProgressApi, createBooksApi,
+  createBooksApi,
   type UserLibraryItem, type UserBookDto, type ReadingProgressDto,
   FINISHED_THRESHOLD,
 } from '@textstack/shared'
 import { userBooksApi } from '../lib/userBooksApi'
 import { v2Offers } from '@textstack/shared'
+import { libraryApi, readingProgressApi } from '../lib/catalogApi'
 import { useV2 } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useToast } from '../context/ToastContext'

@@ -209,7 +209,8 @@ describe('#1174 wiring', () => {
 
   it('library: a successful load marks what it lacks, guarded by the epoch and the generation', () => {
     const lib = read('app/(tabs)/library.tsx')
-    expect(lib).toMatch(/userBooksApi\.getUserBooks\(\),[\s\S]{0,140}onV2\(\),\s*\]\)/)
+    expect(lib).toContain('const [lib, progress, books, v2Before] = await loadLibraryTab()')
+    expect(read('src/lib/catalogApi.ts')).toMatch(/userBooksApi\.getUserBooks\(\),\s*onV2\(\),\s*\]\)/)
     expect(lib).toContain('const stale = () => v2Epoch() !== epoch || myGen !== loadGenRef.current')
     expect(lib).toContain('markUnlistedLeftovers(new Set(books.map(b => b.id)), listingSource(v2Before, v2Enabled()), stale)')
     expect(lib).toContain('if (ids.length > 0 && !stale()) setMarksVersion(v => v + 1)')

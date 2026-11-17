@@ -115,6 +115,8 @@ export const V2_FEATURES = {
   vocabStats: false,
   /** The home shelves (`/me/library/shelves`). */
   shelves: false,
+  /** The catalog shelf and catalog reading progress (`/me/library`, `/me/progress`): the catalog retires (#992, #1374). */
+  catalog: false,
 } as const
 
 export type V2Feature = { [K in keyof typeof V2_FEATURES]: (typeof V2_FEATURES)[K] extends boolean ? K : never }[keyof typeof V2_FEATURES]

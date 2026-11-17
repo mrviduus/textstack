@@ -8,7 +8,8 @@ import { vocabularyApi } from '../lib/vocabularyApi'
 import { readingTrackingApi } from '../lib/readingTrackingApi'
 import { highlightsApi } from '../lib/highlightsApi'
 import { useQuickStats } from './useQuickStats'
-import { fakeApi } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { loadLibraryTab } from '../lib/catalogApi'
+import { fakeApi, feed, book } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 // The real gates (lib wrappers → lib/v2's probe); only the device IO is stubbed.
 vi.mock('../lib/offlineDb', () => ({ dropReplacedUserBookFiles: async () => [] }))
@@ -47,5 +48,21 @@ describe('the features V2 holds no data for (mobile)', () => {
     expect(reader.result.current).toBeNull()
     expect(calls).toEqual([])
     reader.unmount()
+  })
+
+  // #1374: the catalog shelf and its progress answer 410 on V2; one 410 used to fail the whole tab.
+  it('with V2 on, the library tab lists the reader\'s uploads and never calls the catalog routes', async () => {
+    initApi({ baseUrl: 'http://localhost:8080', getAccessToken: async () => 't', onUnauthorized: async () => null })
+    const calls = fakeApi({
+      'GET /me/v2/status': [{ status: 200, body: { maxPartBytes: 1024 } }],
+      'GET /me/v2/library/changes': feed(book('b1', 'f1', { title: 'My upload' })),
+      'GET /me/v2/reading/changes': feed(),
+    })
+
+    const [catalog, progress, uploads, onV2] = await loadLibraryTab()
+
+    expect(uploads.map((b) => b.title)).toEqual(['My upload'])
+    expect([catalog, progress, onV2]).toEqual([[], [], true])
+    expect(calls.map((c) => c.path).filter((p) => /^\/me\/(library|progress)/.test(p))).toEqual([])
   })
 })
