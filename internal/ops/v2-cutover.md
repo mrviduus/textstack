@@ -26,7 +26,7 @@ to undo except the freeze: [unfreeze](#9-unfreeze) and investigate. From step 6 
 
 | Check | Command | Expected | Stop if |
 |---|---|---|---|
-| The rehearsal is green | the rehearsal doc | every smoke row PASS | any FAIL (2026-11-17: Android library, #1374) |
+| The rehearsal is green | the rehearsal doc | verdict green (2026-11-17, after the Android re-run on `b75ae9f7`) | any FAIL |
 | Deployed build = `main` | `[server]` `docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' textstack_api_prod \| sed -n 's/^SENTRY_RELEASE=//p'; git rev-parse --short=12 HEAD` and `[mac]` `git fetch -q && git rev-parse --short=12 origin/main` | three equal shas | they differ: wait for the deploy |
 | No deploy during the window | `[mac]` `gh pr list --state open --json number,autoMergeRequest -q '.[]\|select(.autoMergeRequest)\|.number'` | empty (disable each listed auto-merge) | a deploy is running: `gh run list --workflow deploy.yml -L 1` |
 | Owner's phone runs the new build | owner, on the phone: Profile → version | the build that contains the #1374 fix | older build |

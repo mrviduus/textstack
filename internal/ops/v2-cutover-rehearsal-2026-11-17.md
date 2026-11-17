@@ -3,10 +3,11 @@
 Runbook: [v2-cutover.md](v2-cutover.md). Build: `main` @ `554c7c5d6798` (after #1372), images built locally
 (`SENTRY_RELEASE=554c7c5d6798`).
 
-**Verdict: green pending the Android re-run.** Every server step, the web and MCP smoke and the rollback passed.
-The Android smoke failed (#1374), so the runbook's rollback path ran, as it would in production. The owner
-(2026-11-17) accepted this seeded run plus the real-data restore drill as the rehearsal. It is green once the Android
-rows pass again on `main` with #1374's fix (#1376). The real dump time is measured live in the production freeze.
+**Verdict: green.** Every server step, the web and MCP smoke, and the rollback passed in the first run. The
+Android smoke failed there (#1374), so the runbook's rollback path ran, as it would in production. The re-run on
+`main` with the fix (#1376, #1377) passed every Android row ([below](#android-re-run-on-main--b75ae9f7)). The owner
+(2026-11-17) accepted this seeded run plus the real-data restore drill as the rehearsal. The real dump time is
+measured live, in the production freeze.
 
 ## Setup, and what it is not
 
@@ -96,3 +97,33 @@ build 41 s; dry run 6 s, run 11 s, validate 2.5 s, re-run 4 s (0 writes), valida
 - The production dump's time and size (the seeded one took 1 s); stopping `ssg-worker` and the host pollers.
 - The Android V2 reader on the emulator (blocked by #1374 before any book could open), and a physical device.
 - A re-cutover after a rollback (the runbook says to rebuild V2 first; not exercised).
+
+## Android re-run on main @ b75ae9f7
+
+After #1376 (#1374, no retired catalog calls in V2 mode) and #1377 (the review fixes: Back flush, persisted V2
+decision, Read button rules). A fresh isolated stack (`SENTRY_RELEASE=b75ae9f7aedc`), the same seed and the
+cutover sequence again. Freeze → unfreeze: 42 s (05:32:55 → 05:33:37). ETL exit 0; `validate-etl.sql` exit 0
+(28 ok, 8 report, 0 FAIL); readiness `mode v2`.
+
+Emulator (Pixel 7 Pro image), a dev client built from this `main` (`expo run:android`), JS from Metro, api
+through `adb reverse`. App data cleared first. Signed in with email + password, as in the first run.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Sign in as the migrated user | pass | then the native-language prompt (expected for a fresh install) |
+| Library tab lists the uploads | pass | `2 books`: Rehearsal PDF 50 %, Frankenstein 11 % |
+| No `Gone in V2` for `/me/library` or `/me/progress` | pass | the API log has 0 `Gone in V2` lines in the whole run (15 min) |
+| EPUB opens in the V2 reader | pass | book page → Continue Reading; the text in 9 s, at 11 % (Chapter 1), the migrated word `delight` marked |
+| Back returns to the book page | pass | after two page turns: the book page (`Reading progress`, `Continue Reading`). The server got the place on leaving: reading state `epub-cfi`, revision 1 → 2 |
+| Reopen resumes the place | pass | Continue Reading opens on the turned page ("our Swiss home —the sublime…"), not on the first one |
+| PDF opens at its page | pass | the page headed "Rehearsal page block 4" (page 4 of 6) |
+| PDF: Back returns to the book page | pass | book page shown |
+| Legacy mode after the rollback: Library | pass | readiness `mode legacy`, `v2 off`; app restarted: `2 books`, no error |
+
+Observations, not failures:
+- The PDF's book page offers **Start Reading** at 50 % (the EPUB's shows Continue Reading). That matches #1377's
+  Read button rule if the label follows "opened in this app" rather than the percent. Worth a look, not a cutover
+  risk.
+- The dev client installed on this emulator image (2026-10-30) predates the webview patch (#1228, 2026-11-11). With
+  it, the V2 reader showed "The reader failed to load." A dev client built from current `main` fixed it. Any device
+  checked during the cutover must run a build made after #1228. The owner's store build is.
