@@ -1,14 +1,9 @@
 using Application.AdminAuth;
 using Application.AdminSettings;
 using Application.Auth;
-using Application.Authors;
-using Application.Books;
 using Application.ReadingTracking;
-using Application.Reprocessing;
-using Application.Seo;
 using Application.LLM;
 using Application.Vocabulary;
-using Application.SsgRebuild;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -24,30 +19,20 @@ public static class DependencyInjection
         // Testable clock for time-sensitive flows (device-grant expiry, AI-050a).
         services.TryAddSingleton(TimeProvider.System);
 
-        services.AddScoped<AuthorsService>();
-        services.AddScoped<BookService>();
         services.AddScoped<ReadingStatsService>();
         services.AddScoped<ReadingSessionService>();
-        services.AddScoped<SeoService>();
-
-        // SEO Backfill Automation
-        services.AddScoped<SeoContextBuilder>();
-        services.AddScoped<SeoContentApplier>();
-        services.AddScoped<SeoCoverageAnalyzer>();
-        services.AddScoped<Ingestion.IngestionService>();
         services.AddScoped<AuthService>();
         services.AddScoped<AdminAuthService>();
         // The legacy services behind the interfaces M5.1's Database:Mode re-binds to V2's.
         services.AddScoped<IAuthService>(sp => sp.GetRequiredService<AuthService>());
         services.AddScoped<IAdminAuthService>(sp => sp.GetRequiredService<AdminAuthService>());
         services.AddScoped<AdminSettingsService>();
-        services.AddScoped<ReprocessingService>();
 
         // Vocabulary anti-spiral
         services.AddScoped<WeeklyBudgetService>();
         services.AddScoped<DailyCapService>();
         services.AddSingleton<IFrequencyFilter, FrequencyFilter>();
-        // SeoJobProcessor, AdminService, VocabularyReviewRecorder, RetirementSweeper and the cluster
+        // AdminService, VocabularyReviewRecorder, RetirementSweeper and the cluster
         // services need Api-only dependencies (email, user books, the SRS library): the Api registers
         // them in AddTextStackContentServices, so the Worker's container validates (#1108).
 
@@ -258,10 +243,6 @@ public static class DependencyInjection
         // Embeddings (vocabulary concept clusters, AI-058). Single OpenAI provider; resolved lazily so a keyless
         // host still starts (the client throws on construction without a key).
         services.AddSingleton<global::TextStack.Ai.Core.IEmbeddingService, global::TextStack.Ai.Llm.OpenAiEmbeddingClient>();
-
-        // SSG Rebuild - interfaces for SOLID compliance
-        services.AddScoped<ISsgRouteProvider, SsgRouteProvider>();
-        services.AddScoped<ISsgJobService, SsgRebuildService>();
 
         return services;
     }

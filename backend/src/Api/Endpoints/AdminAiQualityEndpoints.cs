@@ -12,7 +12,7 @@ namespace Api.Endpoints;
 ///   - AdminAiQualityEndpoints.Summary.cs      GetSummary + raw-SQL row types
 ///   - AdminAiQualityEndpoints.Traces.cs       GetTraces, GetTrace, GetAgentRuns, GetAgentRun
 ///   - AdminAiQualityEndpoints.Evals.cs        RunEvals, GetEvalStatus, GetEvals, GetEvalTrend
-///   - AdminAiQualityEndpoints.EvalRunners.cs  per-agent/crew eval trigger endpoints
+///   - AdminAiQualityEndpoints.EvalRunners.cs  per-agent eval trigger endpoints
 ///   - AdminAiQualityEndpoints.Models.cs       GetModels, PromoteModel, RollbackModel
 ///   - AdminAiQualityEndpoints.Budgets.cs      GetBudgets
 ///
@@ -35,8 +35,6 @@ public static partial class AdminAiQualityEndpoints
         group.MapPost("/evals/toolcalls/run", RunToolCallEval);
         group.MapPost("/enrichment/eval", RunEnrichmentEval);
         group.MapPost("/tutor/eval", RunTutorEval);
-        group.MapPost("/evals/criticdefects/run", RunCriticDefectEval);
-        group.MapPost("/evals/crew-ab/run", RunCrewAbEval);
         group.MapGet("/models", GetModels);
         group.MapPost("/models/{id:guid}/promote", PromoteModel);
         group.MapPost("/models/{feature}/rollback", RollbackModel);

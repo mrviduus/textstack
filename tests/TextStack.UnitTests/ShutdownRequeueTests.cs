@@ -1,31 +1,26 @@
+using Application.Ingestion;
 using Domain.Entities;
 using Domain.Enums;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Worker.Services;
-using CatalogIngestion = Application.Ingestion.IngestionService;
 
 namespace TextStack.UnitTests;
 
 /// <summary>
 /// ADR-022: a graceful shutdown (every deploy restarts the Worker) gives the claim back — Queued, the
 /// attempt not counted — instead of failing the job and telling the reader the file is corrupted.
-/// The set-based give-back runs on Sqlite through a context that maps only the three queue tables.
+/// The set-based give-back runs on Sqlite through a context that maps only the tables it touches.
 /// </summary>
 public class ShutdownRequeueTests : IDisposable
 {
     private sealed class Ctx(DbContextOptions<Ctx> options) : DbContext(options)
     {
-        public DbSet<IngestionJob> IngestionJobs => Set<IngestionJob>();
         public DbSet<UserIngestionJob> UserIngestionJobs => Set<UserIngestionJob>();
         public DbSet<UserBook> UserBooks => Set<UserBook>();
 
         protected override void OnModelCreating(ModelBuilder b)
         {
-            b.Entity<IngestionJob>(e =>
-            {
-                e.Ignore(x => x.Edition); e.Ignore(x => x.BookFile);
-            });
             b.Entity<UserIngestionJob>(e => { e.Ignore(x => x.UserBook); e.Ignore(x => x.UserBookFile); });
             b.Entity<UserBook>(e =>
             {
@@ -58,16 +53,6 @@ public class ShutdownRequeueTests : IDisposable
         return entity;
     }
 
-    private static IngestionJob CatalogJob(JobStatus status, int attempts) => new()
-    {
-        Id = Guid.NewGuid(),
-        TargetLanguage = "en",
-        Status = status,
-        AttemptCount = attempts,
-        StartedAt = DateTimeOffset.UtcNow,
-        CreatedAt = DateTimeOffset.UtcNow,
-    };
-
     private static UserIngestionJob UserJob(JobStatus status, int attempts) => new()
     {
         Id = Guid.NewGuid(),
@@ -76,21 +61,6 @@ public class ShutdownRequeueTests : IDisposable
         StartedAt = DateTimeOffset.UtcNow,
         CreatedAt = DateTimeOffset.UtcNow,
     };
-
-    [Fact]
-    public async Task ReturnToQueueAsync_CatalogJobInFlight_QueuedAttemptNotCounted()
-    {
-        var job = Seed(CatalogJob(JobStatus.Processing, attempts: 1));
-
-        var n = await CatalogIngestion.ReturnToQueueAsync(_db.IngestionJobs, job.Id, claimedAttempt: 1);
-
-        var row = await _db.IngestionJobs.SingleAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(1, n);
-        Assert.Equal(JobStatus.Queued, row.Status);
-        Assert.Equal(0, row.AttemptCount);
-        Assert.Null(row.StartedAt);
-        Assert.Null(row.Error);
-    }
 
     [Fact]
     public async Task ReturnToQueueAsync_UserJobInFlight_QueuedAttemptNotCounted()
@@ -125,11 +95,11 @@ public class ShutdownRequeueTests : IDisposable
     [Fact]
     public async Task ReturnToQueueAsync_StaleRepickInterruptedAfterClaim_OnlyThisAttemptGivenBack()
     {
-        var job = Seed(CatalogJob(JobStatus.Processing, attempts: 2)); // crash (1) + this claim (2)
+        var job = Seed(UserJob(JobStatus.Processing, attempts: 2)); // crash (1) + this claim (2)
 
-        await CatalogIngestion.ReturnToQueueAsync(_db.IngestionJobs, job.Id, claimedAttempt: 2);
+        await UserIngestionService.ReturnToQueueAsync(_db.UserIngestionJobs, job.Id, claimedAttempt: 2);
 
-        var row = await _db.IngestionJobs.SingleAsync(TestContext.Current.CancellationToken);
+        var row = await _db.UserIngestionJobs.SingleAsync(TestContext.Current.CancellationToken);
         Assert.Equal(JobStatus.Queued, row.Status);
         Assert.Equal(1, row.AttemptCount);
     }
@@ -154,7 +124,7 @@ public class ShutdownRequeueTests : IDisposable
     {
         var job = Seed(UserJob(JobStatus.Queued, attempts: 0));
 
-        for (var deploy = 0; deploy < CatalogIngestion.MaxAttempts + 2; deploy++)
+        for (var deploy = 0; deploy < IngestionRetry.MaxAttempts + 2; deploy++)
         {
             // The claim, as ProcessJobAsync makes it.
             var claimed = await _db.UserIngestionJobs.SingleAsync(TestContext.Current.CancellationToken);

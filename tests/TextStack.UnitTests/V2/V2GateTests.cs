@@ -6,7 +6,6 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
-using Api.Sites;
 using Api.V2;
 using Application.AdminAuth;
 using Application.Auth;
@@ -36,14 +35,6 @@ public class V2GateTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private sealed class AnySite : ISiteResolver
-    {
-        public Task<SiteContext?> ResolveAsync(string host, CancellationToken ct = default) =>
-            Task.FromResult<SiteContext?>(new SiteContext(Guid.Empty, "general", host, "en", "default", false, false, false, "{}"));
-
-        public void InvalidateCache() { }
-    }
-
     // A writable library root: with V2 on, an unwritable one is a 503 of its own (#1110), and these
     // tests pin what V2's database does to the status code, nothing else. The default /library is
     // not writable on a CI runner.
@@ -63,8 +54,6 @@ public class V2GateTests
             b.ConfigureTestServices(s =>
             {
                 s.RemoveAll<IHostedService>();
-                s.RemoveAll<ISiteResolver>();
-                s.AddSingleton<ISiteResolver, AnySite>();
             });
         });
 

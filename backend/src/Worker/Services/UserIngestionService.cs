@@ -47,7 +47,7 @@ public class UserIngestionService
 
     public static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(2);
     // Shared with catalog ingestion (Application) so the two caps cannot drift apart.
-    private const int MaxAttempts = IngestionService.MaxAttempts;
+    private const int MaxAttempts = IngestionRetry.MaxAttempts;
 
     public async Task<UserIngestionJob?> GetNextJobAsync(CancellationToken ct)
     {
@@ -69,7 +69,7 @@ public class UserIngestionService
             {
                 job.Status = JobStatus.Failed;
                 job.FinishedAt = now;
-                job.Error = IngestionService.ExceededAttemptsError;
+                job.Error = IngestionRetry.ExceededAttemptsError;
                 job.UserBook.Status = UserBookStatus.Failed;
                 job.UserBook.ErrorMessage = "Processing failed after multiple attempts. Try re-uploading or use a different file.";
                 job.UserBook.UpdatedAt = now;
@@ -88,8 +88,9 @@ public class UserIngestionService
     }
 
     /// <summary>
-    /// ADR-022 give-back for a user upload; same contract as
-    /// <see cref="IngestionService.ReturnToQueueAsync"/> (only the row as this run claimed it).
+    /// ADR-022 give-back for a user upload: <see cref="JobStatus.Queued"/>, the claimed attempt returned, matching
+    /// only the row as this run claimed it (Processing at <paramref name="claimedAttempt"/>), so a crashed attempt
+    /// is never un-counted.
     /// </summary>
     public static Task<int> ReturnToQueueAsync(IQueryable<UserIngestionJob> jobs, Guid jobId, int claimedAttempt) =>
         jobs.Where(j => j.Id == jobId && j.Status == JobStatus.Processing && j.AttemptCount == claimedAttempt)
@@ -122,7 +123,7 @@ public class UserIngestionService
             _logger.LogWarning("User book job {JobId} exceeded max attempts ({Max}), marking failed", jobId, MaxAttempts);
             job.Status = JobStatus.Failed;
             job.FinishedAt = DateTimeOffset.UtcNow;
-            job.Error = IngestionService.ExceededAttemptsError;
+            job.Error = IngestionRetry.ExceededAttemptsError;
             job.UserBook.Status = UserBookStatus.Failed;
             job.UserBook.ErrorMessage = "Processing failed after multiple attempts. Try re-uploading or use a different file.";
             job.UserBook.UpdatedAt = DateTimeOffset.UtcNow;
@@ -423,9 +424,6 @@ public class UserIngestionService
 
             _logger.LogInformation("User book job {JobId} completed. {ChapterCount} chapters created.",
                 jobId, result.Units.Count);
-
-            // Auto-queue quality validation if enabled
-            await IngestionWorkerService.TryQueueQualityJobAsync(db, null, job.UserBook.Id, _logger, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

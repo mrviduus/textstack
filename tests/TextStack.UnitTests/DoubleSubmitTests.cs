@@ -1,5 +1,4 @@
 using Api.Endpoints;
-using Api.Sites;
 using Application.Common.Interfaces;
 using Application.Vocabulary;
 using Domain.Entities;
@@ -33,7 +32,8 @@ public class DoubleSubmitTests
     {
         var ctx = new DefaultHttpContext();
         ctx.Items[Api.Middleware.McpKeyAuthMiddleware.UserIdItemKey] = UserId;
-        ctx.Items["SiteContext"] = new SiteContext(SiteId, "general", "localhost", "en", "default", false, false, false, "{}");
+        ctx.RequestServices = new ServiceCollection()
+            .AddSingleton(Mock.Of<ICurrentSite>(x => x.Id == SiteId)).BuildServiceProvider();
         return ctx;
     }
 

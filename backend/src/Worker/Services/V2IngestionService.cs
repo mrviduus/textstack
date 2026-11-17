@@ -24,7 +24,7 @@ public sealed class V2IngestionService(
     IIngestionJobRepository jobs, ILibraryRepository library, IBookChapterRepository chapters,
     ILibraryFileStore files, IExtractorRegistry extractors, ILogger<V2IngestionService> logger)
 {
-    private const int MaxAttempts = IngestionService.MaxAttempts;
+    private const int MaxAttempts = IngestionRetry.MaxAttempts;
     private static readonly TimeSpan StuckAfter = UserIngestionService.StuckJobTimeout;
 
     // A file younger than this may be an attach or a cover between its place and its commit, and a
@@ -34,7 +34,7 @@ public sealed class V2IngestionService(
     /// <summary>Fails exhausted jobs, then claims and runs the next one; false when the queue is empty.</summary>
     public async Task<bool> ProcessNextAsync(CancellationToken ct)
     {
-        foreach (var exhausted in await jobs.FailExhaustedAsync(MaxAttempts, StuckAfter, IngestionService.ExceededAttemptsError, ct))
+        foreach (var exhausted in await jobs.FailExhaustedAsync(MaxAttempts, StuckAfter, IngestionRetry.ExceededAttemptsError, ct))
             logger.LogWarning("V2 ingestion job {JobId} of file {FileId} exceeded {Max} attempts, marked failed", exhausted.Id, exhausted.FileId, MaxAttempts);
         var job = await jobs.ClaimNextAsync(MaxAttempts, StuckAfter, ct);
         if (job is null) return false;

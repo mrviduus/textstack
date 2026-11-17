@@ -19,15 +19,12 @@ public static partial class ServiceCollectionExtensions
         services.AddSingleton<TextStack.Ai.EvalSuite.ToolCallEvalRunner>();
         services.AddSingleton<TextStack.Ai.EvalSuite.EnrichmentEvalRunner>();
         services.AddSingleton<TextStack.Ai.EvalSuite.TutorEvalRunner>();
-        services.AddSingleton<TextStack.Ai.EvalSuite.CriticDefectEvalRunner>();
-        services.AddSingleton<TextStack.Ai.EvalSuite.CrewAbEvalRunner>();
         return services;
     }
 
     /// <summary>
-    /// Tool catalogue + agent-loop engine + concrete agents and content crews.
-    /// Lifetimes mirror Program.cs exactly (scoped agents resolve scoped IAppDbContext per request;
-    /// stateless single-call specialists are singletons).
+    /// Tool catalogue + agent-loop engine + concrete agents.
+    /// Scoped agents resolve scoped IAppDbContext per request.
     /// </summary>
     public static IServiceCollection AddTextStackAgents(this IServiceCollection services)
     {
@@ -41,25 +38,6 @@ public static partial class ServiceCollectionExtensions
         // hands off to the existing vocabulary-review flow. Scoped (its tools resolve the scoped IAppDbContext
         // per request).
         services.AddScoped<Application.Agents.TutorAgent>();
-        // Crew specialists (Phase 7, AI-041): single-call IAgent<TIn,TOut> sub-agents the content crews
-        // (AI-042/043) compose via CrewTasks.Of. Stateless + ILlmService is a singleton, so singleton is fine.
-        services.AddSingleton<Application.Agents.ResearcherAgent>();
-        services.AddSingleton<Application.Agents.DrafterAgent>();
-        services.AddSingleton<Application.Agents.CriticAgent>();
-        services.AddSingleton<Application.Agents.EditorAgent>();
-        // Single-call A/B baseline (Phase 7, AI-046): the "A" arm of the crew-vs-single-call eval — one ILlmService
-        // call that writes a field directly under the crew's full brief contract. Stateless singleton like the specialists.
-        services.AddSingleton<Application.Agents.BaselineFieldAgent>();
-        // AutoPublish crew (Phase 7, AI-042): in-process admin path that runs the specialists over ILlmService to
-        // generate SEO prose for an Edition. Scoped because it persists via the scoped IAgentRunWriter (per-request
-        // DbContext). The legacy bash + Claude-CLI poller stays the default; this is the observable, traced alternative.
-        // Shared per-field crew runner (Phase 7, AI-043): the 4-stage plan + fail-closed gate + agent_run persistence,
-        // extracted from AutoPublishCrew so both AutoPublish and SEO crews delegate to it. Scoped (scoped IAgentRunWriter).
-        services.AddScoped<Application.Agents.FieldCrew>();
-        services.AddScoped<Application.Agents.AutoPublishCrew>();
-        // SEO crew (Phase 7, AI-043): in-process admin path that generates ONE SEO prose field over ILlmService and
-        // routes it through the SeoBackfillJob apply path. The legacy seo-backfill poller stays the default + untouched.
-        services.AddScoped<Application.Agents.SeoCrew>();
         return services;
     }
 }

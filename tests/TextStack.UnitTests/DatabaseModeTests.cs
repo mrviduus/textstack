@@ -67,7 +67,7 @@ public class DatabaseModeTests
         Assert.NotNull(loops[0].ImplementationFactory); // SingleInstanceLock is registered first.
         Assert.Contains(loops, s => s.ImplementationType == typeof(V2IngestionWorker));
         Assert.Contains(loops, s => s.ImplementationType == typeof(RetentionCleanupWorker));
-        foreach (var type in new[] { typeof(IngestionWorker), typeof(MetadataEnrichmentWorker), typeof(StuckJobsMetricsWorker), typeof(GuestCleanupWorker), typeof(TextStackWatcher) })
+        foreach (var type in new[] { typeof(MetadataEnrichmentWorker), typeof(GuestCleanupWorker) })
             Assert.Equal(!v2, loops.Any(s => s.ImplementationType == type));
     }
 
@@ -77,6 +77,5 @@ public class DatabaseModeTests
             [DatabaseMode.ConfigurationKey] = mode,
             ["Features:V2Api"] = flag.ToString(),
             ["ConnectionStrings:V2"] = connection,
-            ["TextStack:EnableWatcher"] = "true",
         }).Build();
 }

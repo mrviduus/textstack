@@ -78,7 +78,6 @@ dotnet test                                 # All tests (.runsettings excludes C
 dotnet test tests/TextStack.UnitTests
 dotnet test tests/TextStack.IntegrationTests
 dotnet test tests/TextStack.Extraction.Tests
-dotnet test tests/TextStack.Search.Tests
 dotnet test tests/TextStack.Persistence.Tests   # Dapper repositories on real Postgres (Testcontainers; needs Docker)
 dotnet test --filter "Name~TestMethodName"  # Single test
 pnpm -C apps/web test                       # Frontend unit tests (Vitest)
@@ -91,8 +90,6 @@ dotnet format textstack.sln                  # Backend
 
 # CLI commands (via dotnet run --project backend/src/Api --)
 # create-admin <email> <password>            (always Admin: Editor/Moderator collapse to Admin on V2, ADR-031 decided 7)
-# optimize-images [--dry-run]
-# import-textstack <book-path>
 # backfill-pdf-page-counts [--dry-run]   (fills null UserBook.PageCount for PDF uploads)
 # etl-v2 [--dry-run] [--source <cs>] [--target <cs>] [--source-dump-sha <hex>]   (legacy -> textstack_v2 data, v2-plan §5.2, internal/ops/v2-etl.md; not the schema: that is `make migrate-v2`)
 #   credentials via env ConnectionStrings__Default / ConnectionStrings__V2 or Passfile=, never argv (refused): ConnectionStrings__Default=… make etl-v2 ARGS=--dry-run
@@ -151,7 +148,7 @@ API → Application → Domain ← Infrastructure
 - **Infrastructure**: EF Core (snake_case naming), storage implementations
 - **API/Worker**: Orchestration, DI
 
-**Backend class libraries** (`backend/src/`, beyond the layers above): `Extraction` (EPUB/PDF parsers), `Search` (FTS providers), `Tts` (Edge TTS), `Vocabulary` (DistractorGenerator), `Ai/` (`TextStack.Ai.*`: LLM client, agents, tools, evals, MCP server). There is no EPUB *builder* any more — `TextStack.Epub` was deleted 2026-09-28 with the export it existed for.
+**Backend class libraries** (`backend/src/`, beyond the layers above): `Extraction` (EPUB/PDF parsers), `Tts` (Edge TTS), `Vocabulary` (DistractorGenerator), `Ai/` (`TextStack.Ai.*`: LLM client, agents, tools, evals, MCP server). There is no EPUB *builder* any more — `TextStack.Epub` was deleted 2026-09-28 with the export it existed for.
 
 ### Shared Frontend Packages (`packages/`)
 
@@ -159,11 +156,11 @@ Cross-platform TS code shared by **both** web and mobile, consumed via source pa
 - **`@textstack/shared`** (`packages/shared/src/`) — the canonical home for platform-agnostic logic: `api/` (client), `types/api`, `i18n/`, `anon/`, `reader/` (bookProgress, progressPayload, continueReading), `vocabLevel`, `vocabularyConstants`, `lib/pathPrefix`. Edit here, not in app copies, when changing logic both clients need.
 - **`@textstack/reader-engine`** (`packages/reader-engine/`) — the reader engine ([ADR-025](docs/architecture/adr/ADR-025-reader-engine-package.md)): the reader's rendering and position; mobile (reflow + PDF) and web read only through it; old readers deleted in Phase 6 (#848 web, #866 mobile, #868 cleanup). Own rules in its `CLAUDE.md`, own agent `.claude/agents/reader-engine.md`, built test-first.
 
-**Middleware pipeline** (order matters): `ForwardedHeaders` → `Cors` → `AppVersion` (mobile `X-App-Version` → log scope + Sentry tag) → `ExceptionMiddleware` → `UserStoragePolicy` (404 for an upload's files except its cover; must precede StaticFiles) → `StaticFiles(/storage)` → `/health` → `SiteContext` → `LanguageContext` → `Routing` → `McpKeyAuth` → `RateLimiter` (must follow Routing, or per-endpoint policies are inert) → `GuestActivity` (LastActiveAt, 10 min debounce) → `AdminAuth` (conditional on `/admin/*`) → `PathGates` (`/me/*` → 401 without a user, `/internal/*` → 403 off the docker network; ADR-024)
+**Middleware pipeline** (order matters): `ForwardedHeaders` → `Cors` → `AppVersion` (mobile `X-App-Version` → log scope + Sentry tag) → `ExceptionMiddleware` → `UserStoragePolicy` (404 for an upload's files except its cover; must precede StaticFiles) → `StaticFiles(/storage)` → `/health` → `Routing` → `McpKeyAuth` → `RateLimiter` (must follow Routing, or per-endpoint policies are inert) → `GuestActivity` (LastActiveAt, 10 min debounce) → `AdminAuth` (conditional on `/admin/*`) → `PathGates` (`/me/*` → 401 without a user, `/internal/*` → 403 off the docker network; ADR-024)
 
 User routes live under `/me`; `/internal` is local-only by middleware. Every other route is listed in `tests/TextStack.UnitTests/Routes/routes.public.txt` — a new public route fails `PublicRoutesSnapshotTests` until it is added there.
 
-**Site resolution**: Single-site permanent (ADR-007). `SiteContextMiddleware` resolves host → SiteId. The single site id is exposed process-wide via `ICurrentSite` (config `Site:Id`, default `SiteConstants.DefaultSiteId`); EF global query filters key on it (see `ISiteScoped`). The dev `?site=` override was removed (R1b) — internal host-less callers must send a resolvable `Host` header.
+**Site resolution**: Single-site permanent (ADR-007). The single site id is exposed process-wide via `ICurrentSite` (config `Site:Id`, default `SiteConstants.DefaultSiteId`); EF global query filters key on it (see `ISiteScoped`).
 
 **Patterns**:
 - Endpoints: `Map{Domain}Endpoints()` in `Api/Endpoints/`
@@ -198,15 +195,6 @@ Context files: `apps/web/src/context/{Site,Auth,GuestLimits,NativeLanguage,Downl
 
 **Admin panel**: Separate React app (`apps/admin/`), English-only, JWT auth. Pages: Dashboard, Upload, User Uploads, Jobs queue, Editions list/edit, Authors CRUD, Genres CRUD, Chapter editor, SSG rebuild + job detail, Auto Publish, SEO Backfill, Book Quality, AI Quality, Tools, Settings.
 
-## Search
-
-PostgreSQL FTS only: raw SQL (Dapper) in `TextStack.Search/Providers/PostgresFts/PostgresSearchProvider.cs`, querying `chapters`/`editions` directly. `chapters.search_vector` is maintained by a DB trigger — there is no indexer and nothing to reindex. (The write-only `search_documents` copy, its `reindex-search` CLI and the never-deployed Meilisearch provider were deleted 2026-10-01.)
-
-After schema changes:
-1. Update `PostgresSearchProvider`
-2. Run `dotnet test tests/TextStack.IntegrationTests --filter SearchEndpoint`
-3. Test: `https://textstack.app/en/search?q=test`
-
 ## Test Projects
 
 ```
@@ -214,7 +202,6 @@ tests/
 ├── TextStack.UnitTests/           # Pure logic, no DB
 ├── TextStack.IntegrationTests/    # API tests against running server (LiveApiFixture → localhost:8080, override via API_URL env)
 ├── TextStack.Extraction.Tests/    # Book parsing (EPUB/PDF)
-├── TextStack.Search.Tests/        # Search logic
 ├── TextStack.Persistence.Tests/   # Dapper repositories, Testcontainers Postgres built by database/migrate.sh (ADR-028)
 ├── TextStack.AiEvals/             # Eval runners on fake LLMs; live evals skip w/o OPENAI_API_KEY
 ├── TextStack.Ai.Mcp.Tests/        # MCP over-the-wire (loopback)

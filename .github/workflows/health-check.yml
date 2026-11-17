@@ -166,18 +166,7 @@ jobs:
             echo "::error::FEATURES_V2API is on and the V2 library volume is not writable ($library). On the server: make fix-permissions (#1110)."; exit 1
           fi
 
-      - name: Smoke — book listing
-        run: |
-          body=$(curl -sf $CURL_RETRY "https://textstack.app/api/books?lang=en&limit=1")
-          echo "$body" | grep -q '"id"' || { echo "books endpoint returned no items"; echo "$body"; exit 1; }
-
-      - name: Smoke — search
-        run: |
-          body=$(curl -sf $CURL_RETRY "https://textstack.app/api/search?q=the&lang=en&limit=1")
-          echo "$body" | grep -q '"' || { echo "search endpoint returned empty body"; echo "$body"; exit 1; }
-
-      # Last on purpose: it runs even when a step above failed (!cancelled()), while the
-      # smokes above default to success(), so placed earlier a TTS outage would skip them.
+      # Runs even when a step above failed (!cancelled()).
       #
       # Edge TTS is an unofficial endpoint. On 2026-10-15 it answered 403 for 5+ hours, every
       # /api/tts was a 502, and every check above stayed green (#827, #880). The text is unique

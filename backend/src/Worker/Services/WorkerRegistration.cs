@@ -15,22 +15,16 @@ public static class WorkerRegistration
         var connection = mode.IsV2 ? config.GetConnectionString("V2")! : legacyConnectionString;
         services.AddHostedService(sp => new SingleInstanceLock(connection, sp.GetRequiredService<ILogger<SingleInstanceLock>>()));
         services.AddHostedService<AiProviderReadinessCheck>();
-        if (!mode.IsV2)
-        {
-            services.AddHostedService<IngestionWorker>();
-        }
         // These loops use V2 repositories / the selected identity ports, never a legacy fallback.
         services.AddSingleton<V2IngestionService>();
         services.AddHostedService<V2IngestionWorker>();
         if (!mode.IsV2)
         {
             services.AddHostedService<MetadataEnrichmentWorker>();
-            services.AddHostedService<StuckJobsMetricsWorker>();
             services.AddHostedService<GuestCleanupWorker>();
         }
         services.AddHostedService<RetentionCleanupWorker>();
         services.AddHostedService<HeartbeatWorker>();
-        if (!mode.IsV2 && config.GetValue<bool>("TextStack:EnableWatcher")) services.AddHostedService<TextStackWatcher>();
         return services;
     }
 }

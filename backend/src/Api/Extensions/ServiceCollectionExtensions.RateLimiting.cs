@@ -336,30 +336,6 @@ public static partial class ServiceCollectionExtensions
                     QueueLimit = 0,
                 });
             });
-            // AutoPublish crew (AI-042): an admin generate is TWO 4-stage crews = 8 LLM calls, so a tight per-IP cap.
-            // It sits behind admin auth too, this is just runaway protection.
-            options.AddPolicy("autopublish.crew", httpContext =>
-            {
-                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
-                {
-                    Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = 4,
-                    QueueLimit = 0,
-                });
-            });
-            // SEO crew (AI-043): one 4-stage crew = 4 LLM calls per admin generate. Same tight per-IP cap as
-            // autopublish.crew; sits behind admin auth too, this is just runaway protection.
-            options.AddPolicy("seo.crew", httpContext =>
-            {
-                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
-                {
-                    Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = 4,
-                    QueueLimit = 0,
-                });
-            });
             // Account deletion — destructive and irreversible (GDPR hard delete). A user
             // never needs to call this more than once, so a tight per-IP cap blocks abuse
             // (e.g. scripted churn against the cascade delete) while staying out of the way

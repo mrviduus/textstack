@@ -14,7 +14,6 @@ COPY backend/src/Infrastructure/Infrastructure.csproj backend/src/Infrastructure
 COPY backend/src/Domain/Domain.csproj backend/src/Domain/
 COPY backend/src/Contracts/Contracts.csproj backend/src/Contracts/
 COPY backend/src/Application/Application.csproj backend/src/Application/
-COPY backend/src/Search/TextStack.Search/TextStack.Search.csproj backend/src/Search/TextStack.Search/
 COPY backend/src/Extraction/TextStack.Extraction/TextStack.Extraction.csproj backend/src/Extraction/TextStack.Extraction/
 RUN RID=linux-musl-$([ "$TARGETARCH" = amd64 ] && echo x64 || echo "$TARGETARCH") \
     && dotnet restore backend/src/Worker/Worker.csproj -r "$RID"
@@ -24,8 +23,7 @@ RUN RID=linux-musl-$([ "$TARGETARCH" = amd64 ] && echo x64 || echo "$TARGETARCH"
     && dotnet publish backend/src/Worker/Worker.csproj -c Release -r "$RID" --self-contained false -o /app/publish
 
 # Alpine, like the API. The Worker has no Node, Puppeteer or browser: SSG prerendering
-# moved to the ssg-worker image long ago, and nothing under backend/src starts a process
-# except `git` in StandardEbooksSyncService, which only the API registers. PDF work is
+# went with the catalog, and nothing under backend/src starts a process. PDF work is
 # PdfPig (managed) plus PDFtoImage, whose PDFium and SkiaSharp (NoDependencies build)
 # ship musl binaries and need only libstdc++/libgcc, which this base already has.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine@sha256:254fe017495996d3abcc487ffacdcce2b73affb380d3af87af12c8dff41fe0b0 AS runtime
