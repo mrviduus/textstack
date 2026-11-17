@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { Platform } from 'react-native'
-import type { UserDto, V2MergeMap, V2Switch } from '@textstack/shared'
-import { authApi, V2_OFF } from '@textstack/shared'
+import type { UserDto, V2MergeMap } from '@textstack/shared'
+import { authApi } from '@textstack/shared'
 import { onAuthFailure } from '../lib/authEvents'
 import { resetAuthFailureLatch } from '../lib/api'
 import { createSingleFlight } from '../lib/singleFlight'
@@ -16,7 +16,7 @@ import { clearAllLocalProgress } from '../lib/progressStorage'
 import { clearPendingSessions, flushPendingSessions } from '../lib/pendingSessions'
 import { useReconnectCount } from '../hooks/useOnline'
 import { clearReaderCache } from '../lib/readerOfflineCache'
-import { forgetV2Answer, onV2Change, reprobeV2AfterReconnect, v2Known, v2Store } from '../lib/v2'
+import { forgetV2Answer, reprobeV2AfterReconnect, v2Store } from '../lib/v2'
 import { applyV2MergeMap } from '../lib/v2Merge'
 import { adoptV2LocalAccount, claimV2LibraryFor } from '../lib/v2reader/sync'
 import { wipeDeviceV2Library } from '../lib/v2reader/deviceLibrary'
@@ -134,8 +134,6 @@ interface AuthState {
    * means "we have not looked yet".
    */
   waitForSession: () => Promise<void>
-  /** The V2 sync API (`Features:V2Api`), probed once a session exists; read it with `useV2()`. */
-  v2: V2Switch
 }
 
 const AuthContext = createContext<AuthState>({
@@ -151,16 +149,10 @@ const AuthContext = createContext<AuthState>({
   // as "open the book signed out", which is the right fallback here too.
   ensureSession: async () => ({ status: 'failed', error: new Error('AuthProvider is missing') }),
   waitForSession: async () => {},
-  v2: V2_OFF,
 })
 
 export function useAuth() {
   return useContext(AuthContext)
-}
-
-/** `{enabled, maxPartBytes}`: whether this app start talks V2; screens hide by `v2Offers(v2, …)`. Off until probed. */
-export function useV2(): V2Switch {
-  return useContext(AuthContext).v2
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -392,16 +384,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // a reconnect when it never reached the server (the usual cold start offline). The queued sessions
   // flush after it answers: whether one goes to V2 is decided at send time. A call that needs the
   // answer before this runs starts the probe itself (`onV2`).
-  // The one switch (lib/v2 `known`): the stored answer from the first render, then every change it announces
-  // (this start's answer, a forget on sign-out or another account), so `useV2` and the reader route never disagree.
-  const [v2, setV2] = useState<V2Switch>(v2Known)
-  useEffect(() => {
-    setV2(v2Known())
-    return onV2Change(setV2)
-  }, [])
   useEffect(() => {
     if (!userId) return
-    // Its answer reaches `v2` through `onV2Change` (a stale account's probe never does).
     void reprobeV2AfterReconnect()
       .finally(() => flushPendingSessions().catch(() => {}))
   }, [userId, reconnects])
@@ -501,7 +485,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signOut,
         ensureSession,
         waitForSession,
-        v2,
       }}
     >
       {children}

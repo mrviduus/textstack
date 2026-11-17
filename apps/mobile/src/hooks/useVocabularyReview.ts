@@ -26,7 +26,6 @@ export function useVocabularyReview() {
   const [answerRevealed, setAnswerRevealed] = useState(false)
   const [reviewMode, setReviewMode] = useState<ReviewMode>('classic')
   const [showingNewWord, setShowingNewWord] = useState(false)
-  const [activeClusterId, setActiveClusterId] = useState<string | null>(null)
   const [isPractice, setIsPractice] = useState(false)
 
   // Guards against state updates after unmount. The two async calls below
@@ -62,7 +61,6 @@ export function useVocabularyReview() {
     setLoading(true)
     setError(null)
     setCurrentIndex(0)
-    setActiveClusterId(null)
     resetAnswerState()
     try {
       const queue = await vocabularyApi.getReviewQueue(limit, practiceFlag)
@@ -75,30 +73,6 @@ export function useVocabularyReview() {
     } catch (err) {
       if (!mountedRef.current) return
       setError(err instanceof Error ? err.message : 'Failed to load review')
-    } finally {
-      if (mountedRef.current) setLoading(false)
-    }
-  }, [resetAnswerState, showNewWordIfNeeded])
-
-  const startClusterSession = useCallback(async (clusterId: string, rMode?: ReviewMode) => {
-    if (rMode) setReviewMode(rMode)
-    setIsPractice(false)
-    setLoading(true)
-    setError(null)
-    setCurrentIndex(0)
-    resetAnswerState()
-    try {
-      const resp = await vocabularyApi.startClusterBonus(clusterId)
-      if (!mountedRef.current) return
-      setCards(resp.cards)
-      setTotalDue(resp.cards.length)
-      setWeeklyProgress(null)
-      setActiveClusterId(clusterId)
-      setSessionStats({ ...EMPTY_STATS, total: resp.cards.length })
-      showNewWordIfNeeded(resp.cards, 0)
-    } catch (err) {
-      if (!mountedRef.current) return
-      setError(err instanceof Error ? err.message : 'Failed to load cluster')
     } finally {
       if (mountedRef.current) setLoading(false)
     }
@@ -122,7 +96,6 @@ export function useVocabularyReview() {
         wordId: card.wordId,
         isCorrect,
         responseTimeMs,
-        selfAssessment,
         isPractice,
       })
       if (!mountedRef.current) return
@@ -170,10 +143,8 @@ export function useVocabularyReview() {
     hasCards,
     reviewMode,
     showingNewWord,
-    activeClusterId,
     isPractice,
     startSession,
-    startClusterSession,
     submitAnswer,
     nextCard,
     dismissNewWord,

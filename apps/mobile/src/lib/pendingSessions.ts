@@ -2,13 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   appendPendingSession,
   drainPendingSessions,
-  readingTrackingApi,
   v2Api,
   toV2Session,
   rekeyPendingSessions as rekeyQueue,
   type PendingSession,
 } from '@textstack/shared'
-import { onV2 } from './v2'
 
 /**
  * Reading sessions whose submit has not succeeded yet, persisted so an offline read still counts.
@@ -23,13 +21,11 @@ const KEY = 'reading.pendingSessions'
 type Submit = (s: PendingSession) => Promise<unknown>
 
 /**
- * An upload's session (it has a `clientSessionId`) to V2's idempotent PUT when V2 is on, decided
- * at send time; anything else to the legacy route, without the V2 id.
+ * A session to V2's idempotent PUT by its `clientSessionId`. One without (queued by the legacy reader
+ * before M6) has no route left: it is dropped.
  */
-const submitSession: Submit = async ({ clientSessionId, ...s }) => {
-  if (!clientSessionId || !(await onV2())) return readingTrackingApi.submitSession(s)
-  return v2Api.putSession(clientSessionId, toV2Session(s))
-}
+const submitSession: Submit = async ({ clientSessionId, ...s }) =>
+  clientSessionId ? v2Api.putSession(clientSessionId, toV2Session(s)) : undefined
 
 // One JS runtime, so a promise chain is enough to keep a flush from overwriting a session enqueued
 // while it was in flight.

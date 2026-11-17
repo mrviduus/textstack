@@ -4,11 +4,10 @@ import {
   RefreshControl, ScrollView } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
-import { isOfflineError, plural, v2Offers } from '@textstack/shared'
+import { isOfflineError, plural } from '@textstack/shared'
 import { vocabularyApi } from '../../src/lib/vocabularyApi'
-import { nullIfRefused } from '../../src/lib/v2'
-import type { VocabularyWordDto, VocabularyStatsDto, PendingVocabWordDto, WordLookupDto } from '@textstack/shared'
-import { useAuth, useV2 } from '../../src/context/AuthContext'
+import type { VocabularyWordDto } from '@textstack/shared'
+import { useAuth } from '../../src/context/AuthContext'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
 import { useToast } from '../../src/context/ToastContext'
@@ -16,16 +15,12 @@ import { fonts } from '../../src/theme/typography'
 import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 import { EmptyState } from '../../src/components/ui/EmptyState'
 import { useTts } from '../../src/hooks/useTts'
-import type { ReviewMode } from '../../src/hooks/useVocabularyReview'
 import { useReconnectCount } from '../../src/hooks/useOnline'
 import { useRefocusEffect } from '../../src/hooks/useRefocusEffect'
-import { ClusterBonusCard } from '../../src/components/vocabulary/ClusterBonusCard'
-import { VocabSettingsModal } from '../../src/components/vocabulary/VocabSettingsModal'
 import { VocabViewSheet } from '../../src/components/vocabulary/VocabViewSheet'
 import { VocabSummaryCard } from '../../src/components/vocabulary/VocabSummaryCard'
 import { buildContextSnippet } from '@textstack/shared'
 import { resolveListScreenState } from '../../src/lib/listScreenState'
-import { DEFAULT_REVIEW_MODE, loadReviewMode, saveReviewMode } from '../../src/lib/reviewMode'
 
 const STAGE_LABELS = ['New', 'Recognition', 'Recall', 'Context', 'Mastered']
 const STAGE_COLORS = ['#9CA3AF', '#3B82F6', '#F59E0B', '#8B5CF6', '#10B981']
@@ -35,8 +30,6 @@ const TABS = [
   { key: 'new', label: 'New', filter: '0' },
   { key: 'learning', label: 'Learning', filter: '1,2,3' },
   { key: 'mastered', label: 'Mastered', filter: '4' },
-  { key: 'pending', label: 'Pending', filter: undefined },
-  { key: 'lookups', label: 'Lookups', filter: undefined },
 ] as const
 
 const SORT_OPTIONS = [
@@ -54,45 +47,21 @@ export default function VocabularyScreen() {
   // `isAuthenticated` is false for the whole of it. Passed through so the machine can
   // hold the skeleton instead of flashing the sign-in wall on a cold start.
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth()
-  // V2 (#1025): no tutor, cluster rounds or review-style switch (V2_FEATURES); review runs as flashcards.
-  // M5 (#1031): no stats, settings, pending words or lookups either (no V2 storage).
-  const v2 = useV2()
+  // V2 (#1025): no tutor, cluster rounds, review-style switch, stats, settings, pending words or lookups;
+  // review runs as flashcards.
   const { colors } = useTheme()
   const { t } = useLanguage()
   const router = useRouter()
   const { toggle: toggleTts } = useTts()
   const { show: showToast } = useToast()
   const [words, setWords] = useState<VocabularyWordDto[]>([])
-  const [stats, setStats] = useState<VocabularyStatsDto | null>(null)
   const [tab, setTab] = useState<TabKey>('all')
-  // V2 turned on while a now-hidden tab was open: back to All.
-  const hiddenTab = (tab === 'pending' && !v2Offers(v2, 'pendingWords')) || (tab === 'lookups' && !v2Offers(v2, 'wordLookups'))
-  useEffect(() => { if (hiddenTab) setTab('all') }, [hiddenTab])
   const [sort, setSort] = useState<SortKey>('recent')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
-  // Survives a cold start. It used to be plain `useState`, so "the setting
-  // persists" only meant "this tab stayed mounted" — kill the app and Blitz
-  // silently became Flashcards again, which reads as the app ignoring you.
-  // Web has persisted this since it shipped (`localStorage['practiceMode']`).
-  const [reviewMode, setReviewMode] = useState<ReviewMode>(DEFAULT_REVIEW_MODE)
-  useEffect(() => {
-    let cancelled = false
-    loadReviewMode().then(m => { if (!cancelled) setReviewMode(m) })
-    return () => { cancelled = true }
-  }, [])
-  const selectReviewMode = (next: ReviewMode) => {
-    setReviewMode(next)
-    void saveReviewMode(next)
-  }
-  const [pendingItems, setPendingItems] = useState<PendingVocabWordDto[] | null>(null)
-  const [pendingBusyId, setPendingBusyId] = useState<string | null>(null)
-  const [lookupItems, setLookupItems] = useState<WordLookupDto[] | null>(null)
-  const [lookupBusyId, setLookupBusyId] = useState<string | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [viewSheetOpen, setViewSheetOpen] = useState(false)
   // Why the list is empty, when it is.
   const [loadError, setLoadError] = useState<'offline' | 'failed' | null>(null)
@@ -121,11 +90,7 @@ export default function VocabularyScreen() {
     const myGen = ++loadGenRef.current
     try {
       const currentOffset = loadMore ? offsetRef.current : 0
-      const [res, st] = await Promise.all([
-        vocabularyApi.getWords({ stage: activeFilter, search: search || undefined, sort, limit: 50, offset: currentOffset }),
-        // M5 (#1031): no vocabulary stats on V2 (refused): the list loads without them.
-        loadMore ? Promise.resolve(null) : vocabularyApi.getVocabularyStats().catch(nullIfRefused),
-      ])
+      const res = await vocabularyApi.getWords({ stage: activeFilter, search: search || undefined, sort, limit: 50, offset: currentOffset })
       if (myGen !== loadGenRef.current) return
       if (loadMore) {
         setWords(prev => [...prev, ...res.items])
@@ -135,7 +100,6 @@ export default function VocabularyScreen() {
       setTotal(res.total)
       setLoadError(null)
       offsetRef.current = currentOffset + res.items.length
-      if (!loadMore && st) setStats(st)
     } catch (e) {
       if (myGen !== loadGenRef.current) return
       console.warn('Vocab load error:', e)
@@ -158,88 +122,6 @@ export default function VocabularyScreen() {
     setLoading(true); offsetRef.current = 0
     loadData().catch(() => {})
   }, [loadData, reconnects])
-
-  const loadPending = useCallback(async () => {
-    try {
-      const resp = await vocabularyApi.getPendingWords()
-      setPendingItems(resp.items)
-    } catch (e) {
-      console.warn('Load pending failed:', e)
-      setPendingItems([])
-    }
-  }, [])
-
-  useEffect(() => {
-    // Signed out the tab row never renders, so `tab` cannot leave 'all' — but
-    // these are /me/* calls and the guard belongs where the request is made.
-    if (isAuthenticated && tab === 'pending') loadPending()
-  }, [isAuthenticated, tab, loadPending])
-
-  const loadLookups = useCallback(async () => {
-    try {
-      const resp = await vocabularyApi.getLookups({ limit: 200 })
-      setLookupItems(resp.items)
-    } catch (e) {
-      console.warn('Load lookups failed:', e)
-      setLookupItems([])
-    }
-  }, [])
-
-  useEffect(() => {
-    if (isAuthenticated && tab === 'lookups') loadLookups()
-  }, [isAuthenticated, tab, loadLookups])
-
-  const handlePromoteLookup = async (id: string) => {
-    setLookupBusyId(id)
-    try {
-      await vocabularyApi.promoteLookup(id)
-      setLookupItems(prev => (prev || []).filter(p => p.id !== id))
-      vocabularyApi.getVocabularyStats().then(setStats).catch(() => {})
-    } catch {
-      showToast({ message: 'Could not promote. Try again.', variant: 'error' })
-    } finally {
-      setLookupBusyId(null)
-    }
-  }
-
-  const handleDismissLookup = async (id: string) => {
-    setLookupBusyId(id)
-    try {
-      await vocabularyApi.dismissLookup(id)
-      setLookupItems(prev => (prev || []).filter(p => p.id !== id))
-      vocabularyApi.getVocabularyStats().then(setStats).catch(() => {})
-    } catch {
-      showToast({ message: 'Could not dismiss. Try again.', variant: 'error' })
-    } finally {
-      setLookupBusyId(null)
-    }
-  }
-
-  const handlePromotePending = async (id: string) => {
-    setPendingBusyId(id)
-    try {
-      await vocabularyApi.promotePendingWord(id)
-      setPendingItems(prev => (prev || []).filter(p => p.id !== id))
-      vocabularyApi.getVocabularyStats().then(setStats).catch(() => {})
-    } catch (e) {
-      showToast({ message: 'Could not promote. Try again.', variant: 'error' })
-    } finally {
-      setPendingBusyId(null)
-    }
-  }
-
-  const handleDismissPending = async (id: string) => {
-    setPendingBusyId(id)
-    try {
-      await vocabularyApi.dismissPendingWord(id)
-      setPendingItems(prev => (prev || []).filter(p => p.id !== id))
-      vocabularyApi.getVocabularyStats().then(setStats).catch(() => {})
-    } catch (e) {
-      showToast({ message: 'Could not dismiss. Try again.', variant: 'error' })
-    } finally {
-      setPendingBusyId(null)
-    }
-  }
 
   // RE-focus only: the effect above owns the first load and every filter /
   // search / sort change. A focus callback keyed on `loading` re-fired each
@@ -284,7 +166,6 @@ export default function VocabularyScreen() {
     }
   }
 
-  const dueCount = stats?.dueNow ?? 0
   const hasMore = words.length < total
 
   // One decision, in one place, with a test behind it. The precedence used to
@@ -318,38 +199,16 @@ export default function VocabularyScreen() {
           Library got. What stays is what changes the next action: one card with
           the due count and its button, search, and the filter. Everything that
           only shapes the view is behind the gear. */}
-      <VocabSummaryCard
-        stats={stats}
-        dueCount={dueCount}
-        onPractice={() => router.push(`/vocabulary/review?reviewMode=${reviewMode}`)}
-        // V2: no stats; Practice stays while the list has words or a filter or search may be hiding them.
-        statsHidden={!v2Offers(v2, 'vocabStats') && (total > 0 || !!activeFilter || !!search)}
-        onSmartSession={v2Offers(v2, 'tutor') ? () => router.push('/tutor') : undefined}
-        smartSessionLabel={t('tutor.entry.cta')}
-      />
-
-      <VocabSettingsModal
-        visible={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        onSaved={() => { offsetRef.current = 0; loadData() }}
-      />
+      {/* While the list has words, or a filter or search may be hiding them. */}
+      {(total > 0 || !!activeFilter || !!search) && <VocabSummaryCard onPractice={() => router.push('/vocabulary/review')} />}
 
       <VocabViewSheet
         visible={viewSheetOpen}
-        reviewMode={reviewMode}
         sort={sort}
         sortOptions={SORT_OPTIONS}
-        stats={stats}
-        onSelectReviewMode={v2.enabled ? undefined : selectReviewMode}
         onSelectSort={k => setSort(k as SortKey)}
-        onOpenSettings={v2Offers(v2, 'vocabSettings') ? () => setSettingsOpen(true) : undefined}
         onClose={() => setViewSheetOpen(false)}
       />
-
-      {/* Cluster bonus card — only when an active, non-dismissed cluster exists */}
-      {v2Offers(v2, 'clusters') && stats && (stats.clusterCount ?? 0) > 0 && (
-        <ClusterBonusCard onChange={() => { offsetRef.current = 0; loadData() }} />
-      )}
 
       {/* Search sits above the filter, like Library's. */}
       <View style={styles.searchSortRow}>
@@ -368,7 +227,7 @@ export default function VocabularyScreen() {
       <View style={styles.tabsRow}>
         <View style={{ flex: 1 }}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
-        {TABS.filter(t => (t.key !== 'pending' || v2Offers(v2, 'pendingWords')) && (t.key !== 'lookups' || v2Offers(v2, 'wordLookups'))).map(t => (
+        {TABS.map(t => (
           <TouchableOpacity
             key={t.key}
             style={[styles.tab, { backgroundColor: colors.surface, borderColor: colors.border }, tab === t.key && { backgroundColor: colors.primary, borderColor: colors.primary }]}
@@ -392,105 +251,7 @@ export default function VocabularyScreen() {
         </TouchableOpacity>
       </View>
 
-      {tab === 'lookups' ? (
-        lookupItems === null ? (
-          <View style={styles.listContent}>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <View key={i} style={[styles.wordRow, { borderBottomColor: colors.border }]}>
-                <SkeletonLoader width={160} height={16} />
-              </View>
-            ))}
-          </View>
-        ) : lookupItems.length === 0 ? (
-          <EmptyState icon="search-outline" title="No reference lookups yet" />
-        ) : (
-          <FlatList
-            data={lookupItems}
-            keyExtractor={item => item.id}
-            contentContainerStyle={styles.listContent}
-            renderItem={({ item }) => (
-              <View style={[styles.wordRow, { borderBottomColor: colors.border }]}>
-                <View style={styles.wordHeader}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.wordText, { color: colors.text, fontFamily: fonts.sansMedium }]}>{item.word}</Text>
-                    {item.lastTranslation && (
-                      <Text style={[styles.wordTranslation, { color: colors.textSecondary, fontFamily: fonts.sans }]} numberOfLines={1}>{item.lastTranslation}</Text>
-                    )}
-                    <Text style={[styles.detailSource, { color: colors.textSecondary, fontFamily: fonts.sans }]} numberOfLines={1}>
-                      {[item.bookTitle, plural(item.tapCount, 'tap', 'taps')].filter(Boolean).join(' · ')}
-                    </Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: 6 }}>
-                    <TouchableOpacity
-                      disabled={lookupBusyId === item.id}
-                      style={[styles.reviewBtn, { backgroundColor: colors.primary, paddingHorizontal: 10, paddingVertical: 6 }]}
-                      onPress={() => handlePromoteLookup(item.id)}
-                    >
-                      <Text style={{ color: '#fff', fontFamily: fonts.sansMedium, fontSize: 12 }}>Add anyway</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      disabled={lookupBusyId === item.id}
-                      style={[styles.reviewBtn, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6 }]}
-                      onPress={() => handleDismissLookup(item.id)}
-                    >
-                      <Text style={{ color: colors.textSecondary, fontFamily: fonts.sans, fontSize: 12 }}>Dismiss</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            )}
-          />
-        )
-      ) : tab === 'pending' ? (
-        pendingItems === null ? (
-          <View style={styles.listContent}>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <View key={i} style={[styles.wordRow, { borderBottomColor: colors.border }]}>
-                <SkeletonLoader width={160} height={16} />
-              </View>
-            ))}
-          </View>
-        ) : pendingItems.length === 0 ? (
-          <EmptyState icon="hourglass-outline" title="No words waiting" />
-        ) : (
-          <FlatList
-            data={pendingItems}
-            keyExtractor={item => item.id}
-            contentContainerStyle={styles.listContent}
-            renderItem={({ item }) => (
-              <View style={[styles.wordRow, { borderBottomColor: colors.border }]}>
-                <View style={styles.wordHeader}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.wordText, { color: colors.text, fontFamily: fonts.sansMedium }]}>{item.word}</Text>
-                    {item.translation && (
-                      <Text style={[styles.wordTranslation, { color: colors.textSecondary, fontFamily: fonts.sans }]} numberOfLines={1}>{item.translation}</Text>
-                    )}
-                    {item.bookTitle && (
-                      <Text style={[styles.detailSource, { color: colors.textSecondary, fontFamily: fonts.sans }]} numberOfLines={1}>From: {item.bookTitle}</Text>
-                    )}
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: 6 }}>
-                    <TouchableOpacity
-                      disabled={pendingBusyId === item.id}
-                      style={[styles.reviewBtn, { backgroundColor: colors.primary, paddingHorizontal: 10, paddingVertical: 6 }]}
-                      onPress={() => handlePromotePending(item.id)}
-                    >
-                      <Text style={{ color: '#fff', fontFamily: fonts.sansMedium, fontSize: 12 }}>Add</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      disabled={pendingBusyId === item.id}
-                      style={[styles.reviewBtn, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6 }]}
-                      onPress={() => handleDismissPending(item.id)}
-                    >
-                      <Text style={{ color: colors.textSecondary, fontFamily: fonts.sans, fontSize: 12 }}>Dismiss</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            )}
-          />
-        )
-      ) : screenState === 'loading' ? (
+      {screenState === 'loading' ? (
         <View style={styles.listContent}>
           {Array.from({ length: 6 }).map((_, i) => (
             <View key={i} style={[styles.wordRow, { borderBottomColor: colors.border }]}>
@@ -518,8 +279,8 @@ export default function VocabularyScreen() {
         <EmptyState
           icon="book-outline"
           title={t('vocabulary.empty')}
-          buttonLabel={t('library.browseBooks')}
-          onButtonPress={() => router.push('/(tabs)/search')}
+          buttonLabel={t('nav.library')}
+          onButtonPress={() => router.push('/(tabs)/library')}
         />
       ) : (
         <FlatList

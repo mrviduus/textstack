@@ -26,10 +26,6 @@ describe('resumeRoute', () => {
     ...o,
   })
 
-  it('opens the reader at the saved chapter', () => {
-    expect(resumeRoute(edition())).toBe('/reader/dracula/chapter-4')
-  })
-
   it('keeps the user-book segments in route order: bookId then chapterSlug', () => {
     // These were once swapped, so expo-router could not match the path and
     // silently fell back to the detail screen — Continue Reading looked broken
@@ -38,8 +34,11 @@ describe('resumeRoute', () => {
   })
 
   it('falls back to the detail screen when there is no chapter to resume', () => {
-    expect(resumeRoute(edition({ chapterSlug: null }))).toBe('/book/dracula')
     expect(resumeRoute(userbook({ chapterSlug: null }))).toBe('/my-books/ub-1')
+  })
+
+  it('sends a catalog pick (retired at M6) to the front door', () => {
+    expect(resumeRoute(edition())).toBe('/')
   })
 })
 
@@ -66,10 +65,7 @@ describe('resumeUploadRoute', () => {
     const loaders = { device: load, server: load }
     expect(await resumeUploadRoute({ ...pick, chapterSlug: 'intro', locator: null }, loaders)).toBe('/my-books/read/ub1/intro')
     expect(await resumeUploadRoute({ ...pick, locator: null }, loaders)).toBe('/my-books/ub1')
-    expect(await resumeUploadRoute({ type: 'edition', slug: 'dracula', title: 'D', coverPath: null, percent: 0.1, chapterSlug: null, updatedAtMs: 1 }, loaders)).toBe('/book/dracula')
     expect(load).not.toHaveBeenCalled()
-    // The PDF reader restores the page itself when Continue opens the chapter holding it.
-    expect(read('src/components/reader/useReaderPdf.ts')).toContain('resumePage: originalNewerPage?.page ?? originalResumePage')
     // Repeat taps ignored while the lookup runs (component-local).
     const hero = read('src/components/library/ResumeButton.tsx')
     expect(hero).toMatch(/if \(busyRef\.current\) return/)
@@ -143,8 +139,6 @@ describe('resumeUploadRoute', () => {
     const dl = read('src/context/DownloadContext.tsx')
     expect(dl).toMatch(/number: ch\.chapterNumber,\s*sourceStartPage: ch\.sourceStartPage \?\? null,/)
     expect(dl).toContain('cacheUserChapter(info.editionId, { ...chapter, sourceStartPage: chapter.sourceStartPage ?? task.sourceStartPage ?? null }, task.number)')
-    // The reader's own pre-cache does the same from its chapter list.
-    expect(read('src/components/reader/useUserBookReaderSource.ts')).toMatch(/cacheUserChapter\(bookId, \{ \.\.\.ch, sourceStartPage: ch\.sourceStartPage \?\? row\?\.sourceStartPage \?\? null \}/)
     // A refresh from the chapter endpoint must not wipe the stored page.
     expect(read('src/lib/offlineDb.ts')).toContain('source_start_page = COALESCE(?, source_start_page)')
     // Those rows then answer the hero alone.

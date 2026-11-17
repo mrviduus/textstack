@@ -39,11 +39,6 @@
             {
               "scheme": "https",
               "host": "textstack.app",
-              "pathPrefix": "/en/books"
-            },
-            {
-              "scheme": "https",
-              "host": "textstack.app",
               "pathPrefix": "/reset-password"
             }
           ],

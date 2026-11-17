@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState } from '@textstack/shared'
+import { FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState } from '@textstack/shared'
 import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
@@ -36,11 +36,11 @@ import { V2FinishBook } from './V2FinishBook'
 import { V2ChapterDiscuss } from './V2ChapterDiscuss'
 import { chapterKey, offersDiscuss, readChapterEnd, readChapterText, type V2ChapterEnd } from '../../lib/v2reader/chapters.mjs'
 import { useAssistantLauncher } from '../../hooks/useAssistantLauncher'
-import { ConnectAssistantSheet } from '../library/ReviewChapterButton'
+import { ConnectAssistantSheet } from '../library/ConnectAssistantSheet'
 import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../lib/v2reader/wordPopup.mjs'
 import { readerTextLanguage } from '../../lib/bookLanguage'
 import { saveOutcome, savesWords } from '../../lib/v2reader/vocabSave.mjs'
-import { routeOf, vocabularyApi } from '../../lib/vocabularyApi'
+import { vocabularyApi } from '../../lib/vocabularyApi'
 import { fillSavedTranslation, saveWordWithRetry } from '../../lib/savedWord'
 import { saveWordForBook } from '../../lib/v2reader/wordBook'
 import { vocabMapKey } from '../../lib/vocabMapKey'
@@ -71,7 +71,6 @@ import { openPlayStorePage } from '../../lib/playStore'
 import { USER_AGENT_PROBE, createWebViewCheck, webViewStorePackage, type WebViewVerdict } from '../../lib/v2reader/webViewVersion'
 import { useReaderBars } from '../../hooks/useReaderBars'
 import { useKeepReaderAwake } from '../../hooks/useKeepReaderAwake'
-import { useFetchedReadingPace } from '../../hooks/useReadingPace'
 import { useFlushOnLeave } from '../../hooks/useFlushOnLeave'
 import { ReaderTopBar } from '../reader/ReaderTopBar'
 import { ReaderFooter } from '../reader/ReaderFooter'
@@ -263,8 +262,8 @@ function V2Footer({ setter, toc, onGoToc, ...props }: { setter: MutableRefObject
   const [place, setPlace] = useState<Place>(null)
   useEffect(() => { setter.current = setPlace }, [setter])
   const { t } = useLanguage()
-  // Never waited for: no answer (offline, no session) is no time left, nothing else (#1262).
-  const wpm = useFetchedReadingPace(true)
+  // V2 keeps no reading pace (no stats route): the population figure.
+  const wpm = FALLBACK_WPM
   return (
     <ReaderFooter
       {...props}
@@ -798,18 +797,15 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     const asker = vocabUser.current
     return { asker, guard: { user: asker, stale: resetSince() } }
   }
-  /**
-   * A save's answer card (saved, already saved, restored) into the rows, if its context still holds and the call itself
-   * went through V2 (`routeOf`: the route it took, never asked of the probe again).
-   */
+  /** A save's answer card (saved, already saved, restored) into the rows, if its context still holds. */
   const takeWord = async (w: { id: string; word: string; language?: string | null; stage: number; translation: string | null } | null | undefined, ctx: WriteCtx) => {
-    const row = answerRow(w, ctx.asker, vocabUser.current, vocabLang.current, routeOf(w) === 'v2')
+    const row = answerRow(w, ctx.asker, vocabUser.current, vocabLang.current, !!w)
     if (row) await deviceLocalLibrary().upsertWord(row, ctx.guard).then(refreshVocab, fail('vocabulary'))
   }
   /** The card after a translation write (`onlyIfEmpty`): its translation, the server's, on its row too (a V2 card only). */
   const takeTranslation = async (id: string, card: { translation?: string | null } | null | undefined, ctx: WriteCtx) => {
     const tr = serverTranslation(card)
-    if (!tr || routeOf(card) !== 'v2' || ctx.asker !== vocabUser.current) return
+    if (!tr || ctx.asker !== vocabUser.current) return
     await deviceLocalLibrary().setWordTranslation(id, tr, ctx.guard).then(refreshVocab, fail('vocabulary'))
   }
   /** Card ids whose TR-2 fill is in flight: the backfill leaves them to it. */
@@ -824,8 +820,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }, [userId])
   /** False when the book's `opened.lang` does not read (savesWords): its words would be filed under the fallback. */
   const [langSaves, setLangSaves] = useState(true)
-  /** The one answered `lookup` (the rare-word notice). */
-  const [lookup, setLookup] = useState<{ popup: V2Popup; kind: 'lookup' | 'lookup_pending'; id: string; tapsRemaining: number | null; busy: boolean } | null>(null)
   const closeIfOpen = (p: V2Popup) => { if (popupRef.current === p) closePopup() }
   const wordSavedToast = async () => {
     haptics.play('complete')
@@ -916,8 +910,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       } else if (o.kind === 'pending') {
         showToast({ variant: 'info', message: t('reader.vocab.queuedForTomorrow') })
         closeIfOpen(p)
-      } else if (o.kind === 'lookup') {
-        setLookup({ popup: p, kind: o.lookup, id: o.id, tapsRemaining: o.tapsRemaining, busy: false })
       } else if (o.kind === 'already_saved') {
         void takeWord(o.word, ctx)
         closeIfOpen(p)
@@ -927,22 +919,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       showToast({ variant: 'error', message: t('reader.v2.saveWordFailed') })
     } finally {
       savingWords.current.delete(key)
-    }
-  }
-  const addAnyway = async () => {
-    if (!lookup || lookup.busy) return
-    setLookup({ ...lookup, busy: true })
-    const asker = vocabUser.current
-    try {
-      // "Add anyway" promotes through the legacy API: its card is no V2 row; the next V2 pull brings it.
-      await vocabularyApi.promoteLookup(lookup.id)
-      if (asker !== vocabUser.current) return
-      setLookup(null)
-      showToast({ variant: 'success', message: t('reader.vocab.addedToSrs') })
-      closeIfOpen(lookup.popup)
-    } catch {
-      setLookup({ ...lookup, busy: false })
-      showToast({ variant: 'error', message: t('reader.vocab.addAnywayFailed') })
     }
   }
   /** A translation or explanation closed: its selection is done, as on the web (the bar goes with it). */
@@ -1584,7 +1560,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       // The card the server answers with (`onlyIfEmpty` keeps a translation it had): its translation goes to the row.
       persist: (id, tr) => vocabularyApi.updateWord(id, { translation: tr, onlyIfEmpty: true }).then(async (card) => {
         const kept = serverTranslation(card)
-        if (gone || !kept || routeOf(card) !== 'v2' || ctx.asker !== vocabUser.current) return
+        if (gone || !kept || ctx.asker !== vocabUser.current) return
         await deviceLocalLibrary().setWordTranslation(id, kept, ctx.guard)
         clearTimeout(timer)
         timer = setTimeout(() => { if (!gone) refreshVocab() }, 300)
@@ -1766,8 +1742,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               onSaveWord={popup.kind === 'word' && langSaves ? () => { void saveWord(popup) } : undefined}
               wordSaved={popup.kind === 'word' && savedKeys.has(vocabMapKey(popup.word))}
               onRemove={popup.kind === 'word' && savedKeys.has(vocabMapKey(popup.word)) ? () => { removeWord(popup, savedKeys.get(vocabMapKey(popup.word))!) } : undefined}
-              lookup={lookup?.popup === popup ? lookup : null}
-              onAddAnyway={() => { void addAnyway() }}
               bottomOffset={barsVisible ? footerHeight : insets.bottom}
               onClose={closePopup}
               onCopy={closePopup}

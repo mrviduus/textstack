@@ -1,5 +1,5 @@
 import { Platform } from 'react-native'
-import { API_URL, APP_HEADERS, freshAccessToken } from './api'
+import { APP_HEADERS, freshAccessToken } from './api'
 import { bookFileName } from './bookFileName'
 import { getCachedOriginalUri } from './originalFileCache'
 import type { OriginalFormat } from './originalFilePolicy'
@@ -79,7 +79,7 @@ export async function shareOriginalFile(
     }
   } else {
     // The legacy route, or V2's content route; '' = a V2 book whose file is not known yet.
-    const url = userBooksApi.getUserBookFileUrl(bookId, API_URL)
+    const url = userBooksApi.getUserBookFileUrl(bookId)
     if (!url) return { status: 'failed' }
     const token = await freshAccessToken()
     if (!token) return { status: 'unauthorized' }

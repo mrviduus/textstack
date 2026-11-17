@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { sweepTtsCache } from '../src/lib/deviceStorage'
 import { AppState, View } from 'react-native'
 import { Stack, useRouter, usePathname } from 'expo-router'
@@ -19,10 +19,6 @@ import { AutoUpdater } from '../src/components/AutoUpdater'
 import { UpdateBanner } from '../src/components/UpdateBanner'
 import { ForceUpdateGate } from '../src/components/ForceUpdateGate'
 import { useAppFonts } from '../src/theme/fonts'
-import { v2Hydrated } from '../src/lib/v2'
-
-/** The longest the launch waits on the V2 switch's stored answer (a local read; normally a few ms). */
-const V2_HYDRATE_MS = 1000
 
 SplashScreen.preventAutoHideAsync()
 
@@ -44,7 +40,7 @@ const COLD_RESET_THRESHOLD_MS = 30 * 60 * 1000
 // days. Resetting only transient navigation (library/discover/stats/etc.)
 // matches the "remember where I was reading, forget where I was browsing"
 // mental model that drove the original "random screens" complaint.
-const PROTECTED_ROUTE_PREFIXES = ['/reader/', '/my-books/read/']
+const PROTECTED_ROUTE_PREFIXES = ['/my-books/read/']
 
 /**
  * Background-on-resume navigation reset, isolated in its own component so
@@ -138,24 +134,16 @@ function AppContent() {
           {/* Not a modal and not dismissible by gesture: it is a step, and the
               value it collects is the one the reader cannot use the app without. */}
           <Stack.Screen name="onboarding/language" options={{ animation: 'fade', gestureEnabled: false }} />
-          <Stack.Screen name="book/[slug]" />
-          <Stack.Screen name="reader/[bookSlug]/[chapterSlug]" options={{ animation: 'slide_from_bottom' }} />
           <Stack.Screen name="vocabulary/review" />
-          <Stack.Screen name="stats/index" />
-          <Stack.Screen name="author/[slug]" />
-          <Stack.Screen name="genre/[slug]" />
           <Stack.Screen name="my-books/upload" options={{ presentation: 'modal' }} />
           <Stack.Screen name="my-books/[id]" />
           <Stack.Screen name="my-books/read/[bookId]/[chapterSlug]" options={{ animation: 'slide_from_bottom' }} />
           <Stack.Screen name="highlights/index" />
-          <Stack.Screen name="highlights/review" />
           <Stack.Screen name="about" />
           <Stack.Screen name="privacy" />
           <Stack.Screen name="terms" />
           <Stack.Screen name="contact" />
-        <Stack.Screen name="connect" />
-          <Stack.Screen name="books" />
-          <Stack.Screen name="authors" />
+          <Stack.Screen name="connect" />
         </Stack>
       </View>
       {/* After the navigator so the overlay paints above every screen. */}
@@ -168,12 +156,6 @@ function AppContent() {
 
 function RootLayout() {
   const [fontsLoaded, fontError] = useAppFonts()
-  // The V2 switch's stored answer (lib/v2, M5 #1031) before the first route: the reader route reads it at mount.
-  // A device read, bounded: a hung storage never holds the launch (the switch then starts off).
-  const [v2Ready, setV2Ready] = useState(false)
-  useEffect(() => {
-    void Promise.race([v2Hydrated, new Promise((r) => setTimeout(r, V2_HYDRATE_MS))]).then(() => setV2Ready(true))
-  }, [])
 
   useEffect(() => {
     if (__DEV__) {
@@ -191,7 +173,7 @@ function RootLayout() {
   }, [])
 
   useEffect(() => {
-    if ((fontsLoaded || fontError) && v2Ready) {
+    if (fontsLoaded || fontError) {
       if (__DEV__) {
         console.log('[TextStack] Hiding splash, fontsLoaded:', fontsLoaded, 'fontError:', fontError)
       }
@@ -199,9 +181,9 @@ function RootLayout() {
       // or if already hidden — swallow with a warn rather than crashing the UI.
       SplashScreen.hideAsync().catch(e => console.warn('Splash hide failed:', e))
     }
-  }, [fontsLoaded, fontError, v2Ready])
+  }, [fontsLoaded, fontError])
 
-  if ((!fontsLoaded && !fontError) || !v2Ready) return null
+  if (!fontsLoaded && !fontError) return null
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

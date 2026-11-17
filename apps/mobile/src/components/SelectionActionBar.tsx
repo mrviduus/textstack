@@ -8,7 +8,6 @@ import { useLanguage } from '../context/LanguageContext'
 import { useTargetLanguage } from '../hooks/useTargetLanguage'
 import { useNeedsNativeLanguage } from '../hooks/useNeedsNativeLanguage'
 import { fonts } from '../theme/typography'
-import { RareWordNotice } from './reader/RareWordNotice'
 import { savedTranslationOffer } from '@textstack/shared'
 import { fill } from '../lib/fill'
 
@@ -50,7 +49,6 @@ interface SelectionActionBarProps {
   /** Last color the user picked — used as the single highlight button's
    *  fill. Tapping commits this color; change via HighlightNoteModal after. */
   highlightColor?: HighlightColorKey
-  onMarkKnown?: () => void
   /** Remove the word from vocabulary — lets the user undo an accidental save. */
   onRemove?: () => void
   /** Selection is past the 500-character ceiling the speech and translation
@@ -74,10 +72,6 @@ interface SelectionActionBarProps {
   onClose?: () => void
   /** After Copy (the V2 reader ends the selection, as the web toolbar does). */
   onCopy?: () => void
-  /** Set when the save came back `lookup`/`lookup_pending` (rare word): the
-   *  bar shows RareWordNotice with "Add to SRS anyway". Web: WordPopup lookupInfo. */
-  lookup?: { kind: 'lookup' | 'lookup_pending'; tapsRemaining: number | null; busy: boolean } | null
-  onAddAnyway?: () => void
   /** TR-3: the tapped word's saved translation — offered for replacement when the gloss differs. */
   savedTranslation?: string
   onUseTranslation?: (translation: string) => void
@@ -108,7 +102,6 @@ export function SelectionActionBar({
   onSaveWord,
   onHighlight,
   highlightColor = 'yellow',
-  onMarkKnown,
   onRemove,
   tooLong,
   isSpeaking,
@@ -119,8 +112,6 @@ export function SelectionActionBar({
   bottomOffset = 0,
   onClose,
   onCopy,
-  lookup,
-  onAddAnyway,
   savedTranslation,
   onUseTranslation,
 }: SelectionActionBarProps) {
@@ -200,15 +191,6 @@ export function SelectionActionBar({
         },
       ]}
     >
-      {lookup && onAddAnyway && (
-        <RareWordNotice
-          kind={lookup.kind}
-          tapsRemaining={lookup.tapsRemaining}
-          busy={lookup.busy}
-          onAddAnyway={onAddAnyway}
-        />
-      )}
-
       {/* Where the gloss would be, when we do not yet know what to gloss into.
           Opens the same sheet the Translate button does — which asks. */}
       {!isMultiWord && isSameLang && needsLanguage && (
@@ -367,17 +349,6 @@ export function SelectionActionBar({
                 <Text style={[styles.stageBadgeText, { color: stage.color }]}>{stageLabel}</Text>
               </View>
             )}
-            {isAuthenticated && stage && vocabStage !== 4 && onMarkKnown && (
-              <TouchableOpacity
-                style={styles.btn}
-                onPress={onMarkKnown}
-                accessibilityRole="button"
-                accessibilityLabel={t('reader.actionBar.markKnown')}
-              >
-                <Ionicons name="checkmark-done" size={19} color="#22c55e" />
-                <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>{t('reader.actionBar.known')}</Text>
-              </TouchableOpacity>
-            )}
             {/* Transient ✓ right after a save lands (before the stage badge
                 takes over on next render). */}
             {isAuthenticated && !stage && wordSaved && (
@@ -388,9 +359,7 @@ export function SelectionActionBar({
             {/* Manual save — tap = look, this commits. Tint is a frequency
                 RECOMMENDATION (learnable/rare = accent, common = muted), never
                 a gate: any word can still be saved. */}
-            {/* Hidden while the rare-word notice shows (web WordPopup parity) — a
-                second tap would just re-send the save. */}
-            {!stage && !wordSaved && !lookup && onSaveWord && (
+            {!stage && !wordSaved && onSaveWord && (
               <TouchableOpacity
                 style={styles.btn}
                 onPress={onSaveWord}

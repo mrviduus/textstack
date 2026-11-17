@@ -68,16 +68,6 @@ export function deletedStillOnDevice(
 export type CopySource = 'v2' | 'legacy' | 'unknown'
 
 /**
- * The store a library listing came from. `userBooksApi.getUserBooks` is V2 or legacy by the probe;
- * `v2Before` is the probe answer that call used, `v2After` the one after it returned. `null` when it
- * moved in between: the source is then unknown and nothing may be marked from it.
- */
-export function listingSource(v2Before: boolean, v2After: boolean): 'v2' | 'legacy' | null {
-  if (v2Before !== v2After) return null
-  return v2Before ? 'v2' : 'legacy'
-}
-
-/**
  * Local copies a successful listing says are gone, to mark (#1193). Only copies from the store the
  * listing came from: a legacy listing (probe off or unreached) lacks every V2-only book, and a V2
  * listing may lack legacy ones, so either would mark live books. An original with no rows has no

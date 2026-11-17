@@ -3,8 +3,7 @@ import { View, Text, SectionList, StyleSheet, TouchableOpacity, TextInput, Activ
 import { useRouter, Stack } from 'expo-router'
 import { Image } from 'expo-image'
 import { Ionicons } from '@expo/vector-icons'
-import { highlightsApi, getStorageUrl, isOfflineError, v2Offers } from '@textstack/shared'
-import { useV2 } from '../../src/context/AuthContext'
+import { highlightsApi, getStorageUrl, isOfflineError } from '@textstack/shared'
 import type { HighlightListItem } from '@textstack/shared'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
@@ -34,14 +33,6 @@ const COLOR_FILTERS = [
   { key: 'blue', label: 'Blue' },
 ] as const
 
-type BookType = 'all' | 'edition' | 'userbook'
-
-const BOOK_TYPE_TABS: { key: BookType; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'edition', label: 'Library' },
-  { key: 'userbook', label: 'Uploads' },
-]
-
 interface BookSection {
   title: string
   count: number
@@ -51,7 +42,6 @@ interface BookSection {
 
 export default function HighlightsScreen() {
   const router = useRouter()
-  const reviewOffered = v2Offers(useV2(), 'highlightReview')
   const { colors } = useTheme()
   const { t } = useLanguage()
   const [highlights, setHighlights] = useState<HighlightListItem[]>([])
@@ -62,7 +52,6 @@ export default function HighlightsScreen() {
   const reconnects = useReconnectCount()
   const [sort, setSort] = useState<'newest' | 'oldest'>('newest')
   const [colorFilter, setColorFilter] = useState('')
-  const [bookType, setBookType] = useState<BookType>('all')
   const [search, setSearch] = useState('')
   const [searchDebounced, setSearchDebounced] = useState('')
   const [collapsedBooks, setCollapsedBooks] = useState<Set<string>>(new Set())
@@ -90,7 +79,6 @@ export default function HighlightsScreen() {
         offset,
         color: colorFilter || undefined,
         search: searchDebounced || undefined,
-        bookType: bookType === 'all' ? undefined : bookType,
       })
       if (gen !== genRef.current) return
       if (offset === 0) {
@@ -112,7 +100,7 @@ export default function HighlightsScreen() {
       if (offset > 0) loadingMoreRef.current = false
       if (gen === genRef.current) setLoading(false)
     }
-  }, [sort, colorFilter, searchDebounced, bookType])
+  }, [sort, colorFilter, searchDebounced])
 
   // reconnects + attempt: recover when the network returns, and when asked.
   useEffect(() => { setLoading(true); fetchHighlights() }, [fetchHighlights, reconnects, attempt])
@@ -150,17 +138,12 @@ export default function HighlightsScreen() {
     const chapterTitle = item.chapterTitle || item.userChapterTitle || ''
 
     const handlePress = () => {
-      if (item.editionId && item.editionSlug && item.chapterSlug) {
-        router.push(`/reader/${item.editionSlug}/${item.chapterSlug}?highlight=${item.id}`)
-      } else if (item.userBookId && item.userChapterSlug) {
+      if (item.userBookId && item.userChapterSlug) {
         router.push(`/my-books/read/${item.userBookId}/${item.userChapterSlug}?highlight=${item.id}`)
       }
     }
 
-    const isNavigable = !!(
-      (item.editionId && item.editionSlug && item.chapterSlug) ||
-      (item.userBookId && item.userChapterSlug)
-    )
+    const isNavigable = !!(item.userBookId && item.userChapterSlug)
 
     return (
       <TouchableOpacity
@@ -226,18 +209,6 @@ export default function HighlightsScreen() {
         headerTintColor: colors.text,
         headerTitleStyle: { fontFamily: fonts.sansMedium, fontSize: 16 },
         headerShadowVisible: false,
-        // M5 (#1031): no highlight review on V2.
-        headerRight: !reviewOffered ? undefined : () => (
-          <TouchableOpacity
-            onPress={() => router.push('/highlights/review')}
-            style={{ marginRight: 8 }}
-            accessibilityRole="button"
-            // A lightning bolt promised a drill. The screen behind it turns pages.
-            accessibilityLabel="Revisit highlights one at a time"
-          >
-            <Ionicons name="albums-outline" size={22} color={colors.primary} />
-          </TouchableOpacity>
-        ),
       }} />
       <View style={{ backgroundColor: colors.background, flex: 1 }}>
         {/* Search */}
@@ -254,21 +225,6 @@ export default function HighlightsScreen() {
         </View>
 
         {V2DeviceHighlights && <V2DeviceHighlights />}
-
-        {/* Book type tabs */}
-        <View style={styles.typeTabs}>
-          {BOOK_TYPE_TABS.map(t => (
-            <TouchableOpacity
-              key={t.key}
-              onPress={() => setBookType(t.key)}
-              style={[styles.typeTab, bookType === t.key && { backgroundColor: colors.primary }]}
-            >
-              <Text style={{ fontFamily: fonts.sansMedium, fontSize: 12, color: bookType === t.key ? '#fff' : colors.textSecondary }}>
-                {t.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
 
         {/* Filters: sort + color */}
         <View style={styles.filterRow}>
@@ -337,8 +293,6 @@ export default function HighlightsScreen() {
 const styles = StyleSheet.create({
   searchRow: { paddingHorizontal: 16, paddingTop: 12 },
   searchInput: { height: 38, borderRadius: 8, borderWidth: 1, paddingHorizontal: 12, fontSize: 14 },
-  typeTabs: { flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingTop: 10 },
-  typeTab: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
   filterRow: { flexDirection: 'row', gap: 5, paddingHorizontal: 16, paddingVertical: 8, alignItems: 'center', flexWrap: 'wrap' },
   sortChip: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
   sortText: { fontFamily: fonts.sansMedium, fontSize: 11 },

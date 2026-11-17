@@ -12,19 +12,12 @@ import { test, expect } from '@playwright/test'
  */
 test.describe('Navigation', () => {
   test('/ redirects rather than rendering a screen of its own', async ({ page }) => {
-    // Home was deleted in #453 — `app/(tabs)/index.tsx` is now an auth-aware
-    // redirect: Library when signed in, Discover otherwise. These specs run
-    // signed out. `ColdResetOnResume` and `+not-found` both navigate here, so
-    // the redirect existing is load-bearing.
+    // Home was deleted in #453 — `app/(tabs)/index.tsx` is a redirect to the
+    // Library (the catalog's Discover retired at M6). `ColdResetOnResume` and
+    // `+not-found` both navigate here, so the redirect existing is load-bearing.
     await page.goto('/')
     await page.waitForLoadState('networkidle')
-    await expect(page).toHaveURL(/\/(search|library)/)
-  })
-
-  test('Discover renders its search field', async ({ page }) => {
-    await page.goto('/search')
-    await page.waitForLoadState('networkidle')
-    await expect(page.locator('input[placeholder*="Search" i]').first()).toBeVisible({ timeout: 15000 })
+    await expect(page).toHaveURL(/\/library/)
   })
 
   test('Library signed out offers a way in', async ({ page }) => {

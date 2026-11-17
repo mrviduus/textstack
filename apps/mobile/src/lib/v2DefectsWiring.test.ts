@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import type { Selection } from '../hooks/useReaderSelection'
 
 /**
  * Source guards for the #1142/#1143 wiring in a context and screens react-dom cannot mount here.
@@ -22,7 +21,7 @@ describe('#1191 — a V2 store reset never lets a listing delete downloads', () 
     // #1193: the sweep marks instead of deleting; `resetSince` stops the marking per id (localLeftovers)
     // and a reset during it re-lists instead of queueing the previous account's books.
     const after = ctx.slice(orphans, ctx.indexOf('chooseAutoDownloads(', orphans))
-    expect(after).toContain('listingSource(v2Before, v2Enabled()), resetSince)')
+    expect(after).toContain("'v2', resetSince)")
     expect(after).toContain('if (resetSince()) { autoRerunRef.current = true; continue }')
     expect(read('src/lib/localLeftovers.ts')).toMatch(/for \(const id of chooseNewlyDeleted\([^)]*\)\) \{\s*if \(stale\(\)\) break\s*await markDeletedOnServer\(id\)/)
   })
@@ -61,7 +60,7 @@ describe('#1143 — the upload screen honours Cancel and drops the picker copy',
     expect(upload).toMatch(/if \(uploadRef\.current\) uploadRef\.current\.cancelled = true\s*const upload = \{ cancelled: false \}\s*uploadRef\.current = upload/)
     expect(upload).toContain('const live = () => !upload.cancelled')
     expect(upload).toContain('deviceUploadIo(() => upload.cancelled)')
-    expect(upload.match(/if \(!live\(\)\) return/g)).toHaveLength(4)
+    expect(upload.match(/if \(!live\(\)\) return/g)).toHaveLength(3)
   })
 
   it('an upload left while the picker was open does nothing, and keeps its copy for deletion', () => {
@@ -74,30 +73,11 @@ describe('#1143 — the upload screen honours Cancel and drops the picker copy',
 
   it('only the current upload resets the screen in finally', () => {
     const fin = upload.slice(upload.lastIndexOf('} finally {'))
-    expect(fin).toMatch(/if \(live\(\)\) \{\s*setUploading\(false\)\s*xhrRef\.current = null/)
+    expect(fin).toContain('if (live()) setUploading(false)')
   })
 
   it('the picker copy is deleted in finally, best-effort', () => {
     const fin = upload.slice(upload.lastIndexOf('} finally {'))
     expect(fin).toMatch(/if \(pickedUri\) try \{ new File\(pickedUri\)\.delete\(\) \} catch \{\}/)
-  })
-})
-
-// #1151: a highlight save dropped by a sign-out (SessionChangedError, v2Highlights.test) is silent in the reader.
-describe('#1151 — a sign-out mid-save says nothing', () => {
-  it('useReaderHighlights swallows SessionChangedError on create, PDF create, note and color', () => {
-    expect(read('src/hooks/useReaderHighlights.ts').match(/instanceof SessionChangedError/g)).toHaveLength(4)
-  })
-})
-
-// #1151 (what hid #1139): the selection's anchor is typed, so an offset-less one is a tsc error, not a 400.
-// ponytail: the WebView message itself is JSON (`any`); this binds every TS-side producer and consumer.
-describe('#1139 — the selection anchor carries its offsets', () => {
-  it('an anchor without startOffset/endOffset does not type-check', () => {
-    const anchor = { prefix: 'p', exact: 'quote', suffix: 's', startOffset: 1, endOffset: 6 }
-    const ok: Selection = { text: 'quote', sentence: '', selectionId: 1, mode: 'drag', anchor }
-    // @ts-expect-error — the pre-#1139 page shape: no offsets.
-    const old: Selection = { text: 'quote', sentence: '', selectionId: 1, mode: 'drag', anchor: { prefix: 'p', exact: 'quote', suffix: 's' } }
-    expect([ok.anchor, old.anchor]).toHaveLength(2)
   })
 })

@@ -2,8 +2,6 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View 
 import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../../context/ThemeContext'
 import { fonts } from '../../theme/typography'
-import type { VocabularyStatsDto } from '@textstack/shared'
-import { WeeklyBudgetBar } from './WeeklyBudgetBar'
 
 /**
  * Every control that shapes the word list, behind one entry.
@@ -21,19 +19,11 @@ import { WeeklyBudgetBar } from './WeeklyBudgetBar'
  * grabber, the Done affordance and the checkmark on the active row.
  */
 
-export type ReviewModeKey = 'blitz' | 'classic'
-
 interface Props {
   visible: boolean
-  reviewMode: ReviewModeKey
   sort: string
   sortOptions: readonly { key: string; label: string }[]
-  stats: VocabularyStatsDto | null
-  /** Absent: one review style only (V2 is flashcards, V2_FEATURES). */
-  onSelectReviewMode?: (next: ReviewModeKey) => void
   onSelectSort: (next: string) => void
-  /** Absent: no vocabulary settings (V2, M5 #1031). */
-  onOpenSettings?: () => void
   onClose: () => void
 }
 
@@ -74,8 +64,7 @@ function Row({
 }
 
 export function VocabViewSheet({
-  visible, reviewMode, sort, sortOptions, stats,
-  onSelectReviewMode, onSelectSort, onOpenSettings, onClose,
+  visible, sort, sortOptions, onSelectSort, onClose,
 }: Props) {
   const { colors } = useTheme()
 
@@ -92,27 +81,6 @@ export function VocabViewSheet({
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
-          {onSelectReviewMode && <>
-          <SectionHeading>Review style</SectionHeading>
-          {/* The old segment showed two icons and two words in a filled bar with
-              no heading, which QA read as "an unnamed orange strip". Naming what
-              it chooses between costs one line. */}
-          <Row
-            icon="flash"
-            label="Blitz"
-            hint="Multiple choice, fast"
-            active={reviewMode === 'blitz'}
-            onPress={() => onSelectReviewMode('blitz')}
-          />
-          <Row
-            icon="layers"
-            label="Flashcards"
-            hint="Recall, then grade yourself"
-            active={reviewMode === 'classic'}
-            onPress={() => onSelectReviewMode('classic')}
-          />
-          </>}
-
           <SectionHeading>Sort</SectionHeading>
           {sortOptions.map(s => (
             <Row
@@ -123,24 +91,6 @@ export function VocabViewSheet({
               onPress={() => onSelectSort(s.key)}
             />
           ))}
-
-          {stats?.weeklyProgress && (
-            <>
-              <SectionHeading>This week</SectionHeading>
-              <View style={styles.budgetWrap}>
-                <WeeklyBudgetBar progress={stats.weeklyProgress} />
-              </View>
-            </>
-          )}
-
-          {onOpenSettings && <>
-            <SectionHeading>Settings</SectionHeading>
-            <Row
-              icon="settings-outline"
-              label="Daily cap and reminders"
-              onPress={() => { onClose(); onOpenSettings() }}
-            />
-          </>}
         </ScrollView>
       </View>
     </Modal>
@@ -166,5 +116,4 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 12, borderRadius: 8 },
   label: { fontFamily: fonts.sansMedium, fontSize: 15 },
   hint: { fontFamily: fonts.sans, fontSize: 12, marginTop: 1 },
-  budgetWrap: { paddingHorizontal: 4 },
 })

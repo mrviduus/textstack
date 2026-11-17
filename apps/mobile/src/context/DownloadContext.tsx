@@ -1,15 +1,8 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import { createBooksApi, plural } from '@textstack/shared'
+import { plural } from '@textstack/shared'
 import { userBooksApi } from '../lib/userBooksApi'
-import { API_URL } from '../lib/api'
-import type { BookDetail, UserBookDetailResponse } from '@textstack/shared'
+import type { UserBookDetailResponse } from '@textstack/shared'
 import {
-  cacheChapter,
-  setCachedBookMeta,
-  updateCachedChapterCount,
-  deleteCachedBook,
-  isBookFullyCached,
-  getAllCachedBooks,
   cacheUserChapter,
   getCachedUserChapter,
   setCachedUserBookMeta,
@@ -19,7 +12,6 @@ import {
   getAllCachedUserBooks,
   clearCachedUserBooks,
   onCachedUserBooksChanged,
-  type CachedBookMeta,
   type CachedUserBookMeta,
 } from '../lib/offlineDb'
 import { userBookChapterSlug } from '../lib/userBookChapters'
@@ -28,26 +20,15 @@ import { chooseAutoDownloads, mayAutoDownload } from '../lib/autoDownloadPolicy'
 import { offlineStorageBytes } from '../lib/deviceStorage'
 import { listStoredOriginalIds } from '../lib/originalFileCache'
 import { declineDownload, forgetDeclinedDownloads, listDeclinedDownloads, undeclineDownload } from '../lib/declinedDownloads'
-import { clearDeletedOnServer, forgetDeletedOnServer, listingSource } from '../lib/deletedOnServer'
+import { clearDeletedOnServer, forgetDeletedOnServer } from '../lib/deletedOnServer'
 import { markUnlistedLeftovers } from '../lib/localLeftovers'
-import { onV2, v2Enabled, v2Epoch } from '../lib/v2'
+import { v2Epoch } from '../lib/v2'
 import { AppState } from 'react-native'
 import NetInfo from '@react-native-community/netinfo'
 import { CACHE_BUDGET_BYTES, isOutOfSpaceError } from '../lib/originalFilePolicy'
 import { useAuth } from './AuthContext'
 
 export type DownloadStatus = 'idle' | 'downloading' | 'complete' | 'error' | 'cancelled'
-
-/**
- * Which library the download belongs to.
- *
- * The two are separate keyspaces and separate APIs — a catalog download is
- * keyed by `editionId` and fetched from `/books/{slug}/chapters/{slug}`, an
- * upload by its own id from `/me/books/{id}/chapters/{slug}` — but the state
- * machine over them (progress, cancel, retry-the-failed-ones) is identical, so
- * they share one map and one set of controls.
- */
-export type DownloadKind = 'edition' | 'userbook'
 
 /** A chapter to fetch: its slug, and its place in the book so the offline TOC
  *  can be ordered by something better than arrival time. */
@@ -59,11 +40,8 @@ export interface ChapterTask {
 }
 
 export interface DownloadInfo {
-  kind: DownloadKind
-  /** Edition id (catalog) or user-book id (upload). The key of `downloads`. */
+  /** The user-book id: the key of `downloads` (the catalog's edition downloads retired at M6). */
   editionId: string
-  /** Catalog route key. Empty for an upload, which routes on its id. */
-  bookSlug: string
   title: string
   language: string
   totalChapters: number
@@ -81,20 +59,16 @@ export interface DownloadInfo {
 
 interface DownloadContextValue {
   downloads: Map<string, DownloadInfo>
-  cachedBooks: CachedBookMeta[]
   cachedUserBooks: CachedUserBookMeta[]
-  startDownload: (book: BookDetail, language: string) => Promise<void>
   /** Cache every extracted chapter of an upload for offline reading. */
   startUserBookDownload: (book: UserBookDetailResponse) => Promise<void>
   retryFailed: (id: string) => Promise<void>
   cancelDownload: (id: string) => void
-  removeDownload: (editionId: string) => Promise<void>
   /** Throws if it could not remove. `decline: false` for a server-deleted book (#1193): nothing to decline. */
   removeUserBookDownload: (bookId: string, opts?: { decline?: boolean }) => Promise<void>
   /** Several at once, the cached lists refreshed once; continues past a failure. Resolves to how many failed. */
   removeUserBookDownloads: (bookIds: string[], opts?: { decline?: boolean }) => Promise<number>
   isDownloading: (id: string) => boolean
-  isCached: (editionId: string) => Promise<boolean>
   isUserBookCached: (bookId: string) => Promise<boolean>
   /** Fetch anything of the reader's own that is not on the device yet. */
   syncOfflineLibrary: () => Promise<void>
@@ -103,17 +77,13 @@ interface DownloadContextValue {
 
 const DownloadContext = createContext<DownloadContextValue>({
   downloads: new Map(),
-  cachedBooks: [],
   cachedUserBooks: [],
-  startDownload: async () => {},
   startUserBookDownload: async () => {},
   retryFailed: async () => {},
   cancelDownload: () => {},
-  removeDownload: async () => {},
   removeUserBookDownload: async () => {},
   removeUserBookDownloads: async () => 0,
   isDownloading: () => false,
-  isCached: async () => false,
   isUserBookCached: async () => false,
   syncOfflineLibrary: async () => {},
   refreshCachedBooks: async () => {},
@@ -125,7 +95,6 @@ export function useDownload() {
 
 export function DownloadProvider({ children }: { children: ReactNode }) {
   const [downloads, setDownloads] = useState<Map<string, DownloadInfo>>(new Map())
-  const [cachedBooks, setCachedBooks] = useState<CachedBookMeta[]>([])
   const [cachedUserBooks, setCachedUserBooks] = useState<CachedUserBookMeta[]>([])
   const cancelledRef = useRef<Set<string>>(new Set())
   /** Books whose ORIGINAL file failed while their chapters succeeded. Kept apart
@@ -140,10 +109,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   // terminal refresh failure emitted by the API layer), cancel every
   // in-flight download and drop the in-memory download/cached-books
   // state so the UI doesn't show stale entries from the previous
-  // session. The CATALOG disk cache is preserved — it's keyed by editionId and
-  // belongs to the device, not the user (R-5).
-  //
-  // Uploads are the exception and are wiped: an upload is one account's private
+  // session. The uploads are wiped: an upload is one account's private
   // file, so leaving its text on the device would hand it to whoever signs in
   // next. Fire-and-forget — a failed wipe must not block the sign-out.
   useEffect(() => {
@@ -163,7 +129,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       forgetDeclinedDownloads().catch(() => {})
       forgetDeletedOnServer().catch(() => {})
       setDownloads(new Map())
-      setCachedBooks([])
       setCachedUserBooks([])
     }
     wasAuthenticatedRef.current = isAuthenticated
@@ -174,9 +139,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated])
 
   const refreshCachedBooks = useCallback(async () => {
-    const [books, uploads] = await Promise.all([getAllCachedBooks(), getAllCachedUserBooks()])
-    setCachedBooks(books)
-    setCachedUserBooks(uploads)
+    setCachedUserBooks(await getAllCachedUserBooks())
   }, [])
 
   /**
@@ -233,9 +196,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
    * backoff (P1-5). Returns true on success, false if we gave up. Callers
    * aggregate success/failure to update the UI counters in one place.
    *
-   * One loop for both libraries: only the fetch-and-store step differs, and it
-   * is passed in. The retry budget, the cancellation checks and the backoff are
-   * the parts that were worth not writing twice.
    */
   const downloadChapter = useCallback(async (
     bookKey: string,
@@ -272,8 +232,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   }, [])
 
   /**
-   * The download loop itself, shared by both libraries and by both entry points
-   * (a fresh download and a retry of only what failed).
+   * The download loop itself, shared by both entry points (a fresh download and
+   * a retry of only what failed).
    *
    * `alreadyDone` is the count to continue from, so a retry's progress counter
    * keeps the chapters the first run cached instead of restarting at zero.
@@ -336,77 +296,20 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     await refreshCachedBooks()
   }, [downloadChapter, updateDownload, refreshCachedBooks])
 
-  /**
-   * The per-chapter fetch-and-store step for one book, and the counter write
-   * that follows it. Derived from the download's `kind` so that the loop, the
-   * retry path and the UI never have to branch on it again.
-   */
-  const storeFor = useCallback((info: Pick<DownloadInfo, 'kind' | 'editionId' | 'bookSlug' | 'language'>) => {
-    if (info.kind === 'userbook') {
-      return {
-        store: async (task: ChapterTask) => {
-          // Resume, rather than restart. The progress map is in memory only, so
-          // a download interrupted by the app being killed looks untouched when
-          // the reader comes back — while its chapters are still on disk. A
-          // 123-chapter book would re-fetch every one of them. (To force a
-          // refresh, Remove the download first: that clears the rows.)
-          if (await getCachedUserChapter(info.editionId, task.slug)) return
-          const chapter = await userBooksApi.getUserBookChapter(info.editionId, task.slug)
-          await cacheUserChapter(info.editionId, { ...chapter, sourceStartPage: chapter.sourceStartPage ?? task.sourceStartPage ?? null }, task.number)
-        },
-        saveCount: (n: number) => updateCachedUserChapterCount(info.editionId, n),
-      }
-    }
-    const api = createBooksApi(info.language)
-    return {
-      store: async (task: ChapterTask) => {
-        const chapter = await api.getChapter(info.bookSlug, task.slug)
-        await cacheChapter(info.editionId, chapter)
-      },
-      saveCount: (n: number) => updateCachedChapterCount(info.editionId, n),
-    }
-  }, [])
-
-  const startDownload = useCallback(async (book: BookDetail, language: string) => {
-    const editionId = book.id
-    cancelledRef.current.delete(editionId)
-
-    const info: DownloadInfo = {
-      kind: 'edition',
-      editionId,
-      bookSlug: book.slug,
-      title: book.title,
-      language,
-      totalChapters: book.chapters.length,
-      downloadedChapters: 0,
-      failedChapters: 0,
-      failedChapterSlugs: [],
-      status: 'downloading',
-    }
-
-    setDownloads(prev => new Map(prev).set(editionId, info))
-
-    // Save book meta
-    await setCachedBookMeta({
-      editionId,
-      slug: book.slug,
-      title: book.title,
-      coverPath: book.coverPath,
-      totalChapters: book.chapters.length,
-      cachedChapters: 0,
-      cachedAt: Date.now(),
-    })
-
-    const { store, saveCount } = storeFor(info)
-    await runDownload(
-      editionId,
-      book.chapters.map(ch => ({ slug: ch.slug, number: ch.chapterNumber })),
-      0,
-      store,
-      saveCount,
-      n => `${plural(n, 'chapter', 'chapters')} failed. Tap Retry to finish the download.`,
-    )
-  }, [storeFor, runDownload])
+  /** The per-chapter fetch-and-store step for one book, and the counter write that follows it. */
+  const storeFor = useCallback((info: Pick<DownloadInfo, 'editionId'>) => ({
+    store: async (task: ChapterTask) => {
+      // Resume, rather than restart. The progress map is in memory only, so
+      // a download interrupted by the app being killed looks untouched when
+      // the reader comes back — while its chapters are still on disk. A
+      // 123-chapter book would re-fetch every one of them. (To force a
+      // refresh, Remove the download first: that clears the rows.)
+      if (await getCachedUserChapter(info.editionId, task.slug)) return
+      const chapter = await userBooksApi.getUserBookChapter(info.editionId, task.slug)
+      await cacheUserChapter(info.editionId, { ...chapter, sourceStartPage: chapter.sourceStartPage ?? task.sourceStartPage ?? null }, task.number)
+    },
+    saveCount: (n: number) => updateCachedUserChapterCount(info.editionId, n),
+  }), [])
 
   /**
    * Cache an upload for offline reading: its chapters AND, for a PDF, the
@@ -442,9 +345,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     }))
 
     const info: DownloadInfo = {
-      kind: 'userbook',
       editionId: bookId,
-      bookSlug: '',
       title: book.title,
       language: book.language,
       totalChapters: tasks.length,
@@ -478,7 +379,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     // (They now join rather than race — `downloadOriginal` is single-flighted —
     // but a button that lies about what it is doing is the actual defect.)
     if (book.hasOriginalPdf === true && !cancelledRef.current.has(bookId)) {
-      const outcome = await downloadOriginal(bookId, 'pdf', userBooksApi.getUserBookFileUrl(bookId, API_URL))
+      const outcome = await downloadOriginal(bookId, 'pdf', userBooksApi.getUserBookFileUrl(bookId))
       if (outcome.status !== 'downloaded') {
         // Not swallowed. The screen has already promised that this book will
         // look the same offline, and the chapters alone will finish and render
@@ -545,7 +446,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     // The file first, same reasoning as the initial download: while it is in
     // flight the status must not read as finished.
     if (originalFailed) {
-      const outcome = await downloadOriginal(id, 'pdf', userBooksApi.getUserBookFileUrl(id, API_URL))
+      const outcome = await downloadOriginal(id, 'pdf', userBooksApi.getUserBookFileUrl(id))
       if (outcome.status === 'downloaded') {
         originalFailedRef.current.delete(id)
       } else if (toRetry.length === 0) {
@@ -584,13 +485,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const removeDownload = useCallback(async (editionId: string) => {
-    cancelledRef.current.add(editionId)
-    await deleteCachedBook(editionId)
-    forgetDownload(editionId)
-    await refreshCachedBooks()
-  }, [forgetDownload, refreshCachedBooks])
-
   const removeUserBookDownloads = useCallback(async (bookIds: string[], { decline = true }: { decline?: boolean } = {}) => {
     let failed = 0
     for (const bookId of bookIds) {
@@ -626,10 +520,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const isDownloading = useCallback((id: string) => {
     return downloads.get(id)?.status === 'downloading'
   }, [downloads])
-
-  const isCached = useCallback(async (editionId: string) => {
-    return isBookFullyCached(editionId)
-  }, [])
 
   const isUserBookCached = useCallback(async (bookId: string) => {
     return isUserBookFullyCached(bookId)
@@ -744,8 +634,6 @@ const PROCESSING_RECHECK_LIMIT = 25
             getAllCachedUserBooks(),
             listStoredOriginalIds(),
             listDeclinedDownloads(),
-            // The probe answer `getUserBooks` used (same probe promise): which store listed (#1193).
-            onV2(),
           ])
         } catch (err) {
           if (!resetSince()) throw err
@@ -755,7 +643,7 @@ const PROCESSING_RECHECK_LIMIT = 25
           autoRerunRef.current = true
           continue
         }
-        const [books, metas, storedOriginals, declined, v2Before] = listed
+        const [books, metas, storedOriginals, declined] = listed
         // "Cached" has to mean the whole book. Chapters alone satisfied it
         // before, so a PDF whose original had failed or been evicted counted as
         // done — and offline it would open as text with the figures stripped,
@@ -775,7 +663,7 @@ const PROCESSING_RECHECK_LIMIT = 25
         // for the download in flight, which must stop writing. Only newly marked
         // ids, so a kept deleted book costs nothing on later sweeps. Not in
         // `books`, so `chooseAutoDownloads` never re-queues one.
-        const gone = await markUnlistedLeftovers(new Set(books.map(b => b.id)), listingSource(v2Before, v2Enabled()), resetSince)
+        const gone = await markUnlistedLeftovers(new Set(books.map(b => b.id)), 'v2', resetSince)
         for (const id of gone) {
           cancelledRef.current.add(id)
           forgetDownload(id)
@@ -901,17 +789,13 @@ const PROCESSING_RECHECK_LIMIT = 25
     <DownloadContext.Provider
       value={{
         downloads,
-        cachedBooks,
         cachedUserBooks,
-        startDownload,
         startUserBookDownload,
         retryFailed,
         cancelDownload,
-        removeDownload,
         removeUserBookDownload,
         removeUserBookDownloads,
         isDownloading,
-        isCached,
         isUserBookCached,
         syncOfflineLibrary,
         refreshCachedBooks,

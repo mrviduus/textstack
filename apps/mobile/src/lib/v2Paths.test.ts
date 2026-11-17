@@ -1,6 +1,6 @@
 /**
- * The V2 paths end to end over a fake API (#1025 M2.7, from QA's probes): the one switch per API
- * with the flag off and on, the probe's retry rules, the reading-state write outcomes, and the
+ * The V2 paths end to end over a fake API (#1025 M2.7, from QA's probes): every API on V2, the
+ * probe's retry rules, the reading-state write outcomes, and the
  * upload's error paths.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -9,7 +9,6 @@ import { initApi, ApiError } from '@textstack/shared'
 import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, saveV2Progress, uploadV2Book, pullV2Books, getV2UserBook, V2UploadError, type UploadIo } from './v2'
 import { userBooksApi } from './userBooksApi'
 import { vocabularyApi } from './vocabularyApi'
-import { userBookHighlightsApi } from './v2Highlights'
 import { flushPendingSessions, enqueuePendingSession, clearPendingSessions } from './pendingSessions'
 import { setUserBookV2State, getUserBookV2State } from './progressStorage'
 
@@ -44,8 +43,8 @@ afterEach(() => vi.unstubAllGlobals())
 
 const session = { userBookId: 'b1', startedAt: '2026-11-01T00:00:00Z', endedAt: '2026-11-01T00:10:00Z', durationSeconds: 600, wordsRead: 100, startPercent: 0, endPercent: 0.1 }
 
-/** Every switched call once; failures (a fake `{}` body a mapper cannot read) are fine — only the routes matter. */
-async function everySwitchedCall() {
+/** Every call once; failures (a fake `{}` body a mapper cannot read) are fine — only the routes matter. */
+async function everyCall() {
   const swallow = (p: Promise<unknown>) => p.catch(() => {})
   await swallow(userBooksApi.getUserBooks())
   await swallow(userBooksApi.getUserBook('b1'))
@@ -54,7 +53,6 @@ async function everySwitchedCall() {
   await swallow(userBooksApi.updateUserBookProgress('b1', { chapterSlug: 'k1', percent: 0.1 } as never))
   await swallow(userBooksApi.markUserBookComplete('b1'))
   await swallow(userBooksApi.unmarkUserBookComplete('b1'))
-  await swallow(userBooksApi.getUserBookBookmarks('b1'))
   await swallow(userBooksApi.deleteUserBook('b1'))
   await swallow(vocabularyApi.saveWord({ word: 'quay', language: 'en', sentence: 'At the quay.', userBookId: 'b1', id: 'w1', operationId: 'o1' } as never))
   await swallow(vocabularyApi.getWords())
@@ -63,36 +61,23 @@ async function everySwitchedCall() {
   await swallow(vocabularyApi.deleteWord('w1'))
   await swallow(vocabularyApi.getReviewQueue(10, false))
   await swallow(vocabularyApi.submitReview({ wordId: 'w1', isCorrect: true, responseTimeMs: 900 }))
-  await swallow(userBookHighlightsApi.getUserBookHighlights('b1'))
-  await swallow(userBookHighlightsApi.createHighlight({ userBookId: 'b1', anchorJson: '{"exact":"x"}', color: 'yellow', selectedText: 'x' }))
-  await swallow(userBookHighlightsApi.deleteHighlight('h1'))
   await enqueuePendingSession(session)
   await swallow(flushPendingSessions())
 }
 
-describe('the switch', () => {
-  it('everySwitchedCall_StatusUnmapped404_NeverTouchesV2BeyondOneProbe', async () => {
-    const calls = fakeApi({ 'GET /me/v2/status': [{ status: 404 }] }, { status: 200, body: [] })
-    await everySwitchedCall()
-    expect(calls.filter((c) => c.path === '/me/v2/status')).toHaveLength(1)
-    expect(calls.filter((c) => c.path.startsWith('/me/v2/') && c.path !== '/me/v2/status').map((c) => `${c.method} ${c.path}`)).toEqual([])
-    expect(calls.length).toBeGreaterThan(15)
-    expect(userBooksApi.getUserBookFileUrl('b1', 'http://api')).not.toContain('/me/v2/')
-  })
-
-  it('everySwitchedCall_StatusOn_ReachesV2ForEachApi', async () => {
-    const calls = fakeApi({ 'GET /me/v2/status': [{ status: 200, body: { maxPartBytes: 1024 } }] }, { status: 200, body: { items: [], hasMore: false, cursor: null } })
-    await everySwitchedCall()
-    const v2 = calls.map((c) => `${c.method} ${c.path}`).filter((p) => p.includes('/me/v2/') && !p.endsWith('/status'))
-    for (const route of ['/me/v2/library/changes', '/me/v2/vocabulary/', '/me/v2/annotations']) {
+describe('the V2 client', () => {
+  it('everyCall_ReachesV2ForEachApi_NeverALegacyRoute', async () => {
+    const calls = fakeApi({}, { status: 200, body: { items: [], hasMore: false, cursor: null } })
+    await everyCall()
+    const v2 = calls.map((c) => `${c.method} ${c.path}`).filter((p) => p.includes('/me/v2/'))
+    for (const route of ['/me/v2/library/changes', '/me/v2/vocabulary/']) {
       expect(v2.some((p) => p.includes(route)), route).toBe(true)
     }
+    expect(calls.filter((c) => !c.path.startsWith('/me/v2/')).map((c) => `${c.method} ${c.path}`)).toEqual([])
   })
 
-  it('getUserBookFileUrl_V2OnFileUnknown_EmptyNeverLegacyRoute', async () => {
-    fakeApi({ 'GET /me/v2/status': [{ status: 200, body: { maxPartBytes: 5 } }] })
-    await startV2Probe()
-    expect(userBooksApi.getUserBookFileUrl('b-unknown', 'http://api')).toBe('')
+  it('getUserBookFileUrl_FileUnknown_EmptyNeverLegacyRoute', () => {
+    expect(userBooksApi.getUserBookFileUrl('b-unknown')).toBe('')
   })
 
   it('probe_401ThenSession_AsksAgain', async () => {

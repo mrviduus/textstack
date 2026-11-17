@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { initApi } from '@textstack/shared'
 import NetInfo from '@react-native-community/netinfo'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { resetV2ForTests, reloadLastV2AnswerForTests, forgetV2Answer, v2Enabled, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, switched, deviceUploadIo, v2Store, getV2UserBooks, v2Chapters, readV2Progress, type UploadIo } from './v2'
+import { resetV2ForTests, reloadLastV2AnswerForTests, forgetV2Answer, onV2, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, deviceUploadIo, v2Store, getV2UserBooks, v2Chapters, readV2Progress, type UploadIo } from './v2'
 import { vocabularyApi } from './vocabularyApi'
 import { getUserBookLocalProgress, setUserBookV2State, getUserBookV2State } from './progressStorage'
 import { fakeApi as fakeV2, conflict, state, feed, book, file, resetMidCall as midCall, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
@@ -44,23 +44,20 @@ describe('mobile v2', () => {
     expect(calls).toHaveLength(1)
   })
 
-  // M5 (#1031): one switch. An offline cold start keeps the last answer (stored, read before the first route); sign-out forgets it.
-  it.each([[200, true], [404, false]])('v2Enabled_LastStartAnswered%i_AnOfflineStartKeepsIt_SignOutForgetsIt (%s)', async (status, on) => {
+  // M5 (#1031): an offline cold start keeps the last answer (stored); sign-out forgets it.
+  it.each([[200, true], [404, false]])('probe_LastStartAnswered%i_AnOfflineStartKeepsIt_SignOutForgetsIt (%s)', async (status, on) => {
     fakeApi({ 'GET /status': [status === 200 ? { status, body: { maxPartBytes: 1024 } } : { status }] })
-    await startV2Probe()
-    expect(v2Enabled()).toBe(on)
+    expect((await startV2Probe()).enabled).toBe(on)
     resetV2ForTests() // the next app start
     await reloadLastV2AnswerForTests()
-    expect(v2Enabled()).toBe(on) // before any probe
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network request failed') }))
     expect((await startV2Probe()).enabled).toBe(on)
-    expect(v2Enabled()).toBe(on)
     forgetV2Answer()
-    expect(v2Enabled()).toBe(false)
     await vi.waitFor(async () => expect(await AsyncStorage.getItem('v2.lastStatus')).toBeNull())
     resetV2ForTests()
     await reloadLastV2AnswerForTests()
-    expect(v2Enabled()).toBe(false)
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network request failed') }))
+    expect((await startV2Probe()).enabled).toBe(false)
   })
 
   it('asks again on a reconnect when the probe never reached the server', async () => {
@@ -72,16 +69,15 @@ describe('mobile v2', () => {
   })
 
   // #1141: a screen's reconnect effect runs before AuthContext's re-probe; the NetInfo event already marked the offline answer stale.
-  it('switched after a reconnect asks the probe again instead of answering the offline one', async () => {
+  it('onV2 after a reconnect asks the probe again instead of answering the offline one', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network request failed') }))
     expect((await startV2Probe()).enabled).toBe(false)
     const calls = fakeApi({ 'GET /status': [{ status: 200, body: { maxPartBytes: 1024 } }] })
-    const call = switched(async () => 'v2', async () => 'legacy')
     ;(NetInfo as unknown as { __emit(s: object): void }).__emit({ isConnected: false, isInternetReachable: false })
-    expect(await call()).toBe('legacy') // still offline: no new probe
+    expect(await onV2()).toBe(false) // still offline: no new probe
     expect(calls).toHaveLength(0)
     ;(NetInfo as unknown as { __emit(s: object): void }).__emit({ isConnected: true, isInternetReachable: true })
-    expect(await call()).toBe('v2')
+    expect(await onV2()).toBe(true)
     expect(calls.map((c) => c.path)).toEqual(['/status'])
   })
 
@@ -274,14 +270,13 @@ describe('mobile v2', () => {
     net.__emit({ isConnected: true, isInternetReachable: true }) // stale: the next call asks again
     let fail!: () => void
     vi.stubGlobal('fetch', vi.fn(() => new Promise((_, reject) => { fail = () => reject(new TypeError('Network request failed')) })))
-    const call = switched(async () => 'v2', async () => 'legacy')
-    const inFlight = call()
+    const inFlight = onV2()
     await Promise.resolve()
     net.__emit({ isConnected: true, isInternetReachable: true }) // online again while that probe is in flight
     fail()
-    expect(await inFlight).toBe('legacy')
+    expect(await inFlight).toBe(false)
     fakeApi({ 'GET /status': [{ status: 200, body: { maxPartBytes: 1024 } }] })
-    expect(await call()).toBe('v2')
+    expect(await onV2()).toBe(true)
   })
 
   // #1143 review: a cancel during the re-hash after content_mismatch removes the book it imported.

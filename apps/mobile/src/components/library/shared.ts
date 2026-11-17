@@ -19,17 +19,6 @@ export const styles = StyleSheet.create({
   // else behind the options button on the right.
   controlRow: { flexDirection: 'row', alignItems: 'center' },
   viewBtn: { paddingHorizontal: 12, paddingVertical: 10 },
-  // Small, and on the control that opens the sheet — the reader needs to know a
-  // filter is on, not what it is; the sheet answers that.
-  filterDot: {
-    position: 'absolute',
-    top: 6,
-    right: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    borderWidth: 1.5,
-  },
   container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, gap: 8 },
   emptyTitle: { fontFamily: fonts.serifBold, fontSize: 22, marginTop: 8 },

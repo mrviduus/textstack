@@ -3,16 +3,11 @@ import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-na
 import { useRouter, Stack } from 'expo-router'
 import * as DocumentPicker from 'expo-document-picker'
 import { File } from 'expo-file-system'
-import { formatBytes } from '../../src/lib/formatBytes'
-import { getApiConfig } from '@textstack/shared'
-import { userBooksApi } from '../../src/lib/userBooksApi'
-import { v2Offers } from '@textstack/shared'
 import { colors } from '../../src/theme/colors'
-import { useAuth, useV2 } from '../../src/context/AuthContext'
+import { useAuth } from '../../src/context/AuthContext'
 import { useDownload } from '../../src/context/DownloadContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
 import { SessionGate } from '../../src/components/SessionGate'
-import { APP_HEADERS } from '../../src/lib/api'
 import { startV2Probe, uploadV2Book, deviceUploadIo } from '../../src/lib/v2'
 
 
@@ -33,15 +28,11 @@ function UploadScreen() {
   const { user } = useAuth()
   const { syncOfflineLibrary } = useDownload()
   const { canUpload } = capabilitiesFor(user)
-  // V2 (#1025): the quota line shows legacy's figure, not V2's (V2_FEATURES.storageQuota): hidden.
-  const showQuota = canUpload && v2Offers(useV2(), 'storageQuota')
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
-  const [quota, setQuota] = useState<{ usedBytes: number; limitBytes: number } | null>(null)
   const [ownsRights, setOwnsRights] = useState(false)
-  const xhrRef = useRef<XMLHttpRequest | null>(null)
   // The upload this screen is running, one token per pick (#1143): Cancel, unmount and the next pick
   // mark it, and a marked upload never navigates, moves the bar or resets the screen. V2 parts go
   // one by one through fetch: Cancel stops before the next part or hash chunk (no XHR to abort).
@@ -49,72 +40,17 @@ function UploadScreen() {
   // signal if that window matters.
   const uploadRef = useRef<{ cancelled: boolean } | null>(null)
 
-  useEffect(() => {
-    // A guest now gets this figure, and it is the truth: their `Guest` tier
-    // answer is 50 MB and they may spend it (ADR-014 §3, reversed 2026-09-06).
-    // The guard stays for the sessionless case, where `/me/books/quota` has no
-    // bearer token and would only 401 into the console.
-    if (!showQuota) return
-    userBooksApi.getStorageQuota()
-      .then(setQuota)
-      .catch(err => console.warn('getStorageQuota failed:', err))
-  }, [showQuota])
-
   // Abort any in-flight upload on unmount so the user doesn't silently
   // consume bandwidth after navigating away, and so a subsequent retry
   // doesn't race the abandoned request (P1-3).
   useEffect(() => {
     return () => {
       if (uploadRef.current) uploadRef.current.cancelled = true
-      if (xhrRef.current) {
-        try { xhrRef.current.abort() } catch {}
-        xhrRef.current = null
-      }
     }
   }, [])
 
-  /**
-   * The server's own message for a 400, when it sent one.
-   *
-   * Every refusal from `UserBookService` comes back as `400 { error: "…" }`, and
-   * until upload opened to guests they all meant the same thing in practice — a
-   * file the extractor would not take — because every non-guest tier has
-   * `MaxBooks: null`. The tier refusals are reachable now (ADR-014 §3a), and the
-   * one a guest actually hits reads *"Guest accounts can upload 1 book. Sign up
-   * for more."*: the correct copy AND the conversion prompt, thrown away by a
-   * status-only mapping that answered it with "This file looks invalid".
-   */
-  const serverErrorMessage = (body: string | undefined): string | null => {
-    if (!body) return null
-    try {
-      const parsed = JSON.parse(body)
-      const message = parsed?.error
-      // Length-bounded: a stack trace or an HTML error page is not copy.
-      return typeof message === 'string' && message.length > 0 && message.length <= 200
-        ? message
-        : null
-    } catch {
-      return null
-    }
-  }
-
-  /** Map HTTP status to user-visible copy so errors are actionable (P3-3). */
-  const uploadErrorMessage = (status: number, body?: string): string => {
-    if (status === 413) return 'File is too large. Try a smaller book.'
-    if (status === 415) return 'Unsupported file format. Use EPUB or PDF.'
-    if (status === 400) return serverErrorMessage(body) ?? 'This file looks invalid. Try another one.'
-    if (status === 401 || status === 403) return 'Sign in to upload books.'
-    if (status === 429) return 'Too many uploads. Take a breather and retry.'
-    if (status >= 500) return 'Server error. Try again in a bit.'
-    return `Upload failed (${status}).`
-  }
-
   const handleCancel = () => {
     if (uploadRef.current) uploadRef.current.cancelled = true
-    if (xhrRef.current) {
-      try { xhrRef.current.abort() } catch {}
-      xhrRef.current = null
-    }
     setUploading(false)
     setUploadProgress(0)
     setFileName(null)
@@ -153,63 +89,19 @@ function UploadScreen() {
       setUploading(true)
 
       // V2 (#1025): sha256 → by-sha256 → import → parts → complete. The same bytes already in the
-      // library open that book instead.
+      // library open that book instead. The part size is the status probe's answer: none, no upload.
       const v2 = await startV2Probe()
-      if (v2.enabled) {
-        const { bookId, existing } = await uploadV2Book(
-          file, v2.maxPartBytes, deviceUploadIo(() => upload.cancelled),
-          // A superseded upload's last part never moves the newer upload's bar.
-          p => { if (live()) setUploadProgress(p) })
-        if (!live()) return
-        if (existing) {
-          router.replace(`/my-books/${bookId}`)
-          return
-        }
-        void syncOfflineLibrary().catch(err => console.warn('[auto-download] post-upload sweep failed:', err))
-        router.back()
+      if (!v2.enabled) throw new Error('Network error — check your connection.')
+      const { bookId, existing } = await uploadV2Book(
+        file, v2.maxPartBytes, deviceUploadIo(() => upload.cancelled),
+        // A superseded upload's last part never moves the newer upload's bar.
+        p => { if (live()) setUploadProgress(p) })
+      if (!live()) return
+      if (existing) {
+        router.replace(`/my-books/${bookId}`)
         return
       }
 
-      const { baseUrl, getAccessToken } = getApiConfig()
-      const token = await getAccessToken()
-
-      const formData = new FormData()
-      formData.append('file', {
-        uri: file.uri,
-        name: file.name,
-        type: file.mimeType || 'application/octet-stream',
-      } as any)
-
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        xhrRef.current = xhr
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) setUploadProgress((e.loaded / e.total) * 100)
-        }
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve()
-          else {
-            const err = new Error(uploadErrorMessage(xhr.status, xhr.responseText)) as Error & { status?: number }
-            err.status = xhr.status
-            reject(err)
-          }
-        }
-        xhr.onerror = () => reject(new Error('Network error — check your connection.'))
-        // `onabort` fires when we call xhr.abort() (unmount / Cancel button).
-        // We surface a distinct error type so the finally-block and the UI
-        // can tell "user cancelled" apart from a real failure.
-        xhr.onabort = () => {
-          const err = new Error('Upload cancelled') as Error & { aborted?: boolean }
-          err.aborted = true
-          reject(err)
-        }
-        xhr.open('POST', `${baseUrl}/me/books/upload`)
-        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
-        for (const [k, v] of Object.entries(APP_HEADERS)) xhr.setRequestHeader(k, v)
-        xhr.send(formData)
-      })
-
-      if (!live()) return
       // The book the reader just added is the one they are most likely to open
       // next, so fetch it now rather than waiting for the next reconnect. Not
       // awaited: the screen closes immediately, the sweep runs behind it, and
@@ -228,18 +120,11 @@ function UploadScreen() {
       setError(e?.message || 'Upload failed')
     } finally {
       // A cancelled one was reset by Cancel; a left one has no screen; a superseded one is not its own.
-      if (live()) {
-        setUploading(false)
-        xhrRef.current = null
-      }
+      if (live()) setUploading(false)
       // Best-effort: a cleanup failure never fails the upload (the OS clears the cache eventually).
       if (pickedUri) try { new File(pickedUri).delete() } catch {}
     }
   }
-
-  const usedPercent = quota && quota.limitBytes > 0
-    ? Math.min((quota.usedBytes / quota.limitBytes) * 100, 100)
-    : 0
 
   // This screen had no auth check of its own — it relied entirely on the tab
   // being hidden, which stopped being enough once `FirstBookState` on an empty
@@ -285,17 +170,6 @@ function UploadScreen() {
         <View style={styles.content}>
           <Text style={styles.title}>Upload a Book</Text>
           <Text style={styles.subtitle}>Supported formats: EPUB, PDF</Text>
-
-          {showQuota && quota && (
-            <View style={styles.quotaBox}>
-              <View style={styles.quotaBar}>
-                <View style={[styles.quotaFill, { width: `${usedPercent}%` as any }]} />
-              </View>
-              <Text style={styles.quotaText}>
-                {formatBytes(quota.usedBytes)} / {formatBytes(quota.limitBytes)} used
-              </Text>
-            </View>
-          )}
 
           {!uploading && (
             <TouchableOpacity
@@ -354,17 +228,6 @@ const styles = StyleSheet.create({
   content: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   title: { fontSize: 22, fontWeight: '700', color: colors.text, marginBottom: 8 },
   subtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 32 },
-  quotaBox: { alignItems: 'center', marginBottom: 24, width: '100%', maxWidth: 240 },
-  quotaBar: {
-    width: '100%',
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.textSecondary + '33',
-    overflow: 'hidden',
-    marginBottom: 6,
-  },
-  quotaFill: { height: '100%', backgroundColor: colors.primary, borderRadius: 2 },
-  quotaText: { fontSize: 12, color: colors.textSecondary },
   pickBtn: {
     backgroundColor: colors.primary,
     paddingVertical: 16,
