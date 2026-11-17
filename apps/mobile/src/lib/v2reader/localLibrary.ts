@@ -529,10 +529,6 @@ export function createLocalLibrary(db: Db) {
         const existing = await bookBySha(b.sha256)
         if (existing) {
           await run('UPDATE books SET opened_at = ?, format = COALESCE(?, format) WHERE id = ?', [now, b.format, existing.id])
-          // A reopen saves its place once more (a new clientRecordedAt): the server's state moves, so every device's
-          // "Recently opened" follows it, as the legacy reader's save on open did. A fraction-only place is never sent.
-          const st = await stateOf(existing.id)
-          if (st?.position && !isFractionOnly(parse<PagePosition>(st.position))) await enqueue('state', existing.id)
           if (existing.blocked && b.format && b.format !== existing.format) await unblock(existing.id)
           return
         }

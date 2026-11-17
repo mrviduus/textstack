@@ -111,11 +111,6 @@ export interface V2ReaderSync {
   loadHighlights(): Promise<void>
   /** The page's `store` payload: written to the server (one pass at a time, the latest entry wins). */
   store(json: string): void
-  /**
-   * After the restore: the place restored written once more as it is (a new clientRecordedAt), so the server's state
-   * moves and "Recently opened" follows a reopen, as the legacy reader's save on open did. None restored: nothing.
-   */
-  touch(): void
   /** Writes what is still unsaved now (the tab hidden). */
   flush(): Promise<void>
   /**
@@ -538,12 +533,6 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     loadHighlights,
     store(json) {
       if (take(json)) void kick()
-    },
-    touch() {
-      const p = position
-      if (!current() || gone || !ready || !p) return
-      // After a pass in flight; one that wrote another place already moved the state.
-      void (running ?? Promise.resolve()).then(() => (current() && sameJson(position, p) ? pushPosition(p, revision) : undefined))
     },
     // A pass running already writes the latest entry: joined, not asked for again.
     flush: () => (!current() ? Promise.resolve() : running ?? kick()),

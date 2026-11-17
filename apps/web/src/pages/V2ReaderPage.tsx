@@ -1,6 +1,7 @@
 import { lazy, useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import { ApiError, isOfflineError, v2Api } from '@textstack/shared'
+import { ApiError, isOfflineError, OPENED_AT_KEY, v2Api, withOpened } from '@textstack/shared'
+import { readItem, writeItem } from '../lib/safeLocalStorage'
 import { fetchV2FileBytes, pullV2Books, v2Answer, v2Book, v2Status } from '../api/v2'
 import { SeoHead } from '../components/SeoHead'
 import { V2ReaderHost, type V2HostBook } from '../components/reader/V2ReaderHost'
@@ -40,7 +41,8 @@ export function V2ReaderPage() {
   // #1312: a link to one highlight (the highlights page, audit §2.1): the book jumps there once it is drawn.
   const [search, setSearch] = useSearchParams()
   /** Once jumped there, the link's parameter goes (replaced, no history entry): a reload reopens at the saved place. */
-  const highlightShown = () => setSearch((p) => { const n = new URLSearchParams(p); n.delete('highlight'); return n }, { replace: true })
+  const dropParam = (name: string) => setSearch((p) => { const n = new URLSearchParams(p); n.delete(name); return n }, { replace: true })
+  const highlightShown = () => dropParam('highlight')
   const { language } = useLanguage()
   const { t } = useTranslation()
   // The probe's answer at once when this start has one (an in-app open); else waited for (a cold load).
@@ -105,6 +107,8 @@ export function V2ReaderPage() {
       if (abort.signal.aborted) return
       setLoad(null)
       setBook(b)
+      // This device opened it: "Recently opened" sorts it first, with no server write (a reopen moves no place).
+      writeItem(OPENED_AT_KEY, withOpened(readItem(OPENED_AT_KEY), id))
     }, (e: unknown) => {
       if (stalled) setLoad({ error: t('v2Reader.stalled', { seconds: DOWNLOAD_STALL_MS / 1000 }), retry: true })
       else if (!abort.signal.aborted) setLoad(loadError(e, t))
@@ -123,7 +127,7 @@ export function V2ReaderPage() {
     <>
       {/* Never indexed; a title before the book's name is known (#1267). */}
       <SeoHead title={book?.name ?? t('v2Reader.title')} noindex />
-      <V2ReaderHost book={book} highlightId={search.get('highlight')} onHighlightShown={highlightShown} openContents={search.get('contents') === '1'} idleHeading={idleHeading} readyDeadlineMs={PROD_READY_DEADLINE_MS} backUrl={`/${language}/library`} onReload={() => setAttempt((a) => a + 1)}>
+      <V2ReaderHost book={book} highlightId={search.get('highlight')} onHighlightShown={highlightShown} openContents={search.get('contents') === '1'} onContentsShown={() => dropParam('contents')} idleHeading={idleHeading} readyDeadlineMs={PROD_READY_DEADLINE_MS} backUrl={`/${language}/library`} onReload={() => setAttempt((a) => a + 1)}>
         {failed && (
           <span role="alert" data-testid="v2-load-error">
             {failed.error} {failed.retry && <button onClick={() => setAttempt((a) => a + 1)}>{t('v2Reader.retry')}</button>}

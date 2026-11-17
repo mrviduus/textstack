@@ -183,9 +183,11 @@ interface Props {
   onHighlightShown?: () => void
   /** `?contents=1` (the book page's Contents): the Contents panel opens once the first book is open, if it has contents. */
   openContents?: boolean
+  /** The panel opened for `openContents`: the route drops the parameter, so a reload opens at the book. */
+  onContentsShown?: () => void
 }
 
-export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, onReload, dev = false, backUrl, highlightId, onHighlightShown, openContents = false }: Props) {
+export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, onReload, dev = false, backUrl, highlightId, onHighlightShown, openContents = false, onContentsShown }: Props) {
   const { t } = useTranslation()
   /** The latest `t`, for the message handler (made once). */
   const tRef = useRef(t)
@@ -291,6 +293,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [tocOpen, setTocOpen] = useState(false)
   /** `openContents`, taken once per mount by the first book opened. */
   const contentsOnOpen = useRef(openContents)
+  const onContentsShownRef = useRef(onContentsShown)
+  onContentsShownRef.current = onContentsShown
   /**
    * #1315: in-book search (search.mjs, one rule for both hosts): the search the page was last asked and whether the open
    * book can be searched (the ref for the message handler, set with the state: an answer may come before the
@@ -613,7 +617,6 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             if (sync.current !== s || json === null) return
             // `true`: the book's annotations follow by `addHighlights` (#1314: no bookmark before them).
             call('restore', [json, true])
-            s.touch()
             void s.loadHighlights()
           }, (e: unknown) => {
             console.warn('[v2] reading state not read:', e)
@@ -629,7 +632,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       // Untrusted: only what readToc takes. Its place came with the relocate before this message.
       const entries = readToc(m)
       setToc(entries)
-      if (contentsOnOpen.current && entries.length) setTocOpen(true)
+      if (contentsOnOpen.current && entries.length) {
+        setTocOpen(true)
+        onContentsShownRef.current?.()
+      }
       contentsOnOpen.current = false
       setBookLanguage(readLang(m) ?? 'en')
       setMarksLanguage(savesWords(m) ? readLang(m) ?? 'en' : null)

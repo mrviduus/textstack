@@ -26,7 +26,7 @@ async function reader(o: { target?: V2SyncTarget; server?: V2ReadingState | null
   vi.spyOn(v2ReaderSyncApi, 'getReadingState').mockImplementation(async () => server)
   vi.spyOn(v2ReaderSyncApi, 'annotations').mockResolvedValue([])
   const put = vi.spyOn(v2ReaderSyncApi, 'putReadingState').mockImplementation(async (_b, w: V2ReadingStateWrite) =>
-    (server = { ...state((w.expectedRevision ?? 0) + 1), currentLocator: w.currentLocator, bookFraction: w.bookFraction, clientRecordedAt: w.clientRecordedAt, completedAt: w.completedAt ?? server?.completedAt ?? null }))
+    (server = { ...state((w.expectedRevision ?? 0) + 1), currentLocator: w.currentLocator, bookFraction: w.bookFraction, clientRecordedAt: w.clientRecordedAt, completedAt: w.completedAt ?? null }))
   const host = (book: V2HostBook | null) => <MemoryRouter><V2ReaderHost book={book} dev={o.dev} /></MemoryRouter>
   const view = render(host(null))
   const frame = (screen.getByTitle('Book text') as HTMLIFrameElement).contentWindow!
@@ -48,8 +48,6 @@ async function reader(o: { target?: V2SyncTarget; server?: V2ReadingState | null
   const openBook = (t?: V2SyncTarget) => pick(t)()
   await fromPage({ type: 'ready' })
   await openBook()
-  // The open's own save of the restored place (Recently opened) is not what these count.
-  put.mockClear()
   const relocate = (m: object) => fromPage({ type: 'relocate', cfi: cfi(9), index: 9, sections: 10, fraction: 0.97, ...m })
   const click = (name: string) => act(async () => {
     screen.getByRole('button', { name }).click()
@@ -100,7 +98,7 @@ describe('V2ReaderHost finish book (#1266)', () => {
     const { put, relocate, click } = await reader()
     await relocate({ atEnd: true })
     await click('Finish book')
-    expect(put.mock.calls.map((c) => c[1])).toEqual([expect.objectContaining({ expectedRevision: 5, bookFraction: 0.97, completedAt: expect.any(String), clientRecordedAt: AT })])
+    expect(put.mock.calls.map((c) => c[1])).toEqual([expect.objectContaining({ expectedRevision: 4, bookFraction: 0.97, completedAt: expect.any(String), clientRecordedAt: AT })])
     expect(screen.getByTestId('v2-finished')).toHaveTextContent('You finished this book.')
     expect(block()).toBeNull()
   })

@@ -511,11 +511,6 @@ test.describe('V2 reader page @v2', () => {
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Contents', exact: true })).toBeFocused()
-
-    // A reopen saves the place once more, unmoved: "Recently opened" follows it.
-    const touched = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith(`/me/v2/books/${bookId}/reading-state`))
-    await page.goto(`/en/library/my/${bookId}/read`)
-    expect((await touched).ok()).toBeTruthy()
     await context.close()
   })
 

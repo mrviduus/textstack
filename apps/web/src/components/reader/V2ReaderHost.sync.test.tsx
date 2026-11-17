@@ -19,7 +19,6 @@ interface FakeSync {
   restore: ReturnType<typeof vi.fn>
   loadHighlights: ReturnType<typeof vi.fn>
   store: ReturnType<typeof vi.fn>
-  touch: ReturnType<typeof vi.fn>
   flush: ReturnType<typeof vi.fn>
   flushKeepalive: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
@@ -38,7 +37,7 @@ vi.mock('../../lib/v2ReaderSync', () => ({
       target, onStatus: o.onStatus, onHighlights: o.onHighlights, highlights: o.highlights, onNewerPlace: o.onNewerPlace,
       answer: (json) => settle?.ok(json), fail: () => settle?.no(new Error('offline')),
       restore: vi.fn(() => new Promise((ok, no) => { settle = { ok, no } })), loadHighlights: vi.fn(async () => {}),
-      store: vi.fn(), touch: vi.fn(), flush: vi.fn(async () => {}), flushKeepalive: vi.fn(), close: vi.fn(() => closed),
+      store: vi.fn(), flush: vi.fn(async () => {}), flushKeepalive: vi.fn(), close: vi.fn(() => closed),
       note: vi.fn(() => 'their note'), setNote: vi.fn(), remove: vi.fn(), real: vi.fn((id: string) => id), deleted: vi.fn(() => false),
     }
     sessions.push(s)

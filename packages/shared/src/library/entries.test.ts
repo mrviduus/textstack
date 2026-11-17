@@ -10,6 +10,8 @@ import {
   filterEntries,
   countEntries,
   sortEntries,
+  parseOpenedAt,
+  withOpened,
   FINISHED_THRESHOLD,
   type LibraryEntry,
 } from './entries'
@@ -214,6 +216,15 @@ describe('sortEntries', () => {
     ]
     const map = progress({ 'ed-old': { updatedAt: '2026-03-01T00:00:00Z' } })
     expect(sortEntries(entries, 'recent', map).map(entryKey)).toEqual(['upload:fresh', 'saved:ed-old'])
+  })
+
+  it('a reader reopens an older upload on this device: it is first in Recently opened, no write needed', () => {
+    const entries = [
+      U({ id: 'newer', progressUpdatedAt: '2026-07-01T00:00:00Z' }),
+      U({ id: 'reopened', progressUpdatedAt: '2026-03-01T00:00:00Z' }),
+    ]
+    const marks = parseOpenedAt(withOpened('{"x": "junk"}', 'reopened', Date.parse('2026-08-01T00:00:00Z')))
+    expect(sortEntries(entries, 'recent', noProgress, marks).map(entryKey)).toEqual(['upload:reopened', 'upload:newer'])
   })
 
   it('falls back to created time for a book never opened', () => {

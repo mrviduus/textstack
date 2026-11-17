@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState } from '@textstack/shared'
+import { OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState } from '@textstack/shared'
 import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
@@ -1224,7 +1224,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           // Untrusted: only what readToc takes.
           const entries = readToc(m)
           setToc(entries)
-          if (contentsOnOpen.current && entries.length) setTocOpen(true)
+          if (contentsOnOpen.current && entries.length) {
+            setTocOpen(true)
+            // Shown: a remount of the route opens at the book, not the sheet again.
+            router.setParams({ contents: undefined })
+          }
           contentsOnOpen.current = false
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
@@ -1525,6 +1529,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     }
     linked.current = true
     setLinkFailed(false)
+    // Before the download path returns: its open takes it too.
+    contentsOnOpen.current = params.contents === '1'
+    // This device opened it: "Recently opened" sorts it first, with no server write (a reopen moves no place).
+    AsyncStorage.getItem(OPENED_AT_KEY).then((j) => AsyncStorage.setItem(OPENED_AT_KEY, withOpened(j, b.id))).catch(() => {})
     if (!b.local) {
       download(b).then((ok) => { if (!ok) setLinkFailed(true) })
       return
@@ -1532,7 +1540,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     open({ file: bookFile(b.sha256), name: b.originalName, format: b.format })
     // After `open`, which clears any earlier one.
     pendingHighlight.current = typeof params.highlight === 'string' ? params.highlight : null
-    contentsOnOpen.current = params.contents === '1'
   }, [books, linkedBook, syncPasses])
   const retryLink = () => {
     linked.current = false
