@@ -4,7 +4,7 @@ namespace TextStack.UnitTests.V2;
 
 /// <summary>
 /// /health/ready's write probe (<see cref="FileStoreRegistration.ProbeWriteAsync"/>, #1110), called directly:
-/// no host, no database. The status codes are pinned in TextStack.IntegrationTests' HealthReadyLibraryTests.
+/// no host, no database.
 /// </summary>
 public sealed class HealthReadyProbeTests : IDisposable
 {

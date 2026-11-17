@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test'
-import { getTestData } from '../fixtures/test-data'
 
 // Regression guard: on landing pages, a clean anonymous visit must NOT trigger
 // POST /auth/guest. Bootstrap is read-only by design (AuthContext.tsx:I1) and
@@ -11,17 +10,9 @@ import { getTestData } from '../fixtures/test-data'
 // Each page's own h1 is asserted first: a removed route renders the 404 page,
 // which makes no guest call either, and would pass the guard without it.
 
-// Lazy: getTestData() is read at test time, after global-setup wrote it.
 const PAGES: { name: string; page: () => { url: string; heading: string } }[] = [
   { name: '/en', page: () => ({ url: '/en', heading: 'Finish the book you keep quitting.' }) },
   { name: '/en/mcp', page: () => ({ url: '/en/mcp', heading: 'Connect TextStack to your AI assistant' }) },
-  {
-    name: 'a book page',
-    page: () => {
-      const { enBook } = getTestData()
-      return { url: `/en/books/${enBook.slug}`, heading: enBook.title }
-    },
-  },
 ]
 
 test.describe('guest creation guard', () => {

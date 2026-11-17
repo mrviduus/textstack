@@ -146,9 +146,9 @@ services:
       # `v2` component of /health/ready, never at startup, and no depends_on on migrator-v2: a V2
       # database that is missing or behind pauses sync and nothing else (#1053).
       ConnectionStrings__V2: "Host=db;Port=5432;Database=${V2_POSTGRES_DB:-textstack_v2};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-      # The V2 sync API. Off: /me/v2/* is not mapped (404) and the stack is exactly as before it.
-      Features__V2Api: ${FEATURES_V2API:-false}
-      Database__Mode: ${DATABASE_MODE:-legacy}
+      # The V2 sync API (default on, production's mode since M5). Off: /me/v2/* is not mapped (404).
+      Features__V2Api: ${FEATURES_V2API:-true}
+      Database__Mode: ${DATABASE_MODE:-v2}
       # HTTP cutover barrier only. Stop/drain other writers before the final snapshot (M5).
       Maintenance__WriteFreeze: ${MAINTENANCE_WRITE_FREEZE:-false}
       Storage__RootPath: /storage
@@ -228,8 +228,8 @@ services:
       # and this string set; read when the loop starts, never at startup, and a V2 database that is
       # missing or behind pauses that loop and nothing else (the 2026-10-30 rule).
       ConnectionStrings__V2: "Host=db;Port=5432;Database=${V2_POSTGRES_DB:-textstack_v2};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-      Features__V2Api: ${FEATURES_V2API:-false}
-      Database__Mode: ${DATABASE_MODE:-legacy}
+      Features__V2Api: ${FEATURES_V2API:-true}
+      Database__Mode: ${DATABASE_MODE:-v2}
       Storage__RootPath: /storage
       # V2 library bytes, outside the public /storage root: nothing serves them but /me/v2 (#1110).
       Storage__LibraryRoot: /library
@@ -326,7 +326,7 @@ services:
       TEXTSTACK_SITE_HOST: textstack.app
       # The bridge's V2 switch follows the Api's flag: the manifest serves the V2 tools exactly when
       # the Api maps /me/v2, and the bridge must register exactly what the manifest serves (#1101).
-      TEXTSTACK_MCP_V2: ${FEATURES_V2API:-false}
+      TEXTSTACK_MCP_V2: ${FEATURES_V2API:-true}
       ASPNETCORE_URLS: http://+:8090
       # Same environment as api/worker, so a local Development .env keeps this one out of Sentry too.
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}

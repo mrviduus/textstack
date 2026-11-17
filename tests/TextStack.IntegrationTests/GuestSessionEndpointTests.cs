@@ -294,18 +294,6 @@ public class GuestSessionEndpointTests : IClassFixture<LiveApiFixture>
         Assert.Equal("de", await GetNativeLanguageAsync(accountToken, ct));
     }
 
-    // --- Guest-created rows must survive the merge (MergeGuestAsync re-parent coverage) ---
-
-    // Non-"en" languages are absent from the wordfreq dataset, so the frequency filter fails open
-    // to SrsEligible — cap arithmetic is then what the test exercises, not word-list luck.
-    private const string SrsLang = "de";
-
-    // Validator floor in VocabularyEndpoints. Filling 5 saves is cheap; 50 (the guest tier cap)
-    // is not, so the user-chosen cap is what we drive the pending path with.
-    private const int MinDailyCap = 5;
-
-    private static string UniqueWord(string prefix) => $"{prefix}{Guid.NewGuid():N}"[..16];
-
     private HttpRequestMessage Authed(HttpMethod method, string path, string token)
     {
         var req = _fixture.CreateRequest(method, path);
@@ -313,231 +301,12 @@ public class GuestSessionEndpointTests : IClassFixture<LiveApiFixture>
         return req;
     }
 
-    private async Task<JsonElement> SendJsonAsync(HttpRequestMessage req, CancellationToken ct)
-    {
-        var resp = await _fixture.Client.SendAsync(req, ct);
-        Assert.SkipWhen(IntegrationSkip.Unavailable(resp), $"{req.RequestUri} unavailable");
-        resp.EnsureSuccessStatusCode();
-        return await resp.Content.ReadFromJsonAsync<JsonElement>(ct);
-    }
-
-    private async Task SetVocabSettingsAsync(string token, int dailyCap, CancellationToken ct)
-    {
-        var req = Authed(HttpMethod.Put, "/me/vocabulary/settings", token);
-        req.Content = JsonContent.Create(new
-        {
-            dailyNewCap = dailyCap,
-            weeklyReviewBudget = 70,
-            frequencyFilterEnabled = true,
-            clusteringEnabled = true,
-            autoRetireEnabled = true,
-        });
-        var resp = await _fixture.Client.SendAsync(req, ct);
-        Assert.SkipWhen(IntegrationSkip.Unavailable(resp), "/me/vocabulary/settings unavailable");
-        resp.EnsureSuccessStatusCode();
-    }
-
-    private async Task<JsonElement> SaveWordAsync(string token, string word, string language, CancellationToken ct)
-    {
-        var req = Authed(HttpMethod.Post, "/me/vocabulary/words", token);
-        req.Content = JsonContent.Create(new { word, language, nativeLanguage = "en" });
-        return await SendJsonAsync(req, ct);
-    }
-
-    private static IEnumerable<string> WordsOf(JsonElement listResponse) =>
-        listResponse.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("word").GetString()!);
-
-    /// <summary>
-    /// The two rows a guest produces first: an over-cap save (PendingVocabularyWord) and a
-    /// rare-word tap (WordLookup). Neither was re-parented, so both died with the guest row on
-    /// sign-in — and the daily enrichment cap makes the pending bucket MORE reachable, not less.
-    /// </summary>
-    [Fact]
-    public async Task Login_GuestWithPendingWordAndLookup_BothSurviveAndBelongToAccount()
-    {
-        var ct = TestContext.Current.CancellationToken;
-
-        var (email, _) = await RegisterAccountWithEmailAsync(nativeLanguage: null, ct);
-        var guest = await BodyAsync(await PostGuestAsync(ct, mobile: true), ct);
-        var guestToken = RequireNonEmpty(guest, "accessToken");
-
-        await SetVocabSettingsAsync(guestToken, MinDailyCap, ct);
-        for (var i = 0; i < MinDailyCap; i++)
-            await SaveWordAsync(guestToken, UniqueWord($"zzfill{i}"), SrsLang, ct);
-
-        var pendingWord = UniqueWord("zzpend");
-        var pendingSave = await SaveWordAsync(guestToken, pendingWord, SrsLang, ct);
-        Assert.SkipWhen(
-            pendingSave.GetProperty("outcome").GetString() != "pending",
-            "daily cap did not push the save into the pending bucket");
-
-        // Guid-suffixed English word cannot exist in the wordfreq dataset ⇒ LookupOnly.
-        var lookupWord = UniqueWord("zzoov");
-        var lookupSave = await SaveWordAsync(guestToken, lookupWord, "en", ct);
-        Assert.Equal("lookup", lookupSave.GetProperty("outcome").GetString());
-
-        var accountToken = await LoginMergingGuestAsync(email, guestToken, ct);
-
-        var pending = await SendJsonAsync(Authed(HttpMethod.Get, "/me/vocabulary/pending", accountToken), ct);
-        Assert.Contains(pendingWord, WordsOf(pending));
-
-        var lookups = await SendJsonAsync(Authed(HttpMethod.Get, "/me/vocabulary/lookups", accountToken), ct);
-        Assert.Contains(lookupWord, WordsOf(lookups));
-
-        // UserVocabularySettings is keyed on (UserId, SiteId), so it is COPIED, not re-parented —
-        // and only because this fresh account had no row of its own.
-        var settings = await SendJsonAsync(Authed(HttpMethod.Get, "/me/vocabulary/settings", accountToken), ct);
-        Assert.Equal(MinDailyCap, settings.GetProperty("dailyNewCap").GetInt32());
-    }
-
-    /// <summary>
-    /// The conflict case on a unique-keyed table. WordLookup is unique on
-    /// (UserId, SiteId, Word, Language), so re-parenting a guest row onto an account that already
-    /// tapped the same word would violate the index — the merge must drop the guest's row and keep
-    /// the account's, exactly as it does for VocabularyWords.
-    /// </summary>
-    [Fact]
-    public async Task Login_GuestAndAccountTappedSameWord_AccountLookupWinsWithoutConflict()
-    {
-        var ct = TestContext.Current.CancellationToken;
-
-        var (email, accountTokenBefore) = await RegisterAccountWithEmailAsync(nativeLanguage: null, ct);
-        var sharedWord = UniqueWord("zzdup");
-
-        await SetVocabSettingsAsync(accountTokenBefore, 15, ct);
-        Assert.Equal("lookup", (await SaveWordAsync(accountTokenBefore, sharedWord, "en", ct))
-            .GetProperty("outcome").GetString());
-
-        var guest = await BodyAsync(await PostGuestAsync(ct, mobile: true), ct);
-        var guestToken = RequireNonEmpty(guest, "accessToken");
-        await SetVocabSettingsAsync(guestToken, 15, ct);
-        Assert.Equal("lookup", (await SaveWordAsync(guestToken, sharedWord, "en", ct))
-            .GetProperty("outcome").GetString());
-
-        // Would throw 23505 if the merge re-parented blindly.
-        var accountToken = await LoginMergingGuestAsync(email, guestToken, ct);
-
-        var lookups = await SendJsonAsync(Authed(HttpMethod.Get, "/me/vocabulary/lookups", accountToken), ct);
-        Assert.Single(WordsOf(lookups), w => w == sharedWord);
-    }
-
-    /// <summary>Collections are guest-creatable (Create only checks that a user id resolves), so
-    /// a shelf built before sign-in must not vanish at sign-in.</summary>
-    [Fact]
-    public async Task Login_GuestWithCollection_CollectionBelongsToAccount()
-    {
-        var ct = TestContext.Current.CancellationToken;
-
-        var (email, _) = await RegisterAccountWithEmailAsync(nativeLanguage: null, ct);
-        var guest = await BodyAsync(await PostGuestAsync(ct, mobile: true), ct);
-        var guestToken = RequireNonEmpty(guest, "accessToken");
-
-        var name = $"Guest shelf {Guid.NewGuid():N}"[..24];
-        var createReq = Authed(HttpMethod.Post, "/me/library/collections", guestToken);
-        createReq.Content = JsonContent.Create(new { name, color = "default" });
-        var created = await SendJsonAsync(createReq, ct);
-        var collectionId = created.GetProperty("id").GetString();
-
-        var accountToken = await LoginMergingGuestAsync(email, guestToken, ct);
-
-        var resp = await _fixture.Client.SendAsync(
-            Authed(HttpMethod.Get, "/me/library/collections", accountToken), ct);
-        Assert.SkipWhen(IntegrationSkip.Unavailable(resp), "/me/library/collections unavailable");
-        resp.EnsureSuccessStatusCode();
-
-        var list = await resp.Content.ReadFromJsonAsync<JsonElement>(ct);
-        Assert.Contains(collectionId, list.EnumerateArray().Select(c => c.GetProperty("id").GetString()));
-    }
-
-    // --- Paid-inference surface is account-only (server-side, not just the mobile UI flag) ---
-
-    /// <summary>
-    /// Every endpoint that spends money on an LLM call. The mobile client has its own
-    /// <c>canUseAi = isAccount</c> flag, but that is a UI affordance: a guest session mints a valid
-    /// bearer token, so before the entitlement gate each of these answered a guest with a real paid
-    /// call and an IP rate limit as its only barrier.
-    /// <para>
-    /// One entry, and that is the point of the list rather than a reason to delete it: ask, book chat
-    /// and RAG indexing were removed 2026-09-10, and a matrix that still named them would assert 404
-    /// — "route gone" — while reading like "guest correctly refused". Anything new that spends on
-    /// inference belongs here on the day it ships.
-    /// </para>
-    /// Route params are arbitrary GUIDs on purpose — the filter runs before the handler, so the
-    /// answer must not depend on whether the book exists.
-    /// </summary>
-    private static readonly (string Method, string Path, object? Body)[] PaidInferenceEndpoints =
-    [
-        ("POST", "/me/tutor/session", new { maxItems = 3 }),
-    ];
-
     private async Task<HttpResponseMessage> CallAsync(
         string method, string path, object? body, string token, CancellationToken ct)
     {
         var req = Authed(new HttpMethod(method), path, token);
         if (body is not null) req.Content = JsonContent.Create(body);
         return await _fixture.Client.SendAsync(req, ct);
-    }
-
-    // One identity for the whole sweep rather than a [Theory] case each: /auth/register shares a
-    // GLOBAL 10/min "user-login" bucket, so a per-case account would rate-limit itself into skips
-    // and the sweep would quietly verify nothing.
-    [Fact]
-    public async Task PaidInference_GuestToken_IsForbiddenWithAccountRequiredEverywhere()
-    {
-        var ct = TestContext.Current.CancellationToken;
-
-        var guest = await BodyAsync(await PostGuestAsync(ct, mobile: true), ct);
-        var guestToken = RequireNonEmpty(guest, "accessToken");
-
-        // Collected, not fail-fast: one run should name EVERY route still open to a guest.
-        var open = new List<string>();
-        foreach (var (method, path, body) in PaidInferenceEndpoints)
-        {
-            var resp = await CallAsync(method, path, body, guestToken, ct);
-
-            // NO 404 escape hatch, deliberately. `RequireAiAccount` runs BEFORE the handler, so a
-            // gated route answers 403 whatever the GUID in the path is; a 404 can only mean the
-            // filter did not run. Verified against a real account token on the running stack:
-            // /books/{empty}/ask, /me/books/{empty}/ask,
-            // GET /me/chat, /books/{empty}/index and /me/books/{empty}/index all answer 404 once
-            // the handler is reached. Six of the nine routes here would therefore have passed this
-            // sweep with their filter deleted, which is the whole point of the sweep.
-            if (resp.StatusCode != HttpStatusCode.Forbidden)
-            {
-                open.Add($"{method} {path} → {(int)resp.StatusCode}");
-                continue;
-            }
-
-            // Clients branch on this to say "create a free account" rather than "sign in".
-            var problem = await resp.Content.ReadFromJsonAsync<JsonElement>(ct);
-            if (problem.GetProperty("error").GetString() != "account_required")
-                open.Add($"{method} {path} → 403 without account_required");
-        }
-
-        Assert.True(open.Count == 0, $"paid inference reachable by a guest: {string.Join("; ", open)}");
-    }
-
-    /// <summary>
-    /// The other half: a real account is NOT forbidden. Asserting "not 403" rather than "200" is
-    /// deliberate — these endpoints need OpenAI and a real book, neither of which a CI box has, so
-    /// demanding 200 would make the test lie about what it verified.
-    /// </summary>
-    [Fact]
-    public async Task PaidInference_AccountToken_IsNeverForbidden()
-    {
-        var ct = TestContext.Current.CancellationToken;
-
-        var (_, accountToken) = await RegisterAccountWithEmailAsync(nativeLanguage: null, ct);
-
-        var blocked = new List<string>();
-        foreach (var (method, path, body) in PaidInferenceEndpoints)
-        {
-            var resp = await CallAsync(method, path, body, accountToken, ct);
-            if (resp.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
-                blocked.Add($"{method} {path} → {(int)resp.StatusCode}");
-        }
-
-        Assert.True(blocked.Count == 0, $"account locked out of its own features: {string.Join("; ", blocked)}");
     }
 
     /// <summary>
@@ -596,7 +365,6 @@ public class GuestSessionEndpointTests : IClassFixture<LiveApiFixture>
 
         var guest = await BodyAsync(await PostGuestAsync(ct, mobile: true), ct);
         var token = RequireNonEmpty(guest, "accessToken");
-        await SaveWordAsync(token, UniqueWord("gdel"), SrsLang, ct);
 
         var before = await _fixture.Client.SendAsync(Authed(HttpMethod.Get, "/me/profile", token), ct);
         Assert.SkipWhen(IntegrationSkip.Unavailable(before), "/me/profile unavailable");

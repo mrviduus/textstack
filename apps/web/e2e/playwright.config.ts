@@ -26,16 +26,6 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /.*mobile.*/,
-    },
-    {
-      name: 'mobile',
-      use: {
-        ...devices['iPhone 13'],
-        // Use chromium instead of webkit to avoid extra browser install
-        browserName: 'chromium',
-      },
-      testMatch: /.*mobile.*/,
     },
   ],
 

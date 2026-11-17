@@ -76,7 +76,9 @@ public class GatedRoutesSweepTests : IClassFixture<LiveApiFixture>
             configure(req);
 
             using var resp = await _fixture.Client.SendAsync(req, Ct);
-            if (resp.StatusCode != expected)
+            // v2 mode: a retired legacy route answers 410 before the gate (SelectedDatabaseGuard); no
+            // handler runs. Goes with those routes (M6 B2).
+            if (resp.StatusCode != expected && resp.StatusCode != HttpStatusCode.Gone)
                 failures.Add($"{route} -> {(int)resp.StatusCode}");
         }
         return failures;
@@ -84,15 +86,15 @@ public class GatedRoutesSweepTests : IClassFixture<LiveApiFixture>
 
     /// <summary>The spellings the admin gate was probed with. None may reach a handler as anonymous.</summary>
     [Theory]
-    [InlineData("/ME/library")]
-    [InlineData("/Me/Library")]
-    [InlineData("//me/library")]
-    [InlineData("/./me/library")]
-    [InlineData("/x/../me/library")]
-    [InlineData("/me/./library")]
-    [InlineData("/%6De/library")]
-    [InlineData("/me%2flibrary")]
-    [InlineData("/me%2Flibrary")]
+    [InlineData("/ME/v2/library/changes")]
+    [InlineData("/Me/V2/Library/Changes")]
+    [InlineData("//me/v2/library/changes")]
+    [InlineData("/./me/v2/library/changes")]
+    [InlineData("/x/../me/v2/library/changes")]
+    [InlineData("/me/./v2/library/changes")]
+    [InlineData("/%6De/v2/library/changes")]
+    [InlineData("/me%2fv2/library/changes")]
+    [InlineData("/me%2Fv2/library/changes")]
     public async Task MeLibrary_PathSpellings_Anonymous_NeverSucceed(string path)
     {
         var req = _fixture.CreateRequest(HttpMethod.Get, "/");

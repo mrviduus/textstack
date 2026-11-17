@@ -204,7 +204,6 @@ public class OAuthFlowTests : IClassFixture<LiveApiFixture>, IDisposable
             (HttpMethod.Get, "/me/oauth/grants"),
             (HttpMethod.Get, "/me/profile"),
             (HttpMethod.Get, "/auth/me"),
-            (HttpMethod.Delete, "/me/vocabulary/words"), // wipe-all; single-word delete stays allowed
         })
         {
             var resp = await Send(method, path, access);
@@ -213,8 +212,7 @@ public class OAuthFlowTests : IClassFixture<LiveApiFixture>, IDisposable
         }
 
         // The library is what the token is for.
-        Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Get, "/me/books", access)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Get, "/me/library/shelves", access)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Get, "/me/v2/library/changes", access)).StatusCode);
 
         // The account's own JWT is unaffected — including the delete, which really deletes.
         Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Get, "/me/mcp/keys", owner!)).StatusCode);

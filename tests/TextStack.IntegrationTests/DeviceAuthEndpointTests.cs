@@ -252,7 +252,8 @@ public class DeviceAuthEndpointTests : IClassFixture<AuthenticatedApiFixture>
                     (@id, @hash, @uc, 'denied', now() - interval '1 hour', 5, now() - interval '2 hour')
                 """, conn);
             cmd.Parameters.AddWithValue("id", Guid.NewGuid());
-            cmd.Parameters.AddWithValue("hash", new string('a', 64)); // distinct device_code_hash
+            // Distinct and unique per run: V2 has a unique index on device_code_hash.
+            cmd.Parameters.AddWithValue("hash", Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"));
             cmd.Parameters.AddWithValue("uc", userCode);
             await cmd.ExecuteNonQueryAsync(ct);
         }
@@ -296,7 +297,7 @@ public class DeviceAuthEndpointTests : IClassFixture<AuthenticatedApiFixture>
                     (@id, @hash, @uc, 'expired', now() - interval '1 hour', 5, now() - interval '2 hour')
                 """, conn);
             cmd.Parameters.AddWithValue("id", Guid.NewGuid());
-            cmd.Parameters.AddWithValue("hash", new string('b', 64));
+            cmd.Parameters.AddWithValue("hash", Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"));
             cmd.Parameters.AddWithValue("uc", userCode);
             await cmd.ExecuteNonQueryAsync(ct);
         }
