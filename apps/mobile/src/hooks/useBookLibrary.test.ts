@@ -6,7 +6,8 @@ import { renderHook } from '../test/renderHook'
 const api = vi.hoisted(() => ({ getLibrary: vi.fn(), addToLibrary: vi.fn(), removeFromLibrary: vi.fn() }))
 const collections = vi.hoisted(() => ({ listCollections: vi.fn(async () => []), getCollectionBookIds: vi.fn() }))
 const ApiError = vi.hoisted(() => class ApiError extends Error { constructor(public status: number) { super(String(status)) } })
-vi.mock('@textstack/shared', () => ({ libraryApi: api, collectionsApi: collections, ApiError }))
+vi.mock('@textstack/shared', () => ({ collectionsApi: collections, ApiError }))
+vi.mock('../lib/catalogApi', () => ({ libraryApi: api }))
 vi.mock('react-native', () => ({ Alert: { alert: vi.fn() } }))
 vi.mock('./useCollections', () => ({ invalidateCollectionsCache: vi.fn() }))
 

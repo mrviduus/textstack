@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { Alert } from 'react-native'
-import { ApiError, collectionsApi, libraryApi } from '@textstack/shared'
+import { ApiError, collectionsApi } from '@textstack/shared'
+import { libraryApi } from '../lib/catalogApi'
 import { countCollectionsHolding, decideLibraryRemoval } from '../lib/libraryRemoval'
 import { invalidateCollectionsCache } from './useCollections'
 

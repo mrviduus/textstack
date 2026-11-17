@@ -1,12 +1,13 @@
 import { useCallback } from 'react'
 import { Alert } from 'react-native'
 import {
-  libraryApi, readingProgressApi, createBooksApi,
+  createBooksApi,
   type UserLibraryItem, type UserBookDto, type ReadingProgressDto,
   FINISHED_THRESHOLD,
 } from '@textstack/shared'
 import { userBooksApi } from '../lib/userBooksApi'
 import { v2Offers } from '@textstack/shared'
+import { libraryApi, readingProgressApi } from '../lib/catalogApi'
 import { useV2 } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useToast } from '../context/ToastContext'
@@ -72,7 +73,7 @@ export function useBookActions() {
       },
     })
 
-    if (ctx.onAddToCollection) {
+    if (ctx.onAddToCollection && v2Offers(v2, 'collections')) {
       buttons.push({
         text: t('library.actions.addToCollection'),
         onPress: ctx.onAddToCollection,
@@ -99,7 +100,7 @@ export function useBookActions() {
 
     buttons.push({ text: t('library.actions.cancel'), style: 'cancel' })
     Alert.alert(item.title, undefined, buttons)
-  }, [language, t, showToast])
+  }, [language, t, showToast, v2])
 
   const showUploadActions = useCallback((item: UserBookDto, ctx: UploadCtx) => {
     const s = item.status.toLowerCase()

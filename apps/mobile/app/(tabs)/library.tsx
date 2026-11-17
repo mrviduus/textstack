@@ -3,11 +3,10 @@ import { View, Text, TouchableOpacity } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter, useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import {
-  libraryApi, readingProgressApi, isOfflineError, plural,
-} from '@textstack/shared'
+import { isOfflineError, plural } from '@textstack/shared'
 import { userBooksApi } from '../../src/lib/userBooksApi'
-import { onV2, v2Enabled, v2Epoch } from '../../src/lib/v2'
+import { loadLibraryTab } from '../../src/lib/catalogApi'
+import { v2Enabled, v2Epoch } from '../../src/lib/v2'
 import { logLoadError } from '../../src/lib/logLoadError'
 import {
   collectionsApi, buildLibraryEntries, filterEntries, countEntries, sortEntries, entryTitle, entryAuthor,
@@ -107,13 +106,8 @@ export default function LibraryScreen() {
     if (!isAuthenticated) { setLoading(false); return }
     const epoch = v2Epoch()
     try {
-      const [lib, progress, books, v2Before] = await Promise.all([
-        libraryApi.getLibrary(),
-        readingProgressApi.getAllProgress(),
-        userBooksApi.getUserBooks(),
-        // The probe answer `getUserBooks` used (same probe promise): which store listed (#1193).
-        onV2(),
-      ])
+      // The catalog half is none on V2 (refused, #1374); any other catalog failure fails the load, as legacy always did.
+      const [lib, progress, books, v2Before] = await loadLibraryTab()
       if (myGen !== loadGenRef.current) return // superseded or unmounted
       setLibrary(lib)
       setUserBooks(books)
@@ -183,7 +177,9 @@ export default function LibraryScreen() {
             // False whatever the upload was: offline it reads as text (ADR-012).
             hasOriginalPdf: false,
           }))).filter(b => !deleted.has(b.id)))
-          setLibrary(prev => (prev.length > 0 ? prev : cached.map(c => ({
+          // No catalog shelf on V2 (V2_FEATURES.catalog): the cached catalog books are not listed. The
+          // settled answer (`v2Enabled()`, as the reader route since #1361): an unreached probe is off.
+          if (!v2Enabled()) setLibrary(prev => (prev.length > 0 ? prev : cached.map(c => ({
             editionId: c.editionId,
             slug: c.slug,
             title: c.title,
