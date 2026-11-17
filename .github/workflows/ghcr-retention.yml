@@ -60,5 +60,5 @@ jobs:
           DEPLOYS: '5'
           MAX_DELETE: '150'
           # SERVICES in images.yml, plus its `web` job's image.
-          PACKAGES: migrator api worker admin ssg-worker mcp-server web
+          PACKAGES: migrator api worker admin mcp-server web
         run: node scripts/ghcr-retention.mjs

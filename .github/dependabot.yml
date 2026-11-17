@@ -79,7 +79,7 @@ updates:
   # `run:` lines (the scanner in scripts/scan-image-secrets.sh, restic in
   # backup.yml, alpine in the Makefile) — Dependabot cannot see those; bump by hand.
   - package-ecosystem: docker
-    directories: [/backend/Docker, /apps/admin, /apps/web]
+    directories: [/backend/Docker, /apps/admin]
     schedule:
       interval: weekly
     open-pull-requests-limit: 1

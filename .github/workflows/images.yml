@@ -59,7 +59,7 @@ jobs:
     env:
       IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}/textstack
       # Every service with a `build:` in docker-compose.yml. deploy.yml pulls the same list.
-      SERVICES: migrator api worker admin ssg-worker mcp-server
+      SERVICES: migrator api worker admin mcp-server
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -100,7 +100,7 @@ jobs:
           echo "All images for $IMAGE_TAG already published"
           echo "all=true" >> "$GITHUB_OUTPUT"
 
-      # Still needed while the worker/admin/ssg-worker images weigh 3-5 GB each.
+      # Still needed while the worker/admin images weigh 3-5 GB each.
       # Delete it once the slim Dockerfiles land and a run shows the space is there.
       - name: Free disk space
         if: steps.exists.outputs.all == 'false'
@@ -240,11 +240,8 @@ jobs:
           node-version-file: .nvmrc
 
       # The whole workspace, as the server did: same lockfile resolution, same bundle.
-      # No Chrome: puppeteer is the ssg-worker's, not vite's.
       - name: Install workspace
         if: steps.exists.outputs.found == 'false'
-        env:
-          PUPPETEER_SKIP_DOWNLOAD: 'true'
         run: pnpm install --frozen-lockfile
 
       # The public changelog page's data (#1216): merged PRs, read from GitHub
@@ -275,7 +272,7 @@ jobs:
           VITE_SENTRY_RELEASE="$IMAGE_TAG" pnpm --filter textstack-web build
           du -sh apps/web/dist
 
-      # The whole dist (fresh: no SSG here): token shapes, private keys, secret-named
+      # The whole dist: token shapes, private keys, secret-named
       # files and the canaries. Gates the push.
       - name: Secret scan (gates the push)
         if: steps.exists.outputs.found == 'false'
