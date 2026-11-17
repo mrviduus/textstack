@@ -333,16 +333,9 @@ public static class UserBooksEndpoints
 
     private const int MaxClipHtmlBytes = 2 * 1024 * 1024; // ~2 MB
 
-    private static async Task<IResult> ClipArticle(
-        HttpContext httpContext,
-        AuthService authService,
-        UserBookService userBookService,
-        [FromBody] ClipRequest request,
-        CancellationToken ct)
+    /// <summary>A clip's request checks, shared with the V2 clip (V2CompatEndpoints); null when it is valid.</summary>
+    internal static IResult? InvalidClip(ClipRequest? request)
     {
-        var userId = httpContext.GetUserId(authService);
-        if (userId == null) return Results.Unauthorized();
-
         if (request is null || string.IsNullOrWhiteSpace(request.Title))
             return Results.BadRequest(new { error = "Title is required" });
 
@@ -356,6 +349,21 @@ public static class UserBooksEndpoints
             !(Uri.TryCreate(request.SourceUrl, UriKind.Absolute, out var uri) &&
               (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)))
             return Results.BadRequest(new { error = "SourceUrl must be an http(s) URL" });
+
+        return null;
+    }
+
+    private static async Task<IResult> ClipArticle(
+        HttpContext httpContext,
+        AuthService authService,
+        UserBookService userBookService,
+        [FromBody] ClipRequest request,
+        CancellationToken ct)
+    {
+        var userId = httpContext.GetUserId(authService);
+        if (userId == null) return Results.Unauthorized();
+
+        if (InvalidClip(request) is { } invalid) return invalid;
 
         var (response, error) = await userBookService.ClipAsync(userId.Value, request, ct);
         if (error is not null)

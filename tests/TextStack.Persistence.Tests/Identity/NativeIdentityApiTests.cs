@@ -418,6 +418,32 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
         }
     }
 
+    [Fact]
+    public async Task AClipFromTheBrowserExtensionBecomesAV2BookToRead()
+    {
+        var (client, target) = await ApiAsync();
+        using (client)
+        {
+            Bearer(client, Access(await RegisterAsync(client)));
+            const string html = "<html><body><h1>Tides</h1><p>The moon pulls the sea.</p></body></html>";
+
+            // The extension's own request (extension/lib/api.js clip), unchanged.
+            var clipped = await BodyAsync(await client.PostAsJsonAsync("/me/books/clip",
+                new { Title = "Tides", Author = "A. Writer", SourceUrl = "https://example.test/tides", Html = html, Language = "en" }, Ct));
+            var bookId = clipped.GetProperty("userBookId").GetGuid();
+
+            var feed = await BodyAsync(await client.GetAsync("/me/v2/library/changes", Ct));
+            var book = feed.GetProperty("items").EnumerateArray().Single(b => b.GetProperty("id").GetGuid() == bookId);
+            var file = book.GetProperty("currentFile");
+            Assert.Equal(("Tides", "html", true), (book.GetProperty("title").GetString(), file.GetProperty("format").GetString(), file.GetProperty("hasContent").GetBoolean()));
+            Assert.Equal("https://example.test/tides", await TestSql.ScalarAsync<string>(ct => OpenAsync(target, ct),
+                "SELECT origin->>'sourceUrl' FROM books WHERE id=@bookId AND origin->>'kind'='clip'", new { bookId }));
+
+            var bytes = await client.GetStringAsync($"/me/v2/books/{bookId}/files/{file.GetProperty("id").GetGuid()}/content", Ct);
+            Assert.Equal(html, bytes);
+        }
+    }
+
     /// <summary>Both LLM seams (Translate's factory, Explain's gateway): a fixed answer, the system prompts kept.</summary>
     private sealed class FakeLlm : Domain.LLM.ILlmServiceFactory, Domain.LLM.ILlmService, TextStack.Ai.Core.ILlmService
     {
