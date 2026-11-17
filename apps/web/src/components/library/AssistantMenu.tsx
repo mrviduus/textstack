@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { buildChapterDiscussBrief, buildHandoffBrief, type Assistant, type HandoffBook } from '@textstack/shared'
+import { buildChapterDiscussBrief, buildHandoffBrief, v2Offers, type Assistant, type HandoffBook } from '@textstack/shared'
+import { useV2 } from '../../context/AuthContext'
 import { useAssistantLauncher } from '../../hooks/useAssistantLauncher'
 import { useTranslation } from '../../hooks/useTranslation'
 import { chapterReviewPath } from '../../hooks/useBookReviews'
@@ -21,6 +22,8 @@ interface Props {
 
 export function AssistantMenu({ book, current }: Props) {
   const { t } = useTranslation()
+  // M5 (#1031): no chapter review on V2: no link to one.
+  const reviewOffered = v2Offers(useV2(), 'chapterReview')
   const launcher = useAssistantLauncher({ eager: false })
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLSpanElement>(null)
@@ -88,7 +91,7 @@ export function AssistantMenu({ book, current }: Props) {
             <>
               {current ? (
                 <>
-                  {current.reviewed && (
+                  {current.reviewed && reviewOffered && (
                     <LocalizedLink to={reviewPath(current.slug)} role="menuitem" className="assistant-menu__item" onClick={() => setOpen(false)}>
                       {t('library.assistant.openCurrentReview')}
                       <span className="assistant-menu__sub">{current.title}</span>

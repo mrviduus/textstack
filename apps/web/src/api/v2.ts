@@ -7,9 +7,9 @@
  * (`createV2Books`, `uploadV2File`, #1121); this file caches, maps and gives them its IO.
  */
 import {
-  v2Api, ApiError, V2_OFF, ingestionStatus, shelfFileSummary, resumeChapterOf, placeToV2Locator, createV2Books, uploadV2File, V2UploadError, mb,
+  v2Api, ApiError, V2_OFF, v2Offers, ingestionStatus, shelfFileSummary, resumeChapterOf, placeToV2Locator, createV2Books, uploadV2File, V2UploadError, mb,
   type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2Annotation, type V2Word,
-  type V2ReadingStateWrite, type V2Switch, type ProgressWrite,
+  type V2ReadingStateWrite, type V2Switch, type ProgressWrite, type V2Feature,
 } from '@textstack/shared'
 import { API_BASE } from './client'
 import { settleV2Session, v2SessionSettled, rearmV2Session } from '../lib/v2Session'
@@ -46,6 +46,14 @@ export const v2Enabled = () => known.enabled
 
 /** Every call site checks one thing: `if (await onV2()) …`. */
 export const onV2 = async () => (await v2Status()).enabled
+
+/**
+ * M5 (#1031): a feature V2 holds no data for (`V2_FEATURES`) never reaches its legacy route on V2
+ * (it answers 410 there): the call fails as that 410 would, before any request. The UI hides the entry too.
+ */
+export async function refuseOnV2(feature: V2Feature): Promise<void> {
+  if (!v2Offers(await v2Status(), feature)) throw new ApiError(410, `${feature}: not on V2`)
+}
 
 // ---- The session's V2 cache ---------------------------------------------------------------------
 

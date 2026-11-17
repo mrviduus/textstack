@@ -32,7 +32,8 @@ interface Props {
   /** Absent: one review style only (V2 is flashcards, V2_FEATURES). */
   onSelectReviewMode?: (next: ReviewModeKey) => void
   onSelectSort: (next: string) => void
-  onOpenSettings: () => void
+  /** Absent: no vocabulary settings (V2, M5 #1031). */
+  onOpenSettings?: () => void
   onClose: () => void
 }
 
@@ -132,12 +133,14 @@ export function VocabViewSheet({
             </>
           )}
 
-          <SectionHeading>Settings</SectionHeading>
-          <Row
-            icon="settings-outline"
-            label="Daily cap and reminders"
-            onPress={() => { onClose(); onOpenSettings() }}
-          />
+          {onOpenSettings && <>
+            <SectionHeading>Settings</SectionHeading>
+            <Row
+              icon="settings-outline"
+              label="Daily cap and reminders"
+              onPress={() => { onClose(); onOpenSettings() }}
+            />
+          </>}
         </ScrollView>
       </View>
     </Modal>

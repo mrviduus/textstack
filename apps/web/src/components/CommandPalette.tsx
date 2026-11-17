@@ -3,7 +3,8 @@ import { Command } from 'cmdk'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from '../hooks/useTranslation'
 import { useLanguage } from '../context/LanguageContext'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, useV2 } from '../context/AuthContext'
+import { v2Offers } from '@textstack/shared'
 import { useDarkMode } from '../hooks/useDarkMode'
 import {
   PALETTE_ROUTES,
@@ -23,6 +24,8 @@ export function CommandPalette({ open, onClose }: Props) {
   const { t } = useTranslation()
   const { language, getLocalizedPath } = useLanguage()
   const { isAuthenticated, logout, openAuthModal } = useAuth()
+  // M5 (#1031): no stats page on V2.
+  const statsOffered = v2Offers(useV2(), 'readingStats')
   const { toggleTheme } = useDarkMode()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
@@ -114,7 +117,7 @@ export function CommandPalette({ open, onClose }: Props) {
         )}
 
         <Command.Group heading={t('palette.groups.pages')} className="cmd-palette__group">
-          {PALETTE_ROUTES.map((route) => (
+          {PALETTE_ROUTES.filter((r) => statsOffered || r.path !== '/stats').map((route) => (
             <Command.Item
               key={route.id}
               value={`page ${t(route.labelKey)} ${route.path}`}
