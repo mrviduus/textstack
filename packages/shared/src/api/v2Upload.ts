@@ -6,7 +6,7 @@
 import * as v2Api from './v2'
 import type { V2Book, V2FileWrite } from './v2'
 import { clip } from '../reader/textAnchor'
-import { titleFromFileName } from '../lib/bookTitle'
+import { bookTitle } from '../lib/bookTitle'
 
 /** Bytes as whole megabytes, for a quota message. */
 export const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
@@ -50,6 +50,16 @@ export interface V2UploadPart {
   end: number
 }
 
+/**
+ * A book's details and cover as read from its file (the reader page's `described`, as `readDescribed` in
+ * apps/mobile/src/lib/v2reader/describe.mjs takes it): each field '' when the file has none, the cover a
+ * `data:image/jpeg;base64,` URL or null.
+ */
+export interface V2FileDetails {
+  meta: { title: string; author: string; lang: string; description: string } | null
+  cover: string | null
+}
+
 export interface V2UploadIo {
   /** A v4 uuid. */
   newId(): string
@@ -63,6 +73,11 @@ export interface V2UploadIo {
    * current file takes them, never an import under new ids (`V2UploadNotOnServer` instead).
    */
   known?: { bookId: string; fileId: string }
+  /**
+   * The book's details from its file (#1426), started beside the hash and awaited just before the import; null (or
+   * a failure) imports the cleaned file name. Bounded by the caller: an upload waits for it.
+   */
+  describe?(): Promise<V2FileDetails | null>
 }
 
 export interface V2UploadResult {
@@ -80,11 +95,13 @@ export interface V2UploadResult {
  * again once; changed: tell the reader); `incomplete_upload` re-sends every part once;
  * `quota_exceeded` carries `used/limit`. An error marked `aborted` (a cancel) removes the book this
  * upload imported: on V2 a book without bytes has no retry.
- * ponytail: no cover (`PUT /cover` needs an EPUB parse on the client), the title is the cleaned file name.
+ * With `io.describe`, a new import carries the file's title (else the cleaned file name), author, language and
+ * description, and its cover is sent after the bytes, best-effort.
  */
 export async function uploadV2File(file: { name: string; size: number; format?: V2ClientFormat }, maxPartBytes: number, io: V2UploadIo): Promise<V2UploadResult> {
   const format = file.format ?? formatOfName(file.name)
   let imported: string | null = null
+  const described = Promise.resolve().then(() => io.describe?.() ?? null).catch(() => null)
   try {
     const sha256 = await io.hash()
     let found = await v2Api.findBySha256(sha256)
@@ -94,9 +111,17 @@ export async function uploadV2File(file: { name: string; size: number; format?: 
     if (!found) {
       bookId = io.newId()
       fileId = io.newId()
-      const title = clip(titleFromFileName(file.name), 500)
+      const meta = (await described)?.meta
+      const title = clip(bookTitle(meta?.title, file.name), 500)
       try {
-        await v2Api.importBook(bookId, { title, file: { id: fileId, sha256, byteSize: file.size, originalName: clip(file.name, 500), format } })
+        await v2Api.importBook(bookId, {
+          title,
+          // '' (the file has none) is left out: undefined is not sent.
+          author: meta?.author || undefined,
+          language: meta?.lang || undefined,
+          description: meta?.description || undefined,
+          file: { id: fileId, sha256, byteSize: file.size, originalName: clip(file.name, 500), format },
+        })
         imported = bookId
       } catch (e) {
         const err = v2Api.v2ErrorOf(e)
@@ -112,12 +137,17 @@ export async function uploadV2File(file: { name: string; size: number; format?: 
       fileId = found.currentFile.id
     }
     await sendBytes(file.size, sha256, bookId, fileId, maxPartBytes, io)
+    const cover = imported && (await described)?.cover
+    if (cover) await v2Api.putCover(bookId, jpegBytes(cover), 'image/jpeg').catch(() => {})
     return { bookId, format, found, sent: true }
   } catch (e) {
     if ((e as { aborted?: boolean } | null)?.aborted && imported) await v2Api.removeBook(imported).catch(() => {})
     throw e
   }
 }
+
+/** A `data:image/jpeg;base64,` URL's bytes. */
+const jpegBytes = (dataUrl: string) => Uint8Array.from(atob(dataUrl.slice(dataUrl.indexOf(',') + 1)), (c) => c.charCodeAt(0))
 
 /** The parts, then the complete, with the retries `uploadV2File` names. */
 async function sendBytes(size: number, sha256: string, bookId: string, fileId: string, maxPartBytes: number, io: V2UploadIo): Promise<void> {

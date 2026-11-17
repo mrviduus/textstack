@@ -15,7 +15,7 @@ const API_URL = process.env.API_URL ?? 'http://localhost:8080'
 const API_HEADERS = { Host: 'general.localhost' }
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURE = path.resolve(__dirname, '../fixtures/v2-sync.epub')
-const TITLE = 'v2-sync' // the file name: V2 imports take it as the title
+const TITLE = 'E2E V2 sync' // the fixture's own dc:title, read by the reader page before the import (#1426)
 
 async function v2Get<T>(request: APIRequestContext, route: string): Promise<T | null> {
   const resp = await request.get(`${API_URL}/me/v2${route}`, { headers: API_HEADERS })
@@ -47,6 +47,7 @@ test.describe('V2 sync @v2', () => {
     await page.locator('.upload-modal input[type="file"]').setInputFiles(FIXTURE)
     const importResp = await imported
     expect(importResp.status(), `import: ${await importResp.text()}`).toBe(201)
+    expect(importResp.request().postDataJSON()).toMatchObject({ title: TITLE, language: 'en' })
     const { id: bookId, currentFile } = (await importResp.json()) as { id: string; currentFile: { id: string } }
     await expect(page.getByRole('button', { name: 'Read now' })).toBeVisible({ timeout: 120_000 })
 
