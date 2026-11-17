@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Restore a pg_dump backup into a throwaway postgres container and run sanity queries.
-# Usage: ./backup-verify.sh <path-to-backup.sql.gz>
+# Restore a V2 pg_dump backup into a throwaway postgres container and run sanity queries.
+# Usage: ./backup-verify.sh <path-to-v2-backup.sql.gz>
 
 set -euo pipefail
 
@@ -124,28 +124,36 @@ if ! gunzip -c "$BACKUP_FILE" | docker exec -i "$CONTAINER" psql -U "$PG_USER" -
 fi
 
 echo "[verify] running sanity queries ..."
+# The V2 database (ADR-030): every table a reader's data lives in must have rows. COALESCE is gone on
+# purpose: a missing table is an error (truncated schema), not a zero.
 QUERY="
 SELECT
   (SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public')::int AS tables,
   (SELECT count(*) FROM pg_catalog.pg_class WHERE relkind = 'i' AND relnamespace = 'public'::regnamespace)::int AS indexes,
-  COALESCE((SELECT count(*) FROM users), 0)::int AS users,
-  COALESCE((SELECT count(*) FROM editions), 0)::int AS editions,
-  COALESCE((SELECT count(*) FROM chapters), 0)::int AS chapters;
+  (SELECT count(*) FROM users)::int AS users,
+  (SELECT count(*) FROM books)::int AS books,
+  (SELECT count(*) FROM book_files)::int AS book_files,
+  (SELECT count(*) FROM annotations)::int AS annotations;
 "
-RESULT=$(docker exec "$CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -At -F'|' -c "$QUERY")
-IFS='|' read -r TABLES INDEXES USERS EDITIONS CHAPTERS <<< "$RESULT"
+if ! RESULT=$(docker exec "$CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -At -F'|' -v ON_ERROR_STOP=1 -c "$QUERY"); then
+  echo "[verify] FAIL: sanity query failed — a V2 table is missing (is this a V2 dump?)" >&2
+  exit 1
+fi
+IFS='|' read -r TABLES INDEXES USERS BOOKS BOOK_FILES ANNOTATIONS <<< "$RESULT"
 
-echo "[verify] tables=$TABLES indexes=$INDEXES users=$USERS editions=$EDITIONS chapters=$CHAPTERS"
+echo "[verify] tables=$TABLES indexes=$INDEXES users=$USERS books=$BOOKS book_files=$BOOK_FILES annotations=$ANNOTATIONS"
 
 FAIL=0
 if [[ "${TABLES:-0}" -lt 10 ]]; then
   echo "[verify] FAIL: too few tables ($TABLES) — schema looks truncated" >&2
   FAIL=1
 fi
-if [[ "${EDITIONS:-0}" -lt 1 ]]; then
-  echo "[verify] FAIL: editions table empty — data loss suspected" >&2
-  FAIL=1
-fi
+for pair in "users:$USERS" "books:$BOOKS" "book_files:$BOOK_FILES" "annotations:$ANNOTATIONS"; do
+  if [[ "${pair#*:}" -lt 1 ]]; then
+    echo "[verify] FAIL: ${pair%%:*} table empty — data loss suspected" >&2
+    FAIL=1
+  fi
+done
 
 if [[ "$FAIL" -eq 0 ]]; then
   echo "[verify] OK"
