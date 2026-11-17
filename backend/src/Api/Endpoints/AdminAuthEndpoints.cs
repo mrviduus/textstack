@@ -1,4 +1,3 @@
-using Api.V2;
 using Application.AdminAuth;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -12,7 +11,7 @@ public static class AdminAuthEndpoints
 
     public static void MapAdminAuthEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/admin/auth").WithMetadata(V2SelectedRoute.Instance).WithTags("AdminAuth");
+        var group = app.MapGroup("/admin/auth").WithTags("AdminAuth");
 
         group.MapPost("/login", Login)
             .WithName("AdminLogin")

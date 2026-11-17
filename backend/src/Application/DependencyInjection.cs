@@ -1,7 +1,5 @@
 using Application.AdminAuth;
-using Application.AdminSettings;
 using Application.Auth;
-using Application.ReadingTracking;
 using Application.LLM;
 using Application.Vocabulary;
 using Microsoft.Extensions.Configuration;
@@ -19,22 +17,14 @@ public static class DependencyInjection
         // Testable clock for time-sensitive flows (device-grant expiry, AI-050a).
         services.TryAddSingleton(TimeProvider.System);
 
-        services.AddScoped<ReadingStatsService>();
-        services.AddScoped<ReadingSessionService>();
         services.AddScoped<AuthService>();
         services.AddScoped<AdminAuthService>();
         // The legacy services behind the interfaces M5.1's Database:Mode re-binds to V2's.
         services.AddScoped<IAuthService>(sp => sp.GetRequiredService<AuthService>());
         services.AddScoped<IAdminAuthService>(sp => sp.GetRequiredService<AdminAuthService>());
-        services.AddScoped<AdminSettingsService>();
+        services.AddScoped<AdminSettings.AdminSettingsService>();
 
-        // Vocabulary anti-spiral
-        services.AddScoped<WeeklyBudgetService>();
-        services.AddScoped<DailyCapService>();
         services.AddSingleton<IFrequencyFilter, FrequencyFilter>();
-        // AdminService, VocabularyReviewRecorder, RetirementSweeper and the cluster
-        // services need Api-only dependencies (email, user books, the SRS library): the Api registers
-        // them in AddTextStackContentServices, so the Worker's container validates (#1108).
 
         // Legacy ILlmServiceFactory — now backed by LegacyLlmAdapter over the new
         // stack (AI-005). The old keyed Domain.LLM providers are gone; callers
@@ -211,9 +201,6 @@ public static class DependencyInjection
         // Singleton: the gateway reads/records spend on every call; lives behind the never-throw
         // ISpendTracker contract. Registered BEFORE the gateway (the gateway depends on it).
         services.AddSingleton<global::TextStack.Ai.Core.ISpendTracker, Ai.RollingSpendTracker>();
-
-        // One-click promote / rollback of the primary model for a feature.
-        services.AddScoped<Ai.ModelPromotionService>();
 
         // Silent-fallback alarm (Sentry): an EXPENSIVE task resolving via Ai:DefaultProvider instead
         // of an explicit route is the 2026-07-14 pdf.parse → Ollama incident (since deleted). Throttled per

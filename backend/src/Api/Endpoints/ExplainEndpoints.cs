@@ -3,12 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Api.Extensions;
 using Application.Ai;
-using Application.Auth;
-using Application.Common.Interfaces;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using TextStack.Ai.Core;
 using TextStack.Ai.Llm;
@@ -29,31 +24,9 @@ public static class ExplainEndpoints
     private const int MaxOutputTokens = 500;
     private const int RetryOutputTokens = 1000;
 
-    public static void MapExplainEndpoints(this WebApplication app)
-    {
-        var group = app.MapGroup("/explain").WithTags("Explain");
-        group.MapPost("", Explain).WithName("Explain").RequireRateLimiting("explain");
-    }
-
-    private static Task<IResult> Explain(
-        [FromBody] ExplainRequest request,
-        HttpContext httpContext,
-        IConfiguration config,
-        IOptions<OpenAiOptions> openAi,
-        ILlmService llm,
-        IAppDbContext db,
-        AuthService authService,
-        IToolRegistry toolRegistry,
-        ToolCallingSession toolSession,
-        ILogger<Program> logger,
-        CancellationToken ct) =>
-        ExplainAsync(request, httpContext, config, openAi, llm,
-            token => ResolveGenreAsync(request.Genre, request.BookId, db, logger, token), httpContext.GetUserId(authService),
-            toolRegistry, toolSession, logger, ct);
-
     /// <summary>
-    /// The explanation, with the book's genre from <paramref name="resolveGenre"/>: legacy's tables or V2's
-    /// (V2CompatEndpoints). A null <paramref name="toolRegistry"/> offers no tools (they read legacy's catalog).
+    /// The explanation, with the book's genre from <paramref name="resolveGenre"/> (V2CompatEndpoints). A null
+    /// <paramref name="toolRegistry"/> offers no tools (they read legacy's catalog).
     /// </summary>
     internal static async Task<IResult> ExplainAsync(
         ExplainRequest request,
@@ -327,40 +300,6 @@ public static class ExplainEndpoints
         string systemPrompt, string userPrompt, int maxTokens, IReadOnlyList<ToolSchema>? tools = null) =>
         new(systemPrompt, [new LlmMessage("user", userPrompt)], maxTokens,
             Tools: tools is { Count: > 0 } ? tools : null, FeatureTag: FeatureTag);
-
-    /// <summary>
-    /// Genre for the domain prompt: explicit request value → catalog Edition → user upload. Shared with
-    /// Translate. Fail-soft: a lookup error logs and returns null (the no-domain prompt), never a 500.
-    /// </summary>
-    internal static async Task<string?> ResolveGenreAsync(
-        string? genre, string? bookIdText, IAppDbContext db, ILogger logger, CancellationToken ct)
-    {
-        if (!string.IsNullOrWhiteSpace(genre))
-            return genre;
-        if (string.IsNullOrWhiteSpace(bookIdText) || !Guid.TryParse(bookIdText, out var bookId))
-            return null;
-
-        try
-        {
-            var resolved = await db.Editions
-                .Where(e => e.Id == bookId)
-                .SelectMany(e => e.Genres.Select(g => g.Name))
-                .FirstOrDefaultAsync(ct);
-            if (string.IsNullOrWhiteSpace(resolved))
-            {
-                resolved = await db.UserBooks
-                    .Where(ub => ub.Id == bookId)
-                    .Select(ub => ub.Genre)
-                    .FirstOrDefaultAsync(ct);
-            }
-            return resolved;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Genre lookup failed, using 'general' domain");
-            return null;
-        }
-    }
 
     // Prompt version + model are in the key so a prompt fix or model swap is not hidden behind 30 days of cache.
     internal static string ComputeCacheKey(

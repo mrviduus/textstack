@@ -5,8 +5,8 @@ namespace TextStack.UnitTests;
 
 // Minimal async-enabled IQueryable so EF Core async LINQ operators (ToListAsync, CountAsync,
 // FirstAsync, ...) work over a plain in-memory List<T> behind a Moq DbSet. Standard EF-with-Moq
-// helper — see https://learn.microsoft.com/ef/core/testing/. Used by ConceptClusteringServiceTests
-// because the production AppDbContext can't load on the EF InMemory provider (NpgsqlTsVector).
+// helper — see https://learn.microsoft.com/ef/core/testing/. The production AppDbContext can't load
+// on the EF InMemory provider (NpgsqlTsVector).
 internal sealed class TestAsyncEnumerable<T> : EnumerableQuery<T>, IAsyncEnumerable<T>, IQueryable<T>
 {
     public TestAsyncEnumerable(IEnumerable<T> enumerable) : base(enumerable) { }

@@ -18,8 +18,7 @@ public sealed class PdfTextExtractor : ITextExtractor
 
     public SourceFormat SupportedFormat => SourceFormat.Pdf;
 
-    /// <summary>PDF-2: the page count from the page tree alone; null when not a readable PDF.
-    /// Used by the <c>backfill-pdf-page-counts</c> CLI.</summary>
+    /// <summary>PDF-2: the page count from the page tree alone; null when not a readable PDF.</summary>
     public static int? CountPages(Stream content)
     {
         try

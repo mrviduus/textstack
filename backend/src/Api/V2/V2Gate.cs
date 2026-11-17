@@ -50,7 +50,7 @@ public sealed class V2Gate(V2Readiness readiness, V2ShadowUsers shadows, IAppDbC
             }
             else
             {
-                var account = http.Items.TryGetValue(Middleware.SelectedDatabaseGuard.AccountItemKey, out var cached)
+                var account = http.Items.TryGetValue(Middleware.AccountGuard.AccountItemKey, out var cached)
                     ? cached as UserAccount : await users.GetAsync(userId, http.RequestAborted);
                 if (account is null) return Results.Unauthorized();
             }

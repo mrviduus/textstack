@@ -17,31 +17,49 @@ using TextStack.Ai.Tools;
 namespace Api.Endpoints;
 
 /// <summary>
-/// M5.1 Part C (docs/internal/v2/m5-part-c-routes.md): the legacy routes the new clients still call, answered from
-/// V2 in <c>Database:Mode=v2</c>. Mapped only in v2 mode, on the legacy path and shape, ordered before the legacy
-/// handler (<c>WithOrder(-1)</c>), so legacy mode maps and runs exactly what it did. Behind <see cref="V2Gate"/>
-/// like every <c>/me/v2</c> route. Goes at M6 with the legacy handlers.
+/// M5.1 Part C (docs/internal/v2/m5-part-c-routes.md): the legacy paths the clients still call, answered from V2
+/// on the legacy shape. Behind <see cref="V2Gate"/> like every <c>/me/v2</c> route.
 /// </summary>
 public static class V2CompatEndpoints
 {
     public static void MapV2CompatEndpoints(this WebApplication app)
     {
-        if (!app.Services.GetRequiredService<DatabaseMode>().IsV2) return;
-
-        var highlights = app.MapGroup("/me/highlights").WithMetadata(V2SelectedRoute.Instance).WithTags("Highlights").AddEndpointFilter<V2Gate>();
-        highlights.MapGet("/all", GetAllHighlights).WithOrder(-1);
+        var highlights = app.MapGroup("/me/highlights").WithTags("Highlights").AddEndpointFilter<V2Gate>();
+        highlights.MapGet("/all", GetAllHighlights);
 
         // The browser extension's clip, same path and shape, so the extension needs no change.
-        app.MapGroup("/me/books").WithMetadata(V2SelectedRoute.Instance).WithTags("User Books").AddEndpointFilter<V2Gate>()
-            .MapPost("/clip", Clip).RequireRateLimiting("clip").WithOrder(-1);
+        app.MapGroup("/me/books").WithTags("User Books").AddEndpointFilter<V2Gate>()
+            .MapPost("/clip", Clip).RequireRateLimiting("clip");
 
         // Anonymous on purpose, as legacy (the reading loop): no V2Gate. Spend: V2 traces (V2LlmSpendSource).
-        app.MapGroup("/explain").WithMetadata(V2SelectedRoute.Instance).WithTags("Explain")
-            .MapPost("", Explain).RequireRateLimiting("explain").WithOrder(-1);
-        app.MapGroup("/api/translate").WithMetadata(V2SelectedRoute.Instance).WithTags("Translation")
-            .MapPost("", Translate).RequireRateLimiting("translate").WithOrder(-1);
-        app.MapPost("/translate", Translate).WithMetadata(V2SelectedRoute.Instance).WithTags("Translation")
-            .RequireRateLimiting("translate").WithOrder(-1);
+        app.MapGroup("/explain").WithTags("Explain")
+            .MapPost("", Explain).RequireRateLimiting("explain");
+        app.MapGroup("/api/translate").WithTags("Translation")
+            .MapPost("", Translate).RequireRateLimiting("translate");
+        app.MapPost("/translate", Translate).WithTags("Translation")
+            .RequireRateLimiting("translate");
+    }
+
+    private const int MaxClipHtmlBytes = 2 * 1024 * 1024; // ~2 MB
+
+    /// <summary>A clip's request checks; null when it is valid.</summary>
+    internal static IResult? InvalidClip(ClipRequest? request)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.Title))
+            return Results.BadRequest(new { error = "Title is required" });
+
+        if (string.IsNullOrWhiteSpace(request.Html))
+            return Results.BadRequest(new { error = "Html is required" });
+
+        if (System.Text.Encoding.UTF8.GetByteCount(request.Html) > MaxClipHtmlBytes)
+            return Results.BadRequest(new { error = "Article is too large (max 2 MB)" });
+
+        if (!string.IsNullOrWhiteSpace(request.SourceUrl) &&
+            !(Uri.TryCreate(request.SourceUrl, UriKind.Absolute, out var uri) &&
+              (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)))
+            return Results.BadRequest(new { error = "SourceUrl must be an http(s) URL" });
+
+        return null;
     }
 
     /// <summary>
@@ -51,7 +69,7 @@ public static class V2CompatEndpoints
     /// </summary>
     private static async Task<IResult> Clip(HttpContext http, IAuthService auth, ClipService clips, [FromBody] ClipRequest request, CancellationToken ct)
     {
-        if (UserBooksEndpoints.InvalidClip(request) is { } invalid) return invalid;
+        if (InvalidClip(request) is { } invalid) return invalid;
         var (bookId, refused) = await clips.ClipAsync(http.GetUserId(auth)!.Value, request.Title, request.Author,
             request.Language ?? "en", string.IsNullOrWhiteSpace(request.SourceUrl) ? null : request.SourceUrl, request.Html, ct);
         // The extension reads legacy's {error: message}: the readable message, 413 for the storage limit, else 400.
@@ -129,3 +147,32 @@ public static class V2CompatEndpoints
         return Results.Ok(new { items, totalCount = page.TotalCount });
     }
 }
+
+/// <summary>A row of <c>GET /me/highlights/all</c>, legacy's shape.</summary>
+public record HighlightListItemDto(
+    Guid Id,
+    string SelectedText,
+    // The reflow anchor is {prefix, exact, suffix} with ~30 characters of the real page on each
+    // side. It was already stored; this projection simply dropped it, which is why a one-word
+    // highlight rendered as `"in"` on every screen but the reader.
+    string AnchorJson,
+    string Color,
+    string? NoteText,
+    DateTimeOffset CreatedAt,
+    Guid? EditionId,
+    string? EditionTitle,
+    string? EditionSlug,
+    string? EditionCoverPath,
+    Guid? UserBookId,
+    string? UserBookTitle,
+    string? UserBookCoverPath,
+    Guid? ChapterId,
+    Guid? UserChapterId,
+    string? ChapterTitle,
+    string? UserChapterTitle,
+    string? ChapterSlug,
+    string? UserChapterSlug,
+    // Set only when the book was deleted (no edition or upload left): the title it had (#982).
+    string? DeletedBookTitle
+);
+

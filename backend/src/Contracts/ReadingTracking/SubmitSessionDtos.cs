@@ -1,8 +1,6 @@
 namespace Contracts.ReadingTracking;
 
-// Submit-reading-session request/response (R5 slice-4). Moved verbatim from Api.Endpoints so they
-// live beside the ReadingSessionService that consumes/produces them. Field names/casing/order
-// unchanged — the wire contract for POST /me/reading/sessions is byte-identical.
+// A legacy reading session (POST /me/reading/sessions, gone): legacy AuthService still merges guest rows of it.
 public record SubmitSessionRequest(
     Guid? EditionId,
     Guid? UserBookId,
@@ -13,5 +11,3 @@ public record SubmitSessionRequest(
     double StartPercent,
     double EndPercent
 );
-
-public record SubmitSessionResponse(Guid SessionId, List<string> NewAchievements);

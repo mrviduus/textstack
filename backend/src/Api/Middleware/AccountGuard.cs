@@ -1,5 +1,4 @@
 using Api.Extensions;
-using Api.V2;
 using Application.AdminAuth;
 using Application.Auth;
 using Application.Identity;
@@ -10,19 +9,10 @@ using Npgsql;
 
 namespace Api.Middleware;
 
-/// <summary>
-/// V2 mode never falls back to legacy user handlers or accepts a reset/deleted account's JWT. A private
-/// route or a write without <see cref="V2SelectedRoute"/> is gone in V2 (410 <c>gone_in_v2</c>, M5.1 Part C,
-/// docs/internal/v2/m5-part-c-routes.md), logged with the caller's app version (v2-plan §5.4: the log ends
-/// the old-build window). The routes Part C ported are marked (V2CompatEndpoints).
-/// </summary>
-public sealed class SelectedDatabaseGuard(RequestDelegate next, DatabaseMode mode, ILogger<SelectedDatabaseGuard>? logger = null)
+/// <summary>V2 mode never accepts a reset or deleted account's JWT: the account is read from V2 per session request.</summary>
+public sealed class AccountGuard(RequestDelegate next, DatabaseMode mode)
 {
     public static readonly object AccountItemKey = new();
-
-    /// <summary>The matched route as <c>METHOD /pattern</c> (the route table's form); the path when unrouted.</summary>
-    public static string RouteOf(HttpContext http) =>
-        $"{http.Request.Method} /{((http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? http.Request.Path.Value)?.TrimStart('/')}";
 
     public async Task InvokeAsync(HttpContext http, IAuthService auth, IUserRepository users)
     {
@@ -32,30 +22,7 @@ public sealed class SelectedDatabaseGuard(RequestDelegate next, DatabaseMode mod
             return;
         }
 
-        var endpoint = http.GetEndpoint();
         var path = http.Request.Path;
-        var privatePath = path.StartsWithSegments("/me") || path.StartsWithSegments("/admin");
-        var mutation = !HttpMethods.IsGet(http.Request.Method) && !HttpMethods.IsHead(http.Request.Method);
-        if (endpoint is not null && (privatePath || mutation)
-            && endpoint.Metadata.GetMetadata<V2SelectedRoute>() is null)
-        {
-            // Never write the wrong database: a route is ported (marked) or gone (410).
-            if (path.StartsWithSegments("/me/v2"))
-            {
-                http.Response.StatusCode = 503;
-                http.Response.Headers.RetryAfter = "60";
-                await http.Response.WriteAsJsonAsync(SyncResult.V2Unavailable.Body, http.RequestAborted);
-                return;
-            }
-            var route = RouteOf(http);
-            var appVersion = http.Request.Headers[AppVersionMiddleware.VersionHeader].ToString();
-            logger?.LogInformation("Gone in V2: {Route} from app {AppVersion}, outcome 410",
-                route, appVersion.Length > 0 ? appVersion : "none");
-            http.Response.StatusCode = StatusCodes.Status410Gone;
-            await http.Response.WriteAsJsonAsync(new { error = "gone_in_v2" }, http.RequestAborted);
-            return;
-        }
-
         try
         {
             if (IsAdminSessionPath(path))

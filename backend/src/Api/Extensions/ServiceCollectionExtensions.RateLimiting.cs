@@ -10,9 +10,8 @@ namespace Api.Extensions;
 public static partial class ServiceCollectionExtensions
 {
     /// <summary>
-    /// All rate-limiter policies (login, device grant, guest, clip/upload, TTS,
-    /// translation, dictionary, explain, semantic search, RAG, agents, crews,
-    /// account-delete) plus the shared rejection/Retry-After behavior.
+    /// All rate-limiter policies (login, device grant, guest, clip, insights, assistant writes, OAuth,
+    /// MCP keys, TTS, translation, explain, account-delete) plus the shared rejection/Retry-After behavior.
     /// <para>
     /// Originally a verbatim move from Program.cs. Since then two things changed, both forced by the
     /// limiter actually being reached (it used to sit above <c>UseRouting</c> and never ran):
@@ -141,20 +140,9 @@ public static partial class ServiceCollectionExtensions
                     QueueLimit = 0,
                 });
             });
-            // Highlight writes (POST /me/highlights) — the one policy in this file NOT partitioned
-            // by IP, and deliberately so. This endpoint is reached both by a person in the reader and
-            // by an MCP client, and the MCP bridge talks to the API over the internal docker network:
-            // every assistant write in the deployment arrives from the one container address. Keyed
-            // by IP, a single looping client would throttle every other MCP user with it, while a
-            // person behind a shared NAT could be throttled by a stranger. The account is what owns
-            // the rows being written, so the account is the partition.
-            //
-            // The ceiling that stops a book being marked to illegibility is a COUNT, not a rate —
-            // HighlightsEndpoints.MaxAssistantHighlightsPerBook. This is only the loop guard: high
-            // enough that a person highlighting hard, or a client syncing an offline queue after a
-            // flight, never meets it.
-            // The V2 writes an assistant makes (annotations, vocabulary): highlight-write's ceiling, but only for a
-            // caller on an MCP connect key or OAuth token (McpKeyAuth). A reader's device is never limited here: its
+            // The V2 writes an assistant makes (annotations, vocabulary): 120/min per account, only for a caller on
+            // an MCP connect key or OAuth token (McpKeyAuth). Per account, not IP: every MCP write arrives from the
+            // bridge's one container address. A reader's device is never limited here: its
             // first sync pushes a whole outbox at once, and a 429 there parks the entries.
             options.AddPolicy("assistant-write", httpContext =>
                 httpContext.Items[Api.Middleware.McpKeyAuthMiddleware.UserIdItemKey] is Guid assistantUser
@@ -165,28 +153,13 @@ public static partial class ServiceCollectionExtensions
                         QueueLimit = 0,
                     })
                     : RateLimitPartition.GetNoLimiter("reader"));
-            options.AddPolicy("highlight-write", httpContext =>
-            {
-                var auth = httpContext.RequestServices.GetRequiredService<Application.Auth.AuthService>();
-                // Pure JWT validation, no database call — safe on the limiter's hot path. Falls back
-                // to the IP when there is no usable token; the endpoint answers 401 anyway.
-                var key = httpContext.GetUserId(auth)?.ToString()
-                    ?? IpPartitionKey(httpContext.Connection.RemoteIpAddress)
-                    ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
-                {
-                    Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = 120,
-                    QueueLimit = 0,
-                });
-            });
-            // Insights (POST /me/insights) — the write-back an outside assistant makes after a
+            // Insights (POST /me/v2/books/{id}/insights) — the write-back an outside assistant makes after a
             // reading session. Cheap for us (one row, no inference), so the cap is not about cost:
             // it is about a runaway agent loop rewriting a book's конспект thousands of times. 60/min
             // clears a model working chapter by chapter through a long book in one pass and stops a
-            // loop dead. Also covers PUT /me/chapter-review.
+            // loop dead.
             //
-            // Partitioned by user, like highlight-write and for the same reason: every MCP write
+            // Partitioned by user, like assistant-write and for the same reason: every MCP write
             // arrives from the bridge's one container address, so an IP key made 60/min a budget
             // shared by every MCP user in the deployment.
             options.AddPolicy("insights", httpContext =>
@@ -239,32 +212,6 @@ public static partial class ServiceCollectionExtensions
                 {
                     Window = TimeSpan.FromMinutes(5),
                     PermitLimit = mcpKeysPermitLimit,
-                    QueueLimit = 0,
-                });
-            });
-            // User book upload — per-IP cap, mirrors the clip zone. Uploads are heavier
-            // (file ingestion) so the same conservative bucket applies.
-            options.AddPolicy("user-upload", httpContext =>
-            {
-                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
-                {
-                    Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = 20,
-                    QueueLimit = 0,
-                });
-            });
-            // Metadata re-enrich (POST /me/books/{id}/enrich) — a cheap idempotent re-trigger that just flips
-            // the book back to Pending, but each incomplete-book run spins a paid EnrichmentAgent (several LLM
-            // calls) on the worker. A modest per-IP cap blocks scripted re-trigger loops while staying out of
-            // the way of a human re-running enrichment on a handful of books.
-            options.AddPolicy("enrich", httpContext =>
-            {
-                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
-                {
-                    Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = 5,
                     QueueLimit = 0,
                 });
             });
@@ -321,18 +268,6 @@ public static partial class ServiceCollectionExtensions
                 {
                     Window = TimeSpan.FromMinutes(1),
                     PermitLimit = 20,
-                    QueueLimit = 0,
-                });
-            });
-            // Learning Tutor agent (AI-Agent-2): each planning turn is several LLM calls + DB reads, so a tight per-IP
-            // cap.
-            options.AddPolicy("tutor", httpContext =>
-            {
-                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
-                {
-                    Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = 8,
                     QueueLimit = 0,
                 });
             });
