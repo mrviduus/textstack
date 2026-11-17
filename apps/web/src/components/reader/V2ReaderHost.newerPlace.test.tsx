@@ -22,6 +22,8 @@ it('firstMoveLosesToAnotherDevicesNewerPlace_OursWrittenOnTheirRevision_TheirsOf
   vi.spyOn(v2ReaderSyncApi, 'getReadingState').mockResolvedValue(state(4, 1, '2026-01-01T00:00:00.000Z'))
   vi.spyOn(v2ReaderSyncApi, 'annotations').mockResolvedValue([])
   const put = vi.spyOn(v2ReaderSyncApi, 'putReadingState')
+    // The open saves the restored place once more (Recently opened), unmoved.
+    .mockImplementationOnce(async (_b, w) => ({ ...state(5, 1, w.clientRecordedAt), currentLocator: w.currentLocator }))
     .mockRejectedValueOnce(Object.assign(new ApiError(409, 'stale_revision'), { body: { code: 'stale_revision', message: '', current: state(9, 5, '2026-02-01T00:00:00.000Z') } }))
     .mockImplementationOnce(async (_b, w) => ({ ...state(10, 2, w.clientRecordedAt), currentLocator: w.currentLocator }))
 
@@ -46,7 +48,7 @@ it('firstMoveLosesToAnotherDevicesNewerPlace_OursWrittenOnTheirRevision_TheirsOf
   await fromPage({ type: 'store', key: SHA, json: JSON.stringify({ v: 1, book: { sha256: SHA, size: 8, name: T.name }, position: moved, highlights: [] }) })
 
   expect(put.mock.calls.map((c) => [(c[1] as V2ReadingStateWrite).currentLocator.value, (c[1] as V2ReadingStateWrite).expectedRevision]))
-    .toEqual([[cfi(2), 4], [cfi(2), 9]])
+    .toEqual([[cfi(1), 4], [cfi(2), 5], [cfi(2), 9]])
   expect(screen.getByRole('status', { name: 'Newer reading place' })).toHaveTextContent('(50%)')
   expect(screen.queryByTestId('v2-not-saved')).toBeNull()
   expect(posted.some((m) => m.call === 'goTo')).toBe(false)

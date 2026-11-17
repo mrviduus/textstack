@@ -470,15 +470,15 @@ test.describe('V2 reader page @v2', () => {
   })
 
   // #1261: the contents dialog jumps to an entry (saved as the reader's own move); the section controls name the
-  // neighbouring entries by title.
+  // neighbouring entries by title. The book page's Contents opens the reader with the dialog open (`?contents=1`).
   test('readV2Toc_AnEntryChosenThenThePreviousSection_TheBookJumpsAndTheCurrentEntryFollows', async ({ browser }) => {
     const context = await v2Context(browser, email('v2toc'))
     const page = await context.newPage()
     const bookId = await uploadFixture(page)
-    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await page.goto(`/en/library/my/${bookId}`)
+    await page.getByRole('link', { name: 'Contents', exact: true }).click()
     await expectOpened(page)
 
-    await clickBar(page, 'Contents')
     const dialog = page.getByRole('dialog', { name: 'Contents' })
     const entries = dialog.locator('li button')
     await expect(entries).toHaveText(['The Pond', 'The Woods', 'The Village'])
@@ -511,6 +511,11 @@ test.describe('V2 reader page @v2', () => {
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Contents', exact: true })).toBeFocused()
+
+    // A reopen saves the place once more, unmoved: "Recently opened" follows it.
+    const touched = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith(`/me/v2/books/${bookId}/reading-state`))
+    await page.goto(`/en/library/my/${bookId}/read`)
+    expect((await touched).ok()).toBeTruthy()
     await context.close()
   })
 

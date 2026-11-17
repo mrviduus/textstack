@@ -353,7 +353,8 @@ export function UserBookDetailPage() {
             <span>Language: {book.language}</span>
             {book.genre && <span>{book.genre}</span>}
             {book.publishedYear && <span>{book.publishedYear}</span>}
-            {isReady && <span>{book.chapters.length} chapters</span>}
+            {/* V2: the server's split is not the book's contents (the reader's Contents is). */}
+            {isReady && !v2.enabled && <span>{book.chapters.length} chapters</span>}
             {pages && (
               <span>{plural(pages.pages, 'page', 'pages', `${pages.exact ? '' : '~'}${pages.pages.toLocaleString()} {noun}`)}</span>
             )}
@@ -397,6 +398,13 @@ export function UserBookDetailPage() {
                 className="user-book-detail__read-btn"
               >
                 {continueReadingSlug ? 'Continue Reading' : 'Start Reading'}
+              </Link>
+            )}
+
+            {/* V2: the book's own contents, in the reader (its Contents panel opens with the book). */}
+            {canRead && v2.enabled && (
+              <Link to={`${readerBase}/read?contents=1`} className="user-book-detail__mark-btn">
+                Contents
               </Link>
             )}
 
@@ -525,7 +533,8 @@ export function UserBookDetailPage() {
         <BookInsightsSection insights={insights} onRemove={removeInsight} userBookId={book.id} />
       )}
 
-      {isReady && book.chapters.length > 0 && (
+      {/* V2 (M5): the server's chapter split is not the book's table of contents: the Contents button opens the book's own. */}
+      {isReady && !v2.enabled && book.chapters.length > 0 && (
         <div className="user-book-detail__chapters">
           <h2>Chapters</h2>
           <ul className="user-book-detail__chapter-list">
@@ -547,10 +556,7 @@ export function UserBookDetailPage() {
               )
               return (
               <li key={chapter.id}>
-                {/* M5 (#1031): the V2 reader opens at the synced place, not at a chapter: on V2 a row is no link. */}
-                {v2.enabled ? <span className="user-book-detail__chapter-row">{row}</span> : (
-                  <Link to={`/${language}/library/my/${book.id}/read/${chapter.slug || chapter.chapterNumber}`}>{row}</Link>
-                )}
+                <Link to={`/${language}/library/my/${book.id}/read/${chapter.slug || chapter.chapterNumber}`}>{row}</Link>
                 {/* A review is keyed by slug; a slugless legacy chapter cannot be reviewed. M5 (#1031): none on V2. */}
                 {chapter.slug && v2Offers(v2, 'chapterReview') && (
                   <ChapterReviewAction

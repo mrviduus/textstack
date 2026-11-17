@@ -123,7 +123,7 @@ export function V2ReaderPage() {
     <>
       {/* Never indexed; a title before the book's name is known (#1267). */}
       <SeoHead title={book?.name ?? t('v2Reader.title')} noindex />
-      <V2ReaderHost book={book} highlightId={search.get('highlight')} onHighlightShown={highlightShown} idleHeading={idleHeading} readyDeadlineMs={PROD_READY_DEADLINE_MS} backUrl={`/${language}/library`} onReload={() => setAttempt((a) => a + 1)}>
+      <V2ReaderHost book={book} highlightId={search.get('highlight')} onHighlightShown={highlightShown} openContents={search.get('contents') === '1'} idleHeading={idleHeading} readyDeadlineMs={PROD_READY_DEADLINE_MS} backUrl={`/${language}/library`} onReload={() => setAttempt((a) => a + 1)}>
         {failed && (
           <span role="alert" data-testid="v2-load-error">
             {failed.error} {failed.retry && <button onClick={() => setAttempt((a) => a + 1)}>{t('v2Reader.retry')}</button>}
