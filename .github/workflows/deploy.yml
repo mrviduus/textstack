@@ -547,6 +547,11 @@ jobs:
           # It's profile-gated so CI's bare `compose up` (docker/e2e jobs) never
           # builds/runs it; prod opts in here. nginx /mcp is synced below.
           COMPOSE="docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml"
+          # V2 mode (M5 cutover, #1031): the catalog is frozen and legacy is read-only, so ssg-worker is
+          # neither started nor restarted (scale 0 removes a running one). Its image is still pulled and
+          # tagged: the cutover rollback starts it by hand (internal/ops/v2-cutover.md).
+          SCALE=""
+          [ "$(sed -n 's/^DATABASE_MODE=//p' .env | tr -d "\"' ")" = v2 ] && SCALE="--scale ssg-worker=0" && echo "DATABASE_MODE=v2: ssg-worker not started"
 
           PULLED=false
           if grep -q 'IMAGE_TAG' docker-compose.yml; then
@@ -568,10 +573,10 @@ jobs:
 
           if [ "$PULLED" = true ]; then
             echo "Deploying pulled images $IMAGE_REGISTRY-*:$IMAGE_TAG"
-            $COMPOSE up -d --no-build
+            $COMPOSE up -d --no-build $SCALE
           else
             echo "::warning::Images for $IMAGE_TAG not pulled — building on the server"
-            $COMPOSE up -d --build
+            $COMPOSE up -d --build $SCALE
           fi
 
           # A hand-run `docker compose up -d <svc>` on the server (e.g. after editing .env)

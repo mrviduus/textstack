@@ -35,8 +35,15 @@ to undo except the freeze: [unfreeze](#9-unfreeze) and investigate. From step 6 
 | Disk for the dump | `[server]` `df -h ~ && du -sh data/postgres-prod` | free > 2 × the DB size | less |
 | `.env` copy | `[server]` `cp .env ~/archive/env.pre-v2-cutover && chmod 600 ~/archive/env.pre-v2-cutover` | file exists | — |
 
-Window: right after a green rehearsal (owner 2026-11-17). Keep the incident template open
-(`internal/incidents/_TEMPLATE.md`).
+Owner decisions (2026-11-17):
+- **Rehearsal:** the seeded end-to-end run plus the real-data restore drill count as the rehearsal. It is green once
+  the Android rows pass again after #1374's fix. The real dump time is measured live, in this freeze.
+- **Window:** right after a green rehearsal. The owner updates the phone app.
+- **Archive:** `~/archive/` on the server plus a copy on the Mac, sha256 in the log (step 3).
+- **ssg-worker:** stopped at the cutover (step 2). In V2 mode deploy.yml no longer starts or restarts it
+  (`--scale ssg-worker=0` when `.env` says `DATABASE_MODE=v2`). The rollback starts it by hand.
+
+Keep the incident template open (`internal/incidents/_TEMPLATE.md`).
 
 ## 1. Freeze HTTP writes
 
@@ -215,7 +222,8 @@ sed -i 's/^DATABASE_MODE=.*/DATABASE_MODE=legacy/; s/^FEATURES_V2API=.*/FEATURES
 dc up -d --force-recreate --no-deps api worker mcp-server && until curl -sf localhost:8080/health >/dev/null; do sleep 1; done
 sleep 31; curl -s localhost:8080/health/ready; echo
 sed -i 's/^MAINTENANCE_WRITE_FREEZE=.*/MAINTENANCE_WRITE_FREEZE=false/' .env
-dc up -d --force-recreate --no-deps api && dc start ssg-worker
+dc up -d --force-recreate --no-deps api
+dc up -d --no-deps ssg-worker   # by hand: a V2-mode deploy removed its container (scale 0)
 systemctl --user start seo-publish-poller seo-backfill-poller quality-poller 2>/dev/null; log rolled-back
 ```
 
@@ -223,16 +231,29 @@ Expected: `off`; readiness `"mode":"legacy"`, `"v2":{"status":"off"}`; MCP `TEXT
 legacy: web Library lists the books, Continue Reading opens the old reader at its chapter, the Android app lists
 the library. Rehearsal: 8 s from the rollback freeze to legacy up, 48 s to unfrozen (31 s of it the readiness cache).
 
-**Before a second attempt** the V2 database must be rebuilt: its rows now differ from the legacy mapping
-(a place moved, a word added), and the ETL refuses a V2 row that differs (`<table>: V2 row differs from its
-legacy mapping`). Dump it for the record, then `make migrate-v2-drop CONFIRM=<V2_POSTGRES_DB>` and `make migrate-v2`,
-and start again at step 0.
+Expected for `ssg-worker`: `docker ps --filter name=textstack_ssg_worker` shows it Up. The next deploy keeps it
+running, because `.env` says `legacy` again.
+
+**Re-cutover after a rollback.** The ETL does not converge onto a V2 database that took writes. Those rows now
+differ from the legacy mapping (a place moved, a word added), and the ETL fails `<table>: V2 row differs from its
+legacy mapping` and keeps the V2 row. Before a second attempt, rebuild V2 from nothing:
+
+```sh
+# [server] (legacy is serving again, V2 is off)
+. ./.env; V2DB=${V2_POSTGRES_DB:-textstack_v2}
+POSTGRES_USER=$POSTGRES_USER bash infra/scripts/pg-dump-checked.sh "$V2DB" ~/archive/$V2DB-after-rollback-$(date +%F).sql.gz
+make migrate-v2-drop CONFIRM=$V2DB && make migrate-v2 && make migrate-v2-status
+```
+
+Expected: `Dumped …`, then the migrator lists every version as applied, none pending. The V2 writes lost to the
+rollback are in that dump only; nothing replays them. Then start again at step 0, with a new archive dump (legacy
+took writes after the rollback).
 
 ## After a successful cutover
 
 - `[mac]` `gh issue comment 1031` with the log's timings and the validate counts; tick #1013.
 - Leave legacy read-only and the large-object revoke in place; drop `etl_reader` ([v2-etl.md §1 Clean up](v2-etl.md#clean-up)).
-- The pollers and `ssg-worker` stay stopped. A later deploy starts `ssg-worker` again (deploy.yml lists it): its
-  writes then fail on the read-only legacy database; stop it after each deploy until M6 removes it.
+- The pollers and `ssg-worker` stay stopped. Deploys leave `ssg-worker` down while `.env` says `DATABASE_MODE=v2`.
+  M6 deletes it.
 - A deploy's legacy migrator only reads while nothing is pending (`database/migrate.sh`): a new legacy migration
   would fail on the read-only database, as it should.

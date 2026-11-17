@@ -1,8 +1,12 @@
 # V2 cutover rehearsal, 2026-11-17 (M5 Part D, #1031)
 
 Runbook: [v2-cutover.md](v2-cutover.md). Build: `main` @ `554c7c5d6798` (after #1372), images built locally
-(`SENTRY_RELEASE=554c7c5d6798`). Result: **not green.** Every server step and the rollback passed; the Android
-smoke failed (#1374), so the runbook's rollback path ran, as it would in production.
+(`SENTRY_RELEASE=554c7c5d6798`).
+
+**Verdict: green pending the Android re-run.** Every server step, the web and MCP smoke and the rollback passed.
+The Android smoke failed (#1374), so the runbook's rollback path ran, as it would in production. The owner
+(2026-11-17) accepted this seeded run plus the real-data restore drill as the rehearsal. It is green once the Android
+rows pass again on `main` with #1374's fix (#1376). The real dump time is measured live in the production freeze.
 
 ## Setup, and what it is not
 
