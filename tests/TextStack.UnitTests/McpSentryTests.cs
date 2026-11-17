@@ -86,7 +86,7 @@ public class McpSentryTests
 
     [Theory]
     [InlineData("Is the upstream down? Retrying in 5s")]
-    [InlineData("MCP tool search_books failed with an unexpected error")]
+    [InlineData("MCP tool list_my_vocabulary failed with an unexpected error")]
     public void RedactSecrets_OrdinaryText_IsUnchanged(string text) =>
         Assert.Equal(text, SentryScrubber.RedactSecrets(text));
 
@@ -283,13 +283,13 @@ public class McpSentryTests
         var (catalog, logger) = CatalogThatThrows(bug);
 
         var result = await catalog.CallAsync(
-            "search_books", JsonDocument.Parse($$"""{"query":"{{BookText}}"}""").RootElement, CancellationToken.None);
+            "list_my_vocabulary", JsonDocument.Parse($$"""{"search":"{{BookText}}"}""").RootElement, CancellationToken.None);
 
         Assert.True(result.IsError);
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Error, entry.Level);
         Assert.Same(bug, entry.Exception);
-        Assert.Equal("MCP tool search_books failed with an unexpected error", entry.Message);
+        Assert.Equal("MCP tool list_my_vocabulary failed with an unexpected error", entry.Message);
         Assert.DoesNotContain(BookText, entry.Message);
     }
 
@@ -301,7 +301,7 @@ public class McpSentryTests
         var (catalog, logger) = CatalogThatThrows(new HttpRequestException("connection refused"));
 
         var result = await catalog.CallAsync(
-            "search_books", JsonDocument.Parse("""{"query":"dracula"}""").RootElement, CancellationToken.None);
+            "list_my_vocabulary", JsonDocument.Parse("""{"search":"dracula"}""").RootElement, CancellationToken.None);
 
         Assert.True(result.IsError);
         Assert.Empty(logger.Entries);

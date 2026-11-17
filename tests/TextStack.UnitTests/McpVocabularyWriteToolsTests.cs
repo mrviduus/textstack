@@ -9,15 +9,17 @@ using TextStack.Ai.Mcp.Tools;
 namespace TextStack.UnitTests;
 
 /// <summary>
-/// add_vocabulary_words / update_vocabulary_word / delete_vocabulary_word against a fake HTTP layer:
+/// add_vocabulary_words / update_vocabulary_word / delete_vocabulary_word against a fake V2 API:
 /// per-word outcomes, a refused word not blocking the rest, a 429 stopping the batch, and every
 /// argument refusal happening before any HTTP call.
 /// </summary>
 public class McpVocabularyWriteToolsTests
 {
     private const string WordId = "11111111-1111-1111-1111-111111111111";
+    private const string OperationId = "22222222-2222-2222-2222-222222222222";
 
-    private sealed class SequenceHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
+    /// <summary>Answers each request in turn; a null answer echoes a new card under the id the request sent.</summary>
+    private sealed class SequenceHandler(params HttpResponseMessage?[] responses) : HttpMessageHandler
     {
         private int _next;
         public List<(HttpMethod Method, string Path, string? Body)> Requests { get; } = [];
@@ -26,11 +28,12 @@ public class McpVocabularyWriteToolsTests
         {
             var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
             Requests.Add((request.Method, request.RequestUri!.PathAndQuery, body));
-            return responses[Math.Min(_next++, responses.Length - 1)];
+            return responses[Math.Min(_next++, responses.Length - 1)]
+                ?? Json(Card(JsonDocument.Parse(body!).RootElement.GetProperty("id").GetString()!), HttpStatusCode.Created);
         }
     }
 
-    private static (McpToolCatalog, SequenceHandler) Build(params HttpResponseMessage[] responses)
+    private static (McpToolCatalog, SequenceHandler) Build(params HttpResponseMessage?[] responses)
     {
         var handler = new SequenceHandler(responses);
         var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.example/") };
@@ -41,8 +44,15 @@ public class McpVocabularyWriteToolsTests
     private static HttpResponseMessage Json(string body, HttpStatusCode status = HttpStatusCode.OK) =>
         new(status) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") };
 
-    private static HttpResponseMessage Srs(string word, string id = WordId) =>
-        Json($$"""{ "outcome": "srs", "word": { "id": "{{id}}", "word": "{{word}}", "translation": "t" } }""");
+    private static string Card(string id, string translation = "t", long revision = 1) =>
+        $$"""
+        {
+          "id": "{{id}}", "language": "en", "word": "w", "translation": "{{translation}}", "definition": null,
+          "stage": 0, "intervalDays": 0, "consecutiveCorrect": 0, "nextReviewAt": "2026-11-02T10:00:00Z", "lastReviewedAt": null,
+          "createdAt": "2026-11-01T09:00:00Z", "updatedAt": "2026-11-01T10:00:00Z", "deletedAt": null, "retiredAt": null,
+          "revision": {{revision}}, "examples": []
+        }
+        """;
 
     private static JsonElement Args(string json) => JsonDocument.Parse(json).RootElement;
 
@@ -55,44 +65,40 @@ public class McpVocabularyWriteToolsTests
         "[" + string.Join(",", Enumerable.Range(0, n).Select(i => $$"""{ "word": "w{{i}}", "language": "en", "translation": "t{{i}}" }""")) + "]";
 
     [Fact]
-    public async Task AddVocabularyWords_MixedOutcomes_ReportsEachWord()
+    public async Task AddVocabularyWords_NewAndAlreadySaved_ReportsEachWord()
     {
-        var (catalog, handler) = Build(
-            Srs("alpha"),
-            Json($$"""{ "outcome": "already_saved", "word": { "id": "{{WordId}}", "word": "beta", "translation": "бета" } }"""),
-            Json("""{ "outcome": "pending", "pendingId": "22222222-2222-2222-2222-222222222222", "reason": "daily_cap" }"""),
-            Json("""{ "outcome": "lookup", "lookupId": "33333333-3333-3333-3333-333333333333", "reason": "rare_word" }"""));
+        var (catalog, handler) = Build(null, Json(Card(WordId, "бета")));
 
-        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": {{Words(4)}}, "bookId": "{{WordId}}", "bookTitle": "B" }"""), CancellationToken.None);
+        var result = await catalog.CallAsync("add_vocabulary_words",
+            Args($$"""
+                { "operationId": "{{OperationId}}", "bookTitle": "B", "words": [
+                  { "word": "w0", "language": "en", "translation": "t0", "sentence": "A w0 here." },
+                  { "word": "w1", "language": "en", "translation": "t1" }] }
+                """), CancellationToken.None);
 
         Assert.NotEqual(true, result.IsError);
         var lines = Results(result);
-        Assert.Equal(4, lines.GetArrayLength());
         Assert.Equal("srs", lines[0].GetProperty("status").GetString());
-        Assert.Equal(WordId, lines[0].GetProperty("id").GetString());
         Assert.Equal("added; first review today", lines[0].GetProperty("message").GetString());
         Assert.Equal("already_saved", lines[1].GetProperty("status").GetString());
+        Assert.Equal(WordId, lines[1].GetProperty("id").GetString());
         Assert.Contains("current translation бета", lines[1].GetProperty("message").GetString());
-        Assert.Contains("update_vocabulary_word", lines[1].GetProperty("message").GetString());
-        Assert.Contains("activates tomorrow", lines[2].GetProperty("message").GetString());
-        Assert.False(lines[2].TryGetProperty("id", out _)); // a pending row can't be edited, so no id
-        Assert.Contains("reference only", lines[3].GetProperty("message").GetString());
 
         var sent = JsonDocument.Parse(handler.Requests[0].Body!).RootElement;
-        Assert.Equal(WordId, sent.GetProperty("userBookId").GetString());
-        Assert.Equal("B", sent.GetProperty("bookTitle").GetString());
-        Assert.False(sent.TryGetProperty("nativeLanguage", out _));
+        Assert.Equal(HttpMethod.Put, handler.Requests[0].Method);
+        Assert.Equal(("A w0 here.", "B"), (sent.GetProperty("example").GetProperty("sentence").GetString(), sent.GetProperty("example").GetProperty("bookTitle").GetString()));
     }
 
     [Fact]
     public async Task AddVocabularyWords_OneWordRefused_OthersStillSaved()
     {
         var (catalog, handler) = Build(
-            Srs("w0"),
-            Json("\"Word is required (max 200 chars)\"", HttpStatusCode.BadRequest),
-            Srs("w2"));
+            null,
+            Json("""{ "error": "validation_failed", "message": "Word is required (max 200 chars)" }""", HttpStatusCode.BadRequest),
+            null);
 
-        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": {{Words(3)}} }"""), CancellationToken.None);
+        var result = await catalog.CallAsync("add_vocabulary_words",
+            Args($$"""{ "operationId": "{{OperationId}}", "words": {{Words(3)}} }"""), CancellationToken.None);
 
         var lines = Results(result);
         Assert.Equal(3, handler.Requests.Count);
@@ -102,44 +108,15 @@ public class McpVocabularyWriteToolsTests
     }
 
     [Fact]
-    public async Task AddVocabularyWords_NativeLanguageMissing_TellsModelToAskUser()
-    {
-        var (catalog, handler) = Build(Json("""{ "error": "native_language_required" }""", HttpStatusCode.BadRequest));
-
-        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": {{Words(3)}} }"""), CancellationToken.None);
-
-        // A user-level refusal stops the batch: the same answer 20 times tells the model nothing.
-        Assert.Single(handler.Requests);
-        var lines = Results(result);
-        Assert.Contains("native language in TextStack settings", lines[0].GetProperty("message").GetString());
-        Assert.Equal("not_attempted", lines[1].GetProperty("status").GetString());
-        Assert.Equal("not_attempted", lines[2].GetProperty("status").GetString());
-    }
-
-    [Fact]
-    public async Task AddVocabularyWords_DefinitionOnly_IsSavedWithoutTranslation()
-    {
-        var (catalog, handler) = Build(Srs("ephemeral"));
-
-        var result = await catalog.CallAsync("add_vocabulary_words",
-            Args("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": [{ "word": "ephemeral", "language": "en", "definition": "lasting a very short time" }] }"""),
-            CancellationToken.None);
-
-        Assert.Equal("srs", Results(result)[0].GetProperty("status").GetString());
-        var body = JsonDocument.Parse(handler.Requests.Single().Body!).RootElement;
-        Assert.Equal("lasting a very short time", body.GetProperty("definition").GetString());
-        Assert.False(body.TryGetProperty("translation", out var t) && t.ValueKind == JsonValueKind.String);
-    }
-
-    [Fact]
     public async Task AddVocabularyWords_429_StopsBatch()
     {
         var (catalog, handler) = Build(
-            Srs("w0"),
-            Json("""{ "detail": "Vocabulary limit reached (5000 words)" }""", HttpStatusCode.TooManyRequests),
-            Srs("w2"));
+            null,
+            Json("""{ "detail": "Too many requests" }""", HttpStatusCode.TooManyRequests),
+            null);
 
-        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": {{Words(4)}} }"""), CancellationToken.None);
+        var result = await catalog.CallAsync("add_vocabulary_words",
+            Args($$"""{ "operationId": "{{OperationId}}", "words": {{Words(4)}} }"""), CancellationToken.None);
 
         Assert.Equal(2, handler.Requests.Count);
         var lines = Results(result);
@@ -156,13 +133,13 @@ public class McpVocabularyWriteToolsTests
     [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": [{ "word": "a", "language": "en", "translation": "" }] }""")]
     [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": [{ "word": "a", "language": "e", "translation": "t" }] }""")] // language too short
     [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": [{ "word": "a", "language": "en", "translation": "t", "extra": 1 }] }""")]
-    [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": [{ "word": "a", "language": "en", "translation": "t" }], "bookId": "11111111-1111-1111-1111-111111111111", "editionId": "11111111-1111-1111-1111-111111111111" }""")]
     [InlineData("""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": "a" }""")]
-    [InlineData("""{ }""")]
+    [InlineData("""{ "words": [{ "word": "a", "language": "en", "translation": "t" }] }""")] // no operationId
     [InlineData("""{ "operationId": "not-a-uuid", "words": [{ "word": "a", "language": "en", "translation": "t" }] }""")]
+    [InlineData("""{ }""")]
     public async Task AddVocabularyWords_InvalidArgs_ReturnsToolError_NeverHitsHttp(string args)
     {
-        var (catalog, handler) = Build(Srs("x"));
+        var (catalog, handler) = Build(null);
 
         var result = await catalog.CallAsync("add_vocabulary_words", Args(args), CancellationToken.None);
 
@@ -170,39 +147,13 @@ public class McpVocabularyWriteToolsTests
         Assert.Empty(handler.Requests);
     }
 
-    // Required by the schema (owner decision 13), but legacy has no idempotency to lose: a host that sends none still saves.
-    [Fact]
-    public async Task AddVocabularyWords_NoOperationIdOnLegacy_StillSaves()
-    {
-        var (catalog, handler) = Build(Srs("a"));
-
-        var result = await catalog.CallAsync("add_vocabulary_words", Args("""{ "words": [{ "word": "a", "language": "en", "translation": "t" }] }"""), CancellationToken.None);
-
-        Assert.NotEqual(true, result.IsError);
-        Assert.Single(handler.Requests);
-    }
-
-    [Fact]
-    public void FromEnvironment_V2SetToOne_IsOn()
-    {
-        var before = Environment.GetEnvironmentVariable("TEXTSTACK_MCP_V2");
-        Environment.SetEnvironmentVariable("TEXTSTACK_MCP_V2", "1");
-        try
-        {
-            Assert.True(McpBridgeOptions.FromEnvironment().V2);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("TEXTSTACK_MCP_V2", before);
-        }
-    }
-
     [Fact]
     public async Task AddVocabularyWords_MoreThan20_ReturnsToolError_NeverHitsHttp()
     {
-        var (catalog, handler) = Build(Srs("x"));
+        var (catalog, handler) = Build(null);
 
-        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "operationId": "22222222-2222-2222-2222-222222222222", "words": {{Words(21)}} }"""), CancellationToken.None);
+        var result = await catalog.CallAsync("add_vocabulary_words",
+            Args($$"""{ "operationId": "{{OperationId}}", "words": {{Words(21)}} }"""), CancellationToken.None);
 
         Assert.True(result.IsError);
         Assert.Contains("between 1 and 20", TextOf(result));
@@ -210,22 +161,9 @@ public class McpVocabularyWriteToolsTests
     }
 
     [Fact]
-    public async Task ListMyVocabulary_Output_CarriesId()
-    {
-        var (catalog, _) = Build(Json($$"""
-            { "total": 1, "items": [{ "id": "{{WordId}}", "word": "w", "language": "en", "stage": 0, "nextReviewAt": "2026-01-01T00:00:00+00:00" }] }
-            """));
-
-        var result = await catalog.CallAsync("list_my_vocabulary", Args("{}"), CancellationToken.None);
-
-        var item = JsonDocument.Parse(TextOf(result)).RootElement.GetProperty("items")[0];
-        Assert.Equal(WordId, item.GetProperty("id").GetString());
-    }
-
-    [Fact]
     public async Task UpdateVocabularyWord_NoFields_ReturnsToolError_NeverHitsHttp()
     {
-        var (catalog, handler) = Build(Json("{}"));
+        var (catalog, handler) = Build(null);
 
         var result = await catalog.CallAsync("update_vocabulary_word", Args($$"""{ "id": "{{WordId}}" }"""), CancellationToken.None);
 
@@ -235,50 +173,44 @@ public class McpVocabularyWriteToolsTests
     }
 
     [Fact]
-    public async Task UpdateVocabularyWord_Valid_PatchesAndMaps()
+    public async Task UpdateVocabularyWord_Valid_PatchesOnTheRevisionJustRead()
     {
-        var (catalog, handler) = Build(Json($$"""{ "id": "{{WordId}}", "word": "w", "translation": "нове", "definition": null }"""));
+        var (catalog, handler) = Build(Json(Card(WordId, revision: 3)), Json(Card(WordId, "нове", revision: 4)));
 
         var result = await catalog.CallAsync("update_vocabulary_word", Args($$"""{ "id": "{{WordId}}", "translation": "нове" }"""), CancellationToken.None);
 
         Assert.NotEqual(true, result.IsError);
-        Assert.Equal(HttpMethod.Patch, handler.Requests[0].Method);
-        Assert.Equal($"/me/vocabulary/words/{WordId}", handler.Requests[0].Path);
+        Assert.Equal(HttpMethod.Patch, handler.Requests[1].Method);
+        Assert.Equal($"/me/v2/vocabulary/words/{WordId}", handler.Requests[1].Path);
+        var sent = JsonDocument.Parse(handler.Requests[1].Body!).RootElement;
+        Assert.Equal(3, sent.GetProperty("expectedRevision").GetInt64());
+        Assert.False(sent.TryGetProperty("definition", out _));
         Assert.Contains("нове", TextOf(result));
-        Assert.False(JsonDocument.Parse(handler.Requests[0].Body!).RootElement.TryGetProperty("definition", out _));
     }
 
-    [Fact]
-    public async Task UpdateVocabularyWord_404_SaysWhereIdsComeFrom()
+    [Theory]
+    [InlineData("update_vocabulary_word", """{ "id": "11111111-1111-1111-1111-111111111111", "definition": "d" }""")]
+    [InlineData("delete_vocabulary_word", """{ "id": "11111111-1111-1111-1111-111111111111" }""")]
+    public async Task VocabularyWordEdit_404_SaysWhereIdsComeFrom(string tool, string args)
     {
-        var (catalog, _) = Build(new HttpResponseMessage(HttpStatusCode.NotFound));
+        var (catalog, _) = Build(Json("""{ "error": "not_found", "message": "The server has no such item." }""", HttpStatusCode.NotFound));
 
-        var result = await catalog.CallAsync("update_vocabulary_word", Args($$"""{ "id": "{{WordId}}", "definition": "d" }"""), CancellationToken.None);
+        var result = await catalog.CallAsync(tool, Args(args), CancellationToken.None);
 
         Assert.True(result.IsError);
         Assert.Contains("list_my_vocabulary", TextOf(result));
     }
 
     [Fact]
-    public async Task DeleteVocabularyWord_204_ReadsAsSuccess()
+    public async Task DeleteVocabularyWord_Tombstone_ReadsAsSuccess()
     {
-        var (catalog, handler) = Build(new HttpResponseMessage(HttpStatusCode.NoContent));
+        var (catalog, handler) = Build(Json(Card(WordId)));
 
         var result = await catalog.CallAsync("delete_vocabulary_word", Args($$"""{ "id": "{{WordId}}" }"""), CancellationToken.None);
 
         Assert.NotEqual(true, result.IsError);
         Assert.Equal(HttpMethod.Delete, handler.Requests[0].Method);
+        Assert.Equal($"/me/v2/vocabulary/words/{WordId}", handler.Requests[0].Path);
         Assert.True(JsonDocument.Parse(TextOf(result)).RootElement.GetProperty("deleted").GetBoolean());
-    }
-
-    [Fact]
-    public async Task DeleteVocabularyWord_404_SaysWhereIdsComeFrom()
-    {
-        var (catalog, _) = Build(new HttpResponseMessage(HttpStatusCode.NotFound));
-
-        var result = await catalog.CallAsync("delete_vocabulary_word", Args($$"""{ "id": "{{WordId}}" }"""), CancellationToken.None);
-
-        Assert.True(result.IsError);
-        Assert.Contains("list_my_vocabulary", TextOf(result));
     }
 }

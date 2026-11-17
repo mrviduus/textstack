@@ -194,10 +194,7 @@ public class McpHttpTransportTests
         var provider = new HttpContextTokenProvider(AccessorWith(null)); // no bearer
         var catalog = new McpToolCatalog(new TextStackApiClient(http, options, provider));
 
-        var result = await catalog.CallAsync(
-            "list_my_highlights",
-            Args("""{"editionId":"33333333-3333-3333-3333-333333333333"}"""),
-            CancellationToken.None);
+        var result = await catalog.CallAsync("list_my_vocabulary", Args("{}"), CancellationToken.None);
 
         Assert.True(result.IsError);
         Assert.Contains("authentication required", TextOf(result));

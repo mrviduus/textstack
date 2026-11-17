@@ -7,12 +7,9 @@ using Contracts.V2;
 namespace TextStack.Ai.Mcp.Http;
 
 /// <summary>
-/// The my-library tools on the V2 sync API (<see cref="McpBridgeOptions.V2"/>, #1346): uploads, chapters, highlights,
-/// insights and reading state under <c>/me/v2</c>, answered in the legacy shapes the tool catalog already maps (as
-/// the vocabulary tools are), so the tools, their count and descriptions stay as they are. A V2 chapter's key is its
-/// slug; its id is minted here from the file and the key (<see cref="ChapterId"/>), so listing and saving agree.
-/// Catalog (edition) and chapter-review tools are not ported: in v2 mode their legacy routes answer 410, which the
-/// tools report as an error.
+/// The my-library tools on the V2 sync API (#1346): uploads, chapters, highlights, insights and reading state
+/// under <c>/me/v2</c>, answered in the shapes the tool catalog maps. A V2 chapter's key is its slug; its id is
+/// minted here from the file and the key (<see cref="ChapterId"/>), so listing and saving agree.
 /// </summary>
 public sealed partial class TextStackApiClient
 {
@@ -37,7 +34,7 @@ public sealed partial class TextStackApiClient
         return new(rows, null);
     }
 
-    /// <summary>The caller's live books; a refusal throws the same way a legacy 5xx surfaced as a tool error.</summary>
+    /// <summary>The caller's live books; a refusal throws, which the catalog reports as a tool error.</summary>
     private async Task<List<BookDto>> V2BooksAsync(CancellationToken ct)
     {
         var books = await PullAllAsync<BookDto>("/me/v2/library/changes", ct);
@@ -72,20 +69,20 @@ public sealed partial class TextStackApiClient
     internal static Guid ChapterId(Guid fileId, string chapterKey) =>
         new(SHA256.HashData(Encoding.UTF8.GetBytes($"{fileId:D}\n{chapterKey}")).AsSpan(0, 16));
 
-    private async Task<UserBookDetailJson?> GetMyBookV2Async(Guid bookId, CancellationToken ct)
+    public async Task<UserBookDetailJson?> GetMyBookAsync(Guid bookId, CancellationToken ct)
     {
         if (await V2BookAsync(bookId, ct) is not { } book) return null;
         var file = book.CurrentFile;
         var chapters = file is null ? [] : await V2ChaptersAsync(bookId, file.Id, ct);
         return new UserBookDetailJson(book.Id, book.Title, book.Id.ToString(), book.Language ?? "", book.Author, book.Description,
             book.Genre, book.PublishedYear, file?.WordCount,
-            // Legacy's statuses: an ingestion job queued or running is Processing; none (an imported file) is Ready.
+            // An ingestion job queued or running is Processing; none (an imported file) is Ready.
             file?.Ingestion switch { "queued" or "processing" => "Processing", "failed" => "Failed", _ => "Ready" },
             file?.Format == "pdf",
             chapters.Select(c => new UserChapterSummaryJson(ChapterId(file!.Id, c.ChapterKey), c.ChapterNumber, c.ChapterKey, c.Title, c.WordCount)).ToList());
     }
 
-    private async Task<UserChapterJson?> GetMyChapterV2Async(Guid bookId, string chapterKey, CancellationToken ct)
+    public async Task<UserChapterJson?> GetMyChapterAsync(Guid bookId, string chapterKey, CancellationToken ct)
     {
         if ((await V2BookAsync(bookId, ct))?.CurrentFile is not { } file) return null;
         var read = await SendAsync<object>(HttpMethod.Get,
@@ -99,9 +96,9 @@ public sealed partial class TextStackApiClient
 
     /// <summary>
     /// V2 has no full-text search: the query matches the title or the author; <paramref name="tags"/> (comma-separated)
-    /// must all be on the book, as legacy's filter, case-insensitive.
+    /// must all be on the book, case-insensitive.
     /// </summary>
-    private async Task<IReadOnlyList<UserBookSearchHitJson>> SearchMyLibraryV2Async(string query, string? tags, CancellationToken ct)
+    public async Task<IReadOnlyList<UserBookSearchHitJson>> SearchMyLibraryAsync(string query, string? tags, CancellationToken ct)
     {
         var q = query.Trim();
         var wanted = (tags ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -112,7 +109,7 @@ public sealed partial class TextStackApiClient
             .ToList();
     }
 
-    private async Task<IReadOnlyList<HighlightJson>?> GetUserBookHighlightsV2Async(Guid bookId, CancellationToken ct)
+    public async Task<IReadOnlyList<HighlightJson>?> GetUserBookHighlightsAsync(Guid bookId, CancellationToken ct)
     {
         if (await V2BookAsync(bookId, ct) is null) return null;
         var feed = await PullAllAsync<AnnotationDto>("/me/v2/annotations/changes", ct);
@@ -136,14 +133,14 @@ public sealed partial class TextStackApiClient
     }
 
     /// <summary>
-    /// <c>PUT /me/v2/annotations/{id}</c>: the same synthesized text quote as legacy's write (no DOM here), as a
+    /// <c>PUT /me/v2/annotations/{id}</c>: a synthesized text quote (no DOM here), as a
     /// <c>textstack-anchor-v1</c> on the chapter <paramref name="chapterId"/> names in the book's current file.
     /// </summary>
-    private async Task<HighlightJson?> SaveUserBookHighlightV2Async(
+    public async Task<HighlightJson?> SaveUserBookHighlightAsync(
         Guid bookId, Guid chapterId, string color, string selectedText, string? noteText, CancellationToken ct)
     {
-        // ponytail: legacy's 200-assistant-highlights-per-book ceiling is not counted on V2 (an assistant's write is rate
-        // limited per user, assistant-write); add it to the annotations write if an assistant ever floods a book.
+        // ponytail: no per-book ceiling on assistant highlights (an assistant's write is rate limited per user,
+        // assistant-write); add one to the annotations write if an assistant ever floods a book.
         if ((await V2BookAsync(bookId, ct))?.CurrentFile is not { } file) return null;
         var chapter = (await V2ChaptersAsync(bookId, file.Id, ct)).FirstOrDefault(c => ChapterId(file.Id, c.ChapterKey) == chapterId);
         if (chapter is null) return null;
@@ -164,14 +161,14 @@ public sealed partial class TextStackApiClient
         return new HighlightJson(a.Id, null, chapterId, a.Color, a.SelectedText, a.NoteText, a.CreatedAt);
     }
 
-    private async Task<IReadOnlyList<BookInsightJson>?> GetInsightsV2Async(Guid bookId, CancellationToken ct)
+    public async Task<IReadOnlyList<BookInsightJson>?> GetInsightsAsync(Guid bookId, CancellationToken ct)
     {
         var listed = await SendAsync<object>(HttpMethod.Get, $"/me/v2/books/{bookId}/insights", null, ct);
         if (listed.Error is not null) { ThrowUnlessNotFound(listed); return null; }
         return listed.Value.Deserialize<List<InsightDto>>(JsonOptions)!.Select(ToInsightJson).ToList();
     }
 
-    private async Task<BookInsightJson?> SaveInsightV2Async(Guid bookId, string? chapterSlug, string text, string? question, CancellationToken ct)
+    public async Task<BookInsightJson?> SaveInsightAsync(Guid bookId, string? chapterSlug, string text, string? question, CancellationToken ct)
     {
         var saved = await SendAsync(HttpMethod.Post, $"/me/v2/books/{bookId}/insights", new InsightRequest(chapterSlug, text, question), ct);
         if (saved.Error is not null) { ThrowIfServerFault(saved); return null; }
@@ -197,7 +194,7 @@ public sealed partial class TextStackApiClient
         return read.Value.Deserialize<ReadingStateDto>(JsonOptions);
     }
 
-    private async Task<UserBookProgressJson?> GetUserBookProgressV2Async(Guid bookId, CancellationToken ct) =>
+    public async Task<UserBookProgressJson?> GetUserBookProgressAsync(Guid bookId, CancellationToken ct) =>
         await V2ReadingStateAsync(bookId, ct) is { } s
             ? new(PositionChapterOf(s.CurrentLocator), null, (double)s.BookFraction, s.UpdatedAt)
             : null;
@@ -206,7 +203,7 @@ public sealed partial class TextStackApiClient
     /// <c>PUT /me/v2/books/{id}/reading-state</c> at the start of <paramref name="chapterSlug"/> (a <c>textstack-position-v1</c>,
     /// as the transitional reader writes), on the revision just read; a finished book is completed now.
     /// </summary>
-    private async Task<bool> SetUserBookProgressV2Async(Guid bookId, string? chapterSlug, double? percent, CancellationToken ct)
+    public async Task<bool> SetUserBookProgressAsync(Guid bookId, string? chapterSlug, double? percent, CancellationToken ct)
     {
         if (chapterSlug is null || (await V2BookAsync(bookId, ct))?.CurrentFile is not { } file) return false;
         var current = await V2ReadingStateAsync(bookId, ct);
@@ -223,11 +220,18 @@ public sealed partial class TextStackApiClient
         return written.Error is null;
     }
 
+    /// <summary>What the reader is reading now and finished this month.</summary>
+    public async Task<ShelvesJson> GetShelvesAsync(CancellationToken ct) => (await ReadingAsync(ct)).Shelves;
+
+    /// <summary>Every upload, opened or not.</summary>
+    // ponytail: get_my_reading reads the feeds twice (shelves, then this); one read if it ever matters.
+    public async Task<IReadOnlyList<MyBookJson>> GetMyBooksAsync(CancellationToken ct) => (await ReadingAsync(ct)).All;
+
     /// <summary>
-    /// <c>get_my_reading</c>'s two reads on V2: the uploads with their reading states. In progress = opened and not
+    /// <c>get_my_reading</c>'s two reads: the uploads with their reading states. In progress = opened and not
     /// completed, last read first; finished this month = completed since the first of this (UTC) month.
     /// </summary>
-    private async Task<(ShelvesJson Shelves, IReadOnlyList<MyBookJson> All)> ReadingV2Async(CancellationToken ct)
+    private async Task<(ShelvesJson Shelves, IReadOnlyList<MyBookJson> All)> ReadingAsync(CancellationToken ct)
     {
         var books = await V2BooksAsync(ct);
         var feed = await PullAllAsync<ReadingStateDto>("/me/v2/reading/changes", ct);

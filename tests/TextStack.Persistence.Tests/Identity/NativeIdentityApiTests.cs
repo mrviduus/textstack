@@ -399,7 +399,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
                 """, new { user, book, file });
 
             using var http = _apps[^1].CreateClient();
-            var options = new TextStack.Ai.Mcp.McpBridgeOptions { ApiBaseUrl = "http://localhost/", SiteHost = "localhost", McpToken = Access(account), V2 = true };
+            var options = new TextStack.Ai.Mcp.McpBridgeOptions { ApiBaseUrl = "http://localhost/", SiteHost = "localhost", McpToken = Access(account) };
             var mcp = new TextStack.Ai.Mcp.Tools.McpToolCatalog(
                 new TextStack.Ai.Mcp.Http.TextStackApiClient(http, options, new TextStack.Ai.Mcp.Auth.StaticEnvTokenProvider(options)));
             async Task<JsonElement> Call(string tool, object args)

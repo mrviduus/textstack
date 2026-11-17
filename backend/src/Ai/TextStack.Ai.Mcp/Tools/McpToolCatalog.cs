@@ -7,22 +7,21 @@ using TextStack.Ai.Mcp.Http;
 namespace TextStack.Ai.Mcp.Tools;
 
 /// <summary>
-/// The runtime catalog of MCP tools the server exposes. AI-047 shipped
-/// <c>search_books</c>; AI-048a appended 5 READ tools (<c>get_book</c>,
-/// <c>get_chapter</c>, <c>list_my_highlights</c>, <c>list_my_vocabulary</c>,
-/// AI-048b appends the first WRITE tool (<c>save_highlight</c>),
-/// completing the 7-tool surface. <c>tools/list</c> and <c>tools/call</c> are served
-/// from this list, so adding a tool is a single append + its handler.
+/// The runtime catalog of MCP tools the server exposes. <c>tools/list</c> and <c>tools/call</c> are
+/// served from this list, so adding a tool is a single append + its handler.
 ///
 /// Tool handlers contain only validation + mapping. Upstream timeout / transport
 /// / parse faults are handled centrally by <see cref="InvokeAsync"/> so every tool
 /// returns a clean <c>IsError</c> instead of a JSON-RPC protocol fault, while a
 /// genuine caller cancellation still propagates.
 ///
-/// User-scoped tools (highlights / vocabulary / ask) require a Bearer token; when
-/// none is available they return a clean auth-required <c>IsError</c> and never
-/// issue the HTTP call. All tools are ALWAYS listed (stable discovery) regardless
-/// of token presence — only the call fails-clean.
+/// The working tools require a Bearer token; when none is available they return a clean
+/// auth-required <c>IsError</c> and never issue the HTTP call. All tools are ALWAYS listed
+/// (stable discovery) regardless of token presence — only the call fails-clean.
+///
+/// The retired tools (<see cref="Retired"/>: the catalog, edition and chapter-review tools legacy
+/// served) stay listed and answer that they are retired, without a call. Deleting them is the
+/// owner's open M6 decision D6 (a new tool version).
 /// </summary>
 public sealed partial class McpToolCatalog
 {
@@ -34,18 +33,18 @@ public sealed partial class McpToolCatalog
         _logger = logger ?? NullLogger<McpToolCatalog>.Instance;
         var tools = new[]
         {
-            BuildSearchBooks(api),
-            BuildGetBook(api),
-            BuildGetChapter(api),
+            BuildSearchBooks(),
+            BuildGetBook(),
+            BuildGetChapter(),
             BuildSearchMyLibrary(api),
             BuildGetMyBook(api),
             BuildGetMyChapter(api),
-            BuildListMyHighlights(api),
+            BuildListMyHighlights(),
             BuildListMyVocabulary(api),
             BuildAddVocabularyWords(api),
             BuildUpdateVocabularyWord(api),
             BuildDeleteVocabularyWord(api),
-            BuildSaveHighlight(api),
+            BuildSaveHighlight(),
             BuildSaveMyHighlight(api),
             BuildListMyBookHighlights(api),
             BuildSaveInsight(api),
@@ -53,16 +52,14 @@ public sealed partial class McpToolCatalog
             BuildGetMyReading(api),
             BuildGetBookProgress(api),
             BuildSetBookProgress(api),
-            BuildGetChapterReview(api),
-            BuildSaveChapterReview(api),
+            BuildGetChapterReview(),
+            BuildSaveChapterReview(),
             BuildShareChapter(api),
             BuildSaveCheckpoint(api),
             BuildListCheckpoints(api),
             BuildGetSharedChapter(api),
         };
-        // V2-only tools have no legacy endpoint to fall back to.
-        var v2Only = global::Contracts.Mcp.McpManifestCatalog.Tools.Where(t => t.V2Only).Select(t => t.Name).ToHashSet();
-        _byName = tools.Where(t => api.UsesV2 || !v2Only.Contains(t.Name)).ToDictionary(t => t.Name, StringComparer.Ordinal);
+        _byName = tools.ToDictionary(t => t.Name, StringComparer.Ordinal);
     }
 
     public List<Tool> ListTools() =>
@@ -109,10 +106,6 @@ public sealed partial class McpToolCatalog
             return Error(ex.VerificationUri is { } uri && ex.UserCode is { } code
                 ? $"authentication required — open {uri} and enter code {code} to connect TextStack, then retry."
                 : $"authentication required — {ex.Message}");
-        }
-        catch (McpRetiredException ex)
-        {
-            return Error($"{tool} failed: {ex.Message}");
         }
         // Real client cancellation (client disconnected) is cooperative — propagate
         // so the SDK ends the call. Only a TIMEOUT (HttpClient's own timeout also
@@ -162,32 +155,14 @@ public sealed partial class McpToolCatalog
         }
         """).RootElement;
 
-    private McpToolDescriptor BuildSearchBooks(TextStackApiClient api) => new()
+    private static McpToolDescriptor BuildSearchBooks() => new()
     {
         Name = "search_books",
         Title = "Search the catalog",
         ReadOnly = true,
         Description = global::Contracts.Mcp.McpManifestCatalog.Describe("search_books"),
         InputSchema = SearchBooksSchema,
-        Handler = (args, ct) =>
-        {
-            if (!TryReadSearchArgs(args, out var query, out var limit, out var validationError))
-                return Task.FromResult(Error(validationError));
-
-            return InvokeAsync("search_books", ct, async () =>
-            {
-                var page = await api.SearchBooksAsync(query, limit, ct);
-                var results = page.Items.Select(hit => new
-                {
-                    title = hit.Edition.Title,
-                    author = hit.Edition.Authors ?? "",
-                    chapterTitle = hit.ChapterTitle ?? "",
-                    editionSlug = hit.Edition.Slug,
-                    snippet = hit.Highlights is { Count: > 0 } h ? h[0] : "",
-                });
-                return Text(JsonSerializer.Serialize(new { results }));
-            });
-        },
+        Handler = (_, _) => Task.FromResult(Retired("search_books")),
     };
 
     // ── get_book ────────────────────────────────────────────────────────────────
@@ -204,49 +179,14 @@ public sealed partial class McpToolCatalog
         }
         """).RootElement;
 
-    private McpToolDescriptor BuildGetBook(TextStackApiClient api) => new()
+    private static McpToolDescriptor BuildGetBook() => new()
     {
         Name = "get_book",
         Title = "Get a catalog book",
         ReadOnly = true,
         Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_book"),
         InputSchema = GetBookSchema,
-        Handler = (args, ct) =>
-        {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "slug")
-                || !ArgReader.TryRequiredString(obj, "slug", 1, 300, out var slug, out err))
-                return Task.FromResult(Error(err));
-
-            return InvokeAsync("get_book", ct, async () =>
-            {
-                var book = await api.GetBookAsync(slug, ct);
-                if (book is null)
-                    return Error($"get_book: no book found for slug '{slug}'");
-
-                var mapped = new
-                {
-                    // editionId — the catalog identifier the edition-scoped tools take.
-                    editionId = book.Id,
-                    title = book.Title,
-                    slug = book.Slug,
-                    language = book.Language,
-                    description = book.Description ?? "",
-                    authors = (book.Authors ?? []).Select(a => a.Name).ToArray(),
-                    genres = (book.Genres ?? []).Select(g => g.Name).ToArray(),
-                    chapters = (book.Chapters ?? []).Select(c => new
-                    {
-                        // save_highlight is keyed by chapterId and its description says to get it
-                        // from here. Omitting it made that instruction impossible to follow.
-                        chapterId = c.Id,
-                        chapterNumber = c.ChapterNumber,
-                        slug = c.Slug,
-                        title = c.Title,
-                        wordCount = c.WordCount,
-                    }),
-                };
-                return Text(JsonSerializer.Serialize(mapped));
-            });
-        },
+        Handler = (_, _) => Task.FromResult(Retired("get_book")),
     };
 
     // ── get_chapter ───────────────────────────────────────────────────────────
@@ -264,56 +204,20 @@ public sealed partial class McpToolCatalog
         }
         """).RootElement;
 
-    private McpToolDescriptor BuildGetChapter(TextStackApiClient api) => new()
+    private static McpToolDescriptor BuildGetChapter() => new()
     {
         Name = "get_chapter",
         Title = "Read a catalog chapter",
         ReadOnly = true,
         Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_chapter"),
         InputSchema = GetChapterSchema,
-        Handler = (args, ct) =>
-        {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "slug", "chapterSlug")
-                || !ArgReader.TryRequiredString(obj, "slug", 1, 300, out var slug, out err)
-                || !ArgReader.TryRequiredString(obj, "chapterSlug", 1, 300, out var chapterSlug, out err))
-                return Task.FromResult(Error(err));
-
-            return InvokeAsync("get_chapter", ct, async () =>
-            {
-                var chapter = await api.GetChapterAsync(slug, chapterSlug, ct);
-                if (chapter is null)
-                    return Error($"get_chapter: no chapter '{chapterSlug}' in book '{slug}'");
-
-                var text = HtmlText.StripAndCap(chapter.Html, HtmlText.DefaultMaxChars, out var truncated);
-                var mapped = new
-                {
-                    chapterNumber = chapter.ChapterNumber,
-                    slug = chapter.Slug,
-                    title = chapter.Title,
-                    prevSlug = chapter.Prev?.Slug,
-                    nextSlug = chapter.Next?.Slug,
-                    truncated,
-                    text,
-                };
-                return Text(JsonSerializer.Serialize(mapped));
-            });
-        },
+        Handler = (_, _) => Task.FromResult(Retired("get_chapter")),
     };
 
     // ── my library: search_my_library / get_my_book / get_my_chapter ────────────
     //
-    // The user's OWN uploaded books. Separate from the three tools above in the
-    // only way that matters to a caller: an upload is identified by a `bookId`
-    // (UserBook.Id) and has NO editionId, because UserBook and Edition are
-    // separate aggregates with separate chapter and chunk tables. Feeding a
-    // bookId to list_my_highlights yields an empty list —
-    // so every description below says which identifier it returns and what that
-    // identifier is good for.
-    //
-    // All three are Bearer-scoped: the endpoints filter by user_id in SQL, so the
-    // bridge inherits the app's isolation rather than reimplementing it. None of
-    // them needs the RAG index — search is Postgres FTS over `search_vector`,
-    // built at upload, and get_my_chapter reads the stored chapter.
+    // The user's own books, identified by `bookId`. Bearer-scoped: the endpoints filter by user, so the
+    // bridge inherits the app's isolation rather than reimplementing it.
 
     private static readonly JsonElement SearchMyLibrarySchema = JsonDocument.Parse(
         """
@@ -345,9 +249,6 @@ public sealed partial class McpToolCatalog
             return InvokeAsync("search_my_library", ct, async () =>
             {
                 var hits = await api.SearchMyLibraryAsync(query, tags, ct);
-                if (hits is null)
-                    return Error("search_my_library failed: the library search is unavailable");
-
                 var results = hits.Select(h => new
                 {
                     // Stated on every row so a model holding a mixed result set
@@ -358,8 +259,6 @@ public sealed partial class McpToolCatalog
                     author = h.Author ?? "",
                     language = h.Language,
                     chapterSlug = h.ChapterSlug,
-                    // Carries <mark> around the matched terms, as search_books'
-                    // snippet carries <b> — left as sent.
                     excerpt = h.Excerpt ?? "",
                 });
                 return Text(JsonSerializer.Serialize(new { results }));
@@ -500,34 +399,14 @@ public sealed partial class McpToolCatalog
         }
         """).RootElement;
 
-    private McpToolDescriptor BuildListMyHighlights(TextStackApiClient api) => new()
+    private static McpToolDescriptor BuildListMyHighlights() => new()
     {
         Name = "list_my_highlights",
         Title = "List my highlights",
         ReadOnly = true,
         Description = global::Contracts.Mcp.McpManifestCatalog.Describe("list_my_highlights"),
         InputSchema = ListMyHighlightsSchema,
-        Handler = (args, ct) =>
-        {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "editionId")
-                || !ArgReader.TryRequiredGuid(obj, "editionId", out var editionId, out err))
-                return Task.FromResult(Error(err));
-
-            return InvokeAsync("list_my_highlights", ct, async () =>
-            {
-                var highlights = await api.GetHighlightsAsync(editionId, ct);
-                var mapped = highlights.Select(h => new
-                {
-                    id = h.Id,
-                    chapterId = h.ChapterId,
-                    color = h.Color,
-                    selectedText = h.SelectedText,
-                    noteText = h.NoteText,
-                    createdAt = h.CreatedAt,
-                });
-                return Text(JsonSerializer.Serialize(new { highlights = mapped }));
-            });
-        },
+        Handler = (_, _) => Task.FromResult(Retired("list_my_highlights")),
     };
 
     // ── list_my_vocabulary ──────────────────────────────────────────────────────
@@ -653,8 +532,8 @@ public sealed partial class McpToolCatalog
                 return Task.FromResult(Error(
                     "Pass either 'bookId' (an uploaded book) or 'editionId' (a catalog book), not both."));
 
-            // Owner decision 13: required by the schema; only an upstream without idempotency (legacy) tolerates its absence.
-            if (operationId is null && api.UsesV2)
+            // Owner decision 13: required, so a retry never saves twice.
+            if (operationId is null)
                 return Task.FromResult(Error("'operationId' is required: a new UUID for this save, the same one when retrying it."));
 
             return InvokeAsync("add_vocabulary_words", ct, async () =>
@@ -662,15 +541,12 @@ public sealed partial class McpToolCatalog
                 var results = new List<WordResult>(words.Count);
                 for (var i = 0; i < words.Count; i++)
                 {
-                    var result = await api.SaveWordAsync(words[i], operationId, ct);
-                    // Both refusals are about the user, not the word: every later word would get the same answer.
-                    var stop = result.Status is System.Net.HttpStatusCode.TooManyRequests
-                        ? new WordResult(words[i].Word, "stopped",
-                            Message: "stopped: vocabulary full (5000) or adding too fast; tell the user")
-                        : result.Error == "native_language_required" ? ToWordResult(words[i].Word, result) : null;
-                    if (stop is not null)
+                    var result = await api.SaveWordAsync(words[i], operationId.Value, ct);
+                    // A 429 is about the user, not the word: every later word would get the same answer.
+                    if (result.Status is System.Net.HttpStatusCode.TooManyRequests)
                     {
-                        results.Add(stop);
+                        results.Add(new WordResult(words[i].Word, "stopped",
+                            Message: "stopped: vocabulary full (5000) or adding too fast; tell the user"));
                         results.AddRange(words.Skip(i + 1).Select(w =>
                             new WordResult(w.Word, "not_attempted", Message: "not attempted; the batch stopped")));
                         break;
@@ -687,9 +563,7 @@ public sealed partial class McpToolCatalog
     private static WordResult ToWordResult(string word, ApiResult<JsonElement> result)
     {
         if (result.Error is { } e)
-            return e == "native_language_required"
-                ? new(word, "refused", Message: "the user must set a native language in TextStack settings")
-                : new(word, "refused", Message: e);
+            return new(word, "refused", Message: e);
 
         var body = result.Value;
         var outcome = body.TryGetProperty("outcome", out var o) ? o.GetString() ?? "" : "";
@@ -706,9 +580,6 @@ public sealed partial class McpToolCatalog
             "srs" => new(word, outcome, id, translation, "added; first review today"),
             "already_saved" => new(word, outcome, id, translation,
                 $"already in vocabulary (current translation {translation ?? "none"}); use update_vocabulary_word"),
-            "pending" => new(word, outcome, Message: "queued; activates tomorrow; can't be edited until then"),
-            "lookup" or "lookup_pending" => new(word, outcome,
-                Message: "kept as reference only; the user's rare-word filter is on"),
             _ => new(word, outcome, Message: outcome),
         };
     }
@@ -857,10 +728,6 @@ public sealed partial class McpToolCatalog
 
     // ── save_highlight (Bearer, WRITE) ───────────────────────────────────────────
 
-    // The agent-providable fields only. No DOM-anchor blob is accepted — Claude
-    // Desktop has no reader DOM, so the bridge synthesizes a minimal text-quote
-    // anchor server-side (see SynthesizeAnchor). color is a small enum (reader's
-    // palette) defaulting to "yellow".
     private static readonly JsonElement SaveHighlightSchema = JsonDocument.Parse(
         """
         {
@@ -880,47 +747,14 @@ public sealed partial class McpToolCatalog
     // Match the web reader's HighlightColor palette (offlineDb.ts) — no "orange".
     private static readonly string[] HighlightColors = ["yellow", "green", "blue", "pink"];
 
-    private McpToolDescriptor BuildSaveHighlight(TextStackApiClient api) => new()
+    private static McpToolDescriptor BuildSaveHighlight() => new()
     {
         Name = "save_highlight",
         Title = "Save a highlight",
         ReadOnly = false,
         Description = global::Contracts.Mcp.McpManifestCatalog.Describe("save_highlight"),
         InputSchema = SaveHighlightSchema,
-        Handler = (args, ct) =>
-        {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "editionId", "chapterId", "selectedText", "color", "noteText")
-                || !ArgReader.TryRequiredGuid(obj, "editionId", out var editionId, out err)
-                || !ArgReader.TryRequiredGuid(obj, "chapterId", out var chapterId, out err)
-                || !ArgReader.TryRequiredString(obj, "selectedText", 1, 5000, out var selectedText, out err)
-                || !ArgReader.TryOptionalString(obj, "noteText", 2000, out var noteText, out err)
-                || !TryReadColor(obj, out var color, out err))
-                return Task.FromResult(Error(err));
-
-            // No DOM → synthesize a W3C text-quote anchor from the agent's args.
-            // The web reader's findTextByAnchor matches on `exact` first, so a
-            // single-occurrence quote re-anchors; otherwise it stays saved + listable.
-            var anchorJson = SynthesizeAnchor(chapterId, selectedText);
-
-            return InvokeAsync("save_highlight", ct, async () =>
-            {
-                var saved = await api.SaveHighlightAsync(editionId, chapterId, anchorJson, color, selectedText, noteText, ct);
-                if (saved is null)
-                    return Error("save_highlight failed: the book or chapter was not found, or the save was rejected");
-
-                var mapped = new
-                {
-                    id = saved.Id,
-                    chapterId = saved.ChapterId,
-                    color = saved.Color,
-                    selectedText = saved.SelectedText,
-                    noteText = saved.NoteText,
-                    createdAt = saved.CreatedAt,
-                    saved = true,
-                };
-                return Text(JsonSerializer.Serialize(mapped));
-            });
-        },
+        Handler = (_, _) => Task.FromResult(Retired("save_highlight")),
     };
 
     // ── write-back: highlights and insights on the user's OWN books ─────────────
@@ -970,14 +804,9 @@ public sealed partial class McpToolCatalog
                 || !TryReadColor(obj, out var color, out err))
                 return Task.FromResult(Error(err));
 
-            // Same synthesized W3C text-quote anchor as the catalog write: no DOM
-            // here, so the reader re-anchors by `exact`.
-            var anchorJson = SynthesizeAnchor(chapterId, selectedText);
-
             return InvokeAsync("save_my_highlight", ct, async () =>
             {
-                var saved = await api.SaveUserBookHighlightAsync(
-                    bookId, chapterId, anchorJson, color, selectedText, noteText, ct);
+                var saved = await api.SaveUserBookHighlightAsync(bookId, chapterId, color, selectedText, noteText, ct);
                 if (saved is null)
                     return Error("save_my_highlight failed: the book or chapter was not found, or the save was rejected");
 
@@ -1076,18 +905,19 @@ public sealed partial class McpToolCatalog
         Handler = (args, ct) =>
         {
             if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "editionId", "chapterSlug", "text", "question")
-                || !TryReadInsightTarget(obj, out var editionId, out var bookId, out err)
+                || !TryReadInsightTarget(obj, out _, out var bookId, out err)
                 || !ArgReader.TryRequiredString(obj, "text", 1, 20000, out var text, out err)
                 || !ArgReader.TryOptionalString(obj, "chapterSlug", 300, out var chapterSlug, out err)
                 || !ArgReader.TryOptionalString(obj, "question", 1000, out var question, out err))
                 return Task.FromResult(Error(err));
+            if (bookId is not { } id) return Task.FromResult(Retired("save_insight"));
 
             return InvokeAsync("save_insight", ct, async () =>
             {
-                var saved = await api.SaveInsightAsync(editionId, bookId, chapterSlug, text, question, ct);
+                var saved = await api.SaveInsightAsync(id, chapterSlug, text, question, ct);
                 if (saved is null)
                     return Error("save_insight failed: the book was not found, that chapter slug does not exist in it, "
-                        + "or the chapter has a structured review (replace that with save_chapter_review)");
+                        + "or the save was rejected");
 
                 var mapped = new
                 {
@@ -1127,16 +957,15 @@ public sealed partial class McpToolCatalog
         Handler = (args, ct) =>
         {
             if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "editionId")
-                || !TryReadInsightTarget(obj, out var editionId, out var bookId, out err))
+                || !TryReadInsightTarget(obj, out _, out var bookId, out err))
                 return Task.FromResult(Error(err));
+            if (bookId is not { } id) return Task.FromResult(Retired("get_my_insights"));
 
             return InvokeAsync("get_my_insights", ct, async () =>
             {
-                var insights = await api.GetInsightsAsync(editionId, bookId, ct);
+                var insights = await api.GetInsightsAsync(id, ct);
                 if (insights is null)
-                    return Error(bookId is { } b
-                        ? $"get_my_insights: no uploaded book found with id '{b}'"
-                        : $"get_my_insights: no catalog book found with editionId '{editionId}'");
+                    return Error($"get_my_insights: no uploaded book found with id '{id}'");
 
                 var mapped = insights.Select(i => new
                 {
@@ -1154,17 +983,14 @@ public sealed partial class McpToolCatalog
         },
     };
 
-    // ── chapter review ──────────────────────────────────────────────────────────
-    // docs/internal/features/chapter-review.md. One upstream call each; the API's DTO is the tool text, and
-    // a refusal comes back with the server's own message (every validation problem, or the spoiler
-    // gate's instruction), because that message is what the model acts on.
-
     // Re-serialized unescaped: the default encoder writes every non-ASCII character (Cyrillic, an em
-    // dash, curly quotes) as \uXXXX, which multiplies a 40k-char chapter part in the model's context.
+    // dash, curly quotes) as \uXXXX, which bloats the model's context.
     private static readonly JsonSerializerOptions UnescapedJson = new()
     {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
+
+    // ── chapter review (retired) ──────────────────────────────────────────────────
 
     private static readonly JsonElement GetChapterReviewSchema = JsonDocument.Parse(
         """
@@ -1181,29 +1007,14 @@ public sealed partial class McpToolCatalog
         }
         """).RootElement;
 
-    private McpToolDescriptor BuildGetChapterReview(TextStackApiClient api) => new()
+    private static McpToolDescriptor BuildGetChapterReview() => new()
     {
         Name = "get_chapter_review",
         Title = "Get a chapter review",
         ReadOnly = true,
         Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_chapter_review"),
         InputSchema = GetChapterReviewSchema,
-        Handler = (args, ct) =>
-        {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "editionId", "chapterSlug", "part")
-                || !TryReadInsightTarget(obj, out var editionId, out var bookId, out err)
-                || !ArgReader.TryRequiredString(obj, "chapterSlug", 1, 300, out var chapterSlug, out err)
-                || !ArgReader.TryOptionalInt(obj, "part", 1, 20, out var part, out err))
-                return Task.FromResult(Error(err));
-
-            return InvokeAsync("get_chapter_review", ct, async () =>
-            {
-                var result = await api.GetChapterReviewAsync(editionId, bookId, chapterSlug, part, ct);
-                return result.Error is { } e
-                    ? Error($"get_chapter_review: {e}")
-                    : Text(JsonSerializer.Serialize(result.Value, UnescapedJson));
-            });
-        },
+        Handler = (_, _) => Task.FromResult(Retired("get_chapter_review")),
     };
 
     private static readonly JsonElement SaveChapterReviewSchema = JsonDocument.Parse(
@@ -1266,7 +1077,7 @@ public sealed partial class McpToolCatalog
         }
         """).RootElement;
 
-    private McpToolDescriptor BuildSaveChapterReview(TextStackApiClient api) => new()
+    private static McpToolDescriptor BuildSaveChapterReview() => new()
     {
         Name = "save_chapter_review",
         Title = "Save a chapter review",
@@ -1275,26 +1086,7 @@ public sealed partial class McpToolCatalog
         Idempotent = true,
         Description = global::Contracts.Mcp.McpManifestCatalog.Describe("save_chapter_review"),
         InputSchema = SaveChapterReviewSchema,
-        Handler = (args, ct) =>
-        {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "editionId", "chapterSlug", "review")
-                || !TryReadInsightTarget(obj, out var editionId, out var bookId, out err)
-                || !ArgReader.TryRequiredString(obj, "chapterSlug", 1, 300, out var chapterSlug, out err))
-                return Task.FromResult(Error(err));
-
-            // Only the envelope is checked here; the review's contents are the server's to validate,
-            // so every problem arrives in one refusal instead of being split across two layers.
-            if (!obj.TryGetProperty("review", out var review) || review.ValueKind != JsonValueKind.Object)
-                return Task.FromResult(Error("'review' is required and must be an object."));
-
-            return InvokeAsync("save_chapter_review", ct, async () =>
-            {
-                var result = await api.SaveChapterReviewAsync(editionId, bookId, chapterSlug, review, ct);
-                return result.Error is { } e
-                    ? Error($"save_chapter_review refused: {e}")
-                    : Text(JsonSerializer.Serialize(result.Value, UnescapedJson));
-            });
-        },
+        Handler = (_, _) => Task.FromResult(Retired("save_chapter_review")),
     };
 
     // Exactly one of bookId / editionId. Both or neither is a caller error, and
@@ -1336,45 +1128,6 @@ public sealed partial class McpToolCatalog
         return true;
     }
 
-    // Minimal W3C text-quote anchor (matches the reader's TextAnchor shape) the API
-    // stores in its jsonb anchor column. No DOM offsets are available from an MCP
-    // client, so prefix/suffix are empty and offsets are quote-relative; the reader
-    // re-anchors by `exact`.
-    private static string SynthesizeAnchor(Guid chapterId, string selectedText) =>
-        JsonSerializer.Serialize(new
-        {
-            prefix = "",
-            exact = selectedText,
-            suffix = "",
-            startOffset = 0,
-            endOffset = selectedText.Length,
-            chapterId = chapterId.ToString(),
-            source = "mcp",
-        });
-
-    // ── search_books arg validation (mirrors the input schema) ───────────────────
-
-    private static bool TryReadSearchArgs(
-        JsonElement? args,
-        out string query,
-        out int? limit,
-        out string error)
-    {
-        query = "";
-        limit = null;
-
-        if (!ArgReader.TryObject(args, out var obj, out error, "query", "limit"))
-            return false;
-
-        if (!ArgReader.TryRequiredString(obj, "query", 2, 200, out query, out error))
-            return false;
-
-        if (!ArgReader.TryOptionalInt(obj, "limit", 1, 50, out limit, out error))
-            return false;
-
-        return true;
-    }
-
     // ── get_my_reading ──────────────────────────────────────────────────────────
 
     private static readonly JsonElement GetMyReadingSchema = JsonDocument.Parse(
@@ -1406,17 +1159,14 @@ public sealed partial class McpToolCatalog
             return InvokeAsync("get_my_reading", ct, async () =>
             {
                 var shelves = await api.GetShelvesAsync(ct);
-                if (shelves is null) return Error("get_my_reading failed: the shelf is unavailable");
-
-                // The shelf is capped and filtered to in-progress, so it answers "right now" but not
-                // "everything I have". The upload list is neither, and is one more call.
+                // The shelves answer "right now", not "everything I have": that is the book list.
                 var all = await api.GetMyBooksAsync(ct);
 
                 var mapped = new
                 {
                     reading = (shelves.ContinueReading ?? []).Select(Shelf),
                     finishedRecently = (shelves.FinishedThisMonth ?? []).Select(Shelf),
-                    allBooks = (all ?? []).Select(b => new
+                    allBooks = all.Select(b => new
                     {
                         source = "userbook",
                         bookId = b.Id,
@@ -1437,11 +1187,7 @@ public sealed partial class McpToolCatalog
     private static object Shelf(ShelfItemJson i) => new
     {
         source = i.Type,
-        // Deliberately named for what the other tools take, so the model does not have to guess
-        // which id belongs where: an upload is a bookId, a catalog book is an editionId AND a slug.
-        bookId = i.Type == "userbook" ? (Guid?)i.Id : null,
-        editionId = i.Type == "savedbook" ? (Guid?)i.Id : null,
-        slug = i.Slug,
+        bookId = i.Id,
         title = i.Title,
         author = i.Author ?? "",
         progressPercent = i.ProgressPercent,
@@ -1478,39 +1224,23 @@ public sealed partial class McpToolCatalog
         Handler = (args, ct) =>
         {
             if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "editionId")
-                || !TryReadInsightTarget(obj, out var editionId, out var bookId, out err))
+                || !TryReadInsightTarget(obj, out _, out var bookId, out err))
                 return Task.FromResult(Error(err));
+            if (bookId is not { } id) return Task.FromResult(Retired("get_book_progress"));
 
             return InvokeAsync("get_book_progress", ct, async () =>
             {
-                if (bookId is { } id)
-                {
-                    var p = await api.GetUserBookProgressAsync(id, ct);
-                    return Text(JsonSerializer.Serialize(p is null
-                        ? (object)new { source = "userbook", bookId = id, opened = false }
-                        : new
-                        {
-                            source = "userbook",
-                            bookId = id,
-                            opened = true,
-                            chapterSlug = p.ChapterSlug,
-                            progressPercent = p.Percent,
-                            lastReadAt = p.UpdatedAt,
-                        }));
-                }
-
-                var e = await api.GetEditionProgressAsync(editionId!.Value, ct);
-                return Text(JsonSerializer.Serialize(e is null
-                    ? (object)new { source = "edition", editionId, opened = false }
+                var p = await api.GetUserBookProgressAsync(id, ct);
+                return Text(JsonSerializer.Serialize(p is null
+                    ? (object)new { source = "userbook", bookId = id, opened = false }
                     : new
                     {
-                        source = "edition",
-                        editionId,
+                        source = "userbook",
+                        bookId = id,
                         opened = true,
-                        chapterSlug = e.ChapterSlug,
-                        progressPercent = e.Percent,
-                        lastReadAt = e.UpdatedAt,
-                        finishedAt = e.CompletedAt,
+                        chapterSlug = p.ChapterSlug,
+                        progressPercent = p.Percent,
+                        lastReadAt = p.UpdatedAt,
                     }));
             });
         },
@@ -1556,84 +1286,36 @@ public sealed partial class McpToolCatalog
             if ((bookId is null) == (bookSlug is null))
                 return Task.FromResult(Error(
                     "Pass either 'bookId' (an uploaded book) or 'slug' (a catalog book), not both."));
+            if (bookId is not { } id) return Task.FromResult(Retired("set_book_progress"));
 
             return InvokeAsync("set_book_progress", ct, async () =>
             {
-                if (bookId is { } id)
-                {
-                    var book = await api.GetMyBookAsync(id, ct);
-                    if (book is null) return Error($"set_book_progress failed: no uploaded book '{id}'");
+                var book = await api.GetMyBookAsync(id, ct);
+                if (book is null) return Error($"set_book_progress failed: no uploaded book '{id}'");
 
-                    var chapters = book.Chapters ?? [];
-                    var at = IndexOfChapter(chapters.Select(c => c.Slug), chapterSlug);
-                    if (at < 0)
-                        return Error($"set_book_progress failed: no chapter '{chapterSlug}' in '{book.Title}'");
+                var chapters = book.Chapters ?? [];
+                var at = IndexOfChapter(chapters.Select(c => c.Slug), chapterSlug);
+                if (at < 0)
+                    return Error($"set_book_progress failed: no chapter '{chapterSlug}' in '{book.Title}'");
 
-                    var (resumeAt, percent, finished) = AfterFinishing(at, chapters.Count);
-                    var resumeSlug = chapters[resumeAt].Slug;
+                var (resumeAt, percent, finished) = AfterFinishing(at, chapters.Count);
+                var resumeSlug = chapters[resumeAt].Slug;
+                var ok = await api.SetUserBookProgressAsync(id, resumeSlug, percent, ct);
 
-                    // Uploads live in scroll space (`scroll:<slug>:<offset>` — progressPayload.ts),
-                    // and the kind is declared because a book last read as an Original-layout PDF
-                    // has a `page:<n>` stored: without the declaration LocatorSpace.MayReplace drops
-                    // the whole write. Declaring it is the documented way to say "this caller knows
-                    // coordinate spaces exist" — which is also why it costs that reader their page.
-                    var ok = await api.SetUserBookProgressAsync(
-                        id, resumeSlug, $"scroll:{resumeSlug}:0", percent, LocatorSpaceScroll, ct);
-
-                    return ok
-                        ? Text(JsonSerializer.Serialize(new
-                        {
-                            bookId = id,
-                            finishedChapterSlug = chapterSlug,
-                            resumeChapterSlug = resumeSlug,
-                            progressPercent = percent,
-                            bookFinished = finished,
-                            saved = true,
-                        }))
-                        : Error("set_book_progress failed: the position was refused. The book's stored "
-                              + "position may be in a coordinate space this write cannot replace.");
-                }
-
-                // The catalog write is keyed by chapter GUID, so the slug has to be resolved first.
-                // get_book carries the ids for exactly this.
-                var edition = await api.GetBookAsync(bookSlug!, ct);
-                if (edition is null) return Error($"set_book_progress failed: no catalog book '{bookSlug}'");
-
-                var list = edition.Chapters ?? [];
-                var found = IndexOfChapter(list.Select(c => c.Slug), chapterSlug);
-                if (found < 0)
-                    return Error($"set_book_progress failed: no chapter '{chapterSlug}' in '{bookSlug}'");
-
-                var (resume, pct, done) = AfterFinishing(found, list.Count);
-                // The app's own two sentinels, not a sixth locator format: end-of-book is what
-                // "mark as read" writes, and start-of-chapter is where the next chapter begins.
-                // An assistant knows the chapter; it never knows a scroll offset.
-                var saved = await api.SetEditionProgressAsync(
-                    edition.Id, list[resume].Id, done ? EndOfBook : StartOfChapter, pct, ct);
-
-                return saved
+                return ok
                     ? Text(JsonSerializer.Serialize(new
                     {
-                        editionId = edition.Id,
+                        bookId = id,
                         finishedChapterSlug = chapterSlug,
-                        resumeChapterSlug = list[resume].Slug,
-                        progressPercent = pct,
-                        bookFinished = done,
+                        resumeChapterSlug = resumeSlug,
+                        progressPercent = percent,
+                        bookFinished = finished,
                         saved = true,
                     }))
-                    : Error("set_book_progress failed: the position could not be saved");
+                    : Error("set_book_progress failed: the position was refused");
             });
         },
     };
-
-    /// <summary>The app's own mark-as-read sentinel (`auth.ts markAsRead`), reused rather than reinvented.</summary>
-    private const string EndOfBook = """{"type":"end"}""";
-
-    /// <summary>The start of a chapter — the same sentinel `markAsUnread` writes.</summary>
-    private const string StartOfChapter = """{"type":"start"}""";
-
-    /// <summary>Mirrors `LocatorSpace.Scroll`, which lives in Application and is not referenced here.</summary>
-    private const string LocatorSpaceScroll = "scroll";
 
     private static int IndexOfChapter(IEnumerable<string?> slugs, string wanted)
     {
@@ -1653,9 +1335,7 @@ public sealed partial class McpToolCatalog
     /// position stays and the book is simply complete.
     ///
     /// <para>The percentage is chapters-done over chapters-total. It is a book-wide fraction, which
-    /// is the only unit the server stores (<c>ProgressUnit</c>), and it is sent rather than omitted
-    /// because the catalog path ASSIGNS the column — a write carrying no number blanks the one that
-    /// was there.</para>
+    /// is the only unit the server stores.</para>
     /// </summary>
     private static (int ResumeIndex, double Percent, bool Finished) AfterFinishing(int at, int total)
     {
@@ -1665,6 +1345,9 @@ public sealed partial class McpToolCatalog
     }
 
     // ── MCP result helpers ──────────────────────────────────────────────────────
+
+    /// <summary>A retired tool's (or a retired argument's) answer; no call is made.</summary>
+    private static CallToolResult Retired(string tool) => Error($"{tool} failed: this feature is retired in this version.");
 
     private static CallToolResult Text(string text) => new()
     {
@@ -1681,7 +1364,6 @@ public sealed partial class McpToolCatalog
     /// Null on success. A V2 <c>book_not_found</c> names <paramref name="bookId"/>; any other refusal
     /// relays the server's message (a bare 404, the V2 API off, reads "upstream answered 404").
     /// </summary>
-    // ponytail: a legacy UserBook id answers book_not_found here until the M3 ETL (McpBridgeOptions.V2); #1098.
     private static CallToolResult? Refused<T>(string tool, ApiResult<T> result, Guid? bookId = null) =>
         result.Error is not { } message ? null
         : result.Code == "book_not_found" && bookId is { } id ? Error($"{tool}: no uploaded book found with id '{id}'")

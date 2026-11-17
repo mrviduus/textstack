@@ -9,9 +9,7 @@ public sealed class McpBridgeOptions
     public required string ApiBaseUrl { get; init; }
 
     /// <summary>
-    /// Host header sent on each bridged request so <c>SiteContextMiddleware</c>
-    /// can resolve the site for unauthenticated <c>/search</c>. Env:
-    /// <c>TEXTSTACK_SITE_HOST</c>.
+    /// Host header sent on each bridged request. Env: <c>TEXTSTACK_SITE_HOST</c>.
     /// </summary>
     public required string SiteHost { get; init; }
 
@@ -49,12 +47,6 @@ public sealed class McpBridgeOptions
     /// </summary>
     public string PublicBaseUrl { get; init; } = "https://textstack.app";
 
-    /// <summary>
-    /// Use the V2 sync API (<c>/me/v2</c>). Env: <c>TEXTSTACK_MCP_V2</c> (<c>true</c>/<c>1</c>); off by default.
-    /// The bookIds it takes are V2 ids: a legacy UserBook id answers book_not_found until the M3 ETL carries them over (#1098).
-    /// </summary>
-    public bool V2 { get; init; }
-
     public static McpBridgeOptions FromEnvironment(string[]? args = null)
     {
         var apiUrl = Environment.GetEnvironmentVariable("TEXTSTACK_API_URL");
@@ -76,8 +68,6 @@ public sealed class McpBridgeOptions
                 Environment.GetEnvironmentVariable("MCP_TRANSPORT"), args),
             PublicBaseUrl = (Environment.GetEnvironmentVariable("TEXTSTACK_PUBLIC_URL") is { Length: > 0 } pub
                 ? pub : "https://textstack.app").TrimEnd('/'),
-            V2 = Environment.GetEnvironmentVariable("TEXTSTACK_MCP_V2") is var v2
-                && (bool.TryParse(v2, out var on) && on || v2?.Trim() == "1"),
         };
     }
 

@@ -16,7 +16,7 @@ namespace TextStack.Ai.Mcp.Tests;
 /// </summary>
 public class McpManifestDriftTests
 {
-    private static McpToolCatalog BuildCatalog(bool v2 = false)
+    private static McpToolCatalog BuildCatalog()
     {
         // The catalog only invokes the api/token provider when a tool is CALLED;
         // listing/constructing it does not — so any stub client is fine.
@@ -24,31 +24,27 @@ public class McpManifestDriftTests
         {
             ApiBaseUrl = "http://localhost",
             SiteHost = "textstack.app",
-            V2 = v2,
         };
         var http = new HttpClient { BaseAddress = new Uri(options.ApiBaseUrl) };
         var api = new TextStackApiClient(http, options, new NoTokenProvider());
         return new McpToolCatalog(api);
     }
 
-    // #1101: the manifest a server serves with Features:V2Api = v2 lists exactly the tools a bridge with
-    // the same V2 switch registers. Lists of names, sorted — not counts.
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ServedManifest_SameFlag_ListsExactlyTheRegisteredTools(bool v2)
+    // The manifest lists exactly the tools the bridge registers. Lists of names, sorted — not counts.
+    [Fact]
+    public void Manifest_ListsExactlyTheRegisteredTools()
     {
-        var registered = BuildCatalog(v2).ListTools().Select(t => t.Name).Order(StringComparer.Ordinal);
-        var served = McpManifestCatalog.Served(v2).Select(t => t.Name).Order(StringComparer.Ordinal);
+        var registered = BuildCatalog().ListTools().Select(t => t.Name).Order(StringComparer.Ordinal);
+        var advertised = McpManifestCatalog.Tools.Select(t => t.Name).Order(StringComparer.Ordinal);
 
-        Assert.Equal(registered, served);
+        Assert.Equal(registered, advertised);
     }
 
     // The one literal: the surface size is a deliberate change (CLAUDE.md "MCP tool count").
     [Fact]
     public void Manifest_AdvertisesTheWholeToolSurface()
     {
-        Assert.Equal((21, 25), (McpManifestCatalog.Served(false).Count, McpManifestCatalog.Served(true).Count));
+        Assert.Equal(25, McpManifestCatalog.Tools.Count);
     }
 
     private sealed class NoTokenProvider : IMcpTokenProvider

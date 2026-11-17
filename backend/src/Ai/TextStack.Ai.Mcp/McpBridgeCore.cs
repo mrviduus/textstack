@@ -82,37 +82,26 @@ internal static class McpBridgeCore
     /// message is read by a person, so it carries one sentence and the ids, nothing else.
     /// </summary>
     public const string Instructions =
-        "TextStack is the user's reading app: the books they uploaded (\"my library\") plus a public catalog. "
+        "TextStack is the user's reading app: the books they uploaded (\"my library\"). "
         + "When the user mentions a TextStack book, find it first. A message may end with an id line such as "
-        + "\"(TextStack: book <bookId>, chapter <chapterSlug>)\": \"book\" is an upload's bookId, \"catalog\" a catalog "
-        + "book's slug, \"edition\" its editionId. Without ids, use search_my_library or get_my_reading. "
+        + "\"(TextStack: book <bookId>, chapter <chapterSlug>)\": \"book\" is the book's bookId. Without ids, use "
+        + "search_my_library or get_my_reading. "
         + "Before discussing a book, call get_my_insights for conclusions from earlier conversations. "
-        + "Read uploads with get_my_book / get_my_chapter, catalog books with get_book / get_chapter. "
+        + "Read books with get_my_book / get_my_chapter. "
         + "A message with a chapter in its id line opens a conversation about that chapter: talk freely, follow the reader "
         + "anywhere. Spoilers are soft: before discussing a chapter they have not reached, say so and ask first (\"that's from "
-        + "chapter N — want me to go there?\"). When the conversation winds down or the reader says they are done, offer: "
-        + "\"Review this chapter and save it to TextStack?\" Only on yes, call get_chapter_review, follow its method exactly "
-        + "and save with save_chapter_review. Save conclusions not about that chapter with save_insight without chapterSlug. "
-        + "Without a chapter in the id line it is a book discussion: save its conclusions with save_insight. "
-        + "When the reader asks what a word means, or you explain one they clearly did not know, remember it. Offer those "
-        + "words once, together, when the topic winds down or with the chapter-review offer (\"Save quiver, vicinity to "
-        + "your TextStack vocabulary?\"), skipping any list_my_vocabulary already has. Only on yes, call "
-        + "add_vocabulary_words with the sentence from the book. Never save a word without a yes.";
-
-    /// <summary>
-    /// What a bridge on the V2 sync API (<see cref="McpBridgeOptions.V2"/>) adds: the id line's "share" (#1316),
-    /// which the V2 reader's Discuss hands over, and the tools that go with it.
-    /// </summary>
-    public const string V2Instructions =
-        " An id line may instead read \"(TextStack: book <bookId>, share <shareId>)\": \"share\" is one chapter the "
+        + "chapter N — want me to go there?\"). Save conclusions with save_insight: with chapterSlug for that chapter, "
+        + "without it for the whole book. "
+        + "An id line may instead read \"(TextStack: book <bookId>, share <shareId>)\": \"share\" is one chapter the "
         + "reader shared from the reader. Read it with get_shared_chapter (every part, when it says truncated) and discuss "
-        + "that chapter; it is the only text of the book you were given, so do not call get_my_chapter, get_chapter_review or save_chapter_review for it. "
+        + "that chapter; it is the only text of the book you were given, so do not call get_my_chapter for it. "
         + "Call list_checkpoints for the book first, to continue from the reader's earlier thoughts. When a topic yields "
         + "a conclusion or an open question, and the reader opted in or asked, save it with save_checkpoint, passing the "
-        + "share's chapterKey and its id as sharedChapterId.";
-
-    /// <summary>The instructions a bridge sends: with <paramref name="v2"/> off, <see cref="Instructions"/> unchanged.</summary>
-    public static string InstructionsFor(bool v2) => v2 ? Instructions + V2Instructions : Instructions;
+        + "share's chapterKey and its id as sharedChapterId. "
+        + "When the reader asks what a word means, or you explain one they clearly did not know, remember it. Offer those "
+        + "words once, together, when the topic winds down (\"Save quiver, vicinity to your TextStack vocabulary?\"), "
+        + "skipping any list_my_vocabulary already has. Only on yes, call add_vocabulary_words with the sentence from the "
+        + "book. Never save a word without a yes.";
 
     // Rebuilds the MCP-supplied args dictionary into a single JSON object element so
     // the catalog handler can validate/read it as one schema-shaped value.

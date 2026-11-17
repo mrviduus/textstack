@@ -2,8 +2,8 @@
 
 TextStack is a **Model Context Protocol (MCP)** server. Connect it to Claude
 Desktop, Cursor, ChatGPT, or any MCP client, and the assistant can search the
-TextStack library, read chapters (yours and the catalog's), save conclusions and
-chapter reviews back into the book, and manage your own highlights and vocabulary —
+books in your TextStack library, read chapters, save conclusions back into the book,
+and manage your own highlights and vocabulary —
 all from the chat. There is no server-side Q&A; the assistant reads the chapter itself.
 
 This is the canonical reference. The [package README](https://www.nuget.org/packages/TextStack.Mcp)
@@ -11,72 +11,54 @@ and the [landing page](https://textstack.app/en/mcp) point here.
 
 ## The tools
 
-The server exposes 21 tools with `Features:V2Api` off, 25 on (`share_chapter`, `save_checkpoint`, `list_checkpoints`, `get_shared_chapter`); the manifest and the bridge follow the same flag. The public ones need no auth; the user-scoped ones
-require you to be signed in (see [Authentication](#authentication)).
-
-**Two halves, two identifiers.** The public catalog is made of `Edition`s and is
-addressed by `editionId`. The books you uploaded are `UserBook`s — a separate
-aggregate, with its own chapter table — and are addressed by `bookId`.
-An upload has no `editionId` and cannot be given one. Passing a `bookId` to
-`list_my_highlights` returns an empty list, which reads like an empty library
-rather than a wrong id. The tool names carry the split: `_my_` means your
-uploads.
+The server exposes 25 tools, every one on your own account: sign in first (see
+[Authentication](#authentication)). A book is addressed by its `bookId`.
 
 | Tool | What it does | Auth |
 |------|--------------|------|
-| `search_books` | Search the public library for books and chapters matching a query. | Public |
-| `get_book` | Fetch a catalog book by slug: its `editionId`, metadata, authors, genres, and chapter list. | Public |
-| `get_chapter` | Fetch a chapter's plain text (HTML stripped, length-capped) plus its number, title, and prev/next slugs. | Public |
-| `search_my_library` | Full-text search across the books **you uploaded**. Returns one hit per book with its `bookId` and best-matching chapter. | User |
-| `get_my_book` | Fetch one of your uploads by `bookId`: metadata + full chapter list, each chapter carrying its `chapterId`. | User |
-| `get_my_chapter` | Fetch one chapter of your upload as plain text, plus its `chapterId` and prev/next slugs. | User |
-| `save_my_highlight` | Highlight a passage in a book you uploaded. Matched against the chapter text, so the quote must be verbatim. Capped at 200 per book. | User |
-| `list_my_book_highlights` | List the highlights already in a book you uploaded. | User |
+| `search_my_library` | Search your books by title or author (and tags). Returns one hit per book with its `bookId`. | User |
+| `get_my_book` | Fetch one of your books by `bookId`: metadata + full chapter list, each chapter carrying its `chapterId`. | User |
+| `get_my_chapter` | Fetch one chapter as plain text, plus its `chapterId` and prev/next slugs. | User |
+| `save_my_highlight` | Highlight a passage in one of your books. Matched against the chapter text, so the quote must be verbatim. | User |
+| `list_my_book_highlights` | List the highlights already in one of your books. | User |
 | `save_insight` | Write a conclusion back into a book — against a `chapterSlug`, or against the whole book when omitted. Saving again for the same chapter replaces it. | User |
 | `get_my_insights` | Read back everything already worked out about a book, in reading order. | User |
-| `list_my_highlights` | List your highlights for a given edition. | User |
 | `list_my_vocabulary` | List your saved vocabulary words, optionally filtered by SRS stage or search. Each carries its `id`. | User |
-| `add_vocabulary_words` | Save up to 20 words (word, language, a native-language translation or — same language — a short definition, optional sentence), optionally linked to a `bookId` or `editionId`. One result line per word (added / already saved / queued / reference only); a refused word does not stop the batch, a 429 does. Rows are tagged `source = mcp` server-side. | User |
+| `add_vocabulary_words` | Save up to 20 words (word, language, a native-language translation or — same language — a short definition, optional sentence and `bookTitle`), with a required `operationId` so a retry never saves twice. One result line per word (added / already saved / refused); a refused word does not stop the batch, a 429 does. | User |
 | `update_vocabulary_word` | Change a saved word's translation and/or definition by `id`. | User |
-| `delete_vocabulary_word` | Delete one saved word by `id`. No bulk delete — and `DELETE /me/vocabulary/words` (wipe all) refuses OAuth tokens. | User |
-| `save_highlight` | Save a passage (text + optional color/note) to your highlights for a catalog book chapter. | User |
-| `get_my_reading` | The shelf, with no arguments: what you are reading now, what you finished recently, every upload. The only tool that needs no id — it is how the assistant finds one. | User |
+| `delete_vocabulary_word` | Delete one saved word by `id`. No bulk delete. | User |
+| `get_my_reading` | The shelf, with no arguments: what you are reading now, what you finished recently, every book. The only tool that needs no id — it is how the assistant finds one. | User |
 | `get_book_progress` | How far you have got in one book, and the chapter you stopped in. | User |
 | `set_book_progress` | Record that you finished a chapter — including one you read or listened to somewhere else. | User |
-| `get_chapter_review` | Start a chapter review in one call: the review method, the chapter text (in parts if long), your highlights and saved words, open threads from earlier chapters. Refuses a chapter you have not reached. | User |
-| `save_chapter_review` | Save the structured review into the chapter's insight; its questions get their own spaced-repetition queue. A refusal lists every problem at once. See [chapter-review.md](../../internal/features/chapter-review.md). | User |
+| `share_chapter` | Snapshot one chapter for a discussion; returns the share id `save_checkpoint` takes. | User |
+| `save_checkpoint` | Save one checkpoint of a discussion (the reader's thoughts, the assistant's suggestions, conclusions, open questions). Append-only. | User |
+| `list_checkpoints` | Read a book's checkpoints, oldest first, paged. | User |
+| `get_shared_chapter` | Read a chapter the reader shared from the reader's Discuss, in parts when long. | User |
+| `search_books`, `get_book`, `get_chapter`, `list_my_highlights`, `save_highlight`, `get_chapter_review`, `save_chapter_review` | **Retired**: the public catalog, edition highlights and chapter review are gone. Still listed; a call answers "this feature is retired in this version". | — |
 
 Every enabled tool is always listed regardless of whether you're signed in — only a
 user-scoped *call* fails with a clean "authentication required" message when no
 token is available.
 
 **Where the reader is.** `get_my_reading` takes no arguments and is the entry point:
-it answers "what am I reading" with titles, the chapter you stopped in, and the id
-each other tool takes — `bookId` for an upload, `editionId` *and* `slug` for a catalog
-book. `get_book_progress` answers the same for one book, which is what lets an
+it answers "what am I reading" with titles, the chapter you stopped in, and the
+`bookId` each other tool takes. `get_book_progress` answers the same for one book, which is what lets an
 assistant avoid spoiling what you have not reached. `set_book_progress` closes the
 loop the other way: tell it you finished a chapter in an audiobook or on paper and
 the app resumes you at the next one, with progress recorded as chapters-finished
 over chapters-total. It is the only tool here that changes where your reader opens,
 so it acts only when you say you finished something.
 
-A typical catalog chain is `search_books → get_book` (to get the `editionId` /
-chapter ids) `→ get_chapter` / `save_highlight`. The chain for your own uploads
-is `search_my_library → get_my_book` (to get the chapter ids) `→ get_my_chapter`.
+A typical chain is `search_my_library → get_my_book` (to get the chapter ids)
+`→ get_my_chapter` / `save_my_highlight`.
 
 **There is no question-answering tool.** There used to be — `ask_book`, a
 retrieval-augmented answer over an index we built and paid for. It is gone,
-because your assistant reads `get_chapter` as plain text and reasons over it
+because your assistant reads `get_my_chapter` as plain text and reasons over it
 better than our retrieval did, at no cost to us and none to you beyond the
 subscription you already have. Ask it about the chapter; it has the chapter.
 
 ## Limits on what an assistant may write
-
-**200 highlights per book.** Not a resource limit — a highlight row is tiny. A client told to "go
-through the book and mark what matters" can place one per paragraph in a single pass, and a book
-marked end to end is a book with no marks. The cap counts only highlights written over MCP
-(`anchor_json->>'source' = 'mcp'`), so a person who highlights heavily is never affected, including
-on a book an assistant has also marked.
 
 **On a PDF, a highlight is saved but not painted.** The reader shows PDFs as the original document
 (ADR-012), where a highlight is drawn from page geometry an MCP client cannot produce. The highlight
@@ -119,10 +101,9 @@ the next conversation repeating the last one.
 Both transports send `instructions` at `initialize` (`McpBridgeCore.Instructions`,
 wired as `McpServerOptions.ServerInstructions` in both hosts). They tell the model:
 find the book (from the id line, else `search_my_library` / `get_my_reading`),
-check `get_my_insights` first, read with `get_my_book`/`get_my_chapter` (catalog:
-`get_book`/`get_chapter`), save conclusions with `save_insight`, run a chapter review
-via `get_chapter_review` → `save_chapter_review`, never run ahead of the
-reader's position, and — since #687 — remember words it explained, offer them once
+check `get_my_insights` first, read with `get_my_book`/`get_my_chapter`, save
+conclusions with `save_insight`, read a shared chapter with `get_shared_chapter` and
+save the discussion with `save_checkpoint`, never run ahead of the reader's position, and — since #687 — remember words it explained, offer them once
 when the topic winds down, and call `add_vocabulary_words` only on a yes.
 
 That is why the Discuss and Review buttons prefill only a human sentence plus an
@@ -134,9 +115,8 @@ Let's discuss "AI Engineering" by Chip Huyen in TextStack.
 (TextStack: book a1751e58-25f1-496d-b571-1041f0a31e62)
 ```
 
-Id line vocabulary: `book <bookId>` (upload), `catalog <slug>, edition <editionId>`
-(catalog book — read tools take the slug, insight tools the editionId),
-`chapter <chapterSlug>` (review). Builders: `packages/shared/src/lib/assistantHandoff.ts`,
+Id line vocabulary: `book <bookId>`, `chapter <chapterSlug>`, `share <shareId>` (a
+chapter shared from the reader's Discuss). Builders: `packages/shared/src/lib/assistantHandoff.ts`,
 `chapterReview.ts`. Pinned by `Initialize_OverWire_ReturnsServerInstructionsNamingTheWorkflowTools`.
 
 ## Quick start — Claude Desktop
@@ -183,8 +163,8 @@ Config file location:
 ### 3. Restart Claude Desktop
 
 Fully quit and reopen. The `textstack` server appears in the tools list. Try
-*"search TextStack for books about distributed systems"* — that uses
-`search_books` and needs no sign-in.
+*"what am I reading in TextStack?"* — that uses `get_my_reading` and asks you to
+sign in the first time.
 
 ## Other clients
 
@@ -236,7 +216,7 @@ is revoked. What we do to keep it out of logs:
 Not covered: **Cloudflare**, in front of both, sees the full URL. Accepted; OAuth (ADR-017) is the alternative for clients that support it.
 
 Not yet verified by hand (owner step): whether Developer mode is available on the account's
-ChatGPT plan, and what ChatGPT asks before a write call (`save_highlight`, `save_insight`). Record
+ChatGPT plan, and what ChatGPT asks before a write call (`save_my_highlight`, `save_insight`). Record
 the answer here.
 
 ### Local, via the built DLL (running from source)
@@ -261,8 +241,7 @@ Same stdio transport as the global tool.
 
 ### Remote endpoint — OAuth 2.1 (ADR-017)
 
-The hosted `https://textstack.app/mcp` requires a bearer on **every** request, catalog tools
-included. Three kinds are accepted: an OAuth access token (`tso_…`), a connect key (`tsk_…`, header or
+The hosted `https://textstack.app/mcp` requires a bearer on **every** request. Three kinds are accepted: an OAuth access token (`tso_…`), a connect key (`tsk_…`, header or
 `/mcp/k/<key>`), or a device-flow JWT. [ADR-017](../architecture/adr/ADR-017-mcp-oauth-authorization-server.md)
 has the why.
 
@@ -338,7 +317,7 @@ Before wiring up a client, confirm the tool speaks MCP. This sends
 ```
 
 Expect a response with `serverInfo` naming `textstack` and a `tools/list`
-result containing all 21 tools (25 with `TEXTSTACK_MCP_V2=true`).
+result containing all 25 tools.
 
 ## Troubleshooting
 
@@ -349,8 +328,7 @@ result containing all 21 tools (25 with `TEXTSTACK_MCP_V2=true`).
   cause; point `command` at the absolute `dotnet` path, or prefer the installed
   global tool which is a self-contained launcher.
 - **"authentication required — open .../device …"** — expected on the first
-  user-scoped call. Approve at the device page and retry. Public tools never
-  trigger this.
+  user-scoped call. Approve at the device page and retry.
 - **Update the tool**: `dotnet tool update -g TextStack.Mcp`
 - **Uninstall**: `dotnet tool uninstall -g TextStack.Mcp`
 - **Remote endpoint returns 401** — the request carried no/invalid bearer.

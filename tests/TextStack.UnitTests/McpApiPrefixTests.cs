@@ -29,7 +29,6 @@ public class McpApiPrefixTests
 {
     private const string SiteHost = "textstack.test";
     private const string Prefix = "http://localhost/api";
-    private const string Edition = "33333333-3333-3333-3333-333333333333";
 
     // Captures the LAST request as the real HttpClient saw it (RequestUri is absolute
     // once sent through a client with a BaseAddress).
@@ -108,38 +107,21 @@ public class McpApiPrefixTests
         Assert.Equal(expected, resolved.ToString());
     }
 
-    // ── end-to-end: public tool (search_books) keeps /api on the wire ─────────────
+    // ── end-to-end: a tool call keeps /api on the wire ─────────────────────────────
 
     [Fact]
-    public async Task SearchBooks_PrefixedBaseUrl_KeepsApiPrefix_OnAbsoluteRequestUri()
+    public async Task ListMyVocabulary_PrefixedBaseUrl_KeepsApiPrefix_OnAbsoluteRequestUri()
     {
-        var (catalog, handler) = BuildPrefixedCatalog(Json("""{"total":0,"items":[]}"""));
+        var (catalog, handler) = BuildPrefixedCatalog(Json("""{"items":[],"cursor":null,"hasMore":false}"""));
 
-        var result = await catalog.CallAsync("search_books", Args("""{"query":"alice"}"""), CancellationToken.None);
+        var result = await catalog.CallAsync("list_my_vocabulary", Args("{}"), CancellationToken.None);
 
         Assert.NotEqual(true, result.IsError);
         var uri = handler.LastRequest!.RequestUri!;
         Assert.True(uri.IsAbsoluteUri); // resolved through the client's BaseAddress
-        // The /api prefix MUST survive. Old code produced http://localhost/search?... .
-        Assert.Equal("http://localhost/api/search?q=alice", uri.AbsoluteUri);
+        // The /api prefix MUST survive. Old code dropped it (301 → HTML).
+        Assert.Equal("http://localhost/api/me/v2/vocabulary/changes?limit=500", uri.AbsoluteUri);
         Assert.Equal(SiteHost, handler.LastRequest.Headers.Host);
-    }
-
-    // ── end-to-end: user-scoped tool (list_my_highlights) keeps /api on the wire ──
-
-    [Fact]
-    public async Task ListMyHighlights_PrefixedBaseUrl_KeepsApiPrefix_OnAbsoluteRequestUri()
-    {
-        var (catalog, handler) = BuildPrefixedCatalog(Json("[]"));
-
-        var result = await catalog.CallAsync(
-            "list_my_highlights", Args($$"""{"editionId":"{{Edition}}"}"""), CancellationToken.None);
-
-        Assert.NotEqual(true, result.IsError);
-        var uri = handler.LastRequest!.RequestUri!;
-        Assert.True(uri.IsAbsoluteUri);
-        // Old code → http://localhost/me/highlights/{id} (prefix dropped, 301→HTML).
-        Assert.Equal($"http://localhost/api/me/highlights/{Edition}", uri.AbsoluteUri);
         Assert.Equal("Bearer tok-123", handler.LastRequest.Headers.Authorization?.ToString());
     }
 

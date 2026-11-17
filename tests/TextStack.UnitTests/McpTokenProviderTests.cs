@@ -21,7 +21,6 @@ namespace TextStack.UnitTests;
 public class McpTokenProviderTests
 {
     private const string SiteHost = "textstack.test";
-    private const string Edition = "33333333-3333-3333-3333-333333333333";
 
     private sealed class CapturingHandler(HttpResponseMessage response) : HttpMessageHandler
     {
@@ -90,10 +89,10 @@ public class McpTokenProviderTests
     public async Task UserScopedTool_AuthorizedProvider_AttachesBearer_AndProceeds()
     {
         var (catalog, handler) = BuildCatalog(
-            new FakeProvider(new TokenResult.Authorized("abc")), Json("[]"));
+            new FakeProvider(new TokenResult.Authorized("abc")), Json("""{"items":[],"cursor":null,"hasMore":false}"""));
 
         var result = await catalog.CallAsync(
-            "list_my_highlights", Args($$"""{"editionId":"{{Edition}}"}"""), CancellationToken.None);
+            "list_my_vocabulary", Args("{}"), CancellationToken.None);
 
         Assert.NotEqual(true, result.IsError);
         Assert.Equal("Bearer abc", handler.LastRequest!.Headers.Authorization?.ToString());
@@ -129,8 +128,8 @@ public class McpTokenProviderTests
             Json("[]"));
 
         var result = await catalog.CallAsync(
-            "list_my_highlights",
-            Args($$"""{"editionId":"{{Edition}}"}"""),
+            "list_my_vocabulary",
+            Args("{}"),
             CancellationToken.None);
 
         Assert.True(result.IsError);
