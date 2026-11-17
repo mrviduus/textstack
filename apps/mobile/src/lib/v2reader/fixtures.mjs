@@ -156,7 +156,10 @@ export function writeHostileEpub(out, siblings = LOCAL, evil = EVIL) {
   const section = (n) => xhtml(part(n, 'head'), body(n), part(n, 'bodyAttrs'))
   const files = Object.assign({}, ...markups.map((v) => v.files))
   const items = Object.keys(files).map((f, i) => `<item id="r${i}" href="${f}" media-type="${f.endsWith('.js') ? 'application/javascript' : 'image/svg+xml'}"/>`).join('')
+  // #1426: a description that is HTML with script in it; `describe` must hand it over as text, nothing run.
+  const description = `<p>Hostile <img src="missing.png" onerror="${mark('description-html')}"><script>${mark('description-html')}</script></p>`
   return epub(out, 'tshostile.epub', {
+    meta: `<dc:description>${description.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')}</dc:description>`,
     files: { ...files, ...Object.fromEntries(sections.map((n) => [`s${n}.xhtml`, section(n)])) },
     manifest: sections.map((n) => `<item id="s${n}" href="s${n}.xhtml" media-type="application/xhtml+xml" properties="scripted svg"/>`).join('') + items,
     spine: sections.map((n) => `<itemref idref="s${n}"/>`).join(''),
@@ -376,10 +379,13 @@ export function writeImageEpub(out, name = 'TS IMAGE') {
 
 /** tscover.epub (a non-linear cover first), tsfixed.epub (pre-paginated text), tsdup.epub (one href twice in its spine), tsimage.epub (#1265: images), tsfixedimg.epub (a pre-paginated image page), tsthree.cbz, tsformat.epub, tsrtl.epub (spine rtl, English text), tshe.epub (Hebrew, no spine direction), tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages), tsformat.pdf, tscjk.pdf, tslocked.pdf. */
 export function writeFormatFixtures(dir) {
+  // Its details and cover for `describe` (#1426): two authors, an HTML description, a cover image outside the spine.
   epub(resolve(dir, 'tsformat.epub'), 'TS EPUB', {
-    files: { 's1.xhtml': xhtml('', `<h1>Chapter One</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}`) },
-    manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/>',
+    files: { 's1.xhtml': xhtml('', `<h1>Chapter One</h1>${prose(30).map((p) => `<p>${p}</p>`).join('')}`), 'cover.png': png(1200, 1800, [40, 120, 200]) },
+    manifest: '<item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/><item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/>',
     spine: '<itemref idref="s1"/>',
+    lang: 'en-US',
+    meta: '<dc:creator>Ada Writer</dc:creator><dc:creator>Bo Second</dc:creator><dc:description>&lt;p&gt;A &lt;b&gt;small&lt;/b&gt; book.&lt;/p&gt;</dc:description>',
   })
   // A spine page-progression-direction of rtl over English text (#1263): foliate's paginator lays it out left to
   // right (by the text's direction); only a fixed layout spreads by the spine's.

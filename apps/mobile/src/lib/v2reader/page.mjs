@@ -31,6 +31,7 @@ import { clipBook } from './clip.mjs'
 import { tapAction } from './tapZone.mjs'
 import { MAX_CHAPTER_TEXT_BYTES, fileSummary, fitText, hasContents, placeOf, segmentsIn, startsIn, textBetween } from './chapters.mjs'
 import { MAX_RESULTS, SEARCH_FILL, readQuery, searchItems } from './search.mjs'
+import { bookMeta, coverJpeg, isRequestId } from './describe.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
 const log = (level, msg) => post({ type: 'log', level, msg })
@@ -1699,6 +1700,46 @@ function openFor(bytes, name, mine, fileFormat) {
   })
 }
 
+/** A served file's bytes (openUrl's read, as a promise). */
+const readBytes = (url) => new Promise((done, fail) => {
+  const x = new XMLHttpRequest()
+  x.responseType = 'arraybuffer'
+  x.onload = () => (x.status === 200 && x.response ? done(new Uint8Array(x.response)) : fail(new Error(`cannot read the file (status ${x.status})`)))
+  x.onerror = () => fail(new Error('cannot read the file'))
+  x.open('GET', url)
+  x.send()
+})
+
+/**
+ * #1426: one `described` per call with a valid id. With `url`, a book of its own, made without the view and destroyed
+ * after: no open sequence is touched, so it never supersedes an open and the book on screen keeps reading. Without,
+ * the book on screen. A cover that fails to draw is none; the details are still sent.
+ */
+async function describeBook(id, url) {
+  if (!isRequestId(id)) return log('warn', 'describe ignored: no request id')
+  const answer = (a) => post({ type: 'described', id, meta: null, cover: null, ...a })
+  let made = null
+  try {
+    let b = view?.book
+    if (url) {
+      const bytes = await readBytes(url)
+      b = made = (await makeBookFor(bytes, 'book', sniffFormat(bytes))).book
+    }
+    if (!b) return answer({ error: 'no book is open' })
+    const meta = bookMeta(b.metadata, navigator.language)
+    const cover = await Promise.resolve(b.getCover?.()).then(coverJpeg).catch((e) => {
+      log('warn', `describe: no cover (${e?.name ?? 'error'})`)
+      return null
+    })
+    answer({ meta, cover })
+  } catch (e) {
+    log('warn', `describe: ${e?.name ?? 'error'}`)
+    answer({ error: String(e?.message ?? e).slice(0, 200) })
+  } finally {
+    if (made) destroy(made)
+  }
+}
+
 // A save still debounced is written before the page may go away: hidden (backgrounded, a tab switch) or unloaded.
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saves.flush() })
 addEventListener('pagehide', () => saves.flush())
@@ -1834,6 +1875,9 @@ window.__fol = {
   },
   // Test-only (formats.check.mjs): how many saved-word marks the page holds. A count, no book data.
   markedWords: () => [...overlays.values()].filter((a) => a.mark).length,
+  // #1426: the book's details and cover, answered with `described` under the host's `id`: the file at `url`, read on
+  // its own (the view untouched), or the book on screen.
+  describe: (id, url = null) => void describeBook(id, url),
   // #1316: the text of contents entry `tocIndex` (or, in a book with no contents, of spine section `section`),
   // answered with `chapter-text` under the host's `request` id.
   chapterText: (request, tocIndex, section) => void chapterText(request, tocIndex, section),

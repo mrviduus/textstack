@@ -134,7 +134,9 @@ const FOLIATE_SHA = '686afc4200006874a24071a6a57510e027a4cc32'
 // +254 (#1362 review): a clip opened only by the host's format (`openUrl(url, name, 'html')`, no sniff), data: images
 // only (alt text otherwise), loops instead of spreads, quotations reset with the entry.
 // +343: `pointer-move` (a mouse over the book, throttled) for the web host's bars on desktop.
-const BUDGET = 336345
+// +4,282 (#1426): `describe(id, url?)` → `described` (describe.mjs: `bookMeta`, `coverJpeg`), a book's details and cover
+// from a file of its own or the book on screen.
+const BUDGET = 340627
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
