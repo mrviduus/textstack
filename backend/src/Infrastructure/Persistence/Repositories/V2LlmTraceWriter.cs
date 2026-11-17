@@ -20,8 +20,7 @@ public sealed class V2LlmTraceWriter(V2DataSource dataSource) : ILlmTraceWriter,
     /// </summary>
     public decimal SampledCostSince(string featureTag, DateTimeOffset since)
     {
-        // ponytail: sync-over-async once per (feature, day), as legacy's sync EF sum; an async seed if it ever shows in latency.
-        using var conn = dataSource.OpenConnectionAsync(CancellationToken.None).AsTask().GetAwaiter().GetResult();
+        using var conn = dataSource.OpenConnection();
         return conn.ExecuteScalar<decimal>(SumCost, new { featureTag, since });
     }
 
