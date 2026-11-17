@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { initApi } from '@textstack/shared'
 import { renderHook } from '../test/renderHook'
-import { startV2Probe } from '../lib/v2'
+import { startV2Probe, resetV2ForTests } from '../lib/v2'
 import { vocabularyApi } from '../lib/vocabularyApi'
 import { readingTrackingApi } from '../lib/readingTrackingApi'
 import { highlightsApi } from '../lib/highlightsApi'
@@ -52,11 +52,15 @@ describe('the features V2 holds no data for (mobile)', () => {
 
   // #1374: the catalog shelf and its progress answer 410 on V2; one 410 used to fail the whole tab.
   it('with V2 on, the library tab lists the reader\'s uploads and never calls the catalog routes', async () => {
+    resetV2ForTests()
     initApi({ baseUrl: 'http://localhost:8080', getAccessToken: async () => 't', onUnauthorized: async () => null })
     const calls = fakeApi({
       'GET /me/v2/status': [{ status: 200, body: { maxPartBytes: 1024 } }],
       'GET /me/v2/library/changes': feed(book('b1', 'f1', { title: 'My upload' })),
       'GET /me/v2/reading/changes': feed(),
+      // Reached, these would fail the whole load (only a V2 refusal is empty).
+      'GET /me/library': [{ status: 500 }],
+      'GET /me/progress': [{ status: 500 }],
     })
 
     const [catalog, progress, uploads, onV2] = await loadLibraryTab()

@@ -35,7 +35,10 @@ export default function BookDetailScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>()
   const router = useRouter()
   const { isAuthenticated, ensureSession, getAccessToken } = useAuth()
-  const reviewOffered = v2Offers(useV2(), 'chapterReview')
+  const v2 = useV2()
+  const reviewOffered = v2Offers(v2, 'chapterReview')
+  // No catalog shelf on V2 (#1374): no Save to Library, no collections.
+  const catalogOffered = v2Offers(v2, 'catalog')
   const { colors } = useTheme()
   const { language, t } = useLanguage()
   const toast = useToast()
@@ -304,7 +307,7 @@ export default function BookDetailScreen() {
   // Download, Retry and Restart (LIB-1): the download, then the Library add. Cancel never takes it back:
   // a download is intent. No session: a guest is minted first (LIB-1a).
   const onDownload = (run: () => unknown) => () => {
-    void downloadAndSave({ run, hasSession: isAuthenticated, ensureSession, getAccessToken, save: saveIfNotSaved })
+    void downloadAndSave({ run, hasSession: isAuthenticated, ensureSession, getAccessToken, save: catalogOffered ? saveIfNotSaved : () => {} })
   }
 
   if (loading) {
@@ -449,7 +452,7 @@ export default function BookDetailScreen() {
             </AssistantMenu>
           )}
 
-          {isAuthenticated && !offlineMode && (
+          {isAuthenticated && !offlineMode && catalogOffered && (
             <TouchableOpacity
               style={[styles.secondaryButton, { borderColor: inLibrary ? colors.success : colors.primary }]}
               onPress={toggleLibrary}
@@ -485,7 +488,7 @@ export default function BookDetailScreen() {
           themselves (`src/lib/shareOriginal.ts`).
         */}
         <View style={{ paddingHorizontal: 16, marginBottom: 16, gap: 10 }}>
-          {inLibrary && (
+          {inLibrary && v2Offers(v2, 'collections') && (
             <TouchableOpacity
               style={[styles.secondaryButton, { borderColor: colors.border }]}
               onPress={() => setCollectionSheetOpen(true)}

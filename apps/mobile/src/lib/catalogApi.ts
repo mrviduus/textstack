@@ -3,8 +3,8 @@
  * M5's gate (#1374): `/me/library` and `/me/progress` answer 410 on V2 (the catalog retires), so each
  * call is refused (`refuseOnV2('catalog')`, after the probe) before any request.
  */
-import { libraryApi as legacyLibrary, readingProgressApi as legacyProgress, ApiError } from '@textstack/shared'
-import { refusedOnV2, onV2 } from './v2'
+import { libraryApi as legacyLibrary, readingProgressApi as legacyProgress } from '@textstack/shared'
+import { refusedOnV2, nullIfRefused, onV2 } from './v2'
 import { userBooksApi } from './userBooksApi'
 
 export const libraryApi = {
@@ -22,19 +22,14 @@ export const readingProgressApi = {
   markProgressFinished: refusedOnV2('catalog', legacyProgress.markProgressFinished),
 }
 
-/** An optional source: none on V2 (refused), and empty on a failure rather than failing the uploads. */
-function optional(e: unknown): [] {
-  if (!(e instanceof ApiError && e.status === 410)) console.warn('Library: optional source failed:', e)
-  return []
-}
-
 /**
- * The Library tab's load: the uploads must answer (their failure is the tab's); the catalog shelf and
- * its progress are optional. The last item is the probe answer `getUserBooks` used (#1193).
+ * The Library tab's load. On V2 the catalog shelf and its progress are none (refused, empty); any other
+ * failure fails the load, so the tab's error and offline branches run. The last item is the probe
+ * answer `getUserBooks` used (#1193).
  */
 export const loadLibraryTab = () => Promise.all([
-  libraryApi.getLibrary().catch(optional),
-  readingProgressApi.getAllProgress().catch(optional),
+  libraryApi.getLibrary().catch((e) => nullIfRefused(e) ?? []),
+  readingProgressApi.getAllProgress().catch((e) => nullIfRefused(e) ?? []),
   userBooksApi.getUserBooks(),
   onV2(),
 ])

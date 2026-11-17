@@ -73,7 +73,7 @@ export function useBookActions() {
       },
     })
 
-    if (ctx.onAddToCollection) {
+    if (ctx.onAddToCollection && v2Offers(v2, 'collections')) {
       buttons.push({
         text: t('library.actions.addToCollection'),
         onPress: ctx.onAddToCollection,
@@ -100,7 +100,7 @@ export function useBookActions() {
 
     buttons.push({ text: t('library.actions.cancel'), style: 'cancel' })
     Alert.alert(item.title, undefined, buttons)
-  }, [language, t, showToast])
+  }, [language, t, showToast, v2])
 
   const showUploadActions = useCallback((item: UserBookDto, ctx: UploadCtx) => {
     const s = item.status.toLowerCase()

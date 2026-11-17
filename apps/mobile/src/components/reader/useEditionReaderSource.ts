@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useRouter } from 'expo-router'
 import { WebView } from 'react-native-webview'
 import { readingProgressApi } from '../../lib/catalogApi'
+import { v2Enabled } from '../../lib/v2'
 import { createBooksApi, parseScrollLocator, chapterIdForSlug, parseTextPosition, serializeTextPosition } from '@textstack/shared'
 import type { Language, TextPosition } from '@textstack/shared'
 import { getLocalProgress, markLocalProgressSynced, saveLocalProgress, type LocalProgress } from '../../lib/progressStorage'
@@ -122,7 +123,8 @@ export function useEditionReaderSource({
       updatedAt: snap.updatedAt,
     }).catch(() => {})
 
-    if (!isAuthenticated) return
+    // No catalog progress on V2 (V2_FEATURES.catalog, #1374): the local record is the only one.
+    if (!isAuthenticated || v2Enabled()) return
     // The server row is keyed by chapter id. An offline-cached chapter has no
     // id to give, so there is nothing to send — the local write above is the
     // record, and useReaderPersistence repeats the save once an id appears.

@@ -3,10 +3,10 @@ import { View, Text, TouchableOpacity } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter, useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { isOfflineError, plural } from '@textstack/shared'
+import { isOfflineError, plural, v2Offers } from '@textstack/shared'
 import { userBooksApi } from '../../src/lib/userBooksApi'
 import { loadLibraryTab } from '../../src/lib/catalogApi'
-import { v2Enabled, v2Epoch } from '../../src/lib/v2'
+import { startV2Probe, v2Enabled, v2Epoch } from '../../src/lib/v2'
 import { logLoadError } from '../../src/lib/logLoadError'
 import {
   collectionsApi, buildLibraryEntries, filterEntries, countEntries, sortEntries, entryTitle, entryAuthor,
@@ -177,7 +177,8 @@ export default function LibraryScreen() {
             // False whatever the upload was: offline it reads as text (ADR-012).
             hasOriginalPdf: false,
           }))).filter(b => !deleted.has(b.id)))
-          setLibrary(prev => (prev.length > 0 ? prev : cached.map(c => ({
+          // No catalog shelf on V2 (V2_FEATURES.catalog): the cached catalog books are not listed.
+          if (v2Offers(await startV2Probe(), 'catalog')) setLibrary(prev => (prev.length > 0 ? prev : cached.map(c => ({
             editionId: c.editionId,
             slug: c.slug,
             title: c.title,
