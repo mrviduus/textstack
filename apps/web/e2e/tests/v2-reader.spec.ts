@@ -4,7 +4,7 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { testLogin } from '../helpers/api'
 
-// @v2 — the V2 reader page on its production route (#1225): /:lang/library/my/:id/read-v2, behind
+// @v2 — the V2 reader page on its production route (#1225; M5 #1031: the default /read too), behind
 // Features:V2Api. A V2 upload's file bytes come from /me/v2/books/{id}/files/{fileId}/content into the
 // frame (/reader-v2/frame.html: a no-store shell + the content-hashed page script). Skips when the probe
 // answers 404 (flag off) unless V2_E2E=1, as v2-sync.spec.ts. In CI it runs on the production build
@@ -184,10 +184,11 @@ test.describe('V2 reader page @v2', () => {
     const page = await context.newPage()
     const bookId = await uploadFixture(page)
 
-    // The entry point: the book page's secondary link, V2 only.
+    // M5 (#1031): the entry point is the book page's one Read button, the DEFAULT route /read, and it is V2.
     await page.goto(`/en/library/my/${bookId}`)
-    await page.getByRole('link', { name: 'Open in the V2 reader' }).click()
-    await expect(page).toHaveURL(new RegExp(`/en/library/my/${bookId}/read-v2/?$`))
+    await expect(page.getByRole('link', { name: 'Open in the V2 reader' })).toHaveCount(0)
+    await page.getByRole('link', { name: /^(Start|Continue) Reading$/ }).click()
+    await expect(page).toHaveURL(new RegExp(`/en/library/my/${bookId}/read(/[^/]+)?/?$`))
     await expect(page.locator('iframe[title="Book text"]')).toHaveAttribute('src', '/reader-v2/frame.html')
     await expectOpened(page)
 
@@ -204,6 +205,13 @@ test.describe('V2 reader page @v2', () => {
 
     await page.reload()
     await expectOpened(page)
+
+    // The default route as the old links name it (a chapter slug): V2 too, the slug ignored; /read-v2 an alias.
+    for (const route of [`/en/library/my/${bookId}/read`, `/en/library/my/${bookId}/read/any-chapter`, `/en/library/my/${bookId}/read-v2`]) {
+      await page.goto(route)
+      await expect(page.locator('iframe[title="Book text"]')).toHaveAttribute('src', '/reader-v2/frame.html')
+      await expectOpened(page)
+    }
     await context.close()
   })
 
@@ -791,6 +799,116 @@ test.describe('V2 reader page @v2', () => {
     await page.getByRole('tab', { name: /Highlights/ }).click()
     await expect(page.getByTestId('v2-highlights-list').getByRole('button')).toHaveCount(0)
     await expect(page.getByTestId('v2-not-saved')).toHaveCount(0)
+    await context.close()
+  })
+
+  // #1314: a bookmark at the place on screen is the book's annotation of colour `bookmark` (its text: the first words
+  // there). Listed beside Contents and Highlights, jumped to, there on another browser, removed as a tombstone.
+  test('readV2Bookmarks_AddJumpSecondBrowserAndRemove_AnAnnotationOfColourBookmarkThenATombstone', async ({ browser }) => {
+    const who = email('v2bm')
+    const context = await v2Context(browser, who)
+    const page = await context.newPage()
+    const bookId = await uploadFixture(page)
+    await page.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(page)
+    const annotationWrite = (method: string) => page.waitForResponse((r) => r.request().method() === method && /\/me\/v2\/annotations\/[0-9a-f-]{36}$/.test(r.url()))
+    const stateWrite = () => page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith(`/me/v2/books/${bookId}/reading-state`))
+    /** The bars' bookmark button: one name ("Bookmark"), pressed while the place being read has one. */
+    const button = (p: Page) => p.getByTestId('v2-bookmark')
+    const openBookmarks = async (p: Page) => {
+      await clickBar(p, 'Contents')
+      await p.getByRole('tab', { name: /Bookmarks/ }).click()
+      return p.getByTestId('v2-bookmarks-list')
+    }
+
+    // Offered once the server's annotations are in. Add: one write, the row itself.
+    await expect(button(page)).toBeEnabled({ timeout: 15_000 })
+    await expect(button(page)).toHaveAttribute('aria-pressed', 'false')
+    const created = annotationWrite('PUT')
+    await page.keyboard.press('Escape')
+    await button(page).click()
+    const createdAnswer = await created
+    expect(createdAnswer.ok(), `PUT annotation: ${createdAnswer.status()}`).toBeTruthy()
+    const row = (await createdAnswer.json()) as { id: string; color: string; selectedText: string; noteText: string | null; fileId: string; locator: { scheme: string; value: string; quote: string }; deletedAt: string | null }
+    expect([row.color, row.noteText, row.deletedAt, row.locator.scheme]).toEqual(['bookmark', null, null, 'epub-cfi'])
+    // Its text is the first words on screen (the book opens at its first section), and the locator's quote their start.
+    const shown = (await sectionText(page)).replace(/\s+/g, '')
+    expect(shown.startsWith(row.selectedText.replace(/\s+/g, '')), `"${row.selectedText}" opens the screen`).toBe(true)
+    expect(row.selectedText.length).toBeGreaterThan(20)
+    expect(row.selectedText.startsWith(row.locator.quote)).toBe(true)
+    expect(row.locator.value).toMatch(/^epubcfi\(/)
+    await expect(button(page)).toHaveAttribute('aria-pressed', 'true')
+    await expect(button(page)).toHaveAttribute('aria-pressed', 'true')
+
+    // Away: none on that screen. Back by the list: the jump is the reader's choice, its place saved.
+    await clickBar(page, 'Next section: The Woods')
+    await expect(status(page)).toHaveText(/^\d+% · The Woods$/)
+    await expect(button(page)).toBeEnabled({ timeout: 15_000 })
+    await expect(button(page)).toHaveAttribute('aria-pressed', 'false')
+    const list = await openBookmarks(page)
+    await expect(list.getByTestId('v2-bookmark-row')).toHaveCount(1)
+    await expect(list.getByTestId('v2-bookmark-row')).toHaveText(row.selectedText.trim())
+    // A bookmark is not a highlight: that tab stays empty.
+    await page.getByRole('tab', { name: /Highlights/ }).click()
+    await expect(page.getByTestId('v2-highlights-list').getByRole('button')).toHaveCount(0)
+    await page.getByRole('tab', { name: /Bookmarks/ }).click()
+    const jumped = stateWrite()
+    await list.getByTestId('v2-bookmark-row').click()
+    await expect(status(page)).toHaveText(/^\d+% · The Pond$/)
+    expect((await jumped).ok()).toBeTruthy()
+    await expect(button(page)).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('v2-not-saved')).toHaveCount(0)
+
+    // Another browser, same account: the bookmark comes from the server, is listed and is the one on screen; nothing
+    // is written back for it.
+    const other = await v2Context(browser, who)
+    const second = await other.newPage()
+    const rewritten = second.waitForRequest((r) => r.method() === 'PUT' && r.url().includes('/me/v2/annotations/'), { timeout: 8_000 }).then(() => true, () => false)
+    await second.goto(`/en/library/my/${bookId}/read-v2`)
+    await expectOpened(second)
+    await expect(button(second)).toHaveAttribute('aria-pressed', 'true', { timeout: 15_000 })
+    await expect((await openBookmarks(second)).getByTestId('v2-bookmark-row')).toHaveText(row.selectedText.trim())
+    expect(await rewritten, 'the server\'s bookmark is not written back').toBe(false)
+    await other.close()
+
+    // The button removes the one here: a DELETE, the tombstone (still the bookmark's row); the button adds again.
+    const deleted = annotationWrite('DELETE')
+    await page.keyboard.press('Escape')
+    await button(page).click()
+    const tomb = (await (await deleted).json()) as { id: string; color: string; deletedAt: string | null }
+    expect([tomb.id, tomb.color]).toEqual([row.id, 'bookmark'])
+    expect(tomb.deletedAt).not.toBeNull()
+    await expect(button(page)).toBeEnabled({ timeout: 15_000 })
+    await expect(button(page)).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.getByTestId('v2-not-saved')).toHaveCount(0)
+
+    // One that is not here (the reader is in another chapter) is removed from its row in the list: the same tombstone.
+    const again = annotationWrite('PUT')
+    await page.keyboard.press('Escape')
+    await button(page).click()
+    const second2 = (await (await again).json()) as { id: string; selectedText: string }
+    expect(second2.id).not.toBe(row.id)
+    await clickBar(page, 'Next section: The Woods')
+    await expect(status(page)).toHaveText(/^\d+% · The Woods$/)
+    await expect(button(page)).toBeEnabled({ timeout: 15_000 })
+    await expect(button(page)).toHaveAttribute('aria-pressed', 'false')
+    const rows = await openBookmarks(page)
+    await expect(rows.getByTestId('v2-bookmark-row')).toHaveCount(1)
+    const removed = annotationWrite('DELETE')
+    await rows.getByRole('button', { name: `Remove bookmark: ${second2.selectedText.trim()}` }).click()
+    const tomb2 = (await (await removed).json()) as { id: string; color: string; deletedAt: string | null }
+    expect([tomb2.id, tomb2.color]).toEqual([second2.id, 'bookmark'])
+    expect(tomb2.deletedAt).not.toBeNull()
+    await expect(rows.getByTestId('v2-bookmark-row')).toHaveCount(0)
+    await expect(page.getByTestId('v2-not-saved')).toHaveCount(0)
+
+    // After a reload the server's feed has no live bookmark: none listed, none here. (The book opens where it was left, at The Woods.)
+    await page.reload()
+    await expect(page.getByTestId('v2-heading')).toHaveText('E2E V2 sync', { timeout: 20_000 })
+    await expect(status(page)).toHaveText(/^\d+% · The Woods$/, { timeout: 20_000 })
+    await expect(button(page)).toBeEnabled({ timeout: 15_000 })
+    await expect(button(page)).toHaveAttribute('aria-pressed', 'false')
+    await expect((await openBookmarks(page)).getByTestId('v2-bookmark-row')).toHaveCount(0)
     await context.close()
   })
 

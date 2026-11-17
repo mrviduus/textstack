@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, type ReactElement, type ReactNode } from 'react'
 import { FlatList, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../../context/ThemeContext'
@@ -7,6 +7,7 @@ import { useReduceMotion } from '../../hooks/useReduceMotion'
 import { fonts } from '../../theme/typography'
 import { tocAround, withTitle, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
 import type { V2HighlightItem } from '../../lib/v2reader/highlights.mjs'
+import type { V2BookmarkItem } from '../../lib/v2reader/bookmarks.mjs'
 import { HIGHLIGHT_BG } from '../../lib/readerColors'
 
 /** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo`: the entry the reader chose. */
@@ -86,8 +87,49 @@ export function V2TocSheet({ visible, toc, tocIndex, onGo, onClose }: Props & { 
 }
 
 /**
- * The open book's highlights (#1312): the contents sheet's modal, the page's `highlight-list` in book order, each
- * highlight's text and note as text (untrusted), its colour as a swatch. A tap jumps there and closes the sheet.
+ * The shell of a list sheet (the highlights', the bookmarks'): the contents sheet's modal (back and a tap outside close
+ * it, TalkBack stays inside it), a title, an optional header action beside the close button, the list or its empty text.
+ */
+function ListSheet<T extends { id: string }>({ visible, title, closeLabel, action, items, empty, renderItem, onClose }: {
+  visible: boolean
+  title: string
+  closeLabel: string
+  action?: ReactNode
+  items: T[]
+  empty: string
+  renderItem: (item: T) => ReactElement
+  onClose: () => void
+}) {
+  const { colors } = useTheme()
+  const reduceMotion = useReduceMotion()
+  return (
+    <Modal visible={visible} animationType={reduceMotion ? 'none' : 'slide'} transparent onRequestClose={onClose}>
+      <View style={styles.overlay}>
+        <Pressable style={styles.outside} onPress={onClose} accessible={false} />
+        <View style={[styles.sheet, { backgroundColor: colors.background }]} accessibilityViewIsModal>
+          <View style={[styles.header, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">{title}</Text>
+            <View style={styles.headerActions}>
+              {action}
+              <TouchableOpacity onPress={onClose} style={styles.close} accessibilityRole="button" accessibilityLabel={closeLabel}>
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+          </View>
+          {items.length === 0 ? (
+            <Text style={[styles.empty, { color: colors.textSecondary }]}>{empty}</Text>
+          ) : (
+            <FlatList data={items} keyExtractor={(x) => x.id} style={styles.list} renderItem={({ item }) => renderItem(item)} />
+          )}
+        </View>
+      </View>
+    </Modal>
+  )
+}
+
+/**
+ * The open book's highlights (#1312): the page's `highlight-list` in book order, each highlight's text and note as
+ * text (untrusted), its colour as a swatch. A tap jumps there and closes the sheet.
  */
 export function V2HighlightsSheet({ visible, items, noteOf, onGo, onClose }: {
   visible: boolean
@@ -99,49 +141,102 @@ export function V2HighlightsSheet({ visible, items, noteOf, onGo, onClose }: {
 }) {
   const { colors } = useTheme()
   const { t } = useLanguage()
-  const reduceMotion = useReduceMotion()
   return (
-    <Modal visible={visible} animationType={reduceMotion ? 'none' : 'slide'} transparent onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <Pressable style={styles.outside} onPress={onClose} accessible={false} />
-        <View style={[styles.sheet, { backgroundColor: colors.background }]} accessibilityViewIsModal>
-          <View style={[styles.header, { borderBottomColor: colors.border }]}>
-            <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">{t('reader.chrome.highlights')}</Text>
-            <TouchableOpacity onPress={onClose} style={styles.close} accessibilityRole="button" accessibilityLabel={t('reader.chrome.closeHighlights')}>
-              <Ionicons name="close" size={22} color={colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-          {items.length === 0 ? (
-            <Text style={[styles.empty, { color: colors.textSecondary }]}>{t('highlights.emptySubtitle')}</Text>
-          ) : (
-            <FlatList
-              data={items}
-              keyExtractor={(h) => h.id}
-              style={styles.list}
-              renderItem={({ item }) => {
-                const note = noteOf(item.id)
-                return (
-                  <TouchableOpacity
-                    style={[styles.row, styles.hlRow, { borderBottomColor: colors.border }]}
-                    onPress={() => {
-                      onGo(item)
-                      onClose()
-                    }}
-                    accessibilityRole="button"
-                  >
-                    <View style={[styles.swatch, { backgroundColor: HIGHLIGHT_BG[item.color] }]} />
-                    <View style={styles.hlBody}>
-                      <Text style={[styles.rowText, { color: colors.text }]} numberOfLines={3}>{item.text}</Text>
-                      {note ? <Text style={[styles.note, { color: colors.textSecondary }]} numberOfLines={2}>{note}</Text> : null}
-                    </View>
-                  </TouchableOpacity>
-                )
-              }}
-            />
-          )}
+    <ListSheet
+      visible={visible}
+      title={t('reader.chrome.highlights')}
+      closeLabel={t('reader.chrome.closeHighlights')}
+      items={items}
+      empty={t('highlights.emptySubtitle')}
+      onClose={onClose}
+      renderItem={(item) => {
+        const note = noteOf(item.id)
+        return (
+          <TouchableOpacity
+            style={[styles.row, styles.hlRow, { borderBottomColor: colors.border }]}
+            onPress={() => {
+              onGo(item)
+              onClose()
+            }}
+            accessibilityRole="button"
+          >
+            <View style={[styles.swatch, { backgroundColor: HIGHLIGHT_BG[item.color] }]} />
+            <View style={styles.hlBody}>
+              <Text style={[styles.rowText, { color: colors.text }]} numberOfLines={3}>{item.text}</Text>
+              {note ? <Text style={[styles.note, { color: colors.textSecondary }]} numberOfLines={2}>{note}</Text> : null}
+            </View>
+          </TouchableOpacity>
+        )
+      }}
+    />
+  )
+}
+
+/**
+ * The open book's bookmarks (#1314). Its header button adds a bookmark at the place being read, or removes the one
+ * that place has (`here`; absent where nothing can be bookmarked and none is here). The page's `bookmark-list` in book
+ * order, each bookmark's first words as text (untrusted): a tap jumps there and closes the sheet; its remove button
+ * removes that one, wherever in the book it is (one further down the screen is never the one `here`).
+ */
+export function V2BookmarksSheet({ visible, items, here, can, placing, onToggle, onGo, onRemove, onClose }: {
+  visible: boolean
+  items: V2BookmarkItem[]
+  /** The bookmark the place being read has (null: none). */
+  here: string | null
+  /** One can be made at the place on screen. */
+  can: boolean
+  /** Bookmarks are still being placed: the empty list says they are loading. */
+  placing: boolean
+  onToggle: () => void
+  onGo: (item: V2BookmarkItem) => void
+  onRemove: (id: string) => void
+  onClose: () => void
+}) {
+  const { colors } = useTheme()
+  const { t } = useLanguage()
+  return (
+    <ListSheet
+      visible={visible}
+      title={t('reader.chrome.bookmarks')}
+      closeLabel={t('reader.chrome.closeBookmarks')}
+      items={items}
+      empty={t(placing ? 'reader.chrome.bookmarksLoading' : can ? 'reader.chrome.bookmarksEmpty' : 'reader.chrome.bookmarksNotHere')}
+      onClose={onClose}
+      action={(can || here) ? (
+        <TouchableOpacity
+          onPress={onToggle}
+          style={[styles.toggle, { backgroundColor: colors.primaryLight }]}
+          accessibilityRole="button"
+          accessibilityState={{ selected: !!here }}
+          testID="v2-bookmark-toggle"
+        >
+          {/* One name, its state in `selected` (#1314 review); filled while the place being read has one. */}
+          <Ionicons name={here ? 'bookmark' : 'bookmark-outline'} size={16} color={colors.primary} />
+          <Text style={[styles.toggleText, { color: colors.primary }]}>{t('reader.chrome.bookmark')}</Text>
+        </TouchableOpacity>
+      ) : null}
+      renderItem={(item) => (
+        <View style={[styles.bmRow, { borderBottomColor: colors.border }, item.id === here && { backgroundColor: colors.primaryLight }]}>
+          <TouchableOpacity
+            style={[styles.row, styles.hlRow, styles.bmGo]}
+            onPress={() => {
+              onGo(item)
+              onClose()
+            }}
+            accessibilityRole="button"
+            accessibilityState={{ selected: item.id === here }}
+            testID="v2-bookmark-row"
+          >
+            <Ionicons name="bookmark" size={16} color={colors.textSecondary} />
+            <Text style={[styles.rowText, styles.hlBody, { color: colors.text }]} numberOfLines={3}>{item.text}</Text>
+          </TouchableOpacity>
+          {/* Named by the bookmark's words: TalkBack tells the rows' buttons apart. */}
+          <TouchableOpacity onPress={() => onRemove(item.id)} style={styles.close} accessibilityRole="button" accessibilityLabel={`${t('reader.chrome.removeBookmark')}: ${item.text}`} testID="v2-bookmark-remove">
+            <Ionicons name="trash-outline" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
         </View>
-      </View>
-    </Modal>
+      )}
+    />
   )
 }
 
@@ -187,6 +282,11 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 16, paddingRight: 4, borderBottomWidth: 1 },
   title: { fontSize: 17, fontFamily: fonts.sansBold },
   close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  toggle: { minHeight: 44, paddingHorizontal: 12, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  toggleText: { fontSize: 14, fontFamily: fonts.sansMedium },
+  bmRow: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth },
+  bmGo: { flex: 1, borderBottomWidth: 0 },
   list: { flex: 1 },
   row: { justifyContent: 'center', paddingRight: 16, paddingVertical: 14, minHeight: 52, borderBottomWidth: StyleSheet.hairlineWidth },
   rowText: { fontSize: 14, fontFamily: fonts.sans },

@@ -9,7 +9,7 @@
  */
 import { uuid } from 'expo-modules-core'
 import {
-  v2Api, highlightsApi, SessionChangedError, isPdfAnchor, anchorToV2Locator, v2LocatorToAnchor, clip, MAX_SELECTED_TEXT,
+  v2Api, highlightsApi, SessionChangedError, isBookmark, isPdfAnchor, anchorToV2Locator, v2LocatorToAnchor, clip, MAX_SELECTED_TEXT,
   type PublicHighlight, type UpdateHighlightData, type V2Annotation, type V2AnnotationWrite, type TextAnchor, type PdfAnchor,
 } from '@textstack/shared'
 import { switched, v2Book, v2Store, whileCurrent } from './v2'
@@ -107,7 +107,8 @@ async function listV2(bookId: string): Promise<PublicHighlight[]> {
     })
     if (!feed) return [] // signed out meanwhile (#1151)
   }
-  return [...rows.values()].filter((a) => a.bookId === bookId && !a.deletedAt).map(toPublicHighlight)
+  // Not a V2 reader bookmark (#1314: an annotation of colour `bookmark`): this reader would list it as a quotation.
+  return [...rows.values()].filter((a) => a.bookId === bookId && !a.deletedAt && !isBookmark(a)).map(toPublicHighlight)
 }
 
 async function createV2(data: Parameters<typeof highlightsApi.createHighlight>[0]): Promise<PublicHighlight> {

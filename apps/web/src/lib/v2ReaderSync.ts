@@ -380,8 +380,13 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   /** The changes the latest entry and the notes make, forms held as this tab has them (overridden, refused) left out. */
   function changesOf(entry: PageEntry | null) {
     const highlights = notedForms(entry).filter((h) => !isHeldAs(overridden, h) && !isHeldAs(refused, h))
-    const heldNoted = [...held.values()].map((r) => ({ ...r, highlight: r.highlight && noted(r.highlight, r.note) }))
-    return entryChanges<Noted>(t.fileId, { position, highlights: heldNoted }, { position: entry?.position ?? null, highlights }, newId)
+    // A row whose removal is still to be sent is no live row (#1314 review): one made again at its place (the same CFI
+    // and words, a new id) is not its twin, and is written.
+    const heldNoted = [...held.values()].map((r) => ({ ...r, deleted: r.deleted || removals.has(r.id), highlight: r.highlight && noted(r.highlight, r.note) }))
+    const changes = entryChanges<Noted>(t.fileId, { position, highlights: heldNoted }, { position: entry?.position ?? null, highlights }, newId)
+    // A page id skipped as a held row's twin is that row from now on (#1314 review), as a re-key is.
+    for (const { from, to } of changes.aliases) if (!rekeyed.has(from)) rekeyed.set(from, to)
+    return changes
   }
 
   async function pass() {
