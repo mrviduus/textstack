@@ -1,30 +1,9 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AdminAuthProvider } from './context/AdminAuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
-import { Layout } from './components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LoginPage } from './pages/LoginPage'
-import { DashboardPage } from './pages/DashboardPage'
-import { UploadPage } from './pages/UploadPage'
-import { JobsPage } from './pages/JobsPage'
-import { EditionsPage } from './pages/EditionsPage'
-import { EditEditionPage } from './pages/EditEditionPage'
-import { AuthorsPage } from './pages/AuthorsPage'
-import { CreateAuthorPage } from './pages/CreateAuthorPage'
-import { EditAuthorPage } from './pages/EditAuthorPage'
-import { GenresPage } from './pages/GenresPage'
-import { CreateGenrePage } from './pages/CreateGenrePage'
-import { EditGenrePage } from './pages/EditGenrePage'
-import { EditChapterPage } from './pages/EditChapterPage'
-import { ToolsPage } from './pages/ToolsPage'
-import { SsgRebuildPage } from './pages/SsgRebuildPage'
-import { SsgRebuildJobPage } from './pages/SsgRebuildJobPage'
-import { SettingsPage } from './pages/SettingsPage'
-import { AutoPublishPage } from './pages/AutoPublishPage'
-import { SeoBackfillPage } from './pages/SeoBackfillPage'
-import { BookQualityPage } from './pages/BookQualityPage'
-import { AiQualityPage } from './pages/AiQualityPage'
-import { UserUploadsPage } from './pages/UserUploadsPage'
+import { HomePage } from './pages/HomePage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import './styles/admin.css'
 
@@ -39,33 +18,11 @@ function App() {
             path="/"
             element={
               <ProtectedRoute>
-                <Layout />
+                <HomePage />
               </ProtectedRoute>
             }
-          >
-            <Route index element={<DashboardPage />} />
-            <Route path="upload" element={<UploadPage />} />
-            <Route path="jobs" element={<JobsPage />} />
-            <Route path="user-uploads" element={<UserUploadsPage />} />
-            <Route path="editions" element={<EditionsPage />} />
-            <Route path="editions/:id" element={<EditEditionPage />} />
-            <Route path="chapters/:id" element={<EditChapterPage />} />
-            <Route path="authors" element={<AuthorsPage />} />
-            <Route path="authors/new" element={<CreateAuthorPage />} />
-            <Route path="authors/:id" element={<EditAuthorPage />} />
-            <Route path="genres" element={<GenresPage />} />
-            <Route path="genres/new" element={<CreateGenrePage />} />
-            <Route path="genres/:id" element={<EditGenrePage />} />
-            <Route path="tools" element={<ToolsPage />} />
-            <Route path="ssg-rebuild" element={<SsgRebuildPage />} />
-            <Route path="ssg-rebuild/:id" element={<SsgRebuildJobPage />} />
-            <Route path="autopublish" element={<AutoPublishPage />} />
-            <Route path="seo-backfill" element={<SeoBackfillPage />} />
-            <Route path="quality" element={<BookQualityPage />} />
-            <Route path="ai-quality" element={<AiQualityPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Route>
+          />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
         </ErrorBoundary>
       </AdminAuthProvider>

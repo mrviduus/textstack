@@ -326,7 +326,15 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     readingRef.current = v
     setReadingState(v)
   }
-  const { immersiveMode: barsHidden, showBars, hideBars } = useImmersiveMode(true, !reading)
+  /**
+   * Desktop (a fine pointer): the bars follow the mouse (a move shows them, 3 s without one hides them, never while the
+   * pointer or keyboard focus is on a bar), and a click in the book never turns a page: the footer's arrows and the keys do.
+   */
+  const [mouse] = useState(() => typeof matchMedia === 'function' && matchMedia('(hover: hover) and (pointer: fine)').matches)
+  // Keyboard focus only (`:focus-visible`): a bar button keeps the focus a click gave it, and must not pin the bars.
+  const onBar = () => [header.current, footer.current].some((b) => b?.matches(':hover') || b?.querySelector(':focus-visible'))
+  const { immersiveMode: barsHidden, showBars, hideBars, pointerMoved } = useImmersiveMode(true, !reading, mouse ? onBar : undefined)
+  const onMouseMove = () => { if (mouse && readingRef.current && !lightboxRef.current) pointerMoved() }
   const barsHiddenRef = useRef(barsHidden)
   barsHiddenRef.current = barsHidden
   const reflowableRef = useRef(reflowable)
@@ -442,8 +450,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   }
   /** A tap, word or selection from the page (validated): what is open, and what the tap zones do (`popupStep`). */
   const onPopupEvent = (e: V2PopupEvent) => {
-    const { popup: next, turn } = popupStep(popupRef.current, e, { width: frame.current?.clientWidth, flow: effectiveFlow(), dir: pageDir.current })
+    // Desktop: no tap zones (scrolled flow has none), and the mouse, not a click, shows the bars.
+    const { popup: next, turn } = popupStep(popupRef.current, e, { width: frame.current?.clientWidth, flow: mouse ? 'scrolled' : effectiveFlow(), dir: pageDir.current })
     setPopup(next)
+    if (turn === 'toggle' && mouse) return
     if (turn === 'toggle') return barsHiddenRef.current ? showBars() : hideBars()
     if (!turn) return
     call(turn)
@@ -828,6 +838,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           }
           return
         }
+        case 'pointer-move':
+          // The mouse moved over the book (the page's, throttled; no payload): the bars' mouse path.
+          onMouseMove()
+          return
         case 'openLink':
           if (/^https?:\/\//i.test(m.href)) window.open(m.href, '_blank', 'noopener,noreferrer')
           return
@@ -1045,7 +1059,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   }
 
   return (
-    <main ref={main} tabIndex={-1} className={`reader-page v2-reader${barsHidden ? ' immersive-mode' : ''}`} data-bars={barsHidden ? 'hidden' : 'shown'}>
+    <main ref={main} tabIndex={-1} className={`reader-page v2-reader${barsHidden ? ' immersive-mode' : ''}`} data-bars={barsHidden ? 'hidden' : 'shown'} onMouseMove={onMouseMove}>
       {/* #1267: past the bars to the book (the legacy reader's skip link); the frame takes focus, its keys turn pages. */}
       <a href={`#${BOOK_ID}`} className="skip-link" inert={lightboxOpen} onClick={(e) => { e.preventDefault(); frame.current?.focus() }}>{t('v2Reader.skipToBook')}</a>
       {/* Legacy reader's bars (reader.css); hidden ones stay reachable by Tab, and focus shows them. */}

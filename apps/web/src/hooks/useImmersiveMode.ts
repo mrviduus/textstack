@@ -10,12 +10,16 @@ const AUTO_HIDE_DELAY = 3000
  * - Scroll down ≥48px → hide immediately
  * - Scroll up ≥6px (or any up while bars hidden) → show immediately
  * - Tap handler calls showBars() to reveal; bars then stay until the user scrolls down
+ * - Mouse path (desktop): pointerMoved() shows them and hides them again after 3s without a move; `keepBars`
+ *   (the pointer or focus on a bar) puts that hide off for another 3s
  */
-export function useImmersiveMode(_enabled: boolean, isLoading: boolean) {
+export function useImmersiveMode(_enabled: boolean, isLoading: boolean, keepBars?: () => boolean) {
   const [immersiveMode, setImmersiveMode] = useState(false)
   const timerRef = useRef<number | null>(null)
   const baselineRef = useRef<number>(0)
   const lastDirRef = useRef<'up' | 'down' | null>(null)
+  const keepRef = useRef(keepBars)
+  keepRef.current = keepBars
 
   const clearTimer = () => {
     if (timerRef.current) {
@@ -27,6 +31,7 @@ export function useImmersiveMode(_enabled: boolean, isLoading: boolean) {
   const startTimer = useCallback(() => {
     clearTimer()
     timerRef.current = window.setTimeout(() => {
+      if (keepRef.current?.()) return startTimer()
       setImmersiveMode(true)
       lastDirRef.current = 'down'
     }, AUTO_HIDE_DELAY)
@@ -45,6 +50,13 @@ export function useImmersiveMode(_enabled: boolean, isLoading: boolean) {
     lastDirRef.current = 'down'
     clearTimer()
   }, [])
+
+  /** A mouse move (desktop): bars shown, hidden again after 3s without one. */
+  const pointerMoved = useCallback(() => {
+    setImmersiveMode(false)
+    lastDirRef.current = 'up'
+    startTimer()
+  }, [startTimer])
 
   useEffect(() => {
     if (isLoading) return
@@ -86,5 +98,5 @@ export function useImmersiveMode(_enabled: boolean, isLoading: boolean) {
     return () => window.removeEventListener('scroll', onScroll)
   }, [isLoading])
 
-  return { immersiveMode, showBars, hideBars, startTimer }
+  return { immersiveMode, showBars, hideBars, startTimer, pointerMoved }
 }

@@ -9,7 +9,6 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && node scripts/assert-no-dev-reader.mjs",
-    "build:ssg": "tsc && vite build && node scripts/prerender.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -26,12 +25,9 @@
     "check:v2-reader-prod-csp": "node --experimental-strip-types ../mobile/src/lib/v2reader/prodCsp.check.mjs"
   },
   "dependencies": {
-    "@sentry/node": "catalog:",
     "@sentry/react": "catalog:",
     "cmdk": "^1.1.1",
     "pdfjs-dist": "catalog:",
-    "pg": "^8.20.0",
-    "puppeteer": "^25.16.0",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-markdown": "^10.1.0",

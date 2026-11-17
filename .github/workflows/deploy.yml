@@ -14,7 +14,7 @@ on:
     #
     # Mobile and the browser extension never reach the server: mobile ships by OTA
     # (mobile-ota.yml), the extension by hand. NEVER add packages/**, the lockfile or
-    # pnpm-workspace.yaml here — the admin, ssg-worker and web images (and the
+    # pnpm-workspace.yaml here — the admin and web images (and the
     # server's fallback web build) consume them.
     #
     # `paths` with negations, not `paths-ignore` (which cannot re-include): the V2
@@ -39,10 +39,6 @@ on:
       rollback_commit:
         description: 'Commit SHA on main to roll back to (7-40 hex; optional)'
         required: false
-      rebuild_ssg:
-        description: 'Full SSG rebuild now (no nightly rebuild since #992)'
-        type: boolean
-        default: false
 
 concurrency:
   group: deploy-production
@@ -145,9 +141,8 @@ jobs:
           # nginx config — is meant to be the target commit's.)
           git show "$RUN_SHA:scripts/scan-image-secrets.sh" > "$RUNNER_TEMP/scan-image-secrets.sh"
           chmod +x "$RUNNER_TEMP/scan-image-secrets.sh"
-          # Same reason: the web swap, the SSG restore and the web build's public values.
+          # Same reason: the web swap and the web build's public values.
           git show "$RUN_SHA:scripts/swap-web-dist.sh" > "$RUNNER_TEMP/swap-web-dist.sh"
-          git show "$RUN_SHA:scripts/restore-ssg-staging.sh" > "$RUNNER_TEMP/restore-ssg-staging.sh"
           git show "$RUN_SHA:apps/web/production.env" > "$RUNNER_TEMP/production.env"
           if [ -n "$ROLLBACK_SHA" ]; then
             # Checked again against this clone: guard ran on GitHub's copy.
@@ -233,35 +228,10 @@ jobs:
             exit 1
           fi
 
-      # Never deploy while an SSG rebuild is rendering: "Deploy containers" recreates
-      # ssg-worker (its image tag changes every deploy), and the fallback frontend build empties
-      # apps/web/dist, which ssg-worker writes into (dist/ssg-new); a rebuild caught in that
-      # window fails by design (assertBuildSurvived — the 2026-08-31 guard) and leaves
-      # ssg-worker unhealthy. Rebuilds come from the admin button, make rebuild-ssg and rebuild_ssg (no nightly since #992),
-      # so any of them can be mid-run when a merge lands.
-      # Waits up to 40 min (a full rebuild is ~25), then proceeds with a warning: a wedged
-      # job must not block deploys forever, and the guard still protects the live tree.
-      # Only jobs touched in the last hour count: ssg-worker fails a job left 'Running' only when it
-      # next starts (ADR-022), and one such row would otherwise cost every deploy the full 40 minutes.
-      - name: Wait for any running SSG rebuild
-        run: |
-          DEADLINE=$(( $(date +%s) + 2400 ))
-          while :; do
-            ACTIVE=$(docker exec textstack_db_prod psql -U textstack_prod textstack_prod -tAc \
-              "SELECT count(*) FROM ssg_rebuild_jobs WHERE status IN ('Queued','Running') AND COALESCE(started_at, created_at) > now() - interval '60 minutes'" 2>/dev/null | tr -d '[:space:]')
-            [ "$ACTIVE" = "0" ] && { echo "No SSG rebuild in progress"; break; }
-            if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-              echo "::warning::SSG rebuild still active after 40 min — deploying anyway"
-              break
-            fi
-            echo "SSG rebuild in progress ($ACTIVE active) — waiting… ($(date +%T))"
-            sleep 30
-          done
-
-      # After the SSG wait, before anything live changes (the web swap or fallback
-      # build rewrites the served dist/). A failed dump therefore ships nothing: same site, same
-      # containers. Not at the start of the run and not in a parallel job: CI, images
-      # and the up-to-40-min SSG wait could then put an hour of writes between the
+      # Before anything live changes (the web swap or fallback build rewrites the
+      # served dist/). A failed dump therefore ships nothing: same site, same
+      # containers. Not at the start of the run and not in a parallel job: CI and
+      # images could then put many minutes of writes between the
       # dump and a bad migration, all lost on restore. Here it is minutes before the
       # migrator (next: web scan + swap or fallback build, "Deploy containers").
       # The V2 database only: it holds all live data since the cutover (ADR-030); the legacy one is
@@ -282,7 +252,7 @@ jobs:
       # apps/web/production.env (the fallback build below exports them, and the
       # environment wins over any file) — and the box had a stale,
       # gitignored .env.production (wrong Google client id). Moved aside, not
-      # deleted, before the snapshot step, so this step can never strand dist/ssg.
+      # deleted.
       - name: Move stray web env files aside
         run: |
           cd "$PROJECT_DIR/apps/web"
@@ -293,107 +263,12 @@ jobs:
             echo "::warning::moved apps/web/$f to $dest — vite must not read it"
           done
 
-      - name: Snapshot SSG dir + referenced assets before vite wipes dist
-        # Fallback only: a pulled bundle never wipes dist (scripts/swap-web-dist.sh).
-        if: steps.web.outputs.pulled != 'true'
-        # Closes the deploy-race window where vite's emptyOutDir=true
-        # nukes dist/ssg/ AND dist/assets/* before the SSG worker can
-        # regenerate (5-10 min gap). During that gap, bots hit /en/books/*,
-        # /en/authors/*, etc. → 404 spa (nginx falls back when SSG file
-        # missing). Solution: snapshot the existing dist/ssg/ + every asset
-        # transitively referenced by it (HTML→JS→imports→CSS→url() fonts)
-        # to a folder OUTSIDE dist/. After vite finishes, restore both.
-        # Result: bots get old SSG referencing old (preserved) assets until
-        # SSG worker atomic-swaps in fresh files. No more 404 window.
-        #
-        # BFS through JS+CSS files is what tripped up the original Wave 4
-        # prune (5e4070a): a naive HTML-only scan misses React.lazy()
-        # chunks (string-literal imports inside the main bundle) and
-        # fonts referenced from CSS via url(). The fixed-point loop here
-        # walks the full reachability graph.
-        run: |
-          set -e
-          DIST=$PROJECT_DIR/apps/web/dist
-          STAGING=$PROJECT_DIR/apps/web/.ssg-staging
-          # Never clear staging before knowing there is something to replace
-          # it with. This used to `rm -rf "$STAGING"` first and check second,
-          # so a deploy starting after a previous one died mid-flight would
-          # destroy the only copy of 1990 prerendered pages before discovering
-          # dist/ssg was already gone. Three such deploys sat queued behind a
-          # build that hung for 76 minutes; the first to run would have done it.
-          if [ ! -d "$DIST/ssg" ]; then
-            if [ -d "$STAGING/ssg" ]; then
-              echo "dist/ssg missing and staging holds a copy — a previous deploy died between snapshot and restore."
-              echo "Leaving staging alone; the restore step will put it back."
-            else
-              echo "No existing dist/ssg — first deploy, nothing to preserve"
-            fi
-            exit 0
-          fi
-
-          rm -rf "$STAGING"
-          mkdir -p "$STAGING/assets"
-
-          ALL_REFS=$(mktemp)
-          # Pass 1: refs from SSG HTML files
-          find "$DIST/ssg" -name '*.html' -print0 2>/dev/null \
-            | xargs -0 -r grep -ohE 'assets/[A-Za-z0-9_.-]+\.(js|css|mjs|cjs|woff2?|ttf|otf|eot|png|jpg|jpeg|svg|webp|gif|ico|map)' 2>/dev/null \
-            | awk -F/ '{print $NF}' | sort -u > "$ALL_REFS"
-
-          # Pass 2..N: BFS through JS/CSS files in REFS (lazy imports, url() fonts)
-          PREV=0
-          CUR=$(wc -l < "$ALL_REFS" | tr -d ' ')
-          while [ "$CUR" != "$PREV" ]; do
-            PREV=$CUR
-            FILES_NUL=$(while IFS= read -r f; do
-              case "$f" in
-                *.js|*.css|*.mjs|*.cjs) [ -f "$DIST/assets/$f" ] && printf '%s\0' "$DIST/assets/$f" ;;
-              esac
-            done < "$ALL_REFS")
-            if [ -n "$FILES_NUL" ]; then
-              printf '%s' "$FILES_NUL" \
-                | xargs -0 -r grep -ohE 'assets/[A-Za-z0-9_.-]+\.(js|css|mjs|cjs|woff2?|ttf|otf|eot|png|jpg|jpeg|svg|webp|gif|ico|map)' 2>/dev/null \
-                | awk -F/ '{print $NF}' >> "$ALL_REFS"
-              sort -u "$ALL_REFS" -o "$ALL_REFS"
-            fi
-            CUR=$(wc -l < "$ALL_REFS" | tr -d ' ')
-          done
-
-          # Move SSG out, copy referenced assets out
-          # Copy then remove, not `mv`. A move leaves exactly one copy, and
-          # for the length of the build that copy lives somewhere nothing
-          # serves. When the build hung, that was the site's entire prerendered
-          # output — invisible to nginx and to anyone looking in dist/. The
-          # extra disk is worth the window not existing.
-          cp -a "$DIST/ssg" "$STAGING/ssg"
-          rm -rf "$DIST/ssg"
-          COPIED=0
-          while IFS= read -r f; do
-            if [ -f "$DIST/assets/$f" ]; then
-              cp "$DIST/assets/$f" "$STAGING/assets/$f"
-              COPIED=$((COPIED + 1))
-            fi
-          done < "$ALL_REFS"
-          rm "$ALL_REFS"
-
-          # Sanity: if SSG had files but we preserved 0 assets, grep/find
-          # broke silently (set -e + 2>/dev/null masks failures upstream).
-          # Restoring SSG without companion assets ships 404'd CSS to bots
-          # for the rebuild window. Fail loud — operator can re-run.
-          SSG_COUNT=$(find "$STAGING/ssg" -name index.html | wc -l | tr -d ' ')
-          if [ "$SSG_COUNT" -gt 0 ] && [ "$COPIED" -eq 0 ]; then
-            echo "FAIL: snapshot preserved $SSG_COUNT SSG files but 0 assets — graph extraction broken (check grep/find availability)"
-            exit 1
-          fi
-          echo "Preserved $SSG_COUNT SSG files + $COPIED assets"
-
       - name: Build frontend
         # Fallback only — normally `images` builds this on GitHub (job `web`).
         if: steps.web.outputs.pulled != 'true'
         # --frozen-lockfile to match ci.yml — prevents transitive deps from
         # silently drifting between CI and deploy, which would produce
-        # different chunk hashes per build and bloat the snapshot/restore
-        # legacy-asset pool unnecessarily.
+        # different chunk hashes per build.
         #
         # The VITE_ values come from apps/web/production.env at this workflow's
         # commit (copied by "Pull latest code"), the same file images.yml builds
@@ -407,9 +282,7 @@ jobs:
           # Corepack asks "Do you want to continue? [Y/n]" the first time it
           # fetches a package manager it has not cached. On a self-hosted runner
           # nobody answers, so the step waits forever — this hung for 76
-          # minutes, holding the deploy open between the snapshot step that
-          # MOVES dist/ssg aside and the restore step that puts it back, with
-          # 1990 prerendered pages stranded in staging and crawlers getting 404.
+          # minutes.
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
         run: |
           # From the workspace root: one lockfile, and `catalog:` specifiers
@@ -427,32 +300,14 @@ jobs:
           corepack pnpm install --frozen-lockfile
           set -a; . "$RUNNER_TEMP/production.env"; set +a
           corepack pnpm --filter textstack-web build
-          # dist holds only vite's output until the restore: record it as the live
-          # release, so the next pulled swap removes what this one shipped and that does not.
+          # dist holds only vite's output: record it as the live release, so the
+          # next pulled swap removes what this one shipped.
           (cd apps/web/dist && find . -type f ! -path './assets/*' | sed 's#^\./##' | sort) > apps/web/.web-release
-
-      - name: Restore preserved SSG + assets
-        # Runs on both paths; the decision is scripts/restore-ssg-staging.sh (self-check
-        # in ci.yml `frontend`).
-        #  - Fallback (built): vite has wiped dist/ and written fresh assets/. Put the
-        #    snapshot back: ssg/ as-is, assets non-clobbering (vite's new files win), so
-        #    dist/assets holds the NEW bundle and the OLD one the SSG pages reference
-        #    until ssg-worker swaps in a fresh tree; the next deploy's snapshot drops the
-        #    OLD ones. Self-cleaning. Also recovers a deploy that died between snapshot
-        #    and restore (the snapshot step leaves that staging alone).
-        #  - Pulled: no snapshot ran, so any staging is from a deploy that died mid-flight.
-        #    Restored only if dist/ssg is missing; if dist/ssg is live it is newer than
-        #    the copy, so the copy is removed (with a warning) instead of rm -rf'ing the
-        #    live tree to put older pages back.
-        env:
-          MODE: ${{ steps.web.outputs.pulled == 'true' && 'pulled' || 'built' }}
-        run: bash "$RUNNER_TEMP/restore-ssg-staging.sh" "$MODE" "$PROJECT_DIR/apps/web/dist" "$PROJECT_DIR/apps/web/.ssg-staging"
 
       # The bundle every visitor downloads, scanned with the image scanner's patterns
       # plus the server's real secret values (names ending SECRET, PASSWORD, TOKEN,
       # API_KEY — INDEXNOW_KEY and the DSN are public by design). A hit prints the
-      # file, never the value. Runs after the restore so a failure here can't strand
-      # dist/ssg.
+      # file, never the value.
       #
       # A pulled bundle was already scanned on GitHub (patterns + canaries); this adds
       # the real values, which GitHub never sees, and it runs BEFORE the swap — a hit
@@ -469,11 +324,9 @@ jobs:
               if (n ~ /(SECRET|PASSWORD|TOKEN|API_KEY)$/) { v = substr($0, index($0, "=") + 1)
                 gsub(/^["\047]|["\047]$/, "", v); print v } }' .env)
           export SCAN_SECRET_VALUES
-          # Vite's output only (index.html + assets/): dist/ssg and dist/ssg-new are
-          # Puppeteer's, rewritten by ssg-worker while this runs (a file vanishing
-          # mid-grep is a scan error), and vite inlines env into neither.
+          # Vite's output only (index.html + assets/): vite inlines env nowhere else.
           if [ "$PULLED" = true ]; then
-            # The whole release (no SSG in it), before it is live.
+            # The whole release, before it is live.
             "$RUNNER_TEMP/scan-image-secrets.sh" --dir "$RUNNER_TEMP/web-dist"
           else
             web=$(mktemp -d "$RUNNER_TEMP/web-scan.XXXX")
@@ -483,9 +336,7 @@ jobs:
           fi
 
       # The pulled bundle goes live: assets first, then every other file, index.html
-      # last, each renamed into place; dist/ssg* is never touched, so the SSG
-      # snapshot/restore above is not needed on this path. Not a rename of dist itself:
-      # ssg-worker bind-mounts it. Unreferenced old assets are pruned (one release of
+      # last, each renamed into place. Unreferenced old assets are pruned (one release of
       # grace for open tabs). Details and the self-check: scripts/swap-web-dist.sh.
       - name: Put web bundle live
         if: steps.web.outputs.pulled == 'true'
@@ -534,11 +385,6 @@ jobs:
           # It's profile-gated so CI's bare `compose up` (docker/e2e jobs) never
           # builds/runs it; prod opts in here. nginx /mcp is synced below.
           COMPOSE="docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml"
-          # V2 mode (M5 cutover, #1031): the catalog is frozen and legacy is read-only, so ssg-worker is
-          # neither started nor restarted (scale 0 removes a running one). Its image is still pulled and
-          # tagged: the cutover rollback starts it by hand (internal/ops/v2-cutover.md).
-          SCALE=""
-          [ "$(sed -n 's/^DATABASE_MODE=//p' .env | tr -d "\"' ")" = v2 ] && SCALE="--scale ssg-worker=0" && echo "DATABASE_MODE=v2: ssg-worker not started"
 
           PULLED=false
           if grep -q 'IMAGE_TAG' docker-compose.yml; then
@@ -548,7 +394,7 @@ jobs:
             DOCKER_CONFIG=$(mktemp -d) && export DOCKER_CONFIG
             if echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin; then
               PULLED=true
-              for s in migrator api worker admin ssg-worker mcp-server; do
+              for s in migrator api worker admin mcp-server; do
                 d=$(tr ' ' '\n' <<< "$DIGESTS" | sed -n "s/^$s@\(sha256:[0-9a-f]\{64\}\)$/\1/p")
                 [ -n "$d" ] || { echo "no digest for $s"; PULLED=false; break; }
                 timeout 900 docker pull "$IMAGE_REGISTRY-$s@$d" || { PULLED=false; break; }
@@ -560,17 +406,17 @@ jobs:
 
           if [ "$PULLED" = true ]; then
             echo "Deploying pulled images $IMAGE_REGISTRY-*:$IMAGE_TAG"
-            $COMPOSE up -d --no-build $SCALE
+            $COMPOSE up -d --no-build
           else
             echo "::warning::Images for $IMAGE_TAG not pulled — building on the server"
-            $COMPOSE up -d --build $SCALE
+            $COMPOSE up -d --build
           fi
 
           # A hand-run `docker compose up -d <svc>` on the server (e.g. after editing .env)
           # has no IMAGE_TAG and resolves `textstack-<svc>:latest`. Point that at what is
           # running now, or it would silently start an older image.
           if grep -q 'IMAGE_TAG' docker-compose.yml; then
-            for s in migrator api worker admin ssg-worker mcp-server; do
+            for s in migrator api worker admin mcp-server; do
               docker tag "$IMAGE_REGISTRY-$s:$IMAGE_TAG" "textstack-$s:latest"
             done
           fi
@@ -634,32 +480,14 @@ jobs:
           # `up -d` returns before healthchecks run; a container still `starting` or already
           # `unhealthy` (worker, mcp-server…) would otherwise ship green, so wait up to 90s for
           # every healthcheck to settle. A failing `compose ps` fails the step (set -e on the
-          # assignment) instead of reading as "nothing unhealthy". ssg-worker is excluded: its
-          # healthcheck also reports "last rebuild failed", which is content state that
-          # health-check.yml alarms on — not a reason to call this deploy broken.
+          # assignment) instead of reading as "nothing unhealthy".
           for _ in $(seq 18); do
             STATES=$(cd "$PROJECT_DIR" && docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml ps --format '{{.Service}} {{.Health}}')
-            NOT_HEALTHY=$(printf '%s\n' "$STATES" | awk '($2 == "starting" || $2 == "unhealthy") && $1 != "ssg-worker" {print $1 "=" $2}')
+            NOT_HEALTHY=$(printf '%s\n' "$STATES" | awk '$2 == "starting" || $2 == "unhealthy" {print $1 "=" $2}')
             [ -z "$NOT_HEALTHY" ] && break
             sleep 5
           done
           [ -z "$NOT_HEALTHY" ] || { echo "::error::services not healthy after 90s: $NOT_HEALTHY"; exit 1; }
-
-      # A full rebuild is ~25 min of Puppeteer on the prod box and held the only runner for it.
-      # Not needed per deploy: the snapshot step above keeps the old SSG tree AND the assets it
-      # references, so crawlers keep complete pages. Nothing rebuilds per edit (ADR-023): a published
-      # book reaches crawlers only after `make rebuild-ssg` (no nightly since #992)
-      # / the admin button. Tick `rebuild_ssg` on a manual run when a release changes how SEO pages render.
-      - name: Queue SSG rebuild
-        if: inputs.rebuild_ssg
-        run: |
-          # Stamp the moment we asked, so the wait below can require a swap that happened
-          # *after* it rather than guessing from a file's age.
-          echo "SSG_QUEUED_AT=$(date +%s)" >> $GITHUB_ENV
-          # Blocking: without the nightly this is one of the few rebuild paths, and the wait below
-          # would otherwise poll for 40 min before failing.
-          curl -sf -X POST http://localhost:8080/internal/ssg/rebuild-all || { echo "FAIL: SSG rebuild queue failed"; exit 1; }
-          echo "SSG rebuild queued"
 
       - name: Health check frontend
         run: |
@@ -689,112 +517,11 @@ jobs:
             case "$CT" in application/json*) echo "$P → JSON OK" ;; *) echo "FAIL: $P served $CT"; exit 1 ;; esac
           done
 
-      - name: Verify SEO setup
+      # Security headers live (#857; proves the current config is loaded).
+      - name: Verify CSP live
         run: |
-          echo "=== SPA serves real users ==="
-          HEADER=$(curl -sf -o /dev/null -w '%{http_code}' -H "Host: textstack.app" http://localhost/en/)
-          [ "$HEADER" = "200" ] && echo "SPA 200 OK" || { echo "SPA failed: $HEADER"; exit 1; }
-
-          SPA_RENDER=$(curl -sf -I -H "Host: textstack.app" http://localhost/en/ | grep -i x-seo-render | tr -d '\r')
-          echo "Real user: $SPA_RENDER"
-          echo "$SPA_RENDER" | grep -qi "spa" || { echo "FAIL: real user not getting SPA"; exit 1; }
-
-          echo "=== Bot detection active ==="
-          BOT_RENDER=$(curl -sf -I -H "Host: textstack.app" -H "User-Agent: Googlebot/2.1" http://localhost/en/ | grep -i x-seo-render | tr -d '\r')
-          echo "Bot: $BOT_RENDER"
-          # Bot gets SSG if files exist, SPA fallback if not — both are OK post-deploy
-          # But header MUST be present
-          [ -n "$BOT_RENDER" ] && echo "Bot detection OK" || { echo "FAIL: x-seo-render header missing for bot"; exit 1; }
-
-          echo "=== Security headers live (#857; proves the current config is loaded) ==="
           curl -sf -I -H "Host: textstack.app" http://localhost/en/ | grep -qi '^content-security-policy:.*frame-ancestors' \
             && echo "CSP OK" || { echo "FAIL: /en/ has no CSP — nginx is not running the current config"; exit 1; }
-
-          echo "=== nginx bot map configured ==="
-          grep -q 'map.*is_bot' /etc/nginx/sites-available/textstack || { echo "FAIL: bot map missing from nginx"; exit 1; }
-          echo "Bot map found in nginx config"
-
-      - name: Wait for SSG rebuild to complete
-        if: inputs.rebuild_ssg
-        run: |
-          # Queue SSG rebuild step is async. Poll until the job finishes.
-          # ssg-worker bind mount: ./apps/web/dist:/app/dist, so files atomic-swapped
-          # by worker appear at $PROJECT_DIR/apps/web/dist/ssg on host.
-          SSG_DIR=$PROJECT_DIR/apps/web/dist/ssg
-          [ -d "$SSG_DIR" ] || { echo "No SSG dir yet — skipping wait"; exit 0; }
-
-          # A full rebuild renders ~2000 routes and has taken ~25 min; the old 10-minute
-          # deadline expired on every honest rebuild and then `exit 0`, so "SSG never
-          # refreshed" and "SSG refreshed fine" produced the same green deploy. Both halves
-          # were wrong: the budget is now 40 min, and running out of it fails the step.
-          DEADLINE=$(( $(date +%s) + 2400 ))
-          SENTINEL="$SSG_DIR/en/books/dracula/index.html"
-          # Not "is the file recent" — that has no honest window. A 15-minute window expired on
-          # every real rebuild; widening it to 45 made a tree from the previous rebuild look
-          # current and the wait returned in zero seconds. The question is whether a swap
-          # happened after we queued, which is a comparison, not a guess.
-          SINCE=${SSG_QUEUED_AT:-0}
-          until [ -f "$SENTINEL" ] && [ "$(stat -c %Y "$SENTINEL")" -gt "$SINCE" ]; do
-            if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-              echo "FAIL: SSG rebuild did not finish within 40 min — crawlers may be served a stale or partial tree"
-              exit 1
-            fi
-            echo "Waiting for SSG rebuild… ($(date))"
-            sleep 30
-          done
-          echo "SSG rebuild complete"
-
-      - name: Validate SSG content
-        env:
-          REBUILT: ${{ inputs.rebuild_ssg }}
-        run: |
-          # Catch skeleton-only SSG files (empty <h1>, only skeleton divs). Silent-save bug
-          # from before P0.5 left 247 stale shells on disk for 3 months.
-          SSG_DIR=$PROJECT_DIR/apps/web/dist/ssg
-          [ -d "$SSG_DIR" ] || { echo "SSG dir missing: $SSG_DIR (skipping — first deploy)"; exit 0; }
-
-          TOTAL=$(find "$SSG_DIR" -name index.html | wc -l)
-          [ "$TOTAL" -eq 0 ] && { echo "No SSG files yet (rebuild pending) — skip"; exit 0; }
-
-          # Quality was checked; quantity was not. On 2026-08-31 the tree held 104 author
-          # pages, 23 genres and zero books — every surviving file had a valid <h1>, so this
-          # step passed while the entire catalogue was 404 to crawlers. Compare against the
-          # route list the rebuild was given. Only after this deploy rebuilt: the tree is frozen
-          # (#992), so routes published since the last rebuild have no page by design, and the
-          # floor would turn every later deploy red.
-          EXPECTED=0
-          [ "$REBUILT" = true ] && EXPECTED=$(curl -sf http://localhost:8080/ssg/routes | grep -o '"/[^"]*"' | wc -l)
-          if [ "$EXPECTED" -gt 0 ]; then
-            FLOOR=$(( EXPECTED * 9 / 10 ))
-            if [ "$TOTAL" -lt "$FLOOR" ]; then
-              echo "FAIL: SSG holds $TOTAL pages, expected at least $FLOOR of $EXPECTED routes."
-              echo "Whole sections are missing — a concurrent rebuild or a wiped dist, not a few bad renders."
-              find "$SSG_DIR" -mindepth 2 -maxdepth 2 -type d | sed 's/^/  section: /'
-              exit 1
-            fi
-            echo "SSG coverage: $TOTAL pages against $EXPECTED routes (floor $FLOOR)"
-          else
-            echo "No rebuild in this deploy, or no route list — skipping coverage check"
-          fi
-
-          BAD=0
-          SAMPLES=""
-          while IFS= read -r f; do
-            # Must have a real H1, and must not end with a bare skeleton div
-            if ! grep -q '<h1' "$f" || grep -q '__skeleton"></div></div></div>$' "$f"; then
-              BAD=$((BAD + 1))
-              [ "$BAD" -le 3 ] && SAMPLES="$SAMPLES\n  $f"
-            fi
-          done < <(find "$SSG_DIR" -name index.html)
-
-          echo "SSG files: $TOTAL, bad: $BAD"
-          if [ "$BAD" -gt 0 ]; then
-            printf "FAIL: %d SSG files lack <h1> or are skeleton-only. Samples:%b\n" "$BAD" "$SAMPLES"
-            exit 1
-          fi
-          echo "SSG content validation passed"
-
-          echo "All SEO checks passed"
 
       # NB: asset prune intentionally absent. A naive HTML+CSS reference
       # scan misses React.lazy() dynamic imports (they're string-literals
@@ -804,21 +531,6 @@ jobs:
       # rebuilt). Disk growth from --emptyOutDir=false is ~600 KB/deploy;
       # add a manifest-driven cleanup as a Makefile target before re-adding
       # to the deploy critical path.
-
-      - name: Restart systemd pollers
-        # GH Actions runner job doesn't inherit a user DBus session, so plain
-        # `systemctl --user` returned an error and fell through to the "not
-        # installed" branch — silently skipping the restart for ~weeks. Set
-        # XDG_RUNTIME_DIR explicitly so the user-systemd is reachable
-        # (linger=yes is already enabled for vasyl, so /run/user/1000 exists
-        # independent of login sessions).
-        env:
-          XDG_RUNTIME_DIR: /run/user/1000
-        run: |
-          systemctl --user restart seo-publish-poller && echo "SEO Publish poller restarted" || echo "SEO Publish poller restart FAILED"
-          systemctl --user restart seo-backfill-poller && echo "SEO Backfill poller restarted" || echo "SEO Backfill poller restart FAILED (run: make seo-backfill-setup if not installed)"
-          # Same pattern; it was never restarted, so it kept running the previous deploy's script.
-          systemctl --user restart quality-poller && echo "Quality poller restarted" || echo "Quality poller restart FAILED (run: make quality-poll-setup if not installed)"
 
       - name: Cleanup old images
         run: |

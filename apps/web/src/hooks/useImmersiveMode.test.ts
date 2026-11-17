@@ -74,4 +74,19 @@ describe('useImmersiveMode', () => {
     act(() => { vi.advanceTimersByTime(5000) })
     expect(result.current.immersiveMode).toBe(false)
   })
+
+  it('pointerMoved_ShowsBars_HidesAfter3sIdle_NotWhileOnABar', () => {
+    let onBar = false
+    const { result } = renderHook(() => useImmersiveMode(true, false, () => onBar))
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(result.current.immersiveMode).toBe(true)
+    act(() => result.current.pointerMoved())
+    expect(result.current.immersiveMode).toBe(false)
+    onBar = true
+    act(() => { vi.advanceTimersByTime(6000) })
+    expect(result.current.immersiveMode).toBe(false)
+    onBar = false
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(result.current.immersiveMode).toBe(true)
+  })
 })
