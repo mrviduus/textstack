@@ -1,12 +1,13 @@
 import { View, Text, TouchableOpacity } from 'react-native'
 import { Image } from 'expo-image'
 import { Ionicons } from '@expo/vector-icons'
-import { getStorageUrl, type ContinueReadingPick } from '@textstack/shared'
+import { type ContinueReadingPick } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import type { BookRowModel } from '../../lib/bookRow'
 import { BookStatusBadge } from './BookStatusBadge'
 import { GeneratedCover } from './GeneratedCover'
+import { useCoverSource } from '../../hooks/useCoverSource'
 import { ResumeButton } from './ResumeButton'
 import { styles } from './shared'
 
@@ -27,12 +28,13 @@ export function BookGridCell({ model, cardWidth, pick, isTop, busyKey, onOpen, o
   const { t } = useLanguage()
   const { title, author, cover, pct, isFinished, dimmed, pill } = model
 
+  const [coverSource, onCoverError] = useCoverSource(cover)
   return (
     <View style={{ width: cardWidth, marginBottom: 14, position: 'relative' }}>
       <TouchableOpacity onPress={() => onOpen()} onLongPress={() => onMenu()} activeOpacity={0.85}>
         <View>
-          {cover ? (
-            <Image source={getStorageUrl(cover)} style={styles.gridCover} contentFit="cover" />
+          {coverSource ? (
+            <Image source={coverSource} style={styles.gridCover} contentFit="cover" onError={onCoverError} />
           ) : (
             <GeneratedCover title={title} author={author} style={styles.gridCover} />
           )}

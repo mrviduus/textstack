@@ -291,13 +291,15 @@ async function progressBody(bookId: string, data: ProgressWrite): Promise<V2Read
 
 const isPdf = (b: V2Book) => b.currentFile?.format === 'pdf' && b.currentFile.hasContent
 
+const v2Cover = (b: V2Book) => (b.hasCover ? v2Api.coverUrl(b.id, b.updatedAt) : null)
+
 const totalWords = (toc: V2FileChapters) =>
   toc.items.some((c) => c.wordCount != null) ? toc.items.reduce((s, c) => s + (c.wordCount ?? 0), 0) : null
 
 /**
  * The uploads list: live books only, each with its status and the reader's place — two feed pulls,
  * no per-book call: the feed's file carries the extraction summary (#1118); `/chapters` is the reader's.
- * ponytail: no cover on V2 (the cover route needs a Bearer an <Image> does not send; no cover upload either).
+ * The cover is the authed V2 route; `useCoverSource` sends the Bearer an <Image> needs.
  */
 export async function getV2UserBooks(): Promise<UserBookDto[]> {
   const pulled = await whileCurrent(Promise.all([pullV2Books(), v2Api.pullFeed<V2ReadingState>('reading')]), ([, reading]) => {
@@ -316,7 +318,7 @@ export async function getV2UserBooks(): Promise<UserBookDto[]> {
       title: b.title,
       author: b.author,
       language: b.language ?? 'en',
-      coverPath: null,
+      coverPath: v2Cover(b),
       genre: b.genre,
       ...shelfFileSummary(file),
       createdAt: b.createdAt,
@@ -343,7 +345,7 @@ export async function getV2UserBook(id: string): Promise<UserBookDetailResponse>
     language: b.language ?? 'en',
     author: b.author,
     description: b.description,
-    coverPath: null,
+    coverPath: v2Cover(b),
     genre: b.genre,
     publishedYear: b.publishedYear,
     totalWordCount: totalWords(toc),

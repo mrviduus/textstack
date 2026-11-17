@@ -74,6 +74,7 @@ export function isOfflineError(e: unknown): boolean {
 
 export function getStorageUrl(path: string | null | undefined): string | undefined {
   if (!path) return undefined
+  if (/^https?:\/\//.test(path)) return path // a V2 cover is a full API URL
   // baseUrl is like "https://textstack.app/api" — storage is at origin, not under /api
   const base = getApiConfig().baseUrl.replace(/\/api\/?$/, '')
   return `${base}/storage/${path}`
