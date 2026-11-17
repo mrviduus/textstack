@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { uploadUserBook } from '../userBooks'
 import { startV2Probe, resetV2ForTests, V2UploadError } from '../v2'
 import { fakeApi, V2_ON, book } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+// The reader page is not in jsdom: no details read, as when it fails.
+vi.mock('../../lib/describeBook', () => ({ describeBook: async () => null }))
 
 interface Sent { method: string; url: string; body: unknown }
 

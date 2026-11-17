@@ -12,6 +12,7 @@ import {
 } from '@textstack/shared'
 import { API_BASE } from './client'
 import { settleV2Session, v2SessionSettled, rearmV2Session } from '../lib/v2Session'
+import { describeBook } from '../lib/describeBook'
 import type { UserBook, UserBookDetail, UserChapter, UploadResponse, UserBookProgress } from './userBooks'
 
 // ---- The switch ---------------------------------------------------------------------------------
@@ -265,7 +266,7 @@ type SendPart = (url: string, part: Blob, onLoaded: (loaded: number) => void) =>
 
 /**
  * An upload on V2: the shared sequence (`@textstack/shared` v2Upload) over this tab's IO — the
- * browser's digest, `Blob.slice` parts through `sendPart` (the XHR sender with its progress and retry).
+ * browser's digest, the file's details read by the reader page (`describeBook`), `Blob.slice` parts through `sendPart` (the XHR sender with its progress and retry).
  */
 export async function uploadV2Book(
   file: File,
@@ -276,6 +277,7 @@ export async function uploadV2Book(
   const { bookId, format, found } = await uploadV2File(file, maxPartBytes, {
     newId: () => crypto.randomUUID(),
     hash: () => sha256Hex(file),
+    describe: () => describeBook(file),
     sendPart: ({ bookId, fileId, index, start, end }) => sendPart(`${API_BASE}${v2Api.partPath(bookId, fileId, index)}`, file.slice(start, end),
       (loaded) => onProgress?.(((start + loaded) / file.size) * 100)),
   })

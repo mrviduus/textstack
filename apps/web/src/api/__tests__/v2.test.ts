@@ -5,6 +5,8 @@ import {
 } from '../v2'
 import { getUserBook, getUserBookFileUrl, bulkFinishUserBooks } from '../userBooks'
 import { fakeApi, asFake, V2_ON, book, file, feed, conflict, state, position, resetMidCall, type Answer } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+// The reader page is not in jsdom: no details read, as when it fails.
+vi.mock('../../lib/describeBook', () => ({ describeBook: async () => null }))
 
 afterEach(() => {
   vi.restoreAllMocks()

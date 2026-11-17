@@ -52,16 +52,24 @@ export const V2_READER_SCRIPT_HEADERS = {
  * Stands in for react-native-webview, under the shell's nonce, before the page script. Out:
  * `ReactNativeWebView.postMessage(json)` goes to the parent, at this document's own origin only. In: `{ call,
  * args }` from the parent window at that origin only becomes `window.__fol[call](...args)`; `openBytes` hands
- * the page a blob: URL of the transferred bytes for `openUrl`. `self.origin`, not `location.origin`: the same
+ * the page a blob: URL of the transferred bytes for `openUrl`; `describeBytes(blob, id)` (#1426) a blob: URL of the
+ * posted Blob itself (a File: cloned by reference, never a second copy of the bytes) for `describe(id, url)`.
+ * `self.origin`, not `location.origin`: the same
  * in a document of its own (same-origin with its host), and still the real origin where a document has no URL
  * of its own (srcdoc).
  */
 const HOST_SHIM = `
 window.ReactNativeWebView = { postMessage: (json) => parent.postMessage(json, self.origin) };
-let bookUrl = null;
+let bookUrl = null, describeUrl = null;
 addEventListener('message', (e) => {
   if (e.source !== parent || e.origin !== self.origin || !Array.isArray(e.data?.args)) return;
   const { call, args } = e.data;
+  if (call === 'describeBytes') {
+    if (!(args[0] instanceof Blob)) return;
+    if (describeUrl) URL.revokeObjectURL(describeUrl);
+    describeUrl = URL.createObjectURL(args[0]);
+    return window.__fol.describe(args[1], describeUrl);
+  }
   if (call !== 'openBytes') return Object.hasOwn(window.__fol, call) && window.__fol[call](...args);
   if (bookUrl) URL.revokeObjectURL(bookUrl);
   bookUrl = URL.createObjectURL(new Blob([args[0]]));

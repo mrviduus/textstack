@@ -114,3 +114,29 @@ describe('v2ReaderDistFiles (frame.mjs): vite preview serves the build', () => {
     rmSync(dist, { recursive: true, force: true })
   })
 })
+
+describe('the host shim (frame.mjs)', () => {
+  /** The shell's inline shim, run against a fake frame window: what reaches `__fol` for each parent message. */
+  function runShim() {
+    const code = shell.match(/<body><script nonce="[^"]+">([\s\S]*?)<\/script>/)![1]
+    const parent = {}
+    const fol: Record<string, unknown[]> = {}
+    const window = { __fol: { describe: (...a: unknown[]) => { fol.describe = a } } }
+    let onMessage: (e: unknown) => void = () => {}
+    const URL = { createObjectURL: (b: Blob) => `blob:${b.size}`, revokeObjectURL: () => {} }
+    new Function('window', 'parent', 'self', 'addEventListener', 'URL', code)(
+      window, parent, { origin: 'https://app' }, (_: string, f: typeof onMessage) => { onMessage = f }, URL)
+    const send = (call: string, args: unknown[], origin = 'https://app') => onMessage({ source: parent, origin, data: { call, args } })
+    return { fol, send }
+  }
+
+  it('describeBytes_TheParentsFile_ReachesDescribeAsABlobUrl', () => {
+    const { fol, send } = runShim()
+    const file = new Blob(['epub bytes'])
+    send('describeBytes', [file, 'req-1'], 'https://other')
+    send('describeBytes', ['not a blob', 'req-1'])
+    expect(fol.describe).toBeUndefined()
+    send('describeBytes', [file, 'req-1'])
+    expect(fol.describe).toEqual(['req-1', `blob:${file.size}`])
+  })
+})

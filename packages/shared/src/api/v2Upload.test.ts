@@ -59,4 +59,42 @@ describe('the shared V2 upload', () => {
     expect(formatOfName('x.pdf')).toBe('pdf')
     expect(formatOfName('x.bin')).toBe('epub')
   })
+
+  // #1426: the book's details come from its file; an upload never depends on reading them.
+  describe('a book read by the reader page on upload', () => {
+    const record = (calls: { method: string; path: string; body: unknown }[]) =>
+      vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
+        const path = url.replace(API, '')
+        calls.push({ method: init.method ?? 'GET', path, body: typeof init.body === 'string' ? JSON.parse(init.body) : init.body })
+        const status = path.includes('/by-sha256/') ? 404 : 200
+        return { ok: status < 300, status, text: async () => (status === 404 ? '' : '{}') }
+      }))
+    const JPEG = `data:image/jpeg;base64,${btoa('\xff\xd8\xff\xe0jpeg')}`
+
+    it('importsItsTitleAuthorAndDescription_AndSendsItsCoverAfterTheBytes', async () => {
+      const calls: { method: string; path: string; body: unknown }[] = []
+      record(calls)
+      const meta = { title: 'Moby-Dick', author: 'Herman Melville', lang: 'en', description: 'A whale.' }
+      await uploadV2File({ name: 'moby_dick (1).epub', size: 3 }, 3, { ...io(async () => {}), describe: async () => ({ meta, cover: JPEG }) })
+      const imported = calls.find((c) => c.method === 'PUT' && /\/books\/[^/]+$/.test(c.path))!
+      expect(imported.body).toMatchObject({ title: 'Moby-Dick', author: 'Herman Melville', language: 'en', description: 'A whale.' })
+      const complete = calls.findIndex((c) => c.path.endsWith('/content'))
+      expect(calls.at(-1)).toMatchObject({ method: 'PUT', path: `${imported.path}/cover` })
+      expect(calls.length - 1).toBeGreaterThan(complete)
+      expect([...(calls.at(-1)!.body as Uint8Array)].slice(0, 3)).toEqual([0xff, 0xd8, 0xff])
+    })
+
+    it('describeFailsOrHasNothing_StillUploads_UnderTheCleanedFileName', async () => {
+      for (const describe of [async () => { throw new Error('no page') }, async () => null, async () => ({ meta: null, cover: null })]) {
+        const calls: { method: string; path: string; body: unknown }[] = []
+        record(calls)
+        await uploadV2File({ name: 'moby_dick (1).epub', size: 3 }, 3, { ...io(async () => {}), describe })
+        const imported = calls.find((c) => c.method === 'PUT' && /\/books\/[^/]+$/.test(c.path))!
+        expect(imported.body).toEqual(expect.objectContaining({ title: 'moby dick' }))
+        expect(imported.body).not.toHaveProperty('author')
+        expect(calls.some((c) => c.path.endsWith('/content'))).toBe(true)
+        expect(calls.some((c) => c.path.endsWith('/cover'))).toBe(false)
+      }
+    })
+  })
 })
