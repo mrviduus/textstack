@@ -1546,6 +1546,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   useEffect(() => { sendMarks() }, [textLang, langSaves])
   /** The bar's ✓ (and Remove's card id): the word is one of the book's language's rows (saved here or anywhere, pulled or answered). */
   const savedKeys = useMemo(() => new Map(forBook(vocabRows, vocabLang.current).map((w) => [vocabMapKey(w.word), w.id])), [vocabRows, langSaves, textLang])
+  /** The saved card the bar is about: a tapped word, or a selection that is exactly one saved word (a long-press). */
+  const savedIdOf = (p: V2Popup) =>
+    p.kind === 'word' ? savedKeys.get(vocabMapKey(p.word)) : p.kind === 'selection' ? savedKeys.get(vocabMapKey(p.text.trim())) : undefined
   // #1271: missing translations filled once per (open, user, native language) — `vocabOpen` is bumped by an open and by a
   // user change — over the book's language's rows without one (the legacy readers' backfill). Each one the server took is
   // written to its row; the rows are read again, coalesced. Stopped by a new open, a user change, a new native language
@@ -1620,6 +1623,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           key={nonce}
           ref={webView}
           style={styles.page}
+          // No system Copy/Share/Web search menu over our bar (the legacy reader's ReaderShell did the same).
+          menuItems={[]}
           onLayout={(e) => { pageWidth.current = e.nativeEvent.layout.width }}
           // README "WebView": no file access at all (the library's defaults, all off); the page reads its book by
           // XHR from the interceptor, so no book bytes cross the bridge. `*`: react-native-webview opens a
@@ -1740,8 +1745,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               isAuthenticated={!!user}
               // No Save where the book's language does not read (savesWords): the gloss still uses the fallback.
               onSaveWord={popup.kind === 'word' && langSaves ? () => { void saveWord(popup) } : undefined}
-              wordSaved={popup.kind === 'word' && savedKeys.has(vocabMapKey(popup.word))}
-              onRemove={popup.kind === 'word' && savedKeys.has(vocabMapKey(popup.word)) ? () => { removeWord(popup, savedKeys.get(vocabMapKey(popup.word))!) } : undefined}
+              wordSaved={!!savedIdOf(popup)}
+              onRemove={savedIdOf(popup) ? () => { removeWord(popup, savedIdOf(popup)!) } : undefined}
               bottomOffset={barsVisible ? footerHeight : insets.bottom}
               onClose={closePopup}
               onCopy={closePopup}
