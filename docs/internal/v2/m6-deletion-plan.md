@@ -89,12 +89,13 @@ and the restore gate. Ownership to avoid conflicts: `packages/shared` → W1 onl
 | Check | `git grep -n "reader-engine\|readerEngine"` empty outside docs |
 | Saves | `frontend` ~40 s, `e2e` ~25 s (geometry) |
 
-### A1 — Admin app (shape per D2; recommended: delete)
+### A1 — Admin app: keep the shell (D2 decided 2026-11-17)
 
 | | |
 |---|---|
-| Delete | `apps/admin/` + Dockerfile, compose `admin`, `images.yml`/`deploy.yml` `admin` entries, nginx `server_name textstack.dev` block, `ci.yml` "Build admin", admin e2e project + `ADMIN_*` envs, Makefile admin targets |
-| Backend | `/admin/*` endpoints go in B1 (catalog) and B2 (rest); `/admin/auth` + `V2AdminAuthService` + `AdminAuthMiddleware` + `create-admin` go in B2 if D2 = delete |
+| Delete | every `apps/admin` page except login and an empty home (dashboard, upload, jobs, editions, authors, genres, chapters, SSG, auto publish, SEO, quality pages, tools, settings, user uploads) + their API clients and e2e specs |
+| Keep | `apps/admin` app shell, its Dockerfile/compose/nginx `textstack.dev` block/`ci.yml` build, login e2e |
+| Backend | `/admin/*` endpoints go in B1 (catalog) and B2 (rest); `/admin/auth` + `V2AdminAuthService` + `AdminAuthMiddleware` + `create-admin` stay (D2 = shell) |
 | Keep | `users.role` column (schema change not worth it); `admin_settings` table + repository (knobs edited by SQL) |
 | Saves | `frontend` ~20 s, images ~30 s |
 
@@ -166,13 +167,13 @@ and the restore gate. Ownership to avoid conflicts: `packages/shared` → W1 onl
 | # | Question | Options (recommended first) |
 |---|---|---|
 | D1 | Catalog URLs `/en/books/*`, `/authors/*`, `/genres/*`, `/search`, `/sitemap`, `sitemap.xml`, `/sitemaps/*` | **(a) nginx `410 Gone`** — crawlers drop them fast; search sent 6 clicks in 90 days (#992). (b) `301` → landing — Google treats mass redirects to home as soft-404 anyway. (c) SPA 404 — 200-status soft-404s (known defect today) |
-| D2 | Admin panel (every page but login is 410 in v2) | **(a) delete `apps/admin`, `textstack.dev`, `/admin/*`, `create-admin`**; knobs by SQL. (b) keep login + Settings + User uploads, ported to V2 — a port, against the M6 rule |
+| D2 | Admin panel (every page but login is 410 in v2) | **(a) delete `apps/admin`, `textstack.dev`, `/admin/*`, `create-admin`**; knobs by SQL. (b) keep login + Settings + User uploads, ported to V2 — a port, against the M6 rule. **Decided 2026-11-17: keep the shell** (login + empty home, no port); pages go |
 | D4 | iOS: deleting the legacy mobile reader leaves iOS with none (V2 host is Android-only) | **(a) accept** — iOS never shipped; an iOS host is its own issue. (b) keep the legacy reader for iOS — blocks R and keeps `book_chapters` reading |
 | D5 | Rollback window | **(a) closed when B2 merges**; recovery after that = restore archive + deploy `pre-v2-cutover`. (b) closed at F |
 | D6 | MCP tools that only answer "retired" | **(a) delete** (25 → 18 tools), new NuGet. (b) keep answering errors |
 | D7 | Database name | **(a) keep `textstack_v2`**, map it to `ConnectionStrings:Default`; rename only during the optional #1056 dump/restore. (b) `ALTER DATABASE … RENAME` in F (short downtime) |
-| D8 | Transitional tables (ADR-031: "dropped at M6.4") | **(a) keep, out of M6** — MCP chapter tools and clips read them; amend ADR-031. (b) drop with R — MCP loses chapter text |
-| D9 | #1366 is open ("bring back on V2 after M5": goals, achievements, book stats, vocabulary settings/pending/lookups/concepts, highlight review), but W1/M1 delete the hidden UI those features would reuse | **(a) W1/M1 keep that hidden UI** (`OffV2`, `V2_FEATURES` false entries, stats pages) and delete only its legacy API calls; #1366 re-points or deletes it. (b) delete now; #1366 rebuilds from git history |
+| D8 | Transitional tables (ADR-031: "dropped at M6.4") | **(a) keep, out of M6** — MCP chapter tools and clips read them; amend ADR-031. (b) drop with R — MCP loses chapter text. **Decided 2026-11-17: (a) keep** |
+| D9 | #1366 is open ("bring back on V2 after M5": goals, achievements, book stats, vocabulary settings/pending/lookups/concepts, highlight review), but W1/M1 delete the hidden UI those features would reuse | **(a) W1/M1 keep that hidden UI** (`OffV2`, `V2_FEATURES` false entries, stats pages) and delete only its legacy API calls; #1366 re-points or deletes it. (b) delete now; #1366 rebuilds from git history. **Decided 2026-11-17: (b) delete now** |
 
 ## 4. Risks
 
