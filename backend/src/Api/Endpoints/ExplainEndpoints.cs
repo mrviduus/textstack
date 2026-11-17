@@ -63,7 +63,7 @@ public static class ExplainEndpoints
         IReadOnlyList<ToolSchema> tools = [];
         var toolCtx = new ToolContext(userId, null, AgentRunId: Guid.NewGuid(), httpContext.RequestServices);
 
-        var systemPrompt = ExplainPrompt.BuildSystemPrompt(genre, targetLang, withTools: false);
+        var systemPrompt = ExplainPrompt.BuildSystemPrompt(genre, targetLang);
         var userPrompt = ExplainPrompt.BuildUserPrompt(request.Word, request.Sentence);
 
         var wantsSse = httpContext.Request.Headers.Accept.Any(v =>

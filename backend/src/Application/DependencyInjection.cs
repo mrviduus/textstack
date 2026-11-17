@@ -124,7 +124,7 @@ public static class DependencyInjection
                 sp.GetRequiredService<IOptions<global::TextStack.Ai.Llm.EvalOptions>>().Value.JudgeModel));
 
         // Explain has its own generation model (OpenAI:Explain:Model,
-        // default gpt-4.1-mini). Routed per-feature (Ai:Routes:explain[.toolcall] → openai-explain)
+        // default gpt-4.1-mini). Routed per-feature (Ai:Routes:explain → openai-explain)
         // so it is set apart from translate's OpenAI:Model. This model is also the distillation teacher.
         services.AddKeyedSingleton<global::TextStack.Ai.Core.ILlmService>("openai-explain-raw", (sp, key) =>
             new global::TextStack.Ai.Llm.OpenAiLlmClient(

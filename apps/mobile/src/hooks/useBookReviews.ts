@@ -16,7 +16,7 @@ export function useBookReviews(userBookId: string | null) {
   useEffect(() => {
     if (!userBookId) return
     let cancelled = false
-    insightsApi.getBookInsights({ userBookId }, true)
+    insightsApi.getBookInsights(userBookId)
       .then(rows => { if (!cancelled) setState({ key: userBookId, insights: rows, error: false }) })
       .catch(() => { if (!cancelled) setState({ key: userBookId, insights: [], error: true }) })
     return () => { cancelled = true }

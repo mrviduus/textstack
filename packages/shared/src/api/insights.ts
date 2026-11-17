@@ -1,4 +1,3 @@
-import { authFetch } from './client'
 import type { ChapterReviewDto } from '../types/api'
 import { listInsights } from './v2'
 
@@ -33,26 +32,11 @@ export interface BookInsight {
   review?: ChapterReviewDto | null
 }
 
-/**
- * Everything already worked out about one book. Pass exactly one id. Every caller passes `v2 = true`:
- * V2 keeps a user book's insights (no review, no delete route); an `editionId` has none (the catalog
- * retired, #992). The `v2 = false` branch calls the removed `/me/insights` and is dead (#1406).
- */
-export function getBookInsights(
-  target: { userBookId: string } | { editionId: string },
-  v2 = false,
-): Promise<BookInsight[]> {
-  if (v2) {
-    if (!('userBookId' in target)) return Promise.resolve([])
-    const bookId = target.userBookId
-    return inFlight(`v2:${bookId}`, async () => (await listInsights(bookId)).map(({ bookId, chapterKey, ...rest }) => ({
-      ...rest, editionId: null, userBookId: bookId, chapterSlug: chapterKey,
-    })))
-  }
-  const query = 'userBookId' in target
-    ? `userBookId=${encodeURIComponent(target.userBookId)}`
-    : `editionId=${encodeURIComponent(target.editionId)}`
-  return inFlight(query, () => authFetch<BookInsight[]>(`/me/insights?${query}`))
+/** Everything already worked out about one book (V2 keeps a book's insights; no review, no delete route). */
+export function getBookInsights(bookId: string): Promise<BookInsight[]> {
+  return inFlight(bookId, async () => (await listInsights(bookId)).map(({ bookId, chapterKey, ...rest }) => ({
+    ...rest, editionId: null, userBookId: bookId, chapterSlug: chapterKey,
+  })))
 }
 
 // One request per book at a time — the book screen and BookInsightsSection both ask on mount.
