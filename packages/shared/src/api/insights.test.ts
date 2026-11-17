@@ -63,4 +63,24 @@ describe('getBookInsights', () => {
     expect(String(url)).toContain('/me/insights?editionId=e-1')
     expect(opts.credentials).toBe('include')
   })
+
+  it('on V2, a reader sees the insights saved about their book', async () => {
+    // Prod is on V2 (2026-11-17): the legacy route answers 410 there, so the book page showed nothing.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 200, text: async () => JSON.stringify([{
+        id: 'i1', bookId: 'b1', chapterKey: 'replication', chapterNumber: 5, chapterTitle: 'Replication',
+        text: 'Quorums are about overlap.', question: 'why w + r > n?', source: 'mcp',
+        createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z',
+      }]),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const rows = await getBookInsights({ userBookId: 'b1' }, true)
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/me/v2/books/b1/insights')
+    expect(rows).toEqual([row])
+    // A catalog edition has none on V2: the catalog retired, and nothing is asked.
+    await expect(getBookInsights({ editionId: 'e1' }, true)).resolves.toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
 })

@@ -1,5 +1,6 @@
 import { authFetch } from './client'
 import type { ChapterReviewDto } from '../types/api'
+import { listInsights } from './v2'
 
 /**
  * Insights — the conclusions an outside assistant wrote back into a book over MCP.
@@ -32,10 +33,22 @@ export interface BookInsight {
   review?: ChapterReviewDto | null
 }
 
-/** Everything already worked out about one book. Pass exactly one id. */
+/**
+ * Everything already worked out about one book. Pass exactly one id. `v2`: the caller's switch
+ * (`onV2()`): the legacy route answers 410 there. V2 keeps a user book's insights (no review, no
+ * delete route); a catalog edition's are none (the catalog retired, #992).
+ */
 export function getBookInsights(
   target: { userBookId: string } | { editionId: string },
+  v2 = false,
 ): Promise<BookInsight[]> {
+  if (v2) {
+    if (!('userBookId' in target)) return Promise.resolve([])
+    const bookId = target.userBookId
+    return inFlight(`v2:${bookId}`, async () => (await listInsights(bookId)).map(({ bookId, chapterKey, ...rest }) => ({
+      ...rest, editionId: null, userBookId: bookId, chapterSlug: chapterKey,
+    })))
+  }
   const query = 'userBookId' in target
     ? `userBookId=${encodeURIComponent(target.userBookId)}`
     : `editionId=${encodeURIComponent(target.editionId)}`
@@ -54,7 +67,7 @@ function inFlight(key: string, load: () => Promise<BookInsight[]>): Promise<Book
   return p
 }
 
-/** Remove one insight — the reader's own only. No assistant-side counterpart, by design. */
+/** Remove one insight — the reader's own only. No assistant-side counterpart, by design. Legacy only (`V2_FEATURES.insightDelete`). */
 export function deleteBookInsight(id: string): Promise<void> {
   return authFetch<void>(`/me/insights/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }

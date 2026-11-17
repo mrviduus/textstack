@@ -77,15 +77,15 @@ describe('UserBookDetailPage page count', () => {
 })
 
 describe('UserBookDetailPage on V2', () => {
-  it.each([[false, 1], [true, 0]])('V2 %s: stats, insights and re-extract shown %i times (V2_FEATURES)', async (on, shown) => {
+  it.each([[false, 1], [true, 0]])('V2 %s: stats and re-extract shown %i times, insights always (V2_FEATURES)', async (on, shown) => {
     v2On = on
     getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined })
     renderPage()
     await screen.findByText('Test Book')
     expect(screen.queryAllByTestId('stats')).toHaveLength(shown)
-    expect(screen.queryAllByTestId('insights')).toHaveLength(shown)
+    expect(screen.queryAllByTestId('insights')).toHaveLength(1)
     expect(screen.queryAllByLabelText(/Re-extract this book/)).toHaveLength(shown)
-    expect(useBookReviews).toHaveBeenLastCalledWith(on ? null : { userBookId: 'bk-1' })
+    expect(useBookReviews).toHaveBeenLastCalledWith({ userBookId: 'bk-1' })
     v2On = false
   })
 

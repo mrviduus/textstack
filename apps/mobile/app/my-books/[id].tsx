@@ -859,7 +859,7 @@ export default function UserBookDetailScreen() {
                   </View>
                   {isCurrentChapter && <Ionicons name="play-circle" size={18} color={colors.primary} />}
                   {/* A review is keyed by the real slug; a slugless legacy chapter cannot be reviewed. */}
-                  {!!ch.slug?.trim() && v2Offers(v2, 'insights') && (
+                  {!!ch.slug?.trim() && v2Offers(v2, 'chapterReview') && (
                     <ChapterReviewAction
                       book={{ title: book.title, author: book.author, userBookId: book.id }}
                       chapter={{ slug: ch.slug, title: ch.title, wordCount: ch.wordCount }}

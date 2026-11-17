@@ -34,6 +34,8 @@ export function BookInsightsSection({ insights, onRemove, userBookId, bookSlug }
   const { t } = useTranslation()
   // M5 (#1031): no chapter review on V2: no link to one.
   const reviewOffered = v2Offers(useV2(), 'chapterReview')
+  // No delete route on V2: no remove button.
+  const removable = v2Offers(useV2(), 'insightDelete')
   // The id being removed, so the row can say so and cannot be double-submitted.
   const [removing, setRemoving] = useState<string | null>(null)
 
@@ -78,7 +80,7 @@ export function BookInsightsSection({ insights, onRemove, userBookId, bookSlug }
                   it only ever replaces its own row for the chapter it MEANT. Removing it is the
                   reader's, and only the reader's. Its own element, not inside the label: the label
                   is what says which chapter this is, and it should read as only that. */}
-              <button
+              {removable && <button
                 type="button"
                 className="book-insights__remove"
                 onClick={() => remove(insight.id)}
@@ -87,7 +89,7 @@ export function BookInsightsSection({ insights, onRemove, userBookId, bookSlug }
                 title={t('library.insights.remove')}
               >
                 ×
-              </button>
+              </button>}
             </div>
 
             {insight.question && (

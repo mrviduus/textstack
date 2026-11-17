@@ -44,6 +44,8 @@ export function BookInsightsSection({ insights, onRemoved, userBookId, editionId
   const { colors } = useTheme()
   // M5 (#1031): no chapter review on V2: no link to one.
   const reviewOffered = v2Offers(useV2(), 'chapterReview')
+  // No delete route on V2: no remove button.
+  const removable = v2Offers(useV2(), 'insightDelete')
   const { t } = useLanguage()
   // The id being removed, so the row cannot be double-tapped into two requests.
   const [removing, setRemoving] = useState<string | null>(null)
@@ -83,7 +85,7 @@ export function BookInsightsSection({ insights, onRemoved, userBookId, editionId
             {insightDateLabel(insight) ? (
               <Text style={[styles.date, { color: colors.textSecondary }]}>{insightDateLabel(insight)}</Text>
             ) : null}
-            <TouchableOpacity
+            {removable && <TouchableOpacity
               onPress={() => remove(insight.id)}
               disabled={removing === insight.id}
               accessibilityRole="button"
@@ -96,7 +98,7 @@ export function BookInsightsSection({ insights, onRemoved, userBookId, editionId
                 size={16}
                 color={removing === insight.id ? colors.border : colors.textSecondary}
               />
-            </TouchableOpacity>
+            </TouchableOpacity>}
           </View>
 
           {insight.question ? (
